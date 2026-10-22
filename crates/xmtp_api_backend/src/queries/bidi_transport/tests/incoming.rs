@@ -2,7 +2,7 @@ use super::*;
 use futures::StreamExt;
 
 fn raw_group(sequence: u64) -> ServerEnvelope {
-    let mut envelope = group_msg(sequence, &[7; 16]);
+    let mut envelope = group_msg(sequence, &[7; 32]);
     envelope.meta.as_mut().unwrap().message_hash = Some(backend_v1::MessageHash {
         hash: Some(backend_v1::message_hash::Hash::Sha256(vec![8; 32])),
     });
@@ -39,7 +39,7 @@ async fn incoming_frame(receiver: &mut mpsc::Receiver<IncomingFrame>) -> Incomin
 // verifies: EVENT-027
 #[xmtp_common::test(unwrap_try = true)]
 async fn retained_subscription_reports_removal_until_replacement_ack() {
-    let topic = group_topic(&[7; 16]);
+    let topic = group_topic(&[7; 32]);
     let (transport, servers) = transport();
     let lease = transport
         .lease_ordered(vec![(topic.clone(), 10)], 8, limits())
@@ -86,7 +86,7 @@ async fn retained_subscription_reports_removal_until_replacement_ack() {
 // verifies: EVENT-027
 #[xmtp_common::test(unwrap_try = true)]
 async fn retained_subscription_reports_suspension_until_registration_ack() {
-    let topic = group_topic(&[7; 16]);
+    let topic = group_topic(&[7; 32]);
     let (transport, servers) = transport();
     let lease = transport
         .lease_ordered(vec![(topic.clone(), 0)], 8, limits())
@@ -161,7 +161,7 @@ async fn retained_subscription_reports_suspension_until_registration_ack() {
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn raw_reconnect_replays_uncommitted_delivery_and_uses_received_floor() {
-    let topic = group_topic(&[7; 16]);
+    let topic = group_topic(&[7; 32]);
     let (transport, servers) = transport();
     let mut lease = transport
         .lease_ordered(vec![(topic.clone(), 2)], 8, limits())
@@ -214,8 +214,8 @@ async fn raw_reconnect_replays_uncommitted_delivery_and_uses_received_floor() {
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn raw_full_delivery_channel_pauses_without_advancing_cursors() {
-    let first_topic = group_topic(&[7; 16]);
-    let second_topic = group_topic(&[8; 16]);
+    let first_topic = group_topic(&[7; 32]);
+    let second_topic = group_topic(&[8; 32]);
     let mut ledger = Ledger::<BackendBinding>::default();
     let (events, _event_receiver) = mpsc::channel(1);
     let id = ledger.register(
@@ -239,7 +239,7 @@ async fn raw_full_delivery_channel_pauses_without_advancing_cursors() {
     // Registered occupies the only slot. Both envelopes must stay pending.
     assert!(
         ledger
-            .demux_incoming(&[raw_group(8), raw_group_on(9, &[8; 16])], |message| {
+            .demux_incoming(&[raw_group(8), raw_group_on(9, &[8; 32])], |message| {
                 message
             },)
             .unwrap()
@@ -287,7 +287,7 @@ async fn raw_full_delivery_channel_pauses_without_advancing_cursors() {
         (
             second_topic.clone(),
             Cursor(0),
-            vec![raw_group_on(9, &[8; 16])]
+            vec![raw_group_on(9, &[8; 32])]
         )
     );
     assert_eq!(ledger.leases[&id].delivered[&second_topic], 9);
@@ -298,7 +298,7 @@ async fn raw_full_delivery_channel_pauses_without_advancing_cursors() {
 async fn raw_incoming_splitter_covers_each_envelope_once_in_order() {
     const ENVELOPES: u64 = 5;
     const ROWS: usize = 2;
-    let topic = group_topic(&[7; 16]);
+    let topic = group_topic(&[7; 32]);
     let mut ledger = Ledger::<BackendBinding>::default();
     let (events, _event_receiver) = mpsc::channel(1);
     let id = ledger.register(&[(topic.clone(), 0)], events);
@@ -357,7 +357,7 @@ async fn raw_incoming_splitter_covers_each_envelope_once_in_order() {
 #[xmtp_common::test(unwrap_try = true)]
 async fn raw_incoming_byte_splitter_covers_each_envelope_once_in_order() {
     const ENVELOPES: u64 = 3;
-    let topic = group_topic(&[7; 16]);
+    let topic = group_topic(&[7; 32]);
     let mut ledger = Ledger::<BackendBinding>::default();
     let (events, _event_receiver) = mpsc::channel(1);
     let id = ledger.register(&[(topic.clone(), 0)], events);
@@ -397,7 +397,7 @@ async fn raw_incoming_byte_splitter_covers_each_envelope_once_in_order() {
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn raw_single_envelope_over_the_byte_limit_fails_loudly() {
-    let topic = group_topic(&[7; 16]);
+    let topic = group_topic(&[7; 32]);
     let envelope = raw_group(8);
     let mut ledger = Ledger::<BackendBinding>::default();
     let (events, _event_receiver) = mpsc::channel(1);
@@ -425,7 +425,7 @@ async fn raw_single_envelope_over_the_byte_limit_fails_loudly() {
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn raw_registration_pauses_when_its_delivery_channel_is_full() {
-    let topic = group_topic(&[7; 16]);
+    let topic = group_topic(&[7; 32]);
     let mut ledger = Ledger::<BackendBinding>::default();
     let (events, _event_receiver) = mpsc::channel(1);
     let id = ledger.register(&[(topic.clone(), 0)], events);
@@ -454,7 +454,7 @@ async fn raw_registration_pauses_when_its_delivery_channel_is_full() {
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn raw_transport_resumes_wire_reads_after_an_incoming_slot_frees() {
-    let topic = group_topic(&[7; 16]);
+    let topic = group_topic(&[7; 32]);
     let (transport, servers) = transport();
     let mut lease = transport
         .lease_ordered(
@@ -494,7 +494,7 @@ async fn raw_transport_resumes_wire_reads_after_an_incoming_slot_frees() {
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn raw_full_lease_gates_other_ordered_leases() {
-    let topic = group_topic(&[7; 16]);
+    let topic = group_topic(&[7; 32]);
     let (transport, servers) = transport();
     let mut lease = transport
         .lease_ordered(
@@ -516,7 +516,7 @@ async fn raw_full_lease_gates_other_ordered_leases() {
 
     server.send(messages(vec![raw_group(8)], vec![]));
     server.send(messages(vec![raw_group(9)], vec![]));
-    let next_topic = group_topic(&[8; 16]);
+    let next_topic = group_topic(&[8; 32]);
     let mut next = transport
         .lease_ordered(
             vec![(next_topic.clone(), 0)],
@@ -556,7 +556,7 @@ async fn raw_full_lease_gates_other_ordered_leases() {
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn raw_incoming_pause_timeout_drops_the_stalled_lease() {
-    let topic = group_topic(&[7; 16]);
+    let topic = group_topic(&[7; 32]);
     let mut ledger = Ledger::<BackendBinding>::default();
     let (events, _event_receiver) = mpsc::channel(1);
     let id = ledger.register(&[(topic.clone(), 0)], events);
@@ -585,7 +585,7 @@ async fn raw_incoming_pause_timeout_drops_the_stalled_lease() {
 #[xmtp_common::test(unwrap_try = true)]
 async fn raw_progressing_incoming_backlog_survives_past_the_stall_deadline() {
     const ROWS: u64 = 80;
-    let topic = group_topic(&[7; 16]);
+    let topic = group_topic(&[7; 32]);
     let mut ledger = Ledger::<BackendBinding>::default();
     let (events, _event_receiver) = mpsc::channel(1);
     let id = ledger.register(&[(topic.clone(), 0)], events);
@@ -634,7 +634,7 @@ async fn raw_progressing_incoming_backlog_survives_past_the_stall_deadline() {
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn raw_task_wakes_at_an_incoming_pause_deadline() {
-    let topic = group_topic(&[7; 16]);
+    let topic = group_topic(&[7; 32]);
     let mut ledger = Ledger::<BackendBinding>::default();
     let (events, _event_receiver) = mpsc::channel(1);
     let id = ledger.register(&[(topic.clone(), 0)], events);
@@ -667,7 +667,7 @@ async fn raw_task_wakes_at_an_incoming_pause_deadline() {
 #[xmtp_common::test(unwrap_try = true)]
 async fn raw_multi_topic_frame_fits_one_queue_slot() {
     const TOPICS: u8 = 100;
-    let topics: Vec<_> = (0..TOPICS).map(|id| group_topic(&[id; 16])).collect();
+    let topics: Vec<_> = (0..TOPICS).map(|id| group_topic(&[id; 32])).collect();
     let (transport, servers) = transport();
     let mut lease = transport
         .lease_ordered(
@@ -692,7 +692,7 @@ async fn raw_multi_topic_frame_fits_one_queue_slot() {
     let envelopes: Vec<_> = (0..TOPICS)
         .map(|id| {
             let mut envelope = raw_group(1);
-            envelope.meta.as_mut().unwrap().topic = group_msg(1, &[id; 16]).meta.unwrap().topic;
+            envelope.meta.as_mut().unwrap().topic = group_msg(1, &[id; 32]).meta.unwrap().topic;
             envelope
         })
         .collect();
@@ -714,7 +714,7 @@ async fn raw_multi_topic_frame_fits_one_queue_slot() {
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn raw_bad_order_blocks_the_complete_frame() {
-    let topic = group_topic(&[7; 16]);
+    let topic = group_topic(&[7; 32]);
     let (transport, servers) = transport();
     let mut lease = transport
         .lease_ordered(vec![(topic.clone(), 0)], 8, limits())
@@ -734,7 +734,7 @@ async fn raw_bad_order_blocks_the_complete_frame() {
 #[xmtp_common::test(flavor = "current_thread", unwrap_try = true)]
 async fn cancelled_add_waits_for_pending_remove_before_replacement() {
     let anchor = group_topic(b"anchor");
-    let topic = group_topic(&[7; 16]);
+    let topic = group_topic(&[7; 32]);
     let mut ledger = Ledger::<BackendBinding>::default();
     let (sender, _anchor_events) = mpsc::channel(8);
     ledger.register(&[(anchor.clone(), 0)], sender);

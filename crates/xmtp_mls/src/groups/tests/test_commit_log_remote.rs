@@ -786,7 +786,7 @@ async fn a_reader_discards_each_entry_that_fails_fork_075() {
     let mut envelopes: Vec<_> = discarded
         .into_iter()
         .map(Payload::SealedCommitLogEntry)
-        .chain([Payload::CommitLogEntry(Default::default())])
+        .chain([Payload::GroupMessage(Default::default())])
         .chain(
             [first, second, wrong_last_authenticator, repeated].map(Payload::SealedCommitLogEntry),
         )

@@ -30,7 +30,10 @@ checks the signature itself, after the caller's duplicate lookup.
 `validate_envelope` never verifies a publish signature: a caller runs
 `verify_publish` on each envelope whose `is_signed()` is true.
 `group_keys`, `keyed_group_message_envelope`, and `sealed_commit_log_envelope`
-build signed fixtures.
+build signed fixtures. A fixture published to a backend must be signed:
+`group_message_envelope` is unsigned and builds malformed cases only, and
+`retired_commit_log_envelope_bytes` builds an old client's field-5 entry,
+which decodes with no payload.
 
 After dependency changes, run `just validation check`. Workspace builds can hide
 missing features through feature unification. Keep `xmtp_mls/test-utils`,

@@ -25,7 +25,6 @@ syntax = "proto3";
 package xmtp.backend.v1;
 
 import "identity/associations/association.proto";
-import "identity/associations/signature.proto";
 import "mls/message_contents/component_permissions.proto";
 import "mls/message_contents/welcome_pointer.proto";
 import "mls/message_contents/wrapper_encryption.proto";
@@ -54,9 +53,7 @@ message Cursor {
 // The group id is the Ed25519 public key of the group signing key, and the
 // commit-log id is the public key of the commit-log signing key. Both are
 // derived from the group root, separately, so nothing on the wire relates a
-// group's two topics. Until the cutover, kinds 0x00 and 0x04 also accept a
-// 16-byte group_id, and 0x04 also accepts the retired commit_log_entry
-// payload, routed by the group_id decoded from the entry.
+// group's two topics. A 16-byte group id names no topic.
 message Topic {
   bytes topic = 1;
 }
@@ -149,16 +146,6 @@ message KeyPackage {
   bytes key_package_tls_serialized = 1;
 }
 
-// One entry of a group's commit log. The server decodes the group_id from the
-// entry to derive the topic. The signature is stored and returned, not
-// verified: it is made with a per-group key the server does not have. The
-// log position is `EnvelopeMeta.cursor`; the entry carries no sequence id.
-message CommitLogEntry {
-  // Serialized PlaintextCommitLogEntry.
-  bytes serialized_commit_log_entry = 1;
-  xmtp.identity.associations.RecoverableEd25519Signature signature = 2;
-}
-
 // A commit-log entry, encrypted and signed under keys derived from the
 // group root. The server routes it by `commit_log_id` and cannot decrypt it.
 message SealedCommitLogEntry {
@@ -181,9 +168,11 @@ message ClientEnvelope {
     WelcomeMessage welcome_message = 2;
     KeyPackage key_package = 3;
     xmtp.identity.associations.IdentityUpdate identity_update = 4;
-    CommitLogEntry commit_log_entry = 5;
     SealedCommitLogEntry sealed_commit_log_entry = 6;
   }
+  // The retired CommitLogEntry payload.
+  reserved 5;
+  reserved "commit_log_entry";
 }
 
 // A stored envelope with its server-assigned metadata.

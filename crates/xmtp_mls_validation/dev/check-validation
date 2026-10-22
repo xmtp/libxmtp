@@ -51,13 +51,15 @@ PY
 use xmtp_mls_validation as _;
 
 #[cfg(feature = "test-utils")]
-use xmtp_mls_validation::test_utils::{commit_log_envelope, inline_welcome_envelope};
+use xmtp_mls_validation::test_utils::{
+    group_keys, inline_welcome_envelope, sealed_commit_log_envelope,
+};
 
 fn main() {
     #[cfg(feature = "test-utils")]
     {
         let _ = inline_welcome_envelope([0_u8; 32]);
-        let _ = commit_log_envelope([0_u8; 16]);
+        let _ = sealed_commit_log_envelope(&group_keys(0), 1);
     }
 }
 EOF

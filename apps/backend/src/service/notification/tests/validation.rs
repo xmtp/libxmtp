@@ -220,6 +220,7 @@ async fn every_subscription_shape_failure_leaves_the_recipient_unchanged() {
         vec![],
         vec![0],
         vec![0; 16],
+        vec![0; 17],
         vec![0; 18],
         vec![1; 32],
         vec![1; 34],
@@ -267,6 +268,11 @@ async fn every_subscription_shape_failure_leaves_the_recipient_unchanged() {
         vec![subscription(1, 0).topic.clone()],
     ));
     invalid.push(update(vec![], vec![vec![2; 33]]));
+    // A legacy 16-byte group id names no topic.
+    invalid.push(update(
+        vec![],
+        vec![TopicKind::GroupMessagesV1.create([1; 16]).to_vec()],
+    ));
     for request in invalid {
         status(
             client.update_subscriptions(request).await.unwrap_err(),

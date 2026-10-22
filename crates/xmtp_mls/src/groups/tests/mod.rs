@@ -10,6 +10,8 @@ mod test_dm;
 #[cfg(not(target_arch = "wasm32"))]
 mod test_failed_installations;
 mod test_group_updated;
+#[cfg(not(target_arch = "wasm32"))]
+mod test_legacy_placeholder_topics;
 mod test_membership;
 mod test_message_disappearing_settings;
 mod test_metadata_permissions;

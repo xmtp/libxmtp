@@ -65,8 +65,8 @@ fn model_transport(
     (transport, servers)
 }
 
-fn gid(topic: usize) -> [u8; 16] {
-    [topic as u8 + 1; 16]
+fn gid(topic: usize) -> [u8; 32] {
+    [topic as u8 + 1; 32]
 }
 
 fn group_msg(sequence_id: u64, topic: usize) -> ServerEnvelope {

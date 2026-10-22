@@ -8,12 +8,12 @@ use openmls::{
     prelude::{
         Capabilities, Ciphersuite, CredentialWithKey, GroupId as OpenMlsGroupId,
         KeyPackage as OpenMlsKeyPackage, LeafNodeParameters, MlsGroup, MlsGroupCreateConfig,
-        MlsMessageOut, OpenMlsCrypto, OpenMlsProvider, SignatureScheme, tls_codec::Serialize,
+        MlsMessageOut, tls_codec::Serialize,
     },
 };
 use openmls_rust_crypto::OpenMlsRustCrypto;
 use prost::Message as _;
-use xmtp_cryptography::{Secret, XmtpInstallationCredential, utils::generate_local_wallet};
+use xmtp_cryptography::{XmtpInstallationCredential, utils::generate_local_wallet};
 use xmtp_id::{
     InboxOwner,
     associations::{
@@ -37,7 +37,7 @@ use xmtp_mls_common::group_keys::{
 };
 use xmtp_proto::xmtp::{
     backend::v1::{
-        ClientEnvelope, CommitLogEntry, GroupMessage, KeyPackage, WelcomeMessage,
+        ClientEnvelope, GroupMessage, KeyPackage, WelcomeMessage,
         client_envelope::Payload,
         welcome_message::{V1, Version, WelcomePointer},
     },
@@ -47,7 +47,6 @@ use xmtp_proto::xmtp::{
 
 use std::sync::{Arc, Mutex};
 
-pub const GROUP_ID: [u8; 16] = [0x11; 16];
 pub const INSTALLATION_ID: [u8; 32] = [0x22; 32];
 
 /// A controlled chain producing one block per second, so block `n` has
@@ -615,38 +614,23 @@ pub async fn mixed_case_recovery_change() -> (IdentityUpdate, IdentityUpdate) {
     (create, change)
 }
 
-pub fn commit_log_envelope(group_id: impl AsRef<[u8]>) -> ClientEnvelope {
-    commit_log_envelope_at(group_id, 7)
-}
-
-/// A signed commit-log entry for `group_id` at `commit_sequence_id`.
-pub fn commit_log_envelope_at(
-    group_id: impl AsRef<[u8]>,
-    commit_sequence_id: u64,
-) -> ClientEnvelope {
-    let provider = OpenMlsRustCrypto::default();
+/// The bytes of a `ClientEnvelope` whose payload is field 5, the retired
+/// `CommitLogEntry`, as a client from before the cutover encoded it: a
+/// serialized `PlaintextCommitLogEntry` for `group_id`, with no signature.
+/// Field 5 is reserved, so these bytes decode to an envelope with no payload.
+pub fn retired_commit_log_envelope_bytes(group_id: impl AsRef<[u8]>) -> Vec<u8> {
     let entry = PlaintextCommitLogEntry {
         group_id: group_id.as_ref().to_vec(),
-        commit_sequence_id,
+        commit_sequence_id: 7,
         last_epoch_authenticator: vec![0x60, 0x61],
         commit_result: 1,
         applied_epoch_number: 8,
         applied_epoch_authenticator: vec![0x62, 0x63],
-    };
-    let (private_key, _) = provider
-        .crypto()
-        .signature_key_gen(SignatureScheme::ED25519)
-        .expect("commit-log fixture key generation succeeds");
-    let signed = xmtp_mls_common::commit_log::sign_commit_log(
-        &entry,
-        &Secret::new(private_key),
-        provider.crypto(),
-    )
-    .expect("commit-log fixture signing succeeds");
-    ClientEnvelope {
-        payload: Some(Payload::CommitLogEntry(CommitLogEntry {
-            serialized_commit_log_entry: signed.serialized_commit_log_entry,
-            signature: Some(signed.signature),
-        })),
     }
+    .encode_to_vec();
+    let mut retired = Vec::new();
+    prost::encoding::bytes::encode(1, &entry, &mut retired);
+    let mut envelope = Vec::new();
+    prost::encoding::bytes::encode(5, &retired, &mut envelope);
+    envelope
 }

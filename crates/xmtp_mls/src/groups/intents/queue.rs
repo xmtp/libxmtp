@@ -5,6 +5,7 @@ use xmtp_cryptography::Secret;
 use xmtp_db::TransactionOutcome::Continue;
 use xmtp_db::{
     DbQuery, TransactionOutcome,
+    group::GroupMembershipState,
     group_intent::{IntentKind, IntentState, NewGroupIntent, StoredGroupIntent},
     prelude::*,
 };
@@ -160,6 +161,16 @@ impl QueueIntent {
     where
         Ctx: XmtpSharedContext,
     {
+        // A Restored placeholder publishes nothing until a Welcome activates
+        // it. A 16-byte placeholder's topic would also fail every request
+        // that names it.
+        // implements: ARCH-015
+        if conn
+            .find_group(&group.group_id)?
+            .is_some_and(|stored| stored.membership_state == GroupMembershipState::Restored)
+        {
+            return Err(GroupError::GroupInactive);
+        }
         if self.kind == IntentKind::SendMessage {
             if let Some(existing) = conn
                 .find_group_intents(
