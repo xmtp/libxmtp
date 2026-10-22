@@ -276,9 +276,12 @@ async fn a_legacy_placeholder_is_never_named_by_a_request() {
         .expect("the stream yields the message")?;
     assert_eq!(received.group_id, group.group_id);
 
+    // Registration resolves a webhook host name, and CI runs this test in a
+    // build sandbox with no DNS. A public address from a documentation range
+    // (RFC 5737) needs no lookup and passes the backend's address check.
     client
         .enable_notifications(NotificationConfig::new(NotificationChannel::Http {
-            url: "https://example.com/xmtp-notification-test".into(),
+            url: "https://192.0.2.1/xmtp-notification-test".into(),
             signing_key: vec![7; 32].into(),
         }))
         .await?;
