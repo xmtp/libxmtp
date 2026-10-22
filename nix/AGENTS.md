@@ -3,34 +3,15 @@
 Check an affected output with `nix build --no-link .#<output>`; run `dev/nix-shell 'just lint-config'`
 and `dev/nix-shell 'just test dev'`.
 
-`lib/node-versions.nix` pins security releases for each tooling major without
-updating unrelated nixpkgs packages. Verify versions against Node's official
-release index and source hashes against each release's `SHASUMS256.txt`.
-Keep `.node-version` and `.nvmrc` matched to Node 26. The slim overrides also
-update the full Node packages, `nodejs_latest`, and pnpm's embedded runtime.
-Node's scoped shared libraries also carry the release's Brotli security patch,
-c-ares update, and current same-major OpenSSL fixes. Do not substitute the
-unpatched nixpkgs libraries or update these dependencies globally. Node's
-nghttp2/ngtcp2 dependencies must use the same patched libraries, including
-their transitive TLS, DNS, and Brotli dependencies.
-Build Node's scoped simdutf with C++20 so its atomic Base64 symbols match V8.
-Node 26 also carries upstream's test-only shared-isolate Worker-exit fix
-(`bc5af1c67cd8e029f86ec992688dde9307f4d61a`). It waits for actual Worker
-completion without changing assertions, disabling tests, or adding retries.
-Both majors carry a Darwin-only datagram test-fixture patch: block the secondary
-loopback address and use canonical localhost for the subsequent successful
-connection. Nix's Darwin sandbox permits localhost, not `127.0.0.2`. Keep the
-blocked-address error and socket-reuse assertions intact; do not expand sandbox
-permissions, skip the test, or alter Linux derivations to accommodate it.
-Check the direct and transitive library wiring with
-`nix build --no-link .#node-runtime-dependencies.x86_64-linux`; config CI also
-evaluates the check for every supported host. Keep the check independent of
-Node source builds so dependency regressions fail before compilation.
-The old shared-ICU Temporal and emulator patches are superseded by upstream
-support in these releases and must not be reapplied.
-The Node platform workflow and `sdk-platforms.json` use secure Node 22 images
-to check installation. Updating those CI runtimes must not raise the published
-SDK engine minimum of Node 22.12.0 or introduce consumer runtime checks.
+For Node pins, scoped dependencies, patch rationale and removal criteria, and
+validation, read [Node runtime maintenance](node-runtimes.md).
+
+Full Nix builder logs default off, including in CI. For an explicit debugging
+invocation, use `XMTP_NIX_BUILD_LOGS=1 dev/nix-shell 'COMMAND'` to stream them to
+stderr during environment evaluation. `--print-env` and the cache keep only the
+shell environment; toggling logging does not invalidate that cache. Check wrapper
+logging, cache reuse, and failed-evaluation cleanup without building Nix packages with
+`dev/nix-shell 'python3.11 -B dev/tests/test_agents.py'`.
 
 Rust-capable development shells set pinned Kache as `RUSTC_WRAPPER` and point
 `KACHE_HOST_CONFIG` at `lib/kache.toml` (`rustShellEnv` in

@@ -1,5 +1,7 @@
 final: prev:
 let
+  # Node links shared libraries, so keep its security fixes scoped through
+  # direct and transitive inputs. Maintenance: ../node-runtimes.md.
   runtimeDependencies = {
     brotli = prev.brotli.overrideAttrs (previousAttrs: {
       patches = previousAttrs.patches ++ [
@@ -24,6 +26,7 @@ let
       };
     });
     simdutf = prev.simdutf.overrideAttrs (previousAttrs: {
+      # V8 needs the atomic Base64 symbols that simdutf exports only with C++20.
       cmakeFlags = previousAttrs.cmakeFlags ++ [ "-DSIMDUTF_CXX_STANDARD=20" ];
     });
     ngtcp2 = prev.ngtcp2.override {
@@ -48,6 +51,7 @@ let
             inherit hash;
           };
           patches =
+            # These pinned releases include the old ICU/emulator fixes upstream.
             builtins.filter (
               patch:
               !(builtins.elem (builtins.baseNameOf patch) [
@@ -55,12 +59,16 @@ let
                 "configure-emulator.patch"
               ])
             ) previousAttrs.patches
+            # Wait for Worker completion without weakening shared-isolate assertions.
+            # Drop the Node 26 backport once its release sources contain this fix.
             ++ prev.lib.optionals (prev.lib.versions.major version == "26") [
               (prev.fetchurl {
                 url = "https://github.com/nodejs/node/commit/bc5af1c67cd8e029f86ec992688dde9307f4d61a.patch";
                 hash = "sha256-3EJQlgGS1miUEAc2Me4jnh8wHHk68TvbtBhNWJ/uOq8=";
               })
             ]
+            # Darwin permits successful socket connections to canonical localhost.
+            # Fixture rationale and removal criteria: ../node-runtimes.md.
             ++ prev.lib.optionals prev.stdenv.hostPlatform.isDarwin [
               ./node-dgram-localhost.patch
             ];
