@@ -28,7 +28,7 @@ mod tests {
     use super::*;
     use crate::xmtp::{
         backend::v1::{
-            CommitLogEntry, GroupMessage, KeyPackage, WelcomeMessage,
+            CommitLogEntry, GroupMessage, KeyPackage, SealedCommitLogEntry, WelcomeMessage,
             client_envelope::Payload,
             welcome_message::{V1, Version},
         },
@@ -105,6 +105,32 @@ mod tests {
                 },
                 "2a0d0a02303112070a013212023334",
                 "108bc3029f48dda98d9d43238154830ae0ee71e7d2e083264a2b07a3d736bee2",
+            ),
+            // The signature is field 4 of the group message.
+            (
+                ClientEnvelope {
+                    payload: Some(Payload::GroupMessage(GroupMessage {
+                        data: vec![0, 255, 66],
+                        sender_hmac: vec![1, 2],
+                        should_push: true,
+                        signature: vec![0x41, 0x42],
+                    })),
+                },
+                "0a0f0a0300ff4212020102180122024142",
+                "4b88066b5fe9b4de9d603021b078abe4b19255dddfce9d074237a717a2c7854d",
+            ),
+            // A sealed entry is field 6, with fields 1 to 4 in order.
+            (
+                ClientEnvelope {
+                    payload: Some(Payload::SealedCommitLogEntry(SealedCommitLogEntry {
+                        commit_log_id: vec![0x50, 0x51],
+                        nonce: vec![0x52],
+                        ciphertext: vec![0x53, 0x54],
+                        signature: vec![0x55],
+                    })),
+                },
+                "320e0a0250511201521a025354220155",
+                "a3d80629f11646414c6170dfe64f675b4d2328a23082169379fdd1b28b5581bf",
             ),
         ];
 
