@@ -402,6 +402,7 @@ async fn a_refused_conversation_does_not_hold_back_another() {
             publish_turn(&mut worker).await,
             vec![accepted.group_id.to_vec()]
         );
+        assert_eq!(worker.failed_publishes(), &[refused.group_id]);
         assert_eq!(
             upload_cursor(&alix, &refused.group_id),
             Cursor(0),
@@ -423,6 +424,7 @@ async fn a_refused_conversation_does_not_hold_back_another() {
         publish_turn(&mut worker).await,
         vec![refused.group_id.to_vec()]
     );
+    assert!(worker.failed_publishes().is_empty());
     let tip = refused.local_commit_log().await?.last()?.rowid;
     assert_eq!(upload_cursor(&alix, &refused.group_id), Cursor(tip as u64));
     assert_eq!(
@@ -433,7 +435,7 @@ async fn a_refused_conversation_does_not_hold_back_another() {
 
 /// One conversation's entry fails the local admission parse: its nonce is a
 /// byte short. Nothing of that conversation is sent, and the other
-/// conversation still publishes in the same turn.
+/// conversation still publishes in the same turn and in the next one.
 // verifies: FORK-021
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_conversation_that_fails_the_local_parse_does_not_hold_back_another() {
@@ -455,21 +457,153 @@ async fn a_conversation_that_fails_the_local_parse_does_not_hold_back_another() 
         },
     ));
 
+    for turn in 1..=2 {
+        if turn == 2 {
+            healthy.update_group_name("later".into()).await?;
+        }
+        assert_eq!(
+            publish_turn(&mut worker).await,
+            vec![healthy.group_id.to_vec()]
+        );
+        assert_eq!(worker.failed_publishes(), &[broken.group_id]);
+        assert_eq!(upload_cursor(&alix, &broken.group_id), Cursor(0));
+        assert_eq!(
+            script
+                .lock()
+                .publishes_for(&keys_of(&broken).commit_log_id()),
+            0,
+            "the local parse refuses the entry before any request"
+        );
+        let tip = healthy.local_commit_log().await?.last()?.rowid;
+        assert_eq!(upload_cursor(&alix, &healthy.group_id), Cursor(tip as u64));
+        assert_eq!(
+            remote_entries(&alix, &healthy).await,
+            publishable(&healthy).await
+        );
+    }
+}
+
+/// A conversation whose stored group state does not load holds back only
+/// itself: the other conversation still publishes in the same turn, and the
+/// turn does not fail.
+// verifies: FORK-021
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_conversation_whose_state_does_not_load_does_not_hold_back_another() {
+    use openmls_traits::storage::StorageProvider as _;
+
+    tester!(alix, disable_workers);
+    let broken = alix.create_group(None, None)?;
+    let healthy = alix.create_group(None, None)?;
+    broken.update_group_name("broken".into()).await?;
+    healthy.update_group_name("healthy".into()).await?;
+    let broken_id = keys_of(&broken).commit_log_id().to_vec();
+    alix.context
+        .mls_storage()
+        .delete_context(&openmls::group::GroupId::from_slice(
+            broken.group_id.as_slice(),
+        ))?;
+
+    let (client, script) = scripted::scripted(&alix.client).await;
+    let mut worker = CommitLogWorker::new(client.context.clone());
     assert_eq!(
         publish_turn(&mut worker).await,
         vec![healthy.group_id.to_vec()]
     );
     assert_eq!(upload_cursor(&alix, &broken.group_id), Cursor(0));
-    assert_eq!(
-        script
-            .lock()
-            .publishes_for(&keys_of(&broken).commit_log_id()),
-        0,
-        "the local parse refuses the entry before any request"
-    );
+    assert_eq!(script.lock().publishes_for(&broken_id), 0);
     assert_eq!(
         remote_entries(&alix, &healthy).await,
         publishable(&healthy).await
+    );
+}
+
+/// A transport failure ends the publishing part of the turn. Once the first
+/// conversation's publish has failed through its retries, no other
+/// conversation is tried in that turn, so a turn costs one retry cycle, not
+/// one per conversation. The next turn publishes every conversation.
+// verifies: FORK-021
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_transport_failure_ends_the_publishing_turn() {
+    tester!(alix, disable_workers);
+    let first = alix.create_group(None, None)?;
+    let second = alix.create_group(None, None)?;
+    first.update_group_name("first".into()).await?;
+    second.update_group_name("second".into()).await?;
+
+    let (client, script) = scripted::scripted(&alix.client).await;
+    script.lock().unavailable = true;
+    let mut worker = CommitLogWorker::new(client.context.clone());
+    assert!(publish_turn(&mut worker).await.is_empty());
+    let attempted: std::collections::HashSet<Vec<u8>> =
+        script.lock().published.iter().flatten().cloned().collect();
+    assert_eq!(attempted.len(), 1, "one conversation is tried");
+    assert_eq!(worker.failed_publishes().len(), 1);
+
+    script.lock().unavailable = false;
+    let mut published = publish_turn(&mut worker).await;
+    published.sort();
+    let mut expected = vec![first.group_id.to_vec(), second.group_id.to_vec()];
+    expected.sort();
+    assert_eq!(published, expected);
+    assert!(worker.failed_publishes().is_empty());
+}
+
+/// A publish that stores only part of a conversation's backlog moves the
+/// upload cursor past the stored entries. The next turn starts at the first
+/// entry that was not stored. The backlog is split by a size refusal; the
+/// first half is stored and the second half is refused.
+// verifies: FORK-021
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_partly_stored_publish_resumes_from_its_first_unstored_entry() {
+    tester!(alix, disable_workers);
+    let group = alix.create_group(None, None)?;
+    for name in ["one", "two", "three"] {
+        group.update_group_name(name.into()).await?;
+    }
+    let rows: Vec<i64> = group
+        .local_commit_log()
+        .await?
+        .iter()
+        .map(|log| log.rowid as i64)
+        .collect();
+    let count = rows.len();
+    assert!(count >= 2, "{count} entries");
+
+    let (client, script) = scripted::scripted(&alix.client).await;
+    let commit_log_id = keys_of(&group).commit_log_id().to_vec();
+    {
+        let mut script = script.lock();
+        script.too_large_once.insert(commit_log_id.clone());
+        script.refuse_after.insert(commit_log_id.clone(), 1);
+    }
+    let mut worker = CommitLogWorker::new(client.context.clone());
+    assert!(publish_turn(&mut worker).await.is_empty());
+    let stored = count / 2;
+    assert_eq!(
+        upload_cursor(&alix, &group.group_id),
+        Cursor(rows[stored - 1] as u64),
+        "the cursor moves past the stored half only"
+    );
+
+    script.lock().refuse_after.clear();
+    let sent_before = script.lock().published.len();
+    assert_eq!(
+        publish_turn(&mut worker).await,
+        vec![group.group_id.to_vec()]
+    );
+    let requests = script.lock().published[sent_before..].to_vec();
+    assert_eq!(
+        requests.iter().map(Vec::len).collect::<Vec<_>>(),
+        vec![count - stored],
+        "the next turn sends only the unstored entries"
+    );
+    assert_eq!(
+        upload_cursor(&alix, &group.group_id),
+        Cursor(*rows.last()? as u64)
+    );
+    assert_eq!(
+        remote_entries(&alix, &group).await,
+        publishable(&group).await
     );
 }
 
@@ -561,11 +695,15 @@ async fn a_failed_publish_ends_the_turn_not_the_worker() {
 }
 
 /// The read path opens each envelope under the conversation's stored
-/// commit-log id, with no first-entry selection. An entry signed by another
-/// key, one that does not decrypt, one that names another group, entries
-/// with a 0-, 11-, or 13-byte nonce or a 15-byte ciphertext, and an envelope
-/// that holds no sealed entry are each discarded without a panic. The valid
-/// chain after them in the same read is accepted from its first entry.
+/// commit-log id, with no first-entry selection. A valid entry sealed under
+/// another root's commit-log id, an entry signed by another key, one that
+/// does not decrypt, one that names another group, entries with a 0-, 11-,
+/// or 13-byte nonce or a 15-byte ciphertext, and an envelope that holds no
+/// sealed entry are each discarded without a panic. The valid chain after
+/// them in the same read is accepted from its first entry, and the chain
+/// rules then discard an entry with the wrong last epoch authenticator and a
+/// repeated entry. A later read extends the chain. Discard logs never name
+/// the group id.
 // verifies: FORK-075, FORK-032
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_reader_discards_each_entry_that_fails_fork_075() {
@@ -601,10 +739,12 @@ async fn a_reader_discards_each_entry_that_fails_fork_075() {
     // Accepted, either of these would start another chain, and the valid
     // chain would then be discarded by the chain rules.
     let forged = seal_entry(&keys, &entry(10, 40))?;
-    let other_seed = commit_log_seed(&GroupRoot::generate());
+    let other_root = GroupRoot::generate();
+    let other_seed = commit_log_seed(&other_root);
     let mut other_group = entry(10, 30);
     other_group.group_id = vec![9; 32];
     let discarded = [
+        seal_entry(&GroupKeys::derive(&other_root), &entry(10, 50))?,
         signed_entry(&other_seed, &id, forged.nonce, forged.ciphertext),
         signed_entry(&seed, &id, vec![1; 12], vec![2; 32]),
         seal_entry(&keys, &other_group)?,
@@ -613,23 +753,46 @@ async fn a_reader_discards_each_entry_that_fails_fork_075() {
         signed_entry(&seed, &id, vec![1; 13], first.ciphertext.clone()),
         signed_entry(&seed, &id, first.nonce.clone(), vec![3; 15]),
     ];
+    // Each passes FORK-075; the chain rules discard both.
+    let wrong_last_authenticator = seal_entry(&keys, &entry(12, 7))?;
+    let repeated = seal_entry(&keys, &entry(11, 2))?;
     let topic = Topic::new_commit_log(id);
-    let envelopes: Vec<_> = discarded
+    let mut envelopes: Vec<_> = discarded
         .into_iter()
         .map(Payload::SealedCommitLogEntry)
         .chain([Payload::CommitLogEntry(Default::default())])
-        .chain([first, second].map(Payload::SealedCommitLogEntry))
+        .chain(
+            [first, second, wrong_last_authenticator, repeated].map(Payload::SealedCommitLogEntry),
+        )
         .enumerate()
         .map(|(i, payload)| server_envelope(&topic, i as u64 + 1, payload))
         .collect();
     let last_sequence_id = envelopes.len() as u64;
 
     let (client, script) = scripted::scripted(&bo.client).await;
-    script.lock().reads.insert(topic.cloned_vec(), envelopes);
+    script
+        .lock()
+        .reads
+        .insert(topic.cloned_vec(), envelopes.clone());
     let mut worker = CommitLogWorker::new(client.context.clone());
-    let results = worker
-        .run_test(CommitLogTestFunction::SaveRemoteCommitLog, None)
-        .await?;
+    #[cfg(not(target_arch = "wasm32"))]
+    let capture = xmtp_logging::test_logging::LogCapture::new(xmtp_logging::Level::Info);
+    let results = {
+        #[cfg(not(target_arch = "wasm32"))]
+        let _logging = tracing::dispatcher::set_default(&capture.dispatch());
+        worker
+            .run_test(CommitLogTestFunction::SaveRemoteCommitLog, None)
+            .await?
+    };
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let output = capture.output();
+        assert!(output.contains("Discarding"), "{output}");
+        assert!(
+            !output.contains(&hex::encode(bo_group.group_id.as_slice())),
+            "a discard log names the group id: {output}"
+        );
+    }
     let saved = results[0].save_remote_commit_log_results.as_ref()?;
     assert_eq!(saved[bo_group.group_id.as_slice()], 2);
     let remote = bo.context.db().get_remote_commit_log_after_cursor(
@@ -652,6 +815,19 @@ async fn a_reader_discards_each_entry_that_fails_fork_075() {
         Cursor(last_sequence_id)
     );
     assert_eq!(script.lock().read, vec![vec![topic.cloned_vec()]]);
+
+    // A later read extends the accepted chain.
+    envelopes.push(server_envelope(
+        &topic,
+        last_sequence_id + 1,
+        Payload::SealedCommitLogEntry(seal_entry(&keys, &entry(12, 3))?),
+    ));
+    script.lock().reads.insert(topic.cloned_vec(), envelopes);
+    let results = worker
+        .run_test(CommitLogTestFunction::SaveRemoteCommitLog, None)
+        .await?;
+    let saved = results[0].save_remote_commit_log_results.as_ref()?;
+    assert_eq!(saved[bo_group.group_id.as_slice()], 1);
 }
 
 /// Restored placeholders hold no root, so a worker turn neither publishes

@@ -9,6 +9,7 @@ use thiserror::Error;
 use xmtp_api::ApiError;
 use xmtp_common::RetryableError;
 use xmtp_common::hex::NormalizeHex;
+use xmtp_common::snippet::Snippet;
 use xmtp_db::TransactionOutcome::Continue;
 use xmtp_db::consent_record::ConsentState;
 use xmtp_db::group::ConversationType;
@@ -179,6 +180,8 @@ where
 
 pub struct CommitLogWorker<Context> {
     context: Context,
+    /// The conversations whose commit-log publish failed in the last turn.
+    failed_publishes: Vec<GroupId>,
     #[cfg(test)]
     seal_fault: Option<SealFault>,
 }
@@ -201,9 +204,17 @@ where
     pub fn new(context: Context) -> Self {
         Self {
             context,
+            failed_publishes: Vec::new(),
             #[cfg(test)]
             seal_fault: None,
         }
+    }
+
+    /// The conversations whose commit-log publish failed in the last turn.
+    /// A failed publish ends the turn, not the worker, so `tick` still
+    /// returns `Ok`; a health check reads the failures here.
+    pub fn failed_publishes(&self) -> &[GroupId] {
+        &self.failed_publishes
     }
 }
 
@@ -295,14 +306,18 @@ where
 
     /// Publish every eligible conversation's new entries, each conversation
     /// in its own publish call, so a refused or unsendable entry holds back
-    /// only its own conversation. A failed publish, refused or transport, ends
-    /// that conversation's part of the turn: it is logged, its cursor moves
-    /// past the stored prefix only, and it is tried again at the next tick.
-    /// It never stops the worker.
+    /// only its own conversation. A failed publish is logged, recorded in
+    /// [`Self::failed_publishes`], and moves the conversation's cursor past
+    /// the stored prefix only; the conversation is tried again at the next
+    /// tick. A refusal or a local parse failure holds back only its own
+    /// conversation. A transport failure ends the publishing part of the
+    /// turn, since every later conversation would wait through the same
+    /// retries. No publish failure stops the worker.
     // implements: FORK-021
     async fn publish_commit_logs_to_remote(
         &mut self,
     ) -> Result<Vec<ConversationCursorInfo>, CommitLogError> {
+        self.failed_publishes.clear();
         let conn = &self.context.db();
         // DMs, and groups where we are a super admin
         let conversations = conn.get_conversation_ids_for_remote_log_publish()?;
@@ -321,7 +336,7 @@ where
                 Ok(())
             } else {
                 tracing::info!(
-                    group_id = %conversation.id,
+                    group_id = %conversation.id.as_slice().snippet(),
                     entries = entries.len(),
                     "Publishing commit log entries to remote commit log"
                 );
@@ -342,11 +357,15 @@ where
                 Ok(()) => published.push(cursor_info),
                 Err(error) => {
                     tracing::warn!(
-                        group_id = %conversation.id,
+                        group_id = %conversation.id.as_slice().snippet(),
                         stored = stored.len(),
                         %error,
                         "Commit log publish failed; the conversation retries at the next turn"
                     );
+                    self.failed_publishes.push(conversation.id);
+                    if error.is_retryable() {
+                        break;
+                    }
                 }
             }
         }
@@ -432,9 +451,10 @@ where
     }
 
     /// Seal entries under the keys of the conversation's group root.
-    /// `None` when the conversation has no root, or when a seal fails its
-    /// self-check. Nothing of that conversation is then published this turn,
-    /// and the failure is logged without any entry or key bytes.
+    /// `None` when the conversation has no root or its group state does not
+    /// load, or when a seal fails its self-check. Nothing of that
+    /// conversation is then published this turn, and the failure is logged
+    /// without any entry or key bytes.
     fn seal_group_logs(
         &self,
         conversation_id: &GroupId,
@@ -449,7 +469,7 @@ where
                 Ok(entry) => sealed.push(entry),
                 Err(error) => {
                     tracing::error!(
-                        group_id = %conversation_id,
+                        group_id = %conversation_id.as_slice().snippet(),
                         %error,
                         "Sealing a commit log entry failed; the conversation publishes nothing this turn"
                     );
@@ -483,15 +503,30 @@ where
 
     /// The keys derived from a conversation's group root, read from its
     /// group context each time and never stored. `None` for a group without
-    /// a root, such as a restored placeholder.
+    /// a root, such as a restored placeholder, and for a group whose state
+    /// does not load. Either holds back only that conversation. A dropped
+    /// database pool is not one conversation's failure, so it is returned.
     fn group_keys(&self, conversation_id: &GroupId) -> Result<Option<GroupKeys>, CommitLogError> {
-        let (group, _) = MlsGroup::new_cached(self.context.clone(), conversation_id)?;
-        let group_context = group.load_group_context()?;
+        let group_context = MlsGroup::new_cached(self.context.clone(), conversation_id)
+            .map_err(GroupError::from)
+            .and_then(|(group, _)| group.load_group_context());
+        let group_context = match group_context {
+            Ok(group_context) => group_context,
+            Err(error) if error.needs_db_reconnect() => return Err(error.into()),
+            Err(error) => {
+                tracing::warn!(
+                    group_id = %conversation_id.as_slice().snippet(),
+                    %error,
+                    "A conversation's group state did not load; it skips the commit log this turn"
+                );
+                return Ok(None);
+            }
+        };
         match group_keys_from_extensions(group_context.extensions()) {
             Ok(keys) => Ok(Some(keys)),
             Err(error) => {
                 tracing::warn!(
-                    group_id = %conversation_id,
+                    group_id = %conversation_id.as_slice().snippet(),
                     %error,
                     "A conversation without a group root has no commit log"
                 );
@@ -1014,13 +1049,12 @@ where
                 != matching_remote_log.applied_epoch_authenticator;
 
             if is_mismatched {
+                // No backend sequence id: with the group id it would link the
+                // conversation to its commit-log topic.
                 tracing::warn!(
-                    group_id = %conversation_id,
-                    "Detected forked state\n\
-                            Local log: {:?}\n\
-                            Remote log: {:?}",
-                    local_log,
-                    matching_remote_log
+                    group_id = %conversation_id.as_slice().snippet(),
+                    commit_sequence_id = local_log.commit_sequence_id,
+                    "Detected forked state: the local and remote epoch authenticators differ"
                 );
             }
 
@@ -1062,16 +1096,19 @@ where
 }
 
 /// Open one envelope read from a conversation's commit-log topic. `None`
-/// discards it; the reason is logged without entry bytes.
+/// discards it; the reason is logged without entry bytes. The log names the
+/// envelope by its commit-log id and sequence id only, never by group id, so
+/// it does not link the conversation to its commit-log topic.
 // implements: FORK-075
 fn open_remote_entry(
     keys: &GroupKeys,
     group_id: &GroupId,
     decoded: &DecodedCommitLogEntry,
 ) -> Option<PlaintextCommitLogEntry> {
+    let commit_log_id = keys.commit_log_id();
     let Some(sealed) = &decoded.sealed else {
         tracing::warn!(
-            group_id = %group_id,
+            commit_log_id = %commit_log_id.as_slice().snippet(),
             sequence_id = decoded.cursor.0,
             "Discarding a commit log envelope that holds no sealed entry"
         );
@@ -1080,7 +1117,7 @@ fn open_remote_entry(
     open_entry(keys, group_id.as_slice(), sealed)
         .inspect_err(|reason| {
             tracing::warn!(
-                group_id = %group_id,
+                commit_log_id = %commit_log_id.as_slice().snippet(),
                 sequence_id = decoded.cursor.0,
                 %reason,
                 "Discarding a commit log entry"

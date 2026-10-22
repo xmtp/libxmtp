@@ -27,6 +27,16 @@ pub(super) type Context = Arc<
 pub(super) struct Script {
     /// Commit-log ids whose publishes are refused.
     pub(super) refuse: HashSet<Vec<u8>>,
+    /// Every commit-log publish fails as a transport failure would.
+    pub(super) unavailable: bool,
+    /// Commit-log ids whose next publish request is refused as too large,
+    /// so the client splits it. Each id is refused this way once.
+    pub(super) too_large_once: HashSet<Vec<u8>>,
+    /// Commit-log ids whose publishes are refused after this many accepted
+    /// requests.
+    pub(super) refuse_after: HashMap<Vec<u8>, usize>,
+    /// The accepted publish requests of each commit-log id.
+    accepted: HashMap<Vec<u8>, usize>,
     /// Commit-log topics whose reads return these envelopes.
     pub(super) reads: HashMap<Vec<u8>, Vec<wire::ServerEnvelope>>,
     /// The commit-log id of each sealed entry of each publish request.
@@ -58,6 +68,13 @@ fn refused() -> ApiClientError {
     )))
 }
 
+fn too_large() -> ApiClientError {
+    ApiClientError::OtherUnretryable(Box::new(tonic::Status::new(
+        tonic::Code::ResourceExhausted,
+        "too large for the test script",
+    )))
+}
+
 fn is_commit_log(topic: &[u8]) -> bool {
     topic.first() == Some(&(TopicKind::CommitLogEntriesV1 as u8))
 }
@@ -84,7 +101,30 @@ impl XmtpBackendClient for ScriptedApi {
             .collect();
         if !ids.is_empty() {
             let mut script = self.script.lock();
-            let refuse = ids.iter().any(|id| script.refuse.contains(id));
+            if script.unavailable {
+                script.published.push(ids);
+                return Err(ApiClientError::Expired(xmtp_common::time::Expired));
+            }
+            if let Some(id) = ids
+                .iter()
+                .find(|id| script.too_large_once.contains(*id))
+                .cloned()
+            {
+                script.too_large_once.remove(&id);
+                script.published.push(ids);
+                return Err(too_large());
+            }
+            let refuse = ids.iter().any(|id| {
+                script.refuse.contains(id)
+                    || script.refuse_after.get(id).is_some_and(|after| {
+                        script.accepted.get(id).copied().unwrap_or(0) >= *after
+                    })
+            });
+            if !refuse {
+                for id in ids.iter().collect::<HashSet<_>>() {
+                    *script.accepted.entry(id.clone()).or_default() += 1;
+                }
+            }
             script.published.push(ids);
             if refuse {
                 return Err(refused());

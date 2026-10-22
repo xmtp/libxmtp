@@ -3,6 +3,8 @@
 //! Per client: force a fresh reconciliation tick so the DB column is current
 //! at check time, then read `is_commit_log_forked`. Without this, the
 //! healthcheck races the periodic CommitLogWorker and reports stale state.
+//! A failed commit-log publish ends the worker's turn, not the tick, so the
+//! validator reads the failures from the worker as well.
 
 use crate::app::health::context::HealthContext;
 use crate::app::health::result::{OpResult, Status};
@@ -56,6 +58,21 @@ impl Validator for NoForkedGroups {
                     error: Some(eyre!("commit-log reconcile failed: {e}")),
                 });
                 continue;
+            }
+            let failed = worker.failed_publishes();
+            if !failed.is_empty() {
+                let groups = failed
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                out.push(OpResult {
+                    op_name: self.name(),
+                    target: Some(format!("inbox={} publish", client.inbox_id())),
+                    status: Status::Fail,
+                    duration: tick_start.elapsed(),
+                    error: Some(eyre!("commit-log publish failed for {groups}")),
+                });
             }
 
             for gid in ctx.all_groups() {
