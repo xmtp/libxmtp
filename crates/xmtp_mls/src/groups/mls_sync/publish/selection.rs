@@ -1,11 +1,11 @@
-//! Select pending membership proposals for one outgoing commit.
+//! Select the pending proposals one outgoing commit carries: the GMOD-038
+//! membership selection, and the omission of proposals no commit can carry.
 
 use super::*;
-use crate::groups::app_data::AppDataBatch;
+use crate::groups::app_data::Committable;
 use crate::groups::group_permissions::MembershipPolicy;
 use openmls::group::QueuedProposal;
 use openmls::messages::proposals::AppDataUpdateOperation;
-use openmls::prelude::hash_ref::ProposalRef;
 use tls_codec::{Deserialize, VLBytes};
 use xmtp_id::key_package::VerifiedKeyPackageV2;
 use xmtp_mls_common::app_data::component_source::{ComponentSourceError, read_from_app_data_dict};
@@ -480,9 +480,14 @@ impl ProposalSelection {
         storage: &impl XmtpMlsStorageProvider,
         signer: &impl openmls_traits::signatures::Signer,
     ) -> Result<Vec<Vec<u8>>, GroupError> {
-        let proposals: Vec<_> = group.pending_proposals().cloned().collect();
-        for index in &self.omitted {
-            remove_proposal(group, storage, proposals[*index].proposal_reference_ref())?;
+        if !self.omitted.is_empty() {
+            let kept: Vec<_> = group
+                .pending_proposals()
+                .enumerate()
+                .filter(|(index, _)| !self.omitted.contains(index))
+                .map(|(_, proposal)| proposal.clone())
+                .collect();
+            replace_proposals(group, storage, &kept)?;
         }
         let provider = XmtpOpenMlsProviderRef::new(storage);
         let mut payloads = Vec::new();
@@ -496,16 +501,19 @@ impl ProposalSelection {
     }
 }
 
-pub(super) fn restore_proposals(
+/// Replace the pending proposals with `proposals`, in order. Removing one
+/// copy of a repeated reference deletes the stored proposal for every copy,
+/// so the store is always rebuilt whole.
+pub(super) fn replace_proposals(
     group: &mut OpenMlsGroup,
     storage: &impl XmtpMlsStorageProvider,
-    originals: &[QueuedProposal],
+    proposals: &[QueuedProposal],
 ) -> Result<(), GroupError> {
     let current: Vec<_> = group.pending_proposals().cloned().collect();
     for proposal in &current {
-        remove_proposal(group, storage, proposal.proposal_reference_ref())?;
+        remove_proposal(group, storage, proposal)?;
     }
-    for proposal in originals {
+    for proposal in proposals {
         group.store_pending_proposal(storage, proposal.clone())?;
     }
     Ok(())
@@ -519,23 +527,21 @@ pub(super) fn commits_proposals(kind: IntentKind) -> bool {
     )
 }
 
-/// Drop each pending proposal no commit can cover (see
-/// [`AppDataBatch::applicable`]), and return whether any was dropped. It
+/// Drop each pending proposal no commit can carry (see
+/// [`Committable::pending`]), and return whether any was dropped. It
 /// expires with the epoch.
-pub(super) fn omit_inapplicable_app_data(
+pub(super) fn omit_uncommittable_proposals(
     group: &mut OpenMlsGroup,
     storage: &impl XmtpMlsStorageProvider,
 ) -> Result<bool, GroupError> {
-    let kept: Vec<_> = AppDataBatch::applicable(group)?
-        .1
+    let kept: Vec<_> = Committable::pending(group)?
+        .proposals
         .into_iter()
         .cloned()
         .collect();
     let omitted = kept.len() != group.pending_proposals().count();
     if omitted {
-        // Removing one copy of a repeated reference deletes the stored
-        // proposal for every copy, so rebuild the store instead.
-        restore_proposals(group, storage, &kept)?;
+        replace_proposals(group, storage, &kept)?;
     }
     Ok(omitted)
 }
@@ -543,10 +549,10 @@ pub(super) fn omit_inapplicable_app_data(
 fn remove_proposal(
     group: &mut OpenMlsGroup,
     storage: &impl XmtpMlsStorageProvider,
-    reference: &ProposalRef,
+    proposal: &QueuedProposal,
 ) -> Result<(), GroupError> {
     group
-        .remove_pending_proposal(storage, reference)
+        .remove_pending_proposal(storage, proposal.proposal_reference_ref())
         .map_err(|error| match error {
             openmls::group::RemoveProposalError::Storage(error) => GroupError::SqlKeyStore(error),
             openmls::group::RemoveProposalError::ProposalNotFound => {

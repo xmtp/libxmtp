@@ -35,7 +35,7 @@ use crate::{
     context::XmtpSharedContext,
     groups::{
         GroupError, MlsGroup, UpdateAdminListType,
-        app_data::{GroupAppDataError, accumulate_app_data_updates},
+        app_data::{AppDataBatch, GroupAppDataError},
         intents::{AppDataUpdateIntentData, ProposeMemberUpdateIntentData, QueueIntent},
         mls_sync::generate_prepared_commit,
     },
@@ -71,7 +71,14 @@ fn display_names<C: XmtpSharedContext>(
 }
 
 fn admins<C: XmtpSharedContext>(group: &MlsGroup<C>) -> Result<Vec<InboxId>, GroupError> {
-    Ok(value(group, ComponentId::ADMIN_LIST)?
+    inboxes(group, ComponentId::ADMIN_LIST)
+}
+
+fn inboxes<C: XmtpSharedContext>(
+    group: &MlsGroup<C>,
+    id: ComponentId,
+) -> Result<Vec<InboxId>, GroupError> {
+    Ok(value(group, id)?
         .map(|bytes| TlsSet::<InboxId>::tls_deserialize_exact(bytes).unwrap())
         .map(|set| set.iter().copied().collect())
         .unwrap_or_default())
@@ -106,10 +113,19 @@ async fn propose_removal<C: XmtpSharedContext>(
     group: &MlsGroup<C>,
     removed: &str,
 ) -> Result<(), GroupError> {
+    propose_members(group, vec![], vec![removed.to_string()]).await
+}
+
+/// Publish the proposals that add `added` and remove `removed`, without
+/// committing them.
+async fn propose_members<C: XmtpSharedContext>(
+    group: &MlsGroup<C>,
+    added: Vec<String>,
+    removed: Vec<String>,
+) -> Result<(), GroupError> {
     let intent = QueueIntent::propose_member_update()
         .data(Vec::<u8>::try_from(ProposeMemberUpdateIntentData::new(
-            vec![],
-            vec![removed.to_string()],
+            added, removed,
         ))?)
         .queue(group)?;
     group.sync_until_intent_resolved(intent.id).await.map(drop)
@@ -184,22 +200,18 @@ fn stage_unchecked<P: OpenMlsProvider>(
             .map_err(GroupAppDataError::Propose)?;
         proposals.push(proposal);
     }
-    let pending = group
-        .pending_proposals()
-        .filter_map(|queued| match queued.proposal() {
-            Proposal::AppDataUpdate(update) => Some((update.component_id(), update.operation())),
-            _ => None,
+    let dictionary = AppDataBatch::pending(group)
+        .map(AppDataBatch::updates)
+        .unwrap_or_else(|_| {
+            let mut updater = group.app_data_dictionary_updater();
+            for (id, payload) in updates {
+                updater.set(ComponentData::from_parts(
+                    id.as_u16(),
+                    payload.clone().into(),
+                ));
+            }
+            updater.changes()
         });
-    let dictionary = accumulate_app_data_updates(group, pending).unwrap_or_else(|_| {
-        let mut updater = group.app_data_dictionary_updater();
-        for (id, payload) in updates {
-            updater.set(ComponentData::from_parts(
-                id.as_u16(),
-                payload.clone().into(),
-            ));
-        }
-        updater.changes()
-    });
     let mut stage =
         crate::groups::mls_ext::commit_without_group_info(group, provider.storage(), |builder| {
             builder.consume_proposal_store(true)
@@ -554,12 +566,12 @@ async fn test_immutable_field_is_written_once() {
     assert_eq!(value(&bo_group, PAIR)?, None);
 }
 
-/// Publish `payload` for `id` as a signed standalone proposal with no
+/// Publish `operation` on `id` as a signed standalone proposal with no
 /// commit, the way a modified client can.
 async fn propose_raw<C: XmtpSharedContext>(
     group: &MlsGroup<C>,
     id: ComponentId,
-    payload: Vec<u8>,
+    operation: AppDataUpdateOperation,
 ) -> Result<(), GroupError> {
     let signer = &group.context.identity().installation_keys;
     let message = state_write(group.context.mls_storage(), |tx| {
@@ -569,7 +581,7 @@ async fn propose_raw<C: XmtpSharedContext>(
                     &xmtp_db::XmtpOpenMlsProviderRef::new(storage),
                     signer,
                     id.as_u16(),
-                    AppDataUpdateOperation::Update(payload.clone().into()),
+                    operation.clone(),
                 )
                 .map_err(GroupError::Proposal)?;
             Ok::<_, GroupError>(Continue(message.tls_serialize_detached()?))
@@ -581,10 +593,8 @@ async fn propose_raw<C: XmtpSharedContext>(
     Ok(())
 }
 
-/// A standalone proposal every receiver accepts, because it applies to the
-/// committed dictionary, that cannot apply after the pending proposals
-/// before it.
-enum Inapplicable {
+/// Pending proposals a member holds that no commit can carry together.
+enum Uncommittable {
     /// Bo inserts its display name again.
     CommittedName,
     /// Bo inserts its absent display name, then a second one for the same key.
@@ -595,23 +605,37 @@ enum Inapplicable {
     /// Alix holds two copies of one insert, as a build before receive-time
     /// deduplication stored a replay.
     StoredTwice,
-    /// Alix inserts an existing admin.
+    /// Alix inserts an existing admin. Receivers refuse it, but Alix holds
+    /// her own copy, which blocked her own commits.
     CommittedAdmin,
+    /// Alix updates the description, then removes it: a list may not
+    /// update and remove one component.
+    UpdateThenRemove,
+    /// Alix removes the absent image URL: a list may only remove a
+    /// component with state.
+    RemoveAbsent,
+    /// Alix and Bo are super admins, and Alix removes Bo, then herself:
+    /// together they leave none.
+    NoSuperAdminLeft,
 }
 
-/// Receivers judge a standalone `AppDataUpdate` against the committed
-/// dictionary, so they accept one that cannot apply in the pending batch.
-/// Every commit of pending proposals once pre-applied it and failed, so no
-/// member could send or change the group again. The commit omits it instead.
+/// Receivers judge a standalone `AppDataUpdate` alone against the committed
+/// dictionary, so they accept proposals that no commit can carry together.
+/// Every commit of pending proposals once carried them all and failed, so
+/// no member could send or change the group again. A commit omits each
+/// proposal it cannot carry instead, keeping the ones before it.
 #[rstest::rstest]
-#[case::insert_of_committed_name(Inapplicable::CommittedName)]
-#[case::second_pending_insert(Inapplicable::PendingName)]
-#[case::replayed_insert(Inapplicable::Replay)]
-#[case::insert_stored_twice(Inapplicable::StoredTwice)]
-#[case::insert_of_committed_admin(Inapplicable::CommittedAdmin)]
+#[case::insert_of_committed_name(Uncommittable::CommittedName)]
+#[case::second_pending_insert(Uncommittable::PendingName)]
+#[case::replayed_insert(Uncommittable::Replay)]
+#[case::insert_stored_twice(Uncommittable::StoredTwice)]
+#[case::insert_of_committed_admin(Uncommittable::CommittedAdmin)]
+#[case::update_then_remove(Uncommittable::UpdateThenRemove)]
+#[case::remove_of_absent_component(Uncommittable::RemoveAbsent)]
+#[case::no_super_admin_left(Uncommittable::NoSuperAdminLeft)]
 #[xmtp_common::test(unwrap_try = true)]
-async fn test_inapplicable_pending_app_data_does_not_block_the_group(
-    #[case] inapplicable: Inapplicable,
+async fn test_uncommittable_pending_app_data_does_not_block_the_group(
+    #[case] uncommittable: Uncommittable,
     #[values(false, true)] field_write: bool,
 ) -> Result<(), GroupError> {
     tester!(alix);
@@ -620,24 +644,39 @@ async fn test_inapplicable_pending_app_data_does_not_block_the_group(
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
     let bo_group = bo.wait_for_welcomes().await?.remove(0);
-    let bo_name = || insert_name(bo.inbox_id(), b"Bo");
-    match inapplicable {
-        Inapplicable::CommittedName => {
-            write(&bo_group, ComponentId::USER_DISPLAY_NAME, bo_name()).await?;
-            propose_raw(&bo_group, ComponentId::USER_DISPLAY_NAME, bo_name()).await?;
+    let update = |payload: Vec<u8>| AppDataUpdateOperation::Update(payload.into());
+    let bo_name = || update(insert_name(bo.inbox_id(), b"Bo"));
+    let remove_super_admin = |id: &str| {
+        update(
+            xmtp_mls_common::tls_set::TlsSetDelta::new()
+                .remove(inbox(id))
+                .tls_serialize_detached()
+                .unwrap(),
+        )
+    };
+    let names = ComponentId::USER_DISPLAY_NAME;
+    // A member that holds the proposals, and how many.
+    let (holder, proposed) = match uncommittable {
+        Uncommittable::CommittedName => {
+            write(&bo_group, names, insert_name(bo.inbox_id(), b"Bo")).await?;
+            propose_raw(&bo_group, names, bo_name()).await?;
+            (&group, 1)
         }
-        Inapplicable::PendingName => {
-            propose_raw(&bo_group, ComponentId::USER_DISPLAY_NAME, bo_name()).await?;
-            let other = insert_name(bo.inbox_id(), b"Mallory");
-            propose_raw(&bo_group, ComponentId::USER_DISPLAY_NAME, other).await?;
+        Uncommittable::PendingName => {
+            propose_raw(&bo_group, names, bo_name()).await?;
+            let other = update(insert_name(bo.inbox_id(), b"Mallory"));
+            propose_raw(&bo_group, names, other).await?;
+            (&group, 2)
         }
-        Inapplicable::Replay => {
+        Uncommittable::Replay => {
             for _ in 0..2 {
-                propose_raw(&bo_group, ComponentId::USER_DISPLAY_NAME, bo_name()).await?;
+                propose_raw(&bo_group, names, bo_name()).await?;
             }
+            // Receivers store a replay once.
+            (&group, 1)
         }
-        Inapplicable::StoredTwice => {
-            propose_raw(&bo_group, ComponentId::USER_DISPLAY_NAME, bo_name()).await?;
+        Uncommittable::StoredTwice => {
+            propose_raw(&bo_group, names, bo_name()).await?;
             group.sync().await?;
             state_write(group.context.mls_storage(), |tx| {
                 tx.with_group(group.group_id, |mls, storage| {
@@ -646,26 +685,45 @@ async fn test_inapplicable_pending_app_data_does_not_block_the_group(
                     Ok::<_, GroupError>(Continue(()))
                 })
             })?;
+            (&group, 2)
         }
-        Inapplicable::CommittedAdmin => {
+        Uncommittable::CommittedAdmin => {
             group
                 .update_admin_list(UpdateAdminListType::Add, bo.inbox_id().to_string())
                 .await?;
             let payload = xmtp_mls_common::tls_set::TlsSetDelta::new()
                 .insert(inbox(bo.inbox_id()))
                 .tls_serialize_detached()?;
-            propose_raw(&group, ComponentId::ADMIN_LIST, payload).await?;
+            propose_raw(&group, ComponentId::ADMIN_LIST, update(payload)).await?;
+            (&group, 1)
         }
-    }
-    group.sync().await?;
-    let accepted = match inapplicable {
-        Inapplicable::PendingName | Inapplicable::StoredTwice => 2,
-        _ => 1,
+        Uncommittable::UpdateThenRemove => {
+            let description = ComponentId::GROUP_DESCRIPTION;
+            propose_raw(&group, description, update(b"kept".to_vec())).await?;
+            propose_raw(&group, description, AppDataUpdateOperation::Remove).await?;
+            (&bo_group, 2)
+        }
+        Uncommittable::RemoveAbsent => {
+            assert_eq!(value(&group, ComponentId::GROUP_IMAGE_URL)?, None);
+            let remove = AppDataUpdateOperation::Remove;
+            propose_raw(&group, ComponentId::GROUP_IMAGE_URL, remove).await?;
+            (&bo_group, 1)
+        }
+        Uncommittable::NoSuperAdminLeft => {
+            group
+                .update_admin_list(UpdateAdminListType::AddSuper, bo.inbox_id().to_string())
+                .await?;
+            let super_admins = ComponentId::SUPER_ADMIN_LIST;
+            propose_raw(&group, super_admins, remove_super_admin(bo.inbox_id())).await?;
+            propose_raw(&group, super_admins, remove_super_admin(alix.inbox_id())).await?;
+            (&bo_group, 2)
+        }
     };
+    holder.sync().await?;
     assert_eq!(
-        group.with_group_snapshot(|mls| Ok(mls.pending_proposals().count()))?,
-        accepted,
-        "receivers accept the proposal, and a replay once"
+        holder.with_group_snapshot(|mls| Ok(mls.pending_proposals().count()))?,
+        proposed,
+        "the member holds each proposal"
     );
 
     // A field write reads the pending state before it queues its commit.
@@ -688,15 +746,120 @@ async fn test_inapplicable_pending_app_data_does_not_block_the_group(
         if field_write {
             assert_eq!(member.group_name()?, "after");
         }
-        match inapplicable {
-            Inapplicable::CommittedAdmin => {
+        match uncommittable {
+            Uncommittable::CommittedAdmin => {
                 assert_eq!(admins(member)?, vec![inbox(bo.inbox_id())]);
             }
+            Uncommittable::UpdateThenRemove => assert_eq!(
+                value(member, ComponentId::GROUP_DESCRIPTION)?,
+                Some(b"kept".to_vec())
+            ),
+            Uncommittable::RemoveAbsent => {
+                assert_eq!(value(member, ComponentId::GROUP_IMAGE_URL)?, None);
+            }
+            Uncommittable::NoSuperAdminLeft => assert_eq!(
+                inboxes(member, ComponentId::SUPER_ADMIN_LIST)?,
+                vec![inbox(alix.inbox_id())]
+            ),
             _ => assert_eq!(
                 display_names(member)?,
                 BTreeMap::from([(inbox(bo.inbox_id()), b"Bo".to_vec())])
             ),
         }
+    }
+    Ok(())
+}
+
+/// A build before receive-time deduplication could store one membership
+/// delta twice. The membership selection omits the second copy, and
+/// removing it by reference deleted the proposal both copies share, so
+/// reloading the group failed and no member could send again. The
+/// selection rebuilds the store instead.
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_membership_delta_stored_twice_does_not_block_the_group() -> Result<(), GroupError> {
+    tester!(alix);
+    tester!(bo);
+    tester!(carol);
+    let group = alix
+        .create_group_with_members(&[bo.inbox_id(), carol.inbox_id()], None, None)
+        .await?;
+    let bo_group = bo.sync_welcomes().await?.remove(0);
+    propose_removal(&group, carol.inbox_id()).await?;
+    state_write(group.context.mls_storage(), |tx| {
+        tx.with_group(group.group_id, |mls, storage| {
+            let delta = mls
+                .pending_proposals()
+                .find(|queued| {
+                    matches!(queued.proposal(), Proposal::AppDataUpdate(update)
+                        if update.component_id() == ComponentId::GROUP_MEMBERSHIP.as_u16())
+                })
+                .cloned()
+                .unwrap();
+            mls.store_pending_proposal(storage, delta)?;
+            Ok::<_, GroupError>(Continue(()))
+        })
+    })?;
+
+    group.send_message(b"after", Default::default()).await?;
+    bo_group.sync().await?;
+    for member in [&group, &bo_group] {
+        assert_eq!(member.members().await?.len(), 2);
+    }
+    Ok(())
+}
+
+/// A receiver judges a standalone Delete of a non-member's display name
+/// against the committed membership, which allows it. A pending proposal
+/// that adds the owner back makes the owner a member after the commit,
+/// where the Delete is refused. The commit judges each proposal against
+/// the membership the kept proposals leave, so it omits the Delete.
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_pending_readd_omits_a_delete_it_forbids() -> Result<(), GroupError> {
+    tester!(alix);
+    tester!(bo);
+    tester!(carol);
+    tester!(dave);
+    let group = alix
+        .create_group_with_members(
+            &[bo.inbox_id(), carol.inbox_id(), dave.inbox_id()],
+            None,
+            None,
+        )
+        .await?;
+    let bo_group = bo.wait_for_welcomes().await?.remove(0);
+    let carol_group = carol.wait_for_welcomes().await?.remove(0);
+    let dave_group = dave.wait_for_welcomes().await?.remove(0);
+    let names = ComponentId::USER_DISPLAY_NAME;
+    write(&carol_group, names, insert_name(carol.inbox_id(), b"Carol")).await?;
+    group.sync().await?;
+    // A removal without cleanup leaves Carol's name behind.
+    propose_removal(&group, carol.inbox_id()).await?;
+    publish_unchecked(&group, vec![]).await?;
+    for member in [&bo_group, &dave_group] {
+        member.sync().await?;
+    }
+
+    propose_members(&bo_group, vec![carol.inbox_id().to_string()], vec![]).await?;
+    let delete = TlsMapDelta::<InboxId, VLBytes>::new()
+        .delete(inbox(carol.inbox_id()))
+        .tls_serialize_detached()?;
+    let delete = AppDataUpdateOperation::Update(delete.into());
+    propose_raw(&dave_group, names, delete).await?;
+    bo_group.sync().await?;
+    assert_eq!(
+        bo_group.with_group_snapshot(|mls| Ok(mls.pending_proposals().count()))?,
+        3,
+        "Bo holds the Add, its membership delta, and Dave's Delete"
+    );
+
+    bo_group.send_message(b"after", Default::default()).await?;
+    dave_group.sync().await?;
+    for member in [&bo_group, &dave_group] {
+        assert_eq!(member.members().await?.len(), 4);
+        assert_eq!(
+            display_names(member)?,
+            BTreeMap::from([(inbox(carol.inbox_id()), b"Carol".to_vec())])
+        );
     }
     Ok(())
 }

@@ -398,9 +398,13 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                         storage,
                         &self.context.identity().installation_keys,
                     )?;
-                    // An omission also makes an empty commit valid work.
-                    dependencies.selection.active |= selection::commits_proposals(intent.kind)
-                        && selection::omit_inapplicable_app_data(group, storage)?;
+                    // An omitted proposal expires with the epoch, so a commit
+                    // that carries no proposal is still valid work.
+                    if selection::commits_proposals(intent.kind)
+                        && selection::omit_uncommittable_proposals(group, storage)?
+                    {
+                        dependencies.selection.active = true;
+                    }
                     let Some(mut data) =
                         self.get_publish_intent_data(storage, group, &intent, dependencies)?
                     else {
@@ -459,7 +463,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                             })
                         })
                         .collect::<Result<Vec<_>, GroupError>>()?;
-                    selection::restore_proposals(group, storage, &original_proposals)?;
+                    selection::replace_proposals(group, storage, &original_proposals)?;
                     let payload = data
                         .payloads_to_publish
                         .last()

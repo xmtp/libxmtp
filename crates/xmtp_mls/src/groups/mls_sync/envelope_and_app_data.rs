@@ -383,9 +383,8 @@ where
     /// Store a proposal the ordered prefix delivered, with durable evidence of
     /// its delivery that survives loss of the proposal store.
     ///
-    /// A replay of an identical proposal has the same reference. Store it once:
-    /// a commit covers a reference once, so a second copy would apply twice to
-    /// the pending state.
+    /// A replay of an identical proposal has the same reference. It is stored
+    /// once, as a commit covers it once.
     pub(super) fn store_received_proposal(
         &self,
         group: &mut OpenMlsGroup,

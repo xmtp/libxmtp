@@ -1,4 +1,4 @@
-//! Pending `AppDataUpdate` proposals a commit cannot reference.
+//! Pending proposals a commit cannot carry.
 
 use super::*;
 use openmls::messages::proposals::AppDataUpdateOperation;
@@ -39,7 +39,7 @@ async fn a_repeated_reference_counts_once() -> Result<(), GroupError> {
             }
             let repeat = mls.pending_proposals().next().cloned().unwrap();
             mls.store_pending_proposal(storage, repeat)?;
-            let omitted = selection::omit_inapplicable_app_data(mls, storage)?;
+            let omitted = selection::omit_uncommittable_proposals(mls, storage)?;
             Ok::<_, GroupError>(Continue((omitted, references)))
         })
     })?

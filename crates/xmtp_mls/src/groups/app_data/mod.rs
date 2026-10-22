@@ -14,7 +14,7 @@ pub(crate) mod membership_upkeep;
 pub mod migration;
 pub(crate) mod sender_intents;
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet, hash_map::Entry};
 
 use openmls::{
     component::ComponentData,
@@ -33,13 +33,20 @@ use openmls::{
 };
 use xmtp_mls_common::app_data::{component_id::ComponentId, component_registry::ComponentRegistry};
 
+use crate::groups::GroupError;
 use xmtp_configuration::ApplicationComponentDefinition;
 use xmtp_cryptography::secret::{Zeroize, Zeroizing};
 use xmtp_mls_common::app_data::component_source::{
     ComponentSourceError, apply_app_data_update_payload, read_from_app_data_dict,
 };
 use xmtp_mls_common::app_data::protocol_floor::committed_floor_exceeding;
+use xmtp_mls_common::inbox_id::InboxId;
 use xmtp_mls_common::libxmtp_version::LibXMTPVersion;
+use xmtp_mls_validation::commit::{
+    AppDataUpdateInCommit, AppDataUpdateList, app_data_update_proposer_leaf,
+    extract_commit_participant, membership_inbox_ids, read_committed_metadata,
+    validate_app_data_update_sequence, validate_post_registry,
+};
 
 #[cfg(any(test, feature = "test-utils"))]
 tokio::task_local! {
@@ -152,35 +159,13 @@ impl<'a> AppDataBatch<'a> {
     /// A batch holding the group's pending proposals, in the order a
     /// commit that consumes the proposal store applies them.
     pub(crate) fn pending(group: &'a OpenMlsGroup) -> Result<Self, ComponentSourceError> {
-        Ok(Self::applicable(group)?.0)
-    }
-
-    /// The pending proposals a commit can cover, with their batch: each
-    /// reference once, as a commit covers it, and no `AppDataUpdate` that
-    /// fails to apply after the proposals before it.
-    ///
-    /// Receivers judge a standalone proposal against the committed
-    /// dictionary, so an accepted one can still fail here: an Insert of a
-    /// key that is already present, or that an earlier pending Insert adds.
-    /// Every member rejects a commit that references it.
-    pub(crate) fn applicable(
-        group: &'a OpenMlsGroup,
-    ) -> Result<(Self, Vec<&'a QueuedProposal>), ComponentSourceError> {
         let mut batch = Self::new(group)?;
-        let mut seen = HashSet::new();
-        let proposals = group
-            .pending_proposals()
-            .filter(|queued| {
-                seen.insert(queued.proposal_reference_ref())
-                    && match queued.proposal() {
-                        Proposal::AppDataUpdate(update) => batch
-                            .apply(update.component_id(), update.operation())
-                            .is_ok(),
-                        _ => true,
-                    }
-            })
-            .collect();
-        Ok((batch, proposals))
+        for queued in group.pending_proposals() {
+            if let Proposal::AppDataUpdate(proposal) = queued.proposal() {
+                batch.apply(proposal.component_id(), proposal.operation())?;
+            }
+        }
+        Ok(batch)
     }
 
     pub(crate) fn apply(
@@ -244,6 +229,117 @@ impl<'a> AppDataBatch<'a> {
             }
         }
         updater.changes()
+    }
+}
+
+/// The pending proposals one commit can carry, in store order, and the
+/// batch they produce.
+pub(crate) struct Committable<'a> {
+    pub(crate) batch: AppDataBatch<'a>,
+    pub(crate) proposals: Vec<&'a QueuedProposal>,
+}
+
+impl<'a> Committable<'a> {
+    /// The pending proposals a commit can carry: each reference once, as a
+    /// commit covers it, and each `AppDataUpdate` only if every receiver
+    /// accepts it after the proposals kept before it. Receivers check the
+    /// list rule ([`AppDataUpdateList`]), the proposer's policy against the
+    /// chained value and the post-commit membership
+    /// ([`validate_app_data_update_sequence`]), and the registry the
+    /// commit leaves ([`validate_post_registry`]).
+    ///
+    /// Receivers judge a standalone proposal alone, against the committed
+    /// dictionary. Proposals accepted one by one can still make an invalid
+    /// commit together, such as two Inserts of one key, an Update and a
+    /// Remove of one component, or two super-admin removals that leave
+    /// none. Every member rejects a commit that carries them.
+    ///
+    /// The post-commit membership comes from the kept proposals, so the
+    /// filter runs again over the kept ones until that membership stops
+    /// changing. Each further pass keeps fewer, so this ends.
+    pub(crate) fn pending(group: &'a OpenMlsGroup) -> Result<Self, GroupError> {
+        let mut seen = HashSet::new();
+        let mut proposals: Vec<_> = group
+            .pending_proposals()
+            .filter(|queued| seen.insert(queued.proposal_reference_ref()))
+            .collect();
+        let mut membership = membership_inbox_ids(read_from_app_data_dict(
+            ComponentId::GROUP_MEMBERSHIP,
+            group,
+        ));
+        loop {
+            let committable = Self::keep(group, proposals, membership.as_ref())?;
+            let kept = membership_inbox_ids(committable.batch.state(ComponentId::GROUP_MEMBERSHIP));
+            if kept == membership {
+                return Ok(committable);
+            }
+            membership = kept;
+            proposals = committable.proposals;
+        }
+    }
+
+    /// Keep each of `proposals` a receiver accepts after the ones kept
+    /// before it, with `membership` after the commit.
+    fn keep(
+        group: &'a OpenMlsGroup,
+        proposals: Vec<&'a QueuedProposal>,
+        membership: Option<&HashSet<InboxId>>,
+    ) -> Result<Self, GroupError> {
+        let (immutable, mutable) = read_committed_metadata(group)?;
+        let mut batch = AppDataBatch::new(group)?;
+        let mut list = AppDataUpdateList::default();
+        let mut proposers = HashMap::new();
+        let mut kept = Vec::with_capacity(proposals.len());
+        for queued in proposals {
+            if let Proposal::AppDataUpdate(update) = queued.proposal() {
+                let id = ComponentId::from(update.component_id());
+                let operation = update.operation();
+                if !list.admits(id, operation, || {
+                    read_from_app_data_dict(id, group).is_some()
+                }) {
+                    continue;
+                }
+                let Ok(leaf) = app_data_update_proposer_leaf(queued.sender()) else {
+                    continue;
+                };
+                let proposer = match proposers.entry(*leaf) {
+                    Entry::Occupied(entry) => entry.into_mut(),
+                    Entry::Vacant(entry) => {
+                        match extract_commit_participant(leaf, group, &immutable, &mutable) {
+                            Ok(proposer) => entry.insert(proposer),
+                            Err(_) => continue,
+                        }
+                    }
+                };
+                let update = AppDataUpdateInCommit {
+                    component_id: id,
+                    operation,
+                    actor: (&*proposer).into(),
+                    proposer_inbox_id: &proposer.inbox_id,
+                };
+                let Ok(post) = validate_app_data_update_sequence(
+                    [update],
+                    |id| batch.state(id),
+                    &batch.registry,
+                    immutable.dm_members.as_ref(),
+                    membership,
+                ) else {
+                    continue;
+                };
+                if validate_post_registry(&post).is_err() {
+                    continue;
+                }
+                list.push(id, operation);
+                batch
+                    .states
+                    .extend(post.into_iter().map(|(id, state)| (id.as_u16(), state)));
+            }
+            kept.push(queued);
+        }
+        Ok(Self {
+            batch,
+            proposals: kept,
+        })
     }
 }
 
@@ -486,10 +582,11 @@ impl xmtp_common::RetryableError for GroupAppDataError<xmtp_db::sql_key_store::S
 }
 
 /// The dictionary a commit built now starts from: the committed one with
-/// the pending proposals' updates applied.
+/// the updates of the pending proposals it can carry applied (see
+/// [`Committable::pending`]).
 pub(crate) fn pending_dictionary(
     mls_group: &OpenMlsGroup,
-) -> Result<PendingDictionary, ComponentSourceError> {
+) -> Result<PendingDictionary, GroupError> {
     let mut dictionary = PendingDictionary(
         mls_group
             .extensions()
@@ -497,7 +594,8 @@ pub(crate) fn pending_dictionary(
             .map(|extension| extension.dictionary().clone())
             .unwrap_or_default(),
     );
-    for (id, value) in AppDataBatch::pending(mls_group)?
+    for (id, value) in Committable::pending(mls_group)?
+        .batch
         .updates()
         .into_iter()
         .flatten()
