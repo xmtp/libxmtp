@@ -13,6 +13,7 @@ import {
   exceedsLimit,
   isVisualFile,
   mimeTypeFor,
+  localMimeType,
   photoName,
   safeFileName,
 } from "./attachments.ts";
@@ -179,4 +180,33 @@ test("the draft store lists saved drafts and drops orphans", () => {
   assert.deepEqual(preferences.readJson("attachment-refs"), ["attachment-1"]);
   store.remove("1");
   assert.deepEqual(store.all(), []);
+});
+
+test("local image headers preserve types without a filename extension", () => {
+  const ascii = (value: string) =>
+    Array.from({ length: value.length }, (_, index) => value.charCodeAt(index));
+  const cases: [number[], string][] = [
+    [[0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], "image/png"],
+    [[0xff, 0xd8, 0xff], "image/jpeg"],
+    [ascii("GIF87a"), "image/gif"],
+    [ascii("GIF89a"), "image/gif"],
+    [ascii("RIFF0000WEBP"), "image/webp"],
+    [[0x49, 0x49, 0x2a, 0], "image/tiff"],
+    [[0x4d, 0x4d, 0, 0x2a], "image/tiff"],
+    [ascii("BM"), "image/bmp"],
+    [ascii("0000ftypheic"), "image/heic"],
+    [ascii("0000ftypmif1"), "image/heif"],
+    [ascii("0000ftypavif"), "image/avif"],
+  ];
+  for (const [bytes, expected] of cases) {
+    assert.equal(localMimeType("attachment", new Uint8Array(bytes)), expected);
+  }
+  assert.equal(
+    localMimeType("report.pdf", new Uint8Array()),
+    mimeTypeFor("report.pdf"),
+  );
+  assert.equal(
+    localMimeType("attachment", new Uint8Array([0xff, 0xd8])),
+    mimeTypeFor("attachment"),
+  );
 });

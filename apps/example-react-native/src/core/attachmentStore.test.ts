@@ -595,7 +595,7 @@ type GatewayCall =
   | "create"
   | "pending"
   | "upload"
-  | "hasLocal"
+  | "local"
   | "download"
   | "discard";
 
@@ -623,7 +623,7 @@ test("sign-out waits for each SDK call the store started", async () => {
     ["pending", (h) => h.store.load()],
     ["upload", (h, id) => h.store.send(id)],
     ["download", (h) => h.store.download("m1", remoteFile())],
-    ["hasLocal", (h) => h.store.prepare("m1", remoteFile(), false)],
+    ["local", (h) => h.store.prepare("m1", remoteFile(), false)],
     ["discard", (h, id) => h.store.discard(id)],
   ];
   for (const [name, start] of calls) {
@@ -719,7 +719,7 @@ test("a local lookup finishing after consent changes cannot restore or download"
   const h = harness();
   const file = remoteFile();
   h.gateway.localFiles.push(file);
-  const gate = holdCall(h, "hasLocal");
+  const gate = holdCall(h, "local");
   const work = h.store.prepare("received", file, false);
   await settle();
   h.env.allowed = false;
@@ -782,4 +782,70 @@ test("a failed card restores on remount after a retry completed while it was not
   await h.store.prepare("own", file, true);
   assert.equal(h.store.card("own", file).phase, "verified");
   assert.notEqual(h.store.verified("own"), undefined);
+});
+
+test("repeated local restore failures keep Retry usable without network requests", async () => {
+  const h = harness();
+  const file = remoteFile();
+  h.gateway.localFiles.push(file);
+  h.gateway.localError = attachmentError(true);
+  await h.store.prepare("received", file, false);
+  let notifications = 0;
+  const stop = h.store.subscribe(() => {
+    notifications += 1;
+  });
+  await h.store.prepare("received", file, false);
+  stop();
+  assert.equal(notifications, 0);
+  assert.equal(h.store.card("received", file).phase, "failed");
+  assert.equal(h.store.card("received", file).retryable, true);
+  assert.equal(h.gateway.downloads.length, 0);
+  h.gateway.localError = undefined;
+  await h.store.download("received", file);
+  assert.equal(h.store.card("received", file).phase, "verified");
+});
+
+test("a received local file removed before restoration is never fetched automatically", async () => {
+  const h = harness();
+  const file = remoteFile();
+  h.gateway.localFiles.push(file);
+  const originalLocal = h.gateway.local.bind(h.gateway);
+  h.gateway.local = async (remote) => {
+    await h.gateway.discard(remote);
+    return originalLocal(remote);
+  };
+  await h.store.prepare("received", file, false);
+  assert.equal(h.gateway.downloads.length, 0);
+  assert.equal(h.store.card("received", file).phase, "available");
+  assert.equal(h.store.verified("received"), undefined);
+});
+
+test("a download notification during local lookup is replayed after the lookup", async () => {
+  const h = harness();
+  const file = remoteFile();
+  const originalLocal = h.gateway.local.bind(h.gateway);
+  const gate = deferred();
+  let hold = true;
+  h.gateway.local = async (remote) => {
+    const result = await originalLocal(remote);
+    if (hold) {
+      hold = false;
+      await gate.promise;
+    }
+    return result;
+  };
+  const stop = h.store.watchFile("received", file);
+  try {
+    const preparing = h.store.prepare("received", file, false);
+    await settle();
+    await h.recovery().download("received", file);
+    gate.resolve();
+    await preparing;
+    await settle();
+    assert.equal(h.store.card("received", file).phase, "verified");
+    assert.notEqual(h.store.verified("received"), undefined);
+  } finally {
+    gate.resolve();
+    stop();
+  }
 });

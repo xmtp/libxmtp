@@ -14,6 +14,7 @@ import {
   type VerifiedFile,
   attachmentFailure,
   operationFailed,
+  localMimeType,
 } from "@/core/attachments.ts";
 import type { AttachmentGateway } from "@/core/attachmentStore.ts";
 import type { ChatMessage } from "@/core/chatMessages.ts";
@@ -121,10 +122,24 @@ export class SdkAttachmentGateway implements AttachmentGateway {
     });
   }
 
-  hasLocal(file: RemoteAttachment): Promise<boolean> {
+  local(file: RemoteAttachment): Promise<VerifiedFile | undefined> {
     return mapped(async () => {
+      // The SDK publishes plaintext here only after verification. Do not call
+      // download: the file can disappear before that call and trigger a fetch.
       const path = await this.#client.attachments.localPath(file);
-      return new File(pathToUri(path)).exists;
+      const local = new File(pathToUri(path));
+      if (!local.exists) return undefined;
+      const filename = file.filename ?? "File";
+      const handle = local.open();
+      try {
+        return {
+          path,
+          filename,
+          mimeType: localMimeType(filename, await handle.readBytes(16)),
+        };
+      } finally {
+        handle.close();
+      }
     });
   }
 

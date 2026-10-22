@@ -44,8 +44,8 @@ export interface AttachmentGateway {
   pending(): Promise<RemoteAttachment[]>;
   /** Uploads and returns the final status phase. Throws `AttachmentError`. */
   upload(file: RemoteAttachment): Promise<FilePhase>;
-  /** Whether the SDK already holds the plaintext file; makes no network request. */
-  hasLocal(file: RemoteAttachment): Promise<boolean>;
+  /** Returns existing SDK plaintext only; never starts a network request. */
+  local(file: RemoteAttachment): Promise<VerifiedFile | undefined>;
   /** A completed download can make a file available to another open screen. */
   watchDownloads(listener: (file: RemoteAttachment) => void): () => void;
   /** Downloads, checks the digest and decrypts. Throws `AttachmentError`. */
@@ -118,6 +118,7 @@ export class AttachmentStore extends Store<AttachmentStoreState> {
   readonly #ports: AttachmentStorePorts;
   readonly #verified = new Map<string, VerifiedFile>();
   readonly #failedDownloads = new Set<string>();
+  readonly #localRefreshes = new Set<string>();
   #revision = 0;
   readonly #admissions = new Map<string, object>();
   readonly #discarded = new Set<string>();
@@ -578,7 +579,11 @@ export class AttachmentStore extends Store<AttachmentStoreState> {
   watchFile(messageId: string, file: RemoteAttachment): () => void {
     return this.#ports.gateway.watchDownloads((downloaded) => {
       if (!sameFile(file, downloaded)) return;
-      void this.prepare(messageId, file, false);
+      if (this.#admissions.has(messageId)) {
+        this.#localRefreshes.add(messageId);
+      } else {
+        void this.prepare(messageId, file, false);
+      }
     });
   }
 
@@ -593,9 +598,7 @@ export class AttachmentStore extends Store<AttachmentStoreState> {
     const revision = this.#revision;
     try {
       if (!this.#downloadable(messageId, revision)) return;
-      if (automatic === "local" && !(await this.#ports.gateway.hasLocal(file)))
-        return;
-      await this.#download(messageId, file, revision);
+      await this.#download(messageId, file, revision, automatic === "local");
     } catch (error) {
       if (revision === this.#revision) {
         // A failed card may check for a file downloaded elsewhere on focus.
@@ -609,6 +612,9 @@ export class AttachmentStore extends Store<AttachmentStoreState> {
     } finally {
       if (this.#admissions.get(messageId) === token) {
         this.#admissions.delete(messageId);
+        if (this.#localRefreshes.delete(messageId)) {
+          void this.prepare(messageId, file, false);
+        }
       }
     }
   }
@@ -628,16 +634,24 @@ export class AttachmentStore extends Store<AttachmentStoreState> {
     messageId: string,
     file: RemoteAttachment,
     revision: number,
+    localOnly = false,
   ): Promise<void> {
     if (!this.#downloadable(messageId, revision)) return;
     const authorize = this.#ports.authorizeDownload;
     if (authorize !== undefined && !(await authorize())) return;
     if (!this.#downloadable(messageId, revision)) return;
-    this.#setCard({
-      ...defaultCard(messageId, file),
-      phase: "downloading",
-    });
-    const verified = await this.#ports.gateway.download(file);
+    // Local recovery keeps the existing phase until it succeeds. A repeated
+    // local failure must preserve Retry without driving another focus attempt.
+    if (!localOnly) {
+      this.#setCard({
+        ...defaultCard(messageId, file),
+        phase: "downloading",
+      });
+    }
+    const verified = localOnly
+      ? await this.#ports.gateway.local(file)
+      : await this.#ports.gateway.download(file);
+    if (verified === undefined) return;
     if (
       revision !== this.#revision ||
       !this.#ports.admit() ||
@@ -670,6 +684,7 @@ export class AttachmentStore extends Store<AttachmentStoreState> {
   invalidateDownloads(): void {
     this.#revision += 1;
     this.#admissions.clear();
+    this.#localRefreshes.clear();
     this.#verified.clear();
     const cards: Record<string, FileCard> = {};
     for (const [id, card] of Object.entries(this.getState().cards)) {

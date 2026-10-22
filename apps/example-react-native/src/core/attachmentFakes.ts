@@ -66,6 +66,7 @@ export class FakeGateway implements AttachmentGateway {
   uploadError: Error | undefined;
   uploadPhase: FilePhase = "complete";
   downloadError: Error | undefined;
+  localError: Error | undefined;
   /** Holds downloads until released. */
   downloadGate: Promise<void> | undefined;
 
@@ -105,9 +106,16 @@ export class FakeGateway implements AttachmentGateway {
     return Promise.resolve(this.uploadPhase);
   }
 
-  hasLocal(file: RemoteAttachment): Promise<boolean> {
+  local(file: RemoteAttachment): Promise<VerifiedFile | undefined> {
+    if (this.localError !== undefined) return Promise.reject(this.localError);
     return Promise.resolve(
-      this.localFiles.some((entry) => sameFile(entry, file)),
+      this.localFiles.some((entry) => sameFile(entry, file))
+        ? {
+            path: `/sdk/attachments/${file.filename ?? "file"}`,
+            mimeType: "text/plain",
+            filename: file.filename ?? "File",
+          }
+        : undefined,
     );
   }
 
