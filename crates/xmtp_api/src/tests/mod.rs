@@ -714,7 +714,7 @@ fn group_decoder_keeps_payload_and_envelope_hashes_separate() {
         })?;
         assert_eq!(decoded.sequence_id(), 9);
         assert_eq!(decoded.timestamp(), metadata.server_ns as i64);
-        assert_eq!(decoded.group_id.as_ref(), &GROUP_ID);
+        assert_eq!(decoded.group_id.as_slice(), &GROUP_ID);
         assert_eq!(decoded.payload_hash, xmtp_common::sha256_array(&group.data));
         assert_eq!(
             decoded.envelope_hash,

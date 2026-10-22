@@ -270,7 +270,7 @@ impl<C: Client> XmtpMlsStreams for BackendClient<C> {
             .newest_cursors(
                 groups
                     .iter()
-                    .map(|id| Topic::new_group_message(id.as_ref())),
+                    .map(|id| Topic::new_group_message(id.as_slice())),
             )
             .await?;
         self.subscribe_group_messages_with_cursors(&cursors).await

@@ -159,7 +159,7 @@ impl Sync {
                 Some(existing) if existing.members != live_members => {
                     let member_count = live_members.len();
                     group_store.set(Group::new(
-                        *existing.id(),
+                        existing.id(),
                         existing.created_by,
                         live_members,
                     ))?;

@@ -17,25 +17,25 @@ const TABLE: TableDefinition<GroupKey, Group> = TableDefinition::new(NAMESPACE);
 
 impl super::DeriveKey<GroupKey> for Group {
     fn key(&self) -> GroupKey {
-        GroupKey::new(*self.id().as_bytes())
+        GroupKey::new(StoredGroupId::from(self.id()).0)
     }
 }
 
 impl super::DeriveKey<GroupKey> for &Group {
     fn key(&self) -> GroupKey {
-        GroupKey::new(*self.id().as_bytes())
+        GroupKey::new(StoredGroupId::from(self.id()).0)
     }
 }
 
 impl From<GroupId> for GroupKey {
     fn from(value: GroupId) -> Self {
-        GroupKey::new(value.into_bytes())
+        GroupKey::new(StoredGroupId::from(value).0)
     }
 }
 
 impl From<&GroupId> for GroupKey {
     fn from(value: &GroupId) -> Self {
-        GroupKey::new(*value.as_bytes())
+        GroupKey::new(StoredGroupId::from(value).0)
     }
 }
 

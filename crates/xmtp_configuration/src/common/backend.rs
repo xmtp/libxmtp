@@ -1,5 +1,9 @@
-/// Group and commit-log topic identifier length, in bytes.
-pub const BACKEND_GROUP_ID_BYTES: usize = 16;
+/// Length of a keyed group id and of a commit-log id, in bytes: the topic
+/// identifier of kinds 0 and 4.
+pub const GROUP_ID_BYTES: usize = 32;
+/// Length of a legacy group id, in bytes. Legacy ids come only from imported
+/// archives; topics accept them until the cutover to 32-byte identifiers.
+pub const LEGACY_GROUP_ID_BYTES: usize = 16;
 /// Welcome, key-package, and identity topic identifier length, in bytes.
 pub const BACKEND_INSTALLATION_ID_BYTES: usize = 32;
 

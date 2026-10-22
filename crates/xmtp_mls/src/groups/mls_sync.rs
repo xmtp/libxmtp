@@ -257,7 +257,7 @@ pub enum GroupMessageProcessingError {
     IntentAlreadyProcessed,
     #[error("message with cursor [{}] for group [{}] already processed", _0.cursor, xmtp_common::fmt::debug_hex(_0.group_id)
     )]
-    MessageAlreadyProcessed(MessageIdentifier),
+    MessageAlreadyProcessed(Box<MessageIdentifier>),
     #[error("message identifier not found")]
     MessageIdentifierNotFound,
     #[error("welcome with cursor [{0}] already processed")]

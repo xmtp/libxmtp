@@ -370,7 +370,7 @@ impl GenerateMessages {
         // and any cross-tool inspection can find this message later.
         record_generated_message(
             message_store,
-            &*stored_group.id(),
+            &stored_group.id(),
             &message_id,
             sender_inbox_id,
         );
