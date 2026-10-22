@@ -172,6 +172,8 @@ fn render_status(output: &mut BoundedOutput, value: &Value) {
         "round",
         "phase",
         "verdict",
+        "termination",
+        "termination_reason",
         "counters",
         "contention",
         "ops",
@@ -829,6 +831,23 @@ mod tests {
                 "operation_totals kind=\"display_name\" ok=1 err=0",
             ]
         );
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn incomplete_run_reason_is_visible_in_bounded_status() {
+        let temp = tempfile::tempdir()?;
+        std::fs::write(
+            temp.path().join("status.json"),
+            serde_json::to_vec(&json!({
+                "verdict": "STALL",
+                "termination": "INCONCLUSIVE",
+                "termination_reason": "Run limit reached with unresolved obligations"
+            }))?,
+        )?;
+        let output = status(temp.path());
+        assert!(output.contains("INCONCLUSIVE"));
+        assert!(output.contains("Run limit reached with unresolved obligations"));
+        assert_bounded(&output);
     }
 
     #[xmtp_common::test(unwrap_try = true)]
