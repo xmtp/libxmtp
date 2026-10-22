@@ -108,23 +108,36 @@ The upgraded backend refuses these requests from older clients:
   commit-log topic fails with `INVALID_ARGUMENT`.
 
 Envelopes stored under 17-byte topics stay in the database, but no request can
-read them.
+read them. Push subscriptions stored under 17-byte topics also stay. An update
+that names one in its removes fails as a whole, and these rows still count
+toward `max_push_topics`. They go away only when the installation unregisters
+or its registration expires.
 
 Upgrade in this order:
 
 1. Back up PostgreSQL, then upgrade the backend.
 2. Set `server.min_libxmtp_version` to the libxmtp version of the first SDK
-   release with keyed group ids. A client below the minimum refuses to build,
-   and a running client stops when it next refreshes the published
-   configuration. See [`[server]`](/get-started/run-the-backend/#server).
+   release with keyed group ids. See
+   [`[server]`](/get-started/run-the-backend/#server).
 
-Until a running older client refreshes, the backend refuses its group
-publishes as described above. The client treats each refusal as final and
-does not retry it.
+An older client learns the minimum from the published configuration. A client
+created on a new database, or on one that last connected to another backend
+URL, fetches it first and refuses to build. A client created on a database
+that already holds a stored configuration builds from that copy, and learns
+the minimum at its first refresh, about an hour after it starts. A running
+client stops at that refresh.
+
+Until then, the backend refuses an older client's group publishes as
+described above, and the client treats each refusal as final. Its other
+requests that name a 17-byte topic fail too, and some repeat: an older
+client's commit-log reader sends a refused read about once a second.
 
 Do not upgrade the SDKs before the backend. A new client does not detect an
 older backend, and an older backend refuses its group messages and commit-log
-entries.
+entries. For the same reason, do not roll the backend back to an earlier
+release after clients with keyed group ids have connected: an earlier backend
+routes only 16-byte group ids, so it refuses every keyed group's messages and
+reads.
 
 ### Connection budget
 
