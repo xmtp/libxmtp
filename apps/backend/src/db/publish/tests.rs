@@ -126,6 +126,73 @@ async fn committed_duplicate_wins_over_a_concurrent_validation_failure() {
     server.stop().await?;
 }
 
+/// The request `[U, X]`: U is an identity update whose validation fails while
+/// a concurrent request stores U, so the locked check drops U's failure. X
+/// must still have been checked: a signed message whose signature fails, or
+/// an expired key package, refuses the request and stores nothing, and a
+/// validly signed message is stored. A validation that stopped at U, in the
+/// validation loop or before the signature step, would store X unchecked.
+#[xmtp_common::test(unwrap_try = true)]
+// verifies: API-222, API-230
+async fn a_dropped_concurrent_failure_leaves_nothing_after_it_unchecked() {
+    use api::publish_error::Reason;
+    use prost::Message as _;
+    use xmtp_mls_validation::test_utils::{
+        GroupMessageKind, expired_key_package_envelope, group_keys, keyed_group_message_envelope,
+    };
+    let signed = keyed_group_message_envelope(&group_keys(1), GroupMessageKind::Application, []);
+    let mut forged = signed.clone();
+    let Some(api::client_envelope::Payload::GroupMessage(message)) = forged.payload.as_mut() else {
+        unreachable!("the fixture is a group message")
+    };
+    message.should_push = !message.should_push;
+    let cases = [
+        ("a valid signed message", signed, None),
+        (
+            "a failing signature",
+            forged,
+            Some(Reason::InvalidSignature),
+        ),
+        (
+            "an expired key package",
+            expired_key_package_envelope().envelope,
+            Some(Reason::InvalidKeyPackage),
+        ),
+    ];
+    for (case, second, refusal) in cases {
+        let (server, entered, resume) = paused_server(false).await?;
+        let update = identity_envelope(scw_create_inbox_update());
+        let request = api::PublishRequest {
+            envelopes: vec![update.clone(), second],
+        };
+        let mut client = server.publisher();
+        let first = tokio::spawn(async move { client.publish(request).await });
+        entered.notified().await;
+        let committed = server.publish(vec![update]).await?;
+        resume.notify_one();
+        let result = first.await?;
+        let count = sqlx::query_scalar!("SELECT count(*) FROM envelopes")
+            .fetch_one(&server.backend.store.primary)
+            .await?;
+        match refusal {
+            None => {
+                let metas = result?.into_inner().envelope_metas;
+                assert_eq!(metas[0], committed[0], "{case}");
+                assert_eq!(count, Some(2), "{case} is stored");
+            }
+            Some(reason) => {
+                let error = result.expect_err(case);
+                assert_eq!(error.code(), Code::InvalidArgument, "{case}");
+                let status = tonic_types::pb::Status::decode(error.details())?;
+                let detail = api::PublishError::decode(status.details[0].value.as_slice())?;
+                assert_eq!((detail.index, detail.reason()), (Some(1), reason), "{case}");
+                assert_eq!(count, Some(1), "{case}: only the concurrent U is stored");
+            }
+        }
+        server.stop().await?;
+    }
+}
+
 #[xmtp_common::test(unwrap_try = true)]
 // verifies: API-232
 async fn changed_history_aborts_all_new_rows_after_verification() {

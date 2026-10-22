@@ -180,16 +180,27 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
             .collect::<Result<Vec<_>>>()?;
         self.publish_units_in_order(units, stored).await
     }
+    /// Read commit-log topics. An envelope that does not decode as a
+    /// `CommitLogEntry` of its topic, such as a `SealedCommitLogEntry`, is
+    /// logged and left out; the read still returns every other envelope, so
+    /// one bad envelope never fails it.
     #[xmtp_common::rpc_span]
     pub async fn query_commit_log(
         &self,
         cursors: TopicCursor,
     ) -> Result<Vec<xmtp_proto::types::CommitLogEntry>> {
-        self.query_all(cursors, self.limits().max_query_limit as u32)
+        Ok(self
+            .query_all(cursors, self.limits().max_query_limit as u32)
             .await?
             .into_iter()
-            .map(|envelope| decode_commit_log_entry(envelope).map_err(Into::into))
-            .collect()
+            .filter_map(|envelope| {
+                decode_commit_log_entry(envelope)
+                    .inspect_err(|error| {
+                        tracing::warn!(%error, "discarding a commit-log envelope");
+                    })
+                    .ok()
+            })
+            .collect())
     }
     #[xmtp_common::rpc_span]
     pub async fn get_newest_message_metadata(

@@ -1,5 +1,7 @@
 use crate::test_support as support;
 
+mod signatures;
+
 use crate::api::{self, publish_error::Reason};
 use prost::Message;
 use support::TestServer;

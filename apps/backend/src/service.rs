@@ -26,6 +26,9 @@ pub struct Backend {
     /// The published deployment settings, built once from the validated
     /// configuration and returned unchanged for the life of the process.
     pub(crate) configuration: Arc<crate::api::GetConfigurationResponse>,
+    /// Counts publish-signature verification work for tests.
+    #[cfg(test)]
+    pub(crate) signature_checks: Arc<publish::SignatureChecks>,
 }
 
 impl Backend {
@@ -52,6 +55,8 @@ impl Backend {
             auth: None,
             attachments: None,
             configuration,
+            #[cfg(test)]
+            signature_checks: Arc::default(),
         }
     }
 }
