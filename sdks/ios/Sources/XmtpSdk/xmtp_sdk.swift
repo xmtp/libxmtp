@@ -29493,6 +29493,13 @@ public func latestInboxUpdatesCount(inboxIds: [InboxId], backend: BackendSource)
             errorHandler: FfiConverterTypeXmtpError_lift
         )
 }
+/**
+ * The newest message metadata of each conversation, read from the backend.
+ *
+ * A 32-character id names a legacy conversation from an imported archive.
+ * It has no backend topic, and a read that names its topic fails as a
+ * whole, so such an id is refused with `InvalidArgument` before any request.
+ */
 public func newestMessageMetadataWithBackend(backend: BackendSource, ids: [ConversationId])async throws  -> [String: MessageMetadataEntry]  {
     return
         try  await uniffiRustCallAsync(
@@ -29659,7 +29666,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtp_sdk_checksum_func_latest_inbox_updates_count() != 52024) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_func_newest_message_metadata_with_backend() != 24971) {
+    if (uniffi_xmtp_sdk_checksum_func_newest_message_metadata_with_backend() != 1613) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_func_revoke_installations_with_backend() != 40539) {
