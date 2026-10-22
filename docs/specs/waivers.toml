@@ -477,6 +477,13 @@ issue = "https://github.com/xmtp/libxmtp/issues/4644"
 reason = "The creator still writes `COMMIT_LOG_SIGNER` and writes no `GROUP_ROOT_KEY`."
 
 [[waiver]]
+id = "META-010"
+kind = "gap"
+owner = "Nicholas Molnar"
+issue = "https://github.com/xmtp/libxmtp/issues/4644"
+reason = "`GROUP_ROOT_KEY` (`0xBFFB`) has no built-in definition, so a write of any length is accepted instead of exactly 32 bytes."
+
+[[waiver]]
 id = "JOIN-083"
 kind = "gap"
 owner = "Nicholas Molnar"
