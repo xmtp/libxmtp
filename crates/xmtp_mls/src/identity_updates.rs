@@ -101,7 +101,8 @@ pub(crate) async fn publish_with_conflict_retry<ApiClient: XmtpApi>(
 
 #[derive(Debug)]
 pub struct InstallationDiff {
-    pub added_installations: HashSet<Vec<u8>>,
+    /// Each added installation key, mapped to the inboxes whose identity states add it.
+    pub added_installations: HashMap<Vec<u8>, HashSet<String>>,
     pub removed_installations: HashSet<Vec<u8>>,
 }
 
@@ -650,7 +651,7 @@ where
 
         if !added_installations.is_empty() || !removed_installations.is_empty() {
             let added_installations: Vec<_> =
-                added_installations.iter().map(|i| i.short_hex()).collect();
+                added_installations.keys().map(|i| i.short_hex()).collect();
             let removed_installations: Vec<_> = removed_installations
                 .iter()
                 .map(|i| i.short_hex())
@@ -680,7 +681,7 @@ pub(crate) fn get_installation_diff_local(
     new_membership: &GroupMembership,
     membership_diff: &MembershipDiff<'_>,
 ) -> Result<InstallationDiff, IdentityDependencyError> {
-    let mut added_installations = HashSet::new();
+    let mut added_installations = HashMap::new();
     let mut removed_installations = HashSet::new();
     for inbox_id in membership_diff
         .added_inboxes
@@ -705,7 +706,12 @@ pub(crate) fn get_installation_diff_local(
             )?
             .diff(&final_state),
         };
-        added_installations.extend(diff.new_installations());
+        for installation in diff.new_installations() {
+            added_installations
+                .entry(installation)
+                .or_insert_with(HashSet::new)
+                .insert((*inbox_id).clone());
+        }
         removed_installations.extend(diff.removed_installations());
     }
     for inbox_id in &membership_diff.removed_inboxes {
@@ -1279,7 +1285,7 @@ pub(crate) mod tests {
         assert!(
             installation_diff
                 .added_installations
-                .contains(&client_3_installation_key.to_vec()),
+                .contains_key(&client_3_installation_key.to_vec()),
         );
         assert_eq!(installation_diff.removed_installations.len(), 1);
         assert!(
