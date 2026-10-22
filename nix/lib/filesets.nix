@@ -348,6 +348,8 @@ let
     ];
     "crates/xmtp_mls_common" = [
       (src + /crates/xmtp_mls_common/src/mls_ext/payload_encryption/fixtures)
+      # The group-key unit tests and zeroize canaries read the test vectors.
+      (src + /crates/xmtp_mls_common/src/group_keys/fixtures)
     ];
   };
   # The real sources of a closure, with its data and `extra` paths.
