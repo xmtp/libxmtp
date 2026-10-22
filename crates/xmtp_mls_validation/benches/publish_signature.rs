@@ -17,17 +17,23 @@
 //!   self-check.
 //! - `sign_group_message`: signing with the self-check (sign twice, verify).
 //! - `seal_commit_log_entry`: sealing with the self-check (nonce, encrypt, sign
-//!   twice, verify, decrypt, nonce again). Its self-check cost is roughly this
-//!   minus `sign_once` and the AEAD.
+//!   twice, verify, decrypt, nonce again).
+//! - `seal_self_check`: the P24 self-check of one sealed entry alone, as the
+//!   seal runs it after its first signing: a second signing of the entry's
+//!   `CommitLogEntryTBS`, an open (verify over a rebuilt TBS, then decrypt),
+//!   and the nonce HMAC over the decrypted bytes. The signing and HMAC keys
+//!   are stand-ins of the same kind, because neither cost depends on the key.
 //! - `open_commit_log_entry`: what a commit-log reader does per entry.
 
 use criterion::{Criterion, criterion_group, criterion_main};
 use ed25519_dalek::{Signer, SigningKey};
+use hmac::{Hmac, Mac};
 use prost::Message;
+use sha2::Sha256;
 use std::hint::black_box;
 use xmtp_mls_common::group_keys::{
-    GroupKeys, GroupRoot, group_message_tbs, open_commit_log_entry, seal_commit_log_entry,
-    sign_group_message, verify_publish_signature,
+    GroupKeys, GroupRoot, commit_log_entry_tbs, commit_log_topic, group_message_tbs,
+    open_commit_log_entry, seal_commit_log_entry, sign_group_message, verify_publish_signature,
 };
 use xmtp_mls_validation::{ParsedEnvelope, parse_envelope, verify_publish};
 use xmtp_proto::xmtp::{
@@ -78,6 +84,14 @@ fn bench_publish_signature(c: &mut Criterion) {
     let plain = SigningKey::from_bytes(&[9; 32]);
     let plaintext = entry(&keys, 7);
     let sealed = seal_commit_log_entry(&keys, &plaintext).expect("seal");
+    let commit_log_id = keys.commit_log_id();
+    let entry_tbs = commit_log_entry_tbs(
+        &commit_log_id,
+        sealed.nonce.as_slice().try_into().expect("a 12-byte nonce"),
+        &sealed.ciphertext,
+    )
+    .expect("tbs");
+    let entry_topic = commit_log_topic(&commit_log_id);
     let parsed = parsed_entry(&keys, 7);
     let batch: Vec<_> = (1..=1000).map(|id| parsed_entry(&keys, id)).collect();
 
@@ -123,6 +137,17 @@ fn bench_publish_signature(c: &mut Criterion) {
     });
     group.bench_function("seal_commit_log_entry", |b| {
         b.iter(|| seal_commit_log_entry(&keys, black_box(&plaintext)).expect("seal"))
+    });
+    group.bench_function("seal_self_check", |b| {
+        b.iter(|| {
+            let second = plain.sign(black_box(&entry_tbs));
+            let opened = open_commit_log_entry(&keys, black_box(&sealed)).expect("open");
+            let mut mac =
+                <Hmac<Sha256> as Mac>::new_from_slice(&[0x42; 32]).expect("any key length");
+            mac.update(&entry_topic);
+            mac.update(&opened);
+            (second, mac.finalize().into_bytes())
+        })
     });
     group.bench_function("open_commit_log_entry", |b| {
         b.iter(|| open_commit_log_entry(&keys, black_box(&sealed)).expect("open"))

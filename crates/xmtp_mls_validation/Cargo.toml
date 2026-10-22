@@ -43,6 +43,8 @@ async-trait.workspace = true
 # way the group key table states, to build refused publish signatures.
 ed25519-dalek.workspace = true
 hkdf.workspace = true
+# The bench times the commit-log nonce HMAC of the seal self-check.
+hmac.workspace = true
 openmls = { workspace = true, features = ["test-utils"] }
 openmls_basic_credential.workspace = true
 sha2.workspace = true
