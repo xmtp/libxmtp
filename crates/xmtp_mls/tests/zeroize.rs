@@ -47,6 +47,15 @@ use xmtp_mls::{
     utils::{FullXmtpClient, register_client},
     worker::device_sync::preference_sync::PreferenceUpdate,
 };
+use xmtp_mls_common::{
+    app_data::{
+        component_id::ComponentId,
+        creation::{InitialGroupKind, initial_dictionary},
+        group_root::{check_group_root, group_keys_from_extensions},
+    },
+    group::GroupMetadataOptions,
+    group_keys::{GroupKeys, GroupRoot},
+};
 use xmtp_proto::xmtp::device_sync::content::{
     HmacKeyUpdate as HmacKeyUpdateProto, preference_update::Update as UpdateProto,
 };
@@ -68,6 +77,11 @@ const SYNCED_HMAC_ROOT_KEY: [u8; 42] = [
     0xd1, 0x4c, 0x87, 0x2a, 0xf0, 0x63, 0x19, 0xbe, 0x55, 0xe2, 0x08, 0x9d, 0x76, 0x31, 0xca, 0x4f,
     0xa3, 0x1e, 0x68, 0xd5, 0x0b, 0x92, 0x3c, 0xf7, 0x40, 0xad, 0x26, 0x81, 0xe9, 0x5b, 0x14, 0xc6,
     0x7f, 0x38, 0xb2, 0x0d, 0xe4, 0x59, 0x96, 0x23, 0xfb, 0x6e,
+];
+
+const GROUP_ROOT: [u8; 32] = [
+    0x5e, 0xa1, 0x0c, 0x93, 0x27, 0xd8, 0x4b, 0xf6, 0x81, 0x3a, 0xe7, 0x12, 0xc5, 0x6f, 0x98, 0x24,
+    0xbd, 0x40, 0x7e, 0x09, 0xf2, 0x63, 0xac, 0x15, 0xd9, 0x36, 0x8b, 0xe0, 0x57, 0x1c, 0xa4, 0x7b,
 ];
 
 const COMMIT_LOG_SIGNER: [u8; 32] = [
@@ -408,4 +422,133 @@ fn metadata_intent_debug_redacts_values() {
             "UpdateMetadataIntentData Debug shows {form}: {debug}"
         );
     }
+}
+
+/// The epoch-0 dictionary of a new keyed group with `root`. The dictionary is
+/// handed to OpenMLS, which owns its copy of the root from then on.
+fn keyed_dictionary(root: &GroupRoot) -> openmls::extensions::AppDataDictionary {
+    initial_dictionary(
+        InitialGroupKind::Group {
+            conversation_type: xmtp_proto::types::ConversationType::Group,
+            oneshot_message: None,
+        },
+        &xmtp_mls::groups::group_permissions::PolicySet::default()
+            .to_proto()
+            .unwrap(),
+        &GroupMetadataOptions::default(),
+        &hex::encode([1u8; 32]),
+        Some(root),
+        &[],
+    )
+    .unwrap()
+}
+
+/// Creating a keyed group reads its root, derives the group id from it, and
+/// writes it into the dictionary OpenMLS stores. None of these steps frees an
+/// unwiped copy of the root. The dictionary is OpenMLS state, so it is freed
+/// after the scan; OpenMLS frees its own group-context copies unwiped, as it
+/// does the commit-log signer's.
+#[xmtp_common::test(unwrap_try = true)]
+fn creating_a_keyed_group_wipes_its_root() {
+    let ((dictionary, group_id), hits) = scan(&[Canary::new(&GROUP_ROOT)], || {
+        traced_sync(|| {
+            let root = GroupRoot::from_bytes(&GROUP_ROOT).unwrap();
+            let group_id = GroupKeys::derive(&root).group_id();
+            let dictionary = keyed_dictionary(&root);
+            drop(root);
+            (dictionary, group_id)
+        })
+    });
+    assert_eq!(hits, [0], "freed heap blocks held the group root");
+    assert_eq!(
+        dictionary.get(&ComponentId::GROUP_ROOT_KEY.as_u16()),
+        Some(GROUP_ROOT.as_slice())
+    );
+    assert_eq!(
+        group_id,
+        GroupKeys::derive(&GroupRoot::from_bytes(&GROUP_ROOT)?).group_id()
+    );
+}
+
+/// A joiner reads the root from the Welcome's group context and checks that
+/// it names the group, on success and on failure. Neither frees an unwiped
+/// copy of the root.
+#[xmtp_common::test(unwrap_try = true)]
+fn checking_a_welcome_root_wipes_it() {
+    use openmls::extensions::{AppDataDictionaryExtension, Extension, Extensions};
+    let extensions = Extensions::from_vec(vec![Extension::AppDataDictionary(
+        AppDataDictionaryExtension::new(keyed_dictionary(&GroupRoot::from_bytes(&GROUP_ROOT)?)),
+    )])?;
+    let group_id = GroupKeys::derive(&GroupRoot::from_bytes(&GROUP_ROOT)?).group_id();
+
+    let ((), hits) = scan(&[Canary::new(&GROUP_ROOT)], || {
+        traced_sync(|| {
+            let keys = check_group_root(&extensions, &group_id).unwrap();
+            assert_eq!(keys.group_id(), group_id);
+            drop(keys);
+            let error = check_group_root(&extensions, &[0u8; 32]).unwrap_err();
+            tracing::warn!("rejected: {error} {error:?}");
+            drop(group_keys_from_extensions(&extensions).unwrap());
+        })
+    });
+    drop(extensions);
+
+    assert_eq!(hits, [0], "freed heap blocks held the group root");
+}
+
+/// The root and each key of the group key table, derived here with HKDF from
+/// the table's salt and labels rather than by the code under test.
+fn group_key_table(root: &[u8; 32]) -> Vec<[u8; 32]> {
+    let hkdf = hkdf::Hkdf::<sha2::Sha256>::new(Some(b"xmtp group root"), root);
+    let mut secrets = vec![*root];
+    for info in [
+        "xmtp group signing key",
+        "xmtp commit log signing key",
+        "xmtp commit log encryption key",
+        "xmtp commit log nonce key",
+    ] {
+        let mut key = [0u8; 32];
+        hkdf.expand(info.as_bytes(), &mut key).unwrap();
+        secrets.push(key);
+    }
+    secrets
+}
+
+/// Signing a group message at preparation reads the root from the group
+/// context, derives the group keys, and signs: `check_group_root`, then
+/// `sign_group_message`, the two calls `prepare_group_envelopes_in` makes.
+/// Neither frees an unwiped copy of the root or of any derived key. The
+/// extensions are OpenMLS state, so they are freed after the scan.
+#[xmtp_common::test(unwrap_try = true)]
+fn signing_a_group_message_wipes_the_root_and_its_keys() {
+    use openmls::extensions::{AppDataDictionaryExtension, Extension, Extensions};
+    use xmtp_mls_common::group_keys::sign_group_message;
+
+    let secrets = group_key_table(&GROUP_ROOT);
+    let canaries: Vec<Canary> = secrets.iter().map(|secret| Canary::new(secret)).collect();
+    let extensions = Extensions::from_vec(vec![Extension::AppDataDictionary(
+        AppDataDictionaryExtension::new(keyed_dictionary(&GroupRoot::from_bytes(&GROUP_ROOT)?)),
+    )])?;
+    let group_id = GroupKeys::derive(&GroupRoot::from_bytes(&GROUP_ROOT)?).group_id();
+    let mut message = xmtp_proto::backend_v1::GroupMessage {
+        data: b"signed at preparation".to_vec(),
+        sender_hmac: vec![0x42; 32],
+        should_push: true,
+        signature: Vec::with_capacity(64),
+    };
+
+    let ((), hits) = scan(&canaries, || {
+        traced_sync(|| {
+            let keys = check_group_root(&extensions, &group_id).unwrap();
+            sign_group_message(&keys, &mut message).unwrap();
+            drop(keys);
+        })
+    });
+    assert_eq!(message.signature.len(), 64);
+    drop((extensions, canaries, secrets));
+
+    assert_eq!(
+        hits, [0; 5],
+        "freed heap blocks held the root or a group key"
+    );
 }

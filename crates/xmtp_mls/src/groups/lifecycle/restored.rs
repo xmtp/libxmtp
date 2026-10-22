@@ -62,7 +62,8 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
             } else {
                 PolicySet::default()
             };
-            // The placeholder never receives archived admin lists or a signer.
+            // The placeholder never receives archived admin lists, a group
+            // root, or a signer: only a Welcome brings the root.
             let dictionary = initial_dictionary(
                 kind,
                 &policy
@@ -86,7 +87,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                     GroupMembershipState::Restored,
                     pair,
                     &opts,
-                    Some(&save.id),
+                    NewGroupId::Placeholder(group_id),
                     &config,
                     false,
                 )?;
@@ -94,7 +95,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                 Self::insert_group_row(
                     context,
                     tx,
-                    Some(&save.id),
+                    NewGroupId::Placeholder(group_id),
                     GroupMembershipState::Restored,
                     conversation_type,
                     &opts,

@@ -1524,3 +1524,30 @@ fn standalone_proposal_delete_of_oversized_key_is_rejected() {
         Err(CommitRuleError::InsufficientPermissions)
     ));
 }
+
+/// A write of `GROUP_ROOT_KEY` must be exactly 32 bytes, the length META
+/// section 2 gives it: an empty, 31-byte, or 33-byte first write is
+/// rejected even where the registry allows the write.
+// verifies: META-010
+#[xmtp_common::test(unwrap_try = true)]
+fn group_root_key_writes_must_be_32_bytes() {
+    let id = ComponentId::GROUP_ROOT_KEY;
+    // A scalar first write is an update, so the registry allows updates.
+    let registry = registry_with(id, deny(), allow(), deny(), ComponentType::Bytes);
+    let write = |len: usize| {
+        validate_one_app_data_update_with_old_value(
+            id,
+            &AppDataUpdateOperation::Update(vec![7; len].into()),
+            member(),
+            "inbox_alice",
+            &registry,
+            None,
+            None,
+            None,
+        )
+    };
+    write(32)?;
+    for len in [0, 31, 33] {
+        assert!(write(len).is_err(), "a {len}-byte root was accepted");
+    }
+}

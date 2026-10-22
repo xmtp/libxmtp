@@ -372,9 +372,9 @@ where
 
 xmtp_common::if_test! {
     impl xmtp_common::Generate for GroupId {
-        /// A random 16-byte legacy id, the length clients still create.
+        /// A random 32-byte id, the length of every group a client creates.
         fn generate() -> Self {
-            GroupId::from(xmtp_common::rand_array::<16>())
+            GroupId::from(xmtp_common::rand_array::<{ GROUP_ID_BYTES }>())
         }
     }
 }
@@ -567,10 +567,10 @@ mod test {
     }
 
     #[xmtp_common::test(unwrap_try = true)]
-    fn test_generate_produces_16_bytes() {
+    fn test_generate_produces_32_bytes() {
         use xmtp_common::Generate;
         let id: GroupId = GroupId::generate();
-        assert_eq!(id.as_slice().len(), 16);
+        assert_eq!(id.as_slice().len(), 32);
     }
 
     #[xmtp_common::test(unwrap_try = true)]

@@ -449,67 +449,11 @@ issue = "https://github.com/xmtp/libxmtp/issues/4606"
 reason = "Two Type gaps remain. A table with fixed keys, including an entry of auth.keys or application_components, accepts an array and decodes it by position, such as limits = [] or database = ['postgres://localhost/xmtp']; a table whose keys the operator chooses refuses one. A key whose value is one of a fixed list of strings (server.log_level, server.log_format, and the type and policies of application_components[]) accepts a one-key table, such as server.log_level = { debug = {} }. attachments.target and attachments.target.S3.credentials refuse an array, and attachments.target.S3.credentials.kind refuses a table. The bounds and the standard checks hold: every_standard_check_in_the_field_table_refuses_a_failing_value proves them."
 
 [[waiver]]
-id = "GMOD-040"
-kind = "gap"
-owner = "Nicholas Molnar"
-issue = "https://github.com/xmtp/libxmtp/issues/4644"
-reason = "New groups, DMs, sync groups, and one-shot groups get a random 16-byte group_id, and no group root is drawn. Keyed creation lands with the client switch to keyed groups."
-
-[[waiver]]
-id = "GMOD-041"
-kind = "gap"
-owner = "Nicholas Molnar"
-issue = "https://github.com/xmtp/libxmtp/issues/4644"
-reason = "The derivation exists in `xmtp_mls_common::group_keys`, but no group has a root yet, so the client derives no key. Its uses land with keyed creation, signed publishes, and sealed commit-log entries."
-
-[[waiver]]
 id = "GMOD-042"
 kind = "gap"
 owner = "Nicholas Molnar"
 issue = "https://github.com/xmtp/libxmtp/issues/4644"
-reason = "No group root exists yet, so nothing proves that a root never leaves the client database. Commit builders still produce an exported GroupInfo that every call site drops; once the group context holds a root, that GroupInfo holds it too."
-
-[[waiver]]
-id = "META-075"
-kind = "gap"
-owner = "Nicholas Molnar"
-issue = "https://github.com/xmtp/libxmtp/issues/4644"
-reason = "The creator still writes `COMMIT_LOG_SIGNER` and writes no `GROUP_ROOT_KEY`."
-
-[[waiver]]
-id = "META-010"
-kind = "gap"
-owner = "Nicholas Molnar"
-issue = "https://github.com/xmtp/libxmtp/issues/4644"
-reason = "`GROUP_ROOT_KEY` (`0xBFFB`) has no built-in definition, so a write of any length is accepted instead of exactly 32 bytes. The linked tests cover other components only."
-
-[[waiver]]
-id = "JOIN-083"
-kind = "gap"
-owner = "Nicholas Molnar"
-issue = "https://github.com/xmtp/libxmtp/issues/4644"
-reason = "A Welcome is not checked for a `GROUP_ROOT_KEY` that derives its `group_id`. Welcomes for 16-byte groups and rootless Welcomes for 32-byte groups are accepted, and any Welcome that names a restored placeholder, including a 32-byte one from an archive, can activate it."
-
-[[waiver]]
-id = "API-300"
-kind = "gap"
-owner = "Nicholas Molnar"
-issue = "https://github.com/xmtp/libxmtp/issues/4644"
-reason = "Backend admission verifies publish signatures with the shared verifier in `xmtp_mls_common::group_keys`, but the client's commit-log reader does not verify sealed entries yet."
-
-[[waiver]]
-id = "FORK-074"
-kind = "gap"
-owner = "Nicholas Molnar"
-issue = "https://github.com/xmtp/libxmtp/issues/4644"
-reason = "Entries are published as unencrypted `CommitLogEntry` payloads signed by the `COMMIT_LOG_SIGNER` key, on a topic named by the 16-byte group id. The sealing function exists in `xmtp_mls_common::group_keys`, but the client does not call it yet."
-
-[[waiver]]
-id = "FORK-075"
-kind = "gap"
-owner = "Nicholas Molnar"
-issue = "https://github.com/xmtp/libxmtp/issues/4644"
-reason = "Readers verify entries under a consensus key taken from the first self-verifying entry on the topic and do not decrypt them, because entries are not sealed yet. A reader discards a `SealedCommitLogEntry` unopened."
+reason = "Commit builders still produce an exported GroupInfo, whose group context holds the group root, that every call site drops; archive export still copies `_commit_log_signer` into `GroupSave.mutable_metadata`; and OpenMLS logs the serialized group context, root included, at TRACE under `openmls::schedule`, which a Rust host that installs its own global subscriber with the `tracing-log` bridge receives, because `xmtp_logging::group_context_guard` covers only the subscribers libxmtp installs."
 
 [[waiver]]
 id = "API-210"
@@ -547,39 +491,11 @@ issue = "https://github.com/xmtp/libxmtp/issues/4644"
 reason = "A request naming a 17-byte `0x00` or `0x04` topic is still accepted."
 
 [[waiver]]
-id = "FORK-030"
-kind = "gap"
-owner = "Nicholas Molnar"
-issue = "https://github.com/xmtp/libxmtp/issues/4644"
-reason = "Entries are evaluated under the consensus-key check, not FORK-075, because entries are not sealed yet."
-
-[[waiver]]
-id = "FORK-032"
-kind = "gap"
-owner = "Nicholas Molnar"
-issue = "https://github.com/xmtp/libxmtp/issues/4644"
-reason = "The chain check runs on entries that passed the consensus-key check, not FORK-075, because entries are not sealed yet. The linked test `test_should_skip_remote_log_entry` runs the chain check on unsealed entries."
-
-[[waiver]]
-id = "DMS-002"
-kind = "gap"
-owner = "Nicholas Molnar"
-issue = "https://github.com/xmtp/libxmtp/issues/4644"
-reason = "The DM registry has no `GROUP_ROOT_KEY` entry, and the creator writes `COMMIT_LOG_SIGNER`. The linked test `initial_dm_dictionary_has_empty_admin_sets_and_dm_members` checks dictionary values only, not registry policies."
-
-[[waiver]]
 id = "PUSH-215"
 kind = "gap"
 owner = "Nicholas Molnar"
 issue = "https://github.com/xmtp/libxmtp/issues/4644"
 reason = "Kind `0x00` topics still accept a 16-byte group id as well as a 32-byte one, so a subscription that names a 17-byte `0x00` topic is still accepted. The linked test `every_subscription_shape_failure_leaves_the_recipient_unchanged` takes a 17-byte `0x00` topic as its valid subscription. The linked tests assert the old rule; the change that closes this gap updates them."
-
-[[waiver]]
-id = "PUSH-238"
-kind = "gap"
-owner = "Nicholas Molnar"
-issue = "https://github.com/xmtp/libxmtp/issues/4644"
-reason = "Every group the client creates or joins has a 16-byte group id, so the desired set holds `0x00` topics with 16-byte identifiers, which TOPIC-001 no longer defines."
 
 [[waiver]]
 id = "API-251"
@@ -601,17 +517,3 @@ kind = "gap"
 owner = "Nicholas Molnar"
 issue = "https://github.com/xmtp/libxmtp/issues/4644"
 reason = "The client still accepts a `0x00` or `0x04` topic with a 16-byte identifier as well as a 32-byte one, so it admits a batch on a 17-byte topic of those kinds. The linked tests read batches on 17-byte `0x00` topics. The linked tests assert the old rule; the change that closes this gap updates them."
-
-[[waiver]]
-id = "CONF-078"
-kind = "gap"
-owner = "Nicholas Molnar"
-issue = "https://github.com/xmtp/libxmtp/issues/4644"
-reason = "`WELL_KNOWN_COMPONENT_NAMES` lacks `GROUP_ROOT_KEY`, so the backend starts with an application component of that name. The linked tests check a clash with `USER_DISPLAY_NAME` only."
-
-[[waiver]]
-id = "PERM-019"
-kind = "gap"
-owner = "Nicholas Molnar"
-issue = "https://github.com/xmtp/libxmtp/issues/4644"
-reason = "The creation registry has no `GROUP_ROOT_KEY` entry, so a preset group lacks the immutable-component insert policy for it."

@@ -4,8 +4,6 @@ use itertools::Itertools;
 use redb::TableDefinition;
 use std::sync::Arc;
 
-use super::{Database, MetadataStore};
-
 pub const MODULE: &str = "identity";
 pub const VERSION: u16 = 3;
 pub const NAMESPACE: &str = const_format::concatcp!(STORAGE_PREFIX, ":", VERSION, "//", MODULE);
@@ -160,18 +158,10 @@ impl<'a> super::TableProvider<'a, IdentityKey, Identity> for IdentityStorage {
 
 impl super::TrackMetadata for IdentityStorage {
     fn increment(&self, tx: &redb::WriteTransaction, network: u64, n: u32) -> Result<()> {
-        let store = MetadataStore::from_write_tx(tx, network);
-        store.modify(crate::meta_key!(), |meta| {
-            meta.identities += n;
-        })?;
-        Ok(())
+        super::metadata::update_counters(tx, network, |meta| meta.identities += n)
     }
 
     fn decrement(&self, tx: &redb::WriteTransaction, network: u64, n: u32) -> Result<()> {
-        let store = MetadataStore::from_write_tx(tx, network);
-        store.modify(crate::meta_key!(), |meta| {
-            meta.identities -= n;
-        })?;
-        Ok(())
+        super::metadata::update_counters(tx, network, |meta| meta.identities -= n)
     }
 }

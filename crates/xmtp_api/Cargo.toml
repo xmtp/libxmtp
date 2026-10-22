@@ -42,6 +42,7 @@ xmtp_common = { workspace = true, features = ["test-utils"] }
 xmtp_configuration.workspace = true
 xmtp_cryptography = { workspace = true, features = ["test-utils"] }
 xmtp_id = { workspace = true, features = ["test-utils"] }
+xmtp_mls_common.workspace = true
 xmtp_mls_validation = { workspace = true, features = ["test-utils"] }
 xmtp_proto = { workspace = true, features = ["test-utils"] }
 

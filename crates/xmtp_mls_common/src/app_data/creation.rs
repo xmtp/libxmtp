@@ -27,6 +27,7 @@ use crate::{
         component_registry::{ComponentRegistry, ComponentRegistryError, new_component_metadata},
         migration::MigrationError,
     },
+    group_keys::GroupRoot,
     group_mutable_metadata::MetadataField,
     inbox_id::InboxId,
 };
@@ -57,16 +58,18 @@ pub fn synthesize_registry_from_policy_set(
     policy_set: &PolicySetProto,
 ) -> Result<ComponentRegistry, MigrationError> {
     // Public entry point: maximal registry (every well-known component).
-    // The internal `build_registry` gates `DM_MEMBERS` / `ONESHOT_MESSAGE`
-    // for receiver-side synthesis where the group may not have them —
-    // those live in the immutable range and can't be removed once written.
-    build_registry(policy_set, true, true)
+    // The internal `build_registry` gates `DM_MEMBERS`, `ONESHOT_MESSAGE`,
+    // and `GROUP_ROOT_KEY` for receiver-side synthesis where the group may
+    // not have them — those live in the immutable range and can't be removed
+    // once written.
+    build_registry(policy_set, true, true, true)
 }
 
 pub(crate) fn build_registry(
     policy_set: &PolicySetProto,
     include_dm_members: bool,
     include_oneshot_message: bool,
+    include_group_root: bool,
 ) -> Result<ComponentRegistry, MigrationError> {
     let mut registry = ComponentRegistry::new();
 
@@ -148,8 +151,8 @@ pub(crate) fn build_registry(
     }
 
     // COMMIT_LOG_SIGNER: super-admin-only regardless of PolicySet
-    // shape. The field DOES change post-creation (see
-    // `Group::update_commit_log_signer`), but its enforcement on the
+    // shape. Clients no longer write it, but older clients changed it
+    // after creation, and its enforcement on the
     // legacy side is implicit: `_commit_log_signer` is never present
     // in `update_metadata_policy` (neither `default_map` nor `dm_map`
     // populates it — `supported_fields()` excludes `CommitLogSigner`),
@@ -201,11 +204,12 @@ pub(crate) fn build_registry(
     )?;
 
     // Immutable seeds: super-admin insert, deny update + delete.
-    // `DM_MEMBERS` and `ONESHOT_MESSAGE` are gated on the `include_*`
-    // flags — registering them for a group that doesn't have them
-    // would pin their absence forever (immutable entries can't be
-    // removed after write). Receiver-side synthesis gates them
-    // symmetrically so byte-compare always lines up.
+    // `DM_MEMBERS`, `ONESHOT_MESSAGE`, and `GROUP_ROOT_KEY` are gated on
+    // the `include_*` flags — registering them for a group that doesn't
+    // have them would pin their absence forever (immutable entries can't
+    // be removed after write). Receiver-side synthesis gates them
+    // symmetrically so byte-compare always lines up. A restored
+    // placeholder has no root, so no write can add one later.
     let immutable_permissions = ComponentPermissions {
         insert_policy: Some(metadata_policy(MetadataBasePolicy::AllowIfSuperAdmin)),
         update_policy: Some(metadata_policy(MetadataBasePolicy::Deny)),
@@ -223,6 +227,12 @@ pub(crate) fn build_registry(
     if include_oneshot_message {
         registry.set(
             ComponentId::ONESHOT_MESSAGE,
+            new_component_metadata(immutable_permissions.clone(), ComponentType::Bytes),
+        )?;
+    }
+    if include_group_root {
+        registry.set(
+            ComponentId::GROUP_ROOT_KEY,
             new_component_metadata(immutable_permissions.clone(), ComponentType::Bytes),
         )?;
     }
@@ -591,15 +601,18 @@ pub enum InitialGroupKind<'a> {
 
 /// Build the complete dictionary stored in epoch zero.
 /// Collection values are stored snapshots, not proposal deltas.
+/// `group_root` is the root of a new keyed group, stored in `GROUP_ROOT_KEY`
+/// with its immutable registry entry; a restored placeholder passes none.
+/// No dictionary holds a `COMMIT_LOG_SIGNER`.
 /// `catalogue` is the client's backend snapshot; only its eligible
 /// definitions enter the registry, and no component value is taken from it.
-// implements: PERM-002
+// implements: META-075, PERM-002
 pub fn initial_dictionary(
     kind: InitialGroupKind<'_>,
     policy_set: &PolicySetProto,
     opts: &crate::group::GroupMetadataOptions,
     creator_inbox_id: &str,
-    commit_log_signer: Option<&[u8]>,
+    group_root: Option<&GroupRoot>,
     catalogue: &[ApplicationComponentDefinition],
 ) -> Result<openmls::extensions::AppDataDictionary, MigrationError> {
     use crate::tls_set::TlsSet;
@@ -636,7 +649,12 @@ pub fn initial_dictionary(
             (ConversationType::Dm, Some((first, second)), None)
         }
     };
-    let mut registry = build_registry(policy_set, dm_members.is_some(), oneshot_message.is_some())?;
+    let mut registry = build_registry(
+        policy_set,
+        dm_members.is_some(),
+        oneshot_message.is_some(),
+        group_root.is_some(),
+    )?;
     register_configured_fields(&mut registry, conversation_type, catalogue)?;
     let mut dictionary = AppDataDictionary::new();
     dictionary.insert(
@@ -690,15 +708,11 @@ pub fn initial_dictionary(
             settings.in_ns.to_be_bytes().to_vec(),
         );
     }
-    if let Some(signer) = commit_log_signer {
-        let expected = xmtp_cryptography::configuration::ED25519_KEY_LENGTH;
-        if signer.len() != expected {
-            return Err(MigrationError::InvalidCommitLogSignerLength {
-                expected,
-                actual: signer.len(),
-            });
-        }
-        dictionary.insert(ComponentId::COMMIT_LOG_SIGNER.as_u16(), signer.to_vec());
+    if let Some(root) = group_root {
+        dictionary.insert(
+            ComponentId::GROUP_ROOT_KEY.as_u16(),
+            root.as_bytes().to_vec(),
+        );
     }
     dictionary.insert(
         ComponentId::MIN_SUPPORTED_PROTOCOL_VERSION.as_u16(),
@@ -777,7 +791,7 @@ mod tests {
     }
 
     #[xmtp_common::test(unwrap_try = true)]
-    // verifies: PERM-002
+    // verifies: META-075, PERM-002
     fn initial_group_dictionary_seeds_required_and_optional_values() {
         let creator = inbox(1);
         let options = crate::group::GroupMetadataOptions {
@@ -790,7 +804,7 @@ mod tests {
             ),
         };
         let oneshot = xmtp_proto::xmtp::mls::message_contents::OneshotMessage::default();
-        let signer = [3; xmtp_cryptography::configuration::ED25519_KEY_LENGTH];
+        let root = GroupRoot::from_bytes(&[3; 32])?;
         let dictionary = initial_dictionary(
             InitialGroupKind::Group {
                 conversation_type: ConversationType::Group,
@@ -799,7 +813,7 @@ mod tests {
             &policy_set(),
             &options,
             &creator,
-            Some(&signer),
+            Some(&root),
             &[],
         )?;
 
@@ -838,8 +852,21 @@ mod tests {
             assert_eq!(dictionary.get(&id.as_u16()), Some(value));
         }
         assert_eq!(
-            dictionary.get(&ComponentId::COMMIT_LOG_SIGNER.as_u16()),
-            Some(signer.as_slice())
+            dictionary.get(&ComponentId::GROUP_ROOT_KEY.as_u16()),
+            Some(root.as_bytes().as_slice())
+        );
+        assert!(!dictionary.contains(&ComponentId::COMMIT_LOG_SIGNER.as_u16()));
+        // The immutable registry row: super-admin insert, no update or delete.
+        assert_eq!(
+            registry_of(&dictionary).get(&ComponentId::GROUP_ROOT_KEY)?,
+            Some(new_component_metadata(
+                ComponentPermissions {
+                    insert_policy: Some(metadata_policy(MetadataBasePolicy::AllowIfSuperAdmin)),
+                    update_policy: Some(metadata_policy(MetadataBasePolicy::Deny)),
+                    delete_policy: Some(metadata_policy(MetadataBasePolicy::Deny)),
+                },
+                ComponentType::Bytes,
+            ))
         );
         assert_eq!(
             dictionary.get(&ComponentId::MIN_SUPPORTED_PROTOCOL_VERSION.as_u16()),
@@ -865,10 +892,11 @@ mod tests {
     }
 
     #[xmtp_common::test(unwrap_try = true)]
-    // verifies: DMS-002
+    // verifies: META-075, DMS-002
     fn initial_dm_dictionary_has_empty_admin_sets_and_dm_members() {
         let creator = inbox(1);
         let target = inbox(2);
+        let root = GroupRoot::from_bytes(&[4; 32])?;
         let dictionary = initial_dictionary(
             InitialGroupKind::Dm {
                 target_inbox_id: &target,
@@ -876,7 +904,7 @@ mod tests {
             &policy_set(),
             &crate::group::GroupMetadataOptions::default(),
             &creator,
-            None,
+            Some(&root),
             &[],
         )?;
 
@@ -922,6 +950,51 @@ mod tests {
             ComponentId::ONESHOT_MESSAGE,
         ] {
             assert!(!dictionary.contains(&id.as_u16()));
+        }
+        assert_eq!(
+            dictionary.get(&ComponentId::GROUP_ROOT_KEY.as_u16()),
+            Some(root.as_bytes().as_slice())
+        );
+        // DMS section 2's immutable row: super-admin insert, no update or delete.
+        assert_eq!(
+            registry_of(&dictionary).get(&ComponentId::GROUP_ROOT_KEY)?,
+            Some(new_component_metadata(
+                ComponentPermissions {
+                    insert_policy: Some(metadata_policy(MetadataBasePolicy::AllowIfSuperAdmin)),
+                    update_policy: Some(metadata_policy(MetadataBasePolicy::Deny)),
+                    delete_policy: Some(metadata_policy(MetadataBasePolicy::Deny)),
+                },
+                ComponentType::Bytes,
+            ))
+        );
+    }
+
+    /// A restored placeholder takes no root: neither the value nor its
+    /// registry entry, so no later commit can insert one.
+    #[xmtp_common::test(unwrap_try = true)]
+    fn a_dictionary_without_a_root_registers_no_root() {
+        for kind in [
+            InitialGroupKind::Group {
+                conversation_type: ConversationType::Group,
+                oneshot_message: None,
+            },
+            InitialGroupKind::RestoredDm {
+                member_one_inbox_id: &inbox(1),
+                member_two_inbox_id: &inbox(2),
+            },
+        ] {
+            let dictionary = initial_dictionary(
+                kind,
+                &policy_set(),
+                &crate::group::GroupMetadataOptions::default(),
+                &inbox(1),
+                None,
+                &[],
+            )?;
+            for id in [ComponentId::GROUP_ROOT_KEY, ComponentId::COMMIT_LOG_SIGNER] {
+                assert!(!dictionary.contains(&id.as_u16()), "{id:?}");
+            }
+            assert!(!registry_of(&dictionary).contains_raw(&ComponentId::GROUP_ROOT_KEY));
         }
     }
 

@@ -2,6 +2,10 @@
 //! section 7), and commit-log chunks go out one at a time, in order.
 use super::*;
 use std::sync::Mutex;
+use xmtp_mls_common::{
+    commit_log::{open_entry, seal_entry},
+    group_keys::{GroupKeys, GroupRoot},
+};
 use xmtp_proto::xmtp::mls::message_contents::PlaintextCommitLogEntry;
 
 const GROUP: [u8; 16] = [9; 16];
@@ -63,29 +67,37 @@ fn publish_unit_over_the_envelope_bound_is_refused_locally() {
     assert!(!error.is_retryable());
 }
 
-fn commit_log_entries(count: u64) -> Vec<wire::CommitLogEntry> {
+fn keys() -> GroupKeys {
+    GroupKeys::derive(&GroupRoot::from_bytes(&[9; 32]).unwrap())
+}
+
+/// One conversation's entries for commit sequence ids 1 to `count`, sealed.
+fn commit_log_entries(count: u64) -> Vec<wire::SealedCommitLogEntry> {
+    let keys = keys();
     (1..=count)
         .map(|sequence| {
-            let Some(wire::client_envelope::Payload::CommitLogEntry(entry)) =
-                commit_log_envelope_at(GROUP, sequence).payload
-            else {
-                unreachable!()
+            let entry = PlaintextCommitLogEntry {
+                group_id: keys.group_id().to_vec(),
+                commit_sequence_id: sequence,
+                ..Default::default()
             };
-            entry
+            seal_entry(&keys, &entry).unwrap()
         })
         .collect()
 }
 
 fn commit_sequence_ids(request: &wire::PublishRequest) -> Vec<u64> {
+    let keys = keys();
     request
         .envelopes
         .iter()
         .map(|envelope| {
-            let Some(wire::client_envelope::Payload::CommitLogEntry(entry)) = &envelope.payload
+            let Some(wire::client_envelope::Payload::SealedCommitLogEntry(entry)) =
+                &envelope.payload
             else {
                 unreachable!()
             };
-            PlaintextCommitLogEntry::decode(entry.serialized_commit_log_entry.as_slice())
+            open_entry(&keys, &keys.group_id(), entry)
                 .unwrap()
                 .commit_sequence_id
         })
@@ -169,7 +181,7 @@ async fn commit_log_publish_stops_at_the_first_failed_chunk() {
         .map(|(i, entry)| {
             meta(
                 &wire::ClientEnvelope {
-                    payload: Some(wire::client_envelope::Payload::CommitLogEntry(
+                    payload: Some(wire::client_envelope::Payload::SealedCommitLogEntry(
                         entry.clone(),
                     )),
                 },

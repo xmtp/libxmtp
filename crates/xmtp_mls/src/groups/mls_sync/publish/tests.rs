@@ -11,6 +11,7 @@ mod membership_component;
 mod membership_recovery;
 mod out_of_range_settlement;
 mod send_state_transitions;
+mod signing;
 
 mod transcript;
 
@@ -519,8 +520,10 @@ async fn rejected_intent_keeps_its_typed_cause_after_restart_and_later_rejection
     let Some(Payload::GroupMessage(message)) = &mut malformed.payload else {
         panic!("expected a group envelope");
     };
-    // Keep valid TLS framing so backend admission reaches the client rejection path.
+    // Keep valid TLS framing and sign the changed bytes, so backend admission
+    // reaches the client rejection path.
     *message.data.last_mut().unwrap() ^= 1;
+    group.sign_as_member(message);
     let receipts = group
         .context
         .api()
@@ -1201,6 +1204,8 @@ async fn rejected_own_application_echo_fails_atomically_and_survives_restart() {
     let epoch_offset = 4 + header.position() as usize;
     message.data[epoch_offset..epoch_offset + 8]
         .copy_from_slice(&(attempt.base.epoch + 1).to_be_bytes());
+    // Sign the changed bytes, so backend admission accepts them.
+    group.sign_as_member(message);
     attempt.payload_hash = sha256(&message.data).to_vec();
     attempt.envelopes = vec![envelope.encode_to_vec()];
     let bytes = xmtp_db::db_serialize(&attempt)?;

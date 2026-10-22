@@ -5,10 +5,8 @@ use std::sync::Arc;
 
 use crate::{app::types::*, constants::STORAGE_PREFIX};
 
-use super::{Database, MetadataStore};
-
 pub const MODULE: &str = "dms";
-pub const VERSION: u16 = 1;
+pub const VERSION: u16 = 2;
 pub const NAMESPACE: &str = const_format::concatcp!(STORAGE_PREFIX, ":", VERSION, "//", MODULE);
 
 /// Mapping of [`DmKey`] to a bare-minimum serialized [`Dm`]
@@ -64,14 +62,10 @@ impl<'a> super::TableProvider<'a, DmKey, Dm> for DmStorage {
 }
 impl super::TrackMetadata for DmStorage {
     fn increment(&self, tx: &redb::WriteTransaction, network: u64, n: u32) -> Result<()> {
-        let store = MetadataStore::from_write_tx(tx, network);
-        store.modify(crate::meta_key!(), |meta| meta.dms += n)?;
-        Ok(())
+        super::metadata::update_counters(tx, network, |meta| meta.dms += n)
     }
 
     fn decrement(&self, tx: &redb::WriteTransaction, network: u64, n: u32) -> Result<()> {
-        let store = MetadataStore::from_write_tx(tx, network);
-        store.modify(crate::meta_key!(), |meta| meta.dms -= n)?;
-        Ok(())
+        super::metadata::update_counters(tx, network, |meta| meta.dms -= n)
     }
 }

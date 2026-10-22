@@ -25,6 +25,7 @@ pub fn logger() {
         // .with_empty_samples(false);
 
         tracing_subscriber::registry()
+            .with(xmtp_logging::group_context_guard())
             .with(tracing_subscriber::fmt::layer().with_filter(EnvFilter::from_default_env()))
             .with(
                 flame_layer

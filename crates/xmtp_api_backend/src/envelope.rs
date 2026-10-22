@@ -253,25 +253,22 @@ pub fn decode_key_package(
     }
 }
 
-/// Decode a signed commit-log record without verifying its signature.
+/// Decode an envelope read from a commit-log topic without opening it. An
+/// envelope whose payload is not a sealed entry decodes with no entry, so the
+/// reader discards it and still reads past it. Only invalid metadata fails.
 pub fn decode_commit_log_entry(
     envelope: wire::ServerEnvelope,
 ) -> Result<types::CommitLogEntry, EnvelopeError> {
-    let (meta, payload) = parts(envelope, TopicKind::CommitLogEntriesV1)?;
-    let wire::client_envelope::Payload::CommitLogEntry(payload) = payload else {
-        return Err(invalid("commit log payload").into());
+    let meta = envelope.meta.ok_or_else(|| invalid("metadata"))?;
+    let (topic, cursor, _) = metadata(&meta, TopicKind::CommitLogEntriesV1)?;
+    let sealed = match envelope.envelope.and_then(|envelope| envelope.payload) {
+        Some(wire::client_envelope::Payload::SealedCommitLogEntry(entry)) => Some(entry),
+        _ => None,
     };
-    let entry =
-        xmtp_mls_common::commit_log::decode_commit_log(&payload.serialized_commit_log_entry)
-            .map_err(ConversionError::from)?;
-    let (topic, _, _) = metadata(&meta, TopicKind::CommitLogEntriesV1)?;
-    if entry.group_id != topic.identifier() {
-        return Err(invalid("commit log group id").into());
-    }
     Ok(types::CommitLogEntry {
-        meta,
-        entry,
-        payload,
+        topic,
+        cursor,
+        sealed,
     })
 }
 
@@ -317,6 +314,41 @@ mod tests {
                     },
                 )),
             }),
+        }
+    }
+
+    /// A stored group message decodes under a 32-byte group id as under a
+    /// 16-byte one, keeps the fields its signature covers, and is refused
+    /// under another group's topic.
+    #[xmtp_common::test(unwrap_try = true)]
+    fn group_messages_decode_under_both_id_lengths() {
+        use xmtp_mls_validation::test_utils::{GroupMessageKind, group_message_envelope};
+
+        for (id, other) in [
+            ([3u8; 32].as_slice(), [4u8; 32].as_slice()),
+            (&[3; 16], &[4; 16]),
+        ] {
+            let topic = Topic::new_group_message(id);
+            let mut stored = envelope(&topic, 9);
+            let mut client = group_message_envelope(id, GroupMessageKind::Application, []);
+            if let Some(wire::client_envelope::Payload::GroupMessage(message)) = &mut client.payload
+            {
+                message.signature = vec![5; 64];
+            }
+            stored.envelope = Some(client);
+
+            let decoded = decode_group_message(stored.clone())?;
+            assert_eq!(decoded.group_id.as_slice(), id);
+            assert_eq!(decoded.sender_hmac, [0x33, 0x44]);
+            assert!(decoded.should_push);
+            let metadata = decode_group_message_metadata(stored.meta.clone().unwrap())?;
+            assert_eq!(metadata.group_id.as_slice(), id);
+
+            let mut moved = stored;
+            moved.meta.as_mut().unwrap().topic = Some(wire::Topic {
+                topic: Topic::new_group_message(other).cloned_vec(),
+            });
+            assert!(decode_group_message(moved).is_err(), "{} bytes", id.len());
         }
     }
 

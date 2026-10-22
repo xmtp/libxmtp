@@ -1,7 +1,9 @@
 //! Post-commit work: installations, welcomes, and HMAC keys.
 
+use super::publish::OutgoingPreparationError;
 use super::*;
 use xmtp_common::snippet::Snippet;
+use xmtp_mls_common::group_keys::{GroupKeys, SealError, sign_group_message};
 
 fn log_missing_installations(
     inbox_id: &str,
@@ -275,30 +277,91 @@ where
         payloads: Vec<(&[u8], bool)>,
     ) -> Result<Vec<PublishUnit>, GroupError> {
         crate::state_tx::state_write(self.context.mls_storage(), |tx| {
-            let envelopes = self.prepare_group_envelopes_in(tx.storage().db(), payloads)?;
-            Ok::<_, GroupError>(Continue(vec![PublishUnit::new(envelopes)?]))
+            tx.with_group(self.group_id, |group, storage| {
+                let envelopes = self.prepare_group_envelopes_in(storage.db(), group, payloads)?;
+                Ok::<_, GroupError>(Continue(vec![PublishUnit::new(envelopes)?]))
+            })
         })
         .map(TransactionOutcome::into_continued)
     }
 
+    /// One signed group message envelope per payload, for `group` as the
+    /// caller's writer loaded it. The keys come from the group's own
+    /// `GROUP_ROOT_KEY`, and the root must derive the group's id, so a group
+    /// without a root (a Restored placeholder or a legacy group) fails here,
+    /// before anything is saved or sent.
     pub(super) fn prepare_group_envelopes_in(
         &self,
         conn: impl xmtp_db::DbQuery,
+        group: &OpenMlsGroup,
         payloads: Vec<(&[u8], bool)>,
     ) -> Result<Vec<ClientEnvelope>, GroupError> {
+        let keys = xmtp_mls_common::app_data::group_root::check_group_root(
+            group.extensions(),
+            group.group_id().as_slice(),
+        )
+        .map_err(OutgoingPreparationError::GroupKeys)?;
         let hmac_keys = self.hmac_keys_in(conn, 0..=0)?;
         let hmac_key = hmac_keys.last().expect("Range of count 1 was provided.");
-        Ok(group_message_envelopes(hmac_key, payloads))
+        let signed = group_message_envelopes(hmac_key, &keys, payloads);
+        #[cfg(test)]
+        let signed = sign_fault::apply(group.group_id().as_slice(), signed);
+        signed.map_err(|error| OutgoingPreparationError::SignGroupMessage(error).into())
+    }
+}
+
+/// Test-only faults at the result of signing a group's messages, by group id.
+/// They let tests drive a failed self-check, or an envelope the local
+/// admission parse refuses, through preparation.
+#[cfg(test)]
+pub(crate) mod sign_fault {
+    use super::*;
+    use std::collections::HashMap;
+    use std::sync::{Arc, LazyLock, Mutex};
+
+    pub(crate) type SignFault = Arc<
+        dyn Fn(Result<Vec<ClientEnvelope>, SealError>) -> Result<Vec<ClientEnvelope>, SealError>
+            + Send
+            + Sync,
+    >;
+
+    static FAULTS: LazyLock<Mutex<HashMap<Vec<u8>, SignFault>>> = LazyLock::new(Default::default);
+
+    /// Pass every later signing result of `group_id` through `fault`.
+    pub(crate) fn set(group_id: &[u8], fault: SignFault) {
+        FAULTS
+            .lock()
+            .expect("sign faults lock")
+            .insert(group_id.to_vec(), fault);
+    }
+
+    pub(super) fn apply(
+        group_id: &[u8],
+        signed: Result<Vec<ClientEnvelope>, SealError>,
+    ) -> Result<Vec<ClientEnvelope>, SealError> {
+        let fault = FAULTS
+            .lock()
+            .expect("sign faults lock")
+            .get(group_id)
+            .cloned();
+        match fault {
+            Some(fault) => fault(signed),
+            None => signed,
+        }
     }
 }
 
 /// One group message envelope per payload, whose `sender_hmac` is the
-/// HMAC-SHA256 of the payload under `hmac_key`.
-// implements: PUSH-258
+/// HMAC-SHA256 of the payload under `hmac_key` and whose `signature` is the
+/// group signing key's signature over every other field. Signing runs after
+/// `sender_hmac` is set and passes the self-check before an envelope is
+/// returned, so the bytes a caller saves are the bytes the backend verifies.
+// implements: PUSH-258, GMOD-041
 pub(super) fn group_message_envelopes(
     hmac_key: &HmacKey,
+    keys: &GroupKeys,
     payloads: Vec<(&[u8], bool)>,
-) -> Vec<ClientEnvelope> {
+) -> Result<Vec<ClientEnvelope>, SealError> {
     let sender_hmac =
         Hmac::<Sha256>::new_from_slice(&hmac_key.key).expect("HMAC can take key of any size");
 
@@ -308,17 +371,18 @@ pub(super) fn group_message_envelopes(
         sender_hmac.update(payload);
         let sender_hmac = sender_hmac.finalize();
 
+        let mut message = BackendGroupMessage {
+            data: payload.to_vec(),
+            sender_hmac: sender_hmac.into_bytes().to_vec(),
+            should_push,
+            signature: Vec::new(),
+        };
+        sign_group_message(keys, &mut message)?;
         result.push(ClientEnvelope {
-            payload: Some(Payload::GroupMessage(BackendGroupMessage {
-                data: payload.to_vec(),
-                sender_hmac: sender_hmac.into_bytes().to_vec(),
-                should_push,
-                // Empty: signing needs a group root, which groups do not hold yet.
-                signature: Vec::new(),
-            })),
+            payload: Some(Payload::GroupMessage(message)),
         });
     }
-    result
+    Ok(result)
 }
 
 #[cfg(all(test, not(target_arch = "wasm32")))]

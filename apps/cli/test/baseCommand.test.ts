@@ -89,6 +89,10 @@ describe("storage errors", () => {
       "StorageError::OldEncodingDatabase",
       "This database uses an older storage encoding. Keep a backup and create a new client database.",
     ],
+    [
+      "StorageError::LegacyGroupDatabase",
+      "This database holds groups from before keyed group ids. Keep a backup and create a new client database.",
+    ],
   ])("prints the database path for %s", (code, sdkMessage) => {
     const { dbPath } = createTestIdentity();
     const message = formatStorageErrorMessage(

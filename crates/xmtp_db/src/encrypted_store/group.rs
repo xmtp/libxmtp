@@ -92,8 +92,10 @@ pub struct StoredGroup {
     /// Whether the user should publish the commit log for this group
     #[builder(default = false)]
     pub should_publish_commit_log: bool,
-    /// The consensus public key of the commit log for this group
-    /// Derived from the first entry of the commit log
+    /// The group's commit-log id: the public key of the commit-log signing
+    /// key derived from its group root, stored at creation and join. It
+    /// names the commit-log topic. `None` for a group without a root, such
+    /// as a restored placeholder.
     #[builder(default = None)]
     pub commit_log_public_key: Option<Vec<u8>>,
     /// Whether the local commit log has diverged from the remote commit log
@@ -407,13 +409,6 @@ pub trait QueryGroup {
         group_id: &GroupId,
     ) -> Result<ConversationType, crate::ConnectionError>;
 
-    /// Updates the commit log public key for a group
-    fn set_group_commit_log_public_key(
-        &self,
-        group_id: &GroupId,
-        public_key: &[u8],
-    ) -> Result<(), StorageError>;
-
     /// Updates the is_commit_log_forked status for a group
     fn set_group_commit_log_forked_status(
         &self,
@@ -581,14 +576,6 @@ where
         group_id: &GroupId,
     ) -> Result<ConversationType, crate::ConnectionError> {
         (**self).get_conversation_type(group_id)
-    }
-
-    fn set_group_commit_log_public_key(
-        &self,
-        group_id: &GroupId,
-        public_key: &[u8],
-    ) -> Result<(), StorageError> {
-        (**self).set_group_commit_log_public_key(group_id, public_key)
     }
 
     fn set_group_commit_log_forked_status(
@@ -1220,30 +1207,6 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
             .select(dsl::conversation_type);
         let conversation_type = self.raw_query(|conn| query.first(conn))?;
         Ok(conversation_type)
-    }
-
-    fn set_group_commit_log_public_key(
-        &self,
-        group_id: &GroupId,
-        public_key: &[u8],
-    ) -> Result<(), StorageError> {
-        use crate::schema::groups::dsl;
-        let num_updated = self.raw_query(|conn| {
-            diesel::update(dsl::groups)
-                .filter(
-                    dsl::id
-                        .eq(group_id)
-                        .and(dsl::commit_log_public_key.is_null()),
-                )
-                .set(dsl::commit_log_public_key.eq(public_key))
-                .execute(conn)
-        })?;
-        if num_updated == 0 {
-            return Err(StorageError::Duplicate(DuplicateItem::CommitLogPublicKey(
-                group_id.as_ref().to_vec(),
-            )));
-        }
-        Ok(())
     }
 
     fn set_group_commit_log_forked_status(

@@ -1,7 +1,8 @@
 //! Test-only observations for convergence and liveness checks.
 //!
 //! IDs and public MLS state use hex so reports can cross a process boundary.
-//! No secret MLS state or message contents leave these observations.
+//! No secret MLS state, group key, or message contents leave these
+//! observations.
 
 use crate::{
     context::XmtpSharedContext,
@@ -19,6 +20,7 @@ use xmtp_common::{
     ErrorCode, RetryableError,
     time::{Duration, Instant},
 };
+use xmtp_cryptography::hash::sha256_array;
 use xmtp_db::{
     ConnectionExt, NotFound, TransactionOutcome, XmtpMlsStorageProvider,
     consent_record::ConsentState, group::GroupMembershipState, prelude::*,
@@ -59,7 +61,9 @@ pub struct GroupSnapshot {
     /// Super admin inbox IDs in the committed dictionary.
     #[serde(default)]
     pub super_admins: Vec<String>,
-    /// Serialized public context extensions, including all metadata and app data.
+    /// SHA-256 of the serialized group context extensions, so peers can
+    /// compare metadata and app data. A digest, not the bytes: the AppData
+    /// dictionary holds the group root (GMOD-042).
     pub metadata: String,
     pub membership_state: GroupMembershipState,
     pub active: bool,
@@ -179,7 +183,7 @@ impl<C: XmtpSharedContext> MlsGroup<C> {
                 members,
                 admins,
                 super_admins,
-                metadata: hex::encode(group.extensions().tls_serialize_detached()?),
+                metadata: hex::encode(sha256_array(&group.extensions().tls_serialize_detached()?)),
                 membership_state: stored.membership_state,
                 active: stored.membership_state != GroupMembershipState::Restored
                     && group.is_active(),
@@ -405,6 +409,23 @@ mod tests {
             Some("Welcome")
         );
         assert_eq!(snapshot.epoch_authenticator, before.epoch_authenticator);
+    }
+
+    /// A snapshot can leave the process, so it never carries the group root
+    /// that the AppData dictionary holds (GMOD-042).
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn snapshot_holds_no_group_root() {
+        use xmtp_mls_common::app_data::group_root::read_group_root;
+
+        tester!(alix, disable_workers);
+        let group = alix.create_group(None, None)?;
+        let root = group
+            .with_group_snapshot(|mls_group| Ok(read_group_root(mls_group.extensions())))???;
+        let report = serde_json::to_string(&group.diagnostic_snapshot()?)?;
+        assert!(
+            !report.contains(&hex::encode(root.as_bytes())),
+            "the snapshot holds the group root"
+        );
     }
 
     #[xmtp_common::test(unwrap_try = true)]

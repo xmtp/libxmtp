@@ -24,20 +24,21 @@ use xmtp_mls::groups::summary::SyncSummary;
 
 /// Mirror a successfully-sent message to redb's `MessageStore`. Soft
 /// errors only — generate is best-effort, so logged-and-skipped rather
-/// than aborted. Non-16-byte group_id or non-32-byte message_id would
+/// than aborted. A group_id or message_id that is not 32 bytes would
 /// indicate a libxmtp invariant break the validator path already
-/// surfaces; we just don't record those rows.
+/// surfaces; we just don't record those rows. Every group a client
+/// creates is keyed, with a 32-byte id.
 fn record_generated_message(
     store: &MessageStore<'static>,
     group_id: &[u8],
     message_id: &[u8],
     sender_inbox_id: InboxId,
 ) {
-    let Ok(group_id_bytes) = <[u8; 16]>::try_from(group_id) else {
+    let Ok(group_id_bytes) = <[u8; 32]>::try_from(group_id) else {
         tracing::warn!(
             target: "generate",
             len = group_id.len(),
-            "expected 16-byte group_id; skipping redb message record",
+            "expected 32-byte group_id; skipping redb message record",
         );
         return;
     };

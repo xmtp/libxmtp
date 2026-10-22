@@ -696,6 +696,13 @@ where
         self
     }
 
+    pub fn fork_recovery_opts(self, opts: ForkRecoveryOpts) -> Self {
+        Self {
+            fork_recovery_opts: Some(opts),
+            ..self
+        }
+    }
+
     pub fn enable_fork_recovery_requests(self) -> Self {
         Self {
             fork_recovery_opts: Some(ForkRecoveryOpts {

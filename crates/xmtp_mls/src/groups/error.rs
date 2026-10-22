@@ -392,6 +392,10 @@ pub enum GroupError {
     /// The Welcome has missing, malformed, or out-of-range join metadata. Not retryable.
     #[error("Welcome join metadata is invalid")]
     InvalidWelcomeMetadata,
+    /// The Welcome's group context has no 32-byte group root, or its root
+    /// does not derive the Welcome's group id. Not retryable.
+    #[error("Welcome group root does not name its group: {0}")]
+    WelcomeGroupRoot(xmtp_mls_common::app_data::group_root::GroupRootError),
     /// The Welcome needs a newer client. Keep it blocked until upgrade. Retryable.
     #[error("Welcome requires client version {0}")]
     UnsupportedWelcomeVersion(String),
@@ -618,6 +622,7 @@ impl RetryableError for GroupError {
             Self::MissingSequenceId => true,
             Self::NotFound(_)
             | Self::InvalidWelcomeMetadata
+            | Self::WelcomeGroupRoot(_)
             | Self::UserLimitExceeded
             | Self::InvalidGroupMembership
             | Self::Intent(_)

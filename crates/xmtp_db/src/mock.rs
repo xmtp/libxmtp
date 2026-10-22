@@ -260,12 +260,6 @@ mock! {
 
         fn get_conversation_type(&self, group_id: &GroupId) -> Result<ConversationType, crate::ConnectionError>;
 
-        fn set_group_commit_log_public_key(
-            &self,
-            group_id: &GroupId,
-            public_key: &[u8],
-        ) -> Result<(), StorageError>;
-
         fn set_group_commit_log_forked_status(
             &self,
             group_id: &GroupId,

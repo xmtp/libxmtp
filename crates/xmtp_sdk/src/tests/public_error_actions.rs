@@ -45,7 +45,7 @@ fn expect(error: XmtpError, code: &str, category: ErrorCategory, retryable: bool
 /// failure keeps the code `Storage`.
 #[xmtp_common::test]
 fn unsupported_databases_carry_their_cause_code() {
-    let cases: [(fn() -> StorageError, &str); 4] = [
+    let cases: [(fn() -> StorageError, &str); 5] = [
         (
             || StorageError::PreTransitionDatabase,
             "StorageError::PreTransitionDatabase",
@@ -57,6 +57,10 @@ fn unsupported_databases_carry_their_cause_code() {
         (
             || StorageError::OldEncodingDatabase,
             "StorageError::OldEncodingDatabase",
+        ),
+        (
+            || StorageError::LegacyGroupDatabase,
+            "StorageError::LegacyGroupDatabase",
         ),
         (
             || StorageError::DieselResult(xmtp_db::diesel::result::Error::NotFound),

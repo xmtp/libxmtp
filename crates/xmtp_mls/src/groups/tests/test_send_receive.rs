@@ -1105,6 +1105,7 @@ async fn application_component_commit_names_each_changed_item() {
         (0x800b, "_commit_log_signer"),
         (0x800c, "USER_DISPLAY_NAME"),
         (0x800d, "GROUP_IMAGE"),
+        (0xbffb, "GROUP_ROOT_KEY"),
         (0xbffc, "ONESHOT_MESSAGE"),
         (0xbffd, "DM_MEMBERS"),
         (0xbffe, "CREATOR_INBOX_ID"),

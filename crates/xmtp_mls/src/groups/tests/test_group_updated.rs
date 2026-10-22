@@ -446,10 +446,10 @@ async fn test_first_metadata_update_reports_empty_old_value() {
     assert_eq!(change.new_value.as_deref(), Some("foo"));
 }
 
-/// A commit that changes the commit-log signer records no change for it:
-/// neither the committer's nor a member's stored transcript names
-/// `_commit_log_signer`, and no INFO log through the production filter holds
-/// the key's hex.
+/// A commit that changes the commit-log signer, as older clients sent, records
+/// no change for it: neither the committer's nor a member's stored transcript
+/// names `_commit_log_signer`, and no INFO log through the production filter
+/// holds the key's hex.
 // verifies: META-074, LOG-014
 #[cfg(not(target_arch = "wasm32"))]
 #[xmtp_common::test(unwrap_try = true)]
@@ -471,7 +471,16 @@ async fn commit_log_signer_change_is_not_recorded() {
     {
         // The current-thread runtime polls spawned tasks on this thread too.
         let _logging = tracing::dispatcher::set_default(&capture.dispatch());
-        alix_group.update_commit_log_signer(signer.clone()).await?;
+        // Clients no longer send this change; queue it as an older one did.
+        let intent_data: Vec<u8> =
+            crate::groups::intents::UpdateMetadataIntentData::new_update_commit_log_signer(
+                signer.clone(),
+            )
+            .into();
+        let intent = crate::groups::intents::QueueIntent::metadata_update()
+            .data(intent_data)
+            .queue(&alix_group)?;
+        alix_group.sync_until_intent_resolved(intent.id).await?;
         bo_group.sync().await?;
     }
 

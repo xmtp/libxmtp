@@ -30,11 +30,13 @@
 //!
 //! ## Secret values
 //!
-//! `COMMIT_LOG_SIGNER` holds the group's commit-log private key, so every
-//! component value these helpers copy is a secret candidate. Reads borrow
+//! `GROUP_ROOT_KEY` holds the group root, and `COMMIT_LOG_SIGNER` the
+//! commit-log private key of a legacy group, so every component value these
+//! helpers copy is a secret candidate. Reads borrow
 //! the dictionary's bytes, and computed values come back in `Zeroizing`,
 //! which wipes them on drop whatever the component.
 
+use crate::group_keys::GROUP_ROOT_BYTES;
 use crate::{
     app_data::{
         component_id::ComponentId,
@@ -268,7 +270,8 @@ pub fn component_type(id: ComponentId) -> Option<ComponentType> {
         // but we still advertise the type for completeness).
         ComponentId::CONVERSATION_TYPE
         | ComponentId::CREATOR_INBOX_ID
-        | ComponentId::ONESHOT_MESSAGE => Some(ComponentType::Bytes),
+        | ComponentId::ONESHOT_MESSAGE
+        | ComponentId::GROUP_ROOT_KEY => Some(ComponentType::Bytes),
         ComponentId::DM_MEMBERS => Some(ComponentType::TlsSetInboxId),
 
         _ => None,
@@ -459,9 +462,32 @@ pub fn expand_app_data_update_to_changes(
     // validator. Old and new clients converge on the same dict state for
     // the same wire bytes.
     let ty = resolved_type(component_id, registry)?;
-    expand_to_changes_for_type(component_id, ty, operation, old_value)
-        .map(Zeroizing::new)
-        .map_err(Into::into)
+    let changes = Zeroizing::new(expand_to_changes_for_type(
+        component_id,
+        ty,
+        operation,
+        old_value,
+    )?);
+    for value in changes.iter().filter_map(|change| change.value.as_deref()) {
+        check_group_root_length(component_id, value)?;
+    }
+    Ok(changes)
+}
+
+/// Reject a `GROUP_ROOT_KEY` value that is not 32 bytes, the length the
+/// well-known component table gives the group root.
+// implements: META-010
+fn check_group_root_length(id: ComponentId, value: &[u8]) -> Result<(), ComponentSourceError> {
+    if id == ComponentId::GROUP_ROOT_KEY && value.len() != GROUP_ROOT_BYTES {
+        return Err(ComponentSourceError::MalformedComponentValue {
+            component_id: id,
+            reason: format!(
+                "a group root is {GROUP_ROOT_BYTES} bytes, not {}",
+                value.len()
+            ),
+        });
+    }
+    Ok(())
 }
 
 /// Decode an incoming `AppDataUpdateOperation::Update(bytes)` payload
@@ -510,6 +536,7 @@ pub fn apply_app_data_update_payload(
     if is_field_bounded(id) {
         check_field_bounds(id, resolved_type(id, registry)?, &new_value)?;
     }
+    check_group_root_length(id, &new_value)?;
     Ok(new_value)
 }
 
@@ -1248,6 +1275,30 @@ mod tests {
     }
 
     // --- apply_app_data_update_payload -------------------------------------
+
+    /// Applying a `GROUP_ROOT_KEY` write keeps only a 32-byte value.
+    // verifies: META-010
+    #[xmtp_common::test(unwrap_try = true)]
+    fn applying_a_group_root_requires_32_bytes() {
+        let apply = |len: usize| {
+            apply_app_data_update_payload(
+                ComponentId::GROUP_ROOT_KEY,
+                &vec![7; len],
+                None,
+                &empty_registry(),
+            )
+        };
+        assert_eq!(*apply(32)?, vec![7; 32]);
+        for len in [0, 31, 33] {
+            assert!(
+                matches!(
+                    apply(len),
+                    Err(ComponentSourceError::MalformedComponentValue { .. })
+                ),
+                "a {len}-byte root was applied"
+            );
+        }
+    }
 
     #[xmtp_common::test]
     fn test_apply_bytes_payload_returns_payload_verbatim() {

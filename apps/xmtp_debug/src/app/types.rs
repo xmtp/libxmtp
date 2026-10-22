@@ -15,7 +15,10 @@ use xmtp_proto::{types::GroupId, xmtp::identity::MlsCredential};
 
 use crate::{
     XDBG_ID_NONCE,
-    app::{App, store::MessageKey},
+    app::{
+        App,
+        store::{MessageKey, message_key},
+    },
     args,
 };
 
@@ -269,14 +272,15 @@ impl redb::Value for Identity {
     }
 }
 
-/// The 16-byte group id xdbg stores. Storage moves to 32-byte ids when
-/// clients create keyed groups. Until then a 32-byte id, which a Welcome or a
-/// command argument can carry, is an error, not a panic.
+/// The 32-byte group id xdbg stores. Every group a client creates or joins is
+/// keyed, so its id is the 32-byte public key of its group signing key. A
+/// 16-byte legacy id comes only from an imported archive or a command
+/// argument, and is an error, not a panic.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct StoredGroupId(pub [u8; 16]);
+pub struct StoredGroupId(pub [u8; 32]);
 
-impl From<[u8; 16]> for StoredGroupId {
-    fn from(value: [u8; 16]) -> Self {
+impl From<[u8; 32]> for StoredGroupId {
+    fn from(value: [u8; 32]) -> Self {
         Self(value)
     }
 }
@@ -287,7 +291,7 @@ impl TryFrom<&GroupId> for StoredGroupId {
     fn try_from(value: &GroupId) -> Result<Self> {
         value.as_slice().try_into().map(Self).map_err(|_| {
             eyre::eyre!(
-                "xdbg stores only 16-byte group ids; {value} has {} bytes",
+                "xdbg stores only 32-byte group ids; {value} has {} bytes",
                 value.len()
             )
         })
@@ -300,10 +304,10 @@ impl TryFrom<&GroupId> for StoredGroupId {
 pub struct Group {
     /// user that created group
     pub created_by: InboxId,
-    /// Id of the group. Stored as `[u8; 16]` so it can be serialized via
-    /// `speedy`; use [`Group::group_id`] when interacting with xmtp_mls
+    /// Id of the group. Stored as `[u8; 32]` so it can be serialized via
+    /// `speedy`; use [`Group::id`] when interacting with xmtp_mls
     /// APIs that expect a `GroupId`.
-    id: [u8; 16],
+    id: [u8; 32],
     /// Size of the groups
     pub member_size: u32,
     /// members by inbox id
@@ -335,7 +339,7 @@ impl Group {
         GroupId::from(self.id)
     }
 
-    /// The stored 16-byte id.
+    /// The stored 32-byte id.
     pub fn stored_id(&self) -> StoredGroupId {
         StoredGroupId(self.id)
     }
@@ -411,7 +415,7 @@ pub struct Dm {
 
     with: InboxId,
 
-    group_id: [u8; 16],
+    group_id: [u8; 32],
 
     /// `crate::get_version()` of the xdbg binary that created this
     /// group, right-zero-padded UTF-8. Same shape as
@@ -520,7 +524,7 @@ pub struct Message {
     /// the call site of `record_message`.
     pub id: [u8; 32],
     /// Group this message belongs to.
-    group_id: [u8; 16],
+    group_id: [u8; 32],
     /// Sender's inbox_id (32-byte form, same convention as `Identity`).
     pub sender_inbox_id: InboxId,
     /// Wall-clock at the sending op's call site. libxmtp doesn't surface
@@ -548,19 +552,20 @@ impl Message {
 
     /// Compute the redb `MessageKey` for `(network, group_id, id)`
     /// without constructing a full `Message`. The on-disk key only
-    /// uses `group_id ++ id` (48 bytes); the rest of the message
+    /// uses `group_id ++ id` (64 bytes); the rest of the message
     /// is the value, not the key. Use this for membership checks
     /// to avoid allocating a placeholder `Message`.
     pub fn redb_key(group_id: impl Into<StoredGroupId>, id: [u8; 32]) -> MessageKey {
-        let mut combined = [0u8; 48];
-        let gid = group_id.into().0;
-        combined[..16].copy_from_slice(&gid);
-        combined[16..].copy_from_slice(&id);
-        MessageKey::new(combined)
+        message_key(group_id.into().0, id)
     }
 
     pub fn group_id(&self) -> GroupId {
         GroupId::from(self.group_id)
+    }
+
+    /// The stored 32-byte id of the group this message belongs to.
+    pub fn stored_group_id(&self) -> StoredGroupId {
+        StoredGroupId(self.group_id)
     }
 }
 
@@ -610,14 +615,17 @@ mod stored_group_id_tests {
     use super::*;
     use crate::app::store::GroupKey;
 
-    /// A 32-byte group id, which a Welcome or a command argument can carry,
-    /// is refused with an error, not a panic. Storage keeps 16-byte ids.
+    /// Every group a client creates is keyed, so xdbg stores its 32-byte id.
+    /// A 16-byte id, which only an imported archive or a command argument can
+    /// carry, is refused with an error, not a panic.
     #[xmtp_common::test(unwrap_try = true)]
-    fn a_32_byte_group_id_is_refused_without_a_panic() {
+    fn a_keyed_group_id_is_stored_and_a_legacy_one_refused() {
         let keyed = GroupId::from([7u8; 32]);
-        assert!(StoredGroupId::try_from(&keyed).is_err());
-        assert!(GroupKey::try_from(&keyed).is_err());
+        let stored = StoredGroupId::try_from(&keyed)?;
+        assert_eq!(Group::new(stored, [1; 32], vec![[1; 32]]).id(), keyed);
+        assert!(GroupKey::try_from(&keyed).is_ok());
         let legacy = GroupId::from([7u8; 16]);
-        assert_eq!(StoredGroupId::try_from(&legacy)?, StoredGroupId([7; 16]));
+        assert!(StoredGroupId::try_from(&legacy).is_err());
+        assert!(GroupKey::try_from(&legacy).is_err());
     }
 }

@@ -97,7 +97,7 @@ impl Sync {
                 tracing::warn!(
                     target: "xdbg.sync",
                     group_id = %gid,
-                    "xdbg stores only 16-byte group ids; skipping dm"
+                    "xdbg stores only 32-byte group ids; skipping dm"
                 );
                 continue;
             };
@@ -145,7 +145,7 @@ impl Sync {
                 tracing::warn!(
                     target: "xdbg.sync",
                     group_id = %gid,
-                    "xdbg stores only 16-byte group ids; skipping group"
+                    "xdbg stores only 32-byte group ids; skipping group"
                 );
                 continue;
             };

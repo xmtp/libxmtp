@@ -96,22 +96,13 @@ async fn test_group_mutable_data() {
             .get(&MetadataField::MinimumSupportedProtocolVersion.to_string()),
         Some(&xmtp_configuration::PROPOSALS_MIN_PROTOCOL_VERSION.to_string())
     );
-    if xmtp_configuration::ENABLE_COMMIT_LOG {
-        assert_eq!(
-            group_mutable_metadata
-                .attributes()
-                .get(&MetadataField::CommitLogSigner.to_string())
-                .map(String::len),
-            Some(64)
-        );
-    } else {
-        assert_eq!(
-            group_mutable_metadata
-                .attributes()
-                .get(&MetadataField::CommitLogSigner.to_string()),
-            None
-        );
-    }
+    // A new group stores no commit-log signer.
+    assert_eq!(
+        group_mutable_metadata
+            .attributes()
+            .get(&MetadataField::CommitLogSigner.to_string()),
+        None
+    );
     for field in [
         MetadataField::GroupName,
         MetadataField::Description,

@@ -309,7 +309,8 @@ impl XmtpError {
         let code = match error {
             StorageError::PreTransitionDatabase
             | StorageError::OldStreamDatabase
-            | StorageError::OldEncodingDatabase => error.error_code(),
+            | StorageError::OldEncodingDatabase
+            | StorageError::LegacyGroupDatabase => error.error_code(),
             _ => "Storage",
         };
         Self::Storage(Self::details(

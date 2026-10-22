@@ -238,6 +238,7 @@ mod tests {
         // validator handles it via byte-compare, not the trait.
         assert!(lookup_component(ComponentId::CONVERSATION_TYPE).is_none());
         assert!(lookup_component(ComponentId::CREATOR_INBOX_ID).is_none());
+        assert!(lookup_component(ComponentId::GROUP_ROOT_KEY).is_none());
     }
 
     #[xmtp_common::test(unwrap_try = true)]

@@ -5,35 +5,36 @@ use std::sync::Arc;
 
 use crate::{app::types::*, constants::STORAGE_PREFIX};
 
-use super::{Database, MetadataStore};
-
 pub const MODULE: &str = "messages";
-pub const VERSION: u16 = 1;
+pub const VERSION: u16 = 2;
 pub const NAMESPACE: &str = const_format::concatcp!(STORAGE_PREFIX, ":", VERSION, "//", MODULE);
 
 /// Mapping of [`MessageKey`] to a serialized [`Message`].
 const TABLE: TableDefinition<MessageKey, Message> = TableDefinition::new(NAMESPACE);
 
-/// Composite key: `(network, group_id ++ message_id)`. The 48-byte payload
-/// places `group_id` first so a range scan over `(network, group || 0x00…)
-/// ..= (network, group || 0xFF…)` returns exactly that group's messages.
-pub type MessageKey = super::NetworkKey<48>;
+/// Composite key: `(network, group_id ++ message_id)`. The 64-byte payload
+/// places the 32-byte `group_id` first so a range scan over
+/// `(network, group || 0x00…) ..= (network, group || 0xFF…)` returns exactly
+/// that group's messages.
+pub type MessageKey = super::NetworkKey<64>;
+
+/// The [`MessageKey`] of `message_id` in the group `group_id`.
+pub fn message_key(group_id: [u8; 32], message_id: [u8; 32]) -> MessageKey {
+    let mut combined = [0u8; 64];
+    combined[..32].copy_from_slice(&group_id);
+    combined[32..].copy_from_slice(&message_id);
+    MessageKey::new(combined)
+}
 
 impl super::DeriveKey<MessageKey> for Message {
     fn key(&self) -> MessageKey {
-        let mut combined = [0u8; 48];
-        combined[..16].copy_from_slice(&self.group_id());
-        combined[16..].copy_from_slice(&self.id);
-        MessageKey::new(combined)
+        Message::redb_key(self.stored_group_id(), self.id)
     }
 }
 
 impl super::DeriveKey<MessageKey> for &Message {
     fn key(&self) -> MessageKey {
-        let mut combined = [0u8; 48];
-        combined[..16].copy_from_slice(&self.group_id());
-        combined[16..].copy_from_slice(&self.id);
-        MessageKey::new(combined)
+        Message::redb_key(self.stored_group_id(), self.id)
     }
 }
 
@@ -65,15 +66,11 @@ impl<'a> super::TableProvider<'a, MessageKey, Message> for MessageStorage {
 
 impl super::TrackMetadata for MessageStorage {
     fn increment(&self, tx: &redb::WriteTransaction, network: u64, n: u32) -> Result<()> {
-        let store = MetadataStore::from_write_tx(tx, network);
-        store.modify(crate::meta_key!(), |meta| meta.messages += n)?;
-        Ok(())
+        super::metadata::update_counters(tx, network, |meta| meta.messages += n)
     }
 
     fn decrement(&self, tx: &redb::WriteTransaction, network: u64, n: u32) -> Result<()> {
-        let store = MetadataStore::from_write_tx(tx, network);
-        store.modify(crate::meta_key!(), |meta| meta.messages -= n)?;
-        Ok(())
+        super::metadata::update_counters(tx, network, |meta| meta.messages -= n)
     }
 }
 
@@ -98,7 +95,7 @@ mod tests {
         )
     }
 
-    fn sample_message(group: [u8; 16], msg_id: [u8; 32]) -> Message {
+    fn sample_message(group: [u8; 32], msg_id: [u8; 32]) -> Message {
         Message::new(msg_id, group, [1u8; 32], 42)
     }
 
@@ -106,7 +103,7 @@ mod tests {
     fn message_store_set_then_get_roundtrips() {
         let (db, _tmp) = open_temp_db();
         let store = store_for(db);
-        let msg = sample_message([0xAAu8; 16], [0xBBu8; 32]);
+        let msg = sample_message([0xAAu8; 32], [0xBBu8; 32]);
 
         store.set(msg.clone()).expect("set");
 
@@ -119,8 +116,8 @@ mod tests {
     fn message_store_load_then_filter_by_group_id() {
         let (db, _tmp) = open_temp_db();
         let store = store_for(db);
-        let group_a = [0x10u8; 16];
-        let group_b = [0x20u8; 16];
+        let group_a = [0x10u8; 32];
+        let group_b = [0x20u8; 32];
         let a1 = sample_message(group_a, [0x01u8; 32]);
         let a2 = sample_message(group_a, [0x02u8; 32]);
         let b1 = sample_message(group_b, [0x03u8; 32]);

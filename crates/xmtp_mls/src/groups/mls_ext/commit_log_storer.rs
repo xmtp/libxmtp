@@ -18,10 +18,13 @@ use xmtp_proto::types::GroupId;
 /// This trait wraps openmls groups to include commit logs for any mutations to encryption state.
 /// This helps with fork detection.
 pub trait CommitLogStorer: std::marker::Sized {
+    /// Create a new group named `group_id`, the group signing key of its
+    /// root.
     fn from_creation_logged(
         provider: &impl MlsProviderExt,
         identity: &Identity,
         group_config: &MlsGroupCreateConfig,
+        group_id: GroupId,
         commit_log_enabled: bool,
     ) -> Result<Self, GroupError>;
 
@@ -65,16 +68,19 @@ pub trait CommitLogStorer: std::marker::Sized {
 }
 
 impl CommitLogStorer for MlsGroup {
+    // implements: GMOD-040
     fn from_creation_logged(
         provider: &impl MlsProviderExt,
         identity: &Identity,
         group_config: &MlsGroupCreateConfig,
+        group_id: GroupId,
         commit_log_enabled: bool,
     ) -> Result<Self, GroupError> {
-        let mls_group = MlsGroup::new(
+        let mls_group = MlsGroup::new_with_group_id(
             provider,
             &identity.installation_keys,
             group_config,
+            group_id.to_openmls(),
             CredentialWithKey {
                 credential: identity.credential(),
                 signature_key: identity.installation_keys.public_slice().into(),

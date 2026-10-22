@@ -35,55 +35,6 @@ pub(crate) fn parse_canonical_dm_id(dm_id: Option<&str>) -> Result<DmMembers<Str
     Ok(members)
 }
 
-pub fn build_mutable_metadata_extension_default(
-    creator_inbox_id: &str,
-    opts: GroupMetadataOptions,
-    commit_log_enabled: bool,
-) -> Result<Extension, GroupError> {
-    let mut commit_log_signer = None;
-    // No signer is minted for a deployment that keeps no commit log.
-    if commit_log_enabled {
-        // Optional TODO(rich): Plumb in provider and use traits in commit_log_key.rs to generate and store secret
-        commit_log_signer = Some(xmtp_cryptography::rand::rand_secret::<ED25519_KEY_LENGTH>());
-    }
-    let mutable_metadata: Vec<u8> =
-        GroupMutableMetadata::new_default(creator_inbox_id.to_string(), commit_log_signer, opts)
-            .try_into()
-            .map_err(MetadataPermissionsError::from)?;
-    let unknown_gc_extension = UnknownExtension(mutable_metadata);
-
-    Ok(Extension::Unknown(
-        MUTABLE_METADATA_EXTENSION_ID,
-        unknown_gc_extension,
-    ))
-}
-
-pub fn build_dm_mutable_metadata_extension_default(
-    creator_inbox_id: &str,
-    dm_target_inbox_id: &str,
-    opts: DMMetadataOptions,
-    commit_log_enabled: bool,
-) -> Result<Extension, MetadataPermissionsError> {
-    let mut commit_log_signer = None;
-    // No signer is minted for a deployment that keeps no commit log.
-    if commit_log_enabled {
-        commit_log_signer = Some(xmtp_cryptography::rand::rand_secret::<ED25519_KEY_LENGTH>());
-    }
-    let mutable_metadata: Vec<u8> = GroupMutableMetadata::new_dm_default(
-        creator_inbox_id.to_string(),
-        dm_target_inbox_id,
-        commit_log_signer,
-        opts,
-    )
-    .try_into()?;
-    let unknown_gc_extension = UnknownExtension(mutable_metadata);
-
-    Ok(Extension::Unknown(
-        MUTABLE_METADATA_EXTENSION_ID,
-        unknown_gc_extension,
-    ))
-}
-
 pub fn build_starting_group_membership_extension(inbox_id: &str, sequence_id: u64) -> Extension {
     let mut group_membership = GroupMembership::new();
     group_membership.add(inbox_id.to_string(), sequence_id);

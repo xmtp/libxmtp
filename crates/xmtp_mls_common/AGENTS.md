@@ -15,6 +15,6 @@ just test workspace -p xmtp_mls_common --test zeroize   # commit-log signer heap
 ## Gotchas
 
 - No Docker or client database dependency. All modules are available on native and wasm.
-- General commit-log signing and decoding live in `commit_log`.
+- Commit-log sealing (`seal_entry`) and opening (`open_entry`) live in `commit_log`, over `group_keys`. The unsealed `sign_commit_log` and `decode_commit_log` serve only the retired payload the backend still admits.
 - The commit-log signer is a private key. `GroupMutableMetadata` redacts and wipes its `_commit_log_signer` attribute; change attributes with `insert_attribute` and `remove_attribute`, which wipe the old value. Hold signer bytes as `Secret` or `Zeroizing` until they reach OpenMLS.
 - Types the backend also needs go here, not in `xmtp_mls`.
