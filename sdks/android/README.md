@@ -95,7 +95,7 @@ current default reader before opening another default reader.
 If the collector throws, its exception propagates to the caller and `onClose`
 receives one `Closed` reason. Normal completion and cancellation also receive
 one `Closed` reason.
-Close clients and readers in `NonCancellable` teardown. See [development rules](AGENTS.md) for build
+Close clients and readers in `NonCancellable` teardown. See [development procedures](DEVELOPMENT.md) for build
 and test commands. The [example](../../apps/example-android) uses the same public API.
 
 ## Messenger files

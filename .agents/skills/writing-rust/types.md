@@ -8,7 +8,7 @@ with `ConversionError` for slices and vectors.
 ```rust
 use xmtp_proto::types::{Cursor, GroupId, InstallationId, Topic, TopicCursor};
 
-let group_id = GroupId::try_from(raw.as_slice())?;     // [u8; 16]; From<[u8; 16]>, FromStr (hex)
+let group_id = GroupId::from(group_keys.group_id());  // current group's 32-byte signing public key
 group_id.as_slice(); group_id.to_vec(); group_id.to_openmls();
 let installation: InstallationId = (*key.public_bytes()).into();  // [u8; 32]; to_vec, Deref, TryFrom
 let topic = Topic::new_group_message(group_id);        // never concatenate topic bytes by hand
@@ -19,7 +19,17 @@ let cursors: TopicCursor = HashMap::from([(topic, Cursor(0))]);   // Cursor(u64)
 
 Other constructors: `Topic::new_welcome_message(installation_id)`,
 `new_identity_update(inbox_id_bytes)`, `new_key_package(installation_id)`,
-`new_commit_log(group_id)`. `GroupId` and `ConversationType` have Diesel impls
+`new_commit_log(commit_log_id)`. Group and commit-log IDs are distinct public
+keys derived from the group root by `xmtp_mls_common::group_keys`; never reuse
+the group ID for a commit-log topic.
+
+`GroupId` conversions accept exactly 32 bytes (current groups) or 16 bytes
+(imported legacy archives). `GroupId::random` and its named constants produce
+legacy IDs for storage tests, not new client groups. Legacy IDs cannot name
+group or commit-log topics. Dispatch topics by kind, never length: group and
+Welcome topics can both be 33 bytes. See [topic rules](../../../docs/specs/TOPIC-topic-format.md).
+
+`GroupId` and `ConversationType` have Diesel impls
 behind the `diesel` feature. `GroupMessage` and `WelcomeMessage` are the decoded
 payload wrappers; `crates/xmtp_api_backend/src/envelope.rs` builds them from
 wire envelopes.

@@ -34,7 +34,7 @@ the timestamp and uint64 boundary, a held re-entrant signer, a JS event listener
 and the `/react` entry. With `XMTP_RN_JOURNEYS=full`, it also replaces the Hermes
 runtime, then performs a separate fresh-install cold-background launch and asks
 the OS to foreground that same runtime. Every report must pass. A build alone is
-not an installed runtime proof. `../conformance/AGENTS.md` lists the phases.
+not an installed runtime proof. [Journey modes](../conformance/JOURNEYS.md) lists the phases.
 
 The fixture directories contain locks and native overrides. They are not complete
 native projects. The cached `react-native-consumer-template-bare` and
