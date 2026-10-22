@@ -130,7 +130,7 @@ impl Query {
     pub async fn batch_query_commit_log(&self, opts: &args::BatchQueryCommitLog) -> Result<()> {
         tracing::info!("Batch querying commit log");
         let client = ApiClientWrapper::new(self.network.connect()?, Default::default());
-        for commit_log_id in &opts.group_ids {
+        for commit_log_id in &opts.commit_log_ids {
             let commit_log_id = hex::decode(commit_log_id)?;
             let cursors: TopicCursor =
                 [(Topic::new_commit_log(&commit_log_id), Default::default())]

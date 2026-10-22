@@ -227,7 +227,7 @@ pub struct FetchKeyPackages {
 pub struct BatchQueryCommitLog {
     /// Hex commit-log ids. A commit-log topic is named by the group's
     /// commit-log id, not its group id.
-    pub group_ids: Vec<String>,
+    pub commit_log_ids: Vec<String>,
     /// Has no effect: entries are sealed, and their results need the group
     /// root to read.
     #[arg(long)]
@@ -447,3 +447,23 @@ pub struct HealthcheckOpts {
 /// the current binary version when the flag is set.
 #[derive(Args, Debug)]
 pub struct SyncOpts {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::CommandFactory;
+
+    /// The commit-log query takes commit-log ids: a commit-log topic is named
+    /// by the group's commit-log id, never its group id.
+    #[xmtp_common::test(unwrap_try = true)]
+    fn the_commit_log_query_takes_commit_log_ids() {
+        let mut command = AppOpts::command();
+        let help = command
+            .find_subcommand_mut("query")?
+            .find_subcommand_mut("batch-query-commit-log")?
+            .render_help()
+            .to_string();
+        assert!(help.contains("COMMIT_LOG_IDS"), "{help}");
+        assert!(!help.contains("GROUP_IDS"), "{help}");
+    }
+}
