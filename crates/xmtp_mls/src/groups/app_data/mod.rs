@@ -14,7 +14,7 @@ pub(crate) mod membership_upkeep;
 pub mod migration;
 pub(crate) mod sender_intents;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
 use openmls::{
     component::ComponentData,
@@ -22,7 +22,7 @@ use openmls::{
     framing::{MlsMessageOut, ProcessedMessage, ProtocolMessage},
     group::{
         AppDataUpdates, MlsGroup as OpenMlsGroup, ProcessMessageError, ProposalError,
-        ResolveAppDataCommitError,
+        QueuedProposal, ResolveAppDataCommitError,
     },
     messages::proposals::{AppDataUpdateOperation, Proposal},
     // `CommitMessageBundle` lives in `prelude` because the natural path
@@ -152,13 +152,35 @@ impl<'a> AppDataBatch<'a> {
     /// A batch holding the group's pending proposals, in the order a
     /// commit that consumes the proposal store applies them.
     pub(crate) fn pending(group: &'a OpenMlsGroup) -> Result<Self, ComponentSourceError> {
+        Ok(Self::applicable(group)?.0)
+    }
+
+    /// The pending proposals a commit can cover, with their batch: each
+    /// reference once, as a commit covers it, and no `AppDataUpdate` that
+    /// fails to apply after the proposals before it.
+    ///
+    /// Receivers judge a standalone proposal against the committed
+    /// dictionary, so an accepted one can still fail here: an Insert of a
+    /// key that is already present, or that an earlier pending Insert adds.
+    /// Every member rejects a commit that references it.
+    pub(crate) fn applicable(
+        group: &'a OpenMlsGroup,
+    ) -> Result<(Self, Vec<&'a QueuedProposal>), ComponentSourceError> {
         let mut batch = Self::new(group)?;
-        for queued in group.pending_proposals() {
-            if let Proposal::AppDataUpdate(proposal) = queued.proposal() {
-                batch.apply(proposal.component_id(), proposal.operation())?;
-            }
-        }
-        Ok(batch)
+        let mut seen = HashSet::new();
+        let proposals = group
+            .pending_proposals()
+            .filter(|queued| {
+                seen.insert(queued.proposal_reference_ref())
+                    && match queued.proposal() {
+                        Proposal::AppDataUpdate(update) => batch
+                            .apply(update.component_id(), update.operation())
+                            .is_ok(),
+                        _ => true,
+                    }
+            })
+            .collect();
+        Ok((batch, proposals))
     }
 
     pub(crate) fn apply(
@@ -463,18 +485,6 @@ impl xmtp_common::RetryableError for GroupAppDataError<xmtp_db::sql_key_store::S
     }
 }
 
-/// Compute the [`AppDataUpdates`] required to commit any pending
-/// AppDataUpdate proposals in the group's proposal store.
-///
-/// Returns `Ok(None)` when there are no AppDataUpdate proposals pending —
-/// this is the common case and lets the caller skip the `with_…` plumbing
-/// entirely without changing semantics.
-pub(crate) fn pending_app_data_updates(
-    mls_group: &OpenMlsGroup,
-) -> Result<Option<AppDataUpdates>, ComponentSourceError> {
-    Ok(AppDataBatch::pending(mls_group)?.updates())
-}
-
 /// The dictionary a commit built now starts from: the committed one with
 /// the pending proposals' updates applied.
 pub(crate) fn pending_dictionary(
@@ -487,7 +497,11 @@ pub(crate) fn pending_dictionary(
             .map(|extension| extension.dictionary().clone())
             .unwrap_or_default(),
     );
-    for (id, value) in pending_app_data_updates(mls_group)?.into_iter().flatten() {
+    for (id, value) in AppDataBatch::pending(mls_group)?
+        .updates()
+        .into_iter()
+        .flatten()
+    {
         let replaced = match value {
             Some(value) => dictionary.0.insert(id, value),
             None => dictionary.0.remove(&id),

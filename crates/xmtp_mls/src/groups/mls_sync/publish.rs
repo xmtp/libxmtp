@@ -398,6 +398,9 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                         storage,
                         &self.context.identity().installation_keys,
                     )?;
+                    // An omission also makes an empty commit valid work.
+                    dependencies.selection.active |= selection::commits_proposals(intent.kind)
+                        && selection::omit_inapplicable_app_data(group, storage)?;
                     let Some(mut data) =
                         self.get_publish_intent_data(storage, group, &intent, dependencies)?
                     else {

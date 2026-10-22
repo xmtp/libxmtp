@@ -1,9 +1,11 @@
 //! Select pending membership proposals for one outgoing commit.
 
 use super::*;
+use crate::groups::app_data::AppDataBatch;
 use crate::groups::group_permissions::MembershipPolicy;
 use openmls::group::QueuedProposal;
 use openmls::messages::proposals::AppDataUpdateOperation;
+use openmls::prelude::hash_ref::ProposalRef;
 use tls_codec::{Deserialize, VLBytes};
 use xmtp_id::key_package::VerifiedKeyPackageV2;
 use xmtp_mls_common::app_data::component_source::{ComponentSourceError, read_from_app_data_dict};
@@ -55,10 +57,7 @@ impl SelectionRequirements {
         group: &OpenMlsGroup,
         intent: &StoredGroupIntent,
     ) -> Result<Option<Self>, GroupError> {
-        if matches!(
-            intent.kind,
-            IntentKind::SendMessage | IntentKind::ProposeMemberUpdate
-        ) {
+        if !commits_proposals(intent.kind) {
             return Ok(None);
         }
         let proposals: Vec<_> = group.pending_proposals().cloned().collect();
@@ -483,7 +482,7 @@ impl ProposalSelection {
     ) -> Result<Vec<Vec<u8>>, GroupError> {
         let proposals: Vec<_> = group.pending_proposals().cloned().collect();
         for index in &self.omitted {
-            remove_proposal(group, storage, &proposals[*index])?;
+            remove_proposal(group, storage, proposals[*index].proposal_reference_ref())?;
         }
         let provider = XmtpOpenMlsProviderRef::new(storage);
         let mut payloads = Vec::new();
@@ -504,7 +503,7 @@ pub(super) fn restore_proposals(
 ) -> Result<(), GroupError> {
     let current: Vec<_> = group.pending_proposals().cloned().collect();
     for proposal in &current {
-        remove_proposal(group, storage, proposal)?;
+        remove_proposal(group, storage, proposal.proposal_reference_ref())?;
     }
     for proposal in originals {
         group.store_pending_proposal(storage, proposal.clone())?;
@@ -512,13 +511,42 @@ pub(super) fn restore_proposals(
     Ok(())
 }
 
+/// Whether preparing an intent of `kind` builds a commit of the pending proposals.
+pub(super) fn commits_proposals(kind: IntentKind) -> bool {
+    !matches!(
+        kind,
+        IntentKind::SendMessage | IntentKind::ProposeMemberUpdate
+    )
+}
+
+/// Drop each pending proposal no commit can cover (see
+/// [`AppDataBatch::applicable`]), and return whether any was dropped. It
+/// expires with the epoch.
+pub(super) fn omit_inapplicable_app_data(
+    group: &mut OpenMlsGroup,
+    storage: &impl XmtpMlsStorageProvider,
+) -> Result<bool, GroupError> {
+    let kept: Vec<_> = AppDataBatch::applicable(group)?
+        .1
+        .into_iter()
+        .cloned()
+        .collect();
+    let omitted = kept.len() != group.pending_proposals().count();
+    if omitted {
+        // Removing one copy of a repeated reference deletes the stored
+        // proposal for every copy, so rebuild the store instead.
+        restore_proposals(group, storage, &kept)?;
+    }
+    Ok(omitted)
+}
+
 fn remove_proposal(
     group: &mut OpenMlsGroup,
     storage: &impl XmtpMlsStorageProvider,
-    proposal: &QueuedProposal,
+    reference: &ProposalRef,
 ) -> Result<(), GroupError> {
     group
-        .remove_pending_proposal(storage, proposal.proposal_reference_ref())
+        .remove_pending_proposal(storage, reference)
         .map_err(|error| match error {
             openmls::group::RemoveProposalError::Storage(error) => GroupError::SqlKeyStore(error),
             openmls::group::RemoveProposalError::ProposalNotFound => {

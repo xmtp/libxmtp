@@ -382,6 +382,10 @@ where
 
     /// Store a proposal the ordered prefix delivered, with durable evidence of
     /// its delivery that survives loss of the proposal store.
+    ///
+    /// A replay of an identical proposal has the same reference. Store it once:
+    /// a commit covers a reference once, so a second copy would apply twice to
+    /// the pending state.
     pub(super) fn store_received_proposal(
         &self,
         group: &mut OpenMlsGroup,
@@ -393,6 +397,12 @@ where
             group.epoch().as_u64() as i64,
             proposal.proposal_reference_ref().as_slice(),
         )?;
+        if group
+            .pending_proposals()
+            .any(|pending| pending.proposal_reference_ref() == proposal.proposal_reference_ref())
+        {
+            return Ok(());
+        }
         group.store_pending_proposal(storage, proposal)?;
         Ok(())
     }

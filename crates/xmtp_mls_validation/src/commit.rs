@@ -693,7 +693,8 @@ pub fn validate_one_app_data_update(
 /// the snapshot bound on the committed
 /// state. Other apply failures are left to commit validation,
 /// because a commit may order other proposals ahead of this one and change
-/// the state it applies to.
+/// the state it applies to. A sender omits a pending proposal that fails to
+/// apply from its commits, so an accepted one cannot block them.
 // implements: META-068
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn validate_standalone_app_data_update(

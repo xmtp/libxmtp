@@ -7,6 +7,7 @@ use xmtp_proto::types::Topic;
 mod deadlines;
 mod dictionary_creation;
 mod faults;
+mod inapplicable_app_data;
 mod membership_component;
 mod membership_recovery;
 mod out_of_range_settlement;

@@ -4,8 +4,11 @@
 use std::collections::BTreeMap;
 
 use openmls::{
-    component::ComponentData, framing::MlsMessageOut, group::MlsGroup as OpenMlsGroup,
-    messages::proposals::AppDataUpdateOperation, prelude::CommitMessageBundle,
+    component::ComponentData,
+    framing::MlsMessageOut,
+    group::MlsGroup as OpenMlsGroup,
+    messages::proposals::{AppDataUpdateOperation, Proposal},
+    prelude::CommitMessageBundle,
     storage::OpenMlsProvider,
 };
 use openmls_traits::signatures::Signer;
@@ -17,7 +20,10 @@ use xmtp_db::{
     prelude::*,
 };
 use xmtp_mls_common::{
-    app_data::component_id::ComponentId,
+    app_data::{
+        component_id::ComponentId,
+        fields::{ComponentMutation, FieldValue, MetadataFieldRef},
+    },
     inbox_id::InboxId,
     tls_map::{TlsMap, TlsMapDelta},
     tls_set::TlsSet,
@@ -29,7 +35,7 @@ use crate::{
     context::XmtpSharedContext,
     groups::{
         GroupError, MlsGroup, UpdateAdminListType,
-        app_data::{GroupAppDataError, pending_app_data_updates},
+        app_data::{GroupAppDataError, accumulate_app_data_updates},
         intents::{AppDataUpdateIntentData, ProposeMemberUpdateIntentData, QueueIntent},
         mls_sync::generate_prepared_commit,
     },
@@ -178,7 +184,13 @@ fn stage_unchecked<P: OpenMlsProvider>(
             .map_err(GroupAppDataError::Propose)?;
         proposals.push(proposal);
     }
-    let dictionary = pending_app_data_updates(group).unwrap_or_else(|_| {
+    let pending = group
+        .pending_proposals()
+        .filter_map(|queued| match queued.proposal() {
+            Proposal::AppDataUpdate(update) => Some((update.component_id(), update.operation())),
+            _ => None,
+        });
+    let dictionary = accumulate_app_data_updates(group, pending).unwrap_or_else(|_| {
         let mut updater = group.app_data_dictionary_updater();
         for (id, payload) in updates {
             updater.set(ComponentData::from_parts(
@@ -540,4 +552,151 @@ async fn test_immutable_field_is_written_once() {
     let pair = vec![(PAIR, b"a".to_vec()), (PAIR, b"b".to_vec())];
     assert_peer_rejects(&group, &bo_group, pair).await?;
     assert_eq!(value(&bo_group, PAIR)?, None);
+}
+
+/// Publish `payload` for `id` as a signed standalone proposal with no
+/// commit, the way a modified client can.
+async fn propose_raw<C: XmtpSharedContext>(
+    group: &MlsGroup<C>,
+    id: ComponentId,
+    payload: Vec<u8>,
+) -> Result<(), GroupError> {
+    let signer = &group.context.identity().installation_keys;
+    let message = state_write(group.context.mls_storage(), |tx| {
+        tx.with_group(group.group_id, |mls, storage| {
+            let (message, _) = mls
+                .propose_app_data_update(
+                    &xmtp_db::XmtpOpenMlsProviderRef::new(storage),
+                    signer,
+                    id.as_u16(),
+                    AppDataUpdateOperation::Update(payload.clone().into()),
+                )
+                .map_err(GroupError::Proposal)?;
+            Ok::<_, GroupError>(Continue(message.tls_serialize_detached()?))
+        })
+    })?
+    .into_continued();
+    let messages = group.prepare_group_messages(vec![(message.as_slice(), false)])?;
+    group.context.api().send_group_messages(messages).await?;
+    Ok(())
+}
+
+/// A standalone proposal every receiver accepts, because it applies to the
+/// committed dictionary, that cannot apply after the pending proposals
+/// before it.
+enum Inapplicable {
+    /// Bo inserts its display name again.
+    CommittedName,
+    /// Bo inserts its absent display name, then a second one for the same key.
+    PendingName,
+    /// Bo proposes one insert of its absent display name twice. Both
+    /// proposals have the same reference.
+    Replay,
+    /// Alix holds two copies of one insert, as a build before receive-time
+    /// deduplication stored a replay.
+    StoredTwice,
+    /// Alix inserts an existing admin.
+    CommittedAdmin,
+}
+
+/// Receivers judge a standalone `AppDataUpdate` against the committed
+/// dictionary, so they accept one that cannot apply in the pending batch.
+/// Every commit of pending proposals once pre-applied it and failed, so no
+/// member could send or change the group again. The commit omits it instead.
+#[rstest::rstest]
+#[case::insert_of_committed_name(Inapplicable::CommittedName)]
+#[case::second_pending_insert(Inapplicable::PendingName)]
+#[case::replayed_insert(Inapplicable::Replay)]
+#[case::insert_stored_twice(Inapplicable::StoredTwice)]
+#[case::insert_of_committed_admin(Inapplicable::CommittedAdmin)]
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_inapplicable_pending_app_data_does_not_block_the_group(
+    #[case] inapplicable: Inapplicable,
+    #[values(false, true)] field_write: bool,
+) -> Result<(), GroupError> {
+    tester!(alix);
+    tester!(bo);
+    let group = alix
+        .create_group_with_members(&[bo.inbox_id()], None, None)
+        .await?;
+    let bo_group = bo.wait_for_welcomes().await?.remove(0);
+    let bo_name = || insert_name(bo.inbox_id(), b"Bo");
+    match inapplicable {
+        Inapplicable::CommittedName => {
+            write(&bo_group, ComponentId::USER_DISPLAY_NAME, bo_name()).await?;
+            propose_raw(&bo_group, ComponentId::USER_DISPLAY_NAME, bo_name()).await?;
+        }
+        Inapplicable::PendingName => {
+            propose_raw(&bo_group, ComponentId::USER_DISPLAY_NAME, bo_name()).await?;
+            let other = insert_name(bo.inbox_id(), b"Mallory");
+            propose_raw(&bo_group, ComponentId::USER_DISPLAY_NAME, other).await?;
+        }
+        Inapplicable::Replay => {
+            for _ in 0..2 {
+                propose_raw(&bo_group, ComponentId::USER_DISPLAY_NAME, bo_name()).await?;
+            }
+        }
+        Inapplicable::StoredTwice => {
+            propose_raw(&bo_group, ComponentId::USER_DISPLAY_NAME, bo_name()).await?;
+            group.sync().await?;
+            state_write(group.context.mls_storage(), |tx| {
+                tx.with_group(group.group_id, |mls, storage| {
+                    let queued = mls.pending_proposals().next().cloned().unwrap();
+                    mls.store_pending_proposal(storage, queued)?;
+                    Ok::<_, GroupError>(Continue(()))
+                })
+            })?;
+        }
+        Inapplicable::CommittedAdmin => {
+            group
+                .update_admin_list(UpdateAdminListType::Add, bo.inbox_id().to_string())
+                .await?;
+            let payload = xmtp_mls_common::tls_set::TlsSetDelta::new()
+                .insert(inbox(bo.inbox_id()))
+                .tls_serialize_detached()?;
+            propose_raw(&group, ComponentId::ADMIN_LIST, payload).await?;
+        }
+    }
+    group.sync().await?;
+    let accepted = match inapplicable {
+        Inapplicable::PendingName | Inapplicable::StoredTwice => 2,
+        _ => 1,
+    };
+    assert_eq!(
+        group.with_group_snapshot(|mls| Ok(mls.pending_proposals().count()))?,
+        accepted,
+        "receivers accept the proposal, and a replay once"
+    );
+
+    // A field write reads the pending state before it queues its commit.
+    if field_write {
+        let rename = ComponentMutation::Replace(FieldValue::String("after".into()));
+        group
+            .update_metadata_field(&MetadataFieldRef::GROUP_NAME, &rename)
+            .await?;
+    }
+    for member in [&group, &bo_group] {
+        member.sync().await?;
+        member.send_message(b"after", Default::default()).await?;
+    }
+    group.sync().await?;
+    for member in [&group, &bo_group] {
+        assert_eq!(
+            member.with_group_snapshot(|mls| Ok(mls.pending_proposals().count()))?,
+            0
+        );
+        if field_write {
+            assert_eq!(member.group_name()?, "after");
+        }
+        match inapplicable {
+            Inapplicable::CommittedAdmin => {
+                assert_eq!(admins(member)?, vec![inbox(bo.inbox_id())]);
+            }
+            _ => assert_eq!(
+                display_names(member)?,
+                BTreeMap::from([(inbox(bo.inbox_id()), b"Bo".to_vec())])
+            ),
+        }
+    }
+    Ok(())
 }
