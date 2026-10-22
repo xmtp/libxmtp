@@ -1,6 +1,8 @@
 {
-  "layout": "unpartitioned_watermarks",
-  "measure_writes": false,
+  "layout": "unpartitioned",
+  "index_profiles": ["baseline"],
+  "read_strategies": ["watermarks"],
+  "write_sizes": [],
   "sizes": [10000000],
   "topic_counts": [1000],
   "writers": [1, 8],

@@ -209,7 +209,8 @@ owners before adoption; do not select numerical thresholds after seeing results.
 
 Use `partitioned.json` with the same recipe and dedicated PostgreSQL instance as
 the baseline. Its required `layout` is `sequence_ranges`; `baseline.json` explicitly
-selects `unpartitioned`. Both set `measure_writes: true`. The experimental migration refuses nonempty tables.
+selects `unpartitioned`. Both explicitly list their `write_sizes`, baseline index
+profile, and lateral read strategy. The experimental migration refuses nonempty tables.
 The admin connection needs database/role creation privileges. Provisioning uses
 that separate owner connection; measured reads/publishes authenticate directly
 as `xmtp_bench_writer`, which has no elevated privileges or role memberships.
@@ -239,7 +240,8 @@ few first-use samples into a steady-state tail-latency claim.
 
 ### Watermark-prefilter variation
 
-`watermarks.json` selects `sequence_ranges_watermarks` and `measure_writes: false`
+`watermarks.json` selects `sequence_ranges`, `read_strategies: ["watermarks"]`,
+and `write_sizes: []`
 for a focused ten-million-row, 1,000-topic read comparison. It keeps the complete
 future-range inventory even though writes are excluded, avoiding a partition-count
 confound. Missing and caught-up topics are removed through `topic_watermark`
@@ -254,6 +256,8 @@ The prefilter requires the existing atomic publish/watermark invariant; direct
 out-of-band writes that omit watermarks are not an alternative supported ingest path.
 Regression tests compare both page shapes against an independent reference over
 multiple partitions and mixed cursor positions.
+These are format-2 selectors; archived format-1 artifacts retain the earlier
+suffixed layout names and are still accepted by the report reader.
 
 ## References
 

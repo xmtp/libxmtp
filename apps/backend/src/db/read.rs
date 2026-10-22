@@ -1,5 +1,5 @@
 //! Snapshot-consistent paging, newest, and identifier reads for backend services.
-//! Test builds can select a disposable watermark-prefilter experiment; production
+//! Test builds can select disposable paging experiments; production
 //! query SQL and its primary/replica routing remain unchanged.
 
 use super::{EnvelopePage, Store, StoredEnvelope, StoredMeta, TopicCursor};
@@ -22,8 +22,10 @@ impl Store {
         limit: i64,
     ) -> Result<EnvelopePage, Error> {
         #[cfg(test)]
-        if self.watermark_prefilter {
-            return super::benchmarks::partition::query(self, queries, limit).await;
+        if self.page_query == super::benchmarks::experiments::PageQuery::Watermarks
+            || self.page_query.uses_window(queries)
+        {
+            return super::benchmarks::experiments::query(self, queries, limit).await;
         }
         let topics: Vec<_> = queries.iter().map(|query| query.topic.clone()).collect();
         let cursors: Vec<_> = queries.iter().map(|query| query.cursor).collect();

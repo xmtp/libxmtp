@@ -2,6 +2,8 @@
 
 See the [unpartitioned baseline](BASELINE.md) and
 [measured schema comparison](RESULTS.md) for results and interpretation.
+The [next-round scaling experiment](SCALING.md) pairs paging algorithms and index
+profiles on shared ten- and thirty-million-row corpora.
 
 Manual schema-comparison suite, not a CI performance gate. The runner calls the
 actual `Store` methods; selected reads and diagnostic `EXPLAIN` probes share
@@ -38,19 +40,30 @@ of Cargo's package working directory; absolute paths are also accepted.
 The committed baseline uses three trials, five-second read windows, and
 ten-second write windows (subject to the growth cap below).
 
-`layout` is required: `unpartitioned`, `sequence_ranges`,
-`unpartitioned_watermarks`, or `sequence_ranges_watermarks`.
-`measure_writes` is an explicit boolean:
-`true` measures inserts and partition rollovers; `false` excludes both matrices
-for a focused read experiment. Historical format-version-1 artifacts without
-this field contain the original complete read/write matrix; only the reporter
-supports that legacy input, not new runner configuration. The partitioned
+Format-2 configuration separates the required experimental dimensions:
+
+- `layout`: `unpartitioned` or `sequence_ranges`.
+- `index_profiles`: `["baseline"]`, or `["baseline", "metadata_covering"]` on
+  unpartitioned data. Each size is seeded once with its original indexes, then
+  the covering replacement is built and maintained before its measurements.
+- `read_strategies`: a nonempty unique list of `lateral`, `watermarks`, or
+  `bounded`. Strategies share each corpus/index profile and rotate within trials.
+- `write_sizes`: a unique subset of `sizes`; `[]` explicitly excludes inserts and
+  rollovers. This avoids enormous write copies for read-only scaling controls.
+
+Historical format-1 raw artifacts retain their original columns and complete
+coverage validation. Their old `measure_writes` and suffixed layout selectors are
+accepted by the reporter only, not as new runner configuration. Format 2 adds a
+mostly-missing, one-populated-topic read and validates a separate complete matrix
+for each profile/strategy, paired plans, and post-write visibility controls.
+The partitioned
 experiment additionally requires admin role-creation privileges and local
 authentication for the unprivileged `xmtp_bench_writer` login. It creates no
 production migrations. See [partitioning](PARTITIONING.md#running-the-approved-experiment)
 for registry costs, privilege boundaries, setup accounting, and timed rollover controls.
 
-`watermarks.json` is a focused ten-million-row / 1,000-topic read experiment.
+`watermarks.json` is a focused ten-million-row / 1,000-topic read experiment,
+selecting `read_strategies: ["watermarks"]` independently of the range schema.
 It keeps the same schema, seed, future-range inventory, read windows, and trial
 count as the corresponding full-run cases. Its paging query first filters
 topics whose transactional watermark cannot exceed their cursor, then uses
@@ -62,6 +75,12 @@ This experiment changes no production query SQL and makes no write-throughput cl
 `watermarks-unpartitioned.json` runs the same optimization without partitioning or
 the registry: compare both query shapes on both schemas before attributing a gain
 to partitioning. The newest queries remain unchanged controls in all layouts.
+
+`scaling.json` compares production lateral paging with a bounded sequence-window
+strategy on both baseline and metadata-covering indexes at 10M and 30M rows.
+It measures insert and post-insert newest costs at 10M only. Allow at least
+100 GB of additional free space for corpus/index builds, write copies, and WAL;
+actual requirements depend on the recorded sizes and PostgreSQL settings.
 
 `sizes` accepts 1,000–1,000,000,000; `topic_counts` 1–1,000;
 `writers` 1–64; `batch_sizes` 1–100; `trials`, `read_ms`, `write_ms`, and
@@ -116,6 +135,7 @@ The page limit is 100 by default, matching the backend default total page limit.
 | `query_recent` | Global position at 99%, with hits |
 | `query_mixed` | Per-topic cursors: 90% recent, 9% old, 1% absent, with hits |
 | `query_sparse_recent` | Recent cursor over the entire topic population, including dormant topics; may return zero rows |
+| `query_rare_hits` | One dormant populated topic and otherwise absent topics, cursor 0; exercises sparse ordered-scan fallback |
 | `query_absent` | Nonexistent topics; always zero rows |
 | `query_caught_up` | Each existing topic's exact head; always zero rows |
 | `newest_full` | Real watermark-to-envelope join including payloads |
@@ -150,6 +170,11 @@ Full newest requests stop at the real 100-topic API limit; metadata goes to 1,00
   Each write trial gets a new PostgreSQL `FILE_COPY` database from the disconnected
   pristine corpus, including its physical indexes. No preceding trial's growth
   or rollback/deletion bloat survives into the next one.
+- After every write copy, a separate one-second serial newest-metadata window
+  and custom/generic plans run without vacuum. These are raw `post_write_newest`
+  records, not insert latency or pooled read CSV rows. They expose visibility-map
+  sensitivity and must cover every write trial. The preceding writer count is
+  context, not the number of concurrent read clients.
 - Write payloads are unique opaque 1 KiB messages; many-topic writes distribute
   uniformly across existing topics. One warmup batch per writer is untimed.
   Measured inserts stop at the requested

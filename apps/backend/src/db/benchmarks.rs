@@ -5,8 +5,12 @@
 //! Corpus construction, workloads, and reporting live in sibling modules.
 //! `partition` installs the approved experimental schema only in disposable fixtures;
 //! its writer and provisioning paths are excluded from production builds.
+//! `experiments` selects paging algorithms and index profiles independently.
+//! Query controls share each seeded corpus; covering-index builds are separately
+//! timed, and write_sizes limits costly physical write copies to explicit sizes.
 
 mod corpus;
+pub(super) mod experiments;
 pub(super) mod partition;
 mod report;
 mod tests;
@@ -20,6 +24,7 @@ use crate::{
     config::Config as BackendConfig,
     test_support::{TestDatabase, TestResult},
 };
+use experiments::{IndexProfile, PageQuery};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::{
@@ -35,7 +40,9 @@ use xmtp_common::time::{Duration, Instant};
 #[serde(deny_unknown_fields)]
 struct Config {
     layout: partition::Layout,
-    measure_writes: bool,
+    index_profiles: Vec<IndexProfile>,
+    read_strategies: Vec<PageQuery>,
+    write_sizes: Vec<i64>,
     sizes: Vec<i64>,
     topic_counts: Vec<usize>,
     writers: Vec<usize>,
@@ -56,10 +63,22 @@ impl Config {
             || has_duplicates(&self.topic_counts)
             || has_duplicates(&self.writers)
             || has_duplicates(&self.batch_sizes)
+            || has_duplicates(&self.index_profiles)
+            || has_duplicates(&self.read_strategies)
+            || has_duplicates(&self.write_sizes)
         {
             return Err("benchmark dimensions must not contain duplicate values".into());
         }
-        if self.sizes.is_empty()
+        if !matches!(
+            self.index_profiles.as_slice(),
+            [IndexProfile::Baseline] | [IndexProfile::Baseline, IndexProfile::MetadataCovering]
+        ) || (self.layout.is_partitioned() && self.index_profiles.len() != 1)
+            || self.read_strategies.is_empty()
+            || self
+                .write_sizes
+                .iter()
+                .any(|size| !self.sizes.contains(size))
+            || self.sizes.is_empty()
             || self
                 .sizes
                 .iter()
@@ -87,7 +106,7 @@ impl Config {
         {
             return Err("invalid benchmark config: see benchmarks/README.md for bounds".into());
         }
-        for size in self.sizes.iter().filter(|_| self.measure_writes) {
+        for size in &self.write_sizes {
             let budget = *size as usize * self.write_growth_percent / 100;
             if self.writers.iter().any(|writers| {
                 self.batch_sizes
@@ -174,22 +193,34 @@ async fn baseline() {
         )?;
         let seeded = Instant::now();
         let catalog = corpus::seed(&store, size, config.seed).await?;
-        record(
-            &mut output,
-            json!({"event": "corpus", "rows": size,
-            "seed_seconds": seeded.elapsed().as_secs_f64(), "topics": catalog.len(),
-            "storage": report::storage(&store).await?}),
-        )?;
+        let seed_seconds = seeded.elapsed().as_secs_f64();
         store.primary.close().await;
-        let store = partition::connect(&database, 1, REQUEST_TIMEOUT_MS, config.layout).await?;
-        workload::reads(&store, &catalog, size, &config, &mut output).await?;
-        partition::close(&store).await;
-        if config.measure_writes {
-            workload::writes(&database, size, &config, &mut output).await?;
+        for &index_profile in &config.index_profiles {
+            let owner = connect(&database, 1, SEED_TIMEOUT_MS).await?;
+            let setup = Instant::now();
+            index_profile.install(&owner).await?;
+            record(
+                &mut output,
+                json!({"event": "index_setup", "rows": size,
+                "index_profile": index_profile, "seconds": setup.elapsed().as_secs_f64()}),
+            )?;
+            record(
+                &mut output,
+                json!({"event": "corpus", "rows": size,
+                "index_profile": index_profile, "seed_seconds": seed_seconds,
+                "topics": catalog.len(), "storage": report::storage(&owner).await?}),
+            )?;
+            owner.primary.close().await;
+            let store = partition::connect(&database, 1, REQUEST_TIMEOUT_MS, config.layout).await?;
+            workload::reads(&store, &catalog, size, &config, index_profile, &mut output).await?;
+            partition::close(&store).await;
+            if config.write_sizes.contains(&size) {
+                workload::writes(&database, size, &config, index_profile, &mut output).await?;
+            }
         }
         database.remove()?;
     }
-    if config.measure_writes && config.layout.is_partitioned() {
+    if !config.write_sizes.is_empty() && config.layout.is_partitioned() {
         partition::rollovers(&config, &mut output).await?;
     }
     record(

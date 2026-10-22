@@ -1,6 +1,8 @@
 {
   "layout": "sequence_ranges",
-  "measure_writes": true,
+  "index_profiles": ["baseline"],
+  "read_strategies": ["lateral"],
+  "write_sizes": [1000, 100000, 10000000],
   "sizes": [1000, 100000, 10000000],
   "topic_counts": [1, 10, 100, 1000],
   "writers": [1, 8],

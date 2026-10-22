@@ -3,7 +3,7 @@
 use super::*;
 use crate::db::{
     TopicCursor,
-    benchmarks::{corpus, workload},
+    benchmarks::{corpus, experiments::PageQuery, workload},
 };
 use futures::future::try_join_all;
 use sqlx::postgres::PgPoolOptions;
@@ -30,7 +30,7 @@ async fn fixture() -> TestResult<(TestDatabase, Store, Store)> {
         read: primary.clone(),
         primary,
         partitions: Some(Arc::new(Partitions::new(owner.primary.clone()))),
-        watermark_prefilter: false,
+        page_query: PageQuery::Lateral,
     };
     Ok((database, owner, writer))
 }
@@ -44,17 +44,14 @@ async fn write(store: &Store, nonce: i64) -> TestResult<StoredMeta> {
         .remove(0))
 }
 
-/// Query optimization must not implicitly enable the registry or partition provisioning on its unpartitioned control.
+/// Schema selection must never implicitly enable partitions on its unpartitioned control.
 #[xmtp_common::test(unwrap_try = true)]
 fn query_variants_do_not_change_schema_selection() {
-    for (layout, partitioned, prefilter) in [
-        (Layout::Unpartitioned, false, false),
-        (Layout::UnpartitionedWatermarks, false, true),
-        (Layout::SequenceRanges, true, false),
-        (Layout::SequenceRangesWatermarks, true, true),
+    for (layout, partitioned) in [
+        (Layout::Unpartitioned, false),
+        (Layout::SequenceRanges, true),
     ] {
         assert_eq!(layout.is_partitioned(), partitioned);
-        assert_eq!(layout.watermark_prefilter(), prefilter);
     }
 }
 
@@ -358,8 +355,12 @@ async fn multi_range_reads_preserve_reference_pages_and_newest() {
     )
     .execute(&owner.primary)
     .await?;
-    for watermark_prefilter in [false, true] {
-        writer.watermark_prefilter = watermark_prefilter;
+    for strategy in [
+        PageQuery::Lateral,
+        PageQuery::Watermarks,
+        PageQuery::Bounded,
+    ] {
+        writer.page_query = strategy;
         for (floor, other) in [
             (0, 0),
             (1_000_010, 500_005),
@@ -367,7 +368,7 @@ async fn multi_range_reads_preserve_reference_pages_and_newest() {
             (3_000_000, 1_500_000),
             (3_000_000, 3_000_000),
         ] {
-            let queries = vec![
+            let mut queries = vec![
                 TopicCursor {
                     topic: corpus::topic(0),
                     cursor: floor,
@@ -381,6 +382,10 @@ async fn multi_range_reads_preserve_reference_pages_and_newest() {
                     cursor: 0,
                 },
             ];
+            queries.extend((1_000..1_256).map(|identifier| TopicCursor {
+                topic: corpus::topic(identifier),
+                cursor: floor,
+            }));
             let topics = queries
                 .iter()
                 .map(|query| query.topic.clone())

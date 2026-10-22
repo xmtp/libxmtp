@@ -8,7 +8,9 @@ use std::collections::HashSet;
 fn config() -> Config {
     Config {
         layout: partition::Layout::Unpartitioned,
-        measure_writes: true,
+        index_profiles: vec![IndexProfile::Baseline],
+        read_strategies: vec![PageQuery::Lateral],
+        write_sizes: vec![1_000, 100_000, 10_000_000],
         sizes: vec![1_000, 100_000, 10_000_000],
         topic_counts: vec![1, 10, 100, 1_000],
         writers: vec![1, 8],
@@ -36,7 +38,13 @@ fn configuration_rejects_unknown_and_missing_fields() {
     value["typo"] = json!(10);
     assert!(serde_json::from_value::<Config>(value.clone()).is_err());
     value.as_object_mut().unwrap().remove("typo");
-    for field in ["read_ms", "layout", "measure_writes"] {
+    for field in [
+        "read_ms",
+        "layout",
+        "index_profiles",
+        "read_strategies",
+        "write_sizes",
+    ] {
         let mut missing = value.clone();
         missing.as_object_mut().unwrap().remove(field);
         assert!(serde_json::from_value::<Config>(missing).is_err());
@@ -72,10 +80,84 @@ fn read_only_experiments_do_not_require_unused_write_growth() {
     config.sizes = vec![1_000];
     config.writers = vec![64];
     config.batch_sizes = vec![100];
-    config.measure_writes = false;
+    config.write_sizes.clear();
     config.validate()?;
-    config.measure_writes = true;
+    config.write_sizes = vec![1_000];
     assert!(config.validate().is_err());
+}
+
+/// Shared-corpus controls need explicit, unique algorithms and baseline-first index profiles; incompatible schemas fail before setup.
+#[xmtp_common::test(unwrap_try = true)]
+fn experiment_dimensions_are_explicit_and_compatible() {
+    let mut controls = config();
+    controls.index_profiles.push(IndexProfile::MetadataCovering);
+    controls.read_strategies.push(PageQuery::Bounded);
+    controls.write_sizes = vec![10_000_000];
+    controls.validate()?;
+    for invalid in [
+        "profiles",
+        "strategies",
+        "empty",
+        "writes",
+        "partitioned",
+        "order",
+    ] {
+        let mut changed = controls.clone();
+        match invalid {
+            "profiles" => changed.index_profiles.push(IndexProfile::Baseline),
+            "strategies" => changed.read_strategies.push(PageQuery::Bounded),
+            "empty" => changed.read_strategies.clear(),
+            "writes" => changed.write_sizes.push(30_000_000),
+            "partitioned" => changed.layout = partition::Layout::SequenceRanges,
+            _ => changed.index_profiles.reverse(),
+        }
+        assert!(changed.validate().is_err(), "{invalid}");
+    }
+}
+
+/// A mostly missing broad request must still include one dormant topic with real hits, exposing ordered-scan fallback cost.
+#[xmtp_common::test(unwrap_try = true)]
+fn rare_hits_use_one_populated_topic_and_distinct_missing_topics() {
+    let topic = corpus::Topic {
+        bytes: corpus::topic(1),
+        head: 200,
+    };
+    let queries = request(&[&topic], 1_000, 0, Read::RareHits, 1_000);
+    assert_eq!(
+        queries
+            .iter()
+            .filter(|query| query.topic == topic.bytes)
+            .count(),
+        1
+    );
+    assert_eq!(
+        queries
+            .iter()
+            .map(|query| &query.topic)
+            .collect::<HashSet<_>>()
+            .len(),
+        1_000
+    );
+    assert!(queries.iter().all(|query| query.cursor == 0));
+    assert!(Read::RareHits.eligible(&topic, 1_000));
+}
+
+/// Every trial includes each control once, pairs the same workload, and alternates the leading algorithm to reduce priming bias.
+#[xmtp_common::test(unwrap_try = true)]
+fn paired_trial_order_rotates_workloads_and_leading_algorithms() {
+    assert_eq!(
+        workload::case_order(3, 2, 0).collect::<Vec<_>>(),
+        [0, 1, 2, 3, 4, 5]
+    );
+    assert_eq!(
+        workload::case_order(3, 2, 1).collect::<Vec<_>>(),
+        [3, 2, 5, 4, 1, 0]
+    );
+    assert_eq!(
+        workload::case_order(3, 2, 2).collect::<Vec<_>>(),
+        [4, 5, 0, 1, 2, 3]
+    );
+    assert_eq!(workload::case_order(0, 2, 1).count(), 0);
 }
 
 /// Repeated database sizes would duplicate trial identities after expensive corpus seeding.

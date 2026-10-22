@@ -76,9 +76,209 @@ class ReportTests(unittest.TestCase):
     def write_run(self):
         self.path.write_text("\n".join(json.dumps(event) for event in self.events))
 
+    def paired(self):
+        """Build separate algorithm/index observations while keeping the shared seed population fixed."""
+        environment = self.events[0]
+        environment["format_version"] = 2
+        environment["config"].update(
+            layout="unpartitioned",
+            index_profiles=["baseline", "metadata_covering"],
+            read_strategies=["lateral", "bounded"],
+            write_sizes=[1000],
+        )
+        measurements = copy.deepcopy(self.events[2:-1])
+        measurements.extend(
+            dict(event, case="query_rare_hits")
+            for event in copy.deepcopy(measurements)
+            if event["case"] == "query_no_cursor"
+        )
+        self.events = [environment]
+        for profile in environment["config"]["index_profiles"]:
+            self.events.append(
+                dict(event="corpus", rows=1000, topics=100, index_profile=profile)
+            )
+            for event in measurements:
+                if event["event"] == "write":
+                    context = {
+                        field: event[field]
+                        for field in (
+                            "rows",
+                            "case",
+                            "topics",
+                            "writers",
+                            "batch_size",
+                            "trial",
+                        )
+                    }
+                    self.events.append(
+                        dict(
+                            event="post_write_newest",
+                            **context,
+                            index_profile=profile,
+                            read={
+                                "topics": 100,
+                                "measurement": copy.deepcopy(event["measurement"]),
+                                "plans": {
+                                    mode: ["synthetic plan"]
+                                    for mode in (
+                                        "force_custom_plan",
+                                        "force_generic_plan",
+                                    )
+                                },
+                            },
+                        )
+                    )
+                strategies = (
+                    ["publish"] if event["event"] == "write" else ["lateral", "bounded"]
+                )
+                for strategy in strategies:
+                    self.events.append(
+                        dict(
+                            copy.deepcopy(event),
+                            index_profile=profile,
+                            strategy=strategy,
+                        )
+                    )
+                    if event["event"] == "read" and event["trial"] == 0:
+                        self.events.append(
+                            dict(
+                                event="plan",
+                                rows=1000,
+                                case=event["case"],
+                                topics=event["topics"],
+                                index_profile=profile,
+                                strategy=strategy,
+                                plans={
+                                    mode: ["synthetic plan"]
+                                    for mode in (
+                                        "force_custom_plan",
+                                        "force_generic_plan",
+                                    )
+                                },
+                            )
+                        )
+        self.events.append({"event": "complete"})
+
     def summarize(self):
         self.write_run()
         return summarize(self.path)
+
+    def test_paired_profiles_keep_independent_complete_groups(self):
+        """Index and algorithm controls must not pool their trials or repeat costly seed populations."""
+        self.paired()
+        rows = self.summarize()
+        self.assertEqual(len(rows), 52)
+        self.assertEqual(
+            {row["index_profile"] for row in rows}, {"baseline", "metadata_covering"}
+        )
+        self.assertEqual(
+            {row["strategy"] for row in rows}, {"lateral", "bounded", "publish"}
+        )
+        for kind in ("profile", "strategy", "population"):
+            with self.subTest(kind=kind):
+                original = copy.deepcopy(self.events)
+                if kind == "profile":
+                    self.events = [
+                        event
+                        for event in self.events
+                        if event.get("index_profile") != "metadata_covering"
+                    ]
+                elif kind == "strategy":
+                    self.events = [
+                        event
+                        for event in self.events
+                        if event.get("strategy") != "bounded"
+                    ]
+                else:
+                    next(
+                        event for event in self.events if event.get("event") == "corpus"
+                    )["topics"] = 99
+                with self.assertRaises(ValueError):
+                    self.summarize()
+                self.events = original
+
+    def test_paired_configuration_cannot_default_or_accept_unknown_profiles(self):
+        """Explicit controls prevent silent fallbacks and unsafe strings from reaching CSV fields."""
+        original = copy.deepcopy(self.events)
+        for field, value in (
+            ("read_strategies", None),
+            ("read_strategies", []),
+            ("read_strategies", ["lateral", "bounded", "bounded"]),
+            ("read_strategies", ["=HYPERLINK(1)"]),
+            ("index_profiles", ["metadata_covering", "baseline"]),
+            ("write_sizes", [2000]),
+            ("write_sizes", [1000, 1000]),
+        ):
+            with self.subTest(field=field, value=value):
+                self.events = copy.deepcopy(original)
+                self.paired()
+                if value is None:
+                    del self.events[0]["config"][field]
+                else:
+                    self.events[0]["config"][field] = value
+                with self.assertRaises(ValueError):
+                    self.summarize()
+
+    def test_paired_plan_coverage_rejects_missing_and_duplicate_diagnostics(self):
+        """A completed control needs real custom/generic plan records for every measured read identity."""
+        original = copy.deepcopy(self.events)
+        for mutation in ("missing", "duplicate", "policy"):
+            with self.subTest(mutation=mutation):
+                self.events = copy.deepcopy(original)
+                self.paired()
+                plan = next(event for event in self.events if event["event"] == "plan")
+                if mutation == "missing":
+                    self.events.remove(plan)
+                elif mutation == "duplicate":
+                    self.events.insert(1, copy.deepcopy(plan))
+                else:
+                    del plan["plans"]["force_generic_plan"]
+                with self.assertRaises(ValueError):
+                    self.summarize()
+
+    def test_paired_writes_only_require_explicit_sizes(self):
+        """Large read-only corpora must not require physical write copies or hide writes outside the requested sizes."""
+        self.paired()
+        self.events[0]["config"]["sizes"].append(2000)
+        additional = [
+            dict(copy.deepcopy(event), rows=2000)
+            for event in self.events[1:-1]
+            if event["event"] not in ("write", "post_write_newest")
+        ]
+        self.events[-1:-1] = additional
+        rows = self.summarize()
+        self.assertEqual(len(rows), 100)
+        self.assertEqual({row["rows"] for row in rows if row["writers"]}, {1000})
+        self.events[0]["config"]["write_sizes"] = []
+        self.events = [
+            event
+            for event in self.events
+            if event["event"] not in ("write", "post_write_newest")
+        ]
+        self.assertEqual(len(self.summarize()), 96)
+
+    def test_post_write_visibility_controls_cannot_be_omitted_or_mislabeled(self):
+        """Covering-index results must include finite post-insert reads and both plans for every fresh write copy."""
+        original = copy.deepcopy(self.events)
+        for mutation in ("missing", "duplicate", "profile", "samples"):
+            with self.subTest(mutation=mutation):
+                self.events = copy.deepcopy(original)
+                self.paired()
+                record = next(
+                    event
+                    for event in self.events
+                    if event["event"] == "post_write_newest"
+                )
+                if mutation == "missing":
+                    self.events.remove(record)
+                elif mutation == "duplicate":
+                    self.events.insert(1, copy.deepcopy(record))
+                elif mutation == "profile":
+                    record["index_profile"] = "=HYPERLINK(1)"
+                else:
+                    record["read"]["measurement"]["latency_ms"] = []
+                with self.assertRaises(ValueError):
+                    self.summarize()
 
     def observation(self, trial=0):
         return next(

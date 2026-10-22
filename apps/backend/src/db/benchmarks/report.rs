@@ -76,9 +76,13 @@ pub(super) async fn environment(store: &Store, config: &Config) -> TestResult<Va
         return Err("git rev-parse failed".into());
     }
     Ok(
-        json!({"event": "environment", "format_version": 1, "config": config,
+        json!({"event": "environment", "format_version": 2, "config": config,
         "revision": String::from_utf8(revision.stdout)?.trim(), "postgres": settings, "migrations": migrations,
         "experimental_migration_sha256": hex::encode(xmtp_common::sha256_array(include_bytes!("../../../benchmarks/migrations/20261021000000_sequence_ranges.sql"))),
+        "covering_migration_sha256": hex::encode(xmtp_common::sha256_array(include_bytes!("../../../benchmarks/migrations/20261022000000_metadata_covering.sql"))),
+        "bounded_query_sha256": hex::encode(xmtp_common::sha256_array(include_bytes!("../../../benchmarks/queries/bounded_page.sql"))),
+        "bounded_window_rows": super::experiments::WINDOW_ROWS,
+        "bounded_min_topics": super::experiments::MIN_WINDOW_TOPICS,
         "request_timeout_ms": super::REQUEST_TIMEOUT_MS, "seed_timeout_ms": super::SEED_TIMEOUT_MS,
         "available_cpus": std::thread::available_parallelism()?.get(), "arch": std::env::consts::ARCH,
         "os": std::env::consts::OS, "cpu": system_line("/proc/cpuinfo", "model name"),

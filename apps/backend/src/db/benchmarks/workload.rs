@@ -4,6 +4,7 @@
 use super::{
     Config, Duration, Instant, Store, TestDatabase, TestResult,
     corpus::{self, Topic},
+    experiments::{IndexProfile, WINDOW_ROWS},
     record, report,
 };
 use crate::db::{PendingEnvelope, TopicCursor};
@@ -12,7 +13,10 @@ use serde_json::json;
 use sqlx::Row;
 use std::io::Write;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+const POST_WRITE_READ_MS: u64 = 1_000;
+const CASE_ROTATION: usize = 7;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) enum Read {
     NoCursor,
     Old,
@@ -20,6 +24,7 @@ pub(super) enum Read {
     Recent,
     Mixed,
     SparseRecent,
+    RareHits,
     Absent,
     CaughtUp,
     NewestFull,
@@ -36,6 +41,7 @@ impl Read {
             Self::Recent => "query_recent",
             Self::Mixed => "query_mixed",
             Self::SparseRecent => "query_sparse_recent",
+            Self::RareHits => "query_rare_hits",
             Self::Absent => "query_absent",
             Self::CaughtUp => "query_caught_up",
             Self::NewestFull => "newest_full",
@@ -53,7 +59,7 @@ impl Read {
 
     pub(super) fn floor(self, size: i64, ordinal: usize) -> i64 {
         match self {
-            Self::NoCursor | Self::Absent => 0,
+            Self::NoCursor | Self::Absent | Self::RareHits => 0,
             Self::Old => size / 10,
             Self::Backlog => size * 9 / 10,
             Self::Mixed if ordinal.is_multiple_of(100) => 0,
@@ -65,6 +71,7 @@ impl Read {
     pub(super) fn eligible(self, topic: &Topic, size: i64) -> bool {
         match self {
             Self::SparseRecent | Self::CaughtUp | Self::Absent => true,
+            Self::RareHits => topic.head <= size / 2,
             value if value.newest() => true,
             Self::Mixed => topic.head > size * 99 / 100,
             value => topic.head > value.floor(size, 10),
@@ -83,7 +90,9 @@ pub(super) fn request(
         .map(|offset| {
             let topic = pool[(iteration * 7919 + offset) % pool.len()];
             TopicCursor {
-                topic: if matches!(kind, Read::Absent | Read::NewestAbsent) {
+                topic: if matches!(kind, Read::Absent | Read::NewestAbsent)
+                    || (kind == Read::RareHits && offset != 0)
+                {
                     corpus::topic(size + offset as i64 + (iteration % 10_000) as i64)
                 } else {
                     topic.bytes.clone()
@@ -149,17 +158,14 @@ pub(super) async fn plans(
     let sql = match kind {
         Read::NewestFull => include_str!("../read/newest.sql"),
         Read::NewestMetadata | Read::NewestAbsent => include_str!("../read/newest_metadata.sql"),
-        _ if store.watermark_prefilter => {
-            include_str!("../../../benchmarks/queries/watermark_page.sql")
-        }
-        _ => include_str!("../read/page.sql"),
+        _ => store.page_query.sql(queries),
     };
     let topics = queries
         .iter()
         .map(|query| format!("decode('{}', 'hex')", hex::encode(&query.topic)))
         .collect::<Vec<_>>()
         .join(",");
-    let arguments = if kind.newest() {
+    let mut arguments = if kind.newest() {
         format!("ARRAY[{topics}]::bytea[]")
     } else {
         let cursors = queries
@@ -169,6 +175,9 @@ pub(super) async fn plans(
             .join(",");
         format!("ARRAY[{topics}]::bytea[], ARRAY[{cursors}]::bigint[], {limit}")
     };
+    if !kind.newest() && store.page_query.uses_window(queries) {
+        arguments.push_str(&format!(", {WINDOW_ROWS}"));
+    }
     let mut connection = store.primary.acquire().await?;
     let prepare = format!("PREPARE benchmark_read AS {sql}");
     sqlx::raw_sql(sqlx::AssertSqlSafe(prepare.as_str()))
@@ -208,53 +217,62 @@ pub(super) async fn reads(
     catalog: &[Topic],
     size: i64,
     config: &Config,
+    index_profile: IndexProfile,
     output: &mut impl Write,
 ) -> TestResult {
     let mut cases = Vec::new();
-    for &count in &config.topic_counts {
-        for kind in [
-            Read::NoCursor,
-            Read::Old,
-            Read::Backlog,
-            Read::Recent,
-            Read::Mixed,
-            Read::SparseRecent,
-            Read::Absent,
-            Read::CaughtUp,
-            Read::NewestFull,
-            Read::NewestMetadata,
-            Read::NewestAbsent,
-        ] {
-            let pool: Vec<_> = catalog
-                .iter()
-                .filter(|topic| kind.eligible(topic, size))
-                .collect();
-            let reason = if count > pool.len() && !matches!(kind, Read::Absent | Read::NewestAbsent)
-            {
-                Some("not enough distinct eligible topics")
-            } else if kind == Read::NewestFull
-                && count > xmtp_configuration::BACKEND_DEFAULT_MAX_NEWEST_FULL_TOPICS
-            {
-                Some("exceeds production full-envelope topic limit")
-            } else {
-                None
-            };
-            if let Some(reason) = reason {
-                record(
-                    output,
-                    json!({"event": "skipped", "rows": size, "case": kind.name(), "topics": count, "eligible_topics": pool.len(), "reason": reason}),
-                )?;
-            } else {
-                cases.push((count, kind, pool));
+    for &strategy in &config.read_strategies {
+        for &count in &config.topic_counts {
+            for kind in [
+                Read::NoCursor,
+                Read::Old,
+                Read::Backlog,
+                Read::Recent,
+                Read::Mixed,
+                Read::SparseRecent,
+                Read::RareHits,
+                Read::Absent,
+                Read::CaughtUp,
+                Read::NewestFull,
+                Read::NewestMetadata,
+                Read::NewestAbsent,
+            ] {
+                let pool: Vec<_> = catalog
+                    .iter()
+                    .filter(|topic| kind.eligible(topic, size))
+                    .collect();
+                let reason = if count > pool.len()
+                    && !matches!(kind, Read::Absent | Read::NewestAbsent | Read::RareHits)
+                {
+                    Some("not enough distinct eligible topics")
+                } else if kind == Read::NewestFull
+                    && count > xmtp_configuration::BACKEND_DEFAULT_MAX_NEWEST_FULL_TOPICS
+                {
+                    Some("exceeds production full-envelope topic limit")
+                } else {
+                    None
+                };
+                if let Some(reason) = reason {
+                    record(
+                        output,
+                        json!({"event": "skipped", "rows": size, "case": kind.name(), "topics": count, "eligible_topics": pool.len(), "reason": reason, "index_profile": index_profile, "strategy": strategy}),
+                    )?;
+                } else {
+                    cases.push((strategy, count, kind, pool));
+                }
             }
         }
     }
+    cases.sort_by_key(|(_, count, kind, _)| (*count, *kind));
     for trial in 0..config.trials {
-        for offset in 0..cases.len() {
-            let (count, kind, pool) = &cases[(offset + trial * 7) % cases.len()];
+        let strategies = config.read_strategies.len();
+        for index in case_order(cases.len() / strategies, strategies, trial) {
+            let (strategy, count, kind, pool) = &cases[index];
+            let mut measured = store.clone();
+            measured.page_query = *strategy;
             for iteration in 0..config.warmup_requests {
                 read(
-                    store,
+                    &measured,
                     &request(pool, *count, iteration, *kind, size),
                     *kind,
                     config.page_limit,
@@ -275,7 +293,8 @@ pub(super) async fn reads(
                     size,
                 );
                 let request_start = Instant::now();
-                let (returned, payload) = read(store, &queries, *kind, config.page_limit).await?;
+                let (returned, payload) =
+                    read(&measured, &queries, *kind, config.page_limit).await?;
                 samples.push(request_start.elapsed().as_secs_f64() * 1_000.0);
                 rows += returned;
                 bytes += payload;
@@ -284,6 +303,7 @@ pub(super) async fn reads(
             record(
                 output,
                 json!({"event": "read", "rows": size, "case": kind.name(), "topics": count,
+                "index_profile": index_profile, "strategy": strategy,
                 "eligible_topics": pool.len(), "trial": trial, "empty_requests": empty,
                 "measurement": report::measurement(&samples, start.elapsed().as_secs_f64(), rows, bytes)}),
             )?;
@@ -291,12 +311,26 @@ pub(super) async fn reads(
                 record(
                     output,
                     json!({"event": "plan", "rows": size, "case": kind.name(), "topics": count,
-                    "plans": plans(store, &request(pool, *count, 0, *kind, size), *kind, config.page_limit).await?}),
+                    "index_profile": index_profile, "strategy": strategy,
+                    "plans": plans(&measured, &request(pool, *count, 0, *kind, size), *kind, config.page_limit).await?}),
                 )?;
             }
         }
     }
     Ok(())
+}
+
+/// Keep algorithms adjacent for a workload; rotate workload and leading algorithm
+/// each trial so one implementation does not always prime the other's pages.
+pub(super) fn case_order(
+    groups: usize,
+    strategies: usize,
+    trial: usize,
+) -> impl Iterator<Item = usize> {
+    (0..groups * strategies).map(move |offset| {
+        ((offset / strategies + trial * CASE_ROTATION) % groups) * strategies
+            + (offset % strategies + trial) % strategies
+    })
 }
 
 pub(super) fn pending(topic: Vec<u8>, nonce: i64, index: usize) -> PendingEnvelope {
@@ -332,6 +366,7 @@ pub(super) async fn writes(
     database: &TestDatabase,
     size: i64,
     config: &Config,
+    index_profile: IndexProfile,
     output: &mut impl Write,
 ) -> TestResult {
     for trial in 0..config.trials {
@@ -416,9 +451,18 @@ pub(super) async fn writes(
                     record(
                         output,
                         json!({"event": "write", "rows": size, "case": if single_topic { "insert_single_topic" } else { "insert_many_topics" },
+                        "index_profile": index_profile, "strategy": "publish",
                         "topics": if single_topic { 1 } else { topics.len() }, "writers": writers, "batch_size": batch, "trial": trial,
                         "warmup_rows": writers * batch, "end_rows": end_rows, "growth_cap_reached": samples.len() == operations,
                         "wal_bytes": wal_bytes, "measurement": report::measurement(&samples, seconds, samples.len() * batch, samples.len() * batch * 1024)}),
+                    )?;
+                    record(
+                        output,
+                        json!({"event": "post_write_newest", "rows": size,
+                        "case": if single_topic { "insert_single_topic" } else { "insert_many_topics" },
+                        "topics": if single_topic { 1 } else { topics.len() }, "writers": writers,
+                        "batch_size": batch, "trial": trial, "index_profile": index_profile,
+                        "read": newest_after_write(&store, &topics, config.warmup_requests).await?}),
                     )?;
                     super::partition::close(&store).await;
                     copy.remove()?;
@@ -427,4 +471,48 @@ pub(super) async fn writes(
         }
     }
     Ok(())
+}
+
+/// Measure newest metadata before vacuum can restore new heap pages' all-visible bits.
+/// Read warmups and custom/generic plans are outside the preceding insert window.
+async fn newest_after_write(
+    store: &Store,
+    catalog: &[Topic],
+    warmups: usize,
+) -> TestResult<serde_json::Value> {
+    let pool = catalog.iter().collect::<Vec<_>>();
+    let count = pool.len().min(1_000);
+    for iteration in 0..warmups {
+        read(
+            store,
+            &request(&pool, count, iteration, Read::NewestMetadata, 0),
+            Read::NewestMetadata,
+            100,
+        )
+        .await?;
+    }
+    let start = Instant::now();
+    let mut samples = Vec::new();
+    let mut rows = 0;
+    while samples.is_empty() || start.elapsed() < Duration::from_millis(POST_WRITE_READ_MS) {
+        let queries = request(
+            &pool,
+            count,
+            warmups + samples.len(),
+            Read::NewestMetadata,
+            0,
+        );
+        let request_start = Instant::now();
+        rows += read(store, &queries, Read::NewestMetadata, 100).await?.0;
+        samples.push(request_start.elapsed().as_secs_f64() * 1_000.0);
+    }
+    let measurement = report::measurement(&samples, start.elapsed().as_secs_f64(), rows, 0);
+    let diagnostics = plans(
+        store,
+        &request(&pool, count, 0, Read::NewestMetadata, 0),
+        Read::NewestMetadata,
+        100,
+    )
+    .await?;
+    Ok(json!({"topics": count, "measurement": measurement, "plans": diagnostics}))
 }

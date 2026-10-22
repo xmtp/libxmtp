@@ -36,7 +36,7 @@ pub struct Store {
     #[cfg(test)]
     pub(crate) partitions: Option<std::sync::Arc<benchmarks::partition::Partitions>>,
     #[cfg(test)]
-    pub(crate) watermark_prefilter: bool,
+    pub(crate) page_query: benchmarks::experiments::PageQuery,
 }
 
 impl Store {
@@ -68,7 +68,7 @@ impl Store {
             #[cfg(test)]
             partitions: None,
             #[cfg(test)]
-            watermark_prefilter: false,
+            page_query: benchmarks::experiments::PageQuery::Lateral,
         })
     }
 }

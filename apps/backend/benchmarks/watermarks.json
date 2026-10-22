@@ -1,6 +1,8 @@
 {
-  "layout": "sequence_ranges_watermarks",
-  "measure_writes": false,
+  "layout": "sequence_ranges",
+  "index_profiles": ["baseline"],
+  "read_strategies": ["watermarks"],
+  "write_sizes": [],
   "sizes": [10000000],
   "topic_counts": [1000],
   "writers": [1, 8],
