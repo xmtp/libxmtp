@@ -389,6 +389,13 @@ pub trait XmtpDb: MaybeSend + MaybeSync {
                     if !has_marker && holds_client_data(conn)? {
                         return Ok(Err(StorageError::OldEncodingDatabase));
                     }
+                    // A live group with a 16-byte id predates keyed group
+                    // ids. This build cannot publish to it, so refuse the
+                    // database before any migration, and so before the
+                    // client sends any request. Its data stays as it was.
+                    if holds_legacy_groups(conn)? {
+                        return Ok(Err(StorageError::LegacyGroupDatabase));
+                    }
                 }
             }
             conn.run_pending_migrations(MIGRATIONS)
@@ -404,12 +411,6 @@ pub trait XmtpDb: MaybeSend + MaybeSync {
                 }.into()));
             }
 
-            // A live group with a 16-byte id predates keyed group ids. This
-            // build cannot publish to it, so refuse the database before the
-            // client sends any request. Its data stays as it was.
-            if holds_legacy_groups(conn)? {
-                return Ok(Err(StorageError::LegacyGroupDatabase));
-            }
 
             let sqlite_version =
                 sql_query("SELECT sqlite_version() AS version").load::<SqliteVersion>(conn)?;

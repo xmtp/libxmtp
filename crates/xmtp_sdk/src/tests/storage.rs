@@ -494,3 +494,48 @@ async fn opening_a_database_written_before_cbor_storage_is_a_typed_storage_error
     }
     let _ = std::fs::remove_file(path);
 }
+
+/// A database that holds a live group with a 16-byte id fails to open with
+/// the typed `Storage` error, its cause code, and a message that says what
+/// to do. It is not retryable and not `Unknown`.
+#[cfg(not(target_arch = "wasm32"))]
+#[xmtp_common::test(unwrap_try = true)]
+async fn opening_a_database_with_a_live_legacy_group_is_a_typed_storage_error() {
+    use xmtp_db::{
+        Store,
+        group::{GroupMembershipState, StoredGroup},
+    };
+
+    let path = std::env::temp_dir().join(format!(
+        "sdk-legacy-group-{}-{}.db3",
+        std::process::id(),
+        xmtp_common::time::now_ns()
+    ));
+    let path_text = path.to_string_lossy().into_owned();
+    let storage = StorageOptions::default();
+    let store = crate::client::open_store(&storage, Some(&path_text)).await?;
+    // A build before keyed group ids stored this group.
+    StoredGroup::builder()
+        .id(xmtp_proto::types::GroupId::from([1u8; 16]))
+        .created_at_ns(1)
+        .membership_state(GroupMembershipState::Allowed)
+        .added_by_inbox_id("adder")
+        .build()?
+        .store(&store.db())?;
+    drop(store);
+
+    match crate::client::open_store(&storage, Some(&path_text)).await {
+        Err(XmtpError::Storage(details)) => {
+            assert_eq!(details.code, "StorageError::LegacyGroupDatabase");
+            assert!(matches!(details.category, crate::ErrorCategory::Storage));
+            assert!(!details.retryable);
+            assert_eq!(
+                details.message,
+                "This database holds groups from before keyed group ids. Keep a backup and create a new client database."
+            );
+        }
+        Err(error) => panic!("expected a typed storage error, got {error:?}"),
+        Ok(_) => panic!("a database with a live 16-byte group opened"),
+    }
+    let _ = std::fs::remove_file(path);
+}
