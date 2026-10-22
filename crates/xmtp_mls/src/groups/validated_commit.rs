@@ -1049,6 +1049,8 @@ mod committed_proposal_outcomes {
     /// A `GroupContextExtensions` proposal is held both standalone and inside
     /// a commit.
     #[xmtp_common::test(unwrap_try = true)]
+    // A test drives an OpenMLS convenience commit; its GroupInfo never leaves the test.
+    #[allow(clippy::disallowed_methods)]
     async fn committed_proposal_outcomes_hold_gce_proposal_and_commit() {
         use crate::tester;
         tester!(alix, disable_workers);

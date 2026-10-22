@@ -182,6 +182,8 @@ mod tests {
     /// tests drive with real rejected commits.
     // verifies: JOIN-082
     #[xmtp_common::test(unwrap_try = true)]
+    // A test drives an OpenMLS convenience commit; its GroupInfo never leaves the test.
+    #[allow(clippy::disallowed_methods)]
     async fn a_commit_adding_a_last_resort_mark_with_data_is_rejected() {
         use openmls::{
             extensions::{
