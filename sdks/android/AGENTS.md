@@ -60,6 +60,13 @@ The Messenger app is at [apps/example-android](../../apps/example-android).
 Its Gradle root, recipes, and fixture rules are in that directory. SDK recipes
 build and test only the SDK. SDK changes also select app compatibility CI.
 
+The Android release workflow publishes the signed `org.xmtp:android` release
+to Maven Central and GitHub Packages (`https://maven.pkg.github.com/xmtp/libxmtp`).
+Publishing credentials and the armored signing key live in the GitHub
+`release` environment. `OSSRH_USERNAME` and `OSSRH_TOKEN` hold a Central Portal
+user token pair; the old OSSRH account credentials do not work. GitHub
+Packages uses the workflow's `GITHUB_TOKEN` with `packages: write`.
+
 The SDK root owns `gradle/toolchain.properties`, the Gradle wrapper, and the
 shared SHA256 dependency verification inventory. The app root reads these
 inputs. Refresh locks and checksums in the Android Nix shell, then run strict

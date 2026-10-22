@@ -32,8 +32,12 @@ jobs:
     secrets: inherit
 
   publish:
-    name: Build and publish to Maven Central
+    name: Build and publish Android SDK
     needs: [check-push-permissions]
+    environment: release
+    permissions:
+      contents: read
+      packages: write
     # Paid Linux: the android-ci shell closure is about 3 GiB plus an Android
     # SDK closure of 6 to 11 GiB, before the APK build and Gradle downloads,
     # which is more than the 14 GB disk of a free hosted runner.
@@ -91,8 +95,17 @@ jobs:
           MAVEN_PASSWORD: ${{ secrets.OSSRH_TOKEN }}
           SIGN_KEY: ${{ secrets.OSSRH_GPG_SECRET_KEY }}
           SIGN_PASSWORD: ${{ secrets.OSSRH_GPG_SECRET_KEY_PASSWORD }}
-          MAVEN_PROFILE_ID: ${{ secrets.MAVEN_PROFILE_ID }}
-        run: dev/nix-shell 'cd sdks/android && ./gradlew publishToSonatype closeAndReleaseSonatypeStagingRepository'
+          GITHUB_ACTOR: ${{ github.actor }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          for name in MAVEN_USERNAME MAVEN_PASSWORD SIGN_KEY SIGN_PASSWORD GITHUB_ACTOR GITHUB_TOKEN; do
+            if [[ -z "${!name}" ]]; then
+              echo "::error::Missing Android publishing credential: $name"
+              exit 1
+            fi
+          done
+          dev/nix-shell 'cd sdks/android && ./gradlew publishToSonatype closeAndReleaseSonatypeStagingRepository :library:publishReleasePublicationToGitHubPackagesRepository'
 
       - name: Prepare release tag
         env:

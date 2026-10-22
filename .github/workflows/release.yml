@@ -240,6 +240,7 @@ jobs:
     uses: ./.github/workflows/release-android.yml
     permissions:
       contents: write
+      packages: write
     with:
       release-type: ${{ needs.validate.outputs.release-type }}
       source-sha: ${{ needs.validate.outputs.source-sha }}

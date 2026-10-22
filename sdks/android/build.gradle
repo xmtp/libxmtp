@@ -55,7 +55,7 @@ nexusPublishing {
             nexusUrl.set(uri("https://ossrh-staging-api.central.sonatype.com/service/local/"))
             username = System.getenv("MAVEN_USERNAME")
             password = System.getenv("MAVEN_PASSWORD")
-            stagingProfileId = System.getenv("MAVEN_PROFILE_ID")
+            // Discover the profile for org.xmtp using the Central Portal token.
         }
     }
 }
