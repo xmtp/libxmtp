@@ -296,6 +296,8 @@ Archive import trusts the decrypted archive contents. Import does not verify mes
 
 Restored conversations report an unknown creator, empty member and role lists, and false admin roles until validated activation. Legacy creator getters use empty text; the new SDK uses its optional unknown value. Restored conversations do not preserve arbitrary mutable attributes or exact archived creator and admin lists. The archived group id, kind, DM pair, creation time, adder, disappearing scalar settings, and activity remain preserved. ARCH-020 and ARCH-024 have gap waivers until exact historical metadata support returns. Restored conversations and their messages are excluded from export under ARCH-026.
 
+A restored conversation whose group id is 16 bytes can never be activated: no installation holds a group root that derives a 16-byte id, so every Welcome naming it fails JOIN-083. Its history stays read-only on the installation that imported it.
+
 A message with a future expiry can remain in the archive after its deadline. Import applies META-051 only when the archive preserves that deadline. Legacy archives lack per-message expiry information; they remain readable with unknown expiry under ARCH-019. The store records unknown expiry and no expiry alike, so after activation, `exclude_disappearing_messages` can export imported messages whose expiry is unknown. This is waived under ARCH-009 until the store can tell them apart.
 
 A frame for a missing group fails restoration when the destination lacks that group. This does not delete source data or corrupt the destination. Earlier completed elements remain, and an unchanged retry reaches the same failure.

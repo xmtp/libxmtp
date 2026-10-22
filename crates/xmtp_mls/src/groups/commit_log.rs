@@ -571,7 +571,7 @@ where
     // 5. The last_epoch_authenticator does not match the epoch_authenticator of the most recently stored entry with a CommitResult of COMMIT_RESULT_APPLIED, if one exists.
     // 6. The entry has a CommitResult of COMMIT_RESULT_APPLIED, but the epoch number is not exactly 1 greater than the most recently stored entry with a result of COMMIT_RESULT_APPLIED, if one exists.
     // 7. The entry CommitResult is not COMMIT_RESULT_APPLIED, and the epoch authenticator or epoch number does not match the most recently applied values
-    // implements: FORK-031, FORK-032
+    // implements: FORK-032
     fn should_skip_remote_commit_log_entry(
         &self,
         group_id: &[u8],

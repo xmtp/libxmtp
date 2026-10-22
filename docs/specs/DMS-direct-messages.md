@@ -66,14 +66,14 @@ A DM's fixed policies deny inbox additions, inbox removals, and admin changes. D
 | `GROUP_MEMBERSHIP` | `METADATA_BASE_POLICY_DENY` | `METADATA_BASE_POLICY_ALLOW` | `METADATA_BASE_POLICY_DENY` |
 | `ADMIN_LIST` | `METADATA_BASE_POLICY_DENY` | `METADATA_BASE_POLICY_DENY` | `METADATA_BASE_POLICY_DENY` |
 
-The settings policies below apply at creation under DMS-002. The component names and wire ids belong to META section 2. Permission evaluation belongs to PERM-011. The commit-log signer is separate from the settings either participant can update; clearing disappearing settings writes disabled values instead of removing the components. The `USER_DISPLAY_NAME` row applies under META-066 rather than DMS-002, with the policies of PERM-029. A DM registry has no `GROUP_IMAGE` entry.
+The settings policies below apply at creation under DMS-002. The component names and wire ids belong to META section 2. Permission evaluation belongs to PERM-011. Clearing disappearing settings writes disabled values instead of removing the components. The `USER_DISPLAY_NAME` row applies under META-066 rather than DMS-002, with the policies of PERM-029. A DM registry has no `GROUP_IMAGE` entry.
 
 | Registry entries | `insert_policy` | `update_policy` | `delete_policy` |
 | --- | --- | --- | --- |
 | `GROUP_NAME`, `GROUP_DESCRIPTION`, `GROUP_IMAGE_URL`, `APP_DATA`, `MESSAGE_DISAPPEAR_FROM_NS`, `MESSAGE_DISAPPEAR_IN_NS`, `MIN_SUPPORTED_PROTOCOL_VERSION` | `METADATA_BASE_POLICY_ALLOW` | `METADATA_BASE_POLICY_ALLOW` | `METADATA_BASE_POLICY_ALLOW_IF_SUPER_ADMIN` |
 | `COMMIT_LOG_SIGNER` | `METADATA_BASE_POLICY_ALLOW_IF_SUPER_ADMIN` | `METADATA_BASE_POLICY_ALLOW_IF_SUPER_ADMIN` | `METADATA_BASE_POLICY_ALLOW_IF_SUPER_ADMIN` |
 | `USER_DISPLAY_NAME` | `METADATA_BASE_POLICY_ALLOW_IF_SELF_OR_NON_MEMBER` | `METADATA_BASE_POLICY_ALLOW_IF_SELF_OR_NON_MEMBER` | `METADATA_BASE_POLICY_ALLOW_IF_SELF_OR_NON_MEMBER` |
-| `CONVERSATION_TYPE`, `CREATOR_INBOX_ID`, `DM_MEMBERS` | `METADATA_BASE_POLICY_ALLOW_IF_SUPER_ADMIN` | `METADATA_BASE_POLICY_DENY` | `METADATA_BASE_POLICY_DENY` |
+| `CONVERSATION_TYPE`, `CREATOR_INBOX_ID`, `DM_MEMBERS`, `GROUP_ROOT_KEY` | `METADATA_BASE_POLICY_ALLOW_IF_SUPER_ADMIN` | `METADATA_BASE_POLICY_DENY` | `METADATA_BASE_POLICY_DENY` |
 
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
@@ -129,7 +129,7 @@ The winner can change when another group's activity timestamp becomes greater, i
 
 A Restored DM can contain history for two inboxes other than the importing inbox. It has no peer relative to that inbox under DMS-017. It stays inactive until a validated Welcome joins the exact stored pair and kind. Import preserves that pair, but current placeholder metadata can still replace other archived values such as creator and adder; ARCH-020 remains open for those values.
 
-A DM has no super admin, so its well-known registry entries and `COMMIT_LOG_SIGNER` cannot be changed through the fixed policies. A signer rotation is not possible through those policies. Only application registry entries can change, under PERM-026.
+A DM has no super admin, so its well-known registry entries cannot be changed through the fixed policies. Only application registry entries can change, under PERM-026.
 
 History imported from an archive is trusted as written, because the archive key is its only authentication. Import does not check a message's sender against the DM pair, so an archive can add history under any sender to a DM, and the stitched thread shows that history. The client does not check a stored DM against DMS-003 again after its join, because that check would load the MLS state of every stored DM at each client open. A DM that an older client accepted with an inbox outside its pair therefore stays in the stitched thread.
 

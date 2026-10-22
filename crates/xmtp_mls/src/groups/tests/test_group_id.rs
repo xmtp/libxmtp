@@ -1,6 +1,5 @@
 use crate::tester;
 
-// verifies: GMOD-037
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_group_id_is_sixteen_bytes_and_not_derived() {
     tester!(alix, disable_workers);

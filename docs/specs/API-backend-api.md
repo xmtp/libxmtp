@@ -104,12 +104,23 @@ message GroupMessage {
   bytes data = 1;
   bytes sender_hmac = 2;
   bool should_push = 3;
+  // 64-byte Ed25519 signature [R(32) || S(32)] over GroupMessageTBS by the
+  // group signing key.
+  bytes signature = 4; // pending: API-300
 }
 
-message CommitLogEntry {
-  // Serialized PlaintextCommitLogEntry.
-  bytes serialized_commit_log_entry = 1;
-  xmtp.identity.associations.RecoverableEd25519Signature signature = 2;
+// A commit-log entry, encrypted and signed under keys derived from the
+// group root. pending: FORK-074
+message SealedCommitLogEntry {
+  // 32-byte public key of the commit-log signing key. Derives the topic.
+  bytes commit_log_id = 1; // pending: FORK-074
+  // 12 bytes.
+  bytes nonce = 2; // pending: FORK-074
+  // ChaCha20-Poly1305 encryption of a serialized PlaintextCommitLogEntry.
+  bytes ciphertext = 3; // pending: FORK-074
+  // 64-byte Ed25519 signature [R(32) || S(32)] over CommitLogEntryTBS by
+  // the commit-log signing key.
+  bytes signature = 4; // pending: FORK-074
 }
 
 // What a client publishes. WelcomeMessage and KeyPackage are defined in JOIN.
@@ -119,8 +130,11 @@ message ClientEnvelope {
     WelcomeMessage welcome_message = 2;
     KeyPackage key_package = 3;
     xmtp.identity.associations.IdentityUpdate identity_update = 4;
-    CommitLogEntry commit_log_entry = 5;
+    SealedCommitLogEntry sealed_commit_log_entry = 6; // pending: FORK-074
   }
+  // The retired CommitLogEntry payload.
+  reserved 5; // pending: API-210
+  reserved "commit_log_entry"; // pending: API-210
 }
 
 // A stored envelope with its server-assigned metadata.
@@ -196,7 +210,7 @@ message PublishError {
 
 ### 3.1 Admission
 
-The backend parses every envelope to derive its topic and metadata, and validates the two kinds it holds the state to validate: a key package, whose signatures and lifetime are self-contained, and an identity update, whose whole history is the inbox's identity topic. Nothing else is checked. The backend holds no group key, so a group message is stored on the strength of its framing alone, and a Welcome or a commit-log entry on the strength of one identifier. What acceptance does not establish is listed so that no client reads a stored envelope as more than it is.
+The backend parses every envelope to derive its topic and metadata. It validates a key package and an identity update against what it holds. It verifies the publish signature on a group message and on a sealed commit-log entry, under the public key that is the topic's identifier. Nothing else is checked. The backend holds no group secret, so a signed envelope is stored on the strength of its signature alone: whoever holds the private key of the topic's identifier signed it, which for an existing group's topics is an installation that holds the group root. What acceptance does not establish is listed so that no client reads a stored envelope as more than it is.
 
 The identity update is validated against the complete history of the inbox, read once from the store that publishes commit, so an update that depends on one the client has just had confirmed is validated against it. If that history grows between the read and the store, the validation may have passed against a state that no longer exists, so the request is aborted and the client starts over from the new history. IDENT-005 owns the association validation required at admission, including the signature rules in [IDENT section 4](IDENT-identity-updates.md#4-signature-kinds).
 
@@ -204,17 +218,39 @@ An identity update that claims a handle passes three more checks, which need sta
 
 A key package is validated by the MLS rules, with the rule of the MLS extensions draft that JOIN-082 states, and nothing more. Four properties a stricter validator might check are accepted on purpose, because the installations on the network today publish packages that have them, and a backend that started rejecting them would cut those installations off from every group (API-235).
 
+A publish signature is an Ed25519 signature ([RFC 8032 §5.1.6](https://www.rfc-editor.org/rfc/rfc8032#section-5.1.6)) over the TLS encoding ([RFC 9420 §2.1.2](https://www.rfc-editor.org/rfc/rfc9420.html#section-2.1.2)) of one of the structures below, under the key that GMOD-041 names for it. The label separates the two uses.
+
+```tls
+struct {
+    opaque label<V>;        // ASCII "xmtp group message"
+    opaque topic<V>;        // 0x00 followed by the 32-byte group id
+    opaque data<V>;         // GroupMessage.data
+    opaque sender_hmac<V>;  // GroupMessage.sender_hmac
+    uint8 should_push;      // 1 when GroupMessage.should_push is true, otherwise 0
+} GroupMessageTBS;
+
+struct {
+    opaque label<V>;        // ASCII "xmtp commit log entry"
+    opaque topic<V>;        // 0x04 followed by the 32-byte commit-log id:
+                            // commit_log_id at admission, the
+                            // conversation's own at a reader (FORK-075)
+    opaque nonce<V>;        // SealedCommitLogEntry.nonce
+    opaque ciphertext<V>;   // SealedCommitLogEntry.ciphertext
+} CommitLogEntryTBS;
+```
+
 | Kind | Parsed as | Also checked | Reason on failure | Not established |
 | --- | --- | --- | --- | --- |
-| Group message | `GroupMessage.data` as an `MLSMessage` whose body is a `PublicMessage` or `PrivateMessage` ([RFC 9420 §6](https://www.rfc-editor.org/rfc/rfc9420.html#section-6)); bytes after the message are accepted and stored | Nothing | `REASON_MALFORMED_PAYLOAD` | That the sender is a member, that the signature verifies, that the epoch is current, or that any member can decrypt it |
+| Group message | `GroupMessage.data` as an `MLSMessage` whose body is a `PublicMessage` or `PrivateMessage` ([RFC 9420 §6](https://www.rfc-editor.org/rfc/rfc9420.html#section-6)); bytes after the message are accepted and stored; `signature` of 64 bytes | `signature` passes API-300 over `GroupMessageTBS` under the group id | `REASON_MALFORMED_PAYLOAD` when it does not parse or TOPIC-002 rejects it, `REASON_INVALID_SIGNATURE` when API-300 fails | That the signer is a current member, that the MLS signature verifies, that the epoch is current, or that any member can decrypt it |
 | Welcome | `WelcomeMessage` with `version` set | Nothing | `REASON_MALFORMED_PAYLOAD` | That `installation_key` names a registered installation, or that the recipient can decrypt it |
 | Key package | `KeyPackage.key_package_tls_serialized` as a `KeyPackage` ([RFC 9420 §10](https://www.rfc-editor.org/rfc/rfc9420.html#section-10)), consuming every byte | JOIN-007, JOIN-008, JOIN-082, and that the credential decodes under JOIN-004 | `REASON_MALFORMED_PAYLOAD` when it does not parse or TOPIC-002 rejects it, `REASON_INVALID_KEY_PACKAGE` otherwise | That the inbox the credential names exists or associates the leaf node's `signature_key`; the four properties API-235 names |
 | Identity update | `IdentityUpdate` with `inbox_id` accepted by TOPIC-002 | IDENT-005: signature verification and application to the association state built from every envelope on the inbox's identity topic; for an update that carries a `ClaimHandle`, also API-296, API-297, and API-298 | `REASON_MALFORMED_PAYLOAD` when TOPIC-002 rejects it, `REASON_INVALID_SIGNATURE` when a signature does not verify, the reason API-296, API-297, or API-298 names when that check fails, `REASON_INVALID_IDENTITY_UPDATE` otherwise | That the caller is authorized to act for the inbox |
-| Commit-log entry | `CommitLogEntry.serialized_commit_log_entry` as a `PlaintextCommitLogEntry` | Nothing; `signature` is stored and returned unverified | `REASON_MALFORMED_PAYLOAD` | That the signature verifies, that the epoch continues the previous entry, or that the hash chain holds |
+| Commit-log entry | `SealedCommitLogEntry` with `commit_log_id` of 32 bytes, `nonce` of 12 bytes, `ciphertext` of at least 16 bytes, and `signature` of 64 bytes | `signature` passes API-300 over `CommitLogEntryTBS` under `commit_log_id` | `REASON_MALFORMED_PAYLOAD` when it does not parse, `REASON_INVALID_SIGNATURE` when API-300 fails | That `ciphertext` decrypts, which conversation it belongs to, that the epoch continues the previous entry, or that the hash chain holds |
 
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
 | API-230 | Admission by kind | The backend MUST parse each envelope as the admission table above states for its kind, apply the checks the table names, and fail the request with the reason the table names when a parse or a check fails; an envelope whose `payload` is unset, or that TOPIC-002 rejects, fails with `REASON_MALFORMED_PAYLOAD`. The backend MUST NOT apply a check the table does not name and MUST NOT reject an envelope for a property the table lists as not established. | Every client on the network parses what the backend stored. A stored envelope that no client can parse blocks a topic; a rejection for a property the backend cannot judge blocks a valid one. |
+| API-300 | Publish signatures | When a validator verifies a publish signature under a 32-byte public key, it MUST accept it only when the public key and the signature's `R` are each the canonical encoding ([RFC 8032 §5.1.2](https://www.rfc-editor.org/rfc/rfc8032#section-5.1.2)) of a curve point that is not of small order, the signature's `S` is less than the group order L, and `[S]B = R + [k mod L]A` holds. Here B is the base point, A is the public key, and k is the integer that [RFC 8032 §5.1.7](https://www.rfc-editor.org/rfc/rfc8032#section-5.1.7) computes from the SHA-512 hash of `R`, the public key, and the message. This is the §5.1.7 equation without the cofactor and with k reduced modulo L. | A backend and a reader that accept different signatures disagree about what a topic holds, a small-order key lets anyone produce a signature that verifies, and a second encoding of one key names a second topic. |
 | API-235 | Accepted key package shapes | The backend MUST NOT reject a key package that passes JOIN-007, JOIN-008 and JOIN-082 because its credential's `inbox_id` is not 64 hexadecimal characters, because its `cipher_suite` is a suite other than the one JOIN-072 names whose signature scheme yields a 32-byte `signature_key`, because its leaf node `Capabilities` omit an extension or proposal type, or because its `Lifetime` is longer than any bound. | Installations already on the network publish packages with each of these shapes. A backend that rejects one makes those installations unaddable everywhere at once. |
 | API-231 | A verifier failure is not a verdict | If a smart contract wallet signature cannot be verified because the chain RPC or the verifier fails, rather than because the signature is invalid, then the backend MUST fail the request with `UNAVAILABLE` and MUST NOT report the signature as invalid. | An `INVALID_ARGUMENT` is never retried, so a transient outage would turn a valid identity update into a permanent rejection. |
 | API-232 | One history, or start over | The backend MUST validate an identity update against every envelope on the inbox's identity topic, including every one a publish response has confirmed, read in one snapshot; if at commit the highest sequence id on that topic is not the highest in that snapshot, or 0 when the snapshot was empty, then it MUST fail the request with `ABORTED` and store nothing. | An update validated against a history that has since grown can conflict with the update that grew it, and two conflicting updates in one log make the inbox's state undefined. |
@@ -440,13 +476,13 @@ message VerifySmartContractWalletSignaturesResponse {
 
 ## 7. Bounds, errors, and transport
 
-Every request has a bound it cannot exceed, published so that a client sizes its requests before it sends (CONF-073). The backend enforces each one; a client that sends past a bound gets `INVALID_ARGUMENT` and nothing stored. The byte budget on a request is measured twice: the transport measures the wire length before the backend sees the request, so a request that is too long on the wire is `OUT_OF_RANGE`, and admission measures the re-encoded length, which can be longer than the wire length when the client used a shorter varint encoding than the backend does, so a request that is within the budget on the wire and over it re-encoded is `INVALID_ARGUMENT` with `REASON_TOO_LARGE`. The transport ceiling is fixed, and configuration keeps every published byte budget under it (CONF-008), so a request within the published limits is always carried. The one response not bounded by `max_response_bytes` is `GetConfiguration`, which CONF-009 bounds separately.
+Every request has bounds it cannot exceed. Each bound but one is published, so that a client sizes its requests before it sends (CONF-073); the bounds table gives the fixed value of the one that is not. The backend enforces each one; a client that sends past a bound gets `INVALID_ARGUMENT` and nothing stored. The byte budget on a request is measured twice: the transport measures the wire length before the backend sees the request, so a request that is too long on the wire is `OUT_OF_RANGE`, and admission measures the re-encoded length, which can be longer than the wire length when the client used a shorter varint encoding than the backend does, so a request that is within the budget on the wire and over it re-encoded is `INVALID_ARGUMENT` with `REASON_TOO_LARGE`. The transport ceiling is fixed, and configuration keeps every published byte budget under it (CONF-008), so a request within the published limits is always carried. The one response not bounded by `max_response_bytes` is `GetConfiguration`, which CONF-009 bounds separately.
 
-The bounds table names each request's limits and the field of `LimitsConfiguration` that publishes them (CONF-069). A publish that exceeds one carries `REASON_TOO_LARGE`; a bound checked on the input count is checked before repeated topics are merged.
+The bounds table names each request's limits and the field of `LimitsConfiguration` that publishes them (CONF-069), or the fixed value of a bound that no field publishes. A publish that exceeds one carries `REASON_TOO_LARGE`; a bound checked on the input count is checked before repeated topics are merged.
 
 | Request | Bound |
 | --- | --- |
-| `Publish` | Re-encoded request not longer than `max_request_bytes`; each envelope's re-encoded length not longer than `max_envelope_bytes`; distinct topics not more than `max_publish_topics`; ERC-6492 signatures in one identity update not more than `max_scw_signatures` |
+| `Publish` | Re-encoded request not longer than `max_request_bytes`; each envelope's re-encoded length not longer than `max_envelope_bytes`; distinct topics not more than `max_publish_topics`; ERC-6492 signatures in one identity update not more than `max_scw_signatures`; envelopes not more than 1000, duplicates included |
 | `Query` | Entries in `queries` not more than `max_query_topics` |
 | `QueryNewest` | Topics not more than `max_newest_full_topics` with `include_full_envelope` true and `max_newest_metadata_topics` with it false |
 | `GetInboxIds` | Entries not more than `max_lookup_identifiers` |
@@ -495,9 +531,9 @@ API-297 refuses a reserved or short name part only when the backend admits a cla
 
 Sequence ids allocated but never stored leave gaps on a topic that look like envelopes not yet visible. A stream holds such a gap open until the closed allocation boundary (API-203) passes it; a `Query` and a `QueryNewest` do not wait and can return an envelope above the boundary. A client cannot distinguish a gap from a lagging publish by any read.
 
-Publish admission establishes only what the admission table says. A stored group message is not evidence that its sender is a member; a stored Welcome is not evidence that its destination exists; a stored commit-log entry is not evidence that its signature verifies. Storage and the recipient's processing capacity can be consumed by anyone who can reach the backend, subject to the credential checks in [AUTH section 1](AUTH-backend-auth.md#1-admission).
+Publish admission establishes only what the admission table says. The backend stores a group message on a group's topic only when an installation that holds the group root signed it. That does not show that the signer is a current member: the root never changes, so every installation that was ever a member can publish. It is not evidence for a reader either: the operator can place any bytes on a topic, and no requirement makes a client verify a group message's signature. A stored Welcome is not evidence that its destination exists. Storage can be consumed by anyone who can reach the backend, subject to the credential checks in [AUTH section 1](AUTH-backend-auth.md#1-admission): anyone can generate a key pair and publish signed group messages and sealed commit-log entries to the topics its public key names, and a commit or proposal there, or a commit-log entry, never expires (OPS-001). The processing capacity of a group's members can be consumed by any holder of the group's root, and that of a Welcome's recipient by anyone.
 
-Bytes after the MLS message in `GroupMessage.data` are accepted and stored. No client is known to produce them. They are not a forgery or a disclosure: the parsed message and its topic are unchanged. They are malleability and amplification: each different suffix changes the stored bytes and the message hash, so one message becomes as many stored envelopes, each with its own sequence id, as an attacker cares to publish, bypassing API-222 and consuming storage and every recipient's processing; a commit or proposal variant also keeps its zero expiry (OPS-001). Rejecting trailing bytes at admission would close this without rejecting any envelope already stored, because reads do not re-run admission; no such change is approved by this spec.
+Bytes after the MLS message in `GroupMessage.data` are accepted and stored. No client is known to produce them. They are not a forgery or a disclosure: the parsed message and its topic are unchanged. The publish signature covers them, so only a holder of the group root can vary them, and each variant is a new stored envelope with its own sequence id; a commit or proposal variant also keeps its zero expiry (OPS-001).
 
 The backend does not read a client's version on a request, and it does not enforce the advisory group shapes it publishes; both are the client's to apply (CONF-049, CONF-043).
 
