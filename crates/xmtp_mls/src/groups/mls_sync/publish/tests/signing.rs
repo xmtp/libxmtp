@@ -4,10 +4,15 @@
 
 use super::faults::{FaultyApi, faulty_group, group_message};
 use super::*;
+use crate::groups::mls_sync::post_commit::sign_fault;
+use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
+};
 use xmtp_db::group_message::DeliveryStatus;
 use xmtp_mls_common::{
     app_data::{component_id::ComponentId, group_root::GroupRootError},
-    group_keys::{group_message_tbs, verify_publish_signature},
+    group_keys::{SealError, group_message_tbs, verify_publish_signature},
 };
 use xmtp_proto::backend_v1 as wire;
 
@@ -52,10 +57,11 @@ fn assert_signed(group_id: &GroupId, envelope: &wire::ClientEnvelope) {
         .expect("a saved group message is signed by the group signing key");
 }
 
-/// Remove `GROUP_ROOT_KEY` from the group context OpenMLS stores, as if the
-/// group never held a root. The component is immutable, so no commit can do
-/// this; the test rewrites the stored context instead.
-fn remove_group_root<C: XmtpSharedContext>(group: &MlsGroup<C>) {
+/// Rewrite the `GROUP_ROOT_KEY` of the group context OpenMLS stores: remove
+/// it (`None`), or replace it with `root`, as if the group never held its own
+/// root. The component is immutable, so no commit can do this; the test
+/// rewrites the stored context instead.
+fn rewrite_group_root<C: XmtpSharedContext>(group: &MlsGroup<C>, root: Option<[u8; 32]>) {
     use openmls::extensions::{AppDataDictionaryExtension, Extension, Extensions};
     use openmls::group::GroupContext;
     use openmls::prelude::tls_codec::{Deserialize as _, Serialize as _};
@@ -71,12 +77,12 @@ fn remove_group_root<C: XmtpSharedContext>(group: &MlsGroup<C>) {
                 .map(|extension| match extension {
                     Extension::AppDataDictionary(dictionary) => {
                         let mut dictionary = dictionary.dictionary().clone();
-                        assert!(
-                            dictionary
-                                .remove(&ComponentId::GROUP_ROOT_KEY.as_u16())
-                                .is_some(),
-                            "a keyed group holds a root"
-                        );
+                        let id = ComponentId::GROUP_ROOT_KEY.as_u16();
+                        let old = match root {
+                            Some(root) => dictionary.insert(id, root.to_vec()),
+                            None => dictionary.remove(&id),
+                        };
+                        assert!(old.is_some(), "a keyed group holds a root");
                         Extension::AppDataDictionary(AppDataDictionaryExtension::new(dictionary))
                     }
                     other => other,
@@ -154,11 +160,17 @@ async fn saved_group_messages_carry_a_valid_signature(
     Ok(())
 }
 
-/// A group whose stored root is gone cannot sign. One `publish_intents` call
-/// fails both of its queued sends, so neither is left to block the queue.
+/// A group whose stored root is gone, or is a root for another group id,
+/// cannot sign. One `publish_intents` call fails both of its queued sends, so
+/// neither is left to block the queue.
 // verifies: SEND-009
+#[rstest::rstest]
+#[case::missing(None)]
+#[case::other_group(Some([0x42; 32]))]
 #[xmtp_common::test(unwrap_try = true)]
-async fn a_group_without_its_root_fails_every_queued_intent() {
+async fn a_group_without_its_root_fails_every_queued_intent(
+    #[case] root: Option<[u8; 32]>,
+) -> Result<(), GroupError> {
     tester!(alix, disable_workers);
     let group = alix.create_group(None, None)?;
     group.key_update().await?;
@@ -166,18 +178,16 @@ async fn a_group_without_its_root_fails_every_queued_intent() {
         group.send_message_optimistic(b"first", Default::default())?,
         group.send_message_optimistic(b"second", Default::default())?,
     ];
-    remove_group_root(&group);
+    rewrite_group_root(&group, root);
 
     let error = group.publish_intents().await.unwrap_err();
-    assert!(
-        matches!(
-            error,
-            GroupError::OutgoingPreparation(OutgoingPreparationError::GroupKeys(
-                GroupRootError::Missing
-            ))
-        ),
-        "{error:?}"
-    );
+    let GroupError::OutgoingPreparation(OutgoingPreparationError::GroupKeys(cause)) = &error else {
+        panic!("{error:?}");
+    };
+    match root {
+        None => assert!(matches!(cause, GroupRootError::Missing), "{cause:?}"),
+        Some(_) => assert!(matches!(cause, GroupRootError::OtherGroup), "{cause:?}"),
+    }
     let intents = group.context.db().find_group_intents(
         group.group_id,
         None,
@@ -192,4 +202,106 @@ async fn a_group_without_its_root_fails_every_queued_intent() {
         let message: StoredGroupMessage = group.context.db().fetch(&message_id)?.unwrap();
         assert_eq!(message.delivery_status, DeliveryStatus::Failed);
     }
+    Ok(())
+}
+
+/// A local failure after the group's keys are derived.
+#[derive(Clone, Copy, Debug)]
+enum SignFailure {
+    /// The self-check refuses the signature.
+    SelfCheck,
+    /// The signature is one byte short, so the local admission parse refuses
+    /// the envelope before the attempt is saved.
+    ShortSignature,
+}
+
+/// When signing fails its self-check, or the local admission parse refuses
+/// the signed envelope, while one intent is prepared, that intent alone fails
+/// under SEND-009: nothing is saved, its message is `Failed`, and the next
+/// queued intent is prepared, signed, and sent in the same `publish_intents`
+/// call.
+// verifies: SEND-009
+#[rstest::rstest]
+#[case::self_check(SignFailure::SelfCheck)]
+#[case::admission_parse(SignFailure::ShortSignature)]
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_local_signing_failure_fails_only_its_intent(
+    #[case] failure: SignFailure,
+) -> Result<(), GroupError> {
+    tester!(alix, disable_workers);
+    let group = alix.create_group(None, None)?;
+    group.key_update().await?;
+    let failed = group.send_message_optimistic(b"first", Default::default())?;
+    let sent = group.send_message_optimistic(b"second", Default::default())?;
+    // Fault the first preparation only.
+    let calls = Arc::new(AtomicUsize::new(0));
+    let counted = calls.clone();
+    sign_fault::set(
+        group.group_id.as_slice(),
+        Arc::new(move |signed| {
+            if counted.fetch_add(1, Ordering::SeqCst) > 0 {
+                return signed;
+            }
+            match failure {
+                SignFailure::SelfCheck => Err(SealError::SelfCheck),
+                SignFailure::ShortSignature => {
+                    let mut envelopes = signed?;
+                    for envelope in &mut envelopes {
+                        if let Some(Payload::GroupMessage(message)) = &mut envelope.payload {
+                            message.signature.pop();
+                        }
+                    }
+                    Ok(envelopes)
+                }
+            }
+        }),
+    );
+
+    let error = group.publish_intents().await.unwrap_err();
+    match failure {
+        SignFailure::SelfCheck => assert!(
+            matches!(
+                error,
+                GroupError::OutgoingPreparation(OutgoingPreparationError::SignGroupMessage(
+                    SealError::SelfCheck
+                ))
+            ),
+            "{error:?}"
+        ),
+        SignFailure::ShortSignature => assert!(
+            matches!(
+                error,
+                GroupError::WrappedApi(xmtp_api::ApiError::InvalidEnvelope(_))
+            ),
+            "{error:?}"
+        ),
+    }
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        2,
+        "one call prepares both intents"
+    );
+
+    let mut intents = group.context.db().find_group_intents(
+        group.group_id,
+        None,
+        Some(vec![IntentKind::SendMessage]),
+    )?;
+    intents.sort_by_key(|intent| intent.id);
+    let [first, second] = intents.as_slice() else {
+        panic!("two queued sends: {intents:?}");
+    };
+    assert_eq!(first.state, IntentState::Error);
+    assert!(group.context.db().prepared_envelopes(first.id)?.is_none());
+    let message: StoredGroupMessage = group.context.db().fetch(&failed)?.unwrap();
+    assert_eq!(message.delivery_status, DeliveryStatus::Failed);
+
+    assert_eq!(second.state, IntentState::Published);
+    for envelope in saved_envelopes(&group, second.id) {
+        assert_signed(&group.group_id, &envelope);
+    }
+    group.sync_until_intent_resolved(second.id).await?;
+    let message: StoredGroupMessage = group.context.db().fetch(&sent)?.unwrap();
+    assert_eq!(message.delivery_status, DeliveryStatus::Published);
+    Ok(())
 }

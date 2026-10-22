@@ -303,8 +303,51 @@ where
         .map_err(OutgoingPreparationError::GroupKeys)?;
         let hmac_keys = self.hmac_keys_in(conn, 0..=0)?;
         let hmac_key = hmac_keys.last().expect("Range of count 1 was provided.");
-        group_message_envelopes(hmac_key, &keys, payloads)
-            .map_err(|error| OutgoingPreparationError::SignGroupMessage(error).into())
+        let signed = group_message_envelopes(hmac_key, &keys, payloads);
+        #[cfg(test)]
+        let signed = sign_fault::apply(group.group_id().as_slice(), signed);
+        signed.map_err(|error| OutgoingPreparationError::SignGroupMessage(error).into())
+    }
+}
+
+/// Test-only faults at the result of signing a group's messages, by group id.
+/// They let tests drive a failed self-check, or an envelope the local
+/// admission parse refuses, through preparation.
+#[cfg(test)]
+pub(crate) mod sign_fault {
+    use super::*;
+    use std::collections::HashMap;
+    use std::sync::{Arc, LazyLock, Mutex};
+
+    pub(crate) type SignFault = Arc<
+        dyn Fn(Result<Vec<ClientEnvelope>, SealError>) -> Result<Vec<ClientEnvelope>, SealError>
+            + Send
+            + Sync,
+    >;
+
+    static FAULTS: LazyLock<Mutex<HashMap<Vec<u8>, SignFault>>> = LazyLock::new(Default::default);
+
+    /// Pass every later signing result of `group_id` through `fault`.
+    pub(crate) fn set(group_id: &[u8], fault: SignFault) {
+        FAULTS
+            .lock()
+            .expect("sign faults lock")
+            .insert(group_id.to_vec(), fault);
+    }
+
+    pub(super) fn apply(
+        group_id: &[u8],
+        signed: Result<Vec<ClientEnvelope>, SealError>,
+    ) -> Result<Vec<ClientEnvelope>, SealError> {
+        let fault = FAULTS
+            .lock()
+            .expect("sign faults lock")
+            .get(group_id)
+            .cloned();
+        match fault {
+            Some(fault) => fault(signed),
+            None => signed,
+        }
     }
 }
 
