@@ -28,7 +28,9 @@ const HEALTH_CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
 const HEALTH_RPC_TIMEOUT: Duration = Duration::from_secs(3);
 const HEALTH_RESPONSE_BYTES: usize = 1024;
 const CONTROL_RESPONSE_BYTES: usize = 64 * 1024;
-const HEALTH_TOPIC_GROUP_ID: [u8; 16] = [0; 16];
+// A 32-byte id: the backend refuses a group-message topic with a 16-byte id.
+const HEALTH_TOPIC_GROUP_ID: [u8; xmtp_configuration::GROUP_ID_BYTES] =
+    [0; xmtp_configuration::GROUP_ID_BYTES];
 const COMPOSE_TIMEOUT: Duration = Duration::from_secs(30);
 const PROXY_PREFIX: &str = "xchaos-";
 const UPSTREAM: &str = "backend:5050";
@@ -107,9 +109,6 @@ pub enum NetworkError {
     },
     #[error("health service at {endpoint} is not serving (status {status})")]
     NotServing { endpoint: String, status: i32 },
-    // The upstream helper returns String, rather than a typed error.
-    #[error("Toxiproxy discovery failed: {0}")]
-    Discovery(String),
     #[error("another chaos run owns proxies in this worktree: {0}")]
     Occupied(String),
     #[error("network control timed out")]
@@ -166,10 +165,17 @@ impl NetworkController {
         let client = xmtp_common::http::client_builder()
             .timeout(CONTROL_TIMEOUT)
             .build()?;
-        let existing = timeout(CONTROL_TIMEOUT, xmtp_common::toxiproxy().all())
-            .await
-            .map_err(|_| NetworkError::Timeout)?
-            .map_err(NetworkError::Discovery)?;
+        let existing: HashMap<String, Value> = timeout(CONTROL_TIMEOUT, async {
+            client
+                .get(format!("{}/proxies", api.trim_end_matches('/')))
+                .send()
+                .await?
+                .error_for_status()?
+                .json()
+                .await
+        })
+        .await
+        .map_err(|_| NetworkError::Timeout)??;
         if let Some(name) = existing.keys().find(|name| name.starts_with(PROXY_PREFIX)) {
             return Err(NetworkError::Occupied(name.clone()));
         }
@@ -578,7 +584,10 @@ mod tests {
             let request = request.into_inner();
             assert_eq!(request.topics.len(), 1);
             assert!(!request.include_full_envelope);
-            assert!(Topic::parse(&request.topics[0].topic).is_ok());
+            // The backend serves a group-message topic only with a 32-byte id.
+            let topic = Topic::parse(&request.topics[0].topic).expect("valid topic");
+            assert_eq!(topic.kind(), xmtp_proto::types::TopicKind::GroupMessagesV1);
+            assert_eq!(topic.identifier().len(), xmtp_configuration::GROUP_ID_BYTES);
             self.reads.fetch_add(1, Ordering::SeqCst);
             if self.unavailable {
                 Err(tonic::Status::unavailable("database unavailable"))

@@ -70,8 +70,8 @@ struct Args {
     #[arg(long)]
     connect_ip: Option<String>,
 
-    /// SUBSCRIBE MODE: hex group id to open a real `SubscriptionService/Subscribe`
-    /// stream against (xdbg-style). When set, each connection holds one live
+    /// SUBSCRIBE MODE: hex group id (64 hex characters) to open a real
+    /// `SubscriptionService/Subscribe` stream against (xdbg-style). When set, each connection holds one live
     /// stream and logs received payloads + disconnects, instead of an idle conn.
     #[arg(long)]
     subscribe_group: Option<String>,
@@ -393,6 +393,16 @@ async fn run_subscribe(
     group_hex: &str,
 ) -> Result<(Outcome, Duration, u64, u64)> {
     let group_id = hex::decode(group_hex.trim_start_matches("0x")).context("group id not hex")?;
+    // The backend refuses the whole subscription if a topic has the wrong
+    // length, so check here and name the cause.
+    if group_id.len() != xmtp_configuration::GROUP_ID_BYTES {
+        anyhow::bail!(
+            "group id must be {} bytes ({} hex characters), got {} bytes",
+            xmtp_configuration::GROUP_ID_BYTES,
+            xmtp_configuration::GROUP_ID_BYTES * 2,
+            group_id.len()
+        );
+    }
     let overall = Instant::now();
     let mut received_total = 0u64;
     let mut disconnects = 0u64;
