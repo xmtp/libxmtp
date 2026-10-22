@@ -69,9 +69,6 @@ import Testing
 	}
 
 	private func envelope() throws -> PushEnvelope {
-		try #require(PushEnvelope(
-			topic: Data([0] + Array(repeating: UInt8(1), count: 32)).base64EncodedString(),
-			sequence: "1",
-		))
+		PushEnvelope.fixture(.group, 1)
 	}
 }

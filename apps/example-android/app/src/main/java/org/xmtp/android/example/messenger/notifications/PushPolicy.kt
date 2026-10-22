@@ -1,6 +1,8 @@
 package org.xmtp.android.example.messenger.notifications
 
-import java.util.Base64
+import uniffi.xmtp_sdk.Topic
+import uniffi.xmtp_sdk.XmtpException
+import uniffi.xmtp_sdk.parsePushHint
 
 data class PushEnvelope(
     val topic: String,
@@ -14,31 +16,23 @@ data class PushEnvelope(
 enum class PushKind { GROUP, WELCOME }
 
 /**
- * PUSH topics contain a kind byte and an identifier. Group and welcome topics are both
- * 33 bytes, so the kind byte decides: `0x00` is a group topic with a 32-byte group id,
- * and `0x01` is a welcome topic with a 32-byte installation key.
+ * The SDK checks the topic encoding and length and the sequence range. Push subscriptions
+ * carry only group and welcome topics (PUSH-215), so any other kind is ignored.
  */
 fun parsePush(data: Map<String, String>): PushEnvelope? {
     val topic = data["topic"] ?: return null
     val sequence = data["sequence_id"] ?: return null
-    if (sequence.isEmpty() || sequence.any { it !in '0'..'9' }) return null
-    val number = sequence.toULongOrNull() ?: return null
-    val bytes =
+    val hint =
         try {
-            Base64.getDecoder().decode(topic)
-        } catch (_: IllegalArgumentException) {
+            parsePushHint(topic, sequence)
+        } catch (_: XmtpException) {
             return null
         }
-    if (Base64.getEncoder().encodeToString(bytes) != topic) return null
-    val kind =
-        when {
-            bytes.isEmpty() -> return null
-            bytes[0] == 0.toByte() && bytes.size == 33 -> PushKind.GROUP
-            bytes[0] == 1.toByte() && bytes.size == 33 -> PushKind.WELCOME
-            else -> return null
-        }
-    val identifier = bytes.drop(1).joinToString("") { "%02x".format(it.toInt() and 255) }
-    return PushEnvelope(topic, number, kind, identifier)
+    return when (val parsed = hint.topic) {
+        is Topic.GroupMessages -> PushEnvelope(topic, hint.sequenceId, PushKind.GROUP, parsed.conversationId)
+        is Topic.WelcomeMessages -> PushEnvelope(topic, hint.sequenceId, PushKind.WELCOME, parsed.installationId)
+        else -> null
+    }
 }
 
 data class PushOwner(

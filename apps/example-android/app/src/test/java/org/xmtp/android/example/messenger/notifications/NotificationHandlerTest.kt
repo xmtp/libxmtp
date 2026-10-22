@@ -64,10 +64,13 @@ class NotificationHandlerTest {
         }
     }
 
-    @Test fun parsesUnsignedSequencesAndRejectsMalformedPayloads() {
-        assertEquals(ULong.MAX_VALUE, parsePush(payload(sequence = "18446744073709551615"))?.sequence)
+    @Test fun parsesBackendSequencesAndRejectsMalformedPayloads() {
+        assertEquals(9223372036854775807uL, parsePush(payload(sequence = "9223372036854775807"))?.sequence)
         assertEquals(9007199254740993uL, parsePush(payload(sequence = "9007199254740993"))?.sequence)
         for (sequence in listOf(
+            "0",
+            "9223372036854775808",
+            "18446744073709551615",
             "18446744073709551616",
             "-1",
             "+1",
