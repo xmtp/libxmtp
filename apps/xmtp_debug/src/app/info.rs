@@ -1,8 +1,8 @@
 //! Get information about xdbg storage
 
 use crate::app::App;
-use crate::app::store::{Database, MetadataStore};
-use crate::{args, meta_key};
+use crate::app::store::MetadataStore;
+use crate::args;
 use valuable::Valuable;
 
 use color_eyre::eyre::Result;
@@ -37,12 +37,7 @@ impl Info {
     }
 
     fn app(&self) -> Result<()> {
-        let metadata = self
-            .metadata_store
-            .get(meta_key!())
-            .ok()
-            .flatten()
-            .unwrap_or(Default::default());
+        let metadata = self.metadata_store.counters()?;
 
         let sqlite_stores = crate::app::App::db_directory()?;
         let db_dir_size = fs_extra::dir::get_size(&sqlite_stores)? / 1_000 / 1_000;
@@ -50,6 +45,7 @@ impl Info {
             identities = metadata.identities,
             groups = metadata.groups,
             messages = metadata.messages,
+            dms = metadata.dms,
             project = crate::app::App::data_directory()?.as_value(),
             sqlite = sqlite_stores.as_value(),
             sqlite_size = %format!("{db_dir_size}MB"),

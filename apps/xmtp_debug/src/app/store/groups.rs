@@ -6,8 +6,6 @@ use xmtp_proto::types::GroupId;
 
 use crate::{app::types::*, constants::STORAGE_PREFIX};
 
-use super::{Database, MetadataStore};
-
 pub const MODULE: &str = "groups";
 pub const VERSION: u16 = 3;
 pub const NAMESPACE: &str = const_format::concatcp!(STORAGE_PREFIX, ":", VERSION, "//", MODULE);
@@ -68,22 +66,18 @@ impl<'a> super::TableProvider<'a, GroupKey, Group> for GroupStorage {
 
 impl super::TrackMetadata for GroupStorage {
     fn increment(&self, tx: &redb::WriteTransaction, network: u64, n: u32) -> Result<()> {
-        let store = MetadataStore::from_write_tx(tx, network);
-        store.modify(crate::meta_key!(), |meta| meta.groups += n)?;
-        Ok(())
+        super::metadata::update_counters(tx, network, |meta| meta.groups += n)
     }
 
     fn decrement(&self, tx: &redb::WriteTransaction, network: u64, n: u32) -> Result<()> {
-        let store = MetadataStore::from_write_tx(tx, network);
-        store.modify(crate::meta_key!(), |meta| meta.groups -= n)?;
-        Ok(())
+        super::metadata::update_counters(tx, network, |meta| meta.groups -= n)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app::store::{MessageStorage, MessageStore};
+    use crate::app::store::{Database, MessageStorage, MessageStore};
     use tempfile::NamedTempFile;
 
     fn open_temp_db() -> (Arc<redb::Database>, NamedTempFile) {

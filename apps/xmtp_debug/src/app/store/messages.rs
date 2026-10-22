@@ -5,8 +5,6 @@ use std::sync::Arc;
 
 use crate::{app::types::*, constants::STORAGE_PREFIX};
 
-use super::{Database, MetadataStore};
-
 pub const MODULE: &str = "messages";
 pub const VERSION: u16 = 2;
 pub const NAMESPACE: &str = const_format::concatcp!(STORAGE_PREFIX, ":", VERSION, "//", MODULE);
@@ -68,15 +66,11 @@ impl<'a> super::TableProvider<'a, MessageKey, Message> for MessageStorage {
 
 impl super::TrackMetadata for MessageStorage {
     fn increment(&self, tx: &redb::WriteTransaction, network: u64, n: u32) -> Result<()> {
-        let store = MetadataStore::from_write_tx(tx, network);
-        store.modify(crate::meta_key!(), |meta| meta.messages += n)?;
-        Ok(())
+        super::metadata::update_counters(tx, network, |meta| meta.messages += n)
     }
 
     fn decrement(&self, tx: &redb::WriteTransaction, network: u64, n: u32) -> Result<()> {
-        let store = MetadataStore::from_write_tx(tx, network);
-        store.modify(crate::meta_key!(), |meta| meta.messages -= n)?;
-        Ok(())
+        super::metadata::update_counters(tx, network, |meta| meta.messages -= n)
     }
 }
 
