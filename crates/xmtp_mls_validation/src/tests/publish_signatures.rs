@@ -108,7 +108,7 @@ fn plus_group_order(scalar: &[u8]) -> Vec<u8> {
 
 #[xmtp_common::test(unwrap_try = true)]
 // verifies: TOPIC-001, API-230, API-300
-async fn keyed_group_messages_route_by_their_group_id_and_verify() {
+fn keyed_group_messages_route_by_their_group_id_and_verify() {
     let keys = group_keys(1);
     for (kind, flag) in [
         (GroupMessageKind::Application, false),
@@ -126,22 +126,12 @@ async fn keyed_group_messages_route_by_their_group_id_and_verify() {
         assert_eq!(parsed.is_commit_or_proposal, flag);
         assert_eq!(parsed.envelope, envelope);
         verify_publish(&parsed)?;
-        assert!(
-            validate_envelope(
-                &parsed,
-                &[],
-                MockSmartContractSignatureVerifier::new(false),
-                &TestChain::at(1),
-            )
-            .await?
-            .is_none()
-        );
     }
 }
 
 #[xmtp_common::test(unwrap_try = true)]
 // verifies: TOPIC-001, API-230, API-300
-async fn sealed_commit_log_entries_route_by_their_commit_log_id_and_verify() {
+fn sealed_commit_log_entries_route_by_their_commit_log_id_and_verify() {
     let keys = group_keys(1);
     let envelope = sealed_commit_log_envelope(&keys, 7);
     let parsed = parse_envelope(envelope.clone())?;
@@ -155,16 +145,6 @@ async fn sealed_commit_log_entries_route_by_their_commit_log_id_and_verify() {
     assert_eq!(parsed.push_fields(), (false, None));
     assert_eq!(parsed.envelope, envelope);
     verify_publish(&parsed)?;
-    assert!(
-        validate_envelope(
-            &parsed,
-            &[],
-            MockSmartContractSignatureVerifier::new(false),
-            &TestChain::at(1),
-        )
-        .await?
-        .is_none()
-    );
 }
 
 /// Until the cutover, a 16-byte legacy group id still routes and carries no

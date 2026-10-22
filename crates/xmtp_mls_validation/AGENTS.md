@@ -27,6 +27,8 @@ Use `test-utils` for fixtures. Parse routing before cryptographic validation so
 duplicate retries do not depend on the current key-package lifetime. Parsing
 checks the length of every field a publish signature covers; `verify_publish`
 checks the signature itself, after the caller's duplicate lookup.
+`validate_envelope` never verifies a publish signature: a caller runs
+`verify_publish` on each envelope whose `is_signed()` is true.
 `group_keys`, `keyed_group_message_envelope`, and `sealed_commit_log_envelope`
 build signed fixtures.
 

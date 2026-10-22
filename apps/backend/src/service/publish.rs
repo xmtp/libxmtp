@@ -25,7 +25,9 @@ mod tests;
 #[cfg(test)]
 #[derive(Debug, Default)]
 pub(crate) struct SignatureChecks {
-    /// Blocking tasks started to verify a request's signatures.
+    /// Blocking tasks that verified a request's signatures off the thread
+    /// that started them. A verification run inline on the async runtime is
+    /// not counted.
     tasks: std::sync::atomic::AtomicUsize,
     /// Signatures verified.
     verified: std::sync::atomic::AtomicUsize,
@@ -246,7 +248,8 @@ impl Backend {
     /// for transport mapping. A claim that passes validation then passes the
     /// handle policy that needs no lock; the taken check runs during commit.
     /// Publish signatures are verified last, together, by
-    /// [`Self::verify_signatures`]. No failure stops validation of the
+    /// [`Self::verify_signatures`], the only place that verifies them:
+    /// [`validate_envelope`] does not. No failure stops validation of the
     /// envelopes after it. The parsed envelopes are returned for storage.
     #[xmtp_common::span(prefix = "publish")]
     // implements: API-234
@@ -257,7 +260,7 @@ impl Backend {
     ) -> Result<Vec<ParsedEnvelope>, Status> {
         self.store.find_duplicates(pending).await?;
         for (item, parsed) in pending.iter_mut().zip(&parsed) {
-            if item.duplicate.is_some() || parsed.is_signed() {
+            if item.duplicate.is_some() {
                 continue;
             }
             let mut stored_claims = Vec::new();
@@ -372,14 +375,16 @@ impl Backend {
             return Ok(parsed);
         }
         #[cfg(test)]
-        let checks = self.signature_checks.clone();
+        let (checks, caller) = (self.signature_checks.clone(), std::thread::current().id());
         let span = tracing::Span::current();
         let (parsed, results) = tokio::task::spawn_blocking(move || {
             let _span = span.enter();
             #[cfg(test)]
-            checks
-                .tasks
-                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            if std::thread::current().id() != caller {
+                checks
+                    .tasks
+                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            }
             let results: Vec<_> = unchecked
                 .into_iter()
                 .map(|position| {

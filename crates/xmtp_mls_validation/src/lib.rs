@@ -541,9 +541,12 @@ pub fn verify_publish(parsed: &ParsedEnvelope) -> Result<(), ValidationError> {
 /// Key packages receive their existing package checks. Identity updates are
 /// folded against the caller's snapshot and return a projection diff; only the
 /// new update, never the stored history, must first pass [`check_freshness`].
-/// Signed group messages and sealed commit-log entries pass
-/// [`verify_publish`]. Other kinds need no cryptographic admission beyond the
-/// parsing phase.
+/// Other kinds need no admission here beyond the parsing phase.
+///
+/// Publish signatures are not checked here. A caller verifies every envelope
+/// that [`ParsedEnvelope::is_signed`] calls signed with [`verify_publish`],
+/// which is CPU work to run off an async runtime, so each signature has one
+/// verification path.
 pub async fn validate_envelope(
     parsed: &ParsedEnvelope,
     history: &[IdentityUpdate],
@@ -566,9 +569,6 @@ pub async fn validate_envelope(
                 validate_identity_updates(history.to_vec(), vec![update.clone()], verifier).await?,
             ))
         }
-        _ => {
-            verify_publish(parsed)?;
-            Ok(None)
-        }
+        _ => Ok(None),
     }
 }
