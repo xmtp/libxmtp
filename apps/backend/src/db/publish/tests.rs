@@ -126,6 +126,63 @@ async fn committed_duplicate_wins_over_a_concurrent_validation_failure() {
     server.stop().await?;
 }
 
+/// The request `[U, G]`: U is an identity update whose validation fails while
+/// a concurrent request stores U, so the locked check drops U's failure. G's
+/// signature must still have been verified, so an invalid G refuses the
+/// request and stores nothing, and a valid G is stored. A validation that
+/// stopped at U would store an invalid G unchecked.
+#[xmtp_common::test(unwrap_try = true)]
+// verifies: API-222, API-230
+async fn a_dropped_concurrent_failure_leaves_no_signature_unchecked() {
+    use prost::Message as _;
+    use xmtp_mls_validation::test_utils::{
+        GroupMessageKind, group_keys, keyed_group_message_envelope,
+    };
+    for valid in [false, true] {
+        let (server, entered, resume) = paused_server(false).await?;
+        let update = identity_envelope(scw_create_inbox_update());
+        let mut signed =
+            keyed_group_message_envelope(&group_keys(1), GroupMessageKind::Application, []);
+        if !valid {
+            let Some(api::client_envelope::Payload::GroupMessage(message)) =
+                signed.payload.as_mut()
+            else {
+                unreachable!("the fixture is a group message")
+            };
+            message.should_push = !message.should_push;
+        }
+        let request = api::PublishRequest {
+            envelopes: vec![update.clone(), signed],
+        };
+        let mut client = server.publisher();
+        let first = tokio::spawn(async move { client.publish(request).await });
+        entered.notified().await;
+        let committed = server.publish(vec![update]).await?;
+        resume.notify_one();
+        let result = first.await?;
+        let count = sqlx::query_scalar!("SELECT count(*) FROM envelopes")
+            .fetch_one(&server.backend.store.primary)
+            .await?;
+        if valid {
+            let metas = result?.into_inner().envelope_metas;
+            assert_eq!(metas[0], committed[0]);
+            assert_eq!(count, Some(2), "the valid G is stored");
+        } else {
+            let error = result.expect_err("an invalid G refuses the request");
+            assert_eq!(error.code(), Code::InvalidArgument);
+            let status = tonic_types::pb::Status::decode(error.details())?;
+            let detail = api::PublishError::decode(status.details[0].value.as_slice())?;
+            assert_eq!(detail.index, Some(1));
+            assert_eq!(
+                detail.reason(),
+                api::publish_error::Reason::InvalidSignature
+            );
+            assert_eq!(count, Some(1), "only the concurrent U is stored");
+        }
+        server.stop().await?;
+    }
+}
+
 #[xmtp_common::test(unwrap_try = true)]
 // verifies: API-232
 async fn changed_history_aborts_all_new_rows_after_verification() {

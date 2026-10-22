@@ -5,7 +5,7 @@ pub const GROUP_ID_BYTES: usize = 32;
 /// archives; topics accept them until the cutover to 32-byte identifiers.
 pub const LEGACY_GROUP_ID_BYTES: usize = 16;
 /// Most envelopes one publish request may carry, duplicates included (API
-/// section 7). Clients chunk to it. The backend does not enforce it yet.
+/// section 7). Clients chunk to it, and the backend refuses more.
 pub const MAX_PUBLISH_ENVELOPES: usize = 1_000;
 /// Welcome, key-package, and identity topic identifier length, in bytes.
 pub const BACKEND_INSTALLATION_ID_BYTES: usize = 32;

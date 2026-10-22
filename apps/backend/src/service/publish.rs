@@ -11,11 +11,35 @@ use prost::Message;
 use std::collections::{HashMap, HashSet};
 use tonic::{Request, Response, Status};
 use xmtp_common::time::{Duration, timeout};
-use xmtp_mls_validation::{ParsedEnvelope, erc6492_signatures, parse_envelope, validate_envelope};
+use xmtp_configuration::MAX_PUBLISH_ENVELOPES;
+use xmtp_mls_validation::{
+    ParsedEnvelope, erc6492_signatures, parse_envelope, validate_envelope, verify_publish,
+};
 use xmtp_proto::types::TopicKind;
 
 #[cfg(test)]
 mod tests;
+
+/// Counts publish-signature verification work, so tests can check where and
+/// how often it runs.
+#[cfg(test)]
+#[derive(Debug, Default)]
+pub(crate) struct SignatureChecks {
+    /// Blocking tasks started to verify a request's signatures.
+    tasks: std::sync::atomic::AtomicUsize,
+    /// Signatures verified.
+    verified: std::sync::atomic::AtomicUsize,
+}
+
+#[cfg(test)]
+impl SignatureChecks {
+    /// The blocking tasks started and the signatures verified since the last
+    /// call.
+    pub(crate) fn take(&self) -> (usize, usize) {
+        use std::sync::atomic::Ordering::SeqCst;
+        (self.tasks.swap(0, SeqCst), self.verified.swap(0, SeqCst))
+    }
+}
 
 struct PublishBatch {
     pending: Vec<PendingEnvelope>,
@@ -63,7 +87,7 @@ impl Backend {
             positions,
             parse_error,
         } = self.parse_publish(request)?;
-        self.validate_publish(&mut pending, &parsed).await?;
+        let parsed = self.validate_publish(&mut pending, parsed).await?;
         for (item, parsed) in pending.iter_mut().zip(parsed) {
             item.payload = parsed.canonical.bytes;
         }
@@ -100,9 +124,12 @@ impl Backend {
     ///
     /// This step performs no cryptographic or identity validation. It collapses
     /// identical canonical envelopes, records the first parse error, and keeps
-    /// enough metadata for the database layer to restore response order.
+    /// enough metadata for the database layer to restore response order. The
+    /// envelope bound counts the input, duplicates included, before any
+    /// envelope is parsed, so it also caps the signatures a request can make
+    /// the backend verify.
     #[xmtp_common::span(prefix = "publish")]
-    // implements: API-233
+    // implements: API-233, API-223
     fn parse_publish(&self, request: api::PublishRequest) -> Result<PublishBatch, Status> {
         let limits = &self.config.limits;
         if request.encoded_len() > limits.max_request_bytes {
@@ -110,6 +137,13 @@ impl Backend {
                 None,
                 Reason::TooLarge,
                 "publish request exceeds byte limit",
+            ));
+        }
+        if request.envelopes.len() > MAX_PUBLISH_ENVELOPES {
+            return Err(publish_invalid(
+                None,
+                Reason::TooLarge,
+                "publish request exceeds envelope limit",
             ));
         }
         let mut unique = HashMap::new();
@@ -211,16 +245,19 @@ impl Backend {
     /// use shared structural validation, and verifier retryability is preserved
     /// for transport mapping. A claim that passes validation then passes the
     /// handle policy that needs no lock; the taken check runs during commit.
+    /// Publish signatures are verified last, together, by
+    /// [`Self::verify_signatures`]. No failure stops validation of the
+    /// envelopes after it. The parsed envelopes are returned for storage.
     #[xmtp_common::span(prefix = "publish")]
     // implements: API-234
     async fn validate_publish(
         &self,
         pending: &mut [PendingEnvelope],
-        parsed: &[ParsedEnvelope],
-    ) -> Result<(), Status> {
+        parsed: Vec<ParsedEnvelope>,
+    ) -> Result<Vec<ParsedEnvelope>, Status> {
         self.store.find_duplicates(pending).await?;
-        for (item, parsed) in pending.iter_mut().zip(parsed) {
-            if item.duplicate.is_some() {
+        for (item, parsed) in pending.iter_mut().zip(&parsed) {
+            if item.duplicate.is_some() || parsed.is_signed() {
                 continue;
             }
             let mut stored_claims = Vec::new();
@@ -303,6 +340,65 @@ impl Backend {
                 None => Ok(None),
             };
         }
-        Ok(())
+        self.verify_signatures(pending, parsed).await
+    }
+
+    /// Verify the publish signature of every signed envelope that is not a
+    /// known duplicate, inside one blocking task.
+    ///
+    /// It runs after the duplicate lookup, so a replay of stored envelopes
+    /// costs nothing, and parsing collapsed identical envelopes, so each
+    /// distinct envelope is verified at most once. It verifies every one, with
+    /// no early stop: the locked duplicate check during commit can drop a
+    /// failure that a concurrent request has meanwhile stored, and every
+    /// envelope after a stop would then be stored unchecked. The parsed
+    /// envelopes move into the task and back, so no payload is copied. A
+    /// cancelled request leaves the task to finish; the envelope bound caps
+    /// it at 1000 verifications.
+    // implements: API-230, API-222
+    async fn verify_signatures(
+        &self,
+        pending: &mut [PendingEnvelope],
+        parsed: Vec<ParsedEnvelope>,
+    ) -> Result<Vec<ParsedEnvelope>, Status> {
+        let unchecked: Vec<usize> = pending
+            .iter()
+            .zip(&parsed)
+            .enumerate()
+            .filter(|(_, (item, parsed))| item.duplicate.is_none() && parsed.is_signed())
+            .map(|(position, _)| position)
+            .collect();
+        if unchecked.is_empty() {
+            return Ok(parsed);
+        }
+        #[cfg(test)]
+        let checks = self.signature_checks.clone();
+        let span = tracing::Span::current();
+        let (parsed, results) = tokio::task::spawn_blocking(move || {
+            let _span = span.enter();
+            #[cfg(test)]
+            checks
+                .tasks
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            let results: Vec<_> = unchecked
+                .into_iter()
+                .map(|position| {
+                    #[cfg(test)]
+                    checks
+                        .verified
+                        .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    (position, verify_publish(&parsed[position]))
+                })
+                .collect();
+            (parsed, results)
+        })
+        .await
+        .map_err(|_| Status::internal("publish signature verification did not finish"))?;
+        for (position, result) in results {
+            if let Err(error) = result {
+                pending[position].validation = Err(error.into());
+            }
+        }
+        Ok(parsed)
     }
 }

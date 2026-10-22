@@ -11,6 +11,7 @@ use tokio::sync::{Notify, Semaphore};
 use xmtp_common::time::{Duration, Instant, timeout};
 use xmtp_cryptography::secret::Zeroizing;
 
+mod keyed;
 mod lifecycle;
 mod maintenance;
 mod polling;
