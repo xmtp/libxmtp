@@ -8,6 +8,7 @@ import java.util.Base64
 class NotificationHandlerTest {
     private val groupA = "11".repeat(16)
     private val groupB = "22".repeat(16)
+    private val keyedGroup = "33".repeat(32)
     private val installationA = "aa".repeat(32)
     private val installationB = "bb".repeat(32)
 
@@ -88,6 +89,39 @@ class NotificationHandlerTest {
             assertNull(parsePush(data))
         }
     }
+
+    @Test fun kindByteDecidesBetweenGroupAndWelcomeTopicsOfEqualLength() {
+        val keyed = parsePush(payload(id = keyedGroup))
+        assertEquals(PushKind.GROUP, keyed?.kind)
+        assertEquals(keyedGroup, keyed?.identifier)
+        assertEquals(PushKind.GROUP, parsePush(payload())?.kind)
+        val welcome = parsePush(payload(1, keyedGroup))
+        assertEquals(PushKind.WELCOME, welcome?.kind)
+        assertEquals(keyedGroup, welcome?.identifier)
+        for (data in listOf(
+            payload(1, groupA),
+            payload(id = keyedGroup.dropLast(2)),
+            payload(id = keyedGroup + "33"),
+            payload(id = "33".repeat(24)),
+            payload(4, keyedGroup),
+            payload() + ("topic" to ""),
+        )) {
+            assertNull(parsePush(data))
+        }
+    }
+
+    @Test fun admitsKnownKeyedGroup() =
+        runBlocking {
+            val host = Host(PushOwner("A", 1, installationA))
+            host.local["A" to keyedGroup] = PushConversation(keyedGroup, true, true)
+            assertTrue(PushHandler(host).receive(payload(id = keyedGroup)))
+            assertEquals(
+                keyedGroup,
+                host.posted.values
+                    .single()
+                    .conversation,
+            )
+        }
 
     @Test fun admitsKnownGroupAndDmAndDeduplicatesByTopicSequence() =
         runBlocking {
