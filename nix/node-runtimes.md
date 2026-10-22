@@ -11,9 +11,27 @@ published minimum remains Node 22.12.0.
 Verify released versions against Node's official release index and source hashes
 against each release's `SHASUMS256.txt`. Keep each repository runtime within its
 existing major, and keep `.node-version` and `.nvmrc` matched to Node 26. Slim
-overrides also update the full Node packages, `nodejs_latest`, and pnpm's embedded
-runtime. The installed-package workflow and `sdk-platforms.json` separately use
+overrides also update the full Node packages and Node-based tools within the
+isolated runtime package set. The installed-package workflow and `sdk-platforms.json` separately use
 secure Node 22 container images without tightening consumer requirements.
+
+`lib/default.nix` imports the Node overlay in a separate package set. Repository
+shells and native checks select `xmtp.nodejs_24` or `xmtp.nodejs_26`; pnpm, napi,
+Markdown lint, Playwright, wasm-bindgen's check input, and the bindgen npm builds
+also select that scope, including their embedded wrappers and build hooks.
+React Native shells, JS products, package assembly, and native consumer builds
+also select `xmtp.nodejs_26`.
+Do not replace the outer package set's `nodejs` aliases: doing so changes
+Chromium's build inputs and forces an unrelated browser source build. The
+unchanged browser package can reuse its upstream cache; its historical build-time
+Node input is not a runtime shipped in the browser closure. Ordinary CI suites
+consume the checked Node outputs without an all-shell preparation job.
+
+When Nixpkgs supplies these security releases and their complete shared-library
+fixes, prefer its unmodified, cached Node packages in this isolated scope. Verify
+native Linux/macOS cache availability and runtime checks before removing the
+source overrides. A global Node overlay would still invalidate browser builds,
+even if Node itself were cached.
 
 Nix's Node builds use shared libraries. Updating only Node's source does not
 update those libraries, so the overlay scopes the Brotli security patch, c-ares
@@ -75,8 +93,10 @@ Check direct and transitive library wiring with:
 nix build --no-link .#node-runtime-dependencies.x86_64-linux
 ```
 
-Config CI also evaluates the check for every supported host. Keep it independent
-of Node source builds so dependency regressions fail before compilation.
+Repository lint CI also evaluates the check for every supported host. It checks scoped
+libraries, Node-based build tools and wrappers, and isolation from the outer
+package set. Keep it independent of Node source builds so dependency regressions
+fail before compilation.
 
 Build both final full Node outputs and their preserved version checks natively on
 Linux and macOS, retaining upstream test targets, skip flags, and sandbox settings.
@@ -86,6 +106,7 @@ alone do not establish a Darwin pass. When only comments/documentation change,
 verify the final derivation identities remain unchanged rather than rebuilding
 the same source outputs.
 
-Validate configuration with `dev/nix-shell 'just lint-config'`. A fixture blocked
+Validate configuration with `dev/nix-shell 'just lint-config'` and dev fixtures
+with `dev/nix-shell 'just test dev'`. A fixture blocked
 by a local tool limitation is not a pass or a waiver; the unchanged required CI
 gate must still pass in its supported environment.

@@ -43,11 +43,15 @@ in
       pkgs.linkFarm "node-runtime-dependencies" [
         {
           name = "node24";
-          path = pkgs.nodejs-slim_24.passthru.tests.dependencies;
+          path = pkgs.xmtp.nodejs-slim_24.passthru.tests.dependencies;
         }
         {
           name = "node26";
-          path = pkgs.nodejs-slim_26.passthru.tests.dependencies;
+          path = pkgs.xmtp.nodejs-slim_26.passthru.tests.dependencies;
+        }
+        {
+          name = "consumers";
+          path = pkgs.xmtp.nodeRuntimeChecks;
         }
       ]
     )
