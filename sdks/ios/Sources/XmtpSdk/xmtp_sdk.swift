@@ -15317,6 +15317,63 @@ public func FfiConverterTypePublicIdentity_lower(_ value: PublicIdentity) -> Rus
 }
 
 
+/**
+ * A validated push body (PUSH-259).
+ */
+public struct PushHint: Equatable, Hashable {
+    public var topic: Topic
+    public var sequenceId: UInt64
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(topic: Topic, sequenceId: UInt64) {
+        self.topic = topic
+        self.sequenceId = sequenceId
+    }
+
+
+
+
+}
+
+#if compiler(>=6)
+extension PushHint: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypePushHint: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> PushHint {
+        return
+            try PushHint(
+                topic: FfiConverterTypeTopic.read(from: &buf),
+                sequenceId: FfiConverterUInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: PushHint, into buf: inout [UInt8]) {
+        FfiConverterTypeTopic.write(value.topic, into: &buf)
+        FfiConverterUInt64.write(value.sequenceId, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePushHint_lift(_ buf: RustBuffer) throws -> PushHint {
+    return try FfiConverterTypePushHint.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePushHint_lower(_ value: PushHint) -> RustBuffer {
+    return FfiConverterTypePushHint.lower(value)
+}
+
+
 public struct Reaction: Equatable, Hashable {
     public var content: String
     public var action: ReactionAction
@@ -24382,6 +24439,127 @@ public func FfiConverterTypeStreamFailureKind_lower(_ value: StreamFailureKind) 
 
 
 /**
+ * A parsed topic (TOPIC-001), one variant per topic kind.
+ */
+
+public enum Topic: Equatable, Hashable {
+
+    /**
+     * `0x00`: group messages.
+     */
+    case groupMessages(conversationId: ConversationId
+    )
+    /**
+     * `0x01`: welcomes for an installation.
+     */
+    case welcomeMessages(installationId: InstallationId
+    )
+    /**
+     * `0x02`: identity updates for an inbox.
+     */
+    case identityUpdates(inboxId: InboxId
+    )
+    /**
+     * `0x03`: key packages for an installation.
+     */
+    case keyPackages(installationId: InstallationId
+    )
+    /**
+     * `0x04`: commit-log entries. The commit-log id is lowercase hex. It is
+     * not a conversation ID (GMOD-041), so no conversation lookup takes it.
+     */
+    case commitLogEntries(commitLogId: String
+    )
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension Topic: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeTopic: FfiConverterRustBuffer {
+    typealias SwiftType = Topic
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> Topic {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+
+        case 1: return .groupMessages(conversationId: try FfiConverterTypeConversationId.read(from: &buf)
+        )
+
+        case 2: return .welcomeMessages(installationId: try FfiConverterTypeInstallationId.read(from: &buf)
+        )
+
+        case 3: return .identityUpdates(inboxId: try FfiConverterTypeInboxId.read(from: &buf)
+        )
+
+        case 4: return .keyPackages(installationId: try FfiConverterTypeInstallationId.read(from: &buf)
+        )
+
+        case 5: return .commitLogEntries(commitLogId: try FfiConverterString.read(from: &buf)
+        )
+
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: Topic, into buf: inout [UInt8]) {
+        switch value {
+
+
+        case let .groupMessages(conversationId):
+            writeInt(&buf, Int32(1))
+            FfiConverterTypeConversationId.write(conversationId, into: &buf)
+
+
+        case let .welcomeMessages(installationId):
+            writeInt(&buf, Int32(2))
+            FfiConverterTypeInstallationId.write(installationId, into: &buf)
+
+
+        case let .identityUpdates(inboxId):
+            writeInt(&buf, Int32(3))
+            FfiConverterTypeInboxId.write(inboxId, into: &buf)
+
+
+        case let .keyPackages(installationId):
+            writeInt(&buf, Int32(4))
+            FfiConverterTypeInstallationId.write(installationId, into: &buf)
+
+
+        case let .commitLogEntries(commitLogId):
+            writeInt(&buf, Int32(5))
+            FfiConverterString.write(commitLogId, into: &buf)
+
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTopic_lift(_ buf: RustBuffer) throws -> Topic {
+    return try FfiConverterTypeTopic.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTopic_lower(_ value: Topic) -> RustBuffer {
+    return FfiConverterTypeTopic.lower(value)
+}
+
+
+
+/**
  * A public well-known metadata field.
  */
 
@@ -29311,6 +29489,21 @@ public func prepareMigrationArchive(args: PrepareMigrationArchiveArgs)async thro
         )
 }
 /**
+ * Validate the `topic` and `sequence_id` fields of a push body. `topic` is
+ * standard base64 of a topic of any kind; the receiver decides which kinds
+ * it handles. `sequence_id` is decimal digits from 1 through
+ * 9223372036854775807. Any other input fails with `InvalidArgument`.
+ */
+public func parsePushHint(topic: String, sequenceId: String)throws  -> PushHint  {
+    return try  FfiConverterTypePushHint_lift(try rustCallWithError(FfiConverterTypeXmtpError_lift) {
+        uniffiCallStatus in
+    uniffi_xmtp_sdk_fn_func_parse_push_hint(
+        FfiConverterString.lower(topic),
+        FfiConverterString.lower(sequenceId),uniffiCallStatus
+    )
+})
+}
+/**
  * Calculate an inbox ID from a public identity and a nonce.
  * An omitted nonce is 0, as in client creation. This operation does not use a backend or storage.
  */
@@ -29631,6 +29824,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_func_prepare_migration_archive() != 7183) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_xmtp_sdk_checksum_func_parse_push_hint() != 13503) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_func_generate_inbox_id() != 38075) {

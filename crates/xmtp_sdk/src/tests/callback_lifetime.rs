@@ -18,6 +18,10 @@ struct Counts {
     active: AtomicUsize,
     retained: AtomicUsize,
     early_drops: AtomicUsize,
+    /// Polls that saw the release. Count these, not `polls`: a poll records
+    /// its thread before it reads the release, so a `polls` count taken while
+    /// a poll is in flight can include the poll that sees the release.
+    released_polls: AtomicUsize,
     polls: parking_lot::Mutex<Vec<ThreadId>>,
 }
 
@@ -37,12 +41,20 @@ impl Future for HeldFuture {
         if !self.started {
             self.started = true;
             self.counts.active.fetch_add(1, Ordering::SeqCst);
-            self.entered.take().unwrap().send(()).unwrap();
         }
         match Pin::new(&mut self.release).poll(cx) {
-            Poll::Pending => Poll::Pending,
+            Poll::Pending => {
+                // Report entry only once the release is pending. The probe
+                // releases only waiting callbacks, so each one needs a new
+                // poll to see its release.
+                if let Some(entered) = self.entered.take() {
+                    entered.send(()).unwrap();
+                }
+                Poll::Pending
+            }
             Poll::Ready(result) => {
                 result.expect("the probe must release each callback");
+                self.counts.released_polls.fetch_add(1, Ordering::SeqCst);
                 self.complete = true;
                 Poll::Ready(())
             }
@@ -198,7 +210,6 @@ async fn cycle(family: Family, cancel: bool) {
     }
     assert_eq!(counts.active.load(Ordering::SeqCst), CALLS);
     assert_eq!(counts.retained.load(Ordering::SeqCst), CALLS);
-    let held_polls = counts.polls.lock().len();
     let mut callers = Some(callers);
     if cancel {
         drop(callers.take());
@@ -219,11 +230,12 @@ async fn cycle(family: Family, cancel: bool) {
     assert_eq!(counts.active.load(Ordering::SeqCst), 0);
     assert_eq!(counts.retained.load(Ordering::SeqCst), 0);
     assert_eq!(counts.early_drops.load(Ordering::SeqCst), 0);
-    let polls = counts.polls.lock();
-    assert!(
-        polls.len() >= held_polls + CALLS,
+    assert_eq!(
+        counts.released_polls.load(Ordering::SeqCst),
+        CALLS,
         "callbacks were not polled after release"
     );
+    let polls = counts.polls.lock();
     assert!(
         polls.iter().all(|thread| *thread != executor),
         "foreign future polled on the caller executor"

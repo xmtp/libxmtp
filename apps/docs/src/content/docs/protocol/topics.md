@@ -49,9 +49,9 @@ Key package topics do not support normal queries. Use a newest-envelope read.
 Do not send this display string as a binary wire topic.
 
 Push payloads encode the complete binary wire topic with standard Base64. The
-JSON `sequence_id` is decimal text to preserve integer precision. Decode the
-`topic` field before you use it as a wire topic. Only group-message and Welcome
-topics support push subscriptions.
+JSON `sequence_id` is decimal text to preserve integer precision. The SDK's
+`parsePushHint` validates both fields and returns the topic kind and
+identifier. Only group-message and Welcome topics support push subscriptions.
 
 The old `/xmtp/mls/1/g-.../proto` and `/xmtp/mls/1/w-.../proto` labels are not the
 self-hosted push format. Update receivers to use the
