@@ -20,10 +20,7 @@ const REQUEST_TIMEOUT_MS: u64 = 120_000;
 const SEED_TIMEOUT_MS: u64 = 900_000;
 
 use super::Store;
-use crate::{
-    config::Config as BackendConfig,
-    test_support::{TestDatabase, TestResult},
-};
+use crate::test_support::{TestDatabase, TestResult, config_for};
 use experiments::{IndexProfile, PageQuery};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -141,11 +138,20 @@ fn repository_path(path: impl AsRef<Path>) -> PathBuf {
 }
 
 async fn connect(database: &TestDatabase, connections: u32, timeout_ms: u64) -> TestResult<Store> {
-    let mut config: BackendConfig =
-        toml::from_str(&format!("[database]\nurl = {:?}", database.url()))?;
+    Ok(Store::connect(&connection_config(database.url(), connections, timeout_ms)?).await?)
+}
+
+/// Validate benchmark pool settings without shortening the requested statement budget.
+fn connection_config(
+    url: &str,
+    connections: u32,
+    timeout_ms: u64,
+) -> TestResult<crate::config::ValidatedConfig> {
+    let mut config = config_for(url);
     config.database.max_connections = connections;
     config.database.max_statement_timeout_ms = timeout_ms;
-    Ok(Store::connect(&config).await?)
+    config.publishing.max_publish_duration_ms = timeout_ms.saturating_add(1);
+    Ok(config.validate()?)
 }
 
 /// Run explicitly, never in ordinary tests. DATABASE_URL is an admin connection

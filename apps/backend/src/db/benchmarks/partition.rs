@@ -212,10 +212,7 @@ pub(super) async fn connect(
         .map_err(|_| "benchmark URL cannot contain a writer username")?;
     url.set_password(None)
         .map_err(|_| "benchmark URL cannot remove administrative credentials")?;
-    let mut config: crate::config::Config =
-        toml::from_str(&format!("[database]\nurl = {:?}", url.as_str()))?;
-    config.database.max_connections = connections;
-    config.database.max_statement_timeout_ms = timeout_ms;
+    let config = super::connection_config(url.as_str(), connections, timeout_ms)?;
     let primary = crate::db::connect_pool(url.as_str(), &config).await?;
     let restricted: bool = sqlx::query_scalar(
         "SELECT current_user = 'xmtp_bench_writer'

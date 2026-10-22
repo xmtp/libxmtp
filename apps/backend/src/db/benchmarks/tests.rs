@@ -26,6 +26,38 @@ fn config() -> Config {
     }
 }
 
+/// Long benchmark statements must pass production validation without changing requested pool settings or accepting invalid values.
+#[xmtp_common::test(unwrap_try = true)]
+fn connection_configuration_preserves_budgets_and_rejects_invalid_values() {
+    let url = "postgres://localhost/benchmark";
+    for timeout_ms in [30_000, REQUEST_TIMEOUT_MS, SEED_TIMEOUT_MS] {
+        let config = connection_config(url, 2, timeout_ms)?;
+        assert_eq!(config.database.url, url);
+        assert_eq!(config.database.max_connections, 2);
+        assert_eq!(config.database.max_statement_timeout_ms, timeout_ms);
+        assert!(config.publishing.max_publish_duration_ms > timeout_ms);
+    }
+    assert!(connection_config(url, 0, REQUEST_TIMEOUT_MS).is_err());
+    for timeout_ms in [0, i32::MAX as u64, u64::MAX] {
+        assert!(connection_config(url, 1, timeout_ms).is_err());
+    }
+}
+
+/// Seeded and absent-topic requests must use current group IDs, not legacy topics rejected by the API.
+#[xmtp_common::test(unwrap_try = true)]
+fn generated_topics_use_current_group_identifier_width() {
+    for identifier in [0, 1, 10_000, i64::MAX] {
+        let bytes = corpus::topic(identifier);
+        let topic = xmtp_proto::types::Topic::parse(&bytes)?;
+        assert_eq!(topic.kind(), xmtp_proto::types::TopicKind::GroupMessagesV1);
+        assert_eq!(bytes.len(), 33);
+        assert_eq!(
+            topic.identifier(),
+            xmtp_common::sha256_array(&identifier.to_be_bytes())
+        );
+    }
+}
+
 /// Explicit configuration rejects unknown fields; relative paths resolve from the repository, not Cargo's package cwd.
 #[xmtp_common::test(unwrap_try = true)]
 fn configuration_rejects_unknown_and_missing_fields() {
@@ -310,7 +342,7 @@ async fn diagnostics_capture_actual_generic_and_custom_plans() {
     database.remove()?;
 }
 
-/// The bulk corpus preserves hashes, payload sizes, watermarks, sequence allocation, and real query behavior.
+/// The bulk corpus preserves current topic bytes, hashes, payload sizes, watermarks, allocation, and real query behavior.
 #[xmtp_common::test(unwrap_try = true)]
 async fn bulk_seed_matches_production_storage_and_read_semantics() {
     let mut database = TestDatabase::new()?;
@@ -335,6 +367,13 @@ async fn bulk_seed_matches_production_storage_and_read_semantics() {
         REQUEST_TIMEOUT_MS.to_string()
     );
     assert_eq!(catalog.len(), 100);
+    assert_eq!(
+        catalog
+            .iter()
+            .map(|topic| topic.bytes.clone())
+            .collect::<HashSet<_>>(),
+        (0..100).map(corpus::topic).collect::<HashSet<_>>()
+    );
     let storage = report::storage(&store).await?;
     assert!(storage["heap_bytes"].as_i64().unwrap() > 0);
     assert!(storage["index_bytes"].as_i64().unwrap() > 0);

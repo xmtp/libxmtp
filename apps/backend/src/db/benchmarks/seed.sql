@@ -13,7 +13,7 @@ WITH inputs AS (
 ), inserted AS (
 INSERT INTO envelopes (sequence_id, topic, server_ns, expiry_ns, message_hash,
     is_commit_or_proposal, payload, push_eligible, sender_hmac)
-SELECT id, '\x00'::bytea || substring(sha256(int8send(topic_id)) for 16),
+SELECT id, '\x00'::bytea || sha256(int8send(topic_id)),
     1700000000000000000 + id * 1000000,
     CASE WHEN mod(id, 20) <> 0 THEN 1707776000000000000 + id * 1000000 END,
     sha256(overlay(payloads.payload placing int8send(id) from 1 for 8)), mod(id, 20) = 0,

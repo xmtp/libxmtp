@@ -11,6 +11,25 @@ the same SQL files. The explicit `layout` selects either production's unpartitio
 schema or the approved sequence-range experiment, only in disposable fixtures.
 Experimental Store hooks are excluded from production builds.
 
+## Main-branch compatibility
+
+The suite was rebased onto `main` at
+`d0e4bdc69d1ca905d449732f4e48e9631d9df48d` on October 22, 2026. Compared with
+the former `self-hosted` base, production database migrations, paging/newest SQL,
+and admitted-publish SQL are unchanged. Material backend changes include
+32-byte group identifiers, required publish signatures, extracted/validated
+configuration, and stream/push handling. The runner now validates its connection
+configuration and generates current **33-byte group topics** in both SQL seeds
+and Rust requests. Its opaque synthetic payloads still exercise admitted storage,
+not RPC admission, signature verification, or end-to-end publishing.
+
+The committed baseline and comparison CSVs remain historical measurements of
+their documented source revisions, using **17-byte group topics** before the
+cutover. They have not been remeasured on `main`; wider topic keys can change
+index size and performance. New comparisons must measure both control and
+experimental variants on the current revision with the same topic width. Do not
+treat the historical insert rates as current signed-publish throughput.
+
 ## Run
 
 Use a **dedicated PostgreSQL 17+ instance** with no other workloads. The admin
@@ -110,7 +129,7 @@ size or lower writer count if the growth budget cannot fit the batch).
   100 templates amortize generation. A unique sequence prefix makes each
   payload distinct; stored hashes are SHA-256 of the actual payload bytes.
   Five percent of messages have commit/proposal retention; 90% are push eligible.
-  Topics have the real 17-byte group-topic shape. Payloads are opaque test data,
+  Topics have the current 33-byte group-topic shape. Payloads are opaque test data,
   not validated MLS messages; cryptography/protobuf admission is not measured.
 - Set watermarks, advance the real sequence and closed boundary, then
   `VACUUM ANALYZE` and `CHECKPOINT`. Seeding duration and heap/index/total bytes

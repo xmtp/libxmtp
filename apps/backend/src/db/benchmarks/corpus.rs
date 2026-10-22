@@ -1,5 +1,6 @@
 //! Deterministic bulk corpus: skewed active traffic, dormant topics, and opaque
-//! non-compressible payloads. The SQL retains every production index and constraint.
+//! non-compressible payloads on current 33-byte group topics. The SQL retains
+//! every production index and constraint.
 
 use super::{Store, TestResult};
 use sqlx::Row;
@@ -16,11 +17,10 @@ pub(super) struct Topic {
 }
 
 pub(super) fn topic(identifier: i64) -> Vec<u8> {
-    [
-        vec![0],
-        xmtp_common::sha256_array(&identifier.to_be_bytes())[..16].to_vec(),
-    ]
-    .concat()
+    xmtp_proto::types::Topic::new_group_message(xmtp_common::sha256_array(
+        &identifier.to_be_bytes(),
+    ))
+    .cloned_vec()
 }
 
 fn payload(identifier: i64, size: usize) -> Vec<u8> {
