@@ -12,6 +12,7 @@ use crate::app::health::validators::Validator;
 use async_trait::async_trait;
 use color_eyre::eyre::eyre;
 use std::time::Instant;
+use xmtp_common::snippet::Snippet;
 use xmtp_db::prelude::QueryGroup;
 use xmtp_mls::groups::commit_log::CommitLogWorker;
 
@@ -63,7 +64,7 @@ impl Validator for NoForkedGroups {
             if !failed.is_empty() {
                 let groups = failed
                     .iter()
-                    .map(ToString::to_string)
+                    .map(|group_id| group_id.as_slice().snippet())
                     .collect::<Vec<_>>()
                     .join(", ");
                 out.push(OpResult {
