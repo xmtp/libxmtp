@@ -13,6 +13,7 @@ import time
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
+BUILD_LOG = "fixture builder stdout\nfixture builder stderr\n"
 sys.path.insert(0, str(ROOT / "dev/agents"))
 from nix_hook import rewrite  # noqa: E402
 
@@ -37,6 +38,10 @@ class NixWrapperTests(unittest.TestCase):
         fake.write_text(
             "#!/usr/bin/env bash\nset -eu\n"
             'printf "%s\\n" "${@: -1}" >> "$TEST_NIX_LOG"\n'
+            'case " $* " in\n'
+            '  *" --print-build-logs "*|*" -L "*)\n'
+            '    printf "%s\\n" "fixture builder stdout" "fixture builder stderr" >&2 ;;\n'
+            "esac\n"
             'if [[ -n "${TEST_NIX_FAIL:-}" ]]; then exit 1; fi\n'
             # The GC root: a profile link and its generation link.
             'mkdir -p "$TEST_STORE"; ln -sfn "$TEST_STORE" "$3-1-link"; ln -sfn "$(basename "$3")-1-link" "$3"\n'
@@ -55,6 +60,7 @@ class NixWrapperTests(unittest.TestCase):
         # dev/docker/load-env regenerate the file.
         for name in (
             "XMTP_NIX_WRAPPER_ID",
+            "XMTP_NIX_BUILD_LOGS",
             "NIX_DEVSHELL",
             "TEST_NIX_FAIL",
             "NIX_BUILD_TOP",
@@ -100,6 +106,46 @@ class NixWrapperTests(unittest.TestCase):
         result = self.run_wrapper("printf '%s' 'a b' | tr ' ' _; exit 37")
         self.assertEqual(result.stdout, "a_b")
         self.assertEqual(result.returncode, 37)
+
+    def test_build_logs_require_explicit_opt_in_even_in_ci(self):
+        """Routine local and CI evaluations keep full builder logs disabled."""
+        for ci in (None, "true"):
+            if ci is None:
+                self.env.pop("CI", None)
+            else:
+                self.env["CI"] = ci
+            for setting in (None, "", "0", "true"):
+                with self.subTest(ci=ci, setting=setting):
+                    if setting is None:
+                        self.env.pop("XMTP_NIX_BUILD_LOGS", None)
+                    else:
+                        self.env["XMTP_NIX_BUILD_LOGS"] = setting
+                    result = self.run_wrapper("--refresh", "--print-env")
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(result.stderr, "")
+                    self.assertIn("export XMTP_TEST_SHELL=", result.stdout)
+                    self.assertNotIn("fixture builder", result.stdout)
+
+    def test_build_logs_stay_on_stderr_and_cache_only_the_environment(self):
+        """Nix streams builder logs without corrupting --print-env or cache reuse."""
+        self.env["XMTP_NIX_BUILD_LOGS"] = "1"
+        result = self.run_wrapper("--print-env")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stderr, BUILD_LOG)
+        self.assertIn("export XMTP_TEST_SHELL=", result.stdout)
+        self.assertNotIn("fixture builder", result.stdout)
+        cache = self.root / "cache/xmtp/nix-shell"
+        cached_environments = list(cache.glob("*.sh"))
+        self.assertEqual(len(cached_environments), 1)
+        self.assertNotIn("fixture builder", cached_environments[0].read_text())
+
+        for setting in ("0", "1"):
+            self.env["XMTP_NIX_BUILD_LOGS"] = setting
+            cached = self.run_wrapper('printf "%s" "$XMTP_TEST_SHELL"')
+            self.assertEqual(cached.returncode, 0, cached.stderr)
+            self.assertEqual(cached.stdout, f"{self.root}#default")
+            self.assertEqual(cached.stderr, "")
+        self.assertEqual(len(self.calls()), 1)
 
     def test_environment_and_temporary_directory(self):
         result = self.run_wrapper(
@@ -213,10 +259,19 @@ class NixWrapperTests(unittest.TestCase):
                 self.assertTrue(caller.is_dir())
 
     def test_failed_evaluation_caches_nothing(self):
+        """Builder failure keeps stderr, stops the command, and leaves no cache."""
+        self.env["XMTP_NIX_BUILD_LOGS"] = "1"
         self.env["TEST_NIX_FAIL"] = "1"
-        self.assertNotEqual(self.run_wrapper("printf no").returncode, 0)
+        failed = self.run_wrapper("printf no")
+        self.assertEqual(failed.returncode, 1)
+        self.assertEqual(failed.stdout, "")
+        self.assertEqual(failed.stderr, BUILD_LOG)
+        self.assertEqual(list((self.root / "cache/xmtp/nix-shell").iterdir()), [])
         del self.env["TEST_NIX_FAIL"]
-        self.assertEqual(self.run_wrapper("true").returncode, 0)
+        recovered = self.run_wrapper("true")
+        self.assertEqual(recovered.returncode, 0, recovered.stderr)
+        self.assertEqual(recovered.stdout, "")
+        self.assertEqual(recovered.stderr, BUILD_LOG)
         self.assertEqual(len(self.calls()), 2)
 
     def test_changed_shell_reenters(self):

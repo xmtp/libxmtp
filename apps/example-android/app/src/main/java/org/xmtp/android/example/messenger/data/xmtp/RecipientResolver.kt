@@ -25,6 +25,9 @@ internal suspend fun resolveRecipient(
                 PublicIdentity(value.lowercase(), PublicIdentityKind.ETHEREUM)
             }
 
+            // Only an inbox ID among the accepted inputs has 64 characters. Conversation,
+            // installation, and message IDs share this syntax, so the shape does not prove
+            // an inbox: the SDK refuses the write when no inbox has this ID.
             value.length == 64 -> {
                 if (!value.matches(Regex("[0-9a-fA-F]{64}"))) {
                     throw FeatureInputFailure("An inbox ID must contain 64 hexadecimal characters.")

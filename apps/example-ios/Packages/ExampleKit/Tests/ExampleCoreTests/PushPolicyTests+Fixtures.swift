@@ -2,6 +2,19 @@
 import Foundation
 import Testing
 
+extension PushEnvelope {
+	/// A 33-byte topic: the kind byte, then 32 copies of `byte`.
+	static func fixture(_ kind: Kind, _ byte: UInt8, sequence: UInt64 = 1) -> PushEnvelope {
+		let identifier = Array(repeating: byte, count: 32)
+		return PushEnvelope(
+			topic: Data([kind == .group ? 0 : 1] + identifier).base64EncodedString(),
+			sequence: sequence,
+			kind: kind,
+			identifier: hex(identifier),
+		)
+	}
+}
+
 @MainActor final class PushFixture {
 	let owner = PushOwner(
 		session: SessionKey(profileID: UUID(), generation: 1),

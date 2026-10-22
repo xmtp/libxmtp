@@ -192,7 +192,7 @@ where
         }
         let current_str = self
             .live_mutable_metadata()?
-            .attributes
+            .attributes()
             .get(MetadataField::MinimumSupportedProtocolVersion.as_str())
             .cloned();
         if let Some(current_str) = current_str.as_deref()
@@ -236,32 +236,11 @@ where
         Ok(())
     }
 
-    /// Updates the commit log signer of the group. Will error if the user does not have the appropriate permissions
-    /// to perform these updates.
-    pub async fn update_commit_log_signer(
-        &self,
-        commit_log_signer: xmtp_cryptography::Secret,
-    ) -> Result<(), GroupError> {
-        self.ensure_not_paused().await?;
-
-        if self.metadata().await?.conversation_type == ConversationType::Dm {
-            return Err(MetadataPermissionsError::DmGroupMetadataForbidden.into());
-        }
-        let intent_data: Vec<u8> =
-            UpdateMetadataIntentData::new_update_commit_log_signer(commit_log_signer).into();
-        let intent = QueueIntent::metadata_update()
-            .data(intent_data)
-            .queue(self)?;
-
-        let _ = self.sync_until_intent_resolved(intent.id).await?;
-        Ok(())
-    }
-
     pub(in crate::groups) fn min_protocol_version_from_extensions(
         mutable_metadata: &GroupMutableMetadata,
     ) -> Option<String> {
         mutable_metadata
-            .attributes
+            .attributes()
             .get(&MetadataField::MinimumSupportedProtocolVersion.to_string())
             .map(|v| v.to_string())
     }
@@ -513,10 +492,10 @@ where
         mutable_metadata: &GroupMutableMetadata,
     ) -> Result<MessageDisappearingSettings, GroupError> {
         let disappear_from_ns = mutable_metadata
-            .attributes
+            .attributes()
             .get(&MetadataField::MessageDisappearFromNS.to_string());
         let disappear_in_ns = mutable_metadata
-            .attributes
+            .attributes()
             .get(&MetadataField::MessageDisappearInNS.to_string());
 
         if let (Some(Ok(message_disappear_from_ns)), Some(Ok(message_disappear_in_ns))) = (

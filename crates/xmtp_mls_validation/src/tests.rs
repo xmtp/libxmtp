@@ -6,6 +6,7 @@ use openmls::prelude::{
 };
 use openmls_basic_credential::SignatureKeyPair;
 use openmls_rust_crypto::OpenMlsRustCrypto;
+use prost::Message;
 use xmtp_common::RetryableError;
 use xmtp_id::{
     associations::{
@@ -17,6 +18,8 @@ use xmtp_id::{
 use xmtp_proto::xmtp::backend::v1::{
     ClientEnvelope, KeyPackage, WelcomeMessage, client_envelope::Payload,
 };
+
+mod publish_signatures;
 
 fn expected_topic(kind: TopicKind, identifier: impl AsRef<[u8]>) -> Vec<u8> {
     kind.create(identifier).cloned_vec()
@@ -30,7 +33,8 @@ fn group_message_matrix_preserves_routing_bytes_and_flags() {
         (GroupMessageKind::Proposal, true),
         (GroupMessageKind::Commit, true),
     ] {
-        let envelope = group_message_envelope(GROUP_ID, kind, [0xaa, 0xbb]);
+        let keys = group_keys(1);
+        let envelope = keyed_group_message_envelope(&keys, kind, [0xaa, 0xbb]);
         let expected_data = match envelope.payload.as_ref() {
             Some(Payload::GroupMessage(group)) => group.data.clone(),
             _ => unreachable!("fixture is a group message"),
@@ -38,7 +42,7 @@ fn group_message_matrix_preserves_routing_bytes_and_flags() {
         let parsed = parse_envelope(envelope)?;
         assert_eq!(
             parsed.topic.cloned_vec(),
-            expected_topic(TopicKind::GroupMessagesV1, GROUP_ID)
+            expected_topic(TopicKind::GroupMessagesV1, keys.group_id())
         );
         assert_eq!(parsed.is_commit_or_proposal, expected_flag);
         let Some(Payload::GroupMessage(group)) = parsed.envelope.payload else {
@@ -52,18 +56,31 @@ fn group_message_matrix_preserves_routing_bytes_and_flags() {
 #[xmtp_common::test(unwrap_try = true)]
 // verifies: TOPIC-002, API-230
 fn group_message_matrix_rejects_malformed_data_and_wrong_id_lengths() {
-    for group_id in [vec![0x11; 15], vec![0x11; 17]] {
-        let error = parse_envelope(group_message_envelope(
-            group_id,
-            GroupMessageKind::Application,
-            [],
-        ))
-        .err()
-        .expect("group identifiers must be 16 bytes");
-        assert_eq!(error.reason(), Reason::MalformedPayload);
+    // A legacy 16-byte group id is refused like any other wrong length, with
+    // or without a 64-byte signature.
+    for group_id in [
+        vec![0x11; 15],
+        vec![0x11; 16],
+        vec![0x11; 17],
+        vec![0x11; 31],
+        vec![0x11; 33],
+    ] {
+        for signature in [vec![], vec![0x55; 64]] {
+            let mut envelope = group_message_envelope(&group_id, GroupMessageKind::Application, []);
+            let Some(Payload::GroupMessage(group)) = envelope.payload.as_mut() else {
+                unreachable!("fixture is a group message")
+            };
+            group.signature = signature;
+            let error = parse_envelope(envelope)
+                .err()
+                .expect("group identifiers must be 32 bytes");
+            assert!(matches!(&error, ValidationError::InvalidTopic(_)));
+            assert_eq!(error.reason(), Reason::MalformedPayload);
+        }
     }
 
-    let mut malformed = group_message_envelope(GROUP_ID, GroupMessageKind::Application, []);
+    let mut malformed =
+        keyed_group_message_envelope(&group_keys(1), GroupMessageKind::Application, []);
     let Some(Payload::GroupMessage(group)) = malformed.payload.as_mut() else {
         unreachable!("fixture is a group message")
     };
@@ -120,55 +137,22 @@ fn welcome_matrix_rejects_missing_form_and_wrong_destination_lengths() {
     assert!(matches!(error, ValidationError::MissingPayload));
 }
 
+/// Field 5, the retired `CommitLogEntry`, is reserved. An old client's entry
+/// decodes with no payload and is refused as malformed, whatever group id it
+/// names.
 #[xmtp_common::test(unwrap_try = true)]
-// verifies: TOPIC-001, API-230
-async fn commit_log_admission_preserves_unverified_bytes_and_signature() {
-    let mut envelope = commit_log_envelope(GROUP_ID);
-    let Some(Payload::CommitLogEntry(entry)) = envelope.payload.as_mut() else {
-        unreachable!("fixture is a commit-log entry")
-    };
-    let signature = entry
-        .signature
-        .as_mut()
-        .expect("fixture has a commit-log signature");
-    signature.bytes = vec![0x70];
-    signature.public_key = vec![0x71];
-    let expected = envelope.clone();
-    let parsed = parse_envelope(envelope)?;
-    assert_eq!(
-        parsed.topic.cloned_vec(),
-        expected_topic(TopicKind::CommitLogEntriesV1, GROUP_ID)
-    );
-    assert!(!parsed.is_commit_or_proposal);
-    assert_eq!(parsed.envelope, expected);
-    validate_envelope(
-        &parsed,
-        &[],
-        MockSmartContractSignatureVerifier::new(false),
-        &TestChain::at(1),
-    )
-    .await?;
-}
-
-#[xmtp_common::test(unwrap_try = true)]
-// verifies: TOPIC-002, API-230
-fn commit_log_matrix_rejects_malformed_data_and_wrong_id_lengths() {
-    for group_id in [vec![0x11; 15], vec![0x11; 17]] {
-        let error = parse_envelope(commit_log_envelope(group_id))
+// verifies: API-210, API-230
+fn a_retired_commit_log_entry_is_refused_as_malformed() {
+    for group_id in [vec![0x11; 16], vec![0x11; 32]] {
+        let envelope =
+            ClientEnvelope::decode(retired_commit_log_envelope_bytes(&group_id).as_slice())?;
+        assert_eq!(envelope.payload, None);
+        let error = parse_envelope(envelope)
             .err()
-            .expect("commit-log group identifiers must be 16 bytes");
+            .expect("a retired commit-log entry must fail");
+        assert!(matches!(error, ValidationError::MissingPayload));
         assert_eq!(error.reason(), Reason::MalformedPayload);
     }
-
-    let mut malformed = commit_log_envelope(GROUP_ID);
-    let Some(Payload::CommitLogEntry(entry)) = malformed.payload.as_mut() else {
-        unreachable!("fixture is a commit-log entry")
-    };
-    entry.serialized_commit_log_entry = vec![0xff];
-    let error = parse_envelope(malformed)
-        .err()
-        .expect("malformed plaintext entry must fail");
-    assert_eq!(error.reason(), Reason::MalformedPayload);
 }
 
 #[xmtp_common::test(unwrap_try = true)]
@@ -180,12 +164,12 @@ async fn key_package_admission_accepts_the_existing_credential_shape() {
         key_package_envelope("not-a-hex-inbox", KeyPackageOptions::default()),
         minimal_key_package_envelope(
             "minimal-capabilities",
-            xmtp_configuration::CIPHERSUITE,
+            xmtp_cryptography::configuration::CIPHERSUITE,
             None,
         ),
         minimal_key_package_envelope(
             "long-lifetime",
-            xmtp_configuration::CIPHERSUITE,
+            xmtp_cryptography::configuration::CIPHERSUITE,
             Some(openmls::key_packages::Lifetime::new(twenty_years)),
         ),
         minimal_key_package_envelope(
@@ -260,9 +244,9 @@ fn key_package_topic_length_is_separate_from_ciphersuite_validation() {
 // verifies: JOIN-007, JOIN-008
 #[xmtp_common::test(unwrap_try = true)]
 async fn key_package_parse_precedes_existing_cryptographic_validation() {
-    for fixture in [
-        mismatched_key_package_envelope(),
-        expired_key_package_envelope(),
+    for (fixture, expired) in [
+        (mismatched_key_package_envelope(), false),
+        (expired_key_package_envelope(), true),
     ] {
         let parsed = parse_envelope(fixture.envelope)?;
         assert_eq!(
@@ -279,6 +263,19 @@ async fn key_package_parse_precedes_existing_cryptographic_validation() {
         .err()
         .expect("semantic key-package validation must still run");
         assert!(matches!(&error, ValidationError::KeyPackage(_)));
+        // The expired fixture fails at the lifetime check, not another one.
+        assert_eq!(
+            matches!(
+                &error,
+                ValidationError::KeyPackage(
+                    xmtp_id::key_package::KeyPackageVerificationError::MlsValidation(
+                        openmls::prelude::KeyPackageVerifyError::LifetimeError(_)
+                    )
+                )
+            ),
+            expired,
+            "{error:?}"
+        );
         assert_eq!(error.reason(), Reason::InvalidKeyPackage);
     }
 
@@ -292,6 +289,51 @@ async fn key_package_parse_precedes_existing_cryptographic_validation() {
         parse_envelope(trailing),
         Err(ValidationError::Tls(_))
     ));
+}
+
+// verifies: JOIN-082, API-230
+#[xmtp_common::test(unwrap_try = true)]
+async fn key_package_admission_rejects_a_last_resort_mark_with_data() {
+    // The empty mark, alone or next to another component with data, is
+    // admitted.
+    for components in [
+        vec![(LAST_RESORT_COMPONENT, vec![])],
+        vec![(0x8001, vec![1, 2, 3]), (LAST_RESORT_COMPONENT, vec![])],
+    ] {
+        let parsed = parse_envelope(app_data_key_package_envelope(&components).envelope)?;
+        assert!(
+            validate_envelope(
+                &parsed,
+                &[],
+                MockSmartContractSignatureVerifier::new(false),
+                &TestChain::at(1),
+            )
+            .await?
+            .is_none()
+        );
+    }
+
+    let parsed = parse_envelope(
+        app_data_key_package_envelope(&[(LAST_RESORT_COMPONENT, vec![1])]).envelope,
+    )?;
+    let error = validate_envelope(
+        &parsed,
+        &[],
+        MockSmartContractSignatureVerifier::new(false),
+        &TestChain::at(1),
+    )
+    .await
+    .err()
+    .expect("a last-resort mark with data must fail admission");
+    assert!(matches!(
+        &error,
+        ValidationError::KeyPackage(
+            xmtp_id::key_package::KeyPackageVerificationError::MlsValidation(
+                openmls::prelude::KeyPackageVerifyError::MalformedLastResortComponent
+            )
+        )
+    ));
+    assert_eq!(error.reason(), Reason::InvalidKeyPackage);
 }
 
 #[xmtp_common::test(unwrap_try = true)]

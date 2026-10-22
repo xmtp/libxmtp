@@ -1,4 +1,4 @@
-name: Deploy xmtp.chat
+name: "Deploy: xmtp.chat"
 
 # Build the generated SDK package before Vercel builds the app. The SDK stage
 # contains the worker, WASM modules, and pinned runtimes from this source tree.
@@ -29,13 +29,15 @@ env:
 
 jobs:
   deploy:
-    runs-on: blacksmith-16vcpu-ubuntu-2404
+    name: Build and deploy (Vercel)
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     environment:
       name: web-chat
       url: ${{ steps.deploy.outputs.url }}
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Check out the commit
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - name: Check for a newer commit
         id: current
         env:
@@ -47,21 +49,24 @@ jobs:
           else
             echo "Skip superseded commit $GITHUB_SHA"
           fi
-      - uses: ./.github/actions/setup-nix
+      - name: Set up Nix
         if: steps.current.outputs.deploy == 'true'
+        uses: ./.github/actions/setup-nix
         with:
+          cache-mode: read
           github-token: ${{ github.token }}
-      - uses: taiki-e/install-action@0c0305935e3ef3b9e6205d176ec55ee4fce34cca # just
+      - name: Set up JavaScript
         if: steps.current.outputs.deploy == 'true'
-      - uses: ./.github/actions/setup-js
-        if: steps.current.outputs.deploy == 'true'
+        uses: ./.github/actions/setup-js
+        with:
+          cache-mode: read
       # Stage the complete generated browser package before the app build.
-      - name: Build the linked SDK
+      - name: just web-chat build
         if: steps.current.outputs.deploy == 'true'
         env:
           XMTP_BACKEND_URL: ""
           VITE_PROJECT_ID: ${{ secrets.WALLETCONNECT_PROJECT_ID }}
-        run: just web-chat build
+        run: dev/nix-shell 'just web-chat build'
       # Runs before the Vercel step, so a debug build never replaces the live one.
       - name: Require release-profile WASM
         if: steps.current.outputs.deploy == 'true'

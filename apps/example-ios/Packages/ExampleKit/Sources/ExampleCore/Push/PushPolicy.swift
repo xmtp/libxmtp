@@ -10,17 +10,9 @@ public struct PushEnvelope: Equatable, Sendable {
 		topic + ":" + String(sequence)
 	}
 
-	public init?(topic: String, sequence: String) {
-		guard !sequence.isEmpty, sequence.utf8.allSatisfy({ (48 ... 57).contains($0) }), let number = UInt64(sequence),
-		      let bytes = Data(base64Encoded: topic), bytes.base64EncodedString() == topic else { return nil }
-		if bytes.count == 17, bytes.first == 0 {
-			kind = .group
-		} else if bytes.count == 33, bytes.first == 1 {
-			kind = .welcome
-		} else {
-			return nil
-		}
-		self.topic = topic; self.sequence = number; identifier = Self.hex(bytes.dropFirst())
+	/// ExampleSDK builds envelopes from push payloads with the SDK parser.
+	public init(topic: String, sequence: UInt64, kind: Kind, identifier: String) {
+		self.topic = topic; self.sequence = sequence; self.kind = kind; self.identifier = identifier
 	}
 
 	public static func hex(_ bytes: some Sequence<UInt8>) -> String {

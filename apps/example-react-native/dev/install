@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# Install JS dependencies from the lockfile and, on macOS, the CocoaPods.
+#   dev/install           JS dependencies and pods
+#   dev/install --js-only JS dependencies only
+set -euo pipefail
+app="$(cd "$(dirname "$0")/.." && pwd)"
+js_only=false
+for argument in "$@"; do
+  case "$argument" in
+    --js-only) js_only=true ;;
+    *)
+      echo "Usage: $0 [--js-only]" >&2
+      exit 2
+      ;;
+  esac
+done
+if [[ ! -f "$app/.build/sdk/package/package.json" ]]; then
+  echo 'No SDK is linked. Run dev/sdk native (or dev/sdk js) first.' >&2
+  exit 1
+fi
+cd "$app"
+# pnpm never refreshes a `file:` directory dependency, even with --force.
+rm -rf node_modules/@xmtp/react-native-sdk
+pnpm install --frozen-lockfile
+if [[ "$js_only" == false && "$(uname -s)" == Darwin ]]; then
+  if [[ ! -d .build/sdk/package/ios/XmtpSdkFFI.xcframework ]]; then
+    echo 'The linked SDK has no iOS binaries. Run dev/sdk native first.' >&2
+    exit 1
+  fi
+  (cd ios && pod install)
+fi

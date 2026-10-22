@@ -83,10 +83,9 @@ async fn verified_identity_projects_normalized_positional_lookups_and_duplicate_
     let stored = server.publish(vec![update.clone()]).await?;
     assert_eq!(server.publish(vec![update]).await?, stored);
     let mut backend = server.backend.clone();
-    std::sync::Arc::make_mut(&mut backend.config)
-        .limits
-        .max_identity_entries = 1;
-    backend.config.validate()?;
+    let mut config = (*backend.config).clone().into_config();
+    config.limits.max_identity_entries = 1;
+    backend.config = std::sync::Arc::new(config.validate()?);
     let topic = stored[0].topic.clone().unwrap();
     let history = backend.store.history(&topic.topic).await?;
     assert_eq!(history.payloads.len(), 2);
@@ -548,31 +547,6 @@ async fn identity_rows(server: &TestServer) -> support::TestResult<IdentityRows>
     ))
 }
 
-/// Publishes `ClientEnvelope`s exactly as encoded, so a test can put a field
-/// the generated types no longer have on the wire. A repeated message field and
-/// a repeated bytes field share one wire form.
-async fn publish_encoded(
-    server: &TestServer,
-    envelopes: Vec<Vec<u8>>,
-) -> Result<api::PublishResponse, tonic::Status> {
-    #[derive(Clone, PartialEq, Message)]
-    struct EncodedPublishRequest {
-        #[prost(bytes = "vec", repeated, tag = "1")]
-        envelopes: Vec<Vec<u8>>,
-    }
-    let mut grpc = tonic::client::Grpc::new(server.channel.clone());
-    grpc.ready()
-        .await
-        .map_err(|error| tonic::Status::unavailable(error.to_string()))?;
-    grpc.unary(
-        tonic::Request::new(EncodedPublishRequest { envelopes }),
-        http::uri::PathAndQuery::from_static("/xmtp.backend.v1.PublishService/Publish"),
-        tonic_prost::ProstCodec::default(),
-    )
-    .await
-    .map(tonic::Response::into_inner)
-}
-
 /// The reason a publish was refused as an invalid argument.
 fn rejection(error: &tonic::Status) -> support::TestResult<Reason> {
     assert_eq!(error.code(), Code::InvalidArgument, "{error:?}");
@@ -704,7 +678,8 @@ async fn identity_invalid_mutations_are_rejected_on_admission() {
             Reason::MalformedPayload,
         ),
     ] {
-        let error = publish_encoded(&server, vec![encoded_identity_envelope(&envelope)])
+        let error = server
+            .publish_encoded(vec![encoded_identity_envelope(&envelope)])
             .await
             .expect_err(case);
         assert_eq!(rejection(&error)?, reason, "{case}: {error:?}");

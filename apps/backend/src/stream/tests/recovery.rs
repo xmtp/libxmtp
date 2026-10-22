@@ -1,7 +1,7 @@
 use crate::{
     api,
     test_support::{
-        self, RunningServer, TestServer,
+        self, TestServer,
         native::{Native, envelope},
     },
 };
@@ -26,7 +26,7 @@ async fn reconnect_to_independent_instance_replays_received_but_unprocessed_rows
     drop(original);
     first.shutdown();
     first.wait_stopped().await?;
-    let mut second = RunningServer::new((*first.backend.config).clone()).await?;
+    let mut second = first.restart_with(|_| {}).await?;
     let mut native = Native::open(&second).await?;
     native
         .update(1, vec![test_support::query_topic(topic.clone(), 2)], vec![])

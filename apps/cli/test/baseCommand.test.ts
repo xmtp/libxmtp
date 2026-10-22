@@ -1,6 +1,5 @@
-import { access, readFile, writeFile } from "node:fs/promises";
-
-import { Config, Errors } from "@oclif/core";
+import { Config } from "@oclif/core";
+import { XmtpError } from "@xmtp/node-sdk";
 import { describe, expect, it } from "vitest";
 
 import { formatStorageErrorMessage, terminalSafeText } from "@/baseCommand";
@@ -69,22 +68,56 @@ describe("network configuration", () => {
 });
 
 describe("storage errors", () => {
-  it.each([
-    "StorageError::PreTransitionDatabase",
-    "StorageError::OldStreamDatabase",
-  ])("includes the preserved database path for %s", async (code) => {
-    const { dbPath } = createTestIdentity();
-    const contents = "database fixture";
-    await writeFile(dbPath, contents);
-    const sdkMessage = `[${code}] This database format is not supported`;
-    const message = formatStorageErrorMessage(new Error(sdkMessage), dbPath);
-    const cliError = new Errors.CLIError(message);
+  const storageError = (code: string, message: string) =>
+    new XmtpError.Storage({
+      code,
+      category: "storage",
+      retryable: false,
+      message,
+    });
 
-    expect(message).toContain(sdkMessage);
-    expect(message).toContain(`Database path: ${dbPath}`);
-    expect(cliError.oclif.exit ?? 1).not.toBe(0);
-    await expect(access(dbPath)).resolves.toBeUndefined();
-    await expect(readFile(dbPath, "utf-8")).resolves.toBe(contents);
+  it.each([
+    [
+      "StorageError::PreTransitionDatabase",
+      "This database predates the backend transition. Delete the database file and create a new client.",
+    ],
+    [
+      "StorageError::OldStreamDatabase",
+      "This database uses an older self-hosted format. Keep a backup and create a new client database.",
+    ],
+    [
+      "StorageError::OldEncodingDatabase",
+      "This database uses an older storage encoding. Keep a backup and create a new client database.",
+    ],
+    [
+      "StorageError::LegacyGroupDatabase",
+      "This database holds groups from before keyed group ids. Keep a backup and create a new client database.",
+    ],
+  ])("prints the database path for %s", (code, sdkMessage) => {
+    const { dbPath } = createTestIdentity();
+    const message = formatStorageErrorMessage(
+      storageError(code, sdkMessage),
+      dbPath,
+    );
+
+    expect(message).toBe(`${sdkMessage}\nDatabase path: ${dbPath}`);
+  });
+
+  it("prints no path for another storage error or a message that names a code", () => {
+    const { dbPath } = createTestIdentity();
+    for (const error of [
+      storageError("Storage", "database is locked"),
+      // The hint follows the code, not the message.
+      storageError(
+        "Storage",
+        "This database uses an older storage encoding. Keep a backup and create a new client database.",
+      ),
+      new Error("[StorageError::OldEncodingDatabase] not an SDK error"),
+    ]) {
+      expect(formatStorageErrorMessage(error, dbPath)).not.toContain(
+        "Database path:",
+      );
+    }
   });
 });
 

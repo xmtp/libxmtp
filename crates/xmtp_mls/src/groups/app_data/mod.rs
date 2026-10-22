@@ -10,11 +10,6 @@
 //! `membership_upkeep` adds the registry reconciliation and removed-member
 //! cleanup that ride along with every commit this client builds.
 
-#[allow(
-    dead_code,
-    reason = "Retained for removal with migration code in Task 5"
-)]
-pub(crate) mod bootstrap_validator;
 pub(crate) mod membership_upkeep;
 pub mod migration;
 pub(crate) mod sender_intents;
@@ -39,6 +34,7 @@ use openmls::{
 use xmtp_mls_common::app_data::{component_id::ComponentId, component_registry::ComponentRegistry};
 
 use xmtp_configuration::ApplicationComponentDefinition;
+use xmtp_cryptography::secret::{Zeroize, Zeroizing};
 use xmtp_mls_common::app_data::component_source::{
     ComponentSourceError, apply_app_data_update_payload, read_from_app_data_dict,
 };
@@ -135,10 +131,13 @@ where
 /// first's effect as its old value. Every payload decodes against the
 /// pre-commit registry, as on the receive side, so a registry change in
 /// the same commit does not change how its other updates are read.
+///
+/// A state can be the commit-log signer's private key, so each is wiped on
+/// drop until [`Self::updates`] hands it to OpenMLS.
 pub(crate) struct AppDataBatch<'a> {
     group: &'a OpenMlsGroup,
     registry: ComponentRegistry,
-    states: BTreeMap<openmls::component::ComponentId, Option<Vec<u8>>>,
+    states: BTreeMap<openmls::component::ComponentId, Option<Zeroizing<Vec<u8>>>>,
 }
 
 impl<'a> AppDataBatch<'a> {
@@ -170,12 +169,11 @@ impl<'a> AppDataBatch<'a> {
         let value = match operation {
             AppDataUpdateOperation::Update(payload) => {
                 let xmtp_id = ComponentId::from(id);
-                let old = self.state(xmtp_id);
                 Some(
                     apply_app_data_update_payload(
                         xmtp_id,
                         payload.as_slice(),
-                        old.as_deref(),
+                        self.state(xmtp_id),
                         &self.registry,
                     )
                     .inspect_err(|e| {
@@ -193,14 +191,15 @@ impl<'a> AppDataBatch<'a> {
             // commit-processing paths run before applying.
             AppDataUpdateOperation::Remove => None,
         };
+        // The replaced state is wiped on drop.
         self.states.insert(id, value);
         Ok(())
     }
 
     /// The component's value after the proposals applied so far.
-    pub(crate) fn state(&self, id: ComponentId) -> Option<Vec<u8>> {
+    pub(crate) fn state(&self, id: ComponentId) -> Option<&[u8]> {
         match self.states.get(&id.as_u16()) {
-            Some(value) => value.clone(),
+            Some(value) => value.as_deref().map(Vec::as_slice),
             None => read_from_app_data_dict(id, self.group),
         }
     }
@@ -214,7 +213,11 @@ impl<'a> AppDataBatch<'a> {
         let mut updater = self.group.app_data_dictionary_updater();
         for (id, value) in self.states {
             match value {
-                Some(bytes) => updater.set(ComponentData::from_parts(id, bytes.into())),
+                // The bytes move to OpenMLS without a copy.
+                Some(mut bytes) => updater.set(ComponentData::from_parts(
+                    id,
+                    std::mem::take(&mut *bytes).into(),
+                )),
                 None => updater.remove(&id),
             }
         }
@@ -387,11 +390,11 @@ pub(crate) fn stage_app_data_proposals_and_commit<Provider: OpenMlsProvider>(
     // Step 3: build a commit that consumes the proposal store. The
     // just-queued proposals are encoded as `ProposalRef`s; only the upkeep
     // is inline.
-    let mut stage = mls_group
-        .commit_builder()
-        .consume_proposal_store(true)
-        .add_proposals(upkeep)
-        .load_psks(provider.storage())?;
+    let mut stage = crate::groups::mls_ext::commit_without_group_info(
+        mls_group,
+        provider.storage(),
+        |builder| builder.consume_proposal_store(true).add_proposals(upkeep),
+    )?;
     stage.with_app_data_dictionary_updates(app_data_updates);
 
     let bundle = stage
@@ -476,19 +479,52 @@ pub(crate) fn pending_app_data_updates(
 /// the pending proposals' updates applied.
 pub(crate) fn pending_dictionary(
     mls_group: &OpenMlsGroup,
-) -> Result<AppDataDictionary, ComponentSourceError> {
-    let mut dictionary = mls_group
-        .extensions()
-        .app_data_dictionary()
-        .map(|extension| extension.dictionary().clone())
-        .unwrap_or_default();
+) -> Result<PendingDictionary, ComponentSourceError> {
+    let mut dictionary = PendingDictionary(
+        mls_group
+            .extensions()
+            .app_data_dictionary()
+            .map(|extension| extension.dictionary().clone())
+            .unwrap_or_default(),
+    );
     for (id, value) in pending_app_data_updates(mls_group)?.into_iter().flatten() {
-        match value {
-            Some(value) => dictionary.insert(id, value),
-            None => dictionary.remove(&id),
+        let replaced = match value {
+            Some(value) => dictionary.0.insert(id, value),
+            None => dictionary.0.remove(&id),
         };
+        wipe_component_value(replaced);
     }
     Ok(dictionary)
+}
+
+/// A copy of a group's AppData dictionary. Its `GROUP_ROOT_KEY` entry is the
+/// group root, and in groups older clients created its `COMMIT_LOG_SIGNER`
+/// entry is a private signing key, so every entry is wiped on drop.
+pub(crate) struct PendingDictionary(AppDataDictionary);
+
+impl std::ops::Deref for PendingDictionary {
+    type Target = AppDataDictionary;
+
+    fn deref(&self) -> &AppDataDictionary {
+        &self.0
+    }
+}
+
+impl Drop for PendingDictionary {
+    fn drop(&mut self) {
+        let ids: Vec<_> = self.0.entries().map(|entry| entry.id()).collect();
+        for id in ids {
+            wipe_component_value(self.0.remove(&id));
+        }
+    }
+}
+
+/// Wipe a component value taken out of an OpenMLS dictionary. The value
+/// converts into its own buffer without a copy.
+fn wipe_component_value(value: Option<impl Into<Vec<u8>>>) {
+    if let Some(value) = value {
+        value.into().zeroize();
+    }
 }
 
 /// Read the committed component registry from the dictionary.

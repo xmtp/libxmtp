@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Check the dry-run parser of the post-merge closure check.
+"""Check the dry-run parser of the post-merge closure check (dev/ci/warm-closure).
 
-The step accepts only the `nix build --dry-run` lines it knows, so a change
+The script accepts only the `nix build --dry-run` lines it knows, so a change
 of that text in a new Nix fails every post-merge run. These cases hold the
 text of the Nix versions that CI pins.
 """
@@ -12,18 +12,10 @@ import subprocess
 import tempfile
 import unittest
 
-import yaml
-
 ROOT = Path(__file__).resolve().parents[2]
-STEP = next(
-    step
-    for step in yaml.safe_load((ROOT / ".github/workflows/post-merge.yml").read_text())[
-        "jobs"
-    ]["closure"]["steps"]
-    if step.get("name", "").startswith("Dry-run the set members")
-)
-# The parser part of the step: it reads $RUNNER_TEMP/dry-run.txt.
-PARSER = STEP["run"][STEP["run"].index("header=") :]
+SCRIPT = (ROOT / "dev/ci/warm-closure").read_text()
+# The parser part of the script: it reads $RUNNER_TEMP/dry-run.txt.
+PARSER = SCRIPT[SCRIPT.index("header=") :]
 PATH_A = "  /nix/store/l8si8gnvvq93yzms1jsgh5aixyf9rl5x-glibc-2.42-67"
 PATH_B = "  /nix/store/c2h2f4cw9p8i8zcfy52fd1dd6g0yhnki-hello-2.12.3"
 

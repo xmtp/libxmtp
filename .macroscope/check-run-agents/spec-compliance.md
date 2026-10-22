@@ -118,3 +118,12 @@ When a completed review finds no blocker, report success and say
 "No blocking violation found within the inspected scope." Advisory notes do not
 change that verdict. If the review could not inspect relevant changes, state the
 limitation rather than claiming a complete review.
+
+### Shared review guidance
+
+The repository's shared review guidance follows. Use it to weigh findings
+inside this check's scope. It does not widen that scope or add reasons to
+fail this check. Where it differs from the instructions above, the
+instructions above apply.
+
+@/REVIEW.md

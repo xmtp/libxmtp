@@ -24,7 +24,7 @@ async fn notification_http_signing_key_boundaries_before_persistence() {
         let (client, peer) = support::client().await;
         let config = NotificationConfig::new(NotificationChannel::Http {
             url: "https://example.test".into(),
-            signing_key: vec![7; size],
+            signing_key: vec![7; size].into(),
         });
         let result = client.enable_notifications(config).await;
         let record = client.db().notification_record()?;
@@ -134,7 +134,7 @@ async fn notification_apns_and_fcm_preserve_registration_rules_and_state() {
         );
         tester!(restored, snapshot: snapshot, disable_workers);
         let persisted = restored.db().notification_record()?;
-        assert_eq!(persisted.push_config, Some(encode(&config)?));
+        assert_eq!(persisted.push_config, Some(encode_config(&config)?));
         assert_eq!(persisted.push_recipient_id, record.push_recipient_id);
         assert_eq!(
             persisted.push_recipient_secret,
@@ -373,7 +373,7 @@ async fn notification_empty_tokens_and_url_reach_backend_failure() {
         },
         NotificationChannel::Http {
             url: String::new(),
-            signing_key: vec![7; 16],
+            signing_key: vec![7; 16].into(),
         },
     ] {
         let (client, peer) = support::client().await;
@@ -405,7 +405,7 @@ async fn notification_backend_invalid_argument_fails_after_registration() {
         client
             .enable_notifications(NotificationConfig::new(NotificationChannel::Http {
                 url: "http://example.test".into(),
-                signing_key: vec![7; 16],
+                signing_key: vec![7; 16].into(),
             }))
             .await,
         Err(NotificationError::InvalidArgument)
@@ -420,4 +420,44 @@ async fn notification_backend_invalid_argument_fails_after_registration() {
         client.notification_state()?,
         NotificationState::Failed(NotificationError::InvalidArgument)
     ));
+}
+
+/// The stored configuration is the JSON a plain `Vec<u8>` signing key
+/// produced, recorded from the code before the key became a `Secret`.
+#[xmtp_common::test(unwrap_try = true)]
+async fn notification_config_column_keeps_its_json() {
+    use xmtp_db::{ConnectionExt, diesel::prelude::*, schema::user_preferences::dsl};
+    const STORED: &str = concat!(
+        r#"{"channel":{"Http":{"url":"https://push.example.test/hook","signing_key":"#,
+        "[192,193,194,195,196,197,198,199,200,201,202,203,204,205,206,207,",
+        "208,209,210,211,212,213,214,215,216,217,218,219,220,221,222,223]}},",
+        r#""consent_states":["Allowed","Unknown"],"include_welcomes":true,"#,
+        r#""include_sync_groups":false,"include_commits":true}"#
+    );
+    let signing_key: Vec<u8> = (0xc0..0xe0).collect();
+    let mut config = NotificationConfig::new(NotificationChannel::Http {
+        url: "https://push.example.test/hook".into(),
+        signing_key: signing_key.clone().into(),
+    });
+    config.consent_states = vec![ConsentState::Allowed, ConsentState::Unknown];
+    config.include_commits = true;
+    assert_eq!(encode(&config)?, STORED.as_bytes());
+
+    let (client, _peer) = support::client().await;
+    assert!(matches!(
+        client.enable_notifications(config).await?,
+        NotificationState::Enabled
+    ));
+    let raw: Option<Vec<u8>> = client
+        .db()
+        .raw_query(|conn| dsl::user_preferences.select(dsl::push_config).first(conn))?;
+    assert_eq!(raw.as_deref(), Some(STORED.as_bytes()));
+    let stored = stored_config(&client.db().notification_record()?)?;
+    let NotificationChannel::Http {
+        signing_key: key, ..
+    } = stored.channel
+    else {
+        panic!("the stored channel is HTTP");
+    };
+    assert_eq!(key.as_slice(), signing_key.as_slice());
 }

@@ -340,6 +340,8 @@ internal class AppGraph(
         chat.foreground(value && destinations.state.value.route is AppRoute.Chat)
     }
 
+    fun visible(value: Boolean) = session.visible(value)
+
     fun back(): Boolean {
         if (attachments.dismissChoiceSheet()) return true
         if (chat.dismissTopSurface()) return true

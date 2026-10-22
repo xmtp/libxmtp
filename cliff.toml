@@ -1,8 +1,7 @@
 # git-cliff configuration — generates CHANGELOG.md from conventional commits.
 # It NEVER edits Cargo.toml / package.json; the workspace version is the
 # runtime MLS protocol identity and is owned solely by xmtp-release.
-# `git cliff --bumped-version` / `--context` serve as a read-only version
-# oracle for the nightly flow (see PR 1c).
+# Use it locally; no CI or release workflow runs it.
 
 [changelog]
 header = """

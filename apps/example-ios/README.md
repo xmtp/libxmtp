@@ -18,7 +18,7 @@ Captured from the running iPhone simulator with local test accounts.
 - `Packages/ExampleKit/Sources/ExampleCore` owns values, policies and feature stores. It has no UI or SDK imports.
 - `Packages/ExampleKit/Sources/ExampleSDK` maps the local SDK to Core protocols. Only this layer and the UI-test runner import `XmtpSdk`.
 - Stores expose `state` and `send`. Session generations and destination tokens reject late results. Session tasks are cancelled and awaited before the SDK client ends.
-- Host tests cover safety policies and SDK mappings. Five simulator journeys use a real backend. Previews and manual checks cover visual and platform behavior.
+- Host tests cover safety policies and SDK mappings. Two simulator journeys use a real backend. Previews and manual checks cover visual and platform behavior.
 
 ## Connect
 
@@ -105,7 +105,7 @@ Set `XMTP_IOS_SIMULATOR` to an installed name or UDID. Otherwise the launcher se
 
 ## Manual checks
 
-Run these after the five simulator journeys and after related changes. Record actual results, device/runtime and evidence in the change description. Missing devices, credentials or fixtures are **not run**, not passes. P identifiers name implementation requirements.
+Run these after the two simulator journeys and after related changes. Record actual results, device/runtime and evidence in the change description. Missing devices, credentials or fixtures are **not run**, not passes. P identifiers name implementation requirements.
 
 | Check | Expected result | Requirements |
 | --- | --- | --- |

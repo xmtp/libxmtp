@@ -219,6 +219,11 @@ pub async fn key_package_statuses_with_backend(
         .collect())
 }
 
+/// The newest message metadata of each conversation, read from the backend.
+///
+/// A 32-character id names a legacy conversation from an imported archive.
+/// It has no backend topic, and a read that names its topic fails as a
+/// whole, so such an id is refused with `InvalidArgument` before any request.
 #[xmtp_macro::sdk_export(client_static)]
 pub async fn newest_message_metadata_with_backend(
     backend: BackendSource,
@@ -226,7 +231,15 @@ pub async fn newest_message_metadata_with_backend(
 ) -> Result<HashMap<String, MessageMetadataEntry>, XmtpError> {
     let groups = ids
         .into_iter()
-        .map(GroupId::try_from)
+        .map(|id| {
+            let group = GroupId::try_from(id)?;
+            if group.is_legacy() {
+                return Err(XmtpError::invalid_argument(
+                    "a 32-character conversation ID names a legacy conversation, which the backend does not serve",
+                ));
+            }
+            Ok(group)
+        })
         .collect::<Result<Vec<_>, _>>()?;
     let backend = backend.resolve().await?;
     let found = api(&backend)

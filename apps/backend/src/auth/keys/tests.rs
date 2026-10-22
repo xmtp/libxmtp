@@ -100,3 +100,111 @@ fn key_count_tracks_loaded_and_replaced_snapshots() {
         assert!(handle.render().contains("xmtp_auth_keys 2"));
     });
 }
+
+/// Each configured algorithm maps to the `jsonwebtoken` algorithm of the same
+/// name and back, for every name the schema allows.
+#[xmtp_common::test(unwrap_try = true)]
+fn configured_algorithms_map_to_the_jwt_algorithms_of_the_same_name() {
+    use std::str::FromStr;
+    let schema = serde_json::to_value(crate::config::Config::schema())?;
+    let names = schema["$defs"]["AuthKeyConfig"]["properties"]["alg"]["enum"].as_array()?;
+    assert_eq!(names.len(), 6);
+    for name in names {
+        let name = name.as_str()?;
+        let configured = SigningAlgorithm::from_name(name)?;
+        assert_eq!(jwt_algorithm(configured), Algorithm::from_str(name)?);
+        assert_eq!(algorithm(name), Some(Algorithm::from_str(name)?));
+        assert_eq!(
+            signing_algorithm(jwt_algorithm(configured)),
+            Some(configured)
+        );
+    }
+    for name in ["none", "HS256", "PS256"] {
+        assert!(algorithm(name).is_none(), "{name}");
+    }
+    assert_eq!(signing_algorithm(Algorithm::HS256), None);
+}
+
+/// Each inline key parses as SubjectPublicKeyInfo for its exact algorithm. A
+/// key of another family, or text that is not a key, is refused by its entry
+/// without its id or value.
+#[xmtp_common::test(unwrap_try = true)]
+fn inline_keys_are_parsed_as_spki_for_the_exact_algorithm() {
+    for key in [
+        TestKey::es256(),
+        TestKey::es384(),
+        TestKey::eddsa(),
+        TestKey::rsa(),
+    ] {
+        inline(&key.auth_config())?;
+    }
+    let key = TestKey::es256();
+    for alg in ["ES384", "EdDSA", "RS256"] {
+        let mut config = key.auth_config();
+        config.keys.as_mut()?[0].alg = alg.into();
+        let error = inline(&config).err()?;
+        assert_eq!(error.field(), Some("auth.keys[0].public_key"), "{error}");
+        let error = error.to_string();
+        assert!(
+            error.contains("public_key must be SubjectPublicKeyInfo for alg"),
+            "{error}"
+        );
+        assert!(!error.contains(&key.kid));
+        assert!(!error.contains(&key.public_key));
+    }
+    let mut config = key.auth_config();
+    config.keys.as_mut()?[0].public_key = "private-key-sentinel".into();
+    let error = inline(&config).err()?;
+    assert_eq!(error.field(), Some("auth.keys[0].public_key"), "{error}");
+    for message in [error.to_string(), format!("{error:?}")] {
+        assert!(!message.contains(&key.kid));
+        assert!(!message.contains("private-key-sentinel"));
+    }
+}
+
+/// Of three inline keys, the second is an RSA key under ES256. Startup refuses
+/// that entry's `public_key` while it builds authentication, before storage.
+// verifies: AUTH-017
+#[xmtp_common::test(unwrap_try = true)]
+async fn startup_refuses_the_first_inline_key_that_does_not_parse() {
+    let rsa = TestKey::rsa();
+    let mut mismatched = rsa.config();
+    mismatched.alg = "ES256".into();
+    let auth = AuthConfig {
+        enabled: Some(true),
+        keys: Some(vec![
+            TestKey::es256().config(),
+            mismatched,
+            TestKey::eddsa().config(),
+        ]),
+        ..AuthConfig::default()
+    };
+    let error = inline(&auth).err()?;
+    assert!(
+        matches!(&error, ConfigError::Auth { reason, .. }
+            if *reason == "public_key must be SubjectPublicKeyInfo for alg"),
+        "{error}"
+    );
+    assert_eq!(error.field(), Some("auth.keys[1].public_key"), "{error}");
+    for message in [error.to_string(), format!("{error:?}")] {
+        assert!(!message.contains(&rsa.kid), "{message}");
+        assert!(!message.contains(&rsa.public_key), "{message}");
+    }
+    // Nothing listens on the database port. A refusal before storage returns
+    // at once; one after it would wait on the connection.
+    let closed = std::net::TcpListener::bind("127.0.0.1:0")?.local_addr()?;
+    let mut config: crate::config::Config = toml::from_str(&format!(
+        "[database]\nurl = 'postgres://xmtp:xmtp@{closed}/xmtp'\n[server]\nidentifier = 'org.xmtp.test'"
+    ))?;
+    config.auth = Some(auth);
+    let error = xmtp_common::time::timeout(
+        std::time::Duration::from_secs(10),
+        crate::server::initialize(config.validate()?),
+    )
+    .await
+    .expect("initialize refuses before storage")
+    .err()?;
+    let error = error.downcast_ref::<ConfigError>()?;
+    assert!(matches!(error, ConfigError::Auth { .. }), "{error}");
+    assert_eq!(error.field(), Some("auth.keys[1].public_key"), "{error}");
+}

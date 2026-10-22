@@ -55,7 +55,7 @@ use xmtp_db::{
     diesel::{self, Connection, RunQueryDsl, SqliteConnection, sql_query},
     key_package_history::StoredKeyPackageHistoryEntry,
     prelude::{QueryIdentity, QueryIdentityUpdates, QueryKeyPackageHistory},
-    sql_key_store::{KEY_PACKAGE_REFERENCES, KEY_PACKAGE_WRAPPER_PRIVATE_KEY},
+    sql_key_store::KEY_PACKAGE_REFERENCES,
 };
 use xmtp_db::{
     EncryptedMessageStore, MlsProviderExt, StorageOption, XmtpOpenMlsProvider,
@@ -694,6 +694,13 @@ where
     pub fn triggers(mut self) -> Self {
         self.triggers = true;
         self
+    }
+
+    pub fn fork_recovery_opts(self, opts: ForkRecoveryOpts) -> Self {
+        Self {
+            fork_recovery_opts: Some(opts),
+            ..self
+        }
     }
 
     pub fn enable_fork_recovery_requests(self) -> Self {

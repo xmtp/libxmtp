@@ -246,10 +246,6 @@ fn group_errors_keep_storage_retry_policy_on_reads_only() {
     let cases = || {
         [
             (
-                GroupError::Storage(StorageError::PreTransitionDatabase),
-                Some(false),
-            ),
-            (
                 GroupError::Storage(StorageError::Connection(
                     ConnectionError::DisconnectInTransaction,
                 )),

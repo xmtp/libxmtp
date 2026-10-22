@@ -188,10 +188,10 @@ fn stage_unchecked<P: OpenMlsProvider>(
         }
         updater.changes()
     });
-    let mut stage = group
-        .commit_builder()
-        .consume_proposal_store(true)
-        .load_psks(provider.storage())?;
+    let mut stage =
+        crate::groups::mls_ext::commit_without_group_info(group, provider.storage(), |builder| {
+            builder.consume_proposal_store(true)
+        })?;
     stage.with_app_data_dictionary_updates(dictionary);
     let bundle = stage
         .build(provider.rand(), provider.crypto(), signer, |_| true)?

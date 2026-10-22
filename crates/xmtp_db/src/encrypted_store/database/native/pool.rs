@@ -270,8 +270,7 @@ mod tests {
     #[rstest]
     #[case(encrypted_connection())]
     #[case(unencrypted_connection())]
-    #[ignore]
-    #[test]
+    #[xmtp_common::test(unwrap_try = true)]
     pub fn sets_busy_timeout(#[case] customizer: Box<dyn XmtpConnection>) {
         use crate::DbConnection;
         use xmtp_configuration::BUSY_TIMEOUT;
@@ -287,8 +286,7 @@ mod tests {
     #[rstest]
     #[case(encrypted_connection())]
     #[case(unencrypted_connection())]
-    #[ignore]
-    #[test]
+    #[xmtp_common::test(unwrap_try = true)]
     pub fn sets_journal_mode(#[case] customizer: Box<dyn XmtpConnection>) {
         let pool = DbPool::builder()
             .customizer(customizer.clone())
@@ -304,8 +302,7 @@ mod tests {
     #[rstest]
     #[case(encrypted_connection())]
     #[case(unencrypted_connection())]
-    #[ignore]
-    #[test]
+    #[xmtp_common::test(unwrap_try = true)]
     pub fn sets_synchronous(#[case] customizer: Box<dyn XmtpConnection>) {
         let pool = DbPool::builder()
             .customizer(customizer.clone())
@@ -322,8 +319,7 @@ mod tests {
     #[rstest]
     #[case(encrypted_connection())]
     #[case(unencrypted_connection())]
-    #[ignore]
-    #[test]
+    #[xmtp_common::test(unwrap_try = true)]
     pub fn sets_autocheckpoint(#[case] customizer: Box<dyn XmtpConnection>) {
         let pool = DbPool::builder()
             .customizer(customizer.clone())

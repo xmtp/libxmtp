@@ -1,16 +1,17 @@
-use openmls::ciphersuite::hpke::Error as OpenmlsHpkeError;
+use openmls::ciphersuite::HpkeError as OpenmlsHpkeError;
 use openmls::prelude::tls_codec::Error as TlsCodecError;
 use openmls_traits::crypto::OpenMlsCrypto;
 use openmls_traits::types::HpkeCiphertext;
 use thiserror::Error;
-use tls_codec::{Deserialize, Serialize};
+use tls_codec::{Deserialize, Serialize, VLBytes};
 use xmtp_common::RetryableError;
 use xmtp_id::key_package::WrapperAlgorithm;
 
-static LIBCRUX_CRYPTO_PROVIDER: std::sync::LazyLock<openmls_libcrux_crypto::CryptoProvider> =
-    std::sync::LazyLock::new(|| {
-        openmls_libcrux_crypto::CryptoProvider::new().expect("Failed to create CryptoProvider")
-    });
+pub(crate) static LIBCRUX_CRYPTO_PROVIDER: std::sync::LazyLock<
+    openmls_libcrux_crypto::CryptoProvider,
+> = std::sync::LazyLock::new(|| {
+    openmls_libcrux_crypto::CryptoProvider::new().expect("Failed to create CryptoProvider")
+});
 
 #[derive(Debug, Error)]
 pub enum WrapPayloadError {
@@ -44,6 +45,16 @@ impl RetryableError for UnwrapPayloadError {
     }
 }
 
+/// The HPKE `info` of RFC 9420 `EncryptWithLabel` (section 5.1.3): the TLS
+/// encoding of `EncryptContext { label: "MLS 1.0 " + label, context }`.
+/// Upstream OpenMLS keeps its `EncryptContext` private, so this builds the same bytes.
+fn hpke_info(label: &str, context: &[u8]) -> Result<Vec<u8>, TlsCodecError> {
+    let mut info =
+        VLBytes::from(format!("MLS 1.0 {label}").into_bytes()).tls_serialize_detached()?;
+    info.extend(VLBytes::from(context.to_vec()).tls_serialize_detached()?);
+    Ok(info)
+}
+
 /// Wrap a payload (plus optional secondary payload) in an outer layer of HPKE
 /// encryption using the specified [WrapperAlgorithm]. The algorithm and public
 /// key type MUST match.
@@ -65,8 +76,7 @@ pub fn wrap_payload_hpke(
     // but uses the context to encrypt multiple messages at once using the same context
     // because openmls only supports one shot messages.
 
-    let context = openmls::prelude::hpke::EncryptContext::from((label, [].as_slice()));
-    let info = context.tls_serialize_detached()?;
+    let info = hpke_info(label, &[])?;
     let aad = &[];
 
     let map_hpke_error = |e| match e {
@@ -112,15 +122,14 @@ pub fn unwrap_payload_hpke(
     // but uses the context to decrypt multiple messages at once using the same context
     // because openmls only supports one shot messages.
 
-    let context = openmls::prelude::hpke::EncryptContext::from((label, [].as_slice()));
-    let info = context.tls_serialize_detached()?;
+    let info = hpke_info(label, &[])?;
     let aad = &[];
 
     let config = wrapper_algorithm.to_hpke_config();
 
     let sk_r = hpke_rs::HpkePrivateKey::new(private_key.to_vec());
 
-    let map_hpke_error = |_| openmls::ciphersuite::hpke::Error::DecryptionFailed;
+    let map_hpke_error = |_| OpenmlsHpkeError::DecryptionFailed;
 
     let mut ctxt = config
         .setup_receiver(
@@ -177,7 +186,8 @@ pub fn unwrap_payload_symmetric(
 mod tests {
     use super::*;
     use openmls_traits::{crypto::OpenMlsCrypto, random::OpenMlsRand};
-    use xmtp_configuration::{CIPHERSUITE, POST_QUANTUM_CIPHERSUITE, WELCOME_HPKE_LABEL};
+    use xmtp_configuration::WELCOME_HPKE_LABEL;
+    use xmtp_cryptography::configuration::{CIPHERSUITE, POST_QUANTUM_CIPHERSUITE};
 
     // These public test keys and ciphertexts were made with libcrux-kem 0.0.9.
     // See payload_encryption/fixtures/legacy_xwing/README.md for their source.
@@ -205,6 +215,18 @@ mod tests {
 
         assert_eq!(payload, LEGACY_XWING_PAYLOAD);
         assert_eq!(secondary, LEGACY_XWING_SECONDARY_PAYLOAD);
+    }
+
+    /// The Welcome `info` bytes: `opaque label<V>` ("MLS 1.0 MLS_WELCOME") and
+    /// an empty `opaque context<V>`. A change here breaks every stored Welcome.
+    const WELCOME_HPKE_INFO: &str = "134d4c5320312e30204d4c535f57454c434f4d4500";
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn hpke_info_is_stable_for_welcomes() {
+        assert_eq!(
+            hex::encode(hpke_info(WELCOME_HPKE_LABEL, &[])?),
+            WELCOME_HPKE_INFO
+        );
     }
 
     #[xmtp_common::test(unwrap_try = true)]

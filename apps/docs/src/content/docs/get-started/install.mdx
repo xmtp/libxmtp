@@ -9,54 +9,51 @@ Install the SDK for your platform. All SDKs use a backend URL. See [Create a cli
 
 ## Install a package
 
-Use **8.0.0-rc2** for Browser, Node, Android, iOS, and Agent clients. Use
-`ghcr.io/xmtp/backend:8.0.0-rc2` for the backend. Pin the exact release candidate
+Use **8.0.0-rc4** for Browser, Node, React Native, Android, iOS, and Agent clients. Use
+`ghcr.io/xmtp/backend:8.0.0-rc4` for the backend. Pin the exact release candidate
 version. The published Browser 7 and Node 6 packages use an earlier backend API.
-
-React Native uses **8.0.0**. Keep the other SDK and backend pins above when
-adding a React Native client.
 
 ### Browser, Node, React Native, and Agent packages
 
 Use the package for your platform:
 
-| Platform     | Package                        |
-| ------------ | ------------------------------ |
-| Browser      | `@xmtp/browser-sdk@8.0.0-rc2`  |
-| Node         | `@xmtp/node-sdk@8.0.0-rc2`     |
-| React Native | `@xmtp/react-native-sdk@8.0.0` |
-| Agent        | `@xmtp/agent-sdk@8.0.0-rc2`    |
+| Platform     | Package                            |
+| ------------ | ---------------------------------- |
+| Browser      | `@xmtp/browser-sdk@8.0.0-rc4`      |
+| Node         | `@xmtp/node-sdk@8.0.0-rc4`         |
+| React Native | `@xmtp/react-native-sdk@8.0.0-rc4` |
+| Agent        | `@xmtp/agent-sdk@8.0.0-rc4`        |
 
 Run one command from your app directory. These commands install the Browser SDK.
 For Node, React Native, or Agent, replace the entire package specifier
-`@xmtp/browser-sdk@8.0.0-rc2` with its package and version from the table.
+`@xmtp/browser-sdk@8.0.0-rc4` with its package and version from the table.
 
 <Tabs syncKey="pkg">
 <TabItem label="npm">
 
 ```sh
-npm install --save-exact @xmtp/browser-sdk@8.0.0-rc2
+npm install --save-exact @xmtp/browser-sdk@8.0.0-rc4
 ```
 
 </TabItem>
 <TabItem label="pnpm">
 
 ```sh
-pnpm add --save-exact @xmtp/browser-sdk@8.0.0-rc2
+pnpm add --save-exact @xmtp/browser-sdk@8.0.0-rc4
 ```
 
 </TabItem>
 <TabItem label="yarn">
 
 ```sh
-yarn add --exact @xmtp/browser-sdk@8.0.0-rc2
+yarn add --exact @xmtp/browser-sdk@8.0.0-rc4
 ```
 
 </TabItem>
 <TabItem label="bun">
 
 ```sh
-bun add --exact @xmtp/browser-sdk@8.0.0-rc2
+bun add --exact @xmtp/browser-sdk@8.0.0-rc4
 ```
 
 </TabItem>
@@ -78,7 +75,7 @@ android {
     }
 }
 dependencies {
-    implementation("org.xmtp:android:8.0.0-rc2")
+    implementation("org.xmtp:android:8.0.0-rc4")
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
 }
 ```
@@ -89,12 +86,12 @@ the same release. An older network SDK cannot use this backend.
 ### Swift package
 
 Add [libxmtp](https://github.com/xmtp/libxmtp) as a Swift package in Xcode. Select
-the `ios-8.0.0-rc2` tag and add the `XmtpSdk` product to your app. For a Swift
+the `ios-8.0.0-rc4` tag and add the `XmtpSdk` product to your app. For a Swift
 package, add these dependency and target entries:
 
 ```swift
 // In Package.dependencies:
-.package(url: "https://github.com/xmtp/libxmtp.git", revision: "ios-8.0.0-rc2")
+.package(url: "https://github.com/xmtp/libxmtp.git", revision: "ios-8.0.0-rc4")
 
 // In your app target's dependencies:
 .product(name: "XmtpSdk", package: "libxmtp")

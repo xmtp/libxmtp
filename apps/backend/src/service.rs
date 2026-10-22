@@ -8,14 +8,14 @@ mod publish;
 mod query;
 mod subscription;
 
-use crate::{config::Config, db::Store};
+use crate::{config::ValidatedConfig, db::Store};
 use std::sync::Arc;
 use xmtp_id::scw_verifier::{CachedSmartContractSignatureVerifier, ChainBlocks};
 
 #[derive(Clone)]
 pub struct Backend {
     pub store: Arc<Store>,
-    pub config: Arc<Config>,
+    pub config: Arc<ValidatedConfig>,
     pub verifier: Arc<CachedSmartContractSignatureVerifier>,
     /// Chain heads for admission freshness, routed like `verifier`.
     pub chains: Arc<dyn ChainBlocks>,
@@ -26,22 +26,25 @@ pub struct Backend {
     /// The published deployment settings, built once from the validated
     /// configuration and returned unchanged for the life of the process.
     pub(crate) configuration: Arc<crate::api::GetConfigurationResponse>,
+    /// Counts publish-signature verification work for tests.
+    #[cfg(test)]
+    pub(crate) signature_checks: Arc<publish::SignatureChecks>,
 }
 
 impl Backend {
     /// Build the service state shared by all RPC implementations.
     ///
     /// The configuration, verifier, and chains are shared immutably. The store is cheap
-    /// to clone because its pools are reference counted by SQLx.
+    /// to clone because its pools are reference counted by SQLx. `configuration` is
+    /// the published response that `server::initialize` built and size-checked.
     pub fn new(
         store: Store,
-        config: Config,
+        config: ValidatedConfig,
         verifier: CachedSmartContractSignatureVerifier,
         chains: Arc<dyn ChainBlocks>,
+        configuration: crate::api::GetConfigurationResponse,
     ) -> Self {
-        // A JWKS deployment replaces this in `server::initialize` once its key
-        // set has been fetched. Every other deployment publishes it as built.
-        let configuration = Arc::new(config.configuration_response(&[]));
+        let configuration = Arc::new(configuration);
         Self {
             store: Arc::new(store),
             config: Arc::new(config),
@@ -52,6 +55,8 @@ impl Backend {
             auth: None,
             attachments: None,
             configuration,
+            #[cfg(test)]
+            signature_checks: Arc::default(),
         }
     }
 }

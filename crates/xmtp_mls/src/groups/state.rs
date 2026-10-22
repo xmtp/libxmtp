@@ -84,7 +84,7 @@ where
                 .map_err(|error| GroupError::MetadataPermissionsError(error.into()))?;
             let field = |key: MetadataField| {
                 metadata
-                    .attributes
+                    .attributes()
                     .get(key.as_str())
                     .cloned()
                     .unwrap_or_default()
@@ -96,8 +96,8 @@ where
                 description: field(MetadataField::Description),
                 app_data: field(MetadataField::AppData),
                 membership_state: stored.membership_state,
-                admins: metadata.admin_list,
-                super_admins: metadata.super_admin_list,
+                admins: std::mem::take(&mut metadata.admin_list),
+                super_admins: std::mem::take(&mut metadata.super_admin_list),
                 permissions,
                 policy_type,
             })
@@ -504,78 +504,5 @@ where
             .collect();
 
         Ok(mls_groups)
-    }
-
-    /// Used for testing that dm group validation works as expected.
-    ///
-    /// See the `test_validate_dm_group` test function for more details.
-    #[cfg(test)]
-    pub fn create_test_dm_group(
-        context: Context,
-        dm_target_inbox_id: InboxId,
-        custom_protected_metadata: Option<Extension>,
-        custom_mutable_metadata: Option<Extension>,
-        custom_group_membership: Option<Extension>,
-        custom_mutable_permissions: Option<PolicySet>,
-        opts: Option<DMMetadataOptions>,
-    ) -> Result<Self, GroupError> {
-        let provider = context.mls_provider();
-        let commit_log_enabled = context.server_configuration().commit_log_enabled();
-
-        let protected_metadata = custom_protected_metadata.unwrap_or_else(|| {
-            build_dm_protected_metadata_extension(context.inbox_id(), dm_target_inbox_id.clone())
-                .unwrap()
-        });
-        let mutable_metadata = custom_mutable_metadata.unwrap_or_else(|| {
-            build_dm_mutable_metadata_extension_default(
-                context.inbox_id(),
-                &dm_target_inbox_id,
-                opts.unwrap_or_default(),
-                commit_log_enabled,
-            )
-            .unwrap()
-        });
-        let group_membership = custom_group_membership
-            .unwrap_or_else(|| build_starting_group_membership_extension(context.inbox_id(), 0));
-        let mutable_permissions = custom_mutable_permissions.unwrap_or_else(PolicySet::new_dm);
-        let mutable_permission_extension =
-            build_mutable_permissions_extension(mutable_permissions)?;
-
-        let group_config = build_legacy_test_group_config(
-            protected_metadata,
-            mutable_metadata,
-            group_membership,
-            mutable_permission_extension,
-        )?;
-
-        let mls_group = OpenMlsGroup::from_creation_logged(
-            &provider,
-            context.identity(),
-            &group_config,
-            commit_log_enabled,
-        )?;
-        let group_id: GroupId = mls_group.group_id().try_into()?;
-        let stored_group = StoredGroup::builder()
-            .id(group_id)
-            .created_at_ns(now_ns())
-            .membership_state(GroupMembershipState::Allowed)
-            .added_by_inbox_id(context.inbox_id().to_string())
-            .dm_id(Some(
-                DmMembers {
-                    member_one_inbox_id: context.inbox_id().to_string(),
-                    member_two_inbox_id: dm_target_inbox_id,
-                }
-                .to_string(),
-            ))
-            .build()?;
-
-        stored_group.store(&context.db())?;
-        Ok(Self::new_from_arc(
-            context,
-            group_id,
-            stored_group.dm_id.clone(),
-            ConversationType::Dm,
-            stored_group.created_at_ns,
-        ))
     }
 }

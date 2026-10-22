@@ -2,7 +2,7 @@
   mkShell,
   lib,
   stdenv,
-  nodejs_26,
+  xmtp,
   xmtp-pnpm,
   just,
   markdownlint-cli,
@@ -13,7 +13,7 @@
 mkShell {
   name = "xmtp-docs";
   packages = [
-    nodejs_26
+    xmtp.nodejs_26
     xmtp-pnpm
     just
     markdownlint-cli

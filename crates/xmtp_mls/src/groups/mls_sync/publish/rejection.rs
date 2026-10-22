@@ -13,7 +13,8 @@ pub(crate) struct PreparedRejection {
     code: RejectionCode,
 }
 
-/// Bincode stores variant positions. Append new codes; do not reorder existing codes.
+/// The stored row names each code (CBOR stores the variant name). Never rename
+/// or remove a code: stored rows would stop decoding. Adding a code is safe.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 enum RejectionCode {
     InsufficientPermissions,
@@ -56,6 +57,17 @@ enum RejectionCode {
     OtherSupportedInput,
 }
 
+#[cfg(test)]
+impl PreparedRejection {
+    /// A rejection with a fixed cursor and code, for stored-format tests.
+    pub(super) fn sample() -> Self {
+        Self {
+            sequence_id: 42,
+            code: RejectionCode::InboxValidation,
+        }
+    }
+}
+
 impl RejectionCode {
     fn capture(error: &GroupMessageProcessingError) -> Self {
         use CommitRuleError as C;
@@ -63,7 +75,6 @@ impl RejectionCode {
         use GroupMessageProcessingError as G;
         match error {
             G::CommitValidation(V::IdentityDependency(_)) => Self::IdentityReference,
-            G::CommitValidation(V::Bootstrap(_)) => Self::Bootstrap,
             G::CommitValidation(V::Rule(error)) => match error {
                 C::InsufficientPermissions => Self::InsufficientPermissions,
                 C::ActorCouldNotBeFound => Self::ActorCouldNotBeFound,
@@ -244,6 +255,107 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
 mod tests {
     use super::*;
 
+    /// A CBOR text string shorter than 256 bytes, built by hand.
+    fn cbor_text(text: &str) -> Vec<u8> {
+        let head = match text.len() {
+            len @ 0..=23 => vec![0x60 | len as u8],
+            len => vec![0x78, u8::try_from(len).unwrap()],
+        };
+        [head.as_slice(), text.as_bytes()].concat()
+    }
+
+    /// Stored rows name each code. Every name is written out here, so a
+    /// renamed code fails this test instead of every stored row of an
+    /// in-flight intent, and the list must match every code serde stores, so
+    /// a new code fails until its name is here.
+    #[xmtp_common::test(unwrap_try = true)]
+    fn every_rejection_code_is_stored_by_its_name() {
+        let codes = [
+            (
+                RejectionCode::InsufficientPermissions,
+                "InsufficientPermissions",
+            ),
+            (RejectionCode::ActorCouldNotBeFound, "ActorCouldNotBeFound"),
+            (RejectionCode::ActorNotMember, "ActorNotMember"),
+            (RejectionCode::SubjectDoesNotExist, "SubjectDoesNotExist"),
+            (RejectionCode::MultipleActors, "MultipleActors"),
+            (
+                RejectionCode::MissingGroupMembership,
+                "MissingGroupMembership",
+            ),
+            (
+                RejectionCode::MissingMutableMetadata,
+                "MissingMutableMetadata",
+            ),
+            (RejectionCode::SequenceIdDecreased, "SequenceIdDecreased"),
+            (RejectionCode::NoPskSupport, "NoPskSupport"),
+            (RejectionCode::ProposerNotFound, "ProposerNotFound"),
+            (RejectionCode::ProposalsNotEnabled, "ProposalsNotEnabled"),
+            (
+                RejectionCode::IntentAlreadyProcessed,
+                "IntentAlreadyProcessed",
+            ),
+            (RejectionCode::InvalidPayload, "InvalidPayload"),
+            (
+                RejectionCode::OwnMessageWithoutAttempt,
+                "OwnMessageWithoutAttempt",
+            ),
+            (RejectionCode::InvalidSender, "InvalidSender"),
+            (RejectionCode::MalformedEnvelope, "MalformedEnvelope"),
+            (RejectionCode::InvalidMlsInput, "InvalidMlsInput"),
+            (RejectionCode::WrongCredentialType, "WrongCredentialType"),
+            (
+                RejectionCode::UnsupportedMessageType,
+                "UnsupportedMessageType",
+            ),
+            (RejectionCode::FutureEpoch, "FutureEpoch"),
+            (
+                RejectionCode::MessageAlreadyProcessed,
+                "MessageAlreadyProcessed",
+            ),
+            (RejectionCode::IdentityReference, "IdentityReference"),
+            (
+                RejectionCode::IdentitySequenceOrder,
+                "IdentitySequenceOrder",
+            ),
+            (RejectionCode::InboxValidation, "InboxValidation"),
+            (RejectionCode::InvalidVersion, "InvalidVersion"),
+            (
+                RejectionCode::UnexpectedInstallationAdded,
+                "UnexpectedInstallationAdded",
+            ),
+            (
+                RejectionCode::UnexpectedInstallationsRemoved,
+                "UnexpectedInstallationsRemoved",
+            ),
+            (RejectionCode::GroupMetadata, "GroupMetadata"),
+            (RejectionCode::MlsCredential, "MlsCredential"),
+            (RejectionCode::GroupMutableMetadata, "GroupMutableMetadata"),
+            (
+                RejectionCode::GroupMutablePermissions,
+                "GroupMutablePermissions",
+            ),
+            (RejectionCode::TooManyCharacters, "TooManyCharacters"),
+            (RejectionCode::MinVersionDowngrade, "MinVersionDowngrade"),
+            (RejectionCode::MinVersionRemove, "MinVersionRemove"),
+            (RejectionCode::ComponentSource, "ComponentSource"),
+            (RejectionCode::Bootstrap, "Bootstrap"),
+            (RejectionCode::Conversion, "Conversion"),
+            (RejectionCode::OtherSupportedInput, "OtherSupportedInput"),
+        ];
+        assert_eq!(
+            crate::groups::mls_sync::publish::tests::serde_variants::<RejectionCode>(),
+            codes.map(|(_, name)| name)
+        );
+        for (code, name) in codes {
+            assert_eq!(xmtp_db::db_serialize(&code)?, cbor_text(name), "{name}");
+            assert_eq!(
+                xmtp_db::db_deserialize::<RejectionCode>(&cbor_text(name))?,
+                code
+            );
+        }
+    }
+
     #[xmtp_common::test(unwrap_try = true)]
     fn stored_rejections_preserve_exact_unit_causes_without_private_error_data() {
         use CommitRuleError as C;
@@ -267,7 +379,17 @@ mod tests {
                 code: RejectionCode::capture(&G::CommitValidation(error.into())),
             };
             let bytes = xmtp_db::db_serialize(&saved)?;
-            assert_eq!(bytes.len(), 12);
+            // map(2) "sequence_id" 17 "code" <the variant name>
+            let name = format!("{:?}", saved.code);
+            let expected = [
+                &[0xa2, 0x6b][..],
+                b"sequence_id",
+                &[0x11, 0x64],
+                b"code",
+                &cbor_text(&name),
+            ]
+            .concat();
+            assert_eq!(bytes, expected);
             let restored: PreparedRejection = xmtp_db::db_deserialize(&bytes)?;
             let G::CommitValidation(CommitValidationError::Rule(error)) = restored.code.error()
             else {
@@ -279,7 +401,7 @@ mod tests {
             C::InboxValidationFailed("private credential data".into()).into(),
         ));
         let bytes = xmtp_db::db_serialize(&code)?;
-        assert_eq!(bytes.len(), 4);
+        assert_eq!(bytes, cbor_text("InboxValidation"));
         assert!(matches!(
             code.error(),
             G::RejectedIntent("inbox_validation")

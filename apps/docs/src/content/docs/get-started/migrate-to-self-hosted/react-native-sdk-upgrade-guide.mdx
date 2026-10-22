@@ -4,7 +4,7 @@ description: Migrate a pre-8.0.0 React Native app to the native v8 API and a sel
 ---
 
 Every pre-8.0.0 React Native app must migrate. The npm package name remains
-`@xmtp/react-native-sdk`; version **8.0.0** uses the generated native v8 API.
+`@xmtp/react-native-sdk`; version **8.0.0-rc4** uses the generated native v8 API.
 Existing method names, option shapes, generic types, hooks, and database files
 are not a compatibility contract.
 
@@ -14,16 +14,31 @@ version pins from that guide. Follow [React Native and
 Expo](/get-started/react-native/) to configure Hermes, New Architecture, native
 builds, and deployment floors.
 
+This guide lists changes from
+[`xmtp-react-native` v5.7.0](https://github.com/xmtp/xmtp-react-native/tree/f0a3d5ecec7552ee479de24b2f151db3e85fbb50)
+to `@xmtp/react-native-sdk` 8.0.0-rc4, built from `sdks/react-native` in
+`xmtp/libxmtp`. A call can keep its name and still have different parameters,
+results, or behavior. The **Before** examples use v5.7.0. The **After** examples
+use the v8 declarations and are checked as complete TypeScript programs.
+
 ## Upgrade the native package
 
+Use SDK **8.0.0-rc4** with backend **8.0.0-rc4**:
+
 ```sh
-npm install --save-exact @xmtp/react-native-sdk@8.0.0
+npm install --save-exact @xmtp/react-native-sdk@8.0.0-rc4
 ```
 
 Install iOS pods and rebuild the native app. Expo apps need a rebuilt development
 client or prebuilt native project. Expo Go and JavaScript-only updates cannot
 install the module. Import the public API from the package root and optional
 React helpers from `/react`. Do not import generated binding paths.
+
+Version 5.7.0 was an Expo module. Version 8 is a Hermes JSI TurboModule with
+prebuilt Rust libraries. It requires Hermes and New Architecture. It no longer
+needs `expo` as a peer dependency, and it does not accept a viem `WalletClient`
+as a signer. Remove app imports from `@xmtp/proto`; v8 has its own
+`EncodedContent` and `ContentTypeId` records.
 
 ## Recreate the client integration
 
@@ -42,11 +57,692 @@ React helpers from `/react`. Do not import generated binding paths.
 | Attachments     | Use `client.attachments` to create, upload, download, and manage native files. The app owns picking media and OS permissions.                         |
 | Push            | Obtain tokens and OS permissions in the app, then call `client.enableNotifications`. Rewrite native handlers for the current push payload.            |
 
-The TypeScript shapes follow the [Node native API](/reference/node-sdk/readme/), with
-mobile storage and lifecycle integration. Use the [React Native API
+The sections below give the call-by-call changes. The TypeScript shapes match
+the [Node SDK Upgrade Guide](/get-started/migrate-to-self-hosted/node-sdk-upgrade-guide/),
+with mobile storage and lifecycle integration. Use the [React Native API
 reference](/reference/react-native-sdk/) for the exact exported declarations.
-See [Client](/sdk/client/), [Signer](/sdk/signer/), [Streams](/sdk/stream/), and
-[Content types](/content-types/overview/) for checked React Native examples.
+
+## Package and value types
+
+| v5.7.0 value                                                                                                                                            | v8 value                                                                                                                                                                                            |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `new PublicIdentity(address, "ETHEREUM")` class that lowercases the identifier                                                                          | Plain `PublicIdentity` record `{ identifier, kind: "ethereum" }`. Use `"passkey"` for a passkey and `"handle"` for a [handle](/sdk/inboxes/#handles).                                               |
+| Upper-case string values such as `"ETHEREUM"`, `"PUBLISHED"`, and `"DESCENDING"`                                                                        | Lower camel case strings such as `"ethereum"`, `"published"`, and `"descending"`.                                                                                                                   |
+| `XMTPEnvironment` (`"local"`, `"dev"`, `"production"`)                                                                                                  | Removed. Pass the deployment URL in `backend`. Use `storage.label` if the app keeps separate databases per deployment.                                                                              |
+| Branded `InboxId`, `InstallationId`, `ConversationId`, `MessageId`, and `ConversationTopic`                                                             | IDs remain strings. `InstallationId` values are hex strings.                                                                                                                                        |
+| Nanosecond `number` fields such as `sentNs`, `insertedAtNs`, and `exportedAtNs`                                                                         | `Timestamp`. Use `.ns` for a `bigint`, `.date` for a `Date`, and `new Timestamp(ns)` for an input. Old `number` nanosecond values lose precision; v8 uses `bigint`.                                 |
+| Plain objects keyed by string, such as `canMessage` and `getHmacKeys` results                                                                           | `Map`. Read entries with `.get(key)`.                                                                                                                                                               |
+| Generic `Client<ContentTypes>`, `Group<ContentTypes>`, `Dm<ContentTypes>`, `Conversation<ContentTypes>`, `DecodedMessage<T>`, and `DecodedMessageV2<T>` | Classes `Client`, `Group`, `Dm`, and `Message`. `Conversation` is the type `Group \| Dm`. Narrow a conversation with `instanceof Group` or `conversation.kind`. Narrow content with `content.kind`. |
+| `ConversationVersion.GROUP` / `.DM` and `conversation.version`                                                                                          | `conversation.kind` is `"group"` or `"dm"`.                                                                                                                                                         |
+| Public constructors such as `new Client(...)`, `new Group(...)`, and `new DecodedMessage(...)`                                                          | Use `Client.create`, `Client.build`, and SDK lookup or creation methods. Public SDK objects have private constructors.                                                                              |
+| `Client.codecRegistry` and `Client.register(codec)`                                                                                                     | Removed. Pass custom codecs in `ClientOptions.codecs`. Standard content types are built in.                                                                                                         |
+| `emitter`, `EventTypes`, and `expo-modules-core` subscriptions                                                                                          | Removed. Use stream objects and `client.events(...)`.                                                                                                                                               |
+
+## Signers and client setup
+
+A signer has three asynchronous methods: `identity()`, `kind()`, and
+`sign(request)`. Replace `getIdentifier`, `getChainId`, `getBlockNumber`,
+`signerType`, and `signMessage`. `sign` returns signature bytes, not a hex
+string, and v8 does not split an ECDSA signature for you.
+
+Before:
+
+```text title="Before (xmtp-react-native v5.7.0)"
+import { PublicIdentity, type Signer } from "@xmtp/react-native-sdk";
+
+export function createSigner(
+  address: string,
+  signText: (text: string) => Promise<string>,
+): Signer {
+  return {
+    getIdentifier: async () => new PublicIdentity(address, "ETHEREUM"),
+    getChainId: () => undefined,
+    getBlockNumber: () => undefined,
+    signerType: () => "EOA",
+    signMessage: async (message) => ({ signature: await signText(message) }),
+  };
+}
+```
+
+After:
+
+```ts source="migration-react-native.ts" region="signer"
+
+```
+
+For a smart contract wallet, replace `signerType: () => "SCW"`, `getChainId`,
+and `getBlockNumber` with fields in the result of `kind()`. Return the signature
+bytes, address, chain ID, and optional block number from `sign()`. Chain IDs and
+block numbers are unsigned 64-bit `bigint` values.
+
+```ts source="migration-react-native.ts" region="scw-signer"
+
+```
+
+Version 5.7.0 accepted a viem `WalletClient` and converted it. In v8, write a
+`Signer` that calls the wallet and converts its hex signature to bytes. Passkey
+signers return a `"passkey"` signature with `signature`, `publicKey`,
+`authenticatorData`, and `clientDataJson` byte buffers, rather than the old
+`SignedData` strings.
+
+`Client.createRandom(options)` is removed. Generate a local key, save its bytes in
+secure storage, and pass it to `Client.create`. Restore it with
+`LocalSigningKey.fromBytes` on the next launch:
+
+```ts source="migration-react-native.ts" region="local-signer"
+
+```
+
+Before:
+
+```text title="Before (xmtp-react-native v5.7.0)"
+import {
+  Client,
+  ReactionCodec,
+  RemoteAttachmentCodec,
+  ReplyCodec,
+  type Signer,
+} from "@xmtp/react-native-sdk";
+
+export async function createClient(signer: Signer, key: Uint8Array) {
+  return Client.create(signer, {
+    env: "production",
+    dbEncryptionKey: key,
+    appVersion: "chat/5.7.0",
+    deviceSyncEnabled: true,
+    codecs: [new ReactionCodec(), new ReplyCodec(), new RemoteAttachmentCodec()],
+  });
+}
+```
+
+After:
+
+```ts source="migration-react-native.ts" region="create"
+
+```
+
+| v5.7.0 option or helper                                                                                                | v8 option or helper                                                                                                                                                                             |
+| ---------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `env`, `customLocalHost`, `gatewayHost`                                                                                | `backend: { url }` or a `Backend` from `await Backend.connect({ url, appVersion?, credentials? })`. Include the scheme. A device needs a URL it can reach; `localhost` on a phone is the phone. |
+| Top-level `appVersion`                                                                                                 | `backend.appVersion`.                                                                                                                                                                           |
+| Required `dbEncryptionKey` (32 bytes)                                                                                  | Optional `storage.encryptionKey: Uint8Array` (32 bytes). Keep the same key when you reopen a database.                                                                                          |
+| `dbDirectory` omitted                                                                                                  | `storage: { location: "default" }`. The SDK uses the native app directory.                                                                                                                      |
+| `dbDirectory: path`                                                                                                    | `storage.location: { directory }`, or `{ dbPath, attachmentsDir }` for explicit files. Both explicit paths are required.                                                                        |
+| Environment in the database file name                                                                                  | `storage.label`. Keep the label and storage location stable. A label names a directory; it does not select a network.                                                                           |
+| `deviceSyncEnabled`                                                                                                    | `deviceSync`. It defaults to `true`.                                                                                                                                                            |
+| `debugEventsEnabled`                                                                                                   | Removed. Use `client.diagnostics` and [logging](#diagnostics-logging-errors-and-removals).                                                                                                      |
+| `preAuthenticateToInboxCallback`                                                                                       | `handlers.preAuthenticate`: an object with an asynchronous `run()` method.                                                                                                                      |
+| `forkRecoveryOptions: { enableRecoveryRequests, groupsToRequestRecovery, disableRecoveryResponses, workerIntervalNs }` | `forkRecovery: { policy, groups, disableResponses, workerIntervalNs }`. The policy is `"none"`, `"allowlistedGroups"`, or `"all"`, rather than `"groups"`. The interval is a `bigint`.          |
+| `codecs: [new ReactionCodec(), new ReplyCodec(), ...]`                                                                 | Omit standard codecs. Pass only custom codecs in `codecs`; see [codecs](#sending-codecs-and-message-results).                                                                                   |
+| No equivalent                                                                                                          | `registration: { auto, nonce }`, `allowOffline`, `workers`, and `attachments`. Automatic registration defaults to `true`. New identity generation uses nonce `0`.                               |
+| `Client.ffiCreateClient(identity, options)` then `ffiRegisterIdentity()`                                               | `Client.create` with `registration: { auto: false }`, then the [signature request flow](#identity-methods-and-result-records), or `client.register()`.                                          |
+
+`Client.build(identity, options, inboxId?)` keeps its form and reopens a client
+without a signer. It now requires the v8 options object.
+
+```ts source="migration-react-native.ts" region="build"
+
+```
+
+The v5.7.0 database is not an input to this migration. Create a new database
+for the deployment. See [the database migration rules](/get-started/migrate-to-self-hosted/#the-local-database-must-be-recreated)
+before choosing paths.
+
+Configure backend credentials separately from the identity signer:
+
+```ts source="migration-react-native.ts" region="auth"
+
+```
+
+`backend.credentials` accepts a `Credential` or a source with asynchronous
+`credential()`. A credential has `value`, `expiresAtSeconds` as a `bigint` in
+Unix seconds, and an optional header `name`. Use `client.setCredential(credential)`
+to replace a supplied credential. `Client.fetchServerConfiguration(backend)`
+reads deployment limits without a client. `client.serverConfiguration` is a
+property; `await client.refreshServerConfiguration()` stores configuration for
+the next build.
+
+## Identity methods and result records
+
+Static calls take a `BackendSource` as the last argument: `{ url, appVersion?,
+credentials? }` or a connected `Backend`. In v5.7.0 the environment was the first
+argument.
+
+```ts source="migration-react-native.ts" region="standalone"
+
+```
+
+| v5.7.0 call                                                                      | v8 call and result                                                                                                                                                                                  |
+| -------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `client.publicIdentity`                                                          | `client.identity: PublicIdentity`.                                                                                                                                                                  |
+| `client.dbPath`, `client.environment`                                            | `client.storagePath` (can be absent for in-memory storage). `environment` is removed.                                                                                                               |
+| `client.inboxId`, `client.installationId`                                        | Same properties. `client.installationIdBytes`, `isInMemory`, `libxmtpVersion`, `appVersion`, and `options` are new.                                                                                 |
+| `Client.canMessage(env, identities)`                                             | `Client.canMessage(identities, backend): Promise<Map<string, boolean>>`. Keys are `ethereum:<normalized address>` or `passkey:<lowercase key hex>`.                                                 |
+| `client.canMessage(identities)` plain object                                     | Same name. Returns a `Map` with the keys above.                                                                                                                                                     |
+| `Client.getOrCreateInboxId(identity, env)`                                       | `Client.inboxIdFor(identity, backend): Promise<string>`. It calculates a nonce-0 inbox ID when no association exists. Use `canMessage` to test registration.                                        |
+| `client.findInboxIdFromIdentity(identity)`                                       | `client.inboxIdFor(identity): Promise<string \| undefined>`.                                                                                                                                        |
+| `Client.inboxStatesForInboxIds(env, ids)`                                        | `Client.inboxStates(ids, backend): Promise<InboxState[]>`.                                                                                                                                          |
+| `client.inboxState(refresh)`                                                     | Same.                                                                                                                                                                                               |
+| `client.inboxStates(refresh, ids)`                                               | `client.inboxStates(ids, refresh)`. The argument order is reversed.                                                                                                                                 |
+| `client.debugInformation.getKeyPackageStatuses(ids)`                             | `client.keyPackageStatuses(ids): Promise<Map<string, KeyPackageStatus>>`. `Client.keyPackageStatuses(ids, backend)` is new.                                                                         |
+| `client.addAccount(signer, allowReassignInboxId = false)`                        | `client.unsafeAddAccount(signer, allowInboxReassign)`. Supply the boolean explicitly.                                                                                                               |
+| `client.removeAccount(signer, identity)`                                         | Same form: `removeAccount(recoverySigner, identity)`.                                                                                                                                               |
+| `client.revokeInstallations(signer, ids)`, `revokeAllOtherInstallations(signer)` | Same forms. Installation IDs are hex strings. The signer is no longer nullable.                                                                                                                     |
+| `Client.revokeInstallations(env, signer, inboxId, ids)`                          | `Client.revokeInstallations(signer, inboxId, ids, backend)`.                                                                                                                                        |
+| No equivalent                                                                    | `client.changeRecoveryIdentifier(signer, identity)`, `Client.isAddressAuthorized`, `Client.isInstallationAuthorized`, and `Client.newestMessageMetadata`.                                           |
+| `client.signWithInstallationKey(message)`                                        | Same.                                                                                                                                                                                               |
+| `client.verifySignature(message, signature)`                                     | `client.verifySignedWithInstallationKey(text, signature)`. `Client.verifySignedWithPublicKey(text, signature, publicKey)` is new.                                                                   |
+| `Client.dropClient(installationId)`                                              | `await client.end()`.                                                                                                                                                                               |
+| `client.deleteLocalDatabase()`                                                   | `await client.storage.delete_()`. It ends the client, then removes its database.                                                                                                                    |
+| `client.dropLocalDatabaseConnection()` / `reconnectLocalDatabase()`              | No separate disconnect; `await client.end()` releases the database. `reconnectLocalDatabase()` becomes `await client.storage.reconnect()`. `await client.storage.path()` returns the database path. |
+
+```ts source="migration-react-native.ts" region="identity-changes"
+
+```
+
+| v5.7.0 result                                      | v8 result                                                                                                                                                   |
+| -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `InboxState` class with `PublicIdentity` instances | Read-only `InboxState` record. `creationSignatureKind` uses `"erc191"`, `"erc1271"`, `"installationKey"`, or `"p256"`. `handle` and `otherHandles` are new. |
+| `Installation.createdAt` in milliseconds           | `createdAt?: Timestamp`.                                                                                                                                    |
+| `KeyPackageStatuses.statuses` map                  | `Map<string, KeyPackageStatus>`. `lifetime.notBefore` and `notAfter` are Unix-second `bigint` values and can be absent.                                     |
+| `GroupSyncSummary` counts as numbers               | `eligible` and `synced` as `bigint`.                                                                                                                        |
+
+The `ffi*` signature methods become a `SignatureRequest`:
+
+| v5.7.0 call                                                                           | v8 call                                                                                                   |
+| ------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `ffiCreateSignatureText()`                                                            | `unsafeCreateInboxSignatureRequest()`, then `request.signatureText()`. The request can be absent.         |
+| `ffiAddIdentitySignatureText(identity, allowReassign)`                                | `unsafeAddAccountSignatureRequest(identity, allowInboxReassign)`.                                         |
+| `ffiRemoveIdentitySignatureText(identity)`                                            | `unsafeRemoveAccountSignatureRequest(identity)`.                                                          |
+| `ffiRevokeInstallationsSignatureText(ids)`                                            | `unsafeRevokeInstallationsSignatureRequest(ids)`.                                                         |
+| `ffiRevokeAllOtherInstallationsSignatureText()`                                       | `unsafeRevokeAllOtherInstallationsSignatureRequest()`. The request can be absent.                         |
+| `ffiAddEcdsaSignature(bytes)` / `ffiAddScwSignature(bytes, address, chainId, block?)` | `request.addSignature({ kind: "ecdsa", value })` or a `"scw"` signature, or `await request.sign(signer)`. |
+| `ffiApplySignature()` / `Client.ffiApplySignatureRequest(env, type)`                  | `client.unsafeApplySignatureRequest(request)`.                                                            |
+| `ffiRegisterIdentity()`                                                               | `client.unsafeApplySignatureRequest(request)` for a created request, or `client.register()`.              |
+| `Client.ffiRevokeInstallationsSignatureText(env, identity, inboxId, ids)`             | Use `Client.revokeInstallations(signer, inboxId, ids, backend)`.                                          |
+
+For manual registration, create with `registration: { auto: false }`, sign the
+returned request, then apply it:
+
+```ts source="migration-react-native.ts" region="signature-request"
+
+```
+
+## Conversations, groups, and state
+
+Creation methods accept inbox IDs or identities through one method. Do not mix
+strings and identities in one member list.
+
+Before:
+
+```text title="Before (xmtp-react-native v5.7.0)"
+import { PublicIdentity, type Client } from "@xmtp/react-native-sdk";
+
+export async function createConversations(client: Client, address: string) {
+  const peer = new PublicIdentity(address, "ETHEREUM");
+  const dm = await client.conversations.findOrCreateDmWithIdentity(peer);
+  const group = await client.conversations.newGroupWithIdentities([peer], {
+    name: "Project",
+    description: "Project chat",
+    permissionLevel: "admin_only",
+  });
+  const draft = await client.conversations.newGroupOptimistic({ name: "Draft" });
+  await draft.addMembersByIdentity([peer]);
+  return { dm, group, draft };
+}
+```
+
+After:
+
+```ts source="migration-react-native.ts" region="conversations"
+
+```
+
+| v5.7.0 method                                                                                                                  | v8 method                                                                                                                                                                                |
+| ------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `newGroup(ids, opts)`, `newGroupWithIdentities(identities, opts)`                                                              | `createGroup(ids \| identities, options?): Promise<Group>`.                                                                                                                              |
+| `newGroupCustomPermissions(ids, policySet, opts)` and the `WithIdentities` form                                                | `createGroup(ids \| identities, { permissions: { kind: "custom", policySet } })`.                                                                                                        |
+| `newGroupOptimistic(opts)`                                                                                                     | `createGroupOptimistic(options?)`.                                                                                                                                                       |
+| `findOrCreateDm(inboxId, settings?)`, `newConversation(inboxId, settings?)`, `findOrCreateDmWithIdentity(identity, settings?)` | `createDm(inboxId \| identity, { disappearing }?): Promise<Dm>`.                                                                                                                         |
+| `findGroup(id)`, `findConversation(id)`                                                                                        | `getById(id): Promise<Conversation \| undefined>`. Check `instanceof Group` for a group.                                                                                                 |
+| `findConversationByTopic(topic)`                                                                                               | Removed. Topics have a new format; use the conversation ID with `getById`.                                                                                                               |
+| `findDmByInboxId(id)`, `findDmByIdentity(identity)`                                                                            | `getDmByInboxId(id)`, `getDmByIdentity(identity)`.                                                                                                                                       |
+| `findMessage(id)`                                                                                                              | `getMessageById(id): Promise<Message \| undefined>`.                                                                                                                                     |
+| `list(opts, limit, consentStates, createdAfterNs, createdBeforeNs, lastActivityAfterNs, lastActivityBeforeNs, orderBy)`        | `list(options?)` with one `ListConversationsOptions` object. `listGroups(options \| undefined)` and `listDms(options \| undefined)` require the argument; pass `undefined` for defaults. |
+| `ConversationOptions` field selection, such as `{ lastMessage: true }`                                                         | Removed. Read `await conversation.lastMessage()` or `await conversation.state()`.                                                                                                        |
+| `syncAllConversations(consentStates?)`                                                                                         | `syncAll(consentStates \| undefined): Promise<GroupSyncSummary>`.                                                                                                                        |
+| `sync()`                                                                                                                       | Same.                                                                                                                                                                                    |
+| `fromWelcome(encrypted)`, `group.processMessage(encrypted)`                                                                    | Removed. A push contains a hint; use `conversations.sync()`, `conversation.sync()`, then local message queries.                                                                          |
+| `getHmacKeys()` / `getAllPushTopics()`                                                                                         | `conversations.hmacKeys(): Promise<Map<string, HmacKey[]>>`. Push topics are removed; see [notifications](#consent-archives-attachments-and-notifications).                              |
+
+Lookups have the same local-only behavior. Sync first when the app needs the
+latest network state:
+
+```ts source="migration-react-native.ts" region="find"
+
+```
+
+Group and DM fields moved into a state snapshot. Read it with `await group.state()`
+or `await dm.state()`:
+
+| v5.7.0 field or call                                                                                         | v8 field or call                                                                                                                |
+| ------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------- |
+| `group.groupName`, `groupImageUrl`, `groupDescription`, `name()`, `imageUrl()`, `description()`, `appData()` | `(await group.state())` fields `name`, `imageUrl`, `description`, and `appData`.                                                |
+| `isGroupActive`, `isActive()`, `pausedForVersion()`                                                          | `(await group.state()).common.isActive` and `.pausedForVersion`. For a DM, read `(await dm.state())`.                           |
+| `conversation.state` and `consentState()`                                                                    | `.common.consentState` for a group, or `consentState` on DM state.                                                              |
+| `updateConsent(state)`                                                                                       | `updateConsentState(state)`.                                                                                                    |
+| `permissionPolicySet()`                                                                                      | `(await group.state()).permissions`. `policyType` is `"allMembers"`, `"adminOnly"`, or `"custom"`.                              |
+| `listAdmins()`, `listSuperAdmins()`, `isAdmin(id)`, `isSuperAdmin(id)`                                       | Same methods. The state snapshot also has `admins` and `superAdmins` arrays.                                                    |
+| `memberInboxIds()`                                                                                           | `(await group.members()).map((member) => member.inboxId)`.                                                                      |
+| `members()`                                                                                                  | Same name. `permissionLevel` uses `"superAdmin"`, rather than `"super_admin"`. `handle` and `otherHandles` are new.             |
+| `addMembers(ids)`, `addMembersByIdentity(identities)`                                                        | `addMembers(ids \| identities): Promise<MembershipResult>`. `addedMembers` becomes `added`; `removedMembers` becomes `removed`. |
+| `removeMembers(ids)`, `removeMembersByIdentity(identities)`                                                  | `removeMembers(ids \| identities)`.                                                                                             |
+| `creatorInboxId()`                                                                                           | `group.creatorInboxId` property; `null` when unknown. `addedByInboxId` and `isCreator` are also properties.                     |
+| `peerInboxId()`                                                                                              | `await dm.peerInboxId(): string \| null`. `dm.duplicateDms()` and `group.peerInboxIds()` are new.                               |
+| `leaveGroup()`                                                                                               | `requestRemoval()`. `(await group.state()).membershipState` reports `"pendingRemove"`.                                          |
+| `createdAt` number                                                                                           | `createdAt: Timestamp`.                                                                                                         |
+| `topic`                                                                                                      | `topic` is `[group_message_v1/<hex-id>]`. See [Topics](/protocol/topics/).                                                      |
+| `getConversationHmacKeys()`                                                                                  | `hmacKeys(): Promise<HmacKey[]>`.                                                                                               |
+| `getConversationPushTopics()`                                                                                | Removed. Use `setNotifications` for per-conversation overrides.                                                                 |
+| `getDebugInformation()`, `commitLogForkStatus`                                                               | `debugInfo()`, and `.common.commitLogForkStatus` in state.                                                                      |
+| `updateAppData(value)`                                                                                       | `updateAppData(value, expected \| undefined)`. Pass `undefined` for an unguarded write.                                         |
+
+`updateName`, `updateImageUrl`, `updateDescription`, `addAdmin`, `removeAdmin`,
+`addSuperAdmin`, `removeSuperAdmin`, `sync`, and `deleteMessage` keep their call
+forms. Group methods `membershipCapabilities()` and `lastActivityAt(contentTypes)`
+are new.
+
+```ts source="migration-react-native.ts" region="state"
+
+```
+
+Permission methods become one call:
+
+| v5.7.0 call                                                                                                            | v8 call                                                                                              |
+| ---------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `updateAddMemberPermission`, `updateRemoveMemberPermission`, `updateAddAdminPermission`, `updateRemoveAdminPermission` | `updatePermission("addMember" \| "removeMember" \| "addAdmin" \| "removeAdmin", policy, undefined)`. |
+| `updateNamePermission`, `updateDescriptionPermission`, `updateImageUrlPermission`                                      | `updatePermission("updateMetadata", policy, "name" \| "description" \| "imageUrl")`.                 |
+| No equivalent                                                                                                          | `updatePermission("updateMetadata", policy, "disappearing" \| "appData")`.                           |
+| Option values `"allow"`, `"deny"`, `"admin"`, `"super_admin"`                                                          | Policy values `"allow"`, `"deny"`, `"admin"`, `"superAdmin"`.                                        |
+
+Creation and list options also changed:
+
+| v5.7.0 field                                                                                                                                | v8 field                                                                                        |
+| ------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `permissionLevel: "all_members"` / `"admin_only"`                                                                                           | `permissions: { kind: "allMembers" }` / `{ kind: "adminOnly" }`.                                |
+| `name`, `imageUrl`, `description`, `appData`                                                                                                | Same names.                                                                                     |
+| `disappearingMessageSettings: new DisappearingMessageSettings(startNs, retentionNs)`                                                        | `disappearing: { from: Timestamp, retentionNs: bigint }`.                                       |
+| `PermissionPolicySet.addMemberPolicy`, `removeMemberPolicy`, `addAdminPolicy`, `removeAdminPolicy`                                          | `addMember`, `removeMember`, `addAdmin`, `removeAdmin`.                                         |
+| `updateGroupNamePolicy`, `updateGroupDescriptionPolicy`, `updateGroupImagePolicy`, `updateMessageDisappearingPolicy`, `updateAppDataPolicy` | `updateName`, `updateDescription`, `updateImage`, `updateDisappearing`, `updateAppData`.        |
+| Positional `limit`, `consentStates`                                                                                                         | `limit`, `consentStates` fields.                                                                |
+| Positional `createdAfterNs`, `createdBeforeNs`, `lastActivityAfterNs`, `lastActivityBeforeNs`                                               | `createdAfter`, `createdBefore`, `lastActivityAfter`, `lastActivityBefore`, each a `Timestamp`. |
+| Positional `orderBy: "created_at"` / `"last_activity"`                                                                                      | `orderBy: "createdAt"` / `"lastActivity"`.                                                      |
+| No equivalent                                                                                                                               | `kind: "group" \| "dm"` and `includeDuplicateDms`.                                              |
+
+```ts source="migration-react-native.ts" region="list"
+
+```
+
+Replace the disappearing-message methods:
+
+| v5.7.0 call                                                         | v8 call                                                                                        |
+| ------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `disappearingMessageSettings()` / `isDisappearingMessagesEnabled()` | State fields `disappearingSettings` / `isDisappearingEnabled`, in group `.common` or DM state. |
+| `updateDisappearingMessageSettings(settings)`                       | `updateDisappearingSettings({ from: new Timestamp(fromNs), retentionNs })`.                    |
+| `clearDisappearingMessageSettings()`                                | `updateDisappearingSettings(undefined)`. The argument is required.                             |
+
+```ts source="migration-react-native.ts" region="disappearing"
+
+```
+
+v8 also exposes typed metadata fields for app data and per-inbox values. On a
+group or DM, use `metadataFields()`, `metadataField(name)`, `metadataValue(field)`,
+`metadataValues(fields)`, `mapValue(field, key)`, `userData(fields, inboxIds)`,
+`updateUserData(values)`, and `updateMetadataField(field, operation)`. Both
+`userData` arguments are required; pass `undefined` for all fields or inboxes.
+
+```ts source="migration-react-native.ts" region="metadata"
+
+```
+
+## Sending, codecs, and message results
+
+Version 5.7.0 sent standard content through `send` with a native content key,
+such as `{ reaction: ... }` or `{ reply: ... }`. Version 8 has a typed helper
+for each standard content type: `sendText`, `sendMarkdown`, `sendReaction`,
+`sendReply`, `sendReadReceipt`, `sendAttachment`, `sendRemoteAttachment`,
+`sendMultiRemoteAttachment`, `sendTransactionReference`, `sendWalletSendCalls`,
+`sendActions`, and `sendIntent`. Each returns a message ID.
+
+| v5.7.0 call or value                                                           | v8 call or value                                                                                                                                                      |
+| ------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `send("Hello")` or `send({ text: "Hello" })`                                   | `sendText("Hello", options?)`.                                                                                                                                        |
+| `send({ reaction: { reference, referenceInboxId, action, schema, content } })` | `sendReaction(reference, referenceInboxId \| undefined, { action, content, schema }, options?)`, or `message.react(...)`.                                             |
+| `send({ reply: { reference, content: { text } } })`                            | `sendReply(reference, referenceInboxId \| undefined, encoded, options?)`, or `message.reply("text")`.                                                                 |
+| `send({ readReceipt: {} })`                                                    | `sendReadReceipt(options?)`.                                                                                                                                          |
+| `send({ attachment: { filename, mimeType, data } })` with base64 `data`        | `sendAttachment({ filename, mimeType, content })` with `content: Uint8Array`.                                                                                         |
+| `send({ remoteAttachment })`, `send({ multiRemoteAttachment })`                | `sendRemoteAttachment(remote)`, `sendMultiRemoteAttachment(value)`. See [attachments](#consent-archives-attachments-and-notifications).                               |
+| `send(value, { contentType })` with a registered JS codec                      | `send(codec, value, options?)`. The codec does not need to be registered to send.                                                                                     |
+| `SendOptions.contentType`, `shouldPush`                                        | `SendOptions` has `shouldPush?`, `optimistic?`, `idempotencyKey?`, and `compression?: "deflate" \| "gzip"`. Without `shouldPush`, the content type's default applies. |
+| `prepareMessage(content, opts?, noSend?)`                                      | `prepareMessage(encoded \| codec, ...)`. There is no `noSend` flag; see the note below.                                                                               |
+| `publishPreparedMessages()`                                                    | `publishMessages()`. `publishMessage(id)` remains.                                                                                                                    |
+| `deleteMessage(id)`                                                            | Same, on a conversation or `client.conversations`. `message.delete()` and `deleteLocally()` are new.                                                                  |
+
+Before:
+
+```text title="Before (xmtp-react-native v5.7.0)"
+import type { Group, InboxId, MessageId } from "@xmtp/react-native-sdk";
+
+export async function reply(
+  group: Group,
+  messageId: MessageId,
+  senderInboxId: InboxId,
+) {
+  await group.send("Hello");
+  await group.send({
+    reaction: {
+      reference: messageId,
+      referenceInboxId: senderInboxId,
+      action: "added",
+      schema: "unicode",
+      content: "👍",
+    },
+  });
+  await group.send({
+    reply: { reference: messageId, content: { text: "Reply" } },
+  });
+}
+```
+
+After:
+
+```ts source="migration-react-native.ts" region="send"
+
+```
+
+`prepareMessage` stores an unpublished message, queues optimistic publication,
+and returns its ID. Background processing can publish it before an explicit
+publish call. Keep private drafts outside the SDK until the app is ready to send.
+
+Standard codecs are built in. Do not pass `ReactionCodec`, `ReplyCodec`,
+`RemoteAttachmentCodec`, or the other v5.7.0 codecs in `codecs`. The native
+`NativeContentCodec` interface with `contentKey` is removed, and
+`StaticAttachmentCodec` becomes `AttachmentCodec`. The exported standard codecs
+are `TextCodec`, `MarkdownCodec`, `ReadReceiptCodec`, `ReactionV2Codec`,
+`ReplyCodec`, `DeleteMessageCodec`, `AttachmentCodec`, `RemoteAttachmentCodec`,
+`MultiRemoteAttachmentCodec`, `TransactionReferenceCodec`,
+`WalletSendCallsCodec`, `ActionsCodec`, `IntentCodec`, `GroupUpdatedCodec`, and
+`LeaveRequestCodec`.
+
+A v5.7.0 `JSContentCodec` had `contentType`, `encode`, `decode`, `fallback`, and
+`shouldPush`. A v8 `ContentCodec<T>` has `type`, `encode(value)`, and
+`decode(encoded)`, with optional `fallback(value)` and `shouldPush(value)`.
+`EncodedContent.parameters` is a `Map<string, string>`.
+
+```ts source="migration-react-native.ts" region="codec"
+
+```
+
+Register the codec on a client to decode received values:
+
+```ts source="migration-react-native.ts" region="register-codec"
+
+```
+
+Send typed values, then check received custom content:
+
+```ts source="migration-react-native.ts" region="custom-content"
+
+```
+
+`messages`, `messagesWithReactions`, and `enrichedMessages` become one
+`messages(options?)` call. Each `Message` carries its reactions, reply count, and
+reply parent.
+
+| v5.7.0 query or decoded field                                                       | v8 query or decoded field                                                                                                                                                     |
+| ----------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `messages(opts)`, `messagesWithReactions(opts)`, `enrichedMessages(opts)`           | `messages(options?): Promise<Message[]>`. `lastMessage()` and `countMessages(options \| undefined): Promise<bigint>` are new.                                                 |
+| `beforeNs`, `afterNs`, `insertedBeforeNs`, `insertedAfterNs`                        | `sentBefore`, `sentAfter`, `insertedBefore`, `insertedAfter`, each a `Timestamp`.                                                                                             |
+| `direction: "ASCENDING"` / `"DESCENDING"`                                           | `direction: "ascending"` / `"descending"`.                                                                                                                                    |
+| `sortBy: "SENT_TIME"` / `"INSERTED_TIME"`                                           | `sortBy: "sentAt"` / `"insertedAt"`.                                                                                                                                          |
+| `deliveryStatus: "ALL"`, `"PUBLISHED"`, `"UNPUBLISHED"`, `"FAILED"`                 | Omit the field for all, or use `"published"`, `"unpublished"`, or `"failed"`.                                                                                                 |
+| `excludeContentTypes: string[]`                                                     | `excludeContentTypes` and `contentTypes` take `ContentTypeId[]`, for example `[standardContentType("reaction")]`. `excludeSenderInboxIds` and `limit` remain. `kind` is new.  |
+| `message.content()` method and `message.nativeContent`                              | `message.content` property: a `MessageContent` union. Narrow with `content.kind`. Text uses `.value`; replies use `.referenceId` and `.body`; reactions use `.reaction`.      |
+| `message.contentTypeId` string such as `"xmtp.org/text:1.0"`                        | Optional `contentType: ContentTypeId` record. `content.kind` is usually enough.                                                                                               |
+| `sentNs`, `insertedAtNs`; V2 `sentAt: Date`, `sentAtNs`, `expiresAt`, `expiresAtNs` | `sentAt`, `insertedAt`, optional `expiresAt`, each a `Timestamp`.                                                                                                             |
+| `fallback`; V2 `fallbackText`                                                       | Optional `fallback`.                                                                                                                                                          |
+| `childMessages`; V2 `reactions`, `hasReactions`, `reactionCount`                    | `reactions: ReactionMessage[]`, with `id`, `senderInboxId`, `sentAt`, `deliveryStatus`, and `reaction`. Use `reactions.length` for a count.                                   |
+| No equivalent                                                                       | `replyCount: bigint`, `inReplyTo`, `conversationId`, `kind`, `rawBytes`, and `deliveryCursor`. `await message.parent()` reads the current parent.                             |
+| Decode error thrown from `content()` for an unregistered type                       | `"custom"` content keeps `encoded`, `rawBytes`, an optional decoded `value`, and an optional `error`. Malformed standard content is `"unknown"` with `rawBytes` and an error. |
+
+Before:
+
+```text title="Before (xmtp-react-native v5.7.0)"
+import type { Group } from "@xmtp/react-native-sdk";
+
+export async function read(group: Group) {
+  const messages = await group.enrichedMessages({
+    limit: 20,
+    afterNs: 0,
+    direction: "DESCENDING",
+  });
+  for (const message of messages) {
+    if (message.contentTypeId.typeId === "text") console.log(message.content());
+    console.log(message.sentAt, message.sentAtNs, message.reactionCount);
+  }
+}
+```
+
+After:
+
+```ts source="migration-react-native.ts" region="read"
+
+```
+
+New message actions are `refresh()`, `delete()`, `deleteLocally()`, `react(...)`,
+`reply(...)`, `parent()`, `conversation()`, and `client()`. A message's actions
+need its originating client to remain open. `await client.decodeContent(encoded)`
+decodes an envelope into the public content union.
+
+Some content records have new fields:
+
+| v5.7.0 payload                                                                                       | v8 payload                                                                                                                                                      |
+| ---------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GroupUpdatedContent.membersAdded`, `membersRemoved` with `{ inboxId }`, and `metadataFieldsChanged` | `GroupUpdated.addedInboxes`, `removedInboxes`, and `leftInboxes` contain inbox ID strings. `metadataFieldChanges` and the admin and super-admin arrays are new. |
+| Optional `DeleteMessageContent.messageId`                                                            | Required `messageId`.                                                                                                                                           |
+| Base64 string attachment `data`                                                                      | `content: Uint8Array`.                                                                                                                                          |
+| `RemoteAttachmentContent` with string `secret`, `salt`, `nonce`, and `contentLength`                 | `RemoteAttachment` with `Uint8Array` keys and a `number` `contentLength`. Build it with `client.attachments` or `remoteAttachmentFromEncrypted`.                |
+
+## Streams and live events
+
+Stream methods return a stream object at once. Iterate it, or register one
+callback with `onValue`. `await stream.ready()` waits for the local reader to
+open; it does not prove the backend is online. Close a stream with
+`await stream.end()`, rather than a `cancelStream*` method.
+
+| v5.7.0 call                                                                         | v8 call                                                                                                                 |
+| ----------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `conversations.stream(callback, type, onClose)`                                     | `conversations.stream({ conversationKind?, consentStates?, onClose? })`. Omit `conversationKind` for all conversations. |
+| `conversations.streamAllMessages(callback, type, consentStates, onClose)`           | `conversations.streamAllMessages({ conversationKind?, consentStates?, from?, onClose? })`.                              |
+| Type filter `"all"`, `"groups"`, `"dms"`                                            | Omit `conversationKind`, or use `"group"` or `"dm"`.                                                                    |
+| `group.streamMessages(callback, onClose)` returning an unsubscribe function         | `group.streamMessages(options?)` or `dm.streamMessages(options?)`, returning a `MessageStream`.                         |
+| `cancelStream()`, `cancelStreamAllMessages()`, the returned unsubscribe function    | `await stream.end()`.                                                                                                   |
+| `onClose()` with no reason                                                          | `onClose({ kind: "closed" })` or `onClose({ kind: "failed", error })`. `onConnectionStateChange` is new.                |
+| `conversations.streamMessageDeletions(callback)` / `cancelStreamMessageDeletions()` | `client.events({ kinds: ["message.deleted"] })`.                                                                        |
+| `preferences.streamConsent(callback)` / `cancelStreamConsent()`                     | `client.events({ kinds: ["consent.changed"] })`.                                                                        |
+| `preferences.streamPreferenceUpdates(callback)` / `cancelStreamPreferenceUpdates()` | `client.events({ kinds: ["hmac_keys.updated"] })`.                                                                      |
+
+Before:
+
+```text title="Before (xmtp-react-native v5.7.0)"
+import type { Client, DecodedMessage } from "@xmtp/react-native-sdk";
+
+export async function consume(
+  client: Client,
+  process: (message: DecodedMessage) => Promise<void>,
+) {
+  await client.conversations.streamAllMessages(
+    async (message) => await process(message),
+    "all",
+    ["allowed"],
+    () => console.log("closed"),
+  );
+  // Later:
+  client.conversations.cancelStreamAllMessages();
+}
+```
+
+After:
+
+```ts source="migration-react-native.ts" region="stream"
+
+```
+
+A next-item request acknowledges the previous message. Await all processing
+before the next request. `return()`, `end()`, and cancellation do not acknowledge
+the last item. Callback mode awaits the callback before it requests the next
+message. Do not also iterate a callback stream.
+
+```ts source="migration-react-native.ts" region="callback-stream"
+
+```
+
+Version 5.7.0 delivered only new traffic. A v8 message reader can deliver
+retained messages when it opens, then continue with new messages. Make app
+effects safe to repeat. Only one default message reader owns delivery progress
+for a database. A second default reader fails with `ConsumerOwned`. Use
+`options.from` for independent replay. For history followed by live delivery,
+use one snapshot boundary:
+
+```ts source="migration-react-native.ts" region="history-live"
+
+```
+
+```ts source="migration-react-native.ts" region="conversation-stream"
+
+```
+
+A live event subscription reports changes caused by sync, streams, workers, or
+app calls. It does not fetch messages. `await client.startListener(filter,
+callback)` returns a `bigint` listener ID; `await client.stopListener(id)` ends
+it. Handle `"lagged"` by reading current state again.
+
+```ts source="migration-react-native.ts" region="events"
+
+```
+
+The SDK suspends and resumes stream work with the native app lifecycle. Do not
+add an `AppState` listener that restarts SDK streams. See [Update ownership and
+background work](#update-ownership-and-background-work).
+
+## Consent, archives, attachments, and notifications
+
+Replace the consent entry type and separate value with one entity:
+
+| v5.7.0 consent API                                                 | v8 consent API                                                                                              |
+| ------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------- |
+| `new ConsentRecord(value, "inbox_id" \| "conversation_id", state)` | `{ entity: { kind: "inbox", inboxId } \| { kind: "conversation", conversationId }, state }`.                |
+| `preferences.setConsentState(record)`                              | `preferences.setConsentStates([record])`.                                                                   |
+| `preferences.setConsentStates(records)`                            | Same name, with the new record shape.                                                                       |
+| `preferences.inboxIdConsentState(id)`                              | `preferences.consentState({ kind: "inbox", inboxId })`.                                                     |
+| `preferences.conversationConsentState(id)`                         | `preferences.consentState({ kind: "conversation", conversationId })`, or the conversation's state snapshot. |
+| `preferences.sync()`, `preferences.syncConsent()`                  | `preferences.sync()`.                                                                                       |
+
+```ts source="migration-react-native.ts" region="consent"
+
+```
+
+Local archive operations moved from `Client` to `client.archives`:
+
+| v5.7.0 archive API                                                                  | v8 archive API                                                                                                                      |
+| ----------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `client.createArchive(path, key, opts?)`                                            | `client.archives.exportToFile(path, key, options): Promise<ArchiveMetadata>`. Pass `undefined` for default options.                 |
+| `client.importArchive(path, key)`                                                   | `client.archives.importFromFile(path, key)`.                                                                                        |
+| `client.archiveMetadata(path, key)`                                                 | `client.archives.metadataFromFile(path, key)`.                                                                                      |
+| No equivalent                                                                       | `exportToBytes(key, options)`, `importFromBytes(data, key)`, and `metadataFromBytes(data, key)`.                                    |
+| `ArchiveOptions.archiveElements`, `startNs`, `endNs`, `excludeDisappearingMessages` | `elements`, `start`, `end`, and `excludeDisappearingMessages`. Times are `Timestamp` values. Omitted `elements` selects both kinds. |
+| `ArchiveMetadata.archiveVersion`, `exportedAtNs`, `startNs`, `endNs`                | `backupVersion`, `exportedAt`, `start`, and `end`.                                                                                  |
+| `sendSyncRequest`, `sendSyncArchive`, `processSyncArchive`, `listAvailableArchives` | Removed. No history server transfers archives. `syncAllDeviceSyncGroups()` remains.                                                 |
+
+```ts source="migration-react-native.ts" region="archives"
+
+```
+
+Pass a path in app-accessible storage, such as the app's document directory.
+Archive keys still require exactly 32 bytes. These APIs do not restore active
+conversations on another backend. Follow [the history migration
+limits](/get-started/migrate-to-self-hosted/#keeping-history).
+
+Version 5.7.0 encrypted a `file://` URI and left upload to the app. When the
+deployment offers attachment storage, v8 stages, uploads, and downloads native
+files through `client.attachments`:
+
+| v5.7.0 helper or result                                                            | v8 helper or result                                                                                                                                                 |
+| ---------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `client.encryptAttachment({ fileUri, mimeType, filename })`, then app upload       | `client.attachments.create({ kind: "path", path, filename, mimeType })` returns a `PendingAttachment`. Await `upload()`, then send its `remoteAttachment`.          |
+| `send({ remoteAttachment: { ...metadata, scheme: "https://", url } })`             | `sendRemoteAttachment(pending.remoteAttachment)`.                                                                                                                   |
+| App download, then `client.decryptAttachment({ encryptedLocalFileUri, metadata })` | `client.attachments.download(remote)` returns `{ path, mimeType?, filename? }`.                                                                                     |
+| `file://` URIs                                                                     | Native file paths.                                                                                                                                                  |
+| No equivalent                                                                      | `status()`, `pending(remote)`, `listPending()`, `localPath(remote)`, `listLocal()`, and `deleteLocal(remote)`. A failed upload or download needs an explicit retry. |
+
+Before:
+
+```text title="Before (xmtp-react-native v5.7.0)"
+import type { Client, Group } from "@xmtp/react-native-sdk";
+
+export async function sendFile(
+  client: Client,
+  group: Group,
+  fileUri: string,
+  upload: (encryptedFileUri: string) => Promise<string>,
+) {
+  const encrypted = await client.encryptAttachment({
+    fileUri,
+    mimeType: "image/jpeg",
+    filename: "photo.jpg",
+  });
+  const url = await upload(encrypted.encryptedLocalFileUri);
+  await group.send({
+    remoteAttachment: { ...encrypted.metadata, scheme: "https://", url },
+  });
+}
+```
+
+After:
+
+```ts source="migration-react-native.ts" region="attachment"
+
+```
+
+If the app keeps its own file host, encrypt the attachment envelope in the app.
+`encryptFile(input, output)` and `decryptFile(input, output, keys)` also work on
+native file paths.
+
+```ts source="migration-react-native.ts" region="attachment-crypto"
+
+```
+
+Replace the push server, topic subscriptions, and HMAC-key filtering with the
+SDK's notification API. The app still obtains OS permission and the APNs or FCM
+token:
+
+| v5.7.0 push API                                                    | v8 push API                                                                                                                            |
+| ------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `XMTPPush.register(server, token)`                                 | `client.enableNotifications({ channel: { kind: "apns" \| "fcm", token } })`. The backend delivers pushes; there is no push server URL. |
+| `new XMTPPush(client).subscribe(topics)` with `getAllPushTopics()` | Removed. The SDK maintains subscriptions while its task runner runs.                                                                   |
+| `getHmacKeys()` for self-push filtering                            | Not needed for registration. `conversations.hmacKeys()` and `conversation.hmacKeys()` still return the keys.                           |
+| No per-conversation control                                        | `conversation.setNotifications("enabled" \| "disabled" \| "default")`. Read `notificationsEnabled` from group `.common` or DM state.   |
+| No equivalent                                                      | `client.notificationState()` and `client.disableNotifications()`.                                                                      |
+
+```ts source="migration-react-native.ts" region="notifications"
+
+```
+
+Call `enableNotifications` again when the provider token changes. Re-register
+after migration; old push-server registrations are not imported. Push payloads
+carry a base64 binary `topic` and decimal-string `sequence_id`, with no message
+bytes. Rewrite native handlers to sync and read local messages. See [Push
+notifications](/sdk/push-notifications/).
 
 ## Convert closed legacy history to an archive
 
@@ -93,6 +789,44 @@ See [Backups](/sdk/backups/) and the
 [migration overview](/get-started/migrate-to-self-hosted/#keeping-history) for conversion errors,
 archive limits, and restoration behavior.
 
+## React helpers
+
+The React helpers moved to the `/react` entry and now own a client lifetime.
+
+| v5.7.0 helper                                                       | v8 helper                                                                                                                          |
+| ------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `XmtpProvider`, `XmtpContext`, `useXmtp`, `useClient` from the root | The same names from `@xmtp/react-native-sdk/react`.                                                                                |
+| `useXmtp()` returning `{ client, setClient }`                       | `useXmtp()` returning `{ client, error, isLoading, initialize, disconnect }`. It throws outside `XmtpProvider`.                    |
+| `setClient(client)`                                                 | Removed. Pass a caller-owned client as the provider's `client` prop.                                                               |
+| `useClient(onError?)` with `initialize({ signer, options })`        | Same shape. `signer` is required, `options` use the v8 shape, and calls made while initialization is pending share that operation. |
+| `disconnect()` that only cleared context                            | `disconnect()` cancels pending initialization and releases a client the provider created.                                          |
+| Generic `useClient<ContentTypes>()`                                 | Not generic.                                                                                                                       |
+
+Before:
+
+```text title="Before (xmtp-react-native v5.7.0)"
+import { useClient, type Signer } from "@xmtp/react-native-sdk";
+
+export function useMessaging(signer: Signer, dbEncryptionKey: Uint8Array) {
+  const { client, initialize, disconnect } = useClient();
+  return {
+    client,
+    connect: () =>
+      initialize({ signer, options: { env: "production", dbEncryptionKey } }),
+    disconnect,
+  };
+}
+```
+
+After:
+
+```ts source="react-native-react.ts" region="initialize"
+
+```
+
+See [Optional React helpers](/get-started/react-native/#optional-react-helpers)
+for provider ownership and cancellation rules.
+
 ## Update ownership and background work
 
 The provider releases clients it creates and preserves caller-owned clients
@@ -106,3 +840,49 @@ listener cannot cover native cold starts or work after runtime teardown.
 Background push and iOS extensions require native OS integration, bounded sync,
 and coordinated access to app storage. See [Push
 notifications](/sdk/push-notifications/) before shipping the receiver.
+
+## Diagnostics, logging, errors, and removals
+
+| v5.7.0 API                                                                                         | v8 API                                                                                                                                                                                                                                                                                                                                                                                            |
+| -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `client.debugInformation.getNetworkDebugInformation()`                                             | `client.diagnostics.apiStatistics()`, `identityStatistics()`, and `aggregateStatistics()`.                                                                                                                                                                                                                                                                                                        |
+| `client.debugInformation.clearAllStatistics()`                                                     | `client.diagnostics.clearStatistics()`.                                                                                                                                                                                                                                                                                                                                                           |
+| `ApiStatistics` counters for key packages, group messages, and welcomes                            | `ApiStats` counters `publish`, `query`, `queryNewest`, `subscribe`, and `subscribeStatic`, as `bigint`.                                                                                                                                                                                                                                                                                           |
+| `IdentityStatistics.publishIdentityUpdate`, `getIdentityUpdatesV2`                                 | Removed. `getInboxIds` remains. `verifySmartContractWalletSignature` becomes `verifySmartContractWalletSignatures`.                                                                                                                                                                                                                                                                               |
+| `Client.activatePersistentLibXMTPLogWriter(level, rotation, maxFiles)`                             | `enterDebugWriter(directory, rotation, maxFiles, level, processType)`. The app chooses the directory. Values are strings such as `"daily"` and `"debug"`.                                                                                                                                                                                                                                         |
+| `Client.deactivatePersistentLibXMTPLogWriter()`                                                    | `exitDebugWriter()`.                                                                                                                                                                                                                                                                                                                                                                              |
+| `isLogWriterActive`, `getXMTPLogFilePaths`, `readXMTPLogFile`, `clearXMTPLogs`, `exportNativeLogs` | Removed. Read, share, or delete files in the writer directory from app code.                                                                                                                                                                                                                                                                                                                      |
+| Numeric `LogLevel` and `LogRotation` enums                                                         | `LogLevel` `"off"`, `"error"`, `"warn"`, `"info"`, `"debug"`, `"trace"`; `LogRotation` `"minutely"`, `"hourly"`, `"daily"`, `"never"`.                                                                                                                                                                                                                                                            |
+| No equivalent                                                                                      | `initLogging(options)`, `setLogSink(sink)`, and `flushTelemetry()`.                                                                                                                                                                                                                                                                                                                               |
+| Errors as rejected strings or plain `Error` values                                                 | `XmtpError` and its subclasses, such as `XmtpError.ClientClosed`. Inspect `details.code`, `category`, `retryable`, and optional `streamFailure`. A database written in an older, unsupported format is an `XmtpError.Storage` whose code is `StorageError::PreTransitionDatabase`, `StorageError::OldStreamDatabase`, `StorageError::OldEncodingDatabase` or `StorageError::LegacyGroupDatabase`. |
+| No equivalent                                                                                      | `suspendStreams()` and `resumeStreams()` act on shared process streams. `sdkVersion()` returns the library version without a client.                                                                                                                                                                                                                                                              |
+
+```ts source="migration-react-native.ts" region="diagnostics"
+
+```
+
+```ts source="migration-react-native.ts" region="logging"
+
+```
+
+```ts source="migration-react-native.ts" region="debug-writer"
+
+```
+
+```ts source="migration-react-native.ts" region="errors"
+
+```
+
+A `PublishedButUnconfirmed` failure means the backend accepted the publish but
+local confirmation did not complete. Sync and inspect the result before you send
+again. `ConfigurationUnavailable`, `BackendMismatch`, `ClientVersionTooOld`,
+`AuthRequired`, `ConsumerOwned`, and `InvalidCursor` are other new failures.
+
+End the client after its consumers stop:
+
+```ts source="migration-react-native.ts" region="close"
+
+```
+
+For the complete current signatures, use the [React Native
+reference](/reference/react-native-sdk/).

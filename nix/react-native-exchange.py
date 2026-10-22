@@ -4,6 +4,10 @@
 The checkout determines expected product paths. The ephemeral key authenticates
 transport bytes; the same-run workflow and its source determine their authority.
 PR imports stay in CI jobs. Trusted writers accept only their own main run.
+Jobs with a Cachix token skip the exchange and substitute instead; `roots`
+prints the declared products for them. `--kind test` selects the stages of
+the partial CI test package, and `--kind test-android` those of the same
+package without iOS (the Android smoke).
 """
 
 import argparse
@@ -26,11 +30,19 @@ def run(*args, **kwargs):
     return subprocess.run(args, check=True, **kwargs)
 
 
-def roots(system, stage, version=None):
+# Both kinds expose link farms whose passthru.members are the stage roots.
+STAGES = {
+    "release": "ciStages.{system}",
+    "test": "legacyPackages.{system}.reactNative.testStages",
+    "test-android": "legacyPackages.{system}.reactNative.androidTestStages",
+}
+
+
+def roots(system, stage, version=None, kind="release"):
     if version is not None:
-        if stage != "package" or system != "x86_64-linux":
+        if stage != "package" or system != "x86_64-linux" or kind != "release":
             raise ValueError(
-                "a release version applies only to the Linux package stage"
+                "a release version applies only to the Linux release package stage"
             )
         result = run(
             "nix",
@@ -47,7 +59,7 @@ def roots(system, stage, version=None):
             "nix",
             "eval",
             "--json",
-            f".#ciStages.{system}.{stage}",
+            f".#{STAGES[kind].format(system=system)}.{stage}",
             "--apply",
             "set: builtins.mapAttrs (_: drv: drv.outPath) set.passthru.members",
             stdout=subprocess.PIPE,
@@ -130,18 +142,24 @@ def validate_cache(cache, closure, expected_files):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=["export", "import"])
+    parser.add_argument("command", choices=["export", "import", "roots"])
     parser.add_argument(
         "--system", required=True, choices=["x86_64-linux", "aarch64-darwin"]
     )
     parser.add_argument("--stage", required=True, choices=["components", "package"])
-    parser.add_argument("--directory", type=Path, required=True)
+    parser.add_argument("--directory", type=Path)
     parser.add_argument(
         "--version",
         help="release workflow package version; native components are unchanged",
     )
+    parser.add_argument("--kind", choices=sorted(STAGES), default="release")
     args = parser.parse_args()
-    expected = roots(args.system, args.stage, args.version)
+    expected = roots(args.system, args.stage, args.version, args.kind)
+    if args.command == "roots":
+        print(json.dumps(expected, sort_keys=True))
+        return
+    if args.directory is None:
+        parser.error(f"{args.command} needs --directory")
     directory = args.directory.resolve()
     cache = directory / "cache"
     cache_uri = cache.as_uri()
@@ -179,7 +197,16 @@ def main():
                 "nix",
                 "copy",
                 "--to",
-                cache_uri + "?" + urlencode({"secret-key": str(private_key)}),
+                # Nix defaults to single-threaded xz for file:// caches.
+                cache_uri
+                + "?"
+                + urlencode(
+                    {
+                        "secret-key": str(private_key),
+                        "compression": "zstd",
+                        "parallel-compression": "true",
+                    }
+                ),
                 *expected.values(),
             )
         files = inventory(cache)

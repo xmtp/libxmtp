@@ -80,8 +80,9 @@ impl HmacKey {
     }
 }
 
-impl From<xmtp_db::user_preferences::HmacKey> for HmacKey {
-    fn from(value: xmtp_db::user_preferences::HmacKey) -> Self {
+/// The returned key is a deliberate export: the app owns that copy.
+impl From<&xmtp_db::user_preferences::HmacKey> for HmacKey {
+    fn from(value: &xmtp_db::user_preferences::HmacKey) -> Self {
         Self {
             key: value.key.to_vec(),
             epoch: value.epoch,
@@ -122,7 +123,6 @@ pub enum MlsExtensionType {
     ExternalPub,
     ExternalSenders,
     LastResort,
-    ImmutableMetadata,
     AppDataDictionary,
     Unknown { id: u16 },
     Grease { id: u16 },
@@ -138,7 +138,6 @@ impl From<xmtp_mls::groups::MlsExtensionType> for MlsExtensionType {
             Core::ExternalPub => Self::ExternalPub,
             Core::ExternalSenders => Self::ExternalSenders,
             Core::LastResort => Self::LastResort,
-            Core::ImmutableMetadata => Self::ImmutableMetadata,
             Core::AppDataDictionary => Self::AppDataDictionary,
             Core::Unknown(id) => Self::Unknown { id },
             Core::Grease(id) => Self::Grease { id },
@@ -617,4 +616,25 @@ fn hmac_key_diagnostics_do_not_disclose_key_bytes() {
     );
     assert_eq!(key.key, bytes);
     assert_eq!(key.epoch, 17);
+}
+
+/// Each core extension type keeps its id through the SDK record. 0xf000 is the
+/// fork's former `ImmutableMetadata` and reaches hosts as `unknown(id: 61440)`.
+#[cfg(test)]
+#[xmtp_common::test]
+fn mls_extension_types_keep_their_ids() {
+    use xmtp_mls::groups::MlsExtensionType as Core;
+
+    assert!(matches!(
+        MlsExtensionType::from(Core::Unknown(0xf000)),
+        MlsExtensionType::Unknown { id: 0xf000 }
+    ));
+    assert!(matches!(
+        MlsExtensionType::from(Core::Grease(0x0a0a)),
+        MlsExtensionType::Grease { id: 0x0a0a }
+    ));
+    assert!(matches!(
+        MlsExtensionType::from(Core::AppDataDictionary),
+        MlsExtensionType::AppDataDictionary
+    ));
 }

@@ -1,12 +1,13 @@
 use super::*;
 
 fn webhook(url: &str, signing_key: Vec<u8>) -> api::RegisterRequest {
-    api::RegisterRequest {
-        delivery: Some(api::register_request::Delivery::Http(api::HttpDelivery {
+    {
+        let mut request = registration();
+        request.delivery = Some(api::register_request::Delivery::Http(api::HttpDelivery {
             url: url.into(),
             signing_key,
-        })),
-        ..registration()
+        }));
+        request
     }
 }
 
@@ -23,10 +24,11 @@ async fn ownership_checks_precede_payload_checks_on_each_method() {
     ] {
         status(
             client
-                .register(api::RegisterRequest {
-                    recipient_id: id.clone(),
-                    recipient_secret: secret.clone(),
-                    ..registration()
+                .register({
+                    let mut request = registration();
+                    request.recipient_id = id.clone();
+                    request.recipient_secret = secret.clone();
+                    request
                 })
                 .await
                 .unwrap_err(),
@@ -119,9 +121,10 @@ async fn delivery_checks_follow_channel_url_and_key_order() {
     ] {
         status(
             client
-                .register(api::RegisterRequest {
-                    delivery: Some(delivery),
-                    ..registration()
+                .register({
+                    let mut request = registration();
+                    request.delivery = Some(delivery);
+                    request
                 })
                 .await
                 .unwrap_err(),
@@ -164,11 +167,12 @@ async fn delivery_checks_follow_channel_url_and_key_order() {
         "a".repeat(MAX_DELIVERY_CHARACTERS + 1),
         "a\0b".into(),
     ] {
-        let request = api::RegisterRequest {
-            delivery: Some(api::register_request::Delivery::Fcm(api::FcmDelivery {
+        let request = {
+            let mut request = registration();
+            request.delivery = Some(api::register_request::Delivery::Fcm(api::FcmDelivery {
                 token,
-            })),
-            ..registration()
+            }));
+            request
         };
         status(
             client.register(request).await.unwrap_err(),
@@ -178,9 +182,10 @@ async fn delivery_checks_follow_channel_url_and_key_order() {
     }
     status(
         client
-            .register(api::RegisterRequest {
-                delivery: None,
-                ..registration()
+            .register({
+                let mut request = registration();
+                request.delivery = None;
+                request
             })
             .await
             .unwrap_err(),
@@ -206,7 +211,7 @@ async fn every_subscription_shape_failure_leaves_the_recipient_unchanged() {
     let original = server
         .backend
         .store
-        .load_recipient(&registration().recipient_id)
+        .load_recipient(&registration().recipient_id.clone())
         .await?
         .unwrap()
         .renewed_ns;
@@ -215,6 +220,7 @@ async fn every_subscription_shape_failure_leaves_the_recipient_unchanged() {
         vec![],
         vec![0],
         vec![0; 16],
+        vec![0; 17],
         vec![0; 18],
         vec![1; 32],
         vec![1; 34],
@@ -222,9 +228,10 @@ async fn every_subscription_shape_failure_leaves_the_recipient_unchanged() {
         vec![255; 33],
     ] {
         invalid.push(update(
-            vec![api::Subscription {
-                topic,
-                ..subscription(2, 0)
+            vec![{
+                let mut request = subscription(2, 0);
+                request.topic = topic;
+                request
             }],
             vec![],
         ));
@@ -232,30 +239,40 @@ async fn every_subscription_shape_failure_leaves_the_recipient_unchanged() {
     invalid.push(update(vec![subscription(2, 4)], vec![]));
     for length in [0, 41, 43] {
         invalid.push(update(
-            vec![api::Subscription {
-                hmac_keys: vec![vec![0; length]],
-                ..subscription(2, 0)
+            vec![{
+                let mut request = subscription(2, 0);
+                request.hmac_keys = vec![vec![0; length]];
+                request
             }],
             vec![],
         ));
     }
     invalid.push(update(
-        vec![api::Subscription {
-            hmac_epoch_base: -1,
-            ..subscription(2, 0)
+        vec![{
+            let mut request = subscription(2, 0);
+            request.hmac_epoch_base = -1;
+            request
         }],
         vec![],
     ));
     invalid.push(update(vec![subscription(2, 0), subscription(2, 0)], vec![]));
     invalid.push(update(
         vec![],
-        vec![subscription(1, 0).topic, subscription(1, 0).topic],
+        vec![
+            subscription(1, 0).topic.clone(),
+            subscription(1, 0).topic.clone(),
+        ],
     ));
     invalid.push(update(
         vec![subscription(1, 0)],
-        vec![subscription(1, 0).topic],
+        vec![subscription(1, 0).topic.clone()],
     ));
     invalid.push(update(vec![], vec![vec![2; 33]]));
+    // A legacy 16-byte group id names no topic.
+    invalid.push(update(
+        vec![],
+        vec![TopicKind::GroupMessagesV1.create([1; 16]).to_vec()],
+    ));
     for request in invalid {
         status(
             client.update_subscriptions(request).await.unwrap_err(),
@@ -267,7 +284,7 @@ async fn every_subscription_shape_failure_leaves_the_recipient_unchanged() {
             server
                 .backend
                 .store
-                .load_recipient(&registration().recipient_id)
+                .load_recipient(&registration().recipient_id.clone())
                 .await?
                 .unwrap()
                 .renewed_ns,
@@ -276,11 +293,12 @@ async fn every_subscription_shape_failure_leaves_the_recipient_unchanged() {
     }
     client
         .update_subscriptions(update(
-            vec![api::Subscription {
-                topic: TopicKind::WelcomeMessagesV1.create([7; 32]).to_vec(),
-                ..Default::default()
+            vec![{
+                let mut request = api::Subscription::default();
+                request.topic = TopicKind::WelcomeMessagesV1.create([7; 32]).to_vec();
+                request
             }],
-            vec![subscription(1, 0).topic],
+            vec![subscription(1, 0).topic.clone()],
         ))
         .await?;
     assert_count(&server, 1).await;

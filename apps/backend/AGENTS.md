@@ -12,9 +12,9 @@ dev/nix-shell 'just backend db-up'                     # primary and replica; no
 dev/nix-shell 'just backend s3-up'                     # local S3 target and bucket setup; no image build
 dev/nix-shell 'just backend sql-prepare'               # apply migrations and update .sqlx
 dev/nix-shell 'just backend sql-check'                 # verify committed .sqlx
-dev/nix-shell 'just backend schema'                    # regenerate public config schema
+dev/nix-shell 'just backend schema'                    # regenerate public config schema (builds xmtp_backend_config only)
 dev/nix-shell 'just backend test'
-dev/nix-shell 'just backend test --lib config'         # one module
+dev/nix-shell 'just backend test --lib published'      # one module
 dev/nix-shell 'just backend test --lib https_passthrough' # HTTPS streaming ingress check
 nix build --no-link .#backend-tests.<system>          # tests and SQL check, disposable services, no Docker
 dev/nix-shell 'just backend image'                     # host architecture image
@@ -70,6 +70,14 @@ database. Backend startup handles migration visibility after that connection.
 Replica tests that pause replay use `test_support::replica::with_paused_replay`
 under the replay mutex. Run this suite with `cargo test`; that mutex is process-local.
 Use a total deadline for stream termination, not a new deadline for each frame.
+
+The configuration file's types, defaults, and checks live in
+`crates/xmtp_backend_config`, re-exported here as `xmtp_backend::config`; its
+tests run with `dev/nix-shell 'just test crate xmtp_backend_config'`. The
+backend keeps what turns configuration into behaviour: the published
+`GetConfiguration` response and its size check (`src/published.rs`), inline
+signing-key parsing (`src/auth/keys.rs`), and the clock checks in
+`server::initialize`.
 
 Add a new versioned file in `apps/backend/migrations/` for each schema change.
 Do not edit existing migrations. Startup never deletes a database.

@@ -117,7 +117,7 @@ use xmtp_proto::xmtp::mls::{
     message_contents::{
         GroupUpdated, PlaintextEnvelope, WelcomeMetadata, WelcomePointer as WelcomePointerProto,
         group_updated,
-        plaintext_envelope::{Content, V1, V2},
+        plaintext_envelope::{Content, V2},
     },
 };
 use xmtp_proto::{
@@ -257,7 +257,7 @@ pub enum GroupMessageProcessingError {
     IntentAlreadyProcessed,
     #[error("message with cursor [{}] for group [{}] already processed", _0.cursor, xmtp_common::fmt::debug_hex(_0.group_id)
     )]
-    MessageAlreadyProcessed(MessageIdentifier),
+    MessageAlreadyProcessed(Box<MessageIdentifier>),
     #[error("message identifier not found")]
     MessageIdentifierNotFound,
     #[error("welcome with cursor [{0}] already processed")]
@@ -789,6 +789,62 @@ pub(crate) mod tests {
         assert_eq!(hmac_keys[0].epoch, current_epoch - 1);
         assert_eq!(hmac_keys[1].epoch, current_epoch);
         assert_eq!(hmac_keys[2].epoch, current_epoch + 1);
+    }
+
+    /// A fixed root key, group id and epoch derive the same key and sender
+    /// HMAC as before the derivation buffers were made zeroizing. The bytes
+    /// were recorded from the code at `50b83f6316` and match an independent
+    /// RFC 5869 HKDF-SHA256 and RFC 2104 HMAC-SHA256 computation.
+    // verifies: PUSH-258
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn hmac_derivation_matches_known_answer() {
+        use crate::tester;
+        use xmtp_db::{group::ConversationType, user_preferences::StoredUserPreferences};
+
+        const ROOT_KEY: &str =
+            "0b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186abd0f51a3f6489aed3f8";
+        const GROUP_ID: &str = "a0a1a2a3a4a5a6a7a8a9aaabacadaeaf";
+        const EPOCH: i64 = 678;
+        const PAYLOAD: &[u8] = b"PUSH-258 known answer";
+        const DERIVED_KEY: &str =
+            "6468ea9126760f346449c020e4bd094ddea2103e6aafe3e5d66cc862e92b32799965df39f5fefaab55b7";
+        const SENDER_HMAC: &str =
+            "673228bd6e2b8ee58e74e708f4cfebdec70658703cf5a9a782f2acac9354ebf2";
+
+        tester!(alix, disable_workers);
+        let db = alix.context.db();
+        StoredUserPreferences::store_hmac_key(&db, &hex::decode(ROOT_KEY)?, None)?;
+        let group = MlsGroup::new(
+            alix.context.clone(),
+            GroupId::try_from(hex::decode(GROUP_ID)?.as_slice())?,
+            None,
+            ConversationType::Group,
+            0,
+        );
+
+        // The epoch comes from the clock, so ask for the fixed one by its delta.
+        let delta = EPOCH - hmac_epoch();
+        let keys = group.hmac_keys_in(&db, delta..=delta)?;
+        assert_eq!(keys.len(), 1);
+        assert_eq!(keys[0].epoch, EPOCH);
+        assert_eq!(hex::encode(keys[0].key), DERIVED_KEY);
+
+        // Any group keys: the sender HMAC does not depend on the signature.
+        let group_keys = xmtp_mls_common::group_keys::GroupKeys::derive(
+            &xmtp_mls_common::group_keys::GroupRoot::from_bytes(&[7; 32])?,
+        );
+        let envelopes =
+            post_commit::group_message_envelopes(&keys[0], &group_keys, vec![(PAYLOAD, true)])?;
+        let [
+            ClientEnvelope {
+                payload: Some(Payload::GroupMessage(message)),
+            },
+        ] = envelopes.as_slice()
+        else {
+            panic!("expected one group message envelope, got {envelopes:?}");
+        };
+        assert_eq!(message.data, PAYLOAD);
+        assert_eq!(hex::encode(&message.sender_hmac), SENDER_HMAC);
     }
 
     /// Test that process_delete_message handles completely malformed bytes gracefully

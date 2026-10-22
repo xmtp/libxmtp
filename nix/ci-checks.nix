@@ -8,13 +8,12 @@
 #     its slices. Each slice starts the test services (nix/services) inside
 #     the build on the fixed port block 20000-20099 and holds a machine-wide
 #     lock; test-wasm.yml builds them with no Docker stack.
-#   - cargo-clippy: per-crate clippy gates (currently just `xdbg`) that the
-#     existing workspace-wide lint job skips because their crates aren't in
-#     `default-members`. They build fine in the standard sandbox; they live
-#     here so the per-PR workflows (e.g. test-xdbg.yml) can target them
-#     explicitly.
+#   - cargo-clippy: per-crate clippy gates (xdbg and keepalive-probe) that
+#     the workspace-wide lint job skips because their crates aren't in
+#     `default-members`. They build fine in the standard sandbox;
+#     test-nix-checks.yml builds them.
 #   - backend-tests: the backend test suite with the storage services
-#     (nix/services). It runs in the standard sandbox; test-backend.yml
+#     (nix/services). It runs in the standard sandbox; test-nix-checks.yml
 #     builds it.
 { lib, withSystem, ... }:
 let
@@ -37,6 +36,35 @@ let
     );
 in
 {
+  flake.node-runtime-dependencies = lib.genAttrs systems (
+    system:
+    withSystem system (
+      { pkgs, self', ... }:
+      pkgs.linkFarm "node-runtime-dependencies" (
+        [
+          {
+            name = "node24";
+            path = pkgs.xmtp.nodejs-slim_24.passthru.tests.dependencies;
+          }
+          {
+            name = "node26";
+            path = pkgs.xmtp.nodejs-slim_26.passthru.tests.dependencies;
+          }
+          {
+            name = "consumers";
+            path = pkgs.xmtp.nodeRuntimeChecks;
+          }
+        ]
+        ++ lib.optional (system == "x86_64-linux") {
+          name = "react-native-publish";
+          path = pkgs.callPackage ./lib/check-react-native-publish.nix {
+            sdkBuildPhase = self'.packages.xmtp-sdk-react-native-js.buildPhase;
+          };
+        }
+      )
+    )
+  );
+
   flake.nextest = lib.genAttrs systems (
     system:
     withSystem system (

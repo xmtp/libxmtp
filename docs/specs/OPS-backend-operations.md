@@ -18,12 +18,12 @@ flowchart LR
 
 In scope: what the backend may and may not delete, and what a client does not do with an expiry; the startup checks on retention and envelope size that keep every stored envelope deliverable; the health protocol and when `SERVING` is reported; what a client observes during shutdown; which reads may answer from a lagged copy and what they still guarantee; the request id, trace context, deployment identity, the telemetry startup checks, the metric families with their label vocabularies, the operator-facing span names, the request completion log, and what telemetry never contains.
 
-Out of scope: platform and deployment choices such as the database engine, the process model, read routing between database instances, and instance affinity, which live in the backend's module README; per-RPC contracts, ordering, publish atomicity, the envelope metadata including the expiry formula, and the status codes (`API`); the retention and drain values and the telemetry keys (`CONF` and the backend's documentation); credentials (`AUTH`); push delivery and its dispatcher ([PUSH section 5](PUSH-push-subscriptions.md#5-dispatch)); and what a client does with a received envelope ([PROC](PROC-message-processing.md)).
+Out of scope: platform and deployment choices such as the database engine, the process model, read routing between database instances, and instance affinity, which live in the backend's module README; per-RPC contracts, ordering, publish atomicity, the envelope metadata including the expiry formula, and the status codes (`API`); the configuration keys that hold the retention periods, the drain deadline, and the telemetry settings, with their types and checks other than OPS-020, OPS-021, and OPS-022 (CONF section 1.2); credentials (`AUTH`); push delivery and its dispatcher ([PUSH section 5](PUSH-push-subscriptions.md#5-dispatch)); and what a client does with a received envelope ([PROC](PROC-message-processing.md)).
 
 | Related | Relation |
 | --- | --- |
 | `API` | Owns the expiry formula and every other metadata field (API-212), the per-topic prefix every read returns (API-201), and read-your-writes on `Query` (API-202). This spec owns what happens after an expiry passes and which reads may lag. |
-| `CONF` | Owns the retention values (CONF-069, section 3), the request and response budgets (CONF-008), and the deployment identifier (CONF-002) this spec carries into telemetry. |
+| `CONF` | Owns the retention values (CONF-069, section 3), the request and response budgets (CONF-008), and the deployment identifier (CONF-002) this spec carries into telemetry. It also owns the configuration keys, with their types and checks other than OPS-020, OPS-021, and OPS-022 (section 1.2). |
 | `AUTH` | Owns admission, which runs before the drain admission of section 3, and the auth rejection reasons that label `xmtp_auth_rejections_total`; triggers the drain when its key set goes stale (AUTH-019). |
 | [PUSH section 5](PUSH-push-subscriptions.md#5-dispatch) | Owns push dispatch and recipient expiry (PUSH-226). This spec lists the push metric families only. |
 
@@ -182,6 +182,8 @@ The span catalogue names the operation spans an operator measures: the request s
 ## Known limitations
 
 No envelope is deleted after its expiry today. `expiry_ns` is set under API-212 and OPS-001 and OPS-002 hold, but a row past its expiry stays readable for as long as the database keeps it, and an operator bounds storage outside the backend.
+
+A deletion of expired envelopes would let anyone who saved a signed group message from a topic of kind `0x00` publish it again as a new envelope, because the signature never expires and the duplicate check needs the stored row. A design that deletes such envelopes keeps the topic and `message_hash` of each one it deletes, and refuses a publish that matches them.
 
 `SERVING` reports that the instance can take requests, not that any client can reach it or that a message it accepted was delivered. A balancer's health check and an end-to-end probe measure different things.
 

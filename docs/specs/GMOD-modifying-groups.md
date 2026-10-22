@@ -21,9 +21,9 @@ flowchart LR
 
 ## Scope
 
-In scope: the proposal types and senders a client accepts; the membership component and the rule for writing it; how a commit's leaf changes are checked against identity state; how a change is published, read back, and applied; the order and outcome of the checks on a received commit; commit validation against the protocol-version floor; committing another member's proposals; keeping installations current; and leaving a group.
+In scope: the proposal types and senders a client accepts; the membership component and the rule for writing it; how a commit's leaf changes are checked against identity state; how a change is published, read back, and applied; the order and outcome of the checks on a received commit; commit validation against the protocol-version floor; committing another member's proposals; keeping installations current; leaving a group; and group id generation, the group root, and the keys derived from it.
 
-Out of scope: which member may make a given change (`PERM`), component identifiers, encodings, byte limits, and update ordering (`META`), joining and what a Welcome carries (`JOIN`), the association log and exact association state (IDENT-070 and IDENT-071), fork detection, the commit log, and re-add requests (`FORK`), ordered processing and positions (`PROC`), application-message publication (`SEND`), leave-request encoding (CTYPE-014), and consent after rejoin (CONS-025).
+Out of scope: which member may make a given change (`PERM`), component identifiers, encodings, byte limits, and update ordering (`META`), joining and what a Welcome carries (`JOIN`), the association log and exact association state (IDENT-070 and IDENT-071), fork detection, the commit log's use of those keys, and re-add requests (`FORK`), ordered processing and positions (`PROC`), application-message publication (`SEND`), leave-request encoding (CTYPE-014), and consent after rejoin (CONS-025).
 
 | Related | Relation |
 | --- | --- |
@@ -62,7 +62,18 @@ MLS defines the proposal types a commit can carry ([RFC 9420 §12.1](https://www
 | `update` | Replaces the proposer's own leaf node. |
 | `app_data_update` | Writes one component of the dictionary. |
 
-A group is named by its MLS `group_id`, which the creator chooses when it creates the group and which never changes. TOPIC-001 derives the group's message topic from it, so its length is fixed by the topic layout and its value has to be one no other group carries.
+A group is named by its MLS `group_id`, which never changes. TOPIC-001 derives the group's message topic from it. A group's id is the Ed25519 public key of its group signing key. That key is derived from a 32-byte group root, which the creator draws. The root reaches every installation a commit adds inside the Welcome's group context (META section 4). The backend admits a publish to the group's message topic only under a signature by that key (API-230, API-300), so only an installation that holds the root can publish there. A group whose id is 16 bytes is a legacy group, known only from imported archives: its id is random, no installation holds a key for it, and no topic carries it (TOPIC-002).
+
+Each key in the group key table below is derived from the root, one key per use. Each is HKDF-Expand(HKDF-Extract(salt, root), info, 32) under [RFC 5869](https://www.rfc-editor.org/rfc/rfc5869) with SHA-256, where salt is the UTF-8 bytes `xmtp group root`.
+
+The group key table:
+
+| Key | `info` (UTF-8) | Use |
+| --- | --- | --- |
+| Group signing key | `xmtp group signing key` | Ed25519 private key ([RFC 8032 §5.1.5](https://www.rfc-editor.org/rfc/rfc8032#section-5.1.5)); its public key is the group id; signs `GroupMessageTBS` (API section 3.1) |
+| Commit-log signing key | `xmtp commit log signing key` | Ed25519 private key; its public key is the commit-log id; signs `CommitLogEntryTBS` (API section 3.1) |
+| Commit-log encryption key | `xmtp commit log encryption key` | ChaCha20-Poly1305 key for commit-log entries (FORK-074) |
+| Commit-log nonce key | `xmtp commit log nonce key` | HMAC-SHA256 key that derives commit-log nonces (FORK-074) |
 
 The MLS validation of a proposal and a commit under [RFC 9420 §12.2](https://www.rfc-editor.org/rfc/rfc9420.html#section-12.2) and [§12.4.2](https://www.rfc-editor.org/rfc/rfc9420.html#section-12.4.2) is not restated here; the rules below are what XMTP adds. A commit references proposals that the group's members already hold, so the sender publishes the proposals it created and the commit that references them in one publish request, proposals first: a commit that arrives without its proposals is rejected by every member.
 
@@ -72,7 +83,9 @@ The MLS validation of a proposal and a commit under [RFC 9420 §12.2](https://ww
 | GMOD-002 | Only members propose | When a proposal's or a commit's sender is not a `member` sender ([RFC 9420 §6.1](https://www.rfc-editor.org/rfc/rfc9420.html#section-6.1)) whose leaf node is in the group, the client MUST record a terminal rejection for it. | |
 | GMOD-003 | An update keeps its identity | When a standalone `update` proposal's credential names an inbox other than the proposer's, the client MUST record a terminal rejection for it. | A member could otherwise place its leaf under another member's inbox. |
 | GMOD-004 | Proposals travel with their commit | When a client publishes a commit that references proposals it created, it MUST publish those proposals and the commit in one publish request, the proposals first in the order it created them. | |
-| GMOD-037 | Group ids are random | When a client creates a group, it MUST set the MLS `group_id` to 16 bytes drawn from a cryptographically secure random generator, and MUST NOT derive it from any inbox, installation, or group content. | A predictable id lets anyone publish into a group's topic before it exists, and a repeated id merges two groups' topics. |
+| GMOD-040 | The group id is a public key | When a client creates a group of any conversation type, other than a restored placeholder under ARCH-015, it MUST draw a 32-byte group root from a cryptographically secure random source for that group alone. It MUST set the MLS `group_id` to the 32-byte public key of the group signing key derived from that root under GMOD-041. | A root that is predictable or shared gives the publish key of a group to an installation the group never added. |
+| GMOD-041 | Keys derive from the root | The client MUST derive each key in the group key table from the group root with the salt and `info` the table gives, and MUST use each derived key only for the use the table names. | Installations that derive differently compute different topics and signatures, and a key used for two purposes lets a signature for one be presented as the other. |
+| GMOD-042 | The root stays in the group | A client MUST NOT write a group root, a private or symmetric key in the group key table, or a `GroupInfo` whose group context holds a root, to any destination other than its own client database and a Welcome or welcome pointee for an installation that a commit adds. | Whoever obtains the root can publish to the group's topics and find its commit-log topic for as long as the group exists, because the root never changes. |
 
 The unsupported-proposal table gives the outcome after MLS validation has accepted the message. Earlier MLS failures follow PROC-011 and PROC-012. A held proposal is not retained as an accepted proposal for a later commit.
 
@@ -199,7 +212,7 @@ A received commit passes through the checks in this spec and in `PERM`, and is a
 
 The floor is different from both. A client below the group's floor cannot be sure it can even parse what the group now carries, and a rejection it issues alone is a fork. So it pauses: it applies nothing further on that group, publishes nothing to it, and records no rejection, until its version reaches the floor and it reprocesses from where it stopped. While the committed floor is supported, a commit that raises it is validated before it can pause the client. A terminal validation failure rejects that commit; an unresolved dependency or storage failure holds it under PROC-012. A committed floor that is already unsupported pauses the client before further commit validation. Versions compare under [Semantic Versioning 2.0.0 §11](https://semver.org/spec/v2.0.0.html#spec-item-11), including its pre-release precedence, unlike the backend's minimum under CONF-050. The floor only rises, because a lowered floor lets a paused client apply commits it cannot interpret. A new group is created with a floor at the first version that supports the dictionary, and PERM-023 says when a release raises it.
 
-A commit the client applies is recorded for the app as a membership-change message whose payload is a `GroupUpdated` transcript (CTYPE-014, META-040). The transcript is derived from the validated commit: who committed it, which inboxes it added or removed, and which settings it changed. It is a record the client writes for itself, never content a member sends, so an application message that carries a transcript type is not a transcript. GMOD-035 says when such a message is not published.
+A commit the client applies is recorded for the app as a membership-change message whose payload is a `GroupUpdated` transcript (CTYPE-014, META-074). The transcript is derived from the validated commit: who committed it, which inboxes it added or removed, and which settings it changed. It is a record the client writes for itself, never content a member sends, so an application message that carries a transcript type is not a transcript. GMOD-035 says when such a message is not published.
 
 META-010 owns component encodings and byte limits. Standalone checks do not resolve a future commit's identity references, compare its aggregate leaf changes, or apply its proposed floor. The client repeats authorization at commit time under PERM-009 and checks the full change here.
 

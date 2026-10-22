@@ -186,6 +186,66 @@ async fn reads_reject_invalid_topics_cursors_and_original_item_counts() {
     server.stop().await?;
 }
 
+/// Reads name group and commit-log topics only by 32-byte identifiers. A
+/// 17-byte topic, built from a legacy 16-byte group id, fails the read with
+/// `INVALID_ARGUMENT` like any other wrong length.
+#[xmtp_common::test(unwrap_try = true)]
+// verifies: TOPIC-003
+async fn reads_name_group_and_commit_log_topics_only_by_32_byte_identifiers() {
+    let server = TestServer::new(|_| {}).await?;
+    for kind in [TopicKind::GroupMessagesV1, TopicKind::CommitLogEntriesV1] {
+        let named = topic(kind, &[7; 32]);
+        let result = server
+            .query()
+            .query(api::QueryRequest {
+                queries: vec![query_topic(named.clone(), 0)],
+                limit: 1,
+            })
+            .await?
+            .into_inner();
+        assert!(result.envelopes.is_empty());
+        let newest = server
+            .query()
+            .query_newest(api::QueryNewestRequest {
+                topics: vec![named],
+                include_full_envelope: false,
+            })
+            .await?
+            .into_inner();
+        assert!(newest.results.is_empty());
+        for length in [16, 31, 33] {
+            let named = topic(kind, &vec![7; length]);
+            assert_eq!(
+                server
+                    .query()
+                    .query(api::QueryRequest {
+                        queries: vec![query_topic(named.clone(), 0)],
+                        limit: 1,
+                    })
+                    .await
+                    .unwrap_err()
+                    .code(),
+                Code::InvalidArgument,
+                "Query: {kind} with a {length}-byte identifier"
+            );
+            assert_eq!(
+                server
+                    .query()
+                    .query_newest(api::QueryNewestRequest {
+                        topics: vec![named],
+                        include_full_envelope: false,
+                    })
+                    .await
+                    .unwrap_err()
+                    .code(),
+                Code::InvalidArgument,
+                "QueryNewest: {kind} with a {length}-byte identifier"
+            );
+        }
+    }
+    server.stop().await?;
+}
+
 #[xmtp_common::test(unwrap_try = true)]
 // verifies: API-283
 async fn full_query_and_newest_fail_when_response_bytes_exceed_the_cap() {

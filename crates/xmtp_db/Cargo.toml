@@ -22,8 +22,8 @@ arc-swap.workspace = true
 ascii_table = { version = "5", optional = true, features = [
   "auto_table_width",
 ] }
-bincode.workspace = true
 bon.workspace = true
+cbor4ii.workspace = true
 ctor.workspace = true
 derive_builder.workspace = true
 diesel = { workspace = true, features = [
@@ -45,8 +45,10 @@ parking_lot.workspace = true
 prost.workspace = true
 rand.workspace = true
 serde.workspace = true
-serde_path_to_error = { workspace = true, optional = true }
+serde_bytes.workspace = true
+serde_path_to_error.workspace = true
 strum.workspace = true
+subtle.workspace = true
 thiserror.workspace = true
 toml = { workspace = true, optional = true }
 tracing.workspace = true
@@ -54,6 +56,7 @@ xmtp-workspace-hack.workspace = true
 xmtp_common.workspace = true
 xmtp_configuration.workspace = true
 xmtp_content_types.workspace = true
+xmtp_cryptography.workspace = true
 xmtp_proto = { workspace = true, features = ["diesel"] }
 zeroize.workspace = true
 
@@ -90,12 +93,16 @@ required-features = ["bench"]
 futures.workspace = true
 mockall.workspace = true
 rstest.workspace = true
-xmtp_cryptography.workspace = true
+serde_json.workspace = true
 xmtp_db = { workspace = true, features = ["test-utils"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 tokio = { workspace = true, features = ["rt-multi-thread"] }
 criterion = { workspace = true }
+# The post-quantum wrapper key in tests/zeroize.rs, derived as production does.
+openmls_libcrux_crypto.workspace = true
+# `with_trace_layer` for the key store span test.
+xmtp_logging = { workspace = true, features = ["test-utils"] }
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 wasm-bindgen-test.workspace = true
@@ -106,8 +113,6 @@ uuid = { workspace = true, features = ["js"] }
 update-schema = ["dep:toml"]
 # Enables the database benchmarks and the latency-injecting SQLite VFS.
 bench = []
-# Re-decode bincode failures via serde_path_to_error to log failing field path on `openmls_kv` target.
-deserialize-paths = ["dep:serde_path_to_error"]
 test-utils = [
   "dep:futures",
   "xmtp_common/test-utils",

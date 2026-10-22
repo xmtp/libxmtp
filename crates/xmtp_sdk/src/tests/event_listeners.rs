@@ -340,3 +340,147 @@ async fn end_racing_listener_stop_blocks_a_late_callback() {
         "listener callback started after client end"
     );
 }
+
+/// Hands each event it receives to the test.
+struct ForwardingListener(tokio::sync::mpsc::UnboundedSender<ClientEvent>);
+
+#[xmtp_common::async_trait]
+impl EventListener for ForwardingListener {
+    async fn on_event(&self, event: ClientEvent) -> Result<(), ListenerError> {
+        let _ = self.0.send(event);
+        Ok(())
+    }
+}
+
+/// Allows the inbox whose ID is `fill` repeated, which emits one
+/// `consent.changed` event for that entity on the writing client.
+async fn allow_inbox(client: &Client, fill: &str) -> Result<(), XmtpError> {
+    use crate::{ConsentEntity, ConsentRecord, ConsentState};
+
+    client
+        .preferences()
+        .set_consent_states(vec![ConsentRecord {
+            entity: ConsentEntity::Inbox {
+                inbox_id: InboxId::try_from(fill.repeat(64))?,
+            },
+            state: ConsentState::Allowed,
+        }])
+        .await
+}
+
+fn consent_entity(event: Option<ClientEvent>) -> String {
+    match event {
+        Some(ClientEvent::ConsentChanged { consent_changed }) => consent_changed.entity,
+        other => panic!("expected consent.changed, got {other:?}"),
+    }
+}
+
+/// Each client writes in turn. A listener and a reader on each client must
+/// see only that client's writes, in order, and nothing after them.
+async fn assert_events_stay_with_their_client(first: &Client, second: &Client) {
+    let filter = || event_filter(vec![EventKind::ConsentChanged]);
+    let (first_sender, mut first_heard) = tokio::sync::mpsc::unbounded_channel();
+    let (second_sender, mut second_heard) = tokio::sync::mpsc::unbounded_channel();
+    let first_listener = first
+        .start_listener(filter(), Arc::new(ForwardingListener(first_sender)))
+        .await
+        .expect("first listener");
+    let second_listener = second
+        .start_listener(filter(), Arc::new(ForwardingListener(second_sender)))
+        .await
+        .expect("second listener");
+    let first_reader = first.events(filter()).await.expect("first reader");
+    let second_reader = second.events(filter()).await.expect("second reader");
+    let wait = Duration::from_secs(5);
+    for (mine, theirs) in [("a", "b"), ("c", "d")] {
+        allow_inbox(first, mine).await.expect("first write");
+        allow_inbox(second, theirs).await.expect("second write");
+        for (heard, reader, fill) in [
+            (&mut first_heard, &first_reader, mine),
+            (&mut second_heard, &second_reader, theirs),
+        ] {
+            let expected = fill.repeat(64);
+            let listened = tokio::time::timeout(wait, heard.recv())
+                .await
+                .expect("listener event in time");
+            assert_eq!(consent_entity(listened), expected, "listener event");
+            let read = tokio::time::timeout(wait, reader.next())
+                .await
+                .expect("reader event in time")
+                .expect("reader event");
+            assert_eq!(consent_entity(read), expected, "reader event");
+        }
+    }
+    let quiet = Duration::from_millis(200);
+    for (heard, reader) in [
+        (&mut first_heard, &first_reader),
+        (&mut second_heard, &second_reader),
+    ] {
+        let late = tokio::time::timeout(quiet, heard.recv()).await;
+        assert!(late.is_err(), "listener got another event: {late:?}");
+        let late = tokio::time::timeout(quiet, reader.next()).await;
+        assert!(late.is_err(), "reader got another event: {late:?}");
+    }
+    first.stop_listener(first_listener).await;
+    second.stop_listener(second_listener).await;
+    first_reader.end().await.expect("end first reader");
+    second_reader.end().await.expect("end second reader");
+}
+
+// Two client instances in one process open the same database file with the
+// same identity.
+// verifies: EVENT-056
+#[xmtp_common::test(unwrap_try = true)]
+async fn clients_sharing_a_database_get_only_their_own_events() {
+    let root = temp_root("shared-database-events");
+    std::fs::create_dir_all(&root)?;
+    let mut settings = options();
+    settings.storage.location = explicit_location(&root.join("shared.db3"));
+    let signer = crate::generate_local_signer().await;
+    let first = Client::create(signer.clone(), settings.clone()).await?;
+    let second = Client::create(signer, settings).await?;
+    assert_eq!(first.inbox_id(), second.inbox_id());
+    assert_eq!(
+        first.storage().path().await?,
+        second.storage().path().await?
+    );
+    assert_events_stay_with_their_client(&first, &second).await;
+    first.end().await?;
+    second.end().await?;
+    std::fs::remove_dir_all(root)?;
+}
+
+// Two client instances in one process share one connected backend, and with
+// it one credential handle.
+// verifies: EVENT-056
+#[xmtp_common::test(unwrap_try = true)]
+async fn clients_sharing_a_credential_get_only_their_own_events() {
+    struct FixedCredential;
+
+    #[xmtp_common::async_trait]
+    impl CredentialSource for FixedCredential {
+        async fn credential(&self) -> Result<Credential, CredentialError> {
+            Ok(Credential {
+                name: None,
+                value: "shared-event-credential".into(),
+                expires_at_seconds: xmtp_common::time::now_secs() + 300,
+            })
+        }
+    }
+
+    let backend = Arc::new(
+        crate::Backend::connect(BackendOptions {
+            url: xmtp_configuration::backend_test_url(),
+            credentials: Some(Arc::new(FixedCredential)),
+            ..Default::default()
+        })
+        .await?,
+    );
+    let mut settings = options();
+    settings.backend = Some(BackendSource::Connected { backend });
+    let first = Client::create(crate::generate_local_signer().await, settings.clone()).await?;
+    let second = Client::create(crate::generate_local_signer().await, settings).await?;
+    assert_events_stay_with_their_client(&first, &second).await;
+    first.end().await?;
+    second.end().await?;
+}

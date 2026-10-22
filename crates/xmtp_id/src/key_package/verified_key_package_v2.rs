@@ -12,8 +12,8 @@ use prost::Message;
 use std::panic::{self, AssertUnwindSafe};
 use thiserror::Error;
 use xmtp_common::ErrorCode;
-use xmtp_configuration::MLS_PROTOCOL_VERSION;
 use xmtp_configuration::WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID;
+use xmtp_cryptography::configuration::MLS_PROTOCOL_VERSION;
 use xmtp_proto::xmtp::identity::MlsCredential;
 
 #[derive(Debug, Error, ErrorCode)]
@@ -86,11 +86,7 @@ impl VerifiedKeyPackageV2 {
         data: &[u8],
     ) -> Result<Self, KeyPackageVerificationError> {
         let kp_in: KeyPackageIn = KeyPackageIn::tls_deserialize_exact(data)?;
-        let kp = kp_in.validate(
-            crypto_provider,
-            MLS_PROTOCOL_VERSION,
-            openmls::prelude::LeafNodeLifetimePolicy::Verify,
-        )?;
+        let kp = kp_in.validate(crypto_provider, MLS_PROTOCOL_VERSION)?;
 
         kp.try_into()
     }

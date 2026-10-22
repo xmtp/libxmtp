@@ -69,6 +69,43 @@ use diesel_migrations::{EmbeddedMigrations, MigrationHarness, embed_migrations};
 use std::{ops::Deref, sync::Arc};
 pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("./migrations/");
 
+/// Version of the marker migration `2026-10-20-000000_cbor_storage_format`.
+/// Only a database created by a build that stores CBOR values has it.
+pub(crate) const CBOR_STORAGE_MIGRATION: &str = "20261020000000";
+
+/// Whether the database holds an identity or a key store row: the data a
+/// database written before the CBOR marker holds as bincode.
+pub(crate) fn holds_client_data(conn: &mut SqliteConnection) -> QueryResult<bool> {
+    #[derive(QueryableByName)]
+    struct ClientData {
+        #[diesel(sql_type = diesel::sql_types::Bool)]
+        present: bool,
+    }
+    Ok(sql_query(
+        "SELECT EXISTS (SELECT 1 FROM identity) OR EXISTS (SELECT 1 FROM openmls_key_value) AS present",
+    )
+    .get_result::<ClientData>(conn)?
+    .present)
+}
+
+/// Whether the database holds a group whose id is 16 bytes and that is not a
+/// Restored placeholder. Keyed group ids are 32 bytes; only an archive import
+/// keeps a 16-byte group, and only as read-only history.
+pub(crate) fn holds_legacy_groups(conn: &mut SqliteConnection) -> QueryResult<bool> {
+    #[derive(QueryableByName)]
+    struct LegacyGroups {
+        #[diesel(sql_type = diesel::sql_types::Bool)]
+        present: bool,
+    }
+    Ok(sql_query(
+        "SELECT EXISTS (SELECT 1 FROM groups WHERE length(id) = ? AND membership_state != ?) AS present",
+    )
+    .bind::<diesel::sql_types::Integer, _>(xmtp_configuration::LEGACY_GROUP_ID_BYTES as i32)
+    .bind::<diesel::sql_types::Integer, _>(group::GroupMembershipState::Restored)
+    .get_result::<LegacyGroups>(conn)?
+    .present)
+}
+
 #[derive(ZeroizeOnDrop, Clone)]
 pub struct EncryptionKey([u8; 32]);
 impl std::fmt::Debug for EncryptionKey {
@@ -340,6 +377,25 @@ pub trait XmtpDb: MaybeSend + MaybeSync {
                     if has_configuration.is_none() {
                         return Ok(Err(StorageError::OldStreamDatabase));
                     }
+                    // Builds before the CBOR marker stored bincode key store
+                    // values and columns, which this build cannot read. Reject
+                    // such a database before any migration, so its data stays
+                    // as it was. Diesel commits each migration on its own, so
+                    // a new database whose first open stopped before the
+                    // marker has some migrations and no data: let it finish.
+                    let has_marker = applied
+                        .iter()
+                        .any(|version| version.to_string() == CBOR_STORAGE_MIGRATION);
+                    if !has_marker && holds_client_data(conn)? {
+                        return Ok(Err(StorageError::OldEncodingDatabase));
+                    }
+                    // A live group with a 16-byte id predates keyed group
+                    // ids. This build cannot publish to it, so refuse the
+                    // database before any migration, and so before the
+                    // client sends any request. Its data stays as it was.
+                    if holds_legacy_groups(conn)? {
+                        return Ok(Err(StorageError::LegacyGroupDatabase));
+                    }
                 }
             }
             conn.run_pending_migrations(MIGRATIONS)
@@ -354,6 +410,7 @@ pub trait XmtpDb: MaybeSend + MaybeSync {
                     found: db_version,
                 }.into()));
             }
+
 
             let sqlite_version =
                 sql_query("SELECT sqlite_version() AS version").load::<SqliteVersion>(conn)?;

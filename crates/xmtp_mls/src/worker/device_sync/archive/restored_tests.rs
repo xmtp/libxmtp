@@ -536,3 +536,71 @@ async fn restored_history_forged_claim_yields_to_live_permissions_after_activati
         [alix.inbox_id()]
     );
 }
+
+/// A Welcome activates a restored placeholder only when its root names the
+/// group. A placeholder holds no root. A 16-byte placeholder stays Restored
+/// under every Welcome, a 32-byte placeholder stays Restored under a Welcome
+/// from another root, and the real group's Welcome activates its placeholder.
+// verifies: JOIN-080, JOIN-083, ARCH-015
+#[xmtp_common::test(unwrap_try = true)]
+async fn restored_placeholder_activates_only_for_its_root() {
+    use crate::utils::test::crafted_welcome::send_crafted_welcome;
+    use xmtp_mls_common::{
+        app_data::{component_id::ComponentId, group_root::read_group_root},
+        group_keys::GroupRoot,
+    };
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    let real = alix.create_group(None, None)?;
+    let legacy = saved_group(90, false);
+    let mut foreign = saved_group(91, false);
+    foreign.id = xmtp_common::rand_vec::<32>();
+    let mut activated = saved_group(92, false);
+    activated.id = real.group_id.to_vec();
+    apply(
+        &bo.context,
+        [&legacy, &foreign, &activated]
+            .into_iter()
+            .map(|save| group_element(save.clone()))
+            .collect(),
+    )
+    .await?;
+    let id = |save: &GroupSave| GroupId::try_from(save.id.as_slice()).unwrap();
+    let state = |save: &GroupSave| {
+        bo.db()
+            .find_group(&id(save))
+            .unwrap()
+            .unwrap()
+            .membership_state
+    };
+    for save in [&legacy, &foreign, &activated] {
+        let (root, signer) = bo.group(&id(save))?.with_group_snapshot(|mls_group| {
+            let extensions = mls_group.extensions();
+            Ok((
+                read_group_root(extensions).map(|root| root.is_some()),
+                extensions.app_data_dictionary().is_some_and(|d| {
+                    d.dictionary()
+                        .contains(&ComponentId::COMMIT_LOG_SIGNER.as_u16())
+                }),
+            ))
+        })?;
+        assert_eq!(root, Ok(false), "a placeholder holds no root");
+        assert!(!signer, "a placeholder holds no signer");
+    }
+
+    let other_root = GroupRoot::generate();
+    send_crafted_welcome(&alix, &bo, &legacy.id, None).await;
+    send_crafted_welcome(&alix, &bo, &legacy.id, Some(&other_root)).await;
+    send_crafted_welcome(&alix, &bo, &foreign.id, Some(&other_root)).await;
+    assert!(bo.sync_welcomes().await?.is_empty());
+    for save in [&legacy, &foreign, &activated] {
+        assert_eq!(state(save), GroupMembershipState::Restored);
+    }
+
+    real.add_members(&[bo.inbox_id()]).await?;
+    bo.sync_welcomes().await?;
+    assert_ne!(state(&activated), GroupMembershipState::Restored);
+    for save in [&legacy, &foreign] {
+        assert_eq!(state(save), GroupMembershipState::Restored);
+    }
+}

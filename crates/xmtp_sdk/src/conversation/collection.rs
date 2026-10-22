@@ -602,7 +602,7 @@ impl Conversations {
                     group
                         .hmac_keys(-1..=1)
                         .map_err(XmtpError::from_core)?
-                        .into_iter()
+                        .iter()
                         .map(Into::into)
                         .collect(),
                 );

@@ -5,7 +5,6 @@
   python311,
   zstd,
   sqlite,
-  nodejs_26,
   xmtp-pnpm,
   jsTools,
   cocoapods,
@@ -40,18 +39,10 @@ let
       (rn + /test/consumers/native-toolchain.json)
       (rn + /test/consumers/App.tsx)
       (rn + /test/consumers/native-hooks)
-      (lib.fileset.maybeMissing (rn + /test/conformance/legacy/react-native-5.7.0.db3))
-      (lib.fileset.maybeMissing (rn + /test/conformance/legacy/react-native-5.7.0.db3.sqlcipher_salt))
-      (lib.fileset.maybeMissing (rn + /test/conformance/legacy/expected-records.json))
-      (lib.fileset.maybeMissing (rn + /test/conformance/legacy/source-inspection.json))
-      (lib.fileset.maybeMissing (rn + /test/conformance/legacy/unsupported-schema.db3))
-      (lib.fileset.maybeMissing (rn + /test/conformance/legacy/unsupported-schema.db3.sqlcipher_salt))
-      (lib.fileset.maybeMissing (rn + /test/conformance/legacy/unsupported-schema.json))
       (lib.fileset.maybeMissing (rn + /test/conformance/type-tests/tsconfig.json))
       (lib.fileset.maybeMissing (rn + /test/consumers/ios-downloads.json))
       (lib.fileset.maybeMissing (rn + /test/consumers/ios-spec-source.json))
       (lib.fileset.maybeMissing (rn + /test/consumers/offline-curl.py))
-      (root + /sdks/browser/test/platform/logging-contract.ts)
       (root + /sdks/node/test/standardSamples.ts)
       (lib.fileset.fileFilter (file: file.hasExt "ts") (rn + /test/conformance))
       (rn + /scripts/package.py)
@@ -72,7 +63,7 @@ stdenvNoCC.mkDerivation (
       python311
       zstd
       sqlite
-      nodejs_26
+      xmtp.nodejs_26
       xmtp-pnpm
       jsTools
     ]
@@ -179,6 +170,9 @@ stdenvNoCC.mkDerivation (
             export XMTP_RN_GRADLE_REPLAY=1
             flags=()
             concatTo flags gradleFlags gradleFlagsArray
+            # R8 runs in the Gradle build JVM, and the templates' 2 GiB heap
+            # runs out. Use the 4 GiB heap of the repository's other Android builds.
+            flags+=("-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=1024m")
             export XMTP_RN_GRADLE_FLAGS_JSON=$(python3.11 -c 'import json,sys; print(json.dumps(sys.argv[1:]))' "''${flags[@]}")
           ''}
           package=$(find ${package} -maxdepth 1 -type f -name '*.tgz')

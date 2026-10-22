@@ -133,6 +133,14 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                                     xmtp_api::ApiError::EnvelopeTooLarge
                                         | xmtp_api::ApiError::UnitTooLarge
                                         | xmtp_api::ApiError::InvalidRequest(_)
+                                        // The local admission parse refuses
+                                        // what the backend would refuse.
+                                        | xmtp_api::ApiError::InvalidEnvelope(_)
+                                ) | GroupError::OutgoingPreparation(
+                                    // A group without a root cannot sign, and
+                                    // a failed self-check releases nothing.
+                                    OutgoingPreparationError::GroupKeys(_)
+                                        | OutgoingPreparationError::SignGroupMessage(_)
                                 ) | GroupError::CommitValidation(CommitValidationError::Rule(
                                     CommitRuleError::InsufficientPermissions
                                 )) | GroupError::InvalidGroupMembership
@@ -173,8 +181,20 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
             if attempt.receipts.is_none() {
                 // The writer and every mutable MLS object were dropped above.
                 // An ambiguous error keeps this exact attempt eligible for retry.
-                let unit = attempt.publish_unit(self.context.api().limits())?;
-                let stored = if attempt.unsettled == Some(Unsettled::Attempt) {
+                //
+                // Saved bytes that no longer fit in one request cannot be sent
+                // again: an earlier build saved more envelopes than the
+                // request bound allows, or the deployment lowered a limit.
+                // They may already be stored, so a recovery read settles them,
+                // as after `OUT_OF_RANGE`.
+                let (unit, unsendable) = match attempt.publish_unit(self.context.api().limits()) {
+                    Ok(unit) => (unit, false),
+                    Err(GroupError::WrappedApi(
+                        xmtp_api::ApiError::UnitTooLarge | xmtp_api::ApiError::EnvelopeTooLarge,
+                    )) => (attempt.settlement_unit()?, true),
+                    Err(error) => return Err(error),
+                };
+                let stored = if unsendable || attempt.unsettled == Some(Unsettled::Attempt) {
                     self.settle_attempt(&intent, &attempt, unit).await?
                 } else {
                     match self
@@ -441,8 +461,11 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                         .payloads_to_publish
                         .last()
                         .ok_or(GroupError::UninitializedResult)?;
+                    // Sign after each sender HMAC and before the attempt is
+                    // saved, so every saved envelope carries its signature.
                     let envelopes = self.prepare_group_envelopes_in(
                         &db,
+                        group,
                         data.payloads_to_publish
                             .iter()
                             .map(|payload| (payload.as_slice(), data.should_send_push_notification))
@@ -532,10 +555,12 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                 let intent_data = SendMessageIntentData::from_bytes(intent.data.as_slice())?;
                 // An older build queued this intent before the creation check.
                 // implements: GMOD-035
+                // The envelope content can hold a device-sync HMAC root key;
+                // the decoded envelope wipes it on drop.
                 if let Ok(PlaintextEnvelope {
-                    content: Some(Content::V1(V1 { content, .. })),
+                    content: Some(Content::V1(v1)),
                 }) = PlaintextEnvelope::decode(intent_data.message.as_slice())
-                    && Self::is_reserved_transcript_content(&content)
+                    && Self::is_reserved_transcript_content(&v1.content)
                 {
                     return Err(GroupError::ReservedTranscriptContentType);
                 }
@@ -569,13 +594,17 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                                     .configuration()
                                     .application_components,
                             )?;
-                        let mut stage = group
-                            .commit_builder()
-                            .leaf_node_parameters(LeafNodeParameters::default())
-                            .consume_proposal_store(true)
-                            .add_proposals(upkeep)
-                            .load_psks(provider.storage())
-                            .map_err(CommitToPendingProposalsError::from)?;
+                        let mut stage = crate::groups::mls_ext::commit_without_group_info(
+                            group,
+                            provider.storage(),
+                            |builder| {
+                                builder
+                                    .leaf_node_parameters(LeafNodeParameters::default())
+                                    .consume_proposal_store(true)
+                                    .add_proposals(upkeep)
+                            },
+                        )
+                        .map_err(CommitToPendingProposalsError::from)?;
                         stage.with_app_data_dictionary_updates(updates);
                         let bundle = stage
                             .build(provider.rand(), provider.crypto(), &keys, |_| true)
@@ -598,7 +627,8 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                 }))
             }
             IntentKind::MetadataUpdate => {
-                let metadata_intent = UpdateMetadataIntentData::try_from(intent.data.clone())?;
+                let metadata_intent =
+                    UpdateMetadataIntentData::try_from(intent.data.as_slice().to_vec())?;
 
                 // Compare-and-swap guard. This runs on every publish attempt,
                 // including the republish after an intent loses an epoch race,
@@ -659,14 +689,18 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                     generate_prepared_commit(
                         storage,
                         openmls_group,
+                        // `payload` can be the commit-log signer. It stays in
+                        // `Zeroizing` until it moves into OpenMLS, so a
+                        // return before this closure runs still wipes it.
                         move |group, provider| -> Result<_, GroupError> {
+                            let mut payload = payload;
                             Ok(stage_app_data_propose_and_commit(
                                 group,
                                 provider,
                                 &signer,
                                 catalogue,
                                 component_id,
-                                payload,
+                                std::mem::take(&mut *payload),
                             )?)
                         },
                     )?;
@@ -689,7 +723,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
             }
             IntentKind::UpdateAdminList => {
                 let admin_list_update_intent =
-                    UpdateAdminListIntentData::try_from(intent.data.clone())?;
+                    UpdateAdminListIntentData::try_from(intent.data.as_slice().to_vec())?;
 
                 let signer = self.context.identity().installation_keys.clone();
                 let publish =
@@ -709,7 +743,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
             }
             IntentKind::UpdatePermission => {
                 let update_permissions_intent =
-                    UpdatePermissionIntentData::try_from(intent.data.clone())?;
+                    UpdatePermissionIntentData::try_from(intent.data.as_slice().to_vec())?;
 
                 let signer = self.context.identity().installation_keys.clone();
                 let publish =

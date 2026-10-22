@@ -22,7 +22,7 @@ flowchart LR
 
 In scope: registration and the bearer secret; the three channels and the safety of a webhook destination; how a subscription is added, replaced, and removed, and where it starts; which envelopes are pushed; the delivery condition and what survives a restart; sender suppression; the push body and the provider contract; when a recipient is deleted; webhook signing; retention; the client's desired set, its sync, and its recovery; and what an SDK exposes to an app.
 
-Out of scope: request authentication on the notification RPCs (AUTH-001, AUTH-003, AUTH-013); sequence ids and the publish contract (API-286 through API-289, API-210); the closed allocation boundary (API-203); the layout of a topic (TOPIC-001); how the root HMAC key is generated and reaches every installation of an inbox (SYNC-015, SYNC-022); consent states (`CONS` section 1); metrics, shutdown, and read routing (OPS-007, OPS-008, OPS-014, OPS-017); the operator's configuration file, provider credentials, and the backend's internal bounds, which belong to operator documentation; and the platform a deployment runs on.
+Out of scope: request authentication on the notification RPCs (AUTH-001, AUTH-003, AUTH-013); sequence ids and the publish contract (API-286 through API-289, API-210); the closed allocation boundary (API-203); the layout of a topic (TOPIC-001); how the root HMAC key is generated and reaches every installation of an inbox (SYNC-015, SYNC-022); consent states (`CONS` section 1); metrics, shutdown, and read routing (OPS-007, OPS-008, OPS-014, OPS-017); the push configuration keys, their checks, and the startup checks of provider credentials (CONF section 1.2); the backend's internal bounds, which belong to operator documentation; and the platform a deployment runs on.
 
 | Related | Relation |
 | --- | --- |
@@ -32,6 +32,7 @@ Out of scope: request authentication on the notification RPCs (AUTH-001, AUTH-00
 | `SYNC` | SYNC-015 and SYNC-022 own the inbox's 42-byte root HMAC key. This spec owns what is derived from it. |
 | `OPS` | OPS-014 keeps request data out of telemetry; OPS-017 owns the metric catalogue; OPS-007 and OPS-008 own shutdown as a client sees it. |
 | `EVENT` | EVENT-001 reports when the stored notification state becomes failed. |
+| `CONF` | Owns the `[push]` configuration keys, their types, presence, and checks, and the defaults that PUSH-217 and PUSH-226 do not state (CONF section 1.2, CONF-091, CONF-092). |
 
 API-203 defines the closed allocation boundary; PUSH-216 requires that a new subscription reads it in the transaction that stores the subscription. API-291 requires that the boundary never decreases.
 
@@ -141,7 +142,7 @@ Admission is one ordered contract. The checks below run in order on every notifi
 
 A recipient has exactly one channel, and a channel exists on a deployment only when the operator configured it: a table for APNs with the provider key, its key id, the team id, the bundle id, and an `environment` of `production` or `sandbox`; a table for FCM with the service account; a table for HTTPS, which may be empty. A registration for a channel that has no table fails, so an app learns at enable time that the deployment cannot reach it.
 
-A webhook is an HTTPS request from inside the deployment's network to a URL any registrant chooses, so the destination is checked at registration and again before every attempt, because a host can resolve to a different address later. The address classes below are never connected to unless the operator sets `allow_private_addresses`, which defaults to `false` and is for development and test only. When `allowed_domains` is set and not empty, a host must equal an entry, or, for an entry that starts with `*.`, end with the entry's text after the star with at least one label before it; the match is case-insensitive on the host name alone. The list binds at send time as well, so narrowing it stops deliveries to recipients registered before the change.
+A webhook is an HTTPS request from inside the deployment's network to a URL any registrant chooses, so the destination is checked at registration and again before every attempt, because a host can resolve to a different address later. The address classes below are never connected to unless the operator sets `allow_private_addresses`, which is for development and test only (CONF section 1.2 gives its default). When `allowed_domains` is set and not empty, a host must equal an entry, or, for an entry that starts with `*.`, end with the entry's text after the star with at least one label before it; the match is case-insensitive on the host name alone. The list binds at send time as well, so narrowing it stops deliveries to recipients registered before the change.
 
 | Blocked address class | IPv4 | IPv6 |
 | --- | --- | --- |
@@ -226,7 +227,7 @@ The check runs only on a delivery that already passes PUSH-257, and it fails ope
 
 No message content leaves the backend in a push. The body carries the topic and the sequence id, and on the webhook channel the recipient id, so a receiver that serves many recipients can tell them apart. `sequence_id` is decimal text on every channel so that a JavaScript consumer never rounds it. Every push is a background push: the app fetches the envelope and renders the notification itself.
 
-Each channel maps the provider's answer to one of five outcomes, in the order the table lists them for that channel; the first row that matches decides. A transient outcome is retried after at least the delay shown, up to `max_attempts` attempts in total for the delivery, whose default is 3, while the dispatcher that loaded it runs. A rejected outcome stops after one attempt. A mismatch outcome names a token that does not belong to this sender, which one operator mistake in `environment`, the bundle id, or the FCM project produces for every recipient at once, so it keeps the recipient. A terminal outcome names a dead token and deletes the recipient, unless the recipient re-registered in the meantime. Every attempt, including a provider credential fetch, is bounded to 10 seconds, so a receiver that never answers holds nothing for longer than that.
+Each channel maps the provider's answer to one of five outcomes, in the order the table lists them for that channel; the first row that matches decides. A transient outcome is retried after at least the delay shown, up to `max_attempts` attempts in total for the delivery, whose default CONF section 1.2 gives, while the dispatcher that loaded it runs. A rejected outcome stops after one attempt. A mismatch outcome names a token that does not belong to this sender, which one operator mistake in `environment`, the bundle id, or the FCM project produces for every recipient at once, so it keeps the recipient. A terminal outcome names a dead token and deletes the recipient, unless the recipient re-registered in the meantime. Every attempt, including a provider credential fetch, is bounded to 10 seconds, so a receiver that never answers holds nothing for longer than that.
 
 | Channel | Request | Outcomes, first match decides |
 | --- | --- | --- |
@@ -278,7 +279,7 @@ An app supplies the delivery target, because only the app holds the platform's p
 
 ## Known limitations
 
-Anyone who holds a recipient can subscribe to any group-message or welcome topic. The push body carries no content, so what such a subscriber learns is that traffic exists on a topic, and when. The backend does not authorize a publisher either.
+Anyone who holds a recipient can subscribe to any group-message or welcome topic. The push body carries no content, so what such a subscriber learns is that traffic exists on a topic, and when. The backend authorizes a publisher to a group-message topic only by a signature under its group id (API-230, API-300), and does not authorize a publisher to a welcome topic.
 
 A recipient is not bound to an installation. A revoked installation that still holds its recipient secret keeps renewing and receiving pushes until it stops or its app disables notifications. An operator who needs to cut off a revoked device does so through request authentication (AUTH-001).
 

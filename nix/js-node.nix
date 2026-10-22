@@ -2,7 +2,8 @@
   stdenv,
   darwin,
   xmtp-pnpm,
-  nodejs_26,
+  xmtp,
+  just,
   python311,
   pkg-config,
   lib,
@@ -15,7 +16,9 @@ mkShell {
   nativeBuildInputs = [ pkg-config ];
   buildInputs = [
     xmtp-pnpm
-    nodejs_26
+    xmtp.nodejs_26
+    # CI calls recipes through dev/nix-shell 'just ...'.
+    just
     python311
   ]
   ++ lib.optionals stdenv.isDarwin [ darwin.cctools ];

@@ -12,7 +12,10 @@ use openmls::{
     credentials::errors::BasicCredentialError,
     extensions::Extension,
     key_packages::KeyPackage,
-    prelude::{Credential as OpenMlsCredential, tls_codec::Serialize},
+    prelude::{
+        Credential as OpenMlsCredential,
+        tls_codec::{Deserialize as _, Serialize, VLBytes},
+    },
 };
 use openmls_traits::types::CryptoError;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -31,10 +34,10 @@ use xmtp_db::TransactionOutcome::Continue;
 use xmtp_db::db_connection::DbConnection;
 use xmtp_db::identity::StoredIdentity;
 use xmtp_db::sql_key_store::{
-    KEY_PACKAGE_REFERENCES, KEY_PACKAGE_WRAPPER_PRIVATE_KEY, SqlKeyStoreError,
+    KEY_PACKAGE_REFERENCES, KEY_PACKAGE_WRAPPER_PRIVATE_KEY, SqlKeyStoreError, codec as kv_codec,
 };
 use xmtp_db::{ConnectionExt, MlsProviderExt, TransactionOutcome};
-use xmtp_db::{Fetch, StorageError};
+use xmtp_db::{Fetch, StorageError, StoredSecret};
 use xmtp_db::{XmtpOpenMlsProviderRef, prelude::*};
 use xmtp_id::associations::unverified::UnverifiedSignature;
 use xmtp_id::associations::{AssociationError, Identifier, InstallationKeyContext, PublicContext};
@@ -340,11 +343,6 @@ pub enum IdentityError {
     /// Post-quantum public key not found. Not retryable.
     #[error("Missing post quantum public key")]
     MissingPostQuantumPublicKey,
-    /// Bincode serialization error.
-    ///
-    /// Binary serialization failed. Not retryable.
-    #[error("Bincode serialization error")]
-    Bincode,
     /// Uninitialized field.
     ///
     /// Builder field not initialized. Not retryable.
@@ -408,7 +406,9 @@ impl TryFrom<&Identity> for StoredIdentity {
     fn try_from(identity: &Identity) -> Result<Self, Self::Error> {
         StoredIdentity::builder()
             .inbox_id(identity.inbox_id.clone())
-            .installation_keys(xmtp_db::db_serialize(&identity.installation_keys)?)
+            .installation_keys(StoredSecret::from(xmtp_db::db_serialize(
+                &identity.installation_keys,
+            )?))
             .credential_bytes(xmtp_db::db_serialize(&identity.credential())?)
             .next_key_package_rotation_ns(now_ns() + KEY_PACKAGE_ROTATION_INTERVAL_NS)
             .build()
@@ -421,7 +421,7 @@ impl TryFrom<StoredIdentity> for Identity {
     fn try_from(identity: StoredIdentity) -> Result<Self, Self::Error> {
         Ok(Identity {
             inbox_id: identity.inbox_id.clone(),
-            installation_keys: xmtp_db::db_deserialize(&identity.installation_keys)?,
+            installation_keys: xmtp_db::db_deserialize(identity.installation_keys.as_slice())?,
             credential: xmtp_db::db_deserialize(&identity.credential_bytes)?,
             signature_request: None,
             is_ready: AtomicBool::new(true),
@@ -534,39 +534,71 @@ impl Identity {
                     "Inbox ID doesn't match nonce & address".to_string(),
                 ));
             }
-            let mut builder = SignatureRequestBuilder::new(inbox_id.clone());
-            builder = builder.create_inbox(identifier.clone(), nonce);
-
-            let mut signature_request = builder
-                .add_association(
-                    MemberIdentifier::installation(installation_keys.public_slice().to_vec()),
-                    identifier.clone().into(),
-                )
-                .build();
-
-            // We can pre-sign the request with an installation key signature, since we have access to the key
-            let sig = installation_keys
-                .credential_sign::<InstallationKeyContext>(signature_request.signature_text())?;
-            signature_request
-                .add_signature(
-                    UnverifiedSignature::new_installation_key(
-                        sig,
-                        installation_keys.verifying_key(),
-                    ),
-                    &scw_signature_verifier,
-                )
-                .await?;
-
-            let identity = Self {
-                inbox_id: inbox_id.clone(),
+            Self::create_inbox(
+                identifier,
+                nonce,
                 installation_keys,
-                credential: create_credential(inbox_id.clone())?,
-                signature_request: Some(signature_request),
-                is_ready: AtomicBool::new(false),
-            };
-
-            Ok(identity)
+                &scw_signature_verifier,
+            )
+            .await
         }
+    }
+
+    /// An unregistered identity that creates the inbox of `identifier` and
+    /// `nonce` with `installation_keys`. The request is pre-signed with the
+    /// installation key; the caller adds the wallet signature.
+    async fn create_inbox(
+        identifier: Identifier,
+        nonce: u64,
+        installation_keys: XmtpInstallationCredential,
+        scw_signature_verifier: impl SmartContractSignatureVerifier,
+    ) -> Result<Self, IdentityError> {
+        let inbox_id = identifier.inbox_id(nonce)?;
+        let mut builder = SignatureRequestBuilder::new(inbox_id.clone());
+        builder = builder.create_inbox(identifier.clone(), nonce);
+
+        let mut signature_request = builder
+            .add_association(
+                MemberIdentifier::installation(installation_keys.public_slice().to_vec()),
+                identifier.into(),
+            )
+            .build();
+
+        // We can pre-sign the request with an installation key signature, since we have access to the key
+        let sig = installation_keys
+            .credential_sign::<InstallationKeyContext>(signature_request.signature_text())?;
+        signature_request
+            .add_signature(
+                UnverifiedSignature::new_installation_key(sig, installation_keys.verifying_key()),
+                &scw_signature_verifier,
+            )
+            .await?;
+
+        Ok(Self {
+            credential: create_credential(inbox_id.clone())?,
+            inbox_id,
+            installation_keys,
+            signature_request: Some(signature_request),
+            is_ready: AtomicBool::new(false),
+        })
+    }
+
+    /// An unregistered identity for a new inbox that uses the given
+    /// installation key. Use it with [`IdentityStrategy::ExternalIdentity`],
+    /// then register with the owner of `identifier`.
+    #[cfg(any(test, feature = "test-utils"))]
+    pub async fn new_inbox_with_installation_keys(
+        identifier: Identifier,
+        nonce: u64,
+        installation_keys: XmtpInstallationCredential,
+    ) -> Result<Self, IdentityError> {
+        Self::create_inbox(
+            identifier,
+            nonce,
+            installation_keys,
+            xmtp_id::associations::test_utils::MockSmartContractSignatureVerifier::new(true),
+        )
+        .await
     }
 
     pub fn inbox_id(&self) -> InboxIdRef<'_> {
@@ -779,7 +811,11 @@ impl XmtpKeyPackageBuilder {
     }
 }
 
-/// Serialize the key package hash ref to a bincode friendly format that is compatible with `read` in the KeyStore
+/// The key package hash ref in the key store key layout (`kv_codec::encode_key`).
+///
+/// These bytes are the `KEY_PACKAGE_WRAPPER_PRIVATE_KEY` key and the
+/// `key_package_history.key_package_hash_ref` column. The key layout does not
+/// change with the value codec, so neither needs a migration when it does.
 pub(crate) fn serialize_key_package_hash_ref(
     kp: &KeyPackage,
     provider: &impl MlsProviderExt,
@@ -787,10 +823,13 @@ pub(crate) fn serialize_key_package_hash_ref(
     let key_package_hash_ref = kp
         .hash_ref(provider.crypto())
         .map_err(|_| IdentityError::UninitializedIdentity)?;
-    let serialized = bincode::serialize(&key_package_hash_ref)
-        .map_err(|_| IdentityError::UninitializedIdentity)?;
+    hash_ref_key(&key_package_hash_ref)
+}
 
-    Ok(serialized)
+/// A hash ref in the key store key layout.
+fn hash_ref_key(hash_ref: &HashReference) -> Result<Vec<u8>, IdentityError> {
+    kv_codec::encode_key(KEY_PACKAGE_WRAPPER_PRIVATE_KEY, hash_ref)
+        .map_err(|_| IdentityError::UninitializedIdentity)
 }
 
 // Takes a post quantum public key and returns the key used to store it in the key package references table
@@ -798,13 +837,21 @@ pub(crate) fn pq_key_package_references_key(raw_pub_key: &[u8]) -> Result<Vec<u8
     Ok(raw_pub_key.tls_serialize_detached()?)
 }
 
+/// Decode bytes from [`serialize_key_package_hash_ref`].
+///
+/// The input must be exactly one length-prefixed byte string. bincode allowed
+/// trailing bytes; this decoder rejects them on purpose. The only writer of
+/// the column is `serialize_key_package_hash_ref`, which never writes any, and
+/// the legacy archive conversion does not copy `key_package_history`. So the
+/// stricter check changes no result for a stored row.
 pub(crate) fn deserialize_key_package_hash_ref(
     hash_ref: &[u8],
 ) -> Result<HashReference, IdentityError> {
-    let key_package_hash_ref: HashReference =
-        bincode::deserialize(hash_ref).map_err(|_| IdentityError::UninitializedIdentity)?;
-
-    Ok(key_package_hash_ref)
+    let raw = kv_codec::key::decode_bytes(hash_ref).ok_or(IdentityError::UninitializedIdentity)?;
+    // `HashReference` has no public constructor from bytes. Its TLS encoding
+    // is the variable-length byte string.
+    let tls = VLBytes::new(raw.to_vec()).tls_serialize_detached()?;
+    HashReference::tls_deserialize_exact(tls).map_err(|_| IdentityError::UninitializedIdentity)
 }
 
 pub(crate) fn create_credential(
@@ -837,26 +884,29 @@ pub(crate) fn store_key_package_references(
     // keyed by the TLS serialized public init key instead of the slice version.
     let public_init_key = kp.hpke_init_key().tls_serialize_detached()?;
 
-    let hash_ref = serialize_key_package_hash_ref(kp, provider)?;
+    // The hash ref is a value under KEY_PACKAGE_REFERENCES (value codec) and a
+    // key under KEY_PACKAGE_WRAPPER_PRIVATE_KEY (key layout).
+    let hash_ref = kp
+        .hash_ref(provider.crypto())
+        .map_err(|_| IdentityError::UninitializedIdentity)?;
+    let hash_ref_value = kv_codec::encode_value(KEY_PACKAGE_REFERENCES, &hash_ref)?;
     let storage = provider.key_store();
     // Write the normal init key to the key package references
-    storage.write(KEY_PACKAGE_REFERENCES, &public_init_key, &hash_ref)?;
+    storage.write(KEY_PACKAGE_REFERENCES, &public_init_key, &hash_ref_value)?;
 
     if let Some(post_quantum_keypair) = post_quantum_keypair {
         let post_quantum_public_key = pq_key_package_references_key(&post_quantum_keypair.public)?;
-        // We need to store this in a bincode friendly format so that `read` will work later.
-        // TODO:(nm) review whether this breaks the Zeroize guarantees
-        let post_quantum_private_key = bincode::serialize(&post_quantum_keypair.private.to_vec())
-            .map_err(|_| IdentityError::Bincode)?;
 
         // Write the post quantum wrapper encryption public key to the key package references
-        storage.write(KEY_PACKAGE_REFERENCES, &post_quantum_public_key, &hash_ref)?;
-
         storage.write(
-            KEY_PACKAGE_WRAPPER_PRIVATE_KEY,
-            &hash_ref,
-            &post_quantum_private_key,
+            KEY_PACKAGE_REFERENCES,
+            &post_quantum_public_key,
+            &hash_ref_value,
         )?;
+
+        // The key is borrowed, and its encoding is wiped after the write.
+        storage
+            .write_wrapper_private_key(&hash_ref_key(&hash_ref)?, &post_quantum_keypair.private)?;
     }
 
     Ok(())
@@ -972,12 +1022,92 @@ mod tests {
     }
 
     fn get_pq_private_key(provider: &impl MlsProviderExt, hash_ref: &[u8]) -> Option<Vec<u8>> {
-        let val: Option<Vec<u8>> = provider
+        provider
             .key_store()
-            .read::<Vec<u8>>(KEY_PACKAGE_WRAPPER_PRIVATE_KEY, hash_ref)
-            .unwrap();
+            .wrapper_private_key(hash_ref)
+            .unwrap()
+            .map(|key| key.to_vec())
+    }
 
-        val
+    /// The key package hash ref has three uses. The wrapper private key's
+    /// storage key and the `key_package_history` column use the key layout.
+    /// The `KEY_PACKAGE_REFERENCES` value uses the value codec, CBOR. The two
+    /// encodings differ, so a site that used the other one fails here. The
+    /// column decodes back to the hash ref.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn key_package_hash_ref_uses_the_key_layout_and_cbor() {
+        use super::{deserialize_key_package_hash_ref, store_key_package_references};
+        use diesel::prelude::*;
+        use xmtp_db::{
+            ConnectionExt, XmtpTestDb, schema::openmls_key_value::dsl, sql_key_store::SqlKeyStore,
+            xmtp_openmls_provider::XmtpOpenMlsProvider,
+        };
+
+        let store = xmtp_db::TestDb::create_persistent_store(None).await;
+        let provider = XmtpOpenMlsProvider::new(SqlKeyStore::new(store.conn()));
+        let bundle = xmtp_db::test_utils::generate_key_package_bundle();
+        let post_quantum = xmtp_cryptography::post_quantum::generate_post_quantum_key()?;
+        store_key_package_references(&provider, bundle.key_package(), &Some(post_quantum.clone()))?;
+
+        let hash_ref = bundle.key_package().hash_ref(provider.crypto())?;
+        let raw = hash_ref.as_slice();
+        // The key layout: a `u64` LE length, then the bytes.
+        let key_layout = [&(raw.len() as u64).to_le_bytes()[..], raw].concat();
+        // CBOR: {"value": {"vec": [the bytes as integers]}}.
+        let mut cbor = [
+            &[0xa1, 0x65][..],
+            b"value",
+            &[0xa1, 0x63],
+            b"vec",
+            &[0x98, u8::try_from(raw.len())?],
+        ]
+        .concat();
+        for &byte in raw {
+            if byte >= 0x18 {
+                cbor.push(0x18);
+            }
+            cbor.push(byte);
+        }
+        assert_ne!(key_layout, cbor);
+
+        let column = serialize_key_package_hash_ref(bundle.key_package(), &provider)?;
+        assert_eq!(column, key_layout, "key_package_history column");
+        assert_eq!(deserialize_key_package_hash_ref(&column)?, hash_ref);
+        assert!(deserialize_key_package_hash_ref(&column[..column.len() - 1]).is_err());
+        // Strict on purpose: trailing bytes are rejected.
+        assert!(deserialize_key_package_hash_ref(&[column.as_slice(), &[0]].concat()).is_err());
+        assert!(deserialize_key_package_hash_ref(&cbor).is_err());
+
+        let stored = |key: &[u8]| -> Option<Vec<u8>> {
+            let storage_key = [KEY_PACKAGE_REFERENCES, key, &1u16.to_be_bytes()].concat();
+            store
+                .conn()
+                .raw_query(|conn| {
+                    dsl::openmls_key_value
+                        .filter(dsl::key_bytes.eq(storage_key))
+                        .select(dsl::value_bytes)
+                        .first::<Vec<u8>>(conn)
+                        .optional()
+                })
+                .unwrap()
+        };
+        let init_key = bundle
+            .key_package()
+            .hpke_init_key()
+            .tls_serialize_detached()?;
+        let post_quantum_key = pq_key_package_references_key(&post_quantum.public)?;
+        assert_eq!(stored(&init_key), Some(cbor.clone()), "init key reference");
+        assert_eq!(
+            stored(&post_quantum_key),
+            Some(cbor.clone()),
+            "post-quantum key reference"
+        );
+        let wrapper_key = provider.key_store().wrapper_private_key(&key_layout)?;
+        assert_eq!(
+            wrapper_key.as_deref().map(Vec::as_slice),
+            Some(&*post_quantum.private)
+        );
+        assert!(provider.key_store().wrapper_private_key(&cbor)?.is_none());
     }
 
     #[xmtp_common::test]
@@ -1026,7 +1156,11 @@ mod tests {
             .unwrap();
 
         // Make sure we can find the private key based on the init key
-        let serialized_hash_ref = bincode::serialize(&init_key_hash_ref.unwrap()).unwrap();
+        let serialized_hash_ref = xmtp_db::sql_key_store::codec::encode_key(
+            KEY_PACKAGE_WRAPPER_PRIVATE_KEY,
+            &init_key_hash_ref.unwrap(),
+        )
+        .unwrap();
         let pq_private_key = get_pq_private_key(&provider, &serialized_hash_ref);
         assert!(pq_private_key.is_some());
 
@@ -1083,9 +1217,6 @@ mod tests {
 
         let err = IdentityError::RequiredIdentityNotFound;
         assert_eq!(err.error_code(), "IdentityError::RequiredIdentityNotFound");
-
-        let err = IdentityError::Bincode;
-        assert_eq!(err.error_code(), "IdentityError::Bincode");
 
         let err = IdentityError::MissingPostQuantumPublicKey;
         assert_eq!(

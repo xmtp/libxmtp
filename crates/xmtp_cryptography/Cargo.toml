@@ -31,6 +31,7 @@ rand.workspace = true
 rand_chacha.workspace = true
 serde.workspace = true
 sha2.workspace = true
+subtle.workspace = true
 thiserror.workspace = true
 tls_codec.workspace = true
 zeroize = { workspace = true, features = ["zeroize_derive"] }
@@ -38,6 +39,11 @@ zeroize = { workspace = true, features = ["zeroize_derive"] }
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 ctor.workspace = true
 rustls.workspace = true
+
+# The heap-canary scanner (`test-utils`) searches freed blocks with `memmem`,
+# which only Unix `libc` provides.
+[target.'cfg(unix)'.dependencies]
+libc = { workspace = true, optional = true }
 
 # All wasm specific dependencies should go here as a single place to enable wasm features since all crates depend on this crate
 [target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dependencies]
@@ -53,12 +59,20 @@ futures-timer = { workspace = true, features = ["wasm-bindgen"] }
 [features]
 # Expose private keys in addition to public
 exposed-keys = []
-test-utils = ["openmls/test-utils"]
+test-utils = ["openmls/test-utils", "dep:libc"]
 
 [dev-dependencies]
-bincode.workspace = true
+cbor4ii.workspace = true
 openmls = { workspace = true, features = ["test-utils"] }
 openmls_basic_credential = { workspace = true, features = ["test-utils"] }
+serde_json = { workspace = true, features = ["std"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread"] }
 
 [target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dev-dependencies]
 wasm-bindgen-test.workspace = true
+
+[[test]]
+name = "heap_canary"
+required-features = ["test-utils"]

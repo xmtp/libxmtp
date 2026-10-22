@@ -16,7 +16,6 @@
   stdenv,
   wasm-bindgen-cli,
   cargo-nextest,
-  nodejs_24,
   removeReferencesTo,
   flock,
   nukeReferences,
@@ -75,7 +74,7 @@ let
     nativeBuildInputs = base.commonArgs.nativeBuildInputs ++ [
       cargo-nextest
       wasm-bindgen-cli
-      nodejs_24
+      xmtp.nodejs_24
     ];
     CARGO_BUILD_TARGET = "wasm32-unknown-unknown";
     preConfigure = ''

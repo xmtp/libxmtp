@@ -39,6 +39,48 @@ fn expect(error: XmtpError, code: &str, category: ErrorCategory, retryable: bool
     assert_eq!(found.retryable, retryable, "{error:?}");
 }
 
+/// A database this build cannot open is a `Storage` error whose code is the
+/// Rust cause code, so an app can act on the file without reading the
+/// message. It is not retryable, also from a send. Every other storage
+/// failure keeps the code `Storage`.
+#[xmtp_common::test]
+fn unsupported_databases_carry_their_cause_code() {
+    let cases: [(fn() -> StorageError, &str); 5] = [
+        (
+            || StorageError::PreTransitionDatabase,
+            "StorageError::PreTransitionDatabase",
+        ),
+        (
+            || StorageError::OldStreamDatabase,
+            "StorageError::OldStreamDatabase",
+        ),
+        (
+            || StorageError::OldEncodingDatabase,
+            "StorageError::OldEncodingDatabase",
+        ),
+        (
+            || StorageError::LegacyGroupDatabase,
+            "StorageError::LegacyGroupDatabase",
+        ),
+        (
+            || StorageError::DieselResult(xmtp_db::diesel::result::Error::NotFound),
+            "Storage",
+        ),
+    ];
+    for (error, code) in cases {
+        let message = error().to_string();
+        for found in [
+            XmtpError::from_core(error()),
+            XmtpError::from_group(GroupError::Storage(error())),
+            XmtpError::from_group_write(GroupError::Storage(error())),
+        ] {
+            assert!(matches!(found, XmtpError::Storage(_)), "{found:?}");
+            assert_eq!(details(&found).message, message);
+            expect(found, code, ErrorCategory::Storage, false);
+        }
+    }
+}
+
 fn mismatch() -> ClientError {
     ClientError::BackendMismatch {
         stored: "deployment-a".into(),
@@ -83,7 +125,7 @@ fn storage_retry_policy_comes_from_the_typed_cause() {
     );
     expect(
         XmtpError::from_group(GroupError::Storage(StorageError::PreTransitionDatabase)),
-        "Storage",
+        "StorageError::PreTransitionDatabase",
         ErrorCategory::Storage,
         false,
     );

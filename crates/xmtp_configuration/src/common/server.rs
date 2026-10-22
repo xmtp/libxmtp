@@ -67,6 +67,33 @@ pub const APPLICATION_COMPONENT_IDS: std::ops::RangeInclusive<u16> = 0xC000..=0x
 /// Longest application component name, in UTF-8 bytes.
 pub const MAX_APPLICATION_COMPONENT_NAME_BYTES: usize = 100;
 
+/// Every well-known group metadata component, as its ID and its META
+/// section 2 name, in ID order.
+///
+/// The client names well-known components from this table, and the backend
+/// refuses an application component that takes one of these names.
+pub const WELL_KNOWN_COMPONENT_NAMES: [(u16, &str); 19] = [
+    (0x8000, "COMPONENT_REGISTRY"),
+    (0x8001, "SUPER_ADMIN_LIST"),
+    (0x8002, "ADMIN_LIST"),
+    (0x8003, "GROUP_MEMBERSHIP"),
+    (0x8004, "GROUP_NAME"),
+    (0x8005, "GROUP_DESCRIPTION"),
+    (0x8006, "GROUP_IMAGE_URL"),
+    (0x8007, "MESSAGE_DISAPPEAR_FROM_NS"),
+    (0x8008, "MESSAGE_DISAPPEAR_IN_NS"),
+    (0x8009, "APP_DATA"),
+    (0x800A, "MIN_SUPPORTED_PROTOCOL_VERSION"),
+    (0x800B, "COMMIT_LOG_SIGNER"),
+    (0x800C, "USER_DISPLAY_NAME"),
+    (0x800D, "GROUP_IMAGE"),
+    (0xBFFB, "GROUP_ROOT_KEY"),
+    (0xBFFC, "ONESHOT_MESSAGE"),
+    (0xBFFD, "DM_MEMBERS"),
+    (0xBFFE, "CREATOR_INBOX_ID"),
+    (0xBFFF, "CONVERSATION_TYPE"),
+];
+
 /// Why a published configuration cannot be used.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum ServerConfigurationError {
@@ -572,9 +599,7 @@ impl ServerConfiguration {
 ///
 /// A provider never touches the database. The snapshot is resolved once at
 /// build and handed to the client whole.
-pub trait ConfigProvider:
-    std::fmt::Debug + xmtp_common::MaybeSend + xmtp_common::MaybeSync
-{
+pub trait ConfigProvider: std::fmt::Debug + Send + Sync {
     fn server_configuration(&self) -> &ServerConfiguration;
 }
 

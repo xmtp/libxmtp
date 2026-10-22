@@ -1,6 +1,7 @@
 mod api;
 pub mod attachments;
 mod backend;
+mod chains;
 mod db;
 mod handles;
 mod metadata;
@@ -14,6 +15,7 @@ mod tracing;
 pub use api::*;
 pub use attachments::*;
 pub use backend::*;
+pub use chains::*;
 pub use db::*;
 pub use handles::*;
 pub use metadata::*;

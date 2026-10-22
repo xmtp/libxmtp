@@ -113,6 +113,7 @@ pub fn logger() {
     {
         INIT.get_or_init(|| {
             let _ = tracing_subscriber::registry()
+                .with(crate::filter::group_context_guard())
                 .with(logger_layer())
                 .try_init();
         });
@@ -127,6 +128,7 @@ pub fn logger() {
                 .expect("invalid environment log filter");
 
             let _ = tracing_subscriber::registry()
+                .with(crate::filter::group_context_guard())
                 .with(crate::layers::web::console_layer())
                 .with(filter)
                 .try_init();
@@ -154,6 +156,51 @@ pub fn with_trace_layer<T>(
     let layer =
         enabled.then(|| tracing_opentelemetry::layer().with_tracer(provider.tracer("test")));
     let result = tracing::subscriber::with_default(tracing_subscriber::registry().with(layer), run);
+    let spans = std::mem::take(&mut *capture.0.lock());
+    (result, spans)
+}
+
+/// Set, unless a global subscriber is already set, one that formats every
+/// span and event field, on every thread and at every level, into a buffer
+/// it discards. A heap canary test calls it so that in CI, where the test
+/// macro installs no subscriber, a field that copies a secret is still built
+/// and freed while the scan watches, also in a task the code under test
+/// spawns. Outside CI the test logger is the global subscriber, and it builds
+/// the fields at INFO and above.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn install_field_evaluator() {
+    use tracing_subscriber::prelude::*;
+    let _ = tracing::subscriber::set_global_default(
+        tracing_subscriber::registry().with(
+            tracing_subscriber::fmt::layer()
+                .with_ansi(false)
+                .with_writer(std::io::sink),
+        ),
+    );
+}
+
+/// Poll `future` under a private registry with an optional trace layer, as
+/// [`with_trace_layer`] runs a closure. The registry is the default only while
+/// `future` itself is polled: a task it spawns runs without it. Return its
+/// output and the spans exported by the layer.
+#[cfg(not(target_arch = "wasm32"))]
+pub async fn with_trace_layer_async<F: std::future::Future>(
+    enabled: bool,
+    future: F,
+) -> (F::Output, Vec<opentelemetry_sdk::trace::SpanData>) {
+    use opentelemetry::trace::TracerProvider as _;
+    use tracing::instrument::WithSubscriber as _;
+    use tracing_subscriber::prelude::*;
+    crate::propagation::install();
+    let capture = SpanCapture::default();
+    let provider = opentelemetry_sdk::trace::SdkTracerProvider::builder()
+        .with_simple_exporter(capture.clone())
+        .build();
+    let layer =
+        enabled.then(|| tracing_opentelemetry::layer().with_tracer(provider.tracer("test")));
+    let result = future
+        .with_subscriber(tracing_subscriber::registry().with(layer))
+        .await;
     let spans = std::mem::take(&mut *capture.0.lock());
     (result, spans)
 }

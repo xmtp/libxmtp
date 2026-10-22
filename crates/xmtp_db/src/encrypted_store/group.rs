@@ -92,8 +92,10 @@ pub struct StoredGroup {
     /// Whether the user should publish the commit log for this group
     #[builder(default = false)]
     pub should_publish_commit_log: bool,
-    /// The consensus public key of the commit log for this group
-    /// Derived from the first entry of the commit log
+    /// The group's commit-log id: the public key of the commit-log signing
+    /// key derived from its group root, stored at creation and join. It
+    /// names the commit-log topic. `None` for a group without a root, such
+    /// as a restored placeholder.
     #[builder(default = None)]
     pub commit_log_public_key: Option<Vec<u8>>,
     /// Whether the local commit log has diverged from the remote commit log
@@ -146,6 +148,23 @@ impl<T: QueryConversationState + ?Sized> QueryConversationState for &T {
     ) -> Result<Option<i64>, StorageError> {
         (**self).last_activity_ns(group_id, content_types)
     }
+}
+
+type ConversationConsentJoin = diesel::dsl::And<
+    diesel::dsl::Eq<
+        diesel::expression::SqlLiteral<diesel::sql_types::Text>,
+        consent_records::entity,
+    >,
+    diesel::dsl::Eq<consent_records::entity_type, ConsentType>,
+>;
+
+/// The ON clause that joins a group to its own consent record. A keyed
+/// group's 64-hex id has the shape of an inbox id, so the join also matches
+/// the record's kind.
+fn conversation_consent_join() -> ConversationConsentJoin {
+    sql::<diesel::sql_types::Text>("lower(hex(groups.id))")
+        .eq(consent_records::entity)
+        .and(consent_records::entity_type.eq(ConsentType::ConversationId))
 }
 
 impl<C: ConnectionExt> QueryConversationState for DbConnection<C> {
@@ -407,13 +426,6 @@ pub trait QueryGroup {
         group_id: &GroupId,
     ) -> Result<ConversationType, crate::ConnectionError>;
 
-    /// Updates the commit log public key for a group
-    fn set_group_commit_log_public_key(
-        &self,
-        group_id: &GroupId,
-        public_key: &[u8],
-    ) -> Result<(), StorageError>;
-
     /// Updates the is_commit_log_forked status for a group
     fn set_group_commit_log_forked_status(
         &self,
@@ -581,14 +593,6 @@ where
         group_id: &GroupId,
     ) -> Result<ConversationType, crate::ConnectionError> {
         (**self).get_conversation_type(group_id)
-    }
-
-    fn set_group_commit_log_public_key(
-        &self,
-        group_id: &GroupId,
-        public_key: &[u8],
-    ) -> Result<(), StorageError> {
-        (**self).set_group_commit_log_public_key(group_id, public_key)
     }
 
     fn set_group_commit_log_forked_status(
@@ -766,9 +770,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
         } else if includes_unknown {
             // LEFT JOIN: include Unknown + NULL + filtered states
             let left_joined_query = query
-                .left_join(consent_dsl::consent_records.on(
-                    sql::<diesel::sql_types::Text>("lower(hex(groups.id))").eq(consent_dsl::entity),
-                ))
+                .left_join(consent_dsl::consent_records.on(conversation_consent_join()))
                 .filter(
                     consent_dsl::state
                         .is_null()
@@ -781,9 +783,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
         } else {
             // INNER JOIN: strict match only to specific states (no Unknown or NULL)
             let inner_joined_query = query
-                .inner_join(consent_dsl::consent_records.on(
-                    sql::<diesel::sql_types::Text>("lower(hex(groups.id))").eq(consent_dsl::entity),
-                ))
+                .inner_join(consent_dsl::consent_records.on(conversation_consent_join()))
                 .filter(consent_dsl::state.eq_any(filtered_states.clone()))
                 .select(dsl::groups::all_columns());
 
@@ -1112,9 +1112,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
                         .eq(ConversationType::Group)
                         .and(dsl::should_publish_commit_log.eq(true))),
             )
-            .inner_join(consent_dsl::consent_records.on(
-                sql::<diesel::sql_types::Text>("lower(hex(groups.id))").eq(consent_dsl::entity),
-            ))
+            .inner_join(consent_dsl::consent_records.on(conversation_consent_join()))
             .filter(consent_dsl::state.eq(ConsentState::Allowed))
             .select((dsl::id, dsl::commit_log_public_key))
             .order(dsl::created_at_ns.asc());
@@ -1132,9 +1130,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
         let query = dsl::groups
             .filter(dsl::membership_state.ne(GroupMembershipState::Restored))
             .filter(dsl::conversation_type.ne_all(ConversationType::virtual_types()))
-            .inner_join(consent_dsl::consent_records.on(
-                sql::<diesel::sql_types::Text>("lower(hex(groups.id))").eq(consent_dsl::entity),
-            ))
+            .inner_join(consent_dsl::consent_records.on(conversation_consent_join()))
             .filter(consent_dsl::state.eq(ConsentState::Allowed))
             .select((dsl::id, dsl::commit_log_public_key));
 
@@ -1220,30 +1216,6 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
             .select(dsl::conversation_type);
         let conversation_type = self.raw_query(|conn| query.first(conn))?;
         Ok(conversation_type)
-    }
-
-    fn set_group_commit_log_public_key(
-        &self,
-        group_id: &GroupId,
-        public_key: &[u8],
-    ) -> Result<(), StorageError> {
-        use crate::schema::groups::dsl;
-        let num_updated = self.raw_query(|conn| {
-            diesel::update(dsl::groups)
-                .filter(
-                    dsl::id
-                        .eq(group_id)
-                        .and(dsl::commit_log_public_key.is_null()),
-                )
-                .set(dsl::commit_log_public_key.eq(public_key))
-                .execute(conn)
-        })?;
-        if num_updated == 0 {
-            return Err(StorageError::Duplicate(DuplicateItem::CommitLogPublicKey(
-                group_id.as_ref().to_vec(),
-            )));
-        }
-        Ok(())
     }
 
     fn set_group_commit_log_forked_status(
@@ -1647,6 +1619,65 @@ pub(crate) mod tests {
             assert_eq!(fetched_group, Some(test_group));
             let conversation_type = fetched_group.unwrap().conversation_type;
             assert_eq!(conversation_type, ConversationType::Group);
+        })
+    }
+
+    /// A keyed group's 64-hex id has the shape of an inbox id. An inbox
+    /// consent record whose entity equals that id is not the group's consent.
+    /// Both groups would publish their commit logs if their consent were
+    /// Allowed.
+    #[xmtp_common::test]
+    fn inbox_consent_is_not_group_consent() {
+        with_connection(|conn| {
+            let keyed = || {
+                let mut group = generate_group(Some(GroupMembershipState::Allowed));
+                group.should_publish_commit_log = true;
+                group.commit_log_public_key = Some(rand_vec::<32>());
+                group.store(conn).unwrap();
+                group
+            };
+            let denied = keyed();
+            let allowed = keyed();
+            for (group, state) in [
+                (&denied, ConsentState::Denied),
+                (&allowed, ConsentState::Allowed),
+            ] {
+                generate_consent_record(ConsentType::InboxId, state, hex::encode(group.id))
+                    .store(conn)
+                    .unwrap();
+            }
+            let found = |states: Vec<ConsentState>| {
+                let mut ids: Vec<_> = conn
+                    .find_groups(GroupQueryArgs {
+                        consent_states: Some(states),
+                        ..Default::default()
+                    })
+                    .unwrap()
+                    .into_iter()
+                    .map(|group| group.id)
+                    .collect();
+                ids.sort();
+                ids
+            };
+            let mut both = vec![denied.id, allowed.id];
+            both.sort();
+            assert_eq!(found(vec![ConsentState::Unknown]), both);
+            assert!(found(vec![ConsentState::Denied]).is_empty());
+            assert!(found(vec![ConsentState::Allowed]).is_empty());
+            assert!(
+                conn.get_conversation_ids_for_remote_log_download()
+                    .unwrap()
+                    .is_empty()
+            );
+            assert!(
+                conn.get_conversation_ids_for_remote_log_publish()
+                    .unwrap()
+                    .is_empty()
+            );
+            for group in [&denied, &allowed] {
+                let (_, consent) = conn.conversation_state_row(&group.id).unwrap().unwrap();
+                assert_eq!(consent, None);
+            }
         })
     }
 

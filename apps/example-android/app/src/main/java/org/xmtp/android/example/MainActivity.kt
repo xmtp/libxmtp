@@ -190,6 +190,11 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch { model.openPush(intent) }
     }
 
+    override fun onStart() {
+        super.onStart()
+        model.visible(true)
+    }
+
     override fun onResume() {
         super.onResume()
         model.foreground(true)
@@ -198,6 +203,11 @@ class MainActivity : ComponentActivity() {
     override fun onPause() {
         model.foreground(false)
         super.onPause()
+    }
+
+    override fun onStop() {
+        model.visible(false)
+        super.onStop()
     }
 
     override fun onDestroy() {

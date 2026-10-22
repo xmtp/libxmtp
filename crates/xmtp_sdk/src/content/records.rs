@@ -381,11 +381,31 @@ pub struct DeletedMessage {
     pub deleted_by: DeletedBy,
 }
 
-#[derive(Clone, Debug, uniffi::Record)]
+#[derive(Clone, uniffi::Record)]
 pub struct MetadataFieldChange {
     pub field_name: String,
     pub old_value: Option<String>,
     pub new_value: Option<String>,
+}
+
+/// Messages stored before commit-log signer changes stopped being recorded
+/// can hold the signer's private key, so `Debug` redacts that field's values.
+impl std::fmt::Debug for MetadataFieldChange {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        fn shown(value: &Option<String>, redact: bool) -> Option<&str> {
+            value
+                .as_deref()
+                .map(|value| if redact { "<redacted>" } else { value })
+        }
+        let signer = self.field_name
+            == xmtp_mls::mls_common::group_mutable_metadata::MetadataField::CommitLogSigner
+                .as_str();
+        f.debug_struct("MetadataFieldChange")
+            .field("field_name", &self.field_name)
+            .field("old_value", &shown(&self.old_value, signer))
+            .field("new_value", &shown(&self.new_value, signer))
+            .finish()
+    }
 }
 
 #[derive(Clone, Debug, uniffi::Record)]

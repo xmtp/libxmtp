@@ -149,12 +149,18 @@ mod tests {
             &conversation.group_id.to_openmls(),
         )??;
         let malformed = vec![0xff; 3];
-        let mut stage = group
-            .commit_builder()
-            .add_proposal(Proposal::AppDataUpdate(Box::new(
-                AppDataUpdateProposal::update(ComponentId::ADMIN_LIST.as_u16(), malformed.clone()),
-            )))
-            .load_psks(provider.storage())?;
+        let mut stage = crate::groups::mls_ext::commit_without_group_info(
+            &mut group,
+            provider.storage(),
+            |builder| {
+                builder.add_proposal(Proposal::AppDataUpdate(Box::new(
+                    AppDataUpdateProposal::update(
+                        ComponentId::ADMIN_LIST.as_u16(),
+                        malformed.clone(),
+                    ),
+                )))
+            },
+        )?;
         let mut updater = stage.app_data_dictionary_updater();
         updater.set(ComponentData::from_parts(
             ComponentId::ADMIN_LIST.as_u16(),
@@ -184,6 +190,110 @@ mod tests {
             ),
             "export dropped an undecodable metadata value: {failure:?}"
         );
+    }
+
+    /// An archive holds no group key. A keyed group's root never reaches it,
+    /// and a commit-log signer that a legacy group's dictionary still holds
+    /// is dropped from the exported attributes. The signer is committed
+    /// locally through openmls, because new groups never write one.
+    // verifies: GMOD-042
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn archive_export_holds_no_group_keys() {
+        use openmls::{
+            component::ComponentData,
+            group::MlsGroup,
+            messages::proposals::{AppDataUpdateProposal, Proposal},
+        };
+        use openmls_traits::OpenMlsProvider;
+        use prost::Message;
+        use xmtp_mls_common::app_data::{component_id::ComponentId, group_root::read_group_root};
+
+        tester!(alix, disable_workers);
+        let conversation = alix.create_group(None, None)?;
+        conversation
+            .send_message(b"archived", Default::default())
+            .await?;
+        let root = conversation
+            .with_group_snapshot(|mls_group| Ok(read_group_root(mls_group.extensions())))???;
+        let provider = alix.context.mls_provider();
+        let signer = &alix.context.identity().installation_keys;
+        let mut group = MlsGroup::load(
+            alix.context.mls_storage(),
+            &conversation.group_id.to_openmls(),
+        )??;
+        let commit_log_signer = xmtp_common::rand_vec::<32>();
+        let mut stage = crate::groups::mls_ext::commit_without_group_info(
+            &mut group,
+            provider.storage(),
+            |builder| {
+                builder.add_proposal(Proposal::AppDataUpdate(Box::new(
+                    AppDataUpdateProposal::update(
+                        ComponentId::COMMIT_LOG_SIGNER.as_u16(),
+                        commit_log_signer.clone(),
+                    ),
+                )))
+            },
+        )?;
+        let mut updater = stage.app_data_dictionary_updater();
+        updater.set(ComponentData::from_parts(
+            ComponentId::COMMIT_LOG_SIGNER.as_u16(),
+            commit_log_signer.clone().into(),
+        ));
+        stage.with_app_data_dictionary_updates(updater.changes());
+        stage
+            .build(provider.rand(), provider.crypto(), signer, |_| true)?
+            .stage_commit(&provider)?;
+        group.merge_pending_commit(&provider)?;
+
+        let opts = ArchiveOptions {
+            start_ns: None,
+            end_ns: None,
+            elements: vec![
+                BackupElementSelection::Messages,
+                BackupElementSelection::Consent,
+            ],
+            exclude_disappearing_messages: false,
+        };
+        let key = xmtp_common::rand_vec::<32>();
+        let mut archive = Vec::new();
+        exporter::export(opts, alix.db(), &key, &mut archive)?;
+        let reader = Box::pin(BufReader::new(Cursor::new(archive)));
+        let elements: Vec<_> = ArchiveImporter::load(reader, &key)
+            .await?
+            .collect::<Vec<_>>()
+            .await
+            .into_iter()
+            .collect::<Result<_, _>>()?;
+
+        let mut saved = None;
+        let mut plaintext = Vec::new();
+        for element in &elements {
+            plaintext.extend(element.encode_to_vec());
+            if let Some(Element::Group(group)) = &element.element
+                && group.id == conversation.group_id.to_vec()
+            {
+                saved = Some(group.clone());
+            }
+        }
+        let attributes = saved?.mutable_metadata?.attributes;
+        assert!(
+            attributes.contains_key("group_name"),
+            "the archive lost the group's attributes: {attributes:?}"
+        );
+        assert!(!attributes.contains_key("_commit_log_signer"));
+        let contains = |needle: &[u8]| plaintext.windows(needle.len()).any(|w| w == needle);
+        for (secret, encoded) in crate::utils::test::group_secret_encodings(&root) {
+            assert!(!contains(&encoded), "the archive holds the {secret}");
+        }
+        assert!(
+            !contains(&commit_log_signer),
+            "the archive holds the signer"
+        );
+        assert!(
+            !contains(hex::encode(&commit_log_signer).as_bytes()),
+            "the archive holds the signer as hex"
+        );
+        assert!(!contains(b"_commit_log_signer"));
     }
 
     /// With MESSAGES selected, a restore into a new installation holds every

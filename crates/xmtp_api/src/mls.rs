@@ -156,34 +156,50 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
     ) -> Result<Vec<wire::EnvelopeMeta>> {
         self.publish_units(units).await
     }
+    /// Publish commit-log entries in the given order, one request at a time,
+    /// and stop at the first failed request. Each stored entry's metadata is
+    /// appended to `stored`, so on an error `stored` names the stored prefix
+    /// of `entries` and a retry starts from the first entry after it.
+    // implements: FORK-021
     #[xmtp_common::rpc_span]
     pub async fn publish_commit_log(
         &self,
-        entries: Vec<wire::CommitLogEntry>,
-    ) -> Result<Vec<wire::EnvelopeMeta>> {
+        entries: Vec<wire::SealedCommitLogEntry>,
+        stored: &mut Vec<wire::EnvelopeMeta>,
+    ) -> Result<()> {
         let units = entries
             .into_iter()
             .map(|entry| {
                 PublishUnit::single_within(
                     wire::ClientEnvelope {
-                        payload: Some(wire::client_envelope::Payload::CommitLogEntry(entry)),
+                        payload: Some(wire::client_envelope::Payload::SealedCommitLogEntry(entry)),
                     },
                     self.limits(),
                 )
             })
             .collect::<Result<Vec<_>>>()?;
-        self.publish_units(units).await
+        self.publish_units_in_order(units, stored).await
     }
+    /// Read commit-log topics without opening any entry. An envelope whose
+    /// metadata does not decode is logged and left out; the read still
+    /// returns every other envelope, so one bad envelope never fails it.
     #[xmtp_common::rpc_span]
     pub async fn query_commit_log(
         &self,
         cursors: TopicCursor,
     ) -> Result<Vec<xmtp_proto::types::CommitLogEntry>> {
-        self.query_all(cursors, self.limits().max_query_limit as u32)
+        Ok(self
+            .query_all(cursors, self.limits().max_query_limit as u32)
             .await?
             .into_iter()
-            .map(|envelope| decode_commit_log_entry(envelope).map_err(Into::into))
-            .collect()
+            .filter_map(|envelope| {
+                decode_commit_log_entry(envelope)
+                    .inspect_err(|error| {
+                        tracing::warn!(%error, "discarding a commit-log envelope");
+                    })
+                    .ok()
+            })
+            .collect())
     }
     #[xmtp_common::rpc_span]
     pub async fn get_newest_message_metadata(

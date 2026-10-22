@@ -7,10 +7,18 @@ use xmtp_common::time::{Duration, Instant, sleep, timeout};
 use xmtp_logging::test_logging::OtlpCollector;
 
 const CHILD_CONFIG: &str = "XMTP_BACKEND_STARTUP_TEST_CONFIG";
-const TEST_NAME: &str = "tests::startup_preserves_metrics_export_and_shutdown_across_log_settings";
+const CHILD_TEST: &str = "startup_preserves_metrics_export_and_shutdown_across_log_settings";
 const CHILD_ARGS: &str = "XMTP_BACKEND_STARTUP_TEST_ARGS";
 const SECRET: &str = "private-config-sentinel";
 const DRAIN_MS: u64 = 1_000;
+
+/// The libtest filter for the test that the child process runs.
+fn child_test_name() -> String {
+    let (_, module) = module_path!()
+        .split_once("::")
+        .expect("a test module below the crate root");
+    format!("{module}::{CHILD_TEST}")
+}
 
 struct Process {
     child: Child,
@@ -35,7 +43,7 @@ impl Process {
         let output = std::fs::File::create(directory.join("output")).unwrap();
         let mut command = Command::new(std::env::current_exe().unwrap());
         command
-            .args(["--exact", TEST_NAME, "--nocapture"])
+            .args(["--exact", &child_test_name(), "--nocapture"])
             .env(CHILD_CONFIG, &path)
             .env_remove("XMTP_CONFIG")
             .env_remove(CHILD_ARGS)
@@ -58,8 +66,12 @@ impl Process {
         }
     }
 
+    /// The child's output. libtest exits successfully when its filter
+    /// matches no test, so the output must show that the one test ran.
     fn output(&self) -> String {
-        std::fs::read_to_string(self.directory.join("output")).unwrap()
+        let output = std::fs::read_to_string(self.directory.join("output")).unwrap();
+        assert!(output.contains("running 1 test\n"), "{output}");
+        output
     }
 
     async fn terminate(&mut self) {
@@ -136,7 +148,7 @@ async fn startup_preserves_metrics_export_and_shutdown_across_log_settings() {
             Err(_) => vec!["--config-file".into(), path],
         };
         let args = Args::parse_from(std::iter::once("xmtp-backend".to_string()).chain(arguments));
-        let config = args.load_config()?;
+        let config = args.config()?;
         if config.telemetry.metrics_listen.is_empty() {
             // Occupy the default metrics port, so an exporter that binds it
             // anyway fails. When another process already holds the port, it
@@ -207,10 +219,7 @@ async fn startup_preserves_metrics_export_and_shutdown_across_log_settings() {
         let mut client = xmtp_backend::api::query_service_client::QueryServiceClient::new(channel);
         let request = xmtp_backend::api::QueryNewestRequest {
             topics: vec![xmtp_backend::api::Topic {
-                topic: xmtp_proto::types::Topic::new_group_message(
-                    xmtp_proto::types::GroupId::ZERO,
-                )
-                .cloned_vec(),
+                topic: xmtp_proto::types::Topic::new_group_message([0u8; 32]).cloned_vec(),
             }],
             include_full_envelope: false,
         };
@@ -304,6 +313,114 @@ async fn failed_jwks_startup_exits_before_binding_the_rpc_listener() {
     let _listener = TcpListener::bind(grpc)?;
 }
 
+/// The first inline key that does not parse for its algorithm stops startup
+/// before the RPC listener binds. The refusal names the entry, not the key.
+// verifies: AUTH-017
+#[xmtp_common::test(unwrap_try = true, disable_logging = true)]
+async fn an_unparsable_inline_key_stops_startup_before_binding() {
+    let database = std::env::var("DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://xmtp:xmtp@localhost:55432/xmtp_backend".into());
+    let grpc = address();
+    let metrics = address();
+    let es256 = rcgen::KeyPair::generate_for(&rcgen::PKCS_ECDSA_P256_SHA256)?.public_key_pem();
+    let ed25519 = rcgen::KeyPair::generate_for(&rcgen::PKCS_ED25519)?.public_key_pem();
+    // The second key is an Ed25519 key under the ES256 algorithm.
+    let config = format!(
+        "[database]\nurl = {database:?}\n[server]\nidentifier = 'org.xmtp.test'\nlisten = {grpc:?}\n[telemetry]\nmetrics_listen = {metrics:?}\n[auth]\nenabled = true\n\
+         [[auth.keys]]\nkid = 'first'\nalg = 'ES256'\npublic_key = '''{es256}'''\n\
+         [[auth.keys]]\nkid = 'second'\nalg = 'ES256'\npublic_key = '''{ed25519}'''\n\
+         [[auth.keys]]\nkid = 'third'\nalg = 'EdDSA'\npublic_key = '''{ed25519}'''\n"
+    );
+    let mut process = Process::start(&config, None);
+    assert!(!process.child.wait()?.success());
+    let output = process.output();
+    assert!(
+        output.contains("auth.keys[1].public_key")
+            && output.contains("public_key must be SubjectPublicKeyInfo for alg"),
+        "{output}"
+    );
+    assert!(!output.contains("BEGIN PUBLIC KEY"), "{output}");
+    assert!(!output.contains("backend ready to serve"), "{output}");
+    let _listener = TcpListener::bind(grpc)?;
+}
+
+/// `--log-level` overrides `server.log_level` for the running server. A
+/// request without a credential logs its rejection at DEBUG.
+#[xmtp_common::test(unwrap_try = true, disable_logging = true)]
+async fn the_log_level_flag_overrides_the_configured_level() {
+    let database = std::env::var("DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://xmtp:xmtp@localhost:55432/xmtp_backend".into());
+    for flag in [true, false] {
+        let grpc = address();
+        let metrics = address();
+        let config = format!(
+            "[database]\nurl = {database:?}\n[server]\nidentifier = 'org.xmtp.test'\nlisten = {grpc:?}\nlog_level = 'info'\n[telemetry]\nmetrics_listen = {metrics:?}\n[auth]\nenabled = true\n[auth.api_keys]\nbot = '0123456789abcdef0123456789abcdef'\n"
+        );
+        let mut args = vec!["--config", config.as_str()];
+        if flag {
+            args.extend(["--log-level", "debug"]);
+        }
+        let mut process = Process::start_with_args("", None, Some(&args), None);
+        scrape(&metrics, "xmtp_backend_ready 1").await;
+        let channel = tonic::transport::Endpoint::from_shared(format!("http://{grpc}"))?
+            .connect()
+            .await?;
+        let mut client = xmtp_backend::api::query_service_client::QueryServiceClient::new(channel);
+        let status = client
+            .query_newest(xmtp_backend::api::QueryNewestRequest {
+                topics: vec![],
+                include_full_envelope: false,
+            })
+            .await
+            .unwrap_err();
+        assert_eq!(status.code(), tonic::Code::Unauthenticated);
+        process.terminate().await;
+        let output = process.output();
+        assert_eq!(output.contains("authentication rejected"), flag, "{output}");
+    }
+}
+
+/// Each configured level maps to the shared level of the same name.
+#[xmtp_common::test(unwrap_try = true)]
+fn configured_log_levels_map_to_the_shared_levels() {
+    for level in ["off", "error", "warn", "info", "debug", "trace"] {
+        let config: Config = toml::from_str(&format!(
+            "[database]\nurl = 'postgres://localhost/xmtp'\n[server]\nlog_level = '{level}'"
+        ))?;
+        assert_eq!(logging_level(config.server.log_level).as_str(), level);
+    }
+}
+
+/// The OTLP export carries the telemetry settings. The identifier is added to
+/// every export, alongside whatever the operator set.
+#[xmtp_common::test(unwrap_try = true)]
+fn otlp_export_carries_the_telemetry_settings_and_the_identifier() {
+    const MINIMAL: &str =
+        "[database]\nurl = 'postgres://localhost/xmtp'\n[server]\nidentifier = 'org.xmtp.test'\n";
+    let config = ValidatedConfig::load_str(&format!(
+        "{MINIMAL}[telemetry]\notlp_endpoint = 'http://tempo:4317'"
+    ))?;
+    let export = otlp_export(&config)?.unwrap();
+    assert_eq!(export.endpoint.as_deref(), Some("http://tempo:4317"));
+    assert_eq!(export.service_name.as_deref(), Some("xmtp-backend"));
+    assert!(!export.logs);
+    let config = ValidatedConfig::load_str(&format!(
+        "{MINIMAL}[telemetry]\notlp_endpoint = 'http://collector:4317'\notlp_logs = true\nservice_name = 'custom'\nsample_ratio = 0.25\nresource_attributes = {{ 'deployment.environment' = 'test' }}"
+    ))?;
+    let export = otlp_export(&config)?.unwrap();
+    assert_eq!(export.endpoint.as_deref(), Some("http://collector:4317"));
+    assert_eq!(export.service_name.as_deref(), Some("custom"));
+    assert!(export.logs);
+    assert_eq!(export.sample_ratio, 0.25);
+    assert_eq!(
+        export.resource_attributes,
+        vec![
+            ("deployment.environment".into(), "test".into()),
+            ("xmtp.backend.identifier".into(), "org.xmtp.test".into())
+        ]
+    );
+}
+
 #[xmtp_common::test(unwrap_try = true, disable_logging = true)]
 async fn inline_sources_start_and_serve() {
     let database = std::env::var("DATABASE_URL")
@@ -327,10 +444,7 @@ async fn inline_sources_start_and_serve() {
         client
             .query_newest(xmtp_backend::api::QueryNewestRequest {
                 topics: vec![xmtp_backend::api::Topic {
-                    topic: xmtp_proto::types::Topic::new_group_message(
-                        xmtp_proto::types::GroupId::ZERO,
-                    )
-                    .cloned_vec(),
+                    topic: xmtp_proto::types::Topic::new_group_message([0u8; 32]).cloned_vec(),
                 }],
                 include_full_envelope: false,
             })
@@ -340,10 +454,98 @@ async fn inline_sources_start_and_serve() {
     }
 }
 
+/// Which push credentials `secret_values` adds.
+#[derive(Clone, Copy)]
+enum PushSecrets {
+    None,
+    Apns,
+    Fcm,
+}
+
+/// Secret values in every secret key. The store URL carries a password and
+/// names a database that does not exist, so the connection fails. With push
+/// credentials, startup stops at them instead.
+fn secret_values(push: PushSecrets) -> String {
+    let mut store = url::Url::parse(
+        &std::env::var("DATABASE_URL")
+            .unwrap_or_else(|_| "postgres://xmtp:xmtp@localhost:55432/xmtp_backend".into()),
+    )
+    .expect("DATABASE_URL is a URL");
+    store
+        .set_password(Some(SECRET))
+        .expect("a store URL takes a password");
+    store.set_path("xmtp_missing_database");
+    let mut config = format!(
+        "[server]\nidentifier = 'org.xmtp.test'\nlisten = {grpc:?}\n\
+         [telemetry]\nmetrics_listen = {metrics:?}\notlp_endpoint = 'http://127.0.0.1:9/{SECRET}'\n\
+         [database]\nurl = '{store}'\nreplica_url = '{store}'\n\
+         [chains]\n\"eip155:1\" = 'https://127.0.0.1:9/{SECRET}'\n\
+         [attachments]\nbase_url = 'https://files.example.org'\n\
+         [attachments.target.S3]\nendpoint = 'https://127.0.0.1:9/{SECRET}'\nregion = 'us-east-1'\nbucket = 'attachments'\n\
+         [attachments.target.S3.credentials]\nkind = 'static'\naccess_key_id = '{SECRET}-id'\nsecret_access_key = 'env:XMTP_STARTUP_TEST_SECRET'\nsession_token = '{SECRET}-token'\n",
+        grpc = address(),
+        metrics = address(),
+    );
+    match push {
+        PushSecrets::None => {}
+        PushSecrets::Apns => config.push_str(
+            "[push.apns]\nkey = 'env:XMTP_STARTUP_TEST_SECRET'\nkey_id = 'ABC123DEFG'\nteam_id = 'DEF123GHIJ'\nbundle_id = 'org.example.app'\nenvironment = 'production'\n",
+        ),
+        // Every field but the key is valid, so the sender reaches the key.
+        PushSecrets::Fcm => {
+            let account = serde_json::json!({
+                "type": "service_account",
+                "project_id": "example-project",
+                "client_email": "push@example-project.iam.gserviceaccount.com",
+                "private_key": SECRET,
+                "token_uri": "https://oauth2.googleapis.com/token",
+            });
+            config.push_str(&format!("[push.fcm]\nservice_account = '{account}'\n"));
+        }
+    }
+    config
+}
+
+// verifies: CONF-082, CONF-085
 #[xmtp_common::test(unwrap_try = true, disable_logging = true)]
 fn configuration_source_errors_and_help_omit_secrets() {
     let invalid_value = "[database]\nurl = 'env:XMTP_STARTUP_TEST_SECRET'\n";
+    // TOML v1.1.0 lets an inline table span lines. The document parses, so
+    // the refusal comes from a check, not from the parser.
+    let multiline_table = "[database]\nurl = 'env:XMTP_STARTUP_TEST_SECRET'\n[telemetry]\nresource_attributes = {\n  name = 'value',\n}\n";
+    let unreadable = std::env::temp_dir()
+        .join(format!("xmtp-missing-{}", uuid::Uuid::new_v4()))
+        .join("backend.toml");
+    let unreadable = unreadable.to_str()?;
+    let secrets = secret_values(PushSecrets::None);
+    let apns_secrets = secret_values(PushSecrets::Apns);
+    let fcm_secrets = secret_values(PushSecrets::Fcm);
     for (args, env, expected, success) in [
+        (vec!["--config-file", unreadable], None, vec!["Read"], false),
+        (
+            vec!["--config", multiline_table],
+            None,
+            vec!["Invalid"],
+            false,
+        ),
+        (
+            vec!["--config", secrets.as_str()],
+            None,
+            vec!["Database"],
+            false,
+        ),
+        (
+            vec!["--config", apns_secrets.as_str()],
+            None,
+            vec!["push.apns.key"],
+            false,
+        ),
+        (
+            vec!["--config", fcm_secrets.as_str()],
+            None,
+            vec!["push.fcm.service_account"],
+            false,
+        ),
         (
             vec!["--config", SECRET, "--config-file", "unused"],
             None,
@@ -387,8 +589,9 @@ fn configuration_source_errors_and_help_omit_secrets() {
         ),
     ] {
         let mut process = Process::start_with_args("", None, Some(&args), env);
-        assert_eq!(process.child.wait()?.success(), success);
+        let status = process.child.wait()?;
         let output = process.output();
+        assert_eq!(status.success(), success, "{output}");
         assert!(!output.contains(SECRET), "{output}");
         for text in expected {
             assert!(output.contains(text), "{output}");
@@ -396,6 +599,7 @@ fn configuration_source_errors_and_help_omit_secrets() {
     }
 }
 
+// verifies: CONF-082
 #[xmtp_common::test(unwrap_try = true, disable_logging = true)]
 fn missing_configuration_source_is_a_clap_usage_error() {
     let mut process = Process::start_with_args("", None, Some(&[]), None);

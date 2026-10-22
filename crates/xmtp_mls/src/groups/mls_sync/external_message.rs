@@ -257,10 +257,9 @@ where
                 let envelope = PlaintextEnvelope::decode(&mut bytes)?;
 
                 match envelope.content {
-                    Some(Content::V1(V1 {
-                        idempotency_key,
-                        content,
-                    })) => {
+                    Some(Content::V1(mut v1)) => {
+                        let idempotency_key = std::mem::take(&mut v1.idempotency_key);
+                        let content = std::mem::take(&mut v1.content);
                         let message_id =
                             calculate_message_id(self.group_id, &content, &idempotency_key);
                         let queryable_content_fields =

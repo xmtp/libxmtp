@@ -102,13 +102,6 @@ pub enum GroupError {
     /// MLS TLS encoding/decoding failed. Not retryable.
     #[error("TLS Codec error: {0}")]
     TlsError(#[from] TlsCodecError),
-    /// Update group membership error.
-    ///
-    /// Failed to update group membership. May be retryable.
-    #[error("add members: {0}")]
-    UpdateGroupMembership(
-        #[from] openmls::prelude::UpdateGroupMembershipError<sql_key_store::SqlKeyStoreError>,
-    ),
     /// Group create error.
     ///
     /// MLS group creation failed. May be retryable.
@@ -256,25 +249,12 @@ pub enum GroupError {
     /// failure is preserved instead of being string-flattened.
     #[error("app data commit error: {0}")]
     AppDataCommit(#[from] super::app_data::GroupAppDataError<sql_key_store::SqlKeyStoreError>),
-    /// Bootstrap synthesis failure — sender-side couldn't build the
-    /// complete set of initial component values for the migration
-    /// commit. Includes identity-update lookup failures.
+    /// App data value encoding failure: the sender could not encode a
+    /// component value for the dictionary.
     ///
-    /// Conditionally retryable: delegates to the wrapped
-    /// [`super::app_data::migration::BootstrapSynthesisError`], which retries only when an inner
-    /// identity-update API error is itself retryable. Decode/registry-shape
-    /// failures are deterministic and not retryable.
+    /// Not retryable: encoding is deterministic over its inputs.
     #[error("bootstrap synthesis error: {0}")]
     BootstrapSynthesis(#[from] super::app_data::migration::BootstrapSynthesisError),
-    /// Bootstrap commit-build failure.
-    ///
-    /// Not retryable: every variant of [`super::app_data::migration::BootstrapCommitError`] is a
-    /// deterministic OpenMLS commit failure, a TLS codec error, or a
-    /// caller-side precondition violation.
-    #[error("bootstrap commit error: {0}")]
-    BootstrapCommit(
-        #[from] super::app_data::migration::BootstrapCommitError<sql_key_store::SqlKeyStoreError>,
-    ),
     /// Credential error.
     ///
     /// MLS credential validation failed. Not retryable.
@@ -412,6 +392,10 @@ pub enum GroupError {
     /// The Welcome has missing, malformed, or out-of-range join metadata. Not retryable.
     #[error("Welcome join metadata is invalid")]
     InvalidWelcomeMetadata,
+    /// The Welcome's group context has no 32-byte group root, or its root
+    /// does not derive the Welcome's group id. Not retryable.
+    #[error("Welcome group root does not name its group: {0}")]
+    WelcomeGroupRoot(xmtp_mls_common::app_data::group_root::GroupRootError),
     /// The Welcome needs a newer client. Keep it blocked until upgrade. Retryable.
     #[error("Welcome requires client version {0}")]
     UnsupportedWelcomeVersion(String),
@@ -586,7 +570,6 @@ impl RetryableError for GroupError {
             Self::Storage(storage) => storage.is_retryable(),
             Self::ReceiveError(msg) => msg.is_retryable(),
             Self::Identity(identity) => identity.is_retryable(),
-            Self::UpdateGroupMembership(update) => update.is_retryable(),
             Self::GroupCreate(group) => group.is_retryable(),
             Self::SelfUpdate(update) => update.is_retryable(),
             Self::WelcomeError(
@@ -608,12 +591,7 @@ impl RetryableError for GroupError {
             Self::ComponentSource(_) => false,
             Self::MetadataField(_) => false,
             Self::AppDataCommit(e) => e.is_retryable(),
-            // Bootstrap synthesis can fail on a transient identity-update
-            // API blip — delegate to the inner error so we retry on
-            // network errors and stay non-retryable on deterministic
-            // wire-format / registry-shape failures.
             Self::BootstrapSynthesis(e) => e.is_retryable(),
-            Self::BootstrapCommit(_) => false,
             Self::CommitValidation(err) => err.is_retryable(),
             Self::WrappedApi(err) => err.is_retryable(),
             Self::ProcessIntent(err) => err.is_retryable(),
@@ -644,6 +622,7 @@ impl RetryableError for GroupError {
             Self::MissingSequenceId => true,
             Self::NotFound(_)
             | Self::InvalidWelcomeMetadata
+            | Self::WelcomeGroupRoot(_)
             | Self::UserLimitExceeded
             | Self::InvalidGroupMembership
             | Self::Intent(_)

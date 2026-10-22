@@ -1,12 +1,16 @@
 use crate::ConnectionExt;
 use crate::MlsProviderExt;
 use crate::TransactionalKeyStore;
-use crate::sql_key_store::SqlKeyStoreError;
+use crate::sql_key_store::{
+    COMMIT_LOG_SIGNER_PRIVATE_KEY, KEY_PACKAGE_WRAPPER_PRIVATE_KEY, SqlKeyStoreError,
+    codec::{encode_bytes, encode_key},
+};
 use openmls_rust_crypto::RustCrypto;
 use openmls_traits::OpenMlsProvider;
 use openmls_traits::storage::CURRENT_VERSION;
 use openmls_traits::storage::{Entity, StorageProvider};
 use xmtp_common::{MaybeSend, MaybeSync};
+use xmtp_cryptography::secret::{Secret, Zeroizing};
 
 /// Outcome of a [`XmtpMlsStorageProvider::transaction`] or
 /// [`XmtpMlsStorageProvider::savepoint`] closure.
@@ -109,6 +113,57 @@ pub trait XmtpMlsStorageProvider:
         key: &[u8],
         value: &[u8],
     ) -> Result<(), <Self as StorageProvider<CURRENT_VERSION>>::Error>;
+
+    /// Store the post-quantum wrapper private key of the key package whose
+    /// hash reference, in the key layout (`codec::encode_key`), is `hash_ref`.
+    ///
+    /// The value is the key as one CBOR byte string (`codec::encode_bytes`),
+    /// in a buffer that is wiped on drop. With [`Self::wrapper_private_key`], this is the only code
+    /// that reads or writes values under [`KEY_PACKAGE_WRAPPER_PRIVATE_KEY`].
+    fn write_wrapper_private_key(
+        &self,
+        hash_ref: &[u8],
+        key: &[u8],
+    ) -> Result<(), SqlKeyStoreError> {
+        let value = encode_bytes(KEY_PACKAGE_WRAPPER_PRIVATE_KEY, key)?;
+        self.write(KEY_PACKAGE_WRAPPER_PRIVATE_KEY, hash_ref, &value)
+    }
+
+    /// Read the post-quantum wrapper private key of the key package whose
+    /// hash reference, in the key layout, is `hash_ref`. The key is wiped on
+    /// drop.
+    fn wrapper_private_key(
+        &self,
+        hash_ref: &[u8],
+    ) -> Result<Option<Zeroizing<Vec<u8>>>, SqlKeyStoreError> {
+        // `Secret` decodes into a buffer that is wiped on drop, also when the
+        // decode fails partway; a plain `Vec<u8>` would free the bytes read
+        // so far unwiped.
+        Ok(self
+            .read::<Secret>(KEY_PACKAGE_WRAPPER_PRIVATE_KEY, hash_ref)?
+            .map(Zeroizing::from))
+    }
+
+    /// Store the commit-log signer private key of the group `group_id`.
+    ///
+    /// The storage key is the group id in the key layout
+    /// (`codec::encode_key`). The value is the key as one CBOR byte string
+    /// (`codec::encode_bytes`), in a buffer that is wiped on drop. With
+    /// [`Self::commit_log_signer`], this is the only code that reads or writes
+    /// values under [`COMMIT_LOG_SIGNER_PRIVATE_KEY`].
+    fn write_commit_log_signer(&self, group_id: &[u8], key: &[u8]) -> Result<(), SqlKeyStoreError> {
+        let storage_key = encode_key(COMMIT_LOG_SIGNER_PRIVATE_KEY, group_id)?;
+        let value = encode_bytes(COMMIT_LOG_SIGNER_PRIVATE_KEY, key)?;
+        self.write(COMMIT_LOG_SIGNER_PRIVATE_KEY, &storage_key, &value)
+    }
+
+    /// Read the commit-log signer private key of the group `group_id`. The
+    /// key is wiped on drop.
+    fn commit_log_signer(&self, group_id: &[u8]) -> Result<Option<Secret>, SqlKeyStoreError> {
+        let storage_key = encode_key(COMMIT_LOG_SIGNER_PRIVATE_KEY, group_id)?;
+        // As in `wrapper_private_key`: decoded straight into a `Secret`.
+        self.read::<Secret>(COMMIT_LOG_SIGNER_PRIVATE_KEY, &storage_key)
+    }
 
     #[cfg(feature = "test-utils")]
     fn hash_all(&self) -> Result<Vec<u8>, SqlKeyStoreError>;

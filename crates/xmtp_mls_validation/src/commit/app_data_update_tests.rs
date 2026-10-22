@@ -15,6 +15,7 @@ use openmls::prelude::{LeafNodeIndex, Sender, SenderExtensionIndex};
 use prost::Message as _;
 use tls_codec::{Serialize as _, VLBytes};
 
+use xmtp_cryptography::secret::Zeroizing;
 use xmtp_mls_common::app_data::component_id::ComponentId;
 use xmtp_mls_common::app_data::component_permissions::component_permissions;
 use xmtp_mls_common::app_data::component_registry::{ComponentRegistry, new_component_metadata};
@@ -1168,7 +1169,10 @@ fn immutable_first_write_cannot_be_split_across_proposals() {
             None,
         )
     };
-    assert_eq!(sequence(&[&first])?[&id], Some(b"a".to_vec()));
+    assert_eq!(
+        sequence(&[&first])?[&id],
+        Some(Zeroizing::new(b"a".to_vec()))
+    );
     assert!(matches!(
         sequence(&[&first, &second]),
         Err(CommitRuleError::InsufficientPermissions)
@@ -1197,7 +1201,7 @@ fn dm_participant_cannot_grow_application_map_past_snapshot_bound() {
         AppDataUpdateOperation::Update(payload.into())
     };
     let dm = dm_of(alice, bob);
-    let mut committed: Option<Vec<u8>> = None;
+    let mut committed: Option<Zeroizing<Vec<u8>>> = None;
     let mut commit = |key: u8| {
         let operation = entry(key);
         validate_app_data_update_sequence(
@@ -1207,7 +1211,7 @@ fn dm_participant_cannot_grow_application_map_past_snapshot_bound() {
                 actor: member(),
                 proposer_inbox_id: &alice.to_hex(),
             }],
-            |_| committed.clone(),
+            |_| committed.as_deref().map(Vec::as_slice),
             &registry,
             Some(&dm),
             None,
@@ -1288,7 +1292,7 @@ fn dm_participant_cannot_grow_registry_past_snapshot_bound() {
     let (alice, bob) = (fake_inbox(1), fake_inbox(2));
     let dm = dm_of(alice, bob);
     let registry = ComponentRegistry::new();
-    let mut committed: Option<Vec<u8>> = None;
+    let mut committed: Option<Zeroizing<Vec<u8>>> = None;
     let mut commit = |offset: u16| {
         let operation = registry_entry_insert(ComponentId::new(0xC100 + offset), 8000);
         validate_app_data_update_sequence(
@@ -1298,7 +1302,7 @@ fn dm_participant_cannot_grow_registry_past_snapshot_bound() {
                 actor: member(),
                 proposer_inbox_id: &alice.to_hex(),
             }],
-            |_| committed.clone(),
+            |_| committed.as_deref().map(Vec::as_slice),
             &registry,
             Some(&dm),
             None,
@@ -1519,4 +1523,31 @@ fn standalone_proposal_delete_of_oversized_key_is_rejected() {
         validate(8193),
         Err(CommitRuleError::InsufficientPermissions)
     ));
+}
+
+/// A write of `GROUP_ROOT_KEY` must be exactly 32 bytes, the length META
+/// section 2 gives it: an empty, 31-byte, or 33-byte first write is
+/// rejected even where the registry allows the write.
+// verifies: META-010
+#[xmtp_common::test(unwrap_try = true)]
+fn group_root_key_writes_must_be_32_bytes() {
+    let id = ComponentId::GROUP_ROOT_KEY;
+    // A scalar first write is an update, so the registry allows updates.
+    let registry = registry_with(id, deny(), allow(), deny(), ComponentType::Bytes);
+    let write = |len: usize| {
+        validate_one_app_data_update_with_old_value(
+            id,
+            &AppDataUpdateOperation::Update(vec![7; len].into()),
+            member(),
+            "inbox_alice",
+            &registry,
+            None,
+            None,
+            None,
+        )
+    };
+    write(32)?;
+    for len in [0, 31, 33] {
+        assert!(write(len).is_err(), "a {len}-byte root was accepted");
+    }
 }

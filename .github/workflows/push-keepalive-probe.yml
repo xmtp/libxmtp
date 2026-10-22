@@ -1,17 +1,39 @@
-name: Push keepalive-probe Image
+name: "Publish: keepalive probe image"
 
 on:
   push:
     branches:
       - main
+    # Every input of the image build: this workflow, the crates of
+    # keepalive-probe's Cargo closure (normal and build dependencies), the
+    # protos that xmtp_proto's build script compiles, the workspace build
+    # settings, and the .dockerignore that filters the build context.
+    # dev/tests/test_release_push.py checks the list.
     paths:
+      - '.github/workflows/push-keepalive-probe.yml'
       - 'apps/keepalive-probe/**'
-      - 'crates/xmtp_proto/**'
       - 'crates/xmtp_common/**'
       - 'crates/xmtp_configuration/**'
+      - 'crates/xmtp_cryptography/**'
+      - 'crates/xmtp_events/**'
+      - 'crates/xmtp_logging/**'
+      - 'crates/xmtp_macro/**'
+      - 'crates/xmtp_proto/**'
+      - 'proto/**'
+      - '.cargo/config.toml'
+      - 'rust-toolchain.toml'
       - 'Cargo.toml'
       - 'Cargo.lock'
+      - '.dockerignore'
   workflow_dispatch:
+
+# One run per ref at a time, and a running build is never cancelled. GitHub
+# keeps one pending run per group and a newer one replaces it, so a replaced
+# commit gets no sha tag. GitHub does not guarantee that runs start in push
+# order; the `latest` check in the job handles that.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -23,7 +45,7 @@ env:
 
 jobs:
   build:
-    name: Build and push keepalive-probe image
+    name: Build and push
     runs-on: ubuntu-latest
     outputs:
       digest: ${{ steps.push.outputs.digest }}
@@ -46,6 +68,66 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # Runs of one ref never overlap, but GitHub orders waiting runs by when
+      # each reached the concurrency group, not by push time. An older
+      # commit's run can therefore run last. This run moves `latest` only
+      # when no newer commit on main changes a trigger path. Such a commit's
+      # own run moves `latest`: it either ran already, or it waits for this
+      # run. Every run pushes its sha tag.
+      - name: Check that no newer commit on main changes the image
+        id: latest
+        if: github.ref == 'refs/heads/main'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.sha }}
+        run: |
+          # The trigger paths above. dev/tests/test_release_push.py keeps the
+          # two lists equal.
+          image_input() {
+            case "$1" in
+              .github/workflows/push-keepalive-probe.yml | apps/keepalive-probe/* | \
+                crates/xmtp_common/* | crates/xmtp_configuration/* | \
+                crates/xmtp_cryptography/* | crates/xmtp_events/* | \
+                crates/xmtp_logging/* | crates/xmtp_macro/* | crates/xmtp_proto/* | \
+                proto/* | .cargo/config.toml | rust-toolchain.toml | Cargo.toml | \
+                Cargo.lock | .dockerignore) return 0 ;;
+            esac
+            return 1
+          }
+          latest=false
+          reason=""
+          # Status, file count, then each changed path (and a renamed file's
+          # old path) from this commit to main. The API lists at most 300 files.
+          if ! compare=$(gh api "repos/$GITHUB_REPOSITORY/compare/$SHA...main" \
+            --jq '.status, (.files | length), (.files[] | .filename, (.previous_filename // empty))'); then
+            reason="the comparison with main failed"
+          else
+            mapfile -t lines <<< "$compare"
+            case "${lines[0]}" in
+              identical) latest=true ;;
+              ahead)
+                if [ "${lines[1]}" -ge 300 ]; then
+                  reason="main changed 300 or more files since this commit"
+                else
+                  latest=true
+                  for file in "${lines[@]:2}"; do
+                    if image_input "$file"; then
+                      latest=false
+                      reason="a newer commit on main changes $file, so its run moves latest"
+                      break
+                    fi
+                  done
+                fi
+                ;;
+              *) reason="main is ${lines[0]} from this commit" ;;
+            esac
+          fi
+          if [ "$latest" != true ]; then
+            echo "::notice title=latest not moved::Pushing only the sha tag: $reason."
+          fi
+          echo "latest=$latest" >> "$GITHUB_OUTPUT"
+
       - name: Extract metadata (tags, labels)
         id: meta
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6
@@ -53,8 +135,11 @@ jobs:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
             type=raw,value=${{ steps.vars.outputs.short_sha }}
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            type=raw,value=latest,enable=${{ steps.latest.outputs.latest == 'true' }}
 
+      # No GitHub Actions layer cache: the builder copies the whole tree
+      # before `cargo build`, so every run that this workflow's paths trigger
+      # misses the build layer, and exporting it only evicts other caches.
       - name: Build and push image
         id: push
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
@@ -64,5 +149,3 @@ jobs:
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max

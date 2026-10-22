@@ -1,0 +1,5 @@
+{
+  "expo.jsEngine": "hermes",
+  "ios.deploymentTarget": "26.0",
+  "EXPO_USE_PRECOMPILED_MODULES": "false"
+}

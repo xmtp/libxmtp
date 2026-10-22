@@ -18,6 +18,133 @@ WORKFLOW = ROOT / ".github/workflows/release-android.yml"
 
 
 class AndroidReleaseTest(unittest.TestCase):
+    def test_registry_publication_order_and_failure_propagation(self):
+        jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
+        self.assertIn("publish", jobs["publish-github"]["needs"])
+        self.assertIn("publish-github", jobs["publish-central"]["needs"])
+        self.assertIn("publish-central", jobs["push-tag"]["needs"])
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / "sdks/android").mkdir(parents=True)
+            (root / "dev").mkdir()
+            wrapper = root / "dev/nix-shell"
+            wrapper.write_text('#!/bin/bash\nexec bash -euc "$1"\n')
+            wrapper.chmod(0o755)
+            gradle = root / "sdks/android/gradlew"
+            gradle.write_text(
+                f"#!{sys.executable}\n"
+                "import json, os, pathlib, sys\n"
+                "pathlib.Path(os.environ['GRADLE_LOG']).write_text(json.dumps(sys.argv[1:]))\n"
+                "sys.exit(int(os.environ['GRADLE_EXIT']))\n"
+            )
+            gradle.chmod(0o755)
+            log = root / "gradle.json"
+            for job, tasks in [
+                (
+                    "publish-github",
+                    [":publisher:publishReleasePublicationToGitHubPackagesRepository"],
+                ),
+                (
+                    "publish-central",
+                    [
+                        ":publisher:publishReleasePublicationToSonatypeRepository",
+                        "closeAndReleaseSonatypeStagingRepository",
+                    ],
+                ),
+            ]:
+                self.assertEqual(jobs[job]["environment"], "release")
+                self.assertTrue(
+                    any(
+                        step.get("with", {}).get("name") == "android-maven-bundle"
+                        for step in jobs[job]["steps"]
+                    )
+                )
+                command = jobs[job]["steps"][-1]["run"]
+                for status in (0, 42):
+                    with self.subTest(job=job, status=status):
+                        result = subprocess.run(
+                            ["bash", "-euc", command],
+                            cwd=root,
+                            env=dict(
+                                os.environ,
+                                VERSION="8.0.0-rc1",
+                                GRADLE_LOG=str(log),
+                                GRADLE_EXIT=str(status),
+                            ),
+                            capture_output=True,
+                            text=True,
+                        )
+                        self.assertEqual(result.returncode, status, result.stderr)
+                        self.assertEqual(
+                            json.loads(log.read_text()), ["-Pversion=8.0.0-rc1", *tasks]
+                        )
+
+    def test_publish_credentials_and_failure_gate(self):
+        workflow = yaml.safe_load(WORKFLOW.read_text())
+        job = workflow["jobs"]["publish"]
+        self.assertEqual(job["environment"], "release")
+        self.assertEqual(
+            workflow["jobs"]["publish-github"]["permissions"]["packages"], "write"
+        )
+        caller = yaml.safe_load((WORKFLOW.parent / "release.yml").read_text())
+        self.assertEqual(
+            caller["jobs"]["release-android"]["permissions"]["packages"], "write"
+        )
+        publish = next(
+            step
+            for step in job["steps"]
+            if step.get("name") == "Prepare signed Maven bundle"
+        )
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            sdk = root / "sdks/android"
+            sdk.mkdir(parents=True)
+            dev = root / "dev"
+            dev.mkdir()
+            wrapper = dev / "nix-shell"
+            wrapper.write_text('#!/bin/bash\nexec bash -euc "$1"\n')
+            wrapper.chmod(0o755)
+            gradle = sdk / "gradlew"
+            gradle.write_text(
+                f"#!{sys.executable}\n"
+                "import json, os, sys\n"
+                "from pathlib import Path\n"
+                "Path(os.environ['GRADLE_LOG']).write_text(json.dumps(sys.argv[1:]))\n"
+                "sys.exit(int(os.environ.get('GRADLE_EXIT', '0')))\n"
+            )
+            gradle.chmod(0o755)
+            log = root / "gradle.json"
+            credentials = {name: "fixture-secret" for name in publish["env"]}
+            env = dict(os.environ, **credentials, GRADLE_LOG=str(log))
+            for missing in (None, *credentials):
+                for status in (0, 42) if missing is None else (0,):
+                    with self.subTest(missing=missing, gradle_exit=status):
+                        log.unlink(missing_ok=True)
+                        current = env | {"GRADLE_EXIT": str(status)}
+                        if missing:
+                            current[missing] = ""
+                        result = subprocess.run(
+                            ["bash", "-euc", publish["run"]],
+                            cwd=root,
+                            env=current,
+                            capture_output=True,
+                            text=True,
+                        )
+                        self.assertEqual(result.returncode, 1 if missing else status)
+                        self.assertNotIn(
+                            "fixture-secret", result.stdout + result.stderr
+                        )
+                        if missing:
+                            self.assertFalse(log.exists())
+                            self.assertIn(missing, result.stdout)
+                        else:
+                            self.assertEqual(
+                                json.loads(log.read_text()),
+                                [
+                                    ":library:publishReleasePublicationToReleaseBundleRepository",
+                                ],
+                            )
+
     def test_universal_apk_rejects_each_missing_abi(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
@@ -120,16 +247,19 @@ class AndroidReleaseTest(unittest.TestCase):
         names = [item.get("name") for item in steps]
         build = steps[names.index("Build example APK")]
         self.assertEqual(build["run"], "dev/nix-shell 'just example-android apk'")
-        self.assertEqual(
-            build["env"]["XMTP_EXAMPLE_VERSION"], "${{ steps.version.outputs.version }}"
+        self.assertEqual(build["env"]["XMTP_EXAMPLE_VERSION"], "${{ inputs.version }}")
+        self.assertLess(
+            names.index("Build example APK"), names.index("Prepare signed Maven bundle")
         )
-        self.assertLess(names.index("Build example APK"), names.index("Publish"))
         upload = steps[names.index("Retain example APK")]
-        self.assertLess(names.index("Retain example APK"), names.index("Publish"))
+        self.assertLess(
+            names.index("Retain example APK"),
+            names.index("Prepare signed Maven bundle"),
+        )
         self.assertEqual(upload["with"]["if-no-files-found"], "error")
         self.assertEqual(
             upload["with"]["path"],
-            "apps/example-android/build/apk/xmtp-messenger-${{ steps.version.outputs.version }}.apk",
+            "apps/example-android/build/apk/xmtp-messenger-${{ inputs.version }}.apk",
         )
         job = jobs["publish-apk"]
         self.assertEqual(job["permissions"]["contents"], "write")
@@ -152,7 +282,7 @@ class AndroidReleaseTest(unittest.TestCase):
             )
             gh.chmod(0o755)
             log = root / "calls.jsonl"
-            for kind in ("dev", "rc", "final", "nightly"):
+            for kind in ("dev", "rc", "final"):
                 for existing in (False, True):
                     with self.subTest(kind=kind, existing=existing):
                         log.write_text("")

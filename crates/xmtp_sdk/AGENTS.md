@@ -90,7 +90,10 @@ Run commands from the repository root in the Nix shell. Run
   `dev/copy-browser-fixtures`. These release-profile fixtures share the
   product WASM dependency layer and enable the test-only `conformance` cargo
   feature, whose exports
-  (`sdk_conformance_*`) the default bindings omit. The public browser scenarios
+  (`sdk_conformance_*`) the default bindings omit. The migration proofs use the
+  Nix-built `fixture_host` example of `xmtp_legacy_migration`
+  (`.#xmtp-legacy-migration-fixture-host`, own dependency layer), copied with
+  `dev/copy-browser-fixtures migration`. The public browser scenarios
   are in `sdks/browser/test`.
   The run starts `sdks/browser/test/platform/object-store/object-store.mjs`
   (`with-object-store` beside it) for its download fixtures. The default ephemeral
@@ -136,6 +139,8 @@ Run commands from the repository root in the Nix shell. Run
   The handle tests that claim more than once per inbox, or need another
   handle setting, also start a disposable backend (`xmtp_backend`'s
   `TestServer`). It creates its own database on this worktree's `db` service.
+- `dev/nix-shell 'just test workspace -p xmtp_sdk --features xmtp_cryptography/test-utils --test zeroize'`
+  runs the heap-canary proofs for wallet key import and export. It needs no backend.
 
 The generator lives in `apps/xmtp_sdk_bindgen/`. Its global UniFFI config maps
 `xmtp_sdk` to this crate root so Swift and Kotlin load `uniffi.toml`.
@@ -166,6 +171,11 @@ metadata markers, so a routine export needs no generator edit:
   then takes `#[sdk(redact)]` or `#[sdk(shown)]`. The macro implements `Debug` for the
   type through its `fn redacted_debug(&self, f)`, which redacts the same
   fields, so the type cannot also derive `Debug`.
+- A private key or other secret argument of an async export takes
+  `SecretBytes` or `SecretString` (`src/secret_input.rs`), not `Vec<u8>` or
+  `String`. UniFFI lifts it into a wiping buffer before the future exists,
+  so a call cancelled before its first poll still wipes it. The bindings
+  still see `bytes` or `string`.
 - A backend function that the Client also exposes takes
   `#[sdk_export(client_static)]`; it must be async and available on every
   target. Every SDK gets a Client static named without the trailing
@@ -295,8 +305,5 @@ Run only those checks with `dev/nix-shell 'just sdk test-browser migration'`
 after `generate`. The platform runner stages the matched Browser package. They check import, worker ownership,
 failed output, page termination, and source preservation. The small fixture
 worker uses raw legacy bytes and is not part of a public package.
-Swift uses `LegacyMigrationTests` in the normal XCTest target. Kotlin uses
-`LegacyMigrationTest` in the normal JUnit target. Run
-`dev/nix-shell 'just ios test all --filter XmtpSdkTests.LegacyMigrationTests'` or
-`dev/nix-shell 'just android test --tests uniffi.xmtp_sdk.LegacyMigrationTest'`. The iOS unit job and
-the Android `sdk-build` job include these tests.
+Swift and Kotlin have no migration test; the converter tests in
+`crates/xmtp_legacy_migration` cover the same fixture.

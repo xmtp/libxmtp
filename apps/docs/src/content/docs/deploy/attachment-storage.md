@@ -48,7 +48,9 @@ have no user info, query, fragment, trailing slash, or dot path segment. HTTP is
 `{base_url}/{hex SHA-256 digest}`. This backend signs path-style S3 requests,
 so use an endpoint that supports them. Keep the endpoint, bucket, and
 credential values private. The backend validates the URL, upload limit, and
-retention limit at startup.
+retention limit at startup. The
+[configuration field table](/specs/conf-backend-configuration/#12-keys-and-checks)
+lists every `attachments` key and its checks.
 
 The target must enforce `If-None-Match: *` on PUT, return `412` when an object
 exists, check `x-amz-checksum-sha256` against the request body, and reject a
@@ -96,6 +98,7 @@ attachment bucket. Give the public GET path a separate read policy. If the
 backend cannot obtain credentials, or they expire too soon, CreateUpload returns
 `UNAVAILABLE`. If the credential source reports an invalid configuration, it
 returns `FAILED_PRECONDITION`. If the backend cannot build or sign the request,
-it returns `INTERNAL`. The backend refuses to start if `credentials.kind` is
-unknown or a required field is missing. `GetConfigurationResponse` contains no storage
+it returns `INTERNAL`. The backend refuses to start, and names the key, if
+`credentials.kind` is unknown, a required key is missing, or the table holds a
+key that its kind does not take. `GetConfigurationResponse` contains no storage
 credential, bucket name, or storage endpoint URL other than `base_url`.

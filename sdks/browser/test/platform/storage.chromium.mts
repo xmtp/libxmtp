@@ -116,6 +116,30 @@ const generation = (page: typeof first) =>
   page.evaluate(async () =>
     (await import("./storage.bridge.chromium.ts")).workerGenerations(),
   );
+
+// The lock query covers the origin, so any page sees every tab's pool lock.
+const heldPoolLocks = () =>
+  first.evaluate(async () => {
+    const locks = await navigator.locks.query();
+    return (
+      locks.held?.filter((lock) => lock.name?.startsWith("xmtp:")).length ?? 0
+    );
+  });
+
+/**
+ * Waits until no tab holds the shared pool Web Lock. Another tab can take the
+ * pool only then. `end()` resolves before the worker releases the lock: the
+ * page posts the owner release after the end reply, and the worker frees the
+ * lock when the owner's calls finish. The browser also frees the lock of a
+ * terminated worker after `terminate()` returns.
+ */
+async function waitForPoolRelease(after: string): Promise<void> {
+  for (let index = 0; index < 100; index++) {
+    if ((await heldPoolLocks()) === 0) return;
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
+  }
+  assert.fail(`the shared Web Lock stayed held after ${after}`);
+}
 try {
   await Promise.all([first.goto(url), second.goto(url)]);
   const pathA = `${base}-a.db`;
@@ -246,6 +270,7 @@ try {
   await first.evaluate(async () =>
     (await import("./storage.bridge.chromium.ts")).endOne(),
   );
+  await waitForPoolRelease("the first tab ended its client");
 
   // The hog does not take a Web Lock. Both failures must come from SQLite SAH.
   await first.evaluate(async () =>
@@ -275,6 +300,7 @@ try {
   await second.evaluate(async () =>
     (await import("./storage.bridge.chromium.ts")).endOne(),
   );
+  await waitForPoolRelease("the second tab ended its client");
 
   await third.goto(url);
   await first.evaluate(async () =>
@@ -308,6 +334,7 @@ try {
       ),
     ),
   );
+  await waitForPoolRelease("the second and third tabs stopped");
   assert.equal(
     await first.evaluate(
       async (path) =>
@@ -342,6 +369,7 @@ try {
   await second.evaluate(async () =>
     (await import("./storage.bridge.chromium.ts")).endOne(),
   );
+  await waitForPoolRelease("the second tab ended its client");
   await first.evaluate(async (path) => {
     const bridge = await import("./storage.bridge.chromium.ts");
     await bridge.rejectBuildWithoutStoredIdentity(path);
@@ -422,15 +450,12 @@ try {
   console.log(
     "Chromium cancelled create kept the Web Lock until its worker ended",
   );
+  await waitForPoolRelease("the second tab ended its client");
   await first.evaluate(async () =>
     (await import("./storage.bridge.chromium.ts")).openAdmins(),
   );
   assert.equal(
-    await first.evaluate(async () => {
-      const locks = await navigator.locks.query();
-      return locks.held?.filter((lock) => lock.name?.startsWith("xmtp:"))
-        .length;
-    }),
+    await heldPoolLocks(),
     1,
     "admin creation must hold the shared Web Lock",
   );
@@ -458,6 +483,7 @@ try {
   await first.evaluate(async () =>
     (await import("./storage.bridge.chromium.ts")).endAdmin(),
   );
+  await waitForPoolRelease("the last admin ended");
   assert.equal(
     (await opfsAttempt(second, `${base}-admin-other.db`)).code,
     "opened",

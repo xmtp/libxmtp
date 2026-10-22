@@ -1,5 +1,12 @@
-/// Group and commit-log topic identifier length, in bytes.
-pub const BACKEND_GROUP_ID_BYTES: usize = 16;
+/// Length of a keyed group id and of a commit-log id, in bytes: the topic
+/// identifier of kinds 0 and 4.
+pub const GROUP_ID_BYTES: usize = 32;
+/// Length of a legacy group id, in bytes. Legacy ids come only from imported
+/// archives, and no topic carries one.
+pub const LEGACY_GROUP_ID_BYTES: usize = 16;
+/// Most envelopes one publish request may carry, duplicates included (API
+/// section 7). Clients chunk to it, and the backend refuses more.
+pub const MAX_PUBLISH_ENVELOPES: usize = 1_000;
 /// Welcome, key-package, and identity topic identifier length, in bytes.
 pub const BACKEND_INSTALLATION_ID_BYTES: usize = 32;
 

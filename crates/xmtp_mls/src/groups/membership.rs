@@ -200,7 +200,7 @@ where
                 .map_err(super::validated_commit::CommitValidationError::from)?;
         let metadata = self.live_mutable_metadata()?;
         let group_version = metadata
-            .attributes
+            .attributes()
             .get(MetadataField::MinimumSupportedProtocolVersion.as_str());
         let group_min_version =
             LibXMTPVersion::parse(group_version.unwrap_or(&"0.0.0".to_string()))

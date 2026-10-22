@@ -1,7 +1,7 @@
 use clap::{ArgGroup, Parser};
 use std::path::PathBuf;
 use xmtp_backend::{
-    config::{Config, LogFormat},
+    config::{Config, ConfigError, IDENTIFIER_ATTRIBUTE, LogFormat, LogLevel, ValidatedConfig},
     server, telemetry,
 };
 
@@ -21,10 +21,21 @@ struct Args {
     config_file: Option<PathBuf>,
     /// Override server.log_level from the configuration.
     #[arg(long, value_enum)]
-    log_level: Option<xmtp_backend::config::LogLevel>,
+    log_level: Option<LogLevel>,
 }
 
 impl Args {
+    /// Load the configuration, apply the command-line overrides to the file
+    /// layer, and validate the result.
+    fn config(&self) -> Result<ValidatedConfig, Box<dyn std::error::Error + Send + Sync>> {
+        let mut config = self.load_config()?;
+        if let Some(level) = self.log_level {
+            config.server.log_level = level;
+        }
+        Ok(config.validate()?)
+    }
+
+    /// The file layer of the configuration source, before any check.
     fn load_config(&self) -> Result<Config, Box<dyn std::error::Error + Send + Sync>> {
         match &self.config {
             Some(contents) => {
@@ -33,10 +44,10 @@ impl Args {
                         "--config contains a file path; use --config-file for a TOML file".into(),
                     );
                 }
-                Ok(Config::load_str(contents)?)
+                Ok(Config::from_toml_str(contents)?)
             }
             None => {
-                Ok(Config::load(self.config_file.as_ref().expect(
+                Ok(Config::from_path(self.config_file.as_ref().expect(
                     "clap requires --config-file when --config is absent",
                 ))?)
             }
@@ -47,24 +58,18 @@ impl Args {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     xmtp_cryptography::install_crypto_provider();
-    let args = Args::parse();
-    let mut config = args.load_config()?;
-    if let Some(level) = args.log_level {
-        config.server.log_level = level;
-    }
+    let config = Args::parse().config()?;
     run(config, shutdown()).await
 }
 
 /// Install telemetry before database startup, then flush export after the transport drain.
 async fn run(
-    config: Config,
+    config: ValidatedConfig,
     shutdown: impl Future<Output = ()> + Send + 'static,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let otlp = config
-        .telemetry
-        .logging_config(config.server.identifier())?;
+    let otlp = otlp_export(&config)?;
     telemetry::install(&config.telemetry.metrics_listen)?;
-    let stdout_level: xmtp_logging::Level = config.server.log_level.into();
+    let stdout_level = logging_level(config.server.log_level);
     let level = match stdout_level {
         xmtp_logging::Level::Debug | xmtp_logging::Level::Trace => stdout_level,
         _ => xmtp_logging::Level::Info,
@@ -87,6 +92,40 @@ async fn run(
     logging.disable_telemetry()?;
     result?;
     Ok(())
+}
+
+/// The shared logging level of a configured one.
+fn logging_level(level: LogLevel) -> xmtp_logging::Level {
+    match level {
+        LogLevel::Off => xmtp_logging::Level::Off,
+        LogLevel::Error => xmtp_logging::Level::Error,
+        LogLevel::Warn => xmtp_logging::Level::Warn,
+        LogLevel::Info => xmtp_logging::Level::Info,
+        LogLevel::Debug => xmtp_logging::Level::Debug,
+        LogLevel::Trace => xmtp_logging::Level::Trace,
+    }
+}
+
+/// The OTLP export, if any. The endpoint is resolved before any exporter is
+/// built, and every exported signal names this deployment.
+fn otlp_export(
+    config: &ValidatedConfig,
+) -> Result<Option<xmtp_logging::TelemetryConfig>, ConfigError> {
+    let telemetry = &config.telemetry;
+    Ok(telemetry.otlp_endpoint_from_env()?.map(|endpoint| {
+        let mut resource_attributes = telemetry.resource_attributes.clone();
+        resource_attributes.insert(
+            IDENTIFIER_ATTRIBUTE.to_owned(),
+            config.identifier().to_owned(),
+        );
+        xmtp_logging::TelemetryConfig {
+            endpoint: Some(endpoint),
+            service_name: Some(telemetry.service_name.clone()),
+            sample_ratio: telemetry.sample_ratio,
+            logs: telemetry.otlp_logs,
+            resource_attributes: resource_attributes.into_iter().collect(),
+        }
+    }))
 }
 
 async fn shutdown() {

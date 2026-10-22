@@ -1,4 +1,8 @@
-use crate::{Backend, api, config::Config, server};
+use crate::{
+    Backend, api,
+    config::{Config, ValidatedConfig},
+    server,
+};
 pub mod auth;
 mod database;
 #[cfg(test)]
@@ -30,6 +34,15 @@ pub type TestResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>
 /// value gets this one, so no test has to repeat it.
 pub const DEFAULT_TEST_IDENTIFIER: &str = "org.xmtp.test";
 
+/// The file layer of a configuration that names `database_url` and the
+/// default test identifier, and sets nothing else.
+pub fn config_for(database_url: &str) -> Config {
+    Config::from_toml_str(&format!(
+        "[database]\nurl = {database_url:?}\n[server]\nidentifier = {DEFAULT_TEST_IDENTIFIER:?}"
+    ))
+    .expect("the test configuration parses")
+}
+
 pub struct TestServer {
     running: RunningServer,
     database: TestDatabase,
@@ -55,6 +68,8 @@ pub struct RunningServer {
 }
 
 impl TestServer {
+    /// Apply `change` to the file layer of a configuration for a new test
+    /// database, validate it, and start a server.
     pub async fn new(change: impl FnOnce(&mut Config)) -> TestResult<Self> {
         Self::start(change, None).await
     }
@@ -87,11 +102,16 @@ impl TestServer {
         server
             .entry("identifier")
             .or_insert_with(|| DEFAULT_TEST_IDENTIFIER.into());
-        let mut config = Config::load_str(&toml::to_string(&value)?)?;
+        // Refuse an invalid file before creating a database. The real URL is
+        // set on the file layer, and `start` validates it again.
+        let config = Config::from_toml_str(&toml::to_string(&value)?)?
+            .validate()?
+            .into_config();
         Self::start(
             move |defaults| {
-                config.database.url = defaults.database.url.clone();
+                let url = std::mem::take(&mut defaults.database.url);
                 *defaults = config;
+                defaults.database.url = url;
             },
             None,
         )
@@ -119,11 +139,9 @@ impl TestServer {
         )>,
     ) -> TestResult<Self> {
         let database = TestDatabase::new()?;
-        let mut config: Config = toml::from_str(&format!(
-            "[database]\nurl = {:?}\n[server]\nidentifier = {DEFAULT_TEST_IDENTIFIER:?}",
-            database.url()
-        ))?;
+        let mut config = config_for(database.url());
         change(&mut config);
+        let config = config.validate()?;
         if let Some(replica_url) = &config.database.replica_url {
             database.wait_for_replica(replica_url).await?;
         }
@@ -132,8 +150,7 @@ impl TestServer {
             backend.chains = chain;
             backend.verifier = std::sync::Arc::new(CachedSmartContractSignatureVerifier::new(
                 verifier,
-                std::num::NonZeroUsize::new(backend.config.validation.max_scw_cache_entries)
-                    .unwrap(),
+                backend.config.scw_cache_entries(),
             )?);
         }
         let running = RunningServer::from_backend(backend).await?;
@@ -165,8 +182,17 @@ pub fn topic(kind: xmtp_proto::types::TopicKind, identifier: &[u8]) -> api::Topi
 
 impl RunningServer {
     /// Start an independent backend instance against an existing test database.
-    pub async fn new(config: Config) -> TestResult<Self> {
+    pub async fn new(config: ValidatedConfig) -> TestResult<Self> {
         Self::from_backend(server::initialize(config).await?).await
+    }
+
+    /// Start a second backend on this server's database with `change` applied
+    /// to the file layer of its configuration and validated again, as an
+    /// operator restart with a new setting gives.
+    pub async fn restart_with(&self, change: impl FnOnce(&mut Config)) -> TestResult<Self> {
+        let mut config = (*self.backend.config).clone().into_config();
+        change(&mut config);
+        Self::new(config.validate()?).await
     }
 
     async fn from_backend(backend: Backend) -> TestResult<Self> {
@@ -212,6 +238,31 @@ impl RunningServer {
 
     pub fn identity(&self) -> api::identity_service_client::IdentityServiceClient<Channel> {
         api::identity_service_client::IdentityServiceClient::new(self.channel.clone())
+    }
+
+    /// Publish `ClientEnvelope`s exactly as encoded, so a test can put a field
+    /// the generated types no longer have on the wire. A repeated message
+    /// field and a repeated bytes field share one wire form.
+    pub async fn publish_encoded(
+        &self,
+        envelopes: Vec<Vec<u8>>,
+    ) -> Result<api::PublishResponse, tonic::Status> {
+        #[derive(Clone, PartialEq, prost::Message)]
+        struct EncodedPublishRequest {
+            #[prost(bytes = "vec", repeated, tag = "1")]
+            envelopes: Vec<Vec<u8>>,
+        }
+        let mut grpc = tonic::client::Grpc::new(self.channel.clone());
+        grpc.ready()
+            .await
+            .map_err(|error| tonic::Status::unavailable(error.to_string()))?;
+        grpc.unary(
+            tonic::Request::new(EncodedPublishRequest { envelopes }),
+            http::uri::PathAndQuery::from_static("/xmtp.backend.v1.PublishService/Publish"),
+            tonic_prost::ProstCodec::default(),
+        )
+        .await
+        .map(tonic::Response::into_inner)
     }
 
     pub async fn publish(

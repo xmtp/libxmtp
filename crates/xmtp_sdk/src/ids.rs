@@ -57,9 +57,10 @@ validated_id!(
     |value| validate_hex_id(value, 32)
 );
 validated_id!(
-    /// A conversation ID, encoded as lowercase hex.
+    /// A conversation ID, encoded as lowercase hex: 64 characters for a keyed
+    /// conversation, or 32 for a legacy one from an imported archive.
     ConversationId,
-    |value| validate_hex_id(value, 16)
+    validate_conversation_id
 );
 validated_id!(
     /// A message ID, encoded as lowercase hex.
@@ -132,6 +133,15 @@ fn validate_inbox_id(value: &str) -> Result<(), XmtpError> {
     Ok(())
 }
 
+fn validate_conversation_id(value: &str) -> Result<(), XmtpError> {
+    use xmtp_configuration::{GROUP_ID_BYTES, LEGACY_GROUP_ID_BYTES};
+    if value.len() == LEGACY_GROUP_ID_BYTES * 2 {
+        validate_hex_id(value, LEGACY_GROUP_ID_BYTES)
+    } else {
+        validate_hex_id(value, GROUP_ID_BYTES)
+    }
+}
+
 fn validate_hex_id(value: &str, byte_len: usize) -> Result<(), XmtpError> {
     if value.len() != byte_len * 2
         || !value.bytes().all(|byte| byte.is_ascii_hexdigit())
@@ -165,3 +175,53 @@ impl TryFrom<i64> for Timestamp {
 }
 
 uniffi::custom_type!(Timestamp, i64);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn group_id(len: usize) -> GroupId {
+        GroupId::try_from(vec![0xab; len]).expect("16 and 32 bytes are group ids")
+    }
+
+    /// A conversation ID is 64 (keyed) or 32 (legacy) lowercase hex
+    /// characters, and no other length or case.
+    #[xmtp_common::test(unwrap_try = true)]
+    fn conversation_id_accepts_keyed_and_legacy_lengths() {
+        for len in [32, 64] {
+            let text = "ab".repeat(len / 2);
+            let id = ConversationId::try_from(text.clone())?;
+            assert_eq!(id.checked()?, text);
+            assert_eq!(id.to_bytes()?, vec![0xab; len / 2]);
+        }
+        for text in [
+            "a".repeat(31),
+            "a".repeat(63),
+            "a".repeat(30),
+            "a".repeat(48),
+            "a".repeat(66),
+            "AB".repeat(32),
+            "AB".repeat(16),
+            "0x".to_owned() + &"ab".repeat(31),
+            "zz".repeat(32),
+            String::new(),
+        ] {
+            assert!(
+                ConversationId::try_from(text.clone()).is_err(),
+                "{text:?} was accepted"
+            );
+            // A lifted value is checked on first use.
+            assert!(ConversationId(text).checked().is_err());
+        }
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn conversation_id_round_trips_both_group_id_lengths() {
+        for len in [16, 32] {
+            let id = group_id(len);
+            let conversation = ConversationId::from(id);
+            assert_eq!(conversation.checked()?.len(), len * 2);
+            assert_eq!(GroupId::try_from(conversation)?, id);
+        }
+    }
+}

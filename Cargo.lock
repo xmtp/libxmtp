@@ -1886,15 +1886,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "bincode"
-version = "1.3.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b1f45e9417d87227c7a56d22e471c6206462cba514c7590c09aff4cf6d1ddcad"
-dependencies = [
- "serde",
-]
-
-[[package]]
 name = "bindgen"
 version = "0.72.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2017,6 +2008,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d2f6c7dbe95a6ed67ad9f18e57daf93a2f034c524b99fd2b76d18fdfeb6660aa"
 dependencies = [
  "hybrid-array",
+ "zeroize",
 ]
 
 [[package]]
@@ -2253,6 +2245,15 @@ name = "cast"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "37b2a672a2cb129a2e41c10b1224bb368f9f37a2b16b612598138befd7b37eb5"
+
+[[package]]
+name = "cbor4ii"
+version = "1.2.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cae341ca01ee91c1e68cbcbd9f08e5c9fb6171c7daed060625563232520d37ae"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "cc"
@@ -3289,6 +3290,7 @@ dependencies = [
  "const-oid 0.10.2",
  "crypto-common 0.2.2",
  "ctutils",
+ "zeroize",
 ]
 
 [[package]]
@@ -7346,8 +7348,8 @@ checksum = "c08d65885ee38876c4f86fa503fb49d7b507c2b62552df7c70b2fce627e06381"
 
 [[package]]
 name = "openmls"
-version = "0.8.1"
-source = "git+https://github.com/xmtp/openmls?rev=3fabbf23d417ac80e787ca858a5134c6ca1d9ce6#3fabbf23d417ac80e787ca858a5134c6ca1d9ce6"
+version = "0.9.1"
+source = "git+https://github.com/xmtp/openmls?rev=c2bad9f5653d4123c2b677aff0fff73398f7b6e5#c2bad9f5653d4123c2b677aff0fff73398f7b6e5"
 dependencies = [
  "backtrace",
  "getrandom 0.4.3",
@@ -7376,8 +7378,8 @@ dependencies = [
 
 [[package]]
 name = "openmls_basic_credential"
-version = "0.5.0"
-source = "git+https://github.com/xmtp/openmls?rev=3fabbf23d417ac80e787ca858a5134c6ca1d9ce6#3fabbf23d417ac80e787ca858a5134c6ca1d9ce6"
+version = "0.6.0"
+source = "git+https://github.com/xmtp/openmls?rev=c2bad9f5653d4123c2b677aff0fff73398f7b6e5#c2bad9f5653d4123c2b677aff0fff73398f7b6e5"
 dependencies = [
  "ed25519-dalek",
  "ml-dsa",
@@ -7392,8 +7394,8 @@ dependencies = [
 
 [[package]]
 name = "openmls_libcrux_crypto"
-version = "0.3.1"
-source = "git+https://github.com/xmtp/openmls?rev=3fabbf23d417ac80e787ca858a5134c6ca1d9ce6#3fabbf23d417ac80e787ca858a5134c6ca1d9ce6"
+version = "0.4.0"
+source = "git+https://github.com/xmtp/openmls?rev=c2bad9f5653d4123c2b677aff0fff73398f7b6e5#c2bad9f5653d4123c2b677aff0fff73398f7b6e5"
 dependencies = [
  "hpke-rs 0.7.0",
  "hpke-rs-crypto 0.7.0",
@@ -7413,8 +7415,8 @@ dependencies = [
 
 [[package]]
 name = "openmls_memory_storage"
-version = "0.5.0"
-source = "git+https://github.com/xmtp/openmls?rev=3fabbf23d417ac80e787ca858a5134c6ca1d9ce6#3fabbf23d417ac80e787ca858a5134c6ca1d9ce6"
+version = "0.6.0"
+source = "git+https://github.com/xmtp/openmls?rev=c2bad9f5653d4123c2b677aff0fff73398f7b6e5#c2bad9f5653d4123c2b677aff0fff73398f7b6e5"
 dependencies = [
  "hex",
  "log",
@@ -7426,8 +7428,8 @@ dependencies = [
 
 [[package]]
 name = "openmls_rust_crypto"
-version = "0.5.1"
-source = "git+https://github.com/xmtp/openmls?rev=3fabbf23d417ac80e787ca858a5134c6ca1d9ce6#3fabbf23d417ac80e787ca858a5134c6ca1d9ce6"
+version = "0.6.0"
+source = "git+https://github.com/xmtp/openmls?rev=c2bad9f5653d4123c2b677aff0fff73398f7b6e5#c2bad9f5653d4123c2b677aff0fff73398f7b6e5"
 dependencies = [
  "aes-gcm",
  "chacha20poly1305",
@@ -7453,7 +7455,7 @@ dependencies = [
 [[package]]
 name = "openmls_serialization_helpers"
 version = "0.1.0"
-source = "git+https://github.com/xmtp/openmls?rev=3fabbf23d417ac80e787ca858a5134c6ca1d9ce6#3fabbf23d417ac80e787ca858a5134c6ca1d9ce6"
+source = "git+https://github.com/xmtp/openmls?rev=c2bad9f5653d4123c2b677aff0fff73398f7b6e5#c2bad9f5653d4123c2b677aff0fff73398f7b6e5"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -7463,8 +7465,8 @@ dependencies = [
 
 [[package]]
 name = "openmls_sqlite_storage"
-version = "0.2.0"
-source = "git+https://github.com/xmtp/openmls?rev=3fabbf23d417ac80e787ca858a5134c6ca1d9ce6#3fabbf23d417ac80e787ca858a5134c6ca1d9ce6"
+version = "0.3.0"
+source = "git+https://github.com/xmtp/openmls?rev=c2bad9f5653d4123c2b677aff0fff73398f7b6e5#c2bad9f5653d4123c2b677aff0fff73398f7b6e5"
 dependencies = [
  "openmls_traits",
  "refinery",
@@ -7474,8 +7476,8 @@ dependencies = [
 
 [[package]]
 name = "openmls_test"
-version = "0.2.1"
-source = "git+https://github.com/xmtp/openmls?rev=3fabbf23d417ac80e787ca858a5134c6ca1d9ce6#3fabbf23d417ac80e787ca858a5134c6ca1d9ce6"
+version = "0.3.0"
+source = "git+https://github.com/xmtp/openmls?rev=c2bad9f5653d4123c2b677aff0fff73398f7b6e5#c2bad9f5653d4123c2b677aff0fff73398f7b6e5"
 dependencies = [
  "openmls_libcrux_crypto",
  "openmls_rust_crypto",
@@ -7487,8 +7489,8 @@ dependencies = [
 
 [[package]]
 name = "openmls_traits"
-version = "0.5.0"
-source = "git+https://github.com/xmtp/openmls?rev=3fabbf23d417ac80e787ca858a5134c6ca1d9ce6#3fabbf23d417ac80e787ca858a5134c6ca1d9ce6"
+version = "0.6.0"
+source = "git+https://github.com/xmtp/openmls?rev=c2bad9f5653d4123c2b677aff0fff73398f7b6e5#c2bad9f5653d4123c2b677aff0fff73398f7b6e5"
 dependencies = [
  "serde",
  "tls_codec 0.5.0",
@@ -10614,12 +10616,10 @@ version = "0.9.12+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf92845e79fc2e2def6a5d828f0801e29a2f8acc037becc5ab08595c7d5e9863"
 dependencies = [
- "indexmap 2.14.0",
  "serde_core",
  "serde_spanned 1.1.1",
  "toml_datetime 0.7.5+spec-1.1.0",
  "toml_parser",
- "toml_writer",
  "winnow 0.7.15",
 ]
 
@@ -11144,7 +11144,7 @@ dependencies = [
  "serde",
  "syn 2.0.119",
  "textwrap",
- "toml 0.9.12+spec-1.1.0",
+ "toml 1.1.3+spec-1.1.0",
  "ubrn_common",
  "uniffi_bindgen",
  "uniffi_meta",
@@ -11308,7 +11308,7 @@ dependencies = [
  "serde",
  "tempfile",
  "textwrap",
- "toml 0.9.12+spec-1.1.0",
+ "toml 1.1.3+spec-1.1.0",
  "uniffi_internal_macros",
  "uniffi_meta",
  "uniffi_pipeline",
@@ -11354,7 +11354,7 @@ dependencies = [
  "quote",
  "serde",
  "syn 2.0.119",
- "toml 0.9.12+spec-1.1.0",
+ "toml 1.1.3+spec-1.1.0",
  "uniffi_meta",
 ]
 
@@ -12332,6 +12332,7 @@ dependencies = [
  "alloy-sol-types",
  "alloy-transport-http",
  "bitflags 2.13.1",
+ "block-buffer 0.12.1",
  "bytes",
  "cc",
  "chrono",
@@ -12339,6 +12340,7 @@ dependencies = [
  "clap",
  "clap_builder",
  "const-hex",
+ "const-oid 0.10.2",
  "crossbeam-utils",
  "crypto-common 0.1.7",
  "crypto-common 0.2.2",
@@ -12412,11 +12414,13 @@ dependencies = [
  "rustls-pki-types",
  "rustls-webpki",
  "sec1",
+ "security-framework-sys",
  "serde",
  "serde_core",
  "serde_json",
  "serde_spanned 1.1.1",
  "sha2 0.10.9",
+ "sha2 0.11.0",
  "slab",
  "smallvec",
  "subtle",
@@ -12468,6 +12472,7 @@ dependencies = [
  "xmtp_cryptography",
  "xmtp_events",
  "xmtp_id",
+ "xmtp_mls_common",
  "xmtp_mls_validation",
  "xmtp_proto",
 ]
@@ -12640,16 +12645,14 @@ dependencies = [
  "base64 0.23.0",
  "const-hex",
  "http",
- "schemars 1.2.1",
- "serde",
  "tempfile",
  "thiserror 2.0.19",
  "tokio",
  "tracing",
  "url",
  "xmtp-workspace-hack",
+ "xmtp_backend_config",
  "xmtp_common",
- "xmtp_configuration",
 ]
 
 [[package]]
@@ -12674,7 +12677,6 @@ dependencies = [
  "hyper",
  "hyper-rustls",
  "hyper-util",
- "jsonschema",
  "jsonwebtoken",
  "metrics",
  "metrics-exporter-prometheus",
@@ -12690,11 +12692,8 @@ dependencies = [
  "ring",
  "rsa",
  "rustls",
- "schemars 1.2.1",
- "semver 1.0.28",
  "serde",
  "serde_json",
- "serde_path_to_error",
  "sha2 0.10.9",
  "sqlx",
  "subtle",
@@ -12714,6 +12713,7 @@ dependencies = [
  "url",
  "uuid",
  "xmtp_attachments_server",
+ "xmtp_backend_config",
  "xmtp_common",
  "xmtp_configuration",
  "xmtp_cryptography",
@@ -12723,6 +12723,27 @@ dependencies = [
  "xmtp_mls_validation",
  "xmtp_proto",
  "xmtp_push_types",
+]
+
+[[package]]
+name = "xmtp_backend_config"
+version = "1.12.0-dev"
+dependencies = [
+ "clap",
+ "http",
+ "jsonschema",
+ "prost",
+ "schemars 1.2.1",
+ "semver 1.0.28",
+ "serde",
+ "serde_json",
+ "serde_path_to_error",
+ "thiserror 2.0.19",
+ "toml 1.1.3+spec-1.1.0",
+ "trybuild",
+ "url",
+ "xmtp_common",
+ "xmtp_configuration",
 ]
 
 [[package]]
@@ -12769,11 +12790,9 @@ dependencies = [
 name = "xmtp_configuration"
 version = "1.12.0-dev"
 dependencies = [
- "openmls",
  "semver 1.0.28",
  "thiserror 2.0.19",
  "xmtp_common",
- "xmtp_cryptography",
 ]
 
 [[package]]
@@ -12811,7 +12830,7 @@ name = "xmtp_cryptography"
 version = "1.12.0-dev"
 dependencies = [
  "alloy",
- "bincode",
+ "cbor4ii",
  "const-hex",
  "ctor",
  "ed25519-dalek",
@@ -12819,6 +12838,7 @@ dependencies = [
  "getrandom 0.2.17",
  "getrandom 0.3.4",
  "getrandom 0.4.3",
+ "libc",
  "libcrux-ed25519",
  "openmls",
  "openmls_basic_credential",
@@ -12828,9 +12848,12 @@ dependencies = [
  "rand_chacha 0.10.0",
  "rustls",
  "serde",
+ "serde_json",
  "sha2 0.10.9",
+ "subtle",
  "thiserror 2.0.19",
  "tls_codec 0.5.0",
+ "tokio",
  "wasm-bindgen-test",
  "zeroize",
 ]
@@ -12841,8 +12864,8 @@ version = "1.12.0-dev"
 dependencies = [
  "arc-swap",
  "ascii_table",
- "bincode",
  "bon",
+ "cbor4ii",
  "const-hex",
  "criterion",
  "ctor",
@@ -12856,6 +12879,7 @@ dependencies = [
  "mockall",
  "openmls",
  "openmls_basic_credential",
+ "openmls_libcrux_crypto",
  "openmls_rust_crypto",
  "openmls_traits",
  "parking_lot",
@@ -12863,10 +12887,13 @@ dependencies = [
  "rand 0.10.2",
  "rstest",
  "serde",
+ "serde_bytes",
+ "serde_json",
  "serde_path_to_error",
  "sqlite-wasm-rs",
  "sqlite-wasm-vfs",
  "strum 0.28.0",
+ "subtle",
  "thiserror 2.0.19",
  "tokio",
  "toml 1.1.3+spec-1.1.0",
@@ -12881,6 +12908,7 @@ dependencies = [
  "xmtp_content_types",
  "xmtp_cryptography",
  "xmtp_db",
+ "xmtp_logging",
  "xmtp_proto",
  "zeroize",
 ]
@@ -12941,15 +12969,14 @@ dependencies = [
 name = "xmtp_legacy_migration"
 version = "1.12.0-dev"
 dependencies = [
- "bincode",
  "const-hex",
  "diesel",
  "futures",
  "js-sys",
  "libc",
- "openmls",
  "prost",
  "serde_json",
+ "sha2 0.10.9",
  "sqlite-wasm-rs",
  "sqlite-wasm-vfs",
  "tempfile",
@@ -12968,6 +12995,7 @@ dependencies = [
  "xmtp_db",
  "xmtp_mls_common",
  "xmtp_proto",
+ "zeroize",
 ]
 
 [[package]]
@@ -13029,9 +13057,9 @@ dependencies = [
  "aes-gcm",
  "alloy",
  "async-trait",
- "bincode",
  "bon",
  "bytes",
+ "cbor4ii",
  "chrono",
  "const-hex",
  "criterion",
@@ -13117,7 +13145,10 @@ version = "1.12.0-dev"
 dependencies = [
  "bon",
  "const-hex",
+ "curve25519-dalek 4.1.3",
+ "ed25519-dalek",
  "hpke-rs 0.6.1",
+ "libcrux-ed25519",
  "openmls",
  "openmls_libcrux_crypto",
  "openmls_rust_crypto",
@@ -13127,6 +13158,8 @@ dependencies = [
  "prost",
  "semver 1.0.28",
  "serde",
+ "sha2 0.10.9",
+ "sha2 0.11.0",
  "thiserror 2.0.19",
  "tls_codec 0.5.0",
  "tracing",
@@ -13144,12 +13177,17 @@ version = "1.12.0-dev"
 dependencies = [
  "async-trait",
  "const-hex",
+ "criterion",
+ "ed25519-dalek",
  "futures",
+ "hkdf 0.12.4",
+ "hmac 0.12.1",
  "openmls",
  "openmls_basic_credential",
  "openmls_rust_crypto",
  "prost",
  "serde",
+ "sha2 0.10.9",
  "thiserror 2.0.19",
  "tls_codec 0.5.0",
  "tokio",
@@ -13168,8 +13206,8 @@ name = "xmtp_proto"
 version = "1.12.0-dev"
 dependencies = [
  "async-trait",
- "bincode",
  "bytes",
+ "cbor4ii",
  "chrono",
  "const-hex",
  "ctor",
@@ -13201,7 +13239,9 @@ dependencies = [
  "wasm-bindgen-test",
  "xmtp_common",
  "xmtp_configuration",
+ "xmtp_cryptography",
  "xmtp_events",
+ "zeroize",
 ]
 
 [[package]]

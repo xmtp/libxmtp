@@ -1,6 +1,11 @@
-name: Test WASM
+name: "Test: Rust WASM"
 on:
   workflow_call:
+    inputs:
+      runner:
+        description: The runner label. ci.yml passes it from .github/ci-suites.yml (runners).
+        type: string
+        required: true
 env:
   NIX_DEVSHELL: wasm
 jobs:
@@ -8,13 +13,14 @@ jobs:
   # binary) are a run input of every partition; building them here lets the
   # partitions substitute them instead of 4 runners building them at once.
   archive:
-    name: Test (WASM archive)
-    runs-on: blacksmith-16vcpu-ubuntu-2404
+    name: Build test archive
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 60
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-      - uses: ./.github/actions/setup-nix
+      - name: Set up Nix
+        uses: ./.github/actions/setup-nix
         with:
           cache-mode: "ci"
           cachix-pr-auth-token: ${{ secrets.CACHIX_PR_AUTH_TOKEN }}
@@ -28,9 +34,9 @@ jobs:
   # nix/ci-checks.nix (`wasmPartitions`) and dev/wasm.just name the same 4
   # slices.
   partition:
-    name: Test (WASM ${{ matrix.part }})
+    name: Tests (${{ matrix.part }} of 4)
     needs: archive
-    runs-on: blacksmith-16vcpu-ubuntu-2404
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 60
     strategy:
       fail-fast: false
@@ -39,14 +45,14 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-      - uses: ./.github/actions/setup-nix
+      - name: Set up Nix
+        uses: ./.github/actions/setup-nix
         with:
           cache-mode: "ci"
           cachix-pr-auth-token: ${{ secrets.CACHIX_PR_AUTH_TOKEN }}
           github-token: ${{ github.token }}
-      - uses: taiki-e/install-action@0c0305935e3ef3b9e6205d176ec55ee4fce34cca # just
-      - name: Run WASM tests
-        run: just wasm nix-test-part ${{ matrix.part }}
+      - name: dev/nix-shell 'just wasm nix-test-part ${{ matrix.part }}'
+        run: dev/nix-shell 'just wasm nix-test-part ${{ matrix.part }}'
       # The JUnit report of the slice, also when the result came from the
       # cache; a test that passed on retry shows as `flakyFailure`.
       - name: Upload JUnit

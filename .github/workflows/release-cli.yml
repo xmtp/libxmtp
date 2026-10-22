@@ -1,4 +1,4 @@
-name: Release CLI
+name: "Release: CLI"
 
 on:
   workflow_dispatch:
@@ -28,26 +28,15 @@ on:
       release-type:
         required: true
         type: string
-      rc-number:
-        required: false
-        type: string
       source-sha:
         description: Fixed source commit resolved by the release caller
-        required: false
+        required: true
         type: string
-      ref:
-        required: false
-        type: string
-      timestamp:
-        required: false
+      version:
+        description: The version to publish, computed once by release.yml
+        required: true
         type: string
       node-sdk-version:
-        required: false
-        type: string
-      pending-version:
-        required: false
-        type: string
-      pending-kind:
         required: false
         type: string
       dry-run:
@@ -65,48 +54,52 @@ permissions:
 
 jobs:
   check-push-permissions:
+    name: Source
     uses: ./.github/workflows/check-release-push.yml
     with:
-      ref: ${{ inputs.source-sha || inputs.ref || github.ref }}
+      # A direct dispatch has no source-sha and releases the dispatched ref.
+      ref: ${{ inputs.source-sha || github.ref }}
       dry-run: ${{ inputs.dry-run }}
     secrets: inherit
 
   setup:
+    name: Compute version
     needs: [check-push-permissions]
     runs-on: ubuntu-latest
     outputs:
-      version: ${{ steps.version.outputs.version }}
+      version: ${{ inputs.version || steps.version.outputs.version }}
       node-sdk-version: ${{ steps.node-sdk-version.outputs.version }}
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Check out the release source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ needs.check-push-permissions.outputs.source-sha }}
-      - uses: ./.github/actions/setup-release-tools
+      # release.yml passes the version it computed for every SDK of the run.
+      # Only a direct dispatch of this workflow computes it here.
+      - name: Set up release tools
+        if: inputs.version == ''
+        uses: ./.github/actions/setup-release-tools
+
+      # Inputs are passed through env, never interpolated into shell source:
+      # this job holds contents/id-token write and dispatch inputs are free text.
       - name: Compute version
         id: version
+        if: inputs.version == ''
         env:
           RELEASE_TYPE: ${{ inputs.release-type }}
           RC_NUMBER: ${{ inputs.rc-number }}
-          PENDING_VERSION: ${{ inputs.pending-version }}
-          PENDING_KIND: ${{ inputs.pending-kind }}
-          REF: ${{ inputs.ref || github.ref }}
-          TIMESTAMP: ${{ inputs.timestamp }}
+          REF: ${{ github.ref }}
         run: |
-          if [ "$RELEASE_TYPE" = "rc" ]; then
-            VERSION=$(xmtp-release compute-version --sdk cli --release-type rc --rc-number "$RC_NUMBER")
-          elif [ "$RELEASE_TYPE" = "dev" ]; then
-            VERSION=$(xmtp-release compute-version --sdk cli --release-type dev --source-ref "$REF" --timestamp "$TIMESTAMP")
-          elif [ "$RELEASE_TYPE" = "nightly" ]; then
-            if [ -z "$PENDING_VERSION" ] || [ -z "$PENDING_KIND" ]; then
-              echo "::error::nightly resolve called with empty pending version/kind"
-              exit 1
-            fi
-            VERSION=$(xmtp-release resolve-sdk-version --sdk cli --release-type nightly --timestamp "$TIMESTAMP" --pending-version "$PENDING_VERSION" --pending-kind "$PENDING_KIND")
-          else
-            VERSION=$(xmtp-release compute-version --sdk cli --release-type final)
-          fi
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "Computed version: $VERSION"
+          set -euo pipefail
+          args=(--sdk cli --release-type "$RELEASE_TYPE")
+          case "$RELEASE_TYPE" in
+            rc) args+=(--rc-number "$RC_NUMBER") ;;
+            dev) args+=(--source-ref "$REF") ;;
+          esac
+          version=$(xmtp-release compute-version "${args[@]}")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Computed version: $version"
+
       - name: Resolve node-sdk version to pin
         id: node-sdk-version
         env:
@@ -128,20 +121,25 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
   build:
+    name: Build
     needs: [setup, check-push-permissions]
-    runs-on: blacksmith-16vcpu-ubuntu-2404
+    runs-on: ubuntu-24.04
     env:
       NIX_DEVSHELL: js-node
       # The Node SDK build copies the release-profile Nix tree that CI tested.
       XMTP_SDK_BUILD: nix
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Check out the release source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ needs.check-push-permissions.outputs.source-sha }}
-      - uses: ./.github/actions/setup-nix
+      - name: Set up Nix
+        uses: ./.github/actions/setup-nix
         with:
+          cache-mode: read
           github-token: ${{ secrets.GITHUB_TOKEN }}
-      - uses: ./.github/actions/setup-release-tools
+      - name: Set up release tools
+        uses: ./.github/actions/setup-release-tools
         with:
           nix: "true"
           # This job also builds the Node SDK and the CLI.
@@ -165,10 +163,11 @@ jobs:
           retention-days: 1
 
   publish:
+    name: Publish
     needs: [setup, build, check-push-permissions]
     uses: ./.github/workflows/npm-publish.yml
     with:
-      ref: ${{ needs.check-push-permissions.outputs.source-sha }}
+      source-sha: ${{ needs.check-push-permissions.outputs.source-sha }}
       package-dir: apps/cli
       sdk: cli
       version: ${{ needs.setup.outputs.version }}

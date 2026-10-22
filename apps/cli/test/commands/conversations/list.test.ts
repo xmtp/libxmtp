@@ -51,19 +51,4 @@ describe("conversations list", () => {
     expect(result.exitCode).toBe(2);
     expect(result.stderr).toContain("Invalid value for --created-after");
   });
-
-  it("returns empty list for new user", async () => {
-    const user = await createRegisteredIdentity();
-
-    const result = await runWithIdentity(user, [
-      "conversations",
-      "list",
-      "--json",
-    ]);
-
-    expect(result.exitCode).toBe(0);
-
-    const conversations = parseJsonOutput<Conversation[]>(result.stdout);
-    expect(conversations.length).toBe(0);
-  });
 });

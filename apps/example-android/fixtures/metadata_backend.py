@@ -46,18 +46,6 @@ METADATA = Fixture(
     needs_s3=True,
 )
 
-# A backend with no attachment storage target, for the unsupported-upload tests.
-UNSUPPORTED = Fixture(
-    label="Unsupported",
-    database_prefix="messenger_unsupported_",
-    base_config="dev/backend/local.toml",
-    catalogue=None,
-    url_variable="XMTP_ANDROID_UNSUPPORTED_BACKEND_URL",
-    port_variable="XMTP_ANDROID_UNSUPPORTED_BACKEND_PORT",
-    lease_variable=None,
-    needs_s3=False,
-)
-
 
 def port():
     with socket.socket() as listener:

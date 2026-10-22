@@ -1,15 +1,17 @@
 use super::*;
 use crate::{
-    config::Config,
+    config::{Config, ValidatedConfig},
     db::{PushChannel, Store},
-    test_support::{TestDatabase, TestResult},
+    test_support::{TestDatabase, TestResult, config_for},
 };
 use channel::{Delivery, DeliveryConfig, Outcome, Sender, Senders};
 use parking_lot::Mutex;
 use std::{collections::VecDeque, sync::Arc};
 use tokio::sync::{Notify, Semaphore};
 use xmtp_common::time::{Duration, Instant, timeout};
+use xmtp_cryptography::secret::Zeroizing;
 
+mod keyed;
 mod lifecycle;
 mod maintenance;
 mod polling;
@@ -19,6 +21,7 @@ mod window;
 
 struct Fixture {
     store: Store,
+    /// The file layer. A test changes it, and each hub validates it.
     config: Config,
     _database: TestDatabase,
 }
@@ -26,11 +29,10 @@ struct Fixture {
 impl Fixture {
     async fn new() -> TestResult<Self> {
         let database = TestDatabase::new()?;
-        let mut config: Config =
-            toml::from_str(&format!("[database]\nurl = {:?}", database.url()))?;
+        let mut config = config_for(database.url());
         config.streams.poll_interval_ms = 25;
         config.push.max_attempts = 3;
-        let store = Store::connect(&config).await?;
+        let store = Store::connect(&config.clone().validate()?).await?;
         Ok(Self {
             store,
             config,
@@ -66,10 +68,10 @@ impl Fixture {
             secret_hash: vec![9; 32],
             channel,
             delivery: "https://push.invalid/hook".into(),
-            signing_key: Some(vec![7; 32]),
+            signing_key: Some(Zeroizing::new(vec![7; 32])),
         };
         sqlx::query("INSERT INTO push_recipient (recipient_id, secret_hash, channel, delivery, signing_key, topic_count, renewed_ns) VALUES ($1, $2, $3, $4, $5, 1, (extract(epoch FROM clock_timestamp()) * 1000000000)::bigint)")
-            .bind(&config.recipient_id).bind(&config.secret_hash).bind(channel as i16).bind(&config.delivery).bind(&config.signing_key)
+            .bind(&config.recipient_id).bind(&config.secret_hash).bind(channel as i16).bind(&config.delivery).bind(config.signing_key.as_ref().map(|key| key.as_slice()))
             .execute(&self.store.primary).await?;
         sqlx::query("INSERT INTO push_subscription (recipient_id, topic, since_sequence_id, include_commits) VALUES ($1, $2, $3, $4)")
             .bind(&config.recipient_id).bind(topic).bind(since).bind(commits).execute(&self.store.primary).await?;
@@ -81,6 +83,14 @@ impl Fixture {
             .fetch_one(&self.store.primary)
             .await
             .unwrap()
+    }
+
+    /// The fixture's configuration as it is now, validated.
+    fn validated(&self) -> ValidatedConfig {
+        self.config
+            .clone()
+            .validate()
+            .expect("the fixture configuration is valid")
     }
 
     fn hub(&self, sender: Arc<dyn Sender>) -> Arc<PushHub> {
@@ -95,7 +105,7 @@ impl Fixture {
     ) -> Arc<PushHub> {
         PushHub::with_senders(
             self.store.clone(),
-            &self.config,
+            &self.validated(),
             maintenance,
             Senders([Some(other), None, Some(http)]),
         )
@@ -105,6 +115,8 @@ impl Fixture {
 #[derive(Default)]
 struct FakeSender {
     calls: Mutex<Vec<(u64, PushChannel)>>,
+    /// The recipient of each call, in call order.
+    recipients: Mutex<Vec<Vec<u8>>>,
     gate: Option<Arc<Semaphore>>,
     outcomes: Mutex<VecDeque<Outcome>>,
 }
@@ -129,6 +141,9 @@ impl Sender for FakeSender {
             delivery.payload.sequence_id.parse().unwrap(),
             delivery.config.channel,
         ));
+        self.recipients
+            .lock()
+            .push(delivery.config.recipient_id.clone());
         if let Some(gate) = &self.gate {
             gate.acquire().await.unwrap().forget();
         }
@@ -149,4 +164,20 @@ async fn stop(hub: &PushHub) {
 async fn holder_pid(store: &Store) -> Option<i32> {
     sqlx::query_scalar("SELECT pid FROM pg_locks WHERE locktype = 'advisory' AND classid = 0 AND objid = 3 AND objsubid = 2 AND granted AND database = (SELECT oid FROM pg_database WHERE datname = current_database())")
         .fetch_optional(&store.primary).await.unwrap()
+}
+
+/// A recipient whose expiry cannot be represented is an invariant failure. The
+/// configuration's expiry arithmetic decides which renewals those are.
+#[xmtp_common::test(unwrap_try = true)]
+fn an_unrepresentable_recipient_expiry_is_an_invariant_failure() {
+    let config: Config = toml::from_str(
+        "[database]\nurl = 'postgres://localhost/xmtp'\n[push]\nrecipient_ttl_seconds = 86400",
+    )?;
+    assert_eq!(recipient_expiry(&config.push, 0)?, 86_400 * 1_000_000_000);
+    for renewed_ns in [-1, i64::MAX] {
+        assert!(matches!(
+            recipient_expiry(&config.push, renewed_ns),
+            Err(crate::error::Error::PushExpiryOverflow)
+        ));
+    }
 }

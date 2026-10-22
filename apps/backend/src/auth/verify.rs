@@ -1,6 +1,6 @@
 //! API key admission or one signature check per request. No network IO.
-use super::keys::{KeySet, select};
-use crate::config::auth::{AuthConfig, MAX_KID_BYTES, algorithm};
+use super::keys::{KeySet, algorithm, select};
+use crate::config::auth::{AuthConfig, MAX_KID_BYTES};
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use jsonwebtoken::{decode, decode_header, errors::ErrorKind};
 use serde::{Deserialize, Deserializer};

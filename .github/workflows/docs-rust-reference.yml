@@ -1,7 +1,11 @@
-name: Rust reference and error glossary
+name: "Build: Rust reference"
 on:
   workflow_call:
     inputs:
+      runner:
+        description: The runner label. ci.yml and deploy-docs.yml pass it.
+        type: string
+        default: blacksmith-16vcpu-ubuntu-2404
       cache-mode:
         description: >-
           setup-nix cache mode. Empty: trusted on a protected push to trunk,
@@ -19,16 +23,18 @@ permissions:
   contents: read
 jobs:
   rust:
-    name: Rust reference and error glossary
-    runs-on: blacksmith-16vcpu-ubuntu-2404
+    name: rustdoc and error glossary
+    runs-on: ${{ inputs.runner }}
     environment:
       name: ${{ (inputs.cache-mode || (github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && github.ref == 'refs/heads/main' && 'trusted' || 'ci')) == 'trusted' && 'kache-s3-writer' || '' }}
     timeout-minutes: 45
     env:
       NIX_DEVSHELL: rust
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-      - uses: ./.github/actions/setup-nix
+      - name: Check out the source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - name: Set up Nix
+        uses: ./.github/actions/setup-nix
         with:
           cache-mode: ${{ inputs.cache-mode || (github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && github.ref == 'refs/heads/main' && 'trusted' || 'ci') }}
           github-token: ${{ github.token }}
@@ -40,13 +46,14 @@ jobs:
           kache-s3-secret-access-key: ${{ secrets.KACHE_S3_SECRET_ACCESS_KEY }}
           kache-scope: rust-reference
           kache-readonly: "false"
-      - name: Generate error glossary
+      - name: dev/nix-shell 'dev/gen-error-glossary'
         run: dev/nix-shell 'dev/gen-error-glossary'
       - name: Reject stale glossary
         run: git diff --exit-code -- docs/error_glossary.md
-      - name: Build Rust reference
+      - name: dev/nix-shell 'cargo doc --locked --no-deps'
         run: dev/nix-shell 'cargo doc --locked --no-deps'
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      - name: Upload docs-rust
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: docs-rust
           path: target/doc

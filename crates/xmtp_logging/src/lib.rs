@@ -21,7 +21,7 @@ pub mod span_metrics;
 pub use builder::{XmtpLogging, XmtpLoggingBuilder};
 pub use config::*;
 pub use error::Error;
-pub use filter::filter_directive;
+pub use filter::{filter_directive, group_context_guard, prints_group_context};
 pub use handle::LoggingHandle;
 mod sink_queue;
 pub use layers::sink::{LogRecord, LogSinkTarget, SinkError};

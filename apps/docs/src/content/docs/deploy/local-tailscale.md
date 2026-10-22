@@ -105,7 +105,7 @@ services:
       retries: 20
 
   backend:
-    image: ghcr.io/xmtp/backend:8.0.0-rc2
+    image: ghcr.io/xmtp/backend:8.0.0-rc4
     restart: unless-stopped
     stop_grace_period: 30s
     depends_on:

@@ -78,7 +78,7 @@ pub(crate) fn build_group_membership_app_data_payload(
     use xmtp_mls_common::app_data::component_source::read_from_app_data_dict;
     let old_bytes = read_from_app_data_dict(ComponentId::GROUP_MEMBERSHIP, group)
         .ok_or(GroupError::MissingSequenceId)?;
-    build_membership_delta(conn, &old_bytes, old, new)
+    build_membership_delta(conn, old_bytes, old, new)
 }
 
 /// Selection and publication use the same delta from the committed dictionary.
@@ -398,24 +398,28 @@ fn compute_publish_data_for_proposal_based_update(
             let (upkeep, app_data_updates) = membership_upkeep(group, catalogue)?;
 
             // 5. Create a commit consuming all proposals.
-            let mut stage = group
-                .commit_builder()
-                .consume_proposal_store(true)
-                .add_proposals(upkeep)
-                .propose_adds(
-                    key_packages_to_add
-                        .iter()
-                        .filter(|_| inline_membership)
-                        .cloned(),
-                )
-                .propose_removals(
-                    leaf_nodes_to_remove
-                        .iter()
-                        .filter(|_| inline_membership)
-                        .copied(),
-                )
-                .load_psks(provider.storage())
-                .map_err(CommitToPendingProposalsError::from)?;
+            let mut stage = crate::groups::mls_ext::commit_without_group_info(
+                group,
+                provider.storage(),
+                |builder| {
+                    builder
+                        .consume_proposal_store(true)
+                        .add_proposals(upkeep)
+                        .propose_adds(
+                            key_packages_to_add
+                                .iter()
+                                .filter(|_| inline_membership)
+                                .cloned(),
+                        )
+                        .propose_removals(
+                            leaf_nodes_to_remove
+                                .iter()
+                                .filter(|_| inline_membership)
+                                .copied(),
+                        )
+                },
+            )
+            .map_err(CommitToPendingProposalsError::from)?;
             stage.with_app_data_dictionary_updates(app_data_updates);
             let bundle = stage
                 .build(provider.rand(), provider.crypto(), &signer, |_| true)
@@ -461,7 +465,7 @@ pub(super) fn has_pending_membership_delta(
         group,
     )
     .ok_or(GroupError::InvalidGroupMembership)?;
-    let desired = GroupMembershipComponent::apply_update_payload(payload, Some(&prior))
+    let desired = GroupMembershipComponent::apply_update_payload(payload, Some(prior))
         .map_err(xmtp_mls_common::app_data::component_source::ComponentSourceError::from)?;
     let desired = membership_from_app_data_bytes(&desired)?;
     for proposal in group.pending_proposals() {
@@ -470,7 +474,7 @@ pub(super) fn has_pending_membership_delta(
             && let AppDataUpdateOperation::Update(payload) = update.operation()
         {
             let retained =
-                GroupMembershipComponent::apply_update_payload(payload.as_slice(), Some(&prior))
+                GroupMembershipComponent::apply_update_payload(payload.as_slice(), Some(prior))
                     .map_err(
                         xmtp_mls_common::app_data::component_source::ComponentSourceError::from,
                     )?;
@@ -603,7 +607,7 @@ fn build_readd_membership_payload(
     let bytes = read_component_bytes(ComponentId::GROUP_MEMBERSHIP, group.extensions())?
         .ok_or_else(|| malformed("missing membership component"))?;
     let entries =
-        GroupMembershipComponent::decode_value(&bytes).map_err(ComponentSourceError::from)?;
+        GroupMembershipComponent::decode_value(bytes).map_err(ComponentSourceError::from)?;
     let failed: HashSet<_> = membership.failed_installations.iter().collect();
     let mut failures_by_inbox: HashMap<InboxId, Vec<Vec<u8>>> = HashMap::new();
     for member in group.members() {

@@ -155,13 +155,11 @@ async fn ephemeral_invalid_config_precedes_database_creation() {
             .await
             .err()
             .expect("invalid config");
-        assert!(matches!(
-            error.downcast_ref::<ConfigError>(),
-            Some(ConfigError::Invalid {
-                field: "database.max_connections",
-                ..
-            })
-        ));
+        let error = error
+            .downcast_ref::<ConfigError>()
+            .expect("a configuration refusal");
+        assert!(matches!(error, ConfigError::Invalid { .. }), "{error}");
+        assert_eq!(error.field(), Some("database.max_connections"), "{error}");
     }
 }
 

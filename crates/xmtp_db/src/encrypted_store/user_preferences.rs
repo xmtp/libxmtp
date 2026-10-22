@@ -2,9 +2,11 @@ use super::{
     ConnectionExt,
     schema::user_preferences::{self, dsl},
 };
-use crate::{StorageError, Store};
+use crate::{StorageError, Store, StoredSecret};
 use diesel::{insert_into, prelude::*, upsert::excluded};
+use std::fmt;
 use xmtp_common::time::now_ns;
+use xmtp_cryptography::secret::{Secret, Zeroize, ZeroizeOnDrop};
 
 #[derive(
     Identifiable,
@@ -23,7 +25,7 @@ use xmtp_common::time::now_ns;
 pub struct StoredUserPreferences {
     pub id: i32,
     /// HMAC key root
-    pub hmac_key: Option<Vec<u8>>,
+    pub hmac_key: Option<StoredSecret>,
     pub hmac_key_cycled_at_ns: Option<i64>,
     /// Whether DM group updates have been migrated.
     pub dm_group_updates_migrated: bool,
@@ -45,17 +47,29 @@ where
     }
 }
 
-#[derive(Debug)]
+/// A group's HMAC key for one epoch. The key is wiped on drop, and `Debug`
+/// shows only the epoch.
+#[derive(Zeroize, ZeroizeOnDrop)]
 pub struct HmacKey {
-    // TODO: Use xmtp_cryptography::Secret for Zeroize support
     pub key: [u8; 42],
     // # of 30 day periods since unix epoch
+    #[zeroize(skip)]
     pub epoch: i64,
 }
 
 impl HmacKey {
-    pub fn random_key() -> Vec<u8> {
-        xmtp_common::rand_vec::<42>()
+    /// A new HMAC root key.
+    pub fn random_key() -> Secret {
+        xmtp_cryptography::rand::rand_secret::<42>()
+    }
+}
+
+impl fmt::Debug for HmacKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("HmacKey")
+            .field("key", &"<redacted>")
+            .field("epoch", &self.epoch)
+            .finish()
     }
 }
 
@@ -85,7 +99,7 @@ impl StoredUserPreferences {
         let local_cycle = cycled_at.is_none();
         let cycled_at = cycled_at.unwrap_or_else(now_ns);
         let preferences = Self {
-            hmac_key: Some(key.to_vec()),
+            hmac_key: Some(StoredSecret::from(key.to_vec())),
             hmac_key_cycled_at_ns: Some(cycled_at),
             ..Self::default()
         };
@@ -133,10 +147,10 @@ mod tests {
 
             // set an hmac key
             let hmac_key = HmacKey::random_key();
-            StoredUserPreferences::store_hmac_key(conn, &hmac_key, None).unwrap();
+            StoredUserPreferences::store_hmac_key(conn, hmac_key.as_slice(), None).unwrap();
             let pref = StoredUserPreferences::load(conn).unwrap();
             // Make sure it saved
-            assert_eq!(hmac_key, pref.hmac_key.unwrap());
+            assert_eq!(hmac_key.as_slice(), pref.hmac_key.unwrap().as_slice());
 
             // check that there is only one preference stored
             let query = dsl::user_preferences.order(dsl::id.desc());
@@ -169,17 +183,74 @@ mod tests {
                 StoredUserPreferences::store_hmac_key(conn, &second, Some(20))?;
                 StoredUserPreferences::store_hmac_key(conn, &[0xff; 42], Some(10))?;
                 let preferences = StoredUserPreferences::load(conn)?;
-                assert_eq!(preferences.hmac_key, Some(higher.to_vec()));
+                assert_eq!(preferences.hmac_key, Some(higher.to_vec().into()));
                 assert_eq!(preferences.hmac_key_cycled_at_ns, Some(20));
                 assert!(preferences.dm_group_updates_migrated);
                 StoredUserPreferences::store_hmac_key(conn, &lower, Some(30))?;
                 let preferences = StoredUserPreferences::load(conn)?;
-                assert_eq!(preferences.hmac_key, Some(lower.to_vec()));
+                assert_eq!(preferences.hmac_key, Some(lower.to_vec().into()));
                 assert_eq!(preferences.hmac_key_cycled_at_ns, Some(30));
                 assert!(preferences.dm_group_updates_migrated);
             }
             Ok::<_, StorageError>(())
         })?;
+    }
+
+    /// The `hmac_key` column holds exactly the stored root key bytes, as the
+    /// `Vec<u8>` column did, whether written by `store_hmac_key` or `Store`.
+    #[xmtp_common::test(unwrap_try = true)]
+    fn hmac_key_column_holds_the_input_bytes() {
+        crate::test_utils::with_connection(|conn| {
+            let raw_column = || -> Result<Option<Vec<u8>>, StorageError> {
+                Ok(conn.raw_query(|conn| dsl::user_preferences.select(dsl::hmac_key).first(conn))?)
+            };
+            let key: Vec<u8> = (0..42).map(|i| 0x80 | i).collect();
+            StoredUserPreferences::store_hmac_key(conn, &key, None)?;
+            assert_eq!(raw_column()?, Some(key.clone()));
+
+            let mut preferences = StoredUserPreferences::load(conn)?;
+            assert_eq!(
+                preferences.hmac_key.as_ref().map(StoredSecret::as_slice),
+                Some(key.as_slice())
+            );
+            let replaced: Vec<u8> = key.iter().map(|byte| byte ^ 0x5a).collect();
+            preferences.hmac_key = Some(replaced.clone().into());
+            Store::store(&preferences, conn)?;
+            assert_eq!(raw_column()?, Some(replaced));
+            Ok::<_, StorageError>(())
+        })?;
+    }
+
+    /// `Debug` of the preferences row and of a derived key shows no key bytes.
+    #[xmtp_common::test(unwrap_try = true)]
+    fn hmac_key_holders_redact_debug() {
+        let key: [u8; 42] = std::array::from_fn(|i| 0x80 | i as u8);
+        let preferences = StoredUserPreferences {
+            hmac_key: Some(key.to_vec().into()),
+            ..Default::default()
+        };
+        let derived = HmacKey { key, epoch: 7 };
+        let forms = [
+            hex::encode(key),
+            hex::encode_upper(key),
+            // How `Debug` prints a byte slice or array, anywhere in the list.
+            format!("{:?}", &key[..4])
+                .trim_matches(['[', ']'])
+                .to_owned(),
+        ];
+        let derived_debug = format!("{derived:?}");
+        assert!(derived_debug.contains("epoch: 7"), "{derived_debug}");
+        for (name, debug) in [
+            ("StoredUserPreferences", format!("{preferences:?}")),
+            ("HmacKey", derived_debug),
+        ] {
+            for form in &forms {
+                assert!(
+                    !debug.contains(form.as_str()),
+                    "{name} Debug shows the key as {form}: {debug}"
+                );
+            }
+        }
     }
 
     // verifies: SYNC-022
@@ -268,7 +339,7 @@ mod tests {
                     Ok::<_, StorageError>(())
                 })?;
                 let preferences = StoredUserPreferences::load(&conn)?;
-                assert_eq!(preferences.hmac_key, Some(vec![3; 42]));
+                assert_eq!(preferences.hmac_key, Some(vec![3; 42].into()));
                 assert_eq!(preferences.hmac_key_cycled_at_ns, Some(winner_time));
             }
         }
@@ -276,7 +347,7 @@ mod tests {
         let conn = store.db();
         StoredUserPreferences::store_hmac_key(&conn, &[2; 42], Some(40))?;
         let preferences = StoredUserPreferences::load(&conn)?;
-        assert_eq!(preferences.hmac_key, Some(vec![3; 42]));
+        assert_eq!(preferences.hmac_key, Some(vec![3; 42].into()));
         assert_eq!(preferences.hmac_key_cycled_at_ns, Some(40));
     }
 }

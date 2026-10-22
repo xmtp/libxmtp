@@ -8,6 +8,9 @@ pub mod tester_utils;
 
 #[cfg(any(test, feature = "test-utils"))]
 pub mod fixtures;
+
+#[cfg(test)]
+pub(crate) mod crafted_welcome;
 pub mod test_mocks_helpers;
 mod tester_utils_trait_ext;
 pub use tester_utils_trait_ext::*;
@@ -35,6 +38,41 @@ mod definitions;
 pub use definitions::*;
 
 use super::VersionInfo;
+
+/// Each secret that must stay in the client, in the encodings a leak would
+/// take: the group root and each private or symmetric key of the group key
+/// table, as raw bytes and as lowercase and uppercase hex. The keys derive
+/// here from the spec's salt and `info` labels, not through `GroupKeys`.
+#[cfg(test)]
+pub(crate) fn group_secret_encodings(
+    root: &xmtp_mls_common::group_keys::GroupRoot,
+) -> Vec<(String, Vec<u8>)> {
+    let hkdf = hkdf::Hkdf::<sha2::Sha256>::new(Some(b"xmtp group root"), root.as_bytes());
+    let mut secrets = vec![("group root".to_string(), root.as_bytes().to_vec())];
+    for info in [
+        "xmtp group signing key",
+        "xmtp commit log signing key",
+        "xmtp commit log encryption key",
+        "xmtp commit log nonce key",
+    ] {
+        let mut key = [0u8; 32];
+        hkdf.expand(info.as_bytes(), &mut key).unwrap();
+        secrets.push((info.to_string(), key.to_vec()));
+    }
+    secrets
+        .into_iter()
+        .flat_map(|(name, bytes)| {
+            [
+                (format!("{name} as hex"), hex::encode(&bytes).into_bytes()),
+                (
+                    format!("{name} as upper-case hex"),
+                    hex::encode_upper(&bytes).into_bytes(),
+                ),
+                (name, bytes),
+            ]
+        })
+        .collect()
+}
 
 impl<A, S> ClientBuilder<A, S> {
     pub async fn temp_store(self) -> Self {
@@ -206,6 +244,27 @@ pub async fn wait_for_min_intents<C: ConnectionExt>(
         }
     })
     .await
+}
+
+#[cfg(test)]
+impl<Context: XmtpSharedContext> MlsGroup<Context> {
+    /// Sign `message` under the group signing key of this group's root, as a
+    /// member signs it at preparation. A test that changes a group message
+    /// signs it again, so that admission accepts the changed bytes and the
+    /// change reaches the receiving client.
+    pub(crate) fn sign_as_member(&self, message: &mut xmtp_proto::backend_v1::GroupMessage) {
+        let keys = self
+            .with_group_snapshot(|group| {
+                Ok(xmtp_mls_common::app_data::group_root::check_group_root(
+                    group.extensions(),
+                    group.group_id().as_slice(),
+                ))
+            })
+            .unwrap()
+            .expect("a keyed group holds the root of its id");
+        xmtp_mls_common::group_keys::sign_group_message(&keys, message)
+            .expect("signing passes the self-check");
+    }
 }
 
 /// Set a pending receipt to test registration recovery after reopen.

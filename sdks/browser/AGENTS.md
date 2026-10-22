@@ -31,7 +31,10 @@ type-checks the shared helpers. See `crates/xmtp_sdk/AGENTS.md`.
 
 Migration platform tests are in `test/platform/migration`. Run only them with
 `dev/nix-shell 'just sdk test-browser migration'`. The normal platform runner
-builds their private legacy fixture host and runs every migration assertion.
+copies their private legacy fixture host from Nix
+(`.#xmtp-legacy-migration-fixture-host`, the `fixture_host` example of
+`xmtp_legacy_migration`) and runs every migration assertion. Rust tests own
+the row-size cases; the browser keeps only the 64 MiB boundary row.
 
 Migration archive byte reads have an inclusive 100 MB (100,000,000 byte) limit.
 Check the completed object size before arrayBuffer allocation. The Browser

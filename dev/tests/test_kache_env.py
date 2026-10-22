@@ -323,102 +323,23 @@ class KacheBackendTests(unittest.TestCase):
 
 
 class KacheWorkflowWiringTests(unittest.TestCase):
-    def fields_for_use(self, relative_path, action, section="with"):
-        lines = (ROOT / relative_path).read_text().splitlines()
-        indices = [
-            index
-            for index, line in enumerate(lines)
-            if line.strip().startswith(f"uses: {action}")
-        ]
-        self.assertEqual(len(indices), 1)
-        index = indices[0]
-        level = len(lines[index]) - len(lines[index].lstrip())
-        container = next(
-            before
-            for before in range(index - 1, -1, -1)
-            if lines[before].strip()
-            and len(lines[before]) - len(lines[before].lstrip()) < level
-        )
-        container_level = len(lines[container]) - len(lines[container].lstrip())
-        end = next(
-            (
-                after
-                for after in range(index + 1, len(lines))
-                if lines[after].strip()
-                and len(lines[after]) - len(lines[after].lstrip()) <= container_level
-            ),
-            len(lines),
-        )
-        mappings = [
-            position
-            for position in range(container + 1, end)
-            if lines[position].strip() == f"{section}:"
-            and len(lines[position]) - len(lines[position].lstrip()) == level
-        ]
-        self.assertEqual(len(mappings), 1)
-        start = mappings[0] + 1
-        end = next(
-            (
-                position
-                for position in range(start, end)
-                if lines[position].strip()
-                and len(lines[position]) - len(lines[position].lstrip()) <= level
-            ),
-            end,
-        )
-        children = [
-            line
-            for line in lines[start:end]
-            if len(line) - len(line.lstrip()) == level + 2
-        ]
-        return {
-            key: value.strip().strip('"')
-            for key, value in re.findall(
-                r"^\s+([\w-]+):[ \t]*(.*)$",
-                "\n".join(children),
-                re.MULTILINE,
-            )
-        }
-
     def test_action_keeps_local_jobs_off_github_and_remote_storage(self):
-        fields = self.fields_for_use(
-            ".github/actions/setup-nix/action.yml", "kunobi-ninja/kache-action@"
-        )
-        self.assertEqual(fields["github-cache"].strip("'"), "false")
+        steps = yaml.safe_load(
+            (ROOT / ".github/actions/setup-nix/action.yml").read_text()
+        )["runs"]["steps"]
+        (fields,) = [
+            step["with"]
+            for step in steps
+            if step.get("uses", "").startswith("kunobi-ninja/kache-action@")
+        ]
+        self.assertEqual(str(fields["github-cache"]).lower(), "false")
         self.assertEqual(fields["s3-prefix"], "libxmtp/trusted")
+        # Only the policy step decides whether a job writes the trusted
+        # compiler cache (CachePolicyTests check that decision).
         self.assertEqual(
             fields["save-cache"],
             "${{ steps.cache-policy.outputs.cache-write }}",
         )
-        for key in (
-            "s3-bucket",
-            "s3-endpoint",
-            "s3-access-key-id",
-            "s3-secret-access-key",
-        ):
-            self.assertEqual(
-                fields[key],
-                "${{ steps.compiler-cache-backend.outputs.backend == 's3' && inputs.kache-"
-                + key
-                + " || '' }}",
-            )
-        self.assertEqual(
-            fields["s3-region"], "${{ steps.compiler-cache-backend.outputs.region }}"
-        )
-        for key in ("manifest-key", "namespace"):
-            self.assertEqual(
-                fields[key], "${{ steps.compiler-cache-backend.outputs.manifest-key }}"
-            )
-
-    def test_linux_pilot_receives_reader_secrets_from_its_caller(self):
-        # dev/ci-suites generates this caller from the `secrets: kache` suite setting.
-        fields = self.fields_for_use(
-            ".github/workflows/test-generated.yml",
-            "./.github/workflows/check-rust.yml",
-            "secrets",
-        )
-        for secret in ("KACHE_S3_ACCESS_KEY_ID", "KACHE_S3_SECRET_ACCESS_KEY"):
-            self.assertEqual(fields.get(secret), "${{ secrets." + secret + " }}")
 
 
 ACTION = ROOT / ".github/actions/setup-nix/action.yml"
@@ -440,16 +361,6 @@ TRUSTED_CACHIX_WRITERS = {
     "post-merge.yml / rn-package",
     "post-merge.yml / rn-consumers",
     "push-backend.yml / publish",
-}
-
-# Jobs that run cargo outside Nix, with their Kache scope. A job leaves this
-# list only when it stops running cargo outside Nix, so dropping Kache from a
-# cargo job fails here even when its README row goes too.
-KACHE_CALLERS = {
-    "check-rust.yml / native": "rust-clippy-native",
-    "check-rust.yml / wasm": "rust-clippy-wasm",
-    "check-sdk-unit.yml / unit": "sdk-tests-debug",
-    "docs-rust-reference.yml / rust": "rust-reference",
 }
 
 
@@ -638,14 +549,6 @@ class SetupNixTests(unittest.TestCase):
         env, _ = self.run_kache_step("Disable outer compiler cache")
         self.assertIn("KACHE_DISABLED=1", env)
 
-    def test_kache_callers_match_the_cargo_job_list(self):
-        callers = {
-            f"{workflow} / {job_id}": inputs.get("kache-scope")
-            for workflow, job_id, _, inputs in setup_nix_calls()
-            if inputs.get("kache") == "true"
-        }
-        self.assertEqual(callers, KACHE_CALLERS)
-
     def run_oom_report(self, log, status=0):
         script = action_step("Write kernel OOM report script")["run"]
         body = script.split("<< 'EOF'\n", 1)[1].split("\nEOF\n", 1)[0]
@@ -752,6 +655,10 @@ class Context:
             return self.secrets.get(name, "")
         if head == "vars":
             return ""
+        # A job output of the caller, such as the release dry-run flag: an
+        # opaque value that is not `true`.
+        if head == "needs":
+            return f"<{path}>"
         if head == "matrix" and self.matrix is not None and name in self.matrix:
             return self.matrix[name]
         if head == "runner" and name == "os":

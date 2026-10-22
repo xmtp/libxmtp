@@ -22,6 +22,18 @@ pub enum StorageError {
         "This database uses an older self-hosted format. Keep a backup and create a new client database."
     )]
     OldStreamDatabase,
+    /// The database was written before the key store and serialized columns
+    /// moved from bincode to CBOR. Not retryable.
+    #[error(
+        "This database uses an older storage encoding. Keep a backup and create a new client database."
+    )]
+    OldEncodingDatabase,
+    /// The database holds a live group whose id is 16 bytes, from before
+    /// group ids were public keys. Not retryable.
+    #[error(
+        "This database holds groups from before keyed group ids. Keep a backup and create a new client database."
+    )]
+    LegacyGroupDatabase,
     /// Durable stream storage rejected an operation or reached a capacity limit.
     #[error(transparent)]
     #[error_code(inherit)]
@@ -233,11 +245,6 @@ pub enum DuplicateItem {
     /// Welcome ID already exists. Not retryable.
     #[error("the welcome id {0:?} already exists")]
     WelcomeId(Option<Cursor>),
-    /// Duplicate commit log public key.
-    ///
-    /// Commit log public key for group already exists. Not retryable.
-    #[error("the commit log public key for group id {id} already exists", id = hex::encode(_0))]
-    CommitLogPublicKey(Vec<u8>),
 }
 
 impl RetryableError for DuplicateItem {
@@ -245,7 +252,6 @@ impl RetryableError for DuplicateItem {
         use DuplicateItem::*;
         match self {
             WelcomeId(_) => false,
-            CommitLogPublicKey(_) => false,
         }
     }
 }
@@ -281,6 +287,8 @@ impl RetryableError for StorageError {
             Self::Stream(e) => retryable!(e),
             Self::PreTransitionDatabase
             | Self::OldStreamDatabase
+            | Self::OldEncodingDatabase
+            | Self::LegacyGroupDatabase
             | Self::MigrationError(_)
             | Self::Conversion(_)
             | Self::NotFound(_)
@@ -352,19 +360,6 @@ impl RetryableError<Mls> for openmls::group::NewGroupError<sql_key_store::SqlKey
         match self {
             Self::StorageError(storage) => retryable!(storage),
             _ => false,
-        }
-    }
-}
-
-impl RetryableError<Mls>
-    for openmls::group::UpdateGroupMembershipError<sql_key_store::SqlKeyStoreError>
-{
-    fn is_retryable(&self) -> bool {
-        match self {
-            Self::CreateCommitError(create_commit) => retryable!(create_commit),
-            Self::GroupStateError(group_state) => retryable!(group_state),
-            Self::StorageError(storage) => retryable!(storage),
-            Self::CommitBuilderError(commit_builder) => retryable!(commit_builder),
         }
     }
 }

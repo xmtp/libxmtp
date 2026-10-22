@@ -434,31 +434,37 @@ describe("host event stream and listeners", () => {
   });
 });
 
-it("a custom codec key keeps authority and type apart when either has a slash", async () => {
-  const type = (authorityId: string, typeId: string) => ({
-    authorityId,
-    typeId,
-    versionMajor: 1,
-    versionMinor: 0,
-  });
-  const codec = {
-    type: type("example.org", "a/b"),
-    encode: () => {
-      throw new Error("not used");
-    },
-    decode: () => "slash codec",
-  };
+type CodecType = {
+  authorityId: string;
+  typeId: string;
+  versionMajor: number;
+  versionMinor: number;
+};
+
+const codecType = (authorityId: string, typeId: string): CodecType => ({
+  authorityId,
+  typeId,
+  versionMajor: 1,
+  versionMinor: 0,
+});
+
+const encodedAs = (type: CodecType) => ({
+  type,
+  parameters: new Map<string, string>(),
+  content: new Uint8Array([1]).buffer,
+});
+
+/** Builds a client whose registry holds `codec`, over a mocked binding. */
+async function withCodecClient(
+  codec: { type: CodecType; decode(): unknown },
+  run: (client: Client) => void,
+) {
   // Keep native allocation outside this host-runtime test. Client.build still
   // creates and fills the production codec registry from the supplied options.
   const build = vi.spyOn(BindingClient, "build").mockResolvedValue({
     clientKey: () => 2n,
     end: async () => {},
   } as never);
-  const encoded = (contentType: ReturnType<typeof type>) => ({
-    type: contentType,
-    parameters: new Map<string, string>(),
-    content: new Uint8Array([1]).buffer,
-  });
   let client: Client | undefined;
   try {
     client = await Client.build(
@@ -472,19 +478,55 @@ it("a custom codec key keeps authority and type apart when either has a slash", 
             location: new StorageLocation.InMemory(),
           }),
         }),
-        codecs: [codec],
+        codecs: [
+          {
+            ...codec,
+            encode: () => {
+              throw new Error("not used");
+            },
+          },
+        ],
       },
     );
-    expect(client.decodeCustom(encoded(type("example.org", "a/b")))).toEqual({
-      value: "slash codec",
-    });
-    expect(
-      client.decodeCustom(encoded(type("example.org/a", "b"))),
-    ).toBeUndefined();
+    run(client);
   } finally {
     await client?.end();
     build.mockRestore();
   }
+}
+
+it("a custom codec key keeps authority and type apart when either has a slash", async () => {
+  await withCodecClient(
+    { type: codecType("example.org", "a/b"), decode: () => "slash codec" },
+    (client) => {
+      expect(
+        client.decodeCustom(encodedAs(codecType("example.org", "a/b"))),
+      ).toEqual({ value: "slash codec" });
+      expect(
+        client.decodeCustom(encodedAs(codecType("example.org/a", "b"))),
+      ).toBeUndefined();
+    },
+  );
+});
+
+// verifies: CTYPE-001
+it("a custom codec matches authority, type, and major version, and ignores the minor version", async () => {
+  const type = codecType("example.org", "note");
+  await withCodecClient({ type, decode: () => "note codec" }, (client) => {
+    expect(client.decodeCustom(encodedAs(type))).toEqual({
+      value: "note codec",
+    });
+    expect(
+      client.decodeCustom(encodedAs({ ...type, versionMinor: 9 })),
+    ).toEqual({ value: "note codec" });
+    for (const other of [
+      { ...type, authorityId: "other.org" },
+      { ...type, typeId: "other" },
+      { ...type, versionMajor: 2 },
+    ]) {
+      expect(client.decodeCustom(encodedAs(other))).toBeUndefined();
+    }
+  });
 });
 
 it("Timestamp dates round nanoseconds down to the millisecond", () => {

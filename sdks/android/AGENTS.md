@@ -17,7 +17,8 @@ Gradle uses a 4 GiB heap in both SDK and app roots.
 When `ANDROID_NDK_HOME` is set, all Android modules use that NDK path and its
 `Pkg.Revision` for native library stripping. Keep the path and version matched.
 SDK `check` runs `gradlew build` and the instrumented test APK in one Gradle
-call, then `check-packages` on the debug and release AARs.
+call, then `check-packages` on the debug and release AARs. It skips
+`testReleaseUnitTest`, so the JVM tests run once, in the debug variant.
 The separate app `check` validates the moved Debug and Release APKs.
 The artifact check rejects static symbol and debug sections and requires the
 dynamic symbol sections in every packaged SDK JNI library. It uses NDK `llvm-readelf`.
@@ -58,6 +59,21 @@ verification metadata cover the final resolved graph.
 The Messenger app is at [apps/example-android](../../apps/example-android).
 Its Gradle root, recipes, and fixture rules are in that directory. SDK recipes
 build and test only the SDK. SDK changes also select app compatibility CI.
+
+The Android release workflow publishes the signed `org.xmtp:android` release
+to Maven Central and GitHub Packages (`https://maven.pkg.github.com/xmtp/libxmtp`).
+Publishing credentials and the armored signing key live in the GitHub
+`release` environment. `OSSRH_USERNAME` and `OSSRH_TOKEN` hold a Central Portal
+user token pair; the old OSSRH account credentials do not work. GitHub
+Packages uses the workflow's `GITHUB_TOKEN` with `packages: write`.
+Gradle first writes a signed local repository with
+`:library:publishReleasePublicationToReleaseBundleRepository`. The workflow
+retains those files, and the `publisher` Gradle project uploads them without
+rebuilding or signing again. Its GitHub Packages job completes before its
+Maven Central job starts; the Nexus plugin closes and releases Central staging.
+Use **Re-run failed jobs** to avoid repeating successful registry jobs. A partial
+or ambiguous upload within one registry may require manual inspection and
+cleanup. Do not rerun a successful Central publication for the same version.
 
 The SDK root owns `gradle/toolchain.properties`, the Gradle wrapper, and the
 shared SHA256 dependency verification inventory. The app root reads these
@@ -106,6 +122,10 @@ environment. Those two tests change the shared `backend` proxy and reset it on
 exit; do not run them at the same time as other Toxiproxy tests in the
 worktree. Live tests create clients through `withClients`, which ends each
 client on every exit. `library/src/androidTest` has installed Android tests.
+They check only what needs a device: the AAR's JNI load, Context storage,
+desugared timestamps, process lifecycle, file log helpers, typed callback
+failures, and attachment transfer over `adb reverse`. Rust tests own SDK
+features; do not add device copies of them.
 Host JVM checks do not prove an Android AAR loads.
 
 `library/src/test/negative` holds negative consumers. They are not compiled
@@ -146,7 +166,3 @@ message reader fails with `XmtpException.ConsumerOwned`. Explicit `from` cursors
 permit independent replay/live readers that do not advance default progress. Use the
 generated reader options for scopes, filters, and replay. Keep typed errors and
 `ULong` values.
-
-`dev/nix-shell 'just android test --tests uniffi.xmtp_sdk.LegacyMigrationTest'` runs `LegacyMigrationTest` in the
-normal JVM target with matched bindings and the host library. Gradle supplies
-the pinned legacy fixture directory. The required Android `sdk-build` job includes this test.

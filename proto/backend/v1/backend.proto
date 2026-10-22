@@ -13,8 +13,11 @@
 // inboxes by one server-side sentinel lock, so among identity updates
 // sequence_id order equals commit order.
 //
-// Envelopes are unsigned. The transport is trusted; a later phase
-// authenticates the caller, not the envelope.
+// A group message and a sealed commit-log entry carry a publish signature: an
+// Ed25519 signature under the public key that is the topic's identifier, made
+// with a key derived from the group root. Other envelopes carry no publish
+// signature; the server validates key packages and identity updates against
+// what it holds.
 //
 // The backend also serves the standard `grpc.health.v1.Health` service.
 syntax = "proto3";
@@ -22,7 +25,6 @@ syntax = "proto3";
 package xmtp.backend.v1;
 
 import "identity/associations/association.proto";
-import "identity/associations/signature.proto";
 import "mls/message_contents/component_permissions.proto";
 import "mls/message_contents/welcome_pointer.proto";
 import "mls/message_contents/wrapper_encryption.proto";
@@ -41,12 +43,17 @@ message Cursor {
 // Topic = 1 kind byte + identifier bytes (XIP-49 layout). The server derives
 // the topic from the payload; a client never sends a topic on publish.
 //
-//   kind | payload          | identifier
-//   0x00 | group_message    | 16-byte group_id (decoded from the MLS message)
-//   0x01 | welcome_message  | 32-byte installation_key
-//   0x02 | identity_update  | 32-byte hex-decoded inbox_id
-//   0x03 | key_package      | 32-byte installation key (from the key package)
-//   0x04 | commit_log_entry | 16-byte group_id (decoded from the entry)
+//   kind | payload                 | identifier
+//   0x00 | group_message           | 32-byte group_id (decoded from the MLS message)
+//   0x01 | welcome_message         | 32-byte installation_key
+//   0x02 | identity_update         | 32-byte hex-decoded inbox_id
+//   0x03 | key_package             | 32-byte installation key (from the key package)
+//   0x04 | sealed_commit_log_entry | 32-byte commit_log_id
+//
+// The group id is the Ed25519 public key of the group signing key, and the
+// commit-log id is the public key of the commit-log signing key. Both are
+// derived from the group root, separately, so nothing on the wire relates a
+// group's two topics. A 16-byte group id names no topic.
 message Topic {
   bytes topic = 1;
 }
@@ -98,6 +105,9 @@ message GroupMessage {
   bytes data = 1;
   bytes sender_hmac = 2;
   bool should_push = 3;
+  // 64-byte Ed25519 signature [R(32) || S(32)] over GroupMessageTBS by the
+  // group signing key.
+  bytes signature = 4;
 }
 
 // An MLS Welcome, either inline (v1) or by pointer.
@@ -136,14 +146,18 @@ message KeyPackage {
   bytes key_package_tls_serialized = 1;
 }
 
-// One entry of a group's commit log. The server decodes the group_id from the
-// entry to derive the topic. The signature is stored and returned, not
-// verified: it is made with a per-group key the server does not have. The
-// log position is `EnvelopeMeta.cursor`; the entry carries no sequence id.
-message CommitLogEntry {
-  // Serialized PlaintextCommitLogEntry.
-  bytes serialized_commit_log_entry = 1;
-  xmtp.identity.associations.RecoverableEd25519Signature signature = 2;
+// A commit-log entry, encrypted and signed under keys derived from the
+// group root. The server routes it by `commit_log_id` and cannot decrypt it.
+message SealedCommitLogEntry {
+  // 32-byte public key of the commit-log signing key. Derives the topic.
+  bytes commit_log_id = 1;
+  // 12 bytes.
+  bytes nonce = 2;
+  // ChaCha20-Poly1305 encryption of a serialized PlaintextCommitLogEntry.
+  bytes ciphertext = 3;
+  // 64-byte Ed25519 signature [R(32) || S(32)] over CommitLogEntryTBS by
+  // the commit-log signing key.
+  bytes signature = 4;
 }
 
 // What a client publishes. The server stores the canonical re-encoding of
@@ -154,8 +168,11 @@ message ClientEnvelope {
     WelcomeMessage welcome_message = 2;
     KeyPackage key_package = 3;
     xmtp.identity.associations.IdentityUpdate identity_update = 4;
-    CommitLogEntry commit_log_entry = 5;
+    SealedCommitLogEntry sealed_commit_log_entry = 6;
   }
+  // The retired CommitLogEntry payload.
+  reserved 5;
+  reserved "commit_log_entry";
 }
 
 // A stored envelope with its server-assigned metadata.

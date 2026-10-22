@@ -8,6 +8,7 @@
 
 ### Behavior Changes
 
+- An `XmtpError.Storage` for a database written in an older, unsupported format now has the Rust cause code in `details.code`: `StorageError::PreTransitionDatabase`, `StorageError::OldStreamDatabase`, `StorageError::OldEncodingDatabase` (a database written before the CBOR storage format) or `StorageError::LegacyGroupDatabase` (a database that holds groups from before keyed group ids). Other storage errors keep the code `Storage`. Match the code, not the message.
 - `streamAllMessages` now excludes denied conversations when no consent list is set. Pass an explicit consent list to include them.
 
 ## 2.3.0

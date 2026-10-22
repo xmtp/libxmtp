@@ -41,6 +41,7 @@ use xmtp_events::{
     ClientEvent, ConversationJoined, ConversationType as EventConversationType, EventBuffer,
     EventWriter, JoinOrigin,
 };
+use xmtp_mls_common::app_data::group_root::check_group_root;
 use xmtp_mls_common::group_metadata::extract_group_metadata;
 use xmtp_mls_common::libxmtp_version::LibXMTPVersion;
 
@@ -92,6 +93,7 @@ pub(crate) fn terminal_welcome_error(error: &GroupError) -> bool {
     matches!(
         error,
         GroupError::InvalidWelcomeMetadata
+            | GroupError::WelcomeGroupRoot(_)
             | GroupError::InvalidGroupMembership
             | GroupError::MetadataPermissionsError(_)
             | GroupError::NoPSKSupport
@@ -237,27 +239,16 @@ where
     /// Zero is valid only for epoch zero or an Oneshot Welcome.
     // implements: JOIN-036, JOIN-037, JOIN-038
     fn join_anchor(&self, decrypted: &DecryptedWelcome) -> Result<Cursor, GroupError> {
-        let metadata = extract_group_metadata(
-            decrypted
-                .staged_welcome
-                .public_group()
-                .group_context()
-                .extensions(),
-        )
-        .map_err(MetadataPermissionsError::from)?;
+        let metadata =
+            extract_group_metadata(decrypted.staged_welcome.group_context().extensions())
+                .map_err(MetadataPermissionsError::from)?;
         let anchor = match &decrypted.welcome_metadata {
             Some(metadata) => metadata.message_cursor,
             None if metadata.conversation_type == ConversationType::Oneshot => 0,
             None => return Err(GroupError::InvalidWelcomeMetadata),
         };
         let initial = metadata.conversation_type == ConversationType::Oneshot
-            || decrypted
-                .staged_welcome
-                .public_group()
-                .group_context()
-                .epoch()
-                .as_u64()
-                == 0;
+            || decrypted.staged_welcome.group_context().epoch().as_u64() == 0;
         if anchor >= self.welcome.sequence_id() || (anchor == 0 && !initial) {
             return Err(GroupError::InvalidWelcomeMetadata);
         }
@@ -361,16 +352,27 @@ where
             added_by_installation_id,
             welcome_metadata: _,
         } = decrypted;
-        let metadata =
-            extract_group_metadata(staged_welcome.public_group().group_context().extensions())
-                .map_err(MetadataPermissionsError::from)?;
+        let metadata = extract_group_metadata(staged_welcome.group_context().extensions())
+            .map_err(MetadataPermissionsError::from)?;
+        // implements: JOIN-083
+        // The root must derive the group id. No 32-byte key equals a 16-byte
+        // id, so this also rejects every Welcome for a legacy group, and a
+        // Welcome naming a restored placeholder activates it only when it
+        // comes from a holder of the placeholder's root.
+        // The commit-log id is stored with the row; the keys are wiped here.
+        let commit_log_id = check_group_root(
+            staged_welcome.group_context().extensions(),
+            staged_welcome.group_context().group_id().as_slice(),
+        )
+        .map_err(GroupError::WelcomeGroupRoot)?
+        .commit_log_id();
         // Reject before identity checks, which can wait on the network.
         // implements: SYNC-010
         if metadata.conversation_type == ConversationType::Sync
             && !is_own_sync_group(
                 context.inbox_id(),
                 &added_by_inbox_id,
-                staged_welcome.public_group().members(),
+                staged_welcome.members(),
             )
         {
             tracing::warn!(
@@ -383,7 +385,7 @@ where
         // implements: DMS-015, JOIN-081
         // A Restored row carries historical identity. A Welcome can activate
         // it only when its authenticated kind and DM pair are unchanged.
-        let group_id = GroupId::try_from(staged_welcome.public_group().group_id())?;
+        let group_id = GroupId::try_from(staged_welcome.group_context().group_id())?;
         let existing_group = db.find_group(&group_id)?;
         if let Some(existing) = &existing_group
             && existing.membership_state == GroupMembershipState::Restored
@@ -423,7 +425,7 @@ where
             let mut current = OpenMlsGroup::load(&storage, &group_id.to_openmls())?
                 .ok_or(xmtp_db::NotFound::MlsGroup(group_id))?;
             let processed = db.latest_cursor_for_id(group_id, &[EntityKind::ApplicationMessage])?;
-            let incoming_epoch = staged_welcome.public_group().group_context().epoch();
+            let incoming_epoch = staged_welcome.group_context().epoch();
             let active = current.is_active();
             // A remove-and-re-add commit can retire this installation at the join anchor.
             // Removal can advance its public epoch without installing that epoch's secrets.
@@ -524,6 +526,7 @@ where
             .dm_id(dm_members.map(String::from))
             .message_disappear_from_ns(disappearing_settings.as_ref().map(|m| m.from_ns))
             .message_disappear_in_ns(disappearing_settings.as_ref().map(|m| m.in_ns))
+            .commit_log_public_key(Some(commit_log_id.to_vec()))
             .should_publish_commit_log(MlsGroup::<C>::check_should_publish_commit_log(
                 context.inbox_id().to_string(),
                 mutable_metadata,
@@ -862,6 +865,121 @@ mod tests {
             bo_group.epoch_authenticator().await?
         );
         alix_group.test_can_talk_with(&bo_group).await?;
+    }
+
+    /// Process `joiner`'s newest Welcome with the production validator.
+    async fn process_newest_welcome(
+        joiner: &crate::utils::FullXmtpClient,
+    ) -> Result<Option<MlsGroup<crate::utils::TestXmtpMlsContext>>, GroupError> {
+        let welcome = joiner
+            .context
+            .api()
+            .query_welcome_messages(joiner.context.installation_id())
+            .await?
+            .into_iter()
+            .max_by_key(|welcome| welcome.cursor)
+            .ok_or(GroupError::UninitializedResult)?;
+        XmtpWelcome::builder()
+            .context(joiner.context.clone())
+            .welcome(&welcome)
+            .pending(
+                crate::groups::welcome_sync::pending_welcome_for_test(&joiner.context, &welcome)
+                    .await?,
+            )
+            .validator(InitialMembershipValidator::new(joiner.context.clone()))
+            .process()
+            .await
+    }
+
+    /// A Welcome whose group context has no root, a root for another id, or a
+    /// 16-byte group id is rejected for good, and its group is not installed.
+    /// A one-shot Welcome with no root is rejected the same way, before its
+    /// one-shot message is read. The same crafted Welcome with the group's own
+    /// root joins, so the root is the only reason for each rejection.
+    // verifies: JOIN-083, JOIN-048
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn a_welcome_joins_only_when_its_root_names_the_group() {
+        use crate::utils::test::crafted_welcome::{
+            send_crafted_welcome, send_crafted_welcome_of_type,
+        };
+        use xmtp_mls_common::app_data::group_root::GroupRootError;
+        use xmtp_mls_common::group_keys::{GroupKeys, GroupRoot};
+
+        tester!(alix, disable_workers);
+        tester!(bo, disable_workers);
+        let keyed_id = |root: &GroupRoot| GroupKeys::derive(root).group_id().to_vec();
+        let root = GroupRoot::generate();
+        let other_root = GroupRoot::generate();
+        let legacy_id = xmtp_common::rand_vec::<{ xmtp_configuration::LEGACY_GROUP_ID_BYTES }>();
+        let topic = StreamTopic {
+            entity_id: bo.context.installation_id().to_vec(),
+            kind: NetworkEntityKind::Welcome,
+        };
+
+        for (case, group_id, welcome_root, conversation_type, expected) in [
+            (
+                "no root",
+                keyed_id(&root),
+                None,
+                ConversationType::Group,
+                GroupRootError::Missing,
+            ),
+            (
+                "another group's root",
+                keyed_id(&root),
+                Some(&other_root),
+                ConversationType::Group,
+                GroupRootError::OtherGroup,
+            ),
+            (
+                "a 16-byte group",
+                legacy_id.clone(),
+                Some(&root),
+                ConversationType::Group,
+                GroupRootError::OtherGroup,
+            ),
+            (
+                "a one-shot group with no root",
+                keyed_id(&other_root),
+                None,
+                ConversationType::Oneshot,
+                GroupRootError::Missing,
+            ),
+        ] {
+            send_crafted_welcome_of_type(&alix, &bo, &group_id, welcome_root, conversation_type)
+                .await;
+            let cursor = bo
+                .context
+                .api()
+                .query_welcome_messages(bo.context.installation_id())
+                .await?
+                .into_iter()
+                .map(|welcome| welcome.cursor)
+                .max()
+                .expect(case);
+            let result = process_newest_welcome(&bo).await;
+            assert!(
+                matches!(&result, Err(GroupError::WelcomeGroupRoot(error)) if *error == expected),
+                "{case}: {result:?}"
+            );
+            let group_id = GroupId::try_from(group_id.as_slice())?;
+            assert!(bo.context.db().find_group(&group_id)?.is_none(), "{case}");
+            let rejected = bo.context.db().read_last_rejection(&topic)?.expect(case);
+            assert_eq!(
+                rejected.sequence_id, cursor,
+                "{case}: the rejection is this Welcome's"
+            );
+            assert_eq!(rejected.code, "invalid_welcome", "{case}");
+            assert!(
+                bo.context.db().pending_envelope(&topic, cursor)?.is_none(),
+                "{case}: the rejected Welcome must not stay pending"
+            );
+        }
+
+        let joined_id = keyed_id(&root);
+        send_crafted_welcome(&alix, &bo, &joined_id, Some(&root)).await;
+        let joined = process_newest_welcome(&bo).await?.expect("a group");
+        assert_eq!(joined.group_id.as_slice(), joined_id.as_slice());
     }
 
     // verifies: JOIN-044

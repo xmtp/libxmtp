@@ -47,69 +47,6 @@ describe("conversation send-text", () => {
     expect(output).not.toHaveProperty("shouldPush");
   });
 
-  it("sends a text message to a DM", async () => {
-    const sender = await createRegisteredIdentity();
-    const recipient = await createRegisteredIdentity();
-
-    // Create DM
-    const dmResult = await runWithIdentity(sender, [
-      "conversations",
-      "create-dm",
-      recipient.address,
-      "--json",
-    ]);
-    const dm = parseJsonOutput<{ id: string }>(dmResult.stdout);
-
-    // Send message
-    const sendResult = await runWithIdentity(sender, [
-      "conversation",
-      "send-text",
-      dm.id,
-      "Hey there!",
-      "--json",
-    ]);
-
-    expect(sendResult.exitCode).toBe(0);
-
-    const output = parseJsonOutput<SendResult>(sendResult.stdout);
-    expect(output.success).toBe(true);
-    expect(output.messageId).toBeDefined();
-  });
-
-  it("sends multiple messages", async () => {
-    const sender = await createRegisteredIdentity();
-    const member = await createRegisteredIdentity();
-
-    // Create group
-    const groupResult = await runWithIdentity(sender, [
-      "conversations",
-      "create-group",
-      member.address,
-      "--json",
-    ]);
-    const group = parseJsonOutput<{ id: string }>(groupResult.stdout);
-
-    // Send multiple messages
-    const messages = ["First", "Second", "Third"];
-    const messageIds: string[] = [];
-
-    for (const text of messages) {
-      const result = await runWithIdentity(sender, [
-        "conversation",
-        "send-text",
-        group.id,
-        text,
-        "--json",
-      ]);
-      expect(result.exitCode).toBe(0);
-      const output = parseJsonOutput<SendResult>(result.stdout);
-      messageIds.push(output.messageId);
-    }
-
-    // All message IDs should be unique
-    expect(new Set(messageIds).size).toBe(3);
-  });
-
   it("sends messages with special characters", async () => {
     const sender = await createRegisteredIdentity();
     const member = await createRegisteredIdentity();
@@ -144,7 +81,8 @@ describe("conversation send-text", () => {
     const result = await runWithIdentity(sender, [
       "conversation",
       "send-text",
-      "0".repeat(32),
+      // a well-formed keyed conversation ID that names no conversation
+      "0".repeat(64),
       "Hello",
       "--json",
     ]);

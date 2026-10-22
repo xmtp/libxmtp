@@ -259,13 +259,6 @@ issue = "https://github.com/xmtp/libxmtp/issues/4207"
 reason = "Installed-package proof pending for the attachment payload members, which the generated SDK is expected to set on every host; Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run. Issue 4207 tracks the rest of the event contract."
 
 [[waiver]]
-id = "EVENT-056"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/4207"
-reason = "The Rust bus is per client and shared credentials fan out to each client's bus, but no SDK facade hands events to app subscriptions or verifies isolation when two clients share storage or credentials."
-
-[[waiver]]
 id = "LOG-001"
 kind = "untested"
 owner = "protocol"
@@ -294,11 +287,11 @@ issue = "https://github.com/xmtp/libxmtp/issues/4274"
 reason = "layers::sink::deliver contains callback errors and panics, and native logging layers remain separate from SinkSlot. Existing sink error and panic tests do not prove messaging and native-log survival through every public target. Follow-up Task 7 owns the missing proof."
 
 [[waiver]]
-id = "LOG-010"
+id = "LOG-014"
 kind = "untested"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/4274"
-reason = "IdentityStrategy::initialize_identity logs only a fixed strategy name and stored-identity presence. AuthBridge::on_auth_required replaces credential callback failures with fixed messages, and mobile create_client logs database-key presence and length rather than key bytes. The identity source-event test proves the removed legacy-key leak stays closed, but no complete test proves authentication credential, private signing-key, and database encryption-key omission through app sinks and native output on every public target. Follow-up Task 7 owns the remaining emitter audit and destination proof."
+reason = "IdentityStrategy::initialize_identity logs only a fixed strategy name and stored-identity presence. AuthBridge::on_auth_required replaces credential callback failures with fixed messages, and mobile create_client logs database-key presence and length rather than key bytes. SqlKeyStore::write_key_package no longer records the key package bundle, so its decryption keys stay out of spans, and the commit validator skips commit-log signer changes (META-074), so MLSProcessedStagedCommit logs no signer. The identity source-event test proves the removed legacy-key leak stays closed, and the signer test proves the signer stays out of INFO logs, but no complete test proves authentication credential, private-key, and database encryption-key omission through app sinks and native output on every public target. Follow-up Task 7 owns the remaining emitter audit and destination proof."
 
 [[waiver]]
 id = "STORE-019"
@@ -435,3 +428,29 @@ kind = "gap"
 owner = "protocol"
 issue = "https://plan.ref.tools/vRG5sTDlgoKQ911m"
 reason = "Restored conversations report an unknown creator until validated activation, including when the archive supplied a creator. Legacy getters use empty text; the new SDK uses its optional unknown value. The archived adder remains exact or unknown independently. Exact archived creator projection is deferred. Owner-approved scope: https://plan.ref.tools/vRG5sTDlgoKQ911m."
+
+[[waiver]]
+id = "CONF-085"
+kind = "gap"
+owner = "backend"
+issue = "https://github.com/xmtp/libxmtp/issues/4589"
+reason = "The backend's own errors and Debug output omit secret values, and a store connection failure with a password in the URL omits it (configuration_source_errors_and_help_omit_secrets). Errors from third-party crates, such as the database driver, the HTTP and gRPC clients, and the AWS SDK, are not audited on every path."
+
+[[waiver]]
+id = "CONF-086"
+kind = "analysis"
+reason = "A test can load only the files of releases that exist, so no test proves what a later release will accept. every_release_example_still_loads loads the committed example file of each release, with each commented alternative, under today's code; a reviewer applies this row to every change of section 1 or of a check it cites."
+
+[[waiver]]
+id = "CONF-087"
+kind = "gap"
+owner = "backend"
+issue = "https://github.com/xmtp/libxmtp/issues/4606"
+reason = "Two Type gaps remain. A table with fixed keys, including an entry of auth.keys or application_components, accepts an array and decodes it by position, such as limits = [] or database = ['postgres://localhost/xmtp']; a table whose keys the operator chooses refuses one. A key whose value is one of a fixed list of strings (server.log_level, server.log_format, and the type and policies of application_components[]) accepts a one-key table, such as server.log_level = { debug = {} }. attachments.target and attachments.target.S3.credentials refuse an array, and attachments.target.S3.credentials.kind refuses a table. The bounds and the standard checks hold: every_standard_check_in_the_field_table_refuses_a_failing_value proves them."
+
+[[waiver]]
+id = "GMOD-042"
+kind = "gap"
+owner = "Nicholas Molnar"
+issue = "https://github.com/xmtp/libxmtp/issues/4644"
+reason = "OpenMLS logs the serialized group context, root included, at TRACE under `openmls::schedule`, which a Rust host that installs its own global subscriber with the `tracing-log` bridge receives, because `xmtp_logging::group_context_guard` covers only the subscribers libxmtp installs."

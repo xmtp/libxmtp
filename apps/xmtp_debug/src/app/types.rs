@@ -15,7 +15,10 @@ use xmtp_proto::{types::GroupId, xmtp::identity::MlsCredential};
 
 use crate::{
     XDBG_ID_NONCE,
-    app::{App, store::MessageKey},
+    app::{
+        App,
+        store::{MessageKey, message_key},
+    },
     args,
 };
 
@@ -27,8 +30,7 @@ pub struct EthereumWallet(SigningKey<k256::Secp256k1>);
 
 impl EthereumWallet {
     pub fn into_alloy(self) -> PrivateKeySigner {
-        #[allow(deprecated)]
-        PrivateKeySigner::from_slice(self.0.to_bytes().as_slice()).expect("Should never fail")
+        PrivateKeySigner::from_signing_key(self.0)
     }
 
     pub fn from_bytes(bytes: [u8; 32]) -> Self {
@@ -114,11 +116,13 @@ impl Identity {
         let cred = XmtpInstallationCredential::new();
         let mut eth_key = [0u8; 32];
         let mut inbox_id_bytes = [0u8; 32];
+        // zeroize: none, xdbg persists keys in plaintext by design
+        #[allow(deprecated, clippy::disallowed_methods)]
         eth_key.copy_from_slice(wallet.0.to_bytes().as_slice());
         hex::decode_to_slice(inbox_id.clone(), &mut inbox_id_bytes)?;
         Ok(Identity {
             inbox_id: inbox_id_bytes,
-            installation_key: cred.private_bytes(),
+            installation_key: *cred.private_bytes(),
             eth_key,
             version_hash: crate::app::App::current_version_hash(),
             version_string: pack_version_string(&crate::get_version())?,
@@ -136,11 +140,12 @@ impl Identity {
         let mut inbox_id = [0u8; 32];
         let mut eth_key = [0u8; 32];
         hex::decode_to_slice(identity.inbox_id.clone(), &mut inbox_id)?;
-        #[allow(deprecated)]
+        // zeroize: none, xdbg persists keys in plaintext by design
+        #[allow(deprecated, clippy::disallowed_methods)]
         eth_key.copy_from_slice(wallet.0.to_bytes().as_slice());
         Ok(Identity {
             inbox_id,
-            installation_key: identity.installation_keys.private_bytes(),
+            installation_key: *identity.installation_keys.private_bytes(),
             eth_key,
             version_hash: crate::app::App::current_version_hash(),
             version_string: pack_version_string(&crate::get_version())?,
@@ -267,16 +272,42 @@ impl redb::Value for Identity {
     }
 }
 
+/// The 32-byte group id xdbg stores. Every group a client creates or joins is
+/// keyed, so its id is the 32-byte public key of its group signing key. A
+/// 16-byte legacy id comes only from an imported archive or a command
+/// argument, and is an error, not a panic.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StoredGroupId(pub [u8; 32]);
+
+impl From<[u8; 32]> for StoredGroupId {
+    fn from(value: [u8; 32]) -> Self {
+        Self(value)
+    }
+}
+
+impl TryFrom<&GroupId> for StoredGroupId {
+    type Error = eyre::Report;
+
+    fn try_from(value: &GroupId) -> Result<Self> {
+        value.as_slice().try_into().map(Self).map_err(|_| {
+            eyre::eyre!(
+                "xdbg stores only 32-byte group ids; {value} has {} bytes",
+                value.len()
+            )
+        })
+    }
+}
+
 /// Group specific to this debug CLI Tool.
 /// Number of members in group
 #[derive(Debug, Hash, Clone, PartialEq, Eq, valuable::Valuable, Readable, Writable)]
 pub struct Group {
     /// user that created group
     pub created_by: InboxId,
-    /// Id of the group. Stored as `[u8; 16]` so it can be serialized via
-    /// `speedy`; use [`Group::group_id`] when interacting with xmtp_mls
+    /// Id of the group. Stored as `[u8; 32]` so it can be serialized via
+    /// `speedy`; use [`Group::id`] when interacting with xmtp_mls
     /// APIs that expect a `GroupId`.
-    id: [u8; 16],
+    id: [u8; 32],
     /// Size of the groups
     pub member_size: u32,
     /// members by inbox id
@@ -291,11 +322,11 @@ impl Group {
     /// Build a `Group` from id + creator + members; the redundant
     /// `member_size` field is derived. Use this everywhere instead of
     /// the struct literal so the size never drifts from `members.len()`.
-    pub fn new(id: impl Into<[u8; 16]>, created_by: InboxId, members: Vec<InboxId>) -> Self {
+    pub fn new(id: impl Into<StoredGroupId>, created_by: InboxId, members: Vec<InboxId>) -> Self {
         let member_size = members.len() as u32;
         Self {
             created_by,
-            id: id.into(),
+            id: id.into().0,
             member_size,
             members,
             version_string: pack_version_string(&crate::get_version())
@@ -306,6 +337,11 @@ impl Group {
     /// View `self.id` as the canonical [`xmtp_proto::types::GroupId`].
     pub fn id(&self) -> GroupId {
         GroupId::from(self.id)
+    }
+
+    /// The stored 32-byte id.
+    pub fn stored_id(&self) -> StoredGroupId {
+        StoredGroupId(self.id)
     }
 
     /// Merge `new` inboxes into the existing members, deduping.
@@ -379,7 +415,7 @@ pub struct Dm {
 
     with: InboxId,
 
-    group_id: [u8; 16],
+    group_id: [u8; 32],
 
     /// `crate::get_version()` of the xdbg binary that created this
     /// group, right-zero-padded UTF-8. Same shape as
@@ -417,11 +453,11 @@ impl std::fmt::Display for Dm {
 }
 
 impl Dm {
-    pub fn new(created_by: InboxId, with: InboxId, group_id: GroupId) -> Self {
+    pub fn new(created_by: InboxId, with: InboxId, group_id: StoredGroupId) -> Self {
         Self {
             created_by,
             with,
-            group_id: group_id.into(),
+            group_id: group_id.0,
             version_string: pack_version_string(&crate::get_version())
                 .expect("version must be valid"),
         }
@@ -488,7 +524,7 @@ pub struct Message {
     /// the call site of `record_message`.
     pub id: [u8; 32],
     /// Group this message belongs to.
-    group_id: [u8; 16],
+    group_id: [u8; 32],
     /// Sender's inbox_id (32-byte form, same convention as `Identity`).
     pub sender_inbox_id: InboxId,
     /// Wall-clock at the sending op's call site. libxmtp doesn't surface
@@ -501,13 +537,13 @@ pub struct Message {
 impl Message {
     pub fn new(
         id: [u8; 32],
-        group_id: impl Into<[u8; 16]>,
+        group_id: impl Into<StoredGroupId>,
         sender_inbox_id: InboxId,
         sent_at_ns: i64,
     ) -> Self {
         Message {
             id,
-            group_id: group_id.into(),
+            group_id: group_id.into().0,
             sender_inbox_id,
             sent_at_ns,
             xdbg_version: crate::get_version(),
@@ -516,19 +552,20 @@ impl Message {
 
     /// Compute the redb `MessageKey` for `(network, group_id, id)`
     /// without constructing a full `Message`. The on-disk key only
-    /// uses `group_id ++ id` (48 bytes); the rest of the message
+    /// uses `group_id ++ id` (64 bytes); the rest of the message
     /// is the value, not the key. Use this for membership checks
     /// to avoid allocating a placeholder `Message`.
-    pub fn redb_key(group_id: impl Into<[u8; 16]>, id: [u8; 32]) -> MessageKey {
-        let mut combined = [0u8; 48];
-        let gid = group_id.into();
-        combined[..16].copy_from_slice(&gid);
-        combined[16..].copy_from_slice(&id);
-        MessageKey::new(combined)
+    pub fn redb_key(group_id: impl Into<StoredGroupId>, id: [u8; 32]) -> MessageKey {
+        message_key(group_id.into().0, id)
     }
 
     pub fn group_id(&self) -> GroupId {
         GroupId::from(self.group_id)
+    }
+
+    /// The stored 32-byte id of the group this message belongs to.
+    pub fn stored_group_id(&self) -> StoredGroupId {
+        StoredGroupId(self.group_id)
     }
 }
 
@@ -570,5 +607,25 @@ impl redb::Value for Message {
 
     fn type_name() -> redb::TypeName {
         redb::TypeName::new("message")
+    }
+}
+
+#[cfg(test)]
+mod stored_group_id_tests {
+    use super::*;
+    use crate::app::store::GroupKey;
+
+    /// Every group a client creates is keyed, so xdbg stores its 32-byte id.
+    /// A 16-byte id, which only an imported archive or a command argument can
+    /// carry, is refused with an error, not a panic.
+    #[xmtp_common::test(unwrap_try = true)]
+    fn a_keyed_group_id_is_stored_and_a_legacy_one_refused() {
+        let keyed = GroupId::from([7u8; 32]);
+        let stored = StoredGroupId::try_from(&keyed)?;
+        assert_eq!(Group::new(stored, [1; 32], vec![[1; 32]]).id(), keyed);
+        assert!(GroupKey::try_from(&keyed).is_ok());
+        let legacy = GroupId::from([7u8; 16]);
+        assert!(StoredGroupId::try_from(&legacy).is_err());
+        assert!(GroupKey::try_from(&legacy).is_err());
     }
 }

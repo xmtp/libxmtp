@@ -84,22 +84,6 @@ describe("release action CLI wrapper", () => {
       ],
       `${baseVersion("android")}-dev.${shortSha}`,
     ],
-    [
-      [
-        "resolve-sdk-version",
-        "--sdk",
-        "node-sdk",
-        "--release-type",
-        "nightly",
-        "--timestamp",
-        "20260102030405",
-        "--pending-version",
-        "1.11.0",
-        "--pending-kind",
-        "patch",
-      ],
-      `${semver.inc(baseVersion("node-sdk"), "patch")}-pre.20260102030405.nightly.${shortSha}`,
-    ],
   ] satisfies [string[], string][])(
     "emits only the version for %j",
     (args, expected) => {
@@ -227,7 +211,7 @@ describe("release action CLI wrapper", () => {
         "utf8",
       );
       const script = workflow.match(
-        /- name: Pin the release source[\s\S]*?        run: \|\n([\s\S]*?)\n      - uses:/,
+        /- name: Pin the release source[\s\S]*?        run: \|\n([\s\S]*?)\n      - name:/,
       )?.[1];
       if (!script)
         throw new Error("Release source validation script not found");
@@ -272,7 +256,7 @@ describe("release action CLI wrapper", () => {
       )?.[1],
     ).toBe("${{ github.sha }}");
     expect(setup.indexOf("- name: Pin the release source")).toBeLessThan(
-      setup.indexOf("- uses: ./.github/actions/setup-release-tools"),
+      setup.indexOf("uses: ./.github/actions/setup-release-tools"),
     );
   });
 

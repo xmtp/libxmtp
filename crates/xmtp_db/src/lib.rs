@@ -2,6 +2,8 @@
 
 pub mod encrypted_store;
 mod errors;
+mod secret;
+pub use secret::StoredSecret;
 pub mod serialization;
 pub use serialization::*;
 pub mod sql_key_store;

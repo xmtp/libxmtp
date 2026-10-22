@@ -1,5 +1,6 @@
 use crate::error::AdmissionError;
 use std::collections::HashSet;
+use xmtp_cryptography::secret::Zeroizing;
 
 #[derive(Clone, Debug)]
 pub(crate) struct StoredMeta {
@@ -90,14 +91,16 @@ pub(crate) struct PushRecipientRecord {
     pub secret_hash: Vec<u8>,
     pub channel: PushChannel,
     pub delivery: String,
-    pub signing_key: Option<Vec<u8>>,
+    /// The webhook signing key, wiped on drop.
+    pub signing_key: Option<Zeroizing<Vec<u8>>>,
     pub renewed_ns: i64,
 }
 
 pub(crate) struct PushSubscriptionRecord {
     pub topic: Vec<u8>,
     pub hmac_epoch_base: Option<i64>,
-    pub hmac_keys: [Option<Vec<u8>>; 3],
+    /// The HMAC key window, wiped on drop.
+    pub hmac_keys: [Option<Zeroizing<Vec<u8>>>; 3],
     pub include_commits: bool,
 }
 

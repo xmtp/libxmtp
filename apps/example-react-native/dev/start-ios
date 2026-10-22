@@ -1,0 +1,99 @@
+#!/usr/bin/env bash
+# Build and launch on an iOS 26 or later simulator.
+#   XMTP_RN_SIMULATOR   simulator UDID or name (default: the first available iPhone)
+#   CONFIGURATION       Debug (default) or Release (embedded bundle, no Metro)
+#   XMTP_RN_METRO_PORT  Debug: this app's running Metro (default 8081)
+#   XMTP_BACKEND_URL    default: this worktree's backend
+#   XMTP_ALLOW_PRIVATE_ATTACHMENTS=1, XMTP_UI_TEST_ATTACHMENT: passed to the app
+#   --headless          leave Simulator.app closed
+set -euo pipefail
+headless=false
+for argument in "$@"; do
+  case "$argument" in
+    --headless) headless=true ;;
+    *)
+      echo "Usage: $0 [--headless]" >&2
+      exit 2
+      ;;
+  esac
+done
+app="$(cd "$(dirname "$0")/.." && pwd -P)"
+root="$(git -C "$app" rev-parse --show-toplevel)"
+"$root/dev/worktree-env"
+# shellcheck source=/dev/null
+source "$root/dev/docker/load-env"
+configuration="${CONFIGURATION:-Debug}"
+port="${XMTP_RN_METRO_PORT:-8081}"
+
+if [[ "$configuration" == Debug ]]; then
+  # A Debug app loads its JS from Metro. Refuse a Metro that serves another
+  # checkout: parallel worktrees each run their own on their own port.
+  status="$(curl -fsS -D - "http://127.0.0.1:$port/status" 2>/dev/null || true)"
+  if [[ "$status" != *packager-status:running* ]]; then
+    echo "Metro is not running on port $port. Start it first:" >&2
+    echo "  XMTP_RN_METRO_PORT=$port dev/nix-shell 'just example-react-native metro'" >&2
+    exit 1
+  fi
+  served="$(printf '%s\n' "$status" | python3.11 -c '
+import sys, urllib.parse
+for line in sys.stdin:
+    name, _, value = line.partition(":")
+    if name.strip().lower() == "x-react-native-project-root":
+        print(urllib.parse.unquote(value.strip()))
+')"
+  if [[ "$served" != "$app" ]]; then
+    echo "Metro on port $port serves ${served:-another app}, not $app." >&2
+    exit 1
+  fi
+fi
+
+device="$(xcrun simctl list -j devices available | python3.11 -c '
+import json, re, sys
+requested = sys.argv[1]
+for runtime, devices in json.load(sys.stdin)["devices"].items():
+    major = re.search(r"iOS-(\d+)", runtime)
+    if not major or int(major.group(1)) < 26:
+        continue
+    for device in devices:
+        chosen = requested in (device["udid"], device["name"]) if requested else device["name"].startswith("iPhone")
+        if device.get("isAvailable") and chosen:
+            print(device["udid"], device["state"])
+            raise SystemExit
+' "${XMTP_RN_SIMULATOR:-}")"
+if [[ -z "$device" ]]; then
+  echo "No available iOS 26 or later simulator matches '${XMTP_RN_SIMULATOR:-iPhone}'." >&2
+  exit 1
+fi
+udid="${device%% *}"
+state="${device#* }"
+
+"$app/dev/build-ios"
+product="$app/.build/DerivedData/Build/Products/$configuration-iphonesimulator/XMTPMessenger.app"
+
+if [[ "$state" != Booted ]]; then xcrun simctl boot "$udid"; fi
+xcrun simctl bootstatus "$udid" -b
+if [[ "$headless" == false ]]; then
+  developer_dir="${DEVELOPER_DIR:-$(/usr/bin/xcode-select -p)}"
+  if [[ -d "$developer_dir/Applications/Simulator.app" ]]; then
+    open -a "$developer_dir/Applications/Simulator.app" --args -CurrentDeviceUDID "$udid"
+  elif [[ -d "$developer_dir/../Applications/DeviceHub.app" ]]; then
+    open -a "$developer_dir/../Applications/DeviceHub.app" --args -CurrentDeviceUDID "$udid"
+  else
+    open -a Simulator --args -CurrentDeviceUDID "$udid"
+  fi
+fi
+xcrun simctl install "$udid" "$product"
+# Private attachment access is an explicit caller opt-in.
+if [[ "${XMTP_ALLOW_PRIVATE_ATTACHMENTS:-}" == 1 ]]; then
+  export SIMCTL_CHILD_XMTP_ALLOW_PRIVATE_ATTACHMENTS=1
+else
+  unset SIMCTL_CHILD_XMTP_ALLOW_PRIVATE_ATTACHMENTS
+fi
+if [[ -n "${XMTP_UI_TEST_ATTACHMENT:-}" ]]; then
+  export SIMCTL_CHILD_XMTP_UI_TEST_ATTACHMENT="$XMTP_UI_TEST_ATTACHMENT"
+else
+  unset SIMCTL_CHILD_XMTP_UI_TEST_ATTACHMENT
+fi
+SIMCTL_CHILD_XMTP_BACKEND_URL="$XMTP_BACKEND_URL" \
+  xcrun simctl launch --terminate-running-process "$udid" org.xmtp.example.reactnative
+printf 'Launched on %s with backend %s\n' "$udid" "$XMTP_BACKEND_URL"

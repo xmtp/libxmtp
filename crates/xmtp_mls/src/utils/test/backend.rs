@@ -1,6 +1,6 @@
 //! A backend for native tests that need a specific configuration.
 use xmtp_backend::{
-    config::Config,
+    config::ValidatedConfig,
     test_support::{TestResult, TestServer},
 };
 
@@ -20,7 +20,7 @@ impl EphemeralBackend {
         &self.0.url
     }
 
-    pub fn config(&self) -> &Config {
+    pub fn config(&self) -> &ValidatedConfig {
         &self.0.backend.config
     }
 

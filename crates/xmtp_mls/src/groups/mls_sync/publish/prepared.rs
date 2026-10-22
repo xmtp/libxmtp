@@ -22,10 +22,19 @@ pub enum OutgoingPreparationError {
     /// Another writer changed the preparation base. Load it again.
     #[error("outgoing preparation state changed")]
     StateChanged,
-    /// The publish returned `OUT_OF_RANGE`, and a recovery read proved that the
-    /// backend stored none of it.
-    #[error("the backend did not store the publish that returned OUT_OF_RANGE")]
+    /// A saved attempt cannot be sent again, because its publish returned
+    /// `OUT_OF_RANGE` or it no longer fits in one request, and a recovery read
+    /// proved that the backend stored none of it.
+    #[error("the backend stored none of a saved attempt that cannot be sent again")]
     Unstored,
+    /// The group holds no 32-byte root that derives its id, so it cannot sign
+    /// a group message. A Restored placeholder or a legacy group. Not retryable.
+    #[error("the group cannot sign group messages: {0}")]
+    GroupKeys(xmtp_mls_common::app_data::group_root::GroupRootError),
+    /// Signing a group message failed its self-check, and nothing was saved.
+    /// Not retryable.
+    #[error("signing a group message failed: {0}")]
+    SignGroupMessage(xmtp_mls_common::group_keys::SealError),
 }
 
 impl RetryableError for OutgoingPreparationError {
@@ -34,15 +43,20 @@ impl RetryableError for OutgoingPreparationError {
     }
 }
 
+// Every byte field of the stored attempt types is a CBOR byte string
+// (`xmtp_db::byte_string` and its list forms). rc4 is the first release that
+// stores attempts as CBOR, so no reader of the integer-array form exists.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 /// The committed MLS state used to prepare an outgoing attempt.
 pub(crate) struct PreparedBase {
     /// Epoch before the prepared commit. Preparation does not merge it locally.
     pub epoch: u64,
     /// Authenticator that distinguishes divergent states at the same epoch.
+    #[serde(with = "xmtp_db::byte_string")]
     pub authenticator: Vec<u8>,
     /// Ordered proposal references used to reject a changed preparation base.
-    proposals: Vec<Vec<u8>>,
+    #[serde(with = "xmtp_db::byte_strings")]
+    pub(super) proposals: Vec<Vec<u8>>,
 }
 
 impl PreparedBase {
@@ -68,8 +82,10 @@ impl PreparedBase {
 /// A sender's proposal, kept outside the accepted proposal store until receipt.
 pub(crate) struct PreparedProposal {
     /// Hash of the inner MLS bytes, not the backend's authoritative envelope hash.
+    #[serde(with = "xmtp_db::byte_string")]
     pub payload_hash: Vec<u8>,
     /// Serialized proposal needed when the sender receives its own ciphertext.
+    #[serde(with = "xmtp_db::byte_string")]
     pub proposal: Vec<u8>,
 }
 
@@ -95,12 +111,15 @@ pub(crate) struct PreparedAttempt {
     /// Exact committed state against which this attempt was prepared.
     pub base: PreparedBase,
     /// Inner MLS hash of the last payload, used to match the ordered intent result.
+    #[serde(with = "xmtp_db::byte_string")]
     pub payload_hash: Vec<u8>,
     /// Exact encoded ClientEnvelopes. Retries do not regenerate MLS or HMAC bytes.
+    #[serde(with = "xmtp_db::byte_strings")]
     pub envelopes: Vec<Vec<u8>>,
     /// Standalone proposals in their original wire order.
     pub proposals: Vec<PreparedProposal>,
     /// Authoritative backend metadata. Absence means acceptance is still ambiguous.
+    #[serde(default, with = "xmtp_db::optional_byte_strings")]
     pub receipts: Option<Vec<Vec<u8>>>,
     /// Required follow-up publication after the commit reaches ordered processing.
     pub welcomes: Option<PreparedWelcomes>,
@@ -110,71 +129,16 @@ pub(crate) struct PreparedAttempt {
     pub unsettled: Option<Unsettled>,
 }
 
-/// Prior bincode layouts. New fields cannot be supplied by serde defaults at EOF.
-#[derive(Deserialize)]
-struct PreparedAttemptV2 {
-    version: u8,
-    base: PreparedBase,
-    payload_hash: Vec<u8>,
-    envelopes: Vec<Vec<u8>>,
-    proposals: Vec<PreparedProposal>,
-    receipts: Option<Vec<Vec<u8>>>,
-    welcomes: Option<PreparedWelcomes>,
-    rejection: Option<PreparedRejection>,
-}
-
-#[derive(Deserialize)]
-struct PreparedAttemptV1 {
-    version: u8,
-    base: PreparedBase,
-    payload_hash: Vec<u8>,
-    envelopes: Vec<Vec<u8>>,
-    proposals: Vec<PreparedProposal>,
-    receipts: Option<Vec<Vec<u8>>>,
-    welcomes: Option<PreparedWelcomes>,
-}
-
 impl PreparedAttempt {
     /// Decode local state and verify its inner payload identity before reuse.
+    ///
+    /// The column is CBOR, which stores field names. A field added later as
+    /// an `Option` reads older rows as `None`, so it needs no new version.
+    /// Bump [`PREPARED_ATTEMPT_VERSION`] only for a change older code cannot
+    /// read; a row with another version is invalid.
     pub(crate) fn decode(bytes: &[u8]) -> Result<Self, GroupError> {
-        let attempt: Self = match bytes.first() {
-            Some(1) => {
-                let prior: PreparedAttemptV1 = xmtp_db::db_deserialize(bytes)?;
-                if prior.version != 1 {
-                    return Err(OutgoingPreparationError::InvalidPreparedAttempt.into());
-                }
-                Self {
-                    version: PREPARED_ATTEMPT_VERSION,
-                    base: prior.base,
-                    payload_hash: prior.payload_hash,
-                    envelopes: prior.envelopes,
-                    proposals: prior.proposals,
-                    receipts: prior.receipts,
-                    welcomes: prior.welcomes,
-                    rejection: None,
-                    unsettled: None,
-                }
-            }
-            Some(2) => {
-                let prior: PreparedAttemptV2 = xmtp_db::db_deserialize(bytes)?;
-                if prior.version != 2 {
-                    return Err(OutgoingPreparationError::InvalidPreparedAttempt.into());
-                }
-                Self {
-                    version: PREPARED_ATTEMPT_VERSION,
-                    base: prior.base,
-                    payload_hash: prior.payload_hash,
-                    envelopes: prior.envelopes,
-                    proposals: prior.proposals,
-                    receipts: prior.receipts,
-                    welcomes: prior.welcomes,
-                    rejection: prior.rejection,
-                    unsettled: None,
-                }
-            }
-            Some(&PREPARED_ATTEMPT_VERSION) => xmtp_db::db_deserialize(bytes)?,
-            _ => return Err(OutgoingPreparationError::InvalidPreparedAttempt.into()),
-        };
+        let attempt: Self = xmtp_db::db_deserialize(bytes)
+            .map_err(|_| OutgoingPreparationError::InvalidPreparedAttempt)?;
         if attempt.version != PREPARED_ATTEMPT_VERSION
             || attempt.payload_hash.len() != 32
             || attempt.envelopes.is_empty()
@@ -220,6 +184,13 @@ impl PreparedAttempt {
         limits: &xmtp_configuration::LimitsConfiguration,
     ) -> Result<PublishUnit, GroupError> {
         Ok(PublishUnit::new_within(self.decode_envelopes()?, limits)?)
+    }
+
+    /// The saved envelopes as a unit for a recovery read only. Unlike
+    /// [`Self::publish_unit`], it is not measured, so an attempt that no
+    /// longer fits in one request can still be settled.
+    pub(super) fn settlement_unit(&self) -> Result<PublishUnit, GroupError> {
+        Ok(PublishUnit::for_settlement(self.decode_envelopes()?)?)
     }
 
     /// Recover a prepared own proposal when its exact payload reaches ordered receipt.

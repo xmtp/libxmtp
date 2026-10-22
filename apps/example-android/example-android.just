@@ -47,14 +47,6 @@ preview-check *args:
 test *args: build _test-host
   {{ _env }} && JAVA_TOOL_OPTIONS="${JAVA_TOOL_OPTIONS:-} -Djna.library.path={{ root }}/sdks/android/.build/test-host/lib" ./gradlew -p . :example:testDebugUnitTest {{ args }} :example-shared:testDebugUnitTest ${CI:+--build-cache} --dependency-verification=strict --no-daemon
 
-# Check startup and teardown of the owned backend without attachment storage.
-support-fixture: _metadata-backend
-  {{ _env }} && python3.11 -B fixtures/unsupported_backend.py --backend '{{ root }}/apps/example-android/.build/metadata-backend/bin/xmtp-backend' -- true
-
-# Check startup and teardown of the owned S3 response gate without a device.
-io-fixture:
-  {{ _env }} && python3.11 -B fixtures/attachment_io_proxy.py true
-
 # Stage the current backend for the isolated app metadata catalogue.
 [private]
 _metadata-backend:
@@ -68,13 +60,10 @@ metadata-fixture-smoke: _metadata-backend
 metadata-fixture-test *args:
   python3.11 -B fixtures/test_metadata_backend.py {{ args }}
 
-# Run app instrumentation with owned S3, catalogue and emulator scopes.
+# Run the app instrumentation smoke with the owned catalogue backend in the
+# owned emulator scope. It forwards the catalogue, backend and S3 ports.
 test-integration *args: build _metadata-backend
-  {{ _env }} && python3.11 -B fixtures/attachment_io_proxy.py python3.11 -B fixtures/unsupported_backend.py --backend '{{ root }}/apps/example-android/.build/metadata-backend/bin/xmtp-backend' -- python3.11 -B fixtures/metadata_backend.py --backend '{{ root }}/apps/example-android/.build/metadata-backend/bin/xmtp-backend' -- run-test-emulator -- bash -euc 'adb -s "$ANDROID_SERIAL" reverse tcp:$XMTP_METADATA_BACKEND_PORT tcp:$XMTP_METADATA_BACKEND_PORT; adb -s "$ANDROID_SERIAL" reverse tcp:$XMTP_BACKEND_PORT tcp:$XMTP_BACKEND_PORT; adb -s "$ANDROID_SERIAL" reverse tcp:$XMTP_S3_PORT tcp:$XMTP_ANDROID_S3_GATE_PORT; adb -s "$ANDROID_SERIAL" reverse tcp:$XMTP_ANDROID_S3_GATE_PORT tcp:$XMTP_ANDROID_S3_GATE_PORT; adb -s "$ANDROID_SERIAL" reverse tcp:$XMTP_TOXIPROXY_PORT tcp:$XMTP_TOXIPROXY_PORT; adb -s "$ANDROID_SERIAL" reverse tcp:$XMTP_TOXIPROXY_API_PORT tcp:$XMTP_TOXIPROXY_API_PORT; adb -s "$ANDROID_SERIAL" reverse tcp:$XMTP_ANDROID_UNSUPPORTED_BACKEND_PORT tcp:$XMTP_ANDROID_UNSUPPORTED_BACKEND_PORT; python3.11 -B performance/target.py; test_status=0; ./gradlew -p . :example:connectedDebugAndroidTest -Pandroid.injected.androidTest.leaveApksInstalledAfterRun=true -Pandroid.testInstrumentationRunnerArguments.metadataBackendOwned=true -Pandroid.testInstrumentationRunnerArguments.metadataBackendUrl="$XMTP_METADATA_BACKEND_URL" -Pandroid.testInstrumentationRunnerArguments.s3GateApi="http://127.0.0.1:$XMTP_ANDROID_S3_GATE_PORT/_xmtp_attachment_test/" -Pandroid.testInstrumentationRunnerArguments.unsupportedBackendUrl="$XMTP_ANDROID_UNSUPPORTED_BACKEND_URL" -Pandroid.testInstrumentationRunnerArguments.toxicBackendUrl="$XMTP_BACKEND_TOXIC_URL" -Pandroid.testInstrumentationRunnerArguments.toxiproxyApi="$XMTP_TOXIPROXY_API" {{ args }} ${CI:+--build-cache} --dependency-verification=strict --no-daemon || test_status=$?; export_status=0; python3.11 -B fixtures/export_screenshots.py --serial "$ANDROID_SERIAL" --output "{{ root }}/apps/example-android/app/build/screenshots" || export_status=$?; if [ "$test_status" -ne 0 ]; then exit "$test_status"; fi; exit "$export_status"'
-
-# Run the complete workload and cache failure control in the owned Linux API 34 scope.
-performance output="app/build/performance": build _metadata-backend
-  {{ _env }} && NIX_ANDROID_EMULATOR_API=34 NIX_ANDROID_EMULATOR_FLAGS="-no-snapshot -no-window -gpu swiftshader_indirect -noaudio -cores 4 -memory 4096 -partition-size 16384" python3.11 -B fixtures/metadata_backend.py --backend '{{ root }}/apps/example-android/.build/metadata-backend/bin/xmtp-backend' -- run-test-emulator -- bash -euc 'adb -s "$ANDROID_SERIAL" reverse tcp:$XMTP_METADATA_BACKEND_PORT tcp:$XMTP_METADATA_BACKEND_PORT; exec python3.11 -B performance/run.py --output "{{output}}" --red-control'
+  {{ _env }} && python3.11 -B fixtures/metadata_backend.py --backend '{{ root }}/apps/example-android/.build/metadata-backend/bin/xmtp-backend' -- run-test-emulator -- bash -euc 'adb -s "$ANDROID_SERIAL" reverse tcp:$XMTP_METADATA_BACKEND_PORT tcp:$XMTP_METADATA_BACKEND_PORT; adb -s "$ANDROID_SERIAL" reverse tcp:$XMTP_BACKEND_PORT tcp:$XMTP_BACKEND_PORT; adb -s "$ANDROID_SERIAL" reverse tcp:$XMTP_S3_PORT tcp:$XMTP_S3_PORT; python3.11 -B performance/target.py; exec ./gradlew -p . :example:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.metadataBackendOwned=true -Pandroid.testInstrumentationRunnerArguments.metadataBackendUrl="$XMTP_METADATA_BACKEND_URL" {{ args }} ${CI:+--build-cache} --dependency-verification=strict --no-daemon'
 
 # Stage the matched SDK bindings and host library.
 build:

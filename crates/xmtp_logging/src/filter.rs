@@ -1,5 +1,35 @@
-use tracing::level_filters::LevelFilter;
-use tracing_subscriber::EnvFilter;
+use tracing::{Level, Metadata, level_filters::LevelFilter};
+use tracing_subscriber::{EnvFilter, filter::FilterFn};
+
+/// Targets whose TRACE events print a serialized group context: OpenMLS's
+/// key schedule, and its KDF labels, whose context is the group context. A
+/// group context holds the AppData dictionary, and the dictionary holds the
+/// group root, which never leaves the client outside a Welcome.
+const GROUP_CONTEXT_TRACE_TARGETS: [&str; 2] = ["openmls::schedule", "openmls::ciphersuite"];
+
+/// Whether `metadata` is an OpenMLS TRACE event that prints a serialized
+/// group context.
+pub fn prints_group_context(metadata: &Metadata<'_>) -> bool {
+    *metadata.level() == Level::TRACE
+        && GROUP_CONTEXT_TRACE_TARGETS.iter().any(|prefix| {
+            metadata
+                .target()
+                .strip_prefix(prefix)
+                .is_some_and(|rest| rest.is_empty() || rest.starts_with("::"))
+        })
+}
+
+fn hides_group_context(metadata: &Metadata<'_>) -> bool {
+    !prints_group_context(metadata)
+}
+
+/// A global filter that drops every event [`prints_group_context`] matches.
+/// Every subscriber that can enable OpenMLS TRACE events installs it, so no
+/// directive, `RUST_LOG` included, turns them back on.
+// implements: GMOD-042
+pub fn group_context_guard() -> FilterFn<fn(&Metadata<'_>) -> bool> {
+    FilterFn::new(hides_group_context as fn(&Metadata<'_>) -> bool)
+}
 
 pub fn filter_directive(level: &str) -> EnvFilter {
     let level: LevelFilter = level
@@ -33,6 +63,56 @@ mod tests {
         filter_directive("DEBUG");
         filter_directive("TRACE");
         filter_directive("INCORRECT_DOES_NOT_PANIC");
+    }
+
+    /// No filter, however verbose, passes an OpenMLS TRACE event that
+    /// prints a group context. OpenMLS logs through the `log` crate; the
+    /// `tracing-log` bridge gives each record its module path as the target.
+    // verifies: GMOD-042
+    #[test]
+    fn group_context_guard_drops_group_context_traces() {
+        use std::sync::{Arc, Mutex};
+        use tracing::dispatcher::{self, Dispatch};
+        use tracing_subscriber::{EnvFilter, Registry, fmt, prelude::*};
+
+        #[derive(Clone, Default)]
+        struct Buf(Arc<Mutex<Vec<u8>>>);
+        impl std::io::Write for Buf {
+            fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().unwrap().extend_from_slice(b);
+                Ok(b.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        impl<'a> fmt::MakeWriter<'a> for Buf {
+            type Writer = Buf;
+            fn make_writer(&'a self) -> Buf {
+                self.clone()
+            }
+        }
+
+        let buf = Buf::default();
+        let subscriber = Registry::default().with(group_context_guard()).with(
+            fmt::layer()
+                .with_writer(buf.clone())
+                .with_filter(EnvFilter::new("trace")),
+        );
+        dispatcher::with_default(&Dispatch::new(subscriber), || {
+            tracing::trace!(target: "openmls::schedule", "schedule context");
+            tracing::trace!(target: "openmls::ciphersuite::kdf_label", "kdf context");
+            tracing::trace!(target: "openmls::schedulers", "other module");
+            tracing::debug!(target: "openmls::schedule", "schedule debug");
+            tracing::trace!(target: "openmls::group", "group trace");
+        });
+
+        let out = String::from_utf8(buf.0.lock().unwrap().clone()).unwrap();
+        assert!(!out.contains("schedule context"), "{out}");
+        assert!(!out.contains("kdf context"), "{out}");
+        for kept in ["other module", "schedule debug", "group trace"] {
+            assert!(out.contains(kept), "{kept} was dropped:\n{out}");
+        }
     }
 
     #[test]

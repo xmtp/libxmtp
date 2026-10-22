@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# Build the Android APK with the Nix Gradle ($XMTP_RN_GRADLE) into
+# android/app/build/outputs/apk/<variant>/app-<variant>.apk.
+#   CONFIGURATION       Debug (default) or Release
+#   XMTP_RN_METRO_PORT  Debug: the Metro port the app loads JS from (default 8081)
+#   XMTP_RN_ANDROID_ARCHITECTURES  ABIs to build (default: the host's emulator ABI)
+set -euo pipefail
+app="$(cd "$(dirname "$0")/.." && pwd -P)"
+configuration="${CONFIGURATION:-Debug}"
+variant="$(printf '%s' "$configuration" | tr '[:upper:]' '[:lower:]')"
+port="${XMTP_RN_METRO_PORT:-8081}"
+case "$(uname -m)" in
+  arm64 | aarch64) abi=arm64-v8a ;;
+  *) abi=x86_64 ;;
+esac
+if [[ ! -d "$app/.build/sdk/package/android/src/main/jniLibs" ]]; then
+  "$app/dev/sdk" native
+fi
+"$app/dev/install" --js-only
+: "${XMTP_RN_GRADLE:?Run this in the react-native Nix shell}"
+cd "$app/android"
+"$XMTP_RN_GRADLE" --no-daemon "assemble$configuration" \
+  -PreactNativeArchitectures="${XMTP_RN_ANDROID_ARCHITECTURES:-$abi}" \
+  -PreactNativeDevServerPort="$port"
+apk="$app/android/app/build/outputs/apk/$variant/app-$variant.apk"
+test -f "$apk"
+printf '%s\n' "$apk"

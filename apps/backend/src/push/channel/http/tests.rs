@@ -12,6 +12,7 @@ use tokio::{
     task::{JoinHandle, JoinSet},
 };
 use xmtp_common::time::{Duration, Instant, timeout};
+use xmtp_cryptography::secret::Zeroizing;
 
 struct FixedResolver {
     addresses: Vec<SocketAddr>,
@@ -131,7 +132,7 @@ fn delivery(url: String) -> Delivery {
             recipient_id: vec![1, 1],
             channel: PushChannel::Http,
             delivery: url,
-            signing_key: Some(vec![7; 32]),
+            signing_key: Some(Zeroizing::new(vec![7; 32])),
         },
     }
 }
@@ -338,8 +339,8 @@ async fn webhook_logs_do_not_contain_recipient_fields_or_signing_keys() {
     let webhook = Webhook::start(vec![200]).await?;
     let mut delivery = delivery(webhook.url.clone());
     delivery.config.recipient_id = vec![0x8d; 32];
-    delivery.config.signing_key = Some(vec![0x7e; 32]);
-    delivery.payload = xmtp_push_types::PushPayload::new(&[0x9a; 17], 1);
+    delivery.config.signing_key = Some(Zeroizing::new(vec![0x7e; 32]));
+    delivery.payload = xmtp_push_types::PushPayload::new(&[0x9a; 33], 1);
     let capture = xmtp_logging::test_logging::LogCapture::new(xmtp_logging::Level::Trace);
     let outcome = async {
         tracing::info!(target: "xmtp_backend::push", "push privacy capture active");

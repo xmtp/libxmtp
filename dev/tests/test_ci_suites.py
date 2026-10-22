@@ -27,8 +27,8 @@ def declaration():
 def with_groups(data):
     """Two product groups: test_android waits for both, test_ios for one."""
     data["products"] = {
-        "alpha": {"path_filters": ["crates/xmtp_sdk/**"]},
-        "beta": {"path_filters": [{"path_group": "android"}]},
+        "alpha": {"title": "Alpha", "path_filters": ["crates/xmtp_sdk/**"]},
+        "beta": {"title": "Beta", "path_filters": [{"path_group": "android"}]},
     }
     for name in data["suites"]:
         data["suites"][name]["products"] = []
@@ -37,8 +37,13 @@ def with_groups(data):
     return data
 
 
-def job_runs(job, inputs, results):
-    """Evaluate a generated job's `if` the way GitHub does."""
+def job_runs(job, outputs, results):
+    """Evaluate a generated ci.yml job's `if` the way GitHub does.
+
+    `outputs` holds the Select suites outputs as lists; `results` the results
+    of the other jobs. Select suites succeeded unless `results` says otherwise.
+    """
+    results = {"detect-changes": "success"} | results
     condition = job["if"].strip().removeprefix("${{").removesuffix("}}")
     # Without a status function, GitHub runs the job only when every job it
     # needs succeeded.
@@ -48,12 +53,32 @@ def job_runs(job, inputs, results):
     # The run itself is not cancelled.
     source = condition.replace("!cancelled()", "True").replace("&&", " and ")
     source = re.sub(
-        r"contains\(fromJSON\(inputs\.(\w+)\), '(\w+)'\)",
-        lambda m: repr(m[2] in inputs[m[1]]),
+        r"contains\(fromJSON\(needs\.detect-changes\.outputs\.(\w+)\), '(\w+)'\)",
+        lambda m: repr(m[2] in outputs.get(m[1], [])),
         source,
     )
-    source = re.sub(r"needs\.(\w+)\.result", lambda m: repr(results[m[1]]), source)
+    source = re.sub(r"needs\.([\w-]+)\.result", lambda m: repr(results[m[1]]), source)
     return eval(source, {"__builtins__": {}}, {})
+
+
+def ci_jobs(manifest):
+    return yaml.safe_load(SUITES.render_ci(manifest))["jobs"]
+
+
+def evaluate(raw, values):
+    """Evaluate a `${{ }}` expression of ==, !=, &&, ||, and string literals.
+
+    `values` maps each context reference in it to its value.
+    """
+    match = re.fullmatch(r"\$\{\{\s*(.*?)\s*\}\}", raw.strip(), re.DOTALL)
+    assert match, raw
+    python = match[1]
+    for name, value in sorted(values.items(), key=lambda item: -len(item[0])):
+        python = python.replace(name, repr(value))
+    python = python.replace("&&", " and ").replace("||", " or ")
+    leftover = re.sub(r"'[^']*'", "", python)
+    assert not re.search(r"[A-Za-z_]+\.", leftover), f"unknown context in {raw!r}"
+    return eval(python, {"__builtins__": {}}, {})
 
 
 class CargoGraphTests(unittest.TestCase):
@@ -79,56 +104,58 @@ class CompileTests(unittest.TestCase):
         def change(data):
             data["suites"]["check_rust"]["kache"] = ["rust-clippy-native"]
 
-        with self.assertRaisesRegex(SUITES.DeclarationError, "rust-clippy-wasm"):
+        with self.assertRaisesRegex(SUITES.DeclarationError, r"use \['rust-clippy'\]"):
             self.compile(change)
 
     def test_invalid_declarations_are_rejected(self):
         for change in [
-            lambda d: d["suites"]["test_xdbg"].update(paths=["x"]),
-            lambda d: d["suites"]["test_xdbg"].update(pr_filters="x"),
-            lambda d: d["suites"]["test_xdbg"].pop("pr_filters"),
-            lambda d: d["suites"]["test_xdbg"].update(path_filters=[]),
+            lambda d: d["suites"]["test_dev"].update(paths=["x"]),
+            lambda d: d["suites"]["test_dev"].update(pr_filters="x"),
+            lambda d: d["suites"]["test_dev"].pop("pr_filters"),
+            lambda d: d["suites"]["test_dev"].update(path_filters=[]),
             *[
-                lambda d, value=value: d["suites"]["test_xdbg"].update(
+                lambda d, value=value: d["suites"]["test_dev"].update(
                     pr_filters=[{"pr_label": value}]
                 )
                 for value in (None, True, 1, [], ["iOS"], "", " ")
             ],
-            lambda d: d["suites"]["test_xdbg"].update(
+            lambda d: d["suites"]["test_dev"].update(
                 pr_filters=[{"pr_label": "iOS", "path_group": "swift"}]
             ),
             lambda d: d["path_groups"].update(swift=[{"pr_label": "iOS"}]),
             lambda d: d["products"]["sdk_js"].update(
                 path_filters=[{"pr_label": "iOS"}]
             ),
-            lambda d: d["suites"]["test_xdbg"].update(
+            lambda d: d["suites"]["test_dev"].update(
                 pr_filters=[{"path_group": "missing"}]
             ),
-            lambda d: d["suites"]["test_xdbg"].update(pr_filters=[{"crate": "xdbg"}]),
-            lambda d: d["suites"]["test_xdbg"].update(
+            lambda d: d["suites"]["test_dev"].update(pr_filters=[{"crate": "xdbg"}]),
+            lambda d: d["suites"]["test_dev"].update(
                 pr_filters=[{"cargo_package": "xdbg", "path_group": "swift"}]
             ),
             lambda d: (
                 d["path_groups"].update(loop=[{"path_group": "loop"}])
-                or d["suites"]["test_xdbg"].update(pr_filters=[{"path_group": "loop"}])
+                or d["suites"]["test_dev"].update(pr_filters=[{"path_group": "loop"}])
             ),
-            lambda d: d["suites"]["test_xdbg"].update(run_on=["nightly"]),
-            lambda d: d["suites"]["test_xdbg"].update(run_on=[]),
-            lambda d: d["suites"]["test_xdbg"].update(secrets="all"),
-            lambda d: d["suites"]["test_xdbg"].update(covered_by="missing"),
-            lambda d: d["suites"]["test_xdbg"].update(disable_on_forks="no"),
-            lambda d: d["suites"]["test_xdbg"].update(permissions={}),
-            lambda d: d["suites"]["test_xdbg"].update(permissions={"pages": "admin"}),
-            lambda d: d["suites"]["test_xdbg"].update(covered_by=["docs_site"]),
-            lambda d: d["suites"]["test_xdbg"].update(covered_by=None),
+            lambda d: d["suites"]["test_dev"].update(run_on=["nightly"]),
+            lambda d: d["suites"]["test_dev"].update(run_on=[]),
+            lambda d: d["suites"]["test_dev"].update(secrets="all"),
+            lambda d: d["suites"]["test_dev"].update(covered_by="missing"),
+            lambda d: d["suites"]["test_dev"].update(disable_on_forks="no"),
+            lambda d: d["suites"]["test_dev"].update(permissions={}),
+            lambda d: d["suites"]["test_dev"].update(permissions={"pages": "admin"}),
+            lambda d: d["suites"]["test_dev"].update(covered_by=["docs_site"]),
+            lambda d: d["suites"]["test_dev"].update(covered_by=None),
             lambda d: d.pop("neutral"),
             lambda d: d.update(on_deleted_path=[]),
             lambda d: d.update(on_deleted_path=["missing"]),
             lambda d: d["suites"]["docs_site"].update(covered_by="docs_rust"),
-            lambda d: d["suites"]["test_xdbg"].update(covered_by="test_xdbg"),
+            lambda d: d["suites"]["test_dev"].update(covered_by="test_dev"),
             lambda d: d.update(extra=[]),
             lambda d: with_groups(d)["suites"]["test_ios"].update(products=["gamma"]),
-            lambda d: with_groups(d)["suites"]["lint_proto"].update(products=["alpha"]),
+            lambda d: with_groups(d)["suites"]["lint_config"].update(
+                products=["alpha"]
+            ),
             lambda d: with_groups(d)["products"].update(
                 gamma={"path_filters": ["docs/**"]}
             ),
@@ -137,9 +164,88 @@ class CompileTests(unittest.TestCase):
             ),
             lambda d: with_groups(d)["products"].update(alpha={"path_filters": []}),
             lambda d: with_groups(d)["products"].update(alpha=["crates/xmtp_sdk/**"]),
-            lambda d: d["suites"]["test_xdbg"].pop("products"),
+            lambda d: d["suites"]["test_dev"].pop("products"),
+            lambda d: with_groups(d)["products"]["alpha"].pop("title"),
+            lambda d: with_groups(d)["products"]["alpha"].update(title="Test"),
+            # The tier, input, and runner keys.
+            lambda d: d["suites"]["test_dev"].update(advisory_filters=[]),
+            lambda d: d["suites"]["test_dev"].update(advisory_filters=["!docs/**"]),
+            lambda d: d["suites"]["test_dev"].update(
+                advisory_filters=[{"path_group": "missing"}]
+            ),
+            lambda d: d["suites"]["test_dev"].update(skip_full_runs=False),
+            lambda d: d["suites"]["test_dev"].update(skip_full_runs="yes"),
+            lambda d: d["suites"]["test_dev"].update(with_={}),
+            lambda d: d["suites"]["test_dev"].update({"with": ["scope"]}),
+            lambda d: d["suites"]["test_dev"].update({"with": {"scope": None}}),
+            lambda d: d["suites"]["test_dev"].update({"with": {"scope": ["a"]}}),
+            lambda d: d["suites"]["test_dev"].update({"with": {"bad name": "a"}}),
+            lambda d: d["suites"]["test_dev"].update(runners=["ubuntu-24.04"]),
+            lambda d: d["suites"]["test_dev"].update(
+                runners={"runner": "ubuntu-24.04"}
+            ),
+            lambda d: d["suites"]["test_dev"].update(
+                runners={"runner": {"pr": "ubuntu-24.04"}}
+            ),
+            lambda d: d["suites"]["test_dev"].update(
+                runners={"runner": {"pr": "ubuntu-latest", "merge": "ubuntu-24.04"}}
+            ),
+            lambda d: d["suites"]["test_dev"].update(
+                runners={"runner": {"pr": "ubuntu-24.04", "merge": "ubuntu-24.04"}},
+                **{"with": {"runner": "x"}},
+            ),
+            lambda d: d.pop("runners"),
+            lambda d: d["runners"].pop("gates"),
+            lambda d: d["runners"].update(
+                select={"pr": "my-runner", "merge": "ubuntu-24.04"}
+            ),
+            # Test suites do not run on drafts; the draft Test gate says so.
+            lambda d: d["suites"]["test_dev"].update(
+                run_on=["draft_pr_push", "ready_pr_push"]
+            ),
+            # Suite keys are job ids next to the generated ones.
+            lambda d: d["suites"].update(test=d["suites"].pop("test_dev")),
+            lambda d: d["suites"].update(products_x=d["suites"].pop("test_dev")),
+            lambda d: d["suites"].update(test_ios_advisory=d["suites"].pop("test_dev")),
+            lambda d: d["suites"].update({"Test-X": d["suites"].pop("test_dev")}),
         ]:
             with self.assertRaises(SUITES.DeclarationError):
+                self.compile(change)
+
+    def test_titles_are_required_short_unique_and_not_reserved(self):
+        def title(value):
+            return lambda d: d["suites"]["test_dev"].update(title=value)
+
+        self.compile(title("A" * 30))
+        # Titles repeat across phases: test_dev may take the title of the
+        # lint suite lint_config.
+        self.assertEqual(
+            declaration()["suites"]["lint_config"]["title"], "Repository lint"
+        )
+        self.compile(title("Repository lint"))
+        for change in [
+            lambda d: d["suites"]["test_dev"].pop("title"),
+            title(None),
+            title(""),
+            title("A" * 31),
+            title(" Backend"),
+            title("Backend "),
+            title("Backend / tests"),
+            title("${{ github.actor }}"),
+            title("Lint"),
+            title("test"),
+            title("Test (not run on drafts)"),
+            title("Lint (draft)"),
+            title("Select suites"),
+            title("Backend (advisory)"),
+            # Unique in the phase, ignoring case.
+            title("rust workspace"),
+            title("Prebuild JS SDKs (Nix)"),
+        ]:
+            with (
+                self.subTest(change=change),
+                self.assertRaises(SUITES.DeclarationError),
+            ):
                 self.compile(change)
 
     def test_filters_expand_groups_packages_and_globs(self):
@@ -151,11 +257,11 @@ class CompileTests(unittest.TestCase):
         packages, globs = SUITES.expand_filters(filters, groups, "test")
         self.assertEqual(packages, ["xmtp_id", "x", "y"])
         self.assertEqual(globs, ["a/**", "!a/skip/**", "b.md"])
-        self.compile(lambda d: d["suites"]["test_xdbg"].update(pr_filters=[]))
+        self.compile(lambda d: d["suites"]["test_dev"].update(pr_filters=[]))
 
     def test_compiled_labels_and_paths_select_independently(self):
         manifest = self.compile(
-            lambda d: d["suites"]["test_xdbg"].update(
+            lambda d: d["suites"]["test_dev"].update(
                 pr_filters=["docs/**", "!docs/private/**", {"pr_label": "observe"}]
             )
         )
@@ -182,101 +288,295 @@ class CompileTests(unittest.TestCase):
                     result = selector.select_suites(
                         [path], "pull_request", payload, "success", 1
                     )
-                self.assertEqual("test_xdbg" in result["suites"]["test"], expected)
+                self.assertEqual("test_dev" in result["suites"]["test"], expected)
 
-    def test_react_native_runs_for_shared_mobile_and_backend_inputs(self):
-        manifest = SUITES.compile_declaration(ROOT)
-        selector = SUITES.load_selector()
-        payload = {
-            "repository": {"full_name": "r"},
-            "pull_request": {
-                "head": {"repo": {"full_name": "r"}},
-                "labels": [],
-            },
-        }
-        for path in [
-            "nix/lib/ios-env.nix",
-            "nix/lib/android-env.nix",
-            "nix/lib/android-emulator-start.py",
-            "nix/lib/android-sync-clock.sh",
-            "nix/android-packages.nix",
-            "nix/shells/android.nix",
-            "nix/services/stack.nix",
-        ]:
-            with (
-                self.subTest(path=path),
-                mock.patch.multiple(
-                    selector, MANIFEST=manifest, SUITES=manifest["suites"]
-                ),
+    def test_workflow_files_select_in_the_strongest_tier(self):
+        # An always-advisory suite stays advisory when its own workflow or a
+        # local action it uses changes; a suite that can block, blocks.
+        def tiers(path, **suite):
+            manifest = self.compile(lambda d: d["suites"]["test_dev"].update(suite))
+            selector = SUITES.load_selector()
+            payload = {
+                "repository": {"full_name": "r"},
+                "pull_request": {"head": {"repo": {"full_name": "r"}}, "labels": []},
+            }
+            with mock.patch.multiple(
+                selector, MANIFEST=manifest, SUITES=manifest["suites"]
             ):
                 result = selector.select_suites(
                     [path], "pull_request", payload, "success", 1
                 )
-                self.assertIn("test_react_native", result["suites"]["test"])
+            return (
+                "test_dev" in result["suites"]["test"],
+                "test_dev" in result["advisory"],
+            )
+
+        workflow = ".github/workflows/test-dev.yml"
+        self.assertEqual(
+            tiers(workflow, pr_filters=[], advisory_filters=["docs/**"]), (False, True)
+        )
+        self.assertEqual(
+            tiers(workflow, pr_filters=["apps/**"], advisory_filters=["docs/**"]),
+            (True, False),
+        )
+        self.assertEqual(tiers(workflow, pr_filters=[]), (True, False))
+        self.assertEqual(
+            tiers("docs/guide.md", pr_filters=[], advisory_filters=["docs/**"]),
+            (False, True),
+        )
 
     def test_secret_modes_are_validated(self):
-        self.compile(lambda d: d["suites"]["lint_proto"].update(secrets="none"))
+        self.compile(lambda d: d["suites"]["lint_config"].update(secrets="none"))
         for value in ("all", "None", "", None):
             with self.subTest(value=value):
                 with self.assertRaisesRegex(
                     SUITES.DeclarationError, "inherit, kache, none, cachix-pr"
                 ):
                     self.compile(
-                        lambda d: d["suites"]["lint_proto"].update(secrets=value)
+                        lambda d: d["suites"]["lint_config"].update(secrets=value)
                     )
 
 
 class RenderTests(unittest.TestCase):
     manifest = SUITES.compile_declaration(ROOT)
 
-    def jobs(self, phase):
-        return yaml.safe_load(SUITES.render_workflow(self.manifest, phase))["jobs"]
-
     def test_secrets_and_permissions_follow_the_declaration(self):
         manifest = copy.deepcopy(self.manifest)
         manifest["suites"]["docs_site"]["permissions"]["pages"] = "write"
-        jobs = {}
-        for phase in SUITES.GENERATED_WORKFLOWS:
-            jobs.update(yaml.safe_load(SUITES.render_workflow(manifest, phase))["jobs"])
+        jobs = ci_jobs(manifest)
         for name, suite in declaration()["suites"].items():
-            with self.subTest(suite=name):
-                job = jobs[name]
-                if suite["secrets"] == "none":
-                    self.assertNotIn("secrets", job)
-                elif suite["secrets"] == "kache":
-                    self.assertEqual(set(job["secrets"]), set(SUITES.KACHE_SECRETS))
-                elif suite["secrets"] == "cachix-pr":
-                    self.assertEqual(
-                        job["secrets"],
-                        {"CACHIX_PR_AUTH_TOKEN": "${{ secrets.CACHIX_PR_AUTH_TOKEN }}"},
-                    )
-                else:
-                    self.assertEqual(job["secrets"], "inherit")
+            callers = [name] + (
+                [f"{name}_advisory"] if "advisory_filters" in suite else []
+            )
+            for caller in callers:
+                with self.subTest(caller=caller):
+                    job = jobs[caller]
+                    if suite["secrets"] == "none":
+                        self.assertNotIn("secrets", job)
+                    elif suite["secrets"] == "kache":
+                        self.assertEqual(set(job["secrets"]), set(SUITES.KACHE_SECRETS))
+                    elif suite["secrets"] == "cachix-pr":
+                        self.assertEqual(
+                            job["secrets"],
+                            {
+                                "CACHIX_PR_AUTH_TOKEN": "${{ secrets.CACHIX_PR_AUTH_TOKEN }}"
+                            },
+                        )
+                    else:
+                        self.assertEqual(job["secrets"], "inherit")
         self.assertEqual(jobs["docs_site"]["permissions"]["pages"], "write")
         self.assertEqual(jobs["test_ios"]["permissions"], {"contents": "read"})
-        for phase, name in (("lint", "lint_example_ios"), ("test", "test_example_ios")):
-            with self.subTest(suite=name):
-                phase_jobs = yaml.safe_load(SUITES.render_workflow(manifest, phase))[
-                    "jobs"
+
+    def test_callers_are_named_by_title_and_gates_keep_the_required_names(self):
+        manifest = copy.deepcopy(self.manifest)
+        manifest["suites"]["test_dev"]["title"] = "Observability"
+        jobs = ci_jobs(manifest)
+        self.assertEqual(jobs["test_dev"]["name"], "Observability")
+        self.assertEqual(jobs["detect-changes"]["name"], "Select suites")
+        self.assertEqual(jobs["products_sdk_js"]["name"], "Prebuild JS SDKs (Nix)")
+        # Branch protection requires Lint and Test. Drafts and manual runs of
+        # a subset of the suites get other names, so they cannot satisfy them.
+        for gate, draft, subset in (
+            ("lint", "Lint (draft)", "Lint (manual subset)"),
+            ("test", "Test (not run on drafts)", "Test (manual subset)"),
+        ):
+            required = gate.capitalize()
+            for event, is_draft, suites, expected in (
+                ("pull_request", False, None, required),
+                ("pull_request", True, None, draft),
+                ("push", None, None, required),
+                ("workflow_dispatch", None, "", required),
+                ("workflow_dispatch", None, "test_dev", subset),
+                ("workflow_dispatch", None, "test_dev,lint_config", subset),
+            ):
+                with self.subTest(
+                    gate=gate, event=event, draft=is_draft, suites=suites
+                ):
+                    values = {
+                        "github.event_name": event,
+                        # toJSON of a missing draft field is 'null'.
+                        "toJSON(github.event.pull_request.draft)": "null"
+                        if is_draft is None
+                        else str(is_draft).lower(),
+                        "inputs.suites": suites,
+                    }
+                    self.assertEqual(evaluate(jobs[gate]["name"], values), expected)
+            self.assertEqual(jobs[gate]["if"], "always()")
+        # Only the gates are named Lint or Test, and they never skip.
+        for job_id, job in jobs.items():
+            if job_id not in ("detect-changes", "lint", "test"):
+                self.assertNotIn(job.get("name"), SUITES.RESERVED_NAMES)
+
+    def test_merge_runs_are_not_cancelled_and_forks_get_no_token_flag(self):
+        document = yaml.safe_load(SUITES.render_ci(self.manifest))
+        # Only a pull request push cancels its older run; merge and manual
+        # runs each have their own group and are latest-wins.
+        cancel = document["concurrency"]["cancel-in-progress"]
+        for event, expected in (
+            ("pull_request", True),
+            ("push", False),
+            ("workflow_dispatch", False),
+        ):
+            with self.subTest(event=event):
+                self.assertIs(evaluate(cancel, {"github.event_name": event}), expected)
+        self.assertEqual(
+            document["concurrency"]["group"],
+            "ci-${{ github.event.pull_request.number || "
+            "format('{0}-{1}', github.event_name, github.ref) }}",
+        )
+        # Select suites picks product groups only when the run can push to
+        # xmtp-pr; a fork or a tokenless Dependabot run gets 'false'.
+        (select,) = (
+            step
+            for step in document["jobs"]["detect-changes"]["steps"]
+            if step.get("id") == "select"
+        )
+        self.assertEqual(
+            select["env"]["PR_CACHE_TOKEN"], "${{ secrets.CACHIX_PR_AUTH_TOKEN != '' }}"
+        )
+
+    def test_ci_yml_has_only_select_products_callers_and_two_gates(self):
+        jobs = ci_jobs(self.manifest)
+        callers = {job for job, spec in jobs.items() if "uses" in spec}
+        expected = set(self.manifest["suites"]) | {
+            f"{n}_advisory"
+            for n, s in self.manifest["suites"].items()
+            if SUITES.has_advisory_tier(s)
+        }
+        self.assertEqual(callers, expected)
+        self.assertEqual(
+            set(jobs) - callers,
+            {"detect-changes", "lint", "test"}
+            | {f"products_{g}" for g in self.manifest["products"]},
+        )
+        for caller in callers:
+            name = caller.removesuffix("_advisory")
+            self.assertEqual(
+                jobs[caller]["uses"],
+                f"./.github/workflows/{self.manifest['suites'][name]['workflow']}",
+            )
+
+
+class TierRenderTests(unittest.TestCase):
+    manifest = SUITES.compile_declaration(ROOT)
+    jobs = ci_jobs(manifest)
+
+    def test_an_advisory_suite_has_a_second_caller_that_no_gate_needs(self):
+        blocking, advisory = (
+            self.jobs["test_example_ios"],
+            self.jobs["test_example_ios_advisory"],
+        )
+        self.assertEqual(advisory["name"], "iOS example app (advisory)")
+        self.assertEqual(advisory["uses"], blocking["uses"])
+        for outputs, runs_blocking, runs_advisory in [
+            ({"test_suites": ["test_example_ios"]}, True, False),
+            ({"advisory_suites": ["test_example_ios"]}, False, True),
+            ({"test_suites": ["test_ios"], "advisory_suites": []}, False, False),
+        ]:
+            with self.subTest(outputs=outputs):
+                self.assertEqual(job_runs(blocking, outputs, {}), runs_blocking)
+                self.assertEqual(job_runs(advisory, outputs, {}), runs_advisory)
+        for gate in ("lint", "test"):
+            self.assertFalse(
+                [
+                    need
+                    for need in self.jobs[gate]["needs"]
+                    if need.endswith("_advisory")
                 ]
-                self.assertEqual(
-                    phase_jobs[name].get("secrets"),
-                    {"CACHIX_PR_AUTH_TOKEN": "${{ secrets.CACHIX_PR_AUTH_TOKEN }}"},
+            )
+        self.assertIn("test_example_ios", self.jobs["test"]["needs"])
+        # A suite without advisory_filters has one caller.
+        self.assertNotIn("test_ios_advisory", self.jobs)
+
+    def test_detection_failure_skips_every_caller(self):
+        failed = {"detect-changes": "failure", "products_sdk_android": "skipped"}
+        everything = {"test_suites": list(self.manifest["suites"])}
+        for job in ("test_ios", "test_android", "test_example_android_advisory"):
+            with self.subTest(job=job):
+                self.assertFalse(job_runs(self.jobs[job], everything, failed))
+
+
+class InputRenderTests(unittest.TestCase):
+    def manifest(self, **suite):
+        data = declaration()
+        data["suites"]["test_dev"].update(suite)
+        return SUITES.compile_declaration(ROOT, data)
+
+    def test_with_inputs_and_runners_reach_the_caller(self):
+        manifest = self.manifest(
+            **{
+                "with": {"scope": "android-smoke", "debug": False, "shards": 2},
+                "runners": {
+                    "runner": {
+                        "pr": "blacksmith-8vcpu-ubuntu-2404",
+                        "merge": "ubuntu-24.04",
+                    },
+                    "big-runner": {
+                        "pr": "blacksmith-16vcpu-ubuntu-2404",
+                        "merge": "blacksmith-16vcpu-ubuntu-2404",
+                    },
+                },
+            }
+        )
+        given = ci_jobs(manifest)["test_dev"]["with"]
+        self.assertEqual(
+            given,
+            {
+                "scope": "android-smoke",
+                "debug": False,
+                "shards": 2,
+                "runner": "${{ github.event_name == 'pull_request' && "
+                "'blacksmith-8vcpu-ubuntu-2404' || 'ubuntu-24.04' }}",
+                "big-runner": "blacksmith-16vcpu-ubuntu-2404",
+            },
+        )
+        # The expression picks the pr label only on a pull request; merge and
+        # manual runs get the merge label.
+        for event, label in [
+            ("push", "ubuntu-24.04"),
+            ("pull_request", "blacksmith-8vcpu-ubuntu-2404"),
+            ("workflow_dispatch", "ubuntu-24.04"),
+        ]:
+            with self.subTest(event=event):
+                source = (
+                    given["runner"]
+                    .removeprefix("${{")
+                    .removesuffix("}}")
+                    .replace("github.event_name", repr(event))
+                    .replace("&&", " and ")
+                    .replace("||", " or ")
                 )
+                self.assertEqual(eval(source, {"__builtins__": {}}, {}), label)
+
+    def test_suites_without_inputs_pass_none(self):
+        jobs = ci_jobs(SUITES.compile_declaration(ROOT))
+        for name, suite in declaration()["suites"].items():
+            if "with" not in suite and "runners" not in suite:
+                self.assertNotIn("with", jobs[name], name)
+
+    def test_strings_that_yaml_would_retype_stay_strings(self):
+        manifest = self.manifest(
+            **{"with": {"a": "true", "b": "1", "c": "x: y", "d": "#"}}
+        )
+        given = ci_jobs(manifest)["test_dev"]["with"]
+        given.pop("runner")
+        self.assertEqual(given, {"a": "true", "b": "1", "c": "x: y", "d": "#"})
 
 
 class ProductRenderTests(unittest.TestCase):
     manifest = SUITES.compile_declaration(ROOT, with_groups(declaration()))
-    workflow = yaml.safe_load(SUITES.render_workflow(manifest, "test"))
-    jobs = workflow["jobs"]
+    jobs = ci_jobs(manifest)
 
     def test_suites_need_only_their_groups_and_run_unless_one_failed(self):
-        self.assertEqual(self.jobs["test_ios"]["needs"], ["products_alpha"])
         self.assertEqual(
-            self.jobs["test_android"]["needs"], ["products_alpha", "products_beta"]
+            self.jobs["test_ios"]["needs"], ["detect-changes", "products_alpha"]
         )
-        self.assertNotIn("needs", self.jobs["test_xdbg"])
-        inputs = {"suites": ["test_ios", "test_android"], "products": []}
+        self.assertEqual(
+            self.jobs["test_android"]["needs"],
+            ["detect-changes", "products_alpha", "products_beta"],
+        )
+        self.assertEqual(self.jobs["test_dev"]["needs"], ["detect-changes"])
+        outputs = {"test_suites": ["test_ios", "test_android"], "products": []}
         for alpha, beta, ios, android in [
             ("success", "success", True, True),
             # A group that did not run: the suite builds the products itself.
@@ -287,11 +587,11 @@ class ProductRenderTests(unittest.TestCase):
         ]:
             with self.subTest(alpha=alpha, beta=beta):
                 results = {"products_alpha": alpha, "products_beta": beta}
-                self.assertEqual(job_runs(self.jobs["test_ios"], inputs, results), ios)
+                self.assertEqual(job_runs(self.jobs["test_ios"], outputs, results), ios)
                 self.assertEqual(
-                    job_runs(self.jobs["test_android"], inputs, results), android
+                    job_runs(self.jobs["test_android"], outputs, results), android
                 )
-        unselected = {"suites": ["test_android"], "products": []}
+        unselected = {"test_suites": ["test_android"], "products": []}
         results = {"products_alpha": "success", "products_beta": "success"}
         self.assertFalse(job_runs(self.jobs["test_ios"], unselected, results))
         self.assertTrue(
@@ -300,45 +600,147 @@ class ProductRenderTests(unittest.TestCase):
         self.assertFalse(
             job_runs(self.jobs["products_beta"], {"products": ["alpha"]}, {})
         )
+        self.assertEqual(self.jobs["products_alpha"]["name"], "Alpha")
+
+
+class ExplainTests(unittest.TestCase):
+    rules = SUITES.load_selector().Rules(SUITES.compile_declaration(ROOT))
+
+    def test_explain_names_the_tier_of_each_suite(self):
+        for path, expected in [
+            (
+                "apps/example-ios/ExampleApp/View.swift",
+                "blocking: lint_config, test_example_ios",
+            ),
+            (
+                "sdks/android/library/src/main/java/Client.kt",
+                "blocking: lint_config, test_android; advisory: "
+                "test_example_android, test_example_android_emulator",
+            ),
+            ("flake.nix", "shared (every suite)"),
+            ("new-language/source.xyz", "unknown (every suite)"),
+            ("AGENTS.md", "blocking: lint_config (neutral)"),
+        ]:
+            with self.subTest(path=path):
+                self.assertEqual(SUITES.explain(self.rules, path), expected)
+
+    def test_explain_lists_the_products_that_selection_builds(self):
+        # A group builds only for a blocking suite; explain must say the same
+        # as dev/ci-select for every path that a group's filters match.
+        selector = SUITES.load_selector()
+        event = {
+            "repository": {"full_name": "r"},
+            "pull_request": {
+                "draft": False,
+                "labels": [],
+                "head": {"repo": {"full_name": "r"}},
+            },
+        }
+        checked = []
+        for path in SUITES.tracked_files(ROOT):
+            rules = self.rules
+            if (
+                rules.shared(path)
+                or not rules.known(path)
+                or not rules.products_for(path)
+            ):
+                continue
+            checked.append(path)
+            verdict = SUITES.explain(rules, path)
+            listed = (
+                verdict.split("; products: ", 1)[1].split(", ")
+                if "; products: " in verdict
+                else []
+            )
+            result = selector.select_suites(
+                [path], "pull_request", event, "success", 1, None, (), True
+            )
+            with self.subTest(path=path):
+                self.assertEqual(listed, result["products"])
+        self.assertIn("nix/ci-sets.nix", checked)
 
 
 class ValidateTests(unittest.TestCase):
     manifest = SUITES.compile_declaration(ROOT)
 
-    def test_repository_declaration_is_valid(self):
-        self.assertEqual(SUITES.validate(self.manifest), [])
-
     def test_unknown_files_and_stale_patterns_fail(self):
         files = SUITES.tracked_files(ROOT) + ["new-language/source.xyz"]
         manifest = copy.deepcopy(self.manifest)
-        manifest["suites"]["test_xdbg"]["paths"].append(
+        manifest["suites"]["test_dev"]["paths"].append(
             "crates/xmtp_user_preferences/**"
         )
         errors = "\n".join(SUITES.validate(manifest, files=files))
         self.assertIn("new-language/source.xyz", errors)
-        self.assertIn("test_xdbg: crates/xmtp_user_preferences/**", errors)
+        self.assertIn("test_dev: crates/xmtp_user_preferences/**", errors)
 
     def test_kache_secrets_need_workflow_declarations(self):
         manifest = copy.deepcopy(self.manifest)
-        manifest["suites"]["test_xdbg"]["secrets"] = "kache"
+        manifest["suites"]["test_dev"]["secrets"] = "kache"
         errors = "\n".join(SUITES.validate(manifest))
-        self.assertIn("test-xdbg.yml must declare workflow_call secrets", errors)
+        self.assertIn("test-dev.yml must declare workflow_call secrets", errors)
 
     def test_pr_cache_secrets_need_workflow_declarations(self):
         manifest = copy.deepcopy(self.manifest)
-        manifest["suites"]["test_xdbg"]["secrets"] = "cachix-pr"
+        manifest["suites"]["test_dev"]["secrets"] = "cachix-pr"
         errors = "\n".join(SUITES.validate(manifest))
-        self.assertIn("test-xdbg.yml must declare workflow_call secrets", errors)
+        self.assertIn("test-dev.yml must declare workflow_call secrets", errors)
 
-    def test_suite_permissions_must_fit_the_caller_grant(self):
+    def test_caller_inputs_must_match_the_workflow(self):
+        def errors(**suite):
+            manifest = copy.deepcopy(self.manifest)
+            manifest["suites"]["docs_site"].update(suite)
+            return "\n".join(SUITES.validate(manifest))
+
+        # deploy-docs.yml takes an optional boolean input `deploy`.
+        self.assertEqual(errors(**{"with": {"deploy": False}}), "")
+        self.assertIn(
+            "deploy-docs.yml has no workflow_call input scope",
+            errors(**{"with": {"scope": "full"}}),
+        )
+        self.assertIn(
+            "with.deploy must be a boolean", errors(**{"with": {"deploy": "no"}})
+        )
+        self.assertEqual(errors(**{"with": {"deploy": "${{ inputs.x }}"}}), "")
         manifest = copy.deepcopy(self.manifest)
-        manifest["suites"]["lint_proto"]["permissions"] = {
-            "contents": "read",
-            "pages": "write",
-        }
+        manifest["suites"]["test_dev"]["workflow"] = "docs-rust-reference.yml"
+        self.assertEqual([e for e in SUITES.validate(manifest) if "input" in e], [])
+
+    def test_required_inputs_must_be_passed(self):
+        # release-node-sdk.yml requires inputs that no suite passes.
+        manifest = copy.deepcopy(self.manifest)
+        manifest["suites"]["test_dev"]["workflow"] = "release-node-sdk.yml"
         errors = "\n".join(SUITES.validate(manifest))
-        self.assertIn("lint_proto: needs pages: write", errors)
-        self.assertNotIn("docs_site", errors)
+        self.assertIn("release-node-sdk.yml requires inputs", errors)
+
+    def test_runner_inputs_must_be_string_inputs_that_set_runs_on(self):
+        manifest = copy.deepcopy(self.manifest)
+        suite = manifest["suites"]["docs_site"]
+        label = {"pr": "ubuntu-24.04", "merge": "ubuntu-24.04"}
+        suite["runners"] = {"deploy": label, "spare-runner": label}
+        errors = "\n".join(SUITES.validate(manifest))
+        self.assertIn("deploy-docs.yml input deploy must have type string", errors)
+        self.assertIn("no job of deploy-docs.yml runs on inputs.deploy", errors)
+        self.assertIn("deploy-docs.yml has no workflow_call input spare-runner", errors)
+
+    def test_a_runner_input_that_sets_runs_on_is_valid(self):
+        document = {
+            "on": {
+                "workflow_call": {
+                    "inputs": {"runner": {"type": "string", "default": "ubuntu-24.04"}}
+                }
+            },
+            "jobs": {"a": {"runs-on": "${{ inputs.runner }}"}},
+        }
+        suite = copy.deepcopy(self.manifest["suites"]["test_dev"])
+        suite["runners"] = {"runner": {"pr": "ubuntu-24.04", "merge": "ubuntu-24.04"}}
+        self.assertEqual(
+            SUITES.validate_inputs("x", suite, document, document["on"]), []
+        )
+        document["jobs"]["a"]["runs-on"] = "${{ inputs.runner-large }}"
+        self.assertEqual(
+            SUITES.validate_inputs("x", suite, document, document["on"]),
+            [f"x: no job of {suite['workflow']} runs on inputs.runner"],
+        )
 
     def test_dead_brace_alternatives_are_stale(self):
         self.assertEqual(
@@ -346,20 +748,20 @@ class ValidateTests(unittest.TestCase):
             ["a/b/{d,}.x", "a/c/{d,}.x", "a/{b,c}/d.x", "a/{b,c}/.x"],
         )
         manifest = copy.deepcopy(self.manifest)
-        manifest["suites"]["test_xdbg"]["paths"].append("{docs,no-such-dir}/**")
+        manifest["suites"]["test_dev"]["paths"].append("{docs,no-such-dir}/**")
         errors = "\n".join(SUITES.validate(manifest))
-        self.assertIn("test_xdbg: no-such-dir/**", errors)
-        self.assertNotIn("test_xdbg: docs/**", errors)
+        self.assertIn("test_dev: no-such-dir/**", errors)
+        self.assertNotIn("test_dev: docs/**", errors)
 
     def test_called_jobs_must_fit_the_suite_permissions(self):
         # GitHub checks a called job's permissions even when its `if` skips it.
         manifest = copy.deepcopy(self.manifest)
-        manifest["suites"]["test_xdbg"]["workflow"] = "npm-publish.yml"
+        manifest["suites"]["test_dev"]["workflow"] = "npm-publish.yml"
         errors = "\n".join(SUITES.validate(manifest))
         self.assertIn(
-            "test_xdbg: npm-publish.yml job publish needs id-token: write", errors
+            "test_dev: npm-publish.yml job publish needs id-token: write", errors
         )
-        manifest["suites"]["test_xdbg"]["permissions"] = {
+        manifest["suites"]["test_dev"]["permissions"] = {
             "contents": "read",
             "id-token": "write",
         }
@@ -368,9 +770,9 @@ class ValidateTests(unittest.TestCase):
 
 
 class IosLifecycleSplitTests(unittest.TestCase):
-    """The iOS unit and lifecycle CI jobs split the Swift tests between them."""
+    """The iOS unit and lifecycle CI steps split the Swift tests between them."""
 
-    def test_lifecycle_checks_run_once_across_ci_jobs(self):
+    def test_lifecycle_filter_and_skip_name_the_same_tests(self):
         # `test-lifecycle` selects these tests and `test skip-lifecycle` skips
         # them. The two must name the same tests, or a proof runs twice or never.
         def swift_test_args(*recipe):
@@ -391,130 +793,8 @@ class IosLifecycleSplitTests(unittest.TestCase):
         selected = swift_test_args("test-lifecycle")
         skipped = swift_test_args("test", "skip-lifecycle")
         self.assertEqual(selected[0], "--filter")
-        self.assertEqual(
-            selected[1], r"XmtpSdkTests\.(ReaderTeardownTests|ListenerGateTests)"
-        )
         self.assertEqual(skipped[-2], "--skip")
         self.assertEqual(selected[1], skipped[-1])
-        self.assertNotIn("--skip", swift_test_args("test"))
-        self.assertEqual(
-            swift_test_args(
-                "test", "all", "--filter", "XmtpSdkTests.MessageHistoryPageTests"
-            ),
-            ["--parallel", "-q", "--filter", "XmtpSdkTests.MessageHistoryPageTests"],
-        )
-        for test_case in ("ReaderTeardownTests", "ListenerGateTests"):
-            self.assertRegex(f"XmtpSdkTests.{test_case}/testA", selected[1])
-        rejected = subprocess.run(
-            ["just", "--dry-run", "ios", "test", "skip"],
-            cwd=ROOT,
-            capture_output=True,
-            text=True,
-        )
-        self.assertNotEqual(rejected.returncode, 0)
-
-
-class ExampleIOSWorkflowTests(unittest.TestCase):
-    def workflow(self):
-        return yaml.safe_load(
-            (ROOT / ".github/workflows/test-example-ios.yml").read_text()
-        )
-
-    def steps(self):
-        jobs = self.workflow()["jobs"]
-        self.assertEqual(
-            set(jobs), {"tests"}, "one job must share the binding preparation"
-        )
-        return jobs["tests"]["steps"]
-
-    def test_one_job_shares_checkout_and_toolchain(self):
-        steps = self.steps()
-        for action in (
-            "actions/checkout@",
-            "./.github/actions/setup-nix",
-            "maxim-lobanov/setup-xcode@",
-        ):
-            with self.subTest(action=action):
-                self.assertEqual(
-                    sum(step.get("uses", "").startswith(action) for step in steps), 1
-                )
-
-    def test_every_app_gate_remains_required(self):
-        for command in (
-            "just example-ios build",
-            "CONFIGURATION=Push",
-            "just example-ios lint",
-            "just example-ios test'",
-            "just backend ci just example-ios test-ui",
-            "just backend ci nix run .#example-ios -- --headless",
-            "CODE_SIGN_ENTITLEMENTS",
-            "dev/check-apple-toolchain",
-        ):
-            with self.subTest(command=command):
-                matching = [
-                    step for step in self.steps() if command in step.get("run", "")
-                ]
-                self.assertTrue(matching, command)
-                self.assertTrue(
-                    all(
-                        "if" not in step and not step.get("continue-on-error", False)
-                        for step in matching
-                    )
-                )
-
-    def test_failures_keep_results_and_separate_service_logs(self):
-        steps = self.steps()
-        results = next(
-            (
-                step
-                for step in steps
-                if step.get("with", {}).get("name") == "example-ios-journeys-results"
-            ),
-            None,
-        )
-        self.assertIsNotNone(results, "failed journeys must retain their xcresult")
-        self.assertEqual(results["if"], "failure()")
-        self.assertEqual(
-            results["with"]["path"], "apps/example-ios/.build/DerivedData/Logs/Test"
-        )
-        self.assertTrue(results["with"]["include-hidden-files"])
-        self.assertEqual(results["with"]["retention-days"], 7)
-        phases = [step for step in steps if "just backend ci" in step.get("run", "")]
-        self.assertEqual(
-            {step["env"]["XMTP_SERVICES_LOGS"] for step in phases},
-            {
-                "${{ runner.temp }}/backend-ci-logs/journeys",
-                "${{ runner.temp }}/backend-ci-logs/launch",
-            },
-        )
-        logs = next(
-            (
-                step
-                for step in steps
-                if step.get("with", {}).get("name") == "example-ios-backend-logs"
-            ),
-            None,
-        )
-        self.assertIsNotNone(logs, "all service phases must retain logs")
-        self.assertEqual(logs["if"], "always()")
-        self.assertEqual(logs["with"]["path"], "${{ runner.temp }}/backend-ci-logs")
-
-    def test_only_pr_cache_credentials_reach_app_job(self):
-        workflow = self.workflow()
-        self.assertEqual(
-            set(workflow[True]["workflow_call"]["secrets"]), {"CACHIX_PR_AUTH_TOKEN"}
-        )
-        setup = next(
-            step
-            for step in self.steps()
-            if step.get("uses") == "./.github/actions/setup-nix"
-        )
-        self.assertEqual(setup["with"]["cache-mode"], "ci")
-        self.assertEqual(
-            setup["with"]["cachix-pr-auth-token"], "${{ secrets.CACHIX_PR_AUTH_TOKEN }}"
-        )
-        for suite in ("test_example_ios", "lint_example_ios"):
-            self.assertEqual(declaration()["suites"][suite]["secrets"], "cachix-pr")
 
 
 if __name__ == "__main__":

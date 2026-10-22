@@ -1,47 +1,68 @@
-name: Lint Config
+name: "Lint: Repository"
 on:
   workflow_call:
+    inputs:
+      runner:
+        description: The runner label. ci.yml passes it from .github/ci-suites.yml (runners).
+        type: string
+        required: true
 env:
   NIX_DEVSHELL: rust
 jobs:
+  # Every Linux lint in one job: one checkout, one dev shell, one pnpm
+  # install. Each check also runs when an earlier check failed, so one run
+  # reports every failure; none runs when setup failed.
   lint:
-    name: Lint (Config)
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    name: hakari, deny, buf, treefmt, JS, Markdown
+    runs-on: ${{ inputs.runner }}
+    # GitHub-hosted runners (merge and manual runs) have 4 vCPU.
+    timeout-minutes: ${{ startsWith(inputs.runner, 'ubuntu-') && 60 || 30 }}
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-      - uses: ./.github/actions/setup-nix
+      - name: Set up Nix
+        uses: ./.github/actions/setup-nix
         with:
           cache-mode: "ci"
           github-token: ${{ github.token }}
-      - uses: taiki-e/install-action@0c0305935e3ef3b9e6205d176ec55ee4fce34cca # just
-      - uses: ./.github/actions/setup-js
+      - name: Install JS dependencies (pnpm)
+        uses: ./.github/actions/setup-js
+        id: js
         with:
           cache-mode: "ci"
-      - name: Lint config files and the release tools
-        run: just lint-config
-
-  # post-merge.yml is the first job that builds the Darwin warm sets, so a pull
-  # request that breaks their evaluation would pass. Evaluating every drvPath
-  # catches that in about 2.5 minutes, beside the lint job.
-  ci-sets:
-    name: Evaluate the warm sets
-    runs-on: blacksmith-4vcpu-ubuntu-2404
-    timeout-minutes: 20
-    steps:
-      - name: Checkout
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-      - uses: ./.github/actions/setup-nix
-        with:
-          cache-mode: "ci"
-          github-token: ${{ github.token }}
-      - name: Evaluate every ciSets drvPath
-        shell: bash
+      - name: dev/nix-shell 'just lint-rust-source'
+        if: ${{ !cancelled() && steps.js.outcome == 'success' }}
+        run: dev/nix-shell 'just lint-rust-source'
+      # The advisories check runs only in the daily lint-deny.yml schedule, so
+      # a new RustSec advisory does not fail unrelated pull requests.
+      - name: dev/nix-shell 'just lint-deny'
+        if: ${{ !cancelled() && steps.js.outcome == 'success' }}
+        run: dev/nix-shell 'just lint-deny'
+      - name: dev/nix-shell 'just lint-proto'
+        if: ${{ !cancelled() && steps.js.outcome == 'success' }}
+        run: dev/nix-shell 'just lint-proto'
+      - name: dev/nix-shell 'just lint-config'
+        if: ${{ !cancelled() && steps.js.outcome == 'success' }}
+        run: dev/nix-shell 'just lint-config'
+      - name: dev/nix-shell 'just lint-js-source'
+        if: ${{ !cancelled() && steps.js.outcome == 'success' }}
+        run: dev/nix-shell 'just lint-js-source'
+      - name: dev/nix-shell 'just lint-js-format'
+        if: ${{ !cancelled() && steps.js.outcome == 'success' }}
+        run: dev/nix-shell 'just lint-js-format'
+      - name: dev/nix-shell 'just docs test'
+        if: ${{ !cancelled() && steps.js.outcome == 'success' }}
+        run: dev/nix-shell 'just docs test'
+      - name: dev/nix-shell 'just lint-markdown'
+        if: ${{ !cancelled() && steps.js.outcome == 'success' }}
+        env:
+          NIX_DEVSHELL: docs
+        run: dev/nix-shell 'just lint-markdown'
+      - name: dev/nix-shell 'just docs check-source'
+        if: ${{ !cancelled() && steps.js.outcome == 'success' }}
+        run: dev/nix-shell 'just docs check-source'
+      - name: Check scoped Node runtime dependencies
+        if: ${{ !cancelled() && steps.js.outcome == 'success' }}
         run: |
-          # The sets read the ubrn fork source through import from derivation.
-          # Its fetch has the same output path on every system, and this
-          # runner can run only the x86_64-linux fetch, so evaluate
-          # x86_64-linux first: the other systems then find the path valid
-          # even when no cache holds it yet.
-          nix eval --json .#ciSets.x86_64-linux --apply 'builtins.mapAttrs (_: set: set.drvPath)'
-          nix eval --json .#ciSets --apply 'builtins.mapAttrs (_: builtins.mapAttrs (_: set: set.drvPath))'
+          nix build --no-link .#node-runtime-dependencies.x86_64-linux
+          nix eval --json .#node-runtime-dependencies --apply 'builtins.mapAttrs (_: check: check.drvPath)'

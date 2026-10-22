@@ -637,6 +637,57 @@ mod tests {
         );
     }
 
+    /// An encrypted database file written before the CBOR marker, and closed
+    /// cleanly, is rejected at open, and the open changes no byte of the file
+    /// or its salt.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn rejecting_a_database_written_before_cbor_storage_leaves_its_file_unchanged() {
+        use crate::encrypted_store::CBOR_STORAGE_MIGRATION;
+        use crate::{ConnectionExt, StorageError, TestDb, XmtpDb};
+
+        let path = tmp_path();
+        {
+            let database = TestDb::create_database(Some(path.clone())).await;
+            database.init()?;
+            database.conn().raw_query(|conn| {
+                conn.batch_execute(
+                    "INSERT INTO openmls_key_value (key_bytes, version, value_bytes) VALUES (x'0102', 1, x'0300000000000000aabbcc'); \
+                     INSERT INTO identity (inbox_id, installation_keys, credential_bytes) VALUES ('inbox', x'0100', x'0200')",
+                )?;
+                while conn
+                    .applied_migrations()
+                    .map_err(diesel::result::Error::QueryBuilderError)?
+                    .iter()
+                    .any(|version| version.to_string() == CBOR_STORAGE_MIGRATION)
+                {
+                    conn.revert_last_migration(crate::MIGRATIONS)
+                        .map_err(diesel::result::Error::QueryBuilderError)?;
+                }
+                Ok(())
+            })?;
+        }
+        let salt = EncryptedConnection::salt_file(&path)?;
+        // The database and its salt. SQLite checkpoints and deletes the -wal
+        // and -shm files when the last connection closes, so neither exists
+        // here. A database closed with WAL frames not yet checkpointed (after
+        // a crash) has them checkpointed into its main file by the pool's
+        // connection pragmas before the fence runs: its rows stay, its bytes
+        // change. That predates the fence.
+        let files = || -> std::io::Result<(Vec<u8>, Vec<u8>)> {
+            Ok((std::fs::read(&path)?, std::fs::read(&salt)?))
+        };
+        let before = files()?;
+
+        let result = EncryptedMessageStore::new(TestDb::create_database(Some(path.clone())).await);
+        assert!(matches!(result, Err(StorageError::OldEncodingDatabase)));
+        drop(result);
+        assert!(
+            files()? == before,
+            "the rejected open changed the database file"
+        );
+        EncryptedMessageStore::<()>::remove_db_files(path);
+    }
+
     /// The baseline gained `server_configuration`. Diesel
     /// records one version for the whole baseline, so a database from an
     /// earlier self-hosted build is never re-migrated. Initialization must

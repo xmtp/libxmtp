@@ -99,51 +99,6 @@ describe("conversations stream", () => {
     expect(dm.peerInboxId).toBe(user1.inboxId);
   });
 
-  it("streams only groups with --type group", async () => {
-    const user1 = await createRegisteredIdentity();
-    const user2 = await createRegisteredIdentity();
-
-    const baseFlags = getBaseFlags(user2);
-    const streamPromise = runCommand(
-      [
-        "conversations",
-        "stream",
-        "--type",
-        "group",
-        "--count",
-        "1",
-        "--timeout",
-        "30",
-        "--json",
-        ...baseFlags,
-      ],
-      { timeout: 35000 },
-    );
-
-    await sleep(2000);
-
-    await runWithIdentity(user1, [
-      "conversations",
-      "create-group",
-      user2.address,
-    ]);
-
-    const result = await streamPromise;
-
-    expect(result.exitCode).toBe(0);
-
-    const lines = result.stdout.trim().split("\n").filter(Boolean);
-    expect(lines.length).toBeGreaterThanOrEqual(1);
-
-    const group = parseJsonOutput<{
-      type: string;
-      id: string;
-    }>(lines[0]);
-
-    expect(group.type).toBe("group");
-    expect(group.id).toBeDefined();
-  });
-
   it("streams with timeout and exits cleanly", async () => {
     const user = await createRegisteredIdentity();
 

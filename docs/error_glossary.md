@@ -4,7 +4,7 @@
 
 This document lists all error codes defined in LibXMTP, the core library underlying the XMTP SDKs. Each error code is a unique identifier returned to help diagnose issues.
 
-**39 error types** across **10 crates** with **422 total error codes**.
+**39 error types** across **10 crates** with **420 total error codes**.
 
 ## xmtp_api
 
@@ -191,6 +191,8 @@ General error type for Mls Storage Trait
 |:-----------|:------------|
 | `StorageError::PreTransitionDatabase` | The database was created before the backend transition. Not retryable. |
 | `StorageError::OldStreamDatabase` | The database uses the previous self-hosted stream format. |
+| `StorageError::OldEncodingDatabase` | The database was written before the key store and serialized columns moved from bincode to CBOR. Not retryable. |
+| `StorageError::LegacyGroupDatabase` | The database holds a live group whose id is 16 bytes, from before group ids were public keys. Not retryable. |
 | `StorageError::DieselConnect` | Diesel connection error. Failed to connect to SQLite. Retryable. |
 | `StorageError::DieselResult` | Diesel result error. Database query returned an error. May be retryable. |
 | `StorageError::MigrationError` | Migration error. Database migration failed. Not retryable. |
@@ -283,7 +285,6 @@ Stable storage failures that preserve receipt, processing, and delivery invarian
 | `DeserializationError::Deprecated` | Deprecated field. A deprecated field was used. Not retryable. |
 | `DeserializationError::HandleNotIdentifier` | Handle is not an identifier. A handle names an inbox in a lookup, but it is not an account identifier. Not retryable. |
 | `DeserializationError::Ed25519` | Ed25519 key error. Failed to create public key from bytes. Not retryable. |
-| `DeserializationError::Bincode` | Unable to deserialize. Bincode deserialization failed. Not retryable. |
 
 ### InvalidHandle <sub>struct</sub>
 
@@ -448,7 +449,6 @@ Stable failure categories. Inner causes remain available to Rust callers.
 | `DeviceSyncError::UTF8` | UTF-8 error. String is not valid UTF-8. Retryable. |
 | `DeviceSyncError::InvalidPayload` | Invalid payload. Sync message payload is malformed. Retryable. |
 | `DeviceSyncError::UnspecifiedDeviceSyncKind` | Unspecified sync kind. Device sync kind not specified. Not retryable. |
-| `DeviceSyncError::Bincode` | Bincode error. Binary serialization failed. Retryable. |
 | `DeviceSyncError::Archive` | Archive error. Sync archive operation failed. Retryable. |
 | `DeviceSyncError::Decode` | Decode error. Protobuf decoding failed. Retryable. |
 | `DeviceSyncError::MissingSyncGroup` | Missing sync group. Sync group not found. Not retryable. |
@@ -481,7 +481,6 @@ Stable failure categories. Inner causes remain available to Rust callers.
 | `GroupError::Intent` | Intent error. Failed to process group intent. Not retryable. |
 | `GroupError::CreateMessage` | Create message error. MLS message creation failed. Not retryable. |
 | `GroupError::TlsError` | TLS codec error. MLS TLS encoding/decoding failed. Not retryable. |
-| `GroupError::UpdateGroupMembership` | Update group membership error. Failed to update group membership. May be retryable. |
 | `GroupError::GroupCreate` | Group create error. MLS group creation failed. May be retryable. |
 | `GroupError::SelfUpdate` | Self update error. MLS self-update operation failed. May be retryable. |
 | `GroupError::WelcomeError` | Welcome error. Processing MLS welcome message failed. May be retryable. |
@@ -509,8 +508,7 @@ Stable failure categories. Inner causes remain available to Rust callers.
 | `GroupError::ComponentSource` | Component source error. Failed to encode, decode, or look up a well-known component during the AppDataUpdate path. Not retryable. |
 | `GroupError::MetadataField` | A metadata field read or write is invalid for the group's committed fields: an unknown field, a wrong type, or a write the committed state rejects. Not retryable. |
 | `GroupError::AppDataCommit` | AppData commit error. Failed to build or stage a commit that bundles an inline AppDataUpdate proposal. Wraps the structured `GroupAppDataError` from `stage_app_data_propose_and_commit` so the underlying OpenMLS create/stage failure is preserved instead of being string-flattened. |
-| `GroupError::BootstrapSynthesis` | Bootstrap synthesis failure — sender-side couldn't build the complete set of initial component values for the migration commit. Includes identity-update lookup failures. Conditionally retryable: delegates to the wrapped [`super::app_data::migration::BootstrapSynthesisError`], which retries only when an inner identity-update API error is itself retryable. Decode/registry-shape failures are deterministic and not retryable. |
-| `GroupError::BootstrapCommit` | Bootstrap commit-build failure. Not retryable: every variant of [`super::app_data::migration::BootstrapCommitError`] is a deterministic OpenMLS commit failure, a TLS codec error, or a caller-side precondition violation. |
+| `GroupError::BootstrapSynthesis` | App data value encoding failure: the sender could not encode a component value for the dictionary. Not retryable: encoding is deterministic over its inputs. |
 | `GroupError::CredentialError` | Credential error. MLS credential validation failed. Not retryable. |
 | `GroupError::LeafNodeError` | Leaf node error. MLS leaf node operation failed. Not retryable. |
 | `GroupError::InstallationDiff` | Installation diff error. Installation diff computation failed. May be retryable. |
@@ -537,6 +535,7 @@ Stable failure categories. Inner causes remain available to Rust callers.
 | `GroupError::WelcomeDataNotFound` | Welcome data not found. Welcome data missing from topic. Not retryable. |
 | `GroupError::WelcomeGroupPrefixPending` | The old group must process its ordered prefix before this Welcome can install. Retryable. |
 | `GroupError::InvalidWelcomeMetadata` | The Welcome has missing, malformed, or out-of-range join metadata. Not retryable. |
+| `GroupError::WelcomeGroupRoot` | The Welcome's group context has no 32-byte group root, or its root does not derive the Welcome's group id. Not retryable. |
 | `GroupError::UnsupportedWelcomeVersion` | The Welcome needs a newer client. Keep it blocked until upgrade. Retryable. |
 | `GroupError::UninitializedResult` | Result not initialized. Expected result was not initialized. Not retryable. |
 | `GroupError::Diesel` | Diesel ORM error. Raw database query failed. May be retryable. |
@@ -580,7 +579,6 @@ A handle operation that the client refuses.
 | `IdentityError::TooManyInstallations` | Too many installations. InboxID has reached max installation count. Not retryable. |
 | `IdentityError::InvalidExtension` | Invalid extension error. MLS extension validation failed. Not retryable. |
 | `IdentityError::MissingPostQuantumPublicKey` | Missing PQ public key. Post-quantum public key not found. Not retryable. |
-| `IdentityError::Bincode` | Bincode serialization error. Binary serialization failed. Not retryable. |
 | `IdentityError::UninitializedField` | Uninitialized field. Builder field not initialized. Not retryable. |
 
 ### LocalDeliveryError <sub>enum</sub>

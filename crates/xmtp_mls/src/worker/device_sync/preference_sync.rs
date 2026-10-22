@@ -1,6 +1,7 @@
 use super::*;
 use std::collections::{HashMap, HashSet};
 use xmtp_common::time::now_ns;
+use xmtp_cryptography::secret::Secret;
 use xmtp_db::consent_record::StoredConsentRecord;
 use xmtp_db::user_preferences::{HmacKey, StoredUserPreferences};
 use xmtp_proto::ConversionError;
@@ -10,10 +11,11 @@ use xmtp_proto::xmtp::device_sync::content::{
     device_sync_content::Content as ContentProto, preference_update::Update as UpdateProto,
 };
 
+/// `Debug` shows the HMAC root key only as its length: `Secret` redacts it.
 #[derive(Clone, Debug, PartialEq)]
 pub enum PreferenceUpdate {
     Consent(StoredConsentRecord),
-    Hmac { key: Vec<u8>, cycled_at_ns: i64 },
+    Hmac { key: Secret, cycled_at_ns: i64 },
 }
 
 impl<Context> DeviceSyncClient<Context>
@@ -64,15 +66,17 @@ pub(super) struct StoredPreferenceUpdates {
     pub public: Vec<PreferenceUpdate>,
 }
 
+/// Store synced preference updates. `updates` is borrowed, so a transaction
+/// retry copies no HMAC root key; the caller wipes the keys.
 pub(super) fn store_preference_updates(
-    updates: Vec<PreferenceUpdateProto>,
+    updates: &[PreferenceUpdateProto],
     conn: &impl DbQuery,
     handle: &WorkerMetrics<SyncMetric>,
 ) -> Result<StoredPreferenceUpdates, StorageError> {
     let mut changed = vec![];
     let mut initial_consents = HashMap::new();
     let initial_hmac = StoredUserPreferences::load(conn)?;
-    for update in updates.into_iter().filter_map(|u| u.update) {
+    for update in updates.iter().filter_map(|u| u.update.as_ref()) {
         match update {
             UpdateProto::Consent(consent_save) => {
                 tracing::info!(
@@ -80,7 +84,7 @@ pub(super) fn store_preference_updates(
                     consent_save.state
                 );
 
-                let consent_record: StoredConsentRecord = consent_save.try_into()?;
+                let consent_record: StoredConsentRecord = consent_save.clone().try_into()?;
                 let key = (
                     consent_record.entity_type as i32,
                     consent_record.entity.clone(),
@@ -109,12 +113,15 @@ pub(super) fn store_preference_updates(
             UpdateProto::Hmac(HmacKeyUpdateProto { key, cycled_at_ns }) => {
                 tracing::info!("Storing new HMAC key from sync group");
                 let before = StoredUserPreferences::load(conn)?;
-                StoredUserPreferences::store_hmac_key(conn, &key, Some(cycled_at_ns))?;
+                StoredUserPreferences::store_hmac_key(conn, key, Some(*cycled_at_ns))?;
                 let after = StoredUserPreferences::load(conn)?;
                 if before.hmac_key != after.hmac_key
                     || before.hmac_key_cycled_at_ns != after.hmac_key_cycled_at_ns
                 {
-                    changed.push(PreferenceUpdate::Hmac { key, cycled_at_ns });
+                    changed.push(PreferenceUpdate::Hmac {
+                        key: Secret::new(key.clone()),
+                        cycled_at_ns: *cycled_at_ns,
+                    });
                 }
                 handle.increment_metric(SyncMetric::HmacReceived);
             }
@@ -165,21 +172,28 @@ impl TryFrom<UpdateProto> for PreferenceUpdate {
     fn try_from(update: UpdateProto) -> Result<Self, Self::Error> {
         let update = match update {
             UpdateProto::Consent(consent) => Self::Consent(consent.try_into()?),
-            UpdateProto::Hmac(HmacKeyUpdateProto { key, cycled_at_ns }) => {
-                Self::Hmac { key, cycled_at_ns }
-            }
+            UpdateProto::Hmac(mut hmac) => Self::Hmac {
+                // Moves the decoded buffer; no copy is made.
+                key: Secret::from(std::mem::take(&mut hmac.key)),
+                cycled_at_ns: hmac.cycled_at_ns,
+            },
         };
         Ok(update)
     }
 }
 
+/// The proto holds a plain copy of an HMAC root key. Encode it with
+/// `sync_message_bytes`, which wipes that copy.
 impl From<PreferenceUpdate> for PreferenceUpdateProto {
     fn from(update: PreferenceUpdate) -> Self {
         PreferenceUpdateProto {
             update: Some(match update {
                 PreferenceUpdate::Consent(consent) => UpdateProto::Consent(consent.into()),
                 PreferenceUpdate::Hmac { key, cycled_at_ns } => {
-                    UpdateProto::Hmac(HmacKeyUpdateProto { key, cycled_at_ns })
+                    UpdateProto::Hmac(HmacKeyUpdateProto {
+                        key: key.as_slice().to_vec(),
+                        cycled_at_ns,
+                    })
                 }
             }),
         }
@@ -195,6 +209,38 @@ mod tests {
     };
     use xmtp_db::consent_record::{ConsentState, ConsentType};
     use xmtp_db::user_preferences::StoredUserPreferences;
+
+    /// `Debug` of an HMAC update, and of the update decoded from its proto,
+    /// shows no root key bytes.
+    #[xmtp_common::test(unwrap_try = true)]
+    fn hmac_update_debug_omits_the_root_key() {
+        let key: Vec<u8> = (0..42).map(|i| 0x80 | i).collect();
+        let decoded = PreferenceUpdate::try_from(UpdateProto::Hmac(HmacKeyUpdateProto {
+            key: key.clone(),
+            cycled_at_ns: 5,
+        }))?;
+        let built = PreferenceUpdate::Hmac {
+            key: key.clone().into(),
+            cycled_at_ns: 5,
+        };
+        assert_eq!(decoded, built);
+        let forms = [
+            hex::encode(&key),
+            hex::encode_upper(&key),
+            // How `Debug` prints a byte slice, anywhere in the list.
+            format!("{:?}", &key[..4])
+                .trim_matches(['[', ']'])
+                .to_owned(),
+        ];
+        for debug in [format!("{decoded:?}"), format!("{:?}", vec![built])] {
+            for form in &forms {
+                assert!(
+                    !debug.contains(form.as_str()),
+                    "PreferenceUpdate Debug shows the key as {form}: {debug}"
+                );
+            }
+        }
+    }
 
     // verifies: PROC-036
     #[cfg(not(target_arch = "wasm32"))]
@@ -302,14 +348,14 @@ mod tests {
         let metrics = WorkerMetrics::new(alix.context.installation_id());
         let db = alix.context.db();
         let hmac = |key: u8, cycled_at_ns| PreferenceUpdate::Hmac {
-            key: vec![key; 42],
+            key: vec![key; 42].into(),
             cycled_at_ns,
         };
         let first: Vec<_> = [hmac(1, i64::MAX - 2), hmac(2, i64::MAX - 1)]
             .into_iter()
             .map(Into::into)
             .collect();
-        let first = store_preference_updates(first, &db, &metrics)?;
+        let first = store_preference_updates(&first, &db, &metrics)?;
         assert_eq!(
             first.legacy,
             vec![hmac(1, i64::MAX - 2), hmac(2, i64::MAX - 1)]
@@ -319,12 +365,12 @@ mod tests {
             .into_iter()
             .map(Into::into)
             .collect();
-        let no_change = store_preference_updates(no_change, &db, &metrics)?;
+        let no_change = store_preference_updates(&no_change, &db, &metrics)?;
         assert!(no_change.legacy.is_empty());
         assert!(no_change.public.is_empty());
         assert_eq!(
             StoredUserPreferences::load(&db)?.hmac_key,
-            Some(vec![2; 42])
+            Some(vec![2; 42].into())
         );
 
         let mut allowed = StoredConsentRecord::new(
@@ -343,7 +389,7 @@ mod tests {
             PreferenceUpdate::Consent(allowed.clone()).into(),
             PreferenceUpdate::Consent(denied.clone()).into(),
         ];
-        let changed = store_preference_updates(updates, &db, &metrics)?;
+        let changed = store_preference_updates(&updates, &db, &metrics)?;
         assert_eq!(
             changed.legacy,
             vec![
@@ -370,7 +416,7 @@ mod tests {
             PreferenceUpdate::Consent(denied_again.clone()).into(),
         ];
         // The final state is Denied, which matches the state before this batch.
-        let round_trip = store_preference_updates(round_trip, &db, &metrics)?;
+        let round_trip = store_preference_updates(&round_trip, &db, &metrics)?;
         assert_eq!(round_trip.legacy.len(), 2);
         assert!(round_trip.public.is_empty());
 
@@ -381,7 +427,7 @@ mod tests {
         );
         unknown.consented_at_ns = 104;
         let inserted = store_preference_updates(
-            vec![PreferenceUpdate::Consent(unknown.clone()).into()],
+            &[PreferenceUpdate::Consent(unknown.clone()).into()],
             &db,
             &metrics,
         )?;
@@ -408,7 +454,7 @@ mod tests {
             })
             .into()
         });
-        let changed = store_preference_updates(updates.into(), &db, &metrics)?;
+        let changed = store_preference_updates(&updates, &db, &metrics)?;
         // Allowed@10 is a change. Allowed@30 repeats the stored state: it
         // moves the time but is not a change. Denied@20 is older and rejected.
         assert_eq!(changed.legacy.len(), 1);

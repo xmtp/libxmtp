@@ -299,9 +299,22 @@ impl XmtpError {
         ))
     }
 
+    /// A typed storage failure has code `Storage`, except a database this
+    /// build cannot open: its code is the Rust cause code, such as
+    /// `StorageError::OldEncodingDatabase`, so an app can tell the user what
+    /// to do with the file without reading the message.
     fn storage_cause(error: &xmtp_db::StorageError) -> Self {
+        use xmtp_common::ErrorCode as _;
+        use xmtp_db::StorageError;
+        let code = match error {
+            StorageError::PreTransitionDatabase
+            | StorageError::OldStreamDatabase
+            | StorageError::OldEncodingDatabase
+            | StorageError::LegacyGroupDatabase => error.error_code(),
+            _ => "Storage",
+        };
         Self::Storage(Self::details(
-            "Storage",
+            code,
             ErrorCategory::Storage,
             Self::storage_retryable(error),
             error.to_string(),

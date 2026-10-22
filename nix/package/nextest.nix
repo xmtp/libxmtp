@@ -32,11 +32,15 @@ let
       (fileFilter (file: file.hasExt "json") (root + /crates))
       # trybuild compares compiler errors with checked-in output.
       (fileFilter (file: file.hasExt "stderr") (root + /crates/xmtp_macro/tests/ui))
+      (fileFilter (file: file.hasExt "stderr") (root + /crates/xmtp_backend_config/tests/ui))
     ];
   };
 
   commonArgs = xmtp.base.commonArgs // {
     SQLX_OFFLINE = "true";
+    # Release speed with overflow checks and debug assertions in the
+    # workspace crates (Cargo.toml).
+    CARGO_PROFILE = "ci-test";
     nativeBuildInputs = xmtp.base.commonArgs.nativeBuildInputs ++ [
       cargo-llvm-cov
     ];

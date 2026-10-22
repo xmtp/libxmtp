@@ -43,23 +43,23 @@ async fn test_group_options() {
 
     let binding = amal_group.mutable_metadata().expect("msg");
     let amal_group_name: &String = binding
-        .attributes
+        .attributes()
         .get(&MetadataField::GroupName.to_string())
         .unwrap();
     let amal_group_image_url: &String = binding
-        .attributes
+        .attributes()
         .get(&MetadataField::GroupImageUrlSquare.to_string())
         .unwrap();
     let amal_group_description: &String = binding
-        .attributes
+        .attributes()
         .get(&MetadataField::Description.to_string())
         .unwrap();
     let amal_group_message_disappear_from_ns = binding
-        .attributes
+        .attributes()
         .get(&MetadataField::MessageDisappearFromNS.to_string())
         .unwrap();
     let amal_group_message_disappear_in_ns = binding
-        .attributes
+        .attributes()
         .get(&MetadataField::MessageDisappearInNS.to_string())
         .unwrap();
     assert_eq!(amal_group_name, "Group Name");
@@ -92,26 +92,17 @@ async fn test_group_mutable_data() {
     let group_mutable_metadata = amal_group.mutable_metadata().unwrap();
     assert_eq!(
         group_mutable_metadata
-            .attributes
+            .attributes()
             .get(&MetadataField::MinimumSupportedProtocolVersion.to_string()),
         Some(&xmtp_configuration::PROPOSALS_MIN_PROTOCOL_VERSION.to_string())
     );
-    if xmtp_configuration::ENABLE_COMMIT_LOG {
-        assert_eq!(
-            group_mutable_metadata
-                .attributes
-                .get(&MetadataField::CommitLogSigner.to_string())
-                .map(String::len),
-            Some(64)
-        );
-    } else {
-        assert_eq!(
-            group_mutable_metadata
-                .attributes
-                .get(&MetadataField::CommitLogSigner.to_string()),
-            None
-        );
-    }
+    // A new group stores no commit-log signer.
+    assert_eq!(
+        group_mutable_metadata
+            .attributes()
+            .get(&MetadataField::CommitLogSigner.to_string()),
+        None
+    );
     for field in [
         MetadataField::GroupName,
         MetadataField::Description,
@@ -120,7 +111,7 @@ async fn test_group_mutable_data() {
     ] {
         assert_eq!(
             group_mutable_metadata
-                .attributes
+                .attributes()
                 .get(&field.to_string())
                 .map(String::as_str),
             Some(""),
@@ -145,7 +136,7 @@ async fn test_group_mutable_data() {
     ] {
         assert_eq!(
             group_mutable_metadata
-                .attributes
+                .attributes()
                 .get(&field.to_string())
                 .map(String::as_str),
             Some(""),
@@ -168,7 +159,7 @@ async fn test_group_mutable_data() {
     amal_group.sync().await.unwrap();
     let binding = amal_group.mutable_metadata().expect("msg");
     let amal_group_name: &String = binding
-        .attributes
+        .attributes()
         .get(&MetadataField::GroupName.to_string())
         .unwrap();
     assert_eq!(amal_group_name, "New Group Name 1");
@@ -177,7 +168,7 @@ async fn test_group_mutable_data() {
     bola_group.sync().await.unwrap();
     let binding = bola_group.mutable_metadata().expect("msg");
     let bola_group_name: &String = binding
-        .attributes
+        .attributes()
         .get(&MetadataField::GroupName.to_string())
         .unwrap();
     assert_eq!(bola_group_name, "New Group Name 1");
@@ -192,7 +183,7 @@ async fn test_group_mutable_data() {
     bola_group.sync().await.unwrap();
     let binding = bola_group.mutable_metadata().expect("msg");
     let bola_group_name: &String = binding
-        .attributes
+        .attributes()
         .get(&MetadataField::GroupName.to_string())
         .unwrap();
     assert_eq!(bola_group_name, "New Group Name 1");
@@ -224,7 +215,7 @@ async fn test_update_policies_empty_group() {
     amal_group.sync().await.unwrap();
     let group_mutable_metadata = amal_group.mutable_metadata().unwrap();
     let group_name_1 = group_mutable_metadata
-        .attributes
+        .attributes()
         .get(&MetadataField::GroupName.to_string())
         .unwrap();
     assert_eq!(group_name_1, "New Group Name 1");
@@ -245,7 +236,7 @@ async fn test_update_policies_empty_group() {
     amal_group_2.sync().await.unwrap();
     let group_mutable_metadata = amal_group_2.mutable_metadata().unwrap();
     let group_name_2 = group_mutable_metadata
-        .attributes
+        .attributes()
         .get(&MetadataField::GroupName.to_string())
         .unwrap();
     assert_eq!(group_name_2, "New Group Name 2");
@@ -263,7 +254,7 @@ async fn test_update_group_image_url_square() {
     let group_mutable_metadata = amal_group.mutable_metadata().unwrap();
     assert_eq!(
         group_mutable_metadata
-            .attributes
+            .attributes()
             .get(&MetadataField::GroupImageUrlSquare.to_string())
             .map(String::as_str),
         Some(""),
@@ -280,7 +271,7 @@ async fn test_update_group_image_url_square() {
     amal_group.sync().await.unwrap();
     let binding = amal_group.mutable_metadata().expect("msg");
     let amal_group_image_url: &String = binding
-        .attributes
+        .attributes()
         .get(&MetadataField::GroupImageUrlSquare.to_string())
         .unwrap();
     assert_eq!(amal_group_image_url, "a url");
@@ -298,13 +289,13 @@ async fn test_update_group_message_expiration_settings() {
     let group_mutable_metadata = amal_group.mutable_metadata().unwrap();
     assert_eq!(
         group_mutable_metadata
-            .attributes
+            .attributes()
             .get(&MetadataField::MessageDisappearInNS.to_string()),
         None
     );
     assert_eq!(
         group_mutable_metadata
-            .attributes
+            .attributes()
             .get(&MetadataField::MessageDisappearFromNS.to_string()),
         None
     );
@@ -323,11 +314,11 @@ async fn test_update_group_message_expiration_settings() {
     amal_group.sync().await.unwrap();
     let binding = amal_group.mutable_metadata().expect("msg");
     let amal_message_expiration_from_ms: &String = binding
-        .attributes
+        .attributes()
         .get(&MetadataField::MessageDisappearFromNS.to_string())
         .unwrap();
     let amal_message_disappear_in_ns: &String = binding
-        .attributes
+        .attributes()
         .get(&MetadataField::MessageDisappearInNS.to_string())
         .unwrap();
     assert_eq!(
@@ -355,7 +346,7 @@ async fn test_group_mutable_data_group_permissions() {
     let group_mutable_metadata = amal_group.mutable_metadata().unwrap();
     assert_eq!(
         group_mutable_metadata
-            .attributes
+            .attributes()
             .get(&MetadataField::GroupName.to_string())
             .map(String::as_str),
         Some(""),
@@ -375,7 +366,7 @@ async fn test_group_mutable_data_group_permissions() {
     let group_mutable_metadata = bola_group.mutable_metadata().unwrap();
     assert_eq!(
         group_mutable_metadata
-            .attributes
+            .attributes()
             .get(&MetadataField::GroupName.to_string())
             .map(String::as_str),
         Some(""),
@@ -392,7 +383,7 @@ async fn test_group_mutable_data_group_permissions() {
     amal_group.sync().await.unwrap();
     let binding = amal_group.mutable_metadata().unwrap();
     let amal_group_name: &String = binding
-        .attributes
+        .attributes()
         .get(&MetadataField::GroupName.to_string())
         .unwrap();
     assert_eq!(amal_group_name, "New Group Name 1");
@@ -401,7 +392,7 @@ async fn test_group_mutable_data_group_permissions() {
     bola_group.sync().await.unwrap();
     let binding = bola_group.mutable_metadata().expect("msg");
     let bola_group_name: &String = binding
-        .attributes
+        .attributes()
         .get(&MetadataField::GroupName.to_string())
         .unwrap();
     assert_eq!(bola_group_name, "New Group Name 1");
@@ -416,7 +407,7 @@ async fn test_group_mutable_data_group_permissions() {
     amal_group.sync().await.unwrap();
     let binding = amal_group.mutable_metadata().expect("msg");
     let amal_group_name: &String = binding
-        .attributes
+        .attributes()
         .get(&MetadataField::GroupName.to_string())
         .unwrap();
     assert_eq!(amal_group_name, "New Group Name 2");
@@ -826,13 +817,13 @@ async fn test_can_update_gce_after_failed_commit() {
     bola_group.sync().await.unwrap();
     let binding = amal_group.mutable_metadata().expect("msg");
     let amal_group_name: &String = binding
-        .attributes
+        .attributes()
         .get(&MetadataField::GroupName.to_string())
         .unwrap();
     assert_eq!(amal_group_name, "Name Update 2");
     let binding = bola_group.mutable_metadata().expect("msg");
     let bola_group_name: &String = binding
-        .attributes
+        .attributes()
         .get(&MetadataField::GroupName.to_string())
         .unwrap();
     assert_eq!(bola_group_name, "Name Update 2");
@@ -965,28 +956,28 @@ async fn test_respects_character_limits_for_group_metadata() {
 
     assert_eq!(
         metadata
-            .attributes
+            .attributes()
             .get(&MetadataField::GroupName.to_string())
             .unwrap(),
         &valid_name
     );
     assert_eq!(
         metadata
-            .attributes
+            .attributes()
             .get(&MetadataField::Description.to_string())
             .unwrap(),
         &valid_description
     );
     assert_eq!(
         metadata
-            .attributes
+            .attributes()
             .get(&MetadataField::GroupImageUrlSquare.to_string())
             .unwrap(),
         &valid_image_url
     );
     assert_eq!(
         metadata
-            .attributes
+            .attributes()
             .get(&MetadataField::AppData.to_string())
             .unwrap(),
         &valid_app_data

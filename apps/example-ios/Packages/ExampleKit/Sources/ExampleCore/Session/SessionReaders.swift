@@ -11,9 +11,15 @@ public struct SessionReaders: Sendable {
 		self.messages = messages; self.conversations = conversations; self.events = events
 	}
 
-	public func run() async throws {
+	/// The default message reader owns the database's consumer lease. Run it only while the app is in the foreground.
+	public func runMessages() async throws {
+		try await messages()
+	}
+
+	/// The conversation and event readers hold no lease and run for the whole session.
+	public func runUpdates() async throws {
 		try await withThrowingTaskGroup(of: Void.self) { group in
-			group.addTask(operation: messages); group.addTask(operation: conversations); group.addTask(operation: events)
+			group.addTask(operation: conversations); group.addTask(operation: events)
 			defer { group.cancelAll() }
 			while try await group.next() != nil {}
 		}

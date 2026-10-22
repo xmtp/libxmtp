@@ -6,6 +6,48 @@ mod restored;
 use xmtp_db::TransactionalKeyStore;
 use xmtp_events::EventWriter;
 use xmtp_mls_common::app_data::creation::{InitialGroupKind, initial_dictionary};
+use xmtp_mls_common::group_keys::{GroupKeys, GroupRoot};
+
+/// The MLS group id of a group being inserted.
+#[derive(Clone, Copy)]
+enum NewGroupId {
+    /// A new group, named by the group signing key of its root, with the
+    /// commit-log id the same root derives.
+    Keyed {
+        group_id: GroupId,
+        commit_log_id: [u8; 32],
+    },
+    /// An archive placeholder, named by the archived id. It holds no root.
+    Placeholder(GroupId),
+}
+
+impl NewGroupId {
+    /// Draw a root for a new group, or take a placeholder's archived id.
+    // implements: GMOD-040
+    fn draw(existing_group_id: Option<&[u8]>) -> Result<(Self, Option<GroupRoot>), GroupError> {
+        let Some(existing_group_id) = existing_group_id else {
+            let root = GroupRoot::generate();
+            let keys = GroupKeys::derive(&root);
+            let id = Self::Keyed {
+                group_id: GroupId::from(keys.group_id()),
+                commit_log_id: keys.commit_log_id(),
+            };
+            return Ok((id, Some(root)));
+        };
+        Ok((
+            Self::Placeholder(GroupId::try_from(existing_group_id)?),
+            None,
+        ))
+    }
+
+    /// The commit-log id to store with the row. A placeholder has none.
+    fn commit_log_id(self) -> Option<Vec<u8>> {
+        match self {
+            Self::Keyed { commit_log_id, .. } => Some(commit_log_id.to_vec()),
+            Self::Placeholder(_) => None,
+        }
+    }
+}
 
 /// Represents a group, which can contain anywhere from 1 to MAX_GROUP_SIZE inboxes.
 ///
@@ -143,70 +185,6 @@ where
         operation(mls_group).await
     }
 
-    /// Check if all members in the group support the proposal-by-reference flow.
-    ///
-    /// This checks both:
-    /// 1. Leaf node capabilities in the MLS group (via `check_extension_support`)
-    /// 2. The latest published key packages for all member installations fetched
-    ///    from the network, since leaf nodes may be stale (they aren't updated after
-    ///    the first message is sent).
-    ///
-    /// Returns `true` if all members support proposals, `false` otherwise.
-    pub async fn all_members_support_proposals(
-        &self,
-        mls_group: &OpenMlsGroup,
-    ) -> Result<bool, GroupError> {
-        let (supported, installation_ids) = self.proposal_support_snapshot(mls_group);
-        self.published_members_support_proposals(supported, installation_ids)
-            .await
-    }
-
-    fn proposal_support_snapshot(&self, group: &OpenMlsGroup) -> (bool, Vec<Vec<u8>>) {
-        let supported = group
-            .check_extension_support(&[ExtensionType::AppDataDictionary])
-            .is_ok();
-        let installation_ids = group
-            .members()
-            .map(|member| member.signature_key)
-            .filter(|id| id.as_slice() != self.context.installation_id().as_slice())
-            .collect();
-        (supported, installation_ids)
-    }
-
-    async fn published_members_support_proposals(
-        &self,
-        supported: bool,
-        installation_ids: Vec<Vec<u8>>,
-    ) -> Result<bool, GroupError> {
-        if supported || installation_ids.is_empty() {
-            return Ok(true);
-        }
-
-        let store = crate::mls_store::MlsStore::new(self.context.clone());
-        let key_packages = store
-            .get_key_packages_for_installation_ids(installation_ids)
-            .await?;
-
-        for result in key_packages.values() {
-            match result {
-                Ok(verified_kp) => {
-                    let capabilities = verified_kp.inner.leaf_node().capabilities();
-                    if !capabilities
-                        .extensions()
-                        .contains(&ExtensionType::AppDataDictionary)
-                    {
-                        return Ok(false);
-                    }
-                }
-                Err(_) => {
-                    return Ok(false);
-                }
-            }
-        }
-
-        Ok(true)
-    }
-
     /// Snapshot this group's membership capabilities: the extension types in
     /// the group context, plus the extension types each member installation
     /// advertises.
@@ -221,12 +199,10 @@ where
     /// Every installation's capabilities — the local one included — come from
     /// its *latest published* key package, not its in-group leaf node: a leaf
     /// is frozen when the installation joins and is never updated, so it would
-    /// understate a client that upgraded afterward (the same reason
-    /// [`Self::all_members_support_proposals`] falls back to key packages). An
-    /// installation whose key package has not been published or fails
-    /// verification is reported with `capabilities_known == false` and an empty
-    /// extension list, so callers can distinguish "unknown" from "advertises
-    /// nothing". Transient failures (network, auth, db) surface as an `Err`
+    /// understate a client that upgraded afterward. An installation whose key
+    /// package has not been published or fails verification is reported with
+    /// `capabilities_known == false` and an empty extension list, so callers
+    /// can distinguish "unknown" from "advertises nothing". Transient failures (network, auth, db) surface as an `Err`
     /// rather than masquerading as unknown capabilities.
     pub async fn membership_capabilities(&self) -> Result<GroupMembershipCapabilities, GroupError> {
         // Read the group context's extension types under lock. The member list
@@ -408,9 +384,7 @@ where
 
         let creator_inbox_id = context.inbox_id();
         let commit_log_enabled = context.server_configuration().commit_log_enabled();
-        // Deployments without a commit log do not create a signer.
-        let signer =
-            commit_log_enabled.then(xmtp_cryptography::rand::rand_secret::<ED25519_KEY_LENGTH>);
+        let (group_id, root) = NewGroupId::draw(existing_group_id)?;
         let dictionary = initial_dictionary(
             InitialGroupKind::Group {
                 conversation_type,
@@ -422,13 +396,15 @@ where
                 .map_err(MetadataPermissionsError::from)?,
             &opts,
             creator_inbox_id,
-            signer.as_ref().map(|key| key.as_slice()),
+            root.as_ref(),
             &context
                 .server_configuration()
                 .configuration()
                 .application_components,
         )
         .map_err(app_data::migration::BootstrapSynthesisError::from)?;
+        // The dictionary holds the root now; wipe this copy.
+        drop(root);
         let group_config = build_group_config(dictionary)?;
 
         if !emit_created_event || conversation_type.is_virtual() {
@@ -440,7 +416,7 @@ where
                         let (stored_group, created) = Self::insert_group_row(
                             context,
                             tx,
-                            existing_group_id,
+                            group_id,
                             membership_state,
                             conversation_type,
                             &opts,
@@ -467,7 +443,7 @@ where
                 let (stored_group, _) = Self::insert_group_row(
                     context,
                     tx,
-                    existing_group_id,
+                    group_id,
                     membership_state,
                     conversation_type,
                     &opts,
@@ -486,7 +462,7 @@ where
                 let (stored_group, created) = Self::insert_group_row(
                     context,
                     tx,
-                    existing_group_id,
+                    group_id,
                     membership_state,
                     conversation_type,
                     &opts,
@@ -544,7 +520,7 @@ where
     fn insert_group_row(
         context: &Context,
         tx: &mut crate::state_tx::StateTx<'_, impl TransactionalKeyStore>,
-        existing_group_id: Option<&[u8]>,
+        id: NewGroupId,
         membership_state: GroupMembershipState,
         conversation_type: ConversationType,
         opts: &GroupMetadataOptions,
@@ -553,30 +529,13 @@ where
     ) -> Result<(StoredGroup, bool), GroupError> {
         let storage = tx.storage();
         let db = storage.db();
-        if let Some(existing_group_id) = existing_group_id {
-            let group_id = GroupId::try_from(existing_group_id)?;
-            if let Some(existing) = db.find_group(&group_id)? {
-                return Ok((existing, false));
-            }
+        if let NewGroupId::Placeholder(group_id) = id
+            && let Some(existing) = db.find_group(&group_id)?
+        {
+            return Ok((existing, false));
         }
-        let provider = XmtpOpenMlsProviderRef::new(&storage);
-        let mls_group = if let Some(existing_group_id) = existing_group_id {
-            // A restored group starts with a stub. A Welcome replaces it.
-            OpenMlsGroup::from_backup_stub_logged(
-                &provider,
-                context.identity(),
-                group_config,
-                GroupId::try_from(existing_group_id)?,
-                commit_log_enabled,
-            )?
-        } else {
-            OpenMlsGroup::from_creation_logged(
-                &provider,
-                context.identity(),
-                group_config,
-                commit_log_enabled,
-            )?
-        };
+        let mls_group =
+            Self::create_mls_group(context, &storage, id, group_config, commit_log_enabled)?;
         let group_id: GroupId = mls_group.group_id().try_into()?;
         let stored_group = StoredGroup::builder()
             .id(group_id)
@@ -590,7 +549,8 @@ where
                     .map(|m| m.from_ns),
             )
             .message_disappear_in_ns(opts.message_disappearing_settings.as_ref().map(|m| m.in_ns))
-            .should_publish_commit_log(existing_group_id.is_none())
+            .should_publish_commit_log(matches!(id, NewGroupId::Keyed { .. }))
+            .commit_log_public_key(id.commit_log_id())
             .build()?;
         stored_group.store_or_ignore(&db)?;
         Ok((stored_group, true))
@@ -624,8 +584,7 @@ where
         existing_group_id: Option<&[u8]>,
     ) -> Result<Self, GroupError> {
         let commit_log_enabled = context.server_configuration().commit_log_enabled();
-        let signer =
-            commit_log_enabled.then(xmtp_cryptography::rand::rand_secret::<ED25519_KEY_LENGTH>);
+        let (group_id, root) = NewGroupId::draw(existing_group_id)?;
         let kind = if membership_state == GroupMembershipState::Restored {
             InitialGroupKind::RestoredDm {
                 member_one_inbox_id: &dm_members.member_one_inbox_id,
@@ -644,13 +603,15 @@ where
                 .map_err(MetadataPermissionsError::from)?,
             &opts,
             context.inbox_id(),
-            signer.as_ref().map(|key| key.as_slice()),
+            root.as_ref(),
             &context
                 .server_configuration()
                 .configuration()
                 .application_components,
         )
         .map_err(app_data::migration::BootstrapSynthesisError::from)?;
+        // The dictionary holds the root now; wipe this copy.
+        drop(root);
         let group_config = build_group_config(dictionary)?;
 
         let stored_group = if membership_state == GroupMembershipState::Restored {
@@ -661,7 +622,7 @@ where
                     membership_state,
                     &dm_members,
                     &opts,
-                    existing_group_id,
+                    group_id,
                     &group_config,
                     commit_log_enabled,
                 )?))
@@ -679,7 +640,7 @@ where
                         membership_state,
                         &dm_members,
                         &opts,
-                        existing_group_id,
+                        group_id,
                         &group_config,
                         commit_log_enabled,
                     )?;
@@ -741,35 +702,19 @@ where
         membership_state: GroupMembershipState,
         dm_members: &DmMembers<InboxId>,
         opts: &GroupMetadataOptions,
-        existing_group_id: Option<&[u8]>,
+        id: NewGroupId,
         group_config: &MlsGroupCreateConfig,
         commit_log_enabled: bool,
     ) -> Result<(StoredGroup, bool, Vec<StoredConsentRecord>), GroupError> {
         let storage = tx.storage();
         let db = storage.db();
-        if let Some(group_id) = existing_group_id {
-            let group_id = GroupId::try_from(group_id)?;
-            if let Some(existing) = db.find_group(&group_id)? {
-                return Ok((existing, false, Vec::new()));
-            }
+        if let NewGroupId::Placeholder(group_id) = id
+            && let Some(existing) = db.find_group(&group_id)?
+        {
+            return Ok((existing, false, Vec::new()));
         }
-        let provider = XmtpOpenMlsProviderRef::new(&storage);
-        let mls_group = if let Some(group_id) = existing_group_id {
-            OpenMlsGroup::from_backup_stub_logged(
-                &provider,
-                context.identity(),
-                group_config,
-                GroupId::try_from(group_id)?,
-                commit_log_enabled,
-            )?
-        } else {
-            OpenMlsGroup::from_creation_logged(
-                &provider,
-                context.identity(),
-                group_config,
-                commit_log_enabled,
-            )?
-        };
+        let mls_group =
+            Self::create_mls_group(context, &storage, id, group_config, commit_log_enabled)?;
         let group_id: GroupId = mls_group.group_id().try_into()?;
         let stored_group = StoredGroup::builder()
             .id(group_id)
@@ -783,6 +728,7 @@ where
             )
             .message_disappear_in_ns(opts.message_disappearing_settings.as_ref().map(|m| m.in_ns))
             .dm_id(Some(dm_members.to_string()))
+            .commit_log_public_key(id.commit_log_id())
             .build()?;
         stored_group.store(&db)?;
         if membership_state == GroupMembershipState::Restored {
@@ -795,6 +741,34 @@ where
         );
         let consent_changes = db.insert_or_replace_consent_records(&[record])?;
         Ok((stored_group, true, consent_changes))
+    }
+
+    /// Create the MLS group a new row names. A restored group starts with a
+    /// stub that a Welcome replaces.
+    fn create_mls_group(
+        context: &Context,
+        storage: &impl XmtpMlsStorageProvider,
+        id: NewGroupId,
+        group_config: &MlsGroupCreateConfig,
+        commit_log_enabled: bool,
+    ) -> Result<OpenMlsGroup, GroupError> {
+        let provider = XmtpOpenMlsProviderRef::new(storage);
+        match id {
+            NewGroupId::Keyed { group_id, .. } => OpenMlsGroup::from_creation_logged(
+                &provider,
+                context.identity(),
+                group_config,
+                group_id,
+                commit_log_enabled,
+            ),
+            NewGroupId::Placeholder(group_id) => OpenMlsGroup::from_backup_stub_logged(
+                &provider,
+                context.identity(),
+                group_config,
+                group_id,
+                commit_log_enabled,
+            ),
+        }
     }
 
     // Super admin status is only criteria for whether to publish the commit log for now

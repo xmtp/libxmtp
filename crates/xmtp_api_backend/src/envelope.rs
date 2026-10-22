@@ -253,25 +253,22 @@ pub fn decode_key_package(
     }
 }
 
-/// Decode a signed commit-log record without verifying its signature.
+/// Decode an envelope read from a commit-log topic without opening it. An
+/// envelope whose payload is not a sealed entry decodes with no entry, so the
+/// reader discards it and still reads past it. Only invalid metadata fails.
 pub fn decode_commit_log_entry(
     envelope: wire::ServerEnvelope,
 ) -> Result<types::CommitLogEntry, EnvelopeError> {
-    let (meta, payload) = parts(envelope, TopicKind::CommitLogEntriesV1)?;
-    let wire::client_envelope::Payload::CommitLogEntry(payload) = payload else {
-        return Err(invalid("commit log payload").into());
+    let meta = envelope.meta.ok_or_else(|| invalid("metadata"))?;
+    let (topic, cursor, _) = metadata(&meta, TopicKind::CommitLogEntriesV1)?;
+    let sealed = match envelope.envelope.and_then(|envelope| envelope.payload) {
+        Some(wire::client_envelope::Payload::SealedCommitLogEntry(entry)) => Some(entry),
+        _ => None,
     };
-    let entry =
-        xmtp_mls_common::commit_log::decode_commit_log(&payload.serialized_commit_log_entry)
-            .map_err(ConversionError::from)?;
-    let (topic, _, _) = metadata(&meta, TopicKind::CommitLogEntriesV1)?;
-    if entry.group_id != topic.identifier() {
-        return Err(invalid("commit log group id").into());
-    }
     Ok(types::CommitLogEntry {
-        meta,
-        entry,
-        payload,
+        topic,
+        cursor,
+        sealed,
     })
 }
 
@@ -320,11 +317,50 @@ mod tests {
         }
     }
 
+    /// A stored group message decodes under its 32-byte group id, keeps the
+    /// fields its signature covers, and is refused under another group's
+    /// topic. A legacy 16-byte group id names no topic, so a message stored
+    /// under a 17-byte topic is refused.
+    #[xmtp_common::test(unwrap_try = true)]
+    fn group_messages_decode_only_under_32_byte_ids() {
+        use xmtp_mls_validation::test_utils::{GroupMessageKind, group_message_envelope};
+
+        let stored_on = |id: &[u8], topic: &Topic| {
+            let mut stored = envelope(topic, 9);
+            let mut client = group_message_envelope(id, GroupMessageKind::Application, []);
+            if let Some(wire::client_envelope::Payload::GroupMessage(message)) = &mut client.payload
+            {
+                message.signature = vec![5; 64];
+            }
+            stored.envelope = Some(client);
+            stored
+        };
+        let id = [3u8; 32];
+        let stored = stored_on(&id, &Topic::new_group_message(id));
+        let decoded = decode_group_message(stored.clone())?;
+        assert_eq!(decoded.group_id.as_slice(), id);
+        assert_eq!(decoded.sender_hmac, [0x33, 0x44]);
+        assert!(decoded.should_push);
+        let metadata = decode_group_message_metadata(stored.meta.clone().unwrap())?;
+        assert_eq!(metadata.group_id.as_slice(), id);
+
+        let mut moved = stored;
+        moved.meta.as_mut().unwrap().topic = Some(wire::Topic {
+            topic: Topic::new_group_message([4u8; 32]).cloned_vec(),
+        });
+        assert!(decode_group_message(moved).is_err());
+
+        let legacy = [3u8; 16];
+        let stored = stored_on(&legacy, &Topic::new_group_message(legacy));
+        assert!(decode_group_message(stored.clone()).is_err());
+        assert!(decode_group_message_metadata(stored.meta.unwrap()).is_err());
+    }
+
     // verifies: PROC-001
     #[xmtp_common::test(unwrap_try = true)]
     fn ordered_batches_keep_sparse_positions_and_authoritative_bytes() {
-        let a = Topic::new_group_message([1; 16]);
-        let b = Topic::new_group_message([2; 16]);
+        let a = Topic::new_group_message([1; 32]);
+        let b = Topic::new_group_message([2; 32]);
         let mut cursors = [(a.clone(), types::Cursor(2)), (b.clone(), types::Cursor(0))].into();
         let original = envelope(&a, 8);
         let batches = ordered_batches(
@@ -343,11 +379,33 @@ mod tests {
         assert_eq!(cursors[&b], types::Cursor(11));
     }
 
+    /// A 16-byte group id names no topic, so a batch on its 17-byte topic is
+    /// refused and no cursor moves.
+    // verifies: PROC-001
+    #[xmtp_common::test(unwrap_try = true)]
+    fn a_batch_on_a_17_byte_group_topic_is_refused() {
+        let legacy = Topic::new_group_message([1; 16]);
+        let starts: TopicCursor = [(legacy.clone(), types::Cursor(2))].into();
+        let mut cursors = starts.clone();
+        assert!(
+            ordered_batches(
+                &mut cursors,
+                vec![envelope(&legacy, 8)],
+                IncomingBatchLimits {
+                    max_rows: 1,
+                    max_bytes: 4096
+                }
+            )
+            .is_err()
+        );
+        assert_eq!(cursors, starts);
+    }
+
     // verifies: PROC-001
     #[xmtp_common::test(unwrap_try = true)]
     fn failed_frame_does_not_advance_any_topic() {
-        let a = Topic::new_group_message([1; 16]);
-        let b = Topic::new_group_message([2; 16]);
+        let a = Topic::new_group_message([1; 32]);
+        let b = Topic::new_group_message([2; 32]);
         let starts: TopicCursor =
             [(a.clone(), types::Cursor(2)), (b.clone(), types::Cursor(0))].into();
         for envelopes in [

@@ -1,20 +1,23 @@
 use crate::test_support as support;
 
+mod signatures;
+
 use crate::api::{self, publish_error::Reason};
 use prost::Message;
 use support::TestServer;
 use tonic::Code;
+use xmtp_mls_common::group_keys::sign_group_message;
 use xmtp_mls_validation::test_utils::{
-    GroupMessageKind, TestChain, expired_key_package_envelope, group_message_envelope,
-    identity_envelope, identity_history_with_passkey, inline_welcome_envelope,
+    GroupMessageKind, TestChain, expired_key_package_envelope, group_keys, identity_envelope,
+    identity_history_with_passkey, inline_welcome_envelope, keyed_group_message_envelope,
     malformed_signature_create_inbox_update, scw_change_recovery_update_at,
-    scw_create_inbox_update_at,
+    scw_create_inbox_update_at, sealed_commit_log_envelope,
 };
 
 #[xmtp_common::test(unwrap_try = true)]
 // verifies: API-211
 async fn push_columns_follow_payload_kind_and_keep_the_original_envelope() {
-    use xmtp_mls_validation::test_utils::{commit_log_envelope, key_package_envelope};
+    use xmtp_mls_validation::test_utils::key_package_envelope;
     let server = TestServer::new(|_| {}).await?;
     let mut envelopes = Vec::new();
     let mut expected = Vec::new();
@@ -29,10 +32,12 @@ async fn push_columns_follow_payload_kind_and_keep_the_original_envelope() {
     .into_iter()
     .enumerate()
     {
-        let mut envelope = group_message_envelope([index as u8; 16], kind, []);
+        let keys = group_keys(index as u8);
+        let mut envelope = keyed_group_message_envelope(&keys, kind, []);
         if let Some(api::client_envelope::Payload::GroupMessage(group)) = &mut envelope.payload {
             group.should_push = should_push;
             group.sender_hmac = vec![88; hmac_length];
+            sign_group_message(&keys, group)?;
         }
         envelopes.push(envelope);
         expected.push((eligible, (hmac_length == 32).then(|| vec![88; 32])));
@@ -40,7 +45,7 @@ async fn push_columns_follow_payload_kind_and_keep_the_original_envelope() {
     envelopes.extend([
         inline_welcome_envelope([77; 32]),
         key_package_envelope("", Default::default()).envelope,
-        commit_log_envelope([66; 16]),
+        sealed_commit_log_envelope(&group_keys(66), 7),
     ]);
     expected.extend([(true, None), (false, None), (false, None)]);
     let identity = identity_history_with_passkey().await;
@@ -70,7 +75,7 @@ async fn push_columns_follow_payload_kind_and_keep_the_original_envelope() {
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn application_envelope_limit_accepts_exact_size_and_rejects_one_past() {
-    let envelope = group_message_envelope([1; 16], GroupMessageKind::Application, []);
+    let envelope = keyed_group_message_envelope(&group_keys(1), GroupMessageKind::Application, []);
     let size = envelope.encoded_len();
     let mut oversized = envelope.clone();
     if let Some(api::client_envelope::Payload::GroupMessage(message)) = &mut oversized.payload {
@@ -392,13 +397,13 @@ async fn watermark_guard_failure_rolls_back_every_new_envelope() {
 #[xmtp_common::test(unwrap_try = true)]
 // verifies: API-212, OPS-002
 async fn permanent_payloads_and_expired_metadata_remain_readable() {
-    use xmtp_mls_validation::test_utils::{commit_log_envelope, group_message_envelope};
     let server = TestServer::new(|_| {}).await?;
+    let keys = group_keys(10);
     let envelopes = vec![
-        group_message_envelope([10; 16], GroupMessageKind::Application, [0xff]),
-        group_message_envelope([10; 16], GroupMessageKind::Proposal, []),
-        group_message_envelope([10; 16], GroupMessageKind::Commit, []),
-        commit_log_envelope([10; 16]),
+        keyed_group_message_envelope(&keys, GroupMessageKind::Application, [0xff]),
+        keyed_group_message_envelope(&keys, GroupMessageKind::Proposal, []),
+        keyed_group_message_envelope(&keys, GroupMessageKind::Commit, []),
+        sealed_commit_log_envelope(&keys, 7),
     ];
     let metas = server.publish(envelopes.clone()).await?;
     assert!(metas[0].expiry_ns > metas[0].server_ns);

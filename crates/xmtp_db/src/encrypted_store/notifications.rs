@@ -4,7 +4,7 @@ use super::{
     ConnectionExt, DbConnection,
     schema::{groups, push_uploaded_topic, user_preferences},
 };
-use crate::{StorageError, impl_fetch, impl_store};
+use crate::{StorageError, StoredSecret, impl_fetch, impl_store};
 use diesel::prelude::*;
 use xmtp_proto::types::GroupId;
 
@@ -14,10 +14,12 @@ use xmtp_proto::types::GroupId;
 #[diesel(table_name = user_preferences, treat_none_as_null = true)]
 pub struct StoredNotification {
     pub push_recipient_id: Option<Vec<u8>>,
-    pub push_recipient_secret: Option<Vec<u8>>,
+    pub push_recipient_secret: Option<StoredSecret>,
     pub push_state: i32,
     pub push_failed_error: Option<Vec<u8>>,
-    pub push_config: Option<Vec<u8>>,
+    /// The serialized notification configuration, which holds the HTTP
+    /// delivery signing key.
+    pub push_config: Option<StoredSecret>,
     pub push_deadlines: Option<Vec<u8>>,
     pub push_last_state: Option<Vec<u8>>,
     pub push_repairing: bool,
@@ -241,10 +243,10 @@ mod tests {
         db.set_notification_override(&group.id, Some(0))?;
         let before = StoredNotification {
             push_recipient_id: Some(vec![1; 32]),
-            push_recipient_secret: Some(vec![2; 32]),
+            push_recipient_secret: Some(vec![2; 32].into()),
             push_state: 2,
             push_failed_error: Some(vec![3]),
-            push_config: Some(vec![4]),
+            push_config: Some(vec![4].into()),
             push_deadlines: Some(vec![5]),
             push_last_state: Some(vec![6]),
             push_repairing: true,
@@ -278,13 +280,49 @@ mod tests {
         assert_eq!(db.notification_groups()?[0].push_override, Some(0));
     }
 
+    /// The secret columns hold exactly the bytes the record carries, as the
+    /// `Vec<u8>` columns did, and read back unchanged.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn notification_secret_columns_hold_the_input_bytes() {
+        let store = TestDb::create_persistent_store(None).await;
+        let db = store.db();
+        let secret: Vec<u8> = (0..32).map(|i| 0x90 ^ i).collect();
+        let config = br#"{"channel":{"Http":{"url":"u","signing_key":[1,2,3]}}}"#.to_vec();
+        db.save_notification_record(&StoredNotification {
+            push_recipient_secret: Some(secret.clone().into()),
+            push_config: Some(config.clone().into()),
+            ..Default::default()
+        })?;
+        let raw: (Option<Vec<u8>>, Option<Vec<u8>>) = db.raw_query(|conn| {
+            user_preferences::table
+                .select((
+                    user_preferences::push_recipient_secret,
+                    user_preferences::push_config,
+                ))
+                .first(conn)
+        })?;
+        assert_eq!(raw, (Some(secret.clone()), Some(config.clone())));
+        let record = db.notification_record()?;
+        assert_eq!(
+            record
+                .push_recipient_secret
+                .as_ref()
+                .map(StoredSecret::as_slice),
+            Some(secret.as_slice())
+        );
+        assert_eq!(
+            record.push_config.as_ref().map(StoredSecret::as_slice),
+            Some(config.as_slice())
+        );
+    }
+
     #[xmtp_common::test(unwrap_try = true)]
     async fn notification_disable_rolls_back_cleared_uploads_if_state_write_fails() {
         let store = TestDb::create_persistent_store(None).await;
         let db = store.db();
         let before = StoredNotification {
             push_state: 1,
-            push_config: Some(vec![1]),
+            push_config: Some(vec![1].into()),
             push_generation: 9,
             ..Default::default()
         };

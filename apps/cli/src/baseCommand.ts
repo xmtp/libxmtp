@@ -2,7 +2,7 @@ import { env } from "node:process";
 import { createInterface } from "node:readline";
 
 import { Command, Errors, Flags } from "@oclif/core";
-import type { BackendOptions, Client } from "@xmtp/node-sdk";
+import { type BackendOptions, type Client, XmtpError } from "@xmtp/node-sdk";
 
 import { parseBackendUrl, parseEnvironmentLabel } from "./utils/backend.js";
 import { createClient } from "./utils/client.js";
@@ -332,17 +332,23 @@ export function terminalSafeErrorMessage(
   return `${safe}${suffix}`;
 }
 
-const UNSUPPORTED_DATABASE_CODES = [
+/**
+ * The `details.code` values of an `XmtpError.Storage` for a database this
+ * build cannot open: the Rust cause codes.
+ */
+const UNSUPPORTED_DATABASE_CODES: ReadonlySet<string> = new Set([
   "StorageError::PreTransitionDatabase",
   "StorageError::OldStreamDatabase",
-] as const;
+  "StorageError::OldEncodingDatabase",
+  "StorageError::LegacyGroupDatabase",
+]);
 
 /**
  * The terminal text of an error that is not a CLI error: its message on one
- * line, then the database path for an unsupported database.
+ * line, then the database path for a database this build cannot open.
  */
 export function formatStorageErrorMessage(
-  error: Error & { code?: string },
+  error: Error,
   dbPath?: string,
 ): string {
   const message = terminalSafeText(error.message);
@@ -350,9 +356,9 @@ export function formatStorageErrorMessage(
     return message;
   }
 
-  const isUnsupportedDatabase = UNSUPPORTED_DATABASE_CODES.some(
-    (code) => error.message.startsWith(`[${code}]`) || error.code === code,
-  );
+  const isUnsupportedDatabase =
+    error instanceof XmtpError.Storage &&
+    UNSUPPORTED_DATABASE_CODES.has(error.details.code);
 
   return isUnsupportedDatabase
     ? `${message}\nDatabase path: ${terminalSafeText(dbPath)}`

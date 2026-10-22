@@ -113,11 +113,6 @@ pub enum DeserializationError {
     /// Failed to create public key from bytes. Not retryable.
     #[error("Error creating public key from proto bytes")]
     Ed25519(#[from] ed25519_dalek::ed25519::Error),
-    /// Unable to deserialize.
-    ///
-    /// Bincode deserialization failed. Not retryable.
-    #[error("Unable to deserialize")]
-    Bincode,
     #[error(transparent)]
     #[error_code(inherit)]
     AddressValidation(#[from] IdentifierValidationError),

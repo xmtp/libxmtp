@@ -14,36 +14,36 @@
       "rustTarget": "x86_64-unknown-linux-gnu",
       "library": "libxmtp_sdk.so",
       "nixSystems": ["x86_64-linux", "aarch64-linux"],
-      "runner": "blacksmith-16vcpu-ubuntu-2404",
+      "runner": "ubuntu-24.04",
       "loadRunner": "ubuntu-latest",
-      "loadImage": "node:22.12.0-bookworm-slim@sha256:35531c52ce27b6575d69755c73e65d4468dba93a25644eed56dc12879cae9213"
+      "loadImage": "node:22.23.4-bookworm-slim@sha256:de170b39439eb0e5a3444ad7d60b015614a381e10fecae2e30ec9e735122f38d"
     },
     {
       "target": "linux-x64-musl",
       "rustTarget": "x86_64-unknown-linux-musl",
       "library": "libxmtp_sdk.so",
       "nixSystems": ["x86_64-linux", "aarch64-linux"],
-      "runner": "blacksmith-16vcpu-ubuntu-2404",
+      "runner": "ubuntu-24.04",
       "loadRunner": "ubuntu-latest",
-      "loadImage": "node:22.12.0-alpine@sha256:51eff88af6dff26f59316b6e356188ffa2c422bd3c3b76f2556a2e7e89d080bd"
+      "loadImage": "node:22.23.4-alpine@sha256:ce8d97f7cfc7c5386421eb932df20a29df99b1a7f469f6157d5c9956702ffadc"
     },
     {
       "target": "linux-arm64-gnu",
       "rustTarget": "aarch64-unknown-linux-gnu",
       "library": "libxmtp_sdk.so",
       "nixSystems": ["x86_64-linux", "aarch64-linux"],
-      "runner": "blacksmith-16vcpu-ubuntu-2404",
+      "runner": "ubuntu-24.04",
       "loadRunner": "ubuntu-24.04-arm",
-      "loadImage": "node:22.12.0-bookworm-slim@sha256:35531c52ce27b6575d69755c73e65d4468dba93a25644eed56dc12879cae9213"
+      "loadImage": "node:22.23.4-bookworm-slim@sha256:de170b39439eb0e5a3444ad7d60b015614a381e10fecae2e30ec9e735122f38d"
     },
     {
       "target": "linux-arm64-musl",
       "rustTarget": "aarch64-unknown-linux-musl",
       "library": "libxmtp_sdk.so",
       "nixSystems": ["x86_64-linux", "aarch64-linux"],
-      "runner": "blacksmith-16vcpu-ubuntu-2404",
+      "runner": "ubuntu-24.04",
       "loadRunner": "ubuntu-24.04-arm",
-      "loadImage": "node:22.12.0-alpine@sha256:51eff88af6dff26f59316b6e356188ffa2c422bd3c3b76f2556a2e7e89d080bd"
+      "loadImage": "node:22.23.4-alpine@sha256:ce8d97f7cfc7c5386421eb932df20a29df99b1a7f469f6157d5c9956702ffadc"
     },
     {
       "target": "win32-x64-msvc",
