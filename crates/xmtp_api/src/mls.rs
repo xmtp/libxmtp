@@ -164,7 +164,7 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
     #[xmtp_common::rpc_span]
     pub async fn publish_commit_log(
         &self,
-        entries: Vec<wire::CommitLogEntry>,
+        entries: Vec<wire::SealedCommitLogEntry>,
         stored: &mut Vec<wire::EnvelopeMeta>,
     ) -> Result<()> {
         let units = entries
@@ -172,7 +172,7 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
             .map(|entry| {
                 PublishUnit::single_within(
                     wire::ClientEnvelope {
-                        payload: Some(wire::client_envelope::Payload::CommitLogEntry(entry)),
+                        payload: Some(wire::client_envelope::Payload::SealedCommitLogEntry(entry)),
                     },
                     self.limits(),
                 )
@@ -180,10 +180,9 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
             .collect::<Result<Vec<_>>>()?;
         self.publish_units_in_order(units, stored).await
     }
-    /// Read commit-log topics. An envelope that does not decode as a
-    /// `CommitLogEntry` of its topic, such as a `SealedCommitLogEntry`, is
-    /// logged and left out; the read still returns every other envelope, so
-    /// one bad envelope never fails it.
+    /// Read commit-log topics without opening any entry. An envelope whose
+    /// metadata does not decode is logged and left out; the read still
+    /// returns every other envelope, so one bad envelope never fails it.
     #[xmtp_common::rpc_span]
     pub async fn query_commit_log(
         &self,

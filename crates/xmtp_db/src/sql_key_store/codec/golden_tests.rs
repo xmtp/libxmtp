@@ -647,8 +647,8 @@ async fn build() -> Value {
     );
     let staged = second.pending_commit().expect("an own staged commit");
 
-    // The XMTP labels, through the writers `identity.rs` and
-    // `commit_log_key.rs` use.
+    // The XMTP labels, through the writers `identity.rs` uses and the
+    // commit-log signer writer older clients used.
     let hash_ref = bob_spare.key_package().hash_ref(bob.crypto()).unwrap();
     let init_key = tls(bob_spare.key_package().hpke_init_key());
     let storage = bob.storage();
@@ -1624,7 +1624,8 @@ async fn golden_rows_load_and_run_the_groups() {
 
         // The XMTP labels read back through their production keys and
         // readers, as `find_key_package_hash_ref`, `find_private_key` and
-        // `read_commit_log_key` read them. `build` wrote these values.
+        // older clients' commit-log signer reader read them. `build` wrote
+        // these values.
         let references = golden.stores["bob"]
             .iter()
             .find(|row| row.label == "KeyPackageReferences")

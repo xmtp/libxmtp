@@ -1,6 +1,11 @@
 //! Real gRPC calls against the local backend and PostgreSQL.
 use super::*;
+use xmtp_mls_common::{
+    commit_log::{open_entry, seal_entry},
+    group_keys::{GroupKeys, GroupRoot},
+};
 use xmtp_proto::api_client::{ApiBuilder, XmtpTestClient};
+use xmtp_proto::xmtp::mls::message_contents::PlaintextCommitLogEntry;
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn backend_round_trip_covers_five_kinds_paging_and_absent_key() {
@@ -114,23 +119,33 @@ async fn backend_round_trip_covers_five_kinds_paging_and_absent_key() {
     );
     assert_eq!(groups[0].expiry_ns, Some(group_metas[0].expiry_ns));
 
-    let commit = commit_log_envelope(group_id);
-    let Some(wire::client_envelope::Payload::CommitLogEntry(entry)) = commit.payload.clone() else {
-        unreachable!()
+    // A sealed entry on its commit-log topic, named by the commit-log id.
+    let keys = GroupKeys::derive(&GroupRoot::generate());
+    let plaintext = PlaintextCommitLogEntry {
+        group_id: keys.group_id().to_vec(),
+        commit_sequence_id: 1,
+        ..Default::default()
     };
+    let entry = seal_entry(&keys, &plaintext)?;
     let mut commit_metas = Vec::new();
     api.publish_commit_log(vec![entry.clone()], &mut commit_metas)
         .await?;
     let logs = api
         .query_commit_log(HashMap::from([(
-            Topic::new_commit_log(group_id),
+            Topic::new_commit_log(keys.commit_log_id()),
             Cursor(0),
         )]))
         .await?;
     assert_eq!(logs.len(), 1);
-    assert_eq!(logs[0].payload, entry);
-    assert_eq!(logs[0].meta, commit_metas[0]);
-    assert_eq!(logs[0].entry.group_id, group_id);
+    assert_eq!(logs[0].sealed.as_ref(), Some(&entry));
+    assert_eq!(
+        logs[0].cursor.0,
+        commit_metas[0].cursor.as_ref()?.sequence_id
+    );
+    assert_eq!(
+        open_entry(&keys, &keys.group_id(), logs[0].sealed.as_ref()?)?,
+        plaintext
+    );
 
     let replay = api
         .send_group_messages(vec![PublishUnit::single(group_envelopes[0].clone())?])

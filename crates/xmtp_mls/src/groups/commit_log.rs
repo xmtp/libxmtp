@@ -1,10 +1,8 @@
 use crate::builder::ForkRecoveryPolicy;
 use crate::groups::MlsGroup;
-use crate::groups::commit_log_key::CommitLogKeyCrypto;
 use crate::groups::oneshot::Oneshot;
 use crate::groups::summary::SyncSummary;
 use futures::StreamExt;
-use openmls_traits::OpenMlsProvider;
 use std::collections::HashSet;
 use std::{collections::HashMap, time::Duration};
 use thiserror::Error;
@@ -20,20 +18,21 @@ use xmtp_db::remote_commit_log::RemoteCommitLog;
 use xmtp_db::remote_commit_log::RemoteCommitLogOrder;
 use xmtp_db::{
     DbQuery, StorageError, Store, TransactionOutcome,
-    group::{StoredGroupCommitLogPublicKey, StoredGroupForReaddRequest},
+    group::StoredGroupForReaddRequest,
     local_commit_log::{CommitType, LocalCommitLogOrder},
     prelude::*,
     readd_status::QueryReaddStatus,
     remote_commit_log::{CommitResult, NewRemoteCommitLog},
 };
-use xmtp_proto::backend_v1::CommitLogEntry;
+use xmtp_mls_common::app_data::group_root::group_keys_from_extensions;
+use xmtp_mls_common::commit_log::{open_entry, seal_entry};
+use xmtp_mls_common::group_keys::{GroupKeys, SealError};
+use xmtp_proto::backend_v1::SealedCommitLogEntry;
 use xmtp_proto::types::Cursor;
-use xmtp_proto::types::{CommitLogEntry as DecodedCommitLogEntry, TopicCursor, TopicKind};
+use xmtp_proto::types::{CommitLogEntry as DecodedCommitLogEntry, Topic, TopicCursor};
 use xmtp_proto::xmtp::mls::message_contents::CommitResult as ProtoCommitResult;
 use xmtp_proto::xmtp::mls::message_contents::PlaintextCommitLogEntry;
 
-use crate::groups::commit_log_key::derive_consensus_public_key;
-use crate::groups::commit_log_key::get_or_create_signing_key;
 use crate::{
     context::XmtpSharedContext,
     groups::GroupError,
@@ -92,9 +91,6 @@ pub enum CommitLogError {
     CryptoError(#[from] openmls_traits::types::CryptoError),
     #[error("try from slice error: {0}")]
     TryFromSliceError(#[from] std::array::TryFromSliceError),
-    /// Commit-log signing failed. Not retryable.
-    #[error(transparent)]
-    Signing(#[from] xmtp_mls_common::commit_log::CommitLogSigningError),
     #[error("conversion error: {0}")]
     Conversion(#[from] xmtp_proto::ConversionError),
     #[error("Group did not pass readd validation: {0}")]
@@ -124,7 +120,6 @@ impl RetryableError for CommitLogError {
             Self::GroupError(group_error) => group_error.is_retryable(),
             Self::CryptoError(_crypto_error) => false,
             Self::TryFromSliceError(_try_from_slice_error) => false,
-            Self::Signing(_) => false,
             Self::Conversion(_) => false,
             Self::GroupReaddValidationError(_group_readd_validation_error) => false,
             Self::SyncError(sync_error) => sync_error.is_retryable(),
@@ -153,7 +148,6 @@ impl NeedsDbReconnect for CommitLogError {
             | Self::KeystoreError(_)
             | Self::CryptoError(_)
             | Self::TryFromSliceError(_)
-            | Self::Signing(_)
             | Self::Conversion(_)
             | Self::GroupReaddValidationError(_)
             | Self::SyncError(_)
@@ -185,15 +179,39 @@ where
 
 pub struct CommitLogWorker<Context> {
     context: Context,
+    #[cfg(test)]
+    seal_fault: Option<SealFault>,
 }
+
+/// A test-only fault at the result of each seal, by conversation.
+#[cfg(test)]
+pub(crate) type SealFault = std::sync::Arc<
+    dyn Fn(
+            &GroupId,
+            Result<SealedCommitLogEntry, SealError>,
+        ) -> Result<SealedCommitLogEntry, SealError>
+        + Send
+        + Sync,
+>;
 
 impl<Context> CommitLogWorker<Context>
 where
     Context: XmtpSharedContext + 'static,
 {
     pub fn new(context: Context) -> Self {
-        Self { context }
+        Self {
+            context,
+            #[cfg(test)]
+            seal_fault: None,
+        }
     }
+}
+
+/// One conversation's sealed entries and the cursor that publishing them
+/// reaches.
+struct PendingPublish {
+    cursor_info: ConversationCursorInfo,
+    entries: Vec<SealedCommitLogEntry>,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -206,31 +224,19 @@ pub struct ConversationCursorInfo {
     pub entry_rowids: Vec<i64>,
 }
 
-/// The publish cursor to save for each conversation once the first `stored`
-/// entries of a publish are stored. `infos` lists the conversations in
-/// publish order. A fully stored conversation moves to its last row. A partly
-/// stored one moves to the row of its last stored entry, so that the next
-/// turn starts from its first unstored entry. Later conversations keep their
-/// cursors.
-// implements: FORK-021
-fn stored_cursors(infos: &[ConversationCursorInfo], mut stored: usize) -> Vec<(&[u8], i64)> {
-    let mut cursors = Vec::new();
-    for info in infos {
-        let count = info.entry_rowids.len();
-        if stored >= count {
-            stored -= count;
-            cursors.push((
-                info.conversation_id.as_slice(),
-                info.last_entry_published_rowid,
-            ));
-            continue;
+impl ConversationCursorInfo {
+    /// The publish cursor to save once the first `stored` entries of this
+    /// conversation's publish are stored, or `None` when none is. A fully
+    /// stored publish moves to the conversation's last row, past skipped
+    /// rows. A partly stored one moves to the row of its last stored entry,
+    /// so that the next turn starts from its first unstored entry.
+    // implements: FORK-021
+    fn stored_cursor(&self, stored: usize) -> Option<i64> {
+        if stored >= self.entry_rowids.len() {
+            return Some(self.last_entry_published_rowid);
         }
-        if let Some(last) = stored.checked_sub(1) {
-            cursors.push((info.conversation_id.as_slice(), info.entry_rowids[last]));
-        }
-        break;
+        stored.checked_sub(1).map(|last| self.entry_rowids[last])
     }
-    cursors
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -287,188 +293,243 @@ where
         Ok(())
     }
 
+    /// Publish every eligible conversation's new entries, each conversation
+    /// in its own publish call, so a refused or unsendable entry holds back
+    /// only its own conversation. A failed publish, refused or transport, ends
+    /// that conversation's part of the turn: it is logged, its cursor moves
+    /// past the stored prefix only, and it is tried again at the next tick.
+    /// It never stops the worker.
+    // implements: FORK-021
     async fn publish_commit_logs_to_remote(
         &mut self,
     ) -> Result<Vec<ConversationCursorInfo>, CommitLogError> {
         let conn = &self.context.db();
-        // Step 1 is to get the list of all group_id for dms and for groups where we are a super admin
-        let conversation_ids_for_remote_log_publish =
-            conn.get_conversation_ids_for_remote_log_publish()?;
-
-        // Step 2 is to prepare commit log entries for publishing along with the updated cursor for each conversation on publication success
-        let (conversation_cursor_info, all_entries) =
-            self.prepare_publish_commit_log_info(conn, &conversation_ids_for_remote_log_publish)?;
-
-        // Skip API call if there are no entries to publish
-        if all_entries.is_empty() {
-            tracing::debug!("No commit log entries to publish");
-            return Ok(conversation_cursor_info);
-        }
-
-        tracing::info!(
-            "Publishing {} commit log entries to remote commit log",
-            all_entries.len()
-        );
-
-        // Entries go out in order, one request at a time, and publishing stops
-        // at the first failed request. `stored` is the stored prefix.
+        // DMs, and groups where we are a super admin
+        let conversations = conn.get_conversation_ids_for_remote_log_publish()?;
         let api = self.context.api();
-        let mut stored = Vec::new();
-        let published = api.publish_commit_log(all_entries, &mut stored).await;
-
-        // Move each conversation's cursor past its stored entries, then
-        // propagate a failure. The restarted worker retries each conversation
-        // from its first unstored entry.
-        for (conversation_id, rowid) in stored_cursors(&conversation_cursor_info, stored.len()) {
-            tracing::debug!(
-                group_id = hex::encode(conversation_id),
-                "Updating publish cursor",
-            );
-            conn.update_cursor(
-                conversation_id,
-                xmtp_db::refresh_state::EntityKind::CommitLogUpload,
-                Cursor(rowid as u64),
-            )?;
-        }
-        published?;
-        Ok(conversation_cursor_info)
-    }
-
-    // implements: FORK-021
-    // Check each `conversation_id` for new commit log entries. Return a combined list of all entries for batch publishing,
-    // along with the new cursor for each conversation on publication success
-    fn prepare_publish_commit_log_info(
-        &self,
-        conn: &impl DbQuery,
-        conversation_keys: &[StoredGroupCommitLogPublicKey],
-    ) -> Result<(Vec<ConversationCursorInfo>, Vec<CommitLogEntry>), CommitLogError> {
-        let mut conversation_cursor_info: Vec<ConversationCursorInfo> = Vec::new();
-        let mut all_entries = Vec::new();
-        for conversation in conversation_keys {
-            // Step 1: Check each conversation cursors to see if we have new commits that have not been published to remote commit log yet
-            // Propagate read errors (incl. a dropped pool) to the supervisor; a
-            // missing cursor legitimately defaults to 0.
-            let local_commit_log_cursor = conn
-                .get_local_commit_log_cursor(&conversation.id)?
-                .unwrap_or(0);
-            let published_commit_log_cursor = conn
-                .get_last_cursor(
+        let mut published = Vec::new();
+        for conversation in &conversations {
+            let Some(PendingPublish {
+                cursor_info,
+                entries,
+            }) = self.prepare_conversation_publish(conn, &conversation.id)?
+            else {
+                continue;
+            };
+            let mut stored = Vec::new();
+            let result = if entries.is_empty() {
+                Ok(())
+            } else {
+                tracing::info!(
+                    group_id = %conversation.id,
+                    entries = entries.len(),
+                    "Publishing commit log entries to remote commit log"
+                );
+                // Entries go out in order, one request at a time, and
+                // publishing stops at the first failed request.
+                api.publish_commit_log(entries, &mut stored).await
+            };
+            // Move the cursor past the stored entries. After a failure the
+            // next turn starts at the first entry not stored.
+            if let Some(rowid) = cursor_info.stored_cursor(stored.len()) {
+                conn.update_cursor(
                     conversation.id,
                     xmtp_db::refresh_state::EntityKind::CommitLogUpload,
-                )?
-                .0;
-
-            if local_commit_log_cursor <= published_commit_log_cursor as i32 {
-                // We have no new commits to publish for this conversation
-                continue;
+                    Cursor(rowid as u64),
+                )?;
             }
+            match result {
+                Ok(()) => published.push(cursor_info),
+                Err(error) => {
+                    tracing::warn!(
+                        group_id = %conversation.id,
+                        stored = stored.len(),
+                        %error,
+                        "Commit log publish failed; the conversation retries at the next turn"
+                    );
+                }
+            }
+        }
+        Ok(published)
+    }
 
-            // Step 2: collect all the commit log entries for this conversation
-            // Local commit log entries are returned sorted in ascending order of `rowid`
-            // All local commit log will have rowid > 0 since sqlite rowid starts at 1 https://www.sqlite.org/autoinc.html
-            let logs = conn.get_local_commit_log_after_cursor(
-                &conversation.id,
-                published_commit_log_cursor as i64,
-                LocalCommitLogOrder::AscendingByRowid,
-            )?;
-            // A commit that removed us is recorded locally (RemovedFromGroup,
-            // with the pre-commit epoch/authenticator) for debuggability, but
-            // must never be published: it does not attest the new epoch and
-            // could shadow the real consensus entry published by the
-            // remaining members. In practice a removed member is not a
-            // publisher (only super admins and DM participants publish, super
-            // admins cannot be removed, and DMs have no removals) — this
-            // filter makes that property structural. The publish cursor still
-            // advances past skipped rows.
-            let removed_from_group_marker = CommitType::RemovedFromGroup.to_string();
-            let max_rowid = logs.last().map(|log| log.rowid);
-            let published_logs: Vec<_> = logs
-                .iter()
+    /// Seal a conversation's entries recorded after its upload cursor, in
+    /// ascending row order, with the cursor that publishing them reaches.
+    /// `None` when it has no new entries, or when they cannot be sealed this
+    /// turn.
+    // implements: FORK-021
+    fn prepare_conversation_publish(
+        &self,
+        conn: &impl DbQuery,
+        conversation_id: &GroupId,
+    ) -> Result<Option<PendingPublish>, CommitLogError> {
+        // Propagate read errors (incl. a dropped pool) to the supervisor; a
+        // missing cursor legitimately defaults to 0.
+        let local_commit_log_cursor = conn
+            .get_local_commit_log_cursor(conversation_id)?
+            .unwrap_or(0);
+        let published_commit_log_cursor = conn
+            .get_last_cursor(
+                conversation_id,
+                xmtp_db::refresh_state::EntityKind::CommitLogUpload,
+            )?
+            .0;
+        if local_commit_log_cursor <= published_commit_log_cursor as i32 {
+            // We have no new commits to publish for this conversation
+            return Ok(None);
+        }
+
+        // Local commit log entries are returned sorted in ascending order of `rowid`
+        // All local commit log will have rowid > 0 since sqlite rowid starts at 1 https://www.sqlite.org/autoinc.html
+        let logs = conn.get_local_commit_log_after_cursor(
+            conversation_id,
+            published_commit_log_cursor as i64,
+            LocalCommitLogOrder::AscendingByRowid,
+        )?;
+        let Some(max_rowid) = logs.last().map(|log| log.rowid) else {
+            return Ok(None);
+        };
+        // A commit that removed us is recorded locally (RemovedFromGroup,
+        // with the pre-commit epoch/authenticator) for debuggability, but
+        // must never be published: it does not attest the new epoch and
+        // could shadow the real consensus entry published by the
+        // remaining members. In practice a removed member is not a
+        // publisher (only super admins and DM participants publish, super
+        // admins cannot be removed, and DMs have no removals) — this
+        // filter makes that property structural. The publish cursor still
+        // advances past skipped rows.
+        let removed_from_group_marker = CommitType::RemovedFromGroup.to_string();
+        let (entry_rowids, plaintext_commit_log_entries): (Vec<i64>, Vec<PlaintextCommitLogEntry>) =
+            logs.iter()
                 .filter(|log| {
                     log.commit_type.as_deref() != Some(removed_from_group_marker.as_str())
                 })
-                .collect();
-            let plaintext_commit_log_entries: Vec<PlaintextCommitLogEntry> = published_logs
-                .iter()
-                .map(|log| PlaintextCommitLogEntry::from(*log))
-                .collect();
-
-            // Step 3: Compile the conversation cursor info and all the commit log entries for this conversation
-            if let Some(max_rowid) = max_rowid {
-                let signed_entries =
-                    self.sign_group_logs(conversation, &plaintext_commit_log_entries)?;
-                // A missing signing key leaves this group's records pending.
-                // Another group's successful publish must not advance its cursor.
-                if signed_entries.is_empty() && !plaintext_commit_log_entries.is_empty() {
-                    continue;
-                }
-                all_entries.extend(signed_entries);
-                conversation_cursor_info.push(ConversationCursorInfo {
-                    conversation_id: conversation.id.to_vec(),
-                    num_entries_published: plaintext_commit_log_entries.len(),
-                    last_entry_published_sequence_id: plaintext_commit_log_entries
-                        .last()
-                        .map(|e| e.commit_sequence_id as i64)
-                        .unwrap_or(0),
-                    last_entry_published_rowid: max_rowid as i64,
-                    entry_rowids: published_logs
-                        .iter()
-                        .map(|log| i64::from(log.rowid))
-                        .collect(),
-                });
-            }
-        }
-        Ok((conversation_cursor_info, all_entries))
+                .map(|log| (log.rowid as i64, PlaintextCommitLogEntry::from(log)))
+                .unzip();
+        let entries = if plaintext_commit_log_entries.is_empty() {
+            Vec::new()
+        } else {
+            let Some(entries) =
+                self.seal_group_logs(conversation_id, &plaintext_commit_log_entries)?
+            else {
+                return Ok(None);
+            };
+            entries
+        };
+        Ok(Some(PendingPublish {
+            cursor_info: ConversationCursorInfo {
+                conversation_id: conversation_id.to_vec(),
+                num_entries_published: plaintext_commit_log_entries.len(),
+                last_entry_published_sequence_id: plaintext_commit_log_entries
+                    .last()
+                    .map(|e| e.commit_sequence_id as i64)
+                    .unwrap_or(0),
+                last_entry_published_rowid: max_rowid as i64,
+                entry_rowids,
+            },
+            entries,
+        }))
     }
 
-    fn sign_group_logs(
+    /// Seal entries under the keys of the conversation's group root.
+    /// `None` when the conversation has no root, or when a seal fails its
+    /// self-check. Nothing of that conversation is then published this turn,
+    /// and the failure is logged without any entry or key bytes.
+    fn seal_group_logs(
         &self,
-        conversation: &StoredGroupCommitLogPublicKey,
+        conversation_id: &GroupId,
         plaintext_commit_log_entries: &[PlaintextCommitLogEntry],
-    ) -> Result<Vec<CommitLogEntry>, CommitLogError> {
-        let Some(private_key) = get_or_create_signing_key(&self.context, conversation)? else {
-            tracing::warn!(group_id = %conversation.id, "No signing key available for group");
-            return Ok(vec![]);
+    ) -> Result<Option<Vec<SealedCommitLogEntry>>, CommitLogError> {
+        let Some(keys) = self.group_keys(conversation_id)? else {
+            return Ok(None);
         };
-
-        let provider = self.context.mls_provider();
-        let mut signed_entries = Vec::new();
+        let mut sealed = Vec::with_capacity(plaintext_commit_log_entries.len());
         for entry in plaintext_commit_log_entries {
-            let signed = xmtp_mls_common::commit_log::sign_commit_log(
-                entry,
-                &private_key,
-                provider.crypto(),
-            )?;
-
-            signed_entries.push(CommitLogEntry {
-                serialized_commit_log_entry: signed.serialized_commit_log_entry,
-                signature: Some(signed.signature),
-            });
+            match self.apply_seal_fault(conversation_id, seal_entry(&keys, entry)) {
+                Ok(entry) => sealed.push(entry),
+                Err(error) => {
+                    tracing::error!(
+                        group_id = %conversation_id,
+                        %error,
+                        "Sealing a commit log entry failed; the conversation publishes nothing this turn"
+                    );
+                    return Ok(None);
+                }
+            }
         }
-        Ok(signed_entries)
+        Ok(Some(sealed))
+    }
+
+    #[cfg(not(test))]
+    fn apply_seal_fault(
+        &self,
+        _conversation_id: &GroupId,
+        sealed: Result<SealedCommitLogEntry, SealError>,
+    ) -> Result<SealedCommitLogEntry, SealError> {
+        sealed
+    }
+
+    #[cfg(test)]
+    fn apply_seal_fault(
+        &self,
+        conversation_id: &GroupId,
+        sealed: Result<SealedCommitLogEntry, SealError>,
+    ) -> Result<SealedCommitLogEntry, SealError> {
+        match &self.seal_fault {
+            Some(fault) => fault(conversation_id, sealed),
+            None => sealed,
+        }
+    }
+
+    /// The keys derived from a conversation's group root, read from its
+    /// group context each time and never stored. `None` for a group without
+    /// a root, such as a restored placeholder.
+    fn group_keys(&self, conversation_id: &GroupId) -> Result<Option<GroupKeys>, CommitLogError> {
+        let (group, _) = MlsGroup::new_cached(self.context.clone(), conversation_id)?;
+        let group_context = group.load_group_context()?;
+        match group_keys_from_extensions(group_context.extensions()) {
+            Ok(keys) => Ok(Some(keys)),
+            Err(error) => {
+                tracing::warn!(
+                    group_id = %conversation_id,
+                    %error,
+                    "A conversation without a group root has no commit log"
+                );
+                Ok(None)
+            }
+        }
     }
 
     // Returns a map of conversation_id to the number of entries saved
+    // implements: FORK-030
     async fn save_remote_commit_log(&mut self) -> Result<HashMap<Vec<u8>, usize>, CommitLogError> {
         let conn = &self.context.db();
-        // This should be all groups we are in, and all dms are in except sync groups
-        let conversation_id_to_public_key: HashMap<Vec<u8>, Option<Vec<u8>>> = conn
+        // All allowed DMs and groups other than sync and restored groups.
+        // Each names its commit-log id, stored at creation and join. A group
+        // without one has no root, and so no log to read.
+        let conversations: HashMap<Vec<u8>, GroupId> = conn
             .get_conversation_ids_for_remote_log_download()?
             .into_iter()
-            .map(|c| (c.id.to_vec(), c.commit_log_public_key))
+            .filter_map(|conversation| Some((conversation.commit_log_public_key?, conversation.id)))
             .collect();
 
-        // Step 1 is to collect a list of remote log cursors for all conversations and convert them into query log requests
+        // The download cursor stays keyed by group id; that link is local only.
         let remote_log_cursors = conn.get_remote_log_cursors(
-            conversation_id_to_public_key
-                .keys()
-                .map(Vec::as_slice)
+            conversations
+                .values()
+                .map(|group_id| group_id.as_slice())
                 .collect::<Vec<_>>()
                 .as_slice(),
         )?;
-        let query_log_requests: TopicCursor = remote_log_cursors
-            .into_iter()
-            .map(|(id, cursor)| (TopicKind::CommitLogEntriesV1.create(id), cursor))
+        let query_log_requests: TopicCursor = conversations
+            .iter()
+            .map(|(commit_log_id, group_id)| {
+                let cursor = remote_log_cursors
+                    .get(group_id.as_slice())
+                    .copied()
+                    .unwrap_or_default();
+                (Topic::new_commit_log(commit_log_id), cursor)
+            })
             .collect();
 
         // Skip API call if there are no requests to make
@@ -477,186 +538,88 @@ where
             return Ok(HashMap::new());
         }
 
-        // Step 2 execute the api call to query remote commit log entries
+        // A query returns each topic's envelopes in sequence id order.
         let api = self.context.api();
         let query_commit_log_responses = api.query_commit_log(query_log_requests).await?;
 
-        let mut grouped: HashMap<Vec<u8>, Vec<DecodedCommitLogEntry>> = HashMap::new();
+        let mut grouped: HashMap<GroupId, Vec<DecodedCommitLogEntry>> = HashMap::new();
         for entry in query_commit_log_responses {
-            grouped
-                .entry(entry.entry.group_id.clone())
-                .or_default()
-                .push(entry);
+            if let Some(group_id) = conversations.get(entry.topic.identifier()) {
+                grouped.entry(*group_id).or_default().push(entry);
+            }
         }
         let mut save_remote_commit_log_results = HashMap::new();
         for (group_id, entries) in grouped {
-            let mut consensus_public_key = conversation_id_to_public_key
-                .get(&group_id)
-                .and_then(Option::clone);
-            if consensus_public_key.is_none() {
-                consensus_public_key = derive_consensus_public_key(
-                    &self.context,
-                    &group_id,
-                    &entries
-                        .iter()
-                        .map(|entry| entry.payload.clone())
-                        .collect::<Vec<_>>(),
-                )
-                .await?;
-            }
+            let Some(keys) = self.group_keys(&group_id)? else {
+                continue;
+            };
             let num_entries = self.save_remote_commit_log_entries_and_update_cursors(
-                conn,
-                &group_id,
-                entries,
-                consensus_public_key,
+                conn, &group_id, &keys, entries,
             )?;
-            save_remote_commit_log_results.insert(group_id, num_entries);
+            save_remote_commit_log_results.insert(group_id.to_vec(), num_entries);
         }
 
         Ok(save_remote_commit_log_results)
     }
 
+    /// Open, check, and store each envelope read from a conversation's
+    /// commit-log topic, in order, then move the download cursor past the
+    /// last one. A discarded envelope is read past and never evaluated again.
     fn save_remote_commit_log_entries_and_update_cursors(
         &self,
         conn: &impl DbQuery,
-        group_id: &[u8],
+        group_id: &GroupId,
+        keys: &GroupKeys,
         entries: Vec<DecodedCommitLogEntry>,
-        consensus_public_key: Option<Vec<u8>>,
     ) -> Result<usize, CommitLogError> {
-        let group_id = GroupId::try_from(group_id)?;
         let mut num_entries_saved = 0;
         // From the stored remote commit log, fetch the following info:
         // 1. The latest applied epoch authenticator
         // 2. The latest applied epoch number
         // 3. The latest stored sequence id
-        if let Some(consensus_public_key) = consensus_public_key {
-            let mut latest_saved_remote_log = conn.get_latest_remote_log_for_group(&group_id)?;
-            for decoded in &entries {
-                let commit_log_entry = &decoded.payload;
-                let log_entry = &decoded.entry;
-                let sequence_id = decoded
-                    .meta
-                    .cursor
-                    .as_ref()
-                    .ok_or(xmtp_proto::ConversionError::Missing {
-                        item: "commit-log cursor",
-                        r#type: "EnvelopeMeta",
-                    })?
-                    .sequence_id;
-                if self.should_skip_remote_commit_log_entry(
-                    group_id.as_slice(),
-                    latest_saved_remote_log.clone(),
-                    commit_log_entry,
-                    log_entry,
-                    &consensus_public_key,
-                ) {
-                    continue;
-                }
-
-                let log_entry_group_id = GroupId::try_from(log_entry.group_id.as_slice())?;
-                num_entries_saved += 1;
-                NewRemoteCommitLog {
-                    log_sequence_id: sequence_id as i64,
-                    group_id: log_entry_group_id,
-                    commit_sequence_id: log_entry.commit_sequence_id as i64,
-                    commit_result: CommitResult::from(
-                        ProtoCommitResult::try_from(log_entry.commit_result)
-                            .unwrap_or(ProtoCommitResult::Unspecified),
-                    ),
-                    applied_epoch_number: log_entry.applied_epoch_number as i64,
-                    applied_epoch_authenticator: log_entry.applied_epoch_authenticator.clone(),
-                }
-                .store(conn)?;
-
-                latest_saved_remote_log = Some(RemoteCommitLog {
-                    rowid: 0,
-                    log_sequence_id: sequence_id as i64,
-                    group_id: log_entry_group_id,
-                    commit_sequence_id: log_entry.commit_sequence_id as i64,
-                    commit_result: CommitResult::from(
-                        ProtoCommitResult::try_from(log_entry.commit_result)
-                            .unwrap_or(ProtoCommitResult::Unspecified),
-                    ),
-                    applied_epoch_number: log_entry.applied_epoch_number as i64,
-                    applied_epoch_authenticator: log_entry.applied_epoch_authenticator.clone(),
-                });
+        let mut latest_saved_remote_log = conn.get_latest_remote_log_for_group(group_id)?;
+        for decoded in &entries {
+            let Some(log_entry) = open_remote_entry(keys, group_id, decoded) else {
+                continue;
+            };
+            if should_skip_remote_commit_log_entry(latest_saved_remote_log.as_ref(), &log_entry) {
+                continue;
             }
+
+            let commit_result = CommitResult::from(
+                ProtoCommitResult::try_from(log_entry.commit_result)
+                    .unwrap_or(ProtoCommitResult::Unspecified),
+            );
+            num_entries_saved += 1;
+            NewRemoteCommitLog {
+                log_sequence_id: decoded.cursor.0 as i64,
+                group_id: *group_id,
+                commit_sequence_id: log_entry.commit_sequence_id as i64,
+                commit_result,
+                applied_epoch_number: log_entry.applied_epoch_number as i64,
+                applied_epoch_authenticator: log_entry.applied_epoch_authenticator.clone(),
+            }
+            .store(conn)?;
+
+            latest_saved_remote_log = Some(RemoteCommitLog {
+                rowid: 0,
+                log_sequence_id: decoded.cursor.0 as i64,
+                group_id: *group_id,
+                commit_sequence_id: log_entry.commit_sequence_id as i64,
+                commit_result,
+                applied_epoch_number: log_entry.applied_epoch_number as i64,
+                applied_epoch_authenticator: log_entry.applied_epoch_authenticator,
+            });
         }
         if let Some(last_entry) = entries.last() {
             conn.update_cursor(
                 group_id,
                 xmtp_db::refresh_state::EntityKind::CommitLogDownload,
-                Cursor(
-                    last_entry
-                        .meta
-                        .cursor
-                        .as_ref()
-                        .ok_or(xmtp_proto::ConversionError::Missing {
-                            item: "commit-log cursor",
-                            r#type: "EnvelopeMeta",
-                        })?
-                        .sequence_id,
-                ),
+                last_entry.cursor,
             )?;
         }
 
         Ok(num_entries_saved)
-    }
-
-    // Should skip if:
-    // 1. The entry signature is invalid
-    // 2. The group_id of the entry does not match the requested group_id.
-    // 3. The commit_sequence_id of the entry is <= 0.
-    // 4. The commit_sequence_id of the entry is not greater than the most recently stored entry, if one exists.
-    // 5. The last_epoch_authenticator does not match the epoch_authenticator of the most recently stored entry with a CommitResult of COMMIT_RESULT_APPLIED, if one exists.
-    // 6. The entry has a CommitResult of COMMIT_RESULT_APPLIED, but the epoch number is not exactly 1 greater than the most recently stored entry with a result of COMMIT_RESULT_APPLIED, if one exists.
-    // 7. The entry CommitResult is not COMMIT_RESULT_APPLIED, and the epoch authenticator or epoch number does not match the most recently applied values
-    // implements: FORK-032
-    fn should_skip_remote_commit_log_entry(
-        &self,
-        group_id: &[u8],
-        latest_saved_remote_log: Option<RemoteCommitLog>,
-        serialized_entry: &CommitLogEntry,
-        entry: &PlaintextCommitLogEntry,
-        consensus_public_key: &[u8],
-    ) -> bool {
-        // These checks apply even if there is no latest saved remote log
-        if entry.group_id != group_id || entry.commit_sequence_id == 0 {
-            return true;
-        }
-        let provider = self.context.mls_provider();
-        if provider
-            .crypto()
-            .verify_commit_log_signature(serialized_entry, consensus_public_key)
-            .is_err()
-        {
-            tracing::warn!(
-                group_id = hex::encode(group_id),
-                "Invalid signature for commit log entry, skipping",
-            );
-            return true;
-        }
-        let Some(latest_saved_remote_log) = latest_saved_remote_log else {
-            return false;
-        };
-
-        let is_applied = entry.commit_result == ProtoCommitResult::Applied as i32;
-
-        entry.commit_sequence_id <= latest_saved_remote_log.commit_sequence_id as u64
-            || (is_applied
-                && !latest_saved_remote_log
-                    .applied_epoch_authenticator
-                    .is_empty()
-                && entry.last_epoch_authenticator
-                    != latest_saved_remote_log.applied_epoch_authenticator)
-            || (is_applied
-                && entry.applied_epoch_number as i64
-                    != latest_saved_remote_log.applied_epoch_number + 1)
-            || (!is_applied
-                && (entry.applied_epoch_authenticator
-                    != latest_saved_remote_log.applied_epoch_authenticator
-                    || entry.applied_epoch_number as i64
-                        != latest_saved_remote_log.applied_epoch_number))
     }
 
     // Updates fork status for conversations in the database
@@ -1098,6 +1061,67 @@ where
     }
 }
 
+/// Open one envelope read from a conversation's commit-log topic. `None`
+/// discards it; the reason is logged without entry bytes.
+// implements: FORK-075
+fn open_remote_entry(
+    keys: &GroupKeys,
+    group_id: &GroupId,
+    decoded: &DecodedCommitLogEntry,
+) -> Option<PlaintextCommitLogEntry> {
+    let Some(sealed) = &decoded.sealed else {
+        tracing::warn!(
+            group_id = %group_id,
+            sequence_id = decoded.cursor.0,
+            "Discarding a commit log envelope that holds no sealed entry"
+        );
+        return None;
+    };
+    open_entry(keys, group_id.as_slice(), sealed)
+        .inspect_err(|reason| {
+            tracing::warn!(
+                group_id = %group_id,
+                sequence_id = decoded.cursor.0,
+                %reason,
+                "Discarding a commit log entry"
+            );
+        })
+        .ok()
+}
+
+// An opened entry is skipped if:
+// 1. The commit_sequence_id of the entry is not greater than the most recently stored entry, if one exists.
+// 2. The last_epoch_authenticator does not match the epoch_authenticator of the most recently stored entry with a CommitResult of COMMIT_RESULT_APPLIED, if one exists.
+// 3. The entry has a CommitResult of COMMIT_RESULT_APPLIED, but the epoch number is not exactly 1 greater than the most recently stored entry with a result of COMMIT_RESULT_APPLIED, if one exists.
+// 4. The entry CommitResult is not COMMIT_RESULT_APPLIED, and the epoch authenticator or epoch number does not match the most recently applied values
+// implements: FORK-032
+pub(crate) fn should_skip_remote_commit_log_entry(
+    latest_saved_remote_log: Option<&RemoteCommitLog>,
+    entry: &PlaintextCommitLogEntry,
+) -> bool {
+    let Some(latest_saved_remote_log) = latest_saved_remote_log else {
+        return false;
+    };
+
+    let is_applied = entry.commit_result == ProtoCommitResult::Applied as i32;
+
+    entry.commit_sequence_id <= latest_saved_remote_log.commit_sequence_id as u64
+        || (is_applied
+            && !latest_saved_remote_log
+                .applied_epoch_authenticator
+                .is_empty()
+            && entry.last_epoch_authenticator
+                != latest_saved_remote_log.applied_epoch_authenticator)
+        || (is_applied
+            && entry.applied_epoch_number as i64
+                != latest_saved_remote_log.applied_epoch_number + 1)
+        || (!is_applied
+            && (entry.applied_epoch_authenticator
+                != latest_saved_remote_log.applied_epoch_authenticator
+                || entry.applied_epoch_number as i64
+                    != latest_saved_remote_log.applied_epoch_number))
+}
+
 // Helper that exposes private methods for testing
 #[cfg(test)]
 impl<Context> CommitLogWorker<Context>
@@ -1108,21 +1132,15 @@ where
         self.tick().await
     }
 
-    pub(crate) fn _should_skip_remote_commit_log_entry(
-        &self,
-        group_id: &[u8],
-        latest_saved_remote_log: Option<RemoteCommitLog>,
-        serialized_entry: &xmtp_proto::backend_v1::CommitLogEntry,
-        entry: &PlaintextCommitLogEntry,
-        consensus_public_key: &[u8],
-    ) -> bool {
-        self.should_skip_remote_commit_log_entry(
-            group_id,
-            latest_saved_remote_log,
-            serialized_entry,
-            entry,
-            consensus_public_key,
-        )
+    /// The worker's loop, as the supervisor runs it.
+    pub async fn _run(&mut self) -> Result<(), CommitLogError> {
+        self.run().await
+    }
+
+    /// Pass every seal result through `fault`.
+    pub(crate) fn with_seal_fault(mut self, fault: SealFault) -> Self {
+        self.seal_fault = Some(fault);
+        self
     }
 
     // Test helper to get fork status for all groups that would be checked (for backward compatibility with tests)
@@ -1221,55 +1239,22 @@ mod stored_cursor_tests {
 
     /// One conversation's backlog spans two requests and the second fails:
     /// the cursor moves to the last entry of the first request, so the next
-    /// turn starts from entry 1001, not entry 1.
+    /// turn starts from entry 1001, not entry 1. A fully stored backlog moves
+    /// past its last row, and a publish that stored nothing moves nothing.
     // verifies: FORK-021
     #[xmtp_common::test(unwrap_try = true)]
     fn a_partly_stored_backlog_resumes_from_its_first_unstored_entry() {
-        let infos = [conversation(1, 1500)];
-        assert_eq!(stored_cursors(&infos, 1000), vec![(&[1u8][..], 10_000)]);
-        assert_eq!(stored_cursors(&infos, 1500), vec![(&[1u8][..], 15_005)]);
-        assert!(stored_cursors(&infos, 0).is_empty());
+        let info = conversation(1, 1500);
+        assert_eq!(info.stored_cursor(1000), Some(10_000));
+        assert_eq!(info.stored_cursor(1), Some(10));
+        assert_eq!(info.stored_cursor(1500), Some(15_005));
+        assert_eq!(info.stored_cursor(0), None);
     }
 
-    /// Only the stored prefix moves cursors: the conversations before the
-    /// failed request move past their entries, the one it cut moves to its
-    /// last stored entry, and later ones keep their cursors.
-    // verifies: FORK-021
+    /// A conversation whose rows are all skipped publishes nothing and moves
+    /// past them.
     #[xmtp_common::test(unwrap_try = true)]
-    fn only_the_stored_prefix_moves_cursors() {
-        let infos = [
-            conversation(1, 600),
-            conversation(2, 600),
-            conversation(3, 100),
-        ];
-        assert_eq!(
-            stored_cursors(&infos, 1000),
-            vec![(&[1u8][..], 6_005), (&[2u8][..], 4_000)]
-        );
-        assert_eq!(stored_cursors(&infos, 600), vec![(&[1u8][..], 6_005)]);
-        assert_eq!(
-            stored_cursors(&infos, 1300),
-            vec![
-                (&[1u8][..], 6_005),
-                (&[2u8][..], 6_005),
-                (&[3u8][..], 1_005)
-            ]
-        );
-    }
-
-    /// A conversation whose rows are all skipped publishes nothing. It moves
-    /// past them once every earlier conversation is stored, and not before.
-    #[xmtp_common::test(unwrap_try = true)]
-    fn a_conversation_with_no_entries_moves_only_after_every_earlier_one() {
-        let infos = [
-            conversation(1, 600),
-            conversation(2, 0),
-            conversation(3, 600),
-        ];
-        assert_eq!(
-            stored_cursors(&infos, 600),
-            vec![(&[1u8][..], 6_005), (&[2u8][..], 5)]
-        );
-        assert_eq!(stored_cursors(&infos, 599), vec![(&[1u8][..], 5_990)]);
+    fn a_conversation_with_only_skipped_rows_moves_past_them() {
+        assert_eq!(conversation(2, 0).stored_cursor(0), Some(5));
     }
 }

@@ -253,25 +253,22 @@ pub fn decode_key_package(
     }
 }
 
-/// Decode a signed commit-log record without verifying its signature.
+/// Decode an envelope read from a commit-log topic without opening it. An
+/// envelope whose payload is not a sealed entry decodes with no entry, so the
+/// reader discards it and still reads past it. Only invalid metadata fails.
 pub fn decode_commit_log_entry(
     envelope: wire::ServerEnvelope,
 ) -> Result<types::CommitLogEntry, EnvelopeError> {
-    let (meta, payload) = parts(envelope, TopicKind::CommitLogEntriesV1)?;
-    let wire::client_envelope::Payload::CommitLogEntry(payload) = payload else {
-        return Err(invalid("commit log payload").into());
+    let meta = envelope.meta.ok_or_else(|| invalid("metadata"))?;
+    let (topic, cursor, _) = metadata(&meta, TopicKind::CommitLogEntriesV1)?;
+    let sealed = match envelope.envelope.and_then(|envelope| envelope.payload) {
+        Some(wire::client_envelope::Payload::SealedCommitLogEntry(entry)) => Some(entry),
+        _ => None,
     };
-    let entry =
-        xmtp_mls_common::commit_log::decode_commit_log(&payload.serialized_commit_log_entry)
-            .map_err(ConversionError::from)?;
-    let (topic, _, _) = metadata(&meta, TopicKind::CommitLogEntriesV1)?;
-    if entry.group_id != topic.identifier() {
-        return Err(invalid("commit log group id").into());
-    }
     Ok(types::CommitLogEntry {
-        meta,
-        entry,
-        payload,
+        topic,
+        cursor,
+        sealed,
     })
 }
 

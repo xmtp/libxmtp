@@ -151,8 +151,8 @@ pub(crate) fn build_registry(
     }
 
     // COMMIT_LOG_SIGNER: super-admin-only regardless of PolicySet
-    // shape. The field DOES change post-creation (see
-    // `Group::update_commit_log_signer`), but its enforcement on the
+    // shape. Clients no longer write it, but older clients changed it
+    // after creation, and its enforcement on the
     // legacy side is implicit: `_commit_log_signer` is never present
     // in `update_metadata_policy` (neither `default_map` nor `dm_map`
     // populates it — `supported_fields()` excludes `CommitLogSigner`),

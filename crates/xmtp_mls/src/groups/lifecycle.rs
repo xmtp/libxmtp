@@ -11,8 +11,12 @@ use xmtp_mls_common::group_keys::{GroupKeys, GroupRoot};
 /// The MLS group id of a group being inserted.
 #[derive(Clone, Copy)]
 enum NewGroupId {
-    /// A new group, named by the group signing key of its root.
-    Keyed(GroupId),
+    /// A new group, named by the group signing key of its root, with the
+    /// commit-log id the same root derives.
+    Keyed {
+        group_id: GroupId,
+        commit_log_id: [u8; 32],
+    },
     /// An archive placeholder, named by the archived id. It holds no root.
     Placeholder(GroupId),
 }
@@ -23,13 +27,25 @@ impl NewGroupId {
     fn draw(existing_group_id: Option<&[u8]>) -> Result<(Self, Option<GroupRoot>), GroupError> {
         let Some(existing_group_id) = existing_group_id else {
             let root = GroupRoot::generate();
-            let group_id = GroupId::from(GroupKeys::derive(&root).group_id());
-            return Ok((Self::Keyed(group_id), Some(root)));
+            let keys = GroupKeys::derive(&root);
+            let id = Self::Keyed {
+                group_id: GroupId::from(keys.group_id()),
+                commit_log_id: keys.commit_log_id(),
+            };
+            return Ok((id, Some(root)));
         };
         Ok((
             Self::Placeholder(GroupId::try_from(existing_group_id)?),
             None,
         ))
+    }
+
+    /// The commit-log id to store with the row. A placeholder has none.
+    fn commit_log_id(self) -> Option<Vec<u8>> {
+        match self {
+            Self::Keyed { commit_log_id, .. } => Some(commit_log_id.to_vec()),
+            Self::Placeholder(_) => None,
+        }
     }
 }
 
@@ -533,7 +549,8 @@ where
                     .map(|m| m.from_ns),
             )
             .message_disappear_in_ns(opts.message_disappearing_settings.as_ref().map(|m| m.in_ns))
-            .should_publish_commit_log(matches!(id, NewGroupId::Keyed(_)))
+            .should_publish_commit_log(matches!(id, NewGroupId::Keyed { .. }))
+            .commit_log_public_key(id.commit_log_id())
             .build()?;
         stored_group.store_or_ignore(&db)?;
         Ok((stored_group, true))
@@ -711,6 +728,7 @@ where
             )
             .message_disappear_in_ns(opts.message_disappearing_settings.as_ref().map(|m| m.in_ns))
             .dm_id(Some(dm_members.to_string()))
+            .commit_log_public_key(id.commit_log_id())
             .build()?;
         stored_group.store(&db)?;
         if membership_state == GroupMembershipState::Restored {
@@ -736,7 +754,7 @@ where
     ) -> Result<OpenMlsGroup, GroupError> {
         let provider = XmtpOpenMlsProviderRef::new(storage);
         match id {
-            NewGroupId::Keyed(group_id) => OpenMlsGroup::from_creation_logged(
+            NewGroupId::Keyed { group_id, .. } => OpenMlsGroup::from_creation_logged(
                 &provider,
                 context.identity(),
                 group_config,

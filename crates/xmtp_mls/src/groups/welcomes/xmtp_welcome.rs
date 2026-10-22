@@ -359,11 +359,13 @@ where
         // id, so this also rejects every Welcome for a legacy group, and a
         // Welcome naming a restored placeholder activates it only when it
         // comes from a holder of the placeholder's root.
-        check_group_root(
+        // The commit-log id is stored with the row; the keys are wiped here.
+        let commit_log_id = check_group_root(
             staged_welcome.group_context().extensions(),
             staged_welcome.group_context().group_id().as_slice(),
         )
-        .map_err(GroupError::WelcomeGroupRoot)?;
+        .map_err(GroupError::WelcomeGroupRoot)?
+        .commit_log_id();
         // Reject before identity checks, which can wait on the network.
         // implements: SYNC-010
         if metadata.conversation_type == ConversationType::Sync
@@ -524,6 +526,7 @@ where
             .dm_id(dm_members.map(String::from))
             .message_disappear_from_ns(disappearing_settings.as_ref().map(|m| m.from_ns))
             .message_disappear_in_ns(disappearing_settings.as_ref().map(|m| m.in_ns))
+            .commit_log_public_key(Some(commit_log_id.to_vec()))
             .should_publish_commit_log(MlsGroup::<C>::check_should_publish_commit_log(
                 context.inbox_id().to_string(),
                 mutable_metadata,

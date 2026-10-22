@@ -21,6 +21,7 @@ use xmtp_proto::{
     xmtp::identity::associations::IdentifierKind,
 };
 
+mod commit_log_reads;
 mod handles;
 mod incoming;
 mod integration;
@@ -377,52 +378,6 @@ async fn settle_units_fails_on_a_record_without_a_hash() {
             .await,
         Err(ApiError::InvalidResponse("settled metadata"))
     ));
-}
-
-/// The backend admits a sealed commit-log entry on a 32-byte `0x04` topic,
-/// and this reader cannot decode one. Such an envelope is discarded alone:
-/// the read still returns the entries of every other topic, so one envelope
-/// on one conversation's topic cannot stop the commit-log worker for all of
-/// them.
-// verifies: FORK-075
-#[xmtp_common::test(unwrap_try = true)]
-async fn an_undecodable_commit_log_envelope_is_discarded_alone() {
-    let legacy = commit_log_envelope([10; 16]);
-    let sealed = sealed_commit_log_envelope(&group_keys(1), 7);
-    let legacy_topic = parse_envelope(legacy.clone())?.topic;
-    let sealed_topic = parse_envelope(sealed.clone())?.topic;
-    let legacy_meta = meta(&legacy, 4);
-    let rows = vec![
-        wire::ServerEnvelope {
-            meta: Some(meta(&sealed, 3)),
-            envelope: Some(sealed),
-        },
-        wire::ServerEnvelope {
-            meta: Some(legacy_meta.clone()),
-            envelope: Some(legacy.clone()),
-        },
-    ];
-    let mut mock = MockBackendClient::new();
-    mock.expect_query().times(1).returning(move |_| {
-        Ok(wire::QueryResponse {
-            envelopes: rows.clone(),
-            continuation: Some(wire::Continuation { has_more: false }),
-        })
-    });
-    let entries = wrapper(mock)
-        .query_commit_log(HashMap::from([
-            (sealed_topic, Cursor(0)),
-            (legacy_topic, Cursor(0)),
-        ]))
-        .await?;
-    assert_eq!(entries.len(), 1);
-    assert_eq!(entries[0].meta, legacy_meta);
-    assert_eq!(
-        Some(wire::client_envelope::Payload::CommitLogEntry(
-            entries[0].payload.clone()
-        )),
-        legacy.payload
-    );
 }
 
 #[rstest]

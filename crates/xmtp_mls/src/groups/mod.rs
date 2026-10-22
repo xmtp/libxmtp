@@ -10,7 +10,6 @@ pub use builders::*;
 pub use state::{ConversationStateSnapshot, GroupMetadataSnapshot};
 pub mod change_callbacks;
 pub mod commit_log;
-pub mod commit_log_key;
 mod error;
 pub mod intents;
 pub mod members;

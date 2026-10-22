@@ -225,7 +225,11 @@ pub struct FetchKeyPackages {
 
 #[derive(Args, Debug, Clone)]
 pub struct BatchQueryCommitLog {
+    /// Hex commit-log ids. A commit-log topic is named by the group's
+    /// commit-log id, not its group id.
     pub group_ids: Vec<String>,
+    /// Has no effect: entries are sealed, and their results need the group
+    /// root to read.
     #[arg(long)]
     pub skip_unspecified: bool,
 }
