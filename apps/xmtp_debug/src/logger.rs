@@ -117,13 +117,7 @@ impl Logger {
         // capture logs as tracing events from crates which use `log` (openmls)
         LogTracer::init()?;
 
-        // `RUST_LOG` and `openmls={verbosity}` can enable OpenMLS TRACE, which
-        // prints group contexts and so group roots; the guard drops those events
-        // whatever the filters say.
-        // implements: GMOD-042
-        let subscriber = tracing_subscriber::registry()
-            .with(xmtp_logging::group_context_guard())
-            .with(ErrorLayer::default());
+        let subscriber = guarded_registry();
         let now = chrono::Local::now();
         let log_file_name = PathBuf::from(format!("./{}-xdbg", now));
 
@@ -196,6 +190,17 @@ impl Logger {
     }
 }
 
+/// The registry every xdbg output layer is added to. `RUST_LOG` and
+/// `openmls={verbosity}` can enable OpenMLS TRACE, which prints group contexts
+/// and so group roots; the guard drops those events whatever a layer's filter
+/// says.
+// implements: GMOD-042
+fn guarded_registry() -> impl Subscriber + for<'a> LookupSpan<'a> {
+    tracing_subscriber::registry()
+        .with(xmtp_logging::group_context_guard())
+        .with(ErrorLayer::default())
+}
+
 fn human_layer<S, W>(filter: EnvFilter, show_fields: bool, writer: W, ansi: bool) -> impl Layer<S>
 where
     S: Subscriber + for<'a> LookupSpan<'a>,
@@ -256,5 +261,46 @@ where
         ctx.format_fields(writer.by_ref(), event)?;
 
         writeln!(writer)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::{Arc, Mutex};
+
+    #[derive(Clone, Default)]
+    struct Capture(Arc<Mutex<Vec<u8>>>);
+
+    impl std::io::Write for Capture {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    /// An output layer whose filter enables every OpenMLS TRACE event, as
+    /// `RUST_LOG=trace` or `-vvvv` does, still never writes a group context.
+    // verifies: GMOD-042
+    #[xmtp_common::test(unwrap_try = true)]
+    fn output_layers_never_write_group_context_traces() {
+        let capture = Capture::default();
+        let writer = capture.clone();
+        let layer = tracing_subscriber::fmt::layer()
+            .with_writer(move || writer.clone())
+            .with_filter(EnvFilter::new("trace"));
+        tracing::subscriber::with_default(guarded_registry().with(layer), || {
+            tracing::trace!(target: "openmls::schedule", "schedule context");
+            tracing::trace!(target: "openmls::ciphersuite::kdf_label", "kdf label context");
+            tracing::trace!(target: "openmls::group", "group trace");
+        });
+        let output = String::from_utf8(capture.0.lock().unwrap().clone())?;
+        assert!(output.contains("group trace"), "{output}");
+        assert!(!output.contains("schedule context"), "{output}");
+        assert!(!output.contains("kdf label context"), "{output}");
     }
 }
