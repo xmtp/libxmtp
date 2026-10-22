@@ -66,6 +66,13 @@ Publishing credentials and the armored signing key live in the GitHub
 `release` environment. `OSSRH_USERNAME` and `OSSRH_TOKEN` hold a Central Portal
 user token pair; the old OSSRH account credentials do not work. GitHub
 Packages uses the workflow's `GITHUB_TOKEN` with `packages: write`.
+Gradle first writes a signed local repository with
+`:library:publishReleasePublicationToReleaseBundleRepository`. The workflow
+retains those files, uploads GitHub Packages with byte checks, and saves the
+Central deployment ID before finalizing it through the Portal API. Use
+**Re-run failed jobs** to resume a release with its original bundle and ID.
+`dev/nix-shell 'python3.11 -B dev/tests/test_android_publish.py'` checks partial
+uploads and retry behavior against local HTTP fixtures without publishing.
 
 The SDK root owns `gradle/toolchain.properties`, the Gradle wrapper, and the
 shared SHA256 dependency verification inventory. The app root reads these

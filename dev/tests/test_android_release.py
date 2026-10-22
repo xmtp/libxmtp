@@ -22,12 +22,18 @@ class AndroidReleaseTest(unittest.TestCase):
         workflow = yaml.safe_load(WORKFLOW.read_text())
         job = workflow["jobs"]["publish"]
         self.assertEqual(job["environment"], "release")
-        self.assertEqual(job["permissions"]["packages"], "write")
+        self.assertEqual(
+            workflow["jobs"]["publish-packages"]["permissions"]["packages"], "write"
+        )
         caller = yaml.safe_load((WORKFLOW.parent / "release.yml").read_text())
         self.assertEqual(
             caller["jobs"]["release-android"]["permissions"]["packages"], "write"
         )
-        publish = next(step for step in job["steps"] if step.get("name") == "Publish")
+        publish = next(
+            step
+            for step in job["steps"]
+            if step.get("name") == "Prepare signed Maven bundle"
+        )
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             sdk = root / "sdks/android"
@@ -74,9 +80,7 @@ class AndroidReleaseTest(unittest.TestCase):
                             self.assertEqual(
                                 json.loads(log.read_text()),
                                 [
-                                    "publishToSonatype",
-                                    "closeAndReleaseSonatypeStagingRepository",
-                                    ":library:publishReleasePublicationToGitHubPackagesRepository",
+                                    ":library:publishReleasePublicationToReleaseBundleRepository",
                                 ],
                             )
 
@@ -183,9 +187,14 @@ class AndroidReleaseTest(unittest.TestCase):
         build = steps[names.index("Build example APK")]
         self.assertEqual(build["run"], "dev/nix-shell 'just example-android apk'")
         self.assertEqual(build["env"]["XMTP_EXAMPLE_VERSION"], "${{ inputs.version }}")
-        self.assertLess(names.index("Build example APK"), names.index("Publish"))
+        self.assertLess(
+            names.index("Build example APK"), names.index("Prepare signed Maven bundle")
+        )
         upload = steps[names.index("Retain example APK")]
-        self.assertLess(names.index("Retain example APK"), names.index("Publish"))
+        self.assertLess(
+            names.index("Retain example APK"),
+            names.index("Prepare signed Maven bundle"),
+        )
         self.assertEqual(upload["with"]["if-no-files-found"], "error")
         self.assertEqual(
             upload["with"]["path"],
