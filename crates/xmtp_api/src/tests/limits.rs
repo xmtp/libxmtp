@@ -119,15 +119,24 @@ async fn read_topic_boundaries(#[case] read: Read, #[case] cap: usize) {
     }
 }
 
-/// Distinct publish topics split at the configured cap.
+/// Distinct publish topics split at the configured cap. The default cap
+/// equals `MAX_PUBLISH_ENVELOPES`, so the client is configured with a lower
+/// one, which the backend's own cap admits.
 // verifies: CONF-073
 #[rstest]
 #[case::at_limit(0)]
 #[case::one_past(1)]
 #[xmtp_common::test(unwrap_try = true)]
 async fn publish_topic_boundary(#[case] extra: usize) {
-    let api = backend();
-    let cap = BACKEND_DEFAULT_MAX_PUBLISH_TOPICS;
+    let cap = 3;
+    let mut api = backend();
+    api.set_configuration(std::sync::Arc::new(ServerConfiguration {
+        limits: LimitsConfiguration {
+            max_publish_topics: cap,
+            ..LimitsConfiguration::default()
+        },
+        ..ServerConfiguration::default()
+    }));
     let topics = welcome_topics(cap + extra);
     let units = topics
         .iter()

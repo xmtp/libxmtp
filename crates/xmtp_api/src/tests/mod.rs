@@ -436,13 +436,19 @@ fn publish_chunks_measure_bytes_and_distinct_topics() {
         PublishUnit::new(vec![large; count]),
         Err(ApiError::UnitTooLarge)
     ));
-    let units = (0..=BACKEND_DEFAULT_MAX_PUBLISH_TOPICS)
+    // The default topic cap equals `MAX_PUBLISH_ENVELOPES`, so only a lower
+    // cap tells the topic term apart from the envelope bound.
+    let limits = LimitsConfiguration {
+        max_publish_topics: 3,
+        ..LimitsConfiguration::default()
+    };
+    let units = (0..4)
         .map(|index| PublishUnit::single(welcome(index)))
         .collect::<crate::Result<Vec<_>>>()?;
-    let chunks = chunk_publish(&units)?;
+    let chunks = crate::chunk::chunk_publish_within(&units, &limits)?;
     assert_eq!(
         chunks.iter().map(|chunk| chunk.len()).collect::<Vec<_>>(),
-        vec![BACKEND_DEFAULT_MAX_PUBLISH_TOPICS, 1]
+        vec![3, 1]
     );
 }
 
