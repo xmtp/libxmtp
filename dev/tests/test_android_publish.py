@@ -45,6 +45,7 @@ class AndroidPublishTest(unittest.TestCase):
         self.lose_release_response = False
         self.lose_upload_response = False
         self.github_forbidden = False
+        self.blob_url = None
         test = self
 
         class Registry(BaseHTTPRequestHandler):
@@ -60,6 +61,11 @@ class AndroidPublishTest(unittest.TestCase):
                 if test.github_forbidden:
                     return self.respond(403, b"secret error body")
                 test.assertEqual(self.headers["Authorization"], "Basic github-token")
+                if test.blob_url and self.path in test.remote:
+                    self.send_response(302)
+                    self.send_header("Location", test.blob_url + self.path)
+                    self.end_headers()
+                    return
                 self.respond(
                     200, test.remote[self.path]
                 ) if self.path in test.remote else self.respond(404)
@@ -167,6 +173,32 @@ class AndroidPublishTest(unittest.TestCase):
         self.publisher().release(interval=0)
         self.assertEqual(len(self.deployments), 1)
         self.assertEqual(len(self.releases), 1)
+        self.assertEqual(len(self.puts), 8)
+
+    def test_redirected_artifact_reads_do_not_forward_credentials(self):
+        self.publisher().stage()
+        received = []
+        test = self
+
+        class Blob(BaseHTTPRequestHandler):
+            def log_message(self, *args):
+                pass
+
+            def do_GET(self):
+                authorization = self.headers.get("Authorization")
+                received.append(authorization)
+                self.send_response(400 if authorization else 200)
+                self.end_headers()
+                self.wfile.write(test.remote[self.path])
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Blob)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        self.blob_url = f"http://127.0.0.1:{server.server_port}"
+        self.publisher().stage()
+        self.assertTrue(received)
+        self.assertEqual(set(received), {None})
         self.assertEqual(len(self.puts), 8)
 
     def test_maven_version_index_preserves_other_releases_on_retry(self):

@@ -18,6 +18,23 @@ import zipfile
 import io
 
 
+class RegistryRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, request, fp, code, message, headers, url):
+        before = urllib.parse.urlsplit(request.full_url)
+        after = urllib.parse.urlsplit(url)
+        if before.scheme == "https" and after.scheme != "https":
+            raise urllib.error.URLError("Refusing registry HTTPS downgrade")
+        redirected = super().redirect_request(request, fp, code, message, headers, url)
+        if redirected is not None and (before.scheme, before.netloc) != (
+            after.scheme,
+            after.netloc,
+        ):
+            # Maven downloads redirect to signed blob URLs. Registry credentials
+            # must never follow that redirect to a different origin.
+            redirected.remove_header("Authorization")
+        return redirected
+
+
 class Publisher:
     def __init__(
         self, repository, state_dir, version, source, github_auth, central_auth
@@ -59,7 +76,8 @@ class Publisher:
             headers["Content-Type"] = content_type
         request = urllib.request.Request(url, data=data, headers=headers, method=method)
         try:
-            with urllib.request.urlopen(request, timeout=120) as response:
+            opener = urllib.request.build_opener(RegistryRedirectHandler())
+            with opener.open(request, timeout=120) as response:
                 return response.read()
         except urllib.error.HTTPError as error:
             code = error.code
