@@ -23,7 +23,11 @@ dev/nix-shell 'dev/agent-run cargo test --locked -p xmtp_mls_validation --target
 ```
 
 Use `test-utils` for fixtures. Parse routing before cryptographic validation so
-duplicate retries do not depend on the current key-package lifetime.
+duplicate retries do not depend on the current key-package lifetime. Parsing
+checks the length of every field a publish signature covers; `verify_publish`
+checks the signature itself, after the caller's duplicate lookup.
+`group_keys`, `keyed_group_message_envelope`, and `sealed_commit_log_envelope`
+build signed fixtures.
 
 After dependency changes, run `just validation check`. Workspace builds can hide
 missing features through feature unification. Keep `xmtp_mls/test-utils`,

@@ -39,8 +39,13 @@ test-utils = [
 
 [dev-dependencies]
 async-trait.workspace = true
+# Sign bytes the group keys never sign, and derive a group signing key the
+# way the group key table states, to build refused publish signatures.
+ed25519-dalek.workspace = true
+hkdf.workspace = true
 openmls = { workspace = true, features = ["test-utils"] }
 openmls_basic_credential.workspace = true
+sha2.workspace = true
 tokio.workspace = true
 wasm-bindgen-test.workspace = true
 xmtp_common = { workspace = true, features = ["test-utils"] }

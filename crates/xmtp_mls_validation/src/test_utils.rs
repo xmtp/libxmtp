@@ -12,6 +12,7 @@ use openmls::{
     },
 };
 use openmls_rust_crypto::OpenMlsRustCrypto;
+use prost::Message as _;
 use xmtp_cryptography::{Secret, XmtpInstallationCredential, utils::generate_local_wallet};
 use xmtp_id::{
     InboxOwner,
@@ -30,6 +31,9 @@ use xmtp_id::{
     key_package::{KeyPackageOptions, build_key_package, create_credential},
     scw_verifier::{BlockStamp, ChainBlocks, VerifierError},
     utils::passkey::PasskeyUser,
+};
+use xmtp_mls_common::group_keys::{
+    GroupKeys, GroupRoot, seal_commit_log_entry, sign_group_message,
 };
 use xmtp_proto::xmtp::{
     backend::v1::{
@@ -145,6 +149,47 @@ pub fn group_message_envelope(
             should_push: true,
             signature: vec![],
         })),
+    }
+}
+
+/// The keys of the keyed group whose root is 32 copies of `seed`, so a
+/// fixture names the same group on every run.
+pub fn group_keys(seed: u8) -> GroupKeys {
+    GroupKeys::derive(&GroupRoot::from_bytes(&[seed; 32]).expect("a fixture root is 32 bytes"))
+}
+
+/// A group message of the keyed group of `keys`, signed under its group
+/// signing key as a client publishes it. Change a signed field afterwards to
+/// build a message whose signature no longer verifies.
+pub fn keyed_group_message_envelope(
+    keys: &GroupKeys,
+    kind: GroupMessageKind,
+    trailing_bytes: impl AsRef<[u8]>,
+) -> ClientEnvelope {
+    let mut envelope = group_message_envelope(keys.group_id(), kind, trailing_bytes);
+    let Some(Payload::GroupMessage(message)) = envelope.payload.as_mut() else {
+        unreachable!("the fixture is a group message")
+    };
+    sign_group_message(keys, message).expect("fixture signing passes the self-check");
+    envelope
+}
+
+/// A sealed commit-log entry of the keyed group of `keys` at
+/// `commit_sequence_id`, as a client publishes it.
+pub fn sealed_commit_log_envelope(keys: &GroupKeys, commit_sequence_id: u64) -> ClientEnvelope {
+    let entry = PlaintextCommitLogEntry {
+        group_id: keys.group_id().to_vec(),
+        commit_sequence_id,
+        last_epoch_authenticator: vec![0x60, 0x61],
+        commit_result: 1,
+        applied_epoch_number: 8,
+        applied_epoch_authenticator: vec![0x62, 0x63],
+    };
+    ClientEnvelope {
+        payload: Some(Payload::SealedCommitLogEntry(
+            seal_commit_log_entry(keys, &entry.encode_to_vec())
+                .expect("fixture sealing passes the self-check"),
+        )),
     }
 }
 

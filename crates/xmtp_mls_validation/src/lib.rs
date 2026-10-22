@@ -7,7 +7,7 @@ use openmls::prelude::{ContentType, KeyPackageIn, MlsMessageIn, ProtocolMessage}
 use openmls_rust_crypto::RustCrypto;
 use tls_codec::Deserialize;
 use xmtp_common::RetryableError;
-use xmtp_configuration::LEGACY_GROUP_ID_BYTES;
+use xmtp_configuration::{GROUP_ID_BYTES, LEGACY_GROUP_ID_BYTES};
 use xmtp_id::{
     associations::{
         self, AccountId, AssociationError, AssociationState, AssociationStateDiff, Handle,
@@ -17,13 +17,20 @@ use xmtp_id::{
     key_package::{KeyPackageVerificationError, VerifiedKeyPackageV2},
     scw_verifier::{BlockStamp, ChainBlocks, SmartContractSignatureVerifier, VerifierError},
 };
-use xmtp_mls_common::commit_log::decode_commit_log;
+use xmtp_mls_common::{
+    commit_log::decode_commit_log,
+    group_keys::{
+        COMMIT_LOG_NONCE_BYTES, COMMIT_LOG_TAG_BYTES, PUBLIC_KEY_BYTES, PUBLISH_SIGNATURE_BYTES,
+        PublishSignatureError, SealedField, commit_log_entry_tbs, group_message_tbs,
+        verify_publish_signature,
+    },
+};
 use xmtp_proto::{
     ConversionError,
     types::{CanonicalEnvelope, Topic, TopicKind, canonical_envelope},
     xmtp::{
         backend::v1::{
-            ClientEnvelope, client_envelope::Payload, publish_error::Reason,
+            ClientEnvelope, SealedCommitLogEntry, client_envelope::Payload, publish_error::Reason,
             welcome_message::Version,
         },
         identity::associations::{
@@ -50,10 +57,14 @@ pub enum ValidationError {
     /// The welcome version is absent. Not retryable.
     #[error("welcome version is absent")]
     MissingWelcomeVersion,
-    /// The payload is a sealed commit-log entry, which admission does not
-    /// route yet. Not retryable.
-    #[error("sealed commit-log entries are not admitted")]
-    UnsupportedPayload,
+    /// A field of a sealed commit-log entry has the wrong length. Not
+    /// retryable.
+    #[error("the sealed commit-log entry's {0} has the wrong length")]
+    SealedEntry(SealedField),
+    /// A publish signature is missing or not 64 bytes, or it does not verify.
+    /// Not retryable.
+    #[error(transparent)]
+    PublishSignature(PublishSignatureError),
     /// Protobuf framing is malformed. Not retryable.
     #[error(transparent)]
     Protobuf(#[from] prost::DecodeError),
@@ -121,14 +132,18 @@ impl ValidationError {
     pub fn reason(&self) -> Reason {
         match self {
             Self::KeyPackage(_) => Reason::InvalidKeyPackage,
-            Self::Signature(_)
+            Self::PublishSignature(PublishSignatureError::SignatureLength) => {
+                Reason::MalformedPayload
+            }
+            Self::PublishSignature(_)
+            | Self::Signature(_)
             | Self::Association(AssociationError::Signature(_))
             | Self::StaleBlock(_)
             | Self::InvalidAccountId(_) => Reason::InvalidSignature,
             Self::IdentityEncoding(_) | Self::Association(_) => Reason::InvalidIdentityUpdate,
             Self::MissingPayload
             | Self::MissingWelcomeVersion
-            | Self::UnsupportedPayload
+            | Self::SealedEntry(_)
             | Self::Protobuf(_)
             | Self::Tls(_)
             | Self::Protocol(_)
@@ -155,6 +170,17 @@ pub struct ParsedEnvelope {
 }
 
 impl ParsedEnvelope {
+    /// Whether this envelope carries a publish signature that admission must
+    /// verify with [`verify_publish`]: a group message on a 32-byte group id,
+    /// or a sealed commit-log entry. Parsing admits an unsigned payload only
+    /// under a 16-byte legacy group id, so the topic decides.
+    pub fn is_signed(&self) -> bool {
+        matches!(
+            self.topic.kind(),
+            TopicKind::GroupMessagesV1 | TopicKind::CommitLogEntriesV1
+        ) && self.topic.identifier().len() == GROUP_ID_BYTES
+    }
+
     /// Classify a parsed envelope for push storage without changing canonical bytes.
     /// Commits and proposals remain eligible even when the sender disables pushes.
     pub fn push_fields(&self) -> (bool, Option<Vec<u8>>) {
@@ -194,29 +220,64 @@ fn checked_topic(kind: TopicKind, identifier: impl AsRef<[u8]>) -> Result<Topic,
     Topic::parse(&topic).map_err(ValidationError::InvalidTopic)
 }
 
-/// Build the topic of a published group message or commit-log entry.
-///
-/// [`Topic::parse`] also accepts 32-byte identifiers for kinds 0 and 4, so
-/// reads can name them. Admission routes only 16-byte group ids until it
-/// checks publish signatures, so no unsigned envelope reaches a 32-byte topic.
-fn checked_legacy_group_topic(kind: TopicKind, group_id: &[u8]) -> Result<Topic, ValidationError> {
+/// Build the topic of a group message, which [`Topic::parse`] accepts under a
+/// 32-byte group id or a 16-byte legacy one. A 32-byte group id is a public
+/// key, so the message must carry a 64-byte publish signature, which
+/// [`verify_publish`] checks after the duplicate lookup. A legacy group has
+/// no key, so its messages stay unsigned until the cutover to 32-byte ids.
+fn group_message_topic(group_id: &[u8], signature: &[u8]) -> Result<Topic, ValidationError> {
+    if group_id.len() == GROUP_ID_BYTES && signature.len() != PUBLISH_SIGNATURE_BYTES {
+        return Err(ValidationError::PublishSignature(
+            PublishSignatureError::SignatureLength,
+        ));
+    }
+    checked_topic(TopicKind::GroupMessagesV1, group_id)
+}
+
+/// Build the topic of a sealed commit-log entry from its `commit_log_id`,
+/// after checking every field's length, so that verification and storage
+/// never see a malformed entry.
+fn sealed_commit_log_topic(entry: &SealedCommitLogEntry) -> Result<Topic, ValidationError> {
+    let malformed = |field| Err(ValidationError::SealedEntry(field));
+    if entry.commit_log_id.len() != PUBLIC_KEY_BYTES {
+        return malformed(SealedField::CommitLogId);
+    }
+    if entry.nonce.len() != COMMIT_LOG_NONCE_BYTES {
+        return malformed(SealedField::Nonce);
+    }
+    if entry.ciphertext.len() < COMMIT_LOG_TAG_BYTES {
+        return malformed(SealedField::Ciphertext);
+    }
+    if entry.signature.len() != PUBLISH_SIGNATURE_BYTES {
+        return malformed(SealedField::Signature);
+    }
+    checked_topic(TopicKind::CommitLogEntriesV1, &entry.commit_log_id)
+}
+
+/// Build the topic of a retired, unsigned `CommitLogEntry` from the group id
+/// inside it. Only a 16-byte legacy group id routes: under a 32-byte id the
+/// entry would land unsigned on a topic that only sealed, signed entries may
+/// use. Admitted until the cutover.
+fn legacy_commit_log_topic(group_id: &[u8]) -> Result<Topic, ValidationError> {
     if group_id.len() != LEGACY_GROUP_ID_BYTES {
         return Err(ValidationError::InvalidTopic(
             ConversionError::InvalidLength {
-                item: "published group id",
+                item: "unsigned commit-log group id",
                 expected: LEGACY_GROUP_ID_BYTES,
                 got: group_id.len(),
             },
         ));
     }
-    checked_topic(kind, group_id)
+    checked_topic(TopicKind::CommitLogEntriesV1, group_id)
 }
 
 /// Decode one envelope, derive its topic, and compute canonical retry bytes.
 ///
 /// This is the routing phase. It performs the payload-specific decoding needed
-/// to find a topic, but leaves key-package and identity admission to
-/// [`validate_envelope`]. A malformed envelope returns before any verifier call.
+/// to find a topic and checks the length of every field a publish signature
+/// covers, but leaves key-package, identity, and signature admission to
+/// [`validate_envelope`] and [`verify_publish`]. A malformed envelope returns
+/// before any verifier call.
 // implements: TOPIC-001, TOPIC-002, API-230
 pub fn parse_envelope(envelope: ClientEnvelope) -> Result<ParsedEnvelope, ValidationError> {
     let payload = envelope
@@ -228,7 +289,7 @@ pub fn parse_envelope(envelope: ClientEnvelope) -> Result<ParsedEnvelope, Valida
         Payload::GroupMessage(group) => {
             let message = parse_group_message(&group.data)?;
             is_commit_or_proposal = self::is_commit_or_proposal(&message);
-            checked_legacy_group_topic(TopicKind::GroupMessagesV1, message.group_id().as_slice())?
+            group_message_topic(message.group_id().as_slice(), &group.signature)?
         }
         Payload::WelcomeMessage(welcome) => {
             let key = match welcome
@@ -253,9 +314,9 @@ pub fn parse_envelope(envelope: ClientEnvelope) -> Result<ParsedEnvelope, Valida
         }
         Payload::CommitLogEntry(entry) => {
             let decoded = decode_commit_log(&entry.serialized_commit_log_entry)?;
-            checked_legacy_group_topic(TopicKind::CommitLogEntriesV1, &decoded.group_id)?
+            legacy_commit_log_topic(&decoded.group_id)?
         }
-        Payload::SealedCommitLogEntry(_) => return Err(ValidationError::UnsupportedPayload),
+        Payload::SealedCommitLogEntry(entry) => sealed_commit_log_topic(entry)?,
     };
     let canonical = canonical_envelope(&envelope);
     Ok(ParsedEnvelope {
@@ -425,12 +486,64 @@ pub async fn check_freshness(
         })
 }
 
+/// Verify the publish signature of a parsed envelope with the rule every
+/// verifier shares ([`verify_publish_signature`]): a group message on a
+/// 32-byte group id over `GroupMessageTBS` under that id, and a sealed
+/// commit-log entry over `CommitLogEntryTBS` under its `commit_log_id`. An envelope that [`ParsedEnvelope::is_signed`] calls
+/// unsigned passes.
+///
+/// This is CPU work, about one Ed25519 verification per call, and needs no
+/// state. Callers run it after the duplicate lookup, so a replay of a stored
+/// envelope costs nothing.
+// implements: API-230, API-300
+pub fn verify_publish(parsed: &ParsedEnvelope) -> Result<(), ValidationError> {
+    if !parsed.is_signed() {
+        return Ok(());
+    }
+    let public_key: &[u8; PUBLIC_KEY_BYTES] = parsed
+        .topic
+        .identifier()
+        .try_into()
+        .map_err(|_| ValidationError::PublishSignature(PublishSignatureError::Invalid))?;
+    let (tbs, signature) = match parsed.envelope.payload.as_ref() {
+        Some(Payload::GroupMessage(group)) => (
+            group_message_tbs(
+                public_key,
+                &group.data,
+                &group.sender_hmac,
+                group.should_push,
+            )?,
+            &group.signature,
+        ),
+        Some(Payload::SealedCommitLogEntry(entry)) => {
+            let nonce: &[u8; COMMIT_LOG_NONCE_BYTES] = entry
+                .nonce
+                .as_slice()
+                .try_into()
+                .map_err(|_| ValidationError::SealedEntry(SealedField::Nonce))?;
+            (
+                commit_log_entry_tbs(public_key, nonce, &entry.ciphertext)?,
+                &entry.signature,
+            )
+        }
+        // Parsing routes no other payload to a 32-byte group or commit-log id.
+        _ => {
+            return Err(ValidationError::PublishSignature(
+                PublishSignatureError::Invalid,
+            ));
+        }
+    };
+    verify_publish_signature(public_key, &tbs, signature).map_err(ValidationError::PublishSignature)
+}
+
 /// Validate one parsed envelope after duplicate lookup.
 ///
 /// Key packages receive their existing package checks. Identity updates are
 /// folded against the caller's snapshot and return a projection diff; only the
-/// new update, never the stored history, must first pass [`check_freshness`]. Other
-/// kinds need no cryptographic admission beyond the parsing phase.
+/// new update, never the stored history, must first pass [`check_freshness`].
+/// Signed group messages and sealed commit-log entries pass
+/// [`verify_publish`]. Other kinds need no cryptographic admission beyond the
+/// parsing phase.
 pub async fn validate_envelope(
     parsed: &ParsedEnvelope,
     history: &[IdentityUpdate],
@@ -453,6 +566,9 @@ pub async fn validate_envelope(
                 validate_identity_updates(history.to_vec(), vec![update.clone()], verifier).await?,
             ))
         }
-        _ => Ok(None),
+        _ => {
+            verify_publish(parsed)?;
+            Ok(None)
+        }
     }
 }
