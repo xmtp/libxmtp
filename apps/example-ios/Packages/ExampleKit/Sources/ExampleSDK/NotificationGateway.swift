@@ -34,7 +34,13 @@ public extension PushEnvelope {
 	/// The SDK checks the topic encoding and length and the sequence range. Push subscriptions
 	/// carry only group and welcome topics (PUSH-215), so any other kind is ignored.
 	init?(topic: String, sequence: String) {
-		guard let hint = try? parsePushHint(topic: topic, sequenceId: sequence) else { return nil }
+		let hint: PushHint
+		do {
+			hint = try parsePushHint(topic: topic, sequenceId: sequence)
+		} catch {
+			// A malformed payload is not a notification.
+			return nil
+		}
 		switch hint.topic {
 		case let .groupMessages(conversationId):
 			self.init(topic: topic, sequence: hint.sequenceId, kind: .group, identifier: conversationId)
