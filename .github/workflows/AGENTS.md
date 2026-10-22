@@ -113,6 +113,13 @@ build the products themselves.
 
 `release-android.yml` builds the example with
 `dev/nix-shell 'just example-android apk'` before Maven publication.
+Its publish job uses the `release` environment for `OSSRH_USERNAME`,
+`OSSRH_TOKEN`, `OSSRH_GPG_SECRET_KEY`, and `OSSRH_GPG_SECRET_KEY_PASSWORD`.
+Use a Central Portal token for the username and token. The Nexus plugin
+discovers the `org.xmtp` staging profile; no `MAVEN_PROFILE_ID` is needed.
+The same signed publication goes to Maven Central and GitHub Packages at
+`xmtp/libxmtp`. The caller grants `packages: write`, and the publish job uses
+its own `GITHUB_TOKEN` for GitHub Packages.
 After the isolated tag push, it attaches the test-signed
 universal APK to the matching GitHub Release for every release type. Keep the
 APK upload job dependent on the tag push and use `--verify-tag` on creation.

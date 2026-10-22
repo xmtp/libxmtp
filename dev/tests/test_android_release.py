@@ -18,6 +18,68 @@ WORKFLOW = ROOT / ".github/workflows/release-android.yml"
 
 
 class AndroidReleaseTest(unittest.TestCase):
+    def test_publish_credentials_and_failure_gate(self):
+        workflow = yaml.safe_load(WORKFLOW.read_text())
+        job = workflow["jobs"]["publish"]
+        self.assertEqual(job["environment"], "release")
+        self.assertEqual(job["permissions"]["packages"], "write")
+        caller = yaml.safe_load((WORKFLOW.parent / "release.yml").read_text())
+        self.assertEqual(
+            caller["jobs"]["release-android"]["permissions"]["packages"], "write"
+        )
+        publish = next(step for step in job["steps"] if step.get("name") == "Publish")
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            sdk = root / "sdks/android"
+            sdk.mkdir(parents=True)
+            dev = root / "dev"
+            dev.mkdir()
+            wrapper = dev / "nix-shell"
+            wrapper.write_text('#!/bin/bash\nexec bash -euc "$1"\n')
+            wrapper.chmod(0o755)
+            gradle = sdk / "gradlew"
+            gradle.write_text(
+                f"#!{sys.executable}\n"
+                "import json, os, sys\n"
+                "from pathlib import Path\n"
+                "Path(os.environ['GRADLE_LOG']).write_text(json.dumps(sys.argv[1:]))\n"
+                "sys.exit(int(os.environ.get('GRADLE_EXIT', '0')))\n"
+            )
+            gradle.chmod(0o755)
+            log = root / "gradle.json"
+            credentials = {name: "fixture-secret" for name in publish["env"]}
+            env = dict(os.environ, **credentials, GRADLE_LOG=str(log))
+            for missing in (None, *credentials):
+                for status in (0, 42) if missing is None else (0,):
+                    with self.subTest(missing=missing, gradle_exit=status):
+                        log.unlink(missing_ok=True)
+                        current = env | {"GRADLE_EXIT": str(status)}
+                        if missing:
+                            current[missing] = ""
+                        result = subprocess.run(
+                            ["bash", "-euc", publish["run"]],
+                            cwd=root,
+                            env=current,
+                            capture_output=True,
+                            text=True,
+                        )
+                        self.assertEqual(result.returncode, 1 if missing else status)
+                        self.assertNotIn(
+                            "fixture-secret", result.stdout + result.stderr
+                        )
+                        if missing:
+                            self.assertFalse(log.exists())
+                            self.assertIn(missing, result.stdout)
+                        else:
+                            self.assertEqual(
+                                json.loads(log.read_text()),
+                                [
+                                    "publishToSonatype",
+                                    "closeAndReleaseSonatypeStagingRepository",
+                                    ":library:publishReleasePublicationToGitHubPackagesRepository",
+                                ],
+                            )
+
     def test_universal_apk_rejects_each_missing_abi(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
