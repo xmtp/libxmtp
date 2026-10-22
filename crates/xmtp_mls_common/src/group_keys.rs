@@ -313,7 +313,7 @@ fn seal_with(
     .map_err(SealError::Encrypt)?;
     let mut tbs = commit_log_entry_tbs(&commit_log_id, &nonce, &ciphertext)?;
     let signature = sign_twice(&keys.commit_log_signing, &mut tbs, seam)?;
-    let entry = SealedCommitLogEntry {
+    let mut entry = SealedCommitLogEntry {
         commit_log_id: commit_log_id.to_vec(),
         nonce: nonce.to_vec(),
         ciphertext,
@@ -323,8 +323,13 @@ fn seal_with(
     // Open the entry as a reader does: verify over signed bytes rebuilt from
     // its own fields, then decrypt. The nonce derived from the decrypted
     // bytes must be the entry's nonce.
-    let opened = open_commit_log_entry(keys, &entry).map_err(|_| SealError::SelfCheck)?;
-    if derive_nonce(&keys.commit_log_nonce, &topic, &opened)[..] != entry.nonce[..] {
+    let checked = open_commit_log_entry(keys, &entry).is_ok_and(|opened| {
+        derive_nonce(&keys.commit_log_nonce, &topic, &opened)[..] == entry.nonce[..]
+    });
+    if !checked {
+        // A faulty signature and a correct one over the same bytes can reveal
+        // the signing key, so the entry's copy is wiped before it is freed.
+        drop(Zeroizing::new(std::mem::take(&mut entry.signature)));
         return Err(SealError::SelfCheck);
     }
     Ok(entry)
@@ -413,7 +418,8 @@ fn aead_decrypt(
 
 /// Sign `tbs` twice and require equal bytes. Signing is deterministic, so a
 /// difference is a fault. Both signatures are wiped, so a faulty one never
-/// outlives this call.
+/// outlives this call. A caller that copies the result before its own check
+/// wipes that copy when the check fails.
 fn sign_twice(
     key: &SigningKey,
     tbs: &mut [u8],

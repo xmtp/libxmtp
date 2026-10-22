@@ -284,7 +284,8 @@ fn deriving_group_keys_wipes_the_root_and_every_key() {
 }
 
 /// Sealing and opening a commit-log entry free no unwiped copy of the root
-/// or of any derived key.
+/// or of any derived key, and neither does refusing a tampered or malformed
+/// entry.
 #[xmtp_common::test(unwrap_try = true)]
 fn sealing_and_opening_wipe_every_group_key() {
     let secrets = group_key_secrets();
@@ -296,7 +297,14 @@ fn sealing_and_opening_wipe_every_group_key() {
         let entry = seal_commit_log_entry(&keys, &plaintext).unwrap();
         let opened = open_commit_log_entry(&keys, &entry).unwrap();
         assert!(opened == plaintext);
-        drop((entry, opened));
+
+        let mut tampered = entry.clone();
+        tampered.ciphertext[0] ^= 1;
+        assert!(open_commit_log_entry(&keys, &tampered).is_err());
+        let mut malformed = entry.clone();
+        malformed.nonce.truncate(11);
+        assert!(open_commit_log_entry(&keys, &malformed).is_err());
+        drop((entry, opened, tampered, malformed));
     });
     drop((keys, plaintext, canaries, secrets));
 

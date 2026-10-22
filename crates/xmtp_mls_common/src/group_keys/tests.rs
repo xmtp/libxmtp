@@ -552,6 +552,41 @@ fn open_refuses_malformed_fields_before_any_cryptography() {
     ));
 }
 
+/// Lengths come before the signature, and the signature before the AEAD:
+/// each entry below fails two checks and must report the earlier one.
+// verifies: FORK-075
+#[xmtp_common::test(unwrap_try = true)]
+fn open_checks_lengths_then_the_signature_then_the_aead() {
+    let keys = vector_keys();
+    let good = seal_commit_log_entry(&keys, &vector("plaintext"))?;
+    let garbage_signature = vec![0x5a; PUBLISH_SIGNATURE_BYTES];
+
+    let mut short_ciphertext = good.clone();
+    short_ciphertext
+        .ciphertext
+        .truncate(COMMIT_LOG_TAG_BYTES - 1);
+    short_ciphertext.signature = garbage_signature.clone();
+    assert!(matches!(
+        open_commit_log_entry(&keys, &short_ciphertext),
+        Err(OpenError::Malformed(SealedField::Ciphertext))
+    ));
+
+    let mut short_nonce = good.clone();
+    short_nonce.nonce.truncate(COMMIT_LOG_NONCE_BYTES - 1);
+    short_nonce.signature = garbage_signature;
+    assert!(matches!(
+        open_commit_log_entry(&keys, &short_nonce),
+        Err(OpenError::Malformed(SealedField::Nonce))
+    ));
+
+    let mut tampered = good;
+    tampered.ciphertext[0] ^= 1;
+    assert!(matches!(
+        open_commit_log_entry(&keys, &tampered),
+        Err(OpenError::Signature(PublishSignatureError::Invalid))
+    ));
+}
+
 // verifies: FORK-075
 #[xmtp_common::test(unwrap_try = true)]
 fn open_refuses_an_entry_of_another_commit_log() {
