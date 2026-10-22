@@ -456,22 +456,22 @@ where
     ) -> Result<WelcomeHeadOutcome<Context>, GroupError> {
         let cursor = Cursor(pending.sequence_id as u64);
         let now = xmtp_common::time::now_ns();
-        if pending
-            .retry_expires_at_ns
-            .is_some_and(|deadline| deadline <= now)
-        {
+        let Some(deadline) = self.context.db().set_unreadable_welcome_deadline(
+            self.context.installation_id().as_slice(),
+            cursor,
+            now.saturating_add(UNSUPPORTED_WELCOME_RETENTION_NS),
+        )?
+        else {
+            return Ok(WelcomeHeadOutcome::Idle { cursor });
+        };
+        if deadline <= now {
             self.complete_rejected_pending(pending, "unsupported_welcome_expired")?;
             return Ok(WelcomeHeadOutcome::Progress {
                 cursor,
                 result: Err(error),
             });
         }
-        self.defer_pending(
-            pending,
-            code,
-            true,
-            Some(now.saturating_add(UNSUPPORTED_WELCOME_RETENTION_NS)),
-        )?;
+        self.defer_pending(pending, code, true, None)?;
         Ok(WelcomeHeadOutcome::Waiting {
             cursor,
             code: code.into(),
@@ -1145,7 +1145,7 @@ mod tests {
             .unwrap()
             .unwrap();
         assert!(blocked.blocked);
-        let deadline = blocked.retry_expires_at_ns.unwrap();
+        let deadline = blocked.unreadable_expires_at_ns.unwrap();
         assert!(deadline >= before + xmtp_common::NS_IN_DAY);
         assert!(deadline <= xmtp_common::time::now_ns() + xmtp_common::NS_IN_DAY);
         assert!(db.has_pending_welcomes().unwrap());
@@ -1161,7 +1161,7 @@ mod tests {
             db.pending_envelope(&service.topic(), cursor)
                 .unwrap()
                 .unwrap()
-                .retry_expires_at_ns,
+                .unreadable_expires_at_ns,
             Some(deadline),
             "a retry must not extend the first deadline"
         );
@@ -1208,7 +1208,7 @@ mod tests {
         // Welcome barrier, the Welcome budget, and key retirement are released.
         db.raw_query(|conn| {
             diesel::update(row())
-                .set(incoming_envelopes::retry_expires_at_ns.eq(Some(1i64)))
+                .set(incoming_envelopes::unreadable_expires_at_ns.eq(Some(1i64)))
                 .execute(conn)
         })
         .unwrap();
@@ -1289,6 +1289,7 @@ mod tests {
     async fn welcome_retention_is_limited_to_unreadable_input(
         #[case] error: fn() -> GroupError,
         #[case] bounded: bool,
+        #[values(false, true)] prior_pointer_hold: bool,
     ) {
         use xmtp_db::ConnectionExt;
         use xmtp_db::incoming_envelope::NewIncomingEnvelope;
@@ -1309,6 +1310,19 @@ mod tests {
                 .incoming_limits(NetworkEntityKind::Welcome),
         )
         .unwrap();
+        if prior_pointer_hold {
+            db.set_incoming_retry(
+                &service.topic(),
+                Cursor(1),
+                &IncomingRetry {
+                    retry_at_ns: 0,
+                    blocked: false,
+                    error_code: Some("welcome_pointee".into()),
+                    retry_expires_at_ns: Some(1),
+                },
+            )
+            .unwrap();
+        }
         let pending = db
             .pending_envelope(&service.topic(), Cursor(1))
             .unwrap()
@@ -1323,15 +1337,16 @@ mod tests {
             .pending_envelope(&service.topic(), Cursor(1))
             .unwrap()
             .unwrap();
-        assert_eq!(pending.retry_expires_at_ns.is_some(), bounded);
+        assert_eq!(pending.unreadable_expires_at_ns.is_some(), bounded);
         if bounded {
             assert!(pending.blocked);
+            assert!(pending.unreadable_expires_at_ns.unwrap() > xmtp_common::time::now_ns());
             // Present the final attempt with a persisted elapsed deadline.
             db.raw_query(|conn| {
                 use diesel::{ExpressionMethods, RunQueryDsl};
                 use xmtp_db::schema::incoming_envelopes;
                 diesel::update(incoming_envelopes::table)
-                    .set(incoming_envelopes::retry_expires_at_ns.eq(Some(1i64)))
+                    .set(incoming_envelopes::unreadable_expires_at_ns.eq(Some(1i64)))
                     .execute(conn)
             })
             .unwrap();
@@ -1409,7 +1424,7 @@ mod tests {
             .set((
                 incoming_envelopes::blocked.eq(true),
                 incoming_envelopes::error_code.eq(Some(code)),
-                incoming_envelopes::retry_expires_at_ns.eq(Some(1i64)),
+                incoming_envelopes::unreadable_expires_at_ns.eq(Some(1i64)),
             ))
             .execute(conn)
         })

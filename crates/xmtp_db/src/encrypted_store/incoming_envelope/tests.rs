@@ -257,6 +257,63 @@ async fn welcome_completion_retains_holes_and_the_first_retry_deadline() {
     assert_eq!(db.topic_progress(&welcome)?.processed, Cursor(79));
 }
 
+/// Pointer fetching and unreadable input have independent, immutable deadlines.
+/// A restart or an intervening retry cause must not reset either retention clock.
+/// Completion must not let a stale Welcome retry modify another queue's row.
+#[xmtp_common::test(unwrap_try = true)]
+async fn unreadable_welcome_deadline_survives_other_holds_and_restarts() {
+    let path = xmtp_common::tmp_path();
+    let store = TestDb::create_persistent_store(Some(path.clone())).await;
+    let db = store.db();
+    let welcome = topic(1, NetworkEntityKind::Welcome);
+    db.admit_ordered_batch(&welcome, Cursor(0), &batch(&[10]), limits())?;
+    let group = topic(1, NetworkEntityKind::Group);
+    db.admit_ordered_batch(&group, Cursor(0), &batch(&[10]), limits())?;
+    let retry = IncomingRetry {
+        retry_at_ns: 100,
+        blocked: false,
+        error_code: Some("welcome_pointee".into()),
+        retry_expires_at_ns: Some(500),
+    };
+    db.set_incoming_retry(&welcome, Cursor(10), &retry)?;
+    assert_eq!(
+        db.set_unreadable_welcome_deadline(&welcome.entity_id, Cursor(10), 900)?,
+        Some(900)
+    );
+    db.set_incoming_retry(
+        &welcome,
+        Cursor(10),
+        &IncomingRetry {
+            error_code: Some("identity_dependency".into()),
+            retry_expires_at_ns: None,
+            ..retry
+        },
+    )?;
+    drop(db);
+    drop(store);
+    let store = TestDb::create_persistent_store(Some(path)).await;
+    let db = store.db();
+    assert_eq!(
+        db.set_unreadable_welcome_deadline(&welcome.entity_id, Cursor(10), 1200)?,
+        Some(900)
+    );
+    let pending = db.pending_envelope(&welcome, Cursor(10))?.unwrap();
+    assert_eq!(pending.retry_expires_at_ns, Some(500));
+    assert_eq!(pending.unreadable_expires_at_ns, Some(900));
+    db.complete_pending_envelope(&welcome, Cursor(10))?;
+    assert_eq!(
+        db.set_unreadable_welcome_deadline(&welcome.entity_id, Cursor(10), 1500)?,
+        None
+    );
+    assert!(!db.has_pending_welcomes()?);
+    assert_eq!(
+        db.pending_envelope(&group, Cursor(10))?
+            .unwrap()
+            .unreadable_expires_at_ns,
+        None
+    );
+}
+
 #[xmtp_common::test(unwrap_try = true)]
 async fn blocked_welcomes_require_a_generation_scan_not_a_timer_retry() {
     let store = TestDb::create_persistent_store(None).await;

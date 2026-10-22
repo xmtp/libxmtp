@@ -131,6 +131,7 @@ diesel::table! {
         blocked -> Bool,
         error_code -> Nullable<Text>,
         retry_expires_at_ns -> Nullable<BigInt>,
+        unreadable_expires_at_ns -> Nullable<BigInt>,
     }
 }
 

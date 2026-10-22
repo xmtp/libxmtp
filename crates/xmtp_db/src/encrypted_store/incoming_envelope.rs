@@ -1,4 +1,8 @@
 //! Durable receipt and ordered processing positions for network envelopes.
+//!
+//! Incoming coordinators use `QueryIncomingEnvelope` to admit, retry, and complete
+//! work in a `StreamTopic`. `StoredIncomingEnvelope` preserves input and deadlines;
+//! unreadable Welcome retention is independent of the pointer-fetch retry deadline.
 
 use diesel::{
     prelude::*,
@@ -82,6 +86,8 @@ pub struct StoredIncomingEnvelope {
     pub error_code: Option<String>,
     /// First retry deadline; later attempts must not extend it.
     pub retry_expires_at_ns: Option<i64>,
+    /// First unreadable-Welcome deadline, independent of pointer-fetch retention.
+    pub unreadable_expires_at_ns: Option<i64>,
 }
 
 /// Pending-work metadata for a fixed processing target. This does not contain ciphertext.
@@ -485,6 +491,32 @@ pub trait QueryIncomingEnvelope: ConnectionExt + Sized {
                 .set(progress::sequence_id.eq(handled))
                 .execute(conn)?;
             Ok(true)
+        })
+    }
+
+    /// Set unreadable retention once and return its original deadline. Completed
+    /// Welcomes return `None`; retries and other holds cannot extend this clock.
+    fn set_unreadable_welcome_deadline(
+        &self,
+        installation_id: &[u8],
+        sequence: Cursor,
+        deadline: i64,
+    ) -> Result<Option<i64>, StorageError> {
+        let sequence = i64::try_from(sequence.0).map_err(|_| StreamStorageError::InvalidBatch)?;
+        stream_transaction(self, |conn| {
+            let target = incoming::table.find((installation_id, EntityKind::Welcome, sequence));
+            let Some(existing) = target
+                .select(incoming::unreadable_expires_at_ns)
+                .first::<Option<i64>>(conn)
+                .optional()?
+            else {
+                return Ok(None);
+            };
+            let deadline = existing.unwrap_or(deadline);
+            diesel::update(target)
+                .set(incoming::unreadable_expires_at_ns.eq(deadline))
+                .execute(conn)?;
+            Ok(Some(deadline))
         })
     }
 
