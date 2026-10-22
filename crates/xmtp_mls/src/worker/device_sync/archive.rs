@@ -273,10 +273,9 @@ mod tests {
         );
         assert!(!attributes.contains_key("_commit_log_signer"));
         let contains = |needle: &[u8]| plaintext.windows(needle.len()).any(|w| w == needle);
-        assert!(
-            !contains(root.as_bytes()),
-            "the archive holds the group root"
-        );
+        for (secret, encoded) in crate::utils::test::group_secret_encodings(&root) {
+            assert!(!contains(&encoded), "the archive holds the {secret}");
+        }
         assert!(
             !contains(&commit_log_signer),
             "the archive holds the signer"

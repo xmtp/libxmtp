@@ -39,6 +39,41 @@ pub use definitions::*;
 
 use super::VersionInfo;
 
+/// Each secret GMOD-042 keeps in the client, in the encodings a leak would
+/// take: the group root and each private or symmetric key of the group key
+/// table, as raw bytes and as lowercase and uppercase hex. The keys derive
+/// here from the spec's salt and `info` labels, not through `GroupKeys`.
+#[cfg(test)]
+pub(crate) fn group_secret_encodings(
+    root: &xmtp_mls_common::group_keys::GroupRoot,
+) -> Vec<(String, Vec<u8>)> {
+    let hkdf = hkdf::Hkdf::<sha2::Sha256>::new(Some(b"xmtp group root"), root.as_bytes());
+    let mut secrets = vec![("group root".to_string(), root.as_bytes().to_vec())];
+    for info in [
+        "xmtp group signing key",
+        "xmtp commit log signing key",
+        "xmtp commit log encryption key",
+        "xmtp commit log nonce key",
+    ] {
+        let mut key = [0u8; 32];
+        hkdf.expand(info.as_bytes(), &mut key).unwrap();
+        secrets.push((info.to_string(), key.to_vec()));
+    }
+    secrets
+        .into_iter()
+        .flat_map(|(name, bytes)| {
+            [
+                (format!("{name} as hex"), hex::encode(&bytes).into_bytes()),
+                (
+                    format!("{name} as upper-case hex"),
+                    hex::encode_upper(&bytes).into_bytes(),
+                ),
+                (name, bytes),
+            ]
+        })
+        .collect()
+}
+
 impl<A, S> ClientBuilder<A, S> {
     pub async fn temp_store(self) -> Self {
         self.store(xmtp_db::TestDb::create_persistent_store(None).await)

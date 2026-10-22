@@ -413,7 +413,7 @@ mod tests {
     }
 
     /// A snapshot can leave the process, so it never carries the group root
-    /// that the AppData dictionary holds.
+    /// that the AppData dictionary holds, or a key derived from it.
     // verifies: GMOD-042
     #[xmtp_common::test(unwrap_try = true)]
     async fn snapshot_holds_no_group_root() {
@@ -423,11 +423,13 @@ mod tests {
         let group = alix.create_group(None, None)?;
         let root = group
             .with_group_snapshot(|mls_group| Ok(read_group_root(mls_group.extensions())))???;
-        let report = serde_json::to_string(&group.diagnostic_snapshot()?)?;
-        assert!(
-            !report.contains(&hex::encode(root.as_bytes())),
-            "the snapshot holds the group root"
-        );
+        let report = serde_json::to_vec(&group.diagnostic_snapshot()?)?;
+        for (secret, encoded) in crate::utils::test::group_secret_encodings(&root) {
+            assert!(
+                !report.windows(encoded.len()).any(|w| w == encoded),
+                "the snapshot holds the {secret}"
+            );
+        }
     }
 
     #[xmtp_common::test(unwrap_try = true)]
