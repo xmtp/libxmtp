@@ -64,6 +64,67 @@ import Testing
 		await store.close()
 	}
 
+	@Test func restoresDownloadedFileWithoutAnotherDownload() async {
+		let fixture = AttachmentFixture()
+		fixture.gateway.local = VerifiedFile(
+			url: URL(fileURLWithPath: "/tmp/cached"),
+			mimeType: "image/png",
+			filename: "cached.png",
+		)
+		fixture.store.send(.restore("message", fixture.file, own: false))
+		await fixture.store.wait()
+		#expect(fixture.store.state.cards["message"]?.phase == .verified)
+		#expect(fixture.store.verified.get("message") == fixture.gateway.local)
+		#expect(fixture.gateway.downloads == 0)
+		await fixture.store.close()
+	}
+
+	@Test(arguments: [false, true]) func onlyOwnMissingFilesDownloadAutomatically(own: Bool) async {
+		let fixture = AttachmentFixture()
+		fixture.store.send(.restore("message", fixture.file, own: own))
+		await fixture.store.wait()
+		#expect(fixture.gateway.downloads == (own ? 1 : 0))
+		#expect((fixture.store.state.cards["message"]?.phase == .verified) == own)
+		await fixture.store.close()
+	}
+
+	@Test func restoredFileCannotCrossRevokedConsent() async {
+		let fixture = AttachmentFixture(); var allowed = true
+		let authorization = DownloadAuthorizationGate()
+		let store = makeStore(fixture, authorization: authorization, allowed: { allowed })
+		fixture.gateway.local = VerifiedFile(
+			url: URL(fileURLWithPath: "/tmp/cached"),
+			mimeType: "image/png",
+			filename: "cached.png",
+		)
+		store.send(.restore("message", fixture.file, own: true))
+		await settle { authorization.calls == 1 }
+		allowed = false
+		authorization.releaseAll(true)
+		await store.wait()
+		#expect(store.verified.get("message") == nil)
+		#expect(fixture.gateway.downloads == 0)
+		await store.close()
+	}
+
+	@Test func restoreRequiresFreshConsentBeforeShowingLocalFile() async {
+		let fixture = AttachmentFixture(); let authorization = DownloadAuthorizationGate()
+		let store = makeStore(fixture, authorization: authorization)
+		fixture.gateway.local = VerifiedFile(
+			url: URL(fileURLWithPath: "/tmp/cached"),
+			mimeType: "image/png",
+			filename: "cached.png",
+		)
+		store.send(.restore("message", fixture.file, own: false))
+		await settle { authorization.calls == 1 }
+		#expect(store.verified.get("message") == nil)
+		authorization.releaseAll(false)
+		await store.wait()
+		#expect(store.verified.get("message") == nil)
+		#expect(store.state.cards["message"]?.phase != .verified)
+		await store.close()
+	}
+
 	private func makeStore(_ fixture: AttachmentFixture, authorization: DownloadAuthorizationGate,
 	                       allowed: @escaping () -> Bool = { true }) -> AttachmentStore
 	{

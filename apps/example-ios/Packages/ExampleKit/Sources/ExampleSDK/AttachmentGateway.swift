@@ -79,6 +79,13 @@ public final class SDKAttachmentGateway: AttachmentGateway, Sendable {
 		} catch { throw mapped(error) }
 	}
 
+	public func localFile(_ file: FileDescriptor) async throws -> VerifiedFile? {
+		let path = try await client.attachments().localPath(remote: sdkFile(file))
+		guard FileManager.default.fileExists(atPath: path) else { return nil }
+		// Existing plaintext is returned without an HTTP request, with its retained MIME type and name.
+		return try await download(file)
+	}
+
 	public func download(_ file: FileDescriptor) async throws
 		-> VerifiedFile
 	{

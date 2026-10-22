@@ -1,6 +1,5 @@
 package org.xmtp.android.example.shared.attachments
 
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -8,9 +7,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -40,27 +36,6 @@ fun AttachmentComposer(
             }
         }
         items(activeCards, key = { it.id }) { card -> AttachmentCard(card, card.conversationId, action) }
-    }
-}
-
-@Composable
-fun AttachmentMessage(
-    card: AttachmentCardState,
-    conversationId: String,
-    preview: ImageBitmap?,
-    action: (AttachmentAction) -> Unit,
-    showFilename: Boolean = true,
-) {
-    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        if (preview != null && (card.phase == AttachmentPhase.VERIFIED || card.canOpen || card.canSave)) {
-            Image(
-                preview,
-                "Verified image: ${card.filename}",
-                Modifier.fillMaxWidth().heightIn(max = 240.dp).clip(RoundedCornerShape(20.dp)),
-                contentScale = ContentScale.Fit,
-            )
-        }
-        AttachmentCard(card, conversationId, action, showFilename)
     }
 }
 

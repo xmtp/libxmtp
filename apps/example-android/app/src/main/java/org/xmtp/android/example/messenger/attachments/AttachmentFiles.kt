@@ -30,6 +30,8 @@ class AttachmentFiles(
 
     internal fun clearVerified() = verified.clear()
 
+    internal fun forget(messageId: String) = verified.remove(messageId)
+
     private fun checkCurrent() = check(accepts(key)) { "The session changed" }
 
     suspend fun download(
@@ -67,6 +69,14 @@ class AttachmentFiles(
             val current = accepts(key)
             if (!current) bitmap?.recycle()
             bitmap.takeIf { current }
+        }
+
+    internal suspend fun imageDimensions(downloaded: DownloadedAttachment): Pair<Int, Int>? =
+        withContext(Dispatchers.IO) {
+            checkCurrent()
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeFile(downloaded.path, bounds)
+            if (bounds.outWidth > 0 && bounds.outHeight > 0) bounds.outWidth to bounds.outHeight else null
         }
 
     internal fun verifiedResult(messageId: String): DownloadedAttachment? =

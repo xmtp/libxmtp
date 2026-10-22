@@ -1,24 +1,6 @@
 import Foundation
 import Observation
 
-public struct AttachmentState: Equatable, Sendable {
-	public var limit: UInt64?
-	public var drafts: [FileDraft] = []
-	public var cards: [String: FileCard] =
-		[:]
-	public var error: String?
-	public var busy = false
-}
-
-public enum AttachmentAction: Sendable {
-	case load
-	case stage(URL, String)
-	case send(UUID)
-	case discard(UUID)
-	case assign(UUID, String)
-	case download(String, FileDescriptor)
-}
-
 @MainActor @Observable public final class AttachmentStore {
 	public private(set) var state = AttachmentState()
 	public let verified = VerifiedFileCache()
@@ -70,6 +52,10 @@ public enum AttachmentAction: Sendable {
 	}
 
 	public func send(_ action: AttachmentAction) {
+		if case .restore = action {
+			startDownload(action)
+			return
+		}
 		if case .download = action {
 			startDownload(action)
 			return
@@ -117,12 +103,19 @@ public enum AttachmentAction: Sendable {
 			case let .discard(id): try await discard(id)
 			case let .send(id): try await sendDraft(id)
 			case let .download(id, descriptor): try await download(id, descriptor: descriptor)
+			case let .restore(id, descriptor, own): try await restore(id, descriptor: descriptor, own: own)
 			}
 		} catch {
-			if case .download = action, revision != downloadRevision {
-				return
-			}
+			guard shouldHandleFailure(error, action: action, revision: revision) else { return }
 			handleFailure(error, action: action)
+		}
+	}
+
+	private func shouldHandleFailure(_ error: any Error, action: AttachmentAction, revision: UInt64) -> Bool {
+		guard !(error is CancellationError) else { return false }
+		switch action {
+		case .download, .restore: return revision == downloadRevision
+		default: return true
 		}
 	}
 
@@ -258,9 +251,11 @@ public enum AttachmentAction: Sendable {
 		}
 		let message = failure?.message ?? "The file operation failed. Try again."
 		apply { $0.error = message }
-		if case let .download(id, descriptor) = action {
+		switch action {
+		case let .download(id, descriptor), let .restore(id, descriptor, _):
 			apply { $0.cards[id] = FileCard(id: id, name: descriptor.filename ?? "File", length: descriptor.length,
 			                                phase: .failed, error: message, retryable: failure?.retryable ?? true) }
+		default: break
 		}
 	}
 
@@ -277,6 +272,25 @@ public enum AttachmentAction: Sendable {
 }
 
 private extension AttachmentStore {
+	func restore(_ id: String, descriptor: FileDescriptor, own: Bool) async throws {
+		let revision = downloadRevision
+		guard allowed(), admit(origin), state.cards[id]?.phase != .verified else { return }
+		if let authorizeDownload {
+			guard try await authorizeDownload() else { return }
+		}
+		try Task.checkCancellation()
+		guard revision == downloadRevision, allowed(), admit(origin) else { return }
+		let file = try await gateway.localFile(descriptor)
+		try Task.checkCancellation()
+		guard revision == downloadRevision, allowed(), admit(origin) else { return }
+		if let file {
+			verified.put(id, file: file)
+			apply { $0.cards[id] = FileCard(id: id, name: file.filename, length: descriptor.length, phase: .verified) }
+		} else if own, state.cards[id]?.phase != .failed {
+			try await download(id, descriptor: descriptor)
+		}
+	}
+
 	func download(_ id: String, descriptor: FileDescriptor) async throws {
 		let revision = downloadRevision
 		guard allowed(), admit(origin), state.cards[id]?.phase != .downloading else { return }
@@ -289,17 +303,19 @@ private extension AttachmentStore {
 		                                phase: .downloading) }
 		let file = try await gateway.download(descriptor)
 		guard revision == downloadRevision, admit(origin), allowed() else { return }
-		let evicted = verified.put(id, file: file)
+		verified.put(id, file: file)
 		apply { state in
-			for id in evicted {
-				state.cards[id]?.phase = .available
-			}
 			state.cards[id] = FileCard(id: id, name: file.filename, length: descriptor.length, phase: .verified)
 		}
 	}
 
 	func startDownload(_ action: AttachmentAction) {
-		guard case let .download(messageID, _) = action, downloadAdmissions[messageID] == nil else { return }
+		let messageID: String
+		switch action {
+		case let .download(id, _), let .restore(id, _, _): messageID = id
+		default: return
+		}
+		guard downloadAdmissions[messageID] == nil else { return }
 		let id = UUID()
 		downloadAdmissions[messageID] = id
 		let revision = downloadRevision

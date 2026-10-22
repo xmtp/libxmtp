@@ -6,7 +6,8 @@ struct NewConversationView: View {
 	var onClose: () -> Void = {}
 	@Environment(\.motionPolicy) private var motion
 	var body: some View {
-		Form { people; loadingAndError }
+		Form { people.disabled(store.state.busy); loadingAndError }
+			.interactiveDismissDisabled(store.state.busy)
 			.contentMargins(.top, 0, for: .scrollContent)
 			.listSectionSpacing(16)
 			.toolbar {
@@ -14,10 +15,12 @@ struct NewConversationView: View {
 					Button(action: onClose) { Image(systemName: "xmark") }
 						.accessibilityLabel(localized("Cancel"))
 						.accessibilityIdentifier("newConversation.cancel")
+						.disabled(store.state.busy)
 				}
 				ToolbarItem(placement: .principal) { stepTitle(reviewing: false) }
 				ToolbarItem(placement: .topBarTrailing) {
-					Button(localized("Next")) { store.send(.next) }.buttonStyle(.glassProminent).disabled(!store.state.canContinue)
+					Button(localized(store.state.group ? "Next" : "Create")) { store.send(.next) }.buttonStyle(.glassProminent)
+						.disabled(!store.state.canContinue)
 						.accessibilityIdentifier("newConversation.next")
 				}
 			}
@@ -36,6 +39,7 @@ struct NewConversationView: View {
 							Button { store.send(.back) } label: { Image(systemName: "chevron.left") }
 								.accessibilityLabel(localized("Back"))
 								.accessibilityIdentifier("newConversation.back")
+								.disabled(store.state.busy)
 						}
 						ToolbarItem(placement: .principal) { stepTitle(reviewing: true) }
 						ToolbarItem(placement: .topBarTrailing) {
@@ -52,7 +56,9 @@ struct NewConversationView: View {
 	private func stepTitle(reviewing: Bool) -> some View {
 		VStack(spacing: 2) {
 			Text(localized(reviewing && store.state.group ? "New group" : "New message")).font(.headline)
-			Text(localized(reviewing ? "Step 2 of 2" : "Step 1 of 2")).font(.caption).foregroundStyle(Theme.secondaryLabel)
+			if store.state.group {
+				Text(localized(reviewing ? "Step 2 of 2" : "Step 1 of 2")).font(.caption).foregroundStyle(Theme.secondaryLabel)
+			}
 		}
 	}
 
@@ -164,7 +170,7 @@ struct NewConversationView: View {
 				seed: person.id,
 				label: DisplayInitials.person(person.label, isInboxID: person.handle == nil),
 			); IdentityText(inboxID: person.inboxID, handle: person.handle) } }
-			Button(localized("Change people")) { store.send(.back) }.buttonStyle(.glass)
+			Button(localized("Change people")) { store.send(.back) }.buttonStyle(.glass).disabled(store.state.busy)
 		} header: { Text("Members · " + String(store.state.recipients.count + 1)) }
 		if store.state.group {
 			Section {

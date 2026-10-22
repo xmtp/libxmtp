@@ -130,8 +130,13 @@ internal class AttachmentHost(
     @Composable fun Message(
         row: MessageRow,
         conversationId: String?,
+        onLongPress: (() -> Unit)? = null,
     ) {
         if (!row.attachment || row.deleted) return
+        DisposableEffect(row.id, conversationId) {
+            val release = controller.display(row.id, row.mine)
+            onDispose { release() }
+        }
         val cached = controller.downloads.collectAsState().value[row.id]
         val retained = controller.verified.collectAsState().value
         val state =
@@ -140,11 +145,25 @@ internal class AttachmentHost(
         val bitmap = controller.previews.collectAsState().value[row.id]
         AttachmentMessage(
             state,
-            conversationId.orEmpty(),
             bitmap?.asImageBitmap(),
+            row.sender,
+            "${row.day} ${row.time}",
             controller::dispatch,
-            showFilename = row.text.isBlank() || state.filename != row.text,
+            onLongPress,
         )
+    }
+
+    @Composable fun Actions(
+        row: MessageRow,
+        enabled: Boolean,
+        dismiss: () -> Unit,
+    ) {
+        val cached = controller.downloads.collectAsState().value[row.id]
+        val retained = controller.verified.collectAsState().value
+        val state =
+            cached?.takeIf { !it.canOpen || row.id in retained }
+                ?: AttachmentCardState(row.id, row.text, "File", canDownload = true)
+        AttachmentMessageActions(state, enabled, controller::dispatch, dismiss, row.sender, "${row.day} ${row.time}")
     }
 
     @Composable fun Recovery(conversations: List<ConversationRow>) {

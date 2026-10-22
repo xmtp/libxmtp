@@ -1,5 +1,6 @@
 import ExampleCore
 import Foundation
+import UIKit
 import XCTest
 import XmtpSdk
 
@@ -62,12 +63,12 @@ import XmtpSdk
 		throw JourneyError.timedOut
 	}
 
-	private func launch(file: Data) -> XCUIApplication {
+	private func launch(file: Data, filename: String = "group-proof.txt") -> XCUIApplication {
 		let app = XCUIApplication()
 		app.launchArguments = ["-reset-all-data"]
 		app.launchEnvironment["XMTP_BACKEND_URL"] = backend
 		app.launchEnvironment["XMTP_ALLOW_PRIVATE_ATTACHMENTS"] = "1"
-		app.launchEnvironment["XMTP_UI_TEST_ATTACHMENT"] = "group-proof.txt:" + file.base64EncodedString()
+		app.launchEnvironment["XMTP_UI_TEST_ATTACHMENT"] = filename + ":" + file.base64EncodedString()
 		app.launch()
 		let join = app.buttons["Join a server"]
 		XCTAssertTrue(join.waitForExistence(timeout: 30))
@@ -245,6 +246,54 @@ import XmtpSdk
 		media.tap()
 		XCTAssertTrue(app.navigationBars["Media and files"].waitForExistence(timeout: 10))
 		XCTAssertTrue(app.staticTexts["group-proof.txt"].waitForExistence(timeout: 20))
+	}
+}
+
+extension GroupJourney {
+	func testOwnImageRestoresAndShowsDetails() async throws {
+		continueAfterFailure = false
+		let renderer = UIGraphicsImageRenderer(size: CGSize(width: 320, height: 180), format: {
+			let format = UIGraphicsImageRendererFormat(); format.scale = 1; return format
+		}())
+		let bytes = renderer.pngData { context in
+			UIColor.systemTeal.setFill(); context.fill(CGRect(x: 0, y: 0, width: 320, height: 180))
+			UIColor.systemYellow.setFill(); context.cgContext.fillEllipse(in: CGRect(x: 100, y: 30, width: 120, height: 120))
+		}
+		try await withPeers { peers in
+			let handle = "image" + UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(10).lowercased()
+			try await peers[0].claimHandle(handle: handle)
+			let app = launch(file: bytes, filename: "image-proof.png")
+			try await createGroup(app, name: "Image proof", handle: handle, firstInboxID: peers[0].inboxId(), second: peers[1])
+			app.navigationBars.buttons.firstMatch.tap()
+			app.buttons["Add attachment"].tap(); app.buttons["Test file"].tap()
+			let send = app.buttons["Send"].firstMatch
+			XCTAssertTrue(send.waitForExistence(timeout: 20)); send.tap()
+			let image = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Image attachment"))
+				.firstMatch
+			XCTAssertTrue(image.waitForExistence(timeout: 20))
+			try await poll { (image.value as? String)?.contains("Verified") == true }
+			func capture(_ name: String) {
+				let attachment = XCTAttachment(screenshot: app.screenshot()); attachment.name = name
+				attachment.lifetime = .keepAlways; self.add(attachment)
+			}
+			capture("Own image loaded automatically")
+			app.navigationBars.buttons.firstMatch.tap()
+			let chat = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Image proof")).firstMatch
+			XCTAssertTrue(chat.waitForExistence(timeout: 10)); chat.tap()
+			XCTAssertTrue(image.waitForExistence(timeout: 20))
+			try await poll { (image.value as? String)?.contains("Verified") == true }
+			capture("Own image restored on return")
+			image.tap()
+			XCTAssertTrue((image.value as? String)?.contains("You") == true)
+			XCTAssertFalse(app.staticTexts["image-proof.png"].exists)
+			capture("Image sender and time overlay")
+			image.press(forDuration: 1)
+			let details = app.buttons["Details"]; XCTAssertTrue(details.waitForExistence(timeout: 10))
+			capture("Image actions and quick reactions"); details.tap()
+			XCTAssertTrue(app.staticTexts["Filename, image-proof.png"].waitForExistence(timeout: 10))
+			XCTAssertTrue(app.staticTexts["Dimensions, 320 × 180"].waitForExistence(timeout: 10))
+			capture("Image file details")
+		}
 	}
 }
 

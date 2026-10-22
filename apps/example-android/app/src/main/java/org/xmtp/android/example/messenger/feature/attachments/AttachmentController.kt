@@ -65,7 +65,11 @@ internal class AttachmentController(
     )
 
     private var services: Services? = null
+    private val downloadAdmission = Any()
+    private val visiblePreviews = mutableMapOf<Pair<Long, String>, Int>()
     private val refreshMutex = Mutex()
+    internal var beforeDisplayAdmission: suspend (String) -> Unit = {}
+    internal var afterDisplayAdmission: (String) -> Unit = {}
     internal var beforeDownloadRefresh: suspend () -> Unit = {}
     internal var beforeDownload: suspend () -> Unit = {}
     internal var beforeWatchRecovery: () -> Unit = {}
@@ -436,79 +440,7 @@ internal class AttachmentController(
 
             is AttachmentAction.Download -> {
                 perform { work ->
-                    val active = work.active
-                    val id = action.messageId
-                    val token = work.token
-                    val remote = readableRemote(active, action.messageId)
-                    val filename = remote.filename ?: "File"
-                    val starting = AttachmentCardState(action.messageId, filename, "Downloading", busy = true)
-                    if (acceptsScreen(active.key, token)) downloads.update { it + (action.messageId to starting) }
-                    try {
-                        beforeDownload()
-                        val downloaded = work.services.files.download(action.messageId, remote) { current(work) }
-                        readableRemote(active, action.messageId)
-                        val bitmap = work.services.files.preview(downloaded)
-                        if (current(work) && work.services.files.isDownloaded(id)) {
-                            val completeName = downloaded.filename ?: "File"
-                            val complete =
-                                AttachmentCardState(
-                                    id,
-                                    completeName,
-                                    "Verified",
-                                    canOpen = true,
-                                    mimeType = downloaded.mimeType,
-                                    verifiedSizeBytes =
-                                        java.io
-                                            .File(downloaded.path)
-                                            .takeIf { it.isFile }
-                                            ?.length(),
-                                )
-                            downloads.update { states ->
-                                states.filter { (id, state) ->
-                                    !state.canOpen || work.services.files.isDownloaded(id)
-                                } +
-                                    (action.messageId to complete)
-                            }
-                            if (bitmap != null) {
-                                previews.update { images ->
-                                    val updated = (images - action.messageId) + (action.messageId to bitmap)
-                                    updated.entries
-                                        .toList()
-                                        .takeLast(3)
-                                        .associate { it.key to it.value }
-                                }
-                            }
-                            beforeDownloadRefresh()
-                        } else {
-                            bitmap?.recycle()
-                            if (current(work)) {
-                                downloads.update { states ->
-                                    if (states[id] === starting) states - id else states
-                                }
-                            }
-                        }
-                    } catch (failure: CancellationException) {
-                        if (current(work)) {
-                            downloads.update { states ->
-                                if (states[action.messageId] === starting) states - action.messageId else states
-                            }
-                        }
-                        throw failure
-                    } catch (failure: Throwable) {
-                        val label = failure.attachmentLabel()
-                        val name = remote.filename ?: "File"
-                        val failed =
-                            AttachmentCardState(
-                                action.messageId,
-                                name,
-                                "Failed",
-                                canDownload = true,
-                                error = label,
-                            )
-                        val current = acceptsScreen(active.key, token)
-                        if (current) downloads.update { it + (action.messageId to failed) }
-                        throw failure
-                    }
+                    download(work, action.messageId, readableRemote(work.active, action.messageId))
                 }
             }
 
@@ -549,6 +481,150 @@ internal class AttachmentController(
             }
         }
     }
+
+    /** Restore SDK-owned files when a row returns, and fetch our own attachments automatically. */
+    fun display(
+        messageId: String,
+        mine: Boolean,
+    ): () -> Unit {
+        val token = destinations.state.value.token
+        val visible = token to messageId
+        synchronized(visiblePreviews) {
+            visiblePreviews[visible] = (visiblePreviews[visible] ?: 0) + 1
+        }
+        perform { work ->
+            val observed = synchronized(downloadAdmission) { downloads.value[messageId] }
+            if (observed?.busy == true) return@perform
+            val remote = readableRemote(work.active, messageId)
+            val localPath =
+                work.active.client
+                    .attachments()
+                    .localPath(remote)
+            val local = withContext(Dispatchers.IO) { java.io.File(localPath).isFile }
+            beforeDisplayAdmission(messageId)
+            if (!current(work)) return@perform
+            if (mine || local) {
+                download(work, messageId, remote, restoring = true, observed = observed)
+            } else {
+                changeDownload(work, messageId, observed) {
+                    work.services.files.forget(messageId)
+                    downloads.update { it - messageId }
+                    previews.update { it - messageId }
+                }
+            }
+            afterDisplayAdmission(messageId)
+        }
+        return {
+            synchronized(visiblePreviews) {
+                val remaining = (visiblePreviews[visible] ?: 1) - 1
+                if (remaining > 0) {
+                    visiblePreviews[visible] = remaining
+                } else {
+                    visiblePreviews.remove(visible)
+                    if (destinations.state.value.token == token) previews.update { it - messageId }
+                }
+            }
+        }
+    }
+
+    private suspend fun download(
+        work: Work,
+        messageId: String,
+        remote: RemoteAttachment,
+        restoring: Boolean = false,
+        observed: AttachmentCardState? = null,
+    ) {
+        val active = work.active
+        val id = messageId
+        val token = work.token
+        val filename = remote.filename ?: "File"
+        val starting = AttachmentCardState(messageId, filename, "Downloading", busy = true)
+        val admitted =
+            synchronized(downloadAdmission) {
+                if (!current(work) || (restoring && downloads.value[messageId] !== observed)) {
+                    false
+                } else {
+                    downloads.update { it + (messageId to starting) }
+                    true
+                }
+            }
+        if (!admitted) return
+        try {
+            beforeDownload()
+            val downloaded = work.services.files.download(messageId, remote) { current(work) }
+            readableRemote(active, messageId)
+            val bitmap = work.services.files.preview(downloaded)
+            val dimensions = if (bitmap != null) work.services.files.imageDimensions(downloaded) else null
+            if (current(work) && work.services.files.isDownloaded(id)) {
+                val completeName = downloaded.filename ?: "File"
+                val complete =
+                    AttachmentCardState(
+                        id,
+                        completeName,
+                        "Verified",
+                        canOpen = true,
+                        mimeType = downloaded.mimeType,
+                        imageWidth = dimensions?.first,
+                        imageHeight = dimensions?.second,
+                        verifiedSizeBytes =
+                            java.io
+                                .File(downloaded.path)
+                                .takeIf { it.isFile }
+                                ?.length(),
+                    )
+                val committed =
+                    changeDownload(work, messageId, starting) {
+                        downloads.update { states -> states + (messageId to complete) }
+                    }
+                if (bitmap != null) {
+                    synchronized(visiblePreviews) {
+                        if (committed && current(work) && (visiblePreviews[token to messageId] ?: 0) > 0) {
+                            previews.update { images -> images + (messageId to bitmap) }
+                        } else {
+                            bitmap.recycle()
+                        }
+                    }
+                }
+                beforeDownloadRefresh()
+            } else {
+                bitmap?.recycle()
+                changeDownload(work, messageId, starting) { downloads.update { it - messageId } }
+            }
+        } catch (failure: CancellationException) {
+            changeDownload(work, messageId, starting) { downloads.update { it - messageId } }
+            throw failure
+        } catch (failure: Throwable) {
+            val label = failure.attachmentLabel()
+            val name = remote.filename ?: "File"
+            val failed =
+                AttachmentCardState(
+                    messageId,
+                    name,
+                    "Failed",
+                    canDownload = true,
+                    error = label,
+                )
+            if (changeDownload(work, messageId, starting) { downloads.update { it + (messageId to failed) } }) {
+                throw failure
+            }
+        }
+    }
+
+    /** A delayed local probe must not replace a manual transfer that started after it. */
+    private fun changeDownload(
+        work: Work,
+        messageId: String,
+        observed: AttachmentCardState?,
+        change: () -> Unit,
+    ): Boolean =
+        synchronized(downloadAdmission) {
+            if (!current(work) || downloads.value[messageId] !== observed) {
+                false
+            } else {
+                change()
+                true
+            }
+        }
 
     private suspend fun readableRemote(
         active: ActiveSession,
