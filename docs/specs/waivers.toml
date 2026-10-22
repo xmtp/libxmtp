@@ -509,7 +509,7 @@ id = "FORK-075"
 kind = "gap"
 owner = "Nicholas Molnar"
 issue = "https://github.com/xmtp/libxmtp/issues/4644"
-reason = "Readers verify entries under a consensus key taken from the first self-verifying entry on the topic and do not decrypt them, because entries are not sealed yet. One envelope that does not decode fails the whole batched read for every conversation in the batch, instead of being discarded alone."
+reason = "Readers verify entries under a consensus key taken from the first self-verifying entry on the topic and do not decrypt them, because entries are not sealed yet. A reader discards a `SealedCommitLogEntry` unopened."
 
 [[waiver]]
 id = "API-210"
