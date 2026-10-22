@@ -1,3 +1,10 @@
+//! Durable Welcome processing for the incoming coordinator and client sync APIs.
+//!
+//! `WelcomeService` installs independent joins, resolves their dependencies, and
+//! holds Welcomes with unsupported formats or unavailable keys for a bounded window.
+//! `WelcomeHeadOutcome` tells the coordinator which work remains; `GroupSyncSummary`
+//! reports completed group synchronization.
+
 use crate::context::XmtpSharedContext;
 use crate::groups::InitialMembershipValidator;
 #[cfg(test)]
@@ -64,7 +71,7 @@ pub(crate) enum WelcomeHeadOutcome<C> {
     Waiting {
         cursor: Cursor,
         code: String,
-        /// Blocked rows are retried once per coordinator, not by a timer.
+        /// Blocked rows are retried at coordinator startup and on periodic scans.
         blocked: bool,
     },
     /// The scheduler must resolve a dependency outside the state writer.
@@ -285,7 +292,7 @@ where
         self.attempt_pending_welcome(pending, None, missing_reference)
     }
 
-    /// Recheck blocked Welcomes once when a coordinator starts.
+    /// Recheck blocked Welcomes at startup and on periodic coordinator scans.
     /// Advance `after` to each returned cursor until a batch is empty.
     /// Complete this scan before processing ready Welcomes in that coordinator.
     pub(crate) fn retry_blocked_welcomes_after(
@@ -316,30 +323,11 @@ where
         let wire = xmtp_proto::backend_v1::ServerEnvelope::decode(pending.envelope.as_slice())
             .map_err(|_| xmtp_db::StorageError::DbDeserialize)?;
         if unsupported_welcome_wire(&wire) {
-            // Give an offline client one real attempt at its deadline before
-            // the row is removed: the retention window can pass while the
-            // client is not running, and expiry must not skip the attempt.
-            if pending
-                .retry_expires_at_ns
-                .is_some_and(|deadline| deadline <= xmtp_common::time::now_ns())
-            {
-                self.complete_rejected_pending(&pending, "unsupported_welcome_expired")?;
-                return Ok(WelcomeHeadOutcome::Progress {
-                    cursor,
-                    result: Err(GroupError::UnsupportedWelcomeVersion(
-                        "unsupported wrapper algorithm".into(),
-                    )),
-                });
-            }
-            // The first deadline wins; defer_pending never extends it.
-            let deadline =
-                xmtp_common::time::now_ns().saturating_add(UNSUPPORTED_WELCOME_RETENTION_NS);
-            self.defer_pending(&pending, "unsupported_welcome", true, Some(deadline))?;
-            return Ok(WelcomeHeadOutcome::Waiting {
-                cursor,
-                code: "unsupported_welcome".into(),
-                blocked: true,
-            });
+            return self.retain_unreadable_welcome(
+                &pending,
+                GroupError::UnsupportedWelcomeVersion("unsupported wrapper algorithm".into()),
+                "unsupported_welcome",
+            );
         }
         let welcome = match xmtp_api_backend::envelope::decode_welcome_message(wire) {
             Ok(welcome) => welcome,
@@ -352,13 +340,11 @@ where
                 });
             }
         };
-        // Only a Welcome still waiting on its pointee expires here. A deadline
-        // written while this build could not read the wrapper must not delete a
-        // Welcome that a later build can now process: support is the recovery
-        // this retention window exists to allow.
+        // Unreadable Welcomes get a real attempt even after their deadline: an
+        // upgrade or recovered key may now allow them to join.
         if let Some(deadline) = pending.retry_expires_at_ns
             && deadline <= xmtp_common::time::now_ns()
-            && pending.error_code.as_deref() != Some("unsupported_welcome")
+            && pending.error_code.as_deref() == Some("welcome_pointee")
         {
             self.complete_rejected_pending(&pending, "welcome_pointer_expired")?;
             return Ok(WelcomeHeadOutcome::Progress {
@@ -368,16 +354,8 @@ where
         }
         let inline = ResolvedWelcome::inline(&welcome);
         let Some(resolved) = resolved.or(inline.as_ref()) else {
-            self.defer_pending(
-                &pending,
-                "welcome_pointee",
-                false,
-                Some(
-                    welcome
-                        .timestamp()
-                        .saturating_add(WELCOME_POINTER_RETENTION_NS),
-                ),
-            )?;
+            // Only a failed fetch establishes a pointee hold. Overwriting an
+            // unreadable hold here would skip its final resolution attempt.
             return Ok(WelcomeHeadOutcome::Need {
                 cursor,
                 requirement: WelcomeRequirement::Pointee,
@@ -422,6 +400,19 @@ where
                     },
                 })
             }
+            Err(
+                error @ (GroupError::WelcomeError(
+                    openmls::prelude::WelcomeError::UnsupportedMlsVersion
+                    | openmls::prelude::WelcomeError::UnsupportedExtensions
+                    | openmls::prelude::WelcomeError::UnsupportedCapability
+                    | openmls::prelude::WelcomeError::UnsupportedCiphersuite(_),
+                )
+                | GroupError::NotFound(
+                    xmtp_db::NotFound::KeyPackageReference(_)
+                    | xmtp_db::NotFound::KeyPackage(_)
+                    | xmtp_db::NotFound::PostQuantumPrivateKey,
+                )),
+            ) => self.retain_unreadable_welcome(pending, error, "welcome_blocked"),
             Err(error) => {
                 if crate::groups::welcomes::terminal_welcome_error(&error) {
                     self.complete_rejected_pending(pending, "invalid_welcome")?;
@@ -438,16 +429,7 @@ where
                     });
                 }
                 let blocked = !error.is_retryable()
-                    || matches!(
-                        error,
-                        GroupError::UnsupportedWelcomeVersion(_)
-                            | GroupError::WelcomeError(
-                                openmls::prelude::WelcomeError::UnsupportedMlsVersion
-                                    | openmls::prelude::WelcomeError::UnsupportedExtensions
-                                    | openmls::prelude::WelcomeError::UnsupportedCapability
-                                    | openmls::prelude::WelcomeError::UnsupportedCiphersuite(_)
-                            )
-                    );
+                    || matches!(error, GroupError::UnsupportedWelcomeVersion(_));
                 let code = if blocked {
                     "welcome_blocked"
                 } else {
@@ -464,7 +446,40 @@ where
         }
     }
 
-    /// Keep retry state without extending a pointer's original expiry deadline.
+    /// Bound unreadable input only after attempting it with the current code and keys.
+    // implements: JOIN-077, JOIN-063
+    fn retain_unreadable_welcome(
+        &self,
+        pending: &StoredIncomingEnvelope,
+        error: GroupError,
+        code: &'static str,
+    ) -> Result<WelcomeHeadOutcome<Context>, GroupError> {
+        let cursor = Cursor(pending.sequence_id as u64);
+        let now = xmtp_common::time::now_ns();
+        if pending
+            .retry_expires_at_ns
+            .is_some_and(|deadline| deadline <= now)
+        {
+            self.complete_rejected_pending(pending, "unsupported_welcome_expired")?;
+            return Ok(WelcomeHeadOutcome::Progress {
+                cursor,
+                result: Err(error),
+            });
+        }
+        self.defer_pending(
+            pending,
+            code,
+            true,
+            Some(now.saturating_add(UNSUPPORTED_WELCOME_RETENTION_NS)),
+        )?;
+        Ok(WelcomeHeadOutcome::Waiting {
+            cursor,
+            code: code.into(),
+            blocked: true,
+        })
+    }
+
+    /// Keep retry state without extending the original expiry deadline.
     fn defer_pending(
         &self,
         pending: &StoredIncomingEnvelope,
@@ -522,9 +537,10 @@ where
         let Some(pending) = self.context.db().pending_envelope(&self.topic(), cursor)? else {
             return Ok(WelcomeHeadOutcome::Idle { cursor });
         };
-        if pending
-            .retry_expires_at_ns
-            .is_some_and(|deadline| deadline <= xmtp_common::time::now_ns())
+        if pending.error_code.as_deref() == Some("welcome_pointee")
+            && pending
+                .retry_expires_at_ns
+                .is_some_and(|deadline| deadline <= xmtp_common::time::now_ns())
         {
             return self.attempt_pending_welcome(pending, None, None);
         }
@@ -1022,39 +1038,81 @@ mod tests {
         retryable: bool,
     }
 
-    /// An unsupported Welcome is retained for a bounded window, then removed.
-    /// It gets one real attempt at its deadline so a client that was offline
-    /// for the window still joins if it gained support meanwhile.
+    #[derive(Clone, Copy)]
+    enum UnreadableWelcome {
+        Wrapper,
+        MlsVersion,
+        MissingKey,
+    }
+
+    /// Unreadable input must expire without extending its deadline, including
+    /// legacy blocked rows. Expiry releases admission and key retirement.
+    // verifies: JOIN-077, JOIN-063
+    #[rstest]
+    #[case::wrapper(UnreadableWelcome::Wrapper)]
+    #[case::mls_version(UnreadableWelcome::MlsVersion)]
+    #[case::missing_key(UnreadableWelcome::MissingKey)]
     #[xmtp_common::test(unwrap_try = true)]
-    async fn an_unsupported_welcome_expires_after_a_final_attempt() {
+    async fn an_unsupported_welcome_expires_after_a_final_attempt(
+        #[case] failure: UnreadableWelcome,
+        #[values(false, true)] previously_blocked: bool,
+    ) {
+        use crate::worker::key_package_maintenance::sweep_expired;
         use diesel::{ExpressionMethods, QueryDsl, RunQueryDsl};
+        use openmls_traits::storage::StorageProvider;
         use xmtp_db::ConnectionExt;
-        use xmtp_db::schema::incoming_envelopes;
+        use xmtp_db::incoming_envelope::{IncomingLimits, PendingBudget};
+        use xmtp_db::schema::{incoming_envelopes, key_package_history};
         use xmtp_proto::backend_v1::{client_envelope::Payload, welcome_message::Version};
 
         tester!(alix, disable_workers);
         tester!(bo, disable_workers);
-        let group = alix.create_group(None, None)?;
-        group.invite(&bo).await?;
+        let group = alix.create_group(None, None).unwrap();
+        group.invite(&bo).await.unwrap();
         let welcome = bo
             .context
             .api()
             .query_welcome_messages(bo.context.installation_id())
-            .await?
-            .pop()?;
+            .await
+            .unwrap()
+            .pop()
+            .unwrap();
         let cursor = welcome.cursor;
-        pending_welcome_for_test(&bo.context, &welcome).await?;
+        pending_welcome_for_test(&bo.context, &welcome)
+            .await
+            .unwrap();
         let service = WelcomeService::new(bo.context.clone());
         let db = bo.context.db();
 
-        let pending = db.pending_envelope(&service.topic(), cursor)?.unwrap();
-        let mut wire = xmtp_proto::backend_v1::ServerEnvelope::decode(pending.envelope.as_slice())?;
-        let Payload::WelcomeMessage(message) = wire.envelope.as_mut()?.payload.as_mut()? else {
+        let pending = db
+            .pending_envelope(&service.topic(), cursor)
+            .unwrap()
+            .unwrap();
+        let mut wire =
+            xmtp_proto::backend_v1::ServerEnvelope::decode(pending.envelope.as_slice()).unwrap();
+        let Payload::WelcomeMessage(message) =
+            wire.envelope.as_mut().unwrap().payload.as_mut().unwrap()
+        else {
             panic!("expected Welcome payload");
         };
-        match message.version.as_mut()? {
-            Version::V1(message) => message.wrapper_algorithm = i32::MAX,
-            Version::WelcomePointer(message) => message.wrapper_algorithm = i32::MAX,
+        let Version::V1(message) = message.version.as_mut().unwrap() else {
+            panic!("expected inline Welcome");
+        };
+        match failure {
+            UnreadableWelcome::Wrapper => message.wrapper_algorithm = i32::MAX,
+            UnreadableWelcome::MissingKey => message.hpke_public_key = vec![0; 32],
+            UnreadableWelcome::MlsVersion => {
+                (message.data, message.welcome_metadata) =
+                    xmtp_mls_common::mls_ext::payload_encryption::wrap_payload_hpke(
+                        &[0, 2],
+                        &[],
+                        &message.hpke_public_key,
+                        xmtp_id::key_package::WrapperAlgorithm::try_from(message.wrapper_algorithm)
+                            .unwrap(),
+                        xmtp_configuration::WELCOME_HPKE_LABEL,
+                    )
+                    .unwrap();
+            }
         }
         let row = || {
             incoming_envelopes::table.find((
@@ -1065,27 +1123,86 @@ mod tests {
         };
         db.raw_query(|conn| {
             diesel::update(row())
-                .set(incoming_envelopes::envelope.eq(wire.encode_to_vec()))
+                .set((
+                    incoming_envelopes::envelope.eq(wire.encode_to_vec()),
+                    incoming_envelopes::blocked.eq(previously_blocked),
+                    incoming_envelopes::error_code
+                        .eq(previously_blocked.then_some("welcome_blocked")),
+                ))
                 .execute(conn)
-        })?;
+        })
+        .unwrap();
 
         // First pass blocks the row and records a retention deadline.
-        service.process_pending_welcomes_once()?;
-        let blocked = db.pending_envelope(&service.topic(), cursor)?.unwrap();
+        let before = xmtp_common::time::now_ns();
+        if previously_blocked {
+            service.retry_blocked_welcomes_after(Cursor(0)).unwrap();
+        } else {
+            service.process_pending_welcomes_once().unwrap();
+        }
+        let blocked = db
+            .pending_envelope(&service.topic(), cursor)
+            .unwrap()
+            .unwrap();
         assert!(blocked.blocked);
-        let deadline = blocked.retry_expires_at_ns?;
-        assert!(deadline > xmtp_common::time::now_ns());
+        let deadline = blocked.retry_expires_at_ns.unwrap();
+        assert!(deadline >= before + xmtp_common::NS_IN_DAY);
+        assert!(deadline <= xmtp_common::time::now_ns() + xmtp_common::NS_IN_DAY);
+        assert!(db.has_pending_welcomes().unwrap());
 
         // Before the deadline the row is retained, not removed.
-        service.retry_blocked_welcomes_after(Cursor(0))?;
-        assert!(db.pending_envelope(&service.topic(), cursor)?.is_some());
+        service.retry_blocked_welcomes_after(Cursor(0)).unwrap();
+        assert!(
+            db.pending_envelope(&service.topic(), cursor)
+                .unwrap()
+                .is_some()
+        );
         assert_eq!(
-            db.pending_envelope(&service.topic(), cursor)?
+            db.pending_envelope(&service.topic(), cursor)
+                .unwrap()
                 .unwrap()
                 .retry_expires_at_ns,
             Some(deadline),
             "a retry must not extend the first deadline"
         );
+
+        // One row is enough to exercise both admission budgets deterministically.
+        let next_group = alix.create_group(None, None).unwrap();
+        next_group.invite(&bo).await.unwrap();
+        let budget = PendingBudget {
+            rows: 1,
+            bytes: u64::MAX,
+        };
+        let limits = IncomingLimits {
+            batch: budget,
+            topic: budget,
+            kind: budget,
+        };
+        let store = MlsStore::new(bo.context.clone());
+        let topics = [Topic::new_welcome_message(bo.context.installation_id())];
+        assert!(store.receive_topics_once(&topics, limits).await.is_err());
+        assert_eq!(
+            db.topic_progress(&service.topic()).unwrap().received,
+            cursor
+        );
+
+        let history = db
+            .find_key_package_history_entries_before_id(i32::MAX)
+            .unwrap()
+            .pop()
+            .unwrap();
+        let hash = crate::identity::deserialize_key_package_hash_ref(&history.key_package_hash_ref)
+            .unwrap();
+        db.raw_query(|conn| {
+            diesel::update(key_package_history::table.find(history.id))
+                .set(key_package_history::delete_at_ns.eq(0))
+                .execute(conn)
+        })
+        .unwrap();
+        sweep_expired(&bo.context).unwrap();
+        let retained: Option<openmls::prelude::KeyPackageBundle> =
+            bo.context.mls_storage().key_package(&hash).unwrap();
+        assert!(retained.is_some());
 
         // At the deadline the final attempt runs and the row is removed, so the
         // Welcome barrier, the Welcome budget, and key retirement are released.
@@ -1093,34 +1210,190 @@ mod tests {
             diesel::update(row())
                 .set(incoming_envelopes::retry_expires_at_ns.eq(Some(1i64)))
                 .execute(conn)
-        })?;
-        service.retry_blocked_welcomes_after(Cursor(0))?;
-        assert!(db.pending_envelope(&service.topic(), cursor)?.is_none());
-        assert_eq!(db.topic_progress(&service.topic())?.processed, cursor);
-        assert!(!db.has_pending_welcomes()?);
+        })
+        .unwrap();
+        let outcomes = service.retry_blocked_welcomes_after(Cursor(0)).unwrap();
+        let WelcomeHeadOutcome::Progress {
+            result: Err(error), ..
+        } = outcomes.into_iter().next().unwrap()
+        else {
+            panic!("expected terminal rejection");
+        };
+        match failure {
+            UnreadableWelcome::Wrapper => {
+                assert!(matches!(error, GroupError::UnsupportedWelcomeVersion(_)))
+            }
+            UnreadableWelcome::MlsVersion => assert!(matches!(
+                error,
+                GroupError::WelcomeError(openmls::prelude::WelcomeError::UnsupportedMlsVersion)
+            )),
+            UnreadableWelcome::MissingKey => assert!(matches!(
+                error,
+                GroupError::NotFound(xmtp_db::NotFound::KeyPackageReference(_))
+            )),
+        }
+        assert_eq!(
+            db.read_last_rejection(&service.topic())
+                .unwrap()
+                .unwrap()
+                .code,
+            "unsupported_welcome_expired"
+        );
+        assert!(
+            db.pending_envelope(&service.topic(), cursor)
+                .unwrap()
+                .is_none()
+        );
+        assert_eq!(
+            db.topic_progress(&service.topic()).unwrap().processed,
+            cursor
+        );
+        assert!(!db.has_pending_welcomes().unwrap());
+
+        store.receive_topics_once(&topics, limits).await.unwrap();
+        let next = db
+            .first_pending_envelope(&service.topic())
+            .unwrap()
+            .unwrap();
+        assert!(matches!(
+            service
+                .resolve_pending_welcome(Cursor(next.sequence_id as u64))
+                .await
+                .unwrap(),
+            WelcomeHeadOutcome::Progress {
+                result: Ok(Some(_)),
+                ..
+            }
+        ));
+        assert!(db.find_group(&next_group.group_id).unwrap().is_some());
+        sweep_expired(&bo.context).unwrap();
+        let removed: Option<openmls::prelude::KeyPackageBundle> =
+            bo.context.mls_storage().key_package(&hash).unwrap();
+        assert!(removed.is_none());
+    }
+
+    /// Only unreadable MLS formats and missing Welcome key material get this
+    /// deadline; local failures and required group versions keep their policy.
+    #[rstest]
+    #[case::mls_version(|| openmls::prelude::WelcomeError::UnsupportedMlsVersion.into(), true)]
+    #[case::extensions(|| openmls::prelude::WelcomeError::UnsupportedExtensions.into(), true)]
+    #[case::capability(|| openmls::prelude::WelcomeError::UnsupportedCapability.into(), true)]
+    #[case::ciphersuite(|| openmls::prelude::WelcomeError::UnsupportedCiphersuite(openmls::prelude::Ciphersuite::MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519).into(), true)]
+    #[case::key_reference(|| xmtp_db::NotFound::KeyPackageReference(vec![]).into(), true)]
+    #[case::key_package(|| xmtp_db::NotFound::KeyPackage(vec![]).into(), true)]
+    #[case::post_quantum_key(|| xmtp_db::NotFound::PostQuantumPrivateKey.into(), true)]
+    #[case::group_version(|| GroupError::UnsupportedWelcomeVersion("999.0.0".into()), false)]
+    #[case::local_failure(|| GroupError::LockUnavailable, false)]
+    #[case::unrelated_missing_state(|| xmtp_db::NotFound::MlsGroup(GroupId::from([1; 16])).into(), false)]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn welcome_retention_is_limited_to_unreadable_input(
+        #[case] error: fn() -> GroupError,
+        #[case] bounded: bool,
+    ) {
+        use xmtp_db::ConnectionExt;
+        use xmtp_db::incoming_envelope::NewIncomingEnvelope;
+
+        tester!(bo, disable_workers);
+        let service = WelcomeService::new(bo.context.clone());
+        let db = bo.context.db();
+        db.admit_ordered_batch(
+            &service.topic(),
+            Cursor(0),
+            &[NewIncomingEnvelope {
+                sequence_id: Cursor(1),
+                envelope: vec![1],
+            }],
+            bo.context
+                .incoming_runtime()
+                .policy()
+                .incoming_limits(NetworkEntityKind::Welcome),
+        )
+        .unwrap();
+        let pending = db
+            .pending_envelope(&service.topic(), Cursor(1))
+            .unwrap()
+            .unwrap();
+        assert!(matches!(
+            service
+                .classify_pending_result(&pending, Err(error()))
+                .unwrap(),
+            WelcomeHeadOutcome::Waiting { .. }
+        ));
+        let pending = db
+            .pending_envelope(&service.topic(), Cursor(1))
+            .unwrap()
+            .unwrap();
+        assert_eq!(pending.retry_expires_at_ns.is_some(), bounded);
+        if bounded {
+            assert!(pending.blocked);
+            // Present the final attempt with a persisted elapsed deadline.
+            db.raw_query(|conn| {
+                use diesel::{ExpressionMethods, RunQueryDsl};
+                use xmtp_db::schema::incoming_envelopes;
+                diesel::update(incoming_envelopes::table)
+                    .set(incoming_envelopes::retry_expires_at_ns.eq(Some(1i64)))
+                    .execute(conn)
+            })
+            .unwrap();
+            let pending = db
+                .pending_envelope(&service.topic(), Cursor(1))
+                .unwrap()
+                .unwrap();
+            assert!(matches!(
+                service
+                    .classify_pending_result(&pending, Err(error()))
+                    .unwrap(),
+                WelcomeHeadOutcome::Progress { result: Err(_), .. }
+            ));
+            assert!(!db.has_pending_welcomes().unwrap());
+        }
     }
 
     /// Gaining support is the recovery this retention window exists to allow.
     /// A deadline written while the wrapper was unreadable must never delete a
     /// Welcome that the client can now process, even past the deadline.
+    #[rstest]
+    #[case::wrapper("unsupported_welcome")]
+    #[case::mls_or_key("welcome_blocked")]
     #[xmtp_common::test(unwrap_try = true)]
-    async fn an_expired_unsupported_welcome_still_installs_once_it_is_supported() {
+    async fn an_expired_unsupported_welcome_still_installs_once_it_is_supported(
+        #[case] code: &'static str,
+        #[values(false, true)] pointer: bool,
+    ) {
         use diesel::{ExpressionMethods, QueryDsl, RunQueryDsl};
         use xmtp_db::ConnectionExt;
         use xmtp_db::schema::incoming_envelopes;
 
         tester!(alix, disable_workers);
         tester!(bo, disable_workers);
-        let group = alix.create_group(None, None)?;
-        group.invite(&bo).await?;
+        let _other_installations = if pointer {
+            tester!(bo2, from: bo, disable_workers);
+            tester!(bo3, from: bo, disable_workers);
+            Some((bo2, bo3))
+        } else {
+            None
+        };
+        let group = alix.create_group(None, None).unwrap();
+        group.invite(&bo).await.unwrap();
         let welcome = bo
             .context
             .api()
             .query_welcome_messages(bo.context.installation_id())
-            .await?
-            .pop()?;
+            .await
+            .unwrap()
+            .pop()
+            .unwrap();
+        assert_eq!(
+            matches!(
+                welcome.variant,
+                xmtp_proto::types::WelcomeMessageType::WelcomePointer(_)
+            ),
+            pointer
+        );
         let cursor = welcome.cursor;
-        pending_welcome_for_test(&bo.context, &welcome).await?;
+        pending_welcome_for_test(&bo.context, &welcome)
+            .await
+            .unwrap();
         let service = WelcomeService::new(bo.context.clone());
         let db = bo.context.db();
 
@@ -1135,23 +1408,41 @@ mod tests {
             )))
             .set((
                 incoming_envelopes::blocked.eq(true),
-                incoming_envelopes::error_code.eq(Some("unsupported_welcome")),
+                incoming_envelopes::error_code.eq(Some(code)),
                 incoming_envelopes::retry_expires_at_ns.eq(Some(1i64)),
             ))
             .execute(conn)
-        })?;
+        })
+        .unwrap();
 
-        service.retry_blocked_welcomes_after(Cursor(0))?;
+        assert!(matches!(
+            service
+                .retry_blocked_welcomes_after(Cursor(0))
+                .unwrap()
+                .as_slice(),
+            [WelcomeHeadOutcome::Need { .. }]
+        ));
 
         // The row must survive: an elapsed unsupported deadline must not delete
         // a Welcome this build can now read. It rejoins ordinary processing,
         // which may still need an async dependency before it installs.
-        let row = db
-            .pending_envelope(&service.topic(), cursor)?
-            .expect("a supported Welcome must not be deleted by a stale deadline");
-        assert!(!row.blocked, "it must rejoin ordinary processing");
-        assert_ne!(row.error_code.as_deref(), Some("unsupported_welcome"));
-        assert!(db.topic_progress(&service.topic())?.processed < cursor);
+        assert!(
+            db.pending_envelope(&service.topic(), cursor)
+                .unwrap()
+                .is_some(),
+            "a supported Welcome must not be deleted by a stale deadline"
+        );
+        assert!(db.topic_progress(&service.topic()).unwrap().processed < cursor);
+        assert!(matches!(
+            service.resolve_pending_welcome(cursor).await.unwrap(),
+            WelcomeHeadOutcome::Progress {
+                result: Ok(Some(_)),
+                ..
+            }
+        ));
+        assert!(db.find_group(&group.group_id).unwrap().is_some());
+        assert!(!db.has_pending_welcomes().unwrap());
+        assert!(db.read_last_rejection(&service.topic()).unwrap().is_none());
     }
 
     #[xmtp_common::test(unwrap_try = true)]
