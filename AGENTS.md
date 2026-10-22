@@ -27,9 +27,11 @@ outside Nix. Prefer a `just` recipe; for Cargo options without one, use
 `dev/nix-shell 'dev/agent-run cargo <command> ...'`. See `docs/agent-tools.md`
 for the Codex hook, Serena, and command output details.
 
-Environment evaluations stream complete Nix builder logs to stderr;
-`--print-env` keeps only the shell environment on stdout. Check wrapper logging,
-cache reuse, and failed-evaluation cleanup without building Nix packages with
+Full Nix builder logs default off, including in CI. For an explicit debugging
+invocation, use `XMTP_NIX_BUILD_LOGS=1 dev/nix-shell 'COMMAND'` to stream them to
+stderr during environment evaluation. `--print-env` and the cache keep only the
+shell environment; toggling logging does not invalidate that cache. Check wrapper
+logging, cache reuse, and failed-evaluation cleanup without building Nix packages with
 `dev/nix-shell 'python3.11 -B dev/tests/test_agents.py'`.
 
 ```bash

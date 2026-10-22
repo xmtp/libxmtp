@@ -60,7 +60,10 @@ group runs only when the run has `CACHIX_PR_AUTH_TOKEN`. A
 suite still builds every product it uses: when the group did not run, its jobs
 build the products themselves.
 
-- Do not enable full Nix build logs by default in CI. For explicit debugging, run `nix log <drv-path>` or add `--print-build-logs` to a manual `nix build` command.
+- Do not enable full Nix build logs by default in CI. For explicit debugging,
+  scope `XMTP_NIX_BUILD_LOGS=1` to the `dev/nix-shell` invocation that needs them,
+  run `nix log <drv-path>`, or add `--print-build-logs` to a manual `nix build`
+  command. Keep routine workflow setup quiet.
 - Pass JavaScript shard flags directly to the `just` recipe. An extra `--` is forwarded to Vitest and prevents sharding.
 - Failed Compose startup retains project logs and container state in
   `$RUNNER_TEMP/backend-startup-logs`. The Android SDK check uploads these for

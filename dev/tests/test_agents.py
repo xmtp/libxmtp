@@ -60,6 +60,7 @@ class NixWrapperTests(unittest.TestCase):
         # dev/docker/load-env regenerate the file.
         for name in (
             "XMTP_NIX_WRAPPER_ID",
+            "XMTP_NIX_BUILD_LOGS",
             "NIX_DEVSHELL",
             "TEST_NIX_FAIL",
             "NIX_BUILD_TOP",
@@ -106,8 +107,28 @@ class NixWrapperTests(unittest.TestCase):
         self.assertEqual(result.stdout, "a_b")
         self.assertEqual(result.returncode, 37)
 
+    def test_build_logs_require_explicit_opt_in_even_in_ci(self):
+        """Routine local and CI evaluations keep full builder logs disabled."""
+        for ci in (None, "true"):
+            if ci is None:
+                self.env.pop("CI", None)
+            else:
+                self.env["CI"] = ci
+            for setting in (None, "", "0", "true"):
+                with self.subTest(ci=ci, setting=setting):
+                    if setting is None:
+                        self.env.pop("XMTP_NIX_BUILD_LOGS", None)
+                    else:
+                        self.env["XMTP_NIX_BUILD_LOGS"] = setting
+                    result = self.run_wrapper("--refresh", "--print-env")
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(result.stderr, "")
+                    self.assertIn("export XMTP_TEST_SHELL=", result.stdout)
+                    self.assertNotIn("fixture builder", result.stdout)
+
     def test_build_logs_stay_on_stderr_and_cache_only_the_environment(self):
         """Nix streams builder logs without corrupting --print-env or cache reuse."""
+        self.env["XMTP_NIX_BUILD_LOGS"] = "1"
         result = self.run_wrapper("--print-env")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stderr, BUILD_LOG)
@@ -118,10 +139,12 @@ class NixWrapperTests(unittest.TestCase):
         self.assertEqual(len(cached_environments), 1)
         self.assertNotIn("fixture builder", cached_environments[0].read_text())
 
-        cached = self.run_wrapper('printf "%s" "$XMTP_TEST_SHELL"')
-        self.assertEqual(cached.returncode, 0, cached.stderr)
-        self.assertEqual(cached.stdout, f"{self.root}#default")
-        self.assertEqual(cached.stderr, "")
+        for setting in ("0", "1"):
+            self.env["XMTP_NIX_BUILD_LOGS"] = setting
+            cached = self.run_wrapper('printf "%s" "$XMTP_TEST_SHELL"')
+            self.assertEqual(cached.returncode, 0, cached.stderr)
+            self.assertEqual(cached.stdout, f"{self.root}#default")
+            self.assertEqual(cached.stderr, "")
         self.assertEqual(len(self.calls()), 1)
 
     def test_environment_and_temporary_directory(self):
@@ -237,6 +260,7 @@ class NixWrapperTests(unittest.TestCase):
 
     def test_failed_evaluation_caches_nothing(self):
         """Builder failure keeps stderr, stops the command, and leaves no cache."""
+        self.env["XMTP_NIX_BUILD_LOGS"] = "1"
         self.env["TEST_NIX_FAIL"] = "1"
         failed = self.run_wrapper("printf no")
         self.assertEqual(failed.returncode, 1)
