@@ -19,13 +19,11 @@ use std::{borrow::Cow, fmt};
 
 use curve25519_dalek::edwards::CompressedEdwardsY;
 use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
-use hkdf::Hkdf;
-use hmac::{Hmac, Mac};
 use openmls_traits::{
     crypto::OpenMlsCrypto,
     types::{AeadType, CryptoError},
 };
-use sha2::Sha256;
+use sha2_zeroize::{Digest as _, Sha256};
 use tls_codec::{Serialize as _, Size as _, VLByteSlice};
 use xmtp_common::RetryableError;
 use xmtp_cryptography::secret::Zeroizing;
@@ -122,15 +120,15 @@ pub struct GroupKeys {
 }
 
 impl GroupKeys {
-    /// Derive each key as HKDF-Expand(HKDF-Extract(salt, root), info, 32).
+    /// Derive each key as HKDF-Expand(HKDF-Extract(salt, root), info, 32)
+    /// under SHA-256 (RFC 5869). One output block is 32 bytes, so each key
+    /// is HMAC(PRK, info || 0x01).
     // implements: GMOD-041
     pub fn derive(root: &GroupRoot) -> Self {
-        // A stack local: hkdf does not wipe the state it keys with the PRK.
-        let hkdf = Hkdf::<Sha256>::new(Some(GROUP_ROOT_SALT), root.as_bytes());
+        let prk = extract(root);
         let expand = |info: &[u8]| {
             let mut key = Zeroizing::new([0; DERIVED_KEY_BYTES]);
-            hkdf.expand(info, &mut key[..])
-                .expect("32 bytes is a valid HKDF-SHA256 output length");
+            hmac_sha256(&prk[..], &[info, &[1]], &mut key);
             key
         };
         Self {
@@ -385,15 +383,53 @@ fn derive_nonce(
     topic: &[u8; KEYED_TOPIC_BYTES],
     plaintext: &[u8],
 ) -> [u8; COMMIT_LOG_NONCE_BYTES] {
-    // A stack local: hmac does not wipe its keyed state.
-    let mut mac = <Hmac<Sha256> as Mac>::new_from_slice(&nonce_key[..])
-        .expect("HMAC-SHA256 takes a key of any length");
-    mac.update(topic);
-    mac.update(plaintext);
-    let tag = mac.finalize().into_bytes();
+    let mut tag = Zeroizing::new([0; HMAC_SHA256_BYTES]);
+    hmac_sha256(&nonce_key[..], &[topic, plaintext], &mut tag);
     let mut nonce = [0; COMMIT_LOG_NONCE_BYTES];
     nonce.copy_from_slice(&tag[..COMMIT_LOG_NONCE_BYTES]);
     nonce
+}
+
+/// HKDF-Extract (RFC 5869) of the root under the group-root salt: the PRK
+/// every group key is expanded from.
+fn extract(root: &GroupRoot) -> Zeroizing<[u8; HMAC_SHA256_BYTES]> {
+    let mut prk = Zeroizing::new([0; HMAC_SHA256_BYTES]);
+    hmac_sha256(GROUP_ROOT_SALT, &[root.as_bytes()], &mut prk);
+    prk
+}
+
+const HMAC_SHA256_BYTES: usize = 32;
+const SHA256_BLOCK_BYTES: usize = 64;
+const IPAD: u8 = 0x36;
+const OPAD: u8 = 0x5c;
+
+/// HMAC-SHA256 (RFC 2104) of the concatenated `message` parts under `key`,
+/// written into `out`. Every key used here is at most one SHA-256 block, so
+/// the key is zero-padded, never hashed. The padded key and the inner hash
+/// sit in `Zeroizing` buffers, and sha2's `zeroize` feature wipes each
+/// SHA-256 state when `finalize_into` consumes it, so no keyed state outlives
+/// the call in memory this function owns.
+fn hmac_sha256(key: &[u8], message: &[&[u8]], out: &mut [u8; HMAC_SHA256_BYTES]) {
+    assert!(
+        key.len() <= SHA256_BLOCK_BYTES,
+        "an HMAC key here is at most one SHA-256 block"
+    );
+    let mut pad = Zeroizing::new([0; SHA256_BLOCK_BYTES]);
+    pad[..key.len()].copy_from_slice(key);
+    pad.iter_mut().for_each(|byte| *byte ^= IPAD);
+    let mut inner = Sha256::new();
+    inner.update(&pad[..]);
+    for part in message {
+        inner.update(part);
+    }
+    let mut inner_hash = Zeroizing::new([0; HMAC_SHA256_BYTES]);
+    inner.finalize_into((&mut *inner_hash).into());
+
+    pad.iter_mut().for_each(|byte| *byte ^= IPAD ^ OPAD);
+    let mut outer = Sha256::new();
+    outer.update(&pad[..]);
+    outer.update(&inner_hash[..]);
+    outer.finalize_into(out.into());
 }
 
 /// ChaCha20-Poly1305 through the libcrux provider, which returns an error

@@ -232,12 +232,22 @@ fn seal_with_fault(fault: Fault) -> Result<SealedCommitLogEntry, SealError> {
     seal_with(&vector_keys(), &vector("plaintext"), &mut Injected(fault))
 }
 
+/// The SHA-256 states the group-key HMAC keys are wiped on drop: sha2's
+/// `zeroize` feature is on. A build without it does not compile this test.
+#[xmtp_common::test]
+fn hmac_hash_states_are_wiped_on_drop() {
+    fn wiped_on_drop<T: sha2_zeroize::digest::zeroize::ZeroizeOnDrop>() {}
+    wiped_on_drop::<sha2_zeroize::Sha256>();
+}
+
 // verifies: GMOD-041
 #[xmtp_common::test(unwrap_try = true)]
 fn vectors_pin_the_key_derivation() {
     let root = vector("root");
-    let (prk, _) = Hkdf::<Sha256>::extract(Some(GROUP_ROOT_SALT), &root);
-    assert_eq!(prk[..], vector("prk")[..]);
+    assert_eq!(
+        extract(&GroupRoot::from_bytes(&root)?)[..],
+        vector("prk")[..]
+    );
 
     let keys = GroupKeys::derive(&GroupRoot::from_bytes(&root)?);
     assert_eq!(
