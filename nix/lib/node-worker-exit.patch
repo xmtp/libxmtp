@@ -1,0 +1,45 @@
+From bc5af1c67cd8e029f86ec992688dde9307f4d61a Mon Sep 17 00:00:00 2001
+From: Filip Skokan <panva.ip@gmail.com>
+Date: Wed, 14 Oct 2026 11:37:37 +0200
+Subject: [PATCH] test: wait for shared-isolate Worker exit
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Ten thousand non-blocking loop turns can finish before the Worker has
+started. Use a thirty-second deadline and yield between turns while
+waiting for its exit, preserving the expected exit-code assertion.
+
+Refs: https://github.com/nodejs/reliability/issues/1687
+Signed-off-by: Filip Skokan <panva.ip@gmail.com>
+Assisted-by: Codex
+PR-URL: https://github.com/nodejs/node/pull/66722
+Refs: https://github.com/nodejs/reliability/issues/1686
+Refs: https://github.com/nodejs/reliability/issues/1690
+Reviewed-By: Antoine du Hamel <duhamelantoine1995@gmail.com>
+Reviewed-By: James M Snell <jasnell@gmail.com>
+Reviewed-By: Matteo Collina <matteo.collina@gmail.com>
+Reviewed-By: Guilherme Araújo <arauujogui@gmail.com>
+---
+ test/cctest/test_environment_shared_isolate.cc | 6 +++++-
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/test/cctest/test_environment_shared_isolate.cc b/test/cctest/test_environment_shared_isolate.cc
+index 3e86063b064..b3807b7bb70 100644
+--- a/test/cctest/test_environment_shared_isolate.cc
++++ b/test/cctest/test_environment_shared_isolate.cc
+@@ -354,9 +354,13 @@ TEST_P(SharedIsolateTest, EnvironmentsComeAndGoWhileSiblingsRun) {
+                     "  return 0;\n"
+                     "})()"),
+         0);
+-    for (int turn = 0; turn < 10000; turn++) {
++    // Loop turns do not bound Worker startup time. Yield to the Worker and
++    // allow it to finish even when the main thread pumps the loop quickly.
++    const uint64_t deadline = uv_hrtime() + 30ULL * 1000 * 1000 * 1000;
++    while (uv_hrtime() < deadline) {
+       PumpLoop(1);
+       if (EvaluateInt(third.get(), "state.workerExit") == 7) break;
++      uv_sleep(1);
+     }
+     EXPECT_EQ(EvaluateInt(third.get(), "state.workerExit"), 7);
+   }
