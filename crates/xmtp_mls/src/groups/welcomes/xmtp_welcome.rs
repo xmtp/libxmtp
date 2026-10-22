@@ -893,12 +893,15 @@ mod tests {
 
     /// A Welcome whose group context has no root, a root for another id, or a
     /// 16-byte group id is rejected for good, and its group is not installed.
-    /// The same crafted Welcome with the group's own root joins, so the root
-    /// is the only reason for each rejection.
+    /// A one-shot Welcome with no root is rejected the same way, before its
+    /// one-shot message is read. The same crafted Welcome with the group's own
+    /// root joins, so the root is the only reason for each rejection.
     // verifies: JOIN-083, JOIN-048
     #[xmtp_common::test(unwrap_try = true)]
     async fn a_welcome_joins_only_when_its_root_names_the_group() {
-        use crate::utils::test::crafted_welcome::send_crafted_welcome;
+        use crate::utils::test::crafted_welcome::{
+            send_crafted_welcome, send_crafted_welcome_of_type,
+        };
         use xmtp_mls_common::app_data::group_root::GroupRootError;
         use xmtp_mls_common::group_keys::{GroupKeys, GroupRoot};
 
@@ -913,22 +916,47 @@ mod tests {
             kind: NetworkEntityKind::Welcome,
         };
 
-        for (case, group_id, welcome_root, expected) in [
-            ("no root", keyed_id(&root), None, GroupRootError::Missing),
+        for (case, group_id, welcome_root, conversation_type, expected) in [
+            (
+                "no root",
+                keyed_id(&root),
+                None,
+                ConversationType::Group,
+                GroupRootError::Missing,
+            ),
             (
                 "another group's root",
                 keyed_id(&root),
                 Some(&other_root),
+                ConversationType::Group,
                 GroupRootError::OtherGroup,
             ),
             (
                 "a 16-byte group",
                 legacy_id.clone(),
                 Some(&root),
+                ConversationType::Group,
                 GroupRootError::OtherGroup,
             ),
+            (
+                "a one-shot group with no root",
+                keyed_id(&other_root),
+                None,
+                ConversationType::Oneshot,
+                GroupRootError::Missing,
+            ),
         ] {
-            send_crafted_welcome(&alix, &bo, &group_id, welcome_root).await;
+            send_crafted_welcome_of_type(&alix, &bo, &group_id, welcome_root, conversation_type)
+                .await;
+            let cursor = bo
+                .context
+                .api()
+                .query_welcome_messages(bo.context.installation_id())
+                .await?
+                .into_iter()
+                .map(|welcome| welcome.cursor)
+                .max()
+                .expect(case);
             let result = process_newest_welcome(&bo).await;
             assert!(
                 matches!(&result, Err(GroupError::WelcomeGroupRoot(error)) if *error == expected),
@@ -937,12 +965,13 @@ mod tests {
             let group_id = GroupId::try_from(group_id.as_slice())?;
             assert!(bo.context.db().find_group(&group_id)?.is_none(), "{case}");
             let rejected = bo.context.db().read_last_rejection(&topic)?.expect(case);
+            assert_eq!(
+                rejected.sequence_id, cursor,
+                "{case}: the rejection is this Welcome's"
+            );
             assert_eq!(rejected.code, "invalid_welcome", "{case}");
             assert!(
-                bo.context
-                    .db()
-                    .pending_envelope(&topic, rejected.sequence_id)?
-                    .is_none(),
+                bo.context.db().pending_envelope(&topic, cursor)?.is_none(),
                 "{case}: the rejected Welcome must not stay pending"
             );
         }

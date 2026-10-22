@@ -51,9 +51,21 @@ pub(crate) async fn send_crafted_welcome(
     group_id: &[u8],
     root: Option<&GroupRoot>,
 ) {
+    send_crafted_welcome_of_type(creator, joiner, group_id, root, ConversationType::Group).await
+}
+
+/// [`send_crafted_welcome`] for a group of `conversation_type`, such as a
+/// one-shot group with no one-shot message.
+pub(crate) async fn send_crafted_welcome_of_type(
+    creator: &FullXmtpClient,
+    joiner: &FullXmtpClient,
+    group_id: &[u8],
+    root: Option<&GroupRoot>,
+    conversation_type: ConversationType,
+) {
     let mut dictionary = initial_dictionary(
         InitialGroupKind::Group {
-            conversation_type: ConversationType::Group,
+            conversation_type,
             oneshot_message: None,
         },
         &PolicySet::default().to_proto().unwrap(),
