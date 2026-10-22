@@ -6,6 +6,11 @@ slower, materially regresses empty polling, lowers insert throughput, and adds
 storage and provisioning costs. Runtime pruning works; pruning alone is not
 enough to beat the existing unpartitioned indexes.
 
+A matched follow-up bounds paging with transactional topic watermarks on both
+schemas. It greatly reduces empty-poll work, but slows broad hit-heavy requests
+and does not make sequence ranges outperform the equivalent unpartitioned query.
+Neither experiment is an unconditional production recommendation.
+
 These are measured results, not a production capacity forecast. The
 [baseline methodology and caveats](BASELINE.md), [suite instructions](README.md),
 and [approved experiment design](PARTITIONING.md) apply. Production migrations
@@ -173,16 +178,104 @@ separate rollover and catalogue-lock testing before adoption.
 
 ## Query-shape controls
 
-The suite also supports the watermark-based paging variation on **both** schemas,
-with explicit read-only configurations. This isolates a query optimization from
-the choice to partition. Newest remains unchanged. Comparative measurements are
-reported separately from the complete original-query matrix.
+Both focused controls completed on **October 22, 2026**, against source
+`68aab01c40b8dbd33f4303e95f218cc4cc4c7845`. The unpartitioned run took **10.5
+minutes**, then the range run took **22.9 minutes**, including seeding. Each has
+**10 groups, 30 read trials, 10 paired custom/generic plans, one explicit
+full-newest skip, and no writes or rollovers**. The complete-coverage reporter
+validates both artifacts. Seeds, settings, hardware, windows, warmups, page limit,
+and trial counts match the corresponding full-run cases. The range control keeps
+the same eleven-child inventory, including the empty growth range `p10`.
+
+The variant removes missing/caught-up topics by joining requested cursors to
+`topic_watermark`, then bounds each candidate probe above by its same-snapshot
+head. It retains the bounded per-topic merge, global limit, payload join, prefix
+ordering, and exact `has_more`. Newest SQL is unchanged. Applying the same shape
+to both schemas distinguishes query improvements from partitioning benefits.
+These are serial, sequentially run, warm-working-set controls, not randomized
+interleaved trials or simultaneous read/write measurements.
+
+### Four-way read comparison
+
+Ten million rows, 1,000 requested topics, total page limit 100. Cells are
+**median trial p50 / median trial p95 in milliseconds**, not pooled percentiles.
+The first two columns reproduce matching cases from the full original-query runs;
+the last two are the focused watermark-bounded controls.
+
+| Workload | Original unpartitioned | Original ranges | Bounded unpartitioned | Bounded ranges |
+| --- | ---: | ---: | ---: | ---: |
+| No cursor, hits | 19.993 / 20.222 | 31.862 / 32.217 | 23.682 / 23.859 | 33.697 / 34.157 |
+| Old cursor, hits | 17.965 / 18.158 | 34.272 / 34.700 | 21.185 / 21.345 | 32.226 / 32.909 |
+| Backlog cursor, hits | 19.405 / 19.588 | 23.220 / 23.474 | 23.709 / 23.933 | 27.003 / 27.257 |
+| Recent cursor, hits | 6.017 / 6.491 | 7.290 / 7.460 | 7.861 / 8.316 | 8.658 / 8.907 |
+| Mixed cursor ages, hits | 7.626 / 7.918 | 9.793 / 9.964 | 9.766 / 18.041 | 11.706 / 12.153 |
+| Recent, including idle topics | 5.349 / 5.495 | 5.579 / 5.753 | 5.302 / 5.594 | 5.598 / 5.852 |
+| Missing topics, no hits | 2.966 / 3.005 | 31.904 / 33.629 | 1.640 / 1.663 | 1.709 / 1.777 |
+| Existing topics, caught up | 3.803 / 3.993 | 9.599 / 9.892 | 1.837 / 1.863 | 1.913 / 1.963 |
+| Newest, metadata only | 3.156 / 3.350 | 5.660 / 5.851 | 3.098 / 3.295 | 5.229 / 5.674 |
+| Newest metadata, missing topics | 1.003 / 1.035 | 1.058 / 1.106 | 1.044 / 1.061 | 1.087 / 1.127 |
+
+Focused trial p50 min–max ranges, milliseconds:
+
+| Workload | Bounded unpartitioned | Bounded ranges |
+| --- | ---: | ---: |
+| No cursor, hits | 23.632–23.715 | 33.511–33.724 |
+| Old cursor, hits | 21.162–21.264 | 32.184–32.611 |
+| Recent cursor, hits | 7.774–7.865 | 8.258–8.760 |
+| Mixed cursor ages, hits | 9.536–25.768 | 11.453–15.993 |
+| Missing topics | 1.630–1.644 | 1.706–1.712 |
+| Existing topics, caught up | 1.835–1.838 | 1.906–1.951 |
+
+The mixed case has substantial trial sensitivity; its median must not hide the
+25.768 ms unpartitioned trial p50. Unchanged newest metadata also varies between
+historical and focused runs: 3.156 to 3.098 ms unpartitioned and 5.660 to 5.229 ms
+with ranges. These controls expose run drift rather than eliminate it. Do not
+present small differences as statistically established gains or invent a weighted
+production average.
+
+### Interpretation and plans
+
+- The prefilter fixes the range layout's worst empty-poll amplification: missing
+  topics fall from 31.904 to 1.709 ms; caught-up topics from 9.599 to 1.913 ms.
+  The equivalent unpartitioned shape is still slightly faster at 1.640 and
+  1.837 ms. Empty-poll savings do not establish a partitioning benefit.
+- Broad hit-heavy reads pay for the extra watermark work. Unpartitioned recent
+  hits rise from 6.017 to 7.861 ms, and cursor-free hits from 19.993 to 23.682 ms.
+  Bounded ranges remain slower than bounded unpartitioned reads: recent 8.658
+  versus 7.861 ms, old 32.226 versus 21.185 ms. Do not adopt the unconditional
+  prefilter merely because empty requests improve.
+- Both custom and prepared generic range plans execute **no envelope child
+  probes** for missing or caught-up topics. Recent-hit candidate and payload
+  scans execute only `p9`; the upper head bound also eliminates the original
+  probes of empty `p10`. Candidate index-only scans retain zero heap fetches.
+- Custom diagnostics hash-join the requested topics to a scan of all 10,000
+  watermark rows; prepared generic diagnostics use per-topic watermark index
+  lookups. Both still merge many per-topic candidates on hits. These separate
+  plans explain possible work, not which plan every timed auto-policy request
+  used; EXPLAIN timings are not client latency measurements.
+
+### Focused reproduction and artifacts
+
+Run `watermarks-unpartitioned.json` and `watermarks.json` with the documented
+benchmark recipe, on the same isolated instance. The raw configs and environment
+records are included below. Each CSV is generated by the same strict reporter as
+the full matrices; these read-only runs support no new insert/WAL conclusions.
+
+- [Unpartitioned bounded-query CSV](results/2026-10-22-postgres18-unpartitioned-watermarks.csv).
+- [Range bounded-query CSV](results/2026-10-22-postgres18-sequence-ranges-watermarks.csv).
+- [Unpartitioned raw samples and plans, gzip-compressed](https://murmur-prod-c109d74f-murmur-uploads-prod.storage.googleapis.com/t/github_app/82580170/uploads/github_app/xmtp/w/dev/github_oauth/neekolas/database-performance-benchmarks/dc85856a-3f1f-4b91-bca4-22cd812e6920-backend-unpartitioned-watermarks-2026-10-22-68aab01c4.jsonl.gz).
+  Compressed SHA-256:
+  `59bff7d61f972829ff94d305551c54a75ee0d9f2a4b293dd01b143aa65bbdebc`.
+- [Range raw samples and plans, gzip-compressed](https://murmur-prod-c109d74f-murmur-uploads-prod.storage.googleapis.com/t/github_app/82580170/uploads/github_app/xmtp/w/dev/github_oauth/neekolas/database-performance-benchmarks/11c5d34a-bb90-421f-8184-a1b1b06232da-backend-sequence-watermarks-2026-10-22-68aab01c4.jsonl.gz).
+  Compressed SHA-256:
+  `a3a8b89c2041a51678b8ce4c7f18dcef2e1413f403948b68ffb02d1fc70cb000`.
 
 ## Next experiments
 
-1. **Optimize broad ordered paging before adding schema complexity.** Keep the
-   watermark bounds, then compare a sequence-ordered top-K path against the
-   current bounded per-topic merge for broad hit-heavy requests. Retain absent,
+1. **Optimize broad ordered paging before adding schema complexity.** Compare a
+   sequence-ordered top-K path against the current bounded per-topic merge for
+   broad hit-heavy requests. Test a selective empty-poll fast path rather than
+   assuming the unconditional watermark prefilter wins. Retain absent,
    sparse, and old-cursor cases: a global ordered scan that is excellent for dense
    hits can be disastrous for rare topics. Preserve one snapshot, prefix order,
    and exact `has_more`; verify custom and generic plans rather than forcing one

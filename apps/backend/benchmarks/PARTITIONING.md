@@ -9,9 +9,11 @@ existing API, ordering, retention, and idempotency requirements; it proposes no
 spec changes. Approval authorizes the disposable-schema experiment below, not
 an unreviewed production migration or rollout.
 
-The complete original-query experiment is measured; see
+The complete original-query experiment and matched watermark-query controls on
+both schemas are measured; see
 [results and next experiments](RESULTS.md). Its first layout does not support
-production adoption. Query-shape controls remain test-only variations.
+production adoption. The unconditional watermark variation helps empty polling
+but slows broad hit-heavy queries; both remain test-only experiments.
 
 ## Hypothesis and decision
 
