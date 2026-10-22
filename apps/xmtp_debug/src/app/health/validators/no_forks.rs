@@ -69,7 +69,7 @@ impl Validator for NoForkedGroups {
                     .join(", ");
                 out.push(OpResult {
                     op_name: self.name(),
-                    target: Some(format!("inbox={} publish", client.inbox_id())),
+                    target: Some(format!("inbox={} publish", client.inbox_id().snippet())),
                     status: Status::Fail,
                     duration: tick_start.elapsed(),
                     error: Some(eyre!("commit-log publish failed for {groups}")),
