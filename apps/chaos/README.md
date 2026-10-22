@@ -155,4 +155,7 @@ owner to expire. It does not reset a live stream to hide a delivery stall.
 After a run stops, use `just chaos inspect --forks` to compare saved state and
 commit history. Add `--group GROUP_ID` to narrow the output. This command reads
 the encrypted databases through read-only connections. It does not start clients.
+Selecting a group also shows up to eight queued publication intents per database,
+with only their ids, kinds, and states. Error summaries keep the redacted start
+and end of the error chain so nested causes remain visible.
 A row cap or missing evidence is reported as inconclusive.
