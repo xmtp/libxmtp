@@ -20,6 +20,7 @@ just validation                        # both
 just test workspace -p xmtp_mls_validation --features test-utils
 just test workspace -p xmtp_mls_validation --test zeroize   # commit-log signer heap-canary proof
 dev/nix-shell 'dev/agent-run cargo test --locked -p xmtp_mls_validation --target wasm32-unknown-unknown --features test-utils'
+dev/nix-shell 'dev/agent-run cargo bench -p xmtp_mls_validation --bench publish_signature'   # one-off; record the CPU
 ```
 
 Use `test-utils` for fixtures. Parse routing before cryptographic validation so
