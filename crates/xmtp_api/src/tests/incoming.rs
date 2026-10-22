@@ -100,6 +100,51 @@ async fn one_envelope_above_the_byte_limit_fails_without_skipping_it() {
     ));
 }
 
+/// The backend fails a whole read that names a 17-byte group topic. Each
+/// read helper refuses one before it sends. The mock expects no call, so a
+/// request would panic.
+#[xmtp_common::test(unwrap_try = true)]
+async fn reads_naming_a_legacy_group_topic_are_refused_before_sending() {
+    use xmtp_proto::types::GroupId;
+    let api = wrapper(MockBackendClient::new());
+    let legacy = Topic::new_group_message([1; 16]);
+    let keyed = Topic::new_group_message([2; 32]);
+    let refused = |result: &std::result::Result<(), ApiError>| {
+        matches!(result, Err(ApiError::ProtoConversion(_)))
+    };
+
+    assert!(refused(
+        &api.get_newest_message_metadata(&[GroupId::from([1; 16]), GroupId::from([2; 32])])
+            .await
+            .map(|_| ())
+    ));
+    assert!(refused(
+        &api.newest_topic_cursors(vec![keyed.clone(), legacy.clone()])
+            .await
+            .map(|_| ())
+    ));
+    assert!(refused(
+        &api.query_all(
+            [(keyed.clone(), Cursor(0)), (legacy.clone(), Cursor(0))].into(),
+            10
+        )
+        .await
+        .map(|_| ())
+    ));
+    assert!(refused(
+        &api.query_ordered_page(
+            [(keyed, Cursor(0)), (legacy, Cursor(0))].into(),
+            10,
+            IncomingBatchLimits {
+                max_rows: 1,
+                max_bytes: 4096,
+            },
+        )
+        .await
+        .map(|_| ())
+    ));
+}
+
 // verifies: PROC-015
 #[xmtp_common::test(unwrap_try = true)]
 async fn newest_targets_keep_absent_topics_at_zero() {

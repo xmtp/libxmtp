@@ -379,6 +379,28 @@ mod tests {
         assert_eq!(cursors[&b], types::Cursor(11));
     }
 
+    /// A 16-byte group id names no topic, so a batch on its 17-byte topic is
+    /// refused and no cursor moves.
+    // verifies: PROC-001
+    #[xmtp_common::test(unwrap_try = true)]
+    fn a_batch_on_a_17_byte_group_topic_is_refused() {
+        let legacy = Topic::new_group_message([1; 16]);
+        let starts: TopicCursor = [(legacy.clone(), types::Cursor(2))].into();
+        let mut cursors = starts.clone();
+        assert!(
+            ordered_batches(
+                &mut cursors,
+                vec![envelope(&legacy, 8)],
+                IncomingBatchLimits {
+                    max_rows: 1,
+                    max_bytes: 4096
+                }
+            )
+            .is_err()
+        );
+        assert_eq!(cursors, starts);
+    }
+
     // verifies: PROC-001
     #[xmtp_common::test(unwrap_try = true)]
     fn failed_frame_does_not_advance_any_topic() {

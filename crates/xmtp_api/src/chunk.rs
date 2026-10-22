@@ -116,6 +116,15 @@ impl PublishUnit {
     }
 }
 
+/// The backend fails a whole read that names a topic it does not route, such
+/// as one built from a 16-byte group id. Refuse such a read before sending.
+fn routable<'a>(topics: impl IntoIterator<Item = &'a Topic>) -> Result<()> {
+    for topic in topics {
+        Topic::parse(topic)?;
+    }
+    Ok(())
+}
+
 pub(crate) fn request(units: &[PublishUnit]) -> wire::PublishRequest {
     wire::PublishRequest {
         envelopes: units
@@ -383,6 +392,7 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
         {
             return Err(ApiError::InvalidRequest("query limit"));
         }
+        routable(cursors.keys())?;
         let topics: Vec<_> = cursors.into_iter().collect();
         let mut pending: VecDeque<_> = topics
             .chunks(self.limits().max_query_topics)
@@ -509,6 +519,7 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
         if limit == 0 || limit as usize > self.limits().max_query_limit {
             return Err(ApiError::InvalidRequest("query limit"));
         }
+        routable(cursors.keys())?;
         let topics: Vec<_> = cursors.into_iter().collect();
         let results: Vec<Vec<_>> = stream::iter(
             topics
@@ -697,6 +708,7 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
         topics: Vec<Topic>,
         full: bool,
     ) -> Result<Vec<wire::query_newest_response::Result>> {
+        routable(&topics)?;
         let topics: Vec<_> = topics
             .into_iter()
             .collect::<HashSet<_>>()
