@@ -85,7 +85,7 @@
           node sdks/react-native/scripts/stage-package.mjs \
             --generated ${p.xmtp-sdk-generated-react-native} \
             --runtime ${p.ubjs-react-native} --out "$TMPDIR/staged"
-          mv "$TMPDIR/staged" "$out"
+          cp -R "$TMPDIR/staged" "$out"
         '';
         installPhase = "true";
         dontFixup = true;
