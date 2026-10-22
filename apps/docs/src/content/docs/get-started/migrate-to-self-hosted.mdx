@@ -225,7 +225,8 @@ for complete payload routing and handler examples.
 
 The SDK's display topic, such as `[group_message_v1/<hex-id>]`, differs from the
 base64 push field. Neither uses the old `/xmtp/mls/1/g-<id>/proto` routing label.
-Use the [topic layout](/protocol/topics/) to decode payloads.
+Parse push payloads with the SDK's `parsePushHint`; the [topic layout](/protocol/topics/)
+describes the bytes.
 
 ## SDK Upgrade Guides
 

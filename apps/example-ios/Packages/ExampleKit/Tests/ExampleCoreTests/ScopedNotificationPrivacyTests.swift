@@ -93,17 +93,11 @@ enum ScopedPushFailure: Error { case lookup, write }
 	                                     publisher: publisher, current: { [unowned self] in owner }, permitted: { true },
 	                                     signedIn: { true })
 	func groupEnvelope(_ byte: UInt8, sequence: String) throws -> PushEnvelope {
-		try #require(PushEnvelope(
-			topic: Data([0] + Array(repeating: byte, count: 32)).base64EncodedString(),
-			sequence: sequence,
-		))
+		try PushEnvelope.fixture(.group, byte, sequence: #require(UInt64(sequence)))
 	}
 
 	func welcomeEnvelope() throws -> PushEnvelope {
-		try #require(PushEnvelope(
-			topic: Data([1] + Array(repeating: UInt8(1), count: 32)).base64EncodedString(),
-			sequence: "1",
-		))
+		PushEnvelope.fixture(.welcome, 1)
 	}
 }
 

@@ -710,9 +710,10 @@ register with the self-hosted backend:
 override. Read effective `notificationsEnabled` from group `.common` or DM state.
 Call `enableNotifications` again when the provider token changes.
 
-Push payloads carry a base64 binary `topic` and decimal-string `sequence_id`.
-They contain no encrypted message bytes. Fetch from the backend, process welcomes,
-sync the conversation, then read local messages. See
+Push payloads carry a base64 binary `topic` and decimal-string `sequence_id`;
+`parsePushHint` validates both. They contain no encrypted message bytes. Fetch
+from the backend, process welcomes, sync the conversation, then read local
+messages. See
 [Push notifications](/sdk/push-notifications/).
 
 ## Diagnostics, logging, errors, and removals
