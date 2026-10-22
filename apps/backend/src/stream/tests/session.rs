@@ -528,6 +528,17 @@ async fn structural_update_errors_close_the_session() {
                 removes: vec![],
             })),
         },
+        // A 17-byte commit-log topic in removes.
+        api::SubscribeRequest {
+            request: Some(Input::Update(api::subscribe_request::Update {
+                id: 1,
+                adds: vec![],
+                removes: vec![support::topic(
+                    xmtp_proto::types::TopicKind::CommitLogEntriesV1,
+                    &[4; 16],
+                )],
+            })),
+        },
     ] {
         let mut stream = Native::open(&server).await?;
         stream.input.send(request).await?;
@@ -544,7 +555,7 @@ async fn structural_update_errors_close_the_session() {
                 &[("reason", "invalid")],
             )
         },
-        5.0,
+        6.0,
     )
     .await?;
     assert_eq!(

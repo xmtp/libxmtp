@@ -240,6 +240,31 @@ impl RunningServer {
         api::identity_service_client::IdentityServiceClient::new(self.channel.clone())
     }
 
+    /// Publish `ClientEnvelope`s exactly as encoded, so a test can put a field
+    /// the generated types no longer have on the wire. A repeated message
+    /// field and a repeated bytes field share one wire form.
+    pub async fn publish_encoded(
+        &self,
+        envelopes: Vec<Vec<u8>>,
+    ) -> Result<api::PublishResponse, tonic::Status> {
+        #[derive(Clone, PartialEq, prost::Message)]
+        struct EncodedPublishRequest {
+            #[prost(bytes = "vec", repeated, tag = "1")]
+            envelopes: Vec<Vec<u8>>,
+        }
+        let mut grpc = tonic::client::Grpc::new(self.channel.clone());
+        grpc.ready()
+            .await
+            .map_err(|error| tonic::Status::unavailable(error.to_string()))?;
+        grpc.unary(
+            tonic::Request::new(EncodedPublishRequest { envelopes }),
+            http::uri::PathAndQuery::from_static("/xmtp.backend.v1.PublishService/Publish"),
+            tonic_prost::ProstCodec::default(),
+        )
+        .await
+        .map(tonic::Response::into_inner)
+    }
+
     pub async fn publish(
         &self,
         envelopes: Vec<api::ClientEnvelope>,

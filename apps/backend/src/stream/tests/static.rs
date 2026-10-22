@@ -132,7 +132,7 @@ async fn static_keepalives_are_one_way_and_do_not_expire_waiting_for_pong() {
 
 #[xmtp_common::timeout(std::time::Duration::from_secs(20))]
 #[xmtp_common::test(unwrap_try = true)]
-// verifies: API-260
+// verifies: API-260, TOPIC-003
 async fn static_request_validates_its_own_limits_and_unique_topics() {
     let server = TestServer::new(|config| {
         config.limits.max_stream_topics = 1;
@@ -150,6 +150,11 @@ async fn static_request_validates_its_own_limits_and_unique_topics() {
         vec![test_support::query_topic(a.clone(), 0); 3],
         vec![test_support::query_topic(a.clone(), u64::MAX)],
         vec![api::TopicQuery::default()],
+        // A 17-byte group topic, built from a legacy 16-byte group id.
+        vec![test_support::query_topic(
+            test_support::topic(xmtp_proto::types::TopicKind::GroupMessagesV1, &[9; 16]),
+            0,
+        )],
     ] {
         assert_eq!(
             client

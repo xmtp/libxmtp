@@ -125,7 +125,8 @@ async fn signed_publishes_are_stored_with_the_retention_of_their_kind() {
 /// A 16-byte legacy group id names no topic, and field 5 is reserved. A group
 /// message on a 16-byte group id, signed or not, and an old client's
 /// commit-log entry are refused as malformed payloads, and nothing is stored.
-/// Before the cutover the backend stored all three.
+/// Before the cutover the backend stored all three. Each envelope goes on the
+/// wire as encoded, so the server receives field 5 itself.
 #[xmtp_common::test(unwrap_try = true)]
 // verifies: TOPIC-002, API-210, API-230
 async fn legacy_group_ids_and_retired_commit_log_entries_are_refused() {
@@ -137,21 +138,22 @@ async fn legacy_group_ids_and_retired_commit_log_entries_are_refused() {
     let unsigned = group_message_envelope(legacy, GroupMessageKind::Application, []);
     let mut signed = unsigned.clone();
     group_message(&mut signed).signature = vec![0x55; 64];
-    let retired =
-        api::ClientEnvelope::decode(retired_commit_log_envelope_bytes(legacy).as_slice())?;
     for (case, legacy_envelope) in [
-        ("an unsigned message on a 16-byte group id", unsigned),
+        (
+            "an unsigned message on a 16-byte group id",
+            unsigned.encode_to_vec(),
+        ),
         (
             "a message with a 64-byte signature on a 16-byte group id",
-            signed,
+            signed.encode_to_vec(),
         ),
-        ("a retired commit-log entry", retired),
+        (
+            "a retired commit-log entry",
+            retired_commit_log_envelope_bytes(legacy),
+        ),
     ] {
         let error = server
-            .publisher()
-            .publish(api::PublishRequest {
-                envelopes: vec![legacy_envelope],
-            })
+            .publish_encoded(vec![legacy_envelope])
             .await
             .unwrap_err();
         assert_eq!(
@@ -262,13 +264,6 @@ async fn signed_publishes_are_refused_unless_their_signature_verifies() {
             changed(&entry, |envelope| sealed_entry(envelope).ciphertext[0] ^= 1),
             Reason::InvalidSignature,
         ),
-        (
-            "a retired commit-log entry naming a 32-byte group id",
-            api::ClientEnvelope::decode(
-                retired_commit_log_envelope_bytes(keys.group_id()).as_slice(),
-            )?,
-            Reason::MalformedPayload,
-        ),
     ];
     for (case, bad, reason) in cases {
         let error = server
@@ -281,6 +276,21 @@ async fn signed_publishes_are_refused_unless_their_signature_verifies() {
         assert_eq!(rejection(error)?, (Some(1), reason), "{case}");
         assert_eq!(stored_rows(&server).await?, 0, "{case}");
     }
+    // The generated types drop field 5, so this case goes on the wire as
+    // encoded.
+    let error = server
+        .publish_encoded(vec![
+            inline_welcome_envelope([60; 32]).encode_to_vec(),
+            retired_commit_log_envelope_bytes(keys.group_id()),
+        ])
+        .await
+        .unwrap_err();
+    assert_eq!(
+        rejection(error)?,
+        (Some(1), Reason::MalformedPayload),
+        "a retired commit-log entry naming a 32-byte group id"
+    );
+    assert_eq!(stored_rows(&server).await?, 0);
     server.stop().await?;
 }
 
