@@ -93,6 +93,13 @@ Check direct and transitive library wiring with:
 nix build --no-link .#node-runtime-dependencies.x86_64-linux
 ```
 
+The Linux check also runs the real React Native JS build phase against a tiny
+read-only generated-file fixture. It stubs only the staging command and drops
+its unused Rust/runtime path contexts, so it builds no SDK or Node sources.
+The sandbox must reject a direct rename with `EXDEV`; publication must preserve
+the exact tree contents and leave the read-only source intact. This regression
+runs through the existing scoped-runtime CI check, without another job.
+
 Repository lint CI also evaluates the check for every supported host. It checks scoped
 libraries, Node-based build tools and wrappers, and isolation from the outer
 package set. Keep it independent of Node source builds so dependency regressions

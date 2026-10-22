@@ -39,21 +39,29 @@ in
   flake.node-runtime-dependencies = lib.genAttrs systems (
     system:
     withSystem system (
-      { pkgs, ... }:
-      pkgs.linkFarm "node-runtime-dependencies" [
-        {
-          name = "node24";
-          path = pkgs.xmtp.nodejs-slim_24.passthru.tests.dependencies;
+      { pkgs, self', ... }:
+      pkgs.linkFarm "node-runtime-dependencies" (
+        [
+          {
+            name = "node24";
+            path = pkgs.xmtp.nodejs-slim_24.passthru.tests.dependencies;
+          }
+          {
+            name = "node26";
+            path = pkgs.xmtp.nodejs-slim_26.passthru.tests.dependencies;
+          }
+          {
+            name = "consumers";
+            path = pkgs.xmtp.nodeRuntimeChecks;
+          }
+        ]
+        ++ lib.optional (system == "x86_64-linux") {
+          name = "react-native-publish";
+          path = pkgs.callPackage ./lib/check-react-native-publish.nix {
+            sdkBuildPhase = self'.packages.xmtp-sdk-react-native-js.buildPhase;
+          };
         }
-        {
-          name = "node26";
-          path = pkgs.xmtp.nodejs-slim_26.passthru.tests.dependencies;
-        }
-        {
-          name = "consumers";
-          path = pkgs.xmtp.nodeRuntimeChecks;
-        }
-      ]
+      )
     )
   );
 
