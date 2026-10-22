@@ -27,6 +27,11 @@ outside Nix. Prefer a `just` recipe; for Cargo options without one, use
 `dev/nix-shell 'dev/agent-run cargo <command> ...'`. See `docs/agent-tools.md`
 for the Codex hook, Serena, and command output details.
 
+Environment evaluations stream complete Nix builder logs to stderr;
+`--print-env` keeps only the shell environment on stdout. Check wrapper logging,
+cache reuse, and failed-evaluation cleanup without building Nix packages with
+`dev/nix-shell 'python3.11 -B dev/tests/test_agents.py'`.
+
 ```bash
 just                         # list recipes
 just check                   # check default members

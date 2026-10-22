@@ -80,7 +80,7 @@ if $refresh || [[ ! -s "$env_file" || ! -e "$profile" ]]; then
   temporary="$(mktemp "$cache/.$key.XXXXXX")"
   # --profile makes the environment a GC root; keep one generation per key.
   rm -f "$profile" "$profile"-*-link
-  if ! nix print-dev-env --profile "$profile" "$REPO_ROOT#$shell_name" > "$temporary"; then
+  if ! nix print-dev-env --profile "$profile" --print-build-logs "$REPO_ROOT#$shell_name" > "$temporary"; then
     rm -f "$temporary"
     exit 1
   fi
