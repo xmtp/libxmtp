@@ -352,9 +352,11 @@ async fn catch_up_completes_without_naming_a_legacy_placeholder() {
 }
 
 /// A reader that selects a keyed group and a 16-byte id with no stored row
-/// delivers the keyed group's message. The 16-byte id names no topic, so it
+/// delivers the keyed group's messages. The 16-byte id names no topic, so it
 /// never reaches the shared stream, which would otherwise fail for every
-/// scope.
+/// scope. The stream opens with one Subscribe update that names every
+/// interested topic, so once the keyed group's topic is sent, a 17-byte
+/// topic would already be recorded.
 // verifies: PROC-051
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_reader_that_selects_an_unstored_legacy_id_still_delivers() {
@@ -365,6 +367,7 @@ async fn a_reader_that_selects_an_unstored_legacy_id_still_delivers() {
         .await?;
     let unstored = GroupId::from([0x6b; 16]);
     let (client, named) = naming_client(&alix.client).await;
+    let group_topic = Topic::new_group_message(group.group_id).cloned_vec();
 
     let stream = crate::subscriptions::stream_messages::StreamGroupMessages::new(
         &client.context,
@@ -372,15 +375,32 @@ async fn a_reader_that_selects_an_unstored_legacy_id_still_delivers() {
     )
     .await?;
     futures::pin_mut!(stream);
-    bo.sync_welcomes().await?;
-    bo.group(&group.group_id)?
-        .send_message(b"over the stream", Default::default())
-        .await?;
-    let received = xmtp_common::time::timeout(Duration::from_secs(20), stream.next())
-        .await?
-        .expect("the stream yields the message")?;
+    xmtp_common::wait_for_eq(
+        || async { named.by(Request::Subscribe).contains(&group_topic) },
+        true,
+    )
+    .await?;
+    assert_no_legacy_topic(&named, &unstored);
 
-    assert_eq!(received.group_id, group.group_id);
+    // A refused Subscribe ends the shared stream with an error, so the
+    // second read also fails if the backend was asked for a 17-byte topic.
+    // Bo's first send can also commit, and the stream yields that update
+    // too, so each read skips to the sent content.
+    bo.sync_welcomes().await?;
+    let sent = bo.group(&group.group_id)?;
+    for content in [b"first".as_slice(), b"second".as_slice()] {
+        sent.send_message(content, Default::default()).await?;
+        xmtp_common::time::timeout(Duration::from_secs(20), async {
+            loop {
+                let received = stream.next().await.expect("the stream stays open")?;
+                assert_eq!(received.group_id, group.group_id);
+                if received.decrypted_message_bytes == content {
+                    return Ok::<_, crate::subscriptions::SubscribeError>(());
+                }
+            }
+        })
+        .await??;
+    }
     assert_no_legacy_topic(&named, &unstored);
 }
 
