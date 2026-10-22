@@ -84,5 +84,10 @@ async fn a_signed_message_on_a_keyed_group_topic_reaches_its_subscriber() {
     .await?;
     stop(&hub).await;
     assert_eq!(*sender.calls.lock(), [(sequence as u64, PushChannel::Fcm)]);
+    assert_eq!(
+        *sender.recipients.lock(),
+        [vec![1; 32]],
+        "only the group topic's subscriber"
+    );
     server.stop().await?;
 }

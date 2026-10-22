@@ -262,7 +262,9 @@ async fn a_repeated_signed_envelope_is_verified_once() {
 }
 
 /// A replay of stored envelopes costs no verification and returns their
-/// stored metadata; the first publish verified all of them in one task.
+/// stored metadata; the first publish verified all of them in one task. Sent
+/// with one new signed envelope, only the new one is verified, and a request
+/// with no signed envelope starts no blocking task.
 #[xmtp_common::test(unwrap_try = true)]
 // verifies: API-222
 async fn stored_signed_envelopes_are_not_verified_again() {
@@ -281,9 +283,25 @@ async fn stored_signed_envelopes_are_not_verified_again() {
     checks.take();
     let stored = server.publish(envelopes.clone()).await?;
     assert_eq!(checks.take(), (1, 100));
-    assert_eq!(server.publish(envelopes).await?, stored);
+    assert_eq!(server.publish(envelopes.clone()).await?, stored);
     assert_eq!(checks.take(), (0, 0));
     assert_eq!(stored_rows(&server).await?, 100);
+
+    let mut mixed = envelopes;
+    mixed.push(keyed_group_message_envelope(
+        &group_keys(50),
+        GroupMessageKind::Application,
+        [],
+    ));
+    let metas = server.publish(mixed).await?;
+    assert_eq!(checks.take(), (1, 1), "only the new envelope is verified");
+    assert_eq!(metas[..100], stored[..]);
+    assert_eq!(stored_rows(&server).await?, 101);
+
+    server
+        .publish(vec![inline_welcome_envelope([1; 32])])
+        .await?;
+    assert_eq!(checks.take(), (0, 0), "no signed envelope, no task");
     server.stop().await?;
 }
 

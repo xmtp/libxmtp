@@ -115,6 +115,8 @@ impl Fixture {
 #[derive(Default)]
 struct FakeSender {
     calls: Mutex<Vec<(u64, PushChannel)>>,
+    /// The recipient of each call, in call order.
+    recipients: Mutex<Vec<Vec<u8>>>,
     gate: Option<Arc<Semaphore>>,
     outcomes: Mutex<VecDeque<Outcome>>,
 }
@@ -139,6 +141,9 @@ impl Sender for FakeSender {
             delivery.payload.sequence_id.parse().unwrap(),
             delivery.config.channel,
         ));
+        self.recipients
+            .lock()
+            .push(delivery.config.recipient_id.clone());
         if let Some(gate) = &self.gate {
             gate.acquire().await.unwrap().forget();
         }
