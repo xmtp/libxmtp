@@ -6,8 +6,8 @@ import org.junit.Test
 import java.util.Base64
 
 class NotificationHandlerTest {
-    private val groupA = "11".repeat(16)
-    private val groupB = "22".repeat(16)
+    private val groupA = "11".repeat(32)
+    private val groupB = "22".repeat(32)
     private val keyedGroup = "33".repeat(32)
     private val installationA = "aa".repeat(32)
     private val installationB = "bb".repeat(32)
@@ -94,12 +94,13 @@ class NotificationHandlerTest {
         val keyed = parsePush(payload(id = keyedGroup))
         assertEquals(PushKind.GROUP, keyed?.kind)
         assertEquals(keyedGroup, keyed?.identifier)
-        assertEquals(PushKind.GROUP, parsePush(payload())?.kind)
         val welcome = parsePush(payload(1, keyedGroup))
         assertEquals(PushKind.WELCOME, welcome?.kind)
         assertEquals(keyedGroup, welcome?.identifier)
         for (data in listOf(
-            payload(1, groupA),
+            // A 16-byte group id has no topic, so a 17-byte topic is refused.
+            payload(id = "11".repeat(16)),
+            payload(1, "11".repeat(16)),
             payload(id = keyedGroup.dropLast(2)),
             payload(id = keyedGroup + "33"),
             payload(id = "33".repeat(24)),

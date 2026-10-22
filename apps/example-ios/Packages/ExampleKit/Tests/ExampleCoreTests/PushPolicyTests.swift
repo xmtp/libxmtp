@@ -7,7 +7,7 @@ import Testing
 	func replacedControllerKeepsNewSameTagPublication(cancelOld: Bool) async throws {
 		let fixture = PushFixture(); fixture.publisher.held = true
 		let envelope = try #require(PushEnvelope(
-			topic: Data([0] + Array(repeating: UInt8(1), count: 16)).base64EncodedString(), sequence: "1",
+			topic: Data([0] + Array(repeating: UInt8(1), count: 32)).base64EncodedString(), sequence: "1",
 		))
 		let old = Task { await fixture.controller.receive(envelope, lease: PushLease()) }
 		for _ in 0 ..< 1000 where fixture.publisher.completion == nil {
@@ -68,8 +68,9 @@ import Testing
 		let group = try #require(PushEnvelope(topic: keyed, sequence: "1"))
 		#expect(group.kind == .group)
 		#expect(group.identifier == String(repeating: "33", count: 32))
+		// A 16-byte group id has no topic, so a 17-byte 0x00 topic is refused.
 		let legacy = Data([0] + Array(repeating: UInt8(0x11), count: 16)).base64EncodedString()
-		#expect(PushEnvelope(topic: legacy, sequence: "1")?.kind == .group)
+		#expect(PushEnvelope(topic: legacy, sequence: "1") == nil)
 		let welcomeTopic = Data([1] + Array(repeating: UInt8(0x33), count: 32)).base64EncodedString()
 		let welcome = try #require(PushEnvelope(topic: welcomeTopic, sequence: "1"))
 		#expect(welcome.kind == .welcome)
@@ -77,8 +78,8 @@ import Testing
 	}
 
 	@Test func canonicalTopicsAndTokenHex() {
-		let group = Data([0] + Array(repeating: UInt8(255), count: 16)).base64EncodedString()
-		#expect(PushEnvelope(topic: group, sequence: String(UInt64.max))?.identifier == String(repeating: "ff", count: 16))
+		let group = Data([0] + Array(repeating: UInt8(255), count: 32)).base64EncodedString()
+		#expect(PushEnvelope(topic: group, sequence: String(UInt64.max))?.identifier == String(repeating: "ff", count: 32))
 		for sequence in ["", "-1", "+1", "1.0", " 1", "18446744073709551616"] {
 			#expect(PushEnvelope(
 				topic: group,
@@ -106,7 +107,7 @@ import Testing
 	@Test func admissionAndDeduplication() async throws {
 		let fixture = PushFixture()
 		let envelope = try #require(PushEnvelope(
-			topic: Data([0] + Array(repeating: UInt8(1), count: 16)).base64EncodedString(),
+			topic: Data([0] + Array(repeating: UInt8(1), count: 32)).base64EncodedString(),
 			sequence: "1",
 		))
 		fixture.preferences.enabled = false; #expect(await fixture.controller.receive(envelope, lease: PushLease()) == false)
@@ -143,7 +144,7 @@ import Testing
 		for mutation in 0 ..< 4 {
 			let fixture = PushFixture(); let lease = PushLease()
 			let envelope = try #require(PushEnvelope(
-				topic: Data([0] + Array(repeating: UInt8(1), count: 16)).base64EncodedString(),
+				topic: Data([0] + Array(repeating: UInt8(1), count: 32)).base64EncodedString(),
 				sequence: "1",
 			))
 			fixture.gateway.onRead = {
@@ -168,7 +169,7 @@ import Testing
 	@Test func latePlatformCompletionIsRemovedAfterPrivacyChange() async throws {
 		let fixture = PushFixture(); fixture.publisher.held = true
 		let envelope = try #require(PushEnvelope(
-			topic: Data([0] + Array(repeating: UInt8(1), count: 16)).base64EncodedString(),
+			topic: Data([0] + Array(repeating: UInt8(1), count: 32)).base64EncodedString(),
 			sequence: "1",
 		))
 		let task = Task { await fixture.controller.receive(envelope, lease: PushLease()) }
@@ -184,7 +185,7 @@ import Testing
 	@Test func cancellationDoesNotWaitForPlatformCallback() async throws {
 		let fixture = PushFixture(); fixture.publisher.held = true; var finished = false
 		let envelope = try #require(PushEnvelope(
-			topic: Data([0] + Array(repeating: UInt8(1), count: 16)).base64EncodedString(),
+			topic: Data([0] + Array(repeating: UInt8(1), count: 32)).base64EncodedString(),
 			sequence: "1",
 		))
 		let task = Task {
