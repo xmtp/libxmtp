@@ -1,7 +1,9 @@
 //! A Restored placeholder with a 16-byte group id is imported history. A
 //! 16-byte id names no topic, and a request that named its 17-byte topic
 //! would fail as a whole. No sync, stream, push upload, or commit-log turn
-//! selects the placeholder, so no request names a 17-byte topic.
+//! selects the placeholder, so no request names a 17-byte topic. Catch-up
+//! and a reader may select it, or a 16-byte id with no row, and still send
+//! no such topic. A placeholder takes no membership commit.
 use crate::{
     client::notifications::{NotificationChannel, NotificationConfig},
     context::XmtpSharedContext,
@@ -27,6 +29,7 @@ use xmtp_proto::{
     api::{ApiClientError, ArcClient, BytesStream, Client as Transport, IsConnectedCheck},
     backend_v1 as wire,
     types::{GroupId, Topic},
+    xmtp::mls::database::{Task as TaskProto, task::Task as TaskKind},
 };
 
 /// The request that named a topic.
@@ -203,21 +206,14 @@ async fn naming_client(
     (client, named)
 }
 
-/// Sync, a message stream, the push upload, and a commit-log worker turn
-/// each run with a keyed group and an imported 16-byte placeholder in the
-/// database. Each names the keyed group's topics, none names a 17-byte
-/// topic, and the placeholder stays Restored.
-// verifies: PROC-051
-#[xmtp_common::test(unwrap_try = true)]
-async fn a_legacy_placeholder_is_never_named_by_a_request() {
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
-    let group = alix
-        .create_group_with_members(&[bo.inbox_id()], None, None)
-        .await?;
-    let legacy = GroupId::from([0x5a; 16]);
+/// Store an imported 16-byte placeholder, as an archive import does.
+fn insert_placeholder(
+    client: &crate::utils::FullXmtpClient,
+    id: [u8; 16],
+) -> Result<GroupId, crate::groups::GroupError> {
+    let legacy = GroupId::from(id);
     MlsGroup::insert(
-        &alix.context,
+        &client.context,
         Some(legacy.as_slice()),
         GroupMembershipState::Restored,
         ConversationType::Group,
@@ -226,6 +222,41 @@ async fn a_legacy_placeholder_is_never_named_by_a_request() {
         None,
         false,
     )?;
+    Ok(legacy)
+}
+
+/// Every recorded topic is 33 bytes, and none carries `legacy`.
+fn assert_no_legacy_topic(named: &Named, legacy: &GroupId) {
+    for (request, topic) in named.0.lock().iter() {
+        assert_eq!(
+            topic.len(),
+            33,
+            "{request:?} named a {}-byte topic",
+            topic.len()
+        );
+        assert_ne!(
+            &topic[1..17],
+            legacy.as_slice(),
+            "{request:?} named the placeholder"
+        );
+    }
+}
+
+/// Sync, a message stream, the push upload, and a commit-log worker turn
+/// each run with a keyed group and an imported 16-byte placeholder in the
+/// database. Each names the keyed group's topics, none names a 17-byte
+/// topic, and the placeholder stays Restored. The commit-log leg is a
+/// positive control only: the worker builds a topic from a group's stored
+/// commit-log id, and a placeholder never stores one.
+// verifies: PROC-051
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_legacy_placeholder_is_never_named_by_a_request() {
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    let group = alix
+        .create_group_with_members(&[bo.inbox_id()], None, None)
+        .await?;
+    let legacy = insert_placeholder(&alix.client, [0x5a; 16])?;
     // An archive can carry the conversation's consent, and an allowed
     // conversation is one the push upload would otherwise select.
     alix.group(&legacy)?
@@ -283,23 +314,116 @@ async fn a_legacy_placeholder_is_never_named_by_a_request() {
         named.by(Request::Query).contains(&commit_log_topic),
         "commit-log read"
     );
-    let all = named.0.lock().clone();
-    for (request, topic) in &all {
-        assert_eq!(
-            topic.len(),
-            33,
-            "{request:?} named a {}-byte topic",
-            topic.len()
-        );
-        assert_ne!(
-            &topic[1..17],
-            legacy.as_slice(),
-            "{request:?} named the placeholder"
-        );
-    }
+    assert_no_legacy_topic(&named, &legacy);
     assert_eq!(
         client.db().find_group(&legacy)?.unwrap().membership_state,
         GroupMembershipState::Restored
     );
     client.disable_notifications().await?;
+}
+
+/// Catch-up selects every stored group, the placeholder included. The
+/// placeholder's obligation completes as inactive without a request, so the
+/// keyed group and the Welcome topic in the same head query still reach
+/// their targets, and catch-up completes.
+// verifies: PROC-051
+#[xmtp_common::test(unwrap_try = true)]
+async fn catch_up_completes_without_naming_a_legacy_placeholder() {
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    let group = alix
+        .create_group_with_members(&[bo.inbox_id()], None, None)
+        .await?;
+    let legacy = insert_placeholder(&alix.client, [0x5a; 16])?;
+    let (client, named) = naming_client(&alix.client).await;
+
+    let summary = client
+        .catch_up_to_live(Some(Duration::from_secs(10)))
+        .await?;
+
+    assert!(summary.completed);
+    assert!(
+        named
+            .by(Request::QueryNewest)
+            .contains(&Topic::new_group_message(group.group_id).cloned_vec()),
+        "catch-up captures the keyed group's head"
+    );
+    assert_no_legacy_topic(&named, &legacy);
+}
+
+/// A reader that selects a keyed group and a 16-byte id with no stored row
+/// delivers the keyed group's message. The 16-byte id names no topic, so it
+/// never reaches the shared stream, which would otherwise fail for every
+/// scope.
+// verifies: PROC-051
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_reader_that_selects_an_unstored_legacy_id_still_delivers() {
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    let group = alix
+        .create_group_with_members(&[bo.inbox_id()], None, None)
+        .await?;
+    let unstored = GroupId::from([0x6b; 16]);
+    let (client, named) = naming_client(&alix.client).await;
+
+    let stream = crate::subscriptions::stream_messages::StreamGroupMessages::new(
+        &client.context,
+        vec![group.group_id, unstored],
+    )
+    .await?;
+    futures::pin_mut!(stream);
+    bo.sync_welcomes().await?;
+    bo.group(&group.group_id)?
+        .send_message(b"over the stream", Default::default())
+        .await?;
+    let received = xmtp_common::time::timeout(Duration::from_secs(20), stream.next())
+        .await?
+        .expect("the stream yields the message")?;
+
+    assert_eq!(received.group_id, group.group_id);
+    assert_no_legacy_topic(&named, &unstored);
+}
+
+/// A new installation does not reach a placeholder. Device sync schedules
+/// no membership commit for it, and a direct call is refused as inactive
+/// before it queues an intent, so no request names its topic.
+// verifies: ARCH-015
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_legacy_placeholder_takes_no_membership_commit() {
+    tester!(alix, disable_workers);
+    let group = alix.create_group(None, None)?;
+    let legacy = insert_placeholder(&alix.client, [0x5a; 16])?;
+    tester!(_alix2, from: alix, disable_workers);
+    let (client, named) = naming_client(&alix.client).await;
+
+    client
+        .device_sync_client()
+        .schedule_add_installations_to_groups()?;
+    let scheduled: Vec<Vec<u8>> = client
+        .db()
+        .get_tasks()?
+        .iter()
+        .filter_map(
+            |task| match TaskProto::decode(task.data.as_slice()).ok()?.task {
+                Some(TaskKind::AddMissingInstallations(add)) => Some(add.group_id),
+                _ => None,
+            },
+        )
+        .collect();
+    assert!(scheduled.contains(&group.group_id.to_vec()));
+    assert!(!scheduled.contains(&legacy.to_vec()));
+
+    let result = client.group(&legacy)?.add_missing_installations().await;
+
+    assert!(
+        matches!(result, Err(crate::groups::GroupError::GroupInactive)),
+        "{result:?}"
+    );
+    assert!(
+        client
+            .db()
+            .find_group_intents(legacy, None, None)?
+            .is_empty()
+    );
+    assert_no_legacy_topic(&named, &legacy);
 }

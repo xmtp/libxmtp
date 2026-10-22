@@ -351,6 +351,27 @@ async fn capture_targets<C: XmtpSharedContext>(
     let mut topics = topics;
     topics.sort_by_key(Topic::cloned_vec);
     topics.dedup();
+    let mut targets = TopicCursor::new();
+    let mut unavailable = Vec::new();
+    // A head query that names a topic the backend does not route fails for
+    // every topic in its chunk, so such a topic is never sent. A group topic
+    // of that kind carries a 16-byte id, which only an imported Restored
+    // placeholder holds. Its obligation completes as inactive at target zero;
+    // any other such topic cannot complete.
+    // implements: PROC-051
+    let (topics, unroutable): (Vec<_>, Vec<_>) = topics
+        .into_iter()
+        .partition(|topic| Topic::parse(topic).is_ok());
+    for topic in unroutable {
+        let mut status = read_topic(context, &topic, Cursor::default());
+        if status.inactive {
+            targets.insert(topic, Cursor::default());
+        } else {
+            status.target = None;
+            status.cause = Some(BarrierCause::InvalidTopic);
+            unavailable.push(status);
+        }
+    }
     let chunks: Vec<_> = topics
         .chunks(context.api().limits().max_query_topics)
         .map(<[Topic]>::to_vec)
@@ -368,8 +389,6 @@ async fn capture_targets<C: XmtpSharedContext>(
         .buffer_unordered(context.incoming_runtime().policy().max_dependency_requests)
         .collect::<Vec<_>>()
         .await;
-    let mut targets = TopicCursor::new();
-    let mut unavailable = Vec::new();
     for (topics, result) in results {
         let cause = match result {
             Ok(Ok(captured)) => {

@@ -646,7 +646,14 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             .values()
             .flat_map(|scope| scope.topics.iter())
             .chain(self.extra_topics.iter())
-            .filter(|topic| !self.is_retired(topic) && topic_key(topic).is_ok())
+            // A request that names a topic the backend does not route fails as
+            // a whole. Such a group topic carries a 16-byte id, and only an
+            // import stores one, as a Restored placeholder. So a selected
+            // 16-byte id, stored or not, never gets network interest.
+            // implements: PROC-051
+            .filter(|topic| {
+                !self.is_retired(topic) && topic_key(topic).is_ok() && Topic::parse(topic).is_ok()
+            })
             .cloned()
             .collect()
     }

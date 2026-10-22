@@ -22,7 +22,11 @@ use xmtp_common::ErrorCode;
 use xmtp_common::{NS_IN_DAY, RetryableError, time::now_ns};
 use xmtp_cryptography::secret::{Zeroize, Zeroizing};
 use xmtp_db::tasks::NewTask;
-use xmtp_db::{NotFound, StorageError, consent_record::ConsentState, group::GroupQueryArgs};
+use xmtp_db::{
+    NotFound, StorageError,
+    consent_record::ConsentState,
+    group::{GroupMembershipState, GroupQueryArgs},
+};
 use xmtp_db::{XmtpDb, group::ConversationType, prelude::*};
 use xmtp_id::{InboxIdRef, associations::DeserializationError};
 use xmtp_mls_common::group::GroupMetadataOptions;
@@ -421,6 +425,15 @@ where
         let groups = self.mls_store.find_groups(GroupQueryArgs {
             last_activity_after_ns: Some(now_ns() - NS_IN_DAY * 90),
             consent_states: Some(vec![ConsentState::Allowed, ConsentState::Unknown]),
+            // A Restored placeholder takes no commit until a Welcome activates
+            // it, so its task could never finish.
+            // implements: ARCH-015
+            allowed_states: Some(vec![
+                GroupMembershipState::Allowed,
+                GroupMembershipState::Rejected,
+                GroupMembershipState::Pending,
+                GroupMembershipState::PendingRemove,
+            ]),
             ..Default::default()
         })?;
 
