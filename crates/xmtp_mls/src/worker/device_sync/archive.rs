@@ -149,12 +149,18 @@ mod tests {
             &conversation.group_id.to_openmls(),
         )??;
         let malformed = vec![0xff; 3];
-        let mut stage = group
-            .commit_builder()
-            .add_proposal(Proposal::AppDataUpdate(Box::new(
-                AppDataUpdateProposal::update(ComponentId::ADMIN_LIST.as_u16(), malformed.clone()),
-            )))
-            .load_psks(provider.storage())?;
+        let mut stage = crate::groups::mls_ext::commit_without_group_info(
+            &mut group,
+            provider.storage(),
+            |builder| {
+                builder.add_proposal(Proposal::AppDataUpdate(Box::new(
+                    AppDataUpdateProposal::update(
+                        ComponentId::ADMIN_LIST.as_u16(),
+                        malformed.clone(),
+                    ),
+                )))
+            },
+        )?;
         let mut updater = stage.app_data_dictionary_updater();
         updater.set(ComponentData::from_parts(
             ComponentId::ADMIN_LIST.as_u16(),
@@ -216,15 +222,18 @@ mod tests {
             &conversation.group_id.to_openmls(),
         )??;
         let commit_log_signer = xmtp_common::rand_vec::<32>();
-        let mut stage = group
-            .commit_builder()
-            .add_proposal(Proposal::AppDataUpdate(Box::new(
-                AppDataUpdateProposal::update(
-                    ComponentId::COMMIT_LOG_SIGNER.as_u16(),
-                    commit_log_signer.clone(),
-                ),
-            )))
-            .load_psks(provider.storage())?;
+        let mut stage = crate::groups::mls_ext::commit_without_group_info(
+            &mut group,
+            provider.storage(),
+            |builder| {
+                builder.add_proposal(Proposal::AppDataUpdate(Box::new(
+                    AppDataUpdateProposal::update(
+                        ComponentId::COMMIT_LOG_SIGNER.as_u16(),
+                        commit_log_signer.clone(),
+                    ),
+                )))
+            },
+        )?;
         let mut updater = stage.app_data_dictionary_updater();
         updater.set(ComponentData::from_parts(
             ComponentId::COMMIT_LOG_SIGNER.as_u16(),

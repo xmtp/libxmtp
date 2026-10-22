@@ -239,15 +239,11 @@ where
     let (upkeep, app_data_updates) =
         crate::groups::app_data::membership_upkeep::membership_upkeep(group, catalogue)?;
 
-    let mut stage = group
-        .commit_builder()
-        .consume_proposal_store(true)
-        .add_proposals(upkeep)
-        .load_psks(provider.storage())
-        .map_err(CommitToPendingProposalsError::from)?
-        // Last: the exported GroupInfo would carry the group root.
-        // implements: GMOD-042
-        .create_group_info(false);
+    let mut stage =
+        crate::groups::mls_ext::commit_without_group_info(group, provider.storage(), |builder| {
+            builder.consume_proposal_store(true).add_proposals(upkeep)
+        })
+        .map_err(CommitToPendingProposalsError::from)?;
     stage.with_app_data_dictionary_updates(app_data_updates);
 
     let bundle = stage

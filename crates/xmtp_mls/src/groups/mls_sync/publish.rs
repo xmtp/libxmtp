@@ -594,17 +594,17 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                                     .configuration()
                                     .application_components,
                             )?;
-                        let mut stage = group
-                            .commit_builder()
-                            .leaf_node_parameters(LeafNodeParameters::default())
-                            .consume_proposal_store(true)
-                            .add_proposals(upkeep)
-                            .load_psks(provider.storage())
-                            .map_err(CommitToPendingProposalsError::from)?
-                            // Last: the exported GroupInfo would carry the group
-                            // root.
-                            // implements: GMOD-042
-                            .create_group_info(false);
+                        let mut stage = crate::groups::mls_ext::commit_without_group_info(
+                            group,
+                            provider.storage(),
+                            |builder| {
+                                builder
+                                    .leaf_node_parameters(LeafNodeParameters::default())
+                                    .consume_proposal_store(true)
+                                    .add_proposals(upkeep)
+                            },
+                        )
+                        .map_err(CommitToPendingProposalsError::from)?;
                         stage.with_app_data_dictionary_updates(updates);
                         let bundle = stage
                             .build(provider.rand(), provider.crypto(), &keys, |_| true)

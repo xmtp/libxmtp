@@ -398,27 +398,28 @@ fn compute_publish_data_for_proposal_based_update(
             let (upkeep, app_data_updates) = membership_upkeep(group, catalogue)?;
 
             // 5. Create a commit consuming all proposals.
-            let mut stage = group
-                .commit_builder()
-                .consume_proposal_store(true)
-                .add_proposals(upkeep)
-                .propose_adds(
-                    key_packages_to_add
-                        .iter()
-                        .filter(|_| inline_membership)
-                        .cloned(),
-                )
-                .propose_removals(
-                    leaf_nodes_to_remove
-                        .iter()
-                        .filter(|_| inline_membership)
-                        .copied(),
-                )
-                .load_psks(provider.storage())
-                .map_err(CommitToPendingProposalsError::from)?
-                // Last: the exported GroupInfo would carry the group root.
-                // implements: GMOD-042
-                .create_group_info(false);
+            let mut stage = crate::groups::mls_ext::commit_without_group_info(
+                group,
+                provider.storage(),
+                |builder| {
+                    builder
+                        .consume_proposal_store(true)
+                        .add_proposals(upkeep)
+                        .propose_adds(
+                            key_packages_to_add
+                                .iter()
+                                .filter(|_| inline_membership)
+                                .cloned(),
+                        )
+                        .propose_removals(
+                            leaf_nodes_to_remove
+                                .iter()
+                                .filter(|_| inline_membership)
+                                .copied(),
+                        )
+                },
+            )
+            .map_err(CommitToPendingProposalsError::from)?;
             stage.with_app_data_dictionary_updates(app_data_updates);
             let bundle = stage
                 .build(provider.rand(), provider.crypto(), &signer, |_| true)
