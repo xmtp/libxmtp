@@ -1,0 +1,53 @@
+plugins {
+    id 'maven-publish'
+}
+
+def releaseVersion = rootProject.version.toString()
+def bundle = new File(System.getenv('XMTP_ANDROID_RELEASE_BUNDLE'), "org/xmtp/android/${releaseVersion}")
+def prefix = "android-${releaseVersion}"
+def pomFile = new File(bundle, "${prefix}.pom")
+def pomText = pomFile.getText('UTF-8')
+def parsedPom = new XmlSlurper().parseText(pomText)
+if (parsedPom.groupId.text() != 'org.xmtp' || parsedPom.artifactId.text() != 'android' || parsedPom.version.text() != releaseVersion) {
+    throw new GradleException('The release bundle does not match org.xmtp:android:' + releaseVersion)
+}
+
+publishing {
+    repositories {
+        maven {
+            name = 'GitHubPackages'
+            url = uri('https://maven.pkg.github.com/xmtp/libxmtp')
+            credentials {
+                username = System.getenv('GITHUB_ACTOR')
+                password = System.getenv('GITHUB_TOKEN')
+            }
+        }
+    }
+    publications {
+        release(MavenPublication) {
+            groupId = 'org.xmtp'
+            artifactId = 'android'
+            version = releaseVersion
+            // Preserve the POM bytes covered by the bundle's existing signature.
+            pom.withXml {
+                def xml = asString()
+                xml.setLength(0)
+                xml.append(pomText)
+            }
+            // Gradle owns the uploads, checksums and repository metadata. These
+            // artifacts and signatures are copied from the one build job.
+            for (suffix in ['.aar', '-sources.jar', '-javadoc.jar', '.module',
+                            '.aar.asc', '-sources.jar.asc', '-javadoc.jar.asc', '.module.asc', '.pom.asc']) {
+                def source = new File(bundle, prefix + suffix)
+                if (!source.isFile()) {
+                    throw new GradleException('Missing release artifact: ' + source.name)
+                }
+                def dot = suffix.indexOf('.')
+                artifact(source) {
+                    extension = suffix.substring(dot + 1)
+                    if (dot > 0) classifier = suffix.substring(1, dot)
+                }
+            }
+        }
+    }
+}

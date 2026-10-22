@@ -18,12 +18,73 @@ WORKFLOW = ROOT / ".github/workflows/release-android.yml"
 
 
 class AndroidReleaseTest(unittest.TestCase):
+    def test_registry_publication_order_and_failure_propagation(self):
+        jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
+        self.assertIn("publish", jobs["publish-github"]["needs"])
+        self.assertIn("publish-github", jobs["publish-central"]["needs"])
+        self.assertIn("publish-central", jobs["push-tag"]["needs"])
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / "sdks/android").mkdir(parents=True)
+            (root / "dev").mkdir()
+            wrapper = root / "dev/nix-shell"
+            wrapper.write_text('#!/bin/bash\nexec bash -euc "$1"\n')
+            wrapper.chmod(0o755)
+            gradle = root / "sdks/android/gradlew"
+            gradle.write_text(
+                f"#!{sys.executable}\n"
+                "import json, os, pathlib, sys\n"
+                "pathlib.Path(os.environ['GRADLE_LOG']).write_text(json.dumps(sys.argv[1:]))\n"
+                "sys.exit(int(os.environ['GRADLE_EXIT']))\n"
+            )
+            gradle.chmod(0o755)
+            log = root / "gradle.json"
+            for job, tasks in [
+                (
+                    "publish-github",
+                    [":publisher:publishReleasePublicationToGitHubPackagesRepository"],
+                ),
+                (
+                    "publish-central",
+                    [
+                        ":publisher:publishReleasePublicationToSonatypeRepository",
+                        "closeAndReleaseSonatypeStagingRepository",
+                    ],
+                ),
+            ]:
+                self.assertEqual(jobs[job]["environment"], "release")
+                self.assertTrue(
+                    any(
+                        step.get("with", {}).get("name") == "android-maven-bundle"
+                        for step in jobs[job]["steps"]
+                    )
+                )
+                command = jobs[job]["steps"][-1]["run"]
+                for status in (0, 42):
+                    with self.subTest(job=job, status=status):
+                        result = subprocess.run(
+                            ["bash", "-euc", command],
+                            cwd=root,
+                            env=dict(
+                                os.environ,
+                                VERSION="8.0.0-rc1",
+                                GRADLE_LOG=str(log),
+                                GRADLE_EXIT=str(status),
+                            ),
+                            capture_output=True,
+                            text=True,
+                        )
+                        self.assertEqual(result.returncode, status, result.stderr)
+                        self.assertEqual(
+                            json.loads(log.read_text()), ["-Pversion=8.0.0-rc1", *tasks]
+                        )
+
     def test_publish_credentials_and_failure_gate(self):
         workflow = yaml.safe_load(WORKFLOW.read_text())
         job = workflow["jobs"]["publish"]
         self.assertEqual(job["environment"], "release")
         self.assertEqual(
-            workflow["jobs"]["publish-packages"]["permissions"]["packages"], "write"
+            workflow["jobs"]["publish-github"]["permissions"]["packages"], "write"
         )
         caller = yaml.safe_load((WORKFLOW.parent / "release.yml").read_text())
         self.assertEqual(

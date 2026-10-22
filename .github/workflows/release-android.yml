@@ -124,66 +124,78 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-  publish-packages:
-    name: Publish Android packages
+  publish-github:
+    name: Publish to GitHub Packages
     needs: [publish, check-push-permissions]
-    environment: release
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
     permissions:
       contents: read
       packages: write
-    concurrency:
-      group: android-publish
-      cancel-in-progress: false
+    environment: release
+    runs-on: blacksmith-16vcpu-ubuntu-2404
     env:
+      NIX_DEVSHELL: android-ci
       VERSION: ${{ inputs.version }}
-      SOURCE_SHA: ${{ needs.check-push-permissions.outputs.source-sha }}
+      XMTP_ANDROID_RELEASE_BUNDLE: ${{ github.workspace }}/android-maven-bundle
     steps:
       - name: Check out the release source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ needs.check-push-permissions.outputs.source-sha }}
           persist-credentials: false
+      - name: Set up Nix
+        uses: ./.github/actions/setup-nix
+        with:
+          cache-mode: read
+          github-token: ${{ github.token }}
       - name: Download signed Maven bundle
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: android-maven-bundle
           path: android-maven-bundle
-      # No matching artifact is normal on the first attempt. On a retry each
-      # checkpoint is downloaded into its own directory and checked by the helper.
-      - name: Restore Central deployment
+
+      - name: Publish signed bundle to GitHub Packages
+        env:
+          GITHUB_ACTOR: ${{ github.actor }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: dev/nix-shell 'cd sdks/android && ./gradlew -Pversion="$VERSION" :publisher:publishReleasePublicationToGitHubPackagesRepository'
+
+  publish-central:
+    name: Publish to Maven Central
+    needs: [publish, publish-github, check-push-permissions]
+    permissions:
+      contents: read
+    environment: release
+    runs-on: blacksmith-16vcpu-ubuntu-2404
+    env:
+      NIX_DEVSHELL: android-ci
+      VERSION: ${{ inputs.version }}
+      XMTP_ANDROID_RELEASE_BUNDLE: ${{ github.workspace }}/android-maven-bundle
+    steps:
+      - name: Check out the release source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ needs.check-push-permissions.outputs.source-sha }}
+          persist-credentials: false
+      - name: Set up Nix
+        uses: ./.github/actions/setup-nix
+        with:
+          cache-mode: read
+          github-token: ${{ github.token }}
+      - name: Download signed Maven bundle
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
-          pattern: android-central-state-*
-          path: android-central-state
-      - name: Upload GitHub Packages and stage Central
+          name: android-maven-bundle
+          path: android-maven-bundle
+
+      - name: Publish signed bundle to Maven Central
         env:
-          GITHUB_ACTOR: ${{ github.actor }}
-          GITHUB_TOKEN: ${{ github.token }}
           MAVEN_USERNAME: ${{ secrets.OSSRH_USERNAME }}
           MAVEN_PASSWORD: ${{ secrets.OSSRH_TOKEN }}
-        run: python3 sdks/android/dev/publish.py stage
-      # Central stays USER_MANAGED until this durable checkpoint succeeds.
-      # Rerun failed jobs to reuse the signed bundle and this deployment ID.
-      - name: Retain Central deployment
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: android-central-state-${{ github.run_attempt }}
-          path: android-central-state/state.json
-          if-no-files-found: error
-          retention-days: 30
-      - name: Finalize Central
-        env:
-          GITHUB_ACTOR: ${{ github.actor }}
-          GITHUB_TOKEN: ${{ github.token }}
-          MAVEN_USERNAME: ${{ secrets.OSSRH_USERNAME }}
-          MAVEN_PASSWORD: ${{ secrets.OSSRH_TOKEN }}
-        run: python3 sdks/android/dev/publish.py release
+        run: dev/nix-shell 'cd sdks/android && ./gradlew -Pversion="$VERSION" :publisher:publishReleasePublicationToSonatypeRepository closeAndReleaseSonatypeStagingRepository'
 
   push-tag:
     name: Tag
-    needs: [publish, publish-packages, check-push-permissions]
+    needs: [publish, publish-central, check-push-permissions]
     uses: ./.github/workflows/push-release-tag.yml
     with:
       sdk: android

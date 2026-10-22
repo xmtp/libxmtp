@@ -68,11 +68,12 @@ user token pair; the old OSSRH account credentials do not work. GitHub
 Packages uses the workflow's `GITHUB_TOKEN` with `packages: write`.
 Gradle first writes a signed local repository with
 `:library:publishReleasePublicationToReleaseBundleRepository`. The workflow
-retains those files, uploads GitHub Packages with byte checks, and saves the
-Central deployment ID before finalizing it through the Portal API. Use
-**Re-run failed jobs** to resume a release with its original bundle and ID.
-`dev/nix-shell 'python3.11 -B dev/tests/test_android_publish.py'` checks partial
-uploads and retry behavior against local HTTP fixtures without publishing.
+retains those files, and the `publisher` Gradle project uploads them without
+rebuilding or signing again. Its GitHub Packages job completes before its
+Maven Central job starts; the Nexus plugin closes and releases Central staging.
+Use **Re-run failed jobs** to avoid repeating successful registry jobs. A partial
+or ambiguous upload within one registry may require manual inspection and
+cleanup. Do not rerun a successful Central publication for the same version.
 
 The SDK root owns `gradle/toolchain.properties`, the Gradle wrapper, and the
 shared SHA256 dependency verification inventory. The app root reads these
