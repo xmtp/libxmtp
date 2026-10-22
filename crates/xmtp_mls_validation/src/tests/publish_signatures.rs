@@ -147,6 +147,39 @@ fn sealed_commit_log_entries_route_by_their_commit_log_id_and_verify() {
     verify_publish(&parsed)?;
 }
 
+/// `validate_envelope` runs on the caller's async runtime, so it leaves every
+/// publish signature to `verify_publish`, which the backend runs on its
+/// blocking pool, once per envelope. A signed envelope whose signature fails
+/// therefore passes `validate_envelope` and fails only `verify_publish`.
+#[xmtp_common::test(unwrap_try = true)]
+async fn validate_envelope_leaves_publish_signatures_to_verify_publish() {
+    let keys = group_keys(1);
+    let mut message = keyed_group_message_envelope(&keys, GroupMessageKind::Application, []);
+    let should_push = &mut group_message(&mut message).should_push;
+    *should_push = !*should_push;
+    let mut entry = sealed_commit_log_envelope(&keys, 7);
+    sealed_entry(&mut entry).ciphertext[0] ^= 1;
+    for envelope in [message, entry] {
+        let parsed = parse_envelope(envelope)?;
+        assert!(matches!(
+            verify_publish(&parsed),
+            Err(ValidationError::PublishSignature(
+                PublishSignatureError::Invalid
+            ))
+        ));
+        assert!(
+            validate_envelope(
+                &parsed,
+                &[],
+                MockSmartContractSignatureVerifier::new(false),
+                &TestChain::at(1),
+            )
+            .await?
+            .is_none()
+        );
+    }
+}
+
 /// Until the cutover, a 16-byte legacy group id still routes and carries no
 /// signature, because no installation holds a key for it. Its `signature`
 /// field is not read.
