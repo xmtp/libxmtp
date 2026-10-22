@@ -62,7 +62,12 @@ let
             # Wait for Worker completion without weakening shared-isolate assertions.
             # Drop the Node 26 backport once its release sources contain this fix.
             ++ prev.lib.optionals (prev.lib.versions.major version == "26") [
-              ./node-worker-exit.patch
+              (prev.fetchurl {
+                # Keep the fixed-output path so existing Node builds stay reusable.
+                name = "bc5af1c67cd8e029f86ec992688dde9307f4d61a.patch";
+                url = "file://${./node-worker-exit.patch}";
+                hash = "sha256-3EJQlgGS1miUEAc2Me4jnh8wHHk68TvbtBhNWJ/uOq8=";
+              })
             ]
             # Darwin permits successful socket connections to canonical localhost.
             # Fixture rationale and removal criteria: ../node-runtimes.md.

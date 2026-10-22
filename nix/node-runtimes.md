@@ -82,7 +82,10 @@ completion in the shared-isolate C++ test. It replaces a bounded number of
 nonblocking event-loop turns with elapsed-time waiting that yields to the Worker,
 without changing assertions, disabling tests, or adding retries. Apply it only to
 Node 26. The patch is vendored as `lib/node-worker-exit.patch` because GitHub
-can change generated patch metadata for the same commit, breaking a fetch hash.
+can lengthen generated diff index abbreviations for the same commit, breaking a
+fetch hash. The vendored copy retains the original 11-digit indices and checksum.
+A local `fetchurl` keeps the original fixed-output name and hash so the Node
+runtime output paths and cached builds stay unchanged.
 Remove the backport when the selected release sources contain that commit
 or an equivalent fix, and both shared-isolate variants pass the unchanged native
 upstream suite without the extra patch.

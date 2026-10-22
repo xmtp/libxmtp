@@ -25,7 +25,7 @@ Reviewed-By: Guilherme Araújo <arauujogui@gmail.com>
  1 file changed, 5 insertions(+), 1 deletion(-)
 
 diff --git a/test/cctest/test_environment_shared_isolate.cc b/test/cctest/test_environment_shared_isolate.cc
-index 3e86063b064c..b3807b7bb709 100644
+index 3e86063b064..b3807b7bb70 100644
 --- a/test/cctest/test_environment_shared_isolate.cc
 +++ b/test/cctest/test_environment_shared_isolate.cc
 @@ -354,9 +354,13 @@ TEST_P(SharedIsolateTest, EnvironmentsComeAndGoWhileSiblingsRun) {
