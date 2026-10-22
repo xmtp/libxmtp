@@ -147,7 +147,11 @@ export function hexBytes(text: string): Uint8Array {
   return bytes;
 }
 
-/** An inbox ID key: exactly 64 lowercase hex characters. */
+/**
+ * An inbox ID key: exactly 64 lowercase hex characters. The field's schema
+ * says the key is an inbox ID; the shape alone does not, because conversation,
+ * installation, and message IDs have the same syntax.
+ */
 function inboxKey(text: string): string {
   if (!INBOX.test(text)) throw new MetadataRuleError("inbox");
   return text;
