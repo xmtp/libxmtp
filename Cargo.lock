@@ -12995,6 +12995,7 @@ dependencies = [
  "xmtp_db",
  "xmtp_mls_common",
  "xmtp_proto",
+ "zeroize",
 ]
 
 [[package]]
