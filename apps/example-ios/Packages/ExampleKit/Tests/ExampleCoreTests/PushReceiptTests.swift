@@ -5,7 +5,7 @@ import Testing
 @MainActor struct PushReceiptTests {
 	private func envelope(_ sequence: UInt64) throws -> PushEnvelope {
 		try #require(PushEnvelope(
-			topic: Data([0] + Array(repeating: UInt8(1), count: 16)).base64EncodedString(),
+			topic: Data([0] + Array(repeating: UInt8(1), count: 32)).base64EncodedString(),
 			sequence: String(sequence),
 		))
 	}

@@ -63,7 +63,7 @@ pub struct GroupSnapshot {
     pub super_admins: Vec<String>,
     /// SHA-256 of the serialized group context extensions, so peers can
     /// compare metadata and app data. A digest, not the bytes: the AppData
-    /// dictionary holds the group root (GMOD-042).
+    /// dictionary holds the group root.
     pub metadata: String,
     pub membership_state: GroupMembershipState,
     pub active: bool,
@@ -183,6 +183,7 @@ impl<C: XmtpSharedContext> MlsGroup<C> {
                 members,
                 admins,
                 super_admins,
+                // implements: GMOD-042
                 metadata: hex::encode(sha256_array(&group.extensions().tls_serialize_detached()?)),
                 membership_state: stored.membership_state,
                 active: stored.membership_state != GroupMembershipState::Restored
@@ -412,7 +413,8 @@ mod tests {
     }
 
     /// A snapshot can leave the process, so it never carries the group root
-    /// that the AppData dictionary holds (GMOD-042).
+    /// that the AppData dictionary holds, or a key derived from it.
+    // verifies: GMOD-042
     #[xmtp_common::test(unwrap_try = true)]
     async fn snapshot_holds_no_group_root() {
         use xmtp_mls_common::app_data::group_root::read_group_root;
@@ -421,11 +423,13 @@ mod tests {
         let group = alix.create_group(None, None)?;
         let root = group
             .with_group_snapshot(|mls_group| Ok(read_group_root(mls_group.extensions())))???;
-        let report = serde_json::to_string(&group.diagnostic_snapshot()?)?;
-        assert!(
-            !report.contains(&hex::encode(root.as_bytes())),
-            "the snapshot holds the group root"
-        );
+        let report = serde_json::to_vec(&group.diagnostic_snapshot()?)?;
+        for (secret, encoded) in crate::utils::test::group_secret_encodings(&root) {
+            assert!(
+                !report.windows(encoded.len()).any(|w| w == encoded),
+                "the snapshot holds the {secret}"
+            );
+        }
     }
 
     #[xmtp_common::test(unwrap_try = true)]

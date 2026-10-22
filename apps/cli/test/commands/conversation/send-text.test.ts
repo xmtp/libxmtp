@@ -81,7 +81,8 @@ describe("conversation send-text", () => {
     const result = await runWithIdentity(sender, [
       "conversation",
       "send-text",
-      "0".repeat(32),
+      // a well-formed keyed conversation ID that names no conversation
+      "0".repeat(64),
       "Hello",
       "--json",
     ]);

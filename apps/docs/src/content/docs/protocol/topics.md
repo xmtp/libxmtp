@@ -10,13 +10,25 @@ A topic addresses one stream of envelopes. It is one kind byte followed by the i
 
 | Kind   | Payload          | Identifier               |
 | ------ | ---------------- | ------------------------ |
-| `0x00` | Group message    | 16-byte group ID         |
+| `0x00` | Group message    | 32-byte group ID         |
 | `0x01` | Welcome          | 32-byte installation key |
 | `0x02` | Identity update  | 32-byte inbox ID         |
 | `0x03` | Key package      | 32-byte installation key |
-| `0x04` | Commit-log entry | 16-byte group ID         |
+| `0x04` | Commit-log entry | 32-byte commit-log ID    |
 
 You never send a topic when you publish. The backend derives the topic from the payload. Reads and subscriptions name the topics to retrieve. An unknown kind or an identifier with the wrong length returns `INVALID_ARGUMENT`.
+
+Every topic in the table is 33 bytes. Read the kind byte to tell the kinds
+apart; the length does not identify the kind.
+
+A group ID is the public key of a signing key that is derived from a secret
+that only installations that were ever members of the group hold. The backend accepts a group message only with a
+signature under that key. A group's commit-log ID is a different public key,
+derived from the same secret, so the group ID does not reveal the commit-log
+topic.
+
+Groups with 16-byte IDs come only from imported archives that older SDKs
+exported. They have no topic, so the backend never serves them.
 
 The group message topic is used to send and receive messages within a specific conversation (both 1:1 DMs and group chats). Each conversation has its own unique topic.
 
@@ -33,8 +45,8 @@ Key package topics do not support normal queries. Use a newest-envelope read.
 ## Topic text and push payloads
 
 `conversation.topic` is a display string, such as
-`[group_message_v1/00112233445566778899aabbccddeeff]`. Do not send this display
-string as a binary wire topic.
+`[group_message_v1/00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff]`.
+Do not send this display string as a binary wire topic.
 
 Push payloads encode the complete binary wire topic with standard Base64. The
 JSON `sequence_id` is decimal text to preserve integer precision. Decode the

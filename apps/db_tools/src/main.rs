@@ -232,15 +232,18 @@ enum Task {
     /// Requires migration name as --target param.
     DbRevertMigration,
     /// Clear all messages in a group.
-    /// Requires hex-encoded group_id as --target param.
+    /// Requires hex-encoded group_id as --target param: 64 hex characters,
+    /// or 32 for a legacy group from an imported archive.
     DbClearMessages,
     /// Clear all messages in the database.
     DbClearAllMessages,
     /// Disable a group.
-    /// Requires hex-encoded group_id as --target param.
+    /// Requires hex-encoded group_id as --target param: 64 hex characters,
+    /// or 32 for a legacy group from an imported archive.
     DisableGroup,
     /// Enable a group.
-    /// Requires hex-encoded group_id as --target param.
+    /// Requires hex-encoded group_id as --target param: 64 hex characters,
+    /// or 32 for a legacy group from an imported archive.
     EnableGroup,
     /// List all available migrations and their status.
     DbListMigrations,

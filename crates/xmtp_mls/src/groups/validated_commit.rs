@@ -1002,11 +1002,11 @@ mod committed_proposal_outcomes {
                 .collect();
             let updates =
                 accumulate_app_data_updates(&group, pending.iter().map(|(id, op)| (*id, op)))?;
-            let mut stage = group
-                .commit_builder()
-                .consume_proposal_store(true)
-                .add_proposal(inline)
-                .load_psks(provider.storage())?;
+            let mut stage = crate::groups::mls_ext::commit_without_group_info(
+                &mut group,
+                provider.storage(),
+                |builder| builder.consume_proposal_store(true).add_proposal(inline),
+            )?;
             stage.with_app_data_dictionary_updates(updates);
             stage
                 .build(provider.rand(), provider.crypto(), signer, |_| true)?
@@ -1049,6 +1049,8 @@ mod committed_proposal_outcomes {
     /// A `GroupContextExtensions` proposal is held both standalone and inside
     /// a commit.
     #[xmtp_common::test(unwrap_try = true)]
+    // A test drives an OpenMLS convenience commit; its GroupInfo never leaves the test.
+    #[allow(clippy::disallowed_methods)]
     async fn committed_proposal_outcomes_hold_gce_proposal_and_commit() {
         use crate::tester;
         tester!(alix, disable_workers);

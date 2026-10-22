@@ -110,7 +110,8 @@ impl XmtpLoggingBuilder {
                 move |_, _| trace_filter.enabled(),
             ));
         let layers: Vec<BoxLayer> = vec![
-            // Fixed: no level change may log a group context (GMOD-042).
+            // Fixed: no level change may log a group context.
+            // implements: GMOD-042
             crate::filter::group_context_guard().boxed(),
             filter_layer.boxed(),
             primary_layer,

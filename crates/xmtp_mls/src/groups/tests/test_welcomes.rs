@@ -135,10 +135,11 @@ async fn ordinary_welcome_rejects_peer_admin_combinator() {
                 registry.tls_serialize_detached()?.into(),
             ));
             let updates = updater.changes();
-            let mut stage = mls_group
-                .commit_builder()
-                .consume_proposal_store(true)
-                .load_psks(provider.storage())?;
+            let mut stage = crate::groups::mls_ext::commit_without_group_info(
+                mls_group,
+                provider.storage(),
+                |builder| builder.consume_proposal_store(true),
+            )?;
             stage.with_app_data_dictionary_updates(updates);
             stage
                 .build(provider.rand(), provider.crypto(), signer, |_| true)?

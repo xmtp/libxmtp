@@ -5,7 +5,7 @@ use prost::Message;
 use tls_codec::Deserialize;
 use xmtp_mls_common::{
     group_mutable_metadata::{
-        GroupMutableMetadata, merge_dict_entries_into_mutable_metadata_lossy,
+        GroupMutableMetadata, MetadataField, merge_dict_entries_into_mutable_metadata_lossy,
     },
     inbox_id::InboxId,
 };
@@ -13,6 +13,7 @@ use xmtp_proto::xmtp::{
     device_sync::group_backup::{ImmutableMetadataSave, MutableMetadataSave},
     mls::message_contents::{GroupMetadataV1, GroupMutableMetadataV1},
 };
+use zeroize::Zeroize;
 
 // Wire IDs are pinned to 6a8e9697 (legacy metadata) and cc878025 (AppData).
 // Keep these IDs when current protocol definitions change. See fixtures/README.md.
@@ -46,7 +47,8 @@ pub(crate) fn decode(bytes: &[u8]) -> (Option<ImmutableMetadataSave>, Option<Mut
         .unknown
         .iter()
         .filter(|(id, _)| *id == MUTABLE_METADATA_EXTENSION)
-        .find_map(|(_, bytes)| decode_legacy_mutable(bytes));
+        .find_map(|(_, bytes)| decode_legacy_mutable(bytes))
+        .map(without_commit_log_signer);
     if let Some(dict) = &context.app_data
         && dict.contains_key(&COMPONENT_REGISTRY)
     {
@@ -63,6 +65,7 @@ pub(crate) fn decode(bytes: &[u8]) -> (Option<ImmutableMetadataSave>, Option<Mut
         let errors = merge_dict_entries_into_mutable_metadata_lossy(&mut result, |id| {
             dict.get(&id).copied()
         });
+        result.remove_attribute(MetadataField::CommitLogSigner.as_str());
         if !errors.is_empty() {
             tracing::debug!(
                 count = errors.len(),
@@ -76,6 +79,18 @@ pub(crate) fn decode(bytes: &[u8]) -> (Option<ImmutableMetadataSave>, Option<Mut
         });
     }
     (immutable, mutable)
+}
+
+/// Legacy groups kept the commit-log signer's private key in mutable
+/// metadata. An archive never carries it, so drop and wipe it here.
+fn without_commit_log_signer(mut save: MutableMetadataSave) -> MutableMetadataSave {
+    if let Some(mut value) = save
+        .attributes
+        .remove(MetadataField::CommitLogSigner.as_str())
+    {
+        value.zeroize();
+    }
+    save
 }
 
 fn decode_legacy_immutable(bytes: &[u8]) -> Option<ImmutableMetadataSave> {
@@ -657,5 +672,81 @@ mod tests {
         assert_eq!(mutable.attributes["group_image_url_square"], "");
         assert_eq!(mutable.attributes["app_data"], "");
         assert!(!mutable.attributes.contains_key("message_disappear_from_ns"));
+    }
+
+    /// A legacy group context in the format `legacy_context.rs` documents,
+    /// with an Unknown extension per `unknown` entry and an AppData dictionary
+    /// when `app_data` is given.
+    fn legacy_context(unknown: &[(u16, &[u8])], app_data: Option<&[(u16, &[u8])]>) -> Vec<u8> {
+        fn bytes(out: &mut Vec<u8>, value: &[u8]) {
+            out.extend((value.len() as u64).to_le_bytes());
+            out.extend(value);
+        }
+        let mut out = vec![];
+        out.extend(0u32.to_le_bytes()); // Mls10
+        out.extend(1u32.to_le_bytes()); // ciphersuite
+        bytes(&mut out, &[9; 16]); // group_id
+        out.extend(3u64.to_le_bytes()); // epoch
+        bytes(&mut out, &[]); // tree_hash
+        bytes(&mut out, &[]); // confirmed_transcript_hash
+        let count = unknown.len() + usize::from(app_data.is_some());
+        out.extend((count as u64).to_le_bytes());
+        for (id, value) in unknown {
+            out.extend(7u32.to_le_bytes());
+            out.extend(id.to_le_bytes());
+            bytes(&mut out, value);
+        }
+        if let Some(entries) = app_data {
+            out.extend(8u32.to_le_bytes());
+            out.extend((entries.len() as u64).to_le_bytes());
+            for (key, value) in entries {
+                out.extend(key.to_le_bytes());
+                out.extend(key.to_le_bytes());
+                bytes(&mut out, value);
+            }
+        }
+        out
+    }
+
+    /// Legacy groups stored the commit-log signer's private key in both places
+    /// a converter reads mutable metadata. Neither copy may reach the archive.
+    #[xmtp_common::test(unwrap_try = true)]
+    fn legacy_commit_log_signer_is_not_exported() {
+        let signer = [7u8; 32];
+        let signer_hex = hex::encode(signer);
+        let attributes = GroupMutableMetadataV1 {
+            attributes: [
+                ("group_name".into(), "Legacy Group".into()),
+                ("_commit_log_signer".into(), signer_hex.clone()),
+            ]
+            .into(),
+            admin_list: None,
+            super_admin_list: None,
+        }
+        .encode_to_vec();
+        let extension = legacy_context(&[(super::MUTABLE_METADATA_EXTENSION, &attributes)], None);
+        let dictionary = legacy_context(
+            &[],
+            Some(&[
+                (super::COMPONENT_REGISTRY, &[]),
+                (0x8004, b"AppData Group"),
+                (0x800B, &signer),
+            ]),
+        );
+        for (context, name) in [(extension, "Legacy Group"), (dictionary, "AppData Group")] {
+            let (_, mutable) = super::decode(&context);
+            let mutable = mutable.unwrap();
+            assert_eq!(mutable.attributes["group_name"], name);
+            assert!(
+                !mutable.attributes.contains_key("_commit_log_signer"),
+                "the {name} context kept the signer"
+            );
+            assert!(
+                !mutable
+                    .attributes
+                    .values()
+                    .any(|value| *value == signer_hex)
+            );
+        }
     }
 }

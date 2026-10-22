@@ -483,7 +483,7 @@ mod tests {
                 "target": 10, "received": 10, "processed": 0,
                 "unresolved_welcomes": [11], "inactive": false, "cause": null
             }, {
-                "topic": hex::encode(Topic::new_group_message([1_u8; 16])),
+                "topic": hex::encode(Topic::new_group_message([1_u8; 32])),
                 "target": 20, "received": 10, "processed": 10,
                 "unresolved_welcomes": [], "inactive": true, "cause": null
             }]
@@ -505,7 +505,7 @@ mod tests {
     fn record(sequence: i64, auth: u8) -> LocalCommitLog {
         LocalCommitLog {
             rowid: sequence as i32,
-            group_id: [1_u8; 16].into(),
+            group_id: [1_u8; 32].into(),
             commit_sequence_id: sequence,
             last_epoch_authenticator: vec![0; 32],
             commit_result: CommitResult::Success,
@@ -574,7 +574,7 @@ mod tests {
         let root = temp.path();
         let key = hex::encode([7_u8; 32]);
         let salt = hex::encode([9_u8; 16]);
-        let group = hex::encode([1_u8; 16]);
+        let group = hex::encode([1_u8; 32]);
         std::fs::write(
             root.join("instance-0.json"),
             serde_json::to_vec(&json!({"database_key":key}))?,

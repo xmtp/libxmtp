@@ -623,6 +623,8 @@ async fn own_message_without_intent_skips_and_increments_cursor() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+// A test drives an OpenMLS convenience commit; its GroupInfo never leaves the test.
+#[allow(clippy::disallowed_methods)]
 async fn prepared_commit_keeps_keys_without_advancing_epoch() {
     tester!(alix, disable_workers);
     tester!(bo, disable_workers);

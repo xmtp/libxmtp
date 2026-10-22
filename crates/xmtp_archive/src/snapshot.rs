@@ -26,7 +26,9 @@ use xmtp_db::{
 };
 use xmtp_mls_common::{
     group_metadata::extract_group_metadata,
-    group_mutable_metadata::{GroupMutableMetadata, merge_dict_into_mutable_metadata},
+    group_mutable_metadata::{
+        GroupMutableMetadata, MetadataField, merge_dict_into_mutable_metadata,
+    },
 };
 use xmtp_proto::xmtp::device_sync::{
     BackupElementSelection as BackupElementSelectionProto, BackupMetadataSave,
@@ -150,6 +152,11 @@ fn group_save(
     let immutable = extract_group_metadata(extensions).map_err(|e| unreadable(e.into()))?;
     let mut mutable = GroupMutableMetadata::new(Default::default(), Vec::new(), Vec::new());
     merge_dict_into_mutable_metadata(&mut mutable, extensions).map_err(|e| unreadable(e.into()))?;
+    // A legacy group's dictionary may hold its commit-log private key. An
+    // archive never carries a group key, and the group root has no
+    // metadata attribute, so it never reaches the archive.
+    // implements: GMOD-042
+    mutable.remove_attribute(MetadataField::CommitLogSigner.as_str());
     let membership_state: GroupMembershipStateSave = group.membership_state.into();
     let conversation_type: ConversationTypeSave = group.conversation_type.into();
     Ok(GroupSave {

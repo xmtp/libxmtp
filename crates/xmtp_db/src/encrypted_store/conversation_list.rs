@@ -1,5 +1,5 @@
 use super::ConnectionExt;
-use crate::consent_record::ConsentState;
+use crate::consent_record::{ConsentState, ConsentType};
 use crate::group::{ConversationType, GroupMembershipState, GroupQueryArgs, GroupQueryOrderBy};
 use crate::group_message::{ContentType, DeliveryStatus, GroupMessageKind};
 use crate::{DbConnection, StorageError};
@@ -223,10 +223,14 @@ fn build_regular_list_query(head: &str, args: &GroupQueryArgs, current_time_ns: 
     query = query.sql(" AS list_order_ns FROM groups g");
 
     if !includes_all {
-        query = query.sql(
+        // A keyed group's 64-hex id has the shape of an inbox id, so the join
+        // also matches the record's kind.
+        query = query.sql(format!(
             " LEFT JOIN consent_records consent
-              ON consent.entity = lower(hex(g.id))",
-        );
+              ON consent.entity_type = {}
+              AND consent.entity = lower(hex(g.id))",
+            ConsentType::ConversationId as i32
+        ));
     }
     query = query.sql(format!(
         " WHERE g.conversation_type NOT IN ({}, {})",
@@ -805,6 +809,35 @@ pub(crate) mod tests {
                 2000,
                 "Last message should now match the second (newest) message"
             );
+        })
+    }
+
+    /// A keyed group's 64-hex id has the shape of an inbox id. An inbox
+    /// consent record whose entity equals that id is not the group's consent.
+    #[xmtp_common::test]
+    fn conversation_list_ignores_inbox_consent() {
+        with_connection(|conn| {
+            let group = generate_group(Some(GroupMembershipState::Allowed));
+            group.store(conn).unwrap();
+            generate_consent_record(
+                ConsentType::InboxId,
+                ConsentState::Denied,
+                hex::encode(group.id),
+            )
+            .store(conn)
+            .unwrap();
+            let listed = |states: Vec<ConsentState>| {
+                conn.fetch_conversation_list(GroupQueryArgs {
+                    consent_states: Some(states),
+                    ..Default::default()
+                })
+                .unwrap()
+                .into_iter()
+                .map(|conversation| conversation.id)
+                .collect::<Vec<_>>()
+            };
+            assert_eq!(listed(vec![ConsentState::Unknown]), vec![group.id]);
+            assert!(listed(vec![ConsentState::Denied]).is_empty());
         })
     }
 

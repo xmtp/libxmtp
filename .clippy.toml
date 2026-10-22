@@ -13,6 +13,15 @@ ignore-interior-mutability = ["xmtp_mls::groups::MlsGroup", "bytes::Bytes"]
 # unwiped. Borrow the key (`SigningKey::as_bytes()`) or move it (`from_signing_key`). Where a copy
 # is unavoidable, `#[allow(clippy::disallowed_methods)]` with a `// zeroize:` comment that names the
 # `Zeroizing` binding holding the result, or says why none exists.
+#
+# A GroupInfo carries the group context, whose AppData dictionary holds the group root. Only a
+# Welcome may carry it (GMOD-042), so nothing exports one. Every commit starts in
+# `xmtp_mls::groups::mls_ext::commit_without_group_info`, which turns the GroupInfo off; starting a
+# commit any other way and the two builder options that turn it back on are banned, as are the
+# export and bundle accessors below and the OpenMLS convenience commits, which build a GroupInfo
+# by default. Two paths stay open because Clippy cannot ban them by path:
+# `CommitMessageBundle::into_messages()`, whose third element production drops, and iteration over
+# a bundle. With `create_group_info(false)` both yield no GroupInfo.
 disallowed-methods = [
   { path = "reqwest::Client::new", reason = "use xmtp_common::http::client()" },
   { path = "reqwest::Client::builder", reason = "use xmtp_common::http::client_builder()" },
@@ -23,4 +32,29 @@ disallowed-methods = [
   { path = "alloy_signer_local::LocalSigner::to_field_bytes", reason = "copies the private key; hold the copy in Zeroizing" },
   { path = "ecdsa::SigningKey::to_bytes", reason = "copies the private key; hold the copy in Zeroizing" },
   { path = "elliptic_curve::SecretKey::to_bytes", reason = "copies the private key; hold the copy in Zeroizing" },
+  { path = "openmls::group::MlsGroup::export_group_info", reason = "a GroupInfo carries the group root; only a Welcome may (GMOD-042)" },
+  { path = "openmls::group::MlsGroup::export_group_info_with_additional_extensions", reason = "a GroupInfo carries the group root; only a Welcome may (GMOD-042)" },
+  { path = "openmls::group::CommitMessageBundle::group_info", reason = "a GroupInfo carries the group root; only a Welcome may (GMOD-042)" },
+  { path = "openmls::group::CommitMessageBundle::contents", reason = "returns the GroupInfo, which carries the group root (GMOD-042); use commit() and welcome()" },
+  { path = "openmls::group::CommitMessageBundle::into_group_info", reason = "a GroupInfo carries the group root; only a Welcome may (GMOD-042)" },
+  { path = "openmls::group::CommitMessageBundle::into_group_info_msg", reason = "a GroupInfo carries the group root; only a Welcome may (GMOD-042)" },
+  { path = "openmls::group::CommitMessageBundle::into_contents", reason = "returns the GroupInfo, which carries the group root (GMOD-042); use into_messages() and drop the third element" },
+  { path = "openmls::group::MlsGroup::commit_builder", reason = "a commit can build a GroupInfo, which carries the group root (GMOD-042); use commit_without_group_info" },
+  { path = "openmls::group::CommitBuilder::new", reason = "a commit can build a GroupInfo, which carries the group root (GMOD-042); use commit_without_group_info" },
+  { path = "openmls::group::CommitBuilder::create_group_info", reason = "a GroupInfo carries the group root (GMOD-042); commit_without_group_info turns it off" },
+  { path = "openmls::group::CommitBuilder::use_ratchet_tree_extension", reason = "turns the GroupInfo on, which carries the group root (GMOD-042)" },
+  { path = "openmls::group::CommitBuilder::create_group_info_with_extensions", reason = "builds a GroupInfo, which carries the group root (GMOD-042)" },
+  { path = "openmls::group::MlsGroup::add_members", reason = "builds a GroupInfo, which carries the group root (GMOD-042); use commit_without_group_info" },
+  { path = "openmls::group::MlsGroup::add_members_without_update", reason = "builds a GroupInfo, which carries the group root (GMOD-042); use commit_without_group_info" },
+  { path = "openmls::group::MlsGroup::swap_members", reason = "builds a GroupInfo, which carries the group root (GMOD-042); use commit_without_group_info" },
+  { path = "openmls::group::MlsGroup::remove_members", reason = "builds a GroupInfo, which carries the group root (GMOD-042); use commit_without_group_info" },
+  { path = "openmls::group::MlsGroup::self_update", reason = "builds a GroupInfo, which carries the group root (GMOD-042); use commit_without_group_info" },
+  { path = "openmls::group::MlsGroup::self_update_with_new_signer", reason = "builds a GroupInfo, which carries the group root (GMOD-042); use commit_without_group_info" },
+  { path = "openmls::group::MlsGroup::commit_to_pending_proposals", reason = "builds a GroupInfo, which carries the group root (GMOD-042); use commit_without_group_info" },
+  { path = "openmls::group::MlsGroup::update_group_context_extensions", reason = "builds a GroupInfo, which carries the group root (GMOD-042); use commit_without_group_info" },
+  { path = "openmls::group::MlsGroup::join_by_external_commit", reason = "builds a GroupInfo, which carries the group root (GMOD-042)" },
+]
+
+disallowed-types = [
+  { path = "openmls::group::WelcomeCommitMessages", reason = "holds the GroupInfo, which carries the group root (GMOD-042)" },
 ]

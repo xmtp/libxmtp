@@ -403,6 +403,9 @@ fn merge_commit(provider: &Provider, group: &mut MlsGroup, commit: &[u8]) {
 /// Commit every pending proposal, with inline `proposals` and `removals`,
 /// as XMTP commits: with the dictionary updates of every AppDataUpdate
 /// proposal, and with a path when `path` is set. The commit stays pending.
+// A codec fixture: it builds OpenMLS rows to freeze their encoding, and no
+// GroupInfo it may build leaves the test.
+#[allow(clippy::disallowed_methods)]
 fn commit_pending(
     provider: &Provider,
     group: &mut MlsGroup,
@@ -896,6 +899,9 @@ fn round_trips<T: serde::Serialize + serde::de::DeserializeOwned>(what: &str, by
 /// and an export tree with several PPRF nodes is decoded and encoded again
 /// many times, each time with new hash map seeds.
 #[xmtp_common::test(unwrap_try = true)]
+// A codec fixture: it builds OpenMLS rows to freeze their encoding, and no
+// GroupInfo it may build leaves the test.
+#[allow(clippy::disallowed_methods)]
 async fn canonical_orders_hash_map_fields() {
     let (alice, bob, carol) = (provider().await, provider().await, provider().await);
     let signer = |provider: &Provider| {

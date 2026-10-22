@@ -9,7 +9,7 @@ just check crate keepalive-probe
 dev/nix-shell 'dev/agent-run cargo clippy --locked -p keepalive-probe --all-targets -- -D warnings'
 just test crate keepalive-probe
 dev/nix-shell 'cargo run -p keepalive-probe -- --help'
-dev/nix-shell 'cargo run -p keepalive-probe -- --endpoint http://127.0.0.1:5050 --duration 35s --subscribe-group 00000000000000000000000000000000'
+dev/nix-shell 'cargo run -p keepalive-probe -- --endpoint http://127.0.0.1:5050 --duration 35s --subscribe-group 0000000000000000000000000000000000000000000000000000000000000000'
 ```
 
 ## Gotchas

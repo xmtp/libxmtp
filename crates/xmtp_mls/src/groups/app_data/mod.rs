@@ -390,11 +390,11 @@ pub(crate) fn stage_app_data_proposals_and_commit<Provider: OpenMlsProvider>(
     // Step 3: build a commit that consumes the proposal store. The
     // just-queued proposals are encoded as `ProposalRef`s; only the upkeep
     // is inline.
-    let mut stage = mls_group
-        .commit_builder()
-        .consume_proposal_store(true)
-        .add_proposals(upkeep)
-        .load_psks(provider.storage())?;
+    let mut stage = crate::groups::mls_ext::commit_without_group_info(
+        mls_group,
+        provider.storage(),
+        |builder| builder.consume_proposal_store(true).add_proposals(upkeep),
+    )?;
     stage.with_app_data_dictionary_updates(app_data_updates);
 
     let bundle = stage

@@ -26,9 +26,19 @@ export const isValidEthereumAddress = (
   address: string,
 ): address is `0x${string}` => /^0x[a-fA-F0-9]{40}$/.test(address);
 
+/**
+ * Checks inbox ID syntax: 64 lowercase hexadecimal characters. Conversation,
+ * installation, and message IDs have the same syntax, so a match does not show
+ * that the value names an inbox. Use it only for input that can only be an
+ * inbox ID; the SDK confirms that the inbox exists when the app uses it.
+ */
 export const isValidInboxId = (inboxId: string): inboxId is string =>
   /^[a-f0-9]{64}$/.test(inboxId);
 
+/**
+ * Shortens an Ethereum address or a 64-character hexadecimal ID for display.
+ * Any 64-character hexadecimal ID is shortened, whatever it names.
+ */
 export const shortAddress = (address: string, length: number = 4): string => {
   if (!isValidEthereumAddress(address) && !isValidInboxId(address)) {
     return address;

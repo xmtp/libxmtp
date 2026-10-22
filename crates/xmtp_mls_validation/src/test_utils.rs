@@ -129,6 +129,8 @@ pub fn group_message_envelope(
                 .expect("proposal fixture builds")
                 .0
         }
+        // The fixture group holds no group root, and only the commit leaves.
+        #[allow(clippy::disallowed_methods)]
         GroupMessageKind::Commit => {
             group
                 .self_update(&provider, &signer, LeafNodeParameters::default())

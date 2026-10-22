@@ -56,6 +56,8 @@ pub(crate) async fn send_crafted_welcome(
 
 /// [`send_crafted_welcome`] for a group of `conversation_type`, such as a
 /// one-shot group with no one-shot message.
+// A test drives an OpenMLS convenience commit; its GroupInfo never leaves the test.
+#[allow(clippy::disallowed_methods)]
 pub(crate) async fn send_crafted_welcome_of_type(
     creator: &FullXmtpClient,
     joiner: &FullXmtpClient,

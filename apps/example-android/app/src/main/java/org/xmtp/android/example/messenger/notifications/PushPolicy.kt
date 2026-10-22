@@ -14,9 +14,9 @@ data class PushEnvelope(
 enum class PushKind { GROUP, WELCOME }
 
 /**
- * PUSH topics contain a kind byte and an identifier. Group and welcome topics can both be
- * 33 bytes, so the kind byte decides: `0x00` is a group topic with a 32-byte group id
- * (or a 16-byte legacy id), and `0x01` is a welcome topic with a 32-byte installation key.
+ * PUSH topics contain a kind byte and an identifier. Group and welcome topics are both
+ * 33 bytes, so the kind byte decides: `0x00` is a group topic with a 32-byte group id,
+ * and `0x01` is a welcome topic with a 32-byte installation key.
  */
 fun parsePush(data: Map<String, String>): PushEnvelope? {
     val topic = data["topic"] ?: return null
@@ -33,7 +33,7 @@ fun parsePush(data: Map<String, String>): PushEnvelope? {
     val kind =
         when {
             bytes.isEmpty() -> return null
-            bytes[0] == 0.toByte() && (bytes.size == 33 || bytes.size == 17) -> PushKind.GROUP
+            bytes[0] == 0.toByte() && bytes.size == 33 -> PushKind.GROUP
             bytes[0] == 1.toByte() && bytes.size == 33 -> PushKind.WELCOME
             else -> return null
         }

@@ -566,6 +566,47 @@ async fn history_snapshot_filters_before_its_limit_in_the_same_database_snapshot
     assert!(snapshot.cursor.delivery_sequence > snapshot.messages[0].cursor.delivery_sequence);
 }
 
+/// A keyed group's 64-hex id has the shape of an inbox id. An inbox consent
+/// record whose entity equals that id does not decide which of the group's
+/// messages the consent filter selects.
+#[xmtp_common::test(unwrap_try = true)]
+async fn history_snapshot_ignores_inbox_consent_for_a_group() {
+    use crate::consent_record::StoredConsentRecord;
+    let store = TestDb::create_persistent_store(None).await;
+    let db = store.db();
+    let group = generate_group(None);
+    group.store(&db)?;
+    StoredConsentRecord::new(
+        ConsentType::InboxId,
+        ConsentState::Denied,
+        hex::encode(group.id),
+    )
+    .store(&db)?;
+    let message = generate_message(None, Some(&group.id), None, None, None, None);
+    message.store(&db)?;
+    let selected = |state: ConsentState| {
+        db.delivery_history_snapshot_filtered(
+            &DeliveryScope::All,
+            &DeliveryFilter {
+                conversation_type: None,
+                consent_states: Some(vec![state]),
+            },
+            0,
+            8,
+            8192,
+        )
+        .map(|snapshot| {
+            snapshot
+                .messages
+                .into_iter()
+                .map(|row| row.message.id)
+                .collect::<Vec<_>>()
+        })
+    };
+    assert_eq!(selected(ConsentState::Unknown)?, [message.id]);
+    assert!(selected(ConsentState::Denied)?.is_empty());
+}
+
 type AppRowsObserver = Box<dyn FnMut(Option<usize>)>;
 
 thread_local! {

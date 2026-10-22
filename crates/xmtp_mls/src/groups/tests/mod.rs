@@ -9,6 +9,7 @@ mod test_delete_message;
 mod test_dm;
 #[cfg(not(target_arch = "wasm32"))]
 mod test_failed_installations;
+mod test_group_info;
 mod test_group_updated;
 #[cfg(not(target_arch = "wasm32"))]
 mod test_legacy_placeholder_topics;
@@ -155,6 +156,8 @@ pub(super) async fn get_latest_message(group: &TestMlsGroup) -> StoredGroupMessa
 // Adds a member to the group without the usual validations on group membership
 // Used for testing adversarial scenarios
 #[cfg(not(target_arch = "wasm32"))]
+// A test drives an OpenMLS convenience commit; its GroupInfo never leaves the test.
+#[allow(clippy::disallowed_methods)]
 pub(super) async fn force_add_member(
     sender_client: &FullXmtpClient,
     new_member_client: &FullXmtpClient,
