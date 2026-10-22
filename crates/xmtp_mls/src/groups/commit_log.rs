@@ -210,8 +210,9 @@ pub struct ConversationCursorInfo {
 /// entries of a publish are stored. `infos` lists the conversations in
 /// publish order. A fully stored conversation moves to its last row. A partly
 /// stored one moves to the row of its last stored entry, so that the next
-/// turn starts from its first unstored entry (FORK-021). Later conversations
-/// keep their cursors.
+/// turn starts from its first unstored entry. Later conversations keep their
+/// cursors.
+// implements: FORK-021
 fn stored_cursors(infos: &[ConversationCursorInfo], mut stored: usize) -> Vec<(&[u8], i64)> {
     let mut cursors = Vec::new();
     for info in infos {
@@ -1220,7 +1221,7 @@ mod stored_cursor_tests {
 
     /// One conversation's backlog spans two requests and the second fails:
     /// the cursor moves to the last entry of the first request, so the next
-    /// turn starts from entry 1001, not entry 1 (FORK-021).
+    /// turn starts from entry 1001, not entry 1.
     // verifies: FORK-021
     #[xmtp_common::test(unwrap_try = true)]
     fn a_partly_stored_backlog_resumes_from_its_first_unstored_entry() {

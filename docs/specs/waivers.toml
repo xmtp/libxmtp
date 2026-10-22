@@ -488,7 +488,7 @@ id = "JOIN-083"
 kind = "gap"
 owner = "Nicholas Molnar"
 issue = "https://github.com/xmtp/libxmtp/issues/4644"
-reason = "A Welcome is not checked for a `GROUP_ROOT_KEY` that derives its `group_id`. Welcomes for 16-byte groups are accepted, and any Welcome that names a restored placeholder can activate it."
+reason = "A Welcome is not checked for a `GROUP_ROOT_KEY` that derives its `group_id`. Welcomes for 16-byte groups and rootless Welcomes for 32-byte groups are accepted, and any Welcome that names a restored placeholder, including a 32-byte one from an archive, can activate it."
 
 [[waiver]]
 id = "API-300"
@@ -516,7 +516,7 @@ id = "API-210"
 kind = "gap"
 owner = "Nicholas Molnar"
 issue = "https://github.com/xmtp/libxmtp/issues/4644"
-reason = "`ClientEnvelope` field 5 still carries `CommitLogEntry` instead of being reserved. The linked tests `publish_error_reasons_match_the_wire_contract` and `taken_handle_is_rejected_at_its_index` check only `PublishError` reasons."
+reason = "`ClientEnvelope` field 5 still carries `CommitLogEntry` instead of being reserved, and backend admission refuses a `SealedCommitLogEntry` (field 6) as a malformed payload. The linked tests `publish_error_reasons_match_the_wire_contract` and `taken_handle_is_rejected_at_its_index` check only `PublishError` reasons."
 
 [[waiver]]
 id = "API-230"
