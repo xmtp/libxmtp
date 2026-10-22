@@ -143,10 +143,17 @@ Remove the wipe once and see the test fail before you commit it.
 ## Identity
 
 `xmtp_id` owns inbox ids, associations, signature requests, and smart-contract
-wallet checks. Validation rules are in `crates/xmtp_id/AGENTS.md`.
+wallet checks. Read the [identity spec](../../../docs/specs/IDENT-identity-updates.md)
+for the validation contract and [Identifier](../../../crates/xmtp_id/src/associations/member.rs)
+for conversion helpers.
+
+`Identifier::eth` sanitizes Ethereum addresses; `from_proto` does not. Sanitize
+locally supplied identifiers before signing. Validate received signed updates
+without rewriting their identifiers (IDENT-013). `sanitize` and `inbox_id`
+check Ethereum addresses only; neither validates passkey keys.
 
 ```rust
-let ident = Identifier::eth(address)?;                // sanitizes; also passkey(..), from_proto(..)
+let ident = Identifier::eth(address)?;                // sanitizes the Ethereum address
 let inbox_id = ident.inbox_id(nonce)?;                // the only derivation; never re-implement the hash
 let mut request = SignatureRequestBuilder::new(inbox_id)
     .create_inbox(ident.clone(), nonce)
