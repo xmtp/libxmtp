@@ -72,7 +72,7 @@ pub struct HealthContext {
     pub other_identities: HashSet<HealthClient>,
 
     /// Group IDs loaded from the redb `GroupStore` for this network.
-    /// Stored as the raw 16-byte ids as produced by libxmtp.
+    /// Stored as the raw 32-byte ids as produced by libxmtp.
     pub existing_groups: Vec<GroupId>,
 
     /// Groups created by ops during this run. Ops receive `&mut
@@ -217,7 +217,7 @@ impl HealthContext {
     /// it as an existing group. Called by `CreateGroup` after the MLS
     /// group is created on the network.
     ///
-    /// Panics if redb can't be opened or if `group_id` isn't 16 bytes —
+    /// Panics if redb can't be opened or if `group_id` isn't 32 bytes —
     /// both indicate state-dir / invariant problems, not op-level
     /// failures, and the run can't continue meaningfully.
     pub fn persist_new_group(
@@ -255,7 +255,7 @@ impl HealthContext {
     /// `RemoveMember`, `LeaveGroup`) so redb's view stays consistent with
     /// the MLS-level state across runs.
     ///
-    /// Panics on redb failure or non-16-byte `group_id`.
+    /// Panics on redb failure or a `group_id` that is not 32 bytes.
     pub fn update_group_members(&self, group_id: &GroupId, members: Vec<InboxId>) {
         // to zero — the field is informational, not load-bearing.
         let created_by = self
@@ -543,7 +543,7 @@ impl HealthContext {
     /// Record a successfully-sent message to redb's `MessageStore`. The
     /// xdbg_version` fields is sourced from `self` so
     /// every row carries this run's identity. Panics on redb failure or
-    /// on a non-16-byte `group_id` (libxmtp invariant).
+    /// on a `group_id` that is not 32 bytes (libxmtp invariant).
     pub fn record_message(&self, group_id: &GroupId, message_id: [u8; 32], sender: &DbgClient) {
         let sent_at_ns = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -589,9 +589,8 @@ pub fn inbox_id_to_bytes(hex_inbox: &str) -> InboxId {
     out
 }
 
-/// The 16-byte id under which redb stores a group this run created. Panics on
-/// another length: every group a healthcheck creates has a 16-byte id until
-/// xdbg storage moves to 32-byte ids.
+/// The 32-byte id under which redb stores a group this run created. Panics on
+/// another length: every group a client creates is keyed, with a 32-byte id.
 fn stored_group_id(group_id: &GroupId) -> StoredGroupId {
-    StoredGroupId::try_from(group_id).expect("healthcheck groups have 16-byte ids")
+    StoredGroupId::try_from(group_id).expect("healthcheck groups have 32-byte ids")
 }
