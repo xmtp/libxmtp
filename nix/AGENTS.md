@@ -14,6 +14,9 @@ unpatched nixpkgs libraries or update these dependencies globally. Node's
 nghttp2/ngtcp2 dependencies must use the same patched libraries, including
 their transitive TLS, DNS, and Brotli dependencies.
 Build Node's scoped simdutf with C++20 so its atomic Base64 symbols match V8.
+Node 26 also carries upstream's test-only shared-isolate Worker-exit fix
+(`bc5af1c67cd8e029f86ec992688dde9307f4d61a`). It waits for actual Worker
+completion without changing assertions, disabling tests, or adding retries.
 Check the direct and transitive library wiring with
 `nix build --no-link .#node-runtime-dependencies.x86_64-linux`; config CI also
 evaluates the check for every supported host. Keep the check independent of
