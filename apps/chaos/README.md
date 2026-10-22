@@ -18,7 +18,10 @@ old installations on the backend from entering the new run's membership.
 ## Operations
 
 A round runs 24 operations: three same-epoch bursts, one recipe, and a mixed
-tail. The tail draws from group creation, member add, remove, and re-add,
+tail. When two independent devices for one inbox share a group, the first burst
+uses `same_inbox_contention` to race commits from those devices. The local writer
+for each member inbox rotates between its devices each round. The tail draws
+from group creation, member add, remove, and re-add,
 metadata, display name, description, disappearing settings, key update, admin
 promotion and demotion, leave, sends, syncs, consent, new installations, and
 stream restarts. Admin changes come from super admins, disappearing settings
@@ -100,12 +103,17 @@ completed work; they do not prove that a transaction committed.
 | `WARN` | A client reports a fork flag without observed state disagreement |
 | `HARNESS` | The harness or a required service failed |
 
-Exit codes are 0 for completion, 2 for a violation, 3 for a harness error,
-and 130 for interruption. Healthy stdout contains the seed and one summary
+Exit codes are 0 for completion with no unresolved obligations, 2 for a violation,
+3 for a harness error or an inconclusive run at its limit,
+and 130 for interruption. A run that reaches its time or round limit with a
+`STALL` or pending delivery obligation preserves a failure bundle and records
+`termination=INCONCLUSIVE`; it does not count as a passing baseline or fault run.
+Healthy stdout contains the seed and one summary
 line per round. Status includes contention counters.
 
 A `STALL` records an incomplete obligation and its cause. Repeated stalls can
-escalate without shortening the SDK retry budget. Inspect an escalated stall
+escalate without shortening the SDK retry budget. A changed error cause alone
+does not reset the no-progress timer. Inspect an escalated stall
 through traces before a longer run. A `WARN` alone does not stop a normal run;
 `--strict` enables the stricter policy. Pending roll-call checks use fault-free
 recovery rounds before new operations, restarts, or stream handoff. The round

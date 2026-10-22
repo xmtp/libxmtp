@@ -570,3 +570,21 @@ async fn reports_bound_history_without_erasing_generation_or_fork_evidence() {
     assert_eq!(after.commit_evidence_omitted, 68);
     assert_eq!(after.removal_evidence_omitted, 67);
 }
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn changing_blocker_codes_does_not_restart_the_liveness_budget() {
+    let mut instances = population();
+    block_topic(&mut instances[0], false);
+    let budgets = RetryBudgets::default();
+    let mut oracle = Oracle::new(false, budgets);
+    assert_eq!(
+        oracle.evaluate(1, 0, &instances, &[]).verdict,
+        Verdict::Stall
+    );
+    instances[0].checkpoint.topics[0].cause = Some(BarrierCause::Blocked {
+        code: "different_blocker".into(),
+    });
+    let result = oracle.evaluate(2, budgets.blocked_welcome_ms + 1, &instances, &[]);
+    assert_eq!(result.verdict, Verdict::Brick);
+    assert!(result.violation);
+}
