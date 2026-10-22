@@ -1624,13 +1624,20 @@ pub(crate) mod tests {
 
     /// A keyed group's 64-hex id has the shape of an inbox id. An inbox
     /// consent record whose entity equals that id is not the group's consent.
+    /// Both groups would publish their commit logs if their consent were
+    /// Allowed.
     #[xmtp_common::test]
     fn inbox_consent_is_not_group_consent() {
         with_connection(|conn| {
-            let denied = generate_group(Some(GroupMembershipState::Allowed));
-            denied.store(conn).unwrap();
-            let allowed = generate_group(Some(GroupMembershipState::Allowed));
-            allowed.store(conn).unwrap();
+            let keyed = || {
+                let mut group = generate_group(Some(GroupMembershipState::Allowed));
+                group.should_publish_commit_log = true;
+                group.commit_log_public_key = Some(rand_vec::<32>());
+                group.store(conn).unwrap();
+                group
+            };
+            let denied = keyed();
+            let allowed = keyed();
             for (group, state) in [
                 (&denied, ConsentState::Denied),
                 (&allowed, ConsentState::Allowed),
@@ -1662,6 +1669,15 @@ pub(crate) mod tests {
                     .unwrap()
                     .is_empty()
             );
+            assert!(
+                conn.get_conversation_ids_for_remote_log_publish()
+                    .unwrap()
+                    .is_empty()
+            );
+            for group in [&denied, &allowed] {
+                let (_, consent) = conn.conversation_state_row(&group.id).unwrap().unwrap();
+                assert_eq!(consent, None);
+            }
         })
     }
 
