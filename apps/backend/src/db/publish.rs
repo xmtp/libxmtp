@@ -391,6 +391,9 @@ async fn insert(
     tx: &mut Transaction<'_, Postgres>,
     new: &[&PendingEnvelope],
 ) -> Result<Vec<StoredMeta>, Error> {
+    if new.is_empty() {
+        return Ok(Vec::new());
+    }
     let ids = allocate(tx, new.len()).await?;
     insert_rows(tx, new, &ids).await
 }
