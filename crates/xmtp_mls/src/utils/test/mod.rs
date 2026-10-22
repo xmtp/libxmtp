@@ -39,7 +39,7 @@ pub use definitions::*;
 
 use super::VersionInfo;
 
-/// Each secret GMOD-042 keeps in the client, in the encodings a leak would
+/// Each secret that must stay in the client, in the encodings a leak would
 /// take: the group root and each private or symmetric key of the group key
 /// table, as raw bytes and as lowercase and uppercase hex. The keys derive
 /// here from the spec's salt and `info` labels, not through `GroupKeys`.
