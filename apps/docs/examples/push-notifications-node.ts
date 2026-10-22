@@ -49,8 +49,10 @@ export async function receivePushHint(
   if (sequenceId === 0n || sequenceId > 18446744073709551615n) {
     throw new Error("Invalid push sequence");
   }
-  const isGroup = topic[0] === 0 && topic.length === 17;
-  const isWelcome = topic[0] === 1 && topic.length === 33;
+  // Group and welcome topics are both 33 bytes, so the kind byte decides.
+  if (topic.length !== 33) throw new Error("Invalid push topic");
+  const isGroup = topic[0] === 0x00;
+  const isWelcome = topic[0] === 0x01;
   if (!isGroup && !isWelcome) throw new Error("Invalid push topic");
 
   // Fetch and process welcomes before looking up the group.

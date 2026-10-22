@@ -161,15 +161,16 @@ content, inbox ID, or recipient secret.
 
 ```json
 {
-  "topic": "AAECAwQFBgcICQoLDA0ODxA=",
+  "topic": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8g",
   "sequence_id": "9007199254740993"
 }
 ```
 
 `topic` is standard base64 of the backend wire topic. Decode it before routing.
-A group topic starts with `0x00` and contains a 16-byte group ID. A welcome topic
-starts with `0x01` and contains a 32-byte installation key. The group ID is the
-hex encoding of the bytes after the kind byte. Do not pass the base64 text to a
+A group topic starts with `0x00` and contains a 32-byte group ID. A welcome topic
+starts with `0x01` and contains a 32-byte installation key. Both are 33 bytes,
+so route on the first byte, not on the length. The group ID is the hex
+encoding of the bytes after the kind byte. Do not pass the base64 text to a
 legacy string-topic lookup.
 
 `sequence_id` is decimal text. Keep it as text or an exact integer such as
