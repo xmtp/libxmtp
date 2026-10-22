@@ -460,7 +460,7 @@ id = "GMOD-041"
 kind = "gap"
 owner = "Nicholas Molnar"
 issue = "https://github.com/xmtp/libxmtp/issues/4644"
-reason = "No key is derived from a group root yet. The derivation lands with the shared group-key module, and its uses land with keyed creation, signed publishes, and sealed commit-log entries."
+reason = "The derivation exists in `xmtp_mls_common::group_keys`, but no group has a root yet, so the client derives no key. Its uses land with keyed creation, signed publishes, and sealed commit-log entries."
 
 [[waiver]]
 id = "GMOD-042"
@@ -495,14 +495,14 @@ id = "API-300"
 kind = "gap"
 owner = "Nicholas Molnar"
 issue = "https://github.com/xmtp/libxmtp/issues/4644"
-reason = "Neither the backend nor the client verifies a publish signature. `GroupMessage` has no `signature` field and `SealedCommitLogEntry` does not exist in the schema yet."
+reason = "The shared verifier exists in `xmtp_mls_common::group_keys`, but neither backend admission nor the client's commit-log reader calls it yet."
 
 [[waiver]]
 id = "FORK-074"
 kind = "gap"
 owner = "Nicholas Molnar"
 issue = "https://github.com/xmtp/libxmtp/issues/4644"
-reason = "Entries are published as unencrypted `CommitLogEntry` payloads signed by the `COMMIT_LOG_SIGNER` key, on a topic named by the 16-byte group id. `SealedCommitLogEntry` does not exist in the schema yet."
+reason = "Entries are published as unencrypted `CommitLogEntry` payloads signed by the `COMMIT_LOG_SIGNER` key, on a topic named by the 16-byte group id. The sealing function exists in `xmtp_mls_common::group_keys`, but the client does not call it yet."
 
 [[waiver]]
 id = "FORK-075"
@@ -516,7 +516,7 @@ id = "API-210"
 kind = "gap"
 owner = "Nicholas Molnar"
 issue = "https://github.com/xmtp/libxmtp/issues/4644"
-reason = "The schema has no `GroupMessage.signature` and no `SealedCommitLogEntry`, and `ClientEnvelope` field 5 still carries `CommitLogEntry` instead of being reserved. The linked test `publish_error_reasons_match_the_wire_contract` checks only `PublishError`."
+reason = "`ClientEnvelope` field 5 still carries `CommitLogEntry` instead of being reserved. The linked tests `publish_error_reasons_match_the_wire_contract` and `taken_handle_is_rejected_at_its_index` check only `PublishError` reasons."
 
 [[waiver]]
 id = "API-230"
@@ -530,7 +530,7 @@ id = "API-223"
 kind = "gap"
 owner = "Nicholas Molnar"
 issue = "https://github.com/xmtp/libxmtp/issues/4644"
-reason = "The backend does not bound the number of envelopes in a publish request, so a request of more than 1000 envelopes is not refused with `REASON_TOO_LARGE`. The linked tests cover the other bounds only."
+reason = "The backend does not bound the number of envelopes in a publish request, so a request of more than 1000 envelopes is not refused with `REASON_TOO_LARGE`. The linked tests cover the index and reason reported for other validation failures, including handle refusals, not the envelope bound."
 
 [[waiver]]
 id = "API-281"
@@ -544,28 +544,21 @@ id = "TOPIC-001"
 kind = "gap"
 owner = "Nicholas Molnar"
 issue = "https://github.com/xmtp/libxmtp/issues/4644"
-reason = "The backend routes kinds `0x00` and `0x04` by a 16-byte group id, and reads the commit-log identifier from `PlaintextCommitLogEntry.group_id`. The linked tests `group_message_matrix_preserves_routing_bytes_and_flags` and `commit_log_admission_preserves_unverified_bytes_and_signature` route by a 16-byte group id. The linked tests assert the old rule; the change that closes this gap updates them."
+reason = "The backend still routes kinds `0x00` and `0x04` by 16-byte group ids as well as 32-byte ones, reads the commit-log identifier from `PlaintextCommitLogEntry.group_id`, and refuses a `SealedCommitLogEntry`. The linked tests `group_message_matrix_preserves_routing_bytes_and_flags` and `commit_log_admission_preserves_unverified_bytes_and_signature` route by a 16-byte group id. The linked tests assert the old rule; the change that closes this gap updates them."
 
 [[waiver]]
 id = "TOPIC-002"
 kind = "gap"
 owner = "Nicholas Molnar"
 issue = "https://github.com/xmtp/libxmtp/issues/4644"
-reason = "A 16-byte group id is still routable, and a 32-byte group id is refused as the wrong length. The linked tests `group_message_matrix_rejects_malformed_data_and_wrong_id_lengths` and `commit_log_matrix_rejects_malformed_data_and_wrong_id_lengths` take 16 bytes as the valid length, and the second builds a `CommitLogEntry`. The linked tests assert the old rule; the change that closes this gap updates them."
+reason = "A 16-byte group id is still routable. The linked tests `group_message_matrix_rejects_malformed_data_and_wrong_id_lengths` and `commit_log_matrix_rejects_malformed_data_and_wrong_id_lengths` take 16 bytes as the valid length, and the second builds a `CommitLogEntry`. The linked tests assert the old rule; the change that closes this gap updates them."
 
 [[waiver]]
 id = "TOPIC-003"
 kind = "gap"
 owner = "Nicholas Molnar"
 issue = "https://github.com/xmtp/libxmtp/issues/4644"
-reason = "A request naming a 17-byte `0x00` or `0x04` topic is accepted, and one naming a 33-byte topic of those kinds fails with `INVALID_ARGUMENT`."
-
-[[waiver]]
-id = "CONF-073"
-kind = "gap"
-owner = "Nicholas Molnar"
-issue = "https://github.com/xmtp/libxmtp/issues/4644"
-reason = "The client does not split publish requests to the fixed bound of 1000 envelopes per request. The linked tests cover the published bounds only."
+reason = "A request naming a 17-byte `0x00` or `0x04` topic is still accepted."
 
 [[waiver]]
 id = "FORK-030"
@@ -593,7 +586,7 @@ id = "PUSH-215"
 kind = "gap"
 owner = "Nicholas Molnar"
 issue = "https://github.com/xmtp/libxmtp/issues/4644"
-reason = "Kind `0x00` topics are validated with a 16-byte group id, so a subscription that names a 17-byte `0x00` topic is accepted, and one that names a 33-byte `0x00` topic fails with `INVALID_ARGUMENT`. The linked test `every_subscription_shape_failure_leaves_the_recipient_unchanged` takes a 17-byte `0x00` topic as its valid subscription. The linked tests assert the old rule; the change that closes this gap updates them."
+reason = "Kind `0x00` topics still accept a 16-byte group id as well as a 32-byte one, so a subscription that names a 17-byte `0x00` topic is still accepted. The linked test `every_subscription_shape_failure_leaves_the_recipient_unchanged` takes a 17-byte `0x00` topic as its valid subscription. The linked tests assert the old rule; the change that closes this gap updates them."
 
 [[waiver]]
 id = "PUSH-238"
@@ -607,7 +600,7 @@ id = "API-251"
 kind = "gap"
 owner = "Nicholas Molnar"
 issue = "https://github.com/xmtp/libxmtp/issues/4644"
-reason = "A stream update that names a 17-byte `0x00` or `0x04` topic is accepted, and one that names a 33-byte topic of those kinds fails the stream with `INVALID_ARGUMENT`. The linked tests name only welcome topics, so they do not cover the changed lengths."
+reason = "A stream update that names a 17-byte `0x00` or `0x04` topic is still accepted. The linked tests name only welcome topics, so they do not cover the changed lengths."
 
 [[waiver]]
 id = "API-212"
@@ -621,7 +614,7 @@ id = "PROC-001"
 kind = "gap"
 owner = "Nicholas Molnar"
 issue = "https://github.com/xmtp/libxmtp/issues/4644"
-reason = "The client validates a `0x00` or `0x04` topic with a 16-byte identifier, so it admits a batch on a 17-byte topic of those kinds and refuses one on a 33-byte topic. The linked tests read batches on 17-byte `0x00` topics. The linked tests assert the old rule; the change that closes this gap updates them."
+reason = "The client still accepts a `0x00` or `0x04` topic with a 16-byte identifier as well as a 32-byte one, so it admits a batch on a 17-byte topic of those kinds. The linked tests read batches on 17-byte `0x00` topics. The linked tests assert the old rule; the change that closes this gap updates them."
 
 [[waiver]]
 id = "CONF-078"

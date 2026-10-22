@@ -111,17 +111,17 @@ The nonce is derived from the topic and the entry, so the same entry sealed twic
 ```proto
 // xmtp.backend.v1
 // A commit-log entry, encrypted and signed under keys derived from the
-// group root. pending: FORK-074
+// group root.
 message SealedCommitLogEntry {
   // 32-byte public key of the commit-log signing key. Derives the topic.
-  bytes commit_log_id = 1; // pending: FORK-074
+  bytes commit_log_id = 1;
   // 12 bytes.
-  bytes nonce = 2; // pending: FORK-074
+  bytes nonce = 2;
   // ChaCha20-Poly1305 encryption of a serialized PlaintextCommitLogEntry.
-  bytes ciphertext = 3; // pending: FORK-074
+  bytes ciphertext = 3;
   // 64-byte Ed25519 signature [R(32) || S(32)] over CommitLogEntryTBS by
   // the commit-log signing key.
-  bytes signature = 4; // pending: FORK-074
+  bytes signature = 4;
 }
 ```
 

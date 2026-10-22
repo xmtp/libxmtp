@@ -147,6 +147,7 @@ async fn publish_topic_boundary(#[case] extra: usize) {
 
 /// Envelope count splits a publish at `MAX_PUBLISH_ENVELOPES`, even when every
 /// envelope names one topic.
+// verifies: CONF-073
 #[xmtp_common::test(unwrap_try = true)]
 async fn publish_envelope_count_splits_at_the_envelope_bound() {
     let api = backend();

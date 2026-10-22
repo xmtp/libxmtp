@@ -26,6 +26,7 @@ fn chunk_lengths(units: &[PublishUnit]) -> crate::Result<Vec<usize>> {
 /// 2500 single-envelope units on one topic go out as requests
 /// of at most 1000 envelopes. Bytes and topics stay far under their bounds,
 /// so only the envelope bound splits them.
+// verifies: CONF-073
 #[xmtp_common::test(unwrap_try = true)]
 fn publish_chunks_carry_at_most_the_envelope_bound() {
     let single = group_unit(&[GroupMessageKind::Application]);
@@ -36,6 +37,7 @@ fn publish_chunks_carry_at_most_the_envelope_bound() {
 
 /// A 3-envelope unit (two proposals and a commit) is never
 /// split across requests, even when that leaves a request short of the bound.
+// verifies: CONF-073
 #[xmtp_common::test(unwrap_try = true)]
 fn publish_chunks_keep_a_unit_whole_at_the_envelope_bound() {
     use GroupMessageKind::*;
@@ -51,6 +53,7 @@ fn publish_chunks_keep_a_unit_whole_at_the_envelope_bound() {
 
 /// A unit of more than 1000 envelopes is refused before any
 /// request, with the error the client treats as a definite failure.
+// verifies: CONF-073
 #[xmtp_common::test(unwrap_try = true)]
 fn publish_unit_over_the_envelope_bound_is_refused_locally() {
     let envelope = group_message_envelope(GROUP, GroupMessageKind::Application, []);

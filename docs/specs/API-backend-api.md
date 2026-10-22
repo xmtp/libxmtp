@@ -106,21 +106,21 @@ message GroupMessage {
   bool should_push = 3;
   // 64-byte Ed25519 signature [R(32) || S(32)] over GroupMessageTBS by the
   // group signing key.
-  bytes signature = 4; // pending: API-300
+  bytes signature = 4;
 }
 
 // A commit-log entry, encrypted and signed under keys derived from the
-// group root. pending: FORK-074
+// group root.
 message SealedCommitLogEntry {
   // 32-byte public key of the commit-log signing key. Derives the topic.
-  bytes commit_log_id = 1; // pending: FORK-074
+  bytes commit_log_id = 1;
   // 12 bytes.
-  bytes nonce = 2; // pending: FORK-074
+  bytes nonce = 2;
   // ChaCha20-Poly1305 encryption of a serialized PlaintextCommitLogEntry.
-  bytes ciphertext = 3; // pending: FORK-074
+  bytes ciphertext = 3;
   // 64-byte Ed25519 signature [R(32) || S(32)] over CommitLogEntryTBS by
   // the commit-log signing key.
-  bytes signature = 4; // pending: FORK-074
+  bytes signature = 4;
 }
 
 // What a client publishes. WelcomeMessage and KeyPackage are defined in JOIN.
@@ -130,7 +130,7 @@ message ClientEnvelope {
     WelcomeMessage welcome_message = 2;
     KeyPackage key_package = 3;
     xmtp.identity.associations.IdentityUpdate identity_update = 4;
-    SealedCommitLogEntry sealed_commit_log_entry = 6; // pending: FORK-074
+    SealedCommitLogEntry sealed_commit_log_entry = 6;
   }
   // The retired CommitLogEntry payload.
   reserved 5; // pending: API-210
