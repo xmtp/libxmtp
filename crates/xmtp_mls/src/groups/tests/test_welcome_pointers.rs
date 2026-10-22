@@ -437,6 +437,8 @@ async fn test_welcome_pointer_resolution_to_another_welcome_pointer() {
 /// Missing pointees retain their fixed fetch deadline and can later join. If a
 /// fetched pointee has an unsupported MLS version, it receives a separate full
 /// day of retention whose deadline survives retries past the fetch deadline.
+/// Transiently missing pointees and legacy retry states cannot shorten that hold;
+/// if the pointee remains missing after the hold expires, it is rejected.
 // verifies: JOIN-079, JOIN-077, JOIN-063
 #[xmtp_common::timeout(Duration::from_secs(40))]
 #[rstest::rstest]
@@ -671,14 +673,61 @@ async fn test_welcome_pointer_pending_retry_resolution(#[case] unsupported: bool
         assert!(deadline <= xmtp_common::time::now_ns() + xmtp_common::NS_IN_DAY);
         assert_eq!(pending.retry_expires_at_ns, Some(pointer_deadline));
 
+        // Keep the real Welcome and keys, but make pointee queries temporarily
+        // return no data, as a lagging replica can after a previously good read.
+        let mut api = xmtp_api_backend::MockBackendClient::new();
+        api.expect_query().returning(|_| {
+            Ok(xmtp_proto::backend_v1::QueryResponse {
+                envelopes: vec![],
+                continuation: Some(xmtp_proto::backend_v1::Continuation { has_more: false }),
+            })
+        });
+        let missing_client = crate::builder::ClientBuilder::from_client(bo.client.clone())
+            .api_client(std::sync::Arc::new(api))
+            .config_provider(std::sync::Arc::new(
+                xmtp_configuration::StaticConfigProvider::default(),
+            ))
+            .with_allow_offline(Some(true))
+            .with_disable_workers(true)
+            .build()
+            .await
+            .unwrap();
+        let missing_service =
+            crate::groups::welcome_sync::WelcomeService::new(missing_client.context.clone());
+        assert!(matches!(
+            missing_service
+                .resolve_pending_welcome(welcome_from_api.cursor)
+                .await
+                .unwrap(),
+            WelcomeHeadOutcome::Waiting { blocked: true, .. }
+        ));
+
         // Passing the fetch deadline cannot shorten the unreadable hold, and
-        // retrying with a new service must preserve its original deadline.
+        // a previously persisted pointee retry must not skip its next attempt.
         db.raw_query(|conn| {
             diesel::update(row())
-                .set(incoming_envelopes::retry_expires_at_ns.eq(Some(1i64)))
+                .set((
+                    incoming_envelopes::retry_expires_at_ns.eq(Some(1i64)),
+                    incoming_envelopes::error_code.eq(Some("welcome_pointee")),
+                ))
                 .execute(conn)
         })
         .unwrap();
+        assert!(matches!(
+            service
+                .retry_pending_welcome(welcome_from_api.cursor, None)
+                .unwrap(),
+            WelcomeHeadOutcome::Need { .. }
+        ));
+        assert!(matches!(
+            missing_service
+                .resolve_pending_welcome(welcome_from_api.cursor)
+                .await
+                .unwrap(),
+            WelcomeHeadOutcome::Waiting { blocked: true, .. }
+        ));
+        // The real backend recovers. Rechecking the MLS payload still keeps the
+        // original unreadable deadline, including across service recreation.
         let service = crate::groups::welcome_sync::WelcomeService::new(bo.context.clone());
         assert!(matches!(
             service
@@ -701,14 +750,12 @@ async fn test_welcome_pointer_pending_retry_resolution(#[case] unsupported: bool
         })
         .unwrap();
         assert!(matches!(
-            service
+            missing_service
                 .resolve_pending_welcome(welcome_from_api.cursor)
                 .await
                 .unwrap(),
             WelcomeHeadOutcome::Progress {
-                result: Err(crate::groups::GroupError::WelcomeError(
-                    openmls::prelude::WelcomeError::UnsupportedMlsVersion
-                )),
+                result: Err(crate::groups::GroupError::WelcomeDataNotFound(_)),
                 ..
             }
         ));

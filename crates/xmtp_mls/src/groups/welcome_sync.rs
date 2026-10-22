@@ -345,6 +345,7 @@ where
         if let Some(deadline) = pending.retry_expires_at_ns
             && deadline <= xmtp_common::time::now_ns()
             && pending.error_code.as_deref() == Some("welcome_pointee")
+            && pending.unreadable_expires_at_ns.is_none()
         {
             self.complete_rejected_pending(&pending, "welcome_pointer_expired")?;
             return Ok(WelcomeHeadOutcome::Progress {
@@ -538,6 +539,7 @@ where
             return Ok(WelcomeHeadOutcome::Idle { cursor });
         };
         if pending.error_code.as_deref() == Some("welcome_pointee")
+            && pending.unreadable_expires_at_ns.is_none()
             && pending
                 .retry_expires_at_ns
                 .is_some_and(|deadline| deadline <= xmtp_common::time::now_ns())
@@ -550,6 +552,13 @@ where
             .map_err(xmtp_api::ApiError::from)?;
         let resolved = match ResolvedWelcome::resolve(&welcome, &self.context).await {
             Ok(resolved) => resolved,
+            // Once unreadable retention starts, a missing re-fetch must neither
+            // shorten that window to pointer expiry nor extend it indefinitely.
+            Err(error @ GroupError::WelcomeDataNotFound(_))
+                if pending.unreadable_expires_at_ns.is_some() =>
+            {
+                return self.retain_unreadable_welcome(&pending, error, "welcome_blocked");
+            }
             Err(GroupError::WelcomeDataNotFound(_)) => {
                 self.defer_pending(
                     &pending,
