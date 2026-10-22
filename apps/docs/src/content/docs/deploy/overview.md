@@ -90,6 +90,42 @@ name length is the `handles.min_name_length` setting; see
 [Run the backend](/get-started/run-the-backend/#handles) and
 [Handle limits](/reference/limits/#handle-limits).
 
+### Upgrade to keyed group ids
+
+The release that introduces keyed group ids changes what the backend accepts.
+A new group's id is a 32-byte public key, and the backend stores a group
+message or a commit-log entry only when it carries a valid signature under a
+key that only the group's members hold. Group and commit-log topics carry
+32-byte identifiers.
+
+The upgraded backend refuses these requests from older clients:
+
+- A publish of a group message whose group id is 16 bytes fails with
+  `REASON_MALFORMED_PAYLOAD`.
+- A publish of a commit-log entry in the retired unsigned form fails with
+  `REASON_MALFORMED_PAYLOAD`.
+- A read, stream update, or push subscription that names a 17-byte group or
+  commit-log topic fails with `INVALID_ARGUMENT`.
+
+Envelopes stored under 17-byte topics stay in the database, but no request can
+read them.
+
+Upgrade in this order:
+
+1. Back up PostgreSQL, then upgrade the backend.
+2. Set `server.min_libxmtp_version` to the libxmtp version of the first SDK
+   release with keyed group ids. A client below the minimum refuses to build,
+   and a running client stops when it next refreshes the published
+   configuration. See [`[server]`](/get-started/run-the-backend/#server).
+
+Until a running older client refreshes, the backend refuses its group
+publishes as described above. The client treats each refusal as final and
+does not retry it.
+
+Do not upgrade the SDKs before the backend. A new client does not detect an
+older backend, and an older backend refuses its group messages and commit-log
+entries.
+
 ### Connection budget
 
 Without a replica, each instance uses up to `max_connections` pooled connections
