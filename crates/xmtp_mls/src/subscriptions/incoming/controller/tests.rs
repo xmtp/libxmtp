@@ -3101,11 +3101,13 @@ async fn an_invalid_supported_head_does_not_hold_a_later_valid_message() {
         1
     );
 
-    // Publish real ciphertext after its generation was consumed. Keep its TLS shape.
+    // Publish real ciphertext after its generation was consumed. Keep its TLS
+    // shape, and sign the changed bytes so backend admission accepts them.
     let Some(wire::client_envelope::Payload::GroupMessage(message)) = &mut reused.payload else {
         panic!("group payload");
     };
     *message.data.last_mut().unwrap() ^= 1;
+    alix_group.sign_as_member(message);
     let receipts = alix
         .context
         .api()

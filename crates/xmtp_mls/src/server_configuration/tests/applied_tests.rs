@@ -278,14 +278,6 @@ async fn a_lowered_envelope_limit_refuses_the_publish() {
         .await?;
     // A keyed group message, signed under the group's own key as a member
     // signs it, so admission refuses it only for its size.
-    let keys = group.with_group_snapshot(|mls_group| {
-        Ok(
-            xmtp_mls_common::app_data::group_root::group_keys_from_extensions(
-                mls_group.extensions(),
-            )
-            .expect("a keyed group holds its root"),
-        )
-    })?;
     let mut envelope = xmtp_mls_validation::test_utils::group_message_envelope(
         group.group_id,
         xmtp_mls_validation::test_utils::GroupMessageKind::Application,
@@ -296,7 +288,7 @@ async fn a_lowered_envelope_limit_refuses_the_publish() {
     else {
         unreachable!("the fixture builds a group message");
     };
-    xmtp_mls_common::group_keys::sign_group_message(&keys, message)?;
+    group.sign_as_member(message);
 
     let error = xmtp_api::PublishUnit::single_within(envelope.clone(), &limits).unwrap_err();
     assert!(
