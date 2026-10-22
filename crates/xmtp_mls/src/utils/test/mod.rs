@@ -8,6 +8,9 @@ pub mod tester_utils;
 
 #[cfg(any(test, feature = "test-utils"))]
 pub mod fixtures;
+
+#[cfg(test)]
+pub(crate) mod crafted_welcome;
 pub mod test_mocks_helpers;
 mod tester_utils_trait_ext;
 pub use tester_utils_trait_ext::*;

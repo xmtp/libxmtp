@@ -73,8 +73,7 @@ use std::{collections::HashSet, sync::Arc};
 use tokio::sync::Mutex;
 use xmtp_common::{Event, log_event, time::now_ns};
 use xmtp_configuration::{
-    GROUP_MEMBERSHIP_EXTENSION_ID, MAX_PAST_EPOCHS, MUTABLE_METADATA_EXTENSION_ID,
-    SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS,
+    GROUP_MEMBERSHIP_EXTENSION_ID, MAX_PAST_EPOCHS, SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS,
     WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID, WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID,
 };
 use xmtp_content_types::delete_message::DeleteMessageCodec;
@@ -84,7 +83,7 @@ use xmtp_content_types::{
     reaction::{LegacyReaction, ReactionCodec},
     reply::ReplyCodec,
 };
-use xmtp_cryptography::configuration::{CIPHERSUITE, ED25519_KEY_LENGTH};
+use xmtp_cryptography::configuration::CIPHERSUITE;
 use xmtp_cryptography::secret::Zeroize;
 use xmtp_db::message_deletion::{QueryMessageDeletion, StoredMessageDeletion};
 use xmtp_db::pending_remove::QueryPendingRemove;
@@ -119,7 +118,7 @@ use xmtp_mls_common::{
             AppDataComponent, GroupDescriptionComponent, GroupImageUrlComponent, GroupNameComponent,
         },
     },
-    group::{DMMetadataOptions, GroupMetadataOptions},
+    group::GroupMetadataOptions,
     group_metadata::{DmMembers, GroupMetadata, GroupMetadataError, extract_group_metadata},
     group_mutable_metadata::{
         GroupMutableMetadata, GroupMutableMetadataError, MessageDisappearingSettings, MetadataField,

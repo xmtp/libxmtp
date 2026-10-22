@@ -72,7 +72,7 @@ pub const MAX_APPLICATION_COMPONENT_NAME_BYTES: usize = 100;
 ///
 /// The client names well-known components from this table, and the backend
 /// refuses an application component that takes one of these names.
-pub const WELL_KNOWN_COMPONENT_NAMES: [(u16, &str); 18] = [
+pub const WELL_KNOWN_COMPONENT_NAMES: [(u16, &str); 19] = [
     (0x8000, "COMPONENT_REGISTRY"),
     (0x8001, "SUPER_ADMIN_LIST"),
     (0x8002, "ADMIN_LIST"),
@@ -87,6 +87,7 @@ pub const WELL_KNOWN_COMPONENT_NAMES: [(u16, &str); 18] = [
     (0x800B, "COMMIT_LOG_SIGNER"),
     (0x800C, "USER_DISPLAY_NAME"),
     (0x800D, "GROUP_IMAGE"),
+    (0xBFFB, "GROUP_ROOT_KEY"),
     (0xBFFC, "ONESHOT_MESSAGE"),
     (0xBFFD, "DM_MEMBERS"),
     (0xBFFE, "CREATOR_INBOX_ID"),

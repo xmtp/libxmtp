@@ -97,6 +97,9 @@ impl ComponentId {
     pub const CREATOR_INBOX_ID: Self = Self(0xBFFE);
     pub const DM_MEMBERS: Self = Self(0xBFFD);
     pub const ONESHOT_MESSAGE: Self = Self(0xBFFC);
+    /// The 32-byte group root that every key of the group derives from.
+    /// Written once at creation; a restored placeholder has none.
+    pub const GROUP_ROOT_KEY: Self = Self(0xBFFB);
 
     /// Every well-known component and its META section 2 name, in ID order,
     /// built from [`xmtp_configuration::WELL_KNOWN_COMPONENT_NAMES`].
@@ -145,6 +148,7 @@ impl ComponentId {
             Self::CREATOR_INBOX_ID => "CREATOR_INBOX_ID".into(),
             Self::DM_MEMBERS => "DM_MEMBERS".into(),
             Self::ONESHOT_MESSAGE => "ONESHOT_MESSAGE".into(),
+            Self::GROUP_ROOT_KEY => "GROUP_ROOT_KEY".into(),
             _ => format!("component:{:04x}", self.0),
         }
     }
@@ -350,6 +354,8 @@ mod tests {
         assert!(ComponentId::DM_MEMBERS.is_xmtp_range());
         assert!(ComponentId::ONESHOT_MESSAGE.is_immutable());
         assert!(ComponentId::ONESHOT_MESSAGE.is_xmtp_range());
+        assert!(ComponentId::GROUP_ROOT_KEY.is_immutable());
+        assert!(ComponentId::GROUP_ROOT_KEY.is_xmtp_range());
     }
 
     #[xmtp_common::test]
@@ -369,10 +375,12 @@ mod tests {
         assert!(ComponentId::new(0xBE00).is_immutable());
         assert!(ComponentId::new(0xBFFF).is_immutable());
 
-        // The newest immutable XMTP IDs (DM_MEMBERS, ONESHOT_MESSAGE) sit
-        // counting down from 0xBFFF and must fall inside the immutable subrange.
+        // The newest immutable XMTP IDs (DM_MEMBERS, ONESHOT_MESSAGE,
+        // GROUP_ROOT_KEY) sit counting down from 0xBFFF and must fall inside
+        // the immutable subrange.
         assert!(ComponentId::new(0xBFFD).is_immutable());
         assert!(ComponentId::new(0xBFFC).is_immutable());
+        assert!(ComponentId::new(0xBFFB).is_immutable());
 
         // App mutable
         assert!(ComponentId::new(0xC000).is_app_range());
@@ -438,6 +446,7 @@ mod tests {
             ComponentId::CONVERSATION_TYPE,
             ComponentId::DM_MEMBERS,
             ComponentId::ONESHOT_MESSAGE,
+            ComponentId::GROUP_ROOT_KEY,
             ComponentId::new(0xFFFF),
         ];
         for id in ids {

@@ -30,8 +30,9 @@
 //!
 //! ## Secret values
 //!
-//! `COMMIT_LOG_SIGNER` holds the group's commit-log private key, so every
-//! component value these helpers copy is a secret candidate. Reads borrow
+//! `GROUP_ROOT_KEY` holds the group root, and `COMMIT_LOG_SIGNER` the
+//! commit-log private key of a legacy group, so every component value these
+//! helpers copy is a secret candidate. Reads borrow
 //! the dictionary's bytes, and computed values come back in `Zeroizing`,
 //! which wipes them on drop whatever the component.
 
@@ -268,7 +269,8 @@ pub fn component_type(id: ComponentId) -> Option<ComponentType> {
         // but we still advertise the type for completeness).
         ComponentId::CONVERSATION_TYPE
         | ComponentId::CREATOR_INBOX_ID
-        | ComponentId::ONESHOT_MESSAGE => Some(ComponentType::Bytes),
+        | ComponentId::ONESHOT_MESSAGE
+        | ComponentId::GROUP_ROOT_KEY => Some(ComponentType::Bytes),
         ComponentId::DM_MEMBERS => Some(ComponentType::TlsSetInboxId),
 
         _ => None,

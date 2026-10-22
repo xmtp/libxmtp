@@ -316,6 +316,7 @@ mod tests {
         assert!(registry.contains(&ComponentId::CREATOR_INBOX_ID));
         assert!(registry.contains(&ComponentId::DM_MEMBERS));
         assert!(registry.contains(&ComponentId::ONESHOT_MESSAGE));
+        assert!(registry.contains(&ComponentId::GROUP_ROOT_KEY));
         // Hardcoded are NOT in the registry.
         assert!(!registry.contains(&ComponentId::SUPER_ADMIN_LIST));
         assert!(!registry.contains(&ComponentId::COMPONENT_REGISTRY));
