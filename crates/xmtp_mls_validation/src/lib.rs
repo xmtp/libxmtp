@@ -7,6 +7,7 @@ use openmls::prelude::{ContentType, KeyPackageIn, MlsMessageIn, ProtocolMessage}
 use openmls_rust_crypto::RustCrypto;
 use tls_codec::Deserialize;
 use xmtp_common::RetryableError;
+use xmtp_configuration::LEGACY_GROUP_ID_BYTES;
 use xmtp_id::{
     associations::{
         self, AccountId, AssociationError, AssociationState, AssociationStateDiff, Handle,
@@ -193,6 +194,24 @@ fn checked_topic(kind: TopicKind, identifier: impl AsRef<[u8]>) -> Result<Topic,
     Topic::parse(&topic).map_err(ValidationError::InvalidTopic)
 }
 
+/// Build the topic of a published group message or commit-log entry.
+///
+/// [`Topic::parse`] also accepts 32-byte identifiers for kinds 0 and 4, so
+/// reads can name them. Admission routes only 16-byte group ids until it
+/// checks publish signatures, so no unsigned envelope reaches a 32-byte topic.
+fn checked_legacy_group_topic(kind: TopicKind, group_id: &[u8]) -> Result<Topic, ValidationError> {
+    if group_id.len() != LEGACY_GROUP_ID_BYTES {
+        return Err(ValidationError::InvalidTopic(
+            ConversionError::InvalidLength {
+                item: "published group id",
+                expected: LEGACY_GROUP_ID_BYTES,
+                got: group_id.len(),
+            },
+        ));
+    }
+    checked_topic(kind, group_id)
+}
+
 /// Decode one envelope, derive its topic, and compute canonical retry bytes.
 ///
 /// This is the routing phase. It performs the payload-specific decoding needed
@@ -209,7 +228,7 @@ pub fn parse_envelope(envelope: ClientEnvelope) -> Result<ParsedEnvelope, Valida
         Payload::GroupMessage(group) => {
             let message = parse_group_message(&group.data)?;
             is_commit_or_proposal = self::is_commit_or_proposal(&message);
-            checked_topic(TopicKind::GroupMessagesV1, message.group_id().as_slice())?
+            checked_legacy_group_topic(TopicKind::GroupMessagesV1, message.group_id().as_slice())?
         }
         Payload::WelcomeMessage(welcome) => {
             let key = match welcome
@@ -234,7 +253,7 @@ pub fn parse_envelope(envelope: ClientEnvelope) -> Result<ParsedEnvelope, Valida
         }
         Payload::CommitLogEntry(entry) => {
             let decoded = decode_commit_log(&entry.serialized_commit_log_entry)?;
-            checked_topic(TopicKind::CommitLogEntriesV1, &decoded.group_id)?
+            checked_legacy_group_topic(TopicKind::CommitLogEntriesV1, &decoded.group_id)?
         }
         Payload::SealedCommitLogEntry(_) => return Err(ValidationError::UnsupportedPayload),
     };
