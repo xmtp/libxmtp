@@ -20,6 +20,8 @@ The post-merge workflow (`post-merge.yml`) deploys the public site on each push 
 builds the Kotlin and Swift references in its own jobs. The CI merge run does
 not build the site. Pull requests skip the native references with
 `DOCS_SKIP_NATIVE_REFERENCES=1`.
+On macOS, first run `dev/nix-shell 'just docs browsers'` to install Chromium;
+Linux uses the Nix browser.
 Use `dev/nix-shell 'DOCS_SKIP_NATIVE_REFERENCES=1 just docs test-browser'`
 when testing that composed site.
 

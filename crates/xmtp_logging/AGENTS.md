@@ -10,6 +10,7 @@ because `xmtp_common` depends on this crate.
   Sentry component tags and fixed telemetry identity attributes.
 - `propagation` owns W3C headers (no-op on WASM); host apps own metric exporters.
   Resource attributes export verbatim: no secrets.
-- Backend metrics are independent of sampling; client span metrics are not.
+- Backend metrics are independent of sampling; Tempo-derived client span metrics
+  depend on sampled trace export.
   Configuration and `just backend observe-check`:
   [observability](../../docs/backend-observability.md).
