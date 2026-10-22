@@ -955,7 +955,18 @@ mod tests {
             dictionary.get(&ComponentId::GROUP_ROOT_KEY.as_u16()),
             Some(root.as_bytes().as_slice())
         );
-        assert!(registry_of(&dictionary).contains(&ComponentId::GROUP_ROOT_KEY));
+        // DMS section 2's immutable row: super-admin insert, no update or delete.
+        assert_eq!(
+            registry_of(&dictionary).get(&ComponentId::GROUP_ROOT_KEY)?,
+            Some(new_component_metadata(
+                ComponentPermissions {
+                    insert_policy: Some(metadata_policy(MetadataBasePolicy::AllowIfSuperAdmin)),
+                    update_policy: Some(metadata_policy(MetadataBasePolicy::Deny)),
+                    delete_policy: Some(metadata_policy(MetadataBasePolicy::Deny)),
+                },
+                ComponentType::Bytes,
+            ))
+        );
     }
 
     /// A restored placeholder takes no root: neither the value nor its

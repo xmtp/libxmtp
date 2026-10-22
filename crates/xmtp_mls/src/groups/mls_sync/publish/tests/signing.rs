@@ -30,8 +30,9 @@ fn saved_envelopes<C: XmtpSharedContext>(
         .collect()
 }
 
-/// The envelope is a group message whose signature passes API-300 over the
-/// `GroupMessageTBS` rebuilt from its own fields, under the group id.
+/// The envelope is a group message whose signature passes the backend's
+/// publish-signature check over the `GroupMessageTBS` rebuilt from its own
+/// fields, under the group id.
 fn assert_signed(group_id: &GroupId, envelope: &wire::ClientEnvelope) {
     let Some(Payload::GroupMessage(message)) = &envelope.payload else {
         panic!("expected a group message, got {envelope:?}");
