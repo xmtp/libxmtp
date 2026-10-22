@@ -25,6 +25,7 @@ mod handles;
 mod incoming;
 mod integration;
 mod limits;
+mod ordered_publish;
 
 #[rstest]
 #[case(tonic::Code::InvalidArgument)]

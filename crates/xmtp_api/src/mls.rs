@@ -156,11 +156,17 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
     ) -> Result<Vec<wire::EnvelopeMeta>> {
         self.publish_units(units).await
     }
+    /// Publish commit-log entries in the given order, one request at a time,
+    /// and stop at the first failed request. Each stored entry's metadata is
+    /// appended to `stored`, so on an error `stored` names the stored prefix
+    /// of `entries` and a retry starts from the first entry after it.
+    // implements: FORK-021
     #[xmtp_common::rpc_span]
     pub async fn publish_commit_log(
         &self,
         entries: Vec<wire::CommitLogEntry>,
-    ) -> Result<Vec<wire::EnvelopeMeta>> {
+        stored: &mut Vec<wire::EnvelopeMeta>,
+    ) -> Result<()> {
         let units = entries
             .into_iter()
             .map(|entry| {
@@ -172,7 +178,7 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
                 )
             })
             .collect::<Result<Vec<_>>>()?;
-        self.publish_units(units).await
+        self.publish_units_in_order(units, stored).await
     }
     #[xmtp_common::rpc_span]
     pub async fn query_commit_log(

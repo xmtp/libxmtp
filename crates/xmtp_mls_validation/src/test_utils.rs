@@ -571,10 +571,18 @@ pub async fn mixed_case_recovery_change() -> (IdentityUpdate, IdentityUpdate) {
 }
 
 pub fn commit_log_envelope(group_id: impl AsRef<[u8]>) -> ClientEnvelope {
+    commit_log_envelope_at(group_id, 7)
+}
+
+/// A signed commit-log entry for `group_id` at `commit_sequence_id`.
+pub fn commit_log_envelope_at(
+    group_id: impl AsRef<[u8]>,
+    commit_sequence_id: u64,
+) -> ClientEnvelope {
     let provider = OpenMlsRustCrypto::default();
     let entry = PlaintextCommitLogEntry {
         group_id: group_id.as_ref().to_vec(),
-        commit_sequence_id: 7,
+        commit_sequence_id,
         last_epoch_authenticator: vec![0x60, 0x61],
         commit_result: 1,
         applied_epoch_number: 8,

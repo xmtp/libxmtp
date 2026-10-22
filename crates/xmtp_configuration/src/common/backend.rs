@@ -4,6 +4,9 @@ pub const GROUP_ID_BYTES: usize = 32;
 /// Length of a legacy group id, in bytes. Legacy ids come only from imported
 /// archives; topics accept them until the cutover to 32-byte identifiers.
 pub const LEGACY_GROUP_ID_BYTES: usize = 16;
+/// Most envelopes one publish request carries, duplicates included (API
+/// section 7). The backend refuses more, and clients chunk to it.
+pub const MAX_PUBLISH_ENVELOPES: usize = 1_000;
 /// Welcome, key-package, and identity topic identifier length, in bytes.
 pub const BACKEND_INSTALLATION_ID_BYTES: usize = 32;
 

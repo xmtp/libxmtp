@@ -106,6 +106,7 @@ pub(crate) fn request(units: &[PublishUnit]) -> wire::PublishRequest {
 /// Measure repeated envelope fields without cloning or encoding the request.
 struct PublishMeasure<'a> {
     bytes: usize,
+    envelopes: usize,
     topics: HashSet<&'a Topic>,
     limits: &'a LimitsConfiguration,
 }
@@ -113,6 +114,7 @@ impl<'a> PublishMeasure<'a> {
     fn new(limits: &'a LimitsConfiguration) -> Self {
         Self {
             bytes: 0,
+            envelopes: 0,
             topics: HashSet::new(),
             limits,
         }
@@ -122,18 +124,21 @@ impl<'a> PublishMeasure<'a> {
         for envelope in &unit.envelopes {
             let len = envelope.canonical.bytes.len();
             self.bytes += 1 + prost::length_delimiter_len(len) + len;
+            self.envelopes += 1;
             self.topics.insert(&envelope.topic);
         }
     }
 
     fn fits(&self) -> bool {
         self.bytes <= self.limits.max_request_bytes
+            && self.envelopes <= MAX_PUBLISH_ENVELOPES
             && self.topics.len() <= self.limits.max_publish_topics
     }
 }
 
-/// Split units into requests the deployment accepts. A commit and
-/// its proposals are one unit and never straddle a chunk.
+/// Split units into requests the deployment accepts, each with at most
+/// `MAX_PUBLISH_ENVELOPES` envelopes. A commit and its proposals are one unit
+/// and never straddle a chunk; a unit that fits in no request is refused.
 // implements: CONF-073
 pub fn chunk_publish_within<'a>(
     units: &'a [PublishUnit],
@@ -272,7 +277,9 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
             .collect::<Vec<_>>();
         let mut responses: Vec<_> = stream::iter(chunks.into_iter().enumerate().map(
             |(index, chunk)| async move {
-                Ok::<_, ApiError>((index, self.publish_chunk(&chunk).await?))
+                let mut metas = Vec::new();
+                self.publish_chunk(&chunk, &mut metas).await?;
+                Ok::<_, ApiError>((index, metas))
             },
         ))
         .buffer_unordered(MAX_PUBLISH_CHUNKS_IN_FLIGHT)
@@ -282,9 +289,32 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
         Ok(responses.into_iter().flat_map(|(_, metas)| metas).collect())
     }
 
-    async fn publish_chunk(&self, units: &[PublishUnit]) -> Result<Vec<wire::EnvelopeMeta>> {
+    /// Publish units with one request in flight at a time, in unit order, and
+    /// stop at the first failed request. Each stored envelope's metadata is
+    /// appended to `stored` as its request returns, so on an error `stored`
+    /// names the stored prefix; the envelopes of the failed request may or
+    /// may not be stored. A commit-log reader, which keeps only a continuous
+    /// chain, never sees a later request stored ahead of an earlier one.
+    pub async fn publish_units_in_order(
+        &self,
+        units: Vec<PublishUnit>,
+        stored: &mut Vec<wire::EnvelopeMeta>,
+    ) -> Result<()> {
+        for chunk in chunk_publish_within(&units, self.limits())? {
+            self.publish_chunk(chunk, stored).await?;
+        }
+        Ok(())
+    }
+
+    /// Publish one chunk, appending each stored envelope's metadata to
+    /// `metas` in envelope order. A size refusal splits the chunk, and the
+    /// halves go out one after the other.
+    async fn publish_chunk(
+        &self,
+        units: &[PublishUnit],
+        metas: &mut Vec<wire::EnvelopeMeta>,
+    ) -> Result<()> {
         let mut pending = VecDeque::from([units]);
-        let mut metas = Vec::new();
         while let Some(units) = pending.pop_front() {
             let request = request(units);
             match self
@@ -313,7 +343,7 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
                 Err(error) => return Err(dyn_err(error)),
             }
         }
-        Ok(metas)
+        Ok(())
     }
 
     /// Read one bounded ordered page without decoding MLS payloads.

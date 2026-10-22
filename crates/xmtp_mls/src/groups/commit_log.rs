@@ -281,13 +281,22 @@ where
             all_entries.len()
         );
 
-        // Propagate a publish failure; cursors stay unadvanced so the restarted
-        // worker retries the same entries next turn.
+        // Entries go out in order, one request at a time, and publishing stops
+        // at the first failed request. `stored` is the stored prefix.
         let api = self.context.api();
-        api.publish_commit_log(all_entries).await?;
+        let mut stored = Vec::new();
+        let published = api.publish_commit_log(all_entries, &mut stored).await;
 
-        // Publishing was successful, let's update every group's cursor
+        // Advance the cursor of each conversation whose entries were all stored.
+        // A failure is then propagated; the other cursors stay unadvanced, so
+        // the restarted worker retries from each conversation's first unstored
+        // entry.
+        let mut remaining = stored.len();
         for conversation_cursor_info in &conversation_cursor_info {
+            if conversation_cursor_info.num_entries_published > remaining {
+                break;
+            }
+            remaining -= conversation_cursor_info.num_entries_published;
             tracing::debug!(
                 group_id = hex::encode(&conversation_cursor_info.conversation_id),
                 "Updating publish cursor",
@@ -298,6 +307,7 @@ where
                 Cursor(conversation_cursor_info.last_entry_published_rowid as u64),
             )?;
         }
+        published?;
         Ok(conversation_cursor_info)
     }
 

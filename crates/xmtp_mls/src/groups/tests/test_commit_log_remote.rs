@@ -179,18 +179,23 @@ async fn test_commit_log_publish_and_query_apis() {
         &private_key_bytes,
     )?;
 
+    let mut stored = Vec::new();
     let result = alix
         .context
         .api()
-        .publish_commit_log(vec![CommitLogEntry {
-            serialized_commit_log_entry: serialized_entry,
-            signature: Some(RecoverableEd25519Signature {
-                bytes: signature,
-                public_key: public_key.clone(),
-            }),
-        }])
+        .publish_commit_log(
+            vec![CommitLogEntry {
+                serialized_commit_log_entry: serialized_entry,
+                signature: Some(RecoverableEd25519Signature {
+                    bytes: signature,
+                    public_key: public_key.clone(),
+                }),
+            }],
+            &mut stored,
+        )
         .await;
     assert!(result.is_ok());
+    assert_eq!(stored.len(), 1);
 
     // Test querying commit log
     let query = [(Topic::new_commit_log(group_id.clone()), Cursor(0))].into();

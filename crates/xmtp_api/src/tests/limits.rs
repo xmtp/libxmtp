@@ -145,14 +145,13 @@ async fn publish_topic_boundary(#[case] extra: usize) {
     );
 }
 
-/// Envelope count alone does not split a publish.
-#[rstest]
-#[case(BACKEND_DEFAULT_MAX_PUBLISH_TOPICS)]
+/// Envelope count splits a publish at `MAX_PUBLISH_ENVELOPES`, even when every
+/// envelope names one topic.
 #[xmtp_common::test(unwrap_try = true)]
-async fn publish_envelope_count_has_no_separate_cap(#[case] topic_cap: usize) {
+async fn publish_envelope_count_splits_at_the_envelope_bound() {
     let api = backend();
     let topic = welcome_topics(1).remove(0);
-    for count in [topic_cap, topic_cap + 1] {
+    for (count, requests) in [(MAX_PUBLISH_ENVELOPES, 1), (MAX_PUBLISH_ENVELOPES + 1, 2)] {
         let units = (0..count)
             .map(|index| PublishUnit::single(welcome_for(&topic, index.to_be_bytes().to_vec())))
             .collect::<crate::Result<Vec<_>>>()
@@ -164,7 +163,10 @@ async fn publish_envelope_count_has_no_separate_cap(#[case] topic_cap: usize) {
             .map(|meta| meta.cursor.as_ref().unwrap().sequence_id)
             .collect();
         assert_eq!(unique.len(), count);
-        assert_eq!(api.api_client.mls_stats().publish.get_count() - before, 1);
+        assert_eq!(
+            api.api_client.mls_stats().publish.get_count() - before,
+            requests
+        );
     }
 }
 
