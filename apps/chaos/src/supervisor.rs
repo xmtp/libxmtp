@@ -706,9 +706,6 @@ async fn run_rounds(s: &Arc<Supervisor>, args: &RunArgs, seed: u64) -> Result<i3
         .map(|hours| Duration::from_secs_f64(hours * 3600.0));
     let mut round = 0;
     loop {
-        if deadline.map_or(round >= args.rounds, |d| run_start.elapsed() >= d) {
-            break;
-        }
         round += 1;
         {
             let mut ledger = s.ledger.lock().expect("ledger mutex");
@@ -845,6 +842,15 @@ async fn run_rounds(s: &Arc<Supervisor>, args: &RunArgs, seed: u64) -> Result<i3
             .filter(|finding| finding.verdict == crate::check::Verdict::Stall && finding.escalated)
             .count();
         summary["escalated_stalls"] = json!(escalated_stalls);
+        let at_limit = deadline.map_or(round >= args.rounds, |d| run_start.elapsed() >= d);
+        let incomplete_at_limit = !result.violation
+            && at_limit
+            && result.incomplete_at_limit(oracle.pending_rollcalls().len());
+        if incomplete_at_limit {
+            summary["termination"] = json!("INCONCLUSIVE");
+            summary["termination_reason"] =
+                json!("Run limit reached with unresolved checkpoint or delivery obligations");
+        }
         {
             let ledger = s.ledger.lock().expect("ledger mutex");
             ledger.write_status(&summary)?;
@@ -867,7 +873,7 @@ async fn run_rounds(s: &Arc<Supervisor>, args: &RunArgs, seed: u64) -> Result<i3
         if result.verdict == crate::check::Verdict::Harness {
             bail!("oracle could not produce a verdict: {:?}", result.findings);
         }
-        if result.violation {
+        if result.violation || incomplete_at_limit {
             let stopped = s.stop().await?;
             let active = s
                 .processes
@@ -893,10 +899,15 @@ async fn run_rounds(s: &Arc<Supervisor>, args: &RunArgs, seed: u64) -> Result<i3
                 &databases,
             )?;
             println!("bundle={}", path.display());
-            return Ok(2);
+            if incomplete_at_limit {
+                println!("termination=INCONCLUSIVE: run limit reached with unresolved obligations");
+            }
+            return Ok(if result.violation { 2 } else { 3 });
+        }
+        if at_limit {
+            return Ok(0);
         }
     }
-    Ok(0)
 }
 
 fn fault_selected(selection: &str, kind: &str) -> bool {
