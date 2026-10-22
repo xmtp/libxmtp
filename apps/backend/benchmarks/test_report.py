@@ -161,6 +161,50 @@ class ReportTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     self.summarize()
 
+    def test_read_only_runs_explicitly_exclude_writes_and_rollovers(self):
+        """A focused query experiment excludes writes explicitly but still requires every read group and trial."""
+        write = next(event for event in self.events if event["event"] == "write")
+        self.events[0]["config"].update(
+            layout="sequence_ranges_watermarks", measure_writes=False
+        )
+        self.events = [event for event in self.events if event["event"] != "write"]
+        for layout in ("unpartitioned_watermarks", "sequence_ranges_watermarks"):
+            self.events[0]["config"]["layout"] = layout
+            self.assertEqual(len(self.summarize()), 11)
+        original = copy.deepcopy(self.events)
+        for value in (0, "false", None):
+            with self.subTest(selector=value):
+                self.events = copy.deepcopy(original)
+                self.events[0]["config"]["measure_writes"] = value
+                with self.assertRaises(ValueError):
+                    self.summarize()
+        self.events = copy.deepcopy(original)
+        self.events.insert(-1, write)
+        with self.assertRaises(ValueError):
+            self.summarize()
+        self.events = [
+            event
+            for event in copy.deepcopy(original)
+            if event.get("case") != "query_recent"
+        ]
+        with self.assertRaises(ValueError):
+            self.summarize()
+        self.events = copy.deepcopy(original)
+        self.events.insert(
+            -1,
+            {
+                "event": "rollover",
+                "edge": 1_000_001,
+                "precreated": False,
+                "writers": 1,
+                "trial": 0,
+                "seed_rows": 1000,
+                "wal_bytes": 100,
+            },
+        )
+        with self.assertRaises(ValueError):
+            self.summarize()
+
     def test_medians_and_trial_ranges_are_not_pooled_percentiles(self):
         """Repeated trials retain sample counts, median rates, and the range of measured throughput."""
         row = next(row for row in self.summarize() if row["case"] == "query_recent")

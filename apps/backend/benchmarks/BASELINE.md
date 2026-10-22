@@ -3,6 +3,7 @@
 This is the initial unpartitioned schema-comparison baseline.
 [Sequence-range partitioning](PARTITIONING.md) was approved on October 21, 2026,
 for a benchmark-only experiment; production migration/adoption remains separate.
+See the [completed schema comparison](RESULTS.md) for the subsequent experiment.
 
 ## Reproduction and scope
 

@@ -2,10 +2,12 @@
 //! `install` applies the versioned fixture migration. `Partitions` validates and
 //! provisions ranges after publish rollback; `connect` separates restricted writers
 //! from the privileged provisioner. Production migrations and startup are unchanged.
+//! `Layout` selects schema and query variants independently; `query` runs the
+//! watermark-prefilter page against either schema as an experimental control.
 
 use super::{Store, TestDatabase, TestResult};
 use crate::{
-    db::{PendingEnvelope, StoredMeta},
+    db::{EnvelopePage, PendingEnvelope, StoredEnvelope, StoredMeta, TopicCursor},
     error::{AdmissionError, Error},
 };
 use serde::{Deserialize, Serialize};
@@ -24,7 +26,22 @@ const MAX_RETRIES: usize = 8;
 #[serde(rename_all = "snake_case")]
 pub(super) enum Layout {
     Unpartitioned,
+    UnpartitionedWatermarks,
     SequenceRanges,
+    SequenceRangesWatermarks,
+}
+
+impl Layout {
+    pub(super) fn is_partitioned(self) -> bool {
+        matches!(self, Self::SequenceRanges | Self::SequenceRangesWatermarks)
+    }
+
+    fn watermark_prefilter(self) -> bool {
+        matches!(
+            self,
+            Self::UnpartitionedWatermarks | Self::SequenceRangesWatermarks
+        )
+    }
 }
 
 pub(crate) struct Partitions {
@@ -194,8 +211,10 @@ pub(super) async fn connect(
     timeout_ms: u64,
     layout: Layout,
 ) -> TestResult<Store> {
-    if layout == Layout::Unpartitioned {
-        return super::connect(database, connections, timeout_ms).await;
+    if !layout.is_partitioned() {
+        let mut store = super::connect(database, connections, timeout_ms).await?;
+        store.watermark_prefilter = layout.watermark_prefilter();
+        return Ok(store);
     }
     let provisioner = super::connect(database, 1, super::REQUEST_TIMEOUT_MS)
         .await?
@@ -225,6 +244,7 @@ pub(super) async fn connect(
         read: primary.clone(),
         primary,
         partitions: Some(Arc::new(Partitions::new(provisioner))),
+        watermark_prefilter: layout.watermark_prefilter(),
     })
 }
 
@@ -318,6 +338,51 @@ pub(super) async fn close(store: &Store) {
     if let Some(partitions) = &store.partitions {
         partitions.provisioner.close().await;
     }
+}
+
+/// Skip impossible topic/cursor probes and bound candidates by their transactional heads.
+/// The watermarks, remaining candidates, and payload page share one SQL snapshot.
+pub(in crate::db) async fn query(
+    store: &Store,
+    queries: &[TopicCursor],
+    limit: i64,
+) -> Result<EnvelopePage, Error> {
+    let topics = queries
+        .iter()
+        .map(|query| query.topic.clone())
+        .collect::<Vec<_>>();
+    let cursors = queries.iter().map(|query| query.cursor).collect::<Vec<_>>();
+    let rows = sqlx::query(sqlx::AssertSqlSafe(include_str!(
+        "../../../benchmarks/queries/watermark_page.sql"
+    )))
+    .bind(topics)
+    .bind(cursors)
+    .bind(limit)
+    .fetch_all(&store.primary)
+    .await?;
+    let has_more = rows
+        .first()
+        .map(|row| row.try_get::<bool, _>("has_more"))
+        .transpose()?
+        .unwrap_or(false);
+    let envelopes = rows
+        .into_iter()
+        .map(|row| {
+            Ok(StoredEnvelope {
+                sequence_id: row.try_get("sequence_id")?,
+                topic: row.try_get("topic")?,
+                server_ns: row.try_get("server_ns")?,
+                expiry_ns: row.try_get("expiry_ns")?,
+                message_hash: row.try_get("message_hash")?,
+                is_commit_or_proposal: row.try_get("is_commit_or_proposal")?,
+                payload: row.try_get("payload")?,
+            })
+        })
+        .collect::<Result<Vec<_>, sqlx::Error>>()?;
+    Ok(EnvelopePage {
+        envelopes,
+        has_more,
+    })
 }
 
 /// Resolve global identities before touching the exact payload partition.

@@ -71,6 +71,8 @@ def summarize(path):
             raise ValueError(f"invalid benchmark dimension: {field}")
     if type(config["trials"]) is not int or config["trials"] <= 0:
         raise ValueError("invalid trial count")
+    if type(config.get("measure_writes", True)) is not bool:
+        raise ValueError("invalid write-measurement selector")
     _validate_rollovers(events, config)
     corpora = [event for event in events if event["event"] == "corpus"]
     if (
@@ -98,6 +100,7 @@ def summarize(path):
         )
         for writers in config["writers"]
         for batch in config["batch_sizes"]
+        if config.get("measure_writes", True)
     }
     expected = read_keys | write_keys
     groups = defaultdict(list)
@@ -175,7 +178,12 @@ def summarize(path):
 def _validate_rollovers(events, config):
     """Require every declared rollover trial without accepting unsafe numeric cells."""
     layout = config.get("layout", "unpartitioned")
-    if layout not in ("unpartitioned", "sequence_ranges"):
+    if layout not in (
+        "unpartitioned",
+        "unpartitioned_watermarks",
+        "sequence_ranges",
+        "sequence_ranges_watermarks",
+    ):
         raise ValueError("unknown benchmark layout")
     expected = (
         {
@@ -185,7 +193,8 @@ def _validate_rollovers(events, config):
             for writers in config["writers"]
             for trial in range(config["trials"])
         }
-        if layout == "sequence_ranges"
+        if layout in ("sequence_ranges", "sequence_ranges_watermarks")
+        and config.get("measure_writes", True)
         else set()
     )
     seen = set()

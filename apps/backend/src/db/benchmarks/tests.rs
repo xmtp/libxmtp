@@ -8,6 +8,7 @@ use std::collections::HashSet;
 fn config() -> Config {
     Config {
         layout: partition::Layout::Unpartitioned,
+        measure_writes: true,
         sizes: vec![1_000, 100_000, 10_000_000],
         topic_counts: vec![1, 10, 100, 1_000],
         writers: vec![1, 8],
@@ -35,7 +36,7 @@ fn configuration_rejects_unknown_and_missing_fields() {
     value["typo"] = json!(10);
     assert!(serde_json::from_value::<Config>(value.clone()).is_err());
     value.as_object_mut().unwrap().remove("typo");
-    for field in ["read_ms", "layout"] {
+    for field in ["read_ms", "layout", "measure_writes"] {
         let mut missing = value.clone();
         missing.as_object_mut().unwrap().remove(field);
         assert!(serde_json::from_value::<Config>(missing).is_err());
@@ -62,6 +63,19 @@ fn configuration_rejects_unmeasurable_trials() {
         }
         assert!(config.validate().is_err(), "{change}");
     }
+}
+
+/// Read-only comparisons skip unused write-capacity checks; enabled writes must still enforce their growth budget.
+#[xmtp_common::test(unwrap_try = true)]
+fn read_only_experiments_do_not_require_unused_write_growth() {
+    let mut config = config();
+    config.sizes = vec![1_000];
+    config.writers = vec![64];
+    config.batch_sizes = vec![100];
+    config.measure_writes = false;
+    config.validate()?;
+    config.measure_writes = true;
+    assert!(config.validate().is_err());
 }
 
 /// Repeated database sizes would duplicate trial identities after expensive corpus seeding.

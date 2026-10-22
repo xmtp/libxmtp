@@ -138,7 +138,7 @@ async fn read(
     Ok((rows, bytes))
 }
 
-/// Explain the exact production SQL with both prepared-plan policies. Store's
+/// Explain the selected Store SQL with both prepared-plan policies. Store's
 /// normal auto policy remains unchanged during timing; diagnostics use one pool connection.
 pub(super) async fn plans(
     store: &Store,
@@ -149,6 +149,9 @@ pub(super) async fn plans(
     let sql = match kind {
         Read::NewestFull => include_str!("../read/newest.sql"),
         Read::NewestMetadata | Read::NewestAbsent => include_str!("../read/newest_metadata.sql"),
+        _ if store.watermark_prefilter => {
+            include_str!("../../../benchmarks/queries/watermark_page.sql")
+        }
         _ => include_str!("../read/page.sql"),
     };
     let topics = queries

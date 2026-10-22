@@ -30,6 +30,7 @@ async fn fixture() -> TestResult<(TestDatabase, Store, Store)> {
         read: primary.clone(),
         primary,
         partitions: Some(Arc::new(Partitions::new(owner.primary.clone()))),
+        watermark_prefilter: false,
     };
     Ok((database, owner, writer))
 }
@@ -41,6 +42,20 @@ async fn write(store: &Store, nonce: i64) -> TestResult<StoredMeta> {
         .commit_publish(&mut pending, None, 30_000)
         .await?
         .remove(0))
+}
+
+/// Query optimization must not implicitly enable the registry or partition provisioning on its unpartitioned control.
+#[xmtp_common::test(unwrap_try = true)]
+fn query_variants_do_not_change_schema_selection() {
+    for (layout, partitioned, prefilter) in [
+        (Layout::Unpartitioned, false, false),
+        (Layout::UnpartitionedWatermarks, false, true),
+        (Layout::SequenceRanges, true, false),
+        (Layout::SequenceRangesWatermarks, true, true),
+    ] {
+        assert_eq!(layout.is_partitioned(), partitioned);
+        assert_eq!(layout.watermark_prefilter(), prefilter);
+    }
 }
 
 /// Half-open million-ID ranges cover every positive bigint, including its last partial range.
@@ -324,10 +339,10 @@ async fn concurrent_duplicates_at_rollover_return_original_metadata() {
     owner.primary.close().await;
 }
 
-/// Multi-range paging, empty cursors, caught-up reads, and dormant newest topics match an independent reference.
+/// Production and prefiltered multi-range pages, empty/caught-up reads, and newest match an independent reference.
 #[xmtp_common::test(unwrap_try = true)]
 async fn multi_range_reads_preserve_reference_pages_and_newest() {
-    let (_database, owner, writer) = fixture().await?;
+    let (_database, owner, mut writer) = fixture().await?;
     for base in [0_i64, 1_000_000, 2_000_000] {
         writer.partitions.as_ref().unwrap().ensure(base + 1).await?;
         sqlx::query("INSERT INTO envelopes (sequence_id, topic, server_ns, message_hash,
@@ -343,49 +358,58 @@ async fn multi_range_reads_preserve_reference_pages_and_newest() {
     )
     .execute(&owner.primary)
     .await?;
-    for floor in [0, 1_000_010, 2_000_010, 3_000_000] {
-        let queries = vec![
-            TopicCursor {
-                topic: corpus::topic(0),
-                cursor: floor,
-            },
-            TopicCursor {
-                topic: corpus::topic(1),
-                cursor: floor / 2,
-            },
-            TopicCursor {
-                topic: corpus::topic(999),
-                cursor: 0,
-            },
-        ];
-        let topics = queries
-            .iter()
-            .map(|query| query.topic.clone())
-            .collect::<Vec<_>>();
-        let cursors = queries.iter().map(|query| query.cursor).collect::<Vec<_>>();
-        for limit in [1_i64, 10, 100] {
-            let expected: Vec<i64> = sqlx::query_scalar("SELECT sequence_id FROM envelopes e
+    for watermark_prefilter in [false, true] {
+        writer.watermark_prefilter = watermark_prefilter;
+        for (floor, other) in [
+            (0, 0),
+            (1_000_010, 500_005),
+            (2_000_010, 1_000_005),
+            (3_000_000, 1_500_000),
+            (3_000_000, 3_000_000),
+        ] {
+            let queries = vec![
+                TopicCursor {
+                    topic: corpus::topic(0),
+                    cursor: floor,
+                },
+                TopicCursor {
+                    topic: corpus::topic(1),
+                    cursor: other,
+                },
+                TopicCursor {
+                    topic: corpus::topic(999),
+                    cursor: 0,
+                },
+            ];
+            let topics = queries
+                .iter()
+                .map(|query| query.topic.clone())
+                .collect::<Vec<_>>();
+            let cursors = queries.iter().map(|query| query.cursor).collect::<Vec<_>>();
+            for limit in [1_i64, 10, 100] {
+                let expected: Vec<i64> = sqlx::query_scalar("SELECT sequence_id FROM envelopes e
                 JOIN unnest($1::bytea[], $2::bigint[]) wanted(topic, cursor) ON e.topic = wanted.topic
                 WHERE sequence_id > cursor ORDER BY sequence_id LIMIT $3")
                 .bind(&topics).bind(&cursors).bind(limit + 1).fetch_all(&owner.primary).await?;
-            let page = writer.query(&queries, limit).await?;
-            assert_eq!(page.has_more, expected.len() > limit as usize);
-            assert_eq!(
-                page.envelopes
-                    .iter()
-                    .map(|row| row.sequence_id)
-                    .collect::<Vec<_>>(),
-                expected
-                    .into_iter()
-                    .take(limit as usize)
-                    .collect::<Vec<_>>()
-            );
+                let page = writer.query(&queries, limit).await?;
+                assert_eq!(page.has_more, expected.len() > limit as usize);
+                assert_eq!(
+                    page.envelopes
+                        .iter()
+                        .map(|row| row.sequence_id)
+                        .collect::<Vec<_>>(),
+                    expected
+                        .into_iter()
+                        .take(limit as usize)
+                        .collect::<Vec<_>>()
+                );
+            }
+            let newest = writer.newest_envelopes(&topics).await?;
+            let metadata = writer.newest_metadata(&topics).await?;
+            assert_eq!(newest.len(), 2);
+            assert_eq!(metadata.len(), 2);
+            assert!(newest.iter().all(|row| row.sequence_id > 2_000_000));
         }
-        let newest = writer.newest_envelopes(&topics).await?;
-        let metadata = writer.newest_metadata(&topics).await?;
-        assert_eq!(newest.len(), 2);
-        assert_eq!(metadata.len(), 2);
-        assert!(newest.iter().all(|row| row.sequence_id > 2_000_000));
     }
     close(&writer).await;
     owner.primary.close().await;

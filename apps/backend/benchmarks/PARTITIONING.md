@@ -9,6 +9,10 @@ existing API, ordering, retention, and idempotency requirements; it proposes no
 spec changes. Approval authorizes the disposable-schema experiment below, not
 an unreviewed production migration or rollout.
 
+The complete original-query experiment is measured; see
+[results and next experiments](RESULTS.md). Its first layout does not support
+production adoption. Query-shape controls remain test-only variations.
+
 ## Hypothesis and decision
 
 Partition `envelopes` by fixed ranges of **1,000,000 sequence IDs**, not rows.
@@ -49,7 +53,7 @@ Thus `UNIQUE (topic, message_hash)` cannot live on a table range-partitioned by
 sequence ID. Replacing it with `(topic, message_hash, sequence_id)` would allow
 the same message to be stored twice in different partitions and is unacceptable.
 
-Proposed global registry:
+Implemented global registry:
 
 ```sql
 CREATE TABLE envelope_identity (
@@ -103,7 +107,7 @@ holding topic/allocation/publish locks: concurrent writers can deadlock.
    allocates the actual IDs, and checks that every touched range exists before
    inserting any rows. Existing ranges need no DDL. A verified range cache can
    avoid catalogue work; it must be invalidated after reconnect/schema changes.
-3. If a range is missing, return an internal typed `MissingEnvelopePartition`
+3. If a range is missing, return an internal typed `MissingEnvelopePartitions`
    outcome, **roll back and release all publish locks**, and provision through
    the dedicated connection. The aborted IDs are gaps, as already permitted.
 4. Serialize provisioners with the advisory lock; recheck the actual catalogue,
@@ -203,7 +207,7 @@ owners before adoption; do not select numerical thresholds after seeing results.
 
 Use `partitioned.json` with the same recipe and dedicated PostgreSQL instance as
 the baseline. Its required `layout` is `sequence_ranges`; `baseline.json` explicitly
-selects `unpartitioned`. The experimental migration refuses nonempty tables.
+selects `unpartitioned`. Both set `measure_writes: true`. The experimental migration refuses nonempty tables.
 The admin connection needs database/role creation privileges. Provisioning uses
 that separate owner connection; measured reads/publishes authenticate directly
 as `xmtp_bench_writer`, which has no elevated privileges or role memberships.
@@ -230,6 +234,24 @@ They use fresh 1,000-row fixtures with sparse IDs: these isolate first-use DDL,
 retry, and coordination costs, not populated ten-million-row rollover behavior.
 No write warmup hides the missing partition in these trials. Do not pool the
 few first-use samples into a steady-state tail-latency claim.
+
+### Watermark-prefilter variation
+
+`watermarks.json` selects `sequence_ranges_watermarks` and `measure_writes: false`
+for a focused ten-million-row, 1,000-topic read comparison. It keeps the complete
+future-range inventory even though writes are excluded, avoiding a partition-count
+confound. Missing and caught-up topics are removed through `topic_watermark`
+before partition probes; cursor-free, old, recent, and mixed hits retain the
+same global page limit, prefix ordering, and snapshot-consistent `has_more`.
+The same-snapshot head also bounds each probe from above, excluding precreated
+future ranges that cannot contain a visible result for that topic.
+Newest queries are unchanged controls. Production query SQL is not modified.
+`watermarks-unpartitioned.json` applies the same prefilter without partitioning,
+to separate query-shape improvements from partitioning benefits.
+The prefilter requires the existing atomic publish/watermark invariant; direct
+out-of-band writes that omit watermarks are not an alternative supported ingest path.
+Regression tests compare both page shapes against an independent reference over
+multiple partitions and mixed cursor positions.
 
 ## References
 

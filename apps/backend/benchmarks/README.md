@@ -1,7 +1,10 @@
 # Backend database benchmarks
 
+See the [unpartitioned baseline](BASELINE.md) and
+[measured schema comparison](RESULTS.md) for results and interpretation.
+
 Manual schema-comparison suite, not a CI performance gate. The runner calls the
-actual `Store` methods; production reads and diagnostic `EXPLAIN` probes share
+actual `Store` methods; selected reads and diagnostic `EXPLAIN` probes share
 the same SQL files. The explicit `layout` selects either production's unpartitioned
 schema or the approved sequence-range experiment, only in disposable fixtures.
 Experimental Store hooks are excluded from production builds.
@@ -35,11 +38,30 @@ of Cargo's package working directory; absolute paths are also accepted.
 The committed baseline uses three trials, five-second read windows, and
 ten-second write windows (subject to the growth cap below).
 
-`layout` is required: `unpartitioned` or `sequence_ranges`. The partitioned
+`layout` is required: `unpartitioned`, `sequence_ranges`,
+`unpartitioned_watermarks`, or `sequence_ranges_watermarks`.
+`measure_writes` is an explicit boolean:
+`true` measures inserts and partition rollovers; `false` excludes both matrices
+for a focused read experiment. Historical format-version-1 artifacts without
+this field contain the original complete read/write matrix; only the reporter
+supports that legacy input, not new runner configuration. The partitioned
 experiment additionally requires admin role-creation privileges and local
 authentication for the unprivileged `xmtp_bench_writer` login. It creates no
 production migrations. See [partitioning](PARTITIONING.md#running-the-approved-experiment)
 for registry costs, privilege boundaries, setup accounting, and timed rollover controls.
+
+`watermarks.json` is a focused ten-million-row / 1,000-topic read experiment.
+It keeps the same schema, seed, future-range inventory, read windows, and trial
+count as the corresponding full-run cases. Its paging query first filters
+topics whose transactional watermark cannot exceed their cursor, then uses
+the unchanged bounded candidate/page logic. The prefilter relies on the same
+atomic Store-maintained watermark invariant as newest reads, and all query
+stages remain in one statement/snapshot. Each probe is also bounded above by that
+snapshot's head to avoid empty future ranges. Full and metadata newest SQL is unchanged.
+This experiment changes no production query SQL and makes no write-throughput claim.
+`watermarks-unpartitioned.json` runs the same optimization without partitioning or
+the registry: compare both query shapes on both schemas before attributing a gain
+to partitioning. The newest queries remain unchanged controls in all layouts.
 
 `sizes` accepts 1,000–1,000,000,000; `topic_counts` 1–1,000;
 `writers` 1–64; `batch_sizes` 1–100; `trials`, `read_ms`, `write_ms`, and

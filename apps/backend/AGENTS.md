@@ -65,8 +65,10 @@ unit tests use the existing dev-dependencies.
 Use the shared `TestDatabase` guard for disposable databases. Its cleanup survives
 assertion failures and test-runtime teardown; do not add success-only cleanup.
 The manual database benchmarks and approved partitioning experiment are in `benchmarks/`.
-Benchmark config requires `layout`: `unpartitioned` or `sequence_ranges`.
-Use `just backend bench apps/backend/benchmarks/partitioned.json` for the latter;
+Benchmark config requires `layout` and `measure_writes` explicitly.
+Layouts are `unpartitioned` or `sequence_ranges`, optionally suffixed `_watermarks`
+for the query-shape experiment on either schema.
+Use `just backend bench apps/backend/benchmarks/partitioned.json` for sequence ranges;
 it needs a dedicated admin with `CREATEROLE` and local authentication for
 `xmtp_bench_writer`. Experimental migrations/hooks never run in production.
 Benchmark trials copy a disconnected fixture with a separate 600 s copy budget;

@@ -35,6 +35,8 @@ pub struct Store {
     pub read: PgPool,
     #[cfg(test)]
     pub(crate) partitions: Option<std::sync::Arc<benchmarks::partition::Partitions>>,
+    #[cfg(test)]
+    pub(crate) watermark_prefilter: bool,
 }
 
 impl Store {
@@ -65,6 +67,8 @@ impl Store {
             read,
             #[cfg(test)]
             partitions: None,
+            #[cfg(test)]
+            watermark_prefilter: false,
         })
     }
 }

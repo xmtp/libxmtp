@@ -35,6 +35,7 @@ use xmtp_common::time::{Duration, Instant};
 #[serde(deny_unknown_fields)]
 struct Config {
     layout: partition::Layout,
+    measure_writes: bool,
     sizes: Vec<i64>,
     topic_counts: Vec<usize>,
     writers: Vec<usize>,
@@ -86,7 +87,7 @@ impl Config {
         {
             return Err("invalid benchmark config: see benchmarks/README.md for bounds".into());
         }
-        for size in &self.sizes {
+        for size in self.sizes.iter().filter(|_| self.measure_writes) {
             let budget = *size as usize * self.write_growth_percent / 100;
             if self.writers.iter().any(|writers| {
                 self.batch_sizes
@@ -158,7 +159,7 @@ async fn baseline() {
         let mut database = TestDatabase::new()?;
         let store = connect(&database, 1, SEED_TIMEOUT_MS).await?;
         let setup = Instant::now();
-        if config.layout == partition::Layout::SequenceRanges {
+        if config.layout.is_partitioned() {
             partition::install(&store).await?;
             let partitions = partition::Partitions::new(store.primary.clone());
             let last = size + size * config.write_growth_percent as i64 / 100;
@@ -183,10 +184,12 @@ async fn baseline() {
         let store = partition::connect(&database, 1, REQUEST_TIMEOUT_MS, config.layout).await?;
         workload::reads(&store, &catalog, size, &config, &mut output).await?;
         partition::close(&store).await;
-        workload::writes(&database, size, &config, &mut output).await?;
+        if config.measure_writes {
+            workload::writes(&database, size, &config, &mut output).await?;
+        }
         database.remove()?;
     }
-    if config.layout == partition::Layout::SequenceRanges {
+    if config.measure_writes && config.layout.is_partitioned() {
         partition::rollovers(&config, &mut output).await?;
     }
     record(
