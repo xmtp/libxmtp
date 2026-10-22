@@ -6,6 +6,8 @@ matrix, explicit skips, and trial coverage before reporting trial medians.
 Only fixed workload/profile names and finite numeric cells reach CSV output.
 Format 2 validates the paired index/query matrix and its plans, while legacy
 format-1 artifacts retain their original CSV columns and byte representation.
+An explicit format-2 unpartitioned cohort can be validated independently after
+interruption; this never claims whole-run completion or edits the raw artifact.
 Partition experiments also require complete first-use/control rollover trials;
 those sparse-ID diagnostics remain in JSONL, not steady-state CSV rows.
 """
@@ -77,14 +79,14 @@ def _valid_plans(plans):
     )
 
 
-def summarize(path):
-    """Reject incomplete matrices and unsafe cells before any CSV is emitted."""
+def summarize(path, *, cohort=None):
+    """Validate a whole run or explicit (rows, profile) cohort before reporting statistics."""
     events = [json.loads(line) for line in Path(path).read_text().splitlines()]
     if (
         not events
         or events[0].get("event") != "environment"
         or events[0].get("format_version") not in (1, 2)
-        or events[-1].get("event") != "complete"
+        or (cohort is None and events[-1].get("event") != "complete")
     ):
         raise ValueError("expected a complete supported benchmark run")
     paired = events[0]["format_version"] == 2
@@ -131,6 +133,27 @@ def summarize(path):
         if type(config.get("measure_writes", True)) is not bool:
             raise ValueError("invalid write-measurement selector")
         write_sizes = config["sizes"] if config.get("measure_writes", True) else []
+    if cohort is not None:
+        if (
+            not paired
+            or config["layout"] != "unpartitioned"
+            or len(cohort) != 2
+            or type(cohort[0]) is not int
+            or cohort[0] not in config["sizes"]
+            or cohort[1] not in profiles
+        ):
+            raise ValueError(
+                "cohort must name a configured format-2 unpartitioned size and index profile"
+            )
+        size, profile = cohort
+        config = {**config, "sizes": [size]}
+        write_sizes = [size] if size in write_sizes else []
+        profiles = [profile]
+        events = [
+            event
+            for event in events
+            if event.get("rows") == size and event.get("index_profile") == profile
+        ]
     _validate_rollovers(events, config, bool(write_sizes))
     corpora = [event for event in events if event["event"] == "corpus"]
     if (
@@ -381,8 +404,20 @@ def main():
     """Write CSV to stdout; failures are nonzero and never emit a partial table."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("run", type=Path)
+    parser.add_argument(
+        "--cohort",
+        nargs=2,
+        metavar=("ROWS", "INDEX_PROFILE"),
+        help="validate only this complete format-2 unpartitioned cohort, even if the larger run was interrupted",
+    )
     args = parser.parse_args()
-    rows = summarize(args.run)
+    cohort = (int(args.cohort[0]), args.cohort[1]) if args.cohort else None
+    rows = summarize(args.run, cohort=cohort)
+    if cohort is not None:
+        print(
+            f"Validated cohort only: {cohort}; no whole-run completion claimed",
+            file=sys.stderr,
+        )
     writer = csv.DictWriter(sys.stdout, fieldnames=rows[0].keys(), lineterminator="\n")
     writer.writeheader()
     writer.writerows(rows)

@@ -74,6 +74,9 @@ Use `just backend bench apps/backend/benchmarks/scaling.json` for shared-corpus
 10M/30M query/index controls and 10M insert/visibility costs. Covering index setup
 is timed separately; post-write newest probes run before vacuum. Format-1 raw
 artifacts remain readable with their original CSV columns, not runnable configs.
+`benchmarks/report.py RUN --cohort ROWS INDEX_PROFILE` validates a complete
+format-2 unpartitioned cohort after interruption without claiming full-run
+completion; all trials, paired plans, and post-write controls remain mandatory.
 Use `just backend bench apps/backend/benchmarks/partitioned.json` for sequence ranges;
 it needs a dedicated admin with `CREATEROLE` and local authentication for
 `xmtp_bench_writer`. Experimental migrations/hooks never run in production.

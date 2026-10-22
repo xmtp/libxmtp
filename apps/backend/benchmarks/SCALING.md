@@ -1,6 +1,10 @@
 # Large-history query and index experiments
 
-**Status: benchmark implementation complete; measurement pending.** The owner
+**Status: measured; complete cohorts and limitations published in
+[the scaling report](SCALING-RESULTS.md).** The full run was interrupted during
+30M covering-index reads; that incomplete cohort is excluded, not reported as
+complete. Both paging strategies have complete 10M/30M baseline-index controls,
+and the 10M covering read/write comparison is complete. The owner
 authorized this next round on October 22, 2026. These are disposable-schema and
 test-build experiments, not production migrations or new API guarantees.
 The [earlier controls](RESULTS.md) rejected sequence-range partitioning and the
@@ -62,7 +66,7 @@ is_commit_or_proposal)`. It adds no payload bytes to the index and does not
 duplicate the old topic/sequence index. Newest SQL remains unchanged, so plans
 must demonstrate whether the planner actually uses index-only access.
 
-Build, `VACUUM`, and checkpoint time are separate setup costs, not query
+Index replacement, `VACUUM`, and checkpoint are timed together as setup, not query
 latency. Bulk seed time is shared and must not be presented as loading directly
 into the covering index. Storage includes every maintained index. Insert trials
 include its real maintenance/WAL costs. Column statistics remain those from the

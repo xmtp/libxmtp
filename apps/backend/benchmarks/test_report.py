@@ -197,6 +197,93 @@ class ReportTests(unittest.TestCase):
                     self.summarize()
                 self.events = original
 
+    def test_explicit_cohort_preserves_complete_controls_after_interruption(self):
+        """A completed size/profile remains usable without pretending its interrupted parent run finished."""
+        self.paired()
+        self.events = [
+            event
+            for event in self.events
+            if event.get("index_profile") != "metadata_covering"
+            and event["event"] != "complete"
+        ]
+        self.events[0]["config"]["sizes"].append(2000)
+        self.events.append(
+            dict(event="corpus", rows=2000, topics=100, index_profile="baseline")
+        )
+        self.write_run()
+        with self.assertRaises(ValueError):
+            summarize(self.path)
+        rows = summarize(self.path, cohort=(1000, "baseline"))
+        self.assertEqual(len(rows), 26)
+        self.assertEqual({row["index_profile"] for row in rows}, {"baseline"})
+        self.assertEqual(
+            {row["strategy"] for row in rows}, {"lateral", "bounded", "publish"}
+        )
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(Path(__file__).with_name("report.py")),
+                str(self.path),
+                "--cohort",
+                "1000",
+                "baseline",
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        self.assertEqual(len(result.stdout.splitlines()), 27)
+        self.assertIn("no whole-run completion claimed", result.stderr)
+        self.assertNotIn('"complete"', self.path.read_text())
+
+    def test_cohort_requires_every_trial_plan_and_post_write_control(self):
+        """Explicit scoping must never weaken coverage within the selected cohort."""
+        self.paired()
+        original = copy.deepcopy(self.events)
+        for kind in ("read", "write", "plan", "post_write_newest", "corpus"):
+            with self.subTest(kind=kind):
+                self.events = copy.deepcopy(original)
+                self.events.remove(
+                    next(event for event in self.events if event["event"] == kind)
+                )
+                self.write_run()
+                with self.assertRaises(ValueError):
+                    summarize(self.path, cohort=(1000, "baseline"))
+
+    def test_cohort_cannot_default_to_missing_or_unconfigured_observations(self):
+        """Mistyped sizes/profiles and absent selected cohorts must fail rather than silently select another."""
+        self.paired()
+        self.write_run()
+        for cohort in (
+            (100, "baseline"),
+            (True, "baseline"),
+            (1000, "unknown"),
+            (1000,),
+        ):
+            with self.subTest(cohort=cohort), self.assertRaises(ValueError):
+                summarize(self.path, cohort=cohort)
+        self.events = [
+            event
+            for event in self.events
+            if event.get("index_profile") != "metadata_covering"
+        ]
+        self.write_run()
+        with self.assertRaises(ValueError):
+            summarize(self.path, cohort=(1000, "metadata_covering"))
+
+    def test_cohort_rejects_legacy_and_partitioned_runs(self):
+        """Cohort recovery has no implicit legacy defaults or omitted partition-rollover requirements."""
+        self.write_run()
+        with self.assertRaises(ValueError):
+            summarize(self.path, cohort=(1000, "baseline"))
+        self.paired()
+        self.events[0]["config"].update(
+            layout="sequence_ranges", index_profiles=["baseline"]
+        )
+        self.write_run()
+        with self.assertRaises(ValueError):
+            summarize(self.path, cohort=(1000, "baseline"))
+
     def test_paired_configuration_cannot_default_or_accept_unknown_profiles(self):
         """Explicit controls prevent silent fallbacks and unsafe strings from reaching CSV fields."""
         original = copy.deepcopy(self.events)

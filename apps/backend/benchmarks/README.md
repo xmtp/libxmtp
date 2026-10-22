@@ -225,3 +225,10 @@ bounds, output statistics, and rejection of incomplete reports.
 See [the approved partitioning experiment](PARTITIONING.md) for its implementation
 and separate production-rollout boundary; see [baseline results](BASELINE.md) for
 the unpartitioned reference run.
+
+See [the 10M/30M scaling results](SCALING-RESULTS.md) for matched paging controls,
+covering-index costs, and explicitly scoped recovery from an interrupted run.
+`report.py RUN --cohort ROWS INDEX_PROFILE` validates a complete format-2
+unpartitioned cohort independently; it still rejects missing trials, plans, or
+post-write controls and never claims the parent run completed. Omitting
+`--cohort` retains strict full-run completion checks.

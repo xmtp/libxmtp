@@ -1,5 +1,9 @@
 # Schema comparison results
 
+The [next-round 10M/30M query and covering-index results](SCALING-RESULTS.md)
+extend this comparison: broad uniform-cursor paging improves without schema
+partitioning; the tested covering index is not recommended.
+
 The initial million-sequence-ID range layout does **not** justify production
 adoption on this workload. At ten million rows it makes recent broad reads
 slower, materially regresses empty polling, lowers insert throughput, and adds
