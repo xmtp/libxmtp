@@ -4,7 +4,7 @@ use crate::DbgClient;
 use crate::app::health::conditions::Conditions;
 use crate::app::health::result::OpResult;
 use crate::app::store::{Database, DeriveKey, DmStore, GroupStore, IdentityStore, MessageStore};
-use crate::app::types::{Dm, Group, Identity, InboxId, Message};
+use crate::app::types::{Dm, Group, Identity, InboxId, Message, StoredGroupId};
 use crate::app::{self, App, client_from_identity};
 use color_eyre::eyre::{Result, ensure, eyre};
 use std::collections::{HashMap, HashSet};
@@ -227,7 +227,7 @@ impl HealthContext {
         members: Vec<InboxId>,
     ) {
         self.group_store
-            .set(Group::new(*group_id, created_by, members))
+            .set(Group::new(stored_group_id(group_id), created_by, members))
             .expect("redb GroupStore::set failed");
     }
 
@@ -246,7 +246,7 @@ impl HealthContext {
             .find(|m| *m != created_by)
             .expect("DM must contain a peer distinct from the creator");
         self.dm_store
-            .set(Dm::new(created_by, peer, *group_id))
+            .set(Dm::new(created_by, peer, stored_group_id(group_id)))
             .expect("redb DmStore::set failed");
     }
 
@@ -260,12 +260,12 @@ impl HealthContext {
         // to zero — the field is informational, not load-bearing.
         let created_by = self
             .group_store
-            .get(group_id.into())
+            .get(stored_group_id(group_id).into())
             .expect("redb GroupStore::get failed")
             .map(|g| g.created_by)
             .unwrap_or([0u8; 32]);
         self.group_store
-            .set(Group::new(*group_id, created_by, members))
+            .set(Group::new(stored_group_id(group_id), created_by, members))
             .expect("redb GroupStore::set failed");
     }
 
@@ -273,7 +273,7 @@ impl HealthContext {
     /// Returns an empty vec if the group is not in redb.
     pub fn persisted_members(&self, group_id: &GroupId) -> Vec<InboxId> {
         self.group_store
-            .get(group_id.into())
+            .get(stored_group_id(group_id).into())
             .expect("redb GroupStore::get failed")
             .map(|g| g.members)
             .unwrap_or_default()
@@ -551,7 +551,7 @@ impl HealthContext {
             .unwrap_or(0);
         let msg = Message::new(
             message_id,
-            *group_id,
+            stored_group_id(group_id),
             inbox_id_to_bytes(sender.inbox_id()),
             sent_at_ns,
         );
@@ -587,4 +587,11 @@ pub fn inbox_id_to_bytes(hex_inbox: &str) -> InboxId {
     let mut out = [0u8; 32];
     hex::decode_to_slice(hex_inbox, &mut out).expect("inbox_id is 32-byte hex");
     out
+}
+
+/// The 16-byte id under which redb stores a group this run created. Panics on
+/// another length: every group a healthcheck creates has a 16-byte id until
+/// xdbg storage moves to 32-byte ids.
+fn stored_group_id(group_id: &GroupId) -> StoredGroupId {
+    StoredGroupId::try_from(group_id).expect("healthcheck groups have 16-byte ids")
 }

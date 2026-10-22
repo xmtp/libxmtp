@@ -13,11 +13,14 @@ public struct PushEnvelope: Equatable, Sendable {
 	public init?(topic: String, sequence: String) {
 		guard !sequence.isEmpty, sequence.utf8.allSatisfy({ (48 ... 57).contains($0) }), let number = UInt64(sequence),
 		      let bytes = Data(base64Encoded: topic), bytes.base64EncodedString() == topic else { return nil }
-		if bytes.count == 17, bytes.first == 0 {
+		// Group and welcome topics can both be 33 bytes, so the kind byte decides:
+		// 0x00 carries a 32-byte group id (or a 16-byte legacy id), 0x01 a 32-byte installation key.
+		switch bytes.first {
+		case 0? where bytes.count == 33 || bytes.count == 17:
 			kind = .group
-		} else if bytes.count == 33, bytes.first == 1 {
+		case 1? where bytes.count == 33:
 			kind = .welcome
-		} else {
+		default:
 			return nil
 		}
 		self.topic = topic; self.sequence = number; identifier = Self.hex(bytes.dropFirst())

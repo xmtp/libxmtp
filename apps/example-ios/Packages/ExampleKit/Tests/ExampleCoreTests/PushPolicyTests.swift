@@ -63,6 +63,19 @@ import Testing
 		#expect(stable.action(registeredToken: "ab", sdkEnabled: false) == .enable)
 	}
 
+	@Test func kindByteDecidesBetweenGroupAndWelcomeTopicsOfEqualLength() throws {
+		let keyed = Data([0] + Array(repeating: UInt8(0x33), count: 32)).base64EncodedString()
+		let group = try #require(PushEnvelope(topic: keyed, sequence: "1"))
+		#expect(group.kind == .group)
+		#expect(group.identifier == String(repeating: "33", count: 32))
+		let legacy = Data([0] + Array(repeating: UInt8(0x11), count: 16)).base64EncodedString()
+		#expect(PushEnvelope(topic: legacy, sequence: "1")?.kind == .group)
+		let welcomeTopic = Data([1] + Array(repeating: UInt8(0x33), count: 32)).base64EncodedString()
+		let welcome = try #require(PushEnvelope(topic: welcomeTopic, sequence: "1"))
+		#expect(welcome.kind == .welcome)
+		#expect(welcome.identifier == String(repeating: "33", count: 32))
+	}
+
 	@Test func canonicalTopicsAndTokenHex() {
 		let group = Data([0] + Array(repeating: UInt8(255), count: 16)).base64EncodedString()
 		#expect(PushEnvelope(topic: group, sequence: String(UInt64.max))?.identifier == String(repeating: "ff", count: 16))
@@ -76,11 +89,17 @@ import Testing
 			Data(),
 			Data([2] + Array(repeating: UInt8(0), count: 16)),
 			Data([1] + Array(repeating: UInt8(0), count: 16)),
-			Data([0] + Array(repeating: UInt8(0), count: 32)),
 		] {
 			#expect(PushEnvelope(topic: data.base64EncodedString(), sequence: "1") == nil)
 		}
 		#expect(PushEnvelope(topic: group + "\n", sequence: "1") == nil)
+		for data in [
+			Data([0] + Array(repeating: UInt8(0), count: 31)),
+			Data([0] + Array(repeating: UInt8(0), count: 33)),
+			Data([4] + Array(repeating: UInt8(0), count: 32)),
+		] {
+			#expect(PushEnvelope(topic: data.base64EncodedString(), sequence: "1") == nil)
+		}
 		#expect(PushEnvelope.hex(Data([0, 1, 10, 15, 16, 171, 255])) == "00010a0f10abff")
 	}
 

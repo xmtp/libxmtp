@@ -269,6 +269,31 @@ impl redb::Value for Identity {
     }
 }
 
+/// The 16-byte group id xdbg stores. Storage moves to 32-byte ids when
+/// clients create keyed groups. Until then a 32-byte id, which a Welcome or a
+/// command argument can carry, is an error, not a panic.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StoredGroupId(pub [u8; 16]);
+
+impl From<[u8; 16]> for StoredGroupId {
+    fn from(value: [u8; 16]) -> Self {
+        Self(value)
+    }
+}
+
+impl TryFrom<&GroupId> for StoredGroupId {
+    type Error = eyre::Report;
+
+    fn try_from(value: &GroupId) -> Result<Self> {
+        value.as_slice().try_into().map(Self).map_err(|_| {
+            eyre::eyre!(
+                "xdbg stores only 16-byte group ids; {value} has {} bytes",
+                value.len()
+            )
+        })
+    }
+}
+
 /// Group specific to this debug CLI Tool.
 /// Number of members in group
 #[derive(Debug, Hash, Clone, PartialEq, Eq, valuable::Valuable, Readable, Writable)]
@@ -293,11 +318,11 @@ impl Group {
     /// Build a `Group` from id + creator + members; the redundant
     /// `member_size` field is derived. Use this everywhere instead of
     /// the struct literal so the size never drifts from `members.len()`.
-    pub fn new(id: impl Into<[u8; 16]>, created_by: InboxId, members: Vec<InboxId>) -> Self {
+    pub fn new(id: impl Into<StoredGroupId>, created_by: InboxId, members: Vec<InboxId>) -> Self {
         let member_size = members.len() as u32;
         Self {
             created_by,
-            id: id.into(),
+            id: id.into().0,
             member_size,
             members,
             version_string: pack_version_string(&crate::get_version())
@@ -308,6 +333,11 @@ impl Group {
     /// View `self.id` as the canonical [`xmtp_proto::types::GroupId`].
     pub fn id(&self) -> GroupId {
         GroupId::from(self.id)
+    }
+
+    /// The stored 16-byte id.
+    pub fn stored_id(&self) -> StoredGroupId {
+        StoredGroupId(self.id)
     }
 
     /// Merge `new` inboxes into the existing members, deduping.
@@ -419,11 +449,11 @@ impl std::fmt::Display for Dm {
 }
 
 impl Dm {
-    pub fn new(created_by: InboxId, with: InboxId, group_id: GroupId) -> Self {
+    pub fn new(created_by: InboxId, with: InboxId, group_id: StoredGroupId) -> Self {
         Self {
             created_by,
             with,
-            group_id: group_id.into(),
+            group_id: group_id.0,
             version_string: pack_version_string(&crate::get_version())
                 .expect("version must be valid"),
         }
@@ -503,13 +533,13 @@ pub struct Message {
 impl Message {
     pub fn new(
         id: [u8; 32],
-        group_id: impl Into<[u8; 16]>,
+        group_id: impl Into<StoredGroupId>,
         sender_inbox_id: InboxId,
         sent_at_ns: i64,
     ) -> Self {
         Message {
             id,
-            group_id: group_id.into(),
+            group_id: group_id.into().0,
             sender_inbox_id,
             sent_at_ns,
             xdbg_version: crate::get_version(),
@@ -521,9 +551,9 @@ impl Message {
     /// uses `group_id ++ id` (48 bytes); the rest of the message
     /// is the value, not the key. Use this for membership checks
     /// to avoid allocating a placeholder `Message`.
-    pub fn redb_key(group_id: impl Into<[u8; 16]>, id: [u8; 32]) -> MessageKey {
+    pub fn redb_key(group_id: impl Into<StoredGroupId>, id: [u8; 32]) -> MessageKey {
         let mut combined = [0u8; 48];
-        let gid = group_id.into();
+        let gid = group_id.into().0;
         combined[..16].copy_from_slice(&gid);
         combined[16..].copy_from_slice(&id);
         MessageKey::new(combined)
@@ -572,5 +602,22 @@ impl redb::Value for Message {
 
     fn type_name() -> redb::TypeName {
         redb::TypeName::new("message")
+    }
+}
+
+#[cfg(test)]
+mod stored_group_id_tests {
+    use super::*;
+    use crate::app::store::GroupKey;
+
+    /// A 32-byte group id, which a Welcome or a command argument can carry,
+    /// is refused with an error, not a panic. Storage keeps 16-byte ids.
+    #[xmtp_common::test(unwrap_try = true)]
+    fn a_32_byte_group_id_is_refused_without_a_panic() {
+        let keyed = GroupId::from([7u8; 32]);
+        assert!(StoredGroupId::try_from(&keyed).is_err());
+        assert!(GroupKey::try_from(&keyed).is_err());
+        let legacy = GroupId::from([7u8; 16]);
+        assert_eq!(StoredGroupId::try_from(&legacy)?, StoredGroupId([7; 16]));
     }
 }

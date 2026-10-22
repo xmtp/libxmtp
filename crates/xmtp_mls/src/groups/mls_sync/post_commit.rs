@@ -313,6 +313,8 @@ pub(super) fn group_message_envelopes(
                 data: payload.to_vec(),
                 sender_hmac: sender_hmac.into_bytes().to_vec(),
                 should_push,
+                // Empty: signing needs a group root, which groups do not hold yet.
+                signature: Vec::new(),
             })),
         });
     }

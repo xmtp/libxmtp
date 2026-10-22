@@ -149,8 +149,8 @@ async fn test_commit_log_publish_and_query_apis() {
     // There is no way to clear commit log on the local node between tests, so we'll just write to
     // a new random group_id for each test iteration in case local node state has not been cleared
 
-    // Generate a random 20-byte group_id for this test
-    let group_id = xmtp_common::rand_vec::<{ xmtp_configuration::BACKEND_GROUP_ID_BYTES }>();
+    // Generate a random 16-byte group_id for this test
+    let group_id = xmtp_common::rand_vec::<{ xmtp_configuration::LEGACY_GROUP_ID_BYTES }>();
 
     // Test publishing commit log
     let commit_log_entry = PlaintextCommitLogEntry {
@@ -179,18 +179,23 @@ async fn test_commit_log_publish_and_query_apis() {
         &private_key_bytes,
     )?;
 
+    let mut stored = Vec::new();
     let result = alix
         .context
         .api()
-        .publish_commit_log(vec![CommitLogEntry {
-            serialized_commit_log_entry: serialized_entry,
-            signature: Some(RecoverableEd25519Signature {
-                bytes: signature,
-                public_key: public_key.clone(),
-            }),
-        }])
+        .publish_commit_log(
+            vec![CommitLogEntry {
+                serialized_commit_log_entry: serialized_entry,
+                signature: Some(RecoverableEd25519Signature {
+                    bytes: signature,
+                    public_key: public_key.clone(),
+                }),
+            }],
+            &mut stored,
+        )
         .await;
     assert!(result.is_ok());
+    assert_eq!(stored.len(), 1);
 
     // Test querying commit log
     let query = [(Topic::new_commit_log(group_id.clone()), Cursor(0))].into();

@@ -15,7 +15,7 @@ use xmtp_id::{
     scw_verifier::{BlockStamp, ChainBlocks, MultiSmartContractSignatureVerifier, VerifierError},
 };
 use xmtp_proto::xmtp::backend::v1::{
-    ClientEnvelope, KeyPackage, WelcomeMessage, client_envelope::Payload,
+    ClientEnvelope, KeyPackage, SealedCommitLogEntry, WelcomeMessage, client_envelope::Payload,
 };
 
 fn expected_topic(kind: TopicKind, identifier: impl AsRef<[u8]>) -> Vec<u8> {
@@ -52,7 +52,8 @@ fn group_message_matrix_preserves_routing_bytes_and_flags() {
 #[xmtp_common::test(unwrap_try = true)]
 // verifies: TOPIC-002, API-230
 fn group_message_matrix_rejects_malformed_data_and_wrong_id_lengths() {
-    for group_id in [vec![0x11; 15], vec![0x11; 17]] {
+    // A 32-byte group id stays refused until admission checks publish signatures.
+    for group_id in [vec![0x11; 15], vec![0x11; 17], vec![0x11; 32]] {
         let error = parse_envelope(group_message_envelope(
             group_id,
             GroupMessageKind::Application,
@@ -153,7 +154,8 @@ async fn commit_log_admission_preserves_unverified_bytes_and_signature() {
 #[xmtp_common::test(unwrap_try = true)]
 // verifies: TOPIC-002, API-230
 fn commit_log_matrix_rejects_malformed_data_and_wrong_id_lengths() {
-    for group_id in [vec![0x11; 15], vec![0x11; 17]] {
+    // A 32-byte group id stays refused until admission checks publish signatures.
+    for group_id in [vec![0x11; 15], vec![0x11; 17], vec![0x11; 32]] {
         let error = parse_envelope(commit_log_envelope(group_id))
             .err()
             .expect("commit-log group identifiers must be 16 bytes");
@@ -169,6 +171,25 @@ fn commit_log_matrix_rejects_malformed_data_and_wrong_id_lengths() {
         .err()
         .expect("malformed plaintext entry must fail");
     assert_eq!(error.reason(), Reason::MalformedPayload);
+}
+
+/// Admission does not route a sealed commit-log entry yet: it is refused as
+/// malformed, never retried, and never stored.
+#[xmtp_common::test(unwrap_try = true)]
+fn sealed_commit_log_entry_is_refused_as_malformed() {
+    let error = parse_envelope(ClientEnvelope {
+        payload: Some(Payload::SealedCommitLogEntry(SealedCommitLogEntry {
+            commit_log_id: vec![0x33; 32],
+            nonce: vec![0x44; 12],
+            ciphertext: vec![0x55; 16],
+            signature: vec![0x66; 64],
+        })),
+    })
+    .err()
+    .expect("sealed commit-log entries are not admitted yet");
+    assert!(matches!(error, ValidationError::UnsupportedPayload));
+    assert_eq!(error.reason(), Reason::MalformedPayload);
+    assert!(!error.is_retryable());
 }
 
 #[xmtp_common::test(unwrap_try = true)]

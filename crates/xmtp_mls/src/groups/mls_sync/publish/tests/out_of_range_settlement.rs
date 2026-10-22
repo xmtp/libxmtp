@@ -1,12 +1,14 @@
 //! Settlement of publishes that returned `OUT_OF_RANGE`. The backend may have
 //! stored such a request and forbids sending it again, so a `Query` of each
 //! topic settles every saved envelope by its hash, never a resend of the same
-//! request or a re-encryption.
+//! request or a re-encryption. A saved attempt that no longer fits in one
+//! request is settled the same way.
 
 use super::faults::{Fault, FaultyApi, faulty_group, group_message, welcome};
 use super::*;
 use std::collections::HashMap;
 use std::sync::atomic::Ordering;
+use xmtp_configuration::MAX_PUBLISH_ENVELOPES;
 use xmtp_db::group_message::DeliveryStatus;
 use xmtp_proto::backend_v1 as wire;
 use xmtp_proto::types::Cursor;
@@ -312,4 +314,92 @@ async fn publish_out_of_range_settlement_completes_a_mixed_topic_welcome_batch()
         .await
         .expect("every new member must receive its Welcome");
     }
+}
+
+/// Rewrite the saved one-envelope attempt of `intent_id` as an earlier build
+/// could have saved it, with more envelopes than one request may carry. Each
+/// copy is the same envelope, so the backend stores at most one.
+fn save_oversized_attempt<C: XmtpSharedContext>(
+    group: &MlsGroup<C>,
+    intent_id: i32,
+) -> PreparedAttempt {
+    let db = group.context.db();
+    let encoded = db.prepared_envelopes(intent_id).unwrap().unwrap();
+    let mut attempt = PreparedAttempt::decode(&encoded).unwrap();
+    assert_eq!(attempt.envelopes.len(), 1);
+    attempt.envelopes = vec![attempt.envelopes[0].clone(); MAX_PUBLISH_ENVELOPES + 1];
+    let replacement = xmtp_db::db_serialize(&attempt).unwrap();
+    assert!(
+        db.compare_and_set_prepared_envelopes(intent_id, Some(&encoded), Some(&replacement))
+            .unwrap()
+    );
+    attempt
+}
+
+/// An earlier build could save an attempt of more envelopes than one request
+/// may now carry, and may not have sent it. The bytes cannot be sent again,
+/// so a recovery read settles them. When it finds none of them, the intent
+/// must fail with its message and later work must publish in the same round,
+/// instead of every round stopping on the saved attempt.
+// verifies: SEND-007, SEND-009
+#[xmtp_common::test(unwrap_try = true)]
+async fn publish_settlement_fails_an_oversized_saved_attempt_the_backend_did_not_store() {
+    tester!(alix, disable_workers);
+    let group = alix.create_group(None, None)?;
+    group.key_update().await?;
+    let saved_id =
+        group.send_message_optimistic(b"saved by an earlier build", Default::default())?;
+    let later_id = group.send_message_optimistic(b"later work", Default::default())?;
+    let (intent, _) = prepare_kind(&group, IntentKind::SendMessage).await?;
+    save_oversized_attempt(&group, intent.id);
+
+    assert!(matches!(
+        group.publish_intents().await,
+        Err(GroupError::OutgoingPreparation(
+            OutgoingPreparationError::Unstored
+        ))
+    ));
+    let failed = only_intent(&group, IntentState::Error, IntentKind::SendMessage);
+    assert_eq!(failed.id, intent.id);
+    assert_eq!(status(&group, &saved_id), DeliveryStatus::Failed);
+    let later: StoredGroupMessage = group.context.db().fetch(&later_id)?.unwrap();
+    assert!(
+        later.envelope_hash.is_some(),
+        "later work was not published"
+    );
+
+    group.sync_until_last_intent_resolved().await?;
+    assert_eq!(status(&group, &later_id), DeliveryStatus::Published);
+}
+
+/// An earlier build could also have stored such an attempt and lost the
+/// response. The recovery read must then return the receipts its publish
+/// assigned, so that the message confirms. Failing it would drop a message
+/// that is on the network.
+// verifies: SEND-007
+#[xmtp_common::test(unwrap_try = true)]
+async fn publish_settlement_recovers_an_oversized_saved_attempt_the_backend_stored() {
+    tester!(alix, disable_workers);
+    let group = alix.create_group(None, None)?;
+    group.key_update().await?;
+    let message_id =
+        group.send_message_optimistic(b"stored before the upgrade", Default::default())?;
+    let (intent, attempt) = prepare_kind(&group, IntentKind::SendMessage).await?;
+    let api = group.context.api();
+    let stored = api
+        .send_group_messages(vec![attempt.publish_unit(api.limits())?])
+        .await?;
+    let oversized = save_oversized_attempt(&group, intent.id);
+
+    group.publish_intents().await?;
+    let settled = saved_attempt(&group, intent.id);
+    assert!(settled.same_attempt(&oversized));
+    assert_eq!(
+        settled.receipts,
+        Some(vec![stored[0].encode_to_vec(); MAX_PUBLISH_ENVELOPES + 1]),
+        "the recovery read must return the receipt the publish assigned"
+    );
+
+    group.sync_until_intent_resolved(intent.id).await?;
+    assert_eq!(status(&group, &message_id), DeliveryStatus::Published);
 }

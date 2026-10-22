@@ -7,7 +7,7 @@
 
 use crate::app::health::inbox_id_to_bytes;
 use crate::app::store::{Database, DmStore, GroupStore, IdentityStore, MessageStore};
-use crate::app::types::{Dm, DmId, Group, InboxId, Message};
+use crate::app::types::{Dm, DmId, Group, InboxId, Message, StoredGroupId};
 use crate::app::{self, App};
 use crate::args::SyncOpts;
 use color_eyre::eyre::{self, Report, Result};
@@ -93,6 +93,14 @@ impl Sync {
 
         for dm in dms {
             let gid = dm.group_id;
+            let Ok(stored_id) = StoredGroupId::try_from(&gid) else {
+                tracing::warn!(
+                    target: "xdbg.sync",
+                    group_id = %gid,
+                    "xdbg stores only 16-byte group ids; skipping dm"
+                );
+                continue;
+            };
 
             let live_members: Vec<InboxId> = dm
                 .members()
@@ -112,7 +120,7 @@ impl Sync {
             let persisted = dm_store.get(DmId::new(creator_bytes, other).into())?;
             match persisted {
                 None => {
-                    dm_store.set(Dm::new(creator_bytes, other, gid))?;
+                    dm_store.set(Dm::new(creator_bytes, other, stored_id))?;
                     stats.new_dms += 1;
                     tracing::info!(
                         target: "xdbg.sync",
@@ -133,6 +141,14 @@ impl Sync {
 
         for group in groups {
             let gid = group.group_id;
+            let Ok(stored_id) = StoredGroupId::try_from(&gid) else {
+                tracing::warn!(
+                    target: "xdbg.sync",
+                    group_id = %gid,
+                    "xdbg stores only 16-byte group ids; skipping group"
+                );
+                continue;
+            };
 
             let live_members: Vec<InboxId> = group
                 .members()
@@ -141,13 +157,13 @@ impl Sync {
                 .map(|m| Ok::<_, Report>(inbox_id_to_bytes(&m.inbox_id)))
                 .try_collect()?;
 
-            let persisted = group_store.get(gid.into())?;
+            let persisted = group_store.get(stored_id.into())?;
             match persisted {
                 None => {
                     let md = group.metadata().await?;
                     let creator_bytes = inbox_id_to_bytes(&md.creator_inbox_id);
                     let member_count = live_members.len();
-                    group_store.set(Group::new(gid, creator_bytes, live_members))?;
+                    group_store.set(Group::new(stored_id, creator_bytes, live_members))?;
                     stats.new_groups += 1;
                     tracing::info!(
                         target: "xdbg.sync",
@@ -159,7 +175,7 @@ impl Sync {
                 Some(existing) if existing.members != live_members => {
                     let member_count = live_members.len();
                     group_store.set(Group::new(
-                        *existing.id(),
+                        existing.stored_id(),
                         existing.created_by,
                         live_members,
                     ))?;
@@ -192,10 +208,15 @@ impl Sync {
                         .try_into()
                         .inspect_err(|_| tracing::error!("message id must be 32 bytes"))?;
 
-                let msg_key = Message::redb_key(gid, message_id);
+                let msg_key = Message::redb_key(stored_id, message_id);
                 if message_store.get(msg_key)?.is_none() {
                     let sender_bytes = inbox_id_to_bytes(&m.sender_inbox_id);
-                    message_store.set(Message::new(message_id, gid, sender_bytes, m.sent_at_ns))?;
+                    message_store.set(Message::new(
+                        message_id,
+                        stored_id,
+                        sender_bytes,
+                        m.sent_at_ns,
+                    ))?;
                     stats.orphan_messages += 1;
                     tracing::warn!(
                         target: "xdbg.sync",

@@ -6,7 +6,7 @@ use xmtp_mls::groups::UpdateAdminListType;
 use crate::{
     app::{
         self, App,
-        store::{Database, GroupStore, IdentityStore},
+        store::{Database, GroupKey, GroupStore, IdentityStore},
         types::{Group, Identity},
     },
     args,
@@ -37,7 +37,7 @@ impl Modify {
             promote_super_admin,
         } = opts;
         let mut local_group = group_store
-            .get((*group_id).into())?
+            .get(GroupKey::try_from(group_id)?)?
             .ok_or_else(|| eyre!("no local group found for id=[{}]", hex::encode(*group_id)))?;
 
         // `AddFromRedb` manages its own actor selection; skip the shared setup.

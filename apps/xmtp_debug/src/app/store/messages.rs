@@ -22,7 +22,7 @@ pub type MessageKey = super::NetworkKey<48>;
 impl super::DeriveKey<MessageKey> for Message {
     fn key(&self) -> MessageKey {
         let mut combined = [0u8; 48];
-        combined[..16].copy_from_slice(&*self.group_id());
+        combined[..16].copy_from_slice(&self.group_id());
         combined[16..].copy_from_slice(&self.id);
         MessageKey::new(combined)
     }
@@ -31,7 +31,7 @@ impl super::DeriveKey<MessageKey> for Message {
 impl super::DeriveKey<MessageKey> for &Message {
     fn key(&self) -> MessageKey {
         let mut combined = [0u8; 48];
-        combined[..16].copy_from_slice(&*self.group_id());
+        combined[..16].copy_from_slice(&self.group_id());
         combined[16..].copy_from_slice(&self.id);
         MessageKey::new(combined)
     }

@@ -29,6 +29,7 @@ alloy-rpc-client = { version = "2", default-features = false, features = ["reqwe
 alloy-sol-type-parser = { version = "1", default-features = false, features = ["serde", "std"] }
 alloy-sol-types = { version = "1", default-features = false, features = ["json", "std"] }
 alloy-transport-http = { version = "2", default-features = false, features = ["reqwest"] }
+block-buffer = { version = "0.12", default-features = false, features = ["zeroize"] }
 bytes = { version = "1", features = ["serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 cipher = { version = "0.4", default-features = false, features = ["zeroize"] }
@@ -41,7 +42,7 @@ crypto-common-c65f7effa3be6d31 = { package = "crypto-common", version = "0.1", d
 derive_more = { version = "2", default-features = false, features = ["add", "add_assign", "as_ref", "deref", "deref_mut", "display", "from", "from_str", "index", "index_mut", "into", "into_iterator", "not", "std"] }
 diesel = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite", default-features = false, features = ["32-column-tables", "returning_clauses_for_sqlite_3_35", "serde_json"] }
 digest-93f6ce9d446188ac = { package = "digest", version = "0.10", features = ["mac", "oid", "std"] }
-digest-a6292c17cd707f01 = { package = "digest", version = "0.11", features = ["alloc", "mac", "oid"] }
+digest-a6292c17cd707f01 = { package = "digest", version = "0.11", features = ["alloc", "mac", "oid", "zeroize"] }
 ed25519-dalek = { version = "2", features = ["digest", "rand_core"] }
 either = { version = "1", features = ["serde", "use_std"] }
 elliptic-curve = { version = "0.13", default-features = false, features = ["ecdh", "hazmat", "jwk", "pem", "std"] }
@@ -94,7 +95,8 @@ serde = { version = "1", features = ["alloc", "derive", "rc"] }
 serde_core = { version = "1", default-features = false, features = ["alloc", "rc", "result", "std"] }
 serde_json = { version = "1", features = ["alloc", "preserve_order", "raw_value"] }
 serde_spanned = { version = "1", default-features = false, features = ["serde", "std"] }
-sha2 = { version = "0.10" }
+sha2-93f6ce9d446188ac = { package = "sha2", version = "0.10" }
+sha2-a6292c17cd707f01 = { package = "sha2", version = "0.11", features = ["zeroize"] }
 slab = { version = "0.4" }
 smallvec = { version = "1", default-features = false, features = ["const_new", "serde", "union"] }
 subtle = { version = "2", features = ["const-generics"] }
@@ -127,6 +129,7 @@ alloy-sol-macro-input = { version = "1", default-features = false, features = ["
 alloy-sol-type-parser = { version = "1", default-features = false, features = ["serde", "std"] }
 alloy-sol-types = { version = "1", default-features = false, features = ["json", "std"] }
 alloy-transport-http = { version = "2", default-features = false, features = ["reqwest"] }
+block-buffer = { version = "0.12", default-features = false, features = ["zeroize"] }
 bytes = { version = "1", features = ["serde"] }
 cc = { version = "1", default-features = false, features = ["parallel"] }
 chrono = { version = "0.4", features = ["serde"] }
@@ -141,7 +144,7 @@ derive_more = { version = "2", default-features = false, features = ["add", "add
 diesel = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite", default-features = false, features = ["32-column-tables", "returning_clauses_for_sqlite_3_35", "serde_json"] }
 diesel_derives = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite", features = ["32-column-tables", "sqlite"] }
 digest-93f6ce9d446188ac = { package = "digest", version = "0.10", features = ["mac", "oid", "std"] }
-digest-a6292c17cd707f01 = { package = "digest", version = "0.11", features = ["alloc", "mac", "oid"] }
+digest-a6292c17cd707f01 = { package = "digest", version = "0.11", features = ["alloc", "mac", "oid", "zeroize"] }
 ed25519-dalek = { version = "2", features = ["digest", "rand_core"] }
 either = { version = "1", features = ["serde", "use_std"] }
 elliptic-curve = { version = "0.13", default-features = false, features = ["ecdh", "hazmat", "jwk", "pem", "std"] }
@@ -195,7 +198,8 @@ serde = { version = "1", features = ["alloc", "derive", "rc"] }
 serde_core = { version = "1", default-features = false, features = ["alloc", "rc", "result", "std"] }
 serde_json = { version = "1", features = ["alloc", "preserve_order", "raw_value"] }
 serde_spanned = { version = "1", default-features = false, features = ["serde", "std"] }
-sha2 = { version = "0.10" }
+sha2-93f6ce9d446188ac = { package = "sha2", version = "0.10" }
+sha2-a6292c17cd707f01 = { package = "sha2", version = "0.11", features = ["zeroize"] }
 slab = { version = "0.4" }
 smallvec = { version = "1", default-features = false, features = ["const_new", "serde", "union"] }
 subtle = { version = "2", features = ["const-generics"] }

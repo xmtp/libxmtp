@@ -17,25 +17,27 @@ const TABLE: TableDefinition<GroupKey, Group> = TableDefinition::new(NAMESPACE);
 
 impl super::DeriveKey<GroupKey> for Group {
     fn key(&self) -> GroupKey {
-        GroupKey::new(*self.id().as_bytes())
+        self.stored_id().into()
     }
 }
 
 impl super::DeriveKey<GroupKey> for &Group {
     fn key(&self) -> GroupKey {
-        GroupKey::new(*self.id().as_bytes())
+        self.stored_id().into()
     }
 }
 
-impl From<GroupId> for GroupKey {
-    fn from(value: GroupId) -> Self {
-        GroupKey::new(value.into_bytes())
+impl From<StoredGroupId> for GroupKey {
+    fn from(value: StoredGroupId) -> Self {
+        GroupKey::new(value.0)
     }
 }
 
-impl From<&GroupId> for GroupKey {
-    fn from(value: &GroupId) -> Self {
-        GroupKey::new(*value.as_bytes())
+impl TryFrom<&GroupId> for GroupKey {
+    type Error = color_eyre::eyre::Report;
+
+    fn try_from(value: &GroupId) -> Result<Self> {
+        StoredGroupId::try_from(value).map(Self::from)
     }
 }
 

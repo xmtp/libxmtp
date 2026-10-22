@@ -2008,6 +2008,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d2f6c7dbe95a6ed67ad9f18e57daf93a2f034c524b99fd2b76d18fdfeb6660aa"
 dependencies = [
  "hybrid-array",
+ "zeroize",
 ]
 
 [[package]]
@@ -3289,6 +3290,7 @@ dependencies = [
  "const-oid 0.10.2",
  "crypto-common 0.2.2",
  "ctutils",
+ "zeroize",
 ]
 
 [[package]]
@@ -12330,6 +12332,7 @@ dependencies = [
  "alloy-sol-types",
  "alloy-transport-http",
  "bitflags 2.13.1",
+ "block-buffer 0.12.1",
  "bytes",
  "cc",
  "chrono",
@@ -12417,6 +12420,7 @@ dependencies = [
  "serde_json",
  "serde_spanned 1.1.1",
  "sha2 0.10.9",
+ "sha2 0.11.0",
  "slab",
  "smallvec",
  "subtle",
@@ -13139,7 +13143,10 @@ version = "1.12.0-dev"
 dependencies = [
  "bon",
  "const-hex",
+ "curve25519-dalek 4.1.3",
+ "ed25519-dalek",
  "hpke-rs 0.6.1",
+ "libcrux-ed25519",
  "openmls",
  "openmls_libcrux_crypto",
  "openmls_rust_crypto",
@@ -13149,6 +13156,8 @@ dependencies = [
  "prost",
  "semver 1.0.28",
  "serde",
+ "sha2 0.10.9",
+ "sha2 0.11.0",
  "thiserror 2.0.19",
  "tls_codec 0.5.0",
  "tracing",

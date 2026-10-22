@@ -12,98 +12,177 @@ use diesel::{
 use serde::{Deserialize, Serialize};
 
 use crate::ConversionError;
+use xmtp_configuration::{GROUP_ID_BYTES, LEGACY_GROUP_ID_BYTES};
 
-/// The canonical group identifier. Exactly 16 bytes, by protocol invariant.
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+/// The canonical group identifier: 32 bytes for a keyed group, whose id is the
+/// public key of its group signing key, or 16 bytes for a legacy group known
+/// only from imported archives.
+///
+/// Equality, ordering, and hashing use the id bytes, exactly as for `[u8]`.
+#[derive(Copy, Clone)]
 #[cfg_attr(feature = "diesel", derive(AsExpression, FromSqlRow))]
 #[cfg_attr(feature = "diesel", diesel(sql_type = Binary))]
-pub struct GroupId([u8; 16]);
+pub struct GroupId {
+    /// `LEGACY_GROUP_ID_BYTES` or `GROUP_ID_BYTES`.
+    len: u8,
+    /// The id in the first `len` bytes; the rest are zero.
+    bytes: [u8; GROUP_ID_BYTES],
+}
+
+const fn legacy(byte: u8) -> GroupId {
+    let mut bytes = [0u8; GROUP_ID_BYTES];
+    let mut i = 0;
+    while i < LEGACY_GROUP_ID_BYTES {
+        bytes[i] = byte;
+        i += 1;
+    }
+    GroupId {
+        len: LEGACY_GROUP_ID_BYTES as u8,
+        bytes,
+    }
+}
 
 impl GroupId {
-    /// `GroupId([0u8; 16])` — sentinel / placeholder. Same as `GroupId::default()`.
-    pub const ZERO: GroupId = GroupId([0u8; 16]);
-    /// `GroupId([1u8; 16])` — convenience constant for tests.
-    pub const ONE: GroupId = GroupId([1u8; 16]);
-    /// `GroupId([2u8; 16])` — convenience constant for tests.
-    pub const TWO: GroupId = GroupId([2u8; 16]);
-    /// `GroupId([3u8; 16])` — convenience constant for tests.
-    pub const THREE: GroupId = GroupId([3u8; 16]);
-    /// `GroupId([4u8; 16])` — convenience constant for tests.
-    pub const FOUR: GroupId = GroupId([4u8; 16]);
+    /// The 16-byte legacy id of zeros: a sentinel / placeholder. Same as `GroupId::default()`.
+    pub const ZERO: GroupId = legacy(0);
+    /// The 16-byte legacy id of ones, for tests.
+    pub const ONE: GroupId = legacy(1);
+    /// The 16-byte legacy id of twos, for tests.
+    pub const TWO: GroupId = legacy(2);
+    /// The 16-byte legacy id of threes, for tests.
+    pub const THREE: GroupId = legacy(3);
+    /// The 16-byte legacy id of fours, for tests.
+    pub const FOUR: GroupId = legacy(4);
 
-    /// Borrowed byte slice view over the underlying 16 bytes.
+    fn from_slice(v: &[u8]) -> Result<Self, ConversionError> {
+        if v.len() != GROUP_ID_BYTES && v.len() != LEGACY_GROUP_ID_BYTES {
+            return Err(ConversionError::InvalidValue {
+                item: "GroupId",
+                expected: "a 32-byte or 16-byte group id",
+                got: format!("{} bytes", v.len()),
+            });
+        }
+        let mut bytes = [0u8; GROUP_ID_BYTES];
+        bytes[..v.len()].copy_from_slice(v);
+        Ok(GroupId {
+            len: v.len() as u8,
+            bytes,
+        })
+    }
+
+    /// Borrowed byte slice view over the id bytes.
     pub fn as_slice(&self) -> &[u8] {
-        &self.0
+        &self.bytes[..self.len as usize]
     }
 
-    /// Borrowed reference to the underlying 16-byte array.
-    pub fn as_bytes(&self) -> &[u8; 16] {
-        &self.0
+    /// The id length in bytes: 32, or 16 for a legacy group.
+    #[allow(clippy::len_without_is_empty)]
+    pub fn len(&self) -> usize {
+        self.len as usize
     }
 
-    /// Consume the `GroupId` and return its raw bytes.
-    pub fn into_bytes(self) -> [u8; 16] {
-        self.0
+    /// Whether this is a 16-byte legacy group id.
+    pub fn is_legacy(&self) -> bool {
+        self.len() == LEGACY_GROUP_ID_BYTES
     }
 
-    /// Convert to an owned `Vec<u8>` of the 16 bytes.
+    /// Convert to an owned `Vec<u8>` of the id bytes.
     pub fn to_vec(self) -> Vec<u8> {
-        self.0.to_vec()
+        self.as_slice().to_vec()
     }
 
     /// Convert to an `openmls::group::GroupId`.
     pub fn to_openmls(self) -> openmls::group::GroupId {
-        openmls::group::GroupId::from_slice(&self.0)
+        openmls::group::GroupId::from_slice(self.as_slice())
     }
 
-    /// Construct a `GroupId` containing 16 random bytes drawn from `rand`.
+    /// Construct a 16-byte legacy `GroupId` from random bytes drawn from `rand`.
     pub fn random<R: openmls_traits::random::OpenMlsRand>(rand: &R) -> Self {
-        let mut bytes = [0u8; 16];
         let v = rand
-            .random_vec(16)
+            .random_vec(LEGACY_GROUP_ID_BYTES)
             .expect("OpenMlsRand failed to produce randomness for GroupId");
-        bytes.copy_from_slice(&v);
-        GroupId(bytes)
+        GroupId::from_slice(&v).expect("random_vec returns the requested length")
     }
 }
 
-// a fixed slice [T; N] implements deref for &[u8], so by
-// impl deref on teh [T; N] we also get &[u8] deref for free.
+impl Default for GroupId {
+    fn default() -> Self {
+        GroupId::ZERO
+    }
+}
+
+impl PartialEq for GroupId {
+    fn eq(&self, other: &Self) -> bool {
+        self.as_slice() == other.as_slice()
+    }
+}
+
+impl Eq for GroupId {}
+
+impl PartialOrd for GroupId {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for GroupId {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.as_slice().cmp(other.as_slice())
+    }
+}
+
+// Hashes as `[u8]`, so `Borrow<[u8]>` lookups find the same entry.
+impl std::hash::Hash for GroupId {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.as_slice().hash(state)
+    }
+}
+
 impl Deref for GroupId {
-    type Target = [u8; 16];
+    type Target = [u8];
 
     fn deref(&self) -> &Self::Target {
-        &self.0
+        self.as_slice()
     }
 }
 
-impl<T> AsRef<T> for GroupId
-where
-    T: ?Sized,
-    <GroupId as Deref>::Target: AsRef<T>,
-{
-    fn as_ref(&self) -> &T {
-        self.deref().as_ref()
+impl AsRef<[u8]> for GroupId {
+    fn as_ref(&self) -> &[u8] {
+        self.as_slice()
     }
 }
 
 // --- Infallible constructors -------------------------------------------------
 
-impl From<[u8; 16]> for GroupId {
-    fn from(v: [u8; 16]) -> Self {
-        GroupId(v)
+impl From<[u8; LEGACY_GROUP_ID_BYTES]> for GroupId {
+    fn from(v: [u8; LEGACY_GROUP_ID_BYTES]) -> Self {
+        GroupId::from(&v)
     }
 }
 
-impl From<&[u8; 16]> for GroupId {
-    fn from(v: &[u8; 16]) -> Self {
-        GroupId(*v)
+impl From<&[u8; LEGACY_GROUP_ID_BYTES]> for GroupId {
+    fn from(v: &[u8; LEGACY_GROUP_ID_BYTES]) -> Self {
+        let mut bytes = [0u8; GROUP_ID_BYTES];
+        bytes[..LEGACY_GROUP_ID_BYTES].copy_from_slice(v);
+        GroupId {
+            len: LEGACY_GROUP_ID_BYTES as u8,
+            bytes,
+        }
     }
 }
 
-impl From<GroupId> for [u8; 16] {
-    fn from(v: GroupId) -> Self {
-        v.0
+impl From<[u8; GROUP_ID_BYTES]> for GroupId {
+    fn from(bytes: [u8; GROUP_ID_BYTES]) -> Self {
+        GroupId {
+            len: GROUP_ID_BYTES as u8,
+            bytes,
+        }
+    }
+}
+
+impl From<&[u8; GROUP_ID_BYTES]> for GroupId {
+    fn from(v: &[u8; GROUP_ID_BYTES]) -> Self {
+        GroupId::from(*v)
     }
 }
 
@@ -112,29 +191,28 @@ impl From<GroupId> for [u8; 16] {
 impl TryFrom<Vec<u8>> for GroupId {
     type Error = ConversionError;
     fn try_from(v: Vec<u8>) -> Result<Self, Self::Error> {
-        Ok(GroupId(v.as_slice().try_into()?))
+        GroupId::from_slice(&v)
     }
 }
 
 impl TryFrom<&[u8]> for GroupId {
     type Error = ConversionError;
     fn try_from(v: &[u8]) -> Result<Self, Self::Error> {
-        let bytes: [u8; 16] = v.try_into()?;
-        Ok(GroupId(bytes))
+        GroupId::from_slice(v)
     }
 }
 
 impl TryFrom<&openmls::group::GroupId> for GroupId {
     type Error = ConversionError;
     fn try_from(id: &openmls::group::GroupId) -> Result<Self, Self::Error> {
-        GroupId::try_from(id.as_slice())
+        GroupId::from_slice(id.as_slice())
     }
 }
 
 impl TryFrom<openmls::group::GroupId> for GroupId {
     type Error = ConversionError;
     fn try_from(id: openmls::group::GroupId) -> Result<Self, Self::Error> {
-        GroupId::try_from(id.as_slice())
+        GroupId::from_slice(id.as_slice())
     }
 }
 
@@ -142,13 +220,13 @@ impl TryFrom<openmls::group::GroupId> for GroupId {
 
 impl From<GroupId> for Vec<u8> {
     fn from(id: GroupId) -> Vec<u8> {
-        id.0.to_vec()
+        id.to_vec()
     }
 }
 
-impl Borrow<[u8; 16]> for GroupId {
-    fn borrow(&self) -> &[u8; 16] {
-        &self.0
+impl Borrow<[u8]> for GroupId {
+    fn borrow(&self) -> &[u8] {
+        self.as_slice()
     }
 }
 
@@ -156,14 +234,14 @@ impl Borrow<[u8; 16]> for GroupId {
 
 impl fmt::Display for GroupId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", hex::encode(self.0))
+        write!(f, "{}", hex::encode(self.as_slice()))
     }
 }
 
 impl fmt::Debug for GroupId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_tuple("GroupId")
-            .field(&xmtp_common::fmt::debug_hex(self.0))
+            .field(&xmtp_common::fmt::debug_hex(self.as_slice()))
             .finish()
     }
 }
@@ -176,7 +254,7 @@ pub enum GroupIdParseError {
     /// Input string was not valid hexadecimal.
     #[error(transparent)]
     Hex(#[from] hex::FromHexError),
-    /// Decoded byte length was not 16.
+    /// Decoded byte length was neither 16 nor 32.
     #[error(transparent)]
     Length(#[from] ConversionError),
 }
@@ -193,49 +271,61 @@ impl FromStr for GroupId {
 
 impl PartialEq<Vec<u8>> for GroupId {
     fn eq(&self, other: &Vec<u8>) -> bool {
-        self.0.eq(&other[..])
+        self.as_slice() == &other[..]
     }
 }
 
 impl PartialEq<GroupId> for Vec<u8> {
     fn eq(&self, other: &GroupId) -> bool {
-        other.0.eq(&self[..])
+        other.as_slice() == &self[..]
     }
 }
 
 impl PartialEq<&Vec<u8>> for GroupId {
     fn eq(&self, other: &&Vec<u8>) -> bool {
-        self.0.eq(&other[..])
+        self.as_slice() == &other[..]
     }
 }
 
 impl PartialEq<GroupId> for &Vec<u8> {
     fn eq(&self, other: &GroupId) -> bool {
-        other.0.eq(&self[..])
+        other.as_slice() == &self[..]
     }
 }
 
 impl PartialEq<[u8]> for GroupId {
     fn eq(&self, other: &[u8]) -> bool {
-        self.0.eq(other)
+        self.as_slice() == other
     }
 }
 
 impl PartialEq<GroupId> for [u8] {
     fn eq(&self, other: &GroupId) -> bool {
-        other.0.eq(self)
+        other.as_slice() == self
     }
 }
 
-impl PartialEq<[u8; 16]> for GroupId {
-    fn eq(&self, other: &[u8; 16]) -> bool {
-        self.0.eq(other)
+impl PartialEq<[u8; LEGACY_GROUP_ID_BYTES]> for GroupId {
+    fn eq(&self, other: &[u8; LEGACY_GROUP_ID_BYTES]) -> bool {
+        self.as_slice() == &other[..]
     }
 }
 
-impl PartialEq<GroupId> for [u8; 16] {
+impl PartialEq<GroupId> for [u8; LEGACY_GROUP_ID_BYTES] {
     fn eq(&self, other: &GroupId) -> bool {
-        other.0.eq(&self[..])
+        other.as_slice() == &self[..]
+    }
+}
+
+impl PartialEq<[u8; GROUP_ID_BYTES]> for GroupId {
+    fn eq(&self, other: &[u8; GROUP_ID_BYTES]) -> bool {
+        self.as_slice() == &other[..]
+    }
+}
+
+impl PartialEq<GroupId> for [u8; GROUP_ID_BYTES] {
+    fn eq(&self, other: &GroupId) -> bool {
+        other.as_slice() == &self[..]
     }
 }
 
@@ -243,7 +333,7 @@ impl PartialEq<GroupId> for [u8; 16] {
 
 impl Serialize for GroupId {
     fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
-        self.0.as_ref().serialize(s)
+        self.as_slice().serialize(s)
     }
 }
 
@@ -262,7 +352,7 @@ where
     [u8]: ToSql<Binary, Sqlite>,
 {
     fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, Sqlite>) -> serialize::Result {
-        out.set_value(self.0.to_vec());
+        out.set_value(self.to_vec());
         Ok(IsNull::No)
     }
 }
@@ -282,8 +372,9 @@ where
 
 xmtp_common::if_test! {
     impl xmtp_common::Generate for GroupId {
+        /// A random 16-byte legacy id, the length clients still create.
         fn generate() -> Self {
-            GroupId(xmtp_common::rand_array::<16>())
+            GroupId::from(xmtp_common::rand_array::<16>())
         }
     }
 }
@@ -301,70 +392,83 @@ mod test {
     #[case([0xffu8; 16])]
     #[case([1u8, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16])]
     #[xmtp_common::test(unwrap_try = true)]
-    async fn test_group_id_from_array(#[case] input: [u8; 16]) {
+    async fn test_group_id_from_legacy_array(#[case] input: [u8; 16]) {
         let id = GroupId::from(input);
         assert_eq!(id.as_slice(), &input);
-        assert_eq!(id.as_bytes(), &input);
-        assert_eq!(id.into_bytes(), input);
+        assert_eq!(id.len(), 16);
+        assert!(id.is_legacy());
         assert_eq!(GroupId::from(&input).as_slice(), &input);
         assert_eq!(GroupId::from(input).to_vec(), input.to_vec());
     }
 
     #[rstest]
+    #[case([0u8; 32])]
+    #[case([0xffu8; 32])]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn test_group_id_from_keyed_array(#[case] input: [u8; 32]) {
+        let id = GroupId::from(input);
+        assert_eq!(id.as_slice(), &input);
+        assert_eq!(id.len(), 32);
+        assert!(!id.is_legacy());
+        assert_eq!(GroupId::from(&input).as_slice(), &input);
+        assert_eq!(Vec::from(id), input.to_vec());
+    }
+
+    // 16 and 32 bytes convert; every other length fails.
+    #[rstest]
     #[case(vec![1u8; 16], true)]
+    #[case(vec![1u8; 32], true)]
+    #[case(vec![1u8; 8], false)]
     #[case(vec![1u8; 15], false)]
     #[case(vec![1u8; 17], false)]
+    #[case(vec![1u8; 31], false)]
+    #[case(vec![1u8; 33], false)]
     #[case(Vec::new(), false)]
     #[xmtp_common::test(unwrap_try = true)]
     async fn test_group_id_try_from_vec(#[case] input: Vec<u8>, #[case] ok: bool) {
-        assert_eq!(GroupId::try_from(input).is_ok(), ok);
+        assert_eq!(GroupId::try_from(input.clone()).is_ok(), ok);
+        assert_eq!(GroupId::try_from(input.as_slice()).is_ok(), ok);
+        if ok {
+            assert_eq!(
+                GroupId::try_from(input.clone()).unwrap().as_slice(),
+                input.as_slice()
+            );
+        }
     }
 
     #[rstest]
-    #[case(&[1u8; 16][..], true)]
-    #[case(&[1u8; 15][..], false)]
-    #[case(&[1u8; 17][..], false)]
-    #[case(&[][..], false)]
+    #[case(16)]
+    #[case(32)]
     #[xmtp_common::test(unwrap_try = true)]
-    async fn test_group_id_try_from_slice(#[case] input: &[u8], #[case] ok: bool) {
-        assert_eq!(GroupId::try_from(input).is_ok(), ok);
-    }
-
-    #[xmtp_common::test(unwrap_try = true)]
-    fn test_openmls_try_from_valid() {
-        let bytes: [u8; 16] = xmtp_common::rand_array::<16>();
+    fn test_openmls_roundtrip(#[case] len: usize) {
+        let bytes = xmtp_common::rand_vec::<64>()[..len].to_vec();
         let ommls = openmls::group::GroupId::from_slice(&bytes);
         let xmtp_id = GroupId::try_from(&ommls).unwrap();
-        assert_eq!(xmtp_id.as_slice(), &bytes);
-
-        let ommls_owned = openmls::group::GroupId::from_slice(&bytes);
-        let xmtp_id_owned = GroupId::try_from(ommls_owned).unwrap();
-        assert_eq!(xmtp_id_owned.as_slice(), &bytes);
+        assert_eq!(xmtp_id.as_slice(), &bytes[..]);
+        assert_eq!(GroupId::try_from(ommls).unwrap().as_slice(), &bytes[..]);
+        assert_eq!(xmtp_id.to_openmls().as_slice(), &bytes[..]);
     }
 
+    #[rstest]
+    #[case(8)]
+    #[case(33)]
     #[xmtp_common::test(unwrap_try = true)]
-    fn test_openmls_try_from_wrong_length() {
-        let short = openmls::group::GroupId::from_slice(&[1u8; 8]);
-        assert!(GroupId::try_from(&short).is_err());
-
-        let long = openmls::group::GroupId::from_slice(&[1u8; 32]);
-        assert!(GroupId::try_from(long).is_err());
+    fn test_openmls_try_from_wrong_length(#[case] len: usize) {
+        let ommls = openmls::group::GroupId::from_slice(&vec![1u8; len]);
+        assert!(GroupId::try_from(&ommls).is_err());
+        assert!(GroupId::try_from(ommls).is_err());
     }
 
+    #[rstest]
+    #[case(16)]
+    #[case(32)]
     #[xmtp_common::test(unwrap_try = true)]
-    fn test_to_openmls_roundtrip() {
-        let bytes: [u8; 16] = xmtp_common::rand_array::<16>();
-        let xmtp_id = GroupId::from(bytes);
-        let ommls_id = xmtp_id.to_openmls();
-        assert_eq!(ommls_id.as_slice(), xmtp_id.as_slice());
-    }
-
-    #[xmtp_common::test(unwrap_try = true)]
-    fn test_fromstr_success() {
-        let bytes: [u8; 16] = xmtp_common::rand_array::<16>();
-        let hex = hex::encode(bytes);
+    fn test_hex_roundtrip(#[case] len: usize) {
+        let bytes = xmtp_common::rand_vec::<64>()[..len].to_vec();
+        let hex = hex::encode(&bytes);
         let id: GroupId = hex.parse().unwrap();
-        assert_eq!(id.as_slice(), &bytes);
+        assert_eq!(id.as_slice(), &bytes[..]);
+        assert_eq!(id.to_string(), hex);
     }
 
     #[xmtp_common::test(unwrap_try = true)]
@@ -373,10 +477,12 @@ mod test {
         assert!(matches!(err, GroupIdParseError::Hex(_)));
     }
 
+    #[rstest]
+    #[case(8)]
+    #[case(33)]
     #[xmtp_common::test(unwrap_try = true)]
-    fn test_fromstr_wrong_length() {
-        // 6 hex chars = 3 bytes (not 16).
-        let err = "abcdef".parse::<GroupId>().unwrap_err();
+    fn test_fromstr_wrong_length(#[case] len: usize) {
+        let err = hex::encode(vec![0xab; len]).parse::<GroupId>().unwrap_err();
         assert!(matches!(err, GroupIdParseError::Length(_)));
     }
 
@@ -384,6 +490,8 @@ mod test {
     #[case(GroupId::from([1u8; 16]), vec![1u8; 16], true)]
     #[case(GroupId::from([1u8; 16]), vec![2u8; 16], false)]
     #[case(GroupId::from([1u8; 16]), vec![1u8; 15], false)] // length mismatch
+    #[case(GroupId::from([1u8; 16]), vec![1u8; 32], false)] // length mismatch
+    #[case(GroupId::from([1u8; 32]), vec![1u8; 32], true)]
     #[xmtp_common::test(unwrap_try = true)]
     async fn test_group_id_eq_vec(#[case] id: GroupId, #[case] v: Vec<u8>, #[case] equal: bool) {
         // Each direction exercises a different PartialEq impl: by-value, by-reference,
@@ -418,19 +526,42 @@ mod test {
         assert_ne!(*wrong_len, id);
     }
 
-    /// The client database stores values as CBOR.
+    /// Equality, order, and hashing follow the id bytes, so a 16-byte id is
+    /// never equal to a 32-byte id that starts with it, and map lookups by
+    /// `&[u8]` find the entry.
     #[xmtp_common::test(unwrap_try = true)]
-    fn test_serde_roundtrip() {
-        let id = GroupId::from([7u8; 16]);
+    fn test_eq_ord_hash_follow_bytes() {
+        use std::collections::{BTreeSet, HashMap};
+        let legacy = GroupId::from([0u8; 16]);
+        let keyed = GroupId::from([0u8; 32]);
+        assert_ne!(legacy, keyed);
+        assert!(legacy < keyed);
+        assert!(GroupId::from([1u8; 16]) > keyed);
+        let set: BTreeSet<_> = [keyed, legacy, GroupId::from([1u8; 16])].into();
+        assert_eq!(set.len(), 3);
+        let map = HashMap::from([(legacy, 1), (keyed, 2)]);
+        assert_eq!(map.get(&[0u8; 16][..]), Some(&1));
+        assert_eq!(map.get(&[0u8; 32][..]), Some(&2));
+    }
+
+    /// The client database stores values as CBOR.
+    #[rstest]
+    #[case(GroupId::from([7u8; 16]))]
+    #[case(GroupId::from([7u8; 32]))]
+    #[xmtp_common::test(unwrap_try = true)]
+    fn test_serde_roundtrip(#[case] id: GroupId) {
         let bytes = cbor4ii::serde::to_vec(Vec::new(), &id).unwrap();
         let decoded: GroupId = cbor4ii::serde::from_slice(&bytes).unwrap();
         assert_eq!(decoded, id);
+        assert_eq!(decoded.len(), id.len());
     }
 
+    #[rstest]
+    #[case(8)]
+    #[case(33)]
     #[xmtp_common::test(unwrap_try = true)]
-    fn test_serde_wrong_length_fails() {
-        // A CBOR byte sequence of length 8.
-        let bad: Vec<u8> = vec![1, 2, 3, 4, 5, 6, 7, 8];
+    fn test_serde_wrong_length_fails(#[case] len: usize) {
+        let bad: Vec<u8> = vec![1; len];
         let bytes = cbor4ii::serde::to_vec(Vec::new(), &bad).unwrap();
         assert!(cbor4ii::serde::from_slice::<GroupId>(&bytes).is_err());
     }
@@ -451,11 +582,11 @@ mod test {
     #[xmtp_common::test(unwrap_try = true)]
     fn test_const_helpers() {
         assert_eq!(GroupId::ZERO, GroupId::default());
-        assert_eq!(GroupId::ZERO.as_bytes(), &[0u8; 16]);
-        assert_eq!(GroupId::ONE.as_bytes(), &[1u8; 16]);
-        assert_eq!(GroupId::TWO.as_bytes(), &[2u8; 16]);
-        assert_eq!(GroupId::THREE.as_bytes(), &[3u8; 16]);
-        assert_eq!(GroupId::FOUR.as_bytes(), &[4u8; 16]);
+        assert_eq!(GroupId::ZERO.as_slice(), &[0u8; 16]);
+        assert_eq!(GroupId::ONE.as_slice(), &[1u8; 16]);
+        assert_eq!(GroupId::TWO.as_slice(), &[2u8; 16]);
+        assert_eq!(GroupId::THREE.as_slice(), &[3u8; 16]);
+        assert_eq!(GroupId::FOUR.as_slice(), &[4u8; 16]);
     }
 
     #[xmtp_common::test(unwrap_try = true)]
@@ -464,6 +595,7 @@ mod test {
         let displayed = format!("{}", id);
         assert!(displayed.starts_with("1234abcd"));
         assert_eq!(displayed.len(), 32);
+        assert_eq!(GroupId::from([0xab; 32]).to_string(), "ab".repeat(32));
         let debugged = format!("{:?}", id);
         assert!(debugged.starts_with("GroupId("));
     }
@@ -485,29 +617,42 @@ mod test {
             id: GroupId,
         }
 
-        #[xmtp_common::test(unwrap_try = true)]
-        fn test_diesel_roundtrip() {
+        fn connection() -> SqliteConnection {
             let mut conn = SqliteConnection::establish(":memory:").unwrap();
             diesel::sql_query("CREATE TABLE test_group_ids (id BLOB NOT NULL PRIMARY KEY)")
                 .execute(&mut conn)
                 .unwrap();
-            let id = GroupId::from([0xabu8; 16]);
+            conn
+        }
+
+        #[rstest]
+        #[case(GroupId::from([0xabu8; 16]))]
+        #[case(GroupId::from([0xabu8; 32]))]
+        #[xmtp_common::test(unwrap_try = true)]
+        fn test_diesel_roundtrip(#[case] id: GroupId) {
+            let mut conn = connection();
             diesel::insert_into(test_group_ids::table)
                 .values(&Row { id })
                 .execute(&mut conn)
                 .unwrap();
             let got: Row = test_group_ids::table.first(&mut conn).unwrap();
             assert_eq!(got.id, id);
+            // The stored blob is the id bytes, with no padding.
+            let stored: Vec<u8> = test_group_ids::table
+                .select(diesel::dsl::sql::<diesel::sql_types::Binary>("id"))
+                .first(&mut conn)
+                .unwrap();
+            assert_eq!(stored, id.to_vec());
         }
 
+        #[rstest]
+        #[case("X'0102030405060708'")]
+        #[case("zeroblob(33)")]
         #[xmtp_common::test(unwrap_try = true)]
-        fn test_diesel_wrong_length_errors() {
-            let mut conn = SqliteConnection::establish(":memory:").unwrap();
-            diesel::sql_query("CREATE TABLE test_group_ids (id BLOB NOT NULL PRIMARY KEY)")
-                .execute(&mut conn)
-                .unwrap();
-            // Insert raw 8-byte blob bypassing the type.
-            diesel::sql_query("INSERT INTO test_group_ids (id) VALUES (X'0102030405060708')")
+        fn test_diesel_wrong_length_errors(#[case] blob: &str) {
+            let mut conn = connection();
+            // Insert a raw blob of the wrong length, bypassing the type.
+            diesel::sql_query(format!("INSERT INTO test_group_ids (id) VALUES ({blob})"))
                 .execute(&mut conn)
                 .unwrap();
             let result: Result<Row, _> = test_group_ids::table.first(&mut conn);

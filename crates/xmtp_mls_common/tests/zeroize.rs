@@ -1,6 +1,8 @@
 //! Heap-canary proofs that parsing group metadata and the AppData helpers
-//! wipe every copy of the commit-log signer they make. Native only: it
-//! installs the heap-canary global allocator. No backend needed.
+//! wipe every copy of the commit-log signer they make, and that deriving,
+//! sealing, opening, and signing with group keys wipe every copy of the group
+//! root and its derived keys. Native only: it installs the heap-canary global
+//! allocator. No backend needed.
 // The heap-canary harness is Unix-only (`libc::memmem`).
 #![cfg(unix)]
 
@@ -25,13 +27,17 @@ use xmtp_mls_common::{
         creation::encode_metadata_attribute_value,
         typed::Component,
     },
+    group_keys::{
+        GroupKeys, GroupRoot, open_commit_log_entry, seal_commit_log_entry, sign_group_message,
+    },
     group_mutable_metadata::{
         GroupMutableMetadata, MetadataField, merge_components_into_mutable_metadata,
         merge_dict_into_mutable_metadata,
     },
 };
-use xmtp_proto::xmtp::mls::message_contents::{
-    GroupMutableMetadataV1 as GroupMutableMetadataProto, Inboxes,
+use xmtp_proto::xmtp::{
+    backend::v1::GroupMessage,
+    mls::message_contents::{GroupMutableMetadataV1 as GroupMutableMetadataProto, Inboxes},
 };
 
 xmtp_cryptography::install_heap_canary!();
@@ -222,4 +228,108 @@ fn malformed_signer_hex_wipes_the_decoded_prefix() {
     drop(malformed);
 
     assert_eq!(hits, [0], "freed heap blocks held the commit-log signer");
+}
+
+/// The group-key vectors, made by an independent implementation.
+const GROUP_KEY_VECTORS: &str = include_str!("../src/group_keys/fixtures/vectors.txt");
+
+/// The group root of the vectors and the four keys derived from it.
+const GROUP_KEY_SECRETS: [&str; 5] = [
+    "root",
+    "group_signing_seed",
+    "commit_log_signing_seed",
+    "commit_log_encryption_key",
+    "commit_log_nonce_key",
+];
+
+fn group_key_vector(name: &str) -> Vec<u8> {
+    GROUP_KEY_VECTORS
+        .lines()
+        .find_map(|line| {
+            let (key, value) = line.split_once(" = ")?;
+            (key == name).then(|| hex::decode(value).unwrap())
+        })
+        .unwrap()
+}
+
+/// The vector root and derived keys, read before a scan is armed.
+fn group_key_secrets() -> Vec<Vec<u8>> {
+    GROUP_KEY_SECRETS.map(group_key_vector).to_vec()
+}
+
+fn vector_group_keys() -> Box<GroupKeys> {
+    Box::new(GroupKeys::derive(
+        &GroupRoot::from_bytes(&group_key_vector("root")).unwrap(),
+    ))
+}
+
+/// Reading a root and deriving its keys into heap storage, then dropping
+/// both, frees no unwiped copy of the root or of any derived key.
+#[xmtp_common::test(unwrap_try = true)]
+fn deriving_group_keys_wipes_the_root_and_every_key() {
+    let secrets = group_key_secrets();
+    let canaries: Vec<Canary> = secrets.iter().map(|secret| Canary::new(secret)).collect();
+    let root = group_key_vector("root");
+    let group_id = group_key_vector("group_id");
+
+    let ((), hits) = scan(&canaries, || {
+        let group_root = Box::new(GroupRoot::from_bytes(&root).unwrap());
+        let keys = Box::new(GroupKeys::derive(&group_root));
+        assert!(keys.group_id()[..] == group_id[..]);
+        drop((keys, group_root));
+    });
+    drop((root, group_id, canaries, secrets));
+
+    assert_eq!(hits, [0; 5], "freed heap blocks held the root or a key");
+}
+
+/// Sealing and opening a commit-log entry free no unwiped copy of the root
+/// or of any derived key, and neither does refusing a tampered or malformed
+/// entry.
+#[xmtp_common::test(unwrap_try = true)]
+fn sealing_and_opening_wipe_every_group_key() {
+    let secrets = group_key_secrets();
+    let canaries: Vec<Canary> = secrets.iter().map(|secret| Canary::new(secret)).collect();
+    let keys = vector_group_keys();
+    let plaintext = group_key_vector("plaintext");
+
+    let ((), hits) = scan(&canaries, || {
+        let entry = seal_commit_log_entry(&keys, &plaintext).unwrap();
+        let opened = open_commit_log_entry(&keys, &entry).unwrap();
+        assert!(opened == plaintext);
+
+        let mut tampered = entry.clone();
+        tampered.ciphertext[0] ^= 1;
+        assert!(open_commit_log_entry(&keys, &tampered).is_err());
+        let mut malformed = entry.clone();
+        malformed.nonce.truncate(11);
+        assert!(open_commit_log_entry(&keys, &malformed).is_err());
+        drop((entry, opened, tampered, malformed));
+    });
+    drop((keys, plaintext, canaries, secrets));
+
+    assert_eq!(hits, [0; 5], "freed heap blocks held the root or a key");
+}
+
+/// Signing a group message frees no unwiped copy of the root or of any
+/// derived key.
+#[xmtp_common::test(unwrap_try = true)]
+fn signing_a_group_message_wipes_every_group_key() {
+    let secrets = group_key_secrets();
+    let canaries: Vec<Canary> = secrets.iter().map(|secret| Canary::new(secret)).collect();
+    let keys = vector_group_keys();
+    let mut message = GroupMessage {
+        data: group_key_vector("group_message_data"),
+        sender_hmac: group_key_vector("group_message_sender_hmac"),
+        should_push: true,
+        signature: Vec::with_capacity(64),
+    };
+
+    let ((), hits) = scan(&canaries, || {
+        sign_group_message(&keys, &mut message).unwrap();
+    });
+    assert!(message.signature == group_key_vector("group_message_signature"));
+    drop((keys, message, canaries, secrets));
+
+    assert_eq!(hits, [0; 5], "freed heap blocks held the root or a key");
 }

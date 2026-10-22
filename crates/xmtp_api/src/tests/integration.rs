@@ -118,7 +118,9 @@ async fn backend_round_trip_covers_five_kinds_paging_and_absent_key() {
     let Some(wire::client_envelope::Payload::CommitLogEntry(entry)) = commit.payload.clone() else {
         unreachable!()
     };
-    let commit_metas = api.publish_commit_log(vec![entry.clone()]).await?;
+    let mut commit_metas = Vec::new();
+    api.publish_commit_log(vec![entry.clone()], &mut commit_metas)
+        .await?;
     let logs = api
         .query_commit_log(HashMap::from([(
             Topic::new_commit_log(group_id),

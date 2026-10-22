@@ -202,6 +202,35 @@ pub struct ConversationCursorInfo {
     pub num_entries_published: usize,
     pub last_entry_published_sequence_id: i64,
     pub last_entry_published_rowid: i64,
+    /// The local rowid of each published entry, in publish order.
+    pub entry_rowids: Vec<i64>,
+}
+
+/// The publish cursor to save for each conversation once the first `stored`
+/// entries of a publish are stored. `infos` lists the conversations in
+/// publish order. A fully stored conversation moves to its last row. A partly
+/// stored one moves to the row of its last stored entry, so that the next
+/// turn starts from its first unstored entry. Later conversations keep their
+/// cursors.
+// implements: FORK-021
+fn stored_cursors(infos: &[ConversationCursorInfo], mut stored: usize) -> Vec<(&[u8], i64)> {
+    let mut cursors = Vec::new();
+    for info in infos {
+        let count = info.entry_rowids.len();
+        if stored >= count {
+            stored -= count;
+            cursors.push((
+                info.conversation_id.as_slice(),
+                info.last_entry_published_rowid,
+            ));
+            continue;
+        }
+        if let Some(last) = stored.checked_sub(1) {
+            cursors.push((info.conversation_id.as_slice(), info.entry_rowids[last]));
+        }
+        break;
+    }
+    cursors
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -281,23 +310,27 @@ where
             all_entries.len()
         );
 
-        // Propagate a publish failure; cursors stay unadvanced so the restarted
-        // worker retries the same entries next turn.
+        // Entries go out in order, one request at a time, and publishing stops
+        // at the first failed request. `stored` is the stored prefix.
         let api = self.context.api();
-        api.publish_commit_log(all_entries).await?;
+        let mut stored = Vec::new();
+        let published = api.publish_commit_log(all_entries, &mut stored).await;
 
-        // Publishing was successful, let's update every group's cursor
-        for conversation_cursor_info in &conversation_cursor_info {
+        // Move each conversation's cursor past its stored entries, then
+        // propagate a failure. The restarted worker retries each conversation
+        // from its first unstored entry.
+        for (conversation_id, rowid) in stored_cursors(&conversation_cursor_info, stored.len()) {
             tracing::debug!(
-                group_id = hex::encode(&conversation_cursor_info.conversation_id),
+                group_id = hex::encode(conversation_id),
                 "Updating publish cursor",
             );
             conn.update_cursor(
-                &conversation_cursor_info.conversation_id,
+                conversation_id,
                 xmtp_db::refresh_state::EntityKind::CommitLogUpload,
-                Cursor(conversation_cursor_info.last_entry_published_rowid as u64),
+                Cursor(rowid as u64),
             )?;
         }
+        published?;
         Ok(conversation_cursor_info)
     }
 
@@ -349,12 +382,15 @@ where
             // advances past skipped rows.
             let removed_from_group_marker = CommitType::RemovedFromGroup.to_string();
             let max_rowid = logs.last().map(|log| log.rowid);
-            let plaintext_commit_log_entries: Vec<PlaintextCommitLogEntry> = logs
+            let published_logs: Vec<_> = logs
                 .iter()
                 .filter(|log| {
                     log.commit_type.as_deref() != Some(removed_from_group_marker.as_str())
                 })
-                .map(PlaintextCommitLogEntry::from)
+                .collect();
+            let plaintext_commit_log_entries: Vec<PlaintextCommitLogEntry> = published_logs
+                .iter()
+                .map(|log| PlaintextCommitLogEntry::from(*log))
                 .collect();
 
             // Step 3: Compile the conversation cursor info and all the commit log entries for this conversation
@@ -375,6 +411,10 @@ where
                         .map(|e| e.commit_sequence_id as i64)
                         .unwrap_or(0),
                     last_entry_published_rowid: max_rowid as i64,
+                    entry_rowids: published_logs
+                        .iter()
+                        .map(|log| i64::from(log.rowid))
+                        .collect(),
                 });
             }
         }
@@ -1159,5 +1199,77 @@ where
             }
         }
         Ok(test_result)
+    }
+}
+
+#[cfg(test)]
+mod stored_cursor_tests {
+    use super::*;
+
+    /// A conversation with `count` published entries on rows 10, 20, ...,
+    /// whose last row is a skipped one after them.
+    fn conversation(id: u8, count: usize) -> ConversationCursorInfo {
+        let entry_rowids: Vec<i64> = (1..=count as i64).map(|n| n * 10).collect();
+        ConversationCursorInfo {
+            conversation_id: vec![id],
+            num_entries_published: count,
+            last_entry_published_sequence_id: count as i64,
+            last_entry_published_rowid: entry_rowids.last().copied().unwrap_or(0) + 5,
+            entry_rowids,
+        }
+    }
+
+    /// One conversation's backlog spans two requests and the second fails:
+    /// the cursor moves to the last entry of the first request, so the next
+    /// turn starts from entry 1001, not entry 1.
+    // verifies: FORK-021
+    #[xmtp_common::test(unwrap_try = true)]
+    fn a_partly_stored_backlog_resumes_from_its_first_unstored_entry() {
+        let infos = [conversation(1, 1500)];
+        assert_eq!(stored_cursors(&infos, 1000), vec![(&[1u8][..], 10_000)]);
+        assert_eq!(stored_cursors(&infos, 1500), vec![(&[1u8][..], 15_005)]);
+        assert!(stored_cursors(&infos, 0).is_empty());
+    }
+
+    /// Only the stored prefix moves cursors: the conversations before the
+    /// failed request move past their entries, the one it cut moves to its
+    /// last stored entry, and later ones keep their cursors.
+    // verifies: FORK-021
+    #[xmtp_common::test(unwrap_try = true)]
+    fn only_the_stored_prefix_moves_cursors() {
+        let infos = [
+            conversation(1, 600),
+            conversation(2, 600),
+            conversation(3, 100),
+        ];
+        assert_eq!(
+            stored_cursors(&infos, 1000),
+            vec![(&[1u8][..], 6_005), (&[2u8][..], 4_000)]
+        );
+        assert_eq!(stored_cursors(&infos, 600), vec![(&[1u8][..], 6_005)]);
+        assert_eq!(
+            stored_cursors(&infos, 1300),
+            vec![
+                (&[1u8][..], 6_005),
+                (&[2u8][..], 6_005),
+                (&[3u8][..], 1_005)
+            ]
+        );
+    }
+
+    /// A conversation whose rows are all skipped publishes nothing. It moves
+    /// past them once every earlier conversation is stored, and not before.
+    #[xmtp_common::test(unwrap_try = true)]
+    fn a_conversation_with_no_entries_moves_only_after_every_earlier_one() {
+        let infos = [
+            conversation(1, 600),
+            conversation(2, 0),
+            conversation(3, 600),
+        ];
+        assert_eq!(
+            stored_cursors(&infos, 600),
+            vec![(&[1u8][..], 6_005), (&[2u8][..], 5)]
+        );
+        assert_eq!(stored_cursors(&infos, 599), vec![(&[1u8][..], 5_990)]);
     }
 }

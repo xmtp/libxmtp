@@ -7,10 +7,11 @@ use tls_codec::{Deserialize, Serialize, VLBytes};
 use xmtp_common::RetryableError;
 use xmtp_id::key_package::WrapperAlgorithm;
 
-static LIBCRUX_CRYPTO_PROVIDER: std::sync::LazyLock<openmls_libcrux_crypto::CryptoProvider> =
-    std::sync::LazyLock::new(|| {
-        openmls_libcrux_crypto::CryptoProvider::new().expect("Failed to create CryptoProvider")
-    });
+pub(crate) static LIBCRUX_CRYPTO_PROVIDER: std::sync::LazyLock<
+    openmls_libcrux_crypto::CryptoProvider,
+> = std::sync::LazyLock::new(|| {
+    openmls_libcrux_crypto::CryptoProvider::new().expect("Failed to create CryptoProvider")
+});
 
 #[derive(Debug, Error)]
 pub enum WrapPayloadError {
