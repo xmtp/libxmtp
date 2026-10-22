@@ -61,3 +61,8 @@ jobs:
       - name: dev/nix-shell 'just docs check-source'
         if: ${{ !cancelled() && steps.js.outcome == 'success' }}
         run: dev/nix-shell 'just docs check-source'
+      - name: Check scoped Node runtime dependencies
+        if: ${{ !cancelled() && steps.js.outcome == 'success' }}
+        run: |
+          nix build --no-link .#node-runtime-dependencies.x86_64-linux
+          nix eval --json .#node-runtime-dependencies --apply 'builtins.mapAttrs (_: check: check.drvPath)'

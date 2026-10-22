@@ -36,6 +36,23 @@ let
     );
 in
 {
+  flake.node-runtime-dependencies = lib.genAttrs systems (
+    system:
+    withSystem system (
+      { pkgs, ... }:
+      pkgs.linkFarm "node-runtime-dependencies" [
+        {
+          name = "node24";
+          path = pkgs.nodejs-slim_24.passthru.tests.dependencies;
+        }
+        {
+          name = "node26";
+          path = pkgs.nodejs-slim_26.passthru.tests.dependencies;
+        }
+      ]
+    )
+  );
+
   flake.nextest = lib.genAttrs systems (
     system:
     withSystem system (

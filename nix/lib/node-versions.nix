@@ -56,6 +56,11 @@ let
           ) previousAttrs.patches;
           passthru = previousAttrs.passthru // {
             tests = previousAttrs.passthru.tests // {
+              dependencies = prev.callPackage ./check-node-dependencies.nix {
+                node = finalAttrs.finalPackage;
+                dependencies = runtimeDependencies;
+                unpatchedDependencies = prev;
+              };
               version = prev.testers.testVersion {
                 package = finalAttrs.finalPackage;
                 version = "v${version}";
