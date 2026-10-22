@@ -340,7 +340,7 @@ async fn webhook_logs_do_not_contain_recipient_fields_or_signing_keys() {
     let mut delivery = delivery(webhook.url.clone());
     delivery.config.recipient_id = vec![0x8d; 32];
     delivery.config.signing_key = Some(Zeroizing::new(vec![0x7e; 32]));
-    delivery.payload = xmtp_push_types::PushPayload::new(&[0x9a; 17], 1);
+    delivery.payload = xmtp_push_types::PushPayload::new(&[0x9a; 33], 1);
     let capture = xmtp_logging::test_logging::LogCapture::new(xmtp_logging::Level::Trace);
     let outcome = async {
         tracing::info!(target: "xmtp_backend::push", "push privacy capture active");

@@ -100,12 +100,10 @@ where
 impl Topic {
     /// Parse a backend topic and check its kind-specific identifier length.
     ///
-    /// Kinds 0 and 4 accept a 32-byte identifier, and a 16-byte legacy group
-    /// id until the cutover to 32-byte identifiers.
+    /// Kinds 0 and 4 take a 32-byte group or commit-log id. A 16-byte legacy
+    /// group id names no topic.
     pub fn parse(bytes: &[u8]) -> Result<Self, ConversionError> {
-        use xmtp_configuration::{
-            BACKEND_INSTALLATION_ID_BYTES, GROUP_ID_BYTES, LEGACY_GROUP_ID_BYTES,
-        };
+        use xmtp_configuration::{BACKEND_INSTALLATION_ID_BYTES, GROUP_ID_BYTES};
 
         let Some((&kind, identifier)) = bytes.split_first() else {
             return Err(ConversionError::InvalidValue {
@@ -115,27 +113,18 @@ impl Topic {
             });
         };
         let kind = TopicKind::try_from(kind)?;
-        match kind {
-            TopicKind::GroupMessagesV1 | TopicKind::CommitLogEntriesV1 => {
-                if identifier.len() != GROUP_ID_BYTES && identifier.len() != LEGACY_GROUP_ID_BYTES {
-                    return Err(ConversionError::InvalidValue {
-                        item: "Topic identifier",
-                        expected: "a 32-byte or 16-byte group identifier",
-                        got: format!("{} bytes", identifier.len()),
-                    });
-                }
-            }
+        let expected = match kind {
+            TopicKind::GroupMessagesV1 | TopicKind::CommitLogEntriesV1 => GROUP_ID_BYTES,
             TopicKind::WelcomeMessagesV1
             | TopicKind::IdentityUpdatesV1
-            | TopicKind::KeyPackagesV1 => {
-                if identifier.len() != BACKEND_INSTALLATION_ID_BYTES {
-                    return Err(ConversionError::InvalidLength {
-                        item: "Topic identifier",
-                        expected: BACKEND_INSTALLATION_ID_BYTES,
-                        got: identifier.len(),
-                    });
-                }
-            }
+            | TopicKind::KeyPackagesV1 => BACKEND_INSTALLATION_ID_BYTES,
+        };
+        if identifier.len() != expected {
+            return Err(ConversionError::InvalidLength {
+                item: "Topic identifier",
+                expected,
+                got: identifier.len(),
+            });
         }
         Ok(kind.create(identifier))
     }
@@ -339,12 +328,10 @@ mod tests {
         assert!(Topic::parse(&[u8::MAX]).is_err());
         for (kind, length) in [
             (TopicKind::GroupMessagesV1, GROUP_ID_BYTES),
-            (TopicKind::GroupMessagesV1, LEGACY_GROUP_ID_BYTES),
             (TopicKind::WelcomeMessagesV1, BACKEND_INSTALLATION_ID_BYTES),
             (TopicKind::IdentityUpdatesV1, BACKEND_INSTALLATION_ID_BYTES),
             (TopicKind::KeyPackagesV1, BACKEND_INSTALLATION_ID_BYTES),
             (TopicKind::CommitLogEntriesV1, GROUP_ID_BYTES),
-            (TopicKind::CommitLogEntriesV1, LEGACY_GROUP_ID_BYTES),
         ] {
             let mut bytes = topic_bytes(kind, length);
             let topic = Topic::parse(&bytes)?;
@@ -358,13 +345,18 @@ mod tests {
         }
     }
 
-    /// Kinds 0 and 4 take a group or commit-log identifier of 32
-    /// bytes, or a legacy 16-byte group id, and no other length.
+    /// Kinds 0 and 4 take a group or commit-log identifier of 32 bytes and no
+    /// other length: a legacy 16-byte group id names no topic.
+    // verifies: TOPIC-001, TOPIC-002
     #[xmtp_common::test(unwrap_try = true)]
-    fn group_and_commit_log_topics_accept_only_both_group_id_lengths() {
+    fn group_and_commit_log_topics_accept_only_32_byte_identifiers() {
         for kind in [TopicKind::GroupMessagesV1, TopicKind::CommitLogEntriesV1] {
+            assert!(
+                Topic::parse(&topic_bytes(kind, LEGACY_GROUP_ID_BYTES)).is_err(),
+                "{kind} with a legacy 16-byte group id"
+            );
             for length in 0..=40 {
-                let accepted = length == GROUP_ID_BYTES || length == LEGACY_GROUP_ID_BYTES;
+                let accepted = length == GROUP_ID_BYTES;
                 assert_eq!(
                     Topic::parse(&topic_bytes(kind, length)).is_ok(),
                     accepted,

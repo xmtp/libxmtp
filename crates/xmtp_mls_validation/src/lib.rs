@@ -7,7 +7,7 @@ use openmls::prelude::{ContentType, KeyPackageIn, MlsMessageIn, ProtocolMessage}
 use openmls_rust_crypto::RustCrypto;
 use tls_codec::Deserialize;
 use xmtp_common::RetryableError;
-use xmtp_configuration::{GROUP_ID_BYTES, LEGACY_GROUP_ID_BYTES};
+
 use xmtp_id::{
     associations::{
         self, AccountId, AssociationError, AssociationState, AssociationStateDiff, Handle,
@@ -17,13 +17,10 @@ use xmtp_id::{
     key_package::{KeyPackageVerificationError, VerifiedKeyPackageV2},
     scw_verifier::{BlockStamp, ChainBlocks, SmartContractSignatureVerifier, VerifierError},
 };
-use xmtp_mls_common::{
-    commit_log::decode_commit_log,
-    group_keys::{
-        COMMIT_LOG_NONCE_BYTES, COMMIT_LOG_TAG_BYTES, PUBLIC_KEY_BYTES, PUBLISH_SIGNATURE_BYTES,
-        PublishSignatureError, SealedField, commit_log_entry_tbs, group_message_tbs,
-        verify_publish_signature,
-    },
+use xmtp_mls_common::group_keys::{
+    COMMIT_LOG_NONCE_BYTES, COMMIT_LOG_TAG_BYTES, PUBLIC_KEY_BYTES, PUBLISH_SIGNATURE_BYTES,
+    PublishSignatureError, SealedField, commit_log_entry_tbs, group_message_tbs,
+    verify_publish_signature,
 };
 use xmtp_proto::{
     ConversionError,
@@ -171,14 +168,14 @@ pub struct ParsedEnvelope {
 
 impl ParsedEnvelope {
     /// Whether this envelope carries a publish signature that admission must
-    /// verify with [`verify_publish`]: a group message on a 32-byte group id,
-    /// or a sealed commit-log entry. Parsing admits an unsigned payload only
-    /// under a 16-byte legacy group id, so the topic decides.
+    /// verify with [`verify_publish`]: a group message or a sealed commit-log
+    /// entry. Parsing routes both only under a 32-byte public key, so the
+    /// topic kind decides.
     pub fn is_signed(&self) -> bool {
         matches!(
             self.topic.kind(),
             TopicKind::GroupMessagesV1 | TopicKind::CommitLogEntriesV1
-        ) && self.topic.identifier().len() == GROUP_ID_BYTES
+        )
     }
 
     /// Classify a parsed envelope for push storage without changing canonical bytes.
@@ -220,18 +217,18 @@ fn checked_topic(kind: TopicKind, identifier: impl AsRef<[u8]>) -> Result<Topic,
     Topic::parse(&topic).map_err(ValidationError::InvalidTopic)
 }
 
-/// Build the topic of a group message, which [`Topic::parse`] accepts under a
-/// 32-byte group id or a 16-byte legacy one. A 32-byte group id is a public
-/// key, so the message must carry a 64-byte publish signature, which
-/// [`verify_publish`] checks after the duplicate lookup. A legacy group has
-/// no key, so its messages stay unsigned until the cutover to 32-byte ids.
+/// Build the topic of a group message, which [`Topic::parse`] accepts only
+/// under a 32-byte group id: a 16-byte legacy group id names no topic. The
+/// group id is a public key, so the message must carry a 64-byte publish
+/// signature, which [`verify_publish`] checks after the duplicate lookup.
 fn group_message_topic(group_id: &[u8], signature: &[u8]) -> Result<Topic, ValidationError> {
-    if group_id.len() == GROUP_ID_BYTES && signature.len() != PUBLISH_SIGNATURE_BYTES {
+    let topic = checked_topic(TopicKind::GroupMessagesV1, group_id)?;
+    if signature.len() != PUBLISH_SIGNATURE_BYTES {
         return Err(ValidationError::PublishSignature(
             PublishSignatureError::SignatureLength,
         ));
     }
-    checked_topic(TopicKind::GroupMessagesV1, group_id)
+    Ok(topic)
 }
 
 /// Build the topic of a sealed commit-log entry from its `commit_log_id`,
@@ -252,23 +249,6 @@ fn sealed_commit_log_topic(entry: &SealedCommitLogEntry) -> Result<Topic, Valida
         return malformed(SealedField::Signature);
     }
     checked_topic(TopicKind::CommitLogEntriesV1, &entry.commit_log_id)
-}
-
-/// Build the topic of a retired, unsigned `CommitLogEntry` from the group id
-/// inside it. Only a 16-byte legacy group id routes: under a 32-byte id the
-/// entry would land unsigned on a topic that only sealed, signed entries may
-/// use. Admitted until the cutover.
-fn legacy_commit_log_topic(group_id: &[u8]) -> Result<Topic, ValidationError> {
-    if group_id.len() != LEGACY_GROUP_ID_BYTES {
-        return Err(ValidationError::InvalidTopic(
-            ConversionError::InvalidLength {
-                item: "unsigned commit-log group id",
-                expected: LEGACY_GROUP_ID_BYTES,
-                got: group_id.len(),
-            },
-        ));
-    }
-    checked_topic(TopicKind::CommitLogEntriesV1, group_id)
 }
 
 /// Decode one envelope, derive its topic, and compute canonical retry bytes.
@@ -311,10 +291,6 @@ pub fn parse_envelope(envelope: ClientEnvelope) -> Result<ParsedEnvelope, Valida
         }
         Payload::IdentityUpdate(update) => {
             checked_topic(TopicKind::IdentityUpdatesV1, hex::decode(&update.inbox_id)?)?
-        }
-        Payload::CommitLogEntry(entry) => {
-            let decoded = decode_commit_log(&entry.serialized_commit_log_entry)?;
-            legacy_commit_log_topic(&decoded.group_id)?
         }
         Payload::SealedCommitLogEntry(entry) => sealed_commit_log_topic(entry)?,
     };

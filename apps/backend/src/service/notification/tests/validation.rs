@@ -220,6 +220,7 @@ async fn every_subscription_shape_failure_leaves_the_recipient_unchanged() {
         vec![],
         vec![0],
         vec![0; 16],
+        vec![0; 17],
         vec![0; 18],
         vec![1; 32],
         vec![1; 34],

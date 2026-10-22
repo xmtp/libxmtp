@@ -755,7 +755,7 @@ xmtp_common::if_native! {
                 BidiConnection::open(&api, initial).await.map_err(OpenError::new)
             }
         }, false);
-        let topic = Topic::new_group_message([7; 16]);
+        let topic = Topic::new_group_message([7; 32]);
         peer.enqueue(tonic::Code::Unauthenticated).await;
         assert!(transport.lease(vec![(topic.clone(), 0)], 8).await.is_err());
         assert_eq!(callback.calls.load(Ordering::SeqCst), 1);
@@ -817,7 +817,7 @@ xmtp_common::if_native! {
         // Establish a wire, then lock the credential out and kill the wire, so
         // the reopen meets the cool-down. Reaching the limit through reopens
         // alone would take minutes, because reconnect backoff doubles.
-        let topic = Topic::new_group_message([9; 16]);
+        let topic = Topic::new_group_message([9; 32]);
         let mut lease = transport.lease(vec![(topic, 0)], 8).await?;
         let mut server = servers.lock().expect("server queue").pop_front()?;
         let update = server.next_mutate().await;
@@ -852,7 +852,7 @@ xmtp_common::if_native! {
         let callback = Arc::new(Callback::default());
         let client = AuthMiddleware::new(builder.build()?, Some(callback.clone()), None);
         let topic = wire::TopicQuery { topic: Some(wire::Topic {
-            topic: Topic::new_group_message(xmtp_common::rand_array::<16>()).cloned_vec(),
+            topic: Topic::new_group_message(xmtp_common::rand_array::<32>()).cloned_vec(),
         }), cursor: None };
         let path = http::uri::PathAndQuery::from_static("/xmtp.backend.v1.QueryService/Query");
         for _ in 0..3 {

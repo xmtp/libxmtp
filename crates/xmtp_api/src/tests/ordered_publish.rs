@@ -8,13 +8,12 @@ use xmtp_mls_common::{
 };
 use xmtp_proto::xmtp::mls::message_contents::PlaintextCommitLogEntry;
 
-const GROUP: [u8; 16] = [9; 16];
-
 fn group_unit(kinds: &[GroupMessageKind]) -> PublishUnit {
+    let keys = group_keys(9);
     PublishUnit::new(
         kinds
             .iter()
-            .map(|kind| group_message_envelope(GROUP, *kind, []))
+            .map(|kind| keyed_group_message_envelope(&keys, *kind, []))
             .collect(),
     )
     .unwrap()
@@ -60,7 +59,7 @@ fn publish_chunks_keep_a_unit_whole_at_the_envelope_bound() {
 // verifies: CONF-073
 #[xmtp_common::test(unwrap_try = true)]
 fn publish_unit_over_the_envelope_bound_is_refused_locally() {
-    let envelope = group_message_envelope(GROUP, GroupMessageKind::Application, []);
+    let envelope = keyed_group_message_envelope(&group_keys(9), GroupMessageKind::Application, []);
     PublishUnit::new(vec![envelope.clone(); MAX_PUBLISH_ENVELOPES])?;
     let error = PublishUnit::new(vec![envelope; MAX_PUBLISH_ENVELOPES + 1]).unwrap_err();
     assert!(matches!(error, ApiError::UnitTooLarge), "{error:?}");

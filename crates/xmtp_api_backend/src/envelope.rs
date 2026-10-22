@@ -317,46 +317,50 @@ mod tests {
         }
     }
 
-    /// A stored group message decodes under a 32-byte group id as under a
-    /// 16-byte one, keeps the fields its signature covers, and is refused
-    /// under another group's topic.
+    /// A stored group message decodes under its 32-byte group id, keeps the
+    /// fields its signature covers, and is refused under another group's
+    /// topic. A legacy 16-byte group id names no topic, so a message stored
+    /// under a 17-byte topic is refused.
     #[xmtp_common::test(unwrap_try = true)]
-    fn group_messages_decode_under_both_id_lengths() {
+    fn group_messages_decode_only_under_32_byte_ids() {
         use xmtp_mls_validation::test_utils::{GroupMessageKind, group_message_envelope};
 
-        for (id, other) in [
-            ([3u8; 32].as_slice(), [4u8; 32].as_slice()),
-            (&[3; 16], &[4; 16]),
-        ] {
-            let topic = Topic::new_group_message(id);
-            let mut stored = envelope(&topic, 9);
+        let stored_on = |id: &[u8], topic: &Topic| {
+            let mut stored = envelope(topic, 9);
             let mut client = group_message_envelope(id, GroupMessageKind::Application, []);
             if let Some(wire::client_envelope::Payload::GroupMessage(message)) = &mut client.payload
             {
                 message.signature = vec![5; 64];
             }
             stored.envelope = Some(client);
+            stored
+        };
+        let id = [3u8; 32];
+        let stored = stored_on(&id, &Topic::new_group_message(id));
+        let decoded = decode_group_message(stored.clone())?;
+        assert_eq!(decoded.group_id.as_slice(), id);
+        assert_eq!(decoded.sender_hmac, [0x33, 0x44]);
+        assert!(decoded.should_push);
+        let metadata = decode_group_message_metadata(stored.meta.clone().unwrap())?;
+        assert_eq!(metadata.group_id.as_slice(), id);
 
-            let decoded = decode_group_message(stored.clone())?;
-            assert_eq!(decoded.group_id.as_slice(), id);
-            assert_eq!(decoded.sender_hmac, [0x33, 0x44]);
-            assert!(decoded.should_push);
-            let metadata = decode_group_message_metadata(stored.meta.clone().unwrap())?;
-            assert_eq!(metadata.group_id.as_slice(), id);
+        let mut moved = stored;
+        moved.meta.as_mut().unwrap().topic = Some(wire::Topic {
+            topic: Topic::new_group_message([4u8; 32]).cloned_vec(),
+        });
+        assert!(decode_group_message(moved).is_err());
 
-            let mut moved = stored;
-            moved.meta.as_mut().unwrap().topic = Some(wire::Topic {
-                topic: Topic::new_group_message(other).cloned_vec(),
-            });
-            assert!(decode_group_message(moved).is_err(), "{} bytes", id.len());
-        }
+        let legacy = [3u8; 16];
+        let stored = stored_on(&legacy, &Topic::new_group_message(legacy));
+        assert!(decode_group_message(stored.clone()).is_err());
+        assert!(decode_group_message_metadata(stored.meta.unwrap()).is_err());
     }
 
     // verifies: PROC-001
     #[xmtp_common::test(unwrap_try = true)]
     fn ordered_batches_keep_sparse_positions_and_authoritative_bytes() {
-        let a = Topic::new_group_message([1; 16]);
-        let b = Topic::new_group_message([2; 16]);
+        let a = Topic::new_group_message([1; 32]);
+        let b = Topic::new_group_message([2; 32]);
         let mut cursors = [(a.clone(), types::Cursor(2)), (b.clone(), types::Cursor(0))].into();
         let original = envelope(&a, 8);
         let batches = ordered_batches(
@@ -378,8 +382,8 @@ mod tests {
     // verifies: PROC-001
     #[xmtp_common::test(unwrap_try = true)]
     fn failed_frame_does_not_advance_any_topic() {
-        let a = Topic::new_group_message([1; 16]);
-        let b = Topic::new_group_message([2; 16]);
+        let a = Topic::new_group_message([1; 32]);
+        let b = Topic::new_group_message([2; 32]);
         let starts: TopicCursor =
             [(a.clone(), types::Cursor(2)), (b.clone(), types::Cursor(0))].into();
         for envelopes in [

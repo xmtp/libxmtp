@@ -55,7 +55,7 @@ async fn one_bad_commit_log_envelope_does_not_fail_the_read() {
         row(
             &topic,
             2,
-            Some(Payload::CommitLogEntry(wire::CommitLogEntry::default())),
+            Some(Payload::GroupMessage(wire::GroupMessage::default())),
         ),
         row(&topic, 3, None),
         no_hash,

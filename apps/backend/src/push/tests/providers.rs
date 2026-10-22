@@ -15,7 +15,7 @@ async fn dispatch_one(
     token: &str,
     dead: bool,
 ) -> TestResult {
-    let mut topic = vec![0; 17];
+    let mut topic = vec![0; 33];
     topic[1] = id;
     let recipient = fixture
         .recipient(id.into(), channel, &topic, false, 0)
@@ -109,7 +109,7 @@ async fn apns_terminal_replies_delete_but_sender_mismatches_keep_subscriptions_a
     );
     // A later successful answer reaches a retained subscription without Register.
     provider.set_replies(vec![Reply::json(200, json!({}))]);
-    let mut topic = vec![0; 17];
+    let mut topic = vec![0; 33];
     topic[1] = 3;
     let sequence = fixture.seed(1, &topic, false).await?[0];
     fixture.boundary(sequence).await?;
@@ -192,7 +192,7 @@ async fn fcm_terminal_detail_deletes_but_mismatch_and_bare_statuses_keep_subscri
         1.0
     );
     provider.set_replies(vec![Reply::json(200, json!({}))]);
-    let mut topic = vec![0; 17];
+    let mut topic = vec![0; 33];
     topic[1] = 2;
     let sequence = fixture.seed(1, &topic, false).await?[0];
     fixture.boundary(sequence).await?;

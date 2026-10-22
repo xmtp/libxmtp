@@ -2,7 +2,7 @@
 /// identifier of kinds 0 and 4.
 pub const GROUP_ID_BYTES: usize = 32;
 /// Length of a legacy group id, in bytes. Legacy ids come only from imported
-/// archives; topics accept them until the cutover to 32-byte identifiers.
+/// archives, and no topic carries one.
 pub const LEGACY_GROUP_ID_BYTES: usize = 16;
 /// Most envelopes one publish request may carry, duplicates included (API
 /// section 7). Clients chunk to it, and the backend refuses more.

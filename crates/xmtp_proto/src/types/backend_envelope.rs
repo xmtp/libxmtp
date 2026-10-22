@@ -28,15 +28,15 @@ mod tests {
     use super::*;
     use crate::xmtp::{
         backend::v1::{
-            CommitLogEntry, GroupMessage, KeyPackage, SealedCommitLogEntry, WelcomeMessage,
+            GroupMessage, KeyPackage, SealedCommitLogEntry, WelcomeMessage,
             client_envelope::Payload,
             welcome_message::{V1, Version},
         },
-        identity::associations::{IdentityUpdate, RecoverableEd25519Signature},
+        identity::associations::IdentityUpdate,
     };
 
     /// Same vector on native and wasm.
-    // verifies: API-211
+    // verifies: API-211, API-210
     #[xmtp_common::test(unwrap_try = true)]
     fn all_payloads_have_stable_canonical_bytes_and_distinct_outer_hashes() {
         // Reordered inner fields and an unknown outer field are noncanonical.
@@ -93,19 +93,6 @@ mod tests {
                 "220610071a026162",
                 "0aab40455ce3dacc36006ef421e2746016960606e24d125946e7a73dc9cf6f9b",
             ),
-            (
-                ClientEnvelope {
-                    payload: Some(Payload::CommitLogEntry(CommitLogEntry {
-                        serialized_commit_log_entry: vec![0x30, 0x31],
-                        signature: Some(RecoverableEd25519Signature {
-                            bytes: vec![0x32],
-                            public_key: vec![0x33, 0x34],
-                        }),
-                    })),
-                },
-                "2a0d0a02303112070a013212023334",
-                "108bc3029f48dda98d9d43238154830ae0ee71e7d2e083264a2b07a3d736bee2",
-            ),
             // The signature is field 4 of the group message.
             (
                 ClientEnvelope {
@@ -142,6 +129,13 @@ mod tests {
             assert_eq!(decoded, envelope);
             assert_eq!(canonical_envelope(&decoded), canonical);
         }
+
+        // Field 5, the retired `CommitLogEntry`, is reserved. An old client's
+        // entry decodes with no payload, and its bytes are not kept.
+        let retired =
+            ClientEnvelope::decode(hex::decode("2a0d0a02303112070a013212023334")?.as_slice())?;
+        assert_eq!(retired.payload, None);
+        assert!(canonical_envelope(&retired).bytes.is_empty());
 
         let Some(Payload::GroupMessage(group)) = group_envelope.payload else {
             unreachable!("first golden vector is a group message")

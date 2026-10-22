@@ -788,16 +788,17 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
 mod tests {
     use super::*;
     use xmtp_mls_validation::test_utils::{
-        GroupMessageKind, group_message_envelope, inline_welcome_envelope,
+        GroupMessageKind, group_keys, inline_welcome_envelope, keyed_group_message_envelope,
     };
 
     #[xmtp_common::test(unwrap_try = true)]
     fn running_publish_measure_matches_encoded_mixed_request() {
+        let keys = group_keys(2);
         let units = [
             PublishUnit::single(inline_welcome_envelope([1; 32]))?,
             PublishUnit::new(vec![
-                group_message_envelope([2; 16], GroupMessageKind::Proposal, [0; 127]),
-                group_message_envelope([2; 16], GroupMessageKind::Commit, [0; 16384]),
+                keyed_group_message_envelope(&keys, GroupMessageKind::Proposal, [0; 127]),
+                keyed_group_message_envelope(&keys, GroupMessageKind::Commit, [0; 16384]),
             ])?,
             PublishUnit::single(inline_welcome_envelope([1; 32]))?,
             PublishUnit::single(inline_welcome_envelope([3; 32]))?,

@@ -517,6 +517,17 @@ async fn structural_update_errors_close_the_session() {
                 removes: vec![],
             })),
         },
+        // A 17-byte group topic, built from a legacy 16-byte group id.
+        api::SubscribeRequest {
+            request: Some(Input::Update(api::subscribe_request::Update {
+                id: 1,
+                adds: vec![support::query_topic(
+                    support::topic(xmtp_proto::types::TopicKind::GroupMessagesV1, &[4; 16]),
+                    0,
+                )],
+                removes: vec![],
+            })),
+        },
     ] {
         let mut stream = Native::open(&server).await?;
         stream.input.send(request).await?;
@@ -533,7 +544,7 @@ async fn structural_update_errors_close_the_session() {
                 &[("reason", "invalid")],
             )
         },
-        4.0,
+        5.0,
     )
     .await?;
     assert_eq!(
@@ -718,7 +729,7 @@ async fn applied_control_can_exceed_the_data_frame_target() {
     let mut stream = Native::open(&server).await?;
     let adds = (0_u64..100_000)
         .map(|id| {
-            let mut group = [0; 16];
+            let mut group = [0; 32];
             group[..8].copy_from_slice(&id.to_be_bytes());
             support::query_topic(
                 support::topic(xmtp_proto::types::TopicKind::GroupMessagesV1, &group),

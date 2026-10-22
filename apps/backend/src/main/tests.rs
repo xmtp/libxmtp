@@ -219,10 +219,7 @@ async fn startup_preserves_metrics_export_and_shutdown_across_log_settings() {
         let mut client = xmtp_backend::api::query_service_client::QueryServiceClient::new(channel);
         let request = xmtp_backend::api::QueryNewestRequest {
             topics: vec![xmtp_backend::api::Topic {
-                topic: xmtp_proto::types::Topic::new_group_message(
-                    xmtp_proto::types::GroupId::ZERO,
-                )
-                .cloned_vec(),
+                topic: xmtp_proto::types::Topic::new_group_message([0u8; 32]).cloned_vec(),
             }],
             include_full_envelope: false,
         };
@@ -447,10 +444,7 @@ async fn inline_sources_start_and_serve() {
         client
             .query_newest(xmtp_backend::api::QueryNewestRequest {
                 topics: vec![xmtp_backend::api::Topic {
-                    topic: xmtp_proto::types::Topic::new_group_message(
-                        xmtp_proto::types::GroupId::ZERO,
-                    )
-                    .cloned_vec(),
+                    topic: xmtp_proto::types::Topic::new_group_message([0u8; 32]).cloned_vec(),
                 }],
                 include_full_envelope: false,
             })

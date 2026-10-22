@@ -133,8 +133,8 @@ message ClientEnvelope {
     SealedCommitLogEntry sealed_commit_log_entry = 6;
   }
   // The retired CommitLogEntry payload.
-  reserved 5; // pending: API-210
-  reserved "commit_log_entry"; // pending: API-210
+  reserved 5;
+  reserved "commit_log_entry";
 }
 
 // A stored envelope with its server-assigned metadata.

@@ -11,7 +11,7 @@ fn row(topic: &Topic, sequence: u64) -> wire::ServerEnvelope {
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn ordered_query_returns_one_bounded_page_with_its_start_cursor() {
-    let topic = Topic::new_group_message([1; 16]);
+    let topic = Topic::new_group_message([1; 32]);
     let expected = topic.clone();
     let mut mock = MockBackendClient::new();
     mock.expect_query().times(1).returning(move |request| {
@@ -42,7 +42,7 @@ async fn ordered_query_returns_one_bounded_page_with_its_start_cursor() {
 // verifies: PROC-020
 #[xmtp_common::test(unwrap_try = true)]
 async fn ordered_query_reduces_the_page_before_exceeding_the_byte_limit() {
-    let topic = Topic::new_group_message([1; 16]);
+    let topic = Topic::new_group_message([1; 32]);
     let expected = topic.clone();
     let limit = row(&topic, 10).encoded_len();
     let mut calls = 0;
@@ -74,7 +74,7 @@ async fn ordered_query_reduces_the_page_before_exceeding_the_byte_limit() {
 // verifies: PROC-020
 #[xmtp_common::test(unwrap_try = true)]
 async fn one_envelope_above_the_byte_limit_fails_without_skipping_it() {
-    let topic = Topic::new_group_message([1; 16]);
+    let topic = Topic::new_group_message([1; 32]);
     let expected = topic.clone();
     let mut mock = MockBackendClient::new();
     mock.expect_query().times(1).returning(move |_| {
@@ -103,8 +103,8 @@ async fn one_envelope_above_the_byte_limit_fails_without_skipping_it() {
 // verifies: PROC-015
 #[xmtp_common::test(unwrap_try = true)]
 async fn newest_targets_keep_absent_topics_at_zero() {
-    let present = Topic::new_group_message([1; 16]);
-    let absent = Topic::new_group_message([2; 16]);
+    let present = Topic::new_group_message([1; 32]);
+    let absent = Topic::new_group_message([2; 32]);
     let expected = present.clone();
     let mut mock = MockBackendClient::new();
     mock.expect_query_newest()

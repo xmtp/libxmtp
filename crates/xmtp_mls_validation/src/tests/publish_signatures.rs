@@ -180,19 +180,25 @@ async fn validate_envelope_leaves_publish_signatures_to_verify_publish() {
     }
 }
 
-/// Until the cutover, a 16-byte legacy group id still routes and carries no
-/// signature, because no installation holds a key for it. Its `signature`
-/// field is not read.
+/// A 16-byte legacy group id names no topic, so a message on one is refused
+/// as malformed before any signature is read, signed or not. Before the
+/// cutover the same unsigned message was admitted.
 #[xmtp_common::test(unwrap_try = true)]
-// verifies: TOPIC-001
-fn legacy_group_payloads_stay_unsigned_until_the_cutover() {
-    let mut message = group_message_envelope(GROUP_ID, GroupMessageKind::Application, []);
-    let parsed = admit(message.clone())?;
-    assert!(!parsed.is_signed());
+// verifies: TOPIC-002, API-230
+fn a_legacy_group_message_is_unroutable() {
+    let legacy = [0x11; 16];
+    let mut message = group_message_envelope(legacy, GroupMessageKind::Application, []);
+    assert_malformed(
+        message.clone(),
+        |error| matches!(error, ValidationError::InvalidTopic(_)),
+        "an unsigned message on a 16-byte group id",
+    );
     group_message(&mut message).signature = vec![0x55; 64];
-    assert!(!admit(message)?.is_signed());
-    let parsed = admit(commit_log_envelope(GROUP_ID))?;
-    assert!(!parsed.is_signed());
+    assert_malformed(
+        message,
+        |error| matches!(error, ValidationError::InvalidTopic(_)),
+        "a message with a 64-byte signature on a 16-byte group id",
+    );
 }
 
 #[xmtp_common::test(unwrap_try = true)]

@@ -86,10 +86,12 @@ async fn backend_round_trip_covers_five_kinds_paging_and_absent_key() {
     );
     assert_eq!(welcomes[0].as_v1().unwrap().data, vec![0x10, 0x11]);
 
-    let group_id = xmtp_common::rand_array::<16>();
+    // Signed group messages on a keyed group's 33-byte topic.
+    let keys = GroupKeys::derive(&GroupRoot::generate());
+    let group_id = keys.group_id();
     let group_topic = Topic::new_group_message(group_id);
     let group_envelopes: Vec<_> = (0..5u8)
-        .map(|index| group_message_envelope(group_id, GroupMessageKind::Application, [index]))
+        .map(|index| keyed_group_message_envelope(&keys, GroupMessageKind::Application, [index]))
         .collect();
     let units = group_envelopes
         .iter()
@@ -120,7 +122,6 @@ async fn backend_round_trip_covers_five_kinds_paging_and_absent_key() {
     assert_eq!(groups[0].expiry_ns, Some(group_metas[0].expiry_ns));
 
     // A sealed entry on its commit-log topic, named by the commit-log id.
-    let keys = GroupKeys::derive(&GroupRoot::generate());
     let plaintext = PlaintextCommitLogEntry {
         group_id: keys.group_id().to_vec(),
         commit_sequence_id: 1,
