@@ -28,6 +28,12 @@ pub enum StorageError {
         "This database uses an older storage encoding. Keep a backup and create a new client database."
     )]
     OldEncodingDatabase,
+    /// The database holds a live group whose id is 16 bytes, from before
+    /// group ids were public keys. Not retryable.
+    #[error(
+        "This database holds groups from before keyed group ids. Keep a backup and create a new client database."
+    )]
+    LegacyGroupDatabase,
     /// Durable stream storage rejected an operation or reached a capacity limit.
     #[error(transparent)]
     #[error_code(inherit)]
@@ -288,6 +294,7 @@ impl RetryableError for StorageError {
             Self::PreTransitionDatabase
             | Self::OldStreamDatabase
             | Self::OldEncodingDatabase
+            | Self::LegacyGroupDatabase
             | Self::MigrationError(_)
             | Self::Conversion(_)
             | Self::NotFound(_)

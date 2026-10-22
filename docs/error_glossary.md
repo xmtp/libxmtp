@@ -4,7 +4,7 @@
 
 This document lists all error codes defined in LibXMTP, the core library underlying the XMTP SDKs. Each error code is a unique identifier returned to help diagnose issues.
 
-**39 error types** across **10 crates** with **418 total error codes**.
+**39 error types** across **10 crates** with **420 total error codes**.
 
 ## xmtp_api
 
@@ -192,6 +192,7 @@ General error type for Mls Storage Trait
 | `StorageError::PreTransitionDatabase` | The database was created before the backend transition. Not retryable. |
 | `StorageError::OldStreamDatabase` | The database uses the previous self-hosted stream format. |
 | `StorageError::OldEncodingDatabase` | The database was written before the key store and serialized columns moved from bincode to CBOR. Not retryable. |
+| `StorageError::LegacyGroupDatabase` | The database holds a live group whose id is 16 bytes, from before group ids were public keys. Not retryable. |
 | `StorageError::DieselConnect` | Diesel connection error. Failed to connect to SQLite. Retryable. |
 | `StorageError::DieselResult` | Diesel result error. Database query returned an error. May be retryable. |
 | `StorageError::MigrationError` | Migration error. Database migration failed. Not retryable. |
@@ -534,6 +535,7 @@ Stable failure categories. Inner causes remain available to Rust callers.
 | `GroupError::WelcomeDataNotFound` | Welcome data not found. Welcome data missing from topic. Not retryable. |
 | `GroupError::WelcomeGroupPrefixPending` | The old group must process its ordered prefix before this Welcome can install. Retryable. |
 | `GroupError::InvalidWelcomeMetadata` | The Welcome has missing, malformed, or out-of-range join metadata. Not retryable. |
+| `GroupError::WelcomeGroupRoot` | The Welcome's group context has no 32-byte group root, or its root does not derive the Welcome's group id. Not retryable. |
 | `GroupError::UnsupportedWelcomeVersion` | The Welcome needs a newer client. Keep it blocked until upgrade. Retryable. |
 | `GroupError::UninitializedResult` | Result not initialized. Expected result was not initialized. Not retryable. |
 | `GroupError::Diesel` | Diesel ORM error. Raw database query failed. May be retryable. |
