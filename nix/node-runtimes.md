@@ -81,7 +81,9 @@ Upstream commit `bc5af1c67cd8e029f86ec992688dde9307f4d61a` synchronizes actual W
 completion in the shared-isolate C++ test. It replaces a bounded number of
 nonblocking event-loop turns with elapsed-time waiting that yields to the Worker,
 without changing assertions, disabling tests, or adding retries. Apply it only to
-Node 26. Remove the backport when the selected release sources contain that commit
+Node 26. The patch is vendored as `lib/node-worker-exit.patch` because GitHub
+can change generated patch metadata for the same commit, breaking a fetch hash.
+Remove the backport when the selected release sources contain that commit
 or an equivalent fix, and both shared-isolate variants pass the unchanged native
 upstream suite without the extra patch.
 
