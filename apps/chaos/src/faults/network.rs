@@ -7,7 +7,7 @@ use std::{
 };
 
 use reqwest::{Client, Method, StatusCode};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::{Value, json};
 use tonic_health::pb::{
     HealthCheckRequest, health_check_response::ServingStatus, health_client::HealthClient,
@@ -89,9 +89,9 @@ pub enum NetworkError {
     InvalidUrl(String),
     #[error("Toxiproxy control failed: {0}")]
     Control(#[from] reqwest::Error),
-    #[error("Toxiproxy health response exceeds {CONTROL_RESPONSE_BYTES} bytes")]
+    #[error("Toxiproxy control response exceeds {CONTROL_RESPONSE_BYTES} bytes")]
     OversizeControlResponse,
-    #[error("invalid Toxiproxy health response: {0}")]
+    #[error("invalid Toxiproxy control response: {0}")]
     InvalidControlResponse(#[from] serde_json::Error),
     #[error("proxy {proxy} is not healthy: {detail}")]
     ProxyHealth { proxy: String, detail: &'static str },
@@ -154,6 +154,42 @@ pub struct NetworkController {
     compose_file: PathBuf,
 }
 
+/// Read Toxiproxy's proxy table, refusing a body over `CONTROL_RESPONSE_BYTES`.
+async fn read_proxies<T: DeserializeOwned>(
+    client: &Client,
+    api: &str,
+) -> Result<HashMap<String, T>, NetworkError> {
+    let mut response = client
+        .get(format!("{}/proxies", api.trim_end_matches('/')))
+        .send()
+        .await?
+        .error_for_status()?;
+    if response
+        .content_length()
+        .is_some_and(|size| size > CONTROL_RESPONSE_BYTES as u64)
+    {
+        return Err(NetworkError::OversizeControlResponse);
+    }
+    let mut body = Vec::new();
+    while let Some(chunk) = response.chunk().await? {
+        if chunk.len() > CONTROL_RESPONSE_BYTES.saturating_sub(body.len()) {
+            return Err(NetworkError::OversizeControlResponse);
+        }
+        body.extend_from_slice(&chunk);
+    }
+    Ok(serde_json::from_slice(&body)?)
+}
+
+/// A proxy that an earlier run left in Toxiproxy, if any.
+async fn leftover_proxy(client: &Client, api: &str) -> Result<Option<String>, NetworkError> {
+    let existing: HashMap<String, Value> = timeout(CONTROL_TIMEOUT, read_proxies(client, api))
+        .await
+        .map_err(|_| NetworkError::Timeout)??;
+    Ok(existing
+        .into_keys()
+        .find(|name| name.starts_with(PROXY_PREFIX)))
+}
+
 impl NetworkController {
     pub async fn create(slot_count: usize) -> Result<Self, NetworkError> {
         if slot_count == 0 || slot_count > PROXY_CAPACITY {
@@ -165,19 +201,8 @@ impl NetworkController {
         let client = xmtp_common::http::client_builder()
             .timeout(CONTROL_TIMEOUT)
             .build()?;
-        let existing: HashMap<String, Value> = timeout(CONTROL_TIMEOUT, async {
-            client
-                .get(format!("{}/proxies", api.trim_end_matches('/')))
-                .send()
-                .await?
-                .error_for_status()?
-                .json()
-                .await
-        })
-        .await
-        .map_err(|_| NetworkError::Timeout)??;
-        if let Some(name) = existing.keys().find(|name| name.starts_with(PROXY_PREFIX)) {
-            return Err(NetworkError::Occupied(name.clone()));
+        if let Some(name) = leftover_proxy(&client, &api).await? {
+            return Err(NetworkError::Occupied(name));
         }
         let mut proxies = Vec::with_capacity(slot_count);
         for (slot, port) in PROXY_PORTS.iter().enumerate().take(slot_count) {
@@ -278,26 +303,8 @@ impl NetworkController {
                     endpoint: self.backend.clone(),
                     source,
                 })?;
-            let mut response = self
-                .client
-                .get(format!("{}/proxies", self.api))
-                .send()
-                .await?
-                .error_for_status()?;
-            if response
-                .content_length()
-                .is_some_and(|size| size > CONTROL_RESPONSE_BYTES as u64)
-            {
-                return Err(NetworkError::OversizeControlResponse);
-            }
-            let mut body = Vec::new();
-            while let Some(chunk) = response.chunk().await? {
-                if chunk.len() > CONTROL_RESPONSE_BYTES.saturating_sub(body.len()) {
-                    return Err(NetworkError::OversizeControlResponse);
-                }
-                body.extend_from_slice(&chunk);
-            }
-            let managed: HashMap<String, HealthProxy> = serde_json::from_slice(&body)?;
+            let managed: HashMap<String, HealthProxy> =
+                read_proxies(&self.client, &self.api).await?;
             for expected in &self.proxies {
                 let actual =
                     managed
@@ -772,6 +779,25 @@ mod tests {
         let controller = test_controller(&direct.endpoint, &control.endpoint, "http://unused");
         assert!(matches!(
             controller.check_health().await,
+            Err(NetworkError::OversizeControlResponse)
+        ));
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn discovery_finds_a_leftover_proxy() {
+        let client = xmtp_common::http::client_builder()
+            .timeout(CONTROL_TIMEOUT)
+            .build()?;
+        let control = mock_control(br#"{"other":{},"xchaos-3":{}}"#.to_vec()).await;
+        assert_eq!(
+            leftover_proxy(&client, &control.endpoint).await?,
+            Some("xchaos-3".to_string())
+        );
+        let control = mock_control(b"{}".to_vec()).await;
+        assert_eq!(leftover_proxy(&client, &control.endpoint).await?, None);
+        let control = mock_control(vec![b' '; CONTROL_RESPONSE_BYTES + 1]).await;
+        assert!(matches!(
+            leftover_proxy(&client, &control.endpoint).await,
             Err(NetworkError::OversizeControlResponse)
         ));
     }
