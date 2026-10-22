@@ -71,7 +71,7 @@
         version = (lib.importJSON (sdk + "/package.json")).version;
         src = jsSource;
         nativeBuildInputs = [
-          pkgs.nodejs_26
+          pkgs.xmtp.nodejs_26
           jsTools
         ];
         XMTP_SDK_EXPECTED_SOURCE = sdkProvenance.source;
@@ -85,7 +85,7 @@
           node sdks/react-native/scripts/stage-package.mjs \
             --generated ${p.xmtp-sdk-generated-react-native} \
             --runtime ${p.ubjs-react-native} --out "$TMPDIR/staged"
-          mv "$TMPDIR/staged" "$out"
+          cp -R "$TMPDIR/staged" "$out"
         '';
         installPhase = "true";
         dontFixup = true;
@@ -211,7 +211,7 @@
           {
             nativeBuildInputs = [
               pkgs.python311
-              pkgs.nodejs_26
+              pkgs.xmtp.nodejs_26
             ];
             passthru = {
               inherit packageVersion components;

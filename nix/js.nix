@@ -6,7 +6,7 @@
   curl,
   geckodriver,
   xmtp-pnpm,
-  nodejs_26,
+  xmtp,
   python311,
   just,
   watchexec,
@@ -36,7 +36,7 @@ mkShell {
     # protoc: the browser object-store relay rewrites upload grants.
     protobuf
     xmtp-pnpm
-    nodejs_26
+    xmtp.nodejs_26
     python311
     just
     watchexec

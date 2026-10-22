@@ -134,6 +134,7 @@ shared:
   - "nix/lib/packages/{kache,rtk}.nix"
   - "nix/shells/{local,rust}.nix"
   - "nix/apps.nix"
+  - "nix/**/*.patch"
   - ".github/{ci-suites.yml,ci-suites.json}"
   - ".github/workflows/ci.yml"
   - ".github/actions/setup-nix/**"

@@ -2,7 +2,6 @@
 {
   xmtp,
   wasm-bindgen-cli,
-  nodejs_24,
   python3,
   taplo,
 }:
@@ -57,7 +56,7 @@ rust.buildPackage (
     version = xmtp.mkVersion rust;
     nativeBuildInputs = commonArgs.nativeBuildInputs ++ [
       wasm-bindgen-cli
-      nodejs_24
+      xmtp.nodejs_24
       python3
       taplo
     ];

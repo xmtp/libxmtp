@@ -27,6 +27,8 @@ outside Nix. Prefer a `just` recipe; for Cargo options without one, use
 `dev/nix-shell 'dev/agent-run cargo <command> ...'`. See `docs/agent-tools.md`
 for the Codex hook, Serena, and command output details.
 
+For Nix shell diagnostics and runtime maintenance, see `nix/AGENTS.md`.
+
 ```bash
 just                         # list recipes
 just check                   # check default members

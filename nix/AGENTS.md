@@ -3,6 +3,16 @@
 Check an affected output with `nix build --no-link .#<output>`; run `dev/nix-shell 'just lint-config'`
 and `dev/nix-shell 'just test dev'`.
 
+For Node pins, scoped dependencies, patch rationale and removal criteria, and
+validation, read [Node runtime maintenance](node-runtimes.md).
+
+Full Nix builder logs default off, including in CI. For an explicit debugging
+invocation, use `XMTP_NIX_BUILD_LOGS=1 dev/nix-shell 'COMMAND'` to stream them to
+stderr during environment evaluation. `--print-env` and the cache keep only the
+shell environment; toggling logging does not invalidate that cache. Check wrapper
+logging, cache reuse, and failed-evaluation cleanup without building Nix packages with
+`dev/nix-shell 'python3.11 -B dev/tests/test_agents.py'`.
+
 Rust-capable development shells set pinned Kache as `RUSTC_WRAPPER` and point
 `KACHE_HOST_CONFIG` at `lib/kache.toml` (`rustShellEnv` in
 `lib/shell-common.nix`). Check the package with `nix build --no-link .#kache`

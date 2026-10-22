@@ -49,59 +49,85 @@ let
   # `host` is the HOST pkgset (kept stable across cross pkgsets so build
   # tools stay host-built). `final` is the current pkgset — use it for
   # anything that must follow the target (toolchain, stdenv, crane).
-  xmtpOverlay = host: final: _: rec {
-    wasm-bindgen-cli = host.callPackage ./packages/wasm-bindgen-cli.nix { };
-    napi-rs-cli = host.callPackage ./packages/napi-rs-cli { };
-    swiftlint = host.callPackage ./packages/swiftlint.nix { };
-    # Prebuilt binary — nixpkgs' swiftformat needs the Swift toolchain, which
-    # is broken/uncached on Linux in current nixpkgs.
-    swiftformat = host.callPackage ./packages/swiftformat.nix { };
-    rtk = host.callPackage ./packages/rtk.nix { };
-    kache = host.callPackage ./packages/kache.nix { };
-    xmtp-pnpm = host.callPackage ./packages/pnpm.nix { };
-    xmtp = {
-      filesets = host.callPackage ./filesets.nix { };
-      mkToolchain = final.callPackage ./mkToolchain.nix { inherit inputs; };
-      mkNativeToolchain = xmtp.mkToolchain final;
-      # The one toolchain of every Crane package. Crane calls it with each
-      # spliced package set and compiles with `pkgsBuildHost`, whose
-      # `hostPlatform` is the build machine, so the target comes from
-      # `targetPlatform`. Native sets share one store path; a cross set adds
-      # the `rust-std` of its own target. The default profile already has
-      # clippy and rustfmt.
-      hostToolchain =
-        p:
-        xmtp.mkToolchain p
-          [ p.stdenv.targetPlatform.rust.rustcTarget "wasm32-unknown-unknown" ]
-          [
-            "llvm-tools"
-          ];
-      craneLib = (inputs.crane.mkLib final).overrideScope (craneConfig final);
-      base = final.callPackage ./base.nix { };
-      androidEnv = final.callPackage ./android-env.nix { };
-      iosEnv = final.callPackage ./ios-env.nix { };
-      shellCommon = host.callPackage ./shell-common.nix { };
-      mkVersion = import ./mkVersion.nix;
-      toNapiTarget = import ./napiTarget.nix;
-      # Node platforms, Android ABIs, Apple slices, and the glibc floor.
-      # Scripts and workflows read the same file. The glibc floor joins the
-      # zigbuild target in a build command, so it must be MAJOR.MINOR digits,
-      # which need no shell quoting.
-      sdkPlatforms =
-        let
-          platforms = lib.importJSON ../sdk-platforms.json;
-          floor = platforms.glibcFloor or null;
-        in
-        assert lib.assertMsg (
-          builtins.isString floor && builtins.match "[0-9]+\\.[0-9]+" floor != null
-        ) "nix/sdk-platforms.json: glibcFloor must be MAJOR.MINOR digits, not ${builtins.toJSON floor}";
-        platforms;
-      # The `@ubjs` runtimes of the pinned bindgen fork, built on the host.
-      ubrn = host.callPackage ./packages/ubrn.nix { src = inputs.ubrn-src; };
-      gitSha = self.shortRev or self.dirtyShortRev or "unknown";
-      gitCommitDate = self.lastModifiedDate or "";
+  xmtpOverlay =
+    host: final: _:
+    let
+      # Isolate Node's overlay from unrelated packages such as Chromium. Import
+      # Node-based tools from this scope too, so their wrappers and build hooks
+      # cannot retain the unpatched runtime. See ../node-runtimes.md.
+      nodePkgs = import inputs.nixpkgs {
+        inherit config;
+        system = host.stdenv.hostPlatform.system;
+        overlays = baseOverlays ++ [ (import ./node-versions.nix) ];
+      };
+    in
+    rec {
+      wasm-bindgen-cli = nodePkgs.callPackage ./packages/wasm-bindgen-cli.nix { };
+      napi-rs-cli = nodePkgs.callPackage ./packages/napi-rs-cli { };
+      inherit (nodePkgs) markdownlint-cli playwright playwright-driver;
+      swiftlint = host.callPackage ./packages/swiftlint.nix { };
+      # Prebuilt binary — nixpkgs' swiftformat needs the Swift toolchain, which
+      # is broken/uncached on Linux in current nixpkgs.
+      swiftformat = host.callPackage ./packages/swiftformat.nix { };
+      rtk = host.callPackage ./packages/rtk.nix { };
+      kache = host.callPackage ./packages/kache.nix { };
+      xmtp-pnpm = nodePkgs.callPackage ./packages/pnpm.nix { };
+      xmtp = {
+        inherit (nodePkgs)
+          nodejs_24
+          nodejs_26
+          nodejs-slim_24
+          nodejs-slim_26
+          ;
+        nodeRuntimeChecks = host.callPackage ./check-node-consumers.nix {
+          packages = host;
+          securePackages = nodePkgs;
+        };
+        filesets = host.callPackage ./filesets.nix { };
+        mkToolchain = final.callPackage ./mkToolchain.nix { inherit inputs; };
+        mkNativeToolchain = xmtp.mkToolchain final;
+        # The one toolchain of every Crane package. Crane calls it with each
+        # spliced package set and compiles with `pkgsBuildHost`, whose
+        # `hostPlatform` is the build machine, so the target comes from
+        # `targetPlatform`. Native sets share one store path; a cross set adds
+        # the `rust-std` of its own target. The default profile already has
+        # clippy and rustfmt.
+        hostToolchain =
+          p:
+          xmtp.mkToolchain p
+            [ p.stdenv.targetPlatform.rust.rustcTarget "wasm32-unknown-unknown" ]
+            [
+              "llvm-tools"
+            ];
+        craneLib = (inputs.crane.mkLib final).overrideScope (craneConfig final);
+        base = final.callPackage ./base.nix { };
+        androidEnv = final.callPackage ./android-env.nix { };
+        iosEnv = final.callPackage ./ios-env.nix { };
+        shellCommon = host.callPackage ./shell-common.nix { };
+        mkVersion = import ./mkVersion.nix;
+        toNapiTarget = import ./napiTarget.nix;
+        # Node platforms, Android ABIs, Apple slices, and the glibc floor.
+        # Scripts and workflows read the same file. The glibc floor joins the
+        # zigbuild target in a build command, so it must be MAJOR.MINOR digits,
+        # which need no shell quoting.
+        sdkPlatforms =
+          let
+            platforms = lib.importJSON ../sdk-platforms.json;
+            floor = platforms.glibcFloor or null;
+          in
+          assert lib.assertMsg (
+            builtins.isString floor && builtins.match "[0-9]+\\.[0-9]+" floor != null
+          ) "nix/sdk-platforms.json: glibcFloor must be MAJOR.MINOR digits, not ${builtins.toJSON floor}";
+          platforms;
+        # The `@ubjs` runtimes of the pinned bindgen fork, built on the host.
+        ubrn = host.callPackage ./packages/ubrn.nix {
+          src = inputs.ubrn-src;
+          inherit (nodePkgs) buildNpmPackage;
+        };
+        gitSha = self.shortRev or self.dirtyShortRev or "unknown";
+        gitCommitDate = self.lastModifiedDate or "";
+      };
     };
-  };
 
   baseOverlays = [
     inputs.fenix.overlays.default
