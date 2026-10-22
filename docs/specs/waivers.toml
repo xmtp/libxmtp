@@ -453,14 +453,7 @@ id = "GMOD-042"
 kind = "gap"
 owner = "Nicholas Molnar"
 issue = "https://github.com/xmtp/libxmtp/issues/4644"
-reason = "Commit builders still produce an exported GroupInfo, whose group context holds the group root, that every call site drops, and archive export still copies `_commit_log_signer` into `GroupSave.mutable_metadata`."
-
-[[waiver]]
-id = "META-010"
-kind = "gap"
-owner = "Nicholas Molnar"
-issue = "https://github.com/xmtp/libxmtp/issues/4644"
-reason = "`GROUP_ROOT_KEY` (`0xBFFB`) has no built-in definition, so a write of any length is accepted instead of exactly 32 bytes. The linked tests cover other components only."
+reason = "Commit builders still produce an exported GroupInfo, whose group context holds the group root, that every call site drops; archive export still copies `_commit_log_signer` into `GroupSave.mutable_metadata`; and OpenMLS logs the serialized group context, root included, at TRACE under `openmls::schedule`, which a Rust host that installs its own global subscriber with the `tracing-log` bridge receives, because `xmtp_logging::group_context_guard` covers only the subscribers libxmtp installs."
 
 [[waiver]]
 id = "API-210"
