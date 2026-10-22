@@ -27,8 +27,8 @@ signature under that key. A group's commit-log ID is a different public key,
 derived from the same secret, so the group ID does not reveal the commit-log
 topic.
 
-Groups with 16-byte IDs come only from archives that older SDKs imported. They
-have no topic, so the backend never serves them.
+Groups with 16-byte IDs come only from imported archives that older SDKs
+exported. They have no topic, so the backend never serves them.
 
 The group message topic is used to send and receive messages within a specific conversation (both 1:1 DMs and group chats). Each conversation has its own unique topic.
 
