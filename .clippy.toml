@@ -13,6 +13,10 @@ ignore-interior-mutability = ["xmtp_mls::groups::MlsGroup", "bytes::Bytes"]
 # unwiped. Borrow the key (`SigningKey::as_bytes()`) or move it (`from_signing_key`). Where a copy
 # is unavoidable, `#[allow(clippy::disallowed_methods)]` with a `// zeroize:` comment that names the
 # `Zeroizing` binding holding the result, or says why none exists.
+#
+# A GroupInfo carries the group context, whose AppData dictionary holds the group root. Only a
+# Welcome may carry it (GMOD-042), so nothing exports one: the commit builders call
+# `create_group_info(false)`, and the export and bundle accessors below are banned.
 disallowed-methods = [
   { path = "reqwest::Client::new", reason = "use xmtp_common::http::client()" },
   { path = "reqwest::Client::builder", reason = "use xmtp_common::http::client_builder()" },
@@ -23,4 +27,11 @@ disallowed-methods = [
   { path = "alloy_signer_local::LocalSigner::to_field_bytes", reason = "copies the private key; hold the copy in Zeroizing" },
   { path = "ecdsa::SigningKey::to_bytes", reason = "copies the private key; hold the copy in Zeroizing" },
   { path = "elliptic_curve::SecretKey::to_bytes", reason = "copies the private key; hold the copy in Zeroizing" },
+  { path = "openmls::group::MlsGroup::export_group_info", reason = "a GroupInfo carries the group root; only a Welcome may (GMOD-042)" },
+  { path = "openmls::group::MlsGroup::export_group_info_with_additional_extensions", reason = "a GroupInfo carries the group root; only a Welcome may (GMOD-042)" },
+  { path = "openmls::group::CommitMessageBundle::group_info", reason = "a GroupInfo carries the group root; only a Welcome may (GMOD-042)" },
+  { path = "openmls::group::CommitMessageBundle::contents", reason = "returns the GroupInfo, which carries the group root (GMOD-042); use commit() and welcome()" },
+  { path = "openmls::group::CommitMessageBundle::into_group_info", reason = "a GroupInfo carries the group root; only a Welcome may (GMOD-042)" },
+  { path = "openmls::group::CommitMessageBundle::into_group_info_msg", reason = "a GroupInfo carries the group root; only a Welcome may (GMOD-042)" },
+  { path = "openmls::group::CommitMessageBundle::into_contents", reason = "returns the GroupInfo, which carries the group root (GMOD-042); use into_messages() and drop the third element" },
 ]

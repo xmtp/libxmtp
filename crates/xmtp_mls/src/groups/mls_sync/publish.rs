@@ -600,7 +600,10 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                             .consume_proposal_store(true)
                             .add_proposals(upkeep)
                             .load_psks(provider.storage())
-                            .map_err(CommitToPendingProposalsError::from)?;
+                            .map_err(CommitToPendingProposalsError::from)?
+                            // Last: the exported GroupInfo would carry the group
+                            // root (GMOD-042).
+                            .create_group_info(false);
                         stage.with_app_data_dictionary_updates(updates);
                         let bundle = stage
                             .build(provider.rand(), provider.crypto(), &keys, |_| true)
