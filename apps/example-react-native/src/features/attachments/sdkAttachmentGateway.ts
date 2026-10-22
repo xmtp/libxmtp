@@ -6,6 +6,7 @@ import {
   XmtpError,
   standardContentType,
 } from "@xmtp/react-native-sdk";
+import { File } from "expo-file-system";
 
 import {
   AttachmentError,
@@ -16,6 +17,7 @@ import {
 } from "@/core/attachments.ts";
 import type { AttachmentGateway } from "@/core/attachmentStore.ts";
 import type { ChatMessage } from "@/core/chatMessages.ts";
+import { pathToUri } from "@/core/paths.ts";
 import { SendError } from "@/core/sendJournal.ts";
 import { chatMessage } from "@/features/chat/sdkChatQueries";
 
@@ -54,6 +56,7 @@ async function heldUpload(): Promise<void> {
 
 export class SdkAttachmentGateway implements AttachmentGateway {
   readonly #client: Client;
+  readonly #downloads = new Set<(file: RemoteAttachment) => void>();
 
   constructor(client: Client) {
     this.#client = client;
@@ -118,15 +121,30 @@ export class SdkAttachmentGateway implements AttachmentGateway {
     });
   }
 
+  hasLocal(file: RemoteAttachment): Promise<boolean> {
+    return mapped(async () => {
+      const path = await this.#client.attachments.localPath(file);
+      return new File(pathToUri(path)).exists;
+    });
+  }
+
   download(file: RemoteAttachment): Promise<VerifiedFile> {
     return mapped(async () => {
       const result = await this.#client.attachments.download(file);
+      for (const listener of this.#downloads) listener(file);
       return {
         path: result.path,
         ...(result.mimeType === undefined ? {} : { mimeType: result.mimeType }),
         filename: result.filename ?? file.filename ?? "File",
       };
     });
+  }
+
+  watchDownloads(listener: (file: RemoteAttachment) => void): () => void {
+    this.#downloads.add(listener);
+    return () => {
+      this.#downloads.delete(listener);
+    };
   }
 
   discard(file: RemoteAttachment): Promise<void> {

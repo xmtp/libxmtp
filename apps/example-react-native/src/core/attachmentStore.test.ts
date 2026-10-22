@@ -13,7 +13,6 @@ import {
   AttachmentDraftStore,
   AttachmentError,
   type FileDraft,
-  VerifiedFileCache,
 } from "./attachments.ts";
 import {
   AttachmentStore,
@@ -592,7 +591,13 @@ test("an upload that ends after consent was revoked is saved complete, so Send o
   assert.equal(h.drafts.all()[0]?.phase, "uploading");
 });
 
-type GatewayCall = "create" | "pending" | "upload" | "download" | "discard";
+type GatewayCall =
+  | "create"
+  | "pending"
+  | "upload"
+  | "hasLocal"
+  | "download"
+  | "discard";
 
 /** Holds one gateway call until the returned gate resolves. */
 function holdCall(h: ReturnType<typeof harness>, name: GatewayCall) {
@@ -618,6 +623,7 @@ test("sign-out waits for each SDK call the store started", async () => {
     ["pending", (h) => h.store.load()],
     ["upload", (h, id) => h.store.send(id)],
     ["download", (h) => h.store.download("m1", remoteFile())],
+    ["hasLocal", (h) => h.store.prepare("m1", remoteFile(), false)],
     ["discard", (h, id) => h.store.discard(id)],
   ];
   for (const [name, start] of calls) {
@@ -647,20 +653,133 @@ test("a send or discard after the session ended makes no SDK call", async () => 
   assert.equal(h.gateway.discarded.length, 0);
 });
 
-test("a file pushed out of the verified cache shows Download again", async () => {
+test("downloaded files remain ready as more messages are displayed", async () => {
   const h = harness();
   const file = remoteFile("report.pdf");
-  for (let n = 0; n < VerifiedFileCache.LIMIT; n += 1) {
+  for (let n = 0; n < 32; n += 1) {
     await h.store.download(`m${String(n)}`, file);
   }
-  // Opening m0 keeps it; m1 is now the least recently used.
-  assert.notEqual(h.store.verified("m0"), undefined);
-  await h.store.download("newest", file);
-  assert.equal(h.store.card("m1", file).phase, "available");
-  assert.equal(h.store.verified("m1"), undefined);
   assert.equal(h.store.card("m0", file).phase, "verified");
-  const verified = Object.values(h.store.getState().cards).filter(
-    (card) => card.phase === "verified",
-  );
-  assert.equal(verified.length, VerifiedFileCache.LIMIT);
+  assert.notEqual(h.store.verified("m0"), undefined);
+  await h.store.download("m0", file);
+  assert.equal(h.gateway.downloads.length, 32);
+});
+
+test("opening attachments restores local received files and downloads own files only once", async () => {
+  const h = harness();
+  const received = remoteFile("received.png");
+  await h.store.prepare("received", received, false);
+  assert.equal(h.gateway.downloads.length, 0);
+  assert.equal(h.store.card("received", received).phase, "available");
+  const media = h.recovery();
+  await media.download("received", received);
+  await h.store.prepare("received", received, false);
+  assert.equal(h.store.card("received", received).phase, "verified");
+  const reopened = h.chat(() => true);
+  await reopened.prepare("received", received, false);
+  assert.equal(reopened.card("received", received).phase, "verified");
+  const own = remoteFile("own.png");
+  await reopened.prepare("own", own, true);
+  assert.equal(reopened.card("own", own).phase, "verified");
+  const count = h.gateway.downloads.length;
+  await reopened.prepare("own", own, true);
+  assert.equal(h.gateway.downloads.length, count);
+});
+
+test("automatic downloads do not retry a failure or bypass consent", async () => {
+  const h = harness();
+  const file = remoteFile();
+  h.env.allowed = false;
+  await h.store.prepare("own", file, true);
+  assert.equal(h.gateway.downloads.length, 0);
+  h.env.allowed = true;
+  h.env.authorized = false;
+  const received = remoteFile("received.txt");
+  h.gateway.localFiles.push(received);
+  await h.store.prepare("received", received, false);
+  assert.equal(h.gateway.downloads.length, 0);
+  assert.equal(h.store.verified("received"), undefined);
+  h.env.authorized = true;
+  h.gateway.downloadError = attachmentError(true);
+  await h.store.prepare("own", file, true);
+  assert.equal(h.store.card("own", file).phase, "failed");
+  await h.store.prepare("own", file, true);
+  assert.equal(h.gateway.downloads.length, 1);
+  for (let event = 0; event < 2; event += 1) {
+    h.store.invalidateDownloads();
+    await h.store.prepare("own", file, true);
+    assert.equal(h.gateway.downloads.length, 1);
+  }
+  h.gateway.downloadError = undefined;
+  await h.store.download("own", file);
+  assert.equal(h.store.card("own", file).phase, "verified");
+});
+
+test("a local lookup finishing after consent changes cannot restore or download", async () => {
+  const h = harness();
+  const file = remoteFile();
+  h.gateway.localFiles.push(file);
+  const gate = holdCall(h, "hasLocal");
+  const work = h.store.prepare("received", file, false);
+  await settle();
+  h.env.allowed = false;
+  h.store.invalidateDownloads();
+  gate.resolve();
+  await work;
+  assert.equal(h.gateway.downloads.length, 0);
+  assert.equal(h.store.verified("received"), undefined);
+});
+
+test("a download finishing on another screen updates a visible attachment", async () => {
+  const h = harness();
+  const file = remoteFile("late.png");
+  const stop = h.store.watchFile("received", file);
+  try {
+    await h.store.prepare("received", file, false);
+    const gate = deferred();
+    h.gateway.downloadGate = gate.promise;
+    const downloading = h.recovery().download("received", file);
+    await settle();
+    // The chat returns before the other screen's download finishes.
+    await h.store.prepare("received", file, false);
+    assert.equal(h.store.card("received", file).phase, "available");
+    gate.resolve();
+    await downloading;
+    await settle();
+    assert.equal(h.store.card("received", file).phase, "verified");
+    assert.notEqual(h.store.verified("received"), undefined);
+  } finally {
+    stop();
+  }
+});
+
+test("a successful retry on another screen restores a previously failed attachment", async () => {
+  const h = harness();
+  const file = remoteFile();
+  h.gateway.downloadError = attachmentError(true);
+  await h.store.prepare("own", file, true);
+  assert.equal(h.store.card("own", file).phase, "failed");
+  const stop = h.store.watchFile("own", file);
+  try {
+    h.gateway.downloadError = undefined;
+    await h.recovery().download("own", file);
+    await settle();
+    assert.equal(h.store.card("own", file).phase, "verified");
+    assert.notEqual(h.store.verified("own"), undefined);
+  } finally {
+    stop();
+  }
+});
+
+test("a failed card restores on remount after a retry completed while it was not observed", async () => {
+  const h = harness();
+  const file = remoteFile();
+  h.gateway.downloadError = attachmentError(true);
+  await h.store.prepare("own", file, true);
+  assert.equal(h.store.card("own", file).phase, "failed");
+  h.gateway.downloadError = undefined;
+  await h.recovery().download("own", file);
+  await h.store.prepare("own", file, true);
+  assert.equal(h.store.card("own", file).phase, "verified");
+  assert.notEqual(h.store.verified("own"), undefined);
 });

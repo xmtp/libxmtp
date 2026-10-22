@@ -627,35 +627,3 @@ export class AttachmentDraftStore {
     );
   }
 }
-
-/** The most recently used verified files, at most `LIMIT`. */
-export class VerifiedFileCache {
-  static readonly LIMIT = 16;
-  readonly #entries = new Map<string, VerifiedFile>();
-
-  get(id: string): VerifiedFile | undefined {
-    const value = this.#entries.get(id);
-    if (value !== undefined) {
-      this.#entries.delete(id);
-      this.#entries.set(id, value);
-    }
-    return value;
-  }
-
-  /** Adds a file and returns the IDs it pushed out. */
-  put(id: string, file: VerifiedFile): string[] {
-    this.#entries.delete(id);
-    this.#entries.set(id, file);
-    const evicted: string[] = [];
-    for (const key of this.#entries.keys()) {
-      if (this.#entries.size <= VerifiedFileCache.LIMIT) break;
-      this.#entries.delete(key);
-      evicted.push(key);
-    }
-    return evicted;
-  }
-
-  clear(): void {
-    this.#entries.clear();
-  }
-}

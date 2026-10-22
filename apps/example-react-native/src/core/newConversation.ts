@@ -357,7 +357,7 @@ export class NewConversationStore extends Store<NewConversationState> {
   }
 
   next(): void {
-    this.#run("next");
+    this.#run(this.getState().group ? "next" : "create");
   }
 
   create(): void {
@@ -369,7 +369,8 @@ export class NewConversationStore extends Store<NewConversationState> {
    * A running create call is kept, and stays busy.
    */
   #cancel(change: (state: NewConversationState) => NewConversationState): void {
-    if (!this.getState().creating) this.#revision += 1;
+    if (this.getState().creating) return;
+    this.#revision += 1;
     this.#update((state) => {
       const { error: _cleared, ...rest } = state;
       return change({ ...rest, busy: state.creating });

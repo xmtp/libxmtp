@@ -45,6 +45,9 @@ const pairs = {
   /** Reply quote background: black at 8 percent in both schemes. */
   quoteFill: { light: "rgba(0,0,0,0.08)", dark: "rgba(0,0,0,0.08)" },
 
+  /** Dimmed background behind a message action menu. */
+  menuScrim: { light: "rgba(0,0,0,0.35)", dark: "rgba(0,0,0,0.55)" },
+
   // System colors. Hex values are the Android fallback (iOS 26 values where known).
   label: { light: "#000000", dark: "#FFFFFF", ios: "label" },
   secondaryLabel: {
