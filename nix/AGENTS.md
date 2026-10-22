@@ -17,6 +17,11 @@ Build Node's scoped simdutf with C++20 so its atomic Base64 symbols match V8.
 Node 26 also carries upstream's test-only shared-isolate Worker-exit fix
 (`bc5af1c67cd8e029f86ec992688dde9307f4d61a`). It waits for actual Worker
 completion without changing assertions, disabling tests, or adding retries.
+Both majors carry a Darwin-only datagram test-fixture patch: block the secondary
+loopback address and use canonical localhost for the subsequent successful
+connection. Nix's Darwin sandbox permits localhost, not `127.0.0.2`. Keep the
+blocked-address error and socket-reuse assertions intact; do not expand sandbox
+permissions, skip the test, or alter Linux derivations to accommodate it.
 Check the direct and transitive library wiring with
 `nix build --no-link .#node-runtime-dependencies.x86_64-linux`; config CI also
 evaluates the check for every supported host. Keep the check independent of

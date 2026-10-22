@@ -60,6 +60,9 @@ let
                 url = "https://github.com/nodejs/node/commit/bc5af1c67cd8e029f86ec992688dde9307f4d61a.patch";
                 hash = "sha256-3EJQlgGS1miUEAc2Me4jnh8wHHk68TvbtBhNWJ/uOq8=";
               })
+            ]
+            ++ prev.lib.optionals prev.stdenv.hostPlatform.isDarwin [
+              ./node-dgram-localhost.patch
             ];
           passthru = previousAttrs.passthru // {
             tests = previousAttrs.passthru.tests // {
