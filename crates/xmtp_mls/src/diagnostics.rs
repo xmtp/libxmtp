@@ -63,7 +63,7 @@ pub struct GroupSnapshot {
     pub super_admins: Vec<String>,
     /// SHA-256 of the serialized group context extensions, so peers can
     /// compare metadata and app data. A digest, not the bytes: the AppData
-    /// dictionary holds the group root (GMOD-042).
+    /// dictionary holds the group root.
     pub metadata: String,
     pub membership_state: GroupMembershipState,
     pub active: bool,
@@ -183,6 +183,7 @@ impl<C: XmtpSharedContext> MlsGroup<C> {
                 members,
                 admins,
                 super_admins,
+                // implements: GMOD-042
                 metadata: hex::encode(sha256_array(&group.extensions().tls_serialize_detached()?)),
                 membership_state: stored.membership_state,
                 active: stored.membership_state != GroupMembershipState::Restored
@@ -412,7 +413,8 @@ mod tests {
     }
 
     /// A snapshot can leave the process, so it never carries the group root
-    /// that the AppData dictionary holds (GMOD-042).
+    /// that the AppData dictionary holds.
+    // verifies: GMOD-042
     #[xmtp_common::test(unwrap_try = true)]
     async fn snapshot_holds_no_group_root() {
         use xmtp_mls_common::app_data::group_root::read_group_root;

@@ -1,5 +1,5 @@
 //! A commit never exports a GroupInfo. Its group context holds the group
-//! root, which may leave the client only inside a Welcome (GMOD-042).
+//! root, which may leave the client only inside a Welcome.
 
 use crate::{
     context::XmtpSharedContext,
@@ -17,6 +17,7 @@ use xmtp_mls_common::app_data::component_id::ComponentId;
 /// XMTP groups use the ratchet-tree extension, so OpenMLS exports a
 /// GroupInfo with every commit unless the builder turns it off. The AppData
 /// commit builder must turn it off.
+// verifies: GMOD-042
 #[xmtp_common::test(unwrap_try = true)]
 async fn app_data_commit_exports_no_group_info() {
     tester!(alix, disable_workers);

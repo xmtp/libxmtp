@@ -245,7 +245,8 @@ where
         .add_proposals(upkeep)
         .load_psks(provider.storage())
         .map_err(CommitToPendingProposalsError::from)?
-        // Last: the exported GroupInfo would carry the group root (GMOD-042).
+        // Last: the exported GroupInfo would carry the group root.
+        // implements: GMOD-042
         .create_group_info(false);
     stage.with_app_data_dictionary_updates(app_data_updates);
 

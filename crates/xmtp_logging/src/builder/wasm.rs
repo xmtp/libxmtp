@@ -36,7 +36,8 @@ impl XmtpLoggingBuilder {
 
         tracing_subscriber::registry()
             .with(filter_layer)
-            // Fixed: no level change may log a group context (GMOD-042).
+            // Fixed: no level change may log a group context.
+            // implements: GMOD-042
             .with(crate::filter::group_context_guard())
             .with(console_layer())
             .with(perf)

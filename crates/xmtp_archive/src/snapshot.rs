@@ -153,8 +153,9 @@ fn group_save(
     let mut mutable = GroupMutableMetadata::new(Default::default(), Vec::new(), Vec::new());
     merge_dict_into_mutable_metadata(&mut mutable, extensions).map_err(|e| unreadable(e.into()))?;
     // A legacy group's dictionary may hold its commit-log private key. An
-    // archive never carries a group key (GMOD-042), and the group root has no
+    // archive never carries a group key, and the group root has no
     // metadata attribute, so it never reaches the archive.
+    // implements: GMOD-042
     mutable.remove_attribute(MetadataField::CommitLogSigner.as_str());
     let membership_state: GroupMembershipStateSave = group.membership_state.into();
     let conversation_type: ConversationTypeSave = group.conversation_type.into();

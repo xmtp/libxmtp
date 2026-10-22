@@ -119,7 +119,8 @@ impl Logger {
 
         // `RUST_LOG` and `openmls={verbosity}` can enable OpenMLS TRACE, which
         // prints group contexts and so group roots; the guard drops those events
-        // whatever the filters say (GMOD-042).
+        // whatever the filters say.
+        // implements: GMOD-042
         let subscriber = tracing_subscriber::registry()
             .with(xmtp_logging::group_context_guard())
             .with(ErrorLayer::default());

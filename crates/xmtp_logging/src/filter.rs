@@ -4,7 +4,7 @@ use tracing_subscriber::{EnvFilter, filter::FilterFn};
 /// Targets whose TRACE events print a serialized group context: OpenMLS's
 /// key schedule, and its KDF labels, whose context is the group context. A
 /// group context holds the AppData dictionary, and the dictionary holds the
-/// group root, which never leaves the client outside a Welcome (GMOD-042).
+/// group root, which never leaves the client outside a Welcome.
 const GROUP_CONTEXT_TRACE_TARGETS: [&str; 2] = ["openmls::schedule", "openmls::ciphersuite"];
 
 /// Whether `metadata` is an OpenMLS TRACE event that prints a serialized
@@ -26,6 +26,7 @@ fn hides_group_context(metadata: &Metadata<'_>) -> bool {
 /// A global filter that drops every event [`prints_group_context`] matches.
 /// Every subscriber that can enable OpenMLS TRACE events installs it, so no
 /// directive, `RUST_LOG` included, turns them back on.
+// implements: GMOD-042
 pub fn group_context_guard() -> FilterFn<fn(&Metadata<'_>) -> bool> {
     FilterFn::new(hides_group_context as fn(&Metadata<'_>) -> bool)
 }
@@ -67,6 +68,7 @@ mod tests {
     /// No filter, however verbose, passes an OpenMLS TRACE event that
     /// prints a group context. OpenMLS logs through the `log` crate; the
     /// `tracing-log` bridge gives each record its module path as the target.
+    // verifies: GMOD-042
     #[test]
     fn group_context_guard_drops_group_context_traces() {
         use std::sync::{Arc, Mutex};

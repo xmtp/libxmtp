@@ -602,7 +602,8 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                             .load_psks(provider.storage())
                             .map_err(CommitToPendingProposalsError::from)?
                             // Last: the exported GroupInfo would carry the group
-                            // root (GMOD-042).
+                            // root.
+                            // implements: GMOD-042
                             .create_group_info(false);
                         stage.with_app_data_dictionary_updates(updates);
                         let bundle = stage

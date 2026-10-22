@@ -190,6 +190,7 @@ mod tests {
     /// and a commit-log signer that a legacy group's dictionary still holds
     /// is dropped from the exported attributes. The signer is committed
     /// locally through openmls, because new groups never write one.
+    // verifies: GMOD-042
     #[xmtp_common::test(unwrap_try = true)]
     async fn archive_export_holds_no_group_keys() {
         use openmls::{
