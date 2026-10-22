@@ -66,6 +66,14 @@ Publishing credentials and the armored signing key live in the GitHub
 `release` environment. `OSSRH_USERNAME` and `OSSRH_TOKEN` hold a Central Portal
 user token pair; the old OSSRH account credentials do not work. GitHub
 Packages uses the workflow's `GITHUB_TOKEN` with `packages: write`.
+Gradle first writes a signed local repository with
+`:library:publishReleasePublicationToReleaseBundleRepository`. The workflow
+retains those files, and the `publisher` Gradle project uploads them without
+rebuilding or signing again. Its GitHub Packages job completes before its
+Maven Central job starts; the Nexus plugin closes and releases Central staging.
+Use **Re-run failed jobs** to avoid repeating successful registry jobs. A partial
+or ambiguous upload within one registry may require manual inspection and
+cleanup. Do not rerun a successful Central publication for the same version.
 
 The SDK root owns `gradle/toolchain.properties`, the Gradle wrapper, and the
 shared SHA256 dependency verification inventory. The app root reads these

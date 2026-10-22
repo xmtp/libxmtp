@@ -149,6 +149,10 @@ afterEvaluate {
     publishing {
         repositories {
             maven {
+                name = "ReleaseBundle"
+                url = layout.buildDirectory.dir("release-repository")
+            }
+            maven {
                 name = "GitHubPackages"
                 url = uri("https://maven.pkg.github.com/xmtp/libxmtp")
                 credentials {

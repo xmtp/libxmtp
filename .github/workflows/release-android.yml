@@ -32,12 +32,11 @@ jobs:
     secrets: inherit
 
   publish:
-    name: Build and publish Android SDK
+    name: Build Android release artifacts
     needs: [check-push-permissions]
     environment: release
     permissions:
       contents: read
-      packages: write
     # Paid Linux: the android-ci shell closure is about 3 GiB plus an Android
     # SDK closure of 6 to 11 GiB, before the APK build and Gradle downloads,
     # which is more than the 14 GB disk of a free hosted runner.
@@ -87,25 +86,29 @@ jobs:
           name: android-example-apk
           path: apps/example-android/build/apk/xmtp-messenger-${{ inputs.version }}.apk
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 30
 
-      - name: Publish
+      - name: Prepare signed Maven bundle
         env:
-          MAVEN_USERNAME: ${{ secrets.OSSRH_USERNAME }}
-          MAVEN_PASSWORD: ${{ secrets.OSSRH_TOKEN }}
           SIGN_KEY: ${{ secrets.OSSRH_GPG_SECRET_KEY }}
           SIGN_PASSWORD: ${{ secrets.OSSRH_GPG_SECRET_KEY_PASSWORD }}
-          GITHUB_ACTOR: ${{ github.actor }}
-          GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          for name in MAVEN_USERNAME MAVEN_PASSWORD SIGN_KEY SIGN_PASSWORD GITHUB_ACTOR GITHUB_TOKEN; do
+          for name in SIGN_KEY SIGN_PASSWORD; do
             if [[ -z "${!name}" ]]; then
               echo "::error::Missing Android publishing credential: $name"
               exit 1
             fi
           done
-          dev/nix-shell 'cd sdks/android && ./gradlew publishToSonatype closeAndReleaseSonatypeStagingRepository :library:publishReleasePublicationToGitHubPackagesRepository'
+          dev/nix-shell 'cd sdks/android && ./gradlew :library:publishReleasePublicationToReleaseBundleRepository'
+
+      - name: Retain signed Maven bundle
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: android-maven-bundle
+          path: sdks/android/library/build/release-repository/
+          if-no-files-found: error
+          retention-days: 30
 
       - name: Prepare release tag
         env:
@@ -119,11 +122,80 @@ jobs:
           name: release-tag-android
           path: ${{ runner.temp }}/release.bundle
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 30
+
+  publish-github:
+    name: Publish to GitHub Packages
+    needs: [publish, check-push-permissions]
+    permissions:
+      contents: read
+      packages: write
+    environment: release
+    runs-on: blacksmith-16vcpu-ubuntu-2404
+    env:
+      NIX_DEVSHELL: android-ci
+      VERSION: ${{ inputs.version }}
+      XMTP_ANDROID_RELEASE_BUNDLE: ${{ github.workspace }}/android-maven-bundle
+    steps:
+      - name: Check out the release source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ needs.check-push-permissions.outputs.source-sha }}
+          persist-credentials: false
+      - name: Set up Nix
+        uses: ./.github/actions/setup-nix
+        with:
+          cache-mode: read
+          github-token: ${{ github.token }}
+      - name: Download signed Maven bundle
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: android-maven-bundle
+          path: android-maven-bundle
+
+      - name: Publish signed bundle to GitHub Packages
+        env:
+          GITHUB_ACTOR: ${{ github.actor }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: dev/nix-shell 'cd sdks/android && ./gradlew -Pversion="$VERSION" :publisher:publishReleasePublicationToGitHubPackagesRepository'
+
+  publish-central:
+    name: Publish to Maven Central
+    needs: [publish, publish-github, check-push-permissions]
+    permissions:
+      contents: read
+    environment: release
+    runs-on: blacksmith-16vcpu-ubuntu-2404
+    env:
+      NIX_DEVSHELL: android-ci
+      VERSION: ${{ inputs.version }}
+      XMTP_ANDROID_RELEASE_BUNDLE: ${{ github.workspace }}/android-maven-bundle
+    steps:
+      - name: Check out the release source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ needs.check-push-permissions.outputs.source-sha }}
+          persist-credentials: false
+      - name: Set up Nix
+        uses: ./.github/actions/setup-nix
+        with:
+          cache-mode: read
+          github-token: ${{ github.token }}
+      - name: Download signed Maven bundle
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: android-maven-bundle
+          path: android-maven-bundle
+
+      - name: Publish signed bundle to Maven Central
+        env:
+          MAVEN_USERNAME: ${{ secrets.OSSRH_USERNAME }}
+          MAVEN_PASSWORD: ${{ secrets.OSSRH_TOKEN }}
+        run: dev/nix-shell 'cd sdks/android && ./gradlew -Pversion="$VERSION" :publisher:publishReleasePublicationToSonatypeRepository closeAndReleaseSonatypeStagingRepository'
 
   push-tag:
     name: Tag
-    needs: [publish, check-push-permissions]
+    needs: [publish, publish-central, check-push-permissions]
     uses: ./.github/workflows/push-release-tag.yml
     with:
       sdk: android
