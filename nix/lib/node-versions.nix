@@ -23,6 +23,9 @@ let
         hash = "sha256-ohV8KDDv3sN4iTmwDJsGODBtPwu7dtxIMu5QO7OX35g=";
       };
     });
+    simdutf = prev.simdutf.overrideAttrs (previousAttrs: {
+      cmakeFlags = previousAttrs.cmakeFlags ++ [ "-DSIMDUTF_CXX_STANDARD=20" ];
+    });
     ngtcp2 = prev.ngtcp2.override {
       inherit (runtimeDependencies) brotli openssl;
     };

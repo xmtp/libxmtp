@@ -13,6 +13,7 @@ c-ares update, and current same-major OpenSSL fixes. Do not substitute the
 unpatched nixpkgs libraries or update these dependencies globally. Node's
 nghttp2/ngtcp2 dependencies must use the same patched libraries, including
 their transitive TLS, DNS, and Brotli dependencies.
+Build Node's scoped simdutf with C++20 so its atomic Base64 symbols match V8.
 The old shared-ICU Temporal and emulator patches are superseded by upstream
 support in these releases and must not be reapplied.
 The Node platform workflow and `sdk-platforms.json` use secure Node 22 images
