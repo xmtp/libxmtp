@@ -453,7 +453,7 @@ id = "GMOD-042"
 kind = "gap"
 owner = "Nicholas Molnar"
 issue = "https://github.com/xmtp/libxmtp/issues/4644"
-reason = "Commit builders still produce an exported GroupInfo, whose group context holds the group root, that every call site drops."
+reason = "Commit builders still produce an exported GroupInfo, whose group context holds the group root, that every call site drops; the diagnostic snapshot writes each group's context extensions, root included, as hex; and OpenMLS trace logging prints the group context, which xdbg writes to its log file at trace verbosity."
 
 [[waiver]]
 id = "META-010"

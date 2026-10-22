@@ -497,8 +497,9 @@ pub(crate) fn pending_dictionary(
     Ok(dictionary)
 }
 
-/// A copy of a group's AppData dictionary. Its `COMMIT_LOG_SIGNER` entry is
-/// the group's private signing key, so every entry is wiped on drop.
+/// A copy of a group's AppData dictionary. Its `GROUP_ROOT_KEY` entry is the
+/// group root, and in groups older clients created its `COMMIT_LOG_SIGNER`
+/// entry is a private signing key, so every entry is wiped on drop.
 pub(crate) struct PendingDictionary(AppDataDictionary);
 
 impl std::ops::Deref for PendingDictionary {

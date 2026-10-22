@@ -753,7 +753,7 @@ async fn a_reader_discards_each_entry_that_fails_fork_075() {
         signed_entry(&seed, &id, vec![1; 13], first.ciphertext.clone()),
         signed_entry(&seed, &id, first.nonce.clone(), vec![3; 15]),
     ];
-    // Each passes FORK-075; the chain rules discard both.
+    // Each opens under the conversation's keys; the chain rules discard both.
     let wrong_last_authenticator = seal_entry(&keys, &entry(12, 7))?;
     let repeated = seal_entry(&keys, &entry(11, 2))?;
     let topic = Topic::new_commit_log(id);

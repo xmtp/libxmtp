@@ -216,10 +216,9 @@ enum SignFailure {
 }
 
 /// When signing fails its self-check, or the local admission parse refuses
-/// the signed envelope, while one intent is prepared, that intent alone fails
-/// under SEND-009: nothing is saved, its message is `Failed`, and the next
-/// queued intent is prepared, signed, and sent in the same `publish_intents`
-/// call.
+/// the signed envelope, while one intent is prepared, that intent alone is
+/// rejected: nothing is saved, its message is `Failed`, and the next queued
+/// intent is prepared, signed, and sent in the same `publish_intents` call.
 // verifies: SEND-009
 #[rstest::rstest]
 #[case::self_check(SignFailure::SelfCheck)]

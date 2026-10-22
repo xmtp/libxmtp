@@ -59,7 +59,8 @@ pub struct GroupSnapshot {
     /// Super admin inbox IDs in the committed dictionary.
     #[serde(default)]
     pub super_admins: Vec<String>,
-    /// Serialized public context extensions, including all metadata and app data.
+    /// Serialized group context extensions, including all metadata and app
+    /// data. The app data holds the group root, so this field is secret.
     pub metadata: String,
     pub membership_state: GroupMembershipState,
     pub active: bool,
