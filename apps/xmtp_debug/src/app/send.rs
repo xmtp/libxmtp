@@ -5,7 +5,7 @@ use color_eyre::eyre::{Result, eyre};
 use rand::prelude::*;
 use xmtp_mls::groups::send_message_opts::SendMessageOptsBuilder;
 
-use super::store::{Database, GroupStore, IdentityStore};
+use super::store::{Database, GroupKey, GroupStore, IdentityStore};
 
 pub struct Send {
     db: Arc<redb::ReadOnlyDatabase>,
@@ -33,7 +33,7 @@ impl Send {
         let group_store: GroupStore = self.db.clone().into();
         let identity_store: IdentityStore = self.db.clone().into();
         let group = group_store
-            .get(group_id.into())?
+            .get(GroupKey::try_from(group_id)?)?
             .ok_or(eyre!("No group with id {}", group_id))?;
         let member = group
             .members
