@@ -37,6 +37,17 @@ struct PublishEnvelope {
     topic: Topic,
 }
 
+impl PublishEnvelope {
+    fn parse(envelope: wire::ClientEnvelope) -> Result<Self> {
+        let parsed = xmtp_mls_validation::parse_envelope(envelope)?;
+        Ok(Self {
+            envelope: parsed.envelope,
+            canonical: parsed.canonical,
+            topic: parsed.topic,
+        })
+    }
+}
+
 /// One envelope, or a commit and its proposals. A unit is never split.
 #[derive(Clone, Debug)]
 pub struct PublishUnit {
@@ -57,15 +68,11 @@ impl PublishUnit {
         let envelopes = envelopes
             .into_iter()
             .map(|envelope| {
-                let parsed = xmtp_mls_validation::parse_envelope(envelope)?;
-                if parsed.canonical.bytes.len() > limits.max_envelope_bytes {
+                let envelope = PublishEnvelope::parse(envelope)?;
+                if envelope.canonical.bytes.len() > limits.max_envelope_bytes {
                     return Err(ApiError::EnvelopeTooLarge);
                 }
-                Ok(PublishEnvelope {
-                    envelope: parsed.envelope,
-                    canonical: parsed.canonical,
-                    topic: parsed.topic,
-                })
+                Ok(envelope)
             })
             .collect::<Result<Vec<_>>>()?;
         let unit = Self { envelopes };
@@ -92,6 +99,20 @@ impl PublishUnit {
 
     pub fn single(envelope: wire::ClientEnvelope) -> Result<Self> {
         Self::new(vec![envelope])
+    }
+
+    /// Build a unit of saved envelopes only to settle them with
+    /// [`ApiClientWrapper::settle_units`]. It is not measured against any
+    /// bound, so it may not fit in one request: never publish it.
+    pub fn for_settlement(envelopes: Vec<wire::ClientEnvelope>) -> Result<Self> {
+        if envelopes.is_empty() {
+            return Err(ApiError::InvalidRequest("empty publish unit"));
+        }
+        let envelopes = envelopes
+            .into_iter()
+            .map(PublishEnvelope::parse)
+            .collect::<Result<Vec<_>>>()?;
+        Ok(Self { envelopes })
     }
 }
 

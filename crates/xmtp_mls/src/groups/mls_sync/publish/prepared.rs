@@ -22,9 +22,10 @@ pub enum OutgoingPreparationError {
     /// Another writer changed the preparation base. Load it again.
     #[error("outgoing preparation state changed")]
     StateChanged,
-    /// The publish returned `OUT_OF_RANGE`, and a recovery read proved that the
-    /// backend stored none of it.
-    #[error("the backend did not store the publish that returned OUT_OF_RANGE")]
+    /// A saved attempt cannot be sent again, because its publish returned
+    /// `OUT_OF_RANGE` or it no longer fits in one request, and a recovery read
+    /// proved that the backend stored none of it.
+    #[error("the backend stored none of a saved attempt that cannot be sent again")]
     Unstored,
 }
 
@@ -175,6 +176,13 @@ impl PreparedAttempt {
         limits: &xmtp_configuration::LimitsConfiguration,
     ) -> Result<PublishUnit, GroupError> {
         Ok(PublishUnit::new_within(self.decode_envelopes()?, limits)?)
+    }
+
+    /// The saved envelopes as a unit for a recovery read only. Unlike
+    /// [`Self::publish_unit`], it is not measured, so an attempt that no
+    /// longer fits in one request can still be settled.
+    pub(super) fn settlement_unit(&self) -> Result<PublishUnit, GroupError> {
+        Ok(PublishUnit::for_settlement(self.decode_envelopes()?)?)
     }
 
     /// Recover a prepared own proposal when its exact payload reaches ordered receipt.

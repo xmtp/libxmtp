@@ -173,8 +173,20 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
             if attempt.receipts.is_none() {
                 // The writer and every mutable MLS object were dropped above.
                 // An ambiguous error keeps this exact attempt eligible for retry.
-                let unit = attempt.publish_unit(self.context.api().limits())?;
-                let stored = if attempt.unsettled == Some(Unsettled::Attempt) {
+                //
+                // Saved bytes that no longer fit in one request cannot be sent
+                // again: an earlier build saved more envelopes than the
+                // request bound allows, or the deployment lowered a limit.
+                // They may already be stored, so a recovery read settles them,
+                // as after `OUT_OF_RANGE`.
+                let (unit, unsendable) = match attempt.publish_unit(self.context.api().limits()) {
+                    Ok(unit) => (unit, false),
+                    Err(GroupError::WrappedApi(
+                        xmtp_api::ApiError::UnitTooLarge | xmtp_api::ApiError::EnvelopeTooLarge,
+                    )) => (attempt.settlement_unit()?, true),
+                    Err(error) => return Err(error),
+                };
+                let stored = if unsendable || attempt.unsettled == Some(Unsettled::Attempt) {
                     self.settle_attempt(&intent, &attempt, unit).await?
                 } else {
                     match self
