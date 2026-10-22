@@ -495,3 +495,60 @@ fn checking_a_welcome_root_wipes_it() {
 
     assert_eq!(hits, [0], "freed heap blocks held the group root");
 }
+
+/// The root and each key of the group key table, derived here with HKDF from
+/// the table's salt and labels rather than by the code under test.
+fn group_key_table(root: &[u8; 32]) -> Vec<[u8; 32]> {
+    let hkdf = hkdf::Hkdf::<sha2::Sha256>::new(Some(b"xmtp group root"), root);
+    let mut secrets = vec![*root];
+    for info in [
+        "xmtp group signing key",
+        "xmtp commit log signing key",
+        "xmtp commit log encryption key",
+        "xmtp commit log nonce key",
+    ] {
+        let mut key = [0u8; 32];
+        hkdf.expand(info.as_bytes(), &mut key).unwrap();
+        secrets.push(key);
+    }
+    secrets
+}
+
+/// Signing a group message at preparation reads the root from the group
+/// context, derives the group keys, and signs: `check_group_root`, then
+/// `sign_group_message`, the two calls `prepare_group_envelopes_in` makes.
+/// Neither frees an unwiped copy of the root or of any derived key. The
+/// extensions are OpenMLS state, so they are freed after the scan.
+#[xmtp_common::test(unwrap_try = true)]
+fn signing_a_group_message_wipes_the_root_and_its_keys() {
+    use openmls::extensions::{AppDataDictionaryExtension, Extension, Extensions};
+    use xmtp_mls_common::group_keys::sign_group_message;
+
+    let secrets = group_key_table(&GROUP_ROOT);
+    let canaries: Vec<Canary> = secrets.iter().map(|secret| Canary::new(secret)).collect();
+    let extensions = Extensions::from_vec(vec![Extension::AppDataDictionary(
+        AppDataDictionaryExtension::new(keyed_dictionary(&GroupRoot::from_bytes(&GROUP_ROOT)?)),
+    )])?;
+    let group_id = GroupKeys::derive(&GroupRoot::from_bytes(&GROUP_ROOT)?).group_id();
+    let mut message = xmtp_proto::backend_v1::GroupMessage {
+        data: b"signed at preparation".to_vec(),
+        sender_hmac: vec![0x42; 32],
+        should_push: true,
+        signature: Vec::with_capacity(64),
+    };
+
+    let ((), hits) = scan(&canaries, || {
+        traced_sync(|| {
+            let keys = check_group_root(&extensions, &group_id).unwrap();
+            sign_group_message(&keys, &mut message).unwrap();
+            drop(keys);
+        })
+    });
+    assert_eq!(message.signature.len(), 64);
+    drop((extensions, canaries, secrets));
+
+    assert_eq!(
+        hits, [0; 5],
+        "freed heap blocks held the root or a group key"
+    );
+}

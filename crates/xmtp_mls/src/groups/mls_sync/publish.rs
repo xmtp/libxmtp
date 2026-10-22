@@ -133,6 +133,14 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                                     xmtp_api::ApiError::EnvelopeTooLarge
                                         | xmtp_api::ApiError::UnitTooLarge
                                         | xmtp_api::ApiError::InvalidRequest(_)
+                                        // The local admission parse refuses
+                                        // what the backend would refuse.
+                                        | xmtp_api::ApiError::InvalidEnvelope(_)
+                                ) | GroupError::OutgoingPreparation(
+                                    // A group without a root cannot sign, and
+                                    // a failed self-check releases nothing.
+                                    OutgoingPreparationError::GroupKeys(_)
+                                        | OutgoingPreparationError::SignGroupMessage(_)
                                 ) | GroupError::CommitValidation(CommitValidationError::Rule(
                                     CommitRuleError::InsufficientPermissions
                                 )) | GroupError::InvalidGroupMembership
@@ -453,8 +461,11 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                         .payloads_to_publish
                         .last()
                         .ok_or(GroupError::UninitializedResult)?;
+                    // Sign after each sender HMAC and before the attempt is
+                    // saved, so every saved envelope carries its signature.
                     let envelopes = self.prepare_group_envelopes_in(
                         &db,
+                        group,
                         data.payloads_to_publish
                             .iter()
                             .map(|payload| (payload.as_slice(), data.should_send_push_notification))

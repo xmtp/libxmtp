@@ -27,6 +27,14 @@ pub enum OutgoingPreparationError {
     /// proved that the backend stored none of it.
     #[error("the backend stored none of a saved attempt that cannot be sent again")]
     Unstored,
+    /// The group holds no 32-byte root that derives its id, so it cannot sign
+    /// a group message. A Restored placeholder or a legacy group. Not retryable.
+    #[error("the group cannot sign group messages: {0}")]
+    GroupKeys(xmtp_mls_common::app_data::group_root::GroupRootError),
+    /// Signing a group message failed its self-check, and nothing was saved.
+    /// Not retryable.
+    #[error("signing a group message failed: {0}")]
+    SignGroupMessage(xmtp_mls_common::group_keys::SealError),
 }
 
 impl RetryableError for OutgoingPreparationError {

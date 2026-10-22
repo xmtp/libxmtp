@@ -308,7 +308,11 @@ async fn publish_raw_application<Context: XmtpSharedContext>(
             )?;
             let payload = message.tls_serialize_detached()?;
             group
-                .prepare_group_envelopes_in(storage.db(), vec![(payload.as_slice(), false)])
+                .prepare_group_envelopes_in(
+                    storage.db(),
+                    mls_group,
+                    vec![(payload.as_slice(), false)],
+                )
                 .map(Continue)
         })
     })?

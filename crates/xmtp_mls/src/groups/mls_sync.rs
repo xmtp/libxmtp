@@ -829,7 +829,12 @@ pub(crate) mod tests {
         assert_eq!(keys[0].epoch, EPOCH);
         assert_eq!(hex::encode(keys[0].key), DERIVED_KEY);
 
-        let envelopes = post_commit::group_message_envelopes(&keys[0], vec![(PAYLOAD, true)]);
+        // Any group keys: the sender HMAC does not depend on the signature.
+        let group_keys = xmtp_mls_common::group_keys::GroupKeys::derive(
+            &xmtp_mls_common::group_keys::GroupRoot::from_bytes(&[7; 32])?,
+        );
+        let envelopes =
+            post_commit::group_message_envelopes(&keys[0], &group_keys, vec![(PAYLOAD, true)])?;
         let [
             ClientEnvelope {
                 payload: Some(Payload::GroupMessage(message)),

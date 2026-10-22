@@ -11,6 +11,7 @@ mod membership_component;
 mod membership_recovery;
 mod out_of_range_settlement;
 mod send_state_transitions;
+mod signing;
 
 mod transcript;
 
