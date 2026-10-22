@@ -19,8 +19,9 @@ pub enum Topic {
     IdentityUpdates { inbox_id: InboxId },
     /// `0x03`: key packages for an installation.
     KeyPackages { installation_id: InstallationId },
-    /// `0x04`: commit-log entries for a group.
-    CommitLogEntries { conversation_id: ConversationId },
+    /// `0x04`: commit-log entries. The commit-log id is lowercase hex. It is
+    /// not a conversation ID (GMOD-041), so no conversation lookup takes it.
+    CommitLogEntries { commit_log_id: String },
 }
 
 /// A validated push body (PUSH-259).
@@ -64,7 +65,7 @@ fn parse_topic(text: &str) -> Result<Topic, XmtpError> {
             installation_id: identifier.try_into()?,
         },
         TopicKind::CommitLogEntriesV1 => Topic::CommitLogEntries {
-            conversation_id: identifier.try_into()?,
+            commit_log_id: identifier,
         },
         kind => return Err(invalid(format!("unsupported kind {kind}"))),
     })
@@ -141,7 +142,7 @@ mod tests {
                 "1",
                 hint(
                     Topic::CommitLogEntries {
-                        conversation_id: id(&ones).try_into()?,
+                        commit_log_id: id(&ones),
                     },
                     1,
                 ),

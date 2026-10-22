@@ -24465,9 +24465,10 @@ public enum Topic: Equatable, Hashable {
     case keyPackages(installationId: InstallationId
     )
     /**
-     * `0x04`: commit-log entries for a group.
+     * `0x04`: commit-log entries. The commit-log id is lowercase hex. It is
+     * not a conversation ID (GMOD-041), so no conversation lookup takes it.
      */
-    case commitLogEntries(conversationId: ConversationId
+    case commitLogEntries(commitLogId: String
     )
 
 
@@ -24502,7 +24503,7 @@ public struct FfiConverterTypeTopic: FfiConverterRustBuffer {
         case 4: return .keyPackages(installationId: try FfiConverterTypeInstallationId.read(from: &buf)
         )
 
-        case 5: return .commitLogEntries(conversationId: try FfiConverterTypeConversationId.read(from: &buf)
+        case 5: return .commitLogEntries(commitLogId: try FfiConverterString.read(from: &buf)
         )
 
         default: throw UniffiInternalError.unexpectedEnumCase
@@ -24533,9 +24534,9 @@ public struct FfiConverterTypeTopic: FfiConverterRustBuffer {
             FfiConverterTypeInstallationId.write(installationId, into: &buf)
 
 
-        case let .commitLogEntries(conversationId):
+        case let .commitLogEntries(commitLogId):
             writeInt(&buf, Int32(5))
-            FfiConverterTypeConversationId.write(conversationId, into: &buf)
+            FfiConverterString.write(commitLogId, into: &buf)
 
         }
     }
