@@ -10,7 +10,7 @@ use super::{InstanceSnapshot, Oracle, RollCall, Verdict};
 
 fn group() -> GroupSnapshot {
     GroupSnapshot {
-        group_id: "07070707070707070707070707070707".into(),
+        group_id: "07".repeat(32),
         epoch: 2,
         epoch_authenticator: "state".into(),
         members: ["a", "b"]
@@ -44,9 +44,9 @@ fn population() -> Vec<InstanceSnapshot> {
             stream_owner: true,
             groups: vec![group()],
             checkpoint: CheckpointSnapshot {
-                group_ids: vec!["07070707070707070707070707070707".into()],
+                group_ids: vec!["07".repeat(32)],
                 topics: vec![BarrierTopicSnapshot {
-                    topic: hex::encode(xmtp_proto::types::Topic::new_group_message([7; 16])),
+                    topic: hex::encode(xmtp_proto::types::Topic::new_group_message([7; 32])),
                     target: Some(10),
                     received: 10,
                     processed: 10,
@@ -84,7 +84,7 @@ fn block_topic(instance: &mut InstanceSnapshot, unrelated: bool) {
         code: "unsupported_version".into(),
     });
     if unrelated {
-        pending.topic = hex::encode(xmtp_proto::types::Topic::new_group_message([8; 16]));
+        pending.topic = hex::encode(xmtp_proto::types::Topic::new_group_message([8; 32]));
         instance.checkpoint.topics.push(pending);
     } else {
         instance.checkpoint.topics[0] = pending;
@@ -318,7 +318,7 @@ async fn completed_welcome_uses_receipt_and_unresolved_ids_without_processed_pre
     instances[0].checkpoint.topics[0]
         .unresolved_welcomes
         .clear();
-    instances[0].checkpoint.topics[0].topic = hex::encode(Topic::new_group_message([7; 16]));
+    instances[0].checkpoint.topics[0].topic = hex::encode(Topic::new_group_message([7; 32]));
     assert_eq!(
         oracle().evaluate(1, 0, &instances, &[]).verdict,
         Verdict::Stall
@@ -472,7 +472,7 @@ async fn shared_database_requires_only_the_stream_owner() {
     shared.stream_owner = true;
     instances.push(shared);
     let mut call = RollCall {
-        group_id: "07070707070707070707070707070707".into(),
+        group_id: "07".repeat(32),
         token: "token".into(),
         sender_installation: "a".into(),
         expected_installations: BTreeSet::from(["a".into(), "b".into()]),
@@ -506,7 +506,7 @@ async fn installation_joined_after_rollcall_does_not_owe_earlier_tokens() {
         });
     }
     let mut call = RollCall {
-        group_id: "07070707070707070707070707070707".into(),
+        group_id: "07".repeat(32),
         token: "token".into(),
         sender_installation: "a".into(),
         expected_installations: BTreeSet::from(["a".into(), "b".into()]),

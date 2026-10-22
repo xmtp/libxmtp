@@ -7,8 +7,8 @@
 /** Characters of a hexadecimal ID kept in a log line. */
 export const LOGGED_ID_LENGTH = 8;
 
-// 16 or more hexadecimal characters: group IDs (32), message, inbox and
-// installation IDs (64) and addresses (40).
+// 16 or more hexadecimal characters: group, message, inbox and installation
+// IDs (64), legacy group IDs from imported archives (32) and addresses (40).
 const HEX_ID = /[0-9a-f]{16,}/gi;
 // Rust's debug form of 16 or more bytes: `[18, 52, 86, …]`.
 const BYTE_LIST = /\[(?:\d{1,3}, ){15,}\d{1,3}\]/g;
