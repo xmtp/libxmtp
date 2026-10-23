@@ -1,4 +1,5 @@
 {
+  "max_corpus_topics": 10000,
   "layout": "unpartitioned",
   "index_profiles": ["baseline"],
   "read_strategies": ["watermarks"],

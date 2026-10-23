@@ -379,6 +379,7 @@ async fn multi_range_reads_preserve_reference_pages_and_newest() {
         PageQuery::Lateral,
         PageQuery::Watermarks,
         PageQuery::Bounded,
+        PageQuery::Frontier,
     ] {
         writer.page_query = strategy;
         for (floor, other) in [
@@ -481,7 +482,7 @@ async fn maximum_sequence_id_can_be_stored() {
 #[xmtp_common::test(unwrap_try = true)]
 async fn seeding_builds_complete_registry_and_install_refuses_existing_data() {
     let (_database, owner, writer) = fixture().await?;
-    corpus::seed(&owner, 1_000, 42).await?;
+    corpus::seed(&owner, 1_000, 42, 10_000).await?;
     let count: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM envelope_identity identity
         JOIN envelopes e USING (sequence_id, topic, message_hash)",

@@ -1,5 +1,9 @@
 # Backend database benchmarks
 
+The [high-cardinality experiment](HIGH-CARDINALITY.md) tests one million stored
+topics, small client subsets, independent cursor ages, and frontier-bounded
+candidate merging against the unchanged production and watermark queries.
+
 See the [unpartitioned baseline](BASELINE.md) and
 [measured schema comparison](RESULTS.md) for results and interpretation.
 The [next-round scaling experiment](SCALING.md) pairs paging algorithms and index
@@ -59,14 +63,15 @@ of Cargo's package working directory; absolute paths are also accepted.
 The committed baseline uses three trials, five-second read windows, and
 ten-second write windows (subject to the growth cap below).
 
-Format-2 configuration separates the required experimental dimensions:
+Format-3 configuration separates the required experimental dimensions:
 
 - `layout`: `unpartitioned` or `sequence_ranges`.
+- `max_corpus_topics`: explicit corpus population cap, independent of request sizes.
 - `index_profiles`: `["baseline"]`, or `["baseline", "metadata_covering"]` on
   unpartitioned data. Each size is seeded once with its original indexes, then
   the covering replacement is built and maintained before its measurements.
-- `read_strategies`: a nonempty unique list of `lateral`, `watermarks`, or
-  `bounded`. Strategies share each corpus/index profile and rotate within trials.
+- `read_strategies`: a nonempty unique list of `lateral`, `watermarks`, `bounded`,
+  or `frontier`. Strategies share each corpus/index profile and rotate within trials.
 - `write_sizes`: a unique subset of `sizes`; `[]` explicitly excludes inserts and
   rollovers. This avoids enormous write copies for read-only scaling controls.
 
@@ -75,6 +80,9 @@ coverage validation. Their old `measure_writes` and suffixed layout selectors ar
 accepted by the reporter only, not as new runner configuration. Format 2 adds a
 mostly-missing, one-populated-topic read and validates a separate complete matrix
 for each profile/strategy, paired plans, and post-write visibility controls.
+Format 3 additionally requires `max_corpus_topics` (100 through 10,000,000),
+supports `frontier`, and requires all three independent per-topic cursor cases.
+Historical format-1/2 artifacts retain their original matrices and CSV bytes.
 The partitioned
 experiment additionally requires admin role-creation privileges and local
 authentication for the unprivileged `xmtp_bench_writer` login. It creates no
@@ -119,7 +127,9 @@ size or lower writer count if the growth budget cannot fit the batch).
   `INSERT ... SELECT generate_series` in bounded 50,000-row transactions.
   There is no per-message network round trip. All production migrations,
   constraints, indexes, WAL, fsync, and synchronous commits remain enabled.
-- Use `min(rows / 10, 10,000)` topics. Bootstrap one row per topic, then route
+- Use `min(rows / 10, max_corpus_topics)` topics. Historical configurations
+  explicitly retain a 10,000-topic cap; the high-cardinality control uses one
+  million. Bootstrap one row per topic, then route
   about 50% of subsequent traffic to a hot 1%, about 40% to other active topics,
   and 10% to a dormant half. Dormant topics receive nothing in the second half
   of history; their bootstrapped rows and historical messages remain queryable.
@@ -157,6 +167,9 @@ The page limit is 100 by default, matching the backend default total page limit.
 | `query_rare_hits` | One dormant populated topic and otherwise absent topics, cursor 0; exercises sparse ordered-scan fallback |
 | `query_absent` | Nonexistent topics; always zero rows |
 | `query_caught_up` | Each existing topic's exact head; always zero rows |
+| `query_per_topic_recent` | Independent `head - 1` floors; exactly one unread message per topic |
+| `query_per_topic_mixed` | Per-topic floors: 90% `head - 1`, 9% `head / 2`, 1% cursor 0 |
+| `query_client_poll` | 90% exact heads, 9% `head - 1`, 1% cursor 0; distinct from all-caught-up |
 | `newest_full` | Real watermark-to-envelope join including payloads |
 | `newest_metadata` | Real metadata-only newest query |
 | `newest_absent` | Missing topics through the newest metadata path |
@@ -247,7 +260,7 @@ the unpartitioned reference run.
 
 See [the 10M/30M scaling results](SCALING-RESULTS.md) for matched paging controls,
 covering-index costs, and explicitly scoped recovery from an interrupted run.
-`report.py RUN --cohort ROWS INDEX_PROFILE` validates a complete format-2
+`report.py RUN --cohort ROWS INDEX_PROFILE` validates a complete format-2/3
 unpartitioned cohort independently; it still rejects missing trials, plans, or
 post-write controls and never claims the parent run completed. Omitting
 `--cohort` retains strict full-run completion checks.

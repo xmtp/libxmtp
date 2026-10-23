@@ -159,6 +159,67 @@ class ReportTests(unittest.TestCase):
                         )
         self.events.append({"event": "complete"})
 
+    def modern(self):
+        """Build explicit-population fixtures with every independent-cursor case and frontier control."""
+        self.paired()
+        self.events[0]["format_version"] = 3
+        self.events[0]["config"]["max_corpus_topics"] = 10000
+        self.events[0]["config"]["read_strategies"].append("frontier")
+        self.events[-1:-1] = [
+            dict(copy.deepcopy(event), strategy="frontier")
+            for event in self.events
+            if event["event"] in ("read", "plan") and event["strategy"] == "bounded"
+        ]
+        self.events[-1:-1] = [
+            dict(copy.deepcopy(event), case=case)
+            for case in (
+                "query_per_topic_recent",
+                "query_per_topic_mixed",
+                "query_client_poll",
+            )
+            for event in self.events
+            if event["event"] in ("read", "plan") and event["case"] == "query_no_cursor"
+        ]
+
+    def test_modern_matrix_requires_independent_cursors_and_frontier(self):
+        """Every new cursor/strategy group must be complete rather than silently omitted."""
+        self.modern()
+        rows = self.summarize()
+        self.assertEqual(
+            {row["strategy"] for row in rows},
+            {"lateral", "bounded", "frontier", "publish"},
+        )
+        for case in (
+            "query_per_topic_recent",
+            "query_per_topic_mixed",
+            "query_client_poll",
+        ):
+            with self.subTest(case=case):
+                original = self.events
+                self.events = [event for event in original if event.get("case") != case]
+                with self.assertRaises(ValueError):
+                    self.summarize()
+                self.events = original
+
+    def test_modern_population_cannot_be_missing_or_misreported(self):
+        """Format-3 populations must match the configured cap, with no legacy-cap fallback."""
+        self.modern()
+        config = self.events[0]["config"]
+        del config["max_corpus_topics"]
+        with self.assertRaises(ValueError):
+            self.summarize()
+        for cap in (None, True, 99, 10000001):
+            with self.subTest(cap=cap):
+                config["max_corpus_topics"] = cap
+                with self.assertRaises(ValueError):
+                    self.summarize()
+        config["max_corpus_topics"] = 10000
+        next(event for event in self.events if event["event"] == "corpus")["topics"] = (
+            99
+        )
+        with self.assertRaises(ValueError):
+            self.summarize()
+
     def summarize(self):
         self.write_run()
         return summarize(self.path)

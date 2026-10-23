@@ -1,0 +1,19 @@
+{
+  "layout": "unpartitioned",
+  "max_corpus_topics": 1000000,
+  "index_profiles": ["baseline"],
+  "read_strategies": ["lateral", "watermarks", "frontier"],
+  "write_sizes": [],
+  "sizes": [10000000, 30000000],
+  "topic_counts": [10, 100, 1000],
+  "writers": [1],
+  "batch_sizes": [1],
+  "trials": 3,
+  "read_ms": 1000,
+  "write_ms": 1000,
+  "warmup_requests": 20,
+  "write_growth_percent": 1,
+  "page_limit": 50,
+  "seed": 42,
+  "output": "backend-high-cardinality.jsonl"
+}

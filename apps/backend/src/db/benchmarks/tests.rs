@@ -8,6 +8,7 @@ use std::collections::HashSet;
 fn config() -> Config {
     Config {
         layout: partition::Layout::Unpartitioned,
+        max_corpus_topics: 10_000,
         index_profiles: vec![IndexProfile::Baseline],
         read_strategies: vec![PageQuery::Lateral],
         write_sizes: vec![1_000, 100_000, 10_000_000],
@@ -24,6 +25,73 @@ fn config() -> Config {
         seed: 42,
         output: PathBuf::from("benchmark-test.jsonl"),
     }
+}
+
+/// Corpus cardinality is explicit and bounded independently of client request sizes.
+#[xmtp_common::test(unwrap_try = true)]
+fn topic_population_configuration_is_explicit_and_bounded() {
+    for cap in [0, 99, 10_000_001] {
+        let mut settings = config();
+        settings.max_corpus_topics = cap;
+        assert!(settings.validate().is_err());
+    }
+    let mut settings = config();
+    settings.max_corpus_topics = 1_000_000;
+    settings.validate()?;
+}
+
+/// Per-topic client positions must follow each topic's own head, not a global sequence floor.
+/// Mixed clients retain 90/9/1 unread/old/absent cursors; polling clients are 90% caught up.
+#[xmtp_common::test(unwrap_try = true)]
+fn independent_client_cursors_preserve_mixed_and_polling_proportions() {
+    let topics: Vec<_> = (0..100)
+        .map(|identifier| corpus::Topic {
+            bytes: corpus::topic(identifier),
+            head: 10_000 + identifier * 100,
+        })
+        .collect();
+    let pool: Vec<_> = topics.iter().collect();
+    for iteration in [0, 1, 731] {
+        for kind in [Read::PerTopicRecent, Read::PerTopicMixed, Read::ClientPoll] {
+            let mut counts = [0; 4];
+            for query in request(&pool, 100, iteration, kind, 100_000_000) {
+                let head = topics
+                    .iter()
+                    .find(|topic| topic.bytes == query.topic)
+                    .unwrap()
+                    .head;
+                counts[if query.cursor == head {
+                    0
+                } else if query.cursor == head - 1 {
+                    1
+                } else if query.cursor == head / 2 {
+                    2
+                } else {
+                    assert_eq!(query.cursor, 0);
+                    3
+                }] += 1;
+            }
+            assert_eq!(
+                counts,
+                match kind {
+                    Read::PerTopicRecent => [0, 100, 0, 0],
+                    Read::PerTopicMixed => [0, 90, 9, 1],
+                    Read::ClientPoll => [90, 9, 0, 1],
+                    _ => unreachable!(),
+                }
+            );
+        }
+    }
+}
+
+/// Large-population experiments must not silently keep the historical 10,000-topic cap.
+#[xmtp_common::test(unwrap_try = true)]
+async fn seeding_honors_topic_population_above_historical_cap() {
+    let database = TestDatabase::new()?;
+    let store = connect(&database, 1, REQUEST_TIMEOUT_MS).await?;
+    let catalog = corpus::seed(&store, 110_000, 42, 11_000).await?;
+    assert_eq!(catalog.len(), 11_000);
+    store.primary.close().await;
 }
 
 /// Long benchmark statements must pass production validation without changing requested pool settings or accepting invalid values.
@@ -76,6 +144,7 @@ fn configuration_rejects_unknown_and_missing_fields() {
         "index_profiles",
         "read_strategies",
         "write_sizes",
+        "max_corpus_topics",
     ] {
         let mut missing = value.clone();
         missing.as_object_mut().unwrap().remove(field);
@@ -311,7 +380,7 @@ fn statistics_preserve_samples_and_units() {
 async fn diagnostics_capture_actual_generic_and_custom_plans() {
     let mut database = TestDatabase::new()?;
     let store = connect(&database, 1, REQUEST_TIMEOUT_MS).await?;
-    let catalog = corpus::seed(&store, 1_000, 42).await?;
+    let catalog = corpus::seed(&store, 1_000, 42, 10_000).await?;
     let pool: Vec<_> = catalog.iter().collect();
     for kind in [Read::NoCursor, Read::NewestFull, Read::NewestMetadata] {
         let queries = request(&pool, 10, 0, kind, 1_000);
@@ -355,7 +424,7 @@ async fn bulk_seed_matches_production_storage_and_read_semantics() {
         .await?,
         SEED_TIMEOUT_MS.to_string()
     );
-    let catalog = corpus::seed(&store, 1_000, 42).await?;
+    let catalog = corpus::seed(&store, 1_000, 42, 10_000).await?;
     store.primary.close().await;
     let store = connect(&database, 1, REQUEST_TIMEOUT_MS).await?;
     assert_eq!(
@@ -451,7 +520,7 @@ async fn bulk_seed_matches_production_storage_and_read_semantics() {
 async fn corpus_has_skew_and_dormant_history() {
     let mut database = TestDatabase::new()?;
     let store = connect(&database, 1, REQUEST_TIMEOUT_MS).await?;
-    let catalog = corpus::seed(&store, 100_000, 42).await?;
+    let catalog = corpus::seed(&store, 100_000, 42, 10_000).await?;
     assert_eq!(catalog.len(), 10_000);
     assert_eq!(
         catalog.iter().filter(|topic| topic.head <= 50_000).count(),
@@ -475,7 +544,7 @@ async fn corpus_has_skew_and_dormant_history() {
 async fn copied_trials_are_isolated_and_removed_templates_fail() {
     let mut database = TestDatabase::new()?;
     let store = connect(&database, 1, REQUEST_TIMEOUT_MS).await?;
-    corpus::seed(&store, 1_000, 42).await?;
+    corpus::seed(&store, 1_000, 42, 10_000).await?;
     store.primary.close().await;
     let mut copy = database.copy()?;
     let copy_store = connect(&copy, 1, REQUEST_TIMEOUT_MS).await?;

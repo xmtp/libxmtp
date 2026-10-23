@@ -4,12 +4,14 @@
 Operators pass a raw run path; summarize() validates the configured workload
 matrix, explicit skips, and trial coverage before reporting trial medians.
 Only fixed workload/profile names and finite numeric cells reach CSV output.
-Format 2 validates the paired index/query matrix and its plans, while legacy
+Formats 2 and 3 validate the paired index/query matrix and its plans, while legacy
 format-1 artifacts retain their original CSV columns and byte representation.
-An explicit format-2 unpartitioned cohort can be validated independently after
+An explicit paired unpartitioned cohort can be validated independently after
 interruption; this never claims whole-run completion or edits the raw artifact.
 Partition experiments also require complete first-use/control rollover trials;
 those sparse-ID diagnostics remain in JSONL, not steady-state CSV rows.
+Format 3 requires an explicit corpus topic cap and independent per-topic cursor
+workloads, including frontier paging; earlier artifacts retain their fixed matrix.
 """
 
 import argparse
@@ -40,6 +42,11 @@ _STATISTICS = (
     "p50_ms",
     "p95_ms",
     "p99_ms",
+)
+_PER_TOPIC_CASES = (
+    "query_per_topic_recent",
+    "query_per_topic_mixed",
+    "query_client_poll",
 )
 
 
@@ -85,12 +92,18 @@ def summarize(path, *, cohort=None):
     if (
         not events
         or events[0].get("event") != "environment"
-        or events[0].get("format_version") not in (1, 2)
+        or events[0].get("format_version") not in (1, 2, 3)
         or (cohort is None and events[-1].get("event") != "complete")
     ):
         raise ValueError("expected a complete supported benchmark run")
-    paired = events[0]["format_version"] == 2
+    modern = events[0]["format_version"] == 3
+    paired = events[0]["format_version"] in (2, 3)
     config = events[0]["config"]
+    if modern and (
+        type(config.get("max_corpus_topics")) is not int
+        or not 100 <= config["max_corpus_topics"] <= 10_000_000
+    ):
+        raise ValueError("invalid explicit corpus topic cap")
     for field in ("sizes", "topic_counts", "writers", "batch_sizes"):
         values = config.get(field)
         if (
@@ -114,7 +127,13 @@ def summarize(path, *, cohort=None):
             or not strategies
             or any(
                 type(value) is not str
-                or value not in ("lateral", "watermarks", "bounded")
+                or value
+                not in (
+                    "lateral",
+                    "watermarks",
+                    "bounded",
+                    *(("frontier",) if modern else ()),
+                )
                 for value in strategies
             )
             or len(set(strategies)) != len(strategies)
@@ -143,7 +162,7 @@ def summarize(path, *, cohort=None):
             or cohort[1] not in profiles
         ):
             raise ValueError(
-                "cohort must name a configured format-2 unpartitioned size and index profile"
+                "cohort must name a configured paired unpartitioned size and index profile"
             )
         size, profile = cohort
         config = {**config, "sizes": [size]}
@@ -169,6 +188,11 @@ def summarize(path, *, cohort=None):
         )
     ):
         raise ValueError("missing, duplicate, or invalid corpus metadata")
+    if modern and any(
+        corpus["topics"] != min(corpus["rows"] // 10, config["max_corpus_topics"])
+        for corpus in corpora
+    ):
+        raise ValueError("corpus topic count does not match configured population")
     if {
         (corpus["rows"], corpus["index_profile"] if paired else "baseline")
         for corpus in corpora
@@ -180,7 +204,11 @@ def summarize(path, *, cohort=None):
     read_keys = {
         (size, case, topics, 0, 0, *((profile, strategy) if paired else ()))
         for size in config["sizes"]
-        for case in (*_READ_CASES, *(("query_rare_hits",) if paired else ()))
+        for case in (
+            *_READ_CASES,
+            *(("query_rare_hits",) if paired else ()),
+            *(_PER_TOPIC_CASES if modern else ()),
+        )
         for topics in config["topic_counts"]
         for profile in profiles
         for strategy in strategies

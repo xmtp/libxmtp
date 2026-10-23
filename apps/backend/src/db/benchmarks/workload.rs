@@ -1,5 +1,7 @@
 //! Closed-loop real Store workloads. Request generation and diagnostics are
 //! outside timing; database calls and result materialization are inside it.
+//! High-cardinality populations share eligibility catalogs, while each client
+//! selects a small rotating subset with explicit independent per-topic floors.
 
 use super::{
     Config, Duration, Instant, Store, TestDatabase, TestResult,
@@ -11,7 +13,7 @@ use crate::db::{PendingEnvelope, TopicCursor};
 use futures::future::try_join_all;
 use serde_json::json;
 use sqlx::Row;
-use std::io::Write;
+use std::{io::Write, sync::Arc};
 
 const POST_WRITE_READ_MS: u64 = 1_000;
 const CASE_ROTATION: usize = 7;
@@ -27,6 +29,9 @@ pub(super) enum Read {
     RareHits,
     Absent,
     CaughtUp,
+    PerTopicRecent,
+    PerTopicMixed,
+    ClientPoll,
     NewestFull,
     NewestMetadata,
     NewestAbsent,
@@ -44,6 +49,9 @@ impl Read {
             Self::RareHits => "query_rare_hits",
             Self::Absent => "query_absent",
             Self::CaughtUp => "query_caught_up",
+            Self::PerTopicRecent => "query_per_topic_recent",
+            Self::PerTopicMixed => "query_per_topic_mixed",
+            Self::ClientPoll => "query_client_poll",
             Self::NewestFull => "newest_full",
             Self::NewestMetadata => "newest_metadata",
             Self::NewestAbsent => "newest_absent",
@@ -70,7 +78,12 @@ impl Read {
 
     pub(super) fn eligible(self, topic: &Topic, size: i64) -> bool {
         match self {
-            Self::SparseRecent | Self::CaughtUp | Self::Absent => true,
+            Self::SparseRecent
+            | Self::CaughtUp
+            | Self::Absent
+            | Self::PerTopicRecent
+            | Self::PerTopicMixed
+            | Self::ClientPoll => true,
             Self::RareHits => topic.head <= size / 2,
             value if value.newest() => true,
             Self::Mixed => topic.head > size * 99 / 100,
@@ -97,10 +110,18 @@ pub(super) fn request(
                 } else {
                     topic.bytes.clone()
                 },
-                cursor: if kind == Read::CaughtUp {
-                    topic.head
-                } else {
-                    kind.floor(size, iteration + offset)
+                cursor: match kind {
+                    Read::CaughtUp => topic.head,
+                    Read::PerTopicRecent => topic.head - 1,
+                    Read::ClientPoll if (iteration * 31 + offset * 37) % 100 < 90 => topic.head,
+                    Read::PerTopicMixed | Read::ClientPoll => {
+                        match (iteration * 31 + offset * 37) % 100 {
+                            99 => 0,
+                            90..=98 if kind == Read::PerTopicMixed => topic.head / 2,
+                            _ => topic.head - 1,
+                        }
+                    }
+                    _ => kind.floor(size, iteration + offset),
                 },
             }
         })
@@ -221,26 +242,40 @@ pub(super) async fn reads(
     output: &mut impl Write,
 ) -> TestResult {
     let mut cases = Vec::new();
-    for &strategy in &config.read_strategies {
-        for &count in &config.topic_counts {
-            for kind in [
-                Read::NoCursor,
-                Read::Old,
-                Read::Backlog,
-                Read::Recent,
-                Read::Mixed,
-                Read::SparseRecent,
-                Read::RareHits,
-                Read::Absent,
-                Read::CaughtUp,
-                Read::NewestFull,
-                Read::NewestMetadata,
-                Read::NewestAbsent,
-            ] {
-                let pool: Vec<_> = catalog
+    let pools: Vec<_> = [
+        Read::NoCursor,
+        Read::Old,
+        Read::Backlog,
+        Read::Recent,
+        Read::Mixed,
+        Read::SparseRecent,
+        Read::RareHits,
+        Read::Absent,
+        Read::CaughtUp,
+        Read::PerTopicRecent,
+        Read::PerTopicMixed,
+        Read::ClientPoll,
+        Read::NewestFull,
+        Read::NewestMetadata,
+        Read::NewestAbsent,
+    ]
+    .into_iter()
+    .map(|kind| {
+        (
+            kind,
+            Arc::new(
+                catalog
                     .iter()
                     .filter(|topic| kind.eligible(topic, size))
-                    .collect();
+                    .collect::<Vec<_>>(),
+            ),
+        )
+    })
+    .collect();
+    for &strategy in &config.read_strategies {
+        for &count in &config.topic_counts {
+            for (kind, pool) in &pools {
+                let kind = *kind;
                 let reason = if count > pool.len()
                     && !matches!(kind, Read::Absent | Read::NewestAbsent | Read::RareHits)
                 {
@@ -258,7 +293,7 @@ pub(super) async fn reads(
                         json!({"event": "skipped", "rows": size, "case": kind.name(), "topics": count, "eligible_topics": pool.len(), "reason": reason, "index_profile": index_profile, "strategy": strategy}),
                     )?;
                 } else {
-                    cases.push((strategy, count, kind, pool));
+                    cases.push((strategy, count, kind, Arc::clone(pool)));
                 }
             }
         }

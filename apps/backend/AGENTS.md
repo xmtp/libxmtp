@@ -65,17 +65,20 @@ unit tests use the existing dev-dependencies.
 Use the shared `TestDatabase` guard for disposable databases. Its cleanup survives
 assertion failures and test-runtime teardown; do not add success-only cleanup.
 The manual database benchmarks and approved partitioning experiment are in `benchmarks/`.
-Benchmark format-2 config requires `layout`, `index_profiles`, `read_strategies`,
-and `write_sizes` explicitly. Layouts are `unpartitioned` or `sequence_ranges`;
-paging strategies are `lateral`, `watermarks`, or `bounded`. Index profiles are
+Benchmark format-3 config requires `layout`, `max_corpus_topics`, `index_profiles`,
+`read_strategies`, and `write_sizes` explicitly. Layouts are `unpartitioned` or `sequence_ranges`;
+paging strategies are `lateral`, `watermarks`, `bounded`, or `frontier`. Index profiles are
 baseline-first, optionally followed by `metadata_covering` on unpartitioned data.
+Use `just backend bench apps/backend/benchmarks/high-cardinality.json` for shared
+10M/30M corpora with one million topics and independent client cursors; see
+`benchmarks/HIGH-CARDINALITY.md` for the frontier-bound correctness argument.
 `write_sizes: []` explicitly excludes writes; selected sizes must be seeded.
 Use `just backend bench apps/backend/benchmarks/scaling.json` for shared-corpus
 10M/30M query/index controls and 10M insert/visibility costs. Covering index setup
 is timed separately; post-write newest probes run before vacuum. Format-1 raw
 artifacts remain readable with their original CSV columns, not runnable configs.
 `benchmarks/report.py RUN --cohort ROWS INDEX_PROFILE` validates a complete
-format-2 unpartitioned cohort after interruption without claiming full-run
+paired unpartitioned cohort after interruption without claiming full-run
 completion; all trials, paired plans, and post-write controls remain mandatory.
 Use `just backend bench apps/backend/benchmarks/partitioned.json` for sequence ranges;
 it needs a dedicated admin with `CREATEROLE` and local authentication for

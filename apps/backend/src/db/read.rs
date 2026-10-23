@@ -22,8 +22,11 @@ impl Store {
         limit: i64,
     ) -> Result<EnvelopePage, Error> {
         #[cfg(test)]
-        if self.page_query == super::benchmarks::experiments::PageQuery::Watermarks
-            || self.page_query.uses_window(queries)
+        if matches!(
+            self.page_query,
+            super::benchmarks::experiments::PageQuery::Watermarks
+                | super::benchmarks::experiments::PageQuery::Frontier
+        ) || self.page_query.uses_window(queries)
         {
             return super::benchmarks::experiments::query(self, queries, limit).await;
         }

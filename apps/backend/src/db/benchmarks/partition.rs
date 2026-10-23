@@ -248,7 +248,8 @@ pub(super) async fn rollovers(
                     install(&owner).await?;
                     let partitions = Partitions::new(owner.primary.clone());
                     partitions.ensure(1).await?;
-                    super::corpus::seed(&owner, 1_000, config.seed).await?;
+                    super::corpus::seed(&owner, 1_000, config.seed, config.max_corpus_topics)
+                        .await?;
                     if precreated {
                         partitions.ensure(edge).await?;
                     }

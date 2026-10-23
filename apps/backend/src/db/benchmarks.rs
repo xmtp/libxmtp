@@ -8,6 +8,7 @@
 //! `experiments` selects paging algorithms and index profiles independently.
 //! Query controls share each seeded corpus; covering-index builds are separately
 //! timed, and write_sizes limits costly physical write copies to explicit sizes.
+//! max_corpus_topics explicitly bounds the population independently of client request sizes.
 
 mod corpus;
 pub(super) mod experiments;
@@ -37,6 +38,7 @@ use xmtp_common::time::{Duration, Instant};
 #[serde(deny_unknown_fields)]
 struct Config {
     layout: partition::Layout,
+    max_corpus_topics: i64,
     index_profiles: Vec<IndexProfile>,
     read_strategies: Vec<PageQuery>,
     write_sizes: Vec<i64>,
@@ -75,6 +77,7 @@ impl Config {
                 .write_sizes
                 .iter()
                 .any(|size| !self.sizes.contains(size))
+            || !(100..=10_000_000).contains(&self.max_corpus_topics)
             || self.sizes.is_empty()
             || self
                 .sizes
@@ -198,7 +201,7 @@ async fn baseline() {
             "layout": config.layout, "seconds": setup.elapsed().as_secs_f64()}),
         )?;
         let seeded = Instant::now();
-        let catalog = corpus::seed(&store, size, config.seed).await?;
+        let catalog = corpus::seed(&store, size, config.seed, config.max_corpus_topics).await?;
         let seed_seconds = seeded.elapsed().as_secs_f64();
         store.primary.close().await;
         for &index_profile in &config.index_profiles {

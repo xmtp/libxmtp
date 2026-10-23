@@ -1,7 +1,9 @@
 //! Benchmark-only paging and index controls for large envelope histories.
 //! `PageQuery` selects real Store/EXPLAIN SQL; `IndexProfile` builds a measured
 //! metadata-covering replacement after shared corpus seeding. Production never
-//! installs these indexes or selects the experimental paging statement.
+//! installs these indexes or selects the experimental paging statement. Frontier
+//! paging bounds candidate merging using each topic's first unread sequence ID,
+//! without requiring shared cursors or scanning unrelated topics.
 
 use super::{Store, TestResult};
 use crate::{
@@ -20,6 +22,7 @@ pub(crate) enum PageQuery {
     Lateral,
     Watermarks,
     Bounded,
+    Frontier,
 }
 
 impl PageQuery {
@@ -39,6 +42,8 @@ impl PageQuery {
             include_str!("../../../benchmarks/queries/bounded_page.sql")
         } else if self == Self::Watermarks {
             include_str!("../../../benchmarks/queries/watermark_page.sql")
+        } else if self == Self::Frontier {
+            include_str!("../../../benchmarks/queries/frontier_page.sql")
         } else {
             include_str!("../read/page.sql")
         }

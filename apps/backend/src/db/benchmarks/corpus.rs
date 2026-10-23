@@ -1,13 +1,13 @@
 //! Deterministic bulk corpus: skewed active traffic, dormant topics, and opaque
 //! non-compressible payloads on current 33-byte group topics. The SQL retains
-//! every production index and constraint.
+//! every production index and constraint. The caller explicitly caps the topic
+//! population; request subsets and per-topic cursor ages are separate dimensions.
 
 use super::{Store, TestResult};
 use sqlx::Row;
 use std::collections::BTreeMap;
 
 const SEED_BATCH: i64 = 50_000;
-const MAX_TOPICS: i64 = 10_000;
 const PAYLOAD_SIZES: [usize; 10] = [256, 256, 256, 256, 256, 1024, 1024, 1024, 1024, 4096];
 
 #[derive(Clone, Debug)]
@@ -36,8 +36,13 @@ fn payload(identifier: i64, size: usize) -> Vec<u8> {
 
 /// Bulk-load in bounded transactions, then establish sequence/watermark state
 /// and vacuum/analyze before timing. No durability or index shortcuts are used.
-pub(super) async fn seed(store: &Store, rows: i64, seed: i64) -> TestResult<Vec<Topic>> {
-    let topics = (rows / 10).min(MAX_TOPICS);
+pub(super) async fn seed(
+    store: &Store,
+    rows: i64,
+    seed: i64,
+    max_topics: i64,
+) -> TestResult<Vec<Topic>> {
+    let topics = (rows / 10).min(max_topics);
     let hot = (topics / 100).max(1);
     let active = topics / 2;
     let payloads: Vec<_> = (0..100)
