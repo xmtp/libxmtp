@@ -4,6 +4,7 @@ import {
   decodeEncodedContent,
   encodeEncodedContent,
   generateInboxId,
+  sdkVersion,
   type ClientOptions,
   type ContentCodec,
   type PublicIdentity,
@@ -65,10 +66,16 @@ export async function foundationJourney(
     outboundText: string;
     inboundText: string;
     journeys: JourneySet;
+    sdkVersion: string;
   }>("setup");
   assert(
     setup.journeys === "pr" || setup.journeys === "full",
     "runner must select the pr or full journey set",
+  );
+  equal(
+    sdkVersion(),
+    setup.sdkVersion,
+    "RN and Node native SDK versions must match",
   );
   const signer: Signer = {
     identity: async () => setup.identity,

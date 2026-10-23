@@ -323,6 +323,7 @@ suites:
       - path_group: js_packages
       - "dev/js/{lint-source.mjs,test-lint-source.mjs}"
       - "dev/release-tools/**"
+      - "dev/version.just"
       # markdownlint reads every Markdown file; the docs checks read these.
       - "**/*.md"
       - "nix/docs.nix"
@@ -404,6 +405,7 @@ suites:
       # `just test dev` runs the tests of these tools.
       - "dev/{tests,agents,specs,release-tools,fly,ci}/**"
       - "dev/ci-failure-markers"
+      - "dev/version.just"
       # The dev tests and the Fly dashboard test read these files.
       - "dev/docker/{compose.yml,load-backend-image,load-env,up}"
       - "dev/docker/grafana/dashboards/backend.json"

@@ -11,12 +11,15 @@ These jobs do not run SDK or release tools. The tag push job imports a Git
 bundle into a new bare repository.
 Resolve the requested ref before SDK code runs. All SDK jobs use that fixed
 source SHA for checkout, build, and tag checks. `release.yml` freezes the
-source in `validate` and computes every selected SDK version there, once,
-from the requested ref (for dev classification) and one run timestamp. It
-passes the source SHA and the version to each SDK workflow; the backend
-computes its own version after it pins its source. Only a direct dispatch of
-`release-agent-sdk.yml` or `release-cli.yml` computes its version in the SDK
-workflow. The version CLI gets its hash from the pinned HEAD.
+source and one complete SDK version in `validate`, retaining `sdk-release-plan`.
+Every SDK build materializes that plan into Cargo, Cargo.lock, and SDK metadata
+before compilation. All six builds and installed-consumer checks must pass
+before SDK publication. The npm publishers publish the retained tarballs;
+Android publishes the retained AAR, POM, and documentation artifacts. iOS
+publishes a version-keyed SwiftPM archive, with a source/version-bound receipt.
+There is no standalone iOS CocoaPods product; keep React Native's podspec.
+Only CLI keeps a standalone version-computing dispatch. Backend label policy
+is independent of the SDK release line.
 Each SDK workflow runs `check-release-push.yml` once before it builds.
 `npm-publish.yml` takes the checked `source-sha` from its caller. Its publish
 job authorizes itself as well: a real publish runs in the `release`
@@ -116,7 +119,7 @@ build the products themselves.
 
 `release-android.yml` builds the example with
 `dev/nix-shell 'just example-android apk'` before Maven publication.
-Its build and publish jobs use the `release` environment for `OSSRH_USERNAME`,
+Its signing and publishing jobs use the `release` environment for `OSSRH_USERNAME`,
 `OSSRH_TOKEN`, `OSSRH_GPG_SECRET_KEY`, and `OSSRH_GPG_SECRET_KEY_PASSWORD`.
 Use a Central Portal token for the username and token; no `MAVEN_PROFILE_ID`
 is needed. Gradle prepares a signed Maven repository as a retained artifact.
@@ -132,6 +135,9 @@ uploads within a registry may need manual inspection and cleanup before retry;
 the workflow does not promise automatic recovery of a partial upload. Never
 rerun a successful Central job for the same version. The bundle, tag, and APK
 artifacts are retained for 30 days.
+Before uploading, check the retained payloads against both registries; matching
+versions are accepted, changed or partial versions fail. Redirects to another
+origin never receive the GitHub authorization header.
 After the isolated tag push, it attaches the test-signed
 universal APK to the matching GitHub Release for every release type. Keep the
 APK upload job dependent on the tag push and use `--verify-tag` on creation.

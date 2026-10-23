@@ -20,9 +20,13 @@ if (!sdkDirectory)
 const manifest = JSON.parse(
   await readFile(join(sdkDirectory, "package.json"), "utf8"),
 );
-const { Client } = await import(
+const { Client, sdkVersion } = await import(
   pathToFileURL(resolve(sdkDirectory, manifest.main ?? "index.js"))
 );
+if (sdkVersion() !== (process.env.XMTP_SDK_RELEASE_VERSION ?? manifest.version))
+  throw new Error(
+    "Node native SDK version differs from the expected package version",
+  );
 const backendUrl = process.env.XMTP_BACKEND_URL;
 if (!backendUrl)
   throw new Error("XMTP_BACKEND_URL must select this worktree's backend");
@@ -141,6 +145,7 @@ const server = createServer(async (request, response) => {
           outboundText,
           inboundText,
           journeys,
+          sdkVersion: sdkVersion(),
         };
         break;
       case "/sign":

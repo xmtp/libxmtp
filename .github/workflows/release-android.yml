@@ -1,12 +1,11 @@
-name: "Release: Android SDK"
-
+name: 'Release: Android SDK'
 on:
   workflow_call:
     inputs:
       release-type:
         required: true
         type: string
-        description: "dev, rc, or final"
+        description: dev, rc, or final
       source-sha:
         description: Fixed source commit resolved by the release caller
         required: true
@@ -15,79 +14,66 @@ on:
         description: The version to publish, computed once by release.yml
         required: true
         type: string
+      dry-run:
+        type: boolean
+        required: false
+        default: false
+      build-only:
+        type: boolean
+        required: false
+        default: false
+      publish-only:
+        type: boolean
+        required: false
+        default: false
     outputs:
       version:
-        description: "The published version string"
-        value: ${{ jobs.publish.outputs.version }}
-
+        description: The published version string
+        value: ${{ inputs.version }}
 permissions:
   contents: read
-
 jobs:
   check-push-permissions:
     name: Source
     uses: ./.github/workflows/check-release-push.yml
     with:
       ref: ${{ inputs.source-sha }}
+      dry-run: ${{ inputs.dry-run }}
     secrets: inherit
-
   publish:
-    name: Build Android release artifacts
-    needs: [check-push-permissions]
+    name: Sign the checked Maven bytes
     environment: release
     permissions:
       contents: read
-    # Paid Linux: the android-ci shell closure is about 3 GiB plus an Android
-    # SDK closure of 6 to 11 GiB, before the APK build and Gradle downloads,
-    # which is more than the 14 GB disk of a free hosted runner.
+    needs: [build, check-push-permissions]
+    if: '!cancelled() && needs.check-push-permissions.result == ''success'' && inputs.dry-run != true && inputs.build-only != true && (inputs.publish-only || needs.build.result
+      == ''success'')'
     runs-on: blacksmith-16vcpu-ubuntu-2404
     env:
-      # The slim Android shell: the release builds no Rust.
       NIX_DEVSHELL: android-ci
+      VERSION: ${{ inputs.version }}
     outputs:
       version: ${{ inputs.version }}
     steps:
       - name: Check out the release source
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           ref: ${{ needs.check-push-permissions.outputs.source-sha }}
-          fetch-depth: 0
-          # Full history for the release tag, without blobs; git-cliff, which
-          # fails on a blobless clone, does not run here.
-          filter: blob:none
-      - name: Set up release tools
-        uses: ./.github/actions/setup-release-tools
-      # No ~/.gradle disk: CI jobs commit it, and a release reads no store that
-      # CI jobs write. Gradle downloads its distribution and dependencies.
       - name: Set up Nix
         uses: ./.github/actions/setup-nix
         with:
           cache-mode: read
           github-token: ${{ github.token }}
-
-      - name: Set version in gradle.properties
-        env:
-          VERSION: ${{ inputs.version }}
-        run: xmtp-release set-manifest-version --sdk android --version "$VERSION"
-
-      - name: Build Android bindings
-        run: dev/nix-shell './sdks/android/dev/bindings --release'
-
-      # Publish only: CI tests the release commit (the Android suites), and a
-      # live-backend test here once failed a release.
-      - name: Build example APK
-        env:
-          XMTP_EXAMPLE_VERSION: ${{ inputs.version }}
-        run: dev/nix-shell 'just example-android apk'
-
-      - name: Retain example APK
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - name: Materialize the shared SDK version
+        uses: ./.github/actions/release-source
+      - name: Download checked Maven product
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
-          name: android-example-apk
-          path: apps/example-android/build/apk/xmtp-messenger-${{ inputs.version }}.apk
-          if-no-files-found: error
-          retention-days: 30
-
+          name: android-release-package
+          path: target/release/android
+      - name: Verify checked Maven product
+        run: |
+          dev/nix-shell --shell js-node --command python3.11 dev/sdk_version.py verify target/release/android --plan "$RUNNER_TEMP/sdk-release-plan/release-plan.json"
       - name: Prepare signed Maven bundle
         env:
           SIGN_KEY: ${{ secrets.OSSRH_GPG_SECRET_KEY }}
@@ -100,33 +86,19 @@ jobs:
               exit 1
             fi
           done
-          dev/nix-shell 'cd sdks/android && ./gradlew :library:publishReleasePublicationToReleaseBundleRepository'
-
+          prepared="$PWD/target/release/android/repository/org/xmtp/android/$VERSION"
+          dev/nix-shell --command ./sdks/android/gradlew -p sdks/android -PxmtpPreparedPublication="$prepared" :library:publishReleasePublicationToReleaseBundleRepository
       - name: Retain signed Maven bundle
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: android-maven-bundle
           path: sdks/android/library/build/release-repository/
           if-no-files-found: error
           retention-days: 30
-
-      - name: Prepare release tag
-        env:
-          VERSION: ${{ inputs.version }}
-        run: |
-          xmtp-release tag-release --sdk android --version "$VERSION" --no-push
-          git bundle create "$RUNNER_TEMP/release.bundle" "refs/tags/android-$VERSION"
-      - name: Store release tag
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: release-tag-android
-          path: ${{ runner.temp }}/release.bundle
-          if-no-files-found: error
-          retention-days: 30
-
   publish-github:
     name: Publish to GitHub Packages
     needs: [publish, check-push-permissions]
+    if: "!cancelled() && needs.publish.result == 'success' && needs.check-push-permissions.result == 'success'"
     permissions:
       contents: read
       packages: write
@@ -157,11 +129,20 @@ jobs:
         env:
           GITHUB_ACTOR: ${{ github.actor }}
           GITHUB_TOKEN: ${{ github.token }}
-        run: dev/nix-shell 'cd sdks/android && ./gradlew -Pversion="$VERSION" :publisher:publishReleasePublicationToGitHubPackagesRepository'
+        run: |
+          set -euo pipefail
+          prepared="$XMTP_ANDROID_RELEASE_BUNDLE/org/xmtp/android/$VERSION"
+          # Refuse conflicts in either registry before starting the first upload.
+          dev/nix-shell --shell js-node --command python3.11 dev/check_maven_release.py "$prepared" "$VERSION"
+          state=$(dev/nix-shell --shell js-node --command python3.11 dev/check_maven_release.py "$prepared" "$VERSION" --repository github)
+          if [ "$state" = absent ]; then
+            dev/nix-shell 'cd sdks/android && ./gradlew -Pversion="$VERSION" :publisher:publishReleasePublicationToGitHubPackagesRepository'
+          fi
 
   publish-central:
     name: Publish to Maven Central
     needs: [publish, publish-github, check-push-permissions]
+    if: "!cancelled() && needs.publish.result == 'success' && needs.publish-github.result == 'success' && needs.check-push-permissions.result == 'success'"
     permissions:
       contents: read
     environment: release
@@ -191,27 +172,34 @@ jobs:
         env:
           MAVEN_USERNAME: ${{ secrets.OSSRH_USERNAME }}
           MAVEN_PASSWORD: ${{ secrets.OSSRH_TOKEN }}
-        run: dev/nix-shell 'cd sdks/android && ./gradlew -Pversion="$VERSION" :publisher:publishReleasePublicationToSonatypeRepository closeAndReleaseSonatypeStagingRepository'
+        run: |
+          set -euo pipefail
+          prepared="$XMTP_ANDROID_RELEASE_BUNDLE/org/xmtp/android/$VERSION"
+          state=$(dev/nix-shell --shell js-node --command python3.11 dev/check_maven_release.py "$prepared" "$VERSION")
+          if [ "$state" = absent ]; then
+            dev/nix-shell 'cd sdks/android && ./gradlew -Pversion="$VERSION" :publisher:publishReleasePublicationToSonatypeRepository closeAndReleaseSonatypeStagingRepository'
+          fi
 
   push-tag:
     name: Tag
     needs: [publish, publish-central, check-push-permissions]
+    if: "!cancelled() && needs.publish.result == 'success' && needs.publish-central.result == 'success' && needs.check-push-permissions.result == 'success'"
     uses: ./.github/workflows/push-release-tag.yml
     with:
       sdk: android
       version: ${{ needs.publish.outputs.version }}
       source-sha: ${{ needs.check-push-permissions.outputs.source-sha }}
     secrets: inherit
-
   publish-apk:
     name: Attach Messenger APK
     needs: [publish, push-tag]
+    if: "!cancelled() && needs.publish.result == 'success' && needs.push-tag.result == 'success'"
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - name: Download example APK
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
           name: android-example-apk
           path: apk
@@ -227,7 +215,9 @@ jobs:
           APK="apk/xmtp-messenger-$VERSION.apk"
           test -s "$APK"
           if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" "$APK" --clobber
+            mkdir -p existing
+            gh release download "$TAG" --pattern "$(basename "$APK")" --dir existing
+            cmp "$APK" "existing/$(basename "$APK")"
           else
             FLAGS=()
             if [ "$RELEASE_TYPE" != final ]; then
@@ -238,3 +228,74 @@ jobs:
               --notes "Android SDK $VERSION. The XMTP Messenger APK is a universal release build for testing on Android 8.1 or newer, signed with the public AOSP testing key. It installs separately as XMTP Messenger (Testing). Select a reachable HTTPS server in the app. Its profiles and local data are separate from normal example-app installs. Firebase notifications are off in this build." \
               "${FLAGS[@]}"
           fi
+  build:
+    name: Build and validate the Maven publication
+    needs: [check-push-permissions]
+    runs-on: blacksmith-16vcpu-ubuntu-2404
+    env:
+      NIX_DEVSHELL: android-ci
+    outputs:
+      version: ${{ inputs.version }}
+    steps:
+      - name: Check out the release source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ needs.check-push-permissions.outputs.source-sha }}
+          fetch-depth: 0
+          filter: blob:none
+      - name: Set up release tools
+        uses: ./.github/actions/setup-release-tools
+      - name: Set up Nix
+        uses: ./.github/actions/setup-nix
+        with:
+          cache-mode: read
+          github-token: ${{ github.token }}
+      - name: Materialize the shared SDK version
+        uses: ./.github/actions/release-source
+      - name: Build Android bindings
+        run: dev/nix-shell './sdks/android/dev/bindings --release'
+      - name: Build example APK
+        env:
+          XMTP_EXAMPLE_VERSION: ${{ inputs.version }}
+        run: dev/nix-shell 'just example-android apk'
+      - name: Retain example APK
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: android-example-apk
+          path: apps/example-android/build/apk/xmtp-messenger-${{ inputs.version }}.apk
+          if-no-files-found: error
+          retention-days: 30
+      - name: Prepare the Maven publication without uploading
+        env:
+          XMTP_RELEASE_SOURCE_SHA: ${{ inputs.source-sha }}
+        run: |
+          dev/nix-shell 'cd sdks/android && ./gradlew publishReleasePublicationToReleaseRepository'
+          dev/nix-shell 'python3.11 sdks/android/dev/check-native-packages.py --require-all-abis sdks/android/library/build/outputs/aar/library-release.aar'
+      - name: Verify the installed Android native version
+        run: dev/nix-shell 'NIX_DEVSHELL=android just backend ci just android test-min-sdk'
+      - name: Seal the checked Maven publication
+        run: |
+          dev/nix-shell --shell js-node --command python3.11 dev/sdk_version.py seal target/release/android --plan "$RUNNER_TEMP/sdk-release-plan/release-plan.json"
+      - name: Store the checked Maven publication
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: android-release-package
+          path: target/release/android
+          if-no-files-found: error
+          retention-days: 30
+      - name: Prepare release tag
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          xmtp-release tag-release --sdk android --version "$VERSION" --no-push
+          git bundle create "$RUNNER_TEMP/release.bundle" "refs/tags/android-$VERSION"
+      - name: Store release tag
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: release-tag-android
+          path: ${{ runner.temp }}/release.bundle
+          if-no-files-found: error
+          retention-days: 30
+    if: inputs.publish-only != true
+    permissions:
+      contents: read

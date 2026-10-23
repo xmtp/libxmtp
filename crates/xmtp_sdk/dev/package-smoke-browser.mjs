@@ -39,6 +39,9 @@ const html = `<!doctype html><script type="importmap">${JSON.stringify({
     "/typescript-pure/": { "#xmtp/binding": "/typescript-pure/xmtp_sdk.js" },
   },
 })}</script>`;
+const version = JSON.parse(
+  readFileSync(join(packageRoot, "package.json")),
+).version;
 const requests = [];
 const server = createServer((request, response) => {
   const path = new URL(request.url, "http://localhost").pathname;
@@ -72,10 +75,12 @@ try {
     const page = await browser.newPage();
     await page.goto(url);
     try {
-      return await page.evaluate(async () => {
+      return await page.evaluate(async (expectedVersion) => {
         const sdk = await import("/entry.js");
         const pure = await import("/pure.js");
         await pure.initPureWasm();
+        if (pure.sdkVersion() !== expectedVersion)
+          throw new Error("WASM SDK version differs from package metadata");
         const codec = new pure.TextCodec();
         if (codec.decode(codec.encode("installed")) !== "installed")
           throw new Error("installed codec round trip failed");
@@ -111,7 +116,7 @@ try {
         });
         worker.terminate();
         return result;
-      });
+      }, version);
     } finally {
       await page.close();
     }

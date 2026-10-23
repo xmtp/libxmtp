@@ -1,34 +1,7 @@
-name: "Release: Agent SDK"
-
+name: 'Release: Agent SDK'
 on:
-  workflow_dispatch:
-    inputs:
-      release-type:
-        required: true
-        type: choice
-        description: "dev, rc, or final"
-        options:
-          - dev
-          - rc
-          - final
-      rc-number:
-        required: false
-        type: string
-        description: "RC number (required for rc releases)"
-      node-sdk-version:
-        required: false
-        type: string
-        description: "Published @xmtp/node-sdk version to pin (defaults to npm latest)"
-      dry-run:
-        required: false
-        type: boolean
-        default: false
   workflow_call:
     inputs:
-      release-type:
-        required: true
-        type: string
-        description: "dev, rc, or final"
       source-sha:
         description: Fixed source commit resolved by the release caller
         required: true
@@ -37,143 +10,75 @@ on:
         description: The version to publish, computed once by release.yml
         required: true
         type: string
-      node-sdk-version:
-        required: false
-        type: string
-        description: "Published @xmtp/node-sdk version to pin (defaults to npm latest)"
       dry-run:
         required: false
         type: boolean
         default: false
+      build-only:
+        type: boolean
+        required: false
+        default: false
     outputs:
       version:
-        description: "The published version string"
+        description: The published version string
         value: ${{ jobs.publish.outputs.version }}
-
 permissions:
   contents: write
   id-token: write
-
 jobs:
   check-push-permissions:
     name: Source
     uses: ./.github/workflows/check-release-push.yml
     with:
-      # A direct dispatch has no source-sha and releases the dispatched ref.
-      ref: ${{ inputs.source-sha || github.ref }}
+      ref: ${{ inputs.source-sha }}
       dry-run: ${{ inputs.dry-run }}
     secrets: inherit
-
-  setup:
-    name: Compute version
-    needs: [check-push-permissions]
-    runs-on: ubuntu-latest
-    outputs:
-      version: ${{ inputs.version || steps.version.outputs.version }}
-      node-sdk-version: ${{ steps.node-sdk-version.outputs.version }}
-    steps:
-      - name: Check out the release source
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          ref: ${{ needs.check-push-permissions.outputs.source-sha }}
-      # release.yml passes the version it computed for every SDK of the run.
-      # Only a direct dispatch of this workflow computes it here.
-      - name: Set up release tools
-        if: inputs.version == ''
-        uses: ./.github/actions/setup-release-tools
-
-      # Inputs are passed through env, never interpolated into shell source:
-      # this job holds contents/id-token write and dispatch inputs are free text.
-      - name: Compute version
-        id: version
-        if: inputs.version == ''
-        env:
-          RELEASE_TYPE: ${{ inputs.release-type }}
-          RC_NUMBER: ${{ inputs.rc-number }}
-          REF: ${{ github.ref }}
-        run: |
-          set -euo pipefail
-          args=(--sdk agent-sdk --release-type "$RELEASE_TYPE")
-          case "$RELEASE_TYPE" in
-            rc) args+=(--rc-number "$RC_NUMBER") ;;
-            dev) args+=(--source-ref "$REF") ;;
-          esac
-          version=$(xmtp-release compute-version "${args[@]}")
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "Computed version: $version"
-
-      - name: Resolve node-sdk version to pin
-        id: node-sdk-version
-        env:
-          NODE_SDK_VERSION: ${{ inputs.node-sdk-version }}
-        run: |
-          if [ -n "$NODE_SDK_VERSION" ]; then
-            VERSION="$NODE_SDK_VERSION"
-          else
-            VERSION=$(npm view @xmtp/node-sdk version)
-          fi
-          # The value flows into package.json via set-dependency-version;
-          # reject anything that is not a plain semver version.
-          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
-            echo "::error::invalid @xmtp/node-sdk version: $VERSION"
-            exit 1
-          fi
-          if [ "${VERSION%%.*}" -lt 8 ]; then
-            echo "::error::Agent SDK 8 requires @xmtp/node-sdk 8 or later"
-            exit 1
-          fi
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "Pinning @xmtp/node-sdk to: $VERSION"
-
   build:
     name: Build
-    needs: [setup, check-push-permissions]
+    needs: [check-push-permissions]
     runs-on: ubuntu-24.04
     env:
       NIX_DEVSHELL: js-node
-      # The Node SDK build copies the release-profile Nix tree that CI tested.
       XMTP_SDK_BUILD: nix
     steps:
       - name: Checkout
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           ref: ${{ needs.check-push-permissions.outputs.source-sha }}
-
       - name: Set up Nix
         uses: ./.github/actions/setup-nix
         with:
           cache-mode: read
           github-token: ${{ secrets.GITHUB_TOKEN }}
-
+      - name: Materialize the shared SDK version
+        uses: ./.github/actions/release-source
       - name: Set up JavaScript
         uses: ./.github/actions/setup-js
         with:
           cache-mode: read
-
       - name: Build node-sdk types and agent-sdk
         run: |
           dev/nix-shell 'pnpm --filter @xmtp/node-sdk build && pnpm --filter @xmtp/agent-sdk build'
-
       - name: Upload build output
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: agent_sdk_build
           path: sdks/agent/dist
           retention-days: 1
-
   publish:
     name: Publish
-    needs: [setup, build, check-push-permissions]
+    needs: [build, check-push-permissions]
     uses: ./.github/workflows/npm-publish.yml
     with:
       source-sha: ${{ needs.check-push-permissions.outputs.source-sha }}
       package-dir: sdks/agent
       sdk: agent-sdk
-      version: ${{ needs.setup.outputs.version }}
+      version: ${{ inputs.version }}
       artifact-pattern: agent_sdk_build
       artifact-path: sdks/agent/dist
       ignore-scripts: true
-      dep-name: "@xmtp/node-sdk"
-      dep-version: ${{ needs.setup.outputs.node-sdk-version }}
+      dep-name: '@xmtp/node-sdk'
+      dep-version: ${{ inputs.version }}
       dry-run: ${{ inputs.dry-run }}
+      prepare-only: ${{ inputs.build-only }}
     secrets: inherit

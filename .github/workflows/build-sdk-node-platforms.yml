@@ -11,6 +11,9 @@ on:
           for CI runs.
         type: string
         default: read
+      sdk-release:
+        type: boolean
+        default: false
     outputs:
       artifact:
         value: sdk_node_public
@@ -154,6 +157,9 @@ jobs:
           cache-mode: ${{ inputs.cache-mode }}
           cachix-pr-auth-token: ${{ inputs.cache-mode == 'ci' && secrets.CACHIX_PR_AUTH_TOKEN || '' }}
           github-token: ${{ github.token }}
+      - name: Materialize the shared SDK version
+        if: inputs.sdk-release
+        uses: ./.github/actions/release-source
       - name: Build matched SDK and pinned runtime pairs
         env:
           PAIRS: ${{ matrix.pairs }}
@@ -200,6 +206,9 @@ jobs:
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ inputs.ref }}
+      - name: Materialize the shared SDK version
+        if: inputs.sdk-release
+        uses: ./.github/actions/release-source
       # The pair is cached by the source key of its SDK inputs, build recipe
       # (this file), and compiler, not by commit, so a re-dispatch with
       # unchanged SDK sources reuses it. A run restores
@@ -323,6 +332,9 @@ jobs:
           cache-mode: ${{ inputs.cache-mode }}
           cachix-pr-auth-token: ${{ inputs.cache-mode == 'ci' && secrets.CACHIX_PR_AUTH_TOKEN || '' }}
           github-token: ${{ github.token }}
+      - name: Materialize the shared SDK version
+        if: inputs.sdk-release
+        uses: ./.github/actions/release-source
       - name: Set up JavaScript
         uses: ./.github/actions/setup-js
         with:
