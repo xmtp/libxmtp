@@ -71,7 +71,7 @@ message. Screen replacement must not remove the handler.
 Rust tests own SDK behavior. App tests check only the app's own wiring.
 Host unit tests cover app rules such as storage, concurrency, privacy, and
 notification admission. They create no client and need no backend. The
-instrumented tests are a small device smoke; `AGENTS.md` lists them. Do not add
+instrumented tests are a small device smoke. Do not add
 a device test for behavior that a Rust or host unit test can check. Test
 observers are fixed when the graph is constructed and always preserve the real
 handler call. Check each new assertion with a plausible weaker implementation,

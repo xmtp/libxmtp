@@ -1,32 +1,15 @@
 # XMTP CLI
 
-pnpm workspace package for `@xmtp/cli`, linked to the in-tree Node SDK.
-The CLI uses the generated Node SDK public root. The staged SDK contains the
-matched native library and pinned runtime.
+pnpm package using the in-tree generated Node SDK. Recipes stage it first.
 
-## Commands
+```sh
+dev/nix-shell 'just cli check'
+dev/nix-shell 'just cli lint'
+dev/nix-shell 'just cli test [vitest args]' # needs backend
+```
 
-- `dev/nix-shell 'just install-js'`: install the root workspace dependencies.
-- `dev/nix-shell 'just cli check'`: build the linked SDK and typecheck the CLI.
-- `dev/nix-shell 'just cli lint'`: run oxlint.
-- `dev/nix-shell 'just cli build'`: build the linked SDK and CLI.
-- `dev/nix-shell 'just cli test'`: build the linked SDK and run all tests.
-  Extra arguments go to Vitest; CI runs `just cli test --shard N/2`.
-
-Tests require `dev/nix-shell 'just backend up'`. The `sdk` dependency stages the generated Node SDK.
-The pnpm task graph builds `@xmtp/node-sdk` before checks that need its `dist`
-output.
-
-The CLI bundle exports its command table from `src/commands.ts`. Add each new
-command with its stable colon-separated ID to that table. Oclif reads the table
-and `CustomHelp` from `dist/index.js` when it creates the manifest.
-
-## Backend configuration
-
-- Use `XMTP_API_KEY` for a static backend bearer token. Do not put keys in argv.
-- Commands that create a client or contact a backend require `--backend-url`
-  or `XMTP_BACKEND_URL`.
-- `--env` and `XMTP_ENV` are database labels only. They do not select a
-  network.
-- The default database path is derived from the backend origin. Explicit
-  `--db-path` or `XMTP_DB_PATH` values take precedence.
+- Register stable colon-separated command IDs in `src/commands.ts`; Oclif reads
+  the exported table and `CustomHelp` when creating its manifest.
+- Require `--backend-url` or `XMTP_BACKEND_URL` for network/client commands.
+  `env` labels databases only. Backend origin sets default storage; explicit paths win.
+- Tokens use `XMTP_API_KEY`, never argv. User commands: [README](README.md).

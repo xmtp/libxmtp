@@ -341,6 +341,7 @@ class RenderTests(unittest.TestCase):
     manifest = SUITES.compile_declaration(ROOT)
 
     def test_secrets_and_permissions_follow_the_declaration(self):
+        """Generated jobs must receive only their declared credentials and permissions."""
         manifest = copy.deepcopy(self.manifest)
         manifest["suites"]["docs_site"]["permissions"]["pages"] = "write"
         jobs = ci_jobs(manifest)
@@ -353,13 +354,12 @@ class RenderTests(unittest.TestCase):
                     job = jobs[caller]
                     if suite["secrets"] == "none":
                         self.assertNotIn("secrets", job)
-                    elif suite["secrets"] == "kache":
-                        self.assertEqual(set(job["secrets"]), set(SUITES.KACHE_SECRETS))
-                    elif suite["secrets"] == "cachix-pr":
+                    elif suite["secrets"] in SUITES.SCOPED_SECRETS:
                         self.assertEqual(
                             job["secrets"],
                             {
-                                "CACHIX_PR_AUTH_TOKEN": "${{ secrets.CACHIX_PR_AUTH_TOKEN }}"
+                                secret: f"${{{{ secrets.{secret} }}}}"
+                                for secret in SUITES.SCOPED_SECRETS[suite["secrets"]]
                             },
                         )
                     else:

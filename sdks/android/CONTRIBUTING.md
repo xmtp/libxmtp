@@ -54,7 +54,7 @@ dev/nix-shell 'just backend up'
 
 ### Updating libxmtp rust bindings
 
-Use the generated `xmtp_sdk` package. See [Android development rules](AGENTS.md)
+Use the generated `xmtp_sdk` package. See [Android development procedures](DEVELOPMENT.md)
 for native staging, Gradle builds, and target tests.
 
 ### Dependency checks
