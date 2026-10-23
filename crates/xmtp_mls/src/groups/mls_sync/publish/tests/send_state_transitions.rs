@@ -1,7 +1,7 @@
 //! Durable send state across same-key retries, backend refusals, and
 //! ambiguous publish failures.
 
-use super::faults::{FaultyApi, faulty_group, group_message, refusing_group};
+use super::faults::{Fault, FaultyApi, faulty_group, group_message, refusing_group, welcome};
 use super::membership_recovery::receive_completed_prefix;
 use super::*;
 use crate::groups::send_message_opts::SendMessageOpts;
@@ -472,9 +472,85 @@ async fn send_state_transitions_publish_commits_a_pending_proposal(
 
     assert!(group.epoch().await? > epoch);
     assert!(group.with_group_snapshot(|mls| Ok(mls.pending_proposals().next().is_none()))?);
+    // Under the lagging API, selection cannot resolve Caro's identity and
+    // omits the addition; the commit still clears the proposal.
+    if !lag_newest {
+        assert!(
+            group
+                .members()
+                .await?
+                .iter()
+                .any(|member| member.inbox_id == caro.inbox_id())
+        );
+    }
     assert!(intents_in(&group, &UNRESOLVED, IntentKind::SendMessage).is_empty());
     published_sequence(&group, &message);
     Ok(())
+}
+
+/// An earlier change can stay `Committed` while its Welcome publication
+/// fails. Its receipt is already processed, so the wait must follow the
+/// published commit queued for the deferred message instead. The failing
+/// Welcome still holds every later intent in `Committed`, so the call
+/// itself cannot finish; check the commit and the message.
+// verifies: SEND-022
+#[xmtp_common::test(unwrap_try = true)]
+async fn send_state_transitions_deferred_send_waits_for_the_published_commit() {
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    tester!(caro, disable_workers);
+    tester!(dave, disable_workers);
+    let group = alix
+        .create_group_with_members(&[bo.inbox_id()], None, None)
+        .await?;
+    bo.wait_for_welcomes().await?;
+    let bo_group = bo.group(&group.group_id)?;
+    let api = FaultyApi::new(
+        &alix,
+        welcome,
+        std::iter::repeat_n(Fault::Refuse(tonic::Code::Unavailable), 100),
+    );
+    let refusing = faulty_group(&alix, &group.group_id, api).await;
+
+    // Adding Dave commits, but its Welcome is refused, so the change stays
+    // `Committed`.
+    assert!(refusing.add_members(&[dave.inbox_id()]).await.is_err());
+    assert_eq!(
+        intents_in(
+            &refusing,
+            &[IntentState::Committed],
+            IntentKind::UpdateGroupMembership
+        )
+        .len(),
+        1
+    );
+
+    // Bo proposes to add Caro. Alix receives the proposal.
+    let proposal = QueueIntent::propose_member_update()
+        .data(Vec::<u8>::try_from(ProposeMemberUpdateIntentData::new(
+            vec![caro.inbox_id().to_string()],
+            vec![],
+        ))?)
+        .queue(&bo_group)?;
+    bo_group.sync_until_intent_resolved(proposal.id).await?;
+    receive_completed_prefix(&bo_group, &group).await?;
+    assert!(refusing.with_group_snapshot(|mls| Ok(mls.pending_proposals().next().is_some()))?);
+    let epoch = refusing.epoch().await?;
+
+    let message = refusing.send_message_optimistic(b"deferred", SendMessageOpts::default())?;
+    let _ = refusing.publish_messages().await;
+
+    assert!(refusing.epoch().await? > epoch);
+    assert!(
+        intents_in(
+            &refusing,
+            &[IntentState::Published],
+            IntentKind::CommitPendingProposals
+        )
+        .is_empty(),
+        "the wait must process the published commit"
+    );
+    published_sequence(&refusing, &message);
 }
 
 /// The proposal of an own published change enters the proposal store only

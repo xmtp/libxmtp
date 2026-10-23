@@ -490,26 +490,29 @@ where
         Ok(summary)
     }
 
-    /// The receipt of the state change that holds an unpublished intent: its
-    /// predecessor, or else whichever state change is published. A commit of
-    /// the pending proposals queued for a deferred message comes after it.
+    /// The receipt of the state change that holds an unpublished intent.
+    /// Nothing is prepared while a state change is published, so a published
+    /// one is the blocker, whatever its id: a commit of the pending proposals
+    /// queued for a deferred message comes after it. Otherwise it is the
+    /// predecessor, which can already be processed.
     // implements: SEND-022
     fn blocking_target(&self, predecessor: Option<ID>) -> Result<Option<Cursor>, GroupError> {
-        if let Some(predecessor) = predecessor
-            && let Some(target) = self.published_intent_target(predecessor)?
-        {
-            return Ok(Some(target));
-        }
-        let published = self.context.db().find_group_intents(
-            self.group_id,
-            Some(vec![IntentState::Published]),
-            Some(
-                IntentKind::all()
-                    .filter(|kind| *kind != IntentKind::SendMessage)
-                    .collect(),
-            ),
-        )?;
-        match published.iter().map(|intent| intent.id).min() {
+        let published = self
+            .context
+            .db()
+            .find_group_intents(
+                self.group_id,
+                Some(vec![IntentState::Published]),
+                Some(
+                    IntentKind::all()
+                        .filter(|kind| *kind != IntentKind::SendMessage)
+                        .collect(),
+                ),
+            )?
+            .into_iter()
+            .map(|intent| intent.id)
+            .min();
+        match published.or(predecessor) {
             Some(blocker) => self.published_intent_target(blocker),
             None => Ok(None),
         }
