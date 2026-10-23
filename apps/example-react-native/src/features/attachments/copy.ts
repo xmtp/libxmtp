@@ -5,6 +5,16 @@ import { SharedMediaCopy } from "@/core/sharedMedia.ts";
 
 export { AttachmentCopy as attachmentCopy } from "@/core/attachments.ts";
 
+export const attachmentPresentationCopy = {
+  details: "Details",
+  done: "Done",
+  actions: "Attachment actions",
+  image: "Image attachment",
+  tapHint: "Tap to show sender and time. Long press for actions.",
+  fileHint: "Tap for details. Long press for actions.",
+  you: "You",
+};
+
 export const sharedMediaCopy = {
   ...SharedMediaCopy,
   retry: commonCopy.retry,
