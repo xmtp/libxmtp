@@ -101,7 +101,10 @@ nix build --no-link .#node-runtime-dependencies.x86_64-linux
 The Linux check also runs the real React Native JS build phase against a tiny
 read-only generated-file fixture. It stubs only the staging command and drops
 its unused Rust/runtime path contexts, so it builds no SDK or Node sources.
-The sandbox must reject a direct rename with `EXDEV`; publication must preserve
+The check injects `EXDEV` for rename calls, independent of whether the runner
+puts the build directory and store on separate filesystems. It retains the real
+copy/remove fallback and verifies the injection with a direct rename probe.
+Publication must preserve
 the exact tree contents and leave the read-only source intact. This regression
 runs through the existing scoped-runtime CI check, without another job.
 
