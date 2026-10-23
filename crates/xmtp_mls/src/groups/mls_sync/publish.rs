@@ -54,6 +54,8 @@ fn inapplicable_app_data(error: &GroupError) -> bool {
 enum NextPublish {
     Prepared(StoredGroupIntent, PreparedAttempt),
     Resolve(PublishRequirements),
+    /// A message behind a deferred message. It stays as it is.
+    Behind(ID),
 }
 
 impl<Context: XmtpSharedContext> MlsGroup<Context> {
@@ -95,6 +97,13 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                     if sent.contains(&intent.id) {
                         return Ok(Continue(None));
                     }
+                    // implements: SEND-022
+                    // Once a message is deferred, no later message publishes
+                    // in this pass, whether or not it holds a saved attempt.
+                    // Another member's commit can clear the proposal meanwhile.
+                    if deferred_message && intent.kind == IntentKind::SendMessage {
+                        return Ok(Continue(Some(NextPublish::Behind(intent.id))));
+                    }
                     if intent.state == IntentState::Published {
                         let bytes = storage
                             .db()
@@ -125,13 +134,8 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
             };
             let (intent, attempt) = match next {
                 NextPublish::Prepared(intent, attempt) => (intent, attempt),
-                // implements: SEND-022
-                // Publishing a later message first would reorder the queue
-                // once the proposal is gone.
-                NextPublish::Resolve(requirements)
-                    if deferred_message && requirements.intent.kind == IntentKind::SendMessage =>
-                {
-                    after = Some(requirements.intent.id);
+                NextPublish::Behind(id) => {
+                    after = Some(id);
                     continue;
                 }
                 NextPublish::Resolve(requirements) => {

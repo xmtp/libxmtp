@@ -459,9 +459,9 @@ where
             Err(_) => return Err(GroupError::SyncFailedToWait(Box::new(summary))),
         }
         let receipt = self.published_intent_target(intent_id)?;
-        let blocker = match (receipt, predecessor) {
-            (None, Some(predecessor)) => self.published_intent_target(predecessor)?,
-            _ => None,
+        let blocker = match receipt {
+            Some(_) => None,
+            None => self.blocking_target(predecessor)?,
         };
         let topic = Topic::new_group_message(self.group_id);
         let targets = match receipt.or(blocker) {
@@ -488,6 +488,31 @@ where
             summary.add_post_commit_err(error);
         }
         Ok(summary)
+    }
+
+    /// The receipt of the state change that holds an unpublished intent: its
+    /// predecessor, or else whichever state change is published. A commit of
+    /// the pending proposals queued for a deferred message comes after it.
+    // implements: SEND-022
+    fn blocking_target(&self, predecessor: Option<ID>) -> Result<Option<Cursor>, GroupError> {
+        if let Some(predecessor) = predecessor
+            && let Some(target) = self.published_intent_target(predecessor)?
+        {
+            return Ok(Some(target));
+        }
+        let published = self.context.db().find_group_intents(
+            self.group_id,
+            Some(vec![IntentState::Published]),
+            Some(
+                IntentKind::all()
+                    .filter(|kind| *kind != IntentKind::SendMessage)
+                    .collect(),
+            ),
+        )?;
+        match published.iter().map(|intent| intent.id).min() {
+            Some(blocker) => self.published_intent_target(blocker),
+            None => Ok(None),
+        }
     }
 
     pub(super) fn validate_message_epoch(

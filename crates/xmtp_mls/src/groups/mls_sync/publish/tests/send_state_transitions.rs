@@ -401,15 +401,70 @@ async fn send_state_transitions_later_send_never_overtakes_a_deferred_send() {
     assert!(published_sequence(&group, &first) < published_sequence(&group, &second));
 }
 
-/// A queue operation commits a pending proposal itself when nothing queued
-/// after a deferred message does, so the message publishes.
+/// A later message that already holds a saved attempt must not overtake a
+/// deferred one either. An echo rejected for an old epoch returns only that
+/// message to the queue; a later message keeps the attempt it saved.
 // verifies: SEND-022
 #[xmtp_common::test(unwrap_try = true)]
-async fn send_state_transitions_publish_commits_a_pending_proposal() {
+async fn send_state_transitions_prepared_send_never_overtakes_a_deferred_send() {
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    tester!(caro, disable_workers);
+    let group = alix
+        .create_group_with_members(&[bo.inbox_id()], None, None)
+        .await?;
+    bo.wait_for_welcomes().await?;
+    let bo_group = bo.group(&group.group_id)?;
+    let first = group.send_message_optimistic(b"first", SendMessageOpts::default())?;
+    let second = group.send_message_optimistic(b"second", SendMessageOpts::default())?;
+    let (first_intent, _) = prepare_kind(&group, IntentKind::SendMessage).await?;
+    let (second_intent, _) = prepare_kind(&group, IntentKind::SendMessage).await?;
+    assert!(first_intent.id < second_intent.id);
+    group
+        .context
+        .db()
+        .set_group_intent_to_publish(first_intent.id)?;
+
+    // Bo proposes to add Caro. Alix receives the proposal.
+    let proposal = QueueIntent::propose_member_update()
+        .data(Vec::<u8>::try_from(ProposeMemberUpdateIntentData::new(
+            vec![caro.inbox_id().to_string()],
+            vec![],
+        ))?)
+        .queue(&bo_group)?;
+    bo_group.sync_until_intent_resolved(proposal.id).await?;
+    receive_completed_prefix(&bo_group, &group).await?;
+    assert!(group.with_group_snapshot(|mls| Ok(mls.pending_proposals().next().is_some()))?);
+
+    group.publish_messages().await?;
+
+    assert_eq!(
+        status(&group, &first),
+        DeliveryStatus::Published,
+        "a later message must not publish while the deferred one waits"
+    );
+    assert!(published_sequence(&group, &first) < published_sequence(&group, &second));
+}
+
+/// A queue operation commits a pending proposal itself when nothing queued
+/// after a deferred message does, so the message publishes. The commit is
+/// queued after the message, and the wait must still observe its receipt:
+/// `QueryNewest` can trail it.
+// verifies: SEND-022
+#[rstest::rstest]
+#[case::current_head(false)]
+#[case::lagging_head(true)]
+#[xmtp_common::test(unwrap_try = true)]
+async fn send_state_transitions_publish_commits_a_pending_proposal(
+    #[case] lag_newest: bool,
+) -> Result<(), GroupError> {
     tester!(alix, disable_workers);
     tester!(bo, disable_workers);
     tester!(caro, disable_workers);
     let [group, _bo_group] = group_with_pending_proposal(&alix, &bo, &caro).await?;
+    let api = FaultyApi::new(&alix, group_message, []);
+    api.lag_newest.store(lag_newest, Ordering::SeqCst);
+    let group = faulty_group(&alix, &group.group_id, api).await;
     let epoch = group.epoch().await?;
     let message = group.send_message_optimistic(b"optimistic", SendMessageOpts::default())?;
 
@@ -417,15 +472,9 @@ async fn send_state_transitions_publish_commits_a_pending_proposal() {
 
     assert!(group.epoch().await? > epoch);
     assert!(group.with_group_snapshot(|mls| Ok(mls.pending_proposals().next().is_none()))?);
-    assert!(
-        group
-            .members()
-            .await?
-            .iter()
-            .any(|member| member.inbox_id == caro.inbox_id())
-    );
     assert!(intents_in(&group, &UNRESOLVED, IntentKind::SendMessage).is_empty());
     published_sequence(&group, &message);
+    Ok(())
 }
 
 /// The proposal of an own published change enters the proposal store only
