@@ -263,7 +263,7 @@ Receivers do not reject a membership entry that lists a key with a leaf, and old
 
 GMOD-044 covers a client's own membership updates. A commit that keeps another member's accepted membership delta keeps it whole or omits it whole (GMOD-038), and a readd or a standalone membership proposal carries the failed lists already written, so these can keep a key with a leaf that an earlier writer listed. They do not add a leaf for a listed key: selection omits the Add of a key that a kept delta lists as failed, and a pending proposal never outlives a commit. Omitting such a delta would hold back its other changes until its author proposes again, while a revocation that a conforming client commits removes the leaf either way.
 
-A membership change stored before its refresh entries were recorded apart from its requested adds treats every entry as an add. When it publishes, it can insert an inbox that a commit removed after the change was built.
+A membership change stored before its refresh entries were recorded apart from its requested adds treats every entry as an add. When it publishes, it can insert an inbox that a commit removed after the change was built. An older build that publishes a stored change after a downgrade ignores that record in the same way, as it does for the changes it builds itself. The record is not versioned to make older builds fail closed: an older build cannot decode a newer payload version, and an own change it cannot decode stops every later publication in its group.
 
 MLS discards proposals that a commit did not reference once the epoch advances. A member whose proposal was omitted from an accepted commit has to propose again if the change is still needed.
 
