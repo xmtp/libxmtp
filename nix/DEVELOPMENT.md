@@ -59,9 +59,10 @@ The check links `iconv`; a basic libc link does not detect mixed toolchains.
   package profile in dependency and final builds. Its generated migration
   paths shift rustc inline assembly span metadata, which ThinLTO hashes into
   native symbol suffixes. The GNU host library retains its symbol table for
-  UniFFI, and receipts bind its exact bytes, so independent producers must
-  agree. Keep this workaround scoped to these SDK builds; removing it needs
-  independent native archive and shared-library byte comparisons.
+  UniFFI. No product check compares native bytes across producers, so this
+  only keeps independent builds byte-identical. Keep this workaround scoped to
+  these SDK builds; removing it needs independent native archive and
+  shared-library byte comparisons.
   Final Apple SDK fixup uses LLVM ranlib: cctools ranlib records the build
   user's UID when Nix rebuilds stripped archive indexes.
 - Backend builds restore only the shared dependency sources over the dummy workspace. Include migrations, SQL query files, and `apps/backend/.sqlx` metadata. Add each new shared dependency to the restored crate list. Build with `SQLX_OFFLINE=true`; no database is allowed during the build.
@@ -195,7 +196,10 @@ scripts, and `build-sdk-node-platforms.yml` read it.
 
 Run `dev/nix-shell 'python3 -B nix/check-sdk-products.py'` to build selected
 Kotlin, Android fast, and Swift on Darwin. It checks generated files, complete
-receipts, source identities, and the selected Android ELF library.
+receipts, source identities, and the selected Android ELF library. It binds
+each render to the selected host library by derivation, not by bytes: the
+library's derivation must be in the render's build inputs. Two builds of one
+derivation can write different bytes, and the cache keeps the first upload.
 
 `android-sdk-libs` combines generated Kotlin, runtime and Android sources,
 the contract record, and all four `libxmtp_sdk.so` ABIs. `android-sdk-libs-fast`
