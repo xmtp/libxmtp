@@ -122,10 +122,6 @@ jobs:
         uses: ./.github/actions/setup-release-tools
       - name: Materialize the shared SDK version
         uses: ./.github/actions/release-source
-        if: inputs.sdk != 'cli'
-      - name: Set version
-        run: xmtp-release set-manifest-version --sdk "${{ inputs.sdk }}" --version "${{ inputs.version }}"
-        if: inputs.sdk == 'cli' && inputs.prepared != true
       - name: Pin binding dependency version
         if: ${{ inputs.prepared != true && inputs.dep-name != '' }}
         run: xmtp-release set-dependency-version --sdk "${{ inputs.sdk }}" --dep "${{ inputs.dep-name }}" --version "${{ inputs.dep-version
@@ -134,12 +130,6 @@ jobs:
         if: ${{ inputs.prepared != true && inputs.dep-name-2 != '' }}
         run: xmtp-release set-dependency-version --sdk "${{ inputs.sdk }}" --dep "${{ inputs.dep-name-2 }}" --version "${{
           inputs.dep-version-2 }}"
-      - name: Set the packed product version
-        if: inputs.sdk == 'cli' && inputs.prepared != true
-        env:
-          PACKAGE_DIRECTORY: ${{ inputs.package-dir }}
-          PACKAGE_VERSION: ${{ inputs.version }}
-        run: xmtp-release stamp-package --dir "$PACKAGE_DIRECTORY" --version "$PACKAGE_VERSION"
       - name: Download the exact checked package
         if: inputs.prepared
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
@@ -201,16 +191,18 @@ jobs:
           fi
           echo "PACKAGE_TARBALL=${tarballs[0]}" >> "$GITHUB_ENV"
       - name: Download matching checked Node SDK
-        if: inputs.sdk == 'agent-sdk' && inputs.prepare-only
+        if: (inputs.sdk == 'agent-sdk' || inputs.sdk == 'cli') && inputs.prepare-only
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: release-npm-node-sdk
           path: ${{ runner.temp }}/checked-node
-      - name: Verify the installed Agent package
-        if: inputs.sdk == 'agent-sdk' && inputs.prepare-only
+      - name: Verify the installed Node consumer package
+        env:
+          SDK: ${{ inputs.sdk }}
+        if: (inputs.sdk == 'agent-sdk' || inputs.sdk == 'cli') && inputs.prepare-only
         run: |
           dev/nix-shell --shell js-node --command python3.11 dev/sdk_version.py verify "$RUNNER_TEMP/checked-node" --plan "$RUNNER_TEMP/sdk-release-plan/release-plan.json"
-          dev/nix-shell --shell js-node --command node dev/release-tools/check-agent-package.mjs "$PACKAGE_TARBALL" "$RUNNER_TEMP/checked-node/package.tgz"
+          dev/nix-shell --shell js-node --command node dev/release-tools/check-agent-package.mjs "$PACKAGE_TARBALL" "$RUNNER_TEMP/checked-node/package.tgz" "$SDK"
       - name: Retain the exact checked package
         if: inputs.prepare-only
         run: |

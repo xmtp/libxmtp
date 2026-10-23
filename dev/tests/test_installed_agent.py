@@ -32,7 +32,9 @@ for path in (os.sys.argv[-1], os.environ['NODE_TARBALL']):
         destination=Path('node_modules') / name
         destination.mkdir(parents=True, exist_ok=True)
         for entry in archive.getmembers():
-            (destination / entry.name.removeprefix('package/')).write_bytes(archive.extractfile(entry).read())
+            target=destination / entry.name.removeprefix('package/')
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(archive.extractfile(entry).read())
 """)
             npm.chmod(0o755)
 
@@ -41,6 +43,7 @@ for path in (os.sys.argv[-1], os.environ['NODE_TARBALL']):
                     for name, content in {
                         "package.json": json.dumps(manifest),
                         "index.js": source,
+                        "bin/run.js": source,
                     }.items():
                         payload = content.encode()
                         info = tarfile.TarInfo("package/" + name)
@@ -48,57 +51,63 @@ for path in (os.sys.argv[-1], os.environ['NODE_TARBALL']):
                         archive.addfile(info, io.BytesIO(payload))
 
             agent, node = directory / "agent.tgz", directory / "node.tgz"
-            for pin, native, export in [
-                ("8.0.0-rc5", "8.0.0-rc5", True),
-                ("latest", "8.0.0-rc5", True),
-                ("8.0.0-rc5", "8.0.0-rc4", True),
-                ("8.0.0-rc5", "8.0.0-rc5", False),
-            ]:
-                with self.subTest(pin=pin, native=native, export=export):
-                    pack(
-                        agent,
-                        {
-                            "name": "@xmtp/agent-sdk",
-                            "version": "8.0.0-rc5",
-                            "type": "module",
-                            "main": "index.js",
-                            "dependencies": {"@xmtp/node-sdk": pin},
-                        },
-                        "export class Agent {}"
-                        if export
-                        else "export const missing = true",
-                    )
-                    pack(
-                        node,
-                        {
-                            "name": "@xmtp/node-sdk",
-                            "version": "8.0.0-rc5",
-                            "type": "module",
-                            "main": "index.js",
-                        },
-                        f"export function sdkVersion() {{ return {json.dumps(native)} }}",
-                    )
-                    result = subprocess.run(
-                        [
-                            "node",
-                            str(ROOT / "dev/release-tools/check-agent-package.mjs"),
-                            str(agent),
-                            str(node),
-                        ],
-                        capture_output=True,
-                        text=True,
-                        env=dict(
-                            os.environ,
-                            PATH=str(directory) + os.pathsep + os.environ["PATH"],
-                            NODE_TARBALL=str(node),
-                        ),
-                    )
-                    valid = pin == native == "8.0.0-rc5" and export
-                    self.assertEqual(
-                        result.returncode, 0 if valid else 1, result.stderr
-                    )
-                    if not valid:
-                        self.assertIn("AssertionError", result.stderr)
+            for sdk in ("agent-sdk", "cli"):
+                for pin, native, export in [
+                    ("8.0.0-rc5", "8.0.0-rc5", True),
+                    ("latest", "8.0.0-rc5", True),
+                    ("8.0.0-rc5", "8.0.0-rc4", True),
+                    ("8.0.0-rc5", "8.0.0-rc5", False),
+                ]:
+                    with self.subTest(pin=pin, native=native, export=export):
+                        pack(
+                            agent,
+                            {
+                                "name": "@xmtp/" + sdk,
+                                "version": "8.0.0-rc5",
+                                "type": "module",
+                                "main": "index.js",
+                                "dependencies": {"@xmtp/node-sdk": pin},
+                            },
+                            (
+                                "export class Agent {}"
+                                if export
+                                else "export const missing = true"
+                            )
+                            if sdk == "agent-sdk"
+                            else f"console.log('@xmtp/cli/{'8.0.0-rc5' if export else '0.3.0'} darwin node');",
+                        )
+                        pack(
+                            node,
+                            {
+                                "name": "@xmtp/node-sdk",
+                                "version": "8.0.0-rc5",
+                                "type": "module",
+                                "main": "index.js",
+                            },
+                            f"export function sdkVersion() {{ return {json.dumps(native)} }}",
+                        )
+                        result = subprocess.run(
+                            [
+                                "node",
+                                str(ROOT / "dev/release-tools/check-agent-package.mjs"),
+                                str(agent),
+                                str(node),
+                                sdk,
+                            ],
+                            capture_output=True,
+                            text=True,
+                            env=dict(
+                                os.environ,
+                                PATH=str(directory) + os.pathsep + os.environ["PATH"],
+                                NODE_TARBALL=str(node),
+                            ),
+                        )
+                        valid = pin == native == "8.0.0-rc5" and export
+                        self.assertEqual(
+                            result.returncode, 0 if valid else 1, result.stderr
+                        )
+                        if not valid:
+                            self.assertIn("AssertionError", result.stderr)
 
 
 if __name__ == "__main__":

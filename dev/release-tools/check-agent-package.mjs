@@ -4,8 +4,11 @@ import { mkdtempSync, writeFileSync, rmSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
-const [agent, node] = process.argv.slice(2).map((file) => resolve(file));
-const directory = mkdtempSync(join(tmpdir(), "xmtp-installed-agent-"));
+const [consumerFile, nodeFile, sdk = "agent-sdk"] = process.argv.slice(2);
+assert.ok(sdk === "agent-sdk" || sdk === "cli", "Expected Agent or CLI");
+const consumer = resolve(consumerFile);
+const node = resolve(nodeFile);
+const directory = mkdtempSync(join(tmpdir(), "xmtp-installed-consumer-"));
 try {
   writeFileSync(
     join(directory, "package.json"),
@@ -18,13 +21,13 @@ try {
   );
   execFileSync(
     "npm",
-    ["install", "--ignore-scripts", "--no-audit", "--no-fund", agent],
+    ["install", "--ignore-scripts", "--no-audit", "--no-fund", consumer],
     { cwd: directory, stdio: "inherit" },
   );
   /** @type {unknown} */
   const manifest = JSON.parse(
     readFileSync(
-      join(directory, "node_modules/@xmtp/agent-sdk/package.json"),
+      join(directory, `node_modules/@xmtp/${sdk}/package.json`),
       "utf8",
     ),
   );
@@ -39,18 +42,37 @@ try {
     !("@xmtp/node-sdk" in manifest.dependencies)
   )
     throw new Error(
-      "Installed Agent package has invalid version/dependency metadata",
+      "Installed consumer package has invalid version/dependency metadata",
     );
   const expected = manifest.version;
   assert.equal(
     manifest.dependencies["@xmtp/node-sdk"],
     expected,
-    "Agent must pin the checked Node version",
+    "Consumer must pin the checked Node version",
   );
+  const consumerCheck =
+    sdk === "agent-sdk"
+      ? "import * as agent from '@xmtp/agent-sdk';\nassert.equal(typeof agent.Agent, 'function');\n"
+      : "";
   writeFileSync(
     join(directory, "smoke.mjs"),
-    `import assert from 'node:assert/strict';\nimport * as agent from '@xmtp/agent-sdk';\nimport {sdkVersion} from '@xmtp/node-sdk';\nassert.equal(typeof agent.Agent, 'function');\nassert.equal(sdkVersion(), ${JSON.stringify(expected)});\n`,
+    `import assert from 'node:assert/strict';\nimport {sdkVersion} from '@xmtp/node-sdk';\nassert.equal(sdkVersion(), ${JSON.stringify(expected)});\n${consumerCheck}`,
   );
+  if (sdk === "cli") {
+    const bin = join(directory, "node_modules/@xmtp/cli/bin/run.js");
+    const output = execFileSync(process.execPath, [bin, "--version"], {
+      cwd: directory,
+      encoding: "utf8",
+    });
+    assert.ok(
+      output.includes(`@xmtp/cli/${expected} `),
+      "CLI must report the shared version",
+    );
+    execFileSync(process.execPath, [bin, "--help"], {
+      cwd: directory,
+      stdio: "inherit",
+    });
+  }
   execFileSync(process.execPath, ["smoke.mjs"], {
     cwd: directory,
     stdio: "inherit",

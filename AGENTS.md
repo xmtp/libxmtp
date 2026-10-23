@@ -47,7 +47,7 @@ just show <file> <name>      # source of a named symbol
 just ci-status <pr>          # CI failures and summary
 just format                  # format Rust, Nix, TOML, Python, shell, JS, Kotlin, Swift
 just disk                    # free space and target/ size of each worktree
-just version check           # reject SDK versions that differ from root Cargo.toml
+just version check           # reject SDK and CLI versions that differ from root Cargo.toml
 just version set <version>   # set the shared target and refresh its generated mirrors
 ```
 

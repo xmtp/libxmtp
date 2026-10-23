@@ -29,6 +29,7 @@ class SdkVersionTest(unittest.TestCase):
             "Cargo.lock",
             "crates/xmtp_sdk/Cargo.toml",
             "sdks/android/gradle.properties",
+            "apps/cli/package.json",
             *version.MANIFESTS,
         ]:
             path = self.root / name
@@ -60,7 +61,7 @@ class SdkVersionTest(unittest.TestCase):
         )
 
     def test_checker_rejects_each_independent_sdk_mirror(self):
-        for name in version.MANIFESTS:
+        for name in [*version.MANIFESTS, "apps/cli/package.json"]:
             with self.subTest(name=name):
                 path = self.root / name
                 old = path.read_text()
@@ -88,7 +89,7 @@ class SdkVersionTest(unittest.TestCase):
         version.materialize(self.root, plan)
         self.assertEqual(version.target(self.root), "8.0.0-rc5")
         self.assertEqual(version.check(self.root), "8.0.0-rc5")
-        for name in version.MANIFESTS:
+        for name in [*version.MANIFESTS, "apps/cli/package.json"]:
             self.assertEqual(
                 json.loads((self.root / name).read_text())["version"], "8.0.0-rc5"
             )

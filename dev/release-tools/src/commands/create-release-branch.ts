@@ -64,6 +64,7 @@ export function handler(argv: ArgumentsCamelCase<CreateReleaseBranchArgs>) {
     Sdk.BrowserSdk,
     Sdk.AgentSdk,
     Sdk.ReactNativeSdk,
+    Sdk.Cli,
   ]) {
     const config = getSdkConfig(sdk);
     const newVersion = argv.version;

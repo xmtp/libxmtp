@@ -19,16 +19,16 @@ def check_package(tarball, version, sdk):
     if package["version"] != version:
         raise ValueError("Package version differs from the release plan")
     if (
-        package["name"] == "@xmtp/agent-sdk"
+        sdk in ("agent-sdk", "cli")
         and package["dependencies"]["@xmtp/node-sdk"] != version
     ):
-        raise ValueError("Agent must pin the matching Node version")
+        raise ValueError("Package must pin the matching Node version")
     return package
 
 
 def publish(tarball, version, tag, sdk):
     package = check_package(tarball, version, sdk)
-    if sdk == "agent-sdk":
+    if sdk in ("agent-sdk", "cli"):
         node = subprocess.run(
             ["npm", "view", "@xmtp/node-sdk@" + version, "version", "--json"],
             capture_output=True,

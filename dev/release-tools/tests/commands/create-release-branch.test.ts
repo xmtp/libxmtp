@@ -26,6 +26,7 @@ describe("shared release branch", () => {
       "Cargo.toml",
       "Cargo.lock",
       "dev/sdk_version.py",
+      "apps/cli/package.json",
       "crates/xmtp_sdk/Cargo.toml",
       "sdks/android/gradle.properties",
       ...["node", "browser", "agent", "react-native"].map(
@@ -64,7 +65,13 @@ describe("shared release branch", () => {
         "utf8",
       ),
     );
-    expect(Object.values(record.sdks)).toEqual(Array(6).fill("8.1.0"));
+    expect(Object.values(record.sdks)).toEqual(Array(7).fill("8.1.0"));
+    expect(record.sdks.cli).toBe("8.1.0");
+    expect(
+      JSON.parse(
+        fs.readFileSync(path.join(root, "apps/cli/package.json"), "utf8"),
+      ).version,
+    ).toBe("8.1.0");
     for (const sdk of ["node", "browser", "agent", "react-native"])
       expect(
         JSON.parse(

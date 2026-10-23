@@ -98,6 +98,8 @@ class PublishNpmTest(unittest.TestCase):
             ("@xmtp/browser-sdk", "8.0.0-rc5", "8.0.0-rc5", "Package name"),
             ("@xmtp/agent-sdk", "8.0.0", "8.0.0-rc5", "Package version"),
             ("@xmtp/agent-sdk", "8.0.0-rc5", "latest", "matching Node"),
+            ("@xmtp/cli", "0.3.0", "8.0.0-rc5", "Package version"),
+            ("@xmtp/cli", "8.0.0-rc5", "latest", "matching Node"),
         ]:
             with (
                 self.subTest(name=name, version=version, node=node),
@@ -107,7 +109,11 @@ class PublishNpmTest(unittest.TestCase):
                 run.return_value = subprocess.CompletedProcess(
                     [], 0, json.dumps(integrity), ""
                 )
-                sdk = "agent-sdk" if name == "@xmtp/agent-sdk" else "node-sdk"
+                sdk = (
+                    name.removeprefix("@xmtp/")
+                    if name in ("@xmtp/agent-sdk", "@xmtp/cli")
+                    else "node-sdk"
+                )
                 with self.assertRaisesRegex(ValueError, expected):
                     module.publish(self.tarball, "8.0.0-rc5", "prerelease", sdk)
                 run.assert_not_called()

@@ -13,9 +13,10 @@ Resolve the requested ref before SDK code runs. All SDK jobs use that fixed
 source SHA for checkout, build, and tag checks. `release.yml` freezes the
 source and one complete SDK version in `validate`, retaining `sdk-release-plan`.
 Every SDK build materializes that plan into Cargo, Cargo.lock, and SDK metadata
-before compilation. Dev releases may select individual SDKs; selecting Agent
-also selects its matching Node release. RC and final SDK releases select all
-six through `sdks=true`. Every selected build and installed-consumer check must
+before compilation. CLI shares this version and checked-package flow. Individual
+SDK and CLI selectors apply to dev, RC, and final releases; any subset is allowed.
+Selecting Agent or CLI also selects the matching Node release. There is no
+aggregate SDK input. Every selected build and installed-consumer check must
 pass before any selected SDK publishes. Gates require success for selected
 SDKs and allow unselected jobs to be skipped. The npm publishers publish the
 retained tarballs.
@@ -26,8 +27,8 @@ Android publishes the retained AAR, POM, and documentation artifacts. iOS
 publishes a version-keyed SwiftPM archive, with a source/version-bound receipt.
 Publish that archive before pushing its installable `ios-<version>` tag.
 There is no standalone iOS CocoaPods product; keep React Native's podspec.
-Only CLI keeps a standalone version-computing dispatch. Backend label policy
-is independent of the SDK release line.
+CLI releases use the central dispatcher and frozen plan; there is no standalone
+CLI version computation. Backend label policy remains independent.
 Each SDK workflow runs `check-release-push.yml` once before it builds.
 `npm-publish.yml` takes the checked `source-sha` from its caller. Its publish
 job authorizes itself as well: a real publish runs in the `release`

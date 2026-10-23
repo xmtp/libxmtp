@@ -15,7 +15,9 @@ from pathlib import Path
 SDK_PACKAGES = ("node", "browser", "agent", "react-native")
 TARGET = re.compile(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)")
 SHA = re.compile(r"[0-9a-f]{40}")
-MANIFESTS = [f"sdks/{sdk}/package.json" for sdk in SDK_PACKAGES]
+MANIFESTS = [f"sdks/{sdk}/package.json" for sdk in SDK_PACKAGES] + [
+    "apps/cli/package.json"
+]
 MIRRORS = ["Cargo.toml", "Cargo.lock", "sdks/android/gradle.properties", *MANIFESTS]
 
 

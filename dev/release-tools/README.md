@@ -23,7 +23,7 @@ workflows in `.github/workflows` call the other commands; run
 
 ### `compute-version`
 
-Compute a diagnostic version from the root SDK target, or the independent CLI version. Backend uses `--base-version` for its branch label. SDK workflows use the frozen Python plan instead of this legacy CLI/backend formatter.
+Compute a backend release label. Backend uses `--base-version` for its branch label. SDK and CLI workflows use the frozen Python plan instead of this legacy formatter.
 
 | Flag             | Type                     | Required | Description                                                                 |
 | ---------------- | ------------------------ | -------- | --------------------------------------------------------------------------- |
@@ -33,9 +33,9 @@ Compute a diagnostic version from the root SDK target, or the independent CLI ve
 | `--base-version` | string                   | no       | Override the manifest base; backend releases use the release branch version |
 
 ```bash
-pnpm --filter @xmtp/release-tools cli compute-version --sdk cli --release-type dev
-pnpm --filter @xmtp/release-tools cli compute-version --sdk cli --release-type rc --rc-number 1
-pnpm --filter @xmtp/release-tools cli compute-version --sdk cli --release-type final
+pnpm --filter @xmtp/release-tools cli compute-version --sdk libxmtp --release-type dev
+pnpm --filter @xmtp/release-tools cli compute-version --sdk libxmtp --release-type rc --rc-number 1
+pnpm --filter @xmtp/release-tools cli compute-version --sdk libxmtp --release-type final
 ```
 
 ### `publish-backend`
@@ -58,7 +58,7 @@ pnpm --filter @xmtp/release-tools cli publish-backend \
 ### `create-release-branch`
 
 Create `release/<version>` from a clean checkout, synchronize root Cargo,
-Cargo.lock, and all six SDK mirrors to that target, preserve reviewed notes,
+Cargo.lock, and all six SDK mirrors and the CLI manifest to that target, preserve reviewed notes,
 and scaffold missing notes from the previous stable tags. The command commits
 the result and records all SDKs in `docs/release-notes/release-<version>.json`.
 
@@ -79,7 +79,7 @@ then materializes it before every build. See
 
 ## Supported SDKs
 
-The SDK release targets are: `ios`, `android`, `node-sdk`, `browser-sdk`, `agent-sdk`, and `react-native-sdk`. The separately versioned applications use `cli` and `libxmtp` (backend). SDK definitions live in `src/lib/sdk-config.ts`.
+The SDK release targets are: `ios`, `android`, `node-sdk`, `browser-sdk`, `agent-sdk`, and `react-native-sdk`. CLI (`cli`) shares the SDK version; `libxmtp` (backend) keeps its independent release-label policy. SDK definitions live in `src/lib/sdk-config.ts`.
 
 ## Development
 

@@ -12,7 +12,15 @@ import unittest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
-SDKS = ["ios", "android", "node-sdk", "browser-sdk", "agent-sdk", "react-native-sdk"]
+SDKS = [
+    "ios",
+    "android",
+    "node-sdk",
+    "browser-sdk",
+    "agent-sdk",
+    "react-native-sdk",
+    "cli",
+]
 
 
 class ReleaseGraphTest(unittest.TestCase):
@@ -210,47 +218,50 @@ if args[1].startswith('@xmtp/node-sdk@'):
 print(json.dumps({{'error':{{'code':'E404'}}}})); sys.exit(1)
 """)
             npm.chmod(0o755)
-            archive_path = root / "agent.tgz"
-            with tarfile.open(archive_path, "w:gz") as archive:
-                payload = json.dumps(
-                    {
-                        "name": "@xmtp/agent-sdk",
-                        "version": "8.0.0-rc5",
-                        "dependencies": {"@xmtp/node-sdk": "8.0.0-rc5"},
-                    }
-                ).encode()
-                info = tarfile.TarInfo("package/package.json")
-                info.size = len(payload)
-                archive.addfile(info, io.BytesIO(payload))
-            log = root / "calls.jsonl"
-            for node in ("absent", "8.0.0", "8.0.0-rc5"):
-                log.write_text("")
-                result = subprocess.run(
-                    ["bash", "-euc", command],
-                    cwd=root,
-                    text=True,
-                    capture_output=True,
-                    env=dict(
-                        os.environ,
-                        PATH=str(root) + os.pathsep + os.environ["PATH"],
-                        PACKAGE_TARBALL=str(archive_path),
-                        VERSION="8.0.0-rc5",
-                        NPM_TAG="prerelease",
-                        SDK="agent-sdk",
-                        CALLS=str(log),
-                        NODE_RESULT=node,
-                    ),
-                )
-                calls = [json.loads(line) for line in log.read_text().splitlines()]
-                self.assertEqual(
-                    result.returncode, 0 if node == "8.0.0-rc5" else 1, result.stderr
-                )
-                self.assertEqual(
-                    sum(call[0] == "publish" for call in calls),
-                    1 if node == "8.0.0-rc5" else 0,
-                )
-                if node != "8.0.0-rc5":
-                    self.assertIn("Matching Node SDK", result.stderr)
+            for sdk in ("agent-sdk", "cli"):
+                archive_path = root / "consumer.tgz"
+                with tarfile.open(archive_path, "w:gz") as archive:
+                    payload = json.dumps(
+                        {
+                            "name": "@xmtp/" + sdk,
+                            "version": "8.0.0-rc5",
+                            "dependencies": {"@xmtp/node-sdk": "8.0.0-rc5"},
+                        }
+                    ).encode()
+                    info = tarfile.TarInfo("package/package.json")
+                    info.size = len(payload)
+                    archive.addfile(info, io.BytesIO(payload))
+                log = root / "calls.jsonl"
+                for node in ("absent", "8.0.0", "8.0.0-rc5"):
+                    log.write_text("")
+                    result = subprocess.run(
+                        ["bash", "-euc", command],
+                        cwd=root,
+                        text=True,
+                        capture_output=True,
+                        env=dict(
+                            os.environ,
+                            PATH=str(root) + os.pathsep + os.environ["PATH"],
+                            PACKAGE_TARBALL=str(archive_path),
+                            VERSION="8.0.0-rc5",
+                            NPM_TAG="prerelease",
+                            SDK=sdk,
+                            CALLS=str(log),
+                            NODE_RESULT=node,
+                        ),
+                    )
+                    calls = [json.loads(line) for line in log.read_text().splitlines()]
+                    self.assertEqual(
+                        result.returncode,
+                        0 if node == "8.0.0-rc5" else 1,
+                        result.stderr,
+                    )
+                    self.assertEqual(
+                        sum(call[0] == "publish" for call in calls),
+                        1 if node == "8.0.0-rc5" else 0,
+                    )
+                    if node != "8.0.0-rc5":
+                        self.assertIn("Matching Node SDK", result.stderr)
 
 
 if __name__ == "__main__":

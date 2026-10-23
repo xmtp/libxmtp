@@ -13,7 +13,15 @@ from test_react_native_workflow import expression, inner
 from test_warm_sets import evaluate
 
 ROOT = Path(__file__).resolve().parents[2]
-SDKS = ("ios", "android", "node-sdk", "browser-sdk", "agent-sdk", "react-native-sdk")
+SDKS = (
+    "ios",
+    "android",
+    "node-sdk",
+    "browser-sdk",
+    "agent-sdk",
+    "react-native-sdk",
+    "cli",
+)
 
 
 class SdkReleaseSelectionTest(unittest.TestCase):
@@ -118,40 +126,42 @@ class SdkReleaseSelectionTest(unittest.TestCase):
             result(name)
         return results
 
-    def test_each_dev_sdk_runs_only_its_selected_products(self):
-        for sdk in SDKS:
-            with self.subTest(sdk=sdk):
-                run, selection = self.resolve(**{sdk: True})
-                self.assertEqual(run.returncode, 0, run.stderr)
-                expected = {sdk, "node-sdk"} if sdk == "agent-sdk" else {sdk}
-                self.assertEqual(
-                    {name for name in SDKS if selection[name] == "true"}, expected
-                )
-                results = self.graph(selection)
-                for phase in ("build", "release"):
-                    self.assertEqual(
-                        {
-                            name
-                            for name in SDKS
-                            if results[f"{phase}-{name}"] == "success"
-                        },
-                        expected,
+    def test_each_product_can_be_released_for_every_release_type(self):
+        for kind in ("dev", "rc", "final"):
+            for sdk in SDKS:
+                with self.subTest(kind=kind, sdk=sdk):
+                    run, selection = self.resolve(kind, **{sdk: True})
+                    self.assertEqual(run.returncode, 0, run.stderr)
+                    expected = (
+                        {sdk, "node-sdk"} if sdk in ("agent-sdk", "cli") else {sdk}
                     )
-                self.assertEqual(results["sdk-ready"], "success")
-                self.assertEqual(results["sdk-complete"], "success")
+                    self.assertEqual(
+                        {name for name in SDKS if selection[name] == "true"}, expected
+                    )
+                    results = self.graph(selection)
+                    for phase in ("build", "release"):
+                        self.assertEqual(
+                            {
+                                name
+                                for name in SDKS
+                                if results[f"{phase}-{name}"] == "success"
+                            },
+                            expected,
+                        )
+                    self.assertEqual(results["sdk-ready"], "success")
+                    self.assertEqual(results["sdk-complete"], "success")
 
-    def test_all_sdk_releases_and_independent_app_runs(self):
+    def test_explicit_all_products_and_backend_only_runs(self):
+        self.assertNotIn("sdks", self.workflow[True]["workflow_dispatch"]["inputs"])
         for kind in ("dev", "rc", "final"):
             with self.subTest(kind=kind):
-                run, selection = self.resolve(kind, sdks=True)
+                run, selection = self.resolve(kind, **dict.fromkeys(SDKS, True))
                 self.assertEqual(run.returncode, 0, run.stderr)
                 self.assertTrue(all(selection[sdk] == "true" for sdk in SDKS))
                 self.assertEqual(set(self.graph(selection).values()), {"success"})
-        for app in ("cli", "backend"):
-            with self.subTest(app=app):
-                run, selection = self.resolve(**{app: True})
+                run, selection = self.resolve(kind, backend=True)
                 self.assertEqual(run.returncode, 0, run.stderr)
-                self.assertEqual(selection["sdks"], "false")
+                self.assertEqual(selection["products-selected"], "false")
                 self.assertTrue(
                     all(
                         value == "skipped"
@@ -160,17 +170,8 @@ class SdkReleaseSelectionTest(unittest.TestCase):
                     )
                 )
 
-    def test_individual_selectors_are_rejected_for_rc_and_final(self):
-        for kind in ("rc", "final"):
-            for sdk in SDKS:
-                with self.subTest(kind=kind, sdk=sdk):
-                    run, selection = self.resolve(kind, **{sdk: True})
-                    self.assertNotEqual(run.returncode, 0)
-                    self.assertEqual(selection, {})
-                    self.assertIn("dev-only", run.stdout + run.stderr)
-
     def test_a_selected_build_failure_or_skip_blocks_every_publisher(self):
-        _, selection = self.resolve(android=True, **{"browser-sdk": True})
+        _, selection = self.resolve(android=True, cli=True, **{"browser-sdk": True})
         for status in ("failure", "skipped", "cancelled"):
             with self.subTest(status=status):
                 results = self.graph(selection, {"build-android": status})
@@ -180,11 +181,14 @@ class SdkReleaseSelectionTest(unittest.TestCase):
                 )
                 self.assertEqual(results["sdk-complete"], "failure")
 
-    def test_failed_node_publication_blocks_agent_and_completion(self):
-        _, selection = self.resolve(**{"agent-sdk": True})
-        results = self.graph(selection, {"release-node-sdk": "failure"})
-        self.assertEqual(results["release-agent-sdk"], "skipped")
-        self.assertEqual(results["sdk-complete"], "failure")
+    def test_failed_node_publication_blocks_dependents_and_completion(self):
+        for dependent in ("agent-sdk", "cli"):
+            for status in ("failure", "skipped", "cancelled"):
+                with self.subTest(dependent=dependent, status=status):
+                    _, selection = self.resolve(**{dependent: True})
+                    results = self.graph(selection, {"release-node-sdk": status})
+                    self.assertEqual(results[f"release-{dependent}"], "skipped")
+                    self.assertEqual(results["sdk-complete"], "failure")
 
     def test_single_sdk_dry_run_and_cancellation_never_publish(self):
         _, selection = self.resolve(android=True, **{"dry-run": True})

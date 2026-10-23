@@ -146,6 +146,7 @@ class ReleasePushTest(unittest.TestCase):
             "browser-sdk",
             "agent-sdk",
             "react-native-sdk",
+            "cli",
         ]
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
@@ -154,6 +155,7 @@ class ReleasePushTest(unittest.TestCase):
                 "Cargo.lock",
                 "crates/xmtp_sdk/Cargo.toml",
                 "sdks/android/gradle.properties",
+                "apps/cli/package.json",
                 *[
                     f"sdks/{sdk}/package.json"
                     for sdk in ("node", "browser", "agent", "react-native")
@@ -911,11 +913,8 @@ class ReleasePushTest(unittest.TestCase):
                     "uses: ./.github/workflows/check-release-push.yml", preflight
                 )
                 self.assertIn("dry-run: ${{ inputs.dry-run }}", preflight)
-                direct = name == "cli"
                 self.assertIn(
-                    "ref: ${{ inputs.source-sha"
-                    + (" || github.ref" if direct else "")
-                    + " }}",
+                    "ref: ${{ inputs.source-sha }}",
                     preflight,
                 )
                 # Every job after the preflight builds and tags its pinned
@@ -929,10 +928,7 @@ class ReleasePushTest(unittest.TestCase):
                     self.assertIn(source, body)
                     self.assertNotIn("inputs.ref", body)
                 self.assertIn("source-sha: " + source, bodies["publish"])
-                if direct:
-                    self.assertIn("REF: ${{ github.ref }}", bodies["setup"])
-                else:
-                    self.assertNotIn("setup", bodies)
+                self.assertNotIn("setup", bodies)
 
 
 class XdbgImageTest(unittest.TestCase):

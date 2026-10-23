@@ -16,7 +16,7 @@ on:
         required: false
         type: number
       cli:
-        description: Release CLI
+        description: Release CLI (also releases Node)
         required: false
         type: boolean
         default: false
@@ -40,38 +40,33 @@ on:
         required: false
         type: boolean
         default: false
-      sdks:
-        description: Release all six SDKs (required for SDK RC/final releases)
-        type: boolean
-        required: false
-        default: false
       ios:
-        description: Dev release of iOS SDK
+        description: Release iOS SDK
         type: boolean
         required: false
         default: false
       android:
-        description: Dev release of Android SDK
+        description: Release Android SDK
         type: boolean
         required: false
         default: false
       node-sdk:
-        description: Dev release of Node SDK
+        description: Release Node SDK
         type: boolean
         required: false
         default: false
       browser-sdk:
-        description: Dev release of Browser SDK
+        description: Release Browser SDK
         type: boolean
         required: false
         default: false
       agent-sdk:
-        description: Dev release of Agent SDK (also releases Node)
+        description: Release Agent SDK (also releases Node)
         type: boolean
         required: false
         default: false
       react-native-sdk:
-        description: Dev release of React Native SDK
+        description: Release React Native SDK
         type: boolean
         required: false
         default: false
@@ -86,7 +81,7 @@ jobs:
       ref: ${{ steps.resolve.outputs.ref }}
       source-sha: ${{ steps.source.outputs.sha }}
       timestamp: ${{ steps.timestamp.outputs.timestamp }}
-      sdks: ${{ steps.resolve.outputs.sdks }}
+      products-selected: ${{ steps.resolve.outputs.products-selected }}
       ios: ${{ steps.resolve.outputs.ios }}
       android: ${{ steps.resolve.outputs.android }}
       node-sdk: ${{ steps.resolve.outputs.node-sdk }}
@@ -110,7 +105,6 @@ jobs:
           INPUT_RELEASE_TYPE: ${{ inputs.release-type }}
           INPUT_REF: ${{ inputs.ref }}
           GITHUB_REF: ${{ github.ref }}
-          INPUT_SDKS: ${{ inputs.sdks }}
           INPUT_IOS: ${{ inputs.ios }}
           INPUT_ANDROID: ${{ inputs.android }}
           INPUT_NODE_SDK: ${{ inputs.node-sdk }}
@@ -122,20 +116,12 @@ jobs:
           INPUT_DRY_RUN: ${{ inputs.dry-run }}
         run: |
           set -euo pipefail
-          if [ "$INPUT_RELEASE_TYPE" != dev ] && [[ "$INPUT_IOS $INPUT_ANDROID $INPUT_NODE_SDK $INPUT_BROWSER_SDK $INPUT_AGENT_SDK $INPUT_REACT_NATIVE_SDK" = *true* ]]; then
-            echo "::error::Individual SDK selection is dev-only; use sdks=true for an RC or final SDK release"
-            exit 1
-          fi
-          if [ "$INPUT_SDKS" = true ]; then
-            INPUT_IOS=true INPUT_ANDROID=true INPUT_NODE_SDK=true
-            INPUT_BROWSER_SDK=true INPUT_AGENT_SDK=true INPUT_REACT_NATIVE_SDK=true
-          fi
-          # The packed Agent requires this run's exact published Node version.
-          if [ "$INPUT_AGENT_SDK" = true ]; then INPUT_NODE_SDK=true; fi
+          # Agent and CLI require this run's exact published Node version.
+          if [ "$INPUT_AGENT_SDK" = true ] || [ "$INPUT_CLI" = true ]; then INPUT_NODE_SDK=true; fi
           SELECTED=false
-          if [[ "$INPUT_IOS $INPUT_ANDROID $INPUT_NODE_SDK $INPUT_BROWSER_SDK $INPUT_AGENT_SDK $INPUT_REACT_NATIVE_SDK" = *true* ]]; then SELECTED=true; fi
+          if [[ "$INPUT_IOS $INPUT_ANDROID $INPUT_NODE_SDK $INPUT_BROWSER_SDK $INPUT_AGENT_SDK $INPUT_REACT_NATIVE_SDK $INPUT_CLI" = *true* ]]; then SELECTED=true; fi
           {
-            echo "sdks=$SELECTED"
+            echo "products-selected=$SELECTED"
             echo "release-type=$INPUT_RELEASE_TYPE"
             echo "ref=${INPUT_REF:-$GITHUB_REF}"
             echo "ios=$INPUT_IOS"
@@ -198,38 +184,20 @@ jobs:
         with:
           cache-mode: read
           github-token: ${{ github.token }}
-      - name: Set up release tools
-        uses: ./.github/actions/setup-release-tools
       - name: Compute SDK version once
         id: versions
         env:
           RELEASE_TYPE: ${{ steps.resolve.outputs.release-type }}
           RC_NUMBER: ${{ inputs.rc-number }}
-          REF: ${{ steps.resolve.outputs.ref }}
           TIMESTAMP: ${{ steps.timestamp.outputs.timestamp }}
-          IOS: ${{ steps.resolve.outputs.ios }}
-          ANDROID: ${{ steps.resolve.outputs.android }}
-          NODE_SDK: ${{ steps.resolve.outputs.node-sdk }}
-          BROWSER_SDK: ${{ steps.resolve.outputs.browser-sdk }}
-          AGENT_SDK: ${{ steps.resolve.outputs.agent-sdk }}
-          REACT_NATIVE_SDK: ${{ steps.resolve.outputs.react-native-sdk }}
-          CLI: ${{ steps.resolve.outputs.cli }}
         run: |
           set -euo pipefail
           args=(--kind "$RELEASE_TYPE" --timestamp "$TIMESTAMP" --output "$RUNNER_TEMP/release-plan.json")
           if [ "$RELEASE_TYPE" = rc ]; then args+=(--rc-number "$RC_NUMBER"); fi
           version=$(dev/nix-shell --shell js-node --command python3.11 dev/sdk_version.py plan "${args[@]}")
-          for sdk in ios android node-sdk browser-sdk agent-sdk react-native-sdk; do
+          for sdk in ios android node-sdk browser-sdk agent-sdk react-native-sdk cli; do
             echo "version-$sdk=$version" >> "$GITHUB_OUTPUT"
           done
-          if [ "$CLI" = true ]; then
-            args=(--sdk cli --release-type "$RELEASE_TYPE")
-            case "$RELEASE_TYPE" in
-              rc) args+=(--rc-number "$RC_NUMBER") ;;
-              dev) args+=(--source-ref "$REF" --timestamp "$TIMESTAMP") ;;
-            esac
-            echo "version-cli=$(xmtp-release compute-version "${args[@]}")" >> "$GITHUB_OUTPUT"
-          fi
       - name: Retain frozen SDK release plan
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
@@ -308,6 +276,20 @@ jobs:
     permissions:
       contents: read
       id-token: write
+  build-cli:
+    name: Build and validate cli
+    needs: [validate, build-node-sdk]
+    if: needs.validate.outputs.cli == 'true'
+    uses: ./.github/workflows/release-cli.yml
+    with:
+      source-sha: ${{ needs.validate.outputs.source-sha }}
+      version: ${{ needs.validate.outputs.version-cli }}
+      dry-run: true
+      build-only: true
+    secrets: inherit
+    permissions:
+      contents: read
+      id-token: write
   build-react-native-sdk:
     name: Build and validate react-native-sdk
     needs: [validate]
@@ -323,9 +305,9 @@ jobs:
       contents: read
       id-token: write
   sdk-ready:
-    name: Selected SDK products validated
-    needs: [validate, build-ios, build-android, build-node-sdk, build-browser-sdk, build-agent-sdk, build-react-native-sdk]
-    if: "!cancelled() && needs.validate.result == 'success' && needs.validate.outputs.sdks == 'true'"
+    name: Selected SDK and CLI products validated
+    needs: [validate, build-ios, build-android, build-node-sdk, build-browser-sdk, build-agent-sdk, build-react-native-sdk, build-cli]
+    if: "!cancelled() && needs.validate.result == 'success' && needs.validate.outputs.products-selected == 'true'"
     runs-on: ubuntu-latest
     steps:
       - name: Require every selected SDK to succeed
@@ -339,7 +321,7 @@ jobs:
           selected = json.loads(os.environ["SDK_SELECTION"])
           results = json.loads(os.environ["JOB_RESULTS"])
           prefix = os.environ["SDK_JOB_PREFIX"]
-          for sdk in ("ios", "android", "node-sdk", "browser-sdk", "agent-sdk", "react-native-sdk"):
+          for sdk in ("ios", "android", "node-sdk", "browser-sdk", "agent-sdk", "react-native-sdk", "cli"):
               if selected[sdk] == "true" and results[f"{prefix}-{sdk}"]["result"] != "success":
                   raise SystemExit(f"Selected SDK {sdk} did not succeed")
           PYTHON
@@ -418,6 +400,22 @@ jobs:
     permissions:
       contents: read
       id-token: write
+  release-cli:
+    name: Publish cli
+    needs: [validate, sdk-ready, release-node-sdk]
+    if: "!cancelled() && needs.sdk-ready.result == 'success' && needs.validate.outputs.cli == 'true' && needs.release-node-sdk.result == 'success' && needs.validate.outputs.dry-run != 'true'"
+    secrets: inherit
+    uses: ./.github/workflows/npm-publish.yml
+    with:
+      source-sha: ${{ needs.validate.outputs.source-sha }}
+      version: ${{ needs.validate.outputs.version-cli }}
+      sdk: cli
+      prepared: true
+      package-dir: .
+      ignore-scripts: true
+    permissions:
+      contents: read
+      id-token: write
   release-react-native-sdk:
     name: Publish react-native-sdk
     needs: [validate, sdk-ready]
@@ -435,9 +433,9 @@ jobs:
       contents: read
       id-token: write
   sdk-complete:
-    name: Selected SDK publications completed
-    needs: [validate, release-ios, release-android, release-node-sdk, release-browser-sdk, release-agent-sdk, release-react-native-sdk]
-    if: "!cancelled() && needs.validate.result == 'success' && needs.validate.outputs.sdks == 'true' && needs.validate.outputs.dry-run != 'true'"
+    name: Selected SDK and CLI publications completed
+    needs: [validate, release-ios, release-android, release-node-sdk, release-browser-sdk, release-agent-sdk, release-react-native-sdk, release-cli]
+    if: "!cancelled() && needs.validate.result == 'success' && needs.validate.outputs.products-selected == 'true' && needs.validate.outputs.dry-run != 'true'"
     runs-on: ubuntu-latest
     steps:
       - name: Require every selected SDK to succeed
@@ -451,22 +449,10 @@ jobs:
           selected = json.loads(os.environ["SDK_SELECTION"])
           results = json.loads(os.environ["JOB_RESULTS"])
           prefix = os.environ["SDK_JOB_PREFIX"]
-          for sdk in ("ios", "android", "node-sdk", "browser-sdk", "agent-sdk", "react-native-sdk"):
+          for sdk in ("ios", "android", "node-sdk", "browser-sdk", "agent-sdk", "react-native-sdk", "cli"):
               if selected[sdk] == "true" and results[f"{prefix}-{sdk}"]["result"] != "success":
                   raise SystemExit(f"Selected SDK {sdk} did not succeed")
           PYTHON
-  release-cli:
-    name: CLI
-    needs: [validate, release-node-sdk]
-    if: '!cancelled() && !contains(needs.*.result, ''failure'') && needs.validate.outputs.cli == ''true'''
-    uses: ./.github/workflows/release-cli.yml
-    with:
-      release-type: ${{ needs.validate.outputs.release-type }}
-      source-sha: ${{ needs.validate.outputs.source-sha }}
-      version: ${{ needs.validate.outputs.version-cli }}
-      node-sdk-version: ${{ needs.release-node-sdk.outputs.version }}
-      dry-run: ${{ needs.validate.outputs.dry-run == 'true' }}
-    secrets: inherit
   release-backend:
     name: Backend
     needs: [validate]
@@ -552,7 +538,7 @@ jobs:
   merge-pr:
     name: Merge release PR
     if: needs.validate.outputs.release-type == 'final' && !inputs.no-merge && !cancelled() && !contains(needs.*.result, 'failure')
-      && needs.validate.outputs.dry-run != 'true' && (needs.validate.outputs.sdks != 'true' || needs.sdk-complete.result == 'success')
+      && needs.validate.outputs.dry-run != 'true' && (needs.validate.outputs.products-selected != 'true' || needs.sdk-complete.result == 'success')
     needs: [validate, release-ios, release-android, release-node-sdk, release-browser-sdk, release-agent-sdk, release-react-native-sdk,
       release-cli, release-backend, sdk-complete]
     runs-on: ubuntu-latest
@@ -608,7 +594,7 @@ jobs:
           XDBG_PUSHED: ${{ needs.release-xdbg.outputs.pushed }}
           DRY_RUN: ${{ needs.validate.outputs.dry-run }}
           RELEASE_TYPE: ${{ needs.validate.outputs.release-type }}
-          SDK_SELECTED: ${{ needs.validate.outputs.sdks }}
+          SDK_SELECTED: ${{ needs.validate.outputs.products-selected }}
           SDK_COMPLETE: ${{ needs.sdk-complete.result }}
         run: |
           MSG="${RELEASE_TYPE^} Release:"
