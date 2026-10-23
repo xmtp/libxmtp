@@ -7,7 +7,8 @@ use super::*;
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub(super) enum DependencyKey {
-    Identity(IdentityRequirement),
+    /// Every proof one parent attempt lacked, fetched in one batch.
+    Identity(BTreeSet<IdentityRequirement>),
     Welcome(Cursor),
     GroupPrefix(GroupId, Cursor),
 }

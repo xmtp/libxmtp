@@ -43,6 +43,10 @@ fn controller<C: XmtpSharedContext + 'static>(context: C) -> Controller<C> {
     Controller::new(context, receiver, Arc::new(SharedState::default()))
 }
 
+fn identity_key(requirement: &IdentityRequirement) -> DependencyKey {
+    DependencyKey::Identity(BTreeSet::from([requirement.clone()]))
+}
+
 fn coordinated_controller<C: XmtpSharedContext + 'static>(
     context: C,
 ) -> (Arc<IncomingCoordinator>, Controller<C>) {
@@ -307,12 +311,14 @@ async fn stale_dependency_results_cannot_change_new_heads_or_requirements() {
             };
             controller
                 .dependency_registry
-                .attach(old_parent, DependencyKey::Identity(requirement.clone()));
-            controller.dependency_registry.attach(
-                parent(current),
-                DependencyKey::Identity(next_requirement.clone()),
-            );
-            controller.dependency_finished(DependencyResult::Identity(requirement.clone(), result));
+                .attach(old_parent, identity_key(&requirement));
+            controller
+                .dependency_registry
+                .attach(parent(current), identity_key(&next_requirement));
+            controller.dependency_finished(DependencyResult::Identity(
+                BTreeSet::from([requirement.clone()]),
+                result,
+            ));
             let pending = controller
                 .context
                 .db()
@@ -354,7 +360,7 @@ async fn passive_prefixes_do_not_limit_shared_identity_requests() {
     for parent in [group.clone(), welcome.clone()] {
         controller
             .dependency_registry
-            .attach(parent, DependencyKey::Identity(requirement.clone()));
+            .attach(parent, identity_key(&requirement));
     }
     controller.start_dependencies();
     assert_eq!(controller.dependencies.len(), 1);
@@ -370,7 +376,7 @@ async fn passive_prefixes_do_not_limit_shared_identity_requests() {
     assert_eq!(
         controller
             .dependency_registry
-            .finish(&DependencyKey::Identity(requirement)),
+            .finish(&identity_key(&requirement)),
         HashSet::from([group, welcome])
     );
 }
@@ -1124,6 +1130,143 @@ async fn an_in_flight_pointer_does_not_starve_a_later_welcome() {
     assert!(pending.unreadable_expires_at_ns.is_none());
 }
 
+/// One attempt names every member proof the joiner lacks, one request fetches
+/// them, and the next attempt joins. An inline Welcome resolves them through
+/// the controller; a pointer resolves them inside its Welcome dependency.
+// verifies: JOIN-051
+#[rstest::rstest]
+#[case::inline(false)]
+#[case::pointer(true)]
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_welcome_fetches_missing_member_proofs_in_one_request(#[case] pointer: bool) {
+    use crate::groups::welcome_sync::pending_welcome_for_test;
+
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    tester!(caro, disable_workers);
+    tester!(dave, disable_workers);
+    tester!(eve, disable_workers);
+    let others = [caro.inbox_id(), dave.inbox_id(), eve.inbox_id()];
+    let group = alix.create_group(None, None).unwrap();
+    if pointer {
+        // More than two recipient installations receive a welcome pointer.
+        group
+            .add_members(&[
+                caro.inbox_id(),
+                dave.inbox_id(),
+                eve.inbox_id(),
+                bo.inbox_id(),
+            ])
+            .await
+            .unwrap();
+    } else {
+        group.add_members(&others).await.unwrap();
+        group.add_members(&[bo.inbox_id()]).await.unwrap();
+    }
+    let welcome = bo
+        .context
+        .api()
+        .query_welcome_messages(bo.context.installation_id())
+        .await
+        .unwrap()
+        .pop()
+        .unwrap();
+    assert_eq!(
+        matches!(
+            welcome.variant,
+            xmtp_proto::types::WelcomeMessageType::WelcomePointer(_)
+        ),
+        pointer
+    );
+    pending_welcome_for_test(&bo.context, &welcome)
+        .await
+        .unwrap();
+    let mut controller = controller(bo.context.clone());
+    controller
+        .read_queue
+        .push_back(Topic::new_welcome_message(bo.context.installation_id()));
+    controller.welcome_blocked_scan = None;
+    controller.process_ready();
+    assert_eq!(controller.dependencies.len(), 1);
+
+    let queries = bo.api_stats().query.get_count();
+    let result = controller.dependencies.next().await.unwrap();
+    if let DependencyResult::Identity(requirements, _) = &result {
+        let inboxes: HashSet<_> = requirements
+            .iter()
+            .map(|requirement| requirement.inbox_id.as_str())
+            .collect();
+        assert!(inboxes.contains(alix.inbox_id()));
+        assert!(others.iter().all(|inbox_id| inboxes.contains(inbox_id)));
+    } else {
+        assert!(pointer);
+    }
+    controller.dependency_finished(result);
+    // A pointer also fetches its pointee.
+    assert_eq!(
+        bo.api_stats().query.get_count() - queries,
+        1 + usize::from(pointer)
+    );
+    assert!(
+        bo.context
+            .db()
+            .find_group(&group.group_id)
+            .unwrap()
+            .is_some()
+    );
+    assert!(controller.dependencies.is_empty());
+}
+
+/// One attempt names every proof a multi-inbox add lacks, one request fetches
+/// them, and the next attempt applies the commit.
+// verifies: GMOD-013
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_commit_fetches_missing_proofs_for_added_inboxes_in_one_request() {
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    tester!(caro, disable_workers);
+    tester!(dave, disable_workers);
+    tester!(eve, disable_workers);
+    let alix_group = alix.create_group(None, None)?;
+    alix_group.add_members(&[bo.inbox_id()]).await?;
+    bo.sync_welcomes().await?;
+    let bo_group = bo.find_groups(GroupQueryArgs::default())?.remove(0);
+    bo_group.receive().await?;
+    let added = [caro.inbox_id(), dave.inbox_id(), eve.inbox_id()];
+    alix_group.add_members(&added).await?;
+    let topic = Topic::new_group_message(bo_group.group_id);
+    MlsStore::new(bo.context.clone())
+        .receive_topics_once(
+            std::slice::from_ref(&topic),
+            bo.context
+                .incoming_runtime()
+                .policy()
+                .incoming_limits(NetworkEntityKind::Group),
+        )
+        .await?;
+    let mut controller = controller(bo.context.clone());
+    controller.read_queue.push_back(topic);
+    // Earlier heads from the add need no proofs. The commit then waits on one batch.
+    while controller.process_ready() {}
+    assert_eq!(controller.dependencies.len(), 1);
+
+    let queries = bo.api_stats().query.get_count();
+    let result = controller.dependencies.next().await.unwrap();
+    let DependencyResult::Identity(requirements, Ok(())) = &result else {
+        panic!("the commit must wait on one resolved identity batch");
+    };
+    let inboxes: HashSet<_> = requirements
+        .iter()
+        .map(|requirement| requirement.inbox_id.as_str())
+        .collect();
+    assert_eq!(inboxes, HashSet::from(added));
+    controller.dependency_finished(result);
+    assert_eq!(bo.api_stats().query.get_count() - queries, 1);
+    assert!(controller.process_ready());
+    assert!(controller.dependencies.is_empty());
+    assert_eq!(bo_group.members().await?.len(), 5);
+}
+
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_welcome_failure_keeps_independent_pending_parents_runnable() {
     use crate::identity_updates::IdentityDependencyError;
@@ -1160,10 +1303,10 @@ async fn a_welcome_failure_keeps_independent_pending_parents_runnable() {
     };
     controller.dependency_registry.attach(
         DependencyParent::Welcome(Cursor(10)),
-        DependencyKey::Identity(requirement.clone()),
+        identity_key(&requirement),
     );
     controller.dependency_finished(DependencyResult::Identity(
-        requirement,
+        BTreeSet::from([requirement]),
         Err(IdentityDependencyError::InvalidSequence(0)),
     ));
     controller.refresh_statuses();

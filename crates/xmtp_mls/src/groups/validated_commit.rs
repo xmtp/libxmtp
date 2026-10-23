@@ -184,9 +184,9 @@ impl ValidatedCommit {
                 u64::MAX,
             ) {
                 Err(CommitValidationError::IdentityDependency(IdentityDependencyError::Need(
-                    requirement,
+                    requirements,
                 ))) => {
-                    crate::identity_updates::resolve_identity_requirement(context, &requirement)
+                    crate::identity_updates::resolve_identity_requirements(context, &requirements)
                         .await?;
                 }
                 result => return result,

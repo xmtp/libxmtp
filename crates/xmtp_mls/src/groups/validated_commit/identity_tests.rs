@@ -28,7 +28,7 @@ fn a_missing_identity_proof_cannot_advance_processing() {
         sequence_id: 1,
     };
     let need = CommitValidationError::IdentityDependency(IdentityDependencyError::Need(
-        requirement.clone(),
+        std::collections::BTreeSet::from([requirement.clone()]),
     ));
     assert!(!need.is_safe_rejection());
     let absent = CommitValidationError::IdentityDependency(
