@@ -51,10 +51,10 @@ def check(root):
         package = json.loads((root / name).read_text())
         if package["version"] != version:
             errors.append(f"{name}: {package['version']} != {version}")
-        for dep, value in package.get("dependencies", {}).items():
-            if dep in [f"@xmtp/{sdk}-sdk" for sdk in SDK_PACKAGES]:
-                if value not in ("workspace:*", "workspace:^", "workspace:~", version):
-                    errors.append(f"{name}: {dep} must resolve to {version}")
+    for name in ("sdks/agent/package.json", "apps/cli/package.json"):
+        package = json.loads((root / name).read_text())
+        if package.get("dependencies", {}).get("@xmtp/node-sdk") != "workspace:*":
+            errors.append(f"{name}: @xmtp/node-sdk must be workspace:*")
     android = (root / "sdks/android/gradle.properties").read_text()
     if re.search(r"^version\s*=\s*(.+)$", android, re.M).group(1).strip() != version:
         errors.append("sdks/android/gradle.properties: version differs from Cargo.toml")
@@ -92,10 +92,6 @@ def sync(root, version):
         path = root / name
         package = json.loads(path.read_text())
         package["version"] = version
-        for dep, value in package.get("dependencies", {}).items():
-            if dep in [f"@xmtp/{sdk}-sdk" for sdk in SDK_PACKAGES]:
-                if not value.startswith("workspace:"):
-                    package["dependencies"][dep] = version
         path.write_text(json.dumps(package, indent=2, ensure_ascii=False) + "\n")
     android = root / "sdks/android/gradle.properties"
     android.write_text(

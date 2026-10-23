@@ -89,7 +89,7 @@ for path in (os.sys.argv[-1], os.environ['NODE_TARBALL']):
                         result = subprocess.run(
                             [
                                 "node",
-                                str(ROOT / "dev/release-tools/check-agent-package.mjs"),
+                                str(ROOT / "dev/release-tools/check-node-consumer.mjs"),
                                 str(agent),
                                 str(node),
                                 sdk,

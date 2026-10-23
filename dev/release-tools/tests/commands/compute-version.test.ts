@@ -15,11 +15,6 @@ describe("compute-version --source-ref / --timestamp", () => {
 
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "release-tools-compute-"));
-    fs.mkdirSync(path.join(tmpDir, "sdks/node"), { recursive: true });
-    fs.writeFileSync(
-      path.join(tmpDir, "sdks/node/package.json"),
-      `${JSON.stringify({ name: "@xmtp/node-sdk", version: "6.2.0" }, null, 2)}\n`,
-    );
     fs.writeFileSync(
       path.join(tmpDir, "Cargo.toml"),
       '[workspace.package]\nversion = "6.2.0"\n',
@@ -46,7 +41,7 @@ describe("compute-version --source-ref / --timestamp", () => {
         _: [],
         $0: "",
         repoRoot: tmpDir,
-        sdk: "node-sdk",
+        sdk: "libxmtp",
         releaseType: "dev",
         sourceRef,
         timestamp,
@@ -56,6 +51,27 @@ describe("compute-version --source-ref / --timestamp", () => {
       spy.mockRestore();
     }
   }
+
+  it.each([
+    "ios",
+    "android",
+    "node-sdk",
+    "browser-sdk",
+    "agent-sdk",
+    "react-native-sdk",
+    "cli",
+  ])("rejects independent version computation for %s", (sdk) => {
+    expect(() =>
+      handler({
+        _: [],
+        $0: "test",
+        repoRoot: tmpDir,
+        sdk,
+        baseVersion: "8.0.0",
+        releaseType: "final",
+      }),
+    ).toThrow(/frozen.*plan/);
+  });
 
   it("uses a backend branch version without changing the Rust manifest", () => {
     const cargoPath = path.join(tmpDir, "Cargo.toml");
@@ -84,37 +100,35 @@ describe("compute-version --source-ref / --timestamp", () => {
     { releaseType: "final" as const, expected: "8.0.0" },
     { releaseType: "rc" as const, expected: "8.0.0-rc2" },
     { releaseType: "dev" as const, expected: "dev" },
-  ])("reads Cargo for the RN $releaseType", ({ releaseType, expected }) => {
-    fs.writeFileSync(
-      path.join(tmpDir, "Cargo.toml"),
-      '[workspace.package]\nversion = "8.0.0"\n',
-    );
-    fs.mkdirSync(path.join(tmpDir, "sdks/react-native"), { recursive: true });
-    fs.writeFileSync(
-      path.join(tmpDir, "sdks/react-native/package.json"),
-      '{"name":"@xmtp/react-native-sdk","version":"7.0.0"}',
-    );
-    const spy = vi.spyOn(console, "log").mockImplementation(() => {});
-    try {
-      handler({
-        _: [],
-        $0: "test",
-        repoRoot: tmpDir,
-        sdk: "react-native-sdk",
-        releaseType,
-        rcNumber: 2,
-        sourceRef: "main",
-        timestamp: "20261016060000",
-      });
-      expect(spy).toHaveBeenLastCalledWith(
-        releaseType === "dev"
-          ? `8.0.0-pre.20261016060000.dev.${shortSha}`
-          : expected,
+  ])(
+    "reads Cargo for the backend $releaseType",
+    ({ releaseType, expected }) => {
+      fs.writeFileSync(
+        path.join(tmpDir, "Cargo.toml"),
+        '[workspace.package]\nversion = "8.0.0"\n',
       );
-    } finally {
-      spy.mockRestore();
-    }
-  });
+      const spy = vi.spyOn(console, "log").mockImplementation(() => {});
+      try {
+        handler({
+          _: [],
+          $0: "test",
+          repoRoot: tmpDir,
+          sdk: "libxmtp",
+          releaseType,
+          rcNumber: 2,
+          sourceRef: "main",
+          timestamp: "20261016060000",
+        });
+        expect(spy).toHaveBeenLastCalledWith(
+          releaseType === "dev"
+            ? `8.0.0-pre.20261016060000.dev.${shortSha}`
+            : expected,
+        );
+      } finally {
+        spy.mockRestore();
+      }
+    },
+  );
 
   it("emits the ordered pre.* shape for a main-cut dev", () => {
     const version = run("refs/heads/main");
@@ -136,7 +150,7 @@ describe("compute-version --source-ref / --timestamp", () => {
   });
 
   // The run-wide stamp release.yml mints must reach the version verbatim —
-  // that identity is what makes every SDK of one run share a pre.* suffix.
+  // the CLI must use the supplied release timestamp unchanged.
   it("uses the supplied --timestamp verbatim", () => {
     expect(run("refs/heads/main", "20260102030405")).toBe(
       `6.2.0-pre.20260102030405.dev.${shortSha}`,
