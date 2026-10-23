@@ -16,6 +16,7 @@ import org.xmtp.android.example.BuildConfig
 import org.xmtp.android.example.MainActivity
 import org.xmtp.android.example.messenger.TestAppGraphRule
 import org.xmtp.android.example.shared.AppRoute
+import org.xmtp.android.example.shared.MessageSendState
 import uniffi.xmtp_sdk.*
 import java.io.ByteArrayOutputStream
 import java.io.File
@@ -131,10 +132,140 @@ class AttachmentPresentationInstrumentedTest {
             }
         }
 
-    private fun imageBytes(): ByteArray {
-        val image = Bitmap.createBitmap(640, 480, Bitmap.Config.ARGB_8888)
+    @Test fun sharedMediaKeepsOnlyViewportPreviewsAndRestoresEveryImageWhileScrolling() =
+        runBlocking {
+            val graph = graphRule.graph
+            graph.session.connect(BuildConfig.XMTP_BACKEND_URL, "", true)
+            val owner = checkNotNull(graph.session.active.value)
+            val group = owner.client.conversations.createGroup(emptyList())
+            val draft =
+                owner.client.attachments().create(
+                    AttachmentSource.Bytes(imageBytes(1024, 1024), "alpha.png", "image/png"),
+                )
+            val remote = draft.remoteAttachment()
+            repeat(50) { group.sendRemoteAttachment(remote) }
+            graph.destinations.navigate(AppRoute.ConversationDetails(group.id()))
+            until(
+                "all shared images loaded into the settings projection",
+            ) { graph.group.state.value.sharedMedia.size == 50 }
+            val ids =
+                graph.group.state.value.sharedMedia
+                    .map { it.id }
+            val list = compose.onNodeWithTag("conversation-settings")
+            for (id in ids + ids.first()) {
+                list.performScrollToNode(hasTestTag("shared-media-$id"))
+                until("visible image pixels restored for $id") {
+                    val visible = graph.attachments.visiblePreviewIds()
+                    val previews = graph.attachments.previews.value
+                    id in visible && visible.all { it in previews }
+                }
+                compose.onNodeWithTag("attachment-card-$id").assertIsDisplayed()
+                val previews = graph.attachments.previews.value
+                val bytes = previews.values.sumOf { it.allocationByteCount.toLong() }
+                assertTrue(
+                    "Preview allocation grew to $bytes bytes for ${previews.size} images",
+                    bytes <= 16 * 1024 * 1024L,
+                )
+                val preview = checkNotNull(previews[id])
+                assertEquals(1024, preview.width)
+                val pixel = preview.getPixel(0, 0)
+                assertEquals(128, Color.alpha(pixel))
+                assertTrue(Color.blue(pixel) in 128..132)
+            }
+        }
+
+    @Test fun receivedRestoreDoesNotFetchWhenItsLocalFileIsDeleted() =
+        runBlocking {
+            val peer = AttachmentTestFixture()
+            try {
+                peer.start()
+                val graph = graphRule.graph
+                graph.session.connect(BuildConfig.XMTP_BACKEND_URL, "", true)
+                val owner = checkNotNull(graph.session.active.value)
+                val group = owner.client.conversations.createGroup(listOf(peer.client.inboxId()))
+                peer.client.conversations.sync()
+                val other = checkNotNull(peer.client.conversations.getById(group.id()))
+                val draft =
+                    peer.client.attachments().create(
+                        AttachmentSource.Bytes("local only".toByteArray(), "local.txt", "text/plain"),
+                    )
+                draft.upload()
+                val remote = draft.remoteAttachment()
+                val id = other.sendRemoteAttachment(remote)
+                group.sync()
+                val local =
+                    File(
+                        owner.client
+                            .attachments()
+                            .download(remote)
+                            .path,
+                    )
+                assertTrue(local.isFile)
+                val finished = CompletableDeferred<Unit>()
+                graph.attachments.beforeDownload = { owner.client.attachments().deleteLocal(remote) }
+                graph.attachments.afterDisplayAdmission = { messageId -> if (messageId == id) finished.complete(Unit) }
+                graph.destinations.navigate(AppRoute.Chat(group.id()))
+                until("restore finished after deletion") { finished.isCompleted }
+                assertFalse("Automatic restoration must not fetch the deleted received file", local.exists())
+                assertFalse(id in graph.attachments.verifiedMessageIds())
+                graph.attachments.beforeDownload = {}
+                graph.attachments.afterDisplayAdmission = {}
+                compose.onNodeWithTag("attachment-card-$id").performTouchInput { longClick() }
+                compose.onNodeWithText("Download", useUnmergedTree = true).performClick()
+                until("explicit download can fetch the deleted file") {
+                    graph.attachments.state.value.messages[id]
+                        ?.canOpen ==
+                        true
+                }
+                assertEquals("local only", local.readText())
+            } finally {
+                peer.close()
+            }
+        }
+
+    @Test fun verifiedImageStillShowsQueuedDeliveryUntilPublication() =
+        runBlocking {
+            val graph = graphRule.graph
+            graph.session.connect(BuildConfig.XMTP_BACKEND_URL, "", true)
+            val owner = checkNotNull(graph.session.active.value)
+            val group = owner.client.conversations.createGroup(emptyList())
+            val draft =
+                owner.client.attachments().create(
+                    AttachmentSource.Bytes(imageBytes(), "queued.png", "image/png"),
+                )
+            draft.upload()
+            val id = group.sendRemoteAttachment(draft.remoteAttachment(), SendOptions(optimistic = true))
+            graph.destinations.navigate(AppRoute.Chat(group.id()))
+            until("queued image has decoded pixels") {
+                graph.attachments.previews.value[id] != null &&
+                    graph.chat.state.value.messages
+                        .any { it.id == id && it.sendState == MessageSendState.QUEUED }
+            }
+            compose.onNodeWithText("Queued").assertIsDisplayed()
+            val image = compose.onNodeWithTag("attachment-card-$id")
+            image.performClick()
+            compose.onNodeWithText("Queued").assertIsDisplayed()
+            image.performTouchInput { longClick() }
+            compose.onNodeWithText("Details", useUnmergedTree = true).performClick()
+            compose.onNodeWithText("Verified").assertIsDisplayed()
+            compose.onNodeWithText("Delivery: Queued").assertIsDisplayed()
+            compose.onNodeWithText("Done").performClick()
+            group.publishMessage(id)
+            graph.chat.refresh()
+            until("published attachment delivery updated") {
+                graph.chat.state.value.messages
+                    .any { it.id == id && it.sendState == MessageSendState.SENT }
+            }
+            compose.onNodeWithText("Queued").assertDoesNotExist()
+        }
+
+    private fun imageBytes(
+        width: Int = 640,
+        height: Int = 480,
+    ): ByteArray {
+        val image = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
         return try {
-            image.eraseColor(Color.rgb(45, 104, 130))
+            image.eraseColor(Color.argb(128, 46, 104, 130))
             ByteArrayOutputStream().use { output ->
                 check(image.compress(Bitmap.CompressFormat.PNG, 100, output))
                 output.toByteArray()

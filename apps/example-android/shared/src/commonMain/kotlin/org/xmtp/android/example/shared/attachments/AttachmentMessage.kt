@@ -41,6 +41,7 @@ fun AttachmentMessage(
     time: String,
     action: (AttachmentAction) -> Unit,
     onLongPress: (() -> Unit)? = null,
+    delivery: String? = null,
 ) {
     var metadata by remember(card.id) { mutableStateOf(false) }
     var details by remember(card.id) { mutableStateOf(false) }
@@ -191,14 +192,14 @@ fun AttachmentMessage(
                         shadowElevation = 8.dp,
                     ) {
                         Column(Modifier.padding(8.dp)) {
-                            AttachmentMessageActions(card, menu, action, { menu = false }, sender, time)
+                            AttachmentMessageActions(card, menu, action, { menu = false }, sender, time, delivery)
                         }
                     }
                 }
             }
         }
     }
-    if (details) AttachmentDetails(card, sender, time) { details = false }
+    if (details) AttachmentDetails(card, sender, time, delivery) { details = false }
 }
 
 @Composable
@@ -209,6 +210,7 @@ fun AttachmentMessageActions(
     dismiss: () -> Unit,
     sender: String = "",
     time: String = "",
+    delivery: String? = null,
 ) {
     var details by remember(card.id) { mutableStateOf(false) }
     if (card.canDownload) {
@@ -248,7 +250,7 @@ fun AttachmentMessageActions(
     }
     TextButton({ details = true }, Modifier.fillMaxWidth().heightIn(min = 48.dp), enabled = enabled) { Text("Details") }
     if (details) {
-        AttachmentDetails(card, sender, time) {
+        AttachmentDetails(card, sender, time, delivery) {
             details = false
             dismiss()
         }
@@ -260,6 +262,7 @@ private fun AttachmentDetails(
     card: AttachmentCardState,
     sender: String,
     time: String,
+    delivery: String?,
     dismiss: () -> Unit,
 ) {
     AlertDialog(
@@ -277,6 +280,7 @@ private fun AttachmentDetails(
                 if (sender.isNotBlank()) Text(sender)
                 if (time.isNotBlank()) Text(time)
                 Text(card.status)
+                delivery?.let { Text("Delivery: $it") }
                 card.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             }
         },

@@ -210,6 +210,17 @@ internal fun MessageBubble(
                         style = MaterialTheme.typography.labelSmall,
                     )
                 }
+                if (row.attachment && !row.deleted && row.mine && row.sendState != MessageSendState.SENT) {
+                    Text(
+                        row.sendState.label,
+                        Modifier
+                            .align(Alignment.End)
+                            .padding(horizontal = 14.dp, vertical = 6.dp)
+                            .semantics { liveRegion = LiveRegionMode.Polite },
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.labelSmall,
+                    )
+                }
                 if (row.mine && row.sendState == MessageSendState.NOT_SENT) {
                     FlowRow {
                         TextButton(

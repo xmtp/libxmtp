@@ -13,6 +13,7 @@ import org.xmtp.android.example.shared.MessageRow
 import org.xmtp.android.example.shared.attachments.*
 import org.xmtp.android.example.shared.feature.attachments.AttachmentChoiceSheet
 import org.xmtp.android.example.shared.feature.attachments.AttachmentChoiceState
+import org.xmtp.android.example.shared.label
 
 /** Launches Android requests. Transfer and recovery work belongs to the retained controller. */
 internal class AttachmentHost(
@@ -150,6 +151,7 @@ internal class AttachmentHost(
             "${row.day} ${row.time}",
             controller::dispatch,
             onLongPress,
+            row.sendState.label.takeIf { row.mine },
         )
     }
 
@@ -163,7 +165,15 @@ internal class AttachmentHost(
         val state =
             cached?.takeIf { !it.canOpen || row.id in retained }
                 ?: AttachmentCardState(row.id, row.text, "File", canDownload = true)
-        AttachmentMessageActions(state, enabled, controller::dispatch, dismiss, row.sender, "${row.day} ${row.time}")
+        AttachmentMessageActions(
+            state,
+            enabled,
+            controller::dispatch,
+            dismiss,
+            row.sender,
+            "${row.day} ${row.time}",
+            row.sendState.label.takeIf { row.mine },
+        )
     }
 
     @Composable fun Recovery(conversations: List<ConversationRow>) {

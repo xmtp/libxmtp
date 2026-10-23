@@ -167,3 +167,12 @@ public protocol AttachmentGateway: Sendable {
 		entries.removeAll()
 	}
 }
+
+extension AttachmentAction {
+	var downloadID: String? {
+		switch self {
+		case let .download(id, _), let .restore(id, _, _): id
+		default: nil
+		}
+	}
+}

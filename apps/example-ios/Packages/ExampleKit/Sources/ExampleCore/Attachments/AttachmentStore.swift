@@ -18,6 +18,7 @@ import Observation
 	private var downloadRevision: UInt64 = 0
 	private var downloads: [UUID: Task<Void, Never>] = [:]
 	private var downloadAdmissions: [String: UUID] = [:]
+	private var requestedDownloads: Set<UUID> = []
 	private var activeSends: Set<UUID> = []
 	private var discardedIDs: Set<UUID> = []
 	private var discardedFiles: [UUID: FileDescriptor] = [:]
@@ -69,6 +70,7 @@ import Observation
 		downloadRevision &+= 1
 		downloads.values.forEach { $0.cancel() }
 		downloadAdmissions.removeAll()
+		requestedDownloads.removeAll()
 		verified.clear()
 		for id in state.cards.keys {
 			state.cards[id]?.phase = .available
@@ -106,16 +108,9 @@ import Observation
 			case let .restore(id, descriptor, own): try await restore(id, descriptor: descriptor, own: own)
 			}
 		} catch {
-			guard shouldHandleFailure(error, action: action, revision: revision) else { return }
+			guard !(error is CancellationError),
+			      action.downloadID == nil || revision == downloadRevision else { return }
 			handleFailure(error, action: action)
-		}
-	}
-
-	private func shouldHandleFailure(_ error: any Error, action: AttachmentAction, revision: UInt64) -> Bool {
-		guard !(error is CancellationError) else { return false }
-		switch action {
-		case .download, .restore: return revision == downloadRevision
-		default: return true
 		}
 	}
 
@@ -310,24 +305,30 @@ private extension AttachmentStore {
 	}
 
 	func startDownload(_ action: AttachmentAction) {
-		let messageID: String
-		switch action {
-		case let .download(id, _), let .restore(id, _, _): messageID = id
-		default: return
+		guard let messageID = action.downloadID else { return }
+		if let active = downloadAdmissions[messageID] {
+			if case .download = action { requestedDownloads.insert(active) }
+			return
 		}
-		guard downloadAdmissions[messageID] == nil else { return }
 		let id = UUID()
 		downloadAdmissions[messageID] = id
 		let revision = downloadRevision
 		downloads[id] = tasks.start {
 			defer {
 				self.downloads.removeValue(forKey: id)
+				self.requestedDownloads.remove(id)
 				if self.downloadAdmissions[messageID] == id {
 					self.downloadAdmissions.removeValue(forKey: messageID)
 				}
 			}
 			guard !Task.isCancelled, revision == self.downloadRevision else { return }
 			await self.run(action)
+			if case let .restore(_, descriptor, _) = action, self.requestedDownloads.remove(id) != nil,
+			   !Task.isCancelled, revision == self.downloadRevision, self.downloadAdmissions[messageID] == id,
+			   self.state.cards[messageID]?.phase != .verified
+			{
+				await self.run(.download(messageID, descriptor))
+			}
 		}
 		if downloads[id] == nil {
 			downloadAdmissions.removeValue(forKey: messageID)

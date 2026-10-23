@@ -1,6 +1,7 @@
 import ExampleCore
 import ExampleSDK
 import Foundation
+import UIKit
 import XCTest
 import XmtpSdk
 
@@ -19,7 +20,9 @@ import XmtpSdk
 			try await client.end()
 			try FileManager.default.removeItem(at: directory)
 		}
-		let bytes = Data("image contents".utf8)
+		let bytes = UIGraphicsImageRenderer(size: CGSize(width: 2, height: 2)).pngData { context in
+			UIColor.systemTeal.setFill(); context.fill(CGRect(x: 0, y: 0, width: 2, height: 2))
+		}
 		let pending = try await client.attachments().create(source: .bytes(
 			bytes: bytes,
 			filename: "photo",

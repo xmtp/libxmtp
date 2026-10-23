@@ -272,6 +272,7 @@ extension GroupJourney {
 				.firstMatch
 			XCTAssertTrue(image.waitForExistence(timeout: 20))
 			try await poll { (image.value as? String)?.contains("Verified") == true }
+			try await poll { AttachmentPixelProbe.matches(image, in: app) }
 			func capture(_ name: String) {
 				let attachment = XCTAttachment(screenshot: app.screenshot()); attachment.name = name
 				attachment.lifetime = .keepAlways; self.add(attachment)
@@ -282,6 +283,7 @@ extension GroupJourney {
 			XCTAssertTrue(chat.waitForExistence(timeout: 10)); chat.tap()
 			XCTAssertTrue(image.waitForExistence(timeout: 20))
 			try await poll { (image.value as? String)?.contains("Verified") == true }
+			try await poll { AttachmentPixelProbe.matches(image, in: app) }
 			capture("Own image restored on return")
 			image.tap()
 			XCTAssertTrue((image.value as? String)?.contains("You") == true)

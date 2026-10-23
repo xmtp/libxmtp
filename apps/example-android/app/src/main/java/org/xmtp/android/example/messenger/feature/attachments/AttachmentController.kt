@@ -482,6 +482,14 @@ internal class AttachmentController(
         }
     }
 
+    internal fun visiblePreviewIds(): Set<String> =
+        synchronized(visiblePreviews) {
+            visiblePreviews.keys
+                .filter { it.first == destinations.state.value.token }
+                .map { it.second }
+                .toSet()
+        }
+
     /** Restore SDK-owned files when a row returns, and fetch our own attachments automatically. */
     fun display(
         messageId: String,
@@ -504,7 +512,7 @@ internal class AttachmentController(
             beforeDisplayAdmission(messageId)
             if (!current(work)) return@perform
             if (mine || local) {
-                download(work, messageId, remote, restoring = true, observed = observed)
+                download(work, messageId, remote, restoring = true, observed = observed, localOnly = !mine)
             } else {
                 changeDownload(work, messageId, observed) {
                     work.services.files.forget(messageId)
@@ -533,12 +541,14 @@ internal class AttachmentController(
         remote: RemoteAttachment,
         restoring: Boolean = false,
         observed: AttachmentCardState? = null,
+        localOnly: Boolean = false,
     ) {
         val active = work.active
         val id = messageId
         val token = work.token
         val filename = remote.filename ?: "File"
-        val starting = AttachmentCardState(messageId, filename, "Downloading", busy = true)
+        val starting =
+            AttachmentCardState(messageId, filename, if (localOnly) "Loading" else "Downloading", busy = true)
         val admitted =
             synchronized(downloadAdmission) {
                 if (!current(work) || (restoring && downloads.value[messageId] !== observed)) {
@@ -551,9 +561,25 @@ internal class AttachmentController(
         if (!admitted) return
         try {
             beforeDownload()
-            val downloaded = work.services.files.download(messageId, remote) { current(work) }
+            val downloaded =
+                if (localOnly) {
+                    work.services.files.restore(messageId, remote) { current(work) }
+                        ?: run {
+                            changeDownload(work, messageId, starting) {
+                                work.services.files.forget(messageId)
+                                downloads.update { it - messageId }
+                                previews.update { it - messageId }
+                            }
+                            return
+                        }
+                } else {
+                    work.services.files.download(messageId, remote) { current(work) }
+                }
             readableRemote(active, messageId)
-            val bitmap = work.services.files.preview(downloaded)
+            val bitmap =
+                work.services.files.preview(downloaded) {
+                    current(work) && synchronized(visiblePreviews) { (visiblePreviews[token to id] ?: 0) > 0 }
+                }
             val dimensions = if (bitmap != null) work.services.files.imageDimensions(downloaded) else null
             if (current(work) && work.services.files.isDownloaded(id)) {
                 val completeName = downloaded.filename ?: "File"

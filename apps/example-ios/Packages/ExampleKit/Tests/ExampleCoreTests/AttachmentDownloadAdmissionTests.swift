@@ -18,6 +18,32 @@ import Testing
 		await store.close()
 	}
 
+	@Test(arguments: [false, true]) func downloadDuringRestoreIsNotDropped(waitForLocalFile: Bool) async throws {
+		let fixture = AttachmentFixture(); let draft = try fixture.add()
+		let gate = DownloadAuthorizationGate()
+		let store: AttachmentStore
+		if waitForLocalFile {
+			fixture.gateway.localHook = { _ = await gate.wait() }
+			store = fixture.store
+		} else {
+			store = makeStore(fixture, authorization: gate)
+		}
+		store.send(.restore("message", draft.descriptor, own: false))
+		await settle { gate.calls == 1 }
+		for _ in 0 ..< 8 {
+			store.send(.download("message", draft.descriptor))
+		}
+		gate.releaseAll(true)
+		if !waitForLocalFile {
+			await settle { gate.calls == 2 }
+			gate.releaseAll(true)
+		}
+		await store.wait()
+		#expect(fixture.gateway.downloads == 1)
+		#expect(store.state.cards["message"]?.phase == .verified)
+		await store.close()
+	}
+
 	@Test func deniedAuthorizationReleasesAdmissionForRetry() async throws {
 		let fixture = AttachmentFixture(); let draft = try fixture.add(); let authorization = DownloadAuthorizationGate()
 		let store = makeStore(fixture, authorization: authorization)
