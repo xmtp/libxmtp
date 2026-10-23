@@ -546,6 +546,21 @@ suites:
       - "{webdriver.json,.config/nextest.toml,dev/wasm.just}"
       - "{nix/package/wasm-nextest.nix,nix/ci-checks.nix,nix/lib/junit.nix}"
       - "nix/services/**"
+  test_chaos:
+    title: Rust chaos
+    phase: test
+    workflow: test-chaos.yml
+    run_on: [ready_pr_push, merge]
+    disable_on_forks: false
+    secrets: cachix-pr
+    permissions: {contents: read}
+    kache: []
+    products: []
+    runners:
+      runner: {pr: ubuntu-24.04, merge: ubuntu-24.04}
+    pr_filters:
+      - "crates/xmtp_mls/**"
+      - "apps/chaos/**"
   docs_rust:
     title: Rust reference
     phase: test
