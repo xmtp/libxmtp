@@ -1638,6 +1638,8 @@ enum UncommittableDelta {
     // An entry value that does not decode as a membership entry. Admission
     // checks the map codec, not entry contents.
     UndecodableEntry,
+    // The same for an inbox that is not a member yet.
+    UndecodableNewEntry,
 }
 
 // verifies: GMOD-038
@@ -1645,6 +1647,7 @@ enum UncommittableDelta {
 #[case::stale_after_valid_update(UncommittableDelta::StaleAfterValidUpdate)]
 #[case::stale_insert_after_delete(UncommittableDelta::StaleInsertAfterDelete)]
 #[case::undecodable_entry(UncommittableDelta::UndecodableEntry)]
+#[case::undecodable_new_entry(UncommittableDelta::UndecodableNewEntry)]
 #[xmtp_common::test(unwrap_try = true)]
 async fn uncommittable_membership_delta_is_omitted_whole(
     #[case] uncommittable: UncommittableDelta,
@@ -1706,6 +1709,9 @@ async fn uncommittable_membership_delta_is_omitted_whole(
         UncommittableDelta::UndecodableEntry => {
             TlsMapDelta::new().update(caro_key, VLBytes::new(vec![0x0a, 0x05]))
         }
+        UncommittableDelta::UndecodableNewEntry => {
+            TlsMapDelta::new().insert(key(&"ab".repeat(32)), VLBytes::new(vec![0x0a, 0x05]))
+        }
     };
     // The uncommittable delta is last, so a commit that keeps it applies it whole.
     for delta in [kept, uncommittable] {
@@ -1738,6 +1744,7 @@ async fn uncommittable_membership_delta_is_omitted_whole(
         assert_eq!(membership.get(alix.inbox_id()), Some(&alix_sequence));
         assert_eq!(membership.get(bo.inbox_id()), Some(&raised));
         assert_eq!(membership.get(caro.inbox_id()), Some(&caro_sequence));
+        assert_eq!(membership.members.len(), 3);
         assert!(membership.failed_installations.contains(&kept_marker));
         assert!(!membership.failed_installations.contains(&omitted_marker));
         assert!(has_leaf(peer, caro2.installation_id.as_slice()));

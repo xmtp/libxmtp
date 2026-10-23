@@ -201,11 +201,11 @@ impl SelectionRequirements {
         membership_from_app_data_bytes(&bytes)
     }
 
-    /// Whether a membership delta writes a committed inbox below its entry,
-    /// or writes an entry this client cannot decode. Proposal admission checks
+    /// Whether a membership delta writes an entry this client cannot decode,
+    /// or writes a committed inbox below its entry. Proposal admission checks
     /// authority and the map codec, not entry contents, so a stale refresh can
-    /// be accepted. A commit that keeps such a write fails the sequence-id
-    /// check in `validate_membership_diff` or the entry decode.
+    /// be accepted. A commit that keeps such a write fails the entry decode or
+    /// the sequence-id check in `validate_membership_diff`.
     fn cannot_commit(&self, proposal: &QueuedProposal) -> Result<bool, GroupError> {
         use xmtp_proto::xmtp::mls::message_contents::{
             GroupMembershipEntry, group_membership_entry,
@@ -218,13 +218,9 @@ impl SelectionRequirements {
                 payload,
             )?;
         for mutation in &delta.mutations {
-            // An Insert of a committed inbox can follow a Delete in an earlier delta.
             let (TlsMapMutation::Insert { key, value } | TlsMapMutation::Update { key, value }) =
                 mutation
             else {
-                continue;
-            };
-            let Some(&committed) = self.old.get(key.to_hex()) else {
                 continue;
             };
             // An error here would block every commit of pending proposals.
@@ -235,7 +231,12 @@ impl SelectionRequirements {
             else {
                 return Ok(true);
             };
-            if entry.sequence_id < committed {
+            // An Insert of a committed inbox can follow a Delete in the same delta.
+            if self
+                .old
+                .get(key.to_hex())
+                .is_some_and(|&committed| entry.sequence_id < committed)
+            {
                 return Ok(true);
             }
         }
