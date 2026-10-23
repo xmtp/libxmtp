@@ -1640,6 +1640,10 @@ enum UncommittableDelta {
     UndecodableEntry,
     // The same for an inbox that is not a member yet.
     UndecodableNewEntry,
+    // A new inbox whose entry names sequence 0, which no added entry may.
+    ZeroSequenceNewEntry,
+    // A raise to a sequence id that no identity update can have.
+    OutOfRangeSequence,
 }
 
 // verifies: GMOD-038
@@ -1648,6 +1652,8 @@ enum UncommittableDelta {
 #[case::stale_insert_after_delete(UncommittableDelta::StaleInsertAfterDelete)]
 #[case::undecodable_entry(UncommittableDelta::UndecodableEntry)]
 #[case::undecodable_new_entry(UncommittableDelta::UndecodableNewEntry)]
+#[case::zero_sequence_new_entry(UncommittableDelta::ZeroSequenceNewEntry)]
+#[case::out_of_range_sequence(UncommittableDelta::OutOfRangeSequence)]
 #[xmtp_common::test(unwrap_try = true)]
 async fn uncommittable_membership_delta_is_omitted_whole(
     #[case] uncommittable: UncommittableDelta,
@@ -1711,6 +1717,12 @@ async fn uncommittable_membership_delta_is_omitted_whole(
         }
         UncommittableDelta::UndecodableNewEntry => {
             TlsMapDelta::new().insert(key(&"ab".repeat(32)), VLBytes::new(vec![0x0a, 0x05]))
+        }
+        UncommittableDelta::ZeroSequenceNewEntry => {
+            TlsMapDelta::new().insert(key(&"ab".repeat(32)), membership_entry(0, vec![]))
+        }
+        UncommittableDelta::OutOfRangeSequence => {
+            TlsMapDelta::new().update(caro_key, membership_entry(u64::MAX, vec![]))
         }
     };
     // The uncommittable delta is last, so a commit that keeps it applies it whole.
@@ -1787,5 +1799,51 @@ async fn undecodable_membership_delta_does_not_block_own_refresh() -> Result<(),
         );
     }
     send_on_every_member(&members, "after undecodable delta").await?;
+    Ok(())
+}
+
+// A pending delta can name an identity update that the backend never
+// published. The committer resolves it, finds nothing, and omits the delta.
+// verifies: GMOD-038
+#[xmtp_common::test(unwrap_try = true)]
+async fn membership_delta_with_absent_reference_is_omitted() -> Result<(), GroupError> {
+    use xmtp_mls_common::{inbox_id::InboxId, tls_map::TlsMapDelta};
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    tester!(caro, disable_workers);
+    let [group, bo_group, caro_group] = group_of_three(&alix, &bo, &caro).await?;
+    let members = [&group, &bo_group, &caro_group];
+    let absent = InboxId::from_hex(&"ab".repeat(32)).expect("valid inbox id");
+    let delta = TlsMapDelta::new().insert(absent, membership_entry(5, vec![]));
+    let message = propose_membership_payload(&group, delta.tls_serialize_detached()?)?;
+    publish_standalone_proposal(&group, message, &members).await?;
+    let before = group.epoch_authenticator().await?;
+
+    // The default absence wait is 30 seconds. Shorten it for the committer.
+    let mut settings = bo.context.incoming_runtime().policy().clone();
+    settings.identity_reference_wait = std::time::Duration::from_millis(5_500);
+    let committer = crate::builder::ClientBuilder::from_client(bo.client.clone())
+        .with_disable_workers(true)
+        .stream_policy(settings)
+        .build()
+        .await
+        .expect("rebuild Bo's client with a short absence wait");
+    let committer_group = committer.group(&group.group_id)?;
+    let commit = QueueIntent::commit_pending_proposals().queue(&committer_group)?;
+    let result = committer_group.sync_until_intent_resolved(commit.id).await;
+    if let Err(GroupError::SyncFailedToWait(summary)) = &result {
+        panic!("Bo must commit: {:?}", summary.publish_errors);
+    }
+    result?;
+    for peer in members {
+        receive_completed_prefix(&committer_group, peer).await?;
+        assert_ne!(peer.epoch_authenticator().await?, before);
+        assert_eq!(committed_membership(peer).members.len(), 3);
+        assert_eq!(
+            peer.with_group_snapshot(|mls| Ok(mls.pending_proposals().count()))?,
+            0
+        );
+    }
+    send_on_every_member(&members, "after absent reference").await?;
     Ok(())
 }

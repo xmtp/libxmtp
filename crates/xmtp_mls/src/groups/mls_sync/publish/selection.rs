@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::groups::group_permissions::MembershipPolicy;
+use crate::identity_updates::{IdentityDependencyError, InstallationDiffError};
 use openmls::group::QueuedProposal;
 use openmls::messages::proposals::AppDataUpdateOperation;
 use tls_codec::{Deserialize, VLBytes};
@@ -202,10 +203,11 @@ impl SelectionRequirements {
     }
 
     /// Whether a membership delta writes an entry this client cannot decode,
-    /// or writes a committed inbox below its entry. Proposal admission checks
-    /// authority and the map codec, not entry contents, so a stale refresh can
-    /// be accepted. A commit that keeps such a write fails the entry decode or
-    /// the sequence-id check in `validate_membership_diff`.
+    /// writes a committed inbox below its entry, adds an inbox at sequence 0,
+    /// or names a sequence id no identity update can have. Proposal admission
+    /// checks authority and the map codec, not entry contents, so a stale
+    /// refresh can be accepted. No commit that keeps such a write can be
+    /// validated.
     fn cannot_commit(&self, proposal: &QueuedProposal) -> Result<bool, GroupError> {
         use xmtp_proto::xmtp::mls::message_contents::{
             GroupMembershipEntry, group_membership_entry,
@@ -232,10 +234,14 @@ impl SelectionRequirements {
                 return Ok(true);
             };
             // An Insert of a committed inbox can follow a Delete in the same delta.
-            if self
-                .old
-                .get(key.to_hex())
-                .is_some_and(|&committed| entry.sequence_id < committed)
+            // An added entry needs a resolved identity reference, never 0.
+            if i64::try_from(entry.sequence_id).is_err()
+                || self
+                    .old
+                    .get(key.to_hex())
+                    .map_or(entry.sequence_id == 0, |&committed| {
+                        entry.sequence_id < committed
+                    })
             {
                 return Ok(true);
             }
@@ -434,7 +440,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                 own_payload.as_deref(),
                 &same_request,
             )?;
-            let diff = identity
+            let diff = match identity
                 .get_installation_diff(
                     &self.context.db(),
                     &self.group_id,
@@ -442,7 +448,26 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                     &target,
                     &requirements.old.diff(&target),
                 )
-                .await?;
+                .await
+            {
+                Ok(diff) => diff,
+                // The backend holds no identity update at this reference, so
+                // no commit that keeps it can be validated.
+                Err(InstallationDiffError::IdentityDependency(
+                    IdentityDependencyError::MissingReference(requirement),
+                )) => {
+                    if requirements
+                        .omit_dependencies(&requirement.inbox_id, &mut selection.omitted)?
+                    {
+                        continue;
+                    }
+                    return Err(InstallationDiffError::from(
+                        IdentityDependencyError::MissingReference(requirement),
+                    )
+                    .into());
+                }
+                Err(error) => return Err(error.into()),
+            };
             let mut changed = false;
             let mut replacements = Vec::new();
             let mut included = HashSet::new();
