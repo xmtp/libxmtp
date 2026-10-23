@@ -16,8 +16,10 @@ let
   p = systems.${builtins.currentSystem};
   abi = if builtins.match "aarch64-.*" builtins.currentSystem != null
     then "arm64-v8a" else "x86_64";
-  names = [ "xmtp-sdk-generated-kotlin" "android-sdk-libs-fast" ]
+  renders = [ "xmtp-sdk-generated-kotlin" ]
     ++ (if builtins.hasAttr "ios-xcframeworks" p then [ "xmtp-sdk-generated-swift" ] else []);
+  names = renders ++ [ "android-sdk-libs-fast" ];
+  nativeDrv = builtins.unsafeDiscardStringContext p.xmtp-sdk-libs.drvPath;
 in {
   inherit names abi;
   # Every output the check reads. The renders and the fast consumer only
@@ -25,6 +27,11 @@ in {
   # in the outputs' runtime closures.
   read = names ++ [ "xmtp-sdk-libs" "xmtp-sdk-android-${abi}" ];
   outputs = builtins.listToAttrs (map (name: { inherit name; value = toString p.${name}; }) names);
+  # Whether each render's build reads the selected host library derivation.
+  bound = builtins.listToAttrs (map (name: {
+    inherit name;
+    value = builtins.hasAttr nativeDrv (builtins.getContext p.${name}.rendering.buildPhase);
+  }) renders);
   native = toString p.xmtp-sdk-libs;
   android = toString p.${"xmtp-sdk-android-${abi}"};
 }
@@ -35,7 +42,7 @@ def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def receipt(tree, source, generator, native, excluded=()):
+def receipt(tree, source, generator, library, excluded=()):
     record = json.loads((tree / "sdk-contract.json").read_text())
     files = {}
     for directory, names, children in os.walk(tree, followlinks=True):
@@ -48,30 +55,26 @@ def receipt(tree, source, generator, native, excluded=()):
             files[str(path.relative_to(tree))] = digest(path)
     if files != record["files"]:
         raise ValueError(f"{tree}: generated file set or bytes differ from receipt")
+    # The receipt digests the library bytes that its render read. Another
+    # build of the same library derivation can write other bytes, and the
+    # cache keeps only the first upload, so check the library by name here
+    # and by derivation in `bound`.
+    artifact = dict(record["artifact"])
+    named = artifact.pop("files")
     expected_artifact = {
         "source": source,
         "generator": generator,
         "features": "",
         "profile": "release",
         "target": "",
-        "files": {native.name: digest(native)},
     }
-    if record["artifact"] != expected_artifact or record["generator"] != generator:
+    if (
+        artifact != expected_artifact
+        or list(named) != [library]
+        or record["generator"] != generator
+    ):
         raise ValueError(f"{tree}: native artifact or source identity differs")
-    contract = hashlib.sha256(
-        json.dumps(
-            {
-                "native": {
-                    "files": {native.name: digest(native)},
-                    "generator": generator,
-                }
-            },
-            sort_keys=True,
-        ).encode()
-    ).hexdigest()
-    if record["contract"] != contract:
-        raise ValueError(f"{tree}: receipt does not match the native library bytes")
-    print(f"{tree}: {len(files)} generated files and contract match", flush=True)
+    print(f"{tree}: {len(files)} generated files and identities match", flush=True)
     return record
 
 
@@ -84,6 +87,11 @@ def require(tree, names):
 
 
 def check_products(products):
+    unbound = sorted(name for name, bound in products["bound"].items() if not bound)
+    if unbound:
+        raise ValueError(
+            f"{', '.join(unbound)} did not render from the selected host library"
+        )
     # The products must name the SDK closure identities of this checkout.
     spec = importlib.util.spec_from_file_location(
         "artifacts", ROOT / "crates/xmtp_sdk/dev/sdk-artifacts.py"
@@ -96,7 +104,10 @@ def check_products(products):
         path
         for path in (native_root / "lib").iterdir()
         if path.suffix in (".dylib", ".so")
-    )
+    ).name
+    provenance = json.loads((native_root / "native-provenance.json").read_text())
+    if provenance["source"] != source or "generator" in provenance:
+        raise ValueError("Host native provenance differs from the SDK source identity")
     kotlin = Path(products["outputs"]["xmtp-sdk-generated-kotlin"]) / "kotlin"
     require(kotlin, ("uniffi/xmtp_sdk/xmtp_sdk.kt", "runtime", "android"))
     kotlin_record = receipt(kotlin, source, artifacts.render_hash("kotlin"), native)
