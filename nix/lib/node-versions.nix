@@ -63,7 +63,9 @@ let
             # Drop the Node 26 backport once its release sources contain this fix.
             ++ prev.lib.optionals (prev.lib.versions.major version == "26") [
               (prev.fetchurl {
-                url = "https://github.com/nodejs/node/commit/bc5af1c67cd8e029f86ec992688dde9307f4d61a.patch";
+                # Keep the fixed-output path so existing Node builds stay reusable.
+                name = "bc5af1c67cd8e029f86ec992688dde9307f4d61a.patch";
+                url = "file://${./node-worker-exit.patch}";
                 hash = "sha256-3EJQlgGS1miUEAc2Me4jnh8wHHk68TvbtBhNWJ/uOq8=";
               })
             ]
