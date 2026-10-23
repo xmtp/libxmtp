@@ -1,14 +1,9 @@
-# Decentralization API for XMTP
+# XMTP backend API
 
-## File Hierarchy
-
-- **endpoints**
-  - gRPC endpoints to v3 and decentralization protobuf interface
-- **queries**
-  - queries according to the XMTP Protocol Interface
-- **protocol**
-  - XMTP d14n implementation according to the
-    [d14n XIP](https://github.com/xmtp/XIPs/blob/main/XIPs/xip-49-decentralized-backend.md#33-client-to-node-protocol)
-
-- **endpoints/v3** are endpoints for the v3 implementation of XMTP
-  (non-decentralized, MLS Group Chat version)
+- [src/endpoints/backend/](src/endpoints/backend/) implements backend endpoints.
+- [src/queries/backend/](src/queries/backend/) owns backend binding and transport.
+- [src/queries/bidi.rs](src/queries/bidi.rs) and
+  [src/queries/bidi_transport.rs](src/queries/bidi_transport.rs) implement shared bidi transport.
+- [src/queries/bidi_transport/tests/](src/queries/bidi_transport/tests/) and
+  [src/queries/bidi_transport_props.rs](src/queries/bidi_transport_props.rs) hold transport tests.
+- [src/test/bidi.rs](src/test/bidi.rs) provides the scripted bidi peer for transport tests.

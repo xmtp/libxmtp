@@ -12,4 +12,4 @@ All pre-8 consumers must migrate their API calls. Legacy data moves through the 
 
 Follow the [React Native setup guide](https://docs.xmtp.org/get-started/react-native/) for app integration.
 
-Repository build and proof commands are in [AGENTS.md](https://github.com/xmtp/libxmtp/blob/main/sdks/react-native/AGENTS.md). The canonical package is assembled from matched Linux Android and Darwin iOS components. Its receipt records every shipped asset and the source, binding, and runtime identities.
+Repository build and proof commands are in [DEVELOPMENT.md](https://github.com/xmtp/libxmtp/blob/main/sdks/react-native/DEVELOPMENT.md). The canonical package is assembled from matched Linux Android and Darwin iOS components. Its receipt records every shipped asset and the source, binding, and runtime identities.
