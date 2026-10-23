@@ -385,6 +385,7 @@ where
     ///
     /// A replay of an identical proposal has the same reference. It is stored
     /// once, as a commit covers it once.
+    // implements: GMOD-045
     pub(super) fn store_received_proposal(
         &self,
         group: &mut OpenMlsGroup,

@@ -138,6 +138,19 @@ key package to decide whether to accept a commit.
 | --- | --- | --- | --- |
 | GMOD-038 | Select one consistent proposal set | When preparing a commit from pending membership proposals, the sender MUST select a set that satisfies the resolved membership, key-package validation, and proposer authority rules. It MUST compute dictionary updates and the MLS commit from that same set, MUST preserve accepted proposal references until normal commit resolution, and MUST NOT report an omitted app-requested change as successful. | An obsolete Add can block publication; inconsistent selection can make members disagree. |
 
+### 1.3 Omitting uncommittable pending proposals
+
+A receiver checks a standalone proposal against the committed group state alone, so every member accepts or rejects it alike. Proposals accepted one at a time can still form a commit that every member rejects: two inserts of one key, an Update and a Remove of one component, two super-admin removals that leave none, or a Delete that the membership after the commit forbids.
+
+The sender of a commit of pending proposals therefore applies the receivers' commit validation first. It walks the pending proposals in order and keeps each one that receivers would accept after the ones kept before it. It judges membership-dependent rules with the membership the kept proposals leave, and repeats the walk until that membership stops changing. It does not look ahead, so a later proposal that would make an earlier one valid may itself be omitted. Omitted proposals expire under the MLS epoch rules, as in section 1.2. No client proposes a leaf `Update`, and receivers check only its credential (GMOD-003), so a commit never carries one.
+
+The sender's own requested change is not filtered. An author publishes its proposals with the commit that carries them in one request (API-220), so when another member's commit omits them, the author's commit goes stale and is rebuilt under GMOD-036.
+
+| ID | Title | Requirement | Why |
+| --- | --- | --- | --- |
+| GMOD-044 | Omit uncommittable pending proposals | When preparing a commit from pending proposals, the sender MUST count each proposal reference once, MUST omit each pending proposal that receivers' validation of the commit would reject after the proposals kept before it, judged with the membership the kept proposals leave, MUST omit a membership delta that adds or removes an inbox with no Add or Remove of that inbox among the carried proposals, and MUST NOT carry a leaf `Update` proposal. When the intent's own requested change conflicts with the kept proposals, the sender MUST fail that intent and MUST NOT omit a kept proposal because of the conflict. | One member's accepted proposal would otherwise fail every commit of pending proposals, so no member could send or change the group. |
+| GMOD-045 | Store a repeated proposal once | When a client accepts a standalone proposal whose reference is already pending, it MUST NOT store a second copy. | A commit covers a reference once. A second copy counts an update twice, and removing one copy deletes the stored proposal both share. |
+
 ## 2. The membership component
 
 The membership component names every inbox that is a member and, for each, the identity state its installations are checked against and the installations the group could not add. It is what a joiner validates a Welcome's ratchet tree against (JOIN section 8) and what every member validates a commit's leaf changes against (section 3). The component is a map from inbox id to an encoded `GroupMembershipEntry`; META-010 and META-011 own the map and inbox-id encodings, and META section 2 assigns the component id.

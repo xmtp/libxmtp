@@ -265,6 +265,7 @@ impl<'a> Committable<'a> {
     /// The post-commit membership comes from the kept proposals, so the
     /// filter runs again over the kept ones until that membership stops
     /// changing. Each further pass keeps fewer, so this ends.
+    // implements: GMOD-044
     pub(crate) fn pending(group: &'a OpenMlsGroup) -> Result<Self, GroupError> {
         let mut seen = HashSet::new();
         let mut proposals: Vec<_> = group

@@ -10,6 +10,7 @@ use xmtp_mls_common::{
 /// once in the pending state. Otherwise an Insert, a Delete, and the Insert
 /// again would leave the key present for the sender and absent for every
 /// receiver of the commit.
+// verifies: GMOD-044
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_repeated_reference_counts_once() -> Result<(), GroupError> {
     tester!(alix, disable_workers);
