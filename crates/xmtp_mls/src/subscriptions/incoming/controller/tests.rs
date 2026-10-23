@@ -978,6 +978,152 @@ async fn welcome_prefix_fallback_keeps_the_parent_barrier_deadline() {
     )?);
 }
 
+/// A rejoin must wait while the old group is active, then resume after removal
+/// even when the retired group's processed prefix stops before the join anchor.
+// verifies: JOIN-042
+#[xmtp_common::test(unwrap_try = true)]
+async fn removal_wakes_a_welcome_before_its_join_anchor() {
+    use crate::groups::welcome_sync::pending_welcome_for_test;
+
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    let alix_group = alix.create_group(None, None)?;
+    alix_group.add_members(&[bo.inbox_id()]).await?;
+    let bo_group = bo.sync_welcomes().await?.pop().unwrap();
+    alix_group.remove_members(&[bo.inbox_id()]).await?;
+    let group_topic = Topic::new_group_message(bo_group.group_id);
+    // Receive only through removal: this installation cannot process the
+    // subsequent re-add commit with the secrets of its old membership.
+    let page = MlsStore::new(bo.context.clone())
+        .receive_topics_once(
+            std::slice::from_ref(&group_topic),
+            bo.context
+                .incoming_runtime()
+                .policy()
+                .incoming_limits(NetworkEntityKind::Group),
+        )
+        .await?;
+    assert!(!page.has_more);
+    let removal = page.admissions[0].1;
+    assert!(removal.inserted > 0);
+    alix_group.add_members(&[bo.inbox_id()]).await?;
+    let welcome = bo
+        .context
+        .api()
+        .query_welcome_messages(bo.context.installation_id())
+        .await?
+        .into_iter()
+        .max_by_key(|welcome| welcome.cursor)
+        .unwrap();
+    pending_welcome_for_test(&bo.context, &welcome).await?;
+    let mut controller = controller(bo.context.clone());
+    let welcome_topic = Topic::new_welcome_message(bo.context.installation_id());
+    let welcome_key = topic_key(&welcome_topic)?;
+    controller.read_queue.push_back(welcome_topic);
+    controller.welcome_blocked_scan = None;
+    assert!(!controller.process_ready());
+    assert!(bo_group.is_active()?);
+    assert!(
+        bo.context
+            .db()
+            .pending_envelope(&welcome_key, welcome.cursor)?
+            .is_some()
+    );
+    assert_eq!(controller.dependency_registry.prefixes().count(), 1);
+    let (cursor, group, anchor) = controller.dependency_registry.prefixes().next().unwrap();
+    assert_eq!(cursor, welcome.cursor);
+    assert_eq!(group, bo_group.group_id);
+    assert!(removal.received < anchor);
+
+    controller.read_queue.push_front(group_topic);
+    for _ in 0..removal.inserted {
+        assert!(controller.process_ready());
+    }
+    assert!(
+        bo.context
+            .db()
+            .pending_envelope(&welcome_key, welcome.cursor)?
+            .is_none()
+    );
+    assert_eq!(controller.dependency_registry.prefixes().count(), 0);
+    assert!(bo_group.is_active()?);
+    assert_eq!(
+        bo_group.epoch_authenticator().await?,
+        alix_group.epoch_authenticator().await?
+    );
+}
+
+/// A pointer whose fetch is still running must not occupy every ready batch;
+/// an independent later Welcome must join without rewriting the held row.
+// verifies: PROC-013
+#[xmtp_common::test(unwrap_try = true)]
+async fn an_in_flight_pointer_does_not_starve_a_later_welcome() {
+    use crate::groups::welcome_sync::pending_welcome_for_test;
+
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    tester!(_bo2, from: bo, disable_workers);
+    tester!(_bo3, from: bo, disable_workers);
+    let first = alix.create_group(None, None)?;
+    first.add_members(&[bo.inbox_id()]).await?;
+    let later = alix.create_group(None, None)?;
+    later.add_members(&[bo.inbox_id()]).await?;
+    let mut welcomes = bo
+        .context
+        .api()
+        .query_welcome_messages(bo.context.installation_id())
+        .await?;
+    welcomes.sort_by_key(|welcome| welcome.cursor);
+    assert_eq!(welcomes.len(), 2);
+    assert!(matches!(
+        welcomes[0].variant,
+        xmtp_proto::types::WelcomeMessageType::WelcomePointer(_)
+    ));
+    pending_welcome_for_test(&bo.context, &welcomes[1]).await?;
+    let mut settings = bo.context.incoming_runtime().policy().clone();
+    settings.max_fetched_rows = 1;
+    let client = crate::builder::ClientBuilder::from_client(bo.client.clone())
+        .stream_policy(settings)
+        .with_disable_workers(true)
+        .with_allow_offline(Some(true))
+        .build()
+        .await?;
+    let mut controller = controller(client.context.clone());
+    let topic = Topic::new_welcome_message(client.context.installation_id());
+    let key = topic_key(&topic)?;
+    controller.read_queue.push_back(topic);
+    controller.welcome_blocked_scan = None;
+    controller.dependency_registry.attach(
+        DependencyParent::Welcome(welcomes[0].cursor),
+        DependencyKey::Welcome(welcomes[0].cursor),
+    );
+    // Keep the first fetch in flight without resolving it or advancing time.
+    assert_eq!(controller.dependency_registry.start_queued(1).len(), 1);
+    controller.process_ready();
+    assert!(
+        controller
+            .dependency_registry
+            .contains(&DependencyParent::Welcome(welcomes[1].cursor))
+    );
+    let result =
+        xmtp_common::time::timeout(Duration::from_secs(10), controller.dependencies.next())
+            .await?
+            .unwrap();
+    controller.dependency_finished(result);
+    assert!(client.context.db().find_group(&later.group_id)?.is_some());
+    assert!(client.context.db().find_group(&first.group_id)?.is_none());
+    let pending = client
+        .context
+        .db()
+        .pending_envelope(&key, welcomes[0].cursor)?
+        .unwrap();
+    assert_eq!(pending.retry_at_ns, 0);
+    assert!(!pending.blocked);
+    assert!(pending.error_code.is_none());
+    assert!(pending.retry_expires_at_ns.is_none());
+    assert!(pending.unreadable_expires_at_ns.is_none());
+}
+
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_welcome_failure_keeps_independent_pending_parents_runnable() {
     use crate::identity_updates::IdentityDependencyError;

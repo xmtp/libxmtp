@@ -1,3 +1,9 @@
+//! Encrypted client persistence for the MLS core and SDKs.
+//!
+//! `EncryptedMessageStore` owns a database, `DbQuery` exposes model operations,
+//! and `XmtpMlsStorageProvider` commits protocol state atomically. Durable incoming
+//! envelopes retain independent pointer-fetch and unreadable-Welcome deadlines.
+
 #![warn(clippy::unwrap_used)]
 
 pub mod encrypted_store;
