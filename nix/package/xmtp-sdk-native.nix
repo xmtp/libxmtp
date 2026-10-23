@@ -39,6 +39,15 @@ let
   # retains those symbols for UniFFI, so independently built renders must use
   # the same codegen profile in both the dependency layer and final build.
   gnuCargoArgs = "--config profile.release.package.xmtp_db.codegen-units=1";
+  gnuEnvTarget = lib.replaceStrings [ "-" ] [ "_" ] target;
+  gnuTools = buildPackages.callPackage ../lib/gnu-native-tools.nix {
+    linkerEnv = "CARGO_TARGET_${lib.toUpper gnuEnvTarget}_LINKER";
+  };
+  # Cross sets may preconfigure the Rust linker with Nix's cross compiler.
+  # Preserve cargo-zigbuild's separate C frontend for those products.
+  gnuCcEnv = lib.optionalString (
+    stdenv.buildPlatform == stdenv.hostPlatform
+  ) "export CC_${gnuEnvTarget}=${gnuTools.stableCc}\n";
   command =
     lib.optionalString stdenv.hostPlatform.isDarwin (
       xmtp.iosEnv.nativeBuildEnv {
@@ -46,7 +55,10 @@ let
         cxx = "${stdenv.cc}/bin/c++";
       }
     )
-    + lib.optionalString isGnu "CARGO_ZIGBUILD_CACHE_DIR=$TMPDIR/cargo-zigbuild ZIG_GLOBAL_CACHE_DIR=$TMPDIR/zig-global "
+    + lib.optionalString isGnu ''
+      export RUSTC_WRAPPER=${gnuTools.rustc}
+      export CARGO_ZIGBUILD_ZIG_PATH=${gnuTools.zig}
+      ${gnuCcEnv}CARGO_ZIGBUILD_CACHE_DIR=$TMPDIR/cargo-zigbuild ZIG_GLOBAL_CACHE_DIR=$TMPDIR/zig-global ''
     + "cargo ${
       if isGnu then "zigbuild" else "build"
     } --release --locked${lib.optionalString stdenv.hostPlatform.isDarwin " ${xmtp.iosEnv.nativeCargoArgs}"}${lib.optionalString isGnu " ${gnuCargoArgs}"} -p xmtp_sdk --lib --target ${buildTarget}";

@@ -64,6 +64,20 @@ The check links `iconv`; a basic libc link does not detect mixed toolchains.
   independent native archive and shared-library byte comparisons.
   Final Apple SDK fixup uses LLVM ranlib: cctools ranlib records the build
   user's UID when Nix rebuilds stripped archive indexes.
+- GNU SDK builds also remap the runtime Nix build root in rustc and Zig's
+  C/C++ frontends, using the Apple compiler path rules. Generated protobuf
+  `file!()` locations and OpenSSL engine/module paths otherwise embed the
+  temporary root in native bytes. The Zig shim preserves cargo-zigbuild's
+  target selection and passes non-compiler commands through unchanged.
+  OpenSSL also records its compiler command verbatim: for native host builds,
+  its C entry point lives in the store and forwards to cargo-zigbuild's selected
+  target linker, so this description does not name the temporary generated Zig
+  wrapper. Cross builds retain cargo-zigbuild's C frontend selection; Crane
+  may preconfigure a different Rust linker there.
+  Install these wrappers after Cargo fingerprints are established, identically
+  in dependency and final builds. Reproducibility checks must compare complete
+  shared libraries and static archives from independent build roots; matching
+  only `xmtp_db` objects or one cached receipt/native pair is insufficient.
 - Backend builds restore only the shared dependency sources over the dummy workspace. Include migrations, SQL query files, and `apps/backend/.sqlx` metadata. Add each new shared dependency to the restored crate list. Build with `SQLX_OFFLINE=true`; no database is allowed during the build.
 - The Rust shell provides sqlx-cli. Keep its version aligned with the backend SQLx dependency.
 - SDK compiler sources use a dummy workspace and restore the selected local
