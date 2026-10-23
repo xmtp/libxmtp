@@ -552,14 +552,15 @@ where
             .map_err(xmtp_api::ApiError::from)?;
         let resolved = match ResolvedWelcome::resolve(&welcome, &self.context).await {
             Ok(resolved) => resolved,
-            // Once unreadable retention starts, a missing re-fetch must neither
-            // shorten that window to pointer expiry nor extend it indefinitely.
-            Err(error @ GroupError::WelcomeDataNotFound(_))
-                if pending.unreadable_expires_at_ns.is_some() =>
-            {
-                return self.retain_unreadable_welcome(&pending, error, "welcome_blocked");
-            }
-            Err(error @ GroupError::WelcomeDataNotFound(_)) => {
+            // API errors here come from querying the pointee, before any MLS or
+            // identity processing. Failed queries obey the same retention as
+            // missing data, regardless of whether the API error is retryable.
+            Err(error @ (GroupError::WelcomeDataNotFound(_) | GroupError::WrappedApi(_))) => {
+                // Once unreadable retention starts, failed re-fetches must
+                // neither shorten that window nor extend it indefinitely.
+                if pending.unreadable_expires_at_ns.is_some() {
+                    return self.retain_unreadable_welcome(&pending, error, "welcome_blocked");
+                }
                 let deadline = pending.retry_expires_at_ns.unwrap_or_else(|| {
                     welcome
                         .timestamp()
@@ -577,7 +578,8 @@ where
                 }
                 // Preserve the legacy classification so its next attempt can
                 // fetch and reclassify the pointee, even past the cutoff.
-                let blocked = pending.error_code.as_deref() == Some("welcome_blocked");
+                let blocked = pending.error_code.as_deref() == Some("welcome_blocked")
+                    || matches!(&error, GroupError::WrappedApi(api) if !api.is_retryable());
                 let code = if blocked {
                     "welcome_blocked"
                 } else {
@@ -1638,6 +1640,148 @@ mod tests {
         assert!(!db.has_pending_welcomes().unwrap());
         assert!(db.find_group(&group.group_id).unwrap().is_some());
         assert!(db.read_last_rejection(&service.topic()).unwrap().is_none());
+    }
+
+    /// Query failures obey the same fixed fetch window as absent pointees,
+    /// including rows persisted as welcome_retry by older clients. An existing
+    /// unreadable hold keeps its own deadline through transport failures.
+    // verifies: JOIN-079, JOIN-077, JOIN-063, JOIN-035
+    #[rstest]
+    #[case::fresh(None, false)]
+    #[case::legacy_retry(Some("welcome_retry"), false)]
+    #[case::unreadable(Some("welcome_blocked"), true)]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn pointer_query_errors_have_bounded_retention(
+        #[case] prior_code: Option<&'static str>,
+        #[case] unreadable: bool,
+        #[values(false, true)] retryable: bool,
+    ) {
+        use diesel::{ExpressionMethods, QueryDsl, RunQueryDsl};
+        use xmtp_db::{ConnectionExt, schema::incoming_envelopes};
+
+        tester!(alix, disable_workers);
+        tester!(bo, disable_workers);
+        tester!(_bo2, from: bo, disable_workers);
+        tester!(_bo3, from: bo, disable_workers);
+        let group = alix.create_group(None, None).unwrap();
+        group.invite(&bo).await.unwrap();
+        let welcome = bo
+            .context
+            .api()
+            .query_welcome_messages(bo.context.installation_id())
+            .await
+            .unwrap()
+            .pop()
+            .unwrap();
+        assert!(matches!(
+            welcome.variant,
+            xmtp_proto::types::WelcomeMessageType::WelcomePointer(_)
+        ));
+        pending_welcome_for_test(&bo.context, &welcome)
+            .await
+            .unwrap();
+        let service = WelcomeService::new(bo.context.clone());
+        let db = bo.context.db();
+        let row = || {
+            incoming_envelopes::table.find((
+                bo.context.installation_id().to_vec(),
+                EntityKind::Welcome,
+                welcome.cursor.0 as i64,
+            ))
+        };
+        let unreadable_deadline =
+            unreadable.then(|| xmtp_common::time::now_ns() + xmtp_common::NS_IN_DAY);
+        db.raw_query(|conn| {
+            diesel::update(row())
+                .set((
+                    incoming_envelopes::error_code.eq(prior_code),
+                    incoming_envelopes::blocked.eq(unreadable),
+                    incoming_envelopes::retry_expires_at_ns.eq(unreadable.then_some(1i64)),
+                    incoming_envelopes::unreadable_expires_at_ns.eq(unreadable_deadline),
+                ))
+                .execute(conn)
+        })
+        .unwrap();
+
+        let mut api = xmtp_api_backend::MockBackendClient::new();
+        api.expect_query().returning(move |_| {
+            Err(xmtp_proto::api::ApiClientError::client(
+                xmtp_api_grpc::error::GrpcError::Status(if retryable {
+                    tonic::Status::unavailable("pointee query unavailable")
+                } else {
+                    tonic::Status::permission_denied("pointee query denied")
+                }),
+            ))
+        });
+        let failing_client = crate::builder::ClientBuilder::from_client(bo.client.clone())
+            .api_client(std::sync::Arc::new(api))
+            .config_provider(std::sync::Arc::new(
+                xmtp_configuration::StaticConfigProvider::default(),
+            ))
+            .with_allow_offline(Some(true))
+            .with_disable_workers(true)
+            .build()
+            .await
+            .unwrap();
+        let failing_service = WelcomeService::new(failing_client.context.clone());
+        let blocked = unreadable || !retryable;
+        assert!(matches!(
+            failing_service.resolve_pending_welcome(welcome.cursor).await.unwrap(),
+            WelcomeHeadOutcome::Waiting { blocked: actual, .. } if actual == blocked
+        ));
+        let pending = db
+            .pending_envelope(&service.topic(), welcome.cursor)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            pending.error_code.as_deref(),
+            Some(if blocked {
+                "welcome_blocked"
+            } else {
+                "welcome_pointee"
+            })
+        );
+        assert_eq!(
+            pending.retry_expires_at_ns,
+            Some(if unreadable {
+                1
+            } else {
+                welcome.timestamp() + WELCOME_POINTER_RETENTION_NS
+            })
+        );
+        assert_eq!(pending.unreadable_expires_at_ns, unreadable_deadline);
+        assert!(db.read_last_rejection(&service.topic()).unwrap().is_none());
+
+        db.raw_query(|conn| {
+            diesel::update(row())
+                .set((
+                    incoming_envelopes::retry_expires_at_ns.eq(Some(1i64)),
+                    incoming_envelopes::unreadable_expires_at_ns.eq(unreadable.then_some(1i64)),
+                ))
+                .execute(conn)
+        })
+        .unwrap();
+        let failing_service = WelcomeService::new(failing_client.context.clone());
+        assert!(matches!(
+            failing_service
+                .resolve_pending_welcome(welcome.cursor)
+                .await
+                .unwrap(),
+            WelcomeHeadOutcome::Progress { result: Err(_), .. }
+        ));
+        assert!(!db.has_pending_welcomes().unwrap());
+        assert!(db.find_group(&group.group_id).unwrap().is_none());
+        assert_eq!(
+            db.read_last_rejection(&service.topic())
+                .unwrap()
+                .unwrap()
+                .code,
+            if unreadable {
+                "unsupported_welcome_expired"
+            } else {
+                "welcome_pointer_expired"
+            }
+        );
     }
 
     #[xmtp_common::test(unwrap_try = true)]
