@@ -449,7 +449,7 @@ where
     }
 
     /// Bound unreadable input only after attempting it with the current code and keys.
-    // implements: JOIN-077, JOIN-063
+    // implements: JOIN-087, JOIN-063
     fn retain_unreadable_welcome(
         &self,
         pending: &StoredIncomingEnvelope,
@@ -1073,7 +1073,7 @@ mod tests {
 
     /// Unreadable input must expire without extending its deadline, including
     /// legacy blocked rows. Expiry releases admission and key retirement.
-    // verifies: JOIN-077, JOIN-084, JOIN-063
+    // verifies: JOIN-087, JOIN-084, JOIN-063
     #[rstest]
     #[case::wrapper(UnreadableWelcome::Wrapper)]
     #[case::mls_version(UnreadableWelcome::MlsVersion)]
@@ -1300,7 +1300,7 @@ mod tests {
 
     /// Only unreadable MLS formats and missing Welcome key material get this
     /// deadline; local failures and required group versions keep their policy.
-    // verifies: JOIN-084, JOIN-085
+    // verifies: JOIN-087, JOIN-084, JOIN-085
     #[rstest]
     #[case::mls_version(|| openmls::prelude::WelcomeError::UnsupportedMlsVersion.into(), true)]
     #[case::extensions(|| openmls::prelude::WelcomeError::UnsupportedExtensions.into(), true)]
@@ -1393,7 +1393,7 @@ mod tests {
 
     /// Gaining format support or restoring a missing key package must permit
     /// the final attempt to join, even after the unreadable deadline expires.
-    // verifies: JOIN-077, JOIN-084
+    // verifies: JOIN-087, JOIN-084
     #[rstest]
     #[case::wrapper("unsupported_welcome")]
     #[case::missing_key("welcome_blocked")]
@@ -1685,7 +1685,7 @@ mod tests {
     /// Query failures obey the same fixed fetch window as absent pointees,
     /// including rows persisted as welcome_retry by older clients. An existing
     /// unreadable hold keeps its own deadline through transport failures.
-    // verifies: JOIN-086, JOIN-077, JOIN-063, JOIN-035
+    // verifies: JOIN-086, JOIN-087, JOIN-063, JOIN-035
     #[rstest]
     #[case::fresh(None, false)]
     #[case::legacy_retry(Some("welcome_retry"), false)]

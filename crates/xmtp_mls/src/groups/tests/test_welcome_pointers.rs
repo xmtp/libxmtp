@@ -439,7 +439,7 @@ async fn test_welcome_pointer_resolution_to_another_welcome_pointer() {
 /// day of retention whose deadline survives retries past the fetch deadline.
 /// Transiently missing pointees and legacy retry states cannot shorten that hold;
 /// if the pointee remains missing after the hold expires, it is rejected.
-// verifies: JOIN-086, JOIN-077, JOIN-063
+// verifies: JOIN-086, JOIN-087, JOIN-063
 #[xmtp_common::timeout(Duration::from_secs(40))]
 #[rstest::rstest]
 #[case::supported(false)]
