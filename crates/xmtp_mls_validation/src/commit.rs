@@ -385,7 +385,8 @@ pub struct ProposalChanges {
 
 /**
  * Extracts the installations added and removed via proposals in the commit.
- * Also returns a list of credentials from existing members that need verification (caused by update proposals)
+ * Also returns the leaves of Add and Update proposals, whose signature keys the caller must
+ * check against the identity state of their credentials' inboxes.
  * Tracks which proposer created each proposal for permission validation.
  */
 pub fn get_proposal_changes(
@@ -423,15 +424,19 @@ pub fn get_proposal_changes(
                     mutable_metadata,
                 )?);
             }
-            // For Add Proposals, all we need to do is validate that the installation_id is in the expected diff
+            // For Add proposals, the installation_id must be in the expected diff, and the
+            // credential must name the inbox that owns that installation. The expected diff
+            // is one set across all inboxes, so it does not check the second part.
             Proposal::Add(add_proposal) => {
-                // We don't need to validate the credential here, since we've already validated it as part of
-                // building the expected installation diff
                 let leaf_node = add_proposal.key_package().leaf_node();
-                let installation_id = leaf_node.signature_key().as_slice().to_vec();
-                let inbox_id = inbox_id_from_credential(leaf_node.credential())?;
-                added_installations.insert(installation_id);
-                added_inbox_proposers.insert(inbox_id, proposer);
+                let participant = CommitParticipant::from_leaf_node(
+                    leaf_node,
+                    immutable_metadata,
+                    mutable_metadata,
+                )?;
+                added_installations.insert(participant.installation_id.clone());
+                added_inbox_proposers.insert(participant.inbox_id.clone(), proposer);
+                credentials_to_verify.push(participant);
             }
             // For Remove Proposals, all we need to do is validate that the installation_id is in the expected diff
             Proposal::Remove(remove_proposal) => {
