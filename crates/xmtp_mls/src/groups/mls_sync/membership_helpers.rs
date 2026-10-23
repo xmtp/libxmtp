@@ -135,10 +135,13 @@ pub(super) fn inject_failed_installations_for_test(
 }
 
 /// Fetch a key package for every requested installation except this one.
+/// `requested_installations` maps each installation key to the inboxes that own it.
 /// Each is either returned with its verified package or recorded as failed.
+/// A package whose credential names another inbox fails, because receivers
+/// reject a leaf whose key the credential's inbox does not own.
 pub(super) async fn get_keypackages_for_installation_ids(
     context: impl XmtpSharedContext,
-    requested_installations: HashSet<Vec<u8>>,
+    requested_installations: HashMap<Vec<u8>, HashSet<String>>,
     fetched_installations: &mut Vec<Installation>,
     fetched_key_packages: &mut Vec<KeyPackage>,
     failed_installations: &mut Vec<Vec<u8>>,
@@ -146,27 +149,34 @@ pub(super) async fn get_keypackages_for_installation_ids(
     let my_installation_id = context.installation_id().to_vec();
     let requested: Vec<_> = requested_installations
         .into_iter()
-        .filter(|installation| my_installation_id.ne(installation))
+        .filter(|(installation, _)| my_installation_id.ne(installation))
         .collect();
     #[allow(unused_mut)]
     let mut key_packages = MlsStore::new(context.clone())
-        .get_key_packages_for_installation_ids(requested.clone())
+        .get_key_packages_for_installation_ids(
+            requested
+                .iter()
+                .map(|(installation, _)| installation.clone())
+                .collect(),
+        )
         .await?;
 
     #[cfg(any(test, feature = "test-utils"))]
     inject_failed_installations_for_test(&mut key_packages);
 
-    // implements: JOIN-012, GMOD-009
-    for installation_id in requested {
+    // implements: JOIN-011, JOIN-012, GMOD-009
+    for (installation_id, owner_inbox_ids) in requested {
         match key_packages.remove(&installation_id) {
-            Some(Ok(verified_key_package)) => {
+            Some(Ok(verified_key_package))
+                if owner_inbox_ids.contains(&verified_key_package.credential.inbox_id) =>
+            {
                 fetched_installations.push(Installation::from_verified_key_package(
                     &verified_key_package,
                 )?);
                 fetched_key_packages.push(verified_key_package.inner);
             }
             // An absent package fails the installation exactly as an invalid one does.
-            Some(Err(_)) | None => failed_installations.push(installation_id),
+            Some(_) | None => failed_installations.push(installation_id),
         }
     }
 

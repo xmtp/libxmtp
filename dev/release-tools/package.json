@@ -15,8 +15,8 @@
   "dependencies": {
     "jsonc-parser": "^3.3.1",
     "semver": "^7.7.0",
-    "smol-toml": "^1.6.0",
-    "yargs": "^18.0.0"
+    "smol-toml": "^1.9.1",
+    "yargs": "^18.2.0"
   },
   "devDependencies": {
     "@types/node": "catalog:node26",

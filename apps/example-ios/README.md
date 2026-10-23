@@ -20,6 +20,14 @@ Captured from the running iPhone simulator with local test accounts.
 - Stores expose `state` and `send`. Session generations and destination tokens reject late results. Session tasks are cancelled and awaited before the SDK client ends.
 - Host tests cover safety policies and SDK mappings. Two simulator journeys use a real backend. Previews and manual checks cover visual and platform behavior.
 
+## UI conventions
+
+Use system components before custom drawing. Primary buttons use `glassProminent`;
+secondary/destructive buttons use `glass`. Custom chrome uses `glassEffect` through
+the design helpers. Keep copy in feature string catalogs and tokens in DesignSystem.
+Motion follows the reference sequence with fast production timing; Reduce Motion
+uses 0.2-second cross-fades.
+
 ## Connect
 
 Server checks stay quiet until you press Join. The Access token field accepts

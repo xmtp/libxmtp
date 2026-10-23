@@ -12,7 +12,7 @@ Groups, DMs, application messages, and consent use the normal archive records. E
 
 The isolated metadata decoder reads only the legacy group context, with a std-only reader of the bincode layout that OpenMLS fork `3fabbf23` wrote. It keeps independently decoded optional fields and omits malformed fields. Required record failures stop the export. Installation keys, MLS secrets, and attachment files are never archive elements.
 
-See [fixture provenance](fixtures/README.md) for source pins and schema coverage, and [normal SDK commands](../xmtp_sdk/AGENTS.md) for build commands.
+See [fixture provenance](fixtures/README.md) for source pins and schema coverage, and [normal SDK commands](../xmtp_sdk/DEVELOPMENT.md) for build commands.
 
 Message selection applies legacy deletion authority and the encoded content type. It excludes deletable application messages when a matching tombstone names the same group and its recorded deleter is the author or a recorded super admin. Unknown or non-deletable encoded content and unauthorized or mismatched tombstones do not remove history. An unreadable encoded type with an authorized tombstone fails preparation. The pinned legacy classifier uses the encoded type name alone; authority and major version do not change its deletion eligibility. Current catalogue rules must not reveal history hidden by that reader. Deletion records do not change the archive format.
 
