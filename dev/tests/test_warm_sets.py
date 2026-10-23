@@ -574,9 +574,11 @@ class WarmSetTests(unittest.TestCase):
             for name, spec in system_sets.items()
             for member_name, member in spec["passthru"]["members"].items()
         }
+        # aarch64-linux builds no RN output, so it has no rn set.
+        cls.rn_systems = {system for system, sets in cls.sets.items() if "rn" in sets}
         cls.rn_set_digests = {
-            system: Path(system_sets["rn"]["outPath"]).name[:32]
-            for system, system_sets in stub.items()
+            system: Path(stub[system]["rn"]["outPath"]).name[:32]
+            for system in cls.rn_systems
         }
 
     def checked(self, paths):
@@ -687,6 +689,10 @@ class WarmSetTests(unittest.TestCase):
             missing_shells(self.sets, shells), {("aarch64-darwin", "react-native")}
         )
 
+    def test_build_has_a_leg_for_each_system(self):
+        legs = JOBS["build"]["strategy"]["matrix"]["include"]
+        self.assertEqual({leg["system"] for leg in legs}, set(self.sets))
+
     def test_build_pins_only_the_dev_and_release_sets(self):
         for system in self.sets:
             with self.subTest(system=system):
@@ -718,7 +724,7 @@ class WarmSetTests(unittest.TestCase):
         job = JOBS["rn-consumers"]
         self.assertEqual(job["env"]["SYSTEM"], "${{ matrix.system }}")
         legs = job["strategy"]["matrix"]["include"]
-        self.assertEqual({leg["system"] for leg in legs}, set(self.sets))
+        self.assertEqual({leg["system"] for leg in legs}, self.rn_systems)
         names = ("Build the RN warm set", "Push and pin the RN warm set")
         self.assertEqual(
             step("rn-consumers", names[1])["env"]["CACHIX_AUTH_TOKEN"],
@@ -775,9 +781,10 @@ class WarmSetTests(unittest.TestCase):
         checked = self.checked(dry_run)
         for system, system_sets in self.sets.items():
             with self.subTest(system=system):
+                # An empty set (aarch64-linux release) has nothing to check.
                 self.assertEqual(
                     {name for s, name in checked if s == system},
-                    set(system_sets) - {"rn"},
+                    {name for name, names in system_sets.items() if names} - {"rn"},
                 )
                 reached = {
                     self.paths[p][2]
@@ -793,7 +800,7 @@ class WarmSetTests(unittest.TestCase):
         self.assertEqual(
             check["env"]["RN_CONSUMERS"], "${{ needs.rn-consumers.result }}"
         )
-        both = set(self.sets)
+        both = self.rn_systems
         for consumers, present, returncode, checked in (
             ("success", both, 0, both),
             # One leg failed before its push: the other system is checked.
@@ -835,7 +842,7 @@ class WarmSetTests(unittest.TestCase):
             {system: set(value["drvs"]) for system, value in evaluated.items()},
             {system: set(sets) for system, sets in self.sets.items()},
         )
-        for system in self.sets:
+        for system in self.rn_systems:
             with self.subTest(system=system):
                 members = stub[system]["rn"]["passthru"]["members"]
                 drv = next(iter(members.values()))["drvPath"]
@@ -844,7 +851,8 @@ class WarmSetTests(unittest.TestCase):
                 self.assertIn(drv, result.stdout)
 
     def test_the_rn_set_holds_every_other_rn_output(self):
-        for system, sets in self.sets.items():
+        for system in self.rn_systems:
+            sets = self.sets[system]
             with self.subTest(system=system):
                 rn = set(sets["rn"])
                 blocking = self.blocking_rn[system]
