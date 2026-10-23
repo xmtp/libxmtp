@@ -270,7 +270,8 @@ jobs:
         env:
           RN_CONSUMERS: ${{ needs.rn-consumers.result }}
         run: |
-          nix eval --json .#ciSets --apply 'builtins.mapAttrs (_: sets: sets.rn.outPath)' > "$RUNNER_TEMP/rn-sets.json"
+          # Only the systems that build RN have an rn set.
+          nix eval --json .#ciSets --apply 'ciSets: builtins.mapAttrs (_: sets: sets.rn.outPath) (builtins.removeAttrs ciSets (builtins.filter (system: !(ciSets.${system} ? rn)) (builtins.attrNames ciSets)))' > "$RUNNER_TEMP/rn-sets.json"
           # The list goes through a file: bash ignores the exit status of a
           # process substitution, so a failed jq would shrink the check.
           jq -r 'to_entries[] | "\(.key) \(.value)"' "$RUNNER_TEMP/rn-sets.json" > "$RUNNER_TEMP/rn-sets.txt"
@@ -311,6 +312,9 @@ jobs:
           - system: aarch64-darwin
             os: macOS
             runner: warp-macos-15-arm64-12x
+          - system: aarch64-linux
+            os: Linux arm64
+            runner: blacksmith-16vcpu-ubuntu-2404-arm
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
     environment: kache-s3-writer
@@ -375,7 +379,7 @@ jobs:
 
   closure:
     name: Verify cached dev and release outputs
-    # Waits for both build jobs, after their post steps finish the uploads.
+    # Waits for every build leg, after their post steps finish the uploads.
     needs: build
     runs-on: ubuntu-24.04
     timeout-minutes: 30
