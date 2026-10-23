@@ -81,7 +81,7 @@ jobs:
         run: dev/nix-shell 'just example-android apk'
 
       - name: Retain example APK
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: android-example-apk
           path: apps/example-android/build/apk/xmtp-messenger-${{ inputs.version }}.apk
@@ -103,7 +103,7 @@ jobs:
           dev/nix-shell 'cd sdks/android && ./gradlew :library:publishReleasePublicationToReleaseBundleRepository'
 
       - name: Retain signed Maven bundle
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: android-maven-bundle
           path: sdks/android/library/build/release-repository/
@@ -117,7 +117,7 @@ jobs:
           xmtp-release tag-release --sdk android --version "$VERSION" --no-push
           git bundle create "$RUNNER_TEMP/release.bundle" "refs/tags/android-$VERSION"
       - name: Store release tag
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-tag-android
           path: ${{ runner.temp }}/release.bundle

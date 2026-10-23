@@ -19,8 +19,8 @@ test *args:
     cd Packages/ExampleKit && swift test {{ args }}
 
 # Run the journeys against this checkout's backend.
-test-ui destination="platform=iOS Simulator,name=iPhone 17": build
-    {{ _env }} && TEST_RUNNER_XMTP_BACKEND_URL="$XMTP_BACKEND_URL" env -u LD xcodebuild test-without-building -project ExampleApp.xcodeproj -scheme ExampleApp -configuration Debug -destination '{{ destination }}' -derivedDataPath .build/DerivedData
+test-ui destination="platform=iOS Simulator,name=iPhone 17" *args: build
+    {{ _env }} && TEST_RUNNER_XMTP_BACKEND_URL="$XMTP_BACKEND_URL" env -u LD xcodebuild test-without-building -project ExampleApp.xcodeproj -scheme ExampleApp -configuration Debug -destination '{{ destination }}' -derivedDataPath .build/DerivedData {{ args }}
 
 # Check source style and architecture constraints.
 lint:

@@ -141,9 +141,9 @@ from_rule_error!(
  * 2. The client must create an expected diff of installations added and removed based on the difference between the current
  *    [`GroupMembership`] and the [`GroupMembership`] found in the [`StagedCommit`]
  * 3. Installations may only be added or removed in the commit if they were added/removed in the expected diff
- * 4. For updates (either updating a path or via an Update Proposal) clients must verify that the `installation_id` is
- *    present in the [`AssociationState`] for the `inbox_id` presented in the credential at the `to_sequence_id` found in the
- *    new [`GroupMembership`].
+ * 4. For the committer's leaf, the update path leaf, and every Add or Update proposal leaf, clients must verify that the
+ *    `installation_id` is present in the [`AssociationState`] for the `inbox_id` presented in the credential at the
+ *    `to_sequence_id` found in the new [`GroupMembership`].
  * 5. All proposals must come from group members (proposer permissions are validated, not committer)
  * 6. Only Add, Update, Remove, and AppDataUpdate proposals are allowed, in a valid list
  * 7. New installations may be missing from the commit but still be present in the expected diff.
@@ -311,6 +311,24 @@ impl ValidatedCommit {
             &mutable_metadata,
         )?;
 
+        // OpenMLS lets a commit's update path replace the committer's leaf with
+        // any credential and signature key. The leaf must keep the committer's
+        // inbox, and its key is checked like any other leaf's below.
+        // implements: GMOD-043
+        if let Some(leaf_node) = staged_commit.update_path_leaf_node() {
+            let path_leaf = CommitParticipant::from_leaf_node(
+                leaf_node,
+                &immutable_metadata,
+                &mutable_metadata,
+            )?;
+            if path_leaf.inbox_id != actor.inbox_id {
+                return Err(CommitValidationError::Rule(
+                    CommitRuleError::InboxValidationFailed(path_leaf.inbox_id),
+                ));
+            }
+            credentials_to_verify.push(path_leaf);
+        }
+
         // Get the expected diff of installations added and removed based on the difference between the current
         // group membership and the new group membership.
         // Also gets back the added and removed inbox ids from the expected diff
@@ -369,8 +387,10 @@ impl ValidatedCommit {
 
         // Verify the credentials of the following entities
         // 1. The actor who created the commit
-        // 2. Anyone referenced in an update proposal
+        // 2. The leaf in the commit's update path
+        // 3. Every leaf in an Add or Update proposal
         // Satisfies Rule 4
+        // implements: GMOD-012
         for participant in credentials_to_verify {
             let inbox_id = &participant.inbox_id;
             let sequence_id = match new_group_membership.get(inbox_id) {
@@ -681,7 +701,9 @@ fn expected_diff_matches_commit(
     let unknown_adds = added_installations
         .into_iter()
         .filter(|installation_id| {
-            !expected_diff.added_installations.contains(installation_id)
+            !expected_diff
+                .added_installations
+                .contains_key(installation_id)
                 && !existing_installation_ids.contains(installation_id)
         })
         .collect::<Vec<Vec<u8>>>();

@@ -2,6 +2,7 @@
 
 use super::*;
 use std::collections::HashMap;
+use xmtp_mls_validation::commit::inbox_id_from_credential;
 
 /// Immutable inputs copied under the writer before any dependency request.
 pub(super) struct PublishRequirements {
@@ -12,7 +13,9 @@ pub(super) struct PublishRequirements {
     old_membership: Option<GroupMembership>,
     new_membership: Option<GroupMembership>,
     add_inboxes: Vec<String>,
-    readd_installations: Option<HashSet<Vec<u8>>>,
+    /// Installation keys to readd, mapped to the inbox their current leaf names.
+    /// A leaf whose credential does not parse has no owner, so its package fails.
+    readd_installations: Option<HashMap<Vec<u8>, HashSet<String>>>,
     selection: Option<Box<super::selection::SelectionRequirements>>,
 }
 
@@ -47,16 +50,17 @@ impl PublishRequirements {
             }
             IntentKind::ReaddInstallations => {
                 let data = ReaddInstallationsIntentData::try_from(intent.data.as_slice())?;
-                requirements.readd_installations = Some(
-                    group
-                        .members()
-                        .filter(|member| {
-                            member.index != group.own_leaf_index()
-                                && data.readded_installations.contains(&member.signature_key)
-                        })
-                        .map(|member| member.signature_key)
-                        .collect(),
-                );
+                let mut readd_installations = HashMap::new();
+                for member in group.members().filter(|member| {
+                    member.index != group.own_leaf_index()
+                        && data.readded_installations.contains(&member.signature_key)
+                }) {
+                    let owners = inbox_id_from_credential(&member.credential)
+                        .into_iter()
+                        .collect();
+                    readd_installations.insert(member.signature_key, owners);
+                }
+                requirements.readd_installations = Some(readd_installations);
             }
             _ => {}
         }
@@ -163,7 +167,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
             dependencies.changes = Some(MembershipDiffWithKeyPackages::new(
                 new_installations,
                 new_key_packages,
-                installations.clone(),
+                installations.keys().cloned().collect(),
                 failed_installations,
             ));
         }

@@ -13,6 +13,7 @@ import org.xmtp.android.example.shared.MessageRow
 import org.xmtp.android.example.shared.attachments.*
 import org.xmtp.android.example.shared.feature.attachments.AttachmentChoiceSheet
 import org.xmtp.android.example.shared.feature.attachments.AttachmentChoiceState
+import org.xmtp.android.example.shared.label
 
 /** Launches Android requests. Transfer and recovery work belongs to the retained controller. */
 internal class AttachmentHost(
@@ -130,8 +131,13 @@ internal class AttachmentHost(
     @Composable fun Message(
         row: MessageRow,
         conversationId: String?,
+        onLongPress: (() -> Unit)? = null,
     ) {
         if (!row.attachment || row.deleted) return
+        DisposableEffect(row.id, conversationId) {
+            val release = controller.display(row.id, row.mine)
+            onDispose { release() }
+        }
         val cached = controller.downloads.collectAsState().value[row.id]
         val retained = controller.verified.collectAsState().value
         val state =
@@ -140,10 +146,33 @@ internal class AttachmentHost(
         val bitmap = controller.previews.collectAsState().value[row.id]
         AttachmentMessage(
             state,
-            conversationId.orEmpty(),
             bitmap?.asImageBitmap(),
+            row.sender,
+            "${row.day} ${row.time}",
             controller::dispatch,
-            showFilename = row.text.isBlank() || state.filename != row.text,
+            onLongPress,
+            row.sendState.label.takeIf { row.mine },
+        )
+    }
+
+    @Composable fun Actions(
+        row: MessageRow,
+        enabled: Boolean,
+        dismiss: () -> Unit,
+    ) {
+        val cached = controller.downloads.collectAsState().value[row.id]
+        val retained = controller.verified.collectAsState().value
+        val state =
+            cached?.takeIf { !it.canOpen || row.id in retained }
+                ?: AttachmentCardState(row.id, row.text, "File", canDownload = true)
+        AttachmentMessageActions(
+            state,
+            enabled,
+            controller::dispatch,
+            dismiss,
+            row.sender,
+            "${row.day} ${row.time}",
+            row.sendState.label.takeIf { row.mine },
         )
     }
 
