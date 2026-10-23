@@ -302,13 +302,20 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
         let mut same_request = HashSet::new();
         let own_payload = if let Some(update) = &requirements.own_update {
             let mut target = update.apply_to_group_membership(&requirements.old);
-            if let Some(changes) = own_changes {
-                target
-                    .failed_installations
-                    .extend(changes.failed_installations.iter().cloned());
-                target.failed_installations.sort_unstable();
-                target.failed_installations.dedup();
-            }
+            // Publication writes the same failed list.
+            let (fetch_failures, added) = own_changes.map_or((&[][..], &[][..]), |changes| {
+                (
+                    changes.failed_installations.as_slice(),
+                    changes.new_key_packages.as_slice(),
+                )
+            });
+            target.failed_installations = update_group_membership::leafless_failures(
+                std::mem::take(&mut target.failed_installations)
+                    .into_iter()
+                    .chain(fetch_failures.iter().cloned()),
+                &requirements.leaves.values().cloned().collect(),
+                added,
+            );
             let payload = update_group_membership::build_membership_delta(
                 &self.context.db(),
                 &requirements.membership_bytes,

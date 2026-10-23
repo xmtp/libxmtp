@@ -159,6 +159,8 @@ A `sequence_id` is a promise the sender makes: it resolved that inbox's identity
 
 JOIN-011 owns partial success when some key packages are invalid. GMOD-009 accounts for the installations in each inbox, including an installation for which the backend returns no key package. JOIN section 8 owns validation of the membership asserted by a Welcome.
 
+A failed installation is one the group holds no leaf for. A membership change can be built when an installation's key package cannot be fetched and published after that installation has a leaf: a later fetch succeeds and the commit adds it, or another member's commit added it first. The installation is then not failed. Section 3 exempts a listed key from the removal check, so a key listed with a leaf would keep its leaf through a later revocation.
+
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
 | GMOD-005 | Membership entry format | The client MUST encode each member's value in `GROUP_MEMBERSHIP` as the `GroupMembershipEntry` defined above, with `v1` set and exactly one entry per member inbox. | |
@@ -166,6 +168,7 @@ JOIN-011 owns partial success when some key packages are invalid. GMOD-009 accou
 | GMOD-007 | References precede the commit | If any entry's `sequence_id` is not less than the commit's own sequence id, or an entry the commit adds has a `sequence_id` of 0, then the client MUST record a terminal rejection for the commit. | A reference at or after the commit can never be resolved, and 0 asserts nothing. |
 | GMOD-008 | Sequence ids never decrease | If an inbox's entry after the commit has a `sequence_id` less than before it, then the client MUST record a terminal rejection for the commit. | A lowered reference would let a revoked installation back in. |
 | GMOD-009 | Every installation is accounted for | When a sender publishes a commit that adds an inbox or changes its `sequence_id`, the sender MUST ensure that every installation key in that inbox's referenced identity state is either the `signature_key` of a leaf after the commit or in that inbox's `failed_installations`. | An omitted installation loses access, and a later joiner rejects the incomplete membership. |
+| GMOD-044 | A failed installation has no leaf | When a client builds a commit for a membership change, it MUST NOT list in any membership entry the commit writes the `signature_key` of a leaf that the ratchet tree holds after the commit. | A revocation of a listed installation removes nothing under GMOD-011, so the revoked installation keeps reading the group. |
 
 ## 3. Leaf changes against identity
 
@@ -252,6 +255,8 @@ PERM-025 owns authority to act on a leave request. The removal still passes PERM
 The receiver tolerates a commit that adds an inbox without adding every installation the referenced identity state associates and without listing the rest as failed. GMOD-009 binds the sender; existing members accept the commit, and only a later joiner rejects the Welcome under JOIN-053.
 
 A membership refresh does not retry a failed installation key that remains associated in both identity states. Its key package becoming valid does not by itself add it to the group.
+
+Receivers do not reject a membership entry that lists a key with a leaf, and older clients write such entries. A key with a leaf before a commit is not a failed installation for that commit, so a later revocation still removes its leaf, and the next membership change from a client that meets GMOD-044 drops the key from the entry.
 
 MLS discards proposals that a commit did not reference once the epoch advances. A member whose proposal was omitted from an accepted commit has to propose again if the change is still needed.
 

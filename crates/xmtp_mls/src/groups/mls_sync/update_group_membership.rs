@@ -180,6 +180,31 @@ pub(super) fn build_membership_delta(
     })
 }
 
+/// The failed installations a commit writes, sorted and without duplicates.
+/// A failed installation never has a leaf, so drop every id that has a leaf
+/// before the commit or that the commit adds. A leafless id stays listed, even
+/// when this commit removes its inbox: it explains a removal the commit cannot
+/// make.
+// implements: GMOD-044
+pub(super) fn leafless_failures(
+    failed: impl IntoIterator<Item = Vec<u8>>,
+    leaves: &HashSet<Vec<u8>>,
+    added: &[KeyPackage],
+) -> Vec<Vec<u8>> {
+    let added: HashSet<&[u8]> = added
+        .iter()
+        .map(|package| package.leaf_node().signature_key().as_slice())
+        .collect();
+    let mut failed: Vec<_> = failed
+        .into_iter()
+        .filter(|id| !leaves.contains(id) && !added.contains(id.as_slice()))
+        .collect();
+    // `PartialEq` compares this field as an ordered `Vec`.
+    failed.sort_unstable();
+    failed.dedup();
+    failed
+}
+
 /// Super admins stay members. Receivers reject both the Remove proposal and
 /// the membership proposal that would drop one, so publish neither.
 pub(super) fn reject_super_admin_removal(
@@ -259,15 +284,19 @@ pub(crate) fn apply_update_group_membership_intent(
     // `expected_diff_matches_commit` needs those ids. They explain a removal
     // that the commit could not make. Assign breaks
     // `test_remove_inbox_with_bad_installation_from_group`.
-    let mut failed_installations: HashSet<Vec<u8>> =
+    // Either list can name an installation that now has a leaf, or that this
+    // commit adds. Selection builds its target with the same filter.
+    let leaves: HashSet<Vec<u8>> = openmls_group
+        .members()
+        .map(|member| member.signature_key)
+        .collect();
+    new_group_membership.failed_installations = leafless_failures(
         std::mem::take(&mut new_group_membership.failed_installations)
             .into_iter()
-            .collect();
-    failed_installations.extend(std::mem::take(&mut changes_with_kps.failed_installations));
-    let mut failed_installations: Vec<Vec<u8>> = failed_installations.into_iter().collect();
-    // `PartialEq` compares this field as an ordered `Vec`.
-    failed_installations.sort_unstable();
-    new_group_membership.failed_installations = failed_installations;
+            .chain(std::mem::take(&mut changes_with_kps.failed_installations)),
+        &leaves,
+        &changes_with_kps.new_key_packages,
+    );
 
     // New members must support the AppData dictionary that stores all group data.
     let app_data_ext_type = openmls::prelude::ExtensionType::AppDataDictionary;
