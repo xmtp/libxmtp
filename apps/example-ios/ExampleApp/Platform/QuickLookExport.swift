@@ -42,10 +42,32 @@ enum QuickLookExport {
 	}
 }
 
+struct ImageDimensions: Sendable {
+	let width: Int
+	let height: Int
+}
+
 actor PreviewDecoder {
 	static let shared = PreviewDecoder()
 	private var active = 0
 	private var waiting: [CheckedContinuation<Void, Never>] = []
+	func byteCount(_ url: URL) throws -> UInt64 {
+		try Task.checkCancellation()
+		let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+		guard let size = attributes[.size] as? NSNumber else { throw CocoaError(.fileReadUnknown) }
+		return size.uint64Value
+	}
+
+	func dimensions(_ url: URL) -> ImageDimensions? {
+		guard !Task.isCancelled, let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+		      let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [String: Any],
+		      let width = properties[kCGImagePropertyPixelWidth as String] as? Int,
+		      let height = properties[kCGImagePropertyPixelHeight as String] as? Int else { return nil }
+		let orientation = properties[kCGImagePropertyOrientation as String] as? Int ?? 1
+		return (5 ... 8).contains(orientation)
+			? ImageDimensions(width: height, height: width) : ImageDimensions(width: width, height: height)
+	}
+
 	func decode(_ url: URL) async -> CGImage? {
 		if active >= 3 {
 			await withCheckedContinuation { waiting.append($0) }

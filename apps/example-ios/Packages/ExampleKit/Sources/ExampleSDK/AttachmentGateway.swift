@@ -1,5 +1,6 @@
 import ExampleCore
 import Foundation
+import ImageIO
 import UniformTypeIdentifiers
 import XmtpSdk
 
@@ -30,15 +31,28 @@ private func attachmentCanRetry(_ failure: AttachmentFailure) -> Bool {
 }
 
 public final class SDKAttachmentGateway: AttachmentGateway, Sendable {
-	private let client: SDKClient
-	public init(client: SDKClient) {
-		self.client = client
+	private let attachments: any AttachmentsProtocol
+	private let maximumUploadBytes: UInt64?
+	private let beforeLocalRead: @Sendable () async throws -> Void
+	public convenience init(client: SDKClient) {
+		self.init(
+			attachments: client.attachments(),
+			maximumUploadBytes: client.serverConfiguration().attachments?.maxUploadBytes,
+		)
+	}
+
+	init(attachments: any AttachmentsProtocol, maximumUploadBytes: UInt64? = nil,
+	     beforeLocalRead: @escaping @Sendable () async throws -> Void = {})
+	{
+		self.attachments = attachments
+		self.maximumUploadBytes = maximumUploadBytes
+		self.beforeLocalRead = beforeLocalRead
 	}
 
 	public func capability() async throws -> UInt64? {
-		guard client.attachments().offered()
+		guard attachments.offered()
 		else { return nil }
-		return client.serverConfiguration().attachments?.maxUploadBytes
+		return maximumUploadBytes
 	}
 
 	public func create(file: URL,
@@ -46,7 +60,7 @@ public final class SDKAttachmentGateway: AttachmentGateway, Sendable {
 		-> FileDescriptor
 	{
 		do
-		{ return try await coreFile(client.attachments().create(source: .path(
+		{ return try await coreFile(attachments.create(source: .path(
 			path: file.path,
 			filename: filename,
 			mimeType: attachmentMIMEType(filename: filename),
@@ -56,14 +70,14 @@ public final class SDKAttachmentGateway: AttachmentGateway, Sendable {
 	public func pending() async throws
 		-> [FileDescriptor]
 	{
-		do { return try await client.attachments().listPending().map { coreFile($0.remoteAttachment()) } } catch {
+		do { return try await attachments.listPending().map { coreFile($0.remoteAttachment()) } } catch {
 			throw mapped(error)
 		}
 	}
 
 	public func upload(_ file: FileDescriptor) async throws -> FilePhase {
 		do {
-			let pending = try await client.attachments().pending(remote: sdkFile(file))
+			let pending = try await attachments.pending(remote: sdkFile(file))
 			try await pending
 				.upload()
 			switch try await pending
@@ -79,10 +93,36 @@ public final class SDKAttachmentGateway: AttachmentGateway, Sendable {
 		} catch { throw mapped(error) }
 	}
 
+	public func localFile(_ file: FileDescriptor) async throws -> VerifiedFile? {
+		let path: String
+		do {
+			path = try await attachments.localPath(remote: sdkFile(file))
+		} catch {
+			throw mapped(error)
+		}
+		guard Self.isRegularFile(path) else { return nil }
+		try await beforeLocalRead()
+		guard Self.isRegularFile(path) else { return nil }
+		// SDK plaintext paths contain only complete, verified files (ATCH-051).
+		// Restoration must never call the network-capable download API.
+		let url = URL(fileURLWithPath: path)
+		let imageType = CGImageSourceCreateWithURL(url as CFURL, nil).flatMap(CGImageSourceGetType)
+		let mimeType = imageType.flatMap { UTType($0 as String)?.preferredMIMEType }
+			?? attachmentMIMEType(filename: file.filename ?? "")
+		return VerifiedFile(url: url, mimeType: mimeType, filename: file.filename ?? "File")
+	}
+
+	private static func isRegularFile(_ path: String) -> Bool {
+		do {
+			let attributes = try FileManager.default.attributesOfItem(atPath: path)
+			return attributes[.type] as? FileAttributeType == .typeRegular
+		} catch { return false }
+	}
+
 	public func download(_ file: FileDescriptor) async throws
 		-> VerifiedFile
 	{
-		do { let result = try await client.attachments().download(remote: sdkFile(file))
+		do { let result = try await attachments.download(remote: sdkFile(file))
 			return VerifiedFile(
 				url: URL(fileURLWithPath: result.path),
 				mimeType: result.mimeType,
@@ -92,7 +132,7 @@ public final class SDKAttachmentGateway: AttachmentGateway, Sendable {
 	}
 
 	public func discard(_ file: FileDescriptor) async throws {
-		do { try await client.attachments().deleteLocal(remote: sdkFile(file)) } catch { throw mapped(error) }
+		do { try await attachments.deleteLocal(remote: sdkFile(file)) } catch { throw mapped(error) }
 	}
 
 	private func mapped(_ error: any Error) -> any Error {

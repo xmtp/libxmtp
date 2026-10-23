@@ -85,6 +85,13 @@ import Testing
 @MainActor final class AttachmentGatewayFake: AttachmentGateway {
 	var downloadHook: (() async throws -> Void)?
 	var downloads = 0
+	var local: VerifiedFile?
+	var localHook: (() async throws -> Void)?
+	func localFile(_: FileDescriptor) async throws -> VerifiedFile? {
+		try await localHook?()
+		return local
+	}
+
 	var uploads = 0
 	var discardHook: (() async throws -> Void)?
 	var uploadHook: (() async throws -> Void)?
@@ -327,13 +334,13 @@ extension SendCoordinatorTests {
 		#expect(fixture.queries.queues == 0); #expect(fixture.queries.publications == 0)
 	}
 
-	@Test func evictedVerifiedFileBecomesDownloadableAgain() async {
+	@Test func verifiedFilesRemainAvailableAfterMoreThanSixteenDownloads() async {
 		let fixture = AttachmentFixture()
 		for index in 0 ..< 17 {
 			fixture.store.send(.download(String(index), fixture.file)); await fixture.store.wait()
 		}
-		#expect(fixture.store.verified.get("0") == nil)
-		#expect(fixture.store.state.cards["0"]?.phase == .available)
+		#expect(fixture.store.verified.get("0") != nil)
+		#expect(fixture.store.state.cards["0"]?.phase == .verified)
 		#expect(fixture.store.state.cards["16"]?.phase == .verified)
 	}
 

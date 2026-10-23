@@ -1,5 +1,24 @@
 import Foundation
 
+public struct AttachmentState: Equatable, Sendable {
+	public var limit: UInt64?
+	public var drafts: [FileDraft] = []
+	public var cards: [String: FileCard] =
+		[:]
+	public var error: String?
+	public var busy = false
+}
+
+public enum AttachmentAction: Sendable {
+	case load
+	case stage(URL, String)
+	case send(UUID)
+	case discard(UUID)
+	case assign(UUID, String)
+	case download(String, FileDescriptor)
+	case restore(String, FileDescriptor, own: Bool)
+}
+
 /// Persist only in encrypted preferences. Views display FileCard, which carries no keys or URL.
 public struct FileDescriptor: Codable, Equatable, Sendable {
 	public var url: String
@@ -127,40 +146,33 @@ public protocol AttachmentGateway: Sendable {
 	func create(file: URL, filename: String) async throws -> FileDescriptor
 	func pending() async throws -> [FileDescriptor]
 	func upload(_ file: FileDescriptor) async throws -> FilePhase
+	func localFile(_ file: FileDescriptor) async throws -> VerifiedFile?
 	func download(_ file: FileDescriptor) async throws -> VerifiedFile
 	func discard(_ file: FileDescriptor) async throws
 }
 
+/// Holds file references for the destination. Decoded images have a separate memory budget.
 @MainActor public final class VerifiedFileCache {
 	private var entries: [String: VerifiedFile] = [:]
-	private var order: [String] = []
 	public init() {}
 	public func get(_ id: String) -> VerifiedFile? {
-		guard let value = entries[id]
-		else { return nil }
-		touch(id)
-		return value
+		entries[id]
 	}
 
-	@discardableResult public func put(_ id: String, file: VerifiedFile) -> [String] {
-		var evicted: [String] = []
+	public func put(_ id: String, file: VerifiedFile) {
 		entries[id] = file
-		touch(id)
-		while order.count > 16 {
-			let removed = order.removeFirst()
-			entries.removeValue(forKey: removed)
-			evicted.append(removed)
-		}
-		return evicted
 	}
 
 	public func clear() {
 		entries.removeAll()
-		order.removeAll()
 	}
+}
 
-	private func touch(_ id: String) {
-		order.removeAll { $0 == id }
-		order.append(id)
+extension AttachmentAction {
+	var downloadID: String? {
+		switch self {
+		case let .download(id, _), let .restore(id, _, _): id
+		default: nil
+		}
 	}
 }

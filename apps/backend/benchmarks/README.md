@@ -44,13 +44,21 @@ upstream shared MLS validation tightening is retained. The high-cardinality
 results measure current 33-byte topics from `d0b02d3cf`, with both controls and
 experiments on that revision. They are not a remeasurement of the old matrices.
 
+Main advanced to `1e2717499` during the measurement. Resolving the instruction-guide
+conflict retains its shorter `AGENTS.md` and links benchmark procedures here.
+Backend source, migrations, indexes, queries, and configuration remain unchanged
+upstream; the newer shared MLS send-selection fix does not affect this
+admitted-storage benchmark. Recorded measurements retain their original source.
+
 ## Run
 
 Use a **dedicated PostgreSQL 17+ instance** with no other workloads. The admin
 role needs `CREATEDB` and permission to run `CHECKPOINT`. The supplied URL is
 only used to create and remove uniquely named disposable databases. Existing
 databases are never truncated, migrated, or dropped. Fixture cleanup also runs
-on errors and panics. Allow roughly 40 GB for the largest corpus, its temporary
+on errors and panics. Write trials copy a disconnected fixture with a separate
+600-second copy budget; ordinary creation and cleanup retain five-second deadlines.
+Allow roughly 40 GB for the largest baseline corpus, its temporary
 write-trial copy, and WAL, plus build artifacts; actual needs depend on settings.
 
 From the repository root:

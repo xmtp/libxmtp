@@ -3,7 +3,8 @@
 ## Client: `xmtp_db`
 
 Diesel over encrypted SQLite. No `sqlx`, no Postgres in a client crate or below
-`xmtp_mls`. Model traits, migrations, and errors: `crates/xmtp_db/AGENTS.md`.
+`xmtp_mls`. Migrations, storage encoding, and lifecycle rules:
+[storage development](../../../crates/xmtp_db/DEVELOPMENT.md).
 
 ### Transactions
 

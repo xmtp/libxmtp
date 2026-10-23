@@ -2,7 +2,7 @@
 
 The public package is `uniffi.xmtp_sdk`. `sdks/android/dev/bindings` stages matched
 generated sources and `libxmtp_sdk.so` from the new Android Nix outputs. Run it
-through `dev/nix-shell` from the repository root. See the SDK [rules](../../../../AGENTS.md)
+through `dev/nix-shell` from the repository root. See the SDK [procedures](../../../../DEVELOPMENT.md)
 for commands and the [guide](../../../../README.md) for public API use.
 
 The maintained main Kotlin files add Context storage and process lifecycle
