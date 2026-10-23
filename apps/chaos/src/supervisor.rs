@@ -769,6 +769,7 @@ async fn run_rounds(s: &Arc<Supervisor>, args: &RunArgs, seed: u64) -> Result<i3
             schedule.faults.clear();
             sleep(Duration::from_millis(ROLL_POLL_MS)).await;
         }
+        validate_workload(&schedule, recovering)?;
         s.record("schedule", serde_json::to_value(&schedule)?)?;
         s.ledger.lock().expect("ledger mutex").write_status(
             &json!({"seed":seed,"round":round,"phase":if recovering { "recovery" } else { "chaos" },"schedule":schedule}),
@@ -910,6 +911,28 @@ async fn run_rounds(s: &Arc<Supervisor>, args: &RunArgs, seed: u64) -> Result<i3
     }
 }
 
+fn validate_workload(schedule: &crate::schedule::RoundSchedule, recovering: bool) -> Result<()> {
+    let has_group_writes = schedule
+        .bursts
+        .iter()
+        .flat_map(|burst| &burst.operations)
+        .any(|scheduled| {
+            !matches!(
+                scheduled.operation,
+                Operation::Sync { .. }
+                    | Operation::SyncAll
+                    | Operation::RestartStream
+                    | Operation::NewInstallation { .. }
+                    | Operation::Consent { .. }
+            )
+        });
+    ensure!(
+        recovering || has_group_writes,
+        "Chaos workload has no group writes and cannot restore an active multi-inbox group"
+    );
+    Ok(())
+}
+
 fn fault_selected(selection: &str, kind: &str) -> bool {
     selection.split(',').any(|part| match part {
         "all" => true,
@@ -958,4 +981,43 @@ pub(crate) fn newest(path: &Path) -> PathBuf {
         })
         .max_by_key(|entry| entry.file_name())
         .map_or_else(|| path.to_owned(), |entry| entry.path())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::schedule::{Burst, RoundSchedule, ScheduledOperation};
+
+    fn workload(operations: Vec<Operation>) -> RoundSchedule {
+        RoundSchedule {
+            bursts: vec![Burst {
+                recipe: "mixed_operations".into(),
+                operations: operations
+                    .into_iter()
+                    .map(|operation| ScheduledOperation {
+                        instance: 0,
+                        operation,
+                    })
+                    .collect(),
+            }],
+            faults: Vec::new(),
+        }
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn sync_only_workload_is_not_a_chaos_pass() {
+        let mut operations = vec![Operation::SyncAll; crate::schedule::OPERATIONS_PER_ROUND - 1];
+        operations.push(Operation::RestartStream);
+        assert!(validate_workload(&workload(operations), false).is_err());
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn recovery_and_membership_repair_are_valid_workloads() {
+        assert!(validate_workload(&workload(Vec::new()), true).is_ok());
+        let repair = workload(vec![Operation::Add {
+            group: "existing".into(),
+            inbox: "available-member".into(),
+        }]);
+        assert!(validate_workload(&repair, false).is_ok());
+    }
 }
