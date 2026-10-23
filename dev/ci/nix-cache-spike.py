@@ -55,8 +55,12 @@ GROUPS = {
         "android": ("shell-android", "android-sdk-libs-fast"),
         "js-sdks": ("xmtp-sdk-generated-node", "xmtp-sdk-generated-browser"),
         "services": ("services-test", "backend-image-aarch64-unknown-linux-musl"),
-        "apple-fast": ("ios-xcframeworks-fast",),
-        "apple-release": ("ios-xcframeworks", "xmtp-sdk-node-darwin-arm64"),
+        # Fast packages a subset of release's slices; share their compilation.
+        "apple": (
+            "ios-xcframeworks-fast",
+            "ios-xcframeworks",
+            "xmtp-sdk-node-darwin-arm64",
+        ),
     },
 }
 
