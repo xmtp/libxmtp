@@ -1,6 +1,9 @@
 # High-cardinality topics and independent client cursors
 
-**Status: implemented; matched release measurements pending.** Authorized by the
+**Status: implemented and measured at 10M/30M envelopes across 1M topics.**
+See [findings, complete cohort scope, and artifacts](HIGH-CARDINALITY-RESULTS.md).
+The 10M cohort survived an interruption; the separate 30M retry completed fully.
+Authorized by the
 October 23, 2026 follow-up after rebasing onto main `c50668ac1`. All changes are
 benchmark/test-only; no production schema, query, or API guarantee changes.
 

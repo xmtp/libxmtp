@@ -3,6 +3,10 @@
 The [high-cardinality experiment](HIGH-CARDINALITY.md) tests one million stored
 topics, small client subsets, independent cursor ages, and frontier-bounded
 candidate merging against the unchanged production and watermark queries.
+The [measured 10M/30M findings](HIGH-CARDINALITY-RESULTS.md) favor existing
+per-topic probes for recent/mixed clients; frontier's historical-read gains
+come with overhead and tail regressions. This is not a blanket adaptive-paging
+rollout recommendation.
 
 See the [unpartitioned baseline](BASELINE.md) and
 [measured schema comparison](RESULTS.md) for results and interpretation.
@@ -27,12 +31,18 @@ configuration and generates current **33-byte group topics** in both SQL seeds
 and Rust requests. Its opaque synthetic payloads still exercise admitted storage,
 not RPC admission, signature verification, or end-to-end publishing.
 
-The committed baseline and comparison CSVs remain historical measurements of
+The October 20–22 baseline and comparison CSVs remain historical measurements of
 their documented source revisions, using **17-byte group topics** before the
 cutover. They have not been remeasured on `main`; wider topic keys can change
 index size and performance. New comparisons must measure both control and
 experimental variants on the current revision with the same topic width. Do not
 treat the historical insert rates as current signed-publish throughput.
+
+The branch was rebased again onto main `c50668ac1` on October 23, 2026. No backend
+storage/schema/index/query/config changes landed between those main bases;
+upstream shared MLS validation tightening is retained. The high-cardinality
+results measure current 33-byte topics from `d0b02d3cf`, with both controls and
+experiments on that revision. They are not a remeasurement of the old matrices.
 
 ## Run
 

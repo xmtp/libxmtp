@@ -1,5 +1,12 @@
 # Tens-of-millions experiment results
 
+**Scope update:** the [October 23 high-cardinality follow-up](HIGH-CARDINALITY-RESULTS.md)
+now tests 1M stored topics and independent per-topic cursors at 10M/30M envelopes.
+The production per-topic query wins on that recent/mixed client workload;
+frontier merging helps some historical reads but worsens tails. The results
+below remain the earlier dense/uniform-cursor experiment, not a general client
+paging recommendation.
+
 **The strongest measured improvement is a query fast path, not partitioning or
 a covering index.** On the original unpartitioned indexes, broad uniform-cursor
 reads improve at both 10M and 30M envelopes. At 30M, 1,000-topic recent-hit p50
