@@ -254,6 +254,10 @@ impl<'a> Committable<'a> {
     /// Remove of one component, or two super-admin removals that leave
     /// none. Every member rejects a commit that carries them.
     ///
+    /// Each kept prefix is a commit receivers accept, so a proposal is
+    /// judged without looking ahead: a later proposal that would repair it
+    /// may itself be omitted, and the intent's own operations follow.
+    ///
     /// No client proposes a leaf Update, and receivers check only its
     /// credential, so a commit never carries one: the commit builder would
     /// refuse a leaf it cannot use.
@@ -482,12 +486,12 @@ pub(crate) fn stage_app_data_proposals_and_commit<Provider: OpenMlsProvider>(
     // pending proposals. This helper queues a new `AppDataUpdate` then
     // commits via `consume_proposal_store(true)`, sweeping whatever
     // else is in the store — concurrent `AppDataUpdate`s (accumulated
-    // into the dict by step 2), leaf-node `Update`s, membership
-    // `Add` / `Remove` / `SelfRemove`, PSK, etc. — all into one
-    // commit. That's the design: minimize commit count, let the
-    // producers of those proposals decide if they need to force their
-    // own commit (because they want to send a message right now or
-    // grant access immediately). MLS guarantees consistent state
+    // into the dict by step 2), membership `Add` / `Remove`, etc. — all
+    // into one commit, less what `omit_uncommittable_proposals` omitted.
+    // That's the design: minimize commit count, let the producers of
+    // those proposals decide if they need to force their own commit
+    // (because they want to send a message right now or grant access
+    // immediately). MLS guarantees consistent state
     // convergence on the wire regardless of which commit body carries
     // which proposal; the sender's intent ledger may carry less
     // information than the on-wire commit, but the producer of each

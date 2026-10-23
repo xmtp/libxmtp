@@ -542,7 +542,7 @@ pub(super) fn omit_uncommittable_proposals(
     let omitted = group.pending_proposals().count() - kept.len();
     if omitted > 0 {
         tracing::warn!(
-            group_id = hex::encode(group.group_id().as_slice()),
+            group_id = group.group_id().as_slice().short_hex(),
             omitted,
             "omitting pending proposals no commit can carry; they expire with the epoch"
         );
