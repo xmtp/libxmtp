@@ -559,34 +559,35 @@ where
             {
                 return self.retain_unreadable_welcome(&pending, error, "welcome_blocked");
             }
-            // Legacy blocked rows do not identify why processing stopped. Keep
-            // their classification until the pointee can be retried: neither an
-            // old fetch deadline nor a guessed unreadable deadline may reject it.
-            Err(GroupError::WelcomeDataNotFound(_))
-                if pending.error_code.as_deref() == Some("welcome_blocked") =>
-            {
-                self.defer_pending(&pending, "welcome_blocked", true, None)?;
-                return Ok(WelcomeHeadOutcome::Waiting {
-                    cursor,
-                    code: "welcome_blocked".into(),
-                    blocked: true,
+            Err(error @ GroupError::WelcomeDataNotFound(_)) => {
+                let deadline = pending.retry_expires_at_ns.unwrap_or_else(|| {
+                    welcome
+                        .timestamp()
+                        .saturating_add(WELCOME_POINTER_RETENTION_NS)
                 });
-            }
-            Err(GroupError::WelcomeDataNotFound(_)) => {
-                self.defer_pending(
-                    &pending,
-                    "welcome_pointee",
-                    false,
-                    Some(
-                        welcome
-                            .timestamp()
-                            .saturating_add(WELCOME_POINTER_RETENTION_NS),
-                    ),
-                )?;
+                // A legacy blocked row gets a real fetch before its cutoff is
+                // applied. Missing data still obeys the fixed pointer deadline.
+                // implements: JOIN-079
+                if deadline <= xmtp_common::time::now_ns() {
+                    self.complete_rejected_pending(&pending, "welcome_pointer_expired")?;
+                    return Ok(WelcomeHeadOutcome::Progress {
+                        cursor,
+                        result: Err(error),
+                    });
+                }
+                // Preserve the legacy classification so its next attempt can
+                // fetch and reclassify the pointee, even past the cutoff.
+                let blocked = pending.error_code.as_deref() == Some("welcome_blocked");
+                let code = if blocked {
+                    "welcome_blocked"
+                } else {
+                    "welcome_pointee"
+                };
+                self.defer_pending(&pending, code, blocked, Some(deadline))?;
                 return Ok(WelcomeHeadOutcome::Waiting {
                     cursor,
-                    code: "welcome_pointee".into(),
-                    blocked: false,
+                    code: code.into(),
+                    blocked,
                 });
             }
             Err(error) => return self.classify_pending_result(&pending, Err(error)),
@@ -1482,13 +1483,22 @@ mod tests {
         assert!(db.read_last_rejection(&service.topic()).unwrap().is_none());
     }
 
-    /// Legacy blocked pointers have no unreadable deadline and may represent
-    /// either unreadable input or a local failure. A missing re-fetch must keep
-    /// that classification until the pointee can be retried, even after its old
-    /// fetch deadline, so a recoverable join is not discarded during upgrade.
-    // verifies: JOIN-077, JOIN-063
+    /// Legacy blocked pointers retain their classification while re-fetches
+    /// miss, but the fixed pointer deadline still bounds missing data. At the
+    /// cutoff, a real fetch can recover the join; a miss must release the row.
+    /// Missing legacy deadlines use the pointer timestamp, never the retry time.
+    // verifies: JOIN-079, JOIN-063, JOIN-035
+    #[rstest]
+    #[case::recovered(false)]
+    #[case::still_missing(true)]
     #[xmtp_common::test(unwrap_try = true)]
-    async fn legacy_blocked_pointer_survives_missing_refetch() {
+    async fn legacy_blocked_pointer_has_bounded_refetches(
+        #[case] remains_missing: bool,
+        #[values(false, true)] stored_deadline: bool,
+    ) {
+        use diesel::{ExpressionMethods, QueryDsl, RunQueryDsl};
+        use xmtp_db::{ConnectionExt, schema::incoming_envelopes};
+
         tester!(alix, disable_workers);
         tester!(bo, disable_workers);
         tester!(_bo2, from: bo, disable_workers);
@@ -1512,6 +1522,11 @@ mod tests {
             .unwrap();
         let service = WelcomeService::new(bo.context.clone());
         let db = bo.context.db();
+        let deadline = if stored_deadline {
+            xmtp_common::time::now_ns() + xmtp_common::NS_IN_HOUR
+        } else {
+            welcome.timestamp() + WELCOME_POINTER_RETENTION_NS
+        };
         db.set_incoming_retry(
             &service.topic(),
             welcome.cursor,
@@ -1519,7 +1534,7 @@ mod tests {
                 retry_at_ns: 0,
                 blocked: true,
                 error_code: Some("welcome_blocked".into()),
-                retry_expires_at_ns: Some(1),
+                retry_expires_at_ns: stored_deadline.then_some(deadline),
             },
         )
         .unwrap();
@@ -1563,14 +1578,53 @@ mod tests {
                 .unwrap();
             assert!(pending.blocked);
             assert_eq!(pending.error_code.as_deref(), Some("welcome_blocked"));
-            assert_eq!(pending.retry_expires_at_ns, Some(1));
+            assert_eq!(pending.retry_expires_at_ns, Some(deadline));
             assert_eq!(pending.unreadable_expires_at_ns, None);
             assert!(db.read_last_rejection(&service.topic()).unwrap().is_none());
             assert!(db.find_group(&group.group_id).unwrap().is_none());
         }
 
-        // Once the backend recovers, classify the actual Welcome again. A
-        // readable Welcome must still join despite the stale fetch deadline.
+        db.raw_query(|conn| {
+            diesel::update(incoming_envelopes::table.find((
+                bo.context.installation_id().to_vec(),
+                EntityKind::Welcome,
+                welcome.cursor.0 as i64,
+            )))
+            .set(incoming_envelopes::retry_expires_at_ns.eq(Some(1i64)))
+            .execute(conn)
+        })
+        .unwrap();
+        assert!(matches!(
+            service.retry_pending_welcome(welcome.cursor, None).unwrap(),
+            WelcomeHeadOutcome::Need { .. }
+        ));
+
+        if remains_missing {
+            let service = WelcomeService::new(missing_client.context.clone());
+            assert!(matches!(
+                service
+                    .resolve_pending_welcome(welcome.cursor)
+                    .await
+                    .unwrap(),
+                WelcomeHeadOutcome::Progress {
+                    result: Err(GroupError::WelcomeDataNotFound(_)),
+                    ..
+                }
+            ));
+            assert!(!db.has_pending_welcomes().unwrap());
+            assert!(db.find_group(&group.group_id).unwrap().is_none());
+            assert_eq!(
+                db.read_last_rejection(&service.topic())
+                    .unwrap()
+                    .unwrap()
+                    .code,
+                "welcome_pointer_expired"
+            );
+            return;
+        }
+
+        // Even past the fetch deadline, try a legacy blocked pointer before
+        // rejecting it: it may now be readable after an upgrade or recovery.
         assert!(matches!(
             service
                 .resolve_pending_welcome(welcome.cursor)
