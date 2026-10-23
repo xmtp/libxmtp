@@ -239,7 +239,7 @@ A refresh is built from the membership at one moment and published later, after 
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
 | GMOD-029 | Members repair changed identity state | When a membership refresh for an active group resolves an inbox's identity state at a sequence id greater than its membership entry's, the client MUST publish a membership change that raises the entry to that sequence id and makes the expected additions and removals under sections 2 and 3. | A new device cannot add itself, and a revoked one keeps reading until a member removes it. |
-| GMOD-045 | A refresh never inserts an inbox | When a client publishes a membership change, it MUST insert into `GROUP_MEMBERSHIP` only an inbox that the app asked to add, and MUST NOT insert an inbox for which the change carries only a refresh under GMOD-029. | A refresh built before a commit removed an inbox would undo that removal. |
+| GMOD-045 | A refresh never inserts an inbox | When a client publishes a membership change that records which of its entries are refreshes under GMOD-029, it MUST NOT insert into `GROUP_MEMBERSHIP` an inbox whose entry the change records as a refresh. | A refresh built before a commit removed an inbox would undo that removal. |
 
 ## 7. Leaving a group
 
