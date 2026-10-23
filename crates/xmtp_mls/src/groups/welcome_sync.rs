@@ -559,6 +559,19 @@ where
             {
                 return self.retain_unreadable_welcome(&pending, error, "welcome_blocked");
             }
+            // Legacy blocked rows do not identify why processing stopped. Keep
+            // their classification until the pointee can be retried: neither an
+            // old fetch deadline nor a guessed unreadable deadline may reject it.
+            Err(GroupError::WelcomeDataNotFound(_))
+                if pending.error_code.as_deref() == Some("welcome_blocked") =>
+            {
+                self.defer_pending(&pending, "welcome_blocked", true, None)?;
+                return Ok(WelcomeHeadOutcome::Waiting {
+                    cursor,
+                    code: "welcome_blocked".into(),
+                    blocked: true,
+                });
+            }
             Err(GroupError::WelcomeDataNotFound(_)) => {
                 self.defer_pending(
                     &pending,
@@ -1466,6 +1479,110 @@ mod tests {
         ));
         assert!(db.find_group(&group.group_id).unwrap().is_some());
         assert!(!db.has_pending_welcomes().unwrap());
+        assert!(db.read_last_rejection(&service.topic()).unwrap().is_none());
+    }
+
+    /// Legacy blocked pointers have no unreadable deadline and may represent
+    /// either unreadable input or a local failure. A missing re-fetch must keep
+    /// that classification until the pointee can be retried, even after its old
+    /// fetch deadline, so a recoverable join is not discarded during upgrade.
+    // verifies: JOIN-077, JOIN-063
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn legacy_blocked_pointer_survives_missing_refetch() {
+        tester!(alix, disable_workers);
+        tester!(bo, disable_workers);
+        tester!(bo2, from: bo, disable_workers);
+        tester!(bo3, from: bo, disable_workers);
+        let group = alix.create_group(None, None).unwrap();
+        group.invite(&bo).await.unwrap();
+        let welcome = bo
+            .context
+            .api()
+            .query_welcome_messages(bo.context.installation_id())
+            .await
+            .unwrap()
+            .pop()
+            .unwrap();
+        assert!(matches!(
+            welcome.variant,
+            xmtp_proto::types::WelcomeMessageType::WelcomePointer(_)
+        ));
+        pending_welcome_for_test(&bo.context, &welcome)
+            .await
+            .unwrap();
+        let service = WelcomeService::new(bo.context.clone());
+        let db = bo.context.db();
+        db.set_incoming_retry(
+            &service.topic(),
+            welcome.cursor,
+            &IncomingRetry {
+                retry_at_ns: 0,
+                blocked: true,
+                error_code: Some("welcome_blocked".into()),
+                retry_expires_at_ns: Some(1),
+            },
+        )
+        .unwrap();
+
+        // Preserve the real pointer and keys while simulating a replica that
+        // temporarily cannot return a pointee the old client had already read.
+        let mut api = xmtp_api_backend::MockBackendClient::new();
+        api.expect_query().returning(|_| {
+            Ok(xmtp_proto::backend_v1::QueryResponse {
+                envelopes: vec![],
+                continuation: Some(xmtp_proto::backend_v1::Continuation { has_more: false }),
+            })
+        });
+        let missing_client = crate::builder::ClientBuilder::from_client(bo.client.clone())
+            .api_client(std::sync::Arc::new(api))
+            .config_provider(std::sync::Arc::new(
+                xmtp_configuration::StaticConfigProvider::default(),
+            ))
+            .with_allow_offline(Some(true))
+            .with_disable_workers(true)
+            .build()
+            .await
+            .unwrap();
+        for _ in 0..2 {
+            let missing_service = WelcomeService::new(missing_client.context.clone());
+            assert!(matches!(
+                missing_service
+                    .retry_blocked_welcomes_after(Cursor(0))
+                    .unwrap()
+                    .as_slice(),
+                [WelcomeHeadOutcome::Need { .. }]
+            ));
+            assert!(matches!(
+                missing_service.resolve_pending_welcome(welcome.cursor).await.unwrap(),
+                WelcomeHeadOutcome::Waiting { blocked: true, code, .. }
+                    if code == "welcome_blocked"
+            ));
+            let pending = db
+                .pending_envelope(&service.topic(), welcome.cursor)
+                .unwrap()
+                .unwrap();
+            assert!(pending.blocked);
+            assert_eq!(pending.error_code.as_deref(), Some("welcome_blocked"));
+            assert_eq!(pending.retry_expires_at_ns, Some(1));
+            assert_eq!(pending.unreadable_expires_at_ns, None);
+            assert!(db.read_last_rejection(&service.topic()).unwrap().is_none());
+            assert!(db.find_group(&group.group_id).unwrap().is_none());
+        }
+
+        // Once the backend recovers, classify the actual Welcome again. A
+        // readable Welcome must still join despite the stale fetch deadline.
+        assert!(matches!(
+            service
+                .resolve_pending_welcome(welcome.cursor)
+                .await
+                .unwrap(),
+            WelcomeHeadOutcome::Progress {
+                result: Ok(Some(_)),
+                ..
+            }
+        ));
+        assert!(!db.has_pending_welcomes().unwrap());
+        assert!(db.find_group(&group.group_id).unwrap().is_some());
         assert!(db.read_last_rejection(&service.topic()).unwrap().is_none());
     }
 
