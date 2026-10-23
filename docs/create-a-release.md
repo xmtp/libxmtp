@@ -51,10 +51,29 @@ is still unused. This change does not republish or retag rc4.
 The workflow freezes the source SHA and one complete SDK version in
 `sdk-release-plan`. Every builder materializes that version into Cargo and SDK
 metadata before compilation, so native runtime versions agree with their
-package versions. All six SDKs build and pass their package/installed-consumer
-checks before any SDK publisher starts. Dry runs exercise the mobile jobs too;
-they publish no packages, GitHub releases, or remote tags and send no notification.
+package versions. Every selected SDK builds and passes its package and
+installed-consumer checks before any selected SDK publisher starts. RC and
+final SDK releases select all six with `sdks=true`. For dev releases, select `sdks=true` for all
+SDKs or leave it false and select individual SDKs. Dry runs exercise selected
+mobile jobs too; they publish no packages, GitHub releases, or remote tags and
+send no notification.
 They do not prove registry authorization.
+
+For example, release only Android from `main`:
+
+```sh
+gh workflow run release.yml \
+  --ref main \
+  -f ref=main \
+  -f release-type=dev \
+  -f android=true
+```
+
+`sdks` and the individual SDK selectors default to false. The individual
+selectors (`ios`, `android`, `node-sdk`, `browser-sdk`, `agent-sdk`, and
+`react-native-sdk`) are dev-only. Selecting Agent also selects Node so its
+exact dependency is available. A single-SDK dry run builds and checks only
+that selection; pass `dry-run=true` to skip publication.
 
 | Kind | Published SDK version | npm channel |
 | --- | --- | --- |
@@ -91,7 +110,7 @@ and APKs must match byte for byte and are never overwritten.
 
 Do not change the source or RC number during a retry. Changed source needs a
 new candidate version. Do not re-run all jobs to mint another dev timestamp
-and call it a retry. A release completes only when every SDK destination
+and call it a retry. A release completes only when every selected SDK destination
 succeeds. If retained artifacts expire, investigate the existing publications
 before attempting another release of that version; prefer a new candidate.
 
@@ -114,8 +133,8 @@ cannot replace each other's binaries.
 
 ## Backend and CLI
 
-Select `sdks=false` for a backend-only or CLI-only run. Backend RC/final labels
-come from `release/<version>`, independent of Cargo's embedded build identifier.
+Leave every SDK selector false for a backend-only or CLI-only run. Backend
+RC/final labels come from `release/<version>`, independent of Cargo's embedded build identifier.
 For example, the backend RC uses `backend-8.0.0-rc5` and
 `ghcr.io/xmtp/backend:8.0.0-rc5`. The release builds Linux amd64 and arm64 images
 from the pinned source and verifies their attestations before publication.

@@ -13,8 +13,12 @@ Resolve the requested ref before SDK code runs. All SDK jobs use that fixed
 source SHA for checkout, build, and tag checks. `release.yml` freezes the
 source and one complete SDK version in `validate`, retaining `sdk-release-plan`.
 Every SDK build materializes that plan into Cargo, Cargo.lock, and SDK metadata
-before compilation. All six builds and installed-consumer checks must pass
-before SDK publication. The npm publishers publish the retained tarballs.
+before compilation. Dev releases may select individual SDKs; selecting Agent
+also selects its matching Node release. RC and final SDK releases select all
+six through `sdks=true`. Every selected build and installed-consumer check must
+pass before any selected SDK publishes. Gates require success for selected
+SDKs and allow unselected jobs to be skipped. The npm publishers publish the
+retained tarballs.
 Node platform builds and assembly commit the materialized metadata in a local
 snapshot so Windows cache keys and provenance cover the compiled version.
 The frozen release plan still names the original source commit.

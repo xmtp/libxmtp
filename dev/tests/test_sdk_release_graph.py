@@ -21,15 +21,20 @@ class ReleaseGraphTest(unittest.TestCase):
             "jobs"
         ]
         self.assertEqual(
-            set(jobs["sdk-ready"]["needs"]), {"build-" + sdk for sdk in SDKS}
+            set(jobs["sdk-ready"]["needs"]),
+            {"validate", *["build-" + sdk for sdk in SDKS]},
         )
         self.assertEqual(
-            set(jobs["sdk-complete"]["needs"]), {"release-" + sdk for sdk in SDKS}
+            set(jobs["sdk-complete"]["needs"]),
+            {"validate", *["release-" + sdk for sdk in SDKS]},
         )
         for sdk in SDKS:
             with self.subTest(sdk=sdk):
                 self.assertIn("sdk-ready", jobs["release-" + sdk]["needs"])
-                self.assertIn("inputs.dry-run != true", jobs["release-" + sdk]["if"])
+                self.assertIn(
+                    "needs.validate.outputs.dry-run != 'true'",
+                    jobs["release-" + sdk]["if"],
+                )
                 self.assertTrue(jobs["build-" + sdk]["with"]["dry-run"])
                 self.assertTrue(jobs["build-" + sdk]["with"]["build-only"])
                 if sdk not in ("ios", "android"):
