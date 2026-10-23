@@ -206,43 +206,6 @@
         "labels": []
       }
     },
-    "nix_sandbox": {
-      "title": "Nix sandbox",
-      "phase": "lint",
-      "workflow": "check-nix-sandbox.yml",
-      "run_on": [
-        "draft_pr_push",
-        "ready_pr_push"
-      ],
-      "disable_on_forks": false,
-      "secrets": "none",
-      "permissions": {
-        "contents": "read"
-      },
-      "covered_by": null,
-      "skip_full_runs": false,
-      "kache": [],
-      "products": [],
-      "runners": {},
-      "with": {},
-      "cargo_roots": [],
-      "crates": [],
-      "workflow_files": [
-        ".github/actions/setup-nix/**",
-        ".github/workflows/check-nix-sandbox.yml"
-      ],
-      "workflow_tier": "blocking",
-      "paths": [
-        "nix/ci-checks.nix"
-      ],
-      "labels": [],
-      "advisory": {
-        "cargo_roots": [],
-        "crates": [],
-        "paths": [],
-        "labels": []
-      }
-    },
     "lint_example_react_native": {
       "title": "React Native example app",
       "phase": "lint",

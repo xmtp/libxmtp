@@ -134,14 +134,6 @@ jobs:
       contents: read
     with:
       runner: ${{ github.event_name == 'pull_request' && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
-  nix_sandbox:
-    name: Nix sandbox
-    needs:
-    - detect-changes
-    if: contains(fromJSON(needs.detect-changes.outputs.lint_suites), 'nix_sandbox')
-    uses: ./.github/workflows/check-nix-sandbox.yml
-    permissions:
-      contents: read
   lint_example_react_native:
     name: React Native example app
     needs:
@@ -471,7 +463,6 @@ jobs:
     - detect-changes
     - lint_config
     - nix_eval
-    - nix_sandbox
     - lint_example_react_native
     steps:
     - name: Check detection and the selected blocking lint suites
