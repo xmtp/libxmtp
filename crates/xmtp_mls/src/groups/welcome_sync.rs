@@ -371,6 +371,7 @@ where
         self.classify_pending_result(&pending, result)
     }
 
+    // implements: JOIN-084, JOIN-085
     fn classify_pending_result(
         &self,
         pending: &StoredIncomingEnvelope,
@@ -531,6 +532,7 @@ where
     }
 
     /// Resolve one Welcome's dependencies. Group-prefix work stays with the coordinator.
+    // implements: JOIN-086
     pub(crate) async fn resolve_pending_welcome(
         &self,
         cursor: Cursor,
@@ -568,7 +570,6 @@ where
                 });
                 // A legacy blocked row gets a real fetch before its cutoff is
                 // applied. Missing data still obeys the fixed pointer deadline.
-                // implements: JOIN-079
                 if deadline <= xmtp_common::time::now_ns() {
                     self.complete_rejected_pending(&pending, "welcome_pointer_expired")?;
                     return Ok(WelcomeHeadOutcome::Progress {
@@ -1072,7 +1073,7 @@ mod tests {
 
     /// Unreadable input must expire without extending its deadline, including
     /// legacy blocked rows. Expiry releases admission and key retirement.
-    // verifies: JOIN-077, JOIN-063
+    // verifies: JOIN-077, JOIN-084, JOIN-063
     #[rstest]
     #[case::wrapper(UnreadableWelcome::Wrapper)]
     #[case::mls_version(UnreadableWelcome::MlsVersion)]
@@ -1299,6 +1300,7 @@ mod tests {
 
     /// Only unreadable MLS formats and missing Welcome key material get this
     /// deadline; local failures and required group versions keep their policy.
+    // verifies: JOIN-084, JOIN-085
     #[rstest]
     #[case::mls_version(|| openmls::prelude::WelcomeError::UnsupportedMlsVersion.into(), true)]
     #[case::extensions(|| openmls::prelude::WelcomeError::UnsupportedExtensions.into(), true)]
@@ -1389,18 +1391,19 @@ mod tests {
         }
     }
 
-    /// Gaining support is the recovery this retention window exists to allow.
-    /// A deadline written while the wrapper was unreadable must never delete a
-    /// Welcome that the client can now process, even past the deadline.
+    /// Gaining format support or restoring a missing key package must permit
+    /// the final attempt to join, even after the unreadable deadline expires.
+    // verifies: JOIN-077, JOIN-084
     #[rstest]
     #[case::wrapper("unsupported_welcome")]
-    #[case::mls_or_key("welcome_blocked")]
+    #[case::missing_key("welcome_blocked")]
     #[xmtp_common::test(unwrap_try = true)]
     async fn an_expired_unsupported_welcome_still_installs_once_it_is_supported(
         #[case] code: &'static str,
         #[values(false, true)] pointer: bool,
     ) {
         use diesel::{ExpressionMethods, QueryDsl, RunQueryDsl};
+        use openmls_traits::storage::StorageProvider;
         use xmtp_db::ConnectionExt;
         use xmtp_db::schema::incoming_envelopes;
 
@@ -1437,9 +1440,39 @@ mod tests {
         let service = WelcomeService::new(bo.context.clone());
         let db = bo.context.db();
 
-        // The row carries an elapsed unsupported deadline, exactly as a build
-        // that could not read the wrapper would have written it, but its bytes
-        // are readable by this build — the post-upgrade state.
+        let missing_key = if code == "welcome_blocked" {
+            let history = db
+                .find_key_package_history_entries_before_id(i32::MAX)
+                .unwrap()
+                .pop()
+                .unwrap();
+            let hash_ref =
+                crate::identity::deserialize_key_package_hash_ref(&history.key_package_hash_ref)
+                    .unwrap();
+            let storage = bo.context.mls_storage();
+            let bundle: openmls::prelude::KeyPackageBundle =
+                storage.key_package(&hash_ref).unwrap().unwrap();
+            storage.delete_key_package(&hash_ref).unwrap();
+            assert!(matches!(
+                service.resolve_pending_welcome(cursor).await.unwrap(),
+                WelcomeHeadOutcome::Waiting { blocked: true, .. }
+            ));
+            assert!(
+                db.pending_envelope(&service.topic(), cursor)
+                    .unwrap()
+                    .unwrap()
+                    .unreadable_expires_at_ns
+                    .unwrap()
+                    > xmtp_common::time::now_ns()
+            );
+            Some((hash_ref, bundle))
+        } else {
+            None
+        };
+
+        // Simulate the first retry after the unreadable deadline, then restore
+        // the key package when it was missing. The wrapper case models a
+        // client upgrade that now supports the stored Welcome.
         db.raw_query(|conn| {
             diesel::update(incoming_envelopes::table.find((
                 bo.context.installation_id().to_vec(),
@@ -1454,6 +1487,13 @@ mod tests {
             .execute(conn)
         })
         .unwrap();
+
+        if let Some((hash_ref, bundle)) = missing_key {
+            bo.context
+                .mls_storage()
+                .write_key_package(&hash_ref, &bundle)
+                .unwrap();
+        }
 
         assert!(matches!(
             service
@@ -1489,7 +1529,7 @@ mod tests {
     /// miss, but the fixed pointer deadline still bounds missing data. At the
     /// cutoff, a real fetch can recover the join; a miss must release the row.
     /// Missing legacy deadlines use the pointer timestamp, never the retry time.
-    // verifies: JOIN-079, JOIN-063, JOIN-035
+    // verifies: JOIN-086, JOIN-063, JOIN-035
     #[rstest]
     #[case::recovered(false)]
     #[case::still_missing(true)]
@@ -1645,7 +1685,7 @@ mod tests {
     /// Query failures obey the same fixed fetch window as absent pointees,
     /// including rows persisted as welcome_retry by older clients. An existing
     /// unreadable hold keeps its own deadline through transport failures.
-    // verifies: JOIN-079, JOIN-077, JOIN-063, JOIN-035
+    // verifies: JOIN-086, JOIN-077, JOIN-063, JOIN-035
     #[rstest]
     #[case::fresh(None, false)]
     #[case::legacy_retry(Some("welcome_retry"), false)]
