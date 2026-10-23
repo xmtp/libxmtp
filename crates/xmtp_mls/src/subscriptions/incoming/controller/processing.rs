@@ -180,6 +180,11 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             .dependency_registry
             .prefixes()
             .filter_map(|(cursor, group, anchor)| {
+                // Removal can stop the old membership before the rejoin anchor.
+                // Retry now that Welcome validation can replace inactive state.
+                if self.is_retired(&Topic::new_group_message(group)) {
+                    return Some(cursor);
+                }
                 self.context
                     .db()
                     .topic_progress(&StreamTopic::group(group))
