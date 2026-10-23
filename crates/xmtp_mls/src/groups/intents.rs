@@ -407,8 +407,13 @@ impl UpdateGroupMembershipIntentData {
     pub fn apply_to_group_membership(&self, group_membership: &GroupMembership) -> GroupMembership {
         tracing::info!("old group membership: {:?}", group_membership.members);
         let mut new_membership = group_membership.clone();
-        for (inbox_id, sequence_id) in self.membership_updates.iter() {
-            new_membership.add(inbox_id.clone(), *sequence_id);
+        for (inbox_id, &sequence_id) in self.membership_updates.iter() {
+            // A queued refresh can be older than a commit that raised this
+            // entry. Keep the higher sequence id; never lower it.
+            let sequence_id = group_membership
+                .get(inbox_id)
+                .map_or(sequence_id, |&current| current.max(sequence_id));
+            new_membership.add(inbox_id.clone(), sequence_id);
         }
 
         for inbox_id in self.removed_members.iter() {
@@ -1395,6 +1400,30 @@ pub(crate) mod tests {
             intent.failed_installations,
             restored_intent.failed_installations
         );
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn membership_refresh_never_lowers_committed_sequence() {
+        let mut committed = GroupMembership::new();
+        committed.add("stale".to_string(), 5);
+        committed.add("raised".to_string(), 3);
+        committed.add("removed".to_string(), 2);
+        let intent = UpdateGroupMembershipIntentData::new(
+            HashMap::from([
+                ("stale".to_string(), 4),
+                ("raised".to_string(), 7),
+                ("added".to_string(), 1),
+                ("removed".to_string(), 9),
+            ]),
+            vec!["removed".to_string()],
+            vec![],
+        );
+        let updated = intent.apply_to_group_membership(&committed);
+        assert_eq!(updated.get("stale"), Some(&5));
+        assert_eq!(updated.get("raised"), Some(&7));
+        assert_eq!(updated.get("added"), Some(&1));
+        assert_eq!(updated.get("removed"), None);
+        assert_eq!(updated.members.len(), 3);
     }
 
     #[xmtp_common::test]
