@@ -439,6 +439,10 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                         storage,
                         &self.context.identity().installation_keys,
                     )?;
+                    // Receivers still judge the rest on read-back, so no
+                    // pre-publish check runs for an omission alone.
+                    dependencies.omitted_uncommittable = selection::commits_proposals(intent.kind)
+                        && selection::omit_uncommittable_proposals(group, storage)?;
                     let Some(mut data) =
                         self.get_publish_intent_data(storage, group, &intent, dependencies)?
                     else {
@@ -497,7 +501,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                             })
                         })
                         .collect::<Result<Vec<_>, GroupError>>()?;
-                    selection::restore_proposals(group, storage, &original_proposals)?;
+                    selection::replace_proposals(group, storage, &original_proposals)?;
                     let payload = data
                         .payloads_to_publish
                         .last()
@@ -1001,8 +1005,11 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                     CommitPendingProposalsIntentData::try_from(intent.data.as_slice())?;
 
                 // Check if there are any pending proposals to commit
+                // An omitted proposal expires with the epoch, so a commit
+                // that carries no proposal is still valid work.
                 if openmls_group.pending_proposals().next().is_none()
                     && !dependencies.selection.active
+                    && !dependencies.omitted_uncommittable
                 {
                     tracing::debug!("No pending proposals to commit");
                     return Ok(None);

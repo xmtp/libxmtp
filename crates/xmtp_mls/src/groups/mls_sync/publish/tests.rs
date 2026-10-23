@@ -13,6 +13,7 @@ mod out_of_range_settlement;
 mod send_state_transitions;
 mod signing;
 mod stale_refresh;
+mod uncommittable_proposals;
 
 mod transcript;
 

@@ -14,7 +14,7 @@ pub(crate) mod membership_upkeep;
 pub mod migration;
 pub(crate) mod sender_intents;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap, HashSet, hash_map::Entry};
 
 use openmls::{
     component::ComponentData,
@@ -22,7 +22,7 @@ use openmls::{
     framing::{MlsMessageOut, ProcessedMessage, ProtocolMessage},
     group::{
         AppDataUpdates, MlsGroup as OpenMlsGroup, ProcessMessageError, ProposalError,
-        ResolveAppDataCommitError,
+        QueuedProposal, ResolveAppDataCommitError,
     },
     messages::proposals::{AppDataUpdateOperation, Proposal},
     // `CommitMessageBundle` lives in `prelude` because the natural path
@@ -33,13 +33,20 @@ use openmls::{
 };
 use xmtp_mls_common::app_data::{component_id::ComponentId, component_registry::ComponentRegistry};
 
+use crate::groups::GroupError;
 use xmtp_configuration::ApplicationComponentDefinition;
 use xmtp_cryptography::secret::{Zeroize, Zeroizing};
 use xmtp_mls_common::app_data::component_source::{
     ComponentSourceError, apply_app_data_update_payload, read_from_app_data_dict,
 };
 use xmtp_mls_common::app_data::protocol_floor::committed_floor_exceeding;
+use xmtp_mls_common::inbox_id::InboxId;
 use xmtp_mls_common::libxmtp_version::LibXMTPVersion;
+use xmtp_mls_validation::commit::{
+    AppDataUpdateInCommit, AppDataUpdateList, app_data_update_proposer_leaf,
+    extract_commit_participant, membership_inbox_ids, read_committed_metadata,
+    validate_app_data_update_sequence, validate_post_registry,
+};
 
 #[cfg(any(test, feature = "test-utils"))]
 tokio::task_local! {
@@ -225,6 +232,129 @@ impl<'a> AppDataBatch<'a> {
     }
 }
 
+/// The pending proposals one commit can carry, in store order, and the
+/// batch they produce.
+pub(crate) struct Committable<'a> {
+    pub(crate) batch: AppDataBatch<'a>,
+    pub(crate) proposals: Vec<&'a QueuedProposal>,
+}
+
+impl<'a> Committable<'a> {
+    /// The pending proposals a commit can carry: each reference once, as a
+    /// commit covers it, and each `AppDataUpdate` only if every receiver
+    /// accepts it after the proposals kept before it. Receivers check the
+    /// list rule ([`AppDataUpdateList`]), the proposer's policy against the
+    /// chained value and the post-commit membership
+    /// ([`validate_app_data_update_sequence`]), and the registry the
+    /// commit leaves ([`validate_post_registry`]).
+    ///
+    /// Receivers judge a standalone proposal alone, against the committed
+    /// dictionary. Proposals accepted one by one can still make an invalid
+    /// commit together, such as two Inserts of one key, an Update and a
+    /// Remove of one component, or two super-admin removals that leave
+    /// none. Every member rejects a commit that carries them.
+    ///
+    /// Each kept prefix is a commit receivers accept, so a proposal is
+    /// judged without looking ahead: a later proposal that would repair it
+    /// may itself be omitted, and the intent's own operations follow.
+    ///
+    /// No client proposes a leaf Update, and receivers check only its
+    /// credential, so a commit never carries one: the commit builder would
+    /// refuse a leaf it cannot use.
+    ///
+    /// The post-commit membership comes from the kept proposals, so the
+    /// filter runs again over the kept ones until that membership stops
+    /// changing. Each further pass keeps fewer, so this ends.
+    // implements: GMOD-044
+    pub(crate) fn pending(group: &'a OpenMlsGroup) -> Result<Self, GroupError> {
+        let mut seen = HashSet::new();
+        let mut proposals: Vec<_> = group
+            .pending_proposals()
+            .filter(|queued| seen.insert(queued.proposal_reference_ref()))
+            .collect();
+        let mut membership = membership_inbox_ids(read_from_app_data_dict(
+            ComponentId::GROUP_MEMBERSHIP,
+            group,
+        ));
+        loop {
+            let committable = Self::keep(group, proposals, membership.as_ref())?;
+            let kept = membership_inbox_ids(committable.batch.state(ComponentId::GROUP_MEMBERSHIP));
+            if kept == membership {
+                return Ok(committable);
+            }
+            membership = kept;
+            proposals = committable.proposals;
+        }
+    }
+
+    /// Keep each of `proposals` a receiver accepts after the ones kept
+    /// before it, with `membership` after the commit.
+    fn keep(
+        group: &'a OpenMlsGroup,
+        proposals: Vec<&'a QueuedProposal>,
+        membership: Option<&HashSet<InboxId>>,
+    ) -> Result<Self, GroupError> {
+        let (immutable, mutable) = read_committed_metadata(group)?;
+        let mut batch = AppDataBatch::new(group)?;
+        let mut list = AppDataUpdateList::default();
+        let mut proposers = HashMap::new();
+        let mut kept = Vec::with_capacity(proposals.len());
+        for queued in proposals {
+            if matches!(queued.proposal(), Proposal::Update(_)) {
+                continue;
+            }
+            if let Proposal::AppDataUpdate(update) = queued.proposal() {
+                let id = ComponentId::from(update.component_id());
+                let operation = update.operation();
+                if !list.admits(id, operation, || {
+                    read_from_app_data_dict(id, group).is_some()
+                }) {
+                    continue;
+                }
+                let Ok(leaf) = app_data_update_proposer_leaf(queued.sender()) else {
+                    continue;
+                };
+                let proposer = match proposers.entry(*leaf) {
+                    Entry::Occupied(entry) => entry.into_mut(),
+                    Entry::Vacant(entry) => {
+                        match extract_commit_participant(leaf, group, &immutable, &mutable) {
+                            Ok(proposer) => entry.insert(proposer),
+                            Err(_) => continue,
+                        }
+                    }
+                };
+                let update = AppDataUpdateInCommit {
+                    component_id: id,
+                    operation,
+                    actor: (&*proposer).into(),
+                    proposer_inbox_id: &proposer.inbox_id,
+                };
+                let Ok(post) = validate_app_data_update_sequence(
+                    [update],
+                    |id| batch.state(id),
+                    &batch.registry,
+                    immutable.dm_members.as_ref(),
+                    membership,
+                ) else {
+                    continue;
+                };
+                if validate_post_registry(&post).is_err() {
+                    continue;
+                }
+                list.push(id, operation);
+                batch
+                    .states
+                    .extend(post.into_iter().map(|(id, state)| (id.as_u16(), state)));
+            }
+            kept.push(queued);
+        }
+        Ok(Self {
+            batch,
+            proposals: kept,
+        })
+    }
+}
+
 /// AppDataUpdate-aware wrapper around [`OpenMlsGroup::process_message`].
 ///
 /// `OpenMlsGroup::process_message` returns a commit covering
@@ -357,12 +487,12 @@ pub(crate) fn stage_app_data_proposals_and_commit<Provider: OpenMlsProvider>(
     // pending proposals. This helper queues a new `AppDataUpdate` then
     // commits via `consume_proposal_store(true)`, sweeping whatever
     // else is in the store — concurrent `AppDataUpdate`s (accumulated
-    // into the dict by step 2), leaf-node `Update`s, membership
-    // `Add` / `Remove` / `SelfRemove`, PSK, etc. — all into one
-    // commit. That's the design: minimize commit count, let the
-    // producers of those proposals decide if they need to force their
-    // own commit (because they want to send a message right now or
-    // grant access immediately). MLS guarantees consistent state
+    // into the dict by step 2), membership `Add` / `Remove`, etc. — all
+    // into one commit, less what `omit_uncommittable_proposals` omitted.
+    // That's the design: minimize commit count, let the producers of
+    // those proposals decide if they need to force their own commit
+    // (because they want to send a message right now or grant access
+    // immediately). MLS guarantees consistent state
     // convergence on the wire regardless of which commit body carries
     // which proposal; the sender's intent ledger may carry less
     // information than the on-wire commit, but the producer of each
@@ -463,23 +593,12 @@ impl xmtp_common::RetryableError for GroupAppDataError<xmtp_db::sql_key_store::S
     }
 }
 
-/// Compute the [`AppDataUpdates`] required to commit any pending
-/// AppDataUpdate proposals in the group's proposal store.
-///
-/// Returns `Ok(None)` when there are no AppDataUpdate proposals pending —
-/// this is the common case and lets the caller skip the `with_…` plumbing
-/// entirely without changing semantics.
-pub(crate) fn pending_app_data_updates(
-    mls_group: &OpenMlsGroup,
-) -> Result<Option<AppDataUpdates>, ComponentSourceError> {
-    Ok(AppDataBatch::pending(mls_group)?.updates())
-}
-
 /// The dictionary a commit built now starts from: the committed one with
-/// the pending proposals' updates applied.
+/// the updates of the pending proposals it can carry applied (see
+/// [`Committable::pending`]).
 pub(crate) fn pending_dictionary(
     mls_group: &OpenMlsGroup,
-) -> Result<PendingDictionary, ComponentSourceError> {
+) -> Result<PendingDictionary, GroupError> {
     let mut dictionary = PendingDictionary(
         mls_group
             .extensions()
@@ -487,7 +606,12 @@ pub(crate) fn pending_dictionary(
             .map(|extension| extension.dictionary().clone())
             .unwrap_or_default(),
     );
-    for (id, value) in pending_app_data_updates(mls_group)?.into_iter().flatten() {
+    for (id, value) in Committable::pending(mls_group)?
+        .batch
+        .updates()
+        .into_iter()
+        .flatten()
+    {
         let replaced = match value {
             Some(value) => dictionary.0.insert(id, value),
             None => dictionary.0.remove(&id),

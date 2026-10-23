@@ -389,7 +389,7 @@ pub fn read_post_commit_component_bytes(
 /// uses that to resolve `RemoveByHash` mutations back to their underlying
 /// inbox id. `xmtp_mls`'s `app_data` module also uses it from
 /// `process_message_with_app_data`, `stage_app_data_propose_and_commit`,
-/// and `pending_app_data_updates`.
+/// and `AppDataBatch::pending`.
 pub fn read_from_app_data_dict(id: ComponentId, mls_group: &OpenMlsGroup) -> Option<&[u8]> {
     read_from_app_data_dict_from_extensions(id, mls_group.extensions())
 }
