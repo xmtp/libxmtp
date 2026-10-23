@@ -132,7 +132,9 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                     }
                     let outcomes = match self.welcome_blocked_scan {
                         Some(after) => service.retry_blocked_welcomes_after(after),
-                        None => service.process_pending_welcomes_once(),
+                        None => service.process_pending_welcomes_once(
+                            &self.dependency_registry.welcome_cursors(),
+                        ),
                     };
                     match outcomes {
                         Ok(outcomes) => {
@@ -178,6 +180,11 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             .dependency_registry
             .prefixes()
             .filter_map(|(cursor, group, anchor)| {
+                // Removal can stop the old membership before the rejoin anchor.
+                // Retry now that Welcome validation can replace inactive state.
+                if self.is_retired(&Topic::new_group_message(group)) {
+                    return Some(cursor);
+                }
                 self.context
                     .db()
                     .topic_progress(&StreamTopic::group(group))

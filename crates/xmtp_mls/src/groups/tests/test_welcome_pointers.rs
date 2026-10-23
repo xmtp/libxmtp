@@ -434,12 +434,20 @@ async fn test_welcome_pointer_resolution_to_another_welcome_pointer() {
         .unwrap_err();
 }
 
+/// Missing pointees retain their fixed fetch deadline and can later join. If a
+/// fetched pointee has an unsupported MLS version, it receives a separate full
+/// day of retention whose deadline survives retries past the fetch deadline.
+/// Transiently missing pointees and legacy retry states cannot shorten that hold;
+/// if the pointee remains missing after the hold expires, it is rejected.
+// verifies: JOIN-086, JOIN-087, JOIN-063
 #[xmtp_common::timeout(Duration::from_secs(40))]
 #[rstest::rstest]
+#[case::supported(false)]
+#[case::unsupported_mls_version(true)]
 #[xmtp_common::test(unwrap_try = true)]
-async fn test_welcome_pointer_pending_retry_resolution() {
-    tester!(alix);
-    tester!(bo);
+async fn test_welcome_pointer_pending_retry_resolution(#[case] unsupported: bool) {
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
 
     // create new key package with post quantum key for bo
     let bo_key_package = bo
@@ -540,12 +548,15 @@ async fn test_welcome_pointer_pending_retry_resolution() {
         WelcomePointerWrapperAlgorithm::XwingMlkem768Draft6
     );
 
-    crate::groups::welcome_sync::pending_welcome_for_test(&bo.context, &welcome_from_api).await?;
+    crate::groups::welcome_sync::pending_welcome_for_test(&bo.context, &welcome_from_api)
+        .await
+        .unwrap();
     let service = crate::groups::welcome_sync::WelcomeService::new(bo.context.clone());
     assert!(matches!(
         service
             .resolve_pending_welcome(welcome_from_api.cursor)
-            .await?,
+            .await
+            .unwrap(),
         crate::groups::welcome_sync::WelcomeHeadOutcome::Waiting { blocked: false, .. }
     ));
 
@@ -556,7 +567,8 @@ async fn test_welcome_pointer_pending_retry_resolution() {
     let pending = bo
         .context
         .db()
-        .pending_envelope(&topic, welcome_from_api.cursor)?
+        .pending_envelope(&topic, welcome_from_api.cursor)
+        .unwrap()
         .unwrap();
     assert_eq!(pending.error_code.as_deref(), Some("welcome_pointee"));
     let first_expiry = pending.retry_expires_at_ns.unwrap();
@@ -566,7 +578,11 @@ async fn test_welcome_pointer_pending_retry_resolution() {
     );
 
     let data = wrap_payload_symmetric(
-        &welcome_message,
+        if unsupported {
+            &[0, 2]
+        } else {
+            &welcome_message
+        },
         WelcomePointersExtension::preferred_type(),
         &welcome_pointer_v1.encryption_key,
         &welcome_pointer_v1.data_nonce,
@@ -598,21 +614,16 @@ async fn test_welcome_pointer_pending_retry_resolution() {
         )),
     };
 
-    let events = bo.context.events().subscribe(
-        xmtp_events::EventFilter::new([xmtp_events::EventKind::ConversationJoined]),
-        Some(10),
-    );
-    let conversations = bo.stream_conversations(None, true).await.unwrap();
-    tokio::pin!(conversations);
-
     // A second attempt must keep the first pointer deadline.
     let _ = service
         .resolve_pending_welcome(welcome_from_api.cursor)
-        .await?;
+        .await
+        .unwrap();
     assert_eq!(
         bo.context
             .db()
-            .pending_envelope(&topic, welcome_from_api.cursor)?
+            .pending_envelope(&topic, welcome_from_api.cursor)
+            .unwrap()
             .unwrap()
             .retry_expires_at_ns,
         Some(first_expiry)
@@ -624,7 +635,147 @@ async fn test_welcome_pointer_pending_retry_resolution() {
         .send_welcome_messages(&[welcome_data])
         .await
         .unwrap();
-    bo.sync_welcomes().await?;
+    if unsupported {
+        use crate::groups::welcome_sync::WelcomeHeadOutcome;
+        use diesel::{ExpressionMethods, QueryDsl, RunQueryDsl};
+        use xmtp_db::{ConnectionExt, schema::incoming_envelopes};
+
+        let db = bo.context.db();
+        let row = || {
+            incoming_envelopes::table.find((
+                bo.context.installation_id().to_vec(),
+                xmtp_db::refresh_state::EntityKind::Welcome,
+                welcome_from_api.cursor.0 as i64,
+            ))
+        };
+        // Simulate resolving the pointee in the final hour of its fetch window.
+        let before = xmtp_common::time::now_ns();
+        let pointer_deadline = before + xmtp_common::NS_IN_HOUR;
+        db.raw_query(|conn| {
+            diesel::update(row())
+                .set(incoming_envelopes::retry_expires_at_ns.eq(Some(pointer_deadline)))
+                .execute(conn)
+        })
+        .unwrap();
+        assert!(matches!(
+            service
+                .resolve_pending_welcome(welcome_from_api.cursor)
+                .await
+                .unwrap(),
+            WelcomeHeadOutcome::Waiting { blocked: true, .. }
+        ));
+        let pending = db
+            .pending_envelope(&topic, welcome_from_api.cursor)
+            .unwrap()
+            .unwrap();
+        let deadline = pending.unreadable_expires_at_ns.unwrap();
+        assert!(deadline >= before + xmtp_common::NS_IN_DAY);
+        assert!(deadline <= xmtp_common::time::now_ns() + xmtp_common::NS_IN_DAY);
+        assert_eq!(pending.retry_expires_at_ns, Some(pointer_deadline));
+
+        // Keep the real Welcome and keys, but make pointee queries temporarily
+        // return no data, as a lagging replica can after a previously good read.
+        let mut api = xmtp_api_backend::MockBackendClient::new();
+        api.expect_query().returning(|_| {
+            Ok(xmtp_proto::backend_v1::QueryResponse {
+                envelopes: vec![],
+                continuation: Some(xmtp_proto::backend_v1::Continuation { has_more: false }),
+            })
+        });
+        let missing_client = crate::builder::ClientBuilder::from_client(bo.client.clone())
+            .api_client(std::sync::Arc::new(api))
+            .config_provider(std::sync::Arc::new(
+                xmtp_configuration::StaticConfigProvider::default(),
+            ))
+            .with_allow_offline(Some(true))
+            .with_disable_workers(true)
+            .build()
+            .await
+            .unwrap();
+        let missing_service =
+            crate::groups::welcome_sync::WelcomeService::new(missing_client.context.clone());
+        assert!(matches!(
+            missing_service
+                .resolve_pending_welcome(welcome_from_api.cursor)
+                .await
+                .unwrap(),
+            WelcomeHeadOutcome::Waiting { blocked: true, .. }
+        ));
+
+        // Passing the fetch deadline cannot shorten the unreadable hold, and
+        // a previously persisted pointee retry must not skip its next attempt.
+        db.raw_query(|conn| {
+            diesel::update(row())
+                .set((
+                    incoming_envelopes::retry_expires_at_ns.eq(Some(1i64)),
+                    incoming_envelopes::error_code.eq(Some("welcome_pointee")),
+                ))
+                .execute(conn)
+        })
+        .unwrap();
+        assert!(matches!(
+            service
+                .retry_pending_welcome(welcome_from_api.cursor, None)
+                .unwrap(),
+            WelcomeHeadOutcome::Need { .. }
+        ));
+        assert!(matches!(
+            missing_service
+                .resolve_pending_welcome(welcome_from_api.cursor)
+                .await
+                .unwrap(),
+            WelcomeHeadOutcome::Waiting { blocked: true, .. }
+        ));
+        // The real backend recovers. Rechecking the MLS payload still keeps the
+        // original unreadable deadline, including across service recreation.
+        let service = crate::groups::welcome_sync::WelcomeService::new(bo.context.clone());
+        assert!(matches!(
+            service
+                .resolve_pending_welcome(welcome_from_api.cursor)
+                .await
+                .unwrap(),
+            WelcomeHeadOutcome::Waiting { blocked: true, .. }
+        ));
+        assert_eq!(
+            db.pending_envelope(&topic, welcome_from_api.cursor)
+                .unwrap()
+                .unwrap()
+                .unreadable_expires_at_ns,
+            Some(deadline)
+        );
+        db.raw_query(|conn| {
+            diesel::update(row())
+                .set(incoming_envelopes::unreadable_expires_at_ns.eq(Some(1i64)))
+                .execute(conn)
+        })
+        .unwrap();
+        assert!(matches!(
+            missing_service
+                .resolve_pending_welcome(welcome_from_api.cursor)
+                .await
+                .unwrap(),
+            WelcomeHeadOutcome::Progress {
+                result: Err(crate::groups::GroupError::WelcomeDataNotFound(_)),
+                ..
+            }
+        ));
+        assert!(!db.has_pending_welcomes().unwrap());
+        assert!(db.find_group(&group.group_id).unwrap().is_none());
+        assert_eq!(
+            db.read_last_rejection(&topic).unwrap().unwrap().code,
+            "unsupported_welcome_expired"
+        );
+        return;
+    }
+
+    let events = bo.context.events().subscribe(
+        xmtp_events::EventFilter::new([xmtp_events::EventKind::ConversationJoined]),
+        Some(10),
+    );
+    let conversations = bo.stream_conversations(None, true).await.unwrap();
+    tokio::pin!(conversations);
+
+    bo.sync_welcomes().await.unwrap();
 
     // TODO subscribe to all messages and then assert that group is received.
 

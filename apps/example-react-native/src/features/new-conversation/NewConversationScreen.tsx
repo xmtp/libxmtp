@@ -84,9 +84,9 @@ function ChoosePeople({
         options={{
           ...edge.options,
           title: copy.newMessage,
-          headerTitle: () => (
-            <StepTitle title={copy.newMessage} step={copy.step1} />
-          ),
+          headerTitle: state.group
+            ? () => <StepTitle title={copy.newMessage} step={copy.step1} />
+            : undefined,
         }}
       />
       <Stack.Toolbar placement="left">
@@ -94,11 +94,12 @@ function ChoosePeople({
           icon={closeIcon}
           tintColor={palette.tint}
           accessibilityLabel={copy.cancel}
+          disabled={state.creating}
           onPress={close}
         />
       </Stack.Toolbar>
       <ToolbarTextButton
-        title={copy.next}
+        title={state.group ? copy.next : copy.create}
         placement="right"
         prominent
         disabled={closing || !canContinue(state)}
@@ -109,6 +110,7 @@ function ChoosePeople({
       <View style={styles.picker}>
         <SegmentedPicker<Kind>
           options={kinds}
+          disabled={state.creating}
           selection={state.group ? "group" : "dm"}
           accessibilityLabel={copy.conversationType}
           onSelectionChange={(value) => {
@@ -149,6 +151,7 @@ function ChoosePeople({
         </FormRow>
         <FormRow>
           <TextInput
+            editable={!state.creating}
             value={state.input}
             onChangeText={(text) => {
               store.setInput(text);
