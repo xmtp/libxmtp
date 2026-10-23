@@ -273,7 +273,7 @@ extension GroupJourney {
 			XCTAssertTrue(image.waitForExistence(timeout: 20))
 			try await poll { (image.value as? String)?.contains("Verified") == true }
 			try await poll { AttachmentPixelProbe.matches(image, in: app) }
-			func capture(_ name: String) {
+			@MainActor func capture(_ name: String) {
 				let attachment = XCTAttachment(screenshot: app.screenshot()); attachment.name = name
 				attachment.lifetime = .keepAlways; self.add(attachment)
 			}

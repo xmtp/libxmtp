@@ -5,20 +5,24 @@ import Testing
 import XmtpSdk
 
 struct LocalAttachmentRestoreTests {
-	@Test(arguments: [false, true]) func localRestoreNeverInvokesTransfer(deletedAfterProbe: Bool) async throws {
+	@Test(arguments: [false, true], ["image/png", "application/pdf"])
+	func localRestoreNeverInvokesTransfer(deletedAfterProbe: Bool, mimeType: String) async throws {
 		let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
 		try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
 		defer { do { try FileManager.default.removeItem(at: directory) } catch { Issue.record(error) } }
 		let url = directory.appendingPathComponent("photo")
-		let bytes =
+		let png =
 			try #require(
 				Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aPrsAAAAASUVORK5CYII="),
 			)
+		let bytes = mimeType == "application/pdf" ? Data("%PDF-1.7\n%%EOF".utf8) : png
 		try bytes.write(to: url)
 		let transfer = LocalTransferProbe()
 		let attachments = LocalAttachmentsFake(url: url, transfer: transfer)
 		let gateway = SDKAttachmentGateway(attachments: attachments, beforeLocalRead: {
-			if deletedAfterProbe { try FileManager.default.removeItem(at: url) }
+			if deletedAfterProbe {
+				try FileManager.default.removeItem(at: url)
+			}
 		})
 		let descriptor = FileDescriptor(url: "https://sender.test/file", digest: "digest", secret: Data(),
 		                                salt: Data(), nonce: Data(), scheme: "https", length: 1, filename: "photo")
@@ -28,7 +32,7 @@ struct LocalAttachmentRestoreTests {
 		#expect(FileManager.default.fileExists(atPath: url.path) == !deletedAfterProbe)
 		if let file {
 			#expect(file.filename == "photo")
-			#expect(file.mimeType == "image/png")
+			#expect(file.mimeType == mimeType)
 			#expect(try Data(contentsOf: file.url) == bytes)
 		}
 	}

@@ -153,8 +153,9 @@ The integration recipe owns its emulator and stops it after the tests. It uses
 the current worktree backend and object-store ports. SDK package, consumer and
 process lifecycle checks remain separate gates. The app instrumentation also checks
 automatic own-file downloads and received-file restoration on chat revisit,
-bounded shared-image previews, local-only restoration during deletion, and
-queued attachment delivery feedback.
+bounded shared-image previews, local-only restoration during deletion,
+extensionless PDF viewer types after reopen, and queued attachment delivery
+feedback.
 
 ## Connect
 

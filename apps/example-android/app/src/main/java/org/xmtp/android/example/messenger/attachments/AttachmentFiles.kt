@@ -81,6 +81,16 @@ class AttachmentFiles(
                         ?: MimeTypeMap.getSingleton().getMimeTypeFromExtension(
                             filename.substringAfterLast('.', "").lowercase(),
                         )
+                        ?: file.inputStream().use { input ->
+                            val header = ByteArray(5)
+                            if (input.read(header) == header.size &&
+                                header.contentEquals("%PDF-".toByteArray(Charsets.US_ASCII))
+                            ) {
+                                "application/pdf"
+                            } else {
+                                null
+                            }
+                        }
                 if (!present()) return@withContext null
                 DownloadedAttachment(path, mime, filename)
             } ?: return null

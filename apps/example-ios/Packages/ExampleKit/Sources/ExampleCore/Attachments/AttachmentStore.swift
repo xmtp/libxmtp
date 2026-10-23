@@ -307,7 +307,9 @@ private extension AttachmentStore {
 	func startDownload(_ action: AttachmentAction) {
 		guard let messageID = action.downloadID else { return }
 		if let active = downloadAdmissions[messageID] {
-			if case .download = action { requestedDownloads.insert(active) }
+			if case .download = action {
+				requestedDownloads.insert(active)
+			}
 			return
 		}
 		let id = UUID()

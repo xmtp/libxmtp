@@ -259,6 +259,35 @@ class AttachmentPresentationInstrumentedTest {
             compose.onNodeWithText("Queued").assertDoesNotExist()
         }
 
+    @Test fun extensionlessPdfRestoresItsViewerTypeFromLocalBytes() =
+        runBlocking {
+            val fixture = AttachmentTestFixture()
+            try {
+                fixture.start()
+                val draft =
+                    fixture.client.attachments().create(
+                        AttachmentSource.Bytes("%PDF-1.7\n%%EOF".toByteArray(), "report", "application/pdf"),
+                    )
+                draft.upload()
+                val remote = draft.remoteAttachment()
+                assertEquals(
+                    "application/pdf",
+                    fixture.client
+                        .attachments()
+                        .download(remote)
+                        .mimeType,
+                )
+                fixture.reopen()
+                val files = AttachmentFiles(fixture.context, fixture.key, fixture.client) { fixture.current }
+                val restored = checkNotNull(files.restore("pdf", remote) { true })
+                assertEquals("report", restored.filename)
+                assertEquals("application/pdf", restored.mimeType)
+                assertEquals("application/pdf", files.openIntent("pdf").type)
+            } finally {
+                fixture.close()
+            }
+        }
+
     private fun imageBytes(
         width: Int = 640,
         height: Int = 480,
