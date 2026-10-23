@@ -978,6 +978,77 @@ async fn welcome_prefix_fallback_keeps_the_parent_barrier_deadline() {
     )?);
 }
 
+/// A pointer whose fetch is still running must not occupy every ready batch;
+/// an independent later Welcome must join without rewriting the held row.
+// verifies: PROC-013
+#[xmtp_common::test(unwrap_try = true)]
+async fn an_in_flight_pointer_does_not_starve_a_later_welcome() {
+    use crate::groups::welcome_sync::pending_welcome_for_test;
+
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    tester!(_bo2, from: bo, disable_workers);
+    tester!(_bo3, from: bo, disable_workers);
+    let first = alix.create_group(None, None)?;
+    first.add_members(&[bo.inbox_id()]).await?;
+    let later = alix.create_group(None, None)?;
+    later.add_members(&[bo.inbox_id()]).await?;
+    let mut welcomes = bo
+        .context
+        .api()
+        .query_welcome_messages(bo.context.installation_id())
+        .await?;
+    welcomes.sort_by_key(|welcome| welcome.cursor);
+    assert_eq!(welcomes.len(), 2);
+    assert!(matches!(
+        welcomes[0].variant,
+        xmtp_proto::types::WelcomeMessageType::WelcomePointer(_)
+    ));
+    pending_welcome_for_test(&bo.context, &welcomes[1]).await?;
+    let mut settings = bo.context.incoming_runtime().policy().clone();
+    settings.max_fetched_rows = 1;
+    let client = crate::builder::ClientBuilder::from_client(bo.client.clone())
+        .stream_policy(settings)
+        .with_disable_workers(true)
+        .with_allow_offline(Some(true))
+        .build()
+        .await?;
+    let mut controller = controller(client.context.clone());
+    let topic = Topic::new_welcome_message(client.context.installation_id());
+    let key = topic_key(&topic)?;
+    controller.read_queue.push_back(topic);
+    controller.welcome_blocked_scan = None;
+    controller.dependency_registry.attach(
+        DependencyParent::Welcome(welcomes[0].cursor),
+        DependencyKey::Welcome(welcomes[0].cursor),
+    );
+    // Keep the first fetch in flight without resolving it or advancing time.
+    assert_eq!(controller.dependency_registry.start_queued(1).len(), 1);
+    controller.process_ready();
+    assert!(
+        controller
+            .dependency_registry
+            .contains(&DependencyParent::Welcome(welcomes[1].cursor))
+    );
+    let result =
+        xmtp_common::time::timeout(Duration::from_secs(10), controller.dependencies.next())
+            .await?
+            .unwrap();
+    controller.dependency_finished(result);
+    assert!(client.context.db().find_group(&later.group_id)?.is_some());
+    assert!(client.context.db().find_group(&first.group_id)?.is_none());
+    let pending = client
+        .context
+        .db()
+        .pending_envelope(&key, welcomes[0].cursor)?
+        .unwrap();
+    assert_eq!(pending.retry_at_ns, 0);
+    assert!(!pending.blocked);
+    assert!(pending.error_code.is_none());
+    assert!(pending.retry_expires_at_ns.is_none());
+    assert!(pending.unreadable_expires_at_ns.is_none());
+}
+
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_welcome_failure_keeps_independent_pending_parents_runnable() {
     use crate::identity_updates::IdentityDependencyError;

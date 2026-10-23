@@ -3,6 +3,7 @@
 //! Incoming coordinators use `QueryIncomingEnvelope` to admit, retry, and complete
 //! work in a `StreamTopic`. `StoredIncomingEnvelope` preserves input and deadlines;
 //! unreadable Welcome retention is independent of the pointer-fetch retry deadline.
+//! Bounded ready reads exclude scheduled Welcome cursors before applying budgets.
 
 use diesel::{
     prelude::*,
@@ -561,17 +562,23 @@ pub trait QueryIncomingEnvelope: ConnectionExt + Sized {
         now_ns: i64,
         limit: u32,
     ) -> Result<Vec<StoredIncomingEnvelope>, StorageError> {
-        self.ready_welcomes_bounded(now_ns, limit, u64::MAX)
+        self.ready_welcomes_bounded(now_ns, limit, u64::MAX, &[])
     }
 
     /// Read a due prefix without loading envelope bytes above the batch budget.
-    /// Permanently blocked rows require a new coordinator generation, not a timer retry.
+    /// Exclude scheduled cursors before counting rows or bytes. Blocked rows
+    /// require a coordinator scan, not a timer retry.
     fn ready_welcomes_bounded(
         &self,
         now_ns: i64,
         limit: u32,
         max_bytes: u64,
+        excluded: &[Cursor],
     ) -> Result<Vec<StoredIncomingEnvelope>, StorageError> {
+        let excluded = excluded
+            .iter()
+            .map(|cursor| i64::try_from(cursor.0).map_err(|_| StreamStorageError::InvalidBatch))
+            .collect::<Result<Vec<_>, _>>()?;
         self.raw_query(|conn| {
             Ok(conn.transaction::<_, StorageError, _>(|conn| {
                 let due = || {
@@ -579,6 +586,7 @@ pub trait QueryIncomingEnvelope: ConnectionExt + Sized {
                         .filter(incoming::entity_kind.eq(EntityKind::Welcome))
                         .filter(incoming::blocked.eq(false))
                         .filter(incoming::retry_at_ns.le(now_ns))
+                        .filter(incoming::sequence_id.ne_all(&excluded))
                         .order((incoming::sequence_id.asc(), incoming::entity_id.asc()))
                 };
                 let sizes = due()

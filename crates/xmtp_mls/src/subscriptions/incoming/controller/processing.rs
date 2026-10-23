@@ -132,7 +132,9 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                     }
                     let outcomes = match self.welcome_blocked_scan {
                         Some(after) => service.retry_blocked_welcomes_after(after),
-                        None => service.process_pending_welcomes_once(),
+                        None => service.process_pending_welcomes_once(
+                            &self.dependency_registry.welcome_cursors(),
+                        ),
                     };
                     match outcomes {
                         Ok(outcomes) => {

@@ -261,9 +261,11 @@ where
         }
     }
 
-    /// Attempt a bounded set of independent Welcomes. This method does no network I/O.
+    /// Attempt independent Welcomes excluding those already owned by dependency work.
+    /// Apply row/byte budgets after exclusions. This method does no network I/O.
     pub(crate) fn process_pending_welcomes_once(
         &self,
+        excluded: &[Cursor],
     ) -> Result<Vec<WelcomeHeadOutcome<Context>>, GroupError> {
         let settings = self.context.incoming_runtime().policy();
         self.context
@@ -272,6 +274,7 @@ where
                 xmtp_common::time::now_ns(),
                 settings.max_fetched_rows,
                 settings.max_fetched_bytes,
+                excluded,
             )?
             .into_iter()
             .filter(|pending| pending.entity_id == self.context.installation_id())
@@ -1164,7 +1167,7 @@ mod tests {
         if previously_blocked {
             service.retry_blocked_welcomes_after(Cursor(0)).unwrap();
         } else {
-            service.process_pending_welcomes_once().unwrap();
+            service.process_pending_welcomes_once(&[]).unwrap();
         }
         let blocked = db
             .pending_envelope(&service.topic(), cursor)
@@ -1866,7 +1869,7 @@ mod tests {
             .execute(conn)
         })?;
 
-        let outcomes = service.process_pending_welcomes_once()?;
+        let outcomes = service.process_pending_welcomes_once(&[])?;
         assert!(outcomes.iter().any(|outcome| matches!(outcome,
             WelcomeHeadOutcome::Waiting { cursor, blocked: true, .. } if *cursor == first)));
         assert!(outcomes.iter().any(|outcome| matches!(outcome,
