@@ -1333,3 +1333,517 @@ async fn own_membership_delta_and_pending_removal_use_the_same_selected_state(
     );
     Ok(())
 }
+
+// Create a group of three. Each joiner waits for its Welcome: a lagging
+// replica can return nothing on the first sync.
+async fn group_of_three(
+    alix: &crate::utils::FullXmtpClient,
+    bo: &crate::utils::FullXmtpClient,
+    caro: &crate::utils::FullXmtpClient,
+) -> Result<[crate::utils::TestMlsGroup; 3], GroupError> {
+    let group = alix
+        .create_group_with_members(&[bo.inbox_id(), caro.inbox_id()], None, None)
+        .await?;
+    bo.wait_for_welcomes().await?;
+    caro.wait_for_welcomes().await?;
+    let bo_group = bo.group(&group.group_id)?;
+    let caro_group = caro.group(&group.group_id)?;
+    receive_completed_prefix(&group, &bo_group).await?;
+    receive_completed_prefix(&group, &caro_group).await?;
+    Ok([group, bo_group, caro_group])
+}
+
+fn committed_membership(group: &crate::utils::TestMlsGroup) -> GroupMembership {
+    group
+        .with_group_snapshot(|mls| Ok(extract_group_membership(mls.extensions())?))
+        .expect("read the committed membership")
+}
+
+// Read one member's committed sequence id for an inbox.
+fn committed_sequence(group: &crate::utils::TestMlsGroup, inbox_id: &str) -> Option<u64> {
+    committed_membership(group).get(inbox_id).copied()
+}
+
+fn has_leaf(group: &crate::utils::TestMlsGroup, installation: &[u8]) -> bool {
+    group
+        .with_group_snapshot(|mls| {
+            Ok(mls
+                .members()
+                .any(|member| member.signature_key == installation))
+        })
+        .expect("read the ratchet tree")
+}
+
+fn pending_membership_deltas(group: &crate::utils::TestMlsGroup) -> usize {
+    use xmtp_mls_common::app_data::component_id::ComponentId;
+    group
+        .with_group_snapshot(|mls| {
+            Ok(mls
+                .pending_proposals()
+                .filter(|proposal| {
+                    matches!(proposal.proposal(), Proposal::AppDataUpdate(update)
+                        if update.component_id() == ComponentId::GROUP_MEMBERSHIP.as_u16())
+                })
+                .count())
+        })
+        .expect("read pending proposals")
+}
+
+// Send on each member in turn, then check that every peer converged and
+// received every message.
+async fn send_on_every_member(
+    members: &[&crate::utils::TestMlsGroup],
+    label: &str,
+) -> Result<(), GroupError> {
+    let mut bodies = Vec::new();
+    for (index, sender) in members.iter().enumerate() {
+        let body = format!("{label} {index}").into_bytes();
+        let result = sender.send_message(&body, SendMessageOpts::default()).await;
+        if let Err(GroupError::SyncFailedToWait(summary)) = &result {
+            panic!("member {index} must send: {:?}", summary.publish_errors);
+        }
+        result?;
+        bodies.push(body);
+        for peer in members {
+            receive_completed_prefix(sender, peer).await?;
+        }
+    }
+    let authenticator = members[0].epoch_authenticator().await?;
+    for peer in members {
+        assert_eq!(peer.epoch_authenticator().await?, authenticator);
+        let messages = peer.find_messages(&MsgQueryArgs::default())?;
+        for body in &bodies {
+            assert!(
+                messages
+                    .iter()
+                    .any(|message| message.decrypted_message_bytes == *body),
+                "every member must receive every send"
+            );
+        }
+    }
+    Ok(())
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn stale_refresh_does_not_lower_committed_sequence() -> Result<(), GroupError> {
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    tester!(caro, disable_workers);
+    let [group, bo_group, caro_group] = group_of_three(&alix, &bo, &caro).await?;
+
+    // The saved refresh names Alix's sequence S2. A later refresh commits S3.
+    tester!(alix2, from: alix, disable_workers);
+    let stale_data = group.get_membership_update_intent(&[], &[]).await?;
+    let stale_sequence = stale_data.membership_updates[alix.inbox_id()];
+    tester!(alix3, from: alix, disable_workers);
+    caro_group.add_missing_installations().await?;
+    for peer in [&group, &bo_group] {
+        receive_completed_prefix(&caro_group, peer).await?;
+    }
+    let committed = committed_sequence(&group, alix.inbox_id()).unwrap();
+    assert!(stale_sequence < committed);
+    assert!(has_leaf(&group, alix3.installation_id.as_slice()));
+    let before = group.epoch_authenticator().await?;
+
+    // The stale refresh must resolve as a no-op. It must not publish a
+    // lowering membership delta or remove the newer installation.
+    let stale = QueueIntent::update_group_membership()
+        .data(stale_data)
+        .queue(&group)?;
+    group.sync_until_intent_resolved(stale.id).await?;
+    for peer in [&group, &bo_group, &caro_group] {
+        receive_completed_prefix(&group, peer).await?;
+        assert_eq!(peer.epoch_authenticator().await?, before);
+        assert_eq!(committed_sequence(peer, alix.inbox_id()), Some(committed));
+        assert!(has_leaf(peer, alix3.installation_id.as_slice()));
+        assert_eq!(
+            pending_membership_deltas(peer),
+            0,
+            "the stale request must not leave a membership proposal"
+        );
+    }
+
+    send_on_every_member(&[&group, &bo_group, &caro_group], "after stale refresh").await?;
+    for peer in [&group, &bo_group, &caro_group] {
+        assert_eq!(committed_sequence(peer, alix.inbox_id()), Some(committed));
+        assert!(has_leaf(peer, alix3.installation_id.as_slice()));
+    }
+    drop((alix2, alix3));
+    Ok(())
+}
+
+// Publish one signed standalone proposal and wait until each peer processed it.
+async fn publish_standalone_proposal(
+    author: &crate::utils::TestMlsGroup,
+    payload: Vec<u8>,
+    peers: &[&crate::utils::TestMlsGroup],
+) -> Result<(), GroupError> {
+    let messages = author.prepare_group_messages(vec![(payload.as_slice(), false)])?;
+    let receipts = author.context.api().send_group_messages(messages).await?;
+    let topic = Topic::new_group_message(author.group_id);
+    let (_, cursor, _) = xmtp_api_backend::envelope::metadata(&receipts[0], topic.kind())?;
+    for peer in peers {
+        crate::subscriptions::barrier::wait_through(
+            &peer.context,
+            [(topic.clone(), cursor)].into(),
+            None,
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+// Sign a standalone membership proposal without local checks. Each peer's
+// admission decides whether to store it.
+fn propose_membership_payload(
+    author: &crate::utils::TestMlsGroup,
+    payload: Vec<u8>,
+) -> Result<Vec<u8>, GroupError> {
+    use openmls::messages::proposals::AppDataUpdateOperation;
+    use xmtp_mls_common::app_data::component_id::ComponentId;
+    Ok(
+        crate::state_tx::state_write(author.context.mls_storage(), |tx| {
+            tx.with_group(author.group_id, |mls, storage| {
+                let provider = XmtpOpenMlsProviderRef::new(storage);
+                let (message, _) = mls
+                    .propose_app_data_update(
+                        &provider,
+                        &author.context.identity().installation_keys,
+                        ComponentId::GROUP_MEMBERSHIP.as_u16(),
+                        AppDataUpdateOperation::Update(payload.into()),
+                    )
+                    .map_err(GroupError::Proposal)?;
+                Ok::<_, GroupError>(Continue(message.tls_serialize_detached()?))
+            })
+        })?
+        .into_continued(),
+    )
+}
+
+// verifies: GMOD-038
+#[xmtp_common::test(unwrap_try = true)]
+async fn stored_stale_membership_proposal_does_not_block_sends() -> Result<(), GroupError> {
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    tester!(caro, disable_workers);
+    let [group, bo_group, caro_group] = group_of_three(&alix, &bo, &caro).await?;
+    let members = [&group, &bo_group, &caro_group];
+
+    // Bo's identity reaches S2, then S3. Alix commits S3 with both new leaves.
+    tester!(bo2, from: bo, disable_workers);
+    let stale_sequence = caro_group
+        .get_membership_update_intent(&[], &[])
+        .await?
+        .membership_updates[bo.inbox_id()];
+    tester!(bo3, from: bo, disable_workers);
+    group.add_missing_installations().await?;
+    for peer in [&bo_group, &caro_group] {
+        receive_completed_prefix(&group, peer).await?;
+    }
+    let committed = committed_sequence(&group, bo.inbox_id()).unwrap();
+    assert!(stale_sequence < committed);
+    for peer in members {
+        assert!(has_leaf(peer, bo3.installation_id.as_slice()));
+    }
+    let before = group.epoch_authenticator().await?;
+
+    // Caro, an old client, proposes Bo's stale S2 entry. Admission does not
+    // check sequence ids, so every member stores the whole delta.
+    let stale_payload = caro_group.with_group_snapshot(|mls| {
+        let old = extract_group_membership(mls.extensions())?;
+        let mut stale = old.clone();
+        stale.add(bo.inbox_id().to_string(), stale_sequence);
+        crate::groups::mls_sync::update_group_membership::build_group_membership_app_data_payload(
+            &caro_group.context.db(),
+            mls,
+            &old,
+            &stale,
+        )
+    })?;
+    let stale_delta = propose_membership_payload(&caro_group, stale_payload)?;
+    publish_standalone_proposal(&caro_group, stale_delta, &members).await?;
+    // The stale request also removed the installation added after S2. Alix
+    // is permitted to remove members, so every member stores the Remove too.
+    let removal = crate::state_tx::state_write(group.context.mls_storage(), |tx| {
+        tx.with_group(group.group_id, |mls, storage| {
+            let leaf = mls
+                .members()
+                .find(|member| member.signature_key == bo3.installation_id.as_slice())
+                .map(|member| member.index)
+                .ok_or(GroupError::InvalidGroupMembership)?;
+            let provider = XmtpOpenMlsProviderRef::new(storage);
+            let (message, _) = mls
+                .propose_remove_member(&provider, &group.context.identity().installation_keys, leaf)
+                .map_err(GroupError::ProposeRemoveMember)?;
+            Ok::<_, GroupError>(Continue(message.tls_serialize_detached()?))
+        })
+    })?
+    .into_continued();
+    publish_standalone_proposal(&group, removal, &members).await?;
+    for peer in members {
+        assert_eq!(pending_membership_deltas(peer), 1);
+        assert!(peer.with_group_snapshot(|mls| {
+            Ok(mls
+                .pending_proposals()
+                .any(|proposal| matches!(proposal.proposal(), Proposal::Remove(_))))
+        })?);
+        assert_eq!(peer.epoch_authenticator().await?, before);
+    }
+
+    // Bo is neither author. Its preflight commit must omit the stale delta
+    // and the Remove that depended on it.
+    send_on_every_member(
+        &[&bo_group, &group, &caro_group],
+        "after stored stale delta",
+    )
+    .await?;
+    for peer in members {
+        assert_ne!(peer.epoch_authenticator().await?, before);
+        assert_eq!(committed_sequence(peer, bo.inbox_id()), Some(committed));
+        assert!(has_leaf(peer, bo3.installation_id.as_slice()));
+        assert!(has_leaf(peer, bo2.installation_id.as_slice()));
+        assert_eq!(
+            peer.with_group_snapshot(|mls| Ok(mls.pending_proposals().count()))?,
+            0,
+            "the next epoch expires the omitted proposals"
+        );
+    }
+    Ok(())
+}
+
+fn membership_entry(sequence_id: u64, failed_installations: Vec<Vec<u8>>) -> tls_codec::VLBytes {
+    use xmtp_proto::xmtp::mls::message_contents::{GroupMembershipEntry, group_membership_entry};
+    tls_codec::VLBytes::new(
+        GroupMembershipEntry {
+            version: Some(group_membership_entry::Version::V1(
+                group_membership_entry::V1 {
+                    sequence_id,
+                    failed_installations,
+                },
+            )),
+        }
+        .encode_to_vec(),
+    )
+}
+
+// An admitted membership delta that no commit can keep.
+#[derive(Debug, Clone, Copy)]
+enum UncommittableDelta {
+    // A valid update of one inbox, then a stale update of another.
+    StaleAfterValidUpdate,
+    // A delete, then a stale insert of the same inbox. Each proposal is
+    // admitted against the committed map, so a separate insert of a
+    // committed inbox is refused; one delta can carry both.
+    StaleInsertAfterDelete,
+    // An entry value that does not decode as a membership entry. Admission
+    // checks the map codec, not entry contents.
+    UndecodableEntry,
+    // The same for an inbox that is not a member yet.
+    UndecodableNewEntry,
+    // A new inbox whose entry names sequence 0, which no added entry may.
+    ZeroSequenceNewEntry,
+    // A raise to a sequence id that no identity update can have.
+    OutOfRangeSequence,
+}
+
+// verifies: GMOD-038
+#[rstest::rstest]
+#[case::stale_after_valid_update(UncommittableDelta::StaleAfterValidUpdate)]
+#[case::stale_insert_after_delete(UncommittableDelta::StaleInsertAfterDelete)]
+#[case::undecodable_entry(UncommittableDelta::UndecodableEntry)]
+#[case::undecodable_new_entry(UncommittableDelta::UndecodableNewEntry)]
+#[case::zero_sequence_new_entry(UncommittableDelta::ZeroSequenceNewEntry)]
+#[case::out_of_range_sequence(UncommittableDelta::OutOfRangeSequence)]
+#[xmtp_common::test(unwrap_try = true)]
+async fn uncommittable_membership_delta_is_omitted_whole(
+    #[case] uncommittable: UncommittableDelta,
+) -> Result<(), GroupError> {
+    use tls_codec::VLBytes;
+    use xmtp_mls_common::{inbox_id::InboxId, tls_map::TlsMapDelta};
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    tester!(caro, disable_workers);
+    let [group, bo_group, caro_group] = group_of_three(&alix, &bo, &caro).await?;
+    let members = [&group, &bo_group, &caro_group];
+
+    // A commit raises Caro from S1 to S2, so S1 is a real stale sequence.
+    let caro_stale = committed_sequence(&group, caro.inbox_id()).unwrap();
+    tester!(caro2, from: caro, disable_workers);
+    group.add_missing_installations().await?;
+    for peer in [&bo_group, &caro_group] {
+        receive_completed_prefix(&group, peer).await?;
+    }
+    let caro_sequence = committed_sequence(&group, caro.inbox_id()).unwrap();
+    assert!(caro_stale < caro_sequence);
+    // Bo's identity then reaches S2. No commit has raised Bo's entry yet.
+    tester!(bo2, from: bo, disable_workers);
+    let raised = caro_group
+        .get_membership_update_intent(&[], &[])
+        .await?
+        .membership_updates[bo.inbox_id()];
+    assert!(committed_sequence(&group, bo.inbox_id()).unwrap() < raised);
+    let alix_sequence = committed_sequence(&group, alix.inbox_id()).unwrap();
+    let key = |inbox: &str| InboxId::from_hex(inbox).expect("valid inbox id");
+    let kept_marker = vec![0xA1; 32];
+    let omitted_marker = vec![0xB2; 32];
+
+    // Alix may add and remove members. A same-sequence entry and a raised
+    // entry write no committed inbox lower, so the commit must keep them.
+    let kept = TlsMapDelta::new()
+        .update(
+            key(alix.inbox_id()),
+            membership_entry(alix_sequence, vec![kept_marker.clone()]),
+        )
+        .update(
+            key(bo.inbox_id()),
+            membership_entry(raised, vec![bo2.installation_id.to_vec()]),
+        );
+    let caro_key = key(caro.inbox_id());
+    let uncommittable = match uncommittable {
+        // Keeping this delta would replace Alix's kept entry.
+        UncommittableDelta::StaleAfterValidUpdate => TlsMapDelta::new()
+            .update(
+                key(alix.inbox_id()),
+                membership_entry(alix_sequence, vec![omitted_marker.clone()]),
+            )
+            .update(caro_key, membership_entry(caro_stale, vec![])),
+        UncommittableDelta::StaleInsertAfterDelete => TlsMapDelta::new().delete(caro_key).insert(
+            caro_key,
+            membership_entry(caro_stale, vec![omitted_marker.clone()]),
+        ),
+        // Field 1 announces five bytes and ends.
+        UncommittableDelta::UndecodableEntry => {
+            TlsMapDelta::new().update(caro_key, VLBytes::new(vec![0x0a, 0x05]))
+        }
+        UncommittableDelta::UndecodableNewEntry => {
+            TlsMapDelta::new().insert(key(&"ab".repeat(32)), VLBytes::new(vec![0x0a, 0x05]))
+        }
+        UncommittableDelta::ZeroSequenceNewEntry => {
+            TlsMapDelta::new().insert(key(&"ab".repeat(32)), membership_entry(0, vec![]))
+        }
+        UncommittableDelta::OutOfRangeSequence => {
+            TlsMapDelta::new().update(caro_key, membership_entry(u64::MAX, vec![]))
+        }
+    };
+    // The uncommittable delta is last, so a commit that keeps it applies it whole.
+    for delta in [kept, uncommittable] {
+        let message = propose_membership_payload(&group, delta.tls_serialize_detached()?)?;
+        publish_standalone_proposal(&group, message, &members).await?;
+    }
+    let before = group.epoch_authenticator().await?;
+    for peer in members {
+        assert_eq!(
+            pending_membership_deltas(peer),
+            2,
+            "admission must store both deltas"
+        );
+    }
+
+    // Bo is not the author. Its commit must omit the whole uncommittable
+    // delta and keep the other one. A send would first refresh Bo's own
+    // identity, and that request omits every delta that writes Bo, so commit
+    // the pending proposals directly.
+    let commit = QueueIntent::commit_pending_proposals().queue(&bo_group)?;
+    let result = bo_group.sync_until_intent_resolved(commit.id).await;
+    if let Err(GroupError::SyncFailedToWait(summary)) = &result {
+        panic!("Bo must commit: {:?}", summary.publish_errors);
+    }
+    result?;
+    for peer in members {
+        receive_completed_prefix(&bo_group, peer).await?;
+        assert_ne!(peer.epoch_authenticator().await?, before);
+        let membership = committed_membership(peer);
+        assert_eq!(membership.get(alix.inbox_id()), Some(&alix_sequence));
+        assert_eq!(membership.get(bo.inbox_id()), Some(&raised));
+        assert_eq!(membership.get(caro.inbox_id()), Some(&caro_sequence));
+        assert_eq!(membership.members.len(), 3);
+        assert!(membership.failed_installations.contains(&kept_marker));
+        assert!(!membership.failed_installations.contains(&omitted_marker));
+        assert!(has_leaf(peer, caro2.installation_id.as_slice()));
+        assert_eq!(
+            peer.with_group_snapshot(|mls| Ok(mls.pending_proposals().count()))?,
+            0
+        );
+    }
+    send_on_every_member(&members, "after uncommittable delta").await?;
+    Ok(())
+}
+
+// A refresh of the sender's own installations reads every pending membership
+// delta to find an equivalent accepted one. It must skip an omitted delta too.
+// verifies: GMOD-038
+#[xmtp_common::test(unwrap_try = true)]
+async fn undecodable_membership_delta_does_not_block_own_refresh() -> Result<(), GroupError> {
+    use tls_codec::VLBytes;
+    use xmtp_mls_common::{inbox_id::InboxId, tls_map::TlsMapDelta};
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    tester!(caro, disable_workers);
+    let [group, bo_group, caro_group] = group_of_three(&alix, &bo, &caro).await?;
+    let members = [&bo_group, &group, &caro_group];
+    let caro_key = InboxId::from_hex(caro.inbox_id()).expect("valid inbox id");
+    // Field 1 announces five bytes and ends.
+    let delta = TlsMapDelta::new().update(caro_key, VLBytes::new(vec![0x0a, 0x05]));
+    let message = propose_membership_payload(&group, delta.tls_serialize_detached()?)?;
+    publish_standalone_proposal(&group, message, &members).await?;
+
+    // Bo's new installation gives Bo's refresh its own membership delta.
+    tester!(bo2, from: bo, disable_workers);
+    bo_group.add_missing_installations().await?;
+    for peer in members {
+        receive_completed_prefix(&bo_group, peer).await?;
+        assert!(has_leaf(peer, bo2.installation_id.as_slice()));
+        assert_eq!(
+            peer.with_group_snapshot(|mls| Ok(mls.pending_proposals().count()))?,
+            0
+        );
+    }
+    send_on_every_member(&members, "after undecodable delta").await?;
+    Ok(())
+}
+
+// A pending delta can name an identity update that the backend never
+// published. The committer resolves it, finds nothing, and omits the delta.
+// verifies: GMOD-038
+#[xmtp_common::test(unwrap_try = true)]
+async fn membership_delta_with_absent_reference_is_omitted() -> Result<(), GroupError> {
+    use xmtp_mls_common::{inbox_id::InboxId, tls_map::TlsMapDelta};
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    tester!(caro, disable_workers);
+    let [group, bo_group, caro_group] = group_of_three(&alix, &bo, &caro).await?;
+    let members = [&group, &bo_group, &caro_group];
+    let absent = InboxId::from_hex(&"ab".repeat(32)).expect("valid inbox id");
+    let delta = TlsMapDelta::new().insert(absent, membership_entry(5, vec![]));
+    let message = propose_membership_payload(&group, delta.tls_serialize_detached()?)?;
+    publish_standalone_proposal(&group, message, &members).await?;
+    let before = group.epoch_authenticator().await?;
+
+    // The default absence wait is 30 seconds. Shorten it for the committer.
+    let mut settings = bo.context.incoming_runtime().policy().clone();
+    settings.identity_reference_wait = std::time::Duration::from_millis(5_500);
+    let committer = crate::builder::ClientBuilder::from_client(bo.client.clone())
+        .with_disable_workers(true)
+        .stream_policy(settings)
+        .build()
+        .await
+        .expect("rebuild Bo's client with a short absence wait");
+    let committer_group = committer.group(&group.group_id)?;
+    let commit = QueueIntent::commit_pending_proposals().queue(&committer_group)?;
+    let result = committer_group.sync_until_intent_resolved(commit.id).await;
+    if let Err(GroupError::SyncFailedToWait(summary)) = &result {
+        panic!("Bo must commit: {:?}", summary.publish_errors);
+    }
+    result?;
+    for peer in members {
+        receive_completed_prefix(&committer_group, peer).await?;
+        assert_ne!(peer.epoch_authenticator().await?, before);
+        assert_eq!(committed_membership(peer).members.len(), 3);
+        assert_eq!(
+            peer.with_group_snapshot(|mls| Ok(mls.pending_proposals().count()))?,
+            0
+        );
+    }
+    send_on_every_member(&members, "after absent reference").await?;
+    Ok(())
+}

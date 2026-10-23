@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::groups::group_permissions::MembershipPolicy;
+use crate::identity_updates::{IdentityDependencyError, InstallationDiffError};
 use openmls::group::QueuedProposal;
 use openmls::messages::proposals::AppDataUpdateOperation;
 use tls_codec::{Deserialize, VLBytes};
@@ -201,6 +202,53 @@ impl SelectionRequirements {
         membership_from_app_data_bytes(&bytes)
     }
 
+    /// Whether a membership delta writes an entry this client cannot decode,
+    /// writes a committed inbox below its entry, adds an inbox at sequence 0,
+    /// or names a sequence id no identity update can have. Proposal admission
+    /// checks authority and the map codec, not entry contents, so a stale
+    /// refresh can be accepted. No commit that keeps such a write can be
+    /// validated.
+    fn cannot_commit(&self, proposal: &QueuedProposal) -> Result<bool, GroupError> {
+        use xmtp_proto::xmtp::mls::message_contents::{
+            GroupMembershipEntry, group_membership_entry,
+        };
+        let Some(payload) = membership_payload(proposal) else {
+            return Ok(false);
+        };
+        let delta =
+            TlsMapDelta::<xmtp_mls_common::inbox_id::InboxId, VLBytes>::tls_deserialize_exact(
+                payload,
+            )?;
+        for mutation in &delta.mutations {
+            let (TlsMapMutation::Insert { key, value } | TlsMapMutation::Update { key, value }) =
+                mutation
+            else {
+                continue;
+            };
+            // An error here would block every commit of pending proposals.
+            // Omitting the whole delta is always a valid selection.
+            let Ok(GroupMembershipEntry {
+                version: Some(group_membership_entry::Version::V1(entry)),
+            }) = GroupMembershipEntry::decode(value.as_slice())
+            else {
+                return Ok(true);
+            };
+            // An Insert of a committed inbox can follow a Delete in the same delta.
+            // An added entry needs a resolved identity reference, never 0.
+            if i64::try_from(entry.sequence_id).is_err()
+                || self
+                    .old
+                    .get(key.to_hex())
+                    .map_or(entry.sequence_id == 0, |&committed| {
+                        entry.sequence_id < committed
+                    })
+            {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
     /// Drop a whole authenticated membership delta. Never rewrite another
     /// author's payload or apply only some of its inbox changes.
     fn omit_dependencies(
@@ -242,6 +290,15 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
             active: true,
             ..Default::default()
         };
+        // implements: GMOD-038
+        // Omit each whole stale delta before any other use of its entries.
+        // The selection loop recomputes the Add and Remove proposals that
+        // depended on it.
+        for (index, proposal) in requirements.proposals.iter().enumerate() {
+            if requirements.cannot_commit(proposal)? {
+                selection.omitted.insert(index);
+            }
+        }
         let mut same_request = HashSet::new();
         let own_payload = if let Some(update) = &requirements.own_update {
             let mut target = update.apply_to_group_membership(&requirements.old);
@@ -265,6 +322,9 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
             .map_err(ComponentSourceError::from)?;
             let target = membership_from_app_data_bytes(&target_bytes)?;
             for (index, proposal) in requirements.proposals.iter().enumerate() {
+                if selection.omitted.contains(&index) {
+                    continue;
+                }
                 if let Some(payload) = membership_payload(proposal) {
                     let bytes = GroupMembershipComponent::apply_update_payload(
                         payload,
@@ -380,7 +440,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                 own_payload.as_deref(),
                 &same_request,
             )?;
-            let diff = identity
+            let diff = match identity
                 .get_installation_diff(
                     &self.context.db(),
                     &self.group_id,
@@ -388,7 +448,26 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                     &target,
                     &requirements.old.diff(&target),
                 )
-                .await?;
+                .await
+            {
+                Ok(diff) => diff,
+                // The backend holds no identity update at this reference, so
+                // no commit that keeps it can be validated.
+                Err(InstallationDiffError::IdentityDependency(
+                    IdentityDependencyError::MissingReference(requirement),
+                )) => {
+                    if requirements
+                        .omit_dependencies(&requirement.inbox_id, &mut selection.omitted)?
+                    {
+                        continue;
+                    }
+                    return Err(InstallationDiffError::from(
+                        IdentityDependencyError::MissingReference(requirement),
+                    )
+                    .into());
+                }
+                Err(error) => return Err(error.into()),
+            };
             let mut changed = false;
             let mut replacements = Vec::new();
             let mut included = HashSet::new();
