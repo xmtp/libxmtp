@@ -718,6 +718,8 @@ mod tests {
     /// stopped at the baseline upgrades in place, and a database that already
     /// applied later migrations reopens. Otherwise the first proposal would
     /// meet "no such table: received_proposals" and block its group.
+    /// Welcome migration preserves established wrapper deadlines without
+    /// mistaking a pointer-fetch deadline for unreadable-input retention.
     #[xmtp_common::test(unwrap_try = true)]
     async fn upgrades_a_baseline_database_to_the_latest_migration() {
         use crate::encrypted_store::EmbeddedMigrationsExt;
@@ -753,6 +755,18 @@ mod tests {
                         .is_err()
                 );
             }
+            diesel::sql_query(
+                "INSERT INTO refresh_state (entity_id, entity_kind, sequence_id) VALUES (x'01', 1, 0)",
+            )
+            .execute(conn)?;
+            diesel::sql_query(
+                "INSERT INTO incoming_envelopes
+                 (entity_id, entity_kind, sequence_id, envelope, error_code, retry_expires_at_ns)
+                 VALUES (x'01', 1, 1, x'01', 'unsupported_welcome', 100),
+                        (x'01', 1, 2, x'02', 'welcome_pointee', 200),
+                        (x'01', 1, 3, x'03', 'welcome_blocked', NULL)",
+            )
+            .execute(conn)?;
             Ok::<_, diesel::result::Error>(())
         })?;
 
@@ -783,6 +797,27 @@ mod tests {
         assert_eq!(has_index("group_messages_sent_at_id_sort")?, 1);
         assert_eq!(has_index("group_messages_pending_history_position")?, 1);
         assert_eq!(has_index("group_messages_group_reference")?, 1);
+        #[derive(diesel::QueryableByName)]
+        struct Deadline {
+            #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::BigInt>)]
+            retry_expires_at_ns: Option<i64>,
+            #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::BigInt>)]
+            unreadable_expires_at_ns: Option<i64>,
+        }
+        let deadlines = connection.raw_query(|conn| {
+            diesel::sql_query(
+                "SELECT retry_expires_at_ns, unreadable_expires_at_ns
+                 FROM incoming_envelopes ORDER BY sequence_id",
+            )
+            .load::<Deadline>(conn)
+        })?;
+        assert_eq!(
+            deadlines
+                .iter()
+                .map(|row| (row.retry_expires_at_ns, row.unreadable_expires_at_ns))
+                .collect::<Vec<_>>(),
+            vec![(None, Some(100)), (Some(200), None), (None, None)]
+        );
         let latest = connection.raw_query(|conn| {
             conn.applied_migrations()
                 .map_err(diesel::result::Error::QueryBuilderError)

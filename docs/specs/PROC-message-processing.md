@@ -94,7 +94,7 @@ The group disposition table below applies only after those prerequisites hold. C
 | Update validates against the complete preceding identity history | Apply under IDENT-004 and IDENT-071 |
 | Invalid identity history, missing local state, unresolved verification, unsupported input, or any other validation failure | Hold the identity prefix and dependent work; do not substitute a later or partial association state |
 
-Welcome rejection and retention belong to JOIN-047, JOIN-048, JOIN-077, and JOIN-079. A later Welcome can complete while an earlier one stays unresolved. A running client needs later attempts to reach the retention decision without a restart.
+Welcome rejection and retention belong to JOIN-085, JOIN-048, JOIN-087, JOIN-084, and JOIN-086. A later Welcome can complete while an earlier one stays unresolved. A running client needs later attempts to reach the retention decision without a restart.
 
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
