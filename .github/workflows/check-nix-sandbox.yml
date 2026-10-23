@@ -1,0 +1,28 @@
+name: "Lint: Nix sandbox"
+on:
+  workflow_call:
+jobs:
+  # Every Linux runner class that builds Nix outputs for CI must build them in
+  # the Nix sandbox, where the build directory is /build. Without it, outputs
+  # that embed the build directory differ by producer, and a check that
+  # compares outputs from two jobs fails. Pull requests build on Blacksmith;
+  # merge, release, and deploy jobs build on the GitHub-hosted images.
+  canary:
+    name: Linux sandbox (${{ matrix.runner }})
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [blacksmith-4vcpu-ubuntu-2404, ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Set up Nix
+        uses: ./.github/actions/setup-nix
+        with:
+          cache-mode: read
+          github-token: ${{ github.token }}
+      # nix/ci-checks.nix; it never substitutes, so this runner builds it.
+      - name: Build the sandbox canary
+        run: nix build --no-link ".#nix-sandbox-canary.$(nix eval --impure --raw --expr builtins.currentSystem)"

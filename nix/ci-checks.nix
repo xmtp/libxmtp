@@ -15,6 +15,8 @@
 #   - backend-tests: the backend test suite with the storage services
 #     (nix/services). It runs in the standard sandbox; test-nix-checks.yml
 #     builds it.
+#   - nix-sandbox-canary: fails unless the build runs in the Linux sandbox.
+#     check-nix-sandbox.yml builds it on each Linux runner class.
 { lib, withSystem, ... }:
 let
   systems = [
@@ -22,6 +24,7 @@ let
     "x86_64-linux"
     "aarch64-linux"
   ];
+  linuxSystems = lib.filter (lib.hasSuffix "-linux") systems;
   # The WASM tests compile once into an archive and run in this many slices.
   # .github/workflows/test-wasm.yml and dev/wasm.just list the same slices.
   wasmPartitions = 4;
@@ -139,6 +142,34 @@ in
       { pkgs, self', ... }:
       pkgs.callPackage ./package/backend-tests.nix {
         services = self'.legacyPackages.storageServices;
+      }
+    )
+  );
+
+  # Inside the Linux sandbox, Nix sets NIX_BUILD_TOP to `sandbox-build-dir`,
+  # /build, on every runner. Without the sandbox it is a random host
+  # directory, so outputs that embed it differ by producer. The canary never
+  # substitutes, so each job that builds it checks its own runner.
+  flake.nix-sandbox-canary = lib.genAttrs linuxSystems (
+    system:
+    withSystem system (
+      { pkgs, ... }:
+      derivation {
+        name = "nix-sandbox-canary";
+        inherit system;
+        builder = pkgs.runtimeShell;
+        args = [
+          "-c"
+          ''
+            if [ "$NIX_BUILD_TOP" != /build ]; then
+              echo "nix-sandbox-canary: the build directory is $NIX_BUILD_TOP, not /build, so the Linux sandbox is off" >&2
+              exit 1
+            fi
+            echo sandboxed >"$out"
+          ''
+        ];
+        allowSubstitutes = false;
+        preferLocalBuild = true;
       }
     )
   );
