@@ -1,7 +1,7 @@
 # XMTP Android SDK
 
 Kotlin package `uniffi.xmtp_sdk`. The SDK uses generated bindings and runtime from
-`xmtp_sdk`. The version is 8.0.0. Main source adds Android storage, process
+`xmtp_sdk`. The SDK version is generated from root `Cargo.toml`. Main source adds Android storage, process
 lifecycle, and file log helpers.
 
 ## Commands

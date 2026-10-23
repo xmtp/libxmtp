@@ -1,86 +1,79 @@
 name: Release
-
 on:
   workflow_dispatch:
     inputs:
       release-type:
-        description: "Release type"
+        description: Release type
         required: true
         type: choice
-        options:
-          - "dev"
-          - "rc"
-          - "final"
+        options: [dev, rc, final]
       ref:
-        description: "Branch to release from (defaults to the branch the workflow is run from)"
+        description: Branch to release from (defaults to the branch the workflow is run from)
         required: false
         type: string
       rc-number:
-        description: "RC number (required for RC releases)"
+        description: RC number (required for RC releases)
         required: false
         type: number
-      ios:
-        description: "Release iOS SDK"
-        required: false
-        type: boolean
-        default: false
-      android:
-        description: "Release Android SDK"
-        required: false
-        type: boolean
-        default: false
-      node-sdk:
-        description: "Release Node SDK"
-        required: false
-        type: boolean
-        default: false
-      browser-sdk:
-        description: "Release Browser SDK"
-        required: false
-        type: boolean
-        default: false
-      agent-sdk:
-        description: "Release Agent SDK"
-        required: false
-        type: boolean
-        default: false
-      react-native-sdk:
-        description: "Release React Native SDK"
-        required: false
-        type: boolean
-        default: false
       cli:
-        description: "Release CLI"
+        description: Release CLI (also releases Node)
         required: false
         type: boolean
         default: false
       backend:
-        description: "Release the backend container and GitHub tag"
+        description: Release the backend container and GitHub tag
         required: false
         type: boolean
         default: false
       no-merge:
-        description: "Skip merging the release PR (only applies to final releases)"
+        description: Skip merging the release PR (only applies to final releases)
         required: false
         type: boolean
         default: false
       pr-base:
-        description: "Release PR target branch (only applies to final releases)"
+        description: Release PR target branch (only applies to final releases)
         required: false
         type: string
-        default: "main"
+        default: main
       dry-run:
-        description: "Build selected artifacts and verify React Native consumers; skip publishing, tags, merges, and notifications"
+        description: Build selected artifacts and verify React Native consumers; skip publishing, tags, merges, and notifications
         required: false
         type: boolean
         default: false
-
+      ios:
+        description: Release iOS SDK
+        type: boolean
+        required: false
+        default: false
+      android:
+        description: Release Android SDK
+        type: boolean
+        required: false
+        default: false
+      node-sdk:
+        description: Release Node SDK
+        type: boolean
+        required: false
+        default: false
+      browser-sdk:
+        description: Release Browser SDK
+        type: boolean
+        required: false
+        default: false
+      agent-sdk:
+        description: Release Agent SDK (also releases Node)
+        type: boolean
+        required: false
+        default: false
+      react-native-sdk:
+        description: Release React Native SDK
+        type: boolean
+        required: false
+        default: false
 jobs:
   validate:
-    name: Resolve source and versions
+    name: Freeze source and shared SDK version
     runs-on: ubuntu-latest
-    # This job runs the release tools from the source, so it holds no App or
-    # publish secret and only reads the repository.
     permissions:
       contents: read
     outputs:
@@ -88,6 +81,7 @@ jobs:
       ref: ${{ steps.resolve.outputs.ref }}
       source-sha: ${{ steps.source.outputs.sha }}
       timestamp: ${{ steps.timestamp.outputs.timestamp }}
+      products-selected: ${{ steps.resolve.outputs.products-selected }}
       ios: ${{ steps.resolve.outputs.ios }}
       android: ${{ steps.resolve.outputs.android }}
       node-sdk: ${{ steps.resolve.outputs.node-sdk }}
@@ -121,7 +115,13 @@ jobs:
           INPUT_BACKEND: ${{ inputs.backend }}
           INPUT_DRY_RUN: ${{ inputs.dry-run }}
         run: |
+          set -euo pipefail
+          # Agent and CLI require this run's exact published Node version.
+          if [ "$INPUT_AGENT_SDK" = true ] || [ "$INPUT_CLI" = true ]; then INPUT_NODE_SDK=true; fi
+          SELECTED=false
+          if [[ "$INPUT_IOS $INPUT_ANDROID $INPUT_NODE_SDK $INPUT_BROWSER_SDK $INPUT_AGENT_SDK $INPUT_REACT_NATIVE_SDK $INPUT_CLI" = *true* ]]; then SELECTED=true; fi
           {
+            echo "products-selected=$SELECTED"
             echo "release-type=$INPUT_RELEASE_TYPE"
             echo "ref=${INPUT_REF:-$GITHUB_REF}"
             echo "ios=$INPUT_IOS"
@@ -134,11 +134,6 @@ jobs:
             echo "backend=$INPUT_BACKEND"
             echo "dry-run=${INPUT_DRY_RUN:-false}"
           } >> "$GITHUB_OUTPUT"
-      # Use one timestamp for all versions in this release run.
-      #
-      # Second precision, not minute: the stamp is the semver ordering key, so
-      # two runs sharing one stamp fall through to comparing the sha, which is
-      # arbitrary. Seconds keep separate runs on separate keys.
       - name: Mint release timestamp
         id: timestamp
         run: echo "timestamp=$(date -u +%Y%m%d%H%M%S)" >> "$GITHUB_OUTPUT"
@@ -176,7 +171,7 @@ jobs:
             exit 1
           fi
       - name: Check out the release source
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           ref: ${{ steps.resolve.outputs.ref }}
           persist-credentials: false
@@ -184,138 +179,280 @@ jobs:
         id: source
         run: |
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-      - name: Set up release tools
-        uses: ./.github/actions/setup-release-tools
-      # Every selected SDK gets its version here, once, from the pinned
-      # source and the run timestamp. The SDK workflows publish these values.
-      # The backend computes its own version after it pins its source.
-      - name: Compute SDK versions
+      - name: Set up Nix
+        uses: ./.github/actions/setup-nix
+        with:
+          cache-mode: read
+          github-token: ${{ github.token }}
+      - name: Compute SDK version once
         id: versions
         env:
           RELEASE_TYPE: ${{ steps.resolve.outputs.release-type }}
           RC_NUMBER: ${{ inputs.rc-number }}
-          REF: ${{ steps.resolve.outputs.ref }}
           TIMESTAMP: ${{ steps.timestamp.outputs.timestamp }}
-          IOS: ${{ steps.resolve.outputs.ios }}
-          ANDROID: ${{ steps.resolve.outputs.android }}
-          NODE_SDK: ${{ steps.resolve.outputs.node-sdk }}
-          BROWSER_SDK: ${{ steps.resolve.outputs.browser-sdk }}
-          AGENT_SDK: ${{ steps.resolve.outputs.agent-sdk }}
-          REACT_NATIVE_SDK: ${{ steps.resolve.outputs.react-native-sdk }}
-          CLI: ${{ steps.resolve.outputs.cli }}
         run: |
           set -euo pipefail
-          for entry in "ios:$IOS" "android:$ANDROID" "node-sdk:$NODE_SDK" \
-            "browser-sdk:$BROWSER_SDK" "agent-sdk:$AGENT_SDK" \
-            "react-native-sdk:$REACT_NATIVE_SDK" "cli:$CLI"; do
-            sdk="${entry%%:*}"
-            if [ "${entry#*:}" != true ]; then
-              continue
-            fi
-            args=(--sdk "$sdk" --release-type "$RELEASE_TYPE")
-            case "$RELEASE_TYPE" in
-              rc) args+=(--rc-number "$RC_NUMBER") ;;
-              dev) args+=(--source-ref "$REF" --timestamp "$TIMESTAMP") ;;
-            esac
-            version=$(xmtp-release compute-version "${args[@]}")
+          args=(--kind "$RELEASE_TYPE" --timestamp "$TIMESTAMP" --output "$RUNNER_TEMP/release-plan.json")
+          if [ "$RELEASE_TYPE" = rc ]; then args+=(--rc-number "$RC_NUMBER"); fi
+          version=$(dev/nix-shell --shell js-node --command python3.11 dev/sdk_version.py plan "${args[@]}")
+          for sdk in ios android node-sdk browser-sdk agent-sdk react-native-sdk cli; do
             echo "version-$sdk=$version" >> "$GITHUB_OUTPUT"
-            echo "$sdk: $version"
           done
-
-  release-ios:
-    name: iOS SDK
+      - name: Retain frozen SDK release plan
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: sdk-release-plan
+          path: ${{ runner.temp }}/release-plan.json
+          retention-days: 7
+          if-no-files-found: error
+  build-ios:
+    name: Build and validate ios
     needs: [validate]
-    if: needs.validate.outputs.ios == 'true' && needs.validate.outputs.dry-run != 'true'
+    if: needs.validate.outputs.ios == 'true'
     uses: ./.github/workflows/release-ios.yml
     with:
-      release-type: ${{ needs.validate.outputs.release-type }}
       source-sha: ${{ needs.validate.outputs.source-sha }}
       version: ${{ needs.validate.outputs.version-ios }}
+      dry-run: true
+      build-only: true
+      release-type: ${{ needs.validate.outputs.release-type }}
     secrets: inherit
-
-  release-android:
-    name: Android SDK
+    permissions:
+      contents: write
+  build-android:
+    name: Build and validate android
     needs: [validate]
-    if: needs.validate.outputs.android == 'true' && needs.validate.outputs.dry-run != 'true'
+    if: needs.validate.outputs.android == 'true'
     uses: ./.github/workflows/release-android.yml
+    with:
+      source-sha: ${{ needs.validate.outputs.source-sha }}
+      version: ${{ needs.validate.outputs.version-android }}
+      dry-run: true
+      build-only: true
+      release-type: ${{ needs.validate.outputs.release-type }}
+    secrets: inherit
     permissions:
       contents: write
       packages: write
-    with:
-      release-type: ${{ needs.validate.outputs.release-type }}
-      source-sha: ${{ needs.validate.outputs.source-sha }}
-      version: ${{ needs.validate.outputs.version-android }}
-    secrets: inherit
-
-  release-node-sdk:
-    name: Node SDK
+  build-node-sdk:
+    name: Build and validate node-sdk
     needs: [validate]
     if: needs.validate.outputs.node-sdk == 'true'
     uses: ./.github/workflows/release-node-sdk.yml
     with:
       source-sha: ${{ needs.validate.outputs.source-sha }}
       version: ${{ needs.validate.outputs.version-node-sdk }}
-      dry-run: ${{ needs.validate.outputs.dry-run == 'true' }}
+      dry-run: true
+      build-only: true
     secrets: inherit
-
-  release-browser-sdk:
-    name: Browser SDK
+    permissions:
+      contents: read
+      id-token: write
+  build-browser-sdk:
+    name: Build and validate browser-sdk
     needs: [validate]
     if: needs.validate.outputs.browser-sdk == 'true'
     uses: ./.github/workflows/release-browser-sdk.yml
     with:
       source-sha: ${{ needs.validate.outputs.source-sha }}
       version: ${{ needs.validate.outputs.version-browser-sdk }}
-      dry-run: ${{ needs.validate.outputs.dry-run == 'true' }}
+      dry-run: true
+      build-only: true
     secrets: inherit
-
-  # Depends on release-node-sdk so the published agent-sdk pins the node-sdk
-  # version shipped by this same run; when node-sdk is deselected (skipped),
-  # the empty version input falls back to npm latest inside the workflow.
-  # `!cancelled()` lets this job run when release-node-sdk was skipped.
-  release-agent-sdk:
-    name: Agent SDK
-    needs: [validate, release-node-sdk]
-    if: >-
-      !cancelled() && !contains(needs.*.result, 'failure')
-      && needs.validate.outputs.agent-sdk == 'true'
+    permissions:
+      contents: read
+      id-token: write
+  build-agent-sdk:
+    name: Build and validate agent-sdk
+    needs: [validate, build-node-sdk]
+    if: needs.validate.outputs.agent-sdk == 'true'
     uses: ./.github/workflows/release-agent-sdk.yml
     with:
-      release-type: ${{ needs.validate.outputs.release-type }}
       source-sha: ${{ needs.validate.outputs.source-sha }}
       version: ${{ needs.validate.outputs.version-agent-sdk }}
-      node-sdk-version: ${{ needs.release-node-sdk.outputs.version }}
-      dry-run: ${{ needs.validate.outputs.dry-run == 'true' }}
+      dry-run: true
+      build-only: true
     secrets: inherit
-
-  release-react-native-sdk:
-    name: React Native SDK
+    permissions:
+      contents: read
+      id-token: write
+  build-cli:
+    name: Build and validate cli
+    needs: [validate, build-node-sdk]
+    if: needs.validate.outputs.cli == 'true'
+    uses: ./.github/workflows/release-cli.yml
+    with:
+      source-sha: ${{ needs.validate.outputs.source-sha }}
+      version: ${{ needs.validate.outputs.version-cli }}
+      dry-run: true
+      build-only: true
+    secrets: inherit
+    permissions:
+      contents: read
+      id-token: write
+  build-react-native-sdk:
+    name: Build and validate react-native-sdk
     needs: [validate]
     if: needs.validate.outputs.react-native-sdk == 'true'
     uses: ./.github/workflows/release-react-native-sdk.yml
     with:
       source-sha: ${{ needs.validate.outputs.source-sha }}
       version: ${{ needs.validate.outputs.version-react-native-sdk }}
-      dry-run: ${{ needs.validate.outputs.dry-run == 'true' }}
+      dry-run: true
+      build-only: true
     secrets: inherit
-
-  # Depends on release-node-sdk so the published CLI pins the node-sdk version
-  # shipped by this run, falling back to npm latest when node-sdk is skipped.
-  release-cli:
-    name: CLI
-    needs: [validate, release-node-sdk]
-    if: >-
-      !cancelled() && !contains(needs.*.result, 'failure')
-      && needs.validate.outputs.cli == 'true'
-    uses: ./.github/workflows/release-cli.yml
+    permissions:
+      contents: read
+      id-token: write
+  sdk-ready:
+    name: Selected SDK and CLI products validated
+    needs: [validate, build-ios, build-android, build-node-sdk, build-browser-sdk, build-agent-sdk, build-react-native-sdk, build-cli]
+    if: "!cancelled() && needs.validate.result == 'success' && needs.validate.outputs.products-selected == 'true'"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every selected SDK to succeed
+        env:
+          SDK_SELECTION: ${{ toJSON(needs.validate.outputs) }}
+          JOB_RESULTS: ${{ toJSON(needs) }}
+          SDK_JOB_PREFIX: build
+        run: |
+          python3 - <<'PYTHON'
+          import json, os
+          selected = json.loads(os.environ["SDK_SELECTION"])
+          results = json.loads(os.environ["JOB_RESULTS"])
+          prefix = os.environ["SDK_JOB_PREFIX"]
+          for sdk in ("ios", "android", "node-sdk", "browser-sdk", "agent-sdk", "react-native-sdk", "cli"):
+              if selected[sdk] == "true" and results[f"{prefix}-{sdk}"]["result"] != "success":
+                  raise SystemExit(f"Selected SDK {sdk} did not succeed")
+          PYTHON
+  release-ios:
+    name: Publish ios
+    needs: [validate, sdk-ready]
+    if: "!cancelled() && needs.sdk-ready.result == 'success' && needs.validate.outputs.ios == 'true' && needs.validate.outputs.dry-run != 'true'"
+    secrets: inherit
+    uses: ./.github/workflows/release-ios.yml
     with:
+      source-sha: ${{ needs.validate.outputs.source-sha }}
+      version: ${{ needs.validate.outputs.version-ios }}
       release-type: ${{ needs.validate.outputs.release-type }}
+      publish-only: true
+    permissions:
+      contents: write
+  release-android:
+    name: Publish android
+    needs: [validate, sdk-ready]
+    if: "!cancelled() && needs.sdk-ready.result == 'success' && needs.validate.outputs.android == 'true' && needs.validate.outputs.dry-run != 'true'"
+    secrets: inherit
+    uses: ./.github/workflows/release-android.yml
+    with:
+      source-sha: ${{ needs.validate.outputs.source-sha }}
+      version: ${{ needs.validate.outputs.version-android }}
+      release-type: ${{ needs.validate.outputs.release-type }}
+      publish-only: true
+    permissions:
+      contents: write
+      packages: write
+  release-node-sdk:
+    name: Publish node-sdk
+    needs: [validate, sdk-ready]
+    if: "!cancelled() && needs.sdk-ready.result == 'success' && needs.validate.outputs.node-sdk == 'true' && needs.validate.outputs.dry-run != 'true'"
+    secrets: inherit
+    uses: ./.github/workflows/npm-publish.yml
+    with:
+      source-sha: ${{ needs.validate.outputs.source-sha }}
+      version: ${{ needs.validate.outputs.version-node-sdk }}
+      sdk: node-sdk
+      prepared: true
+      package-dir: .
+      ignore-scripts: true
+    permissions:
+      contents: read
+      id-token: write
+  release-browser-sdk:
+    name: Publish browser-sdk
+    needs: [validate, sdk-ready]
+    if: "!cancelled() && needs.sdk-ready.result == 'success' && needs.validate.outputs.browser-sdk == 'true' && needs.validate.outputs.dry-run != 'true'"
+    secrets: inherit
+    uses: ./.github/workflows/npm-publish.yml
+    with:
+      source-sha: ${{ needs.validate.outputs.source-sha }}
+      version: ${{ needs.validate.outputs.version-browser-sdk }}
+      sdk: browser-sdk
+      prepared: true
+      package-dir: .
+      ignore-scripts: true
+    permissions:
+      contents: read
+      id-token: write
+  release-agent-sdk:
+    name: Publish agent-sdk
+    needs: [validate, sdk-ready, release-node-sdk]
+    if: "!cancelled() && needs.sdk-ready.result == 'success' && needs.validate.outputs.agent-sdk == 'true' && needs.release-node-sdk.result == 'success' && needs.validate.outputs.dry-run != 'true'"
+    secrets: inherit
+    uses: ./.github/workflows/npm-publish.yml
+    with:
+      source-sha: ${{ needs.validate.outputs.source-sha }}
+      version: ${{ needs.validate.outputs.version-agent-sdk }}
+      sdk: agent-sdk
+      prepared: true
+      package-dir: .
+      ignore-scripts: true
+    permissions:
+      contents: read
+      id-token: write
+  release-cli:
+    name: Publish cli
+    needs: [validate, sdk-ready, release-node-sdk]
+    if: "!cancelled() && needs.sdk-ready.result == 'success' && needs.validate.outputs.cli == 'true' && needs.release-node-sdk.result == 'success' && needs.validate.outputs.dry-run != 'true'"
+    secrets: inherit
+    uses: ./.github/workflows/npm-publish.yml
+    with:
       source-sha: ${{ needs.validate.outputs.source-sha }}
       version: ${{ needs.validate.outputs.version-cli }}
-      node-sdk-version: ${{ needs.release-node-sdk.outputs.version }}
-      dry-run: ${{ needs.validate.outputs.dry-run == 'true' }}
+      sdk: cli
+      prepared: true
+      package-dir: .
+      ignore-scripts: true
+    permissions:
+      contents: read
+      id-token: write
+  release-react-native-sdk:
+    name: Publish react-native-sdk
+    needs: [validate, sdk-ready]
+    if: "!cancelled() && needs.sdk-ready.result == 'success' && needs.validate.outputs.react-native-sdk == 'true' && needs.validate.outputs.dry-run != 'true'"
     secrets: inherit
-
+    uses: ./.github/workflows/npm-publish.yml
+    with:
+      source-sha: ${{ needs.validate.outputs.source-sha }}
+      version: ${{ needs.validate.outputs.version-react-native-sdk }}
+      sdk: react-native-sdk
+      prepared: true
+      package-dir: .
+      ignore-scripts: true
+    permissions:
+      contents: read
+      id-token: write
+  sdk-complete:
+    name: Selected SDK and CLI publications completed
+    needs: [validate, release-ios, release-android, release-node-sdk, release-browser-sdk, release-agent-sdk, release-react-native-sdk, release-cli]
+    if: "!cancelled() && needs.validate.result == 'success' && needs.validate.outputs.products-selected == 'true' && needs.validate.outputs.dry-run != 'true'"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every selected SDK to succeed
+        env:
+          SDK_SELECTION: ${{ toJSON(needs.validate.outputs) }}
+          JOB_RESULTS: ${{ toJSON(needs) }}
+          SDK_JOB_PREFIX: release
+        run: |
+          python3 - <<'PYTHON'
+          import json, os
+          selected = json.loads(os.environ["SDK_SELECTION"])
+          results = json.loads(os.environ["JOB_RESULTS"])
+          prefix = os.environ["SDK_JOB_PREFIX"]
+          for sdk in ("ios", "android", "node-sdk", "browser-sdk", "agent-sdk", "react-native-sdk", "cli"):
+              if selected[sdk] == "true" and results[f"{prefix}-{sdk}"]["result"] != "success":
+                  raise SystemExit(f"Selected SDK {sdk} did not succeed")
+          PYTHON
   release-backend:
     name: Backend
     needs: [validate]
@@ -334,13 +471,6 @@ jobs:
       timestamp: ${{ needs.validate.outputs.timestamp }}
       dry-run: ${{ needs.validate.outputs.dry-run == 'true' }}
     secrets: inherit
-
-  # A backend release publishes the xdbg monitoring image
-  # (apps/xmtp_debug/README.md), built from the backend's pinned source and
-  # tagged with the backend release version. It pushes the image only when the
-  # source commit is on main or a release/** branch: a dev release may come
-  # from any branch, and a dry run publishes nothing, so those build the image
-  # without pushing it. Nothing deploys it.
   release-xdbg:
     name: Publish xdbg image
     needs: [validate, release-backend]
@@ -357,12 +487,10 @@ jobs:
       IMAGE: ghcr.io/xmtp/xdbg
     steps:
       - name: Check out the release source
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           ref: ${{ needs.validate.outputs.source-sha }}
           persist-credentials: false
-      # The same check as check-release-push.yml (test_release_push.py runs
-      # it). Here a failure only keeps the image from being pushed.
       - name: Check that the source is on a release branch
         id: release-source
         if: needs.validate.outputs.dry-run != 'true'
@@ -382,38 +510,37 @@ jobs:
           echo "Release source is on: $(tr '\n' ' ' <<< "$branches")"
       - name: Say that the image is not published
         if: steps.release-source.outcome != 'success'
-        run: echo "::notice title=xdbg image::Built, not pushed. Only a non-dry release from main or a release/** branch pushes it."
+        run: echo "::notice title=xdbg image::Built, not pushed. Only a non-dry release from main or a release/** branch pushes
+          it."
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069
       - name: Log in to GHCR
         if: steps.release-source.outcome == 'success'
-        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Extract image labels
         id: meta
-        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302
         with:
           images: ${{ env.IMAGE }}
           tags: type=raw,value=${{ needs.release-backend.outputs.version }}
       - name: Build and push image
-        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc
         with:
           context: .
           file: ./apps/xmtp_debug/docker/Dockerfile
           push: ${{ steps.release-source.outcome == 'success' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-
   merge-pr:
     name: Merge release PR
-    # dry-run must not mutate the repo: a final + dry-run would otherwise merge
-    # and delete the release branch even though the release-* jobs were skipped
-    # (skipped ≠ failure, so the !contains(failure) check alone lets it through).
-    if: needs.validate.outputs.release-type == 'final' && !inputs.no-merge && !cancelled() && !contains(needs.*.result, 'failure') && needs.validate.outputs.dry-run != 'true'
-    needs: [validate, release-ios, release-android, release-node-sdk, release-browser-sdk, release-agent-sdk, release-react-native-sdk, release-cli, release-backend]
+    if: needs.validate.outputs.release-type == 'final' && !inputs.no-merge && !cancelled() && !contains(needs.*.result, 'failure')
+      && needs.validate.outputs.dry-run != 'true' && (needs.validate.outputs.products-selected != 'true' || needs.sdk-complete.result == 'success')
+    needs: [validate, release-ios, release-android, release-node-sdk, release-browser-sdk, release-agent-sdk, release-react-native-sdk,
+      release-cli, release-backend, sdk-complete]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -434,15 +561,15 @@ jobs:
           fi
           # Use squash and keep the release branch for later maintenance.
           gh pr merge "$PR_NUMBER" --squash
-
   notify:
     name: Notify Slack
-    needs: [validate, release-ios, release-android, release-node-sdk, release-browser-sdk, release-agent-sdk, release-react-native-sdk, release-cli, release-backend, release-xdbg, merge-pr]
+    needs: [validate, release-ios, release-android, release-node-sdk, release-browser-sdk, release-agent-sdk, release-react-native-sdk,
+      release-cli, release-backend, release-xdbg, merge-pr, sdk-ready, sdk-complete]
     if: always() && inputs.dry-run != true && needs.validate.outputs.dry-run != 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Check out the Slack action
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
       - name: Compose the release message
         id: compute
         env:
@@ -467,8 +594,13 @@ jobs:
           XDBG_PUSHED: ${{ needs.release-xdbg.outputs.pushed }}
           DRY_RUN: ${{ needs.validate.outputs.dry-run }}
           RELEASE_TYPE: ${{ needs.validate.outputs.release-type }}
+          SDK_SELECTED: ${{ needs.validate.outputs.products-selected }}
+          SDK_COMPLETE: ${{ needs.sdk-complete.result }}
         run: |
           MSG="${RELEASE_TYPE^} Release:"
+          if [ "$SDK_SELECTED" = true ] && [ "$SDK_COMPLETE" != success ]; then
+            MSG="$MSG SDK release incomplete ($SDK_COMPLETE)."
+          fi
           if [ "$DRY_RUN" = "true" ]; then
             MSG="Dry run: $MSG"
           fi

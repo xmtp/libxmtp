@@ -4,6 +4,12 @@ pnpm workspace package for `@xmtp/cli`, linked to the in-tree Node SDK.
 The CLI uses the generated Node SDK public root. The staged SDK contains the
 matched native library and pinned runtime.
 
+The CLI shares the root Cargo target with the SDKs. Use
+`dev/nix-shell 'just version set <version>'` to change it. Release through
+`release.yml` with `cli=true`; this also selects the matching Node SDK. The
+retained CLI package must load that runtime and report the shared version
+before any selected product publishes.
+
 ## Commands
 
 - `dev/nix-shell 'just install-js'`: install the root workspace dependencies.

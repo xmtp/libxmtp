@@ -66,7 +66,7 @@ jobs:
               > "$RUNNER_TEMP/release-paths"
             while IFS= read -r -d '' path; do
               case "$path" in
-                Package.swift|sdks/ios/XMTP.podspec|sdks/ios/ReleaseArtifacts.json|sdks/ios/Sources/XmtpSdk/*) ;;
+                Package.swift|sdks/ios/ReleaseArtifacts.json|sdks/ios/Sources/XmtpSdk/*) ;;
                 *) echo "::error::iOS release commit changes a file outside the release paths"; exit 1 ;;
               esac
             done < "$RUNNER_TEMP/release-paths"

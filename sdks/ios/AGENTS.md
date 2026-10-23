@@ -20,13 +20,8 @@ dev/nix-shell 'just ios test-host'        # Host-only loop: cargo debug macOS sl
 dev/nix-shell 'just ios test-simulator "platform=iOS Simulator,name=iPhone 17"'
 dev/nix-shell 'just ios docs'
 dev/nix-shell 'just ios test all --filter XmtpSdkTests.RecordCodecTests/testRemoteAttachmentLength'
-NIX_DEVSHELL=ios dev/nix-shell 'ruby sdks/ios/script/test_podspec.rb'
 dev/nix-shell 'python3.11 -B dev/tests/test_ci_suites.py IosLifecycleSplitTests'
 ```
-
-The podspec test needs an existing Ruby runtime with `cocoapods-core`. Use the
-same Ruby runtime as CocoaPods. It checks source selection, invalid receipts,
-and simulator exclusions. It does not install or download a pod.
 
 `IosLifecycleSplitTests` reads the iOS test recipes with `just --dry-run`, so it
 does not compile the SDK. It checks that `test-lifecycle` selects the same
@@ -105,7 +100,8 @@ NIX_DEVSHELL=ios dev/nix-shell 'swift test --filter "XmtpSdkTests.(ListenerGateT
   Change Rust or `apps/xmtp_sdk_bindgen`, then generate them. Do not edit output.
 - `Artifacts/XmtpSdkFFI.xcframework` is local build output. Do not commit it.
 - The release job records one archive URL and SHA256 in `ReleaseArtifacts.json`.
-  SwiftPM and CocoaPods read the same receipt. Do not invent a release checksum.
+  SwiftPM reads the versioned receipt. Do not invent a release checksum.
+  Standalone CocoaPods distribution is retired; React Native owns its separate podspec.
 - Call `SDKClient.end()` when an app releases a client.
 
 ## Message delivery

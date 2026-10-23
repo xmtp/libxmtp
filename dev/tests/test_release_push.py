@@ -37,8 +37,8 @@ def release_tools(binary):
     tools = ROOT / "dev/release-tools"
     wrapper = binary / "xmtp-release"
     wrapper.write_text(
-        f'#!/usr/bin/env bash\nexec "{tools}/node_modules/.bin/tsx" '
-        f'--tsconfig "{tools}/tsconfig.json" "{tools}/src/cli.ts" "$@"\n'
+        f'#!/usr/bin/env bash\nexport TSX_TSCONFIG_PATH="{tools}/tsconfig.json"\n'
+        f'exec node --import "{tools}/node_modules/tsx/dist/loader.mjs" "{tools}/src/cli.ts" "$@"\n'
     )
     wrapper.chmod(0o755)
 
@@ -134,159 +134,110 @@ class ReleasePushTest(unittest.TestCase):
                         else:
                             self.assertNotIn("ref", job["with"])
 
-    def test_production_version_scripts_keep_requested_ref_classification(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            binary = root / "bin"
-            binary.mkdir()
-            release_tools(binary)
-            for path in [
-                "sdks/node/package.json",
-                "sdks/browser/package.json",
-                "sdks/agent/package.json",
-                "sdks/react-native/package.json",
+    def test_production_script_freezes_one_version_for_all_sdk_callers(self):
+        import shutil
+
+        workflow = ROOT / ".github/workflows/release.yml"
+        jobs = yaml.safe_load(workflow.read_text())["jobs"]
+        sdks = [
+            "android",
+            "ios",
+            "node-sdk",
+            "browser-sdk",
+            "agent-sdk",
+            "react-native-sdk",
+            "cli",
+        ]
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            for name in [
+                "Cargo.toml",
+                "Cargo.lock",
+                "crates/xmtp_sdk/Cargo.toml",
+                "sdks/android/gradle.properties",
                 "apps/cli/package.json",
+                *[
+                    f"sdks/{sdk}/package.json"
+                    for sdk in ("node", "browser", "agent", "react-native")
+                ],
             ]:
-                manifest = root / path
-                manifest.parent.mkdir(parents=True, exist_ok=True)
-                manifest.write_text('{"version":"8.0.0"}\n')
-            (root / "sdks/android").mkdir(parents=True)
-            (root / "sdks/android/gradle.properties").write_text("version=8.0.0\n")
-            (root / "sdks/ios").mkdir(parents=True)
-            (root / "sdks/ios/XMTP.podspec").write_text('spec.version = "8.0.0"\n')
-            env = {
-                key: value
-                for key, value in os.environ.items()
-                if not key.startswith("GIT_")
-            }
-            env.update(
-                GIT_CONFIG_NOSYSTEM="1",
-                GIT_CONFIG_GLOBAL=os.devnull,
-                PATH=str(binary) + os.pathsep + env["PATH"],
+                destination = root / name
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(ROOT / name, destination)
+            (root / "dev").mkdir()
+            shutil.copyfile(ROOT / "dev/sdk_version.py", root / "dev/sdk_version.py")
+            subprocess.run(
+                ["python3.11", "dev/sdk_version.py", "set", "8.0.0"],
+                cwd=root,
+                check=True,
             )
-
+            shell = root / "dev/nix-shell"
+            shell.write_text(
+                '#!/usr/bin/env python3\nimport os,sys\ni=sys.argv.index("--command")+1\nos.execvp(sys.argv[i],sys.argv[i:])\n'
+            )
+            shell.chmod(0o755)
+            env = os.environ | {
+                "GIT_CONFIG_NOSYSTEM": "1",
+                "GIT_CONFIG_GLOBAL": os.devnull,
+            }
             git = git_runner(env, root)
-
-            git("init", "--initial-branch=pinned")
+            git("init", "--initial-branch=main")
             git("config", "user.name", "Test")
             git("config", "user.email", "test@example.com")
-            git(
-                "-c",
-                "commit.gpgSign=false",
-                "commit",
-                "--allow-empty",
-                "-m",
-                "pinned source",
-            )
-            short = git("rev-parse", "--short=7", "HEAD")
+            git("add", ".")
+            git("-c", "commit.gpgSign=false", "commit", "-m", "source")
+            sha = git("rev-parse", "HEAD")
+            output = Path(folder).parent / (root.name + "-output")
+            self.addCleanup(lambda: output.unlink(missing_ok=True))
             timestamp = "20260102030405"
-            sdks = [
-                "android",
-                "ios",
-                "node-sdk",
-                "browser-sdk",
-                "agent-sdk",
-                "react-native-sdk",
-                "cli",
-            ]
-            release = ROOT / ".github/workflows/release.yml"
-            jobs = yaml.safe_load(release.read_text())["jobs"]
-            validate = jobs["validate"]
-            step = next(
-                item
-                for item in validate["steps"]
-                if item.get("name") == "Compute SDK versions"
-            )
-            # Every caller publishes the version validate computed for it.
-            for sdk in sdks:
-                with self.subTest(wiring=sdk):
-                    self.assertEqual(
-                        jobs[f"release-{sdk}"]["with"]["version"],
-                        f"${{{{ needs.validate.outputs.version-{sdk} }}}}",
-                    )
-                    self.assertEqual(
-                        validate["outputs"][f"version-{sdk}"],
-                        f"${{{{ steps.versions.outputs.version-{sdk} }}}}",
-                    )
-            self.assertEqual(step["id"], "versions")
-            self.assertEqual(step["env"]["REF"], "${{ steps.resolve.outputs.ref }}")
-            self.assertEqual(
-                step["env"]["TIMESTAMP"], "${{ steps.timestamp.outputs.timestamp }}"
-            )
-
-            def run(script, **values):
-                output = root / "version-output"
-                output.write_text("")
-                subprocess.run(
-                    ["bash", "-euc", script],
-                    cwd=root,
-                    env=dict(env, GITHUB_OUTPUT=str(output), **values),
-                    check=True,
-                    capture_output=True,
-                )
-                return dict(
-                    line.split("=", 1) for line in output.read_text().splitlines()
-                )
-
-            cases = [
-                ("main", "dev", f"8.0.0-pre.{timestamp}.dev.{short}"),
-                ("refs/heads/main", "dev", f"8.0.0-pre.{timestamp}.dev.{short}"),
-                ("feature", "dev", f"8.0.0-dev.{short}"),
-                ("release/8.0.0", "rc", "8.0.0-rc1"),
+            for requested, kind, expected in [
+                ("main", "dev", f"8.0.0-pre.{timestamp}.dev.g{sha[:7]}"),
+                ("feature", "dev", f"8.0.0-pre.{timestamp}.dev.g{sha[:7]}"),
+                ("release/8.0.0", "rc", "8.0.0-rc5"),
                 ("release/8.0.0", "final", "8.0.0"),
-            ]
-            selected = {sdk.upper().replace("-", "_"): "true" for sdk in sdks}
-            for requested, release_type, expected in cases:
-                with self.subTest(requested=requested, release_type=release_type):
-                    outputs = run(
-                        script("Compute SDK versions", release),
-                        REF=requested,
-                        TIMESTAMP=timestamp,
-                        RELEASE_TYPE=release_type,
-                        RC_NUMBER="1",
-                        **selected,
+            ]:
+                with self.subTest(ref=requested, kind=kind):
+                    output.write_text("")
+                    subprocess.run(
+                        ["bash", "-euc", script("Compute SDK version once", workflow)],
+                        cwd=root,
+                        env=env
+                        | {
+                            "GITHUB_OUTPUT": str(output),
+                            "RUNNER_TEMP": folder,
+                            "REF": requested,
+                            "TIMESTAMP": timestamp,
+                            "RELEASE_TYPE": kind,
+                            "RC_NUMBER": "5",
+                            "CLI": "false",
+                        },
+                        check=True,
+                        capture_output=True,
+                    )
+                    values = dict(
+                        line.split("=", 1) for line in output.read_text().splitlines()
                     )
                     self.assertEqual(
-                        outputs, {f"version-{sdk}": expected for sdk in sdks}
+                        values, {f"version-{sdk}": expected for sdk in sdks}
                     )
-            # An SDK that is not selected gets no version.
-            outputs = run(
-                script("Compute SDK versions", release),
-                REF="main",
-                TIMESTAMP=timestamp,
-                RELEASE_TYPE="dev",
-                RC_NUMBER="",
-                **(selected | {"IOS": "false"}),
-            )
-            self.assertNotIn("version-ios", outputs)
-            self.assertIn("version-android", outputs)
-            # A direct dispatch of the agent or CLI workflow computes its own
-            # version from the dispatched ref.
-            for sdk in ["agent-sdk", "cli"]:
-                workflow = ROOT / f".github/workflows/release-{sdk}.yml"
-                setup = yaml.safe_load(workflow.read_text())["jobs"]["setup"]
-                self.assertEqual(
-                    setup["outputs"]["version"],
-                    "${{ inputs.version || steps.version.outputs.version }}",
-                )
-                for requested, release_type, expected in cases:
-                    with self.subTest(
-                        sdk=sdk, requested=requested, release_type=release_type
-                    ):
-                        outputs = run(
-                            script("Compute version", workflow),
-                            REF=requested,
-                            RELEASE_TYPE=release_type,
-                            RC_NUMBER="1",
+                    for sdk in sdks:
+                        self.assertEqual(
+                            jobs[f"release-{sdk}"]["with"]["version"],
+                            f"${{{{ needs.validate.outputs.version-{sdk} }}}}",
                         )
-                        if "pre." in expected:
-                            # Without a run timestamp it mints its own.
-                            self.assertRegex(
-                                outputs["version"],
-                                rf"^8\.0\.0-pre\.\d{{14}}\.dev\.{short}$",
-                            )
-                        else:
-                            self.assertEqual(outputs["version"], expected)
+                        self.assertEqual(
+                            jobs["validate"]["outputs"][f"version-{sdk}"],
+                            f"${{{{ steps.versions.outputs.version-{sdk} }}}}",
+                        )
+                    import json
+
+                    record = json.loads((root / "release-plan.json").read_text())
+                    self.assertEqual(record["sourceSha"], sha)
+                    self.assertEqual(record["version"], expected)
+            agent = yaml.safe_load(
+                (workflow.parent / "release-agent-sdk.yml").read_text()
+            )
+            self.assertNotIn("workflow_dispatch", agent[True])
 
     def test_release_source_is_the_checked_out_ref_not_the_caller(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -749,7 +700,10 @@ class ReleasePushTest(unittest.TestCase):
             with self.subTest(sdk=sdk):
                 mobile = (ROOT / f".github/workflows/release-{sdk}.yml").read_text()
                 self.assertNotIn("GH_APP_PK", mobile)
-                self.assertIn("--no-push", mobile)
+                if sdk == "android":
+                    self.assertIn("--no-push", mobile)
+                else:
+                    self.assertIn('git tag "ios-$VERSION"', mobile)
                 self.assertIn("fetch-depth: 0", mobile)
                 self.assertIn(f"name: release-tag-{sdk}", mobile)
                 self.assertIn("uses: ./.github/workflows/push-release-tag.yml", mobile)
@@ -772,7 +726,12 @@ class ReleasePushTest(unittest.TestCase):
                     mobile, r"needs: \[[^\n]*check-push-permissions[^\n]*\]"
                 )
         ios = (ROOT / ".github/workflows/release-ios.yml").read_text()
-        self.assertIn("needs: [prepare-release, push-tag, check-push-permissions]", ios)
+        jobs = yaml.safe_load(ios)["jobs"]
+        self.assertEqual(
+            set(jobs["publish"]["needs"]), {"prepare-release", "check-push-permissions"}
+        )
+        self.assertIn("publish", jobs["push-tag"]["needs"])
+        self.assertIn("push-tag", jobs["publish-release"]["needs"])
         self.assertIn("name: ios-release-bundle", ios)
 
     def test_npm_source_job_only_creates_local_tags(self):
@@ -924,12 +883,14 @@ class ReleasePushTest(unittest.TestCase):
             step = npm.split("      - name: " + name + "\n", 1)[1].split("      - ", 1)[
                 0
             ]
-            self.assertIn("if: ${{ inputs.dry-run != true }}", step)
+            self.assertIn("inputs.dry-run != true", step)
+            self.assertIn("inputs.prepare-only != true", step)
             self.assertLess(
                 npm.index("- name: " + name), npm.index("- name: Publish to NPM")
             )
         push = npm.split("  push-tag:\n", 1)[1]
-        self.assertIn("if: ${{ inputs.dry-run != true }}", push)
+        self.assertIn("inputs.dry-run != true", push)
+        self.assertIn("inputs.prepare-only != true", push)
         self.assertIn("needs: [publish]", push)
         self.assertIn("uses: ./.github/workflows/push-release-tag.yml", push)
         # The direct input also blocks Slack if validation exits without outputs.
@@ -952,11 +913,8 @@ class ReleasePushTest(unittest.TestCase):
                     "uses: ./.github/workflows/check-release-push.yml", preflight
                 )
                 self.assertIn("dry-run: ${{ inputs.dry-run }}", preflight)
-                direct = name in ["agent-sdk", "cli"]
                 self.assertIn(
-                    "ref: ${{ inputs.source-sha"
-                    + (" || github.ref" if direct else "")
-                    + " }}",
+                    "ref: ${{ inputs.source-sha }}",
                     preflight,
                 )
                 # Every job after the preflight builds and tags its pinned
@@ -970,10 +928,7 @@ class ReleasePushTest(unittest.TestCase):
                     self.assertIn(source, body)
                     self.assertNotIn("inputs.ref", body)
                 self.assertIn("source-sha: " + source, bodies["publish"])
-                if direct:
-                    self.assertIn("REF: ${{ github.ref }}", bodies["setup"])
-                else:
-                    self.assertNotIn("setup", bodies)
+                self.assertNotIn("setup", bodies)
 
 
 class XdbgImageTest(unittest.TestCase):
@@ -1177,7 +1132,7 @@ class NpmPublishAuthorizationTest(unittest.TestCase):
         names = [step.get("name") for step in job["steps"]]
         check = names.index("Check that the source is on a release branch")
         self.assertLess(check, names.index("Publish to NPM"))
-        publish_if = "${{ inputs.dry-run != true }}"
+        publish_if = "${{ inputs.dry-run != true && inputs.prepare-only != true }}"
         self.assertEqual(job["steps"][check]["if"], publish_if)
         self.assertEqual(job["steps"][names.index("Publish to NPM")]["if"], publish_if)
         # Every other job that gets an OIDC token publishes nothing.

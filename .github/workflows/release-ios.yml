@@ -1,13 +1,11 @@
-# .github/workflows/release-ios.yml
-name: "Release: iOS SDK"
-
+name: 'Release: iOS SDK'
 on:
   workflow_call:
     inputs:
       release-type:
         required: true
         type: string
-        description: "dev, rc, or final"
+        description: dev, rc, or final
       source-sha:
         description: Fixed source commit resolved by the release caller
         required: true
@@ -16,233 +14,173 @@ on:
         description: The version to publish, computed once by release.yml
         required: true
         type: string
+      dry-run:
+        type: boolean
+        required: false
+        default: false
+      build-only:
+        type: boolean
+        required: false
+        default: false
+      publish-only:
+        type: boolean
+        required: false
+        default: false
     outputs:
       version:
-        description: "The published version string"
-        value: ${{ jobs.publish.outputs.version }}
-
+        description: The published version string
+        value: ${{ inputs.version }}
 jobs:
   check-push-permissions:
     name: Source
     uses: ./.github/workflows/check-release-push.yml
     with:
       ref: ${{ inputs.source-sha }}
+      dry-run: ${{ inputs.dry-run }}
     secrets: inherit
-
-  build-and-package:
-    name: Build XCFramework
+  prepare-release:
+    name: Build and validate SwiftPM package
     needs: [check-push-permissions]
-    # Paid macOS: the iOS outputs are keyed to Xcode 26.3 at
-    # /Applications/Xcode_26.3.app (nix/lib/ios-env.nix), and a cache miss
-    # compiles Rust for iOS, about 35 minutes on a 3-core hosted Mac.
+    if: inputs.publish-only != true
     runs-on: warp-macos-15-arm64-12x
-    permissions:
-      contents: write
-    outputs:
-      artifact-url: ${{ steps.release.outputs.artifact-url }}
-      checksum: ${{ steps.checksum.outputs.checksum }}
     env:
       NIX_DEVSHELL: ios
+      VERSION: ${{ inputs.version }}
+      SOURCE_SHA: ${{ inputs.source-sha }}
+      XMTP_SDK_RELEASE_VERSION: ${{ inputs.version }}
     steps:
       - name: Check out the release source
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           ref: ${{ needs.check-push-permissions.outputs.source-sha }}
-      # The iOS outputs are keyed to one Xcode (`xcode` in nix/lib/ios-env.nix)
-      # and a build with another fails, so select it before the build.
+          fetch-depth: 0
       - name: Select Xcode 26.3
-        uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
+        uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90
         with:
-          xcode-version: "26.3"
-      - name: Show the Xcode version
-        run: xcodebuild -version
+          xcode-version: '26.3'
       - name: Set up Nix
         uses: ./.github/actions/setup-nix
         with:
           cache-mode: read
           github-token: ${{ github.token }}
-      - name: Build xcframeworks
-        # "Package and checksum" reads build/ios/XmtpSdkFFI.
-        run: nix build .#ios-xcframeworks --out-link build/ios
-
-      - name: Package and checksum
-        id: checksum
+      - name: Materialize the shared SDK version
+        uses: ./.github/actions/release-source
+      - name: Build XCFramework and generated Swift sources
         run: |
-          cp -rL build/ios/XmtpSdkFFI XmtpSdkFFI
-          chmod -R u+w XmtpSdkFFI
-          (cd XmtpSdkFFI && zip -qr ../XmtpSdkFFI.zip .)
-          echo "checksum=$(shasum -a 256 XmtpSdkFFI.zip | awk '{ print $1 }')" >> "$GITHUB_OUTPUT"
-      - name: Create or update GitHub Release
-        id: release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VERSION: ${{ inputs.version }}
-        run: |
-          SOURCE_SHA=$(git rev-parse HEAD)
-          TAG="libxmtp-ios-${SOURCE_SHA:0:7}"
-          ARTIFACT_URL="https://github.com/${{ github.repository }}/releases/download/${TAG}/XmtpSdkFFI.zip"
-
-          if gh release view "$TAG" &>/dev/null; then
-            echo "Release $TAG already exists, uploading artifacts"
-            gh release upload "$TAG" XmtpSdkFFI.zip --clobber
-          else
-            gh release create "$TAG" \
-              --target "$SOURCE_SHA" \
-              --title "iOS $VERSION - libxmtp binaries" \
-              --notes "Intermediate artifact release for iOS SDK $VERSION" \
-              --prerelease \
-              XmtpSdkFFI.zip
-          fi
-
-          echo "artifact-url=$ARTIFACT_URL" >> "$GITHUB_OUTPUT"
-
-  # Linux: this job edits files, downloads the binaries, zips, and commits.
-  # It uses no Xcode.
-  prepare-release:
-    name: Commit SwiftPM release
-    needs: [build-and-package, check-push-permissions]
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: read
-    outputs:
-      version: ${{ inputs.version }}
-    steps:
-      - name: Check out the release source
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          ref: ${{ needs.check-push-permissions.outputs.source-sha }}
-          fetch-depth: 0
-          # Full history for the release tag, without blobs; git-cliff, which
-          # fails on a blobless clone, does not run here.
-          filter: blob:none
-      - name: Set up release tools
-        uses: ./.github/actions/setup-release-tools
-      - name: Update Package.swift and podspec
-        env:
-          VERSION: ${{ inputs.version }}
-          ARTIFACT_URL: ${{ needs.build-and-package.outputs.artifact-url }}
-          CHECKSUM: ${{ needs.build-and-package.outputs.checksum }}
-        run: |
-          xmtp-release update-spm-checksum --sdk ios \
-            --url "$ARTIFACT_URL" --checksum "$CHECKSUM"
-
-          # For dev/rc releases, update podspec with suffixed version
-          if [ "${{ inputs.release-type }}" != "final" ]; then
-            # Write the full version (with suffix) directly to podspec
-            xmtp-release set-manifest-version --sdk ios --version "$VERSION"
-          fi
-      - name: Prepare CocoaPods bundle
-        env:
-          ARTIFACT_URL: ${{ needs.build-and-package.outputs.artifact-url }}
-          VERSION: ${{ inputs.version }}
-        working-directory: sdks/ios
+          nix build .#ios-xcframeworks --out-link build/ios
+      - name: Package the checked SwiftPM archive
         run: |
           set -euo pipefail
-          curl -L "$ARTIFACT_URL" -o XmtpSdkFFI.zip
-          unzip -qo XmtpSdkFFI.zip -d artifact
-          rm -f XmtpSdkFFI.zip
-
-          rm -rf bundle && mkdir -p bundle/Sources
-          cp -r artifact/Sources/XmtpSdk bundle/Sources/
-          mkdir -p Sources/XmtpSdk
-          cp -r artifact/Sources/XmtpSdk/. Sources/XmtpSdk/
-          cp -r artifact/XmtpSdkFFI.xcframework bundle/
-          cp ReleaseArtifacts.json bundle/
-          cp ../../LICENSE bundle/
-          (cd bundle && zip -qry ../XMTP-${VERSION}.zip .)
-          chmod -R u+w artifact bundle 2>/dev/null || true
-          rm -rf artifact bundle
-      - name: Detach HEAD
-        run: git checkout --detach
-      - name: Commit changes
-        env:
-          VERSION: ${{ inputs.version }}
-        run: |
-          # Always commit Package.swift + updated bindings, only commit podspec for final releases
-          if [ "${{ inputs.release-type }}" = "final" ]; then
-            git add Package.swift sdks/ios/XMTP.podspec sdks/ios/ReleaseArtifacts.json sdks/ios/Sources/XmtpSdk
-          else
-            git add Package.swift sdks/ios/ReleaseArtifacts.json sdks/ios/Sources/XmtpSdk
-          fi
-          if ! git diff-index --quiet HEAD --; then
-            git commit -m "release: iOS SDK $VERSION [skip ci]"
-          else
-            echo "No changes to commit"
-          fi
-
-      - name: Prepare release tag
-        env:
-          VERSION: ${{ inputs.version }}
-        run: |
-          xmtp-release tag-release --sdk ios --version "$VERSION" --no-push
-          git bundle create "$RUNNER_TEMP/release.bundle" "refs/tags/ios-$VERSION"
-      - name: Store release tag
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: release-tag-ios
-          path: ${{ runner.temp }}/release.bundle
-          if-no-files-found: error
-          retention-days: 1
-      - name: Store CocoaPods bundle
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+          mkdir -p target/release/ios
+          cp -RL build/ios/XmtpSdkFFI target/release/ios/XmtpSdkFFI
+          chmod -R u+w target/release/ios/XmtpSdkFFI
+          (cd target/release/ios/XmtpSdkFFI && zip -qry ../XmtpSdkFFI.zip .)
+          cp -RL target/release/ios/XmtpSdkFFI/Sources/XmtpSdk/. sdks/ios/Sources/XmtpSdk/
+          rm -rf target/release/ios/XmtpSdkFFI
+          CHECKSUM=$(shasum -a 256 target/release/ios/XmtpSdkFFI.zip | awk '{print $1}')
+          export CHECKSUM
+          python3 - <<'RECEIPT'
+          import json, os
+          from pathlib import Path
+          url=f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/releases/download/libxmtp-ios-{os.environ['VERSION']}/XmtpSdkFFI.zip"
+          Path('sdks/ios/ReleaseArtifacts.json').write_text(json.dumps(dict(url=url,sha256=os.environ['CHECKSUM'],sourceSha=os.environ['SOURCE_SHA'],version=os.environ['VERSION']),indent=2)+'\n')
+          RECEIPT
+          # Only generated Apple release metadata belongs in the direct release commit.
+          git restore Cargo.toml Cargo.lock sdks/android/gradle.properties sdks/node/package.json sdks/browser/package.json sdks/agent/package.json sdks/react-native/package.json
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git add sdks/ios/ReleaseArtifacts.json sdks/ios/Sources/XmtpSdk
+          git -c commit.gpgsign=false commit -m "release: iOS SDK $VERSION"
+          git tag "ios-$VERSION"
+          git bundle create target/release/ios/release.bundle "refs/tags/ios-$VERSION"
+          dev/nix-shell --shell js-node --command python3.11 dev/sdk_version.py seal target/release/ios --plan "$RUNNER_TEMP/sdk-release-plan/release-plan.json"
+      - name: Install the prepared SwiftPM release archive
+        run: dev/nix-shell --command python3.11 dev/check_swiftpm_release.py target/release/ios/XmtpSdkFFI.zip "$RUNNER_TEMP/sdk-release-plan/release-plan.json"
+      - name: Store checked SwiftPM product
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: ios-release-bundle
-          path: sdks/ios/XMTP-${{ inputs.version }}.zip
+          path: target/release/ios
           if-no-files-found: error
-          retention-days: 1
-
+          retention-days: 7
+      - name: Store release tag
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: release-tag-ios
+          path: target/release/ios/release.bundle
+          if-no-files-found: error
+          retention-days: 7
+    permissions:
+      contents: read
   push-tag:
     name: Tag
-    needs: [prepare-release, check-push-permissions]
+    needs: [publish, check-push-permissions]
+    if: "!cancelled() && needs.publish.result == 'success' && needs.check-push-permissions.result == 'success'"
     uses: ./.github/workflows/push-release-tag.yml
     with:
       sdk: ios
-      version: ${{ needs.prepare-release.outputs.version }}
+      version: ${{ inputs.version }}
       source-sha: ${{ needs.check-push-permissions.outputs.source-sha }}
     secrets: inherit
-
   publish:
-    name: Create iOS GitHub release
-    needs: [prepare-release, push-tag, check-push-permissions]
+    name: Publish SwiftPM archive
+    needs: [prepare-release, check-push-permissions]
+    if: "!cancelled() && needs.check-push-permissions.result == 'success' && inputs.dry-run != true && inputs.build-only != true && (inputs.publish-only || needs.prepare-release.result == 'success')"
     runs-on: ubuntu-latest
     permissions:
       contents: write
-    outputs:
-      version: ${{ needs.prepare-release.outputs.version }}
     steps:
       - name: Check out the release source
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           ref: ${{ needs.check-push-permissions.outputs.source-sha }}
-      - name: Download CocoaPods bundle
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+      - name: Set up Nix
+        uses: ./.github/actions/setup-nix
+        with:
+          cache-mode: read
+          github-token: ${{ github.token }}
+      - name: Materialize the shared SDK version
+        uses: ./.github/actions/release-source
+      - name: Download checked SwiftPM product
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
           name: ios-release-bundle
-          path: sdks/ios
-      - name: Create release and upload bundle
+          path: target/release/ios
+      - name: Verify and publish immutable SwiftPM archive
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VERSION: ${{ needs.prepare-release.outputs.version }}
-        working-directory: sdks/ios
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+          SOURCE_SHA: ${{ inputs.source-sha }}
         run: |
-          TAG="ios-${VERSION}"
-          if gh release view "$TAG" &>/dev/null; then
-            gh release upload "$TAG" "XMTP-${VERSION}.zip" --clobber
+          set -euo pipefail
+          dev/nix-shell --shell js-node --command python3.11 dev/sdk_version.py verify target/release/ios --plan "$RUNNER_TEMP/sdk-release-plan/release-plan.json"
+          TAG="libxmtp-ios-$VERSION"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            mkdir -p "$RUNNER_TEMP/existing-ios"
+            gh release download "$TAG" --pattern XmtpSdkFFI.zip --dir "$RUNNER_TEMP/existing-ios"
+            cmp target/release/ios/XmtpSdkFFI.zip "$RUNNER_TEMP/existing-ios/XmtpSdkFFI.zip"
+            test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" --jq .object.sha)" = "$SOURCE_SHA"
           else
-            NOTES_ARGS=(--notes "iOS SDK version $VERSION")
-            if [ "${{ inputs.release-type }}" = "final" ]; then
-              NOTES_FILE="../../docs/release-notes/ios/${VERSION}.md"
-              if [ -f "$NOTES_FILE" ]; then
-                NOTES_ARGS=(--notes-file "$NOTES_FILE")
-              fi
-            fi
-            PRERELEASE_FLAG=""
-            if [ "${{ inputs.release-type }}" != "final" ]; then
-              PRERELEASE_FLAG="--prerelease"
-            fi
-            gh release create "$TAG" \
-              --title "iOS SDK $VERSION" \
-              "${NOTES_ARGS[@]}" \
-              $PRERELEASE_FLAG \
-              "XMTP-${VERSION}.zip"
+            gh release create "$TAG" target/release/ios/XmtpSdkFFI.zip --target "$SOURCE_SHA" --prerelease --title "iOS binaries $VERSION" --notes "SwiftPM binary archive for $SOURCE_SHA"
+          fi
+  publish-release:
+    name: Publish iOS SDK release
+    needs: [push-tag, check-push-permissions]
+    if: "!cancelled() && needs.push-tag.result == 'success' && needs.check-push-permissions.result == 'success'"
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Publish the SDK release after its archive and tag exist
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ inputs.version }}
+          RELEASE_TYPE: ${{ inputs.release-type }}
+        run: |
+          set -euo pipefail
+          if ! gh release view "ios-$VERSION" >/dev/null 2>&1; then
+            FLAGS=()
+            if [ "$RELEASE_TYPE" != final ]; then FLAGS+=(--prerelease); fi
+            gh release create "ios-$VERSION" --verify-tag --title "iOS SDK $VERSION" --notes "SwiftPM SDK $VERSION" "${FLAGS[@]}"
           fi

@@ -62,7 +62,7 @@ class AndroidPackageTest {
     }
 
     @Test fun generatedTimestampsLoadAndConvertWithDesugaring() {
-        assertTrue(sdkVersion().isNotEmpty())
+        assertEquals(BuildConfig.XMTP_SDK_VERSION, sdkVersion())
         val positive = Timestamp(1_000_000_001L).date
         assertEquals(1L, positive.epochSecond)
         assertEquals(1, positive.nano)
@@ -75,7 +75,7 @@ class AndroidPackageTest {
 
     @Test fun packageLoadsAndContextStorageKeepsMetadataOffline() =
         runBlocking {
-            assertTrue(sdkVersion().isNotEmpty())
+            assertEquals(BuildConfig.XMTP_SDK_VERSION, sdkVersion())
             assertTrue(
                 context.assets
                     .open("sdk-contract.json")

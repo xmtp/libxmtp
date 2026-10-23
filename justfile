@@ -1,3 +1,4 @@
+mod version 'dev/version.just'
 mod chaos 'apps/chaos/chaos.just'
 mod backend 'apps/backend/backend.just'
 mod android 'sdks/android/android.just'
@@ -112,7 +113,7 @@ lint-js-source:
 # Swift), check the CI suite declaration, and lint and type-check
 # dev/release-tools. The release-tools checks run here, so release-tools edits
 # do not select check_types.
-lint-config: _js-deps lint-treefmt
+lint-config: _js-deps lint-treefmt version::check
     python3.11 -B dev/ci-suites check
     pnpm --filter @xmtp/release-tools --fail-if-no-match run typecheck
     pnpm --filter @xmtp/release-tools --fail-if-no-match run lint

@@ -11,6 +11,10 @@ func fail(_ message: String) -> Never {
 	exit(1)
 }
 
+if let expected = ProcessInfo.processInfo.environment["XMTP_SDK_RELEASE_VERSION"], sdkVersion() != expected {
+	fail("Swift SDK version differs from the frozen release version")
+}
+
 guard Bundle.main.bundleIdentifier == nil else {
 	fail("The bare executable has a bundle identifier")
 }

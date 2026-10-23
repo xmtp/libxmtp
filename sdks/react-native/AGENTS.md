@@ -14,6 +14,10 @@ Use the `writing-typescript` skill for JavaScript and TypeScript changes.
 - `dev/nix-shell 'just react-native test-control'` runs the real HTTP reload-settlement and final-result admission tests without a simulator or SDK build.
 - `dev/nix-shell 'just react-native check-package'` checks package admission, binary completeness, and receipt rejection using local fixtures, and which phases `XMTP_RN_JOURNEYS` selects. It does not prove native execution.
 
+The package version is generated from root `Cargo.toml`; release components and
+consumers materialize the same frozen version before Nix evaluation. The npm
+product and its shipped `XmtpReactNative.podspec` remain one package.
+
 ## CI
 
 `check-react-native.yml` runs `check-package`, `test-react`, `test-native`, and `test-control` on Linux and blocks merges. `test-react-native.yml` is the device chain. Its `scope` input is `full` (Android and iOS, bare and Expo) or `android-smoke` (the bare Android app). Pull request runs build `.#xmtp-sdk-react-native-test-package`: `package.py assemble --partial` of the x86_64 Android and iOS simulator components, with a `-partial` version that `verify-package` rejects, so it cannot ship. The Android smoke builds `.#xmtp-sdk-react-native-test-package-android`, the same partial package without iOS (`assemble --partial` without `--ios`), so it needs no macOS job. Only a partial package may leave out iOS. Main, the post-merge smoke, and releases test the full package. The Android apps build only the ABIs that the package ships.
