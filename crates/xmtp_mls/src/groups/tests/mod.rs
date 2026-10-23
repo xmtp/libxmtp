@@ -11,6 +11,7 @@ mod test_dm;
 mod test_failed_installations;
 mod test_group_info;
 mod test_group_updated;
+mod test_leaf_key_binding;
 #[cfg(not(target_arch = "wasm32"))]
 mod test_legacy_placeholder_topics;
 mod test_membership;
