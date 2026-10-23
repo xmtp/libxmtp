@@ -69,20 +69,20 @@ describe("release action CLI wrapper", () => {
       "8.0.0-rc1",
     ],
     [
-      ["compute-version", "--sdk", "node-sdk", "--release-type", "final"],
-      baseVersion("node-sdk"),
+      ["compute-version", "--sdk", "libxmtp", "--release-type", "final"],
+      baseVersion("libxmtp"),
     ],
     [
       [
         "compute-version",
         "--sdk",
-        "android",
+        "libxmtp",
         "--release-type",
         "dev",
         "--source-ref",
         "self-hosted",
       ],
-      `${baseVersion("android")}-dev.${shortSha}`,
+      `${baseVersion("libxmtp")}-dev.${shortSha}`,
     ],
   ] satisfies [string[], string][])(
     "emits only the version for %j",
@@ -92,6 +92,27 @@ describe("release action CLI wrapper", () => {
       expect(result.stdout).toBe(`${expected}\n`);
     },
   );
+
+  it.each([
+    "ios",
+    "android",
+    "node-sdk",
+    "browser-sdk",
+    "agent-sdk",
+    "react-native-sdk",
+    "cli",
+  ])("rejects %s at the compute-version CLI boundary", (sdk) => {
+    const result = run([
+      "compute-version",
+      "--sdk",
+      sdk,
+      "--release-type",
+      "final",
+    ]);
+    expect(result.status).not.toBe(0);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain("Invalid values");
+  });
 
   it.each(["release/8.0.0", "refs/heads/release/8.0.0"])(
     "uses the backend branch version from %s",
@@ -264,7 +285,7 @@ describe("release action CLI wrapper", () => {
     const result = run([
       "compute-version",
       "--sdk",
-      "node-sdk",
+      "libxmtp",
       "--release-type",
       "rc",
     ]);

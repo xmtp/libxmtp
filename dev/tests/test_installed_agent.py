@@ -39,9 +39,9 @@ class InstalledAgentTest(unittest.TestCase):
         self.addCleanup(temporary.cleanup)
         self.directory = Path(temporary.name)
         self.root = self.directory / "repo"
-        self.helper = self.root / "dev/release-tools/check-agent-package.mjs"
+        self.helper = self.root / "dev/release-tools/check-node-consumer.mjs"
         self.helper.parent.mkdir(parents=True)
-        shutil.copyfile(ROOT / "dev/release-tools/check-agent-package.mjs", self.helper)
+        shutil.copyfile(ROOT / "dev/release-tools/check-node-consumer.mjs", self.helper)
         self.write_json(
             "package.json",
             {
