@@ -75,6 +75,21 @@ Runs accept `--rounds`, `--hours`, `--seed`, `--faults`, `--strict`, and
 Use a comma-separated list to combine sets, such as `--faults network,disk`.
 Baseline always disables faults.
 
+## Pull request check
+
+Changes to `crates/xmtp_mls/` or `apps/chaos/` select the blocking `Rust chaos`
+CI suite on ready pull requests. It also runs on merges. The check uses a
+GitHub-hosted `ubuntu-24.04` runner and a local backend built from the tested
+code. A 50-round baseline with seed 1338 must pass before an all-fault run
+with seed 1340 runs for five minutes. The final round finishes before the
+time limit is checked. Setup, builds, and the baseline take additional time.
+Failures and inconclusive results fail the check without retries.
+Fault types are sampled; a short run need not exercise every type.
+
+The `chaos-report` artifact retains bounded `status` and `inspect` output for
+seven days. Raw `.chaos/` files are never uploaded because they contain private
+wallets and database keys. See [CI selection](../../.github/CI.md).
+
 ## Murmur run sequence
 
 Before the approved run, test short baselines with seeds 1337 and 1338 and

@@ -117,6 +117,14 @@ browser, and SDK platform suites run on the merge. `test_workspace` builds
 with the `ci-test` Cargo profile: release speed with overflow checks and
 debug assertions in the workspace crates. Android lint has no suite of its own: `sdk-build` in
 `test-android.yml` runs `gradlew build`, which includes it.
+`test_chaos` blocks ready pull requests that touch `crates/xmtp_mls/` or
+`apps/chaos/`, and runs on merges. It uses GitHub-hosted `ubuntu-24.04` runners,
+builds the local backend, passes a 50-round baseline, then enables all fault
+types for a five-minute run. Setup, builds, the baseline, and completion of the final
+round are outside the five-minute window. Failed and inconclusive runs fail
+the job without retries. The `chaos-report` artifact contains only bounded
+status and inspection output; raw `.chaos/` files contain private test keys
+and are never uploaded.
 Source lint does not generate SDK products or run compiler checks. Test owns
 full types, full lint, Clippy, SDK and runtime checks. Pull requests that only
 change Rust core crates omit the SDK and mobile suites; the merge run covers

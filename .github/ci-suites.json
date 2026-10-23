@@ -738,6 +738,49 @@
         "labels": []
       }
     },
+    "test_chaos": {
+      "title": "Rust chaos",
+      "phase": "test",
+      "workflow": "test-chaos.yml",
+      "run_on": [
+        "ready_pr_push",
+        "merge"
+      ],
+      "disable_on_forks": false,
+      "secrets": "cachix-pr",
+      "permissions": {
+        "contents": "read"
+      },
+      "covered_by": null,
+      "skip_full_runs": false,
+      "kache": [],
+      "products": [],
+      "runners": {
+        "runner": {
+          "pr": "ubuntu-24.04",
+          "merge": "ubuntu-24.04"
+        }
+      },
+      "with": {},
+      "cargo_roots": [],
+      "crates": [],
+      "workflow_files": [
+        ".github/actions/setup-nix/**",
+        ".github/workflows/test-chaos.yml"
+      ],
+      "workflow_tier": "blocking",
+      "paths": [
+        "apps/chaos/**",
+        "crates/xmtp_mls/**"
+      ],
+      "labels": [],
+      "advisory": {
+        "cargo_roots": [],
+        "crates": [],
+        "paths": [],
+        "labels": []
+      }
+    },
     "docs_rust": {
       "title": "Rust reference",
       "phase": "test",
