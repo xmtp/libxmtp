@@ -51,10 +51,10 @@ def check(root):
         package = json.loads((root / name).read_text())
         if package["version"] != version:
             errors.append(f"{name}: {package['version']} != {version}")
-        for dep, value in package.get("dependencies", {}).items():
-            if dep in [f"@xmtp/{sdk}-sdk" for sdk in SDK_PACKAGES]:
-                if value not in ("workspace:*", "workspace:^", "workspace:~", version):
-                    errors.append(f"{name}: {dep} must resolve to {version}")
+    for name in ("sdks/agent/package.json", "apps/cli/package.json"):
+        package = json.loads((root / name).read_text())
+        if package.get("dependencies", {}).get("@xmtp/node-sdk") != "workspace:*":
+            errors.append(f"{name}: @xmtp/node-sdk must be workspace:*")
     android = (root / "sdks/android/gradle.properties").read_text()
     if re.search(r"^version\s*=\s*(.+)$", android, re.M).group(1).strip() != version:
         errors.append("sdks/android/gradle.properties: version differs from Cargo.toml")
@@ -98,10 +98,6 @@ def versioned_mirrors(root, version, source_sha=None):
     for name in MANIFESTS:
         package = json.loads(read(name))
         package["version"] = version
-        for dep, value in package.get("dependencies", {}).items():
-            if dep in [f"@xmtp/{sdk}-sdk" for sdk in SDK_PACKAGES]:
-                if not value.startswith("workspace:"):
-                    package["dependencies"][dep] = version
         mirrors[name] = json.dumps(package, indent=2, ensure_ascii=False) + "\n"
     mirrors["sdks/android/gradle.properties"] = re.sub(
         r"^version\s*=.*$",

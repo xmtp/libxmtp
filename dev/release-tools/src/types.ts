@@ -19,8 +19,6 @@ export interface SdkConfig {
   name: string;
   /** Path to the version manifest file, relative to repo root */
   manifestPath: string;
-  /** Path to SPM Package.swift, relative to repo root (optional, iOS-specific) */
-  spmManifestPath?: string;
   /** Git tag prefix for this SDK */
   tagPrefix: string;
   /** Suffix for intermediate artifact tags */
