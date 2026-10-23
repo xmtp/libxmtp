@@ -28,6 +28,11 @@ stream restarts. Admin changes come from super admins, disappearing settings
 from admins, and leaves from members who are not super admins. Without such
 an actor, the operation runs as any actor and checks the refusal path.
 
+When churn leaves no group with two active inboxes, the scheduler adds an
+available inbox to an existing group. This restores concurrent work within
+the group cap. A normal round with no group writes stops as a harness error;
+recovery rounds may still wait for existing obligations without new writes.
+
 Recipes are `same_epoch_contention`, `join_race`, `remove_and_readd`,
 `remove_with_pending_intent`, `installation_during_commits`,
 `profile_during_removal`, `leave_during_commits`, and `sync_racing_stream`.
