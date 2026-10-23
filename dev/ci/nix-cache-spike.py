@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Branch-only Nix runner experiment: enumerate, measure, and report warm members."""
+"""Branch-only Nix runner experiment: group, measure, and report warm members."""
 
 import json
 import os
@@ -12,28 +12,95 @@ import time
 
 RUNNERS = {"x86_64-linux": "ubuntu-24.04", "aarch64-darwin": "macos-15"}
 GIB = 1024**3
+# Keep expensive product families separate; combine shells and products whose
+# closures overlap. Fail on an unassigned member so new warm outputs cannot vanish.
+GROUPS = {
+    "x86_64-linux": {
+        "core-shells": ("shell-default", "shell-rust", "shell-wasm"),
+        "js-shells": ("shell-js", "shell-js-node", "shell-docs"),
+        "android-shells": (
+            "shell-android",
+            "shell-android-ci",
+            "shell-android-ci-emulator",
+        ),
+        "react-native-js": (
+            "shell-react-native",
+            "react-native-js-tools",
+            "react-native-js-tools-deps",
+            "ubjs-react-native",
+            "xmtp-sdk-generated-react-native",
+            "xmtp-sdk-react-native-js",
+        ),
+        "js-sdks-and-fixtures": (
+            "xmtp-sdk-generated-node",
+            "xmtp-sdk-generated-browser",
+            "xmtp-sdk-wasm-fixture-panic",
+            "xmtp-sdk-pure-fixture-codec",
+            "xmtp-legacy-migration-fixture-host",
+        ),
+        "android-sdk": (
+            "android-sdk-libs",
+            "android-sdk-libs-fast",
+            "xmtp-sdk-libs",
+            "xmtp-sdk-generated-kotlin",
+        ),
+        "android-example": ("example-android-apk",),
+        "backend": ("xmtp-backend", "backend-image-x86_64-unknown-linux-musl"),
+        "node-gnu": ("xmtp-sdk-node-linux-x64-gnu", "xmtp-sdk-node-linux-arm64-gnu"),
+        "node-musl": ("xmtp-sdk-node-linux-x64-musl", "xmtp-sdk-node-linux-arm64-musl"),
+    },
+    "aarch64-darwin": {
+        "core-shells": ("shell-default", "shell-ios", "shell-rust", "shell-wasm"),
+        "js-shells": ("shell-js", "shell-js-node", "shell-docs"),
+        "android": ("shell-android", "android-sdk-libs-fast"),
+        "js-sdks": ("xmtp-sdk-generated-node", "xmtp-sdk-generated-browser"),
+        "services": ("services-test", "backend-image-aarch64-unknown-linux-musl"),
+        "apple-fast": ("ios-xcframeworks-fast",),
+        "apple-release": ("ios-xcframeworks", "xmtp-sdk-node-darwin-arm64"),
+    },
+}
 
 
 def matrix(path):
     rows = []
     for system, sets in json.loads(Path(path).read_text()).items():
         seen = set()
-        for group, members in sets.items():
-            for member, drv in members.items():
-                # Shell aliases and any shared dev/release member need one build.
+        available = {
+            name: dict(
+                member=name,
+                set=group,
+                drv=drv,
+                target=f".#ciSets.{system}.{group}.passthru.members.{name}",
+            )
+            for group, members in sets.items()
+            for name, drv in members.items()
+        }
+        assigned = [name for names in GROUPS[system].values() for name in names]
+        if len(assigned) != len(set(assigned)) or set(assigned) != set(available):
+            raise SystemExit(
+                f"Grouping does not match {system} warm members: "
+                f"{set(assigned) ^ set(available)}"
+            )
+        for group, names in GROUPS[system].items():
+            members = []
+            for name in names:
+                member = available[name]
+                drv = member["drv"]
+                # Shell aliases and shared dev/release members need one build.
                 if drv in seen:
                     continue
                 seen.add(drv)
+                members.append(member)
+            if members:
                 rows.append(
                     dict(
                         system=system,
                         runner=RUNNERS[system],
-                        member=member,
-                        drv=drv,
-                        target=f".#ciSets.{system}.{group}.passthru.members.{member}",
+                        group=group,
+                        members=members,
                     )
                 )
-    if not rows or len(rows) > 256:
+    if not 10 <= len(rows) <= 20:
         raise SystemExit(f"Unexpected matrix size: {len(rows)}")
     print("targets=" + json.dumps({"include": rows}, separators=(",", ":")))
 
@@ -74,18 +141,48 @@ def save(path, value):
 
 def build():
     output = directory()
-    target = os.environ["SPIKE_TARGET"]
+    members = json.loads(os.environ["SPIKE_MEMBERS"])
+    targets = [member["target"] for member in members]
     started = time.monotonic()
-    metrics = dict(target=target, before=resources(), samples=0)
+    metrics = dict(targets=targets, before=resources(), samples=0)
     save(output / "metrics.json", metrics)
     # Record whether this member's source changed. Shell/tool-only members can
     # remain unchanged: their task really is to fetch/build the shell inputs.
-    drv = subprocess.check_output(
-        ["nix", "eval", "--raw", target + ".drvPath"], text=True
+    expression = (
+        "sets: { "
+        + " ".join(
+            f"{json.dumps(m['member'])} = sets.{json.dumps(m['set'])}.passthru.members."
+            f"{json.dumps(m['member'])}.drvPath;"
+            for m in members
+        )
+        + " }"
     )
-    metrics.update(drv=drv, source_changed=drv != os.environ["SPIKE_ORIGINAL_DRV"])
-    command = ["nix", "build", "--no-link", "--print-out-paths", target]
-    print("Building", target, "source changed:", metrics["source_changed"], flush=True)
+    drvs = json.loads(
+        subprocess.check_output(
+            [
+                "nix",
+                "eval",
+                "--json",
+                f".#ciSets.{os.environ['SPIKE_SYSTEM']}",
+                "--apply",
+                expression,
+            ],
+            text=True,
+        )
+    )
+    metrics.update(
+        drvs=drvs,
+        source_changed={m["member"]: drvs[m["member"]] != m["drv"] for m in members},
+    )
+    command = [
+        "nix",
+        "build",
+        "--keep-going",
+        "--no-link",
+        "--print-out-paths",
+        *targets,
+    ]
+    print("Building", targets, "source changed:", metrics["source_changed"], flush=True)
     # Nix's default output shows fetch/build decisions, without full build logs.
     with (output / "build.log").open("w") as log:
         process = subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT)
@@ -122,7 +219,9 @@ def report():
     path = output / "metrics.json"
     metrics = json.loads(path.read_text()) if path.exists() else {}
     metrics.update(
-        target=os.environ["SPIKE_TARGET"], status=os.environ["SPIKE_JOB_STATUS"]
+        group=f"{os.environ['SPIKE_SYSTEM']} / {os.environ['SPIKE_GROUP']}",
+        status=os.environ["SPIKE_JOB_STATUS"],
+        targets=[m["target"] for m in json.loads(os.environ["SPIKE_MEMBERS"])],
     )
     save(path, metrics)
     with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a") as summary:
@@ -130,7 +229,7 @@ def report():
 
 
 def summary(path):
-    print("One fresh runner per distinct dev/release member; no cache writes.\n")
+    print("One fresh runner per logical dev/release group; no cache writes.\n")
     print(
         "Run-specific source comment forces project rebuilds; dependencies may substitute."
     )
@@ -141,18 +240,20 @@ def summary(path):
         "Disk and Linux available RAM are sampled every 5 s; they are approximate low-water marks.\n"
     )
     print(
-        "| Member | Result | Seconds | Source changed | Min free disk GiB | Min available RAM GiB |"
+        "| Group | Result | Seconds | Source changes | Min free disk GiB | Min available RAM GiB |"
     )
     print("| --- | --- | ---: | --- | ---: | ---: |")
     for file in sorted(Path(path).glob("*/metrics.json")):
         row = json.loads(file.read_text())
+        changed = row.get("source_changed", {})
+        row["source_changes"] = f"{sum(changed.values())}/{len(changed)}"
         values = [
             row.get(key, "—")
             for key in (
-                "target",
+                "group",
                 "status",
                 "elapsed_seconds",
-                "source_changed",
+                "source_changes",
                 "min_disk_free_gib",
                 "min_mem_available_gib",
             )
