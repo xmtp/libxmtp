@@ -5,14 +5,19 @@ jobs:
   # Every Linux runner class that builds Nix outputs for CI must build them in
   # the Nix sandbox, where the build directory is /build. Without it, outputs
   # that embed the build directory differ by producer, and a check that
-  # compares outputs from two jobs fails. Pull requests build on Blacksmith;
-  # merge, release, and deploy jobs build on the GitHub-hosted images.
+  # compares outputs from two jobs fails. Pull requests and post-merge warming
+  # build on Blacksmith (x86_64 and arm64); merge, release, and deploy jobs
+  # build on the GitHub-hosted images.
   canary:
     name: Linux sandbox (${{ matrix.runner }})
     strategy:
       fail-fast: false
       matrix:
-        runner: [blacksmith-4vcpu-ubuntu-2404, ubuntu-24.04, ubuntu-24.04-arm]
+        runner:
+          - blacksmith-4vcpu-ubuntu-2404
+          - blacksmith-16vcpu-ubuntu-2404-arm
+          - ubuntu-24.04
+          - ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 15
     steps:
