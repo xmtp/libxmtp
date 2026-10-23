@@ -109,11 +109,19 @@ dev/nix-shell 'just example-ios lint'
 dev/nix-shell 'just example-ios start --headless'
 ```
 
+`test-ui` runs `MessagingJourneys`, `GroupJourney`, and `AttachmentRestoreJourney`
+against the worktree backend. Pass a destination and Xcode test flags to focus a
+journey:
+
+```sh
+dev/nix-shell 'just example-ios test-ui "platform=iOS Simulator,name=iPhone 17" -only-testing:ExampleAppUITests/AttachmentRestoreJourney'
+```
+
 Set `XMTP_IOS_SIMULATOR` to an installed name or UDID. Otherwise the launcher selects an available iPhone running iOS 26 or later. `--headless` leaves Simulator.app closed. Simulator builds use ad-hoc signing. The launcher does not start the backend.
 
 ## Manual checks
 
-Run these after the two simulator journeys and after related changes. Record actual results, device/runtime and evidence in the change description. Missing devices, credentials or fixtures are **not run**, not passes. P identifiers name implementation requirements.
+Run these after the simulator journeys and after related changes. Record actual results, device/runtime and evidence in the change description. Missing devices, credentials or fixtures are **not run**, not passes. P identifiers name implementation requirements.
 
 | Check | Expected result | Requirements |
 | --- | --- | --- |

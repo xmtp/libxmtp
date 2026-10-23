@@ -141,7 +141,23 @@ class MainActivity : ComponentActivity() {
                             }
                         },
                         composerExtra = { attachments.Composer(state.conversationId) },
-                        messageExtra = { row -> attachments.Message(row, state.conversationId) },
+                        messageExtra = { row ->
+                            attachments.Message(
+                                row,
+                                state.conversationId,
+                                if (state.screen == Screen.TIMELINE) {
+                                    {
+                                        model.chat.dispatch(
+                                            org.xmtp.android.example.shared.feature.chat.ChatAction
+                                                .SelectMessage(row.id),
+                                        )
+                                    }
+                                } else {
+                                    null
+                                },
+                            )
+                        },
+                        attachmentActions = { row, enabled, dismiss -> attachments.Actions(row, enabled, dismiss) },
                     )
                 }
             }

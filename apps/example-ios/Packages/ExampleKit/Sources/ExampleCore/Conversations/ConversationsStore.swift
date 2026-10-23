@@ -127,7 +127,7 @@ public enum ConversationsAction: Sendable { case load, loadMore, search(String),
 					state.hasMore = records.count == requested || visibleRecords.count > limit; state.loading = false
 					state.requestCount = requests.flatMap { records in
 						records.count >= 501 ? nil : ListRules
-							.requestCount(records.filter { !preferences.dismissedRequests.contains($0.id) }.count)
+							.requestCount(records.count(where: { !preferences.dismissedRequests.contains($0.id) }))
 					}
 				}
 				scheduleHydration(origin: origin, retaining: pendingVisibleIDs)

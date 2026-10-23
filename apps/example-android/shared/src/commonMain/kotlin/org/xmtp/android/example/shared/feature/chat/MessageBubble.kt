@@ -85,7 +85,7 @@ internal fun MessageBubble(
         label = "Selected message",
     )
     Column(Modifier.fillMaxWidth(), horizontalAlignment = if (row.mine) Alignment.End else Alignment.Start) {
-        if (showSender &&
+        if (showSender && !row.attachment &&
             !row.mine
         ) {
             Text(
@@ -160,7 +160,13 @@ internal fun MessageBubble(
             shadowElevation = if (selected) 4.dp else 0.dp,
         ) {
             Column(
-                Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                if (row.attachment &&
+                    !row.deleted
+                ) {
+                    Modifier
+                } else {
+                    Modifier.padding(horizontal = 14.dp, vertical = 10.dp)
+                },
                 verticalArrangement = Arrangement.spacedBy(5.dp),
             ) {
                 row.reply?.let { reply ->
@@ -176,30 +182,45 @@ internal fun MessageBubble(
                         )
                     }
                 }
-                Text(
-                    row.text,
-                    style = MaterialTheme.typography.bodyLarge,
-                    color =
-                        if (row.mine) {
-                            MaterialTheme.colorScheme.onPrimaryContainer
-                        } else {
-                            MaterialTheme.colorScheme.onSurface
-                        },
-                )
+                if (!row.attachment || row.deleted) {
+                    Text(
+                        row.text,
+                        style = MaterialTheme.typography.bodyLarge,
+                        color =
+                            if (row.mine) {
+                                MaterialTheme.colorScheme.onPrimaryContainer
+                            } else {
+                                MaterialTheme.colorScheme.onSurface
+                            },
+                    )
+                }
                 if (row.attachment) extra(row)
-                Text(
-                    if (row.mine) "${row.time} · ${row.sendState.label}" else row.time,
-                    Modifier.align(Alignment.End).semantics {
-                        if (row.mine &&
-                            (row.sendState == MessageSendState.QUEUED || row.sendState == MessageSendState.NOT_SENT)
-                        ) {
-                            liveRegion =
-                                LiveRegionMode.Polite
-                        }
-                    },
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    style = MaterialTheme.typography.labelSmall,
-                )
+                if (!row.attachment || row.deleted) {
+                    Text(
+                        if (row.mine) "${row.time} · ${row.sendState.label}" else row.time,
+                        Modifier.align(Alignment.End).semantics {
+                            if (row.mine &&
+                                (row.sendState == MessageSendState.QUEUED || row.sendState == MessageSendState.NOT_SENT)
+                            ) {
+                                liveRegion =
+                                    LiveRegionMode.Polite
+                            }
+                        },
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.labelSmall,
+                    )
+                }
+                if (row.attachment && !row.deleted && row.mine && row.sendState != MessageSendState.SENT) {
+                    Text(
+                        row.sendState.label,
+                        Modifier
+                            .align(Alignment.End)
+                            .padding(horizontal = 14.dp, vertical = 6.dp)
+                            .semantics { liveRegion = LiveRegionMode.Polite },
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.labelSmall,
+                    )
+                }
                 if (row.mine && row.sendState == MessageSendState.NOT_SENT) {
                     FlowRow {
                         TextButton(
