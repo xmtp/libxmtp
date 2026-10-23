@@ -77,6 +77,8 @@ pub(super) struct PublishDependencies {
     pub latest_sequence_ids: HashMap<String, i64>,
     memberships: Option<(GroupMembership, GroupMembership)>,
     pub selection: super::selection::ProposalSelection,
+    /// Whether preparation omitted pending proposals no commit can carry.
+    pub omitted_uncommittable: bool,
 }
 
 impl PublishDependencies {

@@ -340,25 +340,16 @@ pub fn validate_committed_proposals<'a>(
     has_state: impl Fn(ComponentId) -> bool,
 ) -> Result<(), CommitRuleError> {
     let mut rejection = None;
-    let mut updated = HashSet::new();
-    let mut removed = HashSet::new();
+    let mut list = AppDataUpdateList::default();
     for proposal in proposals {
         match proposal {
             Proposal::Add(_) | Proposal::Update(_) | Proposal::Remove(_) => {}
             Proposal::AppDataUpdate(update) => {
                 let id = ComponentId::from(update.component_id());
-                let valid = match update.operation() {
-                    AppDataUpdateOperation::Update(_) => {
-                        updated.insert(id);
-                        !removed.contains(&id)
-                    }
-                    AppDataUpdateOperation::Remove => {
-                        removed.insert(id) && !updated.contains(&id) && has_state(id)
-                    }
-                };
-                if !valid {
+                if !list.admits(id, update.operation(), || has_state(id)) {
                     rejection.get_or_insert(CommitRuleError::InvalidAppDataUpdateList(id));
                 }
+                list.push(id, update.operation());
             }
             Proposal::PreSharedKey(_) => {
                 rejection.get_or_insert(CommitRuleError::NoPSKSupport);
@@ -371,6 +362,40 @@ pub fn validate_committed_proposals<'a>(
         }
     }
     rejection.map_or(Ok(()), Err)
+}
+
+/// A commit's `AppDataUpdate` list, built in commit order and judged by
+/// draft-ietf-mls-extensions-08 §4.7: per component, no Update together
+/// with a Remove, at most one Remove, and a Remove only for a component
+/// with state before the commit.
+#[derive(Default)]
+pub struct AppDataUpdateList {
+    updated: HashSet<ComponentId>,
+    removed: HashSet<ComponentId>,
+}
+
+impl AppDataUpdateList {
+    /// Whether the list stays valid with `operation` on `id` next.
+    /// `has_state` tells whether `id` has state before the commit.
+    pub fn admits(
+        &self,
+        id: ComponentId,
+        operation: &AppDataUpdateOperation,
+        has_state: impl FnOnce() -> bool,
+    ) -> bool {
+        !self.removed.contains(&id)
+            && match operation {
+                AppDataUpdateOperation::Update(_) => true,
+                AppDataUpdateOperation::Remove => !self.updated.contains(&id) && has_state(),
+            }
+    }
+
+    pub fn push(&mut self, id: ComponentId, operation: &AppDataUpdateOperation) {
+        match operation {
+            AppDataUpdateOperation::Update(_) => self.updated.insert(id),
+            AppDataUpdateOperation::Remove => self.removed.insert(id),
+        };
+    }
 }
 
 pub struct ProposalChanges {
@@ -698,7 +723,10 @@ pub fn validate_one_app_data_update(
 /// the snapshot bound on the committed
 /// state. Other apply failures are left to commit validation,
 /// because a commit may order other proposals ahead of this one and change
-/// the state it applies to.
+/// the state it applies to. A sender omits from its commits each pending
+/// proposal that the proposals kept before it make invalid, and each
+/// membership delta with no Add or Remove of its inbox, so neither blocks
+/// them.
 // implements: META-068
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn validate_standalone_app_data_update(
@@ -780,7 +808,7 @@ pub(crate) fn removes_super_admin(
 /// The inbox ids of a `GROUP_MEMBERSHIP` snapshot. `None` when the
 /// snapshot is absent or malformed, which fails the self-owned policy's
 /// non-member test closed.
-fn membership_inbox_ids(
+pub fn membership_inbox_ids(
     snapshot: Option<&[u8]>,
 ) -> Option<std::collections::HashSet<xmtp_mls_common::inbox_id::InboxId>> {
     use tls_codec::{Deserialize as _, VLBytes};
@@ -1080,9 +1108,7 @@ pub(crate) fn validate_one_app_data_update_with_old_value(
 /// `AppDataUpdate` by design — only an existing leaf can propose one.
 /// Pulled out so the rejection reason is a single code path that can
 /// be unit-tested without constructing a `StagedCommit`.
-pub(crate) fn app_data_update_proposer_leaf(
-    sender: &Sender,
-) -> Result<&LeafNodeIndex, CommitRuleError> {
+pub fn app_data_update_proposer_leaf(sender: &Sender) -> Result<&LeafNodeIndex, CommitRuleError> {
     match sender {
         Sender::Member(leaf_index) => Ok(leaf_index),
         Sender::External(_) | Sender::NewMemberCommit | Sender::NewMemberProposal => {
@@ -1255,23 +1281,28 @@ pub fn validate_app_data_update_proposals_in_commit(
         membership_inbox_ids(membership.as_deref().map(Vec::as_slice)).as_ref(),
     )?;
 
-    // Validate the final registry after all deltas. Required action entries
-    // must remain present, and every child in each action tree must be valid.
-    if let Some(post_registry) = component_post_states.get(&ComponentId::COMPONENT_REGISTRY) {
-        let bytes = post_registry
-            .as_deref()
-            .ok_or(CommitRuleError::InsufficientPermissions)?;
-        let registry =
-            xmtp_mls_common::app_data::component_registry::ComponentRegistry::from_bytes(bytes)
-                .map_err(|_| CommitRuleError::InsufficientPermissions)?;
-        xmtp_mls_common::app_data::policy_set::validate_registry_action_policies(&registry)
-            .map_err(|error| {
-                tracing::warn!(%error, "invalid registry action policy in commit");
-                CommitRuleError::InsufficientPermissions
-            })?;
-    }
+    validate_post_registry(&component_post_states)
+}
 
-    Ok(())
+/// Validate the registry `post_states` leave, if they change it: required
+/// action entries must remain present, and every child in each action tree
+/// must be valid.
+pub fn validate_post_registry(post_states: &AppDataPostStates) -> Result<(), CommitRuleError> {
+    let Some(post_registry) = post_states.get(&ComponentId::COMPONENT_REGISTRY) else {
+        return Ok(());
+    };
+    let bytes = post_registry
+        .as_deref()
+        .ok_or(CommitRuleError::InsufficientPermissions)?;
+    let registry =
+        xmtp_mls_common::app_data::component_registry::ComponentRegistry::from_bytes(bytes)
+            .map_err(|_| CommitRuleError::InsufficientPermissions)?;
+    xmtp_mls_common::app_data::policy_set::validate_registry_action_policies(&registry).map_err(
+        |error| {
+            tracing::warn!(%error, "invalid registry action policy in commit");
+            CommitRuleError::InsufficientPermissions
+        },
+    )
 }
 
 /// Extracts the [`CommitParticipant`] from the [`LeafNodeIndex`]
