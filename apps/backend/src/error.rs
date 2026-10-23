@@ -1,7 +1,17 @@
+//! Typed backend storage/admission failures translated by the service boundary.
+//! Test builds additionally expose partition-provisioning outcomes for disposable
+//! benchmark retries; those variants are not part of the production error surface.
+
 use xmtp_mls_validation::ValidationError;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    #[cfg(test)]
+    #[error("benchmark publish requires sequence partitions for {0:?}")]
+    MissingEnvelopePartitions(Vec<i64>),
+    #[cfg(test)]
+    #[error("partitioned benchmark publish exhausted its deadline or retry budget")]
+    PartitionPublishDeadline,
     #[error(transparent)]
     AttachmentSigning(#[from] xmtp_attachments_server::SignError),
     #[error("recipient is not registered")]

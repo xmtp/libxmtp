@@ -53,6 +53,12 @@ test *args="":
     {{ _env }} && \
       RUST_TEST_THREADS="${RUST_TEST_THREADS:-4}" "{{ root }}/dev/agent-run" cargo test --locked -p xmtp_backend {{ args }}
 
+# Manual release-mode database benchmark. Requires a dedicated PostgreSQL admin URL.
+bench config:
+    {{ _env }} && \
+      XMTP_BENCH_CONFIG={{ quote(config) }} XMTP_TEST_LOGGING=false \
+      "{{ root }}/dev/agent-run" cargo test --locked --release -p xmtp_backend --lib db::benchmarks::baseline -- --exact --ignored --nocapture
+
 db-up:
     {{ root }}/dev/docker/up db replica
 

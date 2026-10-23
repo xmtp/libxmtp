@@ -14,6 +14,10 @@ impl From<Error> for Status {
     fn from(error: Error) -> Self {
         use crate::telemetry::{self, DbErrorKind};
         let kind = match &error {
+            #[cfg(test)]
+            Error::MissingEnvelopePartitions(_) => Some(DbErrorKind::Invariant),
+            #[cfg(test)]
+            Error::PartitionPublishDeadline => Some(DbErrorKind::Timeout),
             Error::StaleHistory
             | Error::Admission { .. }
             | Error::PushRecipientMissing
