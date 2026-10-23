@@ -5,13 +5,16 @@ use crate::{
         mls_sync::GroupHeadOutcome,
         welcome_sync::{WelcomeHeadOutcome, WelcomeRequirement, WelcomeService},
     },
-    identity_updates::{IdentityDependencyError, resolve_identity_requirement},
+    identity_updates::{IdentityDependencyError, resolve_identity_requirements},
 };
 use prost::Message;
 use xmtp_db::{identity_update::StoredIdentityUpdate, incoming_envelope::IncomingRetry};
 
 pub(super) enum DependencyResult<C> {
-    Identity(IdentityRequirement, Result<(), IdentityDependencyError>),
+    Identity(
+        BTreeSet<IdentityRequirement>,
+        Result<(), IdentityDependencyError>,
+    ),
     Welcome(
         Cursor,
         Result<WelcomeHeadOutcome<C>, crate::groups::GroupError>,
@@ -92,12 +95,12 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                         }
                         Ok(GroupHeadOutcome::Need {
                             cursor,
-                            requirement,
+                            requirements,
                         }) => {
-                            tracing::trace!(%group_id, sequence_id = cursor.0, "group head needs an identity proof");
+                            tracing::trace!(%group_id, sequence_id = cursor.0, proofs = requirements.len(), "group head needs identity proofs");
                             self.dependency_registry.attach(
                                 DependencyParent::GroupHead(topic, cursor),
-                                DependencyKey::Identity(requirement),
+                                DependencyKey::Identity(requirements),
                             );
                         }
                         Ok(GroupHeadOutcome::Inactive) => {
@@ -227,11 +230,11 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             }
             WelcomeHeadOutcome::Need {
                 cursor,
-                requirement: WelcomeRequirement::Identity(requirement),
+                requirement: WelcomeRequirement::Identity(requirements),
             } => {
                 self.dependency_registry.attach(
                     DependencyParent::Welcome(cursor),
-                    DependencyKey::Identity(requirement),
+                    DependencyKey::Identity(requirements),
                 );
                 false
             }
@@ -290,9 +293,9 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             let context = self.context.clone();
             self.dependencies.push(Box::pin(async move {
                 match key {
-                    DependencyKey::Identity(requirement) => {
-                        let result = resolve_identity_requirement(&context, &requirement).await;
-                        DependencyResult::Identity(requirement, result)
+                    DependencyKey::Identity(requirements) => {
+                        let result = resolve_identity_requirements(&context, &requirements).await;
+                        DependencyResult::Identity(requirements, result)
                     }
                     DependencyKey::Welcome(cursor) => DependencyResult::Welcome(
                         cursor,
@@ -339,7 +342,7 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
         };
         self.dependency_registry.attach(
             DependencyParent::IdentityHead(topic.clone(), Cursor(pending.sequence_id as u64)),
-            DependencyKey::Identity(requirement),
+            DependencyKey::Identity(BTreeSet::from([requirement])),
         );
         Ok(())
     }
@@ -368,11 +371,16 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                     Err(_) => {}
                 }
             }
-            DependencyResult::Identity(requirement, result) => {
+            DependencyResult::Identity(requirements, result) => {
                 let parents = self
                     .dependency_registry
-                    .finish(&DependencyKey::Identity(requirement.clone()));
-                let missing = matches!(result, Err(IdentityDependencyError::MissingReference(_)));
+                    .finish(&DependencyKey::Identity(requirements));
+                let missing = match &result {
+                    Err(IdentityDependencyError::MissingReference(requirement)) => {
+                        Some(requirement.clone())
+                    }
+                    _ => None,
+                };
                 let error = result
                     .err()
                     .map(|error| Arc::new(IncomingError::Identity(error)));
@@ -381,16 +389,19 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                         continue;
                     }
                     match parent {
-                        DependencyParent::GroupHead(topic, cursor) if missing => {
+                        DependencyParent::GroupHead(topic, cursor) if missing.is_some() => {
                             self.topics
                                 .entry(topic)
                                 .or_default()
                                 .processing
-                                .missing_reference = Some((cursor, requirement.clone()));
+                                .missing_reference =
+                                missing.clone().map(|requirement| (cursor, requirement));
                         }
-                        DependencyParent::Welcome(cursor) if error.is_none() || missing => {
+                        DependencyParent::Welcome(cursor)
+                            if error.is_none() || missing.is_some() =>
+                        {
                             match WelcomeService::new(self.context.clone())
-                                .retry_pending_welcome(cursor, missing.then_some(&requirement))
+                                .retry_pending_welcome(cursor, missing.as_ref())
                             {
                                 Ok(outcome) => {
                                     self.welcome_outcome(outcome);

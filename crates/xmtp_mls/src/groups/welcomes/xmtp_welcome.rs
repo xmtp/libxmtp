@@ -285,7 +285,7 @@ where
                             IdentityDependencyError::Need(required),
                         )),
                         Some(missing),
-                    ) if required == missing => InstallationDiffError::IdentityDependency(
+                    ) if required.contains(missing) => InstallationDiffError::IdentityDependency(
                         IdentityDependencyError::MissingReference(missing.clone()),
                     )
                     .into(),

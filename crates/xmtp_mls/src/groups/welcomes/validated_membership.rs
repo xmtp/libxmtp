@@ -2,7 +2,7 @@ use crate::context::XmtpSharedContext;
 use crate::groups::{GroupError, GroupMembership};
 use crate::identity::parse_credential;
 use crate::identity_updates::{
-    IdentityDependencyError, IdentityRequirement, InstallationDiffError, require_association_state,
+    IdentityDependencyError, IdentityRequirement, InstallationDiffError, MissingProofs,
     resolve_identity_requirements,
 };
 use openmls::prelude::{BasicCredential, StagedWelcome};
@@ -106,14 +106,13 @@ where
         &self,
         welcome: &WelcomeMembership,
     ) -> Result<(), GroupError> {
-        for (_, result) in
-            resolve_identity_requirements(&self.context, welcome.requirements()).await
-        {
-            result.map_err(InstallationDiffError::from)?;
-        }
+        resolve_identity_requirements(&self.context, &welcome.requirements().collect())
+            .await
+            .map_err(InstallationDiffError::from)?;
         self.check_verified_membership(welcome, &self.context.db())
     }
 
+    /// Name every missing proof in one `Need`, so one resolution fetches them all.
     // implements: JOIN-052, JOIN-053
     fn check_verified_membership(
         &self,
@@ -122,14 +121,20 @@ where
     ) -> Result<(), GroupError> {
         let membership = &welcome.membership;
         let mut expected_members = HashMap::<String, HashSet<Vec<u8>>>::new();
+        let mut missing = MissingProofs::default();
         for requirement in welcome.requirements() {
-            let association_state =
-                require_association_state(db, &requirement).map_err(InstallationDiffError::from)?;
+            let Some(association_state) = missing
+                .read(db, &requirement)
+                .map_err(InstallationDiffError::from)?
+            else {
+                continue;
+            };
             expected_members.insert(
                 association_state.inbox_id().to_string(),
                 HashSet::from_iter(association_state.installation_ids()),
             );
         }
+        missing.check().map_err(InstallationDiffError::from)?;
 
         for (claimed_inbox_id, signature_key) in &welcome.members {
             let Some(installation_ids) = expected_members.get_mut(claimed_inbox_id) else {

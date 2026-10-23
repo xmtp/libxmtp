@@ -6,7 +6,7 @@ use super::{get_association_state_for_client, load_identity_updates_for_client};
 use crate::{client::ClientError, context::XmtpSharedContext};
 use futures::{StreamExt, stream};
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeSet, HashMap, HashSet},
     sync::{Arc, OnceLock, Weak},
 };
 use thiserror::Error;
@@ -19,7 +19,7 @@ use xmtp_db::{DbQuery, StorageError, prelude::*};
 use xmtp_id::associations::{AssociationError, AssociationState};
 
 /// A proof at one exact identity sequence. Zero is not an identity sequence.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct IdentityRequirement {
     /// Inbox whose verified history supplies this proof.
     pub inbox_id: String,
@@ -30,9 +30,10 @@ pub struct IdentityRequirement {
 /// Separate a missing cached proof from invalid or unavailable identity history.
 #[derive(Debug, Error)]
 pub enum IdentityDependencyError {
-    /// Retry outside the state transaction after obtaining this exact proof.
-    #[error("A verified identity proof is required at sequence {}", .0.sequence_id)]
-    Need(IdentityRequirement),
+    /// Retry outside the state transaction after obtaining these exact proofs.
+    /// The set holds every missing proof the attempt found, never zero proofs.
+    #[error("Verified identity proofs are required at {} references", .0.len())]
+    Need(BTreeSet<IdentityRequirement>),
     /// The reference cannot name a stored identity update. Not retryable.
     #[error("Invalid identity sequence {0}")]
     InvalidSequence(u64),
@@ -135,7 +136,7 @@ pub(crate) fn require_association_state(
     let sequence = requirement.checked_sequence()?;
     let state = conn
         .read_from_cache(&requirement.inbox_id, sequence)?
-        .ok_or_else(|| IdentityDependencyError::Need(requirement.clone()))?;
+        .ok_or_else(|| IdentityDependencyError::Need(BTreeSet::from([requirement.clone()])))?;
     if state.inbox_id != requirement.inbox_id {
         return Err(StorageError::DbDeserialize.into());
     }
@@ -145,11 +146,44 @@ pub(crate) fn require_association_state(
         .map_err(Into::into)
 }
 
+/// Read cached proofs and record each missing one, so that one resolution
+/// fetches every proof an attempt lacks instead of one proof per attempt.
+#[derive(Default)]
+pub(crate) struct MissingProofs(BTreeSet<IdentityRequirement>);
+
+impl MissingProofs {
+    /// Return the cached state, or record the requirement and return `None`.
+    /// Other failures do not depend on a fetch, so they return at once.
+    pub(crate) fn read(
+        &mut self,
+        conn: &impl DbQuery,
+        requirement: &IdentityRequirement,
+    ) -> Result<Option<AssociationState>, IdentityDependencyError> {
+        match require_association_state(conn, requirement) {
+            Ok(state) => Ok(Some(state)),
+            Err(IdentityDependencyError::Need(needed)) => {
+                self.0.extend(needed);
+                Ok(None)
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    /// Fail with every recorded requirement.
+    pub(crate) fn check(self) -> Result<(), IdentityDependencyError> {
+        if self.0.is_empty() {
+            Ok(())
+        } else {
+            Err(IdentityDependencyError::Need(self.0))
+        }
+    }
+}
+
 /// Fetch and verify an exact identity proof without a state transaction.
 /// Successful primary reads must cover the full absence interval. A transport
 /// or verification error stops the interval and leaves dependent work pending.
 /// Concurrent callers share one attempt; cancellation permits a later retry.
-pub(crate) async fn resolve_identity_requirement(
+async fn resolve_identity_requirement(
     context: &impl XmtpSharedContext,
     requirement: &IdentityRequirement,
 ) -> Result<(), IdentityDependencyError> {
@@ -250,21 +284,99 @@ async fn resolve_identity_requirement_with_wait(
     }
 }
 
-/// Coalesce exact requirements and keep every completed result. One failed
-/// proof does not cancel other fetches or remove their verified cache entries.
+/// Resolve every requirement of one parent and return one result for it.
+/// One failed proof does not cancel other fetches or remove their verified
+/// cache entries.
 // implements: PROC-013
 pub(crate) async fn resolve_identity_requirements(
     context: &impl XmtpSharedContext,
-    requirements: impl IntoIterator<Item = IdentityRequirement>,
-) -> Vec<(IdentityRequirement, Result<(), IdentityDependencyError>)> {
-    let requirements: HashSet<_> = requirements.into_iter().collect();
-    stream::iter(requirements.into_iter().map(|requirement| async move {
-        let result = resolve_identity_requirement(context, &requirement).await;
-        (requirement, result)
+    requirements: &BTreeSet<IdentityRequirement>,
+) -> Result<(), IdentityDependencyError> {
+    prefetch_identity_requirements(context, requirements).await;
+    let results: Vec<_> =
+        stream::iter(requirements.iter().cloned().map(|requirement| async move {
+            resolve_identity_requirement(context, &requirement).await
+        }))
+        .buffer_unordered(context.incoming_runtime().policy().max_dependency_requests)
+        .collect()
+        .await;
+    parent_result(results)
+}
+
+/// A failed proof takes precedence over an absent one, so a parent that
+/// needs unresolved identity history stays blocked, not rejected.
+// implements: PROC-012
+fn parent_result(
+    results: impl IntoIterator<Item = Result<(), IdentityDependencyError>>,
+) -> Result<(), IdentityDependencyError> {
+    let mut absent = None;
+    for result in results {
+        match result {
+            Ok(()) => {}
+            Err(error @ IdentityDependencyError::MissingReference(_)) => absent = Some(error),
+            Err(error) => return Err(error),
+        }
+    }
+    absent.map_or(Ok(()), Err)
+}
+
+/// Load the logs of every inbox without a cached proof in one request, then
+/// verify the proofs the load supplies. A proof that is still missing uses the
+/// single-proof path, which owns absence waits and error reporting.
+async fn prefetch_identity_requirements(
+    context: &impl XmtpSharedContext,
+    requirements: &BTreeSet<IdentityRequirement>,
+) {
+    let conn = context.db();
+    let needed: Vec<_> = requirements
+        .iter()
+        .filter(|requirement| {
+            matches!(
+                require_association_state(&conn, requirement),
+                Err(IdentityDependencyError::Need(_))
+            )
+        })
+        .cloned()
+        .collect();
+    // One proof gains nothing. The single-proof path shares concurrent attempts.
+    if needed.len() < 2 {
+        return;
+    }
+    let inbox_ids: Vec<_> = needed
+        .iter()
+        .map(|requirement| requirement.inbox_id.as_str())
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect();
+    let limit = context.incoming_runtime().policy().max_dependency_requests;
+    let permits = context.identity_resolution_registry().permits(limit);
+    let loaded = {
+        let _permit = permits
+            .acquire()
+            .await
+            .expect("identity request semaphore stays open");
+        load_identity_updates_for_client(context, &conn, &inbox_ids).await
+    };
+    if let Err(error) = loaded {
+        tracing::warn!(%error, "batched identity fetch failed; fetching each inbox");
+        return;
+    }
+    let conn = &conn;
+    stream::iter(needed.into_iter().map(|requirement| async move {
+        let Ok(sequence) = requirement.checked_sequence() else {
+            return;
+        };
+        // The single-proof path reports a proof this load did not settle.
+        if let Err(error) =
+            get_association_state_for_client(context, conn, &requirement.inbox_id, Some(sequence))
+                .await
+        {
+            tracing::debug!(%error, inbox_id = requirement.inbox_id, "prefetched proof is unresolved");
+        }
     }))
-    .buffer_unordered(context.incoming_runtime().policy().max_dependency_requests)
-    .collect()
-    .await
+    .buffer_unordered(limit)
+    .collect::<()>()
+    .await;
 }
 
 #[cfg(test)]
@@ -284,7 +396,7 @@ mod tests {
         assert_send(resolve_identity_requirement(&context, &requirement));
         assert_send(resolve_identity_requirements(
             &context,
-            [requirement.clone()],
+            &BTreeSet::from([requirement.clone()]),
         ));
         assert_send(context.api().newest_topic_cursors(vec![]));
         assert_send(context.api().query_ordered_page(
@@ -409,21 +521,43 @@ mod tests {
             sequence_id: 0,
             ..valid.clone()
         };
-        let results =
-            resolve_identity_requirements(&bo.context, [valid.clone(), invalid, valid.clone()])
+        let result =
+            resolve_identity_requirements(&bo.context, &BTreeSet::from([valid.clone(), invalid]))
                 .await;
-        assert_eq!(results.len(), 2);
-        assert_eq!(
-            results.iter().filter(|(_, result)| result.is_ok()).count(),
-            1
-        );
+        assert!(matches!(
+            result,
+            Err(IdentityDependencyError::InvalidSequence(0))
+        ));
         assert!(require_association_state(&bo.context.db(), &valid).is_ok());
-        assert!(
-            results.iter().any(|(_, result)| matches!(
-                result,
-                Err(IdentityDependencyError::InvalidSequence(0))
+    }
+
+    // verifies: PROC-012
+    #[xmtp_common::test(unwrap_try = true)]
+    fn a_failed_proof_blocks_before_an_absent_one() {
+        let absent = || {
+            Err(IdentityDependencyError::MissingReference(
+                IdentityRequirement {
+                    inbox_id: "inbox".into(),
+                    sequence_id: 1,
+                },
             ))
-        );
+        };
+        let failed = || {
+            Err(IdentityDependencyError::Storage(
+                StorageError::DbDeserialize,
+            ))
+        };
+        assert!(parent_result([Ok(()), Ok(())]).is_ok());
+        assert!(matches!(
+            parent_result([Ok(()), absent()]),
+            Err(IdentityDependencyError::MissingReference(_))
+        ));
+        for results in [[absent(), failed()], [failed(), absent()]] {
+            assert!(matches!(
+                parent_result(results),
+                Err(IdentityDependencyError::Storage(_))
+            ));
+        }
     }
 
     #[xmtp_common::test(unwrap_try = true)]

@@ -40,7 +40,7 @@ mod dependencies;
 mod state_store;
 pub use dependencies::{IdentityDependencyError, IdentityRequirement, IdentityResolutionRegistry};
 pub(crate) use dependencies::{
-    require_association_state, resolve_identity_requirement, resolve_identity_requirements,
+    MissingProofs, require_association_state, resolve_identity_requirements,
 };
 pub(crate) use state_store::get_association_state_for_client;
 #[cfg(test)]
@@ -638,8 +638,8 @@ where
                 membership_diff,
             ) {
                 Ok(diff) => break diff,
-                Err(IdentityDependencyError::Need(requirement)) => {
-                    resolve_identity_requirement(&self.context, &requirement).await?;
+                Err(IdentityDependencyError::Need(requirements)) => {
+                    resolve_identity_requirements(&self.context, &requirements).await?;
                 }
                 Err(error) => return Err(error.into()),
             }
@@ -675,6 +675,7 @@ where
 /// Compare exact verified snapshots without network or signature-verifier calls.
 /// A creation placeholder has an empty identity baseline. It never selects the
 /// receiver's latest identity state. New membership references must be nonzero.
+/// A missing proof does not stop the scan, so `Need` names every missing proof.
 pub(crate) fn get_installation_diff_local(
     conn: &impl DbQuery,
     old_membership: &GroupMembership,
@@ -683,28 +684,33 @@ pub(crate) fn get_installation_diff_local(
 ) -> Result<InstallationDiff, IdentityDependencyError> {
     let mut added_installations = HashMap::new();
     let mut removed_installations = HashSet::new();
+    let mut missing = MissingProofs::default();
     for inbox_id in membership_diff
         .added_inboxes
         .iter()
         .chain(&membership_diff.updated_inboxes)
     {
-        let final_state = require_association_state(
+        let final_state = missing.read(
             conn,
             &IdentityRequirement {
                 inbox_id: (*inbox_id).clone(),
                 sequence_id: new_membership.get(inbox_id).copied().unwrap_or(0),
             },
         )?;
-        let diff = match old_membership.get(inbox_id) {
-            None | Some(0) => final_state.as_diff(),
-            Some(sequence_id) => require_association_state(
+        let initial_state = match old_membership.get(inbox_id) {
+            None | Some(0) => None,
+            Some(sequence_id) => Some(missing.read(
                 conn,
                 &IdentityRequirement {
                     inbox_id: (*inbox_id).clone(),
                     sequence_id: *sequence_id,
                 },
-            )?
-            .diff(&final_state),
+            )?),
+        };
+        let diff = match (final_state, initial_state) {
+            (Some(final_state), None) => final_state.as_diff(),
+            (Some(final_state), Some(Some(initial_state))) => initial_state.diff(&final_state),
+            (None, _) | (_, Some(None)) => continue,
         };
         for installation in diff.new_installations() {
             added_installations
@@ -715,15 +721,19 @@ pub(crate) fn get_installation_diff_local(
         removed_installations.extend(diff.removed_installations());
     }
     for inbox_id in &membership_diff.removed_inboxes {
-        let state = require_association_state(
+        let Some(state) = missing.read(
             conn,
             &IdentityRequirement {
                 inbox_id: (*inbox_id).clone(),
                 sequence_id: old_membership.get(inbox_id).copied().unwrap_or(0),
             },
-        )?;
+        )?
+        else {
+            continue;
+        };
         removed_installations.extend(state.installation_ids());
     }
+    missing.check()?;
     Ok(InstallationDiff {
         added_installations,
         removed_installations,

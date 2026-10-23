@@ -6,7 +6,7 @@ use crate::{
 use futures::{StreamExt, stream::FuturesUnordered};
 use prost::Message;
 use std::{
-    collections::{HashMap, HashSet, VecDeque},
+    collections::{BTreeSet, HashMap, HashSet, VecDeque},
     time::Duration,
 };
 use xmtp_common::{RetryableError, time::Instant};

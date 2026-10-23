@@ -14,7 +14,7 @@ use crate::groups::mls_ext::ResolvedWelcome;
 use crate::groups::{GroupError, MlsGroup};
 use crate::identity_updates::{
     IdentityDependencyError, IdentityRequirement, InstallationDiffError,
-    resolve_identity_requirement,
+    resolve_identity_requirements,
 };
 #[cfg(test)]
 use crate::intents::ProcessIntentError;
@@ -22,7 +22,7 @@ use crate::intents::ProcessIntentError;
 use crate::mls_store::MlsStore;
 use futures::stream::{self, StreamExt};
 use prost::Message;
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 #[cfg(test)]
 use xmtp_common::Event;
 use xmtp_common::RetryableError;
@@ -50,8 +50,8 @@ const UNSUPPORTED_WELCOME_RETENTION_NS: i64 = xmtp_common::NS_IN_DAY;
 
 /// Work needed before one durable Welcome can be attempted again.
 pub(crate) enum WelcomeRequirement {
-    /// The exact inbox and sequence proof required by the staged membership.
-    Identity(IdentityRequirement),
+    /// Every exact inbox and sequence proof the staged membership lacks.
+    Identity(BTreeSet<IdentityRequirement>),
     /// Pointer data that must be fetched without a database writer.
     Pointee,
     /// An active older group must process its ordered prefix before replacement.
@@ -387,12 +387,12 @@ where
                 result: Ok(group),
             }),
             Err(GroupError::InstallationDiff(InstallationDiffError::IdentityDependency(
-                IdentityDependencyError::Need(requirement),
+                IdentityDependencyError::Need(requirements),
             ))) => {
                 self.defer_pending(pending, "identity_dependency", false, None)?;
                 Ok(WelcomeHeadOutcome::Need {
                     cursor,
-                    requirement: WelcomeRequirement::Identity(requirement),
+                    requirement: WelcomeRequirement::Identity(requirements),
                 })
             }
             Err(GroupError::WelcomeGroupPrefixPending { group_id, anchor }) => {
@@ -601,15 +601,15 @@ where
         loop {
             let outcome = self.attempt_pending_welcome(pending.clone(), Some(&resolved), None)?;
             let WelcomeHeadOutcome::Need {
-                requirement: WelcomeRequirement::Identity(requirement),
+                requirement: WelcomeRequirement::Identity(requirements),
                 ..
             } = outcome
             else {
                 return Ok(outcome);
             };
-            match resolve_identity_requirement(&self.context, &requirement).await {
+            match resolve_identity_requirements(&self.context, &requirements).await {
                 Ok(()) => {}
-                Err(IdentityDependencyError::MissingReference(_)) => {
+                Err(IdentityDependencyError::MissingReference(requirement)) => {
                     return self.attempt_pending_welcome(
                         pending,
                         Some(&resolved),
