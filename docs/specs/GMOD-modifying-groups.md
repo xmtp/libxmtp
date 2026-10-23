@@ -172,6 +172,8 @@ A `sequence_id` is a promise the sender makes: it resolved that inbox's identity
 
 JOIN-011 owns partial success when some key packages are invalid. GMOD-009 accounts for the installations in each inbox, including an installation for which the backend returns no key package. JOIN section 8 owns validation of the membership asserted by a Welcome.
 
+A failed installation is one the group holds no leaf for. A membership change can be built when an installation's key package cannot be fetched and published after that installation has a leaf: a later fetch succeeds and the commit adds it, or another member's commit added it first. The installation is then not failed. Section 3 exempts a listed key from the removal check, so a key listed with a leaf would keep its leaf through a later revocation.
+
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
 | GMOD-005 | Membership entry format | The client MUST encode each member's value in `GROUP_MEMBERSHIP` as the `GroupMembershipEntry` defined above, with `v1` set and exactly one entry per member inbox. | |
@@ -179,6 +181,7 @@ JOIN-011 owns partial success when some key packages are invalid. GMOD-009 accou
 | GMOD-007 | References precede the commit | If any entry's `sequence_id` is not less than the commit's own sequence id, or an entry the commit adds has a `sequence_id` of 0, then the client MUST record a terminal rejection for the commit. | A reference at or after the commit can never be resolved, and 0 asserts nothing. |
 | GMOD-008 | Sequence ids never decrease | If an inbox's entry after the commit has a `sequence_id` less than before it, then the client MUST record a terminal rejection for the commit. | A lowered reference would let a revoked installation back in. |
 | GMOD-009 | Every installation is accounted for | When a sender publishes a commit that adds an inbox or changes its `sequence_id`, the sender MUST ensure that every installation key in that inbox's referenced identity state is either the `signature_key` of a leaf after the commit or in that inbox's `failed_installations`. | An omitted installation loses access, and a later joiner rejects the incomplete membership. |
+| GMOD-044 | A failed installation has no leaf | When a client publishes a commit for its own membership update, which adds, removes, or refreshes inboxes, it MUST NOT list in any membership entry that update writes the `signature_key` of a leaf that the ratchet tree holds after the commit. | A revocation of a listed installation removes nothing under GMOD-011, so the revoked installation keeps reading the group. |
 
 ## 3. Leaf changes against identity
 
@@ -244,9 +247,12 @@ META-010 owns component encodings and byte limits. Standalone checks do not reso
 
 An inbox's installations can change after it joins: a device is added or revoked through an identity update (IDENT-070), and the group's leaf nodes no longer match. Any member repairs this. A client that syncs a group fetches the identity updates of every member on a schedule, and when an inbox's latest sequence id is greater than its entry, publishes a commit that raises the entry and makes the expected additions and removals. The revoked installation loses the group at that commit, and the new one receives a Welcome. Which member does it first does not matter: the commits race under section 4 and the loser finds nothing left to do.
 
+A refresh is built from the membership at one moment and published later, after other commits can have landed. Its entries raise inboxes that were members when it was built. When one of those inboxes has since been removed, the refresh leaves it out, and when a later commit raised an entry past the refresh, the entry keeps the higher sequence id. Only an app's request to add an inbox inserts one.
+
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
 | GMOD-029 | Members repair changed identity state | When a membership refresh for an active group resolves an inbox's identity state at a sequence id greater than its membership entry's, the client MUST publish a membership change that raises the entry to that sequence id and makes the expected additions and removals under sections 2 and 3. | A new device cannot add itself, and a revoked one keeps reading until a member removes it. |
+| GMOD-045 | A refresh never inserts an inbox | When a client publishes a membership change that records which of its entries are refreshes under GMOD-029, it MUST NOT insert into `GROUP_MEMBERSHIP` an inbox whose entry the change records as a refresh. | A refresh built before a commit removed an inbox would undo that removal. |
 
 ## 7. Leaving a group
 
@@ -265,6 +271,12 @@ PERM-025 owns authority to act on a leave request. The removal still passes PERM
 The receiver tolerates a commit that adds an inbox without adding every installation the referenced identity state associates and without listing the rest as failed. GMOD-009 binds the sender; existing members accept the commit, and only a later joiner rejects the Welcome under JOIN-053.
 
 A membership refresh does not retry a failed installation key that remains associated in both identity states. Its key package becoming valid does not by itself add it to the group.
+
+Receivers do not reject a membership entry that lists a key with a leaf, and older clients write such entries. Receivers do not count a key that has a leaf before a commit as failed in the entry before that commit, so a revocation committed by a client that meets GMOD-044 removes the leaf. Receivers do count every key in the entry after the commit as failed. A committer that does not meet GMOD-044, such as an older client, can raise the inbox past the revocation, list the revoked key again, and omit its Remove; receivers accept that commit, and the revoked installation keeps its leaf. A later membership change from a conforming client drops the key from the entry but does not by itself remove the leaf.
+
+GMOD-044 covers a client's own membership updates. A commit that keeps another member's accepted membership delta keeps it whole or omits it whole (GMOD-038), and a readd or a standalone membership proposal carries the failed lists already written, so these can keep a key with a leaf that an earlier writer listed. They do not add a leaf for a listed key: selection omits the Add of a key that a kept delta lists as failed, and a pending proposal never outlives a commit. Omitting such a delta would hold back its other changes until its author proposes again, while a revocation that a conforming client commits removes the leaf either way.
+
+A membership change stored before its refresh entries were recorded apart from its requested adds treats every entry as an add. When it publishes, it can insert an inbox that a commit removed after the change was built. An older build that publishes a stored change after a downgrade ignores that record in the same way, as it does for the changes it builds itself. The record is not versioned to make older builds fail closed: an older build cannot decode a newer payload version, and an own change it cannot decode stops every later publication in its group.
 
 MLS discards proposals that a commit did not reference once the epoch advances. A member whose proposal was omitted from an accepted commit has to propose again if the change is still needed.
 

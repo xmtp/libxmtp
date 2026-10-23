@@ -54,6 +54,8 @@ fn inapplicable_app_data(error: &GroupError) -> bool {
 enum NextPublish {
     Prepared(StoredGroupIntent, PreparedAttempt),
     Resolve(PublishRequirements),
+    /// A message behind a deferred message. It stays as it is.
+    Behind(ID),
 }
 
 impl<Context: XmtpSharedContext> MlsGroup<Context> {
@@ -69,11 +71,15 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
         let mut sent = HashSet::new();
         let mut after = None;
         let mut rejected_request = None;
+        // A message waits behind a pending proposal. Every later message
+        // waits behind it, and this pass commits the proposal at most once.
+        let mut deferred_message = false;
+        let mut queued_commit = false;
         let upper_id = self
             .context
             .db()
             .last_publish_intent_id(self.group_id.as_ref())?;
-        let Some(upper_id) = upper_id else {
+        let Some(mut upper_id) = upper_id else {
             return Ok(());
         };
 
@@ -90,6 +96,13 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                     };
                     if sent.contains(&intent.id) {
                         return Ok(Continue(None));
+                    }
+                    // implements: SEND-022
+                    // Once a message is deferred, no later message publishes
+                    // in this pass, whether or not it holds a saved attempt.
+                    // Another member's commit can clear the proposal meanwhile.
+                    if deferred_message && intent.kind == IntentKind::SendMessage {
+                        return Ok(Continue(Some(NextPublish::Behind(intent.id))));
                     }
                     if intent.state == IntentState::Published {
                         let bytes = storage
@@ -109,10 +122,22 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
             })?
             .into_continued();
             let Some(next) = next else {
+                // implements: SEND-022
+                // No later intent committed the proposal. Commit it now; the
+                // deferred messages publish in the next epoch.
+                if deferred_message && !queued_commit {
+                    queued_commit = true;
+                    upper_id = QueueIntent::commit_pending_proposals().queue(self)?.id;
+                    continue;
+                }
                 return rejected_request.map_or(Ok(()), Err);
             };
             let (intent, attempt) = match next {
                 NextPublish::Prepared(intent, attempt) => (intent, attempt),
+                NextPublish::Behind(id) => {
+                    after = Some(id);
+                    continue;
+                }
                 NextPublish::Resolve(requirements) => {
                     let result = match self.resolve_publish_dependencies(&requirements).await {
                         Ok(mut dependencies) => {
@@ -124,6 +149,22 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                         Err(GroupError::OutgoingPreparation(
                             OutgoingPreparationError::StateChanged,
                         )) => {
+                            continue;
+                        }
+                        // implements: SEND-022
+                        // No message can be built while a proposal is pending.
+                        // Leave it queued and prepare the later state changes:
+                        // one of them can commit the proposal. Each skip
+                        // advances past the intent, so this loop still ends.
+                        Err(GroupError::CreateMessage(
+                            openmls::prelude::CreateMessageError::GroupStateError(
+                                openmls::prelude::MlsGroupStateError::PendingProposal,
+                            ),
+                        )) if requirements.intent.kind == IntentKind::SendMessage => {
+                            deferred_message = true;
+                            after = Some(requirements.intent.id);
+                            #[cfg(test)]
+                            tests::after_deferral(self.group_id.as_ref()).await;
                             continue;
                         }
                         Err(error)

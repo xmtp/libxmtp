@@ -175,6 +175,16 @@ where
                 ));
             }
 
+            // Only an inbox the app asked to add may be inserted. Every other
+            // entry refreshes an existing member.
+            let refreshed_members = changed_inbox_ids
+                .keys()
+                .filter(|inbox_id| {
+                    existing_group_membership.get(inbox_id.as_str()).is_some()
+                        && !inbox_ids_to_add.contains(&inbox_id.as_str())
+                })
+                .cloned()
+                .collect();
             Ok(UpdateGroupMembershipIntentData::new(
                 changed_inbox_ids,
                 inbox_ids_to_remove
@@ -182,7 +192,8 @@ where
                     .map(|s| s.to_string())
                     .collect::<Vec<String>>(),
                 changes_with_kps.failed_installations,
-            ))
+            )
+            .with_refreshed_members(refreshed_members))
         }
     }
 

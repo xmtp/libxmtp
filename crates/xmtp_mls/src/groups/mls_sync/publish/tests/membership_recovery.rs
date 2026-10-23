@@ -8,7 +8,7 @@ use xmtp_db::{
 use xmtp_mls_validation::commit::CommitRuleError;
 
 // Receive the prefix that the sender processed, including rejected commits.
-async fn receive_completed_prefix(
+pub(super) async fn receive_completed_prefix(
     sender: &crate::utils::TestMlsGroup,
     receiver: &crate::utils::TestMlsGroup,
 ) -> Result<(), GroupError> {
@@ -1353,7 +1353,7 @@ async fn group_of_three(
     Ok([group, bo_group, caro_group])
 }
 
-fn committed_membership(group: &crate::utils::TestMlsGroup) -> GroupMembership {
+pub(super) fn committed_membership(group: &crate::utils::TestMlsGroup) -> GroupMembership {
     group
         .with_group_snapshot(|mls| Ok(extract_group_membership(mls.extensions())?))
         .expect("read the committed membership")
@@ -1364,7 +1364,7 @@ fn committed_sequence(group: &crate::utils::TestMlsGroup, inbox_id: &str) -> Opt
     committed_membership(group).get(inbox_id).copied()
 }
 
-fn has_leaf(group: &crate::utils::TestMlsGroup, installation: &[u8]) -> bool {
+pub(super) fn has_leaf(group: &crate::utils::TestMlsGroup, installation: &[u8]) -> bool {
     group
         .with_group_snapshot(|mls| {
             Ok(mls
@@ -1473,7 +1473,7 @@ async fn stale_refresh_does_not_lower_committed_sequence() -> Result<(), GroupEr
 }
 
 // Publish one signed standalone proposal and wait until each peer processed it.
-async fn publish_standalone_proposal(
+pub(super) async fn publish_standalone_proposal(
     author: &crate::utils::TestMlsGroup,
     payload: Vec<u8>,
     peers: &[&crate::utils::TestMlsGroup],
@@ -1495,7 +1495,7 @@ async fn publish_standalone_proposal(
 
 // Sign a standalone membership proposal without local checks. Each peer's
 // admission decides whether to store it.
-fn propose_membership_payload(
+pub(super) fn propose_membership_payload(
     author: &crate::utils::TestMlsGroup,
     payload: Vec<u8>,
 ) -> Result<Vec<u8>, GroupError> {

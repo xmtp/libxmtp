@@ -63,7 +63,7 @@ pub(in crate::groups) async fn calculate_membership_changes_with_keypackages<'a>
     let membership_diff = old_group_membership.diff(new_group_membership);
 
     let identity = IdentityUpdates::new(&context);
-    let mut installation_diff = identity
+    let installation_diff = identity
         .get_installation_diff(
             &context.db(),
             group_id,
@@ -95,16 +95,10 @@ pub(in crate::groups) async fn calculate_membership_changes_with_keypackages<'a>
         .chain(new_failed_installations)
         .collect();
 
-    let common: HashSet<_> = failed_installations
-        .intersection(&installation_diff.removed_installations)
-        .cloned()
-        .collect();
-
-    failed_installations.retain(|item| !common.contains(item));
-
-    installation_diff
-        .removed_installations
-        .retain(|item| !common.contains(item));
+    // A removed id is no longer failed. It stays in the removals: one without
+    // a leaf yields no Remove proposal, and an older client can have listed
+    // an id that has a leaf, which the commit must still remove.
+    failed_installations.retain(|item| !installation_diff.removed_installations.contains(item));
 
     // This field is a set, but `GroupMembership`'s `PartialEq` compares it as
     // an ordered `Vec`. Sort it. An unchanged set must always compare equal.
