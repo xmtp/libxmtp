@@ -141,11 +141,11 @@ Preparation can also fail locally before any publish. CONF-073 owns the size bou
 
 One installation publishes a group's intents in the order the app queued them. Message intents publish in that order, several in one request when they are adjacent. A state-change intent is different: it produces a commit against a specific epoch, and until its echo says whether that commit landed, the client does not know what epoch the next intent must be built against. A published state-change intent therefore holds every intent behind it, and the client prepares at most one state-change attempt per group at a time.
 
-No application message can be built while the group holds a pending proposal; a commit that consumes the proposal comes first. A message intent that meets a pending proposal therefore stays queued, and the client goes on to the intents behind it, one of which can commit the proposal. The deferred message then publishes in the next epoch, still ahead of every message queued after it.
+No application message can be built while the group holds a pending proposal; a commit that consumes the proposal comes first. A message intent that meets a pending proposal therefore stays queued, and every message queued after it waits too, even when another member's commit clears the proposal meanwhile. The client goes on to the state-change intents behind it, one of which can commit the proposal. When none of them does, the client queues a commit of the pending proposals itself. The deferred messages then publish in the next epoch, in queue order.
 
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
-| SEND-022 | Publish in queue order | The client MUST publish a group's intents in the order they were queued, except that a message intent it cannot build because the group holds a pending proposal MUST stay queued, without failing, while the client prepares the later intents. It MUST NOT prepare any intent for a group while a state-change intent of that group is published and its echo is not yet applied or rejected. | A message built before the pending commit resolves is built against an epoch that may not exist, and a message held at the head of the queue blocks the commit that would clear the proposal. |
+| SEND-022 | Publish in queue order | The client MUST publish a group's intents in the order they were queued, except that a message intent it cannot build because the group holds a pending proposal MUST stay queued, without failing, while the client prepares the later state-change intents. Every later message intent MUST stay queued behind it, and if no later intent commits the proposal, the client MUST queue a commit of the pending proposals. It MUST NOT prepare any intent for a group while a state-change intent of that group is published and its echo is not yet applied or rejected. | A message built before the pending commit resolves is built against an epoch that may not exist, and a message held at the head of the queue blocks the commit that would clear the proposal. A pending proposal no queued intent commits would hold every message. |
 
 ## 4. Confirmation
 
@@ -188,8 +188,6 @@ The outcome names below are semantic kinds; an SDK can use its language's typed 
 | Outcome unknown | No receipt or definite non-commit result establishes whether publication occurred; the same prepared work remains pending |
 
 ## Known limitations
-
-A message queued while the group holds a pending proposal waits for a commit that clears the proposal. A queue operation does not commit pending proposals itself, so the message waits for a later send, a state-change intent, or another member's commit.
 
 A published state-change attempt whose echo never resolves blocks later intents in its group. Each synchronization call ends under its retry budget or deadline, but no durable age or attempt limit releases that blockage. An attempt with receipts is not republished; an attempt without receipts remains eligible to retry its saved bytes subject to API-284. A later sync can resolve the work, and removal rejects unresolved intents under SEND-018.
 

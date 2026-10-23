@@ -259,7 +259,7 @@ The receiver tolerates a commit that adds an inbox without adding every installa
 
 A membership refresh does not retry a failed installation key that remains associated in both identity states. Its key package becoming valid does not by itself add it to the group.
 
-Receivers do not reject a membership entry that lists a key with a leaf, and older clients write such entries. A key with a leaf before a commit is not a failed installation for that commit, so a later revocation still removes its leaf, and the next membership change from a client that meets GMOD-044 drops the key from the entry.
+Receivers do not reject a membership entry that lists a key with a leaf, and older clients write such entries. Receivers do not count a key that has a leaf before a commit as failed in the entry before that commit, so a revocation committed by a client that meets GMOD-044 removes the leaf. Receivers do count every key in the entry after the commit as failed. A committer that does not meet GMOD-044, such as an older client, can raise the inbox past the revocation, list the revoked key again, and omit its Remove; receivers accept that commit, and the revoked installation keeps its leaf. A later membership change from a conforming client drops the key from the entry but does not by itself remove the leaf.
 
 A membership change stored before its refresh entries were recorded apart from its requested adds treats every entry as an add. When it publishes, it can insert an inbox that a commit removed after the change was built.
 
