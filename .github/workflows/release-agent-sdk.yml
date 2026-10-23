@@ -23,7 +23,7 @@ on:
         description: The published version string
         value: ${{ jobs.publish.outputs.version }}
 permissions:
-  contents: write
+  contents: read
   id-token: write
 jobs:
   check-push-permissions:

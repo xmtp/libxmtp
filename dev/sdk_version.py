@@ -5,6 +5,7 @@ import argparse
 import datetime as dt
 import hashlib
 import json
+import os
 import re
 import subprocess
 import sys
@@ -172,14 +173,40 @@ def validate_record(record):
     return record
 
 
-def materialize(root, record):
+def materialize(root, record, snapshot=False):
     validate_record(record)
     if git(root, "rev-parse", "HEAD") != record["sourceSha"]:
         raise ValueError("Checkout differs from frozen release source")
+    if snapshot and git(root, "status", "--porcelain", "--untracked-files=no"):
+        raise ValueError("A release snapshot needs a clean source checkout")
     if target(root) not in (record["targetVersion"], record["version"]):
         raise ValueError("Cargo target differs from frozen release plan")
     check(root)
     sync(root, record["version"])
+    if snapshot and git(root, "diff", "--name-only", "HEAD", "--", *MIRRORS):
+        # Node's Windows cache and artifact recorder require committed inputs.
+        # Keep the release plan pinned to the original source; this local-only
+        # child commit identifies the exact versioned bytes being compiled.
+        git(root, "add", "--", *MIRRORS)
+        date = git(root, "show", "-s", "--format=%cI", record["sourceSha"])
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(root),
+                "-c",
+                "user.name=github-actions[bot]",
+                "-c",
+                "user.email=github-actions[bot]@users.noreply.github.com",
+                "-c",
+                "commit.gpgsign=false",
+                "commit",
+                "-qm",
+                f"build: materialize SDK {record['version']}",
+            ],
+            env=dict(os.environ, GIT_AUTHOR_DATE=date, GIT_COMMITTER_DATE=date),
+            check=True,
+        )
 
 
 def seal(directory, record):
@@ -233,6 +260,8 @@ def main():
     for command in ("materialize", "seal", "verify"):
         child = commands.add_parser(command)
         child.add_argument("--plan", type=Path, required=True)
+        if command == "materialize":
+            child.add_argument("--snapshot", action="store_true")
         if command in ("seal", "verify"):
             child.add_argument("directory", type=Path)
     args = parser.parse_args()
@@ -262,7 +291,7 @@ def main():
     else:
         record = json.loads(args.plan.read_text())
         if args.command == "materialize":
-            materialize(args.root, record)
+            materialize(args.root, record, snapshot=args.snapshot)
         elif args.command == "seal":
             seal(args.directory, record)
         else:

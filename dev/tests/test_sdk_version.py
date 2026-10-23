@@ -5,8 +5,10 @@ import importlib.util
 import json
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
 loader = importlib.machinery.SourceFileLoader(
@@ -105,6 +107,62 @@ class SdkVersionTest(unittest.TestCase):
             version.materialize(self.root, plan | {"sourceSha": "a" * 40})
         with self.assertRaisesRegex(ValueError, "frozen plan"):
             version.materialize(self.root, plan | {"version": "8.0.0-rc6"})
+
+    def test_node_snapshot_admits_versioned_inputs_without_reusing_another_version(
+        self,
+    ):
+        spec = importlib.util.spec_from_file_location(
+            "sdk_artifacts", ROOT / "crates/xmtp_sdk/dev/sdk-artifacts.py"
+        )
+        artifacts = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(artifacts)
+        keys = set()
+        for kind, rc in [("dev", None), ("rc", 5), ("final", None)]:
+            with self.subTest(kind=kind), patch.object(artifacts, "ROOT", self.root):
+                self.git("checkout", "-q", "--detach", self.sha)
+                plan = self.record(kind, rc)
+                path = self.root / "release-plan.json"
+                path.write_text(json.dumps(plan))
+                command = [
+                    sys.executable,
+                    str(ROOT / "dev/sdk_version.py"),
+                    "--root",
+                    str(self.root),
+                    "materialize",
+                    "--snapshot",
+                    "--plan",
+                    str(path),
+                ]
+                subprocess.run(command, check=True, capture_output=True)
+                snapshot = self.git("rev-parse", "HEAD")
+                self.assertEqual(version.check(self.root), plan["version"])
+                self.assertEqual(self.git("status", "--porcelain", "-uno"), "")
+                # These are the actual Windows cache and build provenance
+                # readers; the recorder rejects a +dirty identity.
+                keys.add(artifacts.source_key()["source"])
+                with patch.object(artifacts.sys, "platform", "win32"):
+                    self.assertEqual(
+                        artifacts.provenance.__wrapped__()["source"],
+                        "commit:" + snapshot,
+                    )
+                self.assertEqual(json.loads(path.read_text()), plan)
+                if kind != "final":
+                    self.assertEqual(self.git("rev-parse", "HEAD^"), self.sha)
+                else:
+                    self.assertEqual(snapshot, self.sha)
+                # Separate builders and assembly must see identical snapshots.
+                self.git("checkout", "-q", "--detach", self.sha)
+                subprocess.run(command, check=True, capture_output=True)
+                self.assertEqual(self.git("rev-parse", "HEAD"), snapshot)
+        self.assertEqual(len(keys), 3)
+
+    def test_node_snapshot_rejects_unrelated_source_changes(self):
+        plan = self.record()
+        path = self.root / "crates/xmtp_sdk/Cargo.toml"
+        path.write_text(path.read_text() + "\n# uncommitted source change\n")
+        with self.assertRaisesRegex(ValueError, "clean source checkout"):
+            version.materialize(self.root, plan, snapshot=True)
+        self.assertEqual(self.git("rev-parse", "HEAD"), self.sha)
 
     def test_artifact_admission_rejects_corruption_extra_files_and_other_source(self):
         product = self.root / "product"

@@ -73,8 +73,8 @@ jobs:
           set -euo pipefail
           mkdir -p target/release/ios
           cp -RL build/ios/XmtpSdkFFI target/release/ios/XmtpSdkFFI
-          (cd target/release/ios/XmtpSdkFFI && zip -qry ../XmtpSdkFFI.zip .)
           chmod -R u+w target/release/ios/XmtpSdkFFI
+          (cd target/release/ios/XmtpSdkFFI && zip -qry ../XmtpSdkFFI.zip .)
           cp -RL target/release/ios/XmtpSdkFFI/Sources/XmtpSdk/. sdks/ios/Sources/XmtpSdk/
           rm -rf target/release/ios/XmtpSdkFFI
           CHECKSUM=$(shasum -a 256 target/release/ios/XmtpSdkFFI.zip | awk '{print $1}')
@@ -114,9 +114,8 @@ jobs:
       contents: read
   push-tag:
     name: Tag
-    needs: [prepare-release, check-push-permissions]
-    if: '!cancelled() && needs.check-push-permissions.result == ''success'' && inputs.dry-run != true && inputs.build-only != true && (inputs.publish-only || needs.prepare-release.result
-      == ''success'')'
+    needs: [publish, check-push-permissions]
+    if: "!cancelled() && needs.publish.result == 'success' && needs.check-push-permissions.result == 'success'"
     uses: ./.github/workflows/push-release-tag.yml
     with:
       sdk: ios
@@ -124,9 +123,9 @@ jobs:
       source-sha: ${{ needs.check-push-permissions.outputs.source-sha }}
     secrets: inherit
   publish:
-    name: Publish SwiftPM archive and release
-    needs: [push-tag, check-push-permissions]
-    if: "!cancelled() && needs.push-tag.result == 'success' && needs.check-push-permissions.result == 'success'"
+    name: Publish SwiftPM archive
+    needs: [prepare-release, check-push-permissions]
+    if: "!cancelled() && needs.check-push-permissions.result == 'success' && inputs.dry-run != true && inputs.build-only != true && (inputs.publish-only || needs.prepare-release.result == 'success')"
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -152,7 +151,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ inputs.version }}
           SOURCE_SHA: ${{ inputs.source-sha }}
-          RELEASE_TYPE: ${{ inputs.release-type }}
         run: |
           set -euo pipefail
           dev/nix-shell --shell js-node --command python3.11 dev/sdk_version.py verify target/release/ios --plan "$RUNNER_TEMP/sdk-release-plan/release-plan.json"
@@ -165,6 +163,22 @@ jobs:
           else
             gh release create "$TAG" target/release/ios/XmtpSdkFFI.zip --target "$SOURCE_SHA" --prerelease --title "iOS binaries $VERSION" --notes "SwiftPM binary archive for $SOURCE_SHA"
           fi
+  publish-release:
+    name: Publish iOS SDK release
+    needs: [push-tag, check-push-permissions]
+    if: "!cancelled() && needs.push-tag.result == 'success' && needs.check-push-permissions.result == 'success'"
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Publish the SDK release after its archive and tag exist
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ inputs.version }}
+          RELEASE_TYPE: ${{ inputs.release-type }}
+        run: |
+          set -euo pipefail
           if ! gh release view "ios-$VERSION" >/dev/null 2>&1; then
             FLAGS=()
             if [ "$RELEASE_TYPE" != final ]; then FLAGS+=(--prerelease); fi

@@ -14,9 +14,13 @@ source SHA for checkout, build, and tag checks. `release.yml` freezes the
 source and one complete SDK version in `validate`, retaining `sdk-release-plan`.
 Every SDK build materializes that plan into Cargo, Cargo.lock, and SDK metadata
 before compilation. All six builds and installed-consumer checks must pass
-before SDK publication. The npm publishers publish the retained tarballs;
+before SDK publication. The npm publishers publish the retained tarballs.
+Node platform builds and assembly commit the materialized metadata in a local
+snapshot so Windows cache keys and provenance cover the compiled version.
+The frozen release plan still names the original source commit.
 Android publishes the retained AAR, POM, and documentation artifacts. iOS
 publishes a version-keyed SwiftPM archive, with a source/version-bound receipt.
+Publish that archive before pushing its installable `ios-<version>` tag.
 There is no standalone iOS CocoaPods product; keep React Native's podspec.
 Only CLI keeps a standalone version-computing dispatch. Backend label policy
 is independent of the SDK release line.

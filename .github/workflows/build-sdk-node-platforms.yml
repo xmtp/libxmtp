@@ -160,6 +160,8 @@ jobs:
       - name: Materialize the shared SDK version
         if: inputs.sdk-release
         uses: ./.github/actions/release-source
+        with:
+          snapshot: 'true'
       - name: Build matched SDK and pinned runtime pairs
         env:
           PAIRS: ${{ matrix.pairs }}
@@ -209,6 +211,8 @@ jobs:
       - name: Materialize the shared SDK version
         if: inputs.sdk-release
         uses: ./.github/actions/release-source
+        with:
+          snapshot: 'true'
       # The pair is cached by the source key of its SDK inputs, build recipe
       # (this file), and compiler, not by commit, so a re-dispatch with
       # unchanged SDK sources reuses it. A run restores
@@ -335,6 +339,8 @@ jobs:
       - name: Materialize the shared SDK version
         if: inputs.sdk-release
         uses: ./.github/actions/release-source
+        with:
+          snapshot: 'true'
       - name: Set up JavaScript
         uses: ./.github/actions/setup-js
         with:

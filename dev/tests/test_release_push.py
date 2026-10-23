@@ -726,9 +726,10 @@ class ReleasePushTest(unittest.TestCase):
         ios = (ROOT / ".github/workflows/release-ios.yml").read_text()
         jobs = yaml.safe_load(ios)["jobs"]
         self.assertEqual(
-            set(jobs["publish"]["needs"]), {"push-tag", "check-push-permissions"}
+            set(jobs["publish"]["needs"]), {"prepare-release", "check-push-permissions"}
         )
-        self.assertIn("prepare-release", jobs["push-tag"]["needs"])
+        self.assertIn("publish", jobs["push-tag"]["needs"])
+        self.assertIn("push-tag", jobs["publish-release"]["needs"])
         self.assertIn("name: ios-release-bundle", ios)
 
     def test_npm_source_job_only_creates_local_tags(self):

@@ -1,5 +1,9 @@
 name: Materialize the frozen SDK release
 description: Apply one release version before native or JavaScript builds
+inputs:
+  snapshot:
+    description: Commit materialized metadata locally for Node cache and artifact identities
+    default: 'false'
 runs:
   using: composite
   steps:
@@ -15,11 +19,15 @@ runs:
         python-version: "3.11"
     - name: Materialize Cargo and all SDK metadata
       shell: bash
+      env:
+        SNAPSHOT: ${{ inputs.snapshot }}
       run: |
         set -euo pipefail
+        FLAGS=()
+        if [ "$SNAPSHOT" = true ]; then FLAGS+=(--snapshot); fi
         if [ "$RUNNER_OS" = Windows ]; then
-          python dev/sdk_version.py materialize --plan "$RUNNER_TEMP/sdk-release-plan/release-plan.json"
+          python dev/sdk_version.py materialize --plan "$RUNNER_TEMP/sdk-release-plan/release-plan.json" "${FLAGS[@]}"
         else
           dev/nix-shell --shell js-node --command python3.11 dev/sdk_version.py materialize \
-            --plan "$RUNNER_TEMP/sdk-release-plan/release-plan.json"
+            --plan "$RUNNER_TEMP/sdk-release-plan/release-plan.json" "${FLAGS[@]}"
         fi
