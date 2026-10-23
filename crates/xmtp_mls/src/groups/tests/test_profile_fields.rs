@@ -941,3 +941,127 @@ async fn test_pending_readd_omits_a_delete_it_forbids() -> Result<(), GroupError
     }
     Ok(())
 }
+
+/// A standalone membership delta with no Add or Remove of its inbox.
+enum Orphan {
+    /// Bo inserts Carol, who is not a member.
+    Insert,
+    /// Alix deletes Bo, who stays in the tree.
+    Delete,
+}
+
+/// Receivers check a standalone membership delta's policy and bounds, not
+/// that an Add or Remove of its inbox comes with it. A commit that carries
+/// one without them is refused (`ProposerNotFound`): the pre-publish check
+/// failed every commit of pending proposals, and no member could send
+/// again. The membership selection omits the delta instead.
+// verifies: GMOD-038
+#[rstest::rstest]
+#[case::insert(Orphan::Insert)]
+#[case::delete(Orphan::Delete)]
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_orphan_membership_delta_does_not_block_the_group(
+    #[case] orphan: Orphan,
+) -> Result<(), GroupError> {
+    use prost::Message as _;
+    use xmtp_mls_common::app_data::{
+        components::tls_map_components::GroupMembershipComponent, typed::Component,
+    };
+    use xmtp_proto::xmtp::mls::message_contents::{
+        GroupMembershipEntry,
+        group_membership_entry::{V1, Version},
+    };
+    tester!(alix);
+    tester!(bo);
+    tester!(carol);
+    let group = alix
+        .create_group_with_members(&[bo.inbox_id()], None, None)
+        .await?;
+    let bo_group = bo.wait_for_welcomes().await?.remove(0);
+    let (proposer, delta) = match orphan {
+        Orphan::Insert => {
+            let sequence_id = carol
+                .context
+                .db()
+                .get_latest_sequence_id_for_inbox(carol.inbox_id())?
+                as u64;
+            let entry = GroupMembershipEntry {
+                version: Some(Version::V1(V1 {
+                    sequence_id,
+                    failed_installations: vec![],
+                })),
+            };
+            let delta = TlsMapDelta::<InboxId, VLBytes>::new()
+                .insert(inbox(carol.inbox_id()), VLBytes::new(entry.encode_to_vec()));
+            (&bo_group, delta)
+        }
+        Orphan::Delete => (
+            &group,
+            TlsMapDelta::<InboxId, VLBytes>::new().delete(inbox(bo.inbox_id())),
+        ),
+    };
+    let payload = <GroupMembershipComponent as Component>::encode_mutation(&delta).unwrap();
+    let update = AppDataUpdateOperation::Update(payload.into());
+    propose_raw(proposer, ComponentId::GROUP_MEMBERSHIP, update).await?;
+
+    for member in [&group, &bo_group] {
+        member.sync().await?;
+        member.send_message(b"after", Default::default()).await?;
+    }
+    group.sync().await?;
+    for member in [&group, &bo_group] {
+        assert_eq!(member.members().await?.len(), 2);
+        assert_eq!(
+            member.with_group_snapshot(|mls| Ok(mls.pending_proposals().count()))?,
+            0
+        );
+    }
+    Ok(())
+}
+
+/// Omitting a proposal no commit can carry does not judge the rest before
+/// publication: receivers judge them on read-back, and a rejection fails
+/// only the intent that carried them. The omission once also ran the
+/// membership selection's pre-publish check, whose refusal left the intent
+/// to retry forever, so every later intent of that member waited behind it.
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_omission_does_not_stall_a_conflicting_intent() -> Result<(), GroupError> {
+    tester!(alix);
+    tester!(bo);
+    let group = alix
+        .create_group_with_members(&[bo.inbox_id()], None, None)
+        .await?;
+    group
+        .update_admin_list(UpdateAdminListType::AddSuper, bo.inbox_id().to_string())
+        .await?;
+    group.update_group_description("before".into()).await?;
+    let bo_group = bo.wait_for_welcomes().await?.remove(0);
+    let description = ComponentId::GROUP_DESCRIPTION;
+    propose_raw(&group, description, AppDataUpdateOperation::Remove).await?;
+    // Receivers accept both; a commit omits the second.
+    for name in [b"Alix".as_slice(), b"Mallory"] {
+        let insert = insert_name(alix.inbox_id(), name);
+        let insert = AppDataUpdateOperation::Update(insert.into());
+        propose_raw(&group, ComponentId::USER_DISPLAY_NAME, insert).await?;
+    }
+    bo_group.sync().await?;
+
+    // A list may not remove and update one component, so receivers refuse
+    // the commit that carries the Remove and Bo's own update.
+    assert!(
+        bo_group
+            .update_group_description("after".into())
+            .await
+            .is_err()
+    );
+    bo_group.send_message(b"after", Default::default()).await?;
+    group.sync().await?;
+    for member in [&group, &bo_group] {
+        assert_eq!(value(member, description)?, None);
+        assert_eq!(
+            display_names(member)?,
+            BTreeMap::from([(inbox(alix.inbox_id()), b"Alix".to_vec())])
+        );
+    }
+    Ok(())
+}

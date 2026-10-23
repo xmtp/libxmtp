@@ -24,7 +24,8 @@ pub(super) struct SelectionRequirements {
     own_update: Option<UpdateGroupMembershipIntentData>,
     readds: HashSet<Vec<u8>>,
     can_replace: HashSet<Vec<u8>>,
-    leaves: HashMap<LeafNodeIndex, Vec<u8>>,
+    /// Each leaf's installation and inbox.
+    leaves: HashMap<LeafNodeIndex, (Vec<u8>, String)>,
 }
 
 #[derive(Default)]
@@ -148,8 +149,17 @@ impl SelectionRequirements {
             can_replace,
             leaves: group
                 .members()
-                .map(|member| (member.index, member.signature_key))
-                .collect(),
+                .map(|member| {
+                    let credential = BasicCredential::try_from(member.credential)?;
+                    Ok((
+                        member.index,
+                        (
+                            member.signature_key,
+                            parse_credential(credential.identity())?,
+                        ),
+                    ))
+                })
+                .collect::<Result<_, GroupError>>()?,
         }))
     }
 
@@ -242,6 +252,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
             ..Default::default()
         };
         let mut same_request = HashSet::new();
+        let mut own_inboxes = HashSet::new();
         let own_payload = if let Some(update) = &requirements.own_update {
             let mut target = update.apply_to_group_membership(&requirements.old);
             if let Some(changes) = own_changes {
@@ -290,7 +301,9 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                 };
                 // An own Update also conflicts with a pending Delete. Use the
                 // exact emitted mutations, not absolute requested membership.
-                requirements.omit_dependencies(&key.to_hex(), &mut selection.omitted)?;
+                let inbox = key.to_hex();
+                requirements.omit_dependencies(&inbox, &mut selection.omitted)?;
+                own_inboxes.insert(inbox);
             }
             // An accepted delta for this exact request can be committed by
             // reference. Re-signing it would repeat the same proposal reference.
@@ -379,18 +392,21 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                 own_payload.as_deref(),
                 &same_request,
             )?;
+            let inbox_diff = requirements.old.diff(&target);
             let diff = identity
                 .get_installation_diff(
                     &self.context.db(),
                     &self.group_id,
                     &requirements.old,
                     &target,
-                    &requirements.old.diff(&target),
+                    &inbox_diff,
                 )
                 .await?;
             let mut changed = false;
             let mut replacements = Vec::new();
             let mut included = HashSet::new();
+            // The inboxes whose Add this commit carries.
+            let mut added = HashSet::new();
             for (index, id, inbox, _) in &pending {
                 let desired = (diff.added_installations.contains(id)
                     && !target.failed_installations.contains(id))
@@ -432,6 +448,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                     if index != selected {
                         selection.omitted.insert(*index);
                     }
+                    added.insert(inbox.as_str());
                     continue;
                 }
                 if !requirements.can_replace.contains(id) {
@@ -445,25 +462,53 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                     }
                     continue;
                 }
-                if !included.insert(id.clone()) {
-                    selection.omitted.insert(*index);
-                } else {
-                    selection.omitted.insert(*index);
+                selection.omitted.insert(*index);
+                if included.insert(id.clone()) {
                     replacements.push(current.inner.clone());
                 }
+                added.insert(inbox.as_str());
             }
             if changed {
                 continue;
             }
+            // The inboxes whose Remove this commit carries.
+            let mut removed = HashSet::new();
             for (index, proposal) in requirements.proposals.iter().enumerate() {
-                if let Proposal::Remove(remove) = proposal.proposal()
-                    && requirements.leaves.get(&remove.removed()).is_none_or(|id| {
-                        !diff.removed_installations.contains(id)
-                            && !requirements.readds.contains(id)
-                    })
-                {
-                    selection.omitted.insert(index);
+                let Proposal::Remove(remove) = proposal.proposal() else {
+                    continue;
+                };
+                match requirements.leaves.get(&remove.removed()) {
+                    Some((id, inbox))
+                        if diff.removed_installations.contains(id)
+                            || requirements.readds.contains(id) =>
+                    {
+                        removed.insert(inbox.as_str());
+                    }
+                    _ => {
+                        selection.omitted.insert(index);
+                    }
                 }
+            }
+            // implements: GMOD-038
+            // Receivers attribute each inbox the membership adds or removes
+            // to an Add or Remove of it, or reject with `ProposerNotFound`.
+            // Omit a delta whose inbox change no carried proposal covers.
+            let uncovered = inbox_diff
+                .added_inboxes
+                .iter()
+                .filter(|inbox| !added.contains(inbox.as_str()))
+                .chain(
+                    inbox_diff
+                        .removed_inboxes
+                        .iter()
+                        .filter(|inbox| !removed.contains(inbox.as_str())),
+                )
+                .filter(|inbox| !own_inboxes.contains(inbox.as_str()));
+            for inbox in uncovered {
+                changed |= requirements.omit_dependencies(inbox, &mut selection.omitted)?;
+            }
+            if changed {
+                continue;
             }
             selection.replacements = replacements;
             return Ok(selection);

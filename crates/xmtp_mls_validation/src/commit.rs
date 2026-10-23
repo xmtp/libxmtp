@@ -719,8 +719,9 @@ pub fn validate_one_app_data_update(
 /// state. Other apply failures are left to commit validation,
 /// because a commit may order other proposals ahead of this one and change
 /// the state it applies to. A sender omits from its commits each pending
-/// proposal its commit validation would reject, so an accepted one cannot
-/// block them.
+/// proposal that the proposals kept before it make invalid, and each
+/// membership delta with no Add or Remove of its inbox, so neither blocks
+/// them.
 // implements: META-068
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn validate_standalone_app_data_update(
