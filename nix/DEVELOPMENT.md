@@ -55,11 +55,13 @@ The check links `iconv`; a basic libc link does not detect mixed toolchains.
   features differ. Before two consumers share a layer, compare
   `cargo tree -e normal,build --prefix none --format '{p}|{f}'` for each `-p`
   list alone and together.
-- Apple SDK builds use one codegen unit for `xmtp_db` through the same Cargo
+- Apple and GNU Linux SDK builds use one codegen unit for `xmtp_db` through the same Cargo
   package profile in dependency and final builds. Its generated migration
   paths shift rustc inline assembly span metadata, which ThinLTO hashes into
-  native symbol suffixes. Keep this workaround scoped to Apple SDK builds;
-  removing it needs independent native archive and dylib byte comparisons.
+  native symbol suffixes. The GNU host library retains its symbol table for
+  UniFFI, and receipts bind its exact bytes, so independent producers must
+  agree. Keep this workaround scoped to these SDK builds; removing it needs
+  independent native archive and shared-library byte comparisons.
   Final Apple SDK fixup uses LLVM ranlib: cctools ranlib records the build
   user's UID when Nix rebuilds stripped archive indexes.
 - Backend builds restore only the shared dependency sources over the dummy workspace. Include migrations, SQL query files, and `apps/backend/.sqlx` metadata. Add each new shared dependency to the restored crate list. Build with `SQLX_OFFLINE=true`; no database is allowed during the build.
