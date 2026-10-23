@@ -172,6 +172,9 @@ size or lower writer count if the growth budget cannot fit the batch).
 
 Every request uses distinct topics. Sets rotate deterministically rather than
 hammering one identical request; the result payloads are fetched/materialized.
+The stride stays 7,919 when coprime to the eligible population. Otherwise a
+coprime stride near half that population gives a full cycle without changing
+historical coprime streams or introducing a one-topic sliding window.
 The page limit is 100 by default, matching the backend default total page limit.
 
 | Case | Cursor / result |

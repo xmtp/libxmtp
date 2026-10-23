@@ -2,6 +2,7 @@
 //! outside timing; database calls and result materialization are inside it.
 //! High-cardinality populations share eligibility catalogs, while each client
 //! selects a small rotating subset with explicit independent per-topic floors.
+//! Rotation covers every eligible topic, retaining historical coprime strides.
 
 use super::{
     Config, Duration, Instant, Store, TestDatabase, TestResult,
@@ -99,9 +100,19 @@ pub(super) fn request(
     kind: Read,
     size: i64,
 ) -> Vec<TopicCursor> {
+    let stride = std::iter::once(7_919)
+        .chain(pool.len() / 2..pool.len())
+        .find(|&stride| {
+            let (mut left, mut right) = (stride, pool.len());
+            while right != 0 {
+                (left, right) = (right, left % right);
+            }
+            left == 1
+        })
+        .unwrap();
     (0..count)
         .map(|offset| {
-            let topic = pool[(iteration * 7919 + offset) % pool.len()];
+            let topic = pool[(iteration * stride + offset) % pool.len()];
             TopicCursor {
                 topic: if matches!(kind, Read::Absent | Read::NewestAbsent)
                     || (kind == Read::RareHits && offset != 0)

@@ -308,7 +308,8 @@ fn cursor_ages_and_mixed_weights_are_explicit() {
     assert_eq!(floors.iter().filter(|&&value| value == 0).count(), 1);
 }
 
-/// Requests rotate through distinct topic sets; caught-up and missing-topic reads are separate no-hit workloads.
+/// Coprime pools retain historical rotation and distinct topic sets; caught-up
+/// and missing-topic reads remain separate no-hit workloads.
 #[xmtp_common::test(unwrap_try = true)]
 fn requests_rotate_without_duplicate_topics() {
     let topics: Vec<_> = (0..100)
@@ -321,6 +322,7 @@ fn requests_rotate_without_duplicate_topics() {
     let first = request(&pool, 10, 0, Read::CaughtUp, 1_000);
     let second = request(&pool, 10, 1, Read::CaughtUp, 1_000);
     assert_ne!(first[0].topic, second[0].topic);
+    assert_eq!(second[0].topic, topics[7_919 % pool.len()].bytes);
     assert_eq!(
         first
             .iter()
@@ -348,6 +350,42 @@ fn requests_rotate_without_duplicate_topics() {
             .iter()
             .all(|query| !topics.iter().any(|topic| topic.bytes == query.topic))
     );
+}
+
+/// Every pool must traverse all topics once per cycle; resonant sizes must not
+/// benchmark a fixed subset or introduce nearly identical successive requests.
+#[xmtp_common::test(unwrap_try = true)]
+fn requests_cover_resonant_topic_populations() {
+    for count in [1, 2, 100, 7_919, 15_838, 23_757, 10_000] {
+        let topics: Vec<_> = (0..count)
+            .map(|identifier| corpus::Topic {
+                bytes: corpus::topic(identifier as i64),
+                head: identifier as i64 + 1,
+            })
+            .collect();
+        let pool: Vec<_> = topics.iter().collect();
+        let visited: HashSet<_> = (0..count)
+            .map(|iteration| request(&pool, 1, iteration, Read::CaughtUp, 100_000)[0].cursor)
+            .collect();
+        assert_eq!(visited.len(), count, "pool size {count}");
+        assert_eq!(
+            request(&pool, 1, count, Read::CaughtUp, 100_000)[0].topic,
+            topics[0].bytes
+        );
+        if count.is_multiple_of(7_919) {
+            let first: HashSet<_> = request(&pool, 1_000, 0, Read::CaughtUp, 100_000)
+                .into_iter()
+                .map(|query| query.topic)
+                .collect();
+            let second: HashSet<_> = request(&pool, 1_000, 1, Read::CaughtUp, 100_000)
+                .into_iter()
+                .map(|query| query.topic)
+                .collect();
+            assert_eq!(first.len(), 1_000);
+            assert_eq!(second.len(), 1_000);
+            assert!(first.is_disjoint(&second), "pool size {count}");
+        }
+    }
 }
 
 /// Hit-only scenarios never time empty reads; sparse-recent requests intentionally retain inactive topics.

@@ -149,6 +149,14 @@ PostgreSQL's automatic prepared-plan policy.
 
 ## Noise and limits
 
+**Sampler follow-up:** a fixed stride can repeat a subset when it shares a
+factor with the eligible population (for example, 7,919 topics). The generator
+now selects a coprime stride, preserving the old stream wherever already
+coprime. All recorded eligible populations across the seven published raw
+artifacts were audited; none shares a factor with 7,919. The nine committed CSVs
+and source-scoped observations are unaffected by this bug and are not remeasured
+or rewritten. This does not remove the cache/order limitations below.
+
 The 10M production 1,000-topic recent trial p50s are **22.360 / 3.183 / 3.125 ms**;
 frontier is **3.569 / 3.560 / 3.606 ms**. Twenty warmup requests do not warm a
 million-topic population. Strategy/workload rotation reduces order bias but does
