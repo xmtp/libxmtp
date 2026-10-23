@@ -14,6 +14,9 @@ Rust MLS workspace; platform SDKs live in `sdks/`.
   routine docs, CI, and tooling changes do not. Required plans describe public
   `sdks/*` type changes; update the plan if new surface emerges.
 - Default to constants; a configuration knob needs a caller requiring a different value.
+- Before expanding scope to handle a speculative or extremely unlikely race or
+  security edge case, describe how it could fail, how likely it is, and the added
+  complexity. Get the user's agreement before implementing that extra complexity.
 
 ## Commands
 
