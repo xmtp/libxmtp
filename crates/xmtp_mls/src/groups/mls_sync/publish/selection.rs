@@ -393,7 +393,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
             let mut replacements = Vec::new();
             let mut included = HashSet::new();
             for (index, id, inbox, _) in &pending {
-                let desired = (diff.added_installations.contains(id)
+                let desired = (diff.added_installations.contains_key(id)
                     && !target.failed_installations.contains(id))
                     || requirements.readds.contains(id);
                 if !desired || !active.get(inbox).is_some_and(|ids| ids.contains(id)) {
