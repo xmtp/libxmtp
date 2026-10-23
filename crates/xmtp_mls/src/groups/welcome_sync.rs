@@ -1491,8 +1491,8 @@ mod tests {
     async fn legacy_blocked_pointer_survives_missing_refetch() {
         tester!(alix, disable_workers);
         tester!(bo, disable_workers);
-        tester!(bo2, from: bo, disable_workers);
-        tester!(bo3, from: bo, disable_workers);
+        tester!(_bo2, from: bo, disable_workers);
+        tester!(_bo3, from: bo, disable_workers);
         let group = alix.create_group(None, None).unwrap();
         group.invite(&bo).await.unwrap();
         let welcome = bo
