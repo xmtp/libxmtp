@@ -210,3 +210,15 @@ test("local image headers preserve types without a filename extension", () => {
     mimeTypeFor("attachment"),
   );
 });
+
+test("an extensionless local PDF retains its document type", () => {
+  const header = new Uint8Array([
+    0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x37,
+  ]);
+  assert.equal(localMimeType("attachment", header), "application/pdf");
+  assert.equal(localMimeType("notes.txt", header), mimeTypeFor("notes.txt"));
+  assert.equal(
+    localMimeType("attachment", header.subarray(0, 4)),
+    "application/octet-stream",
+  );
+});

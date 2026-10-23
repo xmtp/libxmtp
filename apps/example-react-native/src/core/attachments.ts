@@ -650,5 +650,8 @@ export function localMimeType(name: string, header: Uint8Array): string {
       return "image/heic";
     if (text(8, "mif1") || text(8, "msf1")) return "image/heif";
   }
-  return mimeTypeFor(name);
+  const fallback = mimeTypeFor(name);
+  if (fallback === "application/octet-stream" && text(0, "%PDF-"))
+    return "application/pdf";
+  return fallback;
 }
