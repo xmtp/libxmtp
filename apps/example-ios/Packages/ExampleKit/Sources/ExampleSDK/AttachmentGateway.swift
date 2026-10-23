@@ -94,7 +94,12 @@ public final class SDKAttachmentGateway: AttachmentGateway, Sendable {
 	}
 
 	public func localFile(_ file: FileDescriptor) async throws -> VerifiedFile? {
-		let path = try await attachments.localPath(remote: sdkFile(file))
+		let path: String
+		do {
+			path = try await attachments.localPath(remote: sdkFile(file))
+		} catch {
+			throw mapped(error)
+		}
 		guard Self.isRegularFile(path) else { return nil }
 		try await beforeLocalRead()
 		guard Self.isRegularFile(path) else { return nil }

@@ -38,7 +38,9 @@ private actor ChatIdentityProbe {
 
 	func lookup(refresh: Bool) throws -> [InboxState] {
 		refreshes.append(refresh)
-		if cancel { throw CancellationError() }
+		if cancel {
+			throw CancellationError()
+		}
 		throw ChatIdentityError.offline
 	}
 }
