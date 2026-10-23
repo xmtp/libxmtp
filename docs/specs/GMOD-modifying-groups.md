@@ -234,9 +234,12 @@ META-010 owns component encodings and byte limits. Standalone checks do not reso
 
 An inbox's installations can change after it joins: a device is added or revoked through an identity update (IDENT-070), and the group's leaf nodes no longer match. Any member repairs this. A client that syncs a group fetches the identity updates of every member on a schedule, and when an inbox's latest sequence id is greater than its entry, publishes a commit that raises the entry and makes the expected additions and removals. The revoked installation loses the group at that commit, and the new one receives a Welcome. Which member does it first does not matter: the commits race under section 4 and the loser finds nothing left to do.
 
+A refresh is built from the membership at one moment and published later, after other commits can have landed. Its entries raise inboxes that were members when it was built. When one of those inboxes has since been removed, the refresh leaves it out, and when a later commit raised an entry past the refresh, the entry keeps the higher sequence id. Only an app's request to add an inbox inserts one.
+
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
 | GMOD-029 | Members repair changed identity state | When a membership refresh for an active group resolves an inbox's identity state at a sequence id greater than its membership entry's, the client MUST publish a membership change that raises the entry to that sequence id and makes the expected additions and removals under sections 2 and 3. | A new device cannot add itself, and a revoked one keeps reading until a member removes it. |
+| GMOD-045 | A refresh never inserts an inbox | When a client publishes a membership change, it MUST insert into `GROUP_MEMBERSHIP` only an inbox that the app asked to add, and MUST NOT insert an inbox for which the change carries only a refresh under GMOD-029. | A refresh built before a commit removed an inbox would undo that removal. |
 
 ## 7. Leaving a group
 
@@ -257,6 +260,8 @@ The receiver tolerates a commit that adds an inbox without adding every installa
 A membership refresh does not retry a failed installation key that remains associated in both identity states. Its key package becoming valid does not by itself add it to the group.
 
 Receivers do not reject a membership entry that lists a key with a leaf, and older clients write such entries. A key with a leaf before a commit is not a failed installation for that commit, so a later revocation still removes its leaf, and the next membership change from a client that meets GMOD-044 drops the key from the entry.
+
+A membership change stored before its refresh entries were recorded apart from its requested adds treats every entry as an add. When it publishes, it can insert an inbox that a commit removed after the change was built.
 
 MLS discards proposals that a commit did not reference once the epoch advances. A member whose proposal was omitted from an accepted commit has to propose again if the change is still needed.
 

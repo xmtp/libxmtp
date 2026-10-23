@@ -383,6 +383,10 @@ pub(crate) struct UpdateGroupMembershipIntentData {
     pub membership_updates: HashMap<String, u64>,
     pub removed_members: Vec<String>,
     pub failed_installations: Vec<Vec<u8>>,
+    /// Inboxes in `membership_updates` that were members when the intent was
+    /// built and that the app did not ask to add. Empty on intents that
+    /// earlier builds stored: each of their entries can insert its inbox.
+    pub refreshed_members: Vec<String>,
 }
 
 impl UpdateGroupMembershipIntentData {
@@ -395,7 +399,17 @@ impl UpdateGroupMembershipIntentData {
             membership_updates,
             removed_members,
             failed_installations,
+            refreshed_members: Vec::new(),
         }
+    }
+
+    /// Mark these inboxes' entries as refreshes of existing members.
+    pub fn with_refreshed_members(mut self, mut refreshed_members: Vec<String>) -> Self {
+        // Encode the same intent to the same bytes.
+        refreshed_members.sort_unstable();
+        refreshed_members.dedup();
+        self.refreshed_members = refreshed_members;
+        self
     }
 
     pub fn is_empty(&self) -> bool {
@@ -408,11 +422,16 @@ impl UpdateGroupMembershipIntentData {
         tracing::info!("old group membership: {:?}", group_membership.members);
         let mut new_membership = group_membership.clone();
         for (inbox_id, &sequence_id) in self.membership_updates.iter() {
-            // A queued refresh can be older than a commit that raised this
-            // entry. Keep the higher sequence id; never lower it.
-            let sequence_id = group_membership
-                .get(inbox_id)
-                .map_or(sequence_id, |&current| current.max(sequence_id));
+            let sequence_id = match group_membership.get(inbox_id) {
+                // A queued refresh can be older than a commit that raised this
+                // entry. Keep the higher sequence id; never lower it.
+                Some(&current) => current.max(sequence_id),
+                // implements: GMOD-045
+                // A refresh raises an existing entry. A commit may have removed
+                // the inbox after the refresh was built; do not insert it again.
+                None if self.refreshed_members.contains(inbox_id) => continue,
+                None => sequence_id,
+            };
             new_membership.add(inbox_id.clone(), sequence_id);
         }
 
@@ -442,6 +461,7 @@ impl From<UpdateGroupMembershipIntentData> for Vec<u8> {
                 membership_updates: intent.membership_updates,
                 removed_members: intent.removed_members,
                 failed_installations: intent.failed_installations,
+                refreshed_members: intent.refreshed_members,
             })),
         }
         .encode(&mut buf)
@@ -459,11 +479,12 @@ impl TryFrom<Vec<u8>> for UpdateGroupMembershipIntentData {
             version: Some(UpdateGroupMembershipVersion::V1(v1)),
         } = UpdateGroupMembershipData::decode(data.as_slice())?
         {
-            Ok(Self::new(
-                v1.membership_updates,
-                v1.removed_members,
-                v1.failed_installations,
-            ))
+            Ok(Self {
+                membership_updates: v1.membership_updates,
+                removed_members: v1.removed_members,
+                failed_installations: v1.failed_installations,
+                refreshed_members: v1.refreshed_members,
+            })
         } else {
             Err(IntentError::MissingPayload)
         }
@@ -478,11 +499,12 @@ impl<'a> TryFrom<&'a [u8]> for UpdateGroupMembershipIntentData {
             version: Some(UpdateGroupMembershipVersion::V1(v1)),
         } = UpdateGroupMembershipData::decode(data)?
         {
-            Ok(Self::new(
-                v1.membership_updates,
-                v1.removed_members,
-                v1.failed_installations,
-            ))
+            Ok(Self {
+                membership_updates: v1.membership_updates,
+                removed_members: v1.removed_members,
+                failed_installations: v1.failed_installations,
+                refreshed_members: v1.refreshed_members,
+            })
         } else {
             Err(IntentError::MissingPayload)
         }

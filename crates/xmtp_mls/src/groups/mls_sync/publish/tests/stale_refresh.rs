@@ -152,6 +152,42 @@ async fn selection_reuses_an_add_for_a_stale_failure() -> Result<(), GroupError>
     Ok(())
 }
 
+/// A refresh built before a commit removed an inbox must not insert that
+/// inbox when it publishes. Only an add request inserts an inbox.
+// verifies: GMOD-045
+#[xmtp_common::test(unwrap_try = true)]
+async fn stale_refresh_does_not_readd_a_removed_inbox() -> Result<(), GroupError> {
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    tester!(caro, disable_workers);
+    let group = alix
+        .create_group_with_members(&[bo.inbox_id(), caro.inbox_id()], None, None)
+        .await?;
+    caro.wait_for_welcomes().await?;
+    let caro_group = caro.group(&group.group_id)?;
+    receive_completed_prefix(&group, &caro_group).await?;
+
+    // The refresh raises Bo's entry for bo2. Then a commit removes Bo.
+    tester!(bo2, from: bo, disable_workers);
+    let stale = group.get_membership_update_intent(&[], &[]).await?;
+    assert!(stale.membership_updates.contains_key(bo.inbox_id()));
+    group.remove_members(&[bo.inbox_id()]).await?;
+    let epoch = group.epoch().await?;
+
+    let stale = QueueIntent::update_group_membership()
+        .data(stale)
+        .queue(&group)?;
+    group.sync_until_intent_resolved(stale.id).await?;
+    receive_completed_prefix(&group, &caro_group).await?;
+    for member in [&group, &caro_group] {
+        assert_eq!(committed_membership(member).get(bo.inbox_id()), None);
+        assert!(!has_leaf(member, bo.installation_id.as_slice()));
+        assert!(!has_leaf(member, bo2.installation_id.as_slice()));
+        assert_eq!(member.epoch().await?, epoch, "the stale refresh is a no-op");
+    }
+    Ok(())
+}
+
 /// Older clients can list an installation that has a leaf as failed. A
 /// revocation of that installation must still remove its leaf: receivers do
 /// not exempt a key that has a leaf before the commit.
