@@ -1,0 +1,95 @@
+# Branch-only experiment. Production warming, uploads, and pins stay in post-merge.yml.
+name: "Spike: Nix cache on GitHub runners"
+on:
+  push:
+    branches: [codex/nix-cache-github-runners-spike]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: nix-cache-spike-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  matrix:
+    name: Enumerate dev and release members
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    outputs:
+      targets: ${{ steps.targets.outputs.targets }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: ./.github/actions/setup-nix
+        with:
+          cache-mode: read
+          github-token: ${{ github.token }}
+      - id: targets
+        run: |
+          nix eval --json .#ciSets --apply '
+            builtins.mapAttrs (_: sets:
+              builtins.mapAttrs (_: set:
+                builtins.mapAttrs (_: member: member.drvPath) set.passthru.members
+              ) { inherit (sets) dev release; }
+            )' > "$RUNNER_TEMP/members.json"
+          python3 dev/ci/nix-cache-spike.py matrix "$RUNNER_TEMP/members.json" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: ${{ matrix.system }} / ${{ matrix.member }}
+    needs: matrix
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.matrix.outputs.targets) }}
+    runs-on: ${{ matrix.runner }}
+    # Match the production warm job's budget; a timeout is a failed spike row.
+    timeout-minutes: 90
+    env:
+      SPIKE_TARGET: ${{ matrix.target }}
+      SPIKE_ORIGINAL_DRV: ${{ matrix.drv }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Record the unmodified runner
+        run: python3 dev/ci/nix-cache-spike.py snapshot
+      # A run-specific comment invalidates project source outputs, while keeping
+      # dependency layers reusable. Otherwise unchanged trunk products would
+      # substitute and tell us nothing about compiling on these smaller runners.
+      - name: Force a source build
+        run: |
+          printf '\n// Nix cache runner spike %s.\n' "$GITHUB_RUN_ID" >> crates/xmtp_common/src/lib.rs
+      - name: Select the production Xcode
+        if: runner.os == 'macOS'
+        uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
+        with:
+          xcode-version: "26.3"
+      - name: Set up Nix (read only)
+        uses: ./.github/actions/setup-nix
+        with:
+          cache-mode: read
+          github-token: ${{ github.token }}
+      - name: Build one member and measure resources
+        run: python3 dev/ci/nix-cache-spike.py build
+      - name: Record the outcome
+        if: always()
+        env:
+          SPIKE_JOB_STATUS: ${{ job.status }}
+        run: python3 dev/ci/nix-cache-spike.py report
+      - name: Retain measurements and Nix output
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: nix-cache-spike-${{ matrix.system }}-${{ matrix.member }}
+          path: ${{ runner.temp }}/nix-cache-spike
+          retention-days: 14
+
+  summary:
+    name: Collect spike results
+    needs: build
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: nix-cache-spike-*
+          path: results
+      - name: Summarize every available row
+        run: python3 dev/ci/nix-cache-spike.py summary results >> "$GITHUB_STEP_SUMMARY"
