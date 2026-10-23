@@ -126,6 +126,20 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                         )) => {
                             continue;
                         }
+                        // implements: SEND-022
+                        // No message can be built while a proposal is pending.
+                        // Leave it queued and prepare the later intents: one
+                        // of them can commit the proposal. The message is sent
+                        // in the next epoch. Each skip advances past the
+                        // intent, so this loop still ends.
+                        Err(GroupError::CreateMessage(
+                            openmls::prelude::CreateMessageError::GroupStateError(
+                                openmls::prelude::MlsGroupStateError::PendingProposal,
+                            ),
+                        )) if requirements.intent.kind == IntentKind::SendMessage => {
+                            after = Some(requirements.intent.id);
+                            continue;
+                        }
                         Err(error)
                             if matches!(
                                 error,

@@ -257,7 +257,7 @@ async fn send_state_transitions_ambiguous_failure_keeps_the_attempt_pending(
 /// from it can sit below the change and leave its echo unprocessed in every
 /// round until the retry budget ends. A member's first send in a group it
 /// joined queues a key update ahead of the message, so this is that send.
-// verifies: SEND-010, PROC-015
+// verifies: SEND-022, PROC-015
 #[xmtp_common::test(unwrap_try = true)]
 async fn send_state_transitions_send_behind_a_state_change_waits_for_its_receipt() {
     tester!(alix, disable_workers);
@@ -273,4 +273,52 @@ async fn send_state_transitions_send_behind_a_state_change_waits_for_its_receipt
     assert!(intents_in(&lagged, &UNRESOLVED, IntentKind::KeyUpdate).is_empty());
     assert!(intents_in(&lagged, &UNRESOLVED, IntentKind::SendMessage).is_empty());
     assert_eq!(status(&lagged, &message_id), DeliveryStatus::Published);
+}
+
+/// No message can be built while a proposal is pending. A send queued then
+/// must stay queued and must not stop the commit queued after it, which
+/// clears the proposal. The queued send then publishes in the next epoch,
+/// before every later send.
+// verifies: SEND-022
+#[xmtp_common::test(unwrap_try = true)]
+async fn send_state_transitions_pending_proposal_defers_a_queued_send() {
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    tester!(caro, disable_workers);
+    let group = alix
+        .create_group_with_members(&[bo.inbox_id()], None, None)
+        .await?;
+    let proposal = QueueIntent::propose_member_update()
+        .data(Vec::<u8>::try_from(ProposeMemberUpdateIntentData::new(
+            vec![caro.inbox_id().to_string()],
+            vec![],
+        ))?)
+        .queue(&group)?;
+    group.sync_until_intent_resolved(proposal.id).await?;
+    assert!(group.with_group_snapshot(|mls| Ok(mls.pending_proposals().next().is_some()))?);
+    let epoch = group.epoch().await?;
+
+    // The optimistic send is queued ahead of the commit that `send_message`
+    // queues for the pending proposal.
+    let queued = group.send_message_optimistic(b"queued", SendMessageOpts::default())?;
+    let sent = group
+        .send_message(b"sent", SendMessageOpts::default())
+        .await?;
+
+    assert!(group.epoch().await? > epoch);
+    assert!(group.with_group_snapshot(|mls| Ok(mls.pending_proposals().next().is_none()))?);
+    assert!(
+        group
+            .members()
+            .await?
+            .iter()
+            .any(|member| member.inbox_id == caro.inbox_id())
+    );
+    assert!(intents_in(&group, &UNRESOLVED, IntentKind::SendMessage).is_empty());
+    let sequence = |id: &[u8]| {
+        let message: StoredGroupMessage = group.context.db().fetch(&id.to_vec()).unwrap().unwrap();
+        assert_eq!(message.delivery_status, DeliveryStatus::Published);
+        message.sequence_id
+    };
+    assert!(sequence(&queued) < sequence(&sent));
 }
