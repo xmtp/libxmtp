@@ -49,7 +49,7 @@ jobs:
     environment: kache-s3-writer
     steps:
       - name: Check out the source
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.sha }}
       - name: Set up Nix
@@ -85,7 +85,7 @@ jobs:
     environment: kache-s3-writer
     steps:
       - name: Check out the source
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.sha }}
       - name: Set up Nix
@@ -138,7 +138,7 @@ jobs:
       SYSTEM: ${{ matrix.system }}
     steps:
       - name: Check out the source
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.sha }}
       - name: Set up Nix
@@ -212,7 +212,7 @@ jobs:
       XMTP_RN_JOURNEYS: full
     steps:
       - name: Check out the source
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.sha }}
       - name: Set up Nix
@@ -257,7 +257,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Check out the source
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Set up Nix
         if: ${{ needs.rn-consumers.result != 'skipped' }}
         uses: ./.github/actions/setup-nix
@@ -322,7 +322,7 @@ jobs:
       SYSTEM: ${{ matrix.system }}
     steps:
       - name: Check out the source
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # The iOS outputs are keyed to one Xcode (`xcode` in nix/lib/ios-env.nix)
       # and a build with another fails, so select it before the build.
       - name: Select Xcode 26.3
@@ -367,7 +367,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Check out the source
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Set up Nix
         uses: ./.github/actions/setup-nix
         with:
@@ -385,7 +385,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Check out the source
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Set up Nix
         uses: ./.github/actions/setup-nix
         with:
@@ -412,7 +412,7 @@ jobs:
       NIX_DEVSHELL: ios
     steps:
       - name: Check out the source
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # The iOS outputs are keyed to one Xcode (`xcode` in nix/lib/ios-env.nix),
       # and sdks/ios/dev/bindings fails in CI with another. The image default is
       # older.
@@ -448,7 +448,7 @@ jobs:
       NIX_DEVSHELL: android
     steps:
       - name: Check out the source
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Set up Nix
         uses: ./.github/actions/setup-nix
         with:
