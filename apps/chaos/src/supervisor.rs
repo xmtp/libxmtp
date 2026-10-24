@@ -706,9 +706,6 @@ async fn run_rounds(s: &Arc<Supervisor>, args: &RunArgs, seed: u64) -> Result<i3
         .map(|hours| Duration::from_secs_f64(hours * 3600.0));
     let mut round = 0;
     loop {
-        if deadline.map_or(round >= args.rounds, |d| run_start.elapsed() >= d) {
-            break;
-        }
         round += 1;
         {
             let mut ledger = s.ledger.lock().expect("ledger mutex");
@@ -772,6 +769,7 @@ async fn run_rounds(s: &Arc<Supervisor>, args: &RunArgs, seed: u64) -> Result<i3
             schedule.faults.clear();
             sleep(Duration::from_millis(ROLL_POLL_MS)).await;
         }
+        validate_workload(&schedule, recovering)?;
         s.record("schedule", serde_json::to_value(&schedule)?)?;
         s.ledger.lock().expect("ledger mutex").write_status(
             &json!({"seed":seed,"round":round,"phase":if recovering { "recovery" } else { "chaos" },"schedule":schedule}),
@@ -845,6 +843,15 @@ async fn run_rounds(s: &Arc<Supervisor>, args: &RunArgs, seed: u64) -> Result<i3
             .filter(|finding| finding.verdict == crate::check::Verdict::Stall && finding.escalated)
             .count();
         summary["escalated_stalls"] = json!(escalated_stalls);
+        let at_limit = deadline.map_or(round >= args.rounds, |d| run_start.elapsed() >= d);
+        let incomplete_at_limit = !result.violation
+            && at_limit
+            && result.incomplete_at_limit(oracle.pending_rollcalls().len());
+        if incomplete_at_limit {
+            summary["termination"] = json!("INCONCLUSIVE");
+            summary["termination_reason"] =
+                json!("Run limit reached with unresolved checkpoint or delivery obligations");
+        }
         {
             let ledger = s.ledger.lock().expect("ledger mutex");
             ledger.write_status(&summary)?;
@@ -867,7 +874,7 @@ async fn run_rounds(s: &Arc<Supervisor>, args: &RunArgs, seed: u64) -> Result<i3
         if result.verdict == crate::check::Verdict::Harness {
             bail!("oracle could not produce a verdict: {:?}", result.findings);
         }
-        if result.violation {
+        if result.violation || incomplete_at_limit {
             let stopped = s.stop().await?;
             let active = s
                 .processes
@@ -893,10 +900,37 @@ async fn run_rounds(s: &Arc<Supervisor>, args: &RunArgs, seed: u64) -> Result<i3
                 &databases,
             )?;
             println!("bundle={}", path.display());
-            return Ok(2);
+            if incomplete_at_limit {
+                println!("termination=INCONCLUSIVE: run limit reached with unresolved obligations");
+            }
+            return Ok(if result.violation { 2 } else { 3 });
+        }
+        if at_limit {
+            return Ok(0);
         }
     }
-    Ok(0)
+}
+
+fn validate_workload(schedule: &crate::schedule::RoundSchedule, recovering: bool) -> Result<()> {
+    let has_group_writes = schedule
+        .bursts
+        .iter()
+        .flat_map(|burst| &burst.operations)
+        .any(|scheduled| {
+            !matches!(
+                scheduled.operation,
+                Operation::Sync { .. }
+                    | Operation::SyncAll
+                    | Operation::RestartStream
+                    | Operation::NewInstallation { .. }
+                    | Operation::Consent { .. }
+            )
+        });
+    ensure!(
+        recovering || has_group_writes,
+        "Chaos workload has no group writes and cannot restore an active multi-inbox group"
+    );
+    Ok(())
 }
 
 fn fault_selected(selection: &str, kind: &str) -> bool {
@@ -947,4 +981,43 @@ pub(crate) fn newest(path: &Path) -> PathBuf {
         })
         .max_by_key(|entry| entry.file_name())
         .map_or_else(|| path.to_owned(), |entry| entry.path())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::schedule::{Burst, RoundSchedule, ScheduledOperation};
+
+    fn workload(operations: Vec<Operation>) -> RoundSchedule {
+        RoundSchedule {
+            bursts: vec![Burst {
+                recipe: "mixed_operations".into(),
+                operations: operations
+                    .into_iter()
+                    .map(|operation| ScheduledOperation {
+                        instance: 0,
+                        operation,
+                    })
+                    .collect(),
+            }],
+            faults: Vec::new(),
+        }
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn sync_only_workload_is_not_a_chaos_pass() {
+        let mut operations = vec![Operation::SyncAll; crate::schedule::OPERATIONS_PER_ROUND - 1];
+        operations.push(Operation::RestartStream);
+        assert!(validate_workload(&workload(operations), false).is_err());
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn recovery_and_membership_repair_are_valid_workloads() {
+        assert!(validate_workload(&workload(Vec::new()), true).is_ok());
+        let repair = workload(vec![Operation::Add {
+            group: "existing".into(),
+            inbox: "available-member".into(),
+        }]);
+        assert!(validate_workload(&repair, false).is_ok());
+    }
 }
