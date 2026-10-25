@@ -560,9 +560,10 @@ fn encoded_identity_envelope(update: &[u8]) -> Vec<u8> {
 
 /// Each update a validator must reject is refused on admission as an invalid
 /// argument, before any chain call, and leaves the log and the identifier
-/// lookups exactly as they were: an empty update, a recovery identifier in
-/// mixed case, an add of a current member, a smart contract wallet signature
-/// outside `eip155`, and a signature in the retired field 4. Each fails with
+/// lookups exactly as they were: an empty update, a revoked member in mixed
+/// case (that revocation would apply if the form were not checked), an add of
+/// a current member, a smart contract wallet signature outside `eip155`, and a
+/// signature in the retired field 4. Each fails with
 /// the reason for the rule it breaks. Only an inbox id that names no identity
 /// topic, one byte short or not hexadecimal, is a malformed payload, even when
 /// the update would break a rule as well.
@@ -614,10 +615,10 @@ async fn identity_invalid_mutations_are_rejected_on_admission() {
         IdentifierKind::Ethereum,
         None,
     )?;
-    let mut mixed_case_recovery = SignatureRequestBuilder::new(&inbox_id)
-        .change_recovery_address(wallet.identifier().into(), mixed_case)
+    let mut mixed_case_revoke = SignatureRequestBuilder::new(&inbox_id)
+        .revoke_association(wallet.identifier().into(), mixed_case.into())
         .build();
-    add_wallet_signature(&mut mixed_case_recovery, &wallet).await;
+    add_wallet_signature(&mut mixed_case_revoke, &wallet).await;
     let mut duplicate_add = SignatureRequestBuilder::new(&inbox_id)
         .add_association(
             MemberIdentifier::installation(installation.public_bytes().to_vec()),
@@ -647,8 +648,8 @@ async fn identity_invalid_mutations_are_rejected_on_admission() {
             Reason::InvalidIdentityUpdate,
         ),
         (
-            "mixed-case recovery",
-            IdentityUpdate::from(mixed_case_recovery.build_identity_update()?).encode_to_vec(),
+            "mixed-case revoke",
+            IdentityUpdate::from(mixed_case_revoke.build_identity_update()?).encode_to_vec(),
             Reason::InvalidIdentityUpdate,
         ),
         (
