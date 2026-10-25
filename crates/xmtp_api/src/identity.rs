@@ -4,7 +4,9 @@ use crate::{
     dyn_err,
 };
 use futures::{StreamExt, TryStreamExt, stream};
+use prost::Message;
 use std::collections::HashMap;
+use xmtp_configuration::MAX_SCW_SIGNATURES_PER_REQUEST;
 use xmtp_proto::{
     api::grpc_status,
     api_client::XmtpBackendClient,
@@ -151,43 +153,83 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
         chunks.sort_by_key(|(index, _)| *index);
         Ok(chunks.into_iter().flat_map(|(_, values)| values).collect())
     }
+    /// Verify every signature and return one verdict per signature, in
+    /// request order. The signatures go out in requests of at most the
+    /// published `max_scw_signatures`, never more than
+    /// [`MAX_SCW_SIGNATURES_PER_REQUEST`], and within `max_request_bytes`,
+    /// with up to [`MAX_READ_CHUNKS_IN_FLIGHT`] requests in flight. A
+    /// response whose verdict count differs from its request's is a
+    /// retryable [`ApiError::VerdictCount`].
     #[xmtp_common::rpc_span]
     pub async fn verify_smart_contract_wallet_signatures(
         &self,
         request: wire::VerifySmartContractWalletSignaturesRequest,
     ) -> Result<wire::VerifySmartContractWalletSignaturesResponse> {
-        let requests: Vec<_> = request
-            .signatures
-            .chunks(self.limits().max_scw_signatures)
-            .map(<[_]>::to_vec)
-            .collect();
-        let mut chunks: Vec<_> = stream::iter(requests.into_iter().enumerate().map(
-            |(index, chunk)| async move {
-                let request = wire::VerifySmartContractWalletSignaturesRequest {
-                    signatures: chunk.to_vec(),
-                };
-                let response = self
-                    .retry_call(
-                        || {
-                            self.api_client
-                                .verify_smart_contract_wallet_signatures(request.clone())
-                        },
-                        false,
-                    )
-                    .await
-                    .map_err(dyn_err)?;
-                if response.responses.len() != chunk.len() {
-                    return Err(ApiError::InvalidResponse("signature result count"));
-                }
-                Ok((index, response.responses))
-            },
-        ))
-        .buffer_unordered(MAX_READ_CHUNKS_IN_FLIGHT)
+        let limits = self.limits();
+        let per_request = limits
+            .max_scw_signatures
+            .min(MAX_SCW_SIGNATURES_PER_REQUEST);
+        let requests: Vec<_> =
+            verify_requests(&request.signatures, per_request, limits.max_request_bytes)
+                .into_iter()
+                .map(
+                    |signatures| wire::VerifySmartContractWalletSignaturesRequest {
+                        signatures: signatures.to_vec(),
+                    },
+                )
+                .collect();
+        let chunks: Vec<Vec<_>> = stream::iter(requests.into_iter().map(|request| async move {
+            let response = self
+                .retry_call(
+                    || {
+                        self.api_client
+                            .verify_smart_contract_wallet_signatures(request.clone())
+                    },
+                    false,
+                )
+                .await
+                .map_err(dyn_err)?;
+            if response.responses.len() != request.signatures.len() {
+                return Err(ApiError::VerdictCount {
+                    expected: request.signatures.len(),
+                    got: response.responses.len(),
+                });
+            }
+            Ok(response.responses)
+        }))
+        .buffered(MAX_READ_CHUNKS_IN_FLIGHT)
         .try_collect()
         .await?;
-        chunks.sort_by_key(|(index, _)| *index);
         Ok(wire::VerifySmartContractWalletSignaturesResponse {
-            responses: chunks.into_iter().flat_map(|(_, values)| values).collect(),
+            responses: chunks.into_iter().flatten().collect(),
         })
     }
+}
+
+/// Split `signatures` into verify requests the deployment accepts. A request
+/// ends at `per_request` signatures, or before the signature whose framed
+/// length would take its encoding past `max_request_bytes`. Every request
+/// holds at least one signature, so one that alone exceeds the byte bound is
+/// sent by itself.
+// implements: CONF-073
+fn verify_requests(
+    signatures: &[wire::verify_smart_contract_wallet_signatures_request::Signature],
+    per_request: usize,
+    max_request_bytes: usize,
+) -> Vec<&[wire::verify_smart_contract_wallet_signatures_request::Signature]> {
+    let mut requests = Vec::new();
+    let (mut start, mut bytes) = (0, 0);
+    for (end, signature) in signatures.iter().enumerate() {
+        let len = signature.encoded_len();
+        let framed = 1 + prost::length_delimiter_len(len) + len;
+        if end > start && (end - start >= per_request || bytes + framed > max_request_bytes) {
+            requests.push(&signatures[start..end]);
+            (start, bytes) = (end, 0);
+        }
+        bytes += framed;
+    }
+    if start < signatures.len() {
+        requests.push(&signatures[start..]);
+    }
+    requests
 }

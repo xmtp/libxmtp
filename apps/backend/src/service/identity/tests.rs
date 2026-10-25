@@ -543,6 +543,103 @@ async fn scw_verdicts_preserve_input_order_and_resolved_blocks() {
     server.stop().await?;
 }
 
+/// Records the most checks in flight at once, and finishes a check only
+/// once the test releases a permit for it.
+struct GatedVerifier {
+    started: tokio::sync::mpsc::UnboundedSender<()>,
+    gate: std::sync::Arc<tokio::sync::Semaphore>,
+    now: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    most: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+}
+
+#[xmtp_common::async_trait]
+impl xmtp_id::scw_verifier::SmartContractSignatureVerifier for GatedVerifier {
+    async fn is_valid_signature(
+        &self,
+        _: xmtp_id::associations::AccountId,
+        _: [u8; 32],
+        _: alloy_primitives::Bytes,
+        block_number: Option<u64>,
+    ) -> Result<xmtp_id::scw_verifier::ValidationResponse, xmtp_id::scw_verifier::VerifierError>
+    {
+        use std::sync::atomic::Ordering::SeqCst;
+        let now = self.now.fetch_add(1, SeqCst) + 1;
+        self.most.fetch_max(now, SeqCst);
+        let _ = self.started.send(());
+        self.gate
+            .acquire()
+            .await
+            .expect("the gate stays open")
+            .forget();
+        self.now.fetch_sub(1, SeqCst);
+        Ok(xmtp_id::scw_verifier::ValidationResponse {
+            is_valid: true,
+            block_number,
+            error: None,
+        })
+    }
+}
+
+/// One request's entries are verified eight at a time, not one after
+/// another and not all at once, and are answered in request order.
+// verifies: API-301
+#[xmtp_common::test(unwrap_try = true)]
+async fn scw_verify_request_runs_eight_verifications_at_once() {
+    use std::sync::{Arc, atomic::AtomicUsize, atomic::Ordering::SeqCst};
+    use xmtp_configuration::MAX_CHAIN_CALLS_IN_FLIGHT;
+    const ENTRIES: u64 = 20;
+    let (started, mut starts) = tokio::sync::mpsc::unbounded_channel();
+    let gate = Arc::new(tokio::sync::Semaphore::new(0));
+    let most = Arc::new(AtomicUsize::new(0));
+    let server = TestServer::with_verifier(
+        |_| {},
+        GatedVerifier {
+            started,
+            gate: gate.clone(),
+            now: Arc::default(),
+            most: most.clone(),
+        },
+        TestChain::at(1),
+    )
+    .await?;
+    let mut identity = server.identity();
+    let request = tokio::spawn(async move {
+        identity
+            .verify_smart_contract_wallet_signatures(
+                api::VerifySmartContractWalletSignaturesRequest {
+                    signatures: (0..ENTRIES)
+                        .map(|block| {
+                            api::verify_smart_contract_wallet_signatures_request::Signature {
+                                account_id: "eip155:1:0x1111111111111111111111111111111111111111"
+                                    .into(),
+                                hash: vec![1; 32],
+                                signature: vec![1],
+                                block_number: Some(block),
+                            }
+                        })
+                        .collect(),
+                },
+            )
+            .await
+    });
+    for _ in 0..MAX_CHAIN_CALLS_IN_FLIGHT {
+        xmtp_common::time::timeout(xmtp_common::time::Duration::from_secs(10), starts.recv())
+            .await?
+            .ok_or("the verifier stopped")?;
+    }
+    gate.add_permits(ENTRIES as usize);
+    let responses = request.await??.into_inner().responses;
+    assert_eq!(most.load(SeqCst), MAX_CHAIN_CALLS_IN_FLIGHT);
+    assert_eq!(
+        responses
+            .iter()
+            .map(|response| response.block_number)
+            .collect::<Vec<_>>(),
+        (0..ENTRIES).map(Some).collect::<Vec<_>>()
+    );
+    server.stop().await?;
+}
+
 #[xmtp_common::test(unwrap_try = true)]
 // verifies: API-231
 async fn configured_chain_provider_failure_is_unavailable() {

@@ -221,9 +221,11 @@ fn published_schema_enforces_every_numeric_scalar_range() {
                     | "max_stream_topics"
                     | "max_static_topics"
                     | "max_lookup_identifiers"
-                    | "max_scw_signatures"
                     | "max_identity_entries",
                 ) => u32::MAX as u64,
+                ("limits", "max_scw_signatures") => {
+                    xmtp_configuration::MAX_SCW_SIGNATURES_PER_REQUEST as u64
+                }
                 ("database", "max_statement_timeout_ms") | ("publishing", _) => i32::MAX as u64,
                 ("retention", _) => i64::MAX as u64 / 1_000_000_000,
                 ("mls", "max_installations_per_inbox") => {

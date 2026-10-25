@@ -9,6 +9,7 @@ use alloy::{
     providers::DynProvider,
 };
 pub use chain_rpc_verifier::*;
+use futures::{StreamExt, TryStreamExt, stream};
 pub use input::ScwInput;
 pub use remote_signature_verifier::*;
 use std::{collections::HashMap, fs, path::Path, sync::Arc};
@@ -16,7 +17,7 @@ use thiserror::Error;
 use tracing::info;
 use url::Url;
 use xmtp_common::{ErrorCode, MaybeSend, MaybeSync, RetryableError};
-use xmtp_configuration::MAX_SCW_SIGNATURE_BYTES;
+use xmtp_configuration::{MAX_CHAIN_CALLS_IN_FLIGHT, MAX_SCW_SIGNATURE_BYTES};
 
 static DEFAULT_CHAIN_URLS: &str = include_str!("chain_urls_default.json");
 
@@ -117,6 +118,34 @@ pub trait SmartContractSignatureVerifier: MaybeSend + MaybeSync {
         signature: Bytes,
         block_number: Option<BlockNumber>,
     ) -> Result<ValidationResponse, VerifierError>;
+
+    /// Verify many checked inputs. Returns one verdict per input, in input
+    /// order, or the first error.
+    ///
+    /// The default checks each input with [`Self::is_valid_signature`],
+    /// keeping at most [`MAX_CHAIN_CALLS_IN_FLIGHT`] checks in flight.
+    /// Override it to send the inputs as batches instead.
+    async fn verify_many(
+        &self,
+        inputs: &[ScwInput],
+    ) -> Result<Vec<ValidationResponse>, VerifierError> {
+        // Each check is a future that starts only when `buffered` polls it.
+        let checks: Vec<_> = inputs
+            .iter()
+            .map(|input| {
+                self.is_valid_signature(
+                    input.account_id().clone(),
+                    input.hash(),
+                    input.signature().clone(),
+                    input.block_number(),
+                )
+            })
+            .collect();
+        stream::iter(checks)
+            .buffered(MAX_CHAIN_CALLS_IN_FLIGHT)
+            .try_collect()
+            .await
+    }
 }
 
 #[xmtp_common::async_trait]
@@ -134,6 +163,13 @@ where
         (**self)
             .is_valid_signature(account_id, hash, signature, block_number)
             .await
+    }
+
+    async fn verify_many(
+        &self,
+        inputs: &[ScwInput],
+    ) -> Result<Vec<ValidationResponse>, VerifierError> {
+        (**self).verify_many(inputs).await
     }
 }
 
@@ -153,6 +189,13 @@ where
             .is_valid_signature(account_id, hash, signature, block_number)
             .await
     }
+
+    async fn verify_many(
+        &self,
+        inputs: &[ScwInput],
+    ) -> Result<Vec<ValidationResponse>, VerifierError> {
+        (*self).verify_many(inputs).await
+    }
 }
 
 #[xmtp_common::async_trait]
@@ -170,6 +213,13 @@ where
         (**self)
             .is_valid_signature(account_id, hash, signature, block_number)
             .await
+    }
+
+    async fn verify_many(
+        &self,
+        inputs: &[ScwInput],
+    ) -> Result<Vec<ValidationResponse>, VerifierError> {
+        (**self).verify_many(inputs).await
     }
 }
 
@@ -358,5 +408,74 @@ impl ChainBlocks for MultiSmartContractSignatureVerifier {
 
     async fn timestamp(&self, chain_id: &str, number: BlockNumber) -> Result<u64, VerifierError> {
         self.route(chain_id)?.timestamp(chain_id, number).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    const INPUTS: u64 = 100;
+
+    /// Records the most checks in flight at once. The check of the input at
+    /// block `n` yields `INPUTS - n` times, so later inputs finish first.
+    #[derive(Default)]
+    struct InFlight {
+        now: AtomicUsize,
+        most: AtomicUsize,
+    }
+
+    #[xmtp_common::async_trait]
+    impl SmartContractSignatureVerifier for InFlight {
+        async fn is_valid_signature(
+            &self,
+            _: AccountId,
+            _: [u8; 32],
+            _: Bytes,
+            block_number: Option<BlockNumber>,
+        ) -> Result<ValidationResponse, VerifierError> {
+            let now = self.now.fetch_add(1, Ordering::SeqCst) + 1;
+            self.most.fetch_max(now, Ordering::SeqCst);
+            for _ in block_number.unwrap_or_default()..INPUTS {
+                xmtp_common::task::yield_now().await;
+            }
+            self.now.fetch_sub(1, Ordering::SeqCst);
+            Ok(ValidationResponse {
+                is_valid: true,
+                block_number,
+                error: None,
+            })
+        }
+    }
+
+    /// The default batch never has more than eight checks in flight, and it
+    /// returns each verdict at its input's index although later checks finish
+    /// first.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn default_verify_many_keeps_eight_in_flight_in_order() {
+        let inputs = (0..INPUTS)
+            .map(|block| {
+                ScwInput::checked(
+                    AccountId::new_evm(1, format!("0x{:040x}", block + 1)),
+                    [0; 32],
+                    Bytes::new(),
+                    Some(block),
+                )
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let verifier = InFlight::default();
+        let verdicts = verifier.verify_many(&inputs).await?;
+        assert_eq!(
+            verifier.most.load(Ordering::SeqCst),
+            MAX_CHAIN_CALLS_IN_FLIGHT
+        );
+        assert_eq!(
+            verdicts
+                .iter()
+                .map(|verdict| verdict.block_number)
+                .collect::<Vec<_>>(),
+            (0..INPUTS).map(Some).collect::<Vec<_>>()
+        );
     }
 }

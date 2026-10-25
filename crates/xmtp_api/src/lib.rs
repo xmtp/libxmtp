@@ -101,6 +101,11 @@ pub enum ApiError {
     /// A response does not match the request. Not retryable.
     #[error("invalid backend response: {0}")]
     InvalidResponse(&'static str),
+    /// A signature verification response holds a different number of
+    /// verdicts than its request holds signatures. Retryable: no verdict is
+    /// taken from it, and the signatures may still be valid.
+    #[error("signature verification returned {got} verdicts for {expected} signatures")]
+    VerdictCount { expected: usize, got: usize },
     /// The payload cannot be parsed. Not retryable.
     #[error(transparent)]
     InvalidEnvelope(#[from] xmtp_mls_validation::ValidationError),
@@ -140,6 +145,7 @@ impl RetryableError for ApiError {
             Self::Auth(e) => retryable!(e),
             Self::Preflight(e) => retryable!(e),
             Self::Api(e) => retryable!(e),
+            Self::VerdictCount { .. } => true,
             _ => false,
         }
     }

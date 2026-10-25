@@ -17,8 +17,9 @@ use xmtp_configuration::{
     BACKEND_DEFAULT_MAX_STATIC_TOPICS, BACKEND_DEFAULT_MAX_STREAM_TOPICS,
     BACKEND_DEFAULT_MAX_UPDATE_ADDS, BACKEND_DEFAULT_MAX_UPDATE_BURST,
     BACKEND_DEFAULT_MAX_UPDATE_FRAMES_PER_SECOND, BACKEND_DEFAULT_MAX_UPDATE_REMOVES,
-    BACKEND_DEFAULT_QUERY_LIMIT, BACKEND_DEFAULT_WELCOME_SECONDS, MAX_SERVER_IDENTIFIER_BYTES,
-    MAX_TRANSPORT_BYTES, parse_eip155_chain_id, validate_server_identifier,
+    BACKEND_DEFAULT_QUERY_LIMIT, BACKEND_DEFAULT_WELCOME_SECONDS, MAX_SCW_SIGNATURES_PER_REQUEST,
+    MAX_SERVER_IDENTIFIER_BYTES, MAX_TRANSPORT_BYTES, parse_eip155_chain_id,
+    validate_server_identifier,
 };
 
 pub mod application_components;
@@ -883,7 +884,11 @@ pub struct LimitsConfig {
     pub max_static_topics: usize,
     #[schemars(schema_with = "schema::positive_integer::<{ MAX_U32_KEY }>")]
     pub max_lookup_identifiers: usize,
-    #[schemars(schema_with = "schema::positive_integer::<{ MAX_U32_KEY }>")]
+    /// At most two for each action one identity update may carry, the most
+    /// ERC-6492 signatures one update holds.
+    #[schemars(
+        schema_with = "schema::positive_integer::<{ MAX_SCW_SIGNATURES_PER_REQUEST as u64 }>"
+    )]
     pub max_scw_signatures: usize,
     #[schemars(schema_with = "schema::positive_integer::<{ MAX_U32_KEY }>")]
     pub max_identity_entries: usize,
@@ -933,6 +938,12 @@ impl LimitsConfig {
         positive(self.max_static_topics, "limits.max_static_topics")?;
         positive(self.max_lookup_identifiers, "limits.max_lookup_identifiers")?;
         positive(self.max_scw_signatures, "limits.max_scw_signatures")?;
+        if self.max_scw_signatures > MAX_SCW_SIGNATURES_PER_REQUEST {
+            return Err(invalid(
+                "limits.max_scw_signatures",
+                "must not exceed two signatures for each action of one identity update",
+            ));
+        }
         positive(self.max_identity_entries, "limits.max_identity_entries")?;
         positive(self.max_http2_streams, "limits.max_http2_streams")?;
         if self.max_http2_streams > u32::MAX as usize {
@@ -967,7 +978,6 @@ impl LimitsConfig {
             ("limits.max_stream_topics", self.max_stream_topics),
             ("limits.max_static_topics", self.max_static_topics),
             ("limits.max_lookup_identifiers", self.max_lookup_identifiers),
-            ("limits.max_scw_signatures", self.max_scw_signatures),
             ("limits.max_identity_entries", self.max_identity_entries),
         ] {
             at_most_u32(value as u64, field)?;
