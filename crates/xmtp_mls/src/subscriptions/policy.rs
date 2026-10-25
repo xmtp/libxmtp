@@ -3,6 +3,7 @@
 use std::time::Duration;
 use xmtp_configuration::*;
 use xmtp_db::incoming_envelope::{IncomingLimits, NetworkEntityKind, PendingBudget};
+use xmtp_proto::types::IncomingBatchLimits;
 
 /// Bounds apply to encoded items and row metadata, not to the whole database.
 #[derive(Debug, Clone)]
@@ -86,6 +87,14 @@ impl Default for StreamPolicy {
 }
 
 impl StreamPolicy {
+    /// The bounds of one fetched page.
+    pub(crate) fn fetched_limits(&self) -> IncomingBatchLimits {
+        IncomingBatchLimits {
+            max_rows: usize::try_from(self.max_fetched_rows).unwrap_or(usize::MAX),
+            max_bytes: usize::try_from(self.max_fetched_bytes).unwrap_or(usize::MAX),
+        }
+    }
+
     pub(crate) fn incoming_limits(&self, kind: NetworkEntityKind) -> IncomingLimits {
         IncomingLimits {
             batch: PendingBudget {

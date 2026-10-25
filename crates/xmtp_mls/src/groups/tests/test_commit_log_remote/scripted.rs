@@ -39,6 +39,9 @@ pub(super) struct Script {
     accepted: HashMap<Vec<u8>, usize>,
     /// Commit-log topics whose reads return these envelopes.
     pub(super) reads: HashMap<Vec<u8>, Vec<wire::ServerEnvelope>>,
+    /// Commit-log reads after this many fail without a retry, as if the
+    /// reader stopped there.
+    pub(super) stop_reads_after: Option<usize>,
     /// The commit-log id of each sealed entry of each publish request.
     pub(super) published: Vec<Vec<Vec<u8>>>,
     /// The commit-log topics of each read request.
@@ -72,6 +75,13 @@ fn too_large() -> ApiClientError {
     ApiClientError::OtherUnretryable(Box::new(tonic::Status::new(
         tonic::Code::ResourceExhausted,
         "too large for the test script",
+    )))
+}
+
+fn stopped() -> ApiClientError {
+    ApiClientError::OtherUnretryable(Box::new(tonic::Status::new(
+        tonic::Code::Unavailable,
+        "stopped by the test script",
     )))
 }
 
@@ -153,6 +163,12 @@ impl XmtpBackendClient for ScriptedApi {
                 .collect();
             if !commit_log.is_empty() {
                 script.read.push(commit_log);
+                if script
+                    .stop_reads_after
+                    .is_some_and(|after| script.read.len() > after)
+                {
+                    return Err(stopped());
+                }
             }
             (!topics.is_empty() && topics.iter().all(|topic| script.reads.contains_key(topic)))
                 .then(|| {

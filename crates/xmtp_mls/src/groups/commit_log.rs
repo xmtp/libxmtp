@@ -625,11 +625,7 @@ where
                 .get(topic.identifier())
                 .is_some_and(|group| keys_by_group.contains_key(group))
         });
-        let policy = self.context.incoming_runtime().policy();
-        let limits = xmtp_proto::types::IncomingBatchLimits {
-            max_rows: policy.max_fetched_rows as usize,
-            max_bytes: usize::try_from(policy.max_fetched_bytes).unwrap_or(usize::MAX),
-        };
+        let limits = self.context.incoming_runtime().policy().fetched_limits();
         let mut save_remote_commit_log_results = HashMap::new();
         self.context
             .api()
