@@ -22,6 +22,7 @@ class MessageGettersTest {
                 expiresAt = Timestamp(3),
                 replyCount = 4uL,
                 reactions = listOf(reaction),
+                reactionMessageCount = 6uL,
             )
         val message = Message(data)
         assertEquals(Timestamp(1), message.sentAt)
@@ -29,6 +30,7 @@ class MessageGettersTest {
         assertEquals(Timestamp(3), message.expiresAt)
         assertEquals(listOf(reaction), message.reactions)
         assertEquals(4uL, message.replyCount)
+        assertEquals(6uL, message.reactionMessageCount)
         assertEquals("01".repeat(32), message.id)
         assertEquals("02".repeat(16), message.conversationId)
         assertEquals("03".repeat(32), message.senderInboxId)
