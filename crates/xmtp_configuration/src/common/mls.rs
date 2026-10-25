@@ -73,6 +73,12 @@ pub const PROPOSALS_MIN_PROTOCOL_VERSION: &str = "1.12.0-dev";
 // to be stored can be 100x less than using regular welcome messages.
 pub const INSTALLATION_THRESHOLD_FOR_WELCOME_POINTER_SENDING: usize = 2;
 
+/// Length of a welcome pointer's ChaCha20-Poly1305 pointee key.
+pub const WELCOME_POINTEE_KEY_BYTES: usize = 32;
+
+/// Length of each of a welcome pointer's two ChaCha20-Poly1305 nonces.
+pub const WELCOME_POINTEE_NONCE_BYTES: usize = 12;
+
 /// the base backoff time that is multiplied by 3
 pub const SYNC_BACKOFF_WAIT_MS: u16 = 50;
 /// the total wait for all attempts

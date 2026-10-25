@@ -273,12 +273,17 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                 destination = %hex::encode(destination),
                 "Using welcome pointers"
             );
-            let symmetric_key = Zeroizing::new(xmtp_common::rand_array::<32>());
-            let data_nonce = Zeroizing::new(xmtp_common::rand_array::<12>());
-            let mut welcome_metadata_nonce = Zeroizing::new(xmtp_common::rand_array::<12>());
-            // ensure that the welcome pointer nonce is different from the data nonce
+            use xmtp_configuration::{WELCOME_POINTEE_KEY_BYTES, WELCOME_POINTEE_NONCE_BYTES};
+            let symmetric_key =
+                Zeroizing::new(xmtp_common::rand_array::<WELCOME_POINTEE_KEY_BYTES>());
+            let data_nonce =
+                Zeroizing::new(xmtp_common::rand_array::<WELCOME_POINTEE_NONCE_BYTES>());
+            let mut welcome_metadata_nonce =
+                Zeroizing::new(xmtp_common::rand_array::<WELCOME_POINTEE_NONCE_BYTES>());
+            // Recipients reject a pointer whose two nonces are equal.
             while welcome_metadata_nonce == data_nonce {
-                welcome_metadata_nonce = Zeroizing::new(xmtp_common::rand_array::<12>());
+                welcome_metadata_nonce =
+                    Zeroizing::new(xmtp_common::rand_array::<WELCOME_POINTEE_NONCE_BYTES>());
             }
 
             let aead_type = crate::groups::mls_ext::WelcomePointersExtension::preferred_type();

@@ -448,6 +448,89 @@ fn test_welcome_pointer_proto_round_trip() {
     }
 }
 
+/// A pointer whose key ChaCha20-Poly1305 cannot use, here 64 KiB, can never
+/// open a pointee. It is rejected before its pointee is fetched, and no hold
+/// keeps it or its key material.
+// verifies: JOIN-094, JOIN-048
+#[xmtp_common::timeout(Duration::from_secs(30))]
+#[xmtp_common::test(unwrap_try = true)]
+async fn malformed_welcome_pointer_is_rejected_before_retrieval() {
+    use crate::groups::welcome_sync::{
+        WelcomeHeadOutcome, WelcomeService, pending_welcome_for_test,
+    };
+    use xmtp_proto::backend_v1::welcome_message::{Version, WelcomePointer};
+
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+
+    let package = bo
+        .context
+        .identity()
+        .new_key_package(&bo.context.mls_provider(), true)?;
+    let public_key = package.pq_pub_key.as_deref().unwrap();
+    let pointer = WelcomePointerProto {
+        version: Some(
+            xmtp_proto::xmtp::mls::message_contents::welcome_pointer::Version::WelcomeV1Pointer(
+                WelcomeV1Pointer {
+                    destination: xmtp_common::rand_vec::<32>(),
+                    aead_type: WelcomePointeeEncryptionAeadType::Chacha20Poly1305.into(),
+                    encryption_key: vec![0x42; 64 * 1024],
+                    data_nonce: xmtp_common::rand_vec::<12>(),
+                    welcome_metadata_nonce: xmtp_common::rand_vec::<12>(),
+                },
+            ),
+        ),
+    };
+    let encrypted = wrap_payload_hpke(
+        &pointer.encode_to_vec(),
+        &[],
+        public_key,
+        WrapperAlgorithm::XWingMLKEM768Draft6,
+        WELCOME_HPKE_LABEL,
+    )?
+    .0;
+    alix.context
+        .api()
+        .send_welcome_messages(&[xmtp_proto::backend_v1::WelcomeMessage {
+            version: Some(Version::WelcomePointer(WelcomePointer {
+                installation_key: bo.context.installation_id().to_vec(),
+                welcome_pointer: encrypted,
+                hpke_public_key: public_key.to_vec(),
+                wrapper_algorithm: WelcomePointerWrapperAlgorithm::XwingMlkem768Draft6.into(),
+            })),
+        }])
+        .await?;
+    let welcome = alix
+        .context
+        .api()
+        .query_welcome_messages(bo.context.installation_id())
+        .await?
+        .pop()
+        .expect("published pointer");
+    pending_welcome_for_test(&bo.context, &welcome).await?;
+
+    let outcome = WelcomeService::new(bo.context.clone())
+        .resolve_pending_welcome(welcome.cursor)
+        .await?;
+    assert!(matches!(
+        outcome,
+        WelcomeHeadOutcome::Progress {
+            result: Err(crate::groups::GroupError::ConversionError(_)),
+            ..
+        }
+    ));
+    let topic = xmtp_db::incoming_envelope::StreamTopic {
+        entity_id: bo.context.installation_id().to_vec(),
+        kind: xmtp_db::incoming_envelope::NetworkEntityKind::Welcome,
+    };
+    let db = bo.context.db();
+    assert!(db.pending_envelope(&topic, welcome.cursor)?.is_none());
+    assert_eq!(
+        db.read_last_rejection(&topic)?.unwrap().code,
+        "invalid_welcome"
+    );
+}
+
 #[xmtp_common::timeout(Duration::from_secs(20))]
 #[rstest::rstest]
 #[xmtp_common::test(unwrap_try = true)]
@@ -514,7 +597,7 @@ async fn test_welcome_pointer_resolution_to_another_welcome_pointer() {
 /// day of retention whose deadline survives retries past the fetch deadline.
 /// Transiently missing pointees and legacy retry states cannot shorten that hold;
 /// if the pointee remains missing after the hold expires, it is rejected.
-// verifies: JOIN-087, JOIN-063
+// verifies: JOIN-094, JOIN-087, JOIN-063
 #[xmtp_common::timeout(Duration::from_secs(40))]
 #[rstest::rstest]
 #[case::supported(false)]

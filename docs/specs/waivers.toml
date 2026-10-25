@@ -400,13 +400,6 @@ issue = "TBD-octane-tracking"
 reason = "An installation whose addressing extension does not decode fails the whole operation instead of being left out of the add."
 
 [[waiver]]
-id = "JOIN-094"
-kind = "gap"
-owner = "Nicholas Molnar"
-issue = "TBD-octane-tracking"
-reason = "Pointer holds do not separate well-formed pointers from malformed ones, so a malformed pointer is held for retrieval instead of being rejected under JOIN-048."
-
-[[waiver]]
 id = "SEND-023"
 kind = "gap"
 owner = "Nicholas Molnar"
