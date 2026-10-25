@@ -1,17 +1,17 @@
 #![allow(dead_code)]
-use crate::scw_verifier::SmartContractSignatureVerifier;
+use crate::scw_verifier::{ScwInput, SmartContractSignatureVerifier};
 
 use super::{
-    AccountId, Action, AddAssociation, ClaimHandle, CreateInbox, IdentityUpdate, RevokeAssociation,
-    SignatureError,
+    AccountId, Action, AddAssociation, ChangeRecoveryIdentity, ClaimHandle, CreateInbox,
+    IdentityUpdate, RevokeAssociation, SignatureError,
     unsigned_actions::{
         SignatureTextCreator, UnsignedAction, UnsignedAddAssociation,
         UnsignedChangeRecoveryAddress, UnsignedClaimHandle, UnsignedCreateInbox,
         UnsignedIdentityUpdate, UnsignedRevokeAssociation,
     },
     verified_signature::VerifiedSignature,
+    verify_updates::{self, Checks},
 };
-use futures::future::try_join_all;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct UnverifiedIdentityUpdate {
@@ -29,7 +29,7 @@ impl UnverifiedIdentityUpdate {
         }
     }
 
-    fn signature_text(&self) -> String {
+    pub(crate) fn signature_text(&self) -> String {
         let unsigned_actions = self
             .actions
             .iter()
@@ -44,32 +44,19 @@ impl UnverifiedIdentityUpdate {
         unsigned_identity_update.signature_text()
     }
 
-    fn signatures(&self) -> Vec<UnverifiedSignature> {
-        self.actions
-            .iter()
-            .flat_map(|action| action.signatures())
-            .collect()
-    }
-
+    /// Verify every signature of the update as
+    /// [`verify_updates`](super::verify_updates()) verifies a list: every check
+    /// that needs no chain first, then one
+    /// [`SmartContractSignatureVerifier::verify_many`] call for the distinct
+    /// ERC-6492 inputs.
     // implements: IDENT-020
     pub async fn to_verified(
         &self,
         scw_verifier: impl SmartContractSignatureVerifier,
     ) -> Result<IdentityUpdate, SignatureError> {
-        let signature_text = self.signature_text();
-
-        let actions: Vec<Action> = try_join_all(
-            self.actions
-                .iter()
-                .map(|action| action.to_verified(&signature_text, &scw_verifier)),
-        )
-        .await?;
-
-        Ok(IdentityUpdate::new(
-            actions,
-            self.inbox_id.clone(),
-            self.client_timestamp_ns,
-        ))
+        let mut verified =
+            verify_updates::verify_all(std::slice::from_ref(self), scw_verifier).await?;
+        Ok(verified.remove(0))
     }
 }
 
@@ -103,78 +90,77 @@ impl UnverifiedAction {
         }
     }
 
-    fn signatures(&self) -> Vec<UnverifiedSignature> {
+    /// The action's signatures in field order. [`Self::verified`] takes their
+    /// verified forms back in this order.
+    pub(crate) fn signatures(&self) -> Vec<&UnverifiedSignature> {
         match self {
-            UnverifiedAction::CreateInbox(action) => {
-                vec![action.initial_identifier_signature.clone()]
-            }
+            UnverifiedAction::CreateInbox(action) => vec![&action.initial_identifier_signature],
             UnverifiedAction::AddAssociation(action) => vec![
-                action.existing_member_signature.clone(),
-                action.new_member_signature.clone(),
+                &action.existing_member_signature,
+                &action.new_member_signature,
             ],
             UnverifiedAction::RevokeAssociation(action) => {
-                vec![action.recovery_identifier_signature.clone()]
+                vec![&action.recovery_identifier_signature]
             }
             UnverifiedAction::ChangeRecoveryAddress(action) => {
-                vec![action.recovery_identifier_signature.clone()]
+                vec![&action.recovery_identifier_signature]
             }
-            UnverifiedAction::ClaimHandle(action) => vec![action.signature.clone()],
+            UnverifiedAction::ClaimHandle(action) => vec![&action.signature],
         }
     }
 
-    pub async fn to_verified<Text: AsRef<str>>(
+    /// The action with each signature replaced by its verified form, which
+    /// `next` returns in the order of [`Self::signatures`].
+    pub(crate) fn verified(
         &self,
-        signature_text: Text,
-        scw_verifier: impl SmartContractSignatureVerifier,
+        mut next: impl FnMut() -> Result<VerifiedSignature, SignatureError>,
     ) -> Result<Action, SignatureError> {
-        let action = match self {
+        Ok(match self {
             UnverifiedAction::CreateInbox(action) => Action::CreateInbox(CreateInbox {
                 nonce: action.unsigned_action.nonce,
                 account_identifier: action.unsigned_action.account_identifier.clone(),
-                initial_identifier_signature: action
-                    .initial_identifier_signature
-                    .to_verified(signature_text.as_ref(), &scw_verifier)
-                    .await?,
+                initial_identifier_signature: next()?,
             }),
-            UnverifiedAction::AddAssociation(action) => Action::AddAssociation(AddAssociation {
-                new_member_signature: action
-                    .new_member_signature
-                    .to_verified(signature_text.as_ref(), &scw_verifier)
-                    .await?,
-                new_member_identifier: action.unsigned_action.new_member_identifier.clone(),
-                existing_member_signature: action
-                    .existing_member_signature
-                    .to_verified(signature_text.as_ref(), &scw_verifier)
-                    .await?,
-            }),
+            UnverifiedAction::AddAssociation(action) => {
+                let existing_member_signature = next()?;
+                let new_member_signature = next()?;
+                Action::AddAssociation(AddAssociation {
+                    new_member_signature,
+                    new_member_identifier: action.unsigned_action.new_member_identifier.clone(),
+                    existing_member_signature,
+                })
+            }
             UnverifiedAction::RevokeAssociation(action) => {
                 Action::RevokeAssociation(RevokeAssociation {
-                    recovery_identifier_signature: action
-                        .recovery_identifier_signature
-                        .to_verified(signature_text.as_ref(), &scw_verifier)
-                        .await?,
+                    recovery_identifier_signature: next()?,
                     revoked_member: action.unsigned_action.revoked_member.clone(),
                 })
             }
             UnverifiedAction::ChangeRecoveryAddress(action) => {
-                Action::ChangeRecoveryIdentity(super::ChangeRecoveryIdentity {
-                    recovery_identifier_signature: action
-                        .recovery_identifier_signature
-                        .to_verified(signature_text.as_ref(), &scw_verifier)
-                        .await?,
+                Action::ChangeRecoveryIdentity(ChangeRecoveryIdentity {
+                    recovery_identifier_signature: next()?,
                     new_recovery_identifier: action.unsigned_action.new_recovery_identifier.clone(),
                 })
             }
             UnverifiedAction::ClaimHandle(action) => Action::ClaimHandle(ClaimHandle {
                 handle: action.unsigned_action.handle.clone(),
-                signature: action
-                    .signature
-                    .to_verified(signature_text.as_ref(), &scw_verifier)
-                    .await?,
+                signature: next()?,
             }),
-        };
+        })
+    }
 
-        Ok(action)
+    /// Verify the action's signatures over `signature_text` as
+    /// [`UnverifiedIdentityUpdate::to_verified`] verifies an update's.
+    pub async fn to_verified<Text: AsRef<str>>(
+        &self,
+        signature_text: Text,
+        scw_verifier: impl SmartContractSignatureVerifier,
+    ) -> Result<Action, SignatureError> {
+        let signature_text = signature_text.as_ref();
+        let mut checks = Checks::default();
+        checks.add(signature_text, self)?;
+        let verdicts = verify_updates::verdicts(scw_verifier, checks.inputs()).await?;
+        checks.bind(&verdicts)?.action(signature_text, self)
     }
 }
 
@@ -267,6 +253,14 @@ impl UnverifiedClaimHandle {
     }
 }
 
+/// A signature checked as far as it can be checked without a chain.
+pub(crate) enum Checked {
+    /// A signature whose verification needs no chain, verified.
+    Verified(VerifiedSignature),
+    /// An ERC-6492 signature, whose verdict needs a chain.
+    Scw(ScwInput),
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum UnverifiedSignature {
     InstallationKey(UnverifiedInstallationKeySignature),
@@ -276,39 +270,53 @@ pub enum UnverifiedSignature {
 }
 
 impl UnverifiedSignature {
+    /// Verify the signature over `signature_text`. An ERC-6492 signature's
+    /// input is checked before the verifier is called.
     // implements: IDENT-030
     pub async fn to_verified<Text: AsRef<str>>(
         &self,
         signature_text: Text,
         scw_verifier: impl SmartContractSignatureVerifier,
     ) -> Result<VerifiedSignature, SignatureError> {
-        match self {
-            UnverifiedSignature::InstallationKey(sig) => VerifiedSignature::from_installation_key(
-                signature_text,
-                &sig.signature_bytes,
-                *sig.verifying_key(),
-            ),
-            UnverifiedSignature::RecoverableEcdsa(sig) => {
-                VerifiedSignature::from_recoverable_ecdsa(signature_text, &sig.signature_bytes)
-            }
-            UnverifiedSignature::SmartContractWallet(sig) => {
-                VerifiedSignature::from_smart_contract_wallet(
+        let signature_text = signature_text.as_ref();
+        let mut checks = Checks::default();
+        checks.add_signature(signature_text, self)?;
+        let verdicts = verify_updates::verdicts(scw_verifier, checks.inputs()).await?;
+        checks.bind(&verdicts)?.signature(signature_text)
+    }
+
+    /// Check the signature over `signature_text` as far as it can be checked
+    /// without a chain: a signature of any other kind is verified, and an
+    /// ERC-6492 signature's input passes every check before chain access.
+    /// Does no I/O; a failure is permanent.
+    pub(crate) fn check(&self, signature_text: &str) -> Result<Checked, SignatureError> {
+        Ok(match self {
+            UnverifiedSignature::InstallationKey(sig) => {
+                Checked::Verified(VerifiedSignature::from_installation_key(
                     signature_text,
-                    scw_verifier,
                     &sig.signature_bytes,
-                    sig.account_id.clone(),
-                    &mut Some(sig.block_number),
-                )
-                .await
+                    *sig.verifying_key(),
+                )?)
             }
-            UnverifiedSignature::Passkey(sig) => VerifiedSignature::from_passkey(
-                signature_text,
-                &sig.public_key,
-                &sig.signature,
-                &sig.authenticator_data,
-                &sig.client_data_json,
+            UnverifiedSignature::RecoverableEcdsa(sig) => Checked::Verified(
+                VerifiedSignature::from_recoverable_ecdsa(signature_text, &sig.signature_bytes)?,
             ),
-        }
+            UnverifiedSignature::SmartContractWallet(sig) => Checked::Scw(ScwInput::checked(
+                sig.account_id.clone(),
+                alloy::primitives::eip191_hash_message(signature_text).into(),
+                sig.signature_bytes.clone().into(),
+                Some(sig.block_number),
+            )?),
+            UnverifiedSignature::Passkey(sig) => {
+                Checked::Verified(VerifiedSignature::from_passkey(
+                    signature_text,
+                    &sig.public_key,
+                    &sig.signature,
+                    &sig.authenticator_data,
+                    &sig.client_data_json,
+                )?)
+            }
+        })
     }
 
     pub fn new_recoverable_ecdsa(signature: Vec<u8>) -> Self {

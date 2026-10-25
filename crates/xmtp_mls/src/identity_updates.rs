@@ -5,11 +5,11 @@ use crate::{
     groups::group_membership::{GroupMembership, MembershipDiff},
     identity::{IdentityError, IdentityExt},
 };
-use futures::future::try_join_all;
+use futures::{StreamExt, TryStreamExt, stream};
 use std::collections::{HashMap, HashSet};
 use thiserror::Error;
 use xmtp_common::{Event, Retry, RetryableError, retry_async, retryable};
-use xmtp_configuration::MAX_IDENTITY_UPDATE_ACTIONS;
+use xmtp_configuration::{IDENTITY_DEPENDENCY_CONCURRENCY, MAX_IDENTITY_UPDATE_ACTIONS};
 use xmtp_cryptography::CredentialSign;
 use xmtp_db::StorageError;
 use xmtp_db::XmtpDb;
@@ -24,6 +24,7 @@ use xmtp_id::{
         unverified::{
             UnverifiedIdentityUpdate, UnverifiedInstallationKeySignature, UnverifiedSignature,
         },
+        verify_updates,
     },
     scw_verifier::SmartContractSignatureVerifier,
 };
@@ -244,27 +245,32 @@ pub async fn apply_signature_request_with_verifier<ApiClient: XmtpApi>(
 /// Get the association state for all provided `inbox_id`/optional `sequence_id` tuples, using the cache when available
 /// If the association state is not available in the cache, this falls back to reconstructing the association state
 /// from Identity Updates in the network.
+///
+/// At most [`IDENTITY_DEPENDENCY_CONCURRENCY`] states are derived at once, and
+/// the states are returned in the order of `identifiers`.
 pub async fn batch_get_association_state_with_verifier(
     conn: &impl DbQuery,
     identifiers: &[(impl AsIdRef, Option<i64>)],
     scw_verifier: &impl SmartContractSignatureVerifier,
 ) -> Result<Vec<AssociationState>, ClientError> {
-    let association_states = try_join_all(
-        identifiers
-            .iter()
-            .map(|(inbox_id, to_sequence_id)| {
-                get_association_state_with_verifier(
-                    conn,
-                    inbox_id.as_ref(),
-                    *to_sequence_id,
-                    scw_verifier,
-                )
-            })
-            .collect::<Vec<_>>(),
-    )
-    .await?;
-
-    Ok(association_states)
+    // Each read is a future that starts only when `buffered` polls it. They
+    // are collected first: a stream that maps the borrowed identifiers is not
+    // `Send` for every lifetime that callers such as the SDK need.
+    let reads: Vec<_> = identifiers
+        .iter()
+        .map(|(inbox_id, to_sequence_id)| {
+            get_association_state_with_verifier(
+                conn,
+                inbox_id.as_ref(),
+                *to_sequence_id,
+                scw_verifier,
+            )
+        })
+        .collect();
+    stream::iter(reads)
+        .buffered(IDENTITY_DEPENDENCY_CONCURRENCY)
+        .try_collect()
+        .await
 }
 
 impl<'a, Context> IdentityUpdates<Context>
@@ -274,20 +280,31 @@ where
     /// Get the association state for all provided `inbox_id`/optional `sequence_id` tuples, using the cache when available
     /// If the association state is not available in the cache, this falls back to reconstructing the association state
     /// from Identity Updates in the network.
+    ///
+    /// At most [`IDENTITY_DEPENDENCY_CONCURRENCY`] states are derived at once,
+    /// and the states are returned in the order of `identifiers`.
     pub async fn batch_get_association_state(
         &self,
         conn: &impl DbQuery,
         identifiers: &[(impl AsIdRef, Option<i64>)],
     ) -> Result<Vec<AssociationState>, ClientError> {
-        try_join_all(identifiers.iter().map(|(inbox_id, to_sequence_id)| {
-            get_association_state_for_client(
-                &self.context,
-                conn,
-                inbox_id.as_ref(),
-                *to_sequence_id,
-            )
-        }))
-        .await
+        // Collected first for the reason given in
+        // `batch_get_association_state_with_verifier`.
+        let reads: Vec<_> = identifiers
+            .iter()
+            .map(|(inbox_id, to_sequence_id)| {
+                get_association_state_for_client(
+                    &self.context,
+                    conn,
+                    inbox_id.as_ref(),
+                    *to_sequence_id,
+                )
+            })
+            .collect();
+        stream::iter(reads)
+            .buffered(IDENTITY_DEPENDENCY_CONCURRENCY)
+            .try_collect()
+            .await
     }
 
     /// Get the latest association state available on the network for the given `inbox_id`
@@ -930,11 +947,7 @@ where
     let scw_verifier = scw_verifier
         .unwrap_or_else(|| Box::new(api_client.clone()) as Box<dyn SmartContractSignatureVerifier>);
 
-    let updates: Vec<_> = updates
-        .iter()
-        .map(|u| u.to_verified(&scw_verifier))
-        .collect();
-    let updates = try_join_all(updates).await?;
+    let updates = verify_updates(updates, &scw_verifier).await?;
 
     for update in updates {
         association_state =
@@ -1070,7 +1083,27 @@ pub(crate) mod tests {
 
     use xmtp_common::rand_vec;
 
-    use super::{is_member_of_association_state, load_identity_updates};
+    use super::{
+        batch_get_association_state_with_verifier, is_member_of_association_state,
+        load_identity_updates,
+    };
+    use alloy::primitives::{BlockNumber, Bytes};
+    use prost::Message;
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+    use xmtp_id::{
+        associations::{
+            AccountId, Identifier,
+            unsigned_actions::UnsignedCreateInbox,
+            unverified::{UnverifiedAction, UnverifiedCreateInbox, UnverifiedIdentityUpdate},
+        },
+        scw_verifier::{
+            ScwInput, SmartContractSignatureVerifier, ValidationResponse, VerifierError,
+        },
+    };
+    use xmtp_proto::xmtp::identity::associations::IdentityUpdate as IdentityUpdateProto;
 
     async fn get_association_state<Context>(
         client: &Client<Context>,
@@ -1981,6 +2014,127 @@ pub(crate) mod tests {
         // Verify the installation was revoked
         let association_state_final = get_association_state(&client, client.inbox_id()).await;
         assert_eq!(association_state_final.installation_ids().len(), 0);
+    }
+
+    /// Inboxes [`store_scw_inboxes`] stores for each batch read.
+    const INBOXES: u64 = 20;
+
+    /// Records the most verify batches in flight at once. The batch for the
+    /// inbox created at block `n` yields `INBOXES - n` times, so later inboxes
+    /// finish first.
+    #[derive(Default)]
+    struct BatchesInFlight {
+        now: AtomicUsize,
+        most: AtomicUsize,
+    }
+
+    #[xmtp_common::async_trait]
+    impl SmartContractSignatureVerifier for BatchesInFlight {
+        async fn is_valid_signature(
+            &self,
+            account_id: AccountId,
+            hash: [u8; 32],
+            signature: Bytes,
+            block_number: Option<BlockNumber>,
+        ) -> Result<ValidationResponse, VerifierError> {
+            let input = ScwInput::checked(account_id, hash, signature, block_number)?;
+            Ok(self.verify_many(&[input]).await?.remove(0))
+        }
+
+        async fn verify_many(
+            &self,
+            inputs: &[ScwInput],
+        ) -> Result<Vec<ValidationResponse>, VerifierError> {
+            let now = self.now.fetch_add(1, Ordering::SeqCst) + 1;
+            self.most.fetch_max(now, Ordering::SeqCst);
+            for _ in inputs[0].block_number().unwrap_or_default()..INBOXES {
+                xmtp_common::task::yield_now().await;
+            }
+            self.now.fetch_sub(1, Ordering::SeqCst);
+            Ok(inputs
+                .iter()
+                .map(|_| ValidationResponse {
+                    is_valid: true,
+                    block_number: Some(1),
+                    error: None,
+                })
+                .collect())
+        }
+    }
+
+    /// Store [`INBOXES`] inboxes, the one at index `n` created by a smart
+    /// contract wallet at block `n`, and return their identifiers in order.
+    fn store_scw_inboxes<C: ConnectionExt>(conn: &DbConnection<C>) -> Vec<(String, Option<i64>)> {
+        (0..INBOXES)
+            .map(|block| {
+                let wallet = Identifier::rand_ethereum();
+                let inbox_id = wallet.inbox_id(0).unwrap();
+                let create = UnverifiedAction::CreateInbox(UnverifiedCreateInbox::new(
+                    UnsignedCreateInbox {
+                        nonce: 0,
+                        account_identifier: wallet.clone(),
+                    },
+                    UnverifiedSignature::new_smart_contract_wallet(
+                        vec![1],
+                        AccountId::new_evm(1, wallet.to_string()),
+                        block,
+                    ),
+                ));
+                let update = IdentityUpdateProto::from(UnverifiedIdentityUpdate::new(
+                    inbox_id.clone(),
+                    1,
+                    vec![create],
+                ));
+                conn.insert_or_ignore_identity_updates(&[StoredIdentityUpdate::new(
+                    inbox_id.clone(),
+                    1,
+                    0,
+                    update.encode_to_vec(),
+                )])
+                .unwrap();
+                (inbox_id, None)
+            })
+            .collect()
+    }
+
+    /// A batch read of many inboxes derives at most eight states at once, so
+    /// a group's members never open one verify batch each at the same time.
+    /// The states come back in the order of the identifiers, although later
+    /// ones finish first.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn batch_association_state_reads_keep_eight_in_flight() {
+        let verifier = Arc::new(BatchesInFlight::default());
+        let client = ClientBuilder::new_test_builder(&generate_local_wallet())
+            .await
+            .with_scw_verifier(verifier.clone())
+            .build()
+            .await?;
+        let conn = client.context.db();
+        let inbox_ids = |identifiers: &[(String, Option<i64>)]| {
+            identifiers
+                .iter()
+                .map(|(inbox_id, _)| inbox_id.clone())
+                .collect::<Vec<_>>()
+        };
+        let state_ids = |states: Vec<AssociationState>| {
+            states
+                .iter()
+                .map(|state| state.inbox_id().to_string())
+                .collect::<Vec<_>>()
+        };
+
+        let identifiers = store_scw_inboxes(&conn);
+        let states =
+            batch_get_association_state_with_verifier(&conn, &identifiers, &verifier).await?;
+        assert_eq!(verifier.most.swap(0, Ordering::SeqCst), 8);
+        assert_eq!(state_ids(states), inbox_ids(&identifiers));
+
+        let identifiers = store_scw_inboxes(&conn);
+        let states = IdentityUpdates::new(&client.context)
+            .batch_get_association_state(&conn, &identifiers)
+            .await?;
+        assert_eq!(verifier.most.load(Ordering::SeqCst), 8);
+        assert_eq!(state_ids(states), inbox_ids(&identifiers));
     }
 }
 
