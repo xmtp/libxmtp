@@ -132,6 +132,7 @@ async fn restored_dm_backup_stub_activates_with_archived_history() {
     assert!(bo.group(&dm.group_id)?.is_active()?);
 }
 
+// verifies: JOIN-089
 #[xmtp_common::test(unwrap_try = true)]
 async fn restored_foreign_pair_rejects_different_welcome_pair() {
     use xmtp_db::group::{GroupMembershipState, QueryGroup};
@@ -167,6 +168,7 @@ async fn restored_foreign_pair_rejects_different_welcome_pair() {
     // A rejected Welcome keeps the archived record in use.
 }
 
+// verifies: JOIN-089
 #[xmtp_common::test(unwrap_try = true)]
 async fn restored_group_rejects_dm_welcome_kind_change() {
     use xmtp_db::group::{ConversationType, GroupMembershipState, QueryGroup};

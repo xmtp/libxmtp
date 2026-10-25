@@ -383,21 +383,20 @@ where
         }
         self.validator.check_verified_membership(&membership, &db)?;
         // implements: JOIN-089
-        // A Restored row carries historical identity. A Welcome can activate
-        // it only when its authenticated kind and DM pair are unchanged.
+        // A held row's conversation type and dm id never change through a
+        // Welcome, for a Restored placeholder and a live group alike. This runs
+        // before the Oneshot branch and the cursor and epoch gate, so a changed
+        // identity is rejected at once and never held for the group's topic.
         let group_id = GroupId::try_from(staged_welcome.group_context().group_id())?;
         let existing_group = db.find_group(&group_id)?;
-        if let Some(existing) = &existing_group
-            && existing.membership_state == GroupMembershipState::Restored
-        {
+        if let Some(existing) = &existing_group {
             if existing.conversation_type != metadata.conversation_type {
                 return Err(GroupError::InvalidWelcomeMetadata);
             }
             if existing.conversation_type == ConversationType::Dm {
-                let archived_pair =
-                    crate::groups::parse_canonical_dm_id(existing.dm_id.as_deref())?;
+                let stored_pair = crate::groups::parse_canonical_dm_id(existing.dm_id.as_deref())?;
                 if metadata.dm_members.as_ref().map(String::from).as_deref()
-                    != Some(archived_pair.to_string().as_str())
+                    != Some(stored_pair.to_string().as_str())
                 {
                     return Err(MetadataPermissionsError::from(
                         crate::groups::DmValidationError::StoredDmIdMismatch,
@@ -433,8 +432,12 @@ where
             if processed == anchor && !current.is_active() && current.epoch() <= incoming_epoch {
                 anchor_mode = JoinAnchorMode::InactiveReadd;
             }
+            // implements: JOIN-042
+            // A lower epoch is a stale branch whatever anchor the sender chose,
+            // so it never moves the stored cursor or drops queued envelopes.
             if processed > anchor
                 || (processed == anchor && anchor_mode != JoinAnchorMode::InactiveReadd)
+                || current.epoch() > incoming_epoch
                 || (active && current.epoch() >= incoming_epoch)
             {
                 return Err(ProcessIntentError::WelcomeAlreadyProcessed(welcome.cursor).into());
@@ -1016,6 +1019,246 @@ mod tests {
         send_crafted_welcome(&alix, &bo, &joined_id, Some(&root)).await;
         let joined = process_newest_welcome(&bo).await?.expect("a group");
         assert_eq!(joined.group_id.as_slice(), joined_id.as_slice());
+    }
+
+    fn welcome_topic(client: &crate::utils::FullXmtpClient) -> StreamTopic {
+        StreamTopic {
+            entity_id: client.context.installation_id().to_vec(),
+            kind: NetworkEntityKind::Welcome,
+        }
+    }
+
+    /// Assert that `client` rejected its newest Welcome for good.
+    async fn assert_newest_welcome_rejected(client: &crate::utils::FullXmtpClient) {
+        let newest = client
+            .context
+            .api()
+            .query_welcome_messages(client.context.installation_id())
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|welcome| welcome.cursor)
+            .max()
+            .expect("a published Welcome");
+        let rejected = client
+            .context
+            .db()
+            .read_last_rejection(&welcome_topic(client))
+            .unwrap()
+            .expect("a terminal rejection");
+        assert_eq!(rejected.sequence_id, newest);
+        assert_eq!(rejected.code, "invalid_welcome");
+    }
+
+    /// A former member can offer a second MLS branch under the group's root,
+    /// at a lower epoch than the removed copy and with an anchor past the
+    /// removal. It is rejected for good, and the removed copy keeps its
+    /// epoch, its cursor, and the envelopes queued after the removal.
+    // verifies: JOIN-042
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn inactive_group_rejects_stale_branch_and_keeps_pending_prefix() {
+        use crate::utils::test::crafted_welcome::send_crafted_welcome_with_anchor;
+        use xmtp_db::incoming_envelope::QueryIncomingEnvelope;
+        use xmtp_mls_common::app_data::group_root::read_group_root;
+        use xmtp_proto::types::{OrderedEnvelopeBatch, Topic};
+
+        tester!(alix, disable_workers);
+        tester!(bo, disable_workers);
+        let alix_group = alix.create_group(None, None)?;
+        let root = read_group_root(alix_group.load_group_context()?.extensions())?
+            .expect("a new group carries its root");
+        alix_group.invite(&bo).await?;
+        let bo_group = bo.sync_welcomes().await?.pop().expect("initial Welcome");
+        bo_group.sync().await?;
+        alix_group.remove_members(&[bo.inbox_id()]).await?;
+        let _ = bo_group.sync().await;
+        assert!(!bo_group.is_active()?, "the removal must be applied");
+
+        let db = bo.context.db();
+        let topic = StreamTopic::group(bo_group.group_id);
+        let before = db.topic_progress(&topic)?;
+        let old_epoch = bo_group.epoch().await?;
+        assert!(old_epoch > 1, "the crafted branch joins at epoch one");
+
+        // Admit a real group envelope after the removal without processing it.
+        // The forged anchor names this pending network position.
+        alix_group.send_msg(b"after removal").await;
+        let wire_topic = Topic::new_group_message(bo_group.group_id);
+        let envelopes = bo
+            .context
+            .api()
+            .query_all(
+                [(wire_topic.clone(), before.received)].into(),
+                bo.context.api().limits().max_query_limit as u32,
+            )
+            .await?;
+        assert_eq!(envelopes.len(), 1);
+        bo.mls_store().admit_incoming_batch(
+            &OrderedEnvelopeBatch {
+                topic: wire_topic,
+                after: before.received,
+                envelopes,
+            },
+            bo.context
+                .incoming_runtime()
+                .policy()
+                .incoming_limits(topic.kind),
+        )?;
+        let forged_anchor = db.topic_progress(&topic)?.received;
+        assert!(before.processed < forged_anchor);
+        assert!(db.pending_envelope(&topic, forged_anchor)?.is_some());
+
+        send_crafted_welcome_with_anchor(
+            &alix,
+            &bo,
+            alix_group.group_id.as_slice(),
+            &root,
+            forged_anchor.0,
+        )
+        .await;
+        let result = process_newest_welcome(&bo).await;
+        assert!(
+            matches!(
+                result,
+                Err(GroupError::ProcessIntent(
+                    ProcessIntentError::WelcomeAlreadyProcessed(_)
+                ))
+            ),
+            "{result:?}"
+        );
+        assert_newest_welcome_rejected(&bo).await;
+        assert!(!bo_group.is_active()?);
+        assert_eq!(bo_group.epoch().await?, old_epoch);
+        assert_eq!(db.topic_progress(&topic)?.processed, before.processed);
+        assert!(db.pending_envelope(&topic, forged_anchor)?.is_some());
+    }
+
+    /// A removed former member reuses the group's root to offer a DM under
+    /// the group's id. The Welcome is rejected for good before anything is
+    /// installed: the stored row, MLS state, and cursor stay as they were, and
+    /// the removed group still cannot send.
+    // verifies: JOIN-089
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn replacement_welcome_cannot_change_conversation_type() {
+        use crate::utils::test::crafted_welcome::send_crafted_dm_welcome_with_peer;
+        use xmtp_mls_common::app_data::group_root::read_group_root;
+
+        tester!(alix, disable_workers);
+        tester!(bo, disable_workers);
+        tester!(caro, disable_workers);
+
+        let original = alix.create_group(None, None)?;
+        original.invite(&caro).await?;
+        let caro_group = caro.sync_welcomes().await?.pop().expect("Caro joined");
+        let retained_root = read_group_root(caro_group.load_group_context()?.extensions())?
+            .expect("the original group has a root");
+        original.invite(&bo).await?;
+        let bo_group = bo.sync_welcomes().await?.pop().expect("Bo joined");
+        original.remove_members(&[caro.inbox_id()]).await?;
+        original.remove_members(&[bo.inbox_id()]).await?;
+        bo_group.sync_with_conn().await?;
+        assert!(!bo_group.is_active()?);
+        let row_before_forgery = bo
+            .context
+            .db()
+            .find_group(&original.group_id)?
+            .expect("stored");
+        assert_eq!(
+            row_before_forgery.conversation_type,
+            ConversationType::Group
+        );
+        let anchor = bo_group.cursor().await?;
+        let prior_epoch = bo_group.epoch().await?;
+
+        // Caro's DM with Bo, at the next epoch and anchored at Bo's cursor,
+        // passes every check a same-type re-add Welcome would.
+        send_crafted_dm_welcome_with_peer(
+            &caro,
+            &bo,
+            original.group_id.as_slice(),
+            &retained_root,
+            bo.inbox_id(),
+            anchor.0,
+            prior_epoch,
+        )
+        .await;
+        let result = process_newest_welcome(&bo).await;
+        assert!(
+            matches!(result, Err(GroupError::InvalidWelcomeMetadata)),
+            "{result:?}"
+        );
+        assert_newest_welcome_rejected(&bo).await;
+        assert_eq!(
+            bo.context.db().find_group(&original.group_id)?,
+            Some(row_before_forgery)
+        );
+        assert!(!bo_group.is_active()?);
+        assert_eq!(bo_group.epoch().await?, prior_epoch);
+        assert_eq!(bo_group.cursor().await?, anchor);
+        assert!(
+            bo_group
+                .send_message(b"for the original group", Default::default())
+                .await
+                .is_err()
+        );
+        assert!(
+            bo.context
+                .api()
+                .query_group_messages(original.group_id)
+                .await?
+                .iter()
+                .all(|message| message.cursor <= anchor),
+            "nothing is published after the forged Welcome"
+        );
+    }
+
+    /// A member of a live DM holds its root and can offer a DM under its id
+    /// with another pair. The client rejects it for good at once instead of
+    /// holding it for the DM's topic, and keeps the DM it holds.
+    // verifies: JOIN-089
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn live_dm_rejects_welcome_with_another_pair() {
+        use crate::groups::DmValidationError;
+        use crate::utils::test::crafted_welcome::send_crafted_dm_welcome_with_peer;
+        use xmtp_mls_common::app_data::group_root::read_group_root;
+
+        tester!(alix, disable_workers);
+        tester!(bo, disable_workers);
+        tester!(caro, disable_workers);
+        let alix_dm = alix.find_or_create_dm(bo.inbox_id(), None).await?;
+        let bo_dm = bo.sync_welcomes().await?.pop().expect("Bo joined the DM");
+        assert!(bo_dm.is_active()?);
+        let root = read_group_root(alix_dm.load_group_context()?.extensions())?
+            .expect("a new DM carries its root");
+        let row_before = bo.context.db().find_group(&alix_dm.group_id)?;
+        let cursor_before = bo_dm.cursor().await?;
+        let epoch_before = bo_dm.epoch().await?;
+
+        send_crafted_dm_welcome_with_peer(
+            &alix,
+            &bo,
+            alix_dm.group_id.as_slice(),
+            &root,
+            caro.inbox_id(),
+            1,
+            0,
+        )
+        .await;
+        let result = process_newest_welcome(&bo).await;
+        assert!(
+            matches!(
+                result,
+                Err(GroupError::MetadataPermissionsError(
+                    MetadataPermissionsError::DmValidation(DmValidationError::StoredDmIdMismatch)
+                ))
+            ),
+            "{result:?}"
+        );
+        assert_newest_welcome_rejected(&bo).await;
+        assert_eq!(bo.context.db().find_group(&alix_dm.group_id)?, row_before);
+        assert_eq!(bo_dm.cursor().await?, cursor_before);
+        assert_eq!(bo_dm.epoch().await?, epoch_before);
+        alix_dm.test_can_talk_with(&bo_dm).await?;
     }
 
     // verifies: JOIN-044
