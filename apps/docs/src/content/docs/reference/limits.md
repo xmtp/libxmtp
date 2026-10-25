@@ -33,7 +33,7 @@ the configured maximum.
 | Newest-envelope topics, full envelopes                 | `limits.max_newest_full_topics`     |     100 |
 | Identifiers in one inbox-ID lookup                     | `limits.max_lookup_identifiers`     |     250 |
 | Signatures in one smart-contract-wallet verify request | `limits.max_scw_signatures`         |     100 |
-| Bytes in one smart-contract-wallet signature           | fixed                               |  16,384 |
+| Bytes in one smart-contract-wallet signature           | fixed                               |  47,232 |
 | Identity-update entries per inbox                      | `limits.max_identity_entries`       |     256 |
 
 Request and response bytes cannot exceed the fixed 25 MiB transport ceiling.

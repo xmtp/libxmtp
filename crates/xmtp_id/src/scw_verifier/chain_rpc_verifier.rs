@@ -50,21 +50,21 @@ impl RpcSmartContractWalletVerifier {
     }
 }
 
-/// The code that validates `input` off chain: the universal signature
-/// validator followed by its constructor arguments. For every input
-/// [`ScwInput::checked`] accepts, it is shorter than EIP-3860's initcode limit.
-fn initcode(input: &ScwInput) -> Result<Vec<u8>, VerifierError> {
+/// The code that validates `signature` off chain: the universal signature
+/// validator followed by its constructor arguments. For every signature
+/// [`ScwInput::checked`] accepts, it fits EIP-3860's initcode limit, and for
+/// a signature one byte longer it does not.
+fn initcode(
+    account_address: &str,
+    hash: [u8; 32],
+    signature: Bytes,
+) -> Result<Vec<u8>, VerifierError> {
     let code = hex::decode(VALIDATE_SIG_OFFCHAIN_BYTECODE.trim())?;
-    let account_address: Address = input
-        .account_id()
-        .get_account_address()
+    let account_address: Address = account_address
         .parse()
         .map_err(|_| FromHexError::InvalidStringLength)?;
-    let call = VerifySig::constructorCall::new((
-        account_address,
-        FixedBytes::<32>::new(input.hash()),
-        input.signature().clone(),
-    ));
+    let call =
+        VerifySig::constructorCall::new((account_address, FixedBytes::<32>::new(hash), signature));
     Ok([code, call.abi_encode()].concat())
 }
 
@@ -79,7 +79,11 @@ impl SmartContractSignatureVerifier for RpcSmartContractWalletVerifier {
         block_number: Option<BlockNumber>,
     ) -> Result<ValidationResponse, VerifierError> {
         let input = ScwInput::checked(signer, hash, signature, block_number)?;
-        let data = initcode(&input)?;
+        let data = initcode(
+            input.account_id().get_account_address(),
+            input.hash(),
+            input.signature().clone(),
+        )?;
         let block_number = match input.block_number() {
             Some(bn) => bn,
             None => self
@@ -208,42 +212,45 @@ pub(crate) mod tests {
         assert!(asserter.read_q().is_empty(), "the provider was not called");
     }
 
-    /// A signature longer than the cap is refused for good before the
-    /// verifier builds code from it, and the longest signature the cap
-    /// admits builds initcode a chain still executes.
+    /// The cap is the verifier's ceiling: the longest signature it admits
+    /// builds initcode a chain still executes, and one byte more would build
+    /// initcode no chain executes. A signature over the cap is refused for
+    /// good before the verifier builds code from it.
     // verifies: IDENT-093
     #[xmtp_common::test(unwrap_try = true)]
     async fn oversized_scw_signature_is_rejected_before_provider() {
+        let address = format!("0x{}", "1".repeat(40));
+        let initcode_bytes = |length| {
+            initcode(&address, [0; 32], vec![0; length].into()).map(|initcode| initcode.len())
+        };
+        let at_cap = initcode_bytes(MAX_SCW_SIGNATURE_BYTES)?;
+        assert!(at_cap <= EIP3860_MAX_INITCODE_BYTES, "{at_cap} bytes");
+        let over_cap = initcode_bytes(MAX_SCW_SIGNATURE_BYTES + 1)?;
+        assert!(over_cap > EIP3860_MAX_INITCODE_BYTES, "{over_cap} bytes");
+
         let (verifier, asserter) = mocked_verifier();
-        let account = AccountId::new_evm(1, format!("0x{}", "1".repeat(40)));
-        for length in [MAX_SCW_SIGNATURE_BYTES + 1, EIP3860_MAX_INITCODE_BYTES + 1] {
-            let Err(error) = verifier
-                .is_valid_signature(account.clone(), [0; 32], vec![0; length].into(), Some(1))
-                .await
-            else {
-                panic!("a {length}-byte signature must not verify");
-            };
-            assert!(
-                matches!(error, VerifierError::SignatureTooLong(got) if got == length),
-                "{error}"
-            );
-            assert!(!error.is_retryable());
-        }
+        let account = AccountId::new_evm(1, address.clone());
+        let length = MAX_SCW_SIGNATURE_BYTES + 1;
+        let Err(error) = verifier
+            .is_valid_signature(account.clone(), [0; 32], vec![0; length].into(), Some(1))
+            .await
+        else {
+            panic!("a {length}-byte signature must not verify");
+        };
+        assert!(
+            matches!(error, VerifierError::SignatureTooLong(got) if got == length),
+            "{error}"
+        );
+        assert!(!error.is_retryable());
         assert_eq!(asserter.read_q().len(), 1, "the provider was called");
 
-        let longest = ScwInput::checked(
-            account.clone(),
-            [0; 32],
-            vec![0; MAX_SCW_SIGNATURE_BYTES].into(),
-            Some(1),
-        )?;
-        let initcode_bytes = initcode(&longest)?.len();
-        assert!(
-            initcode_bytes <= EIP3860_MAX_INITCODE_BYTES,
-            "{initcode_bytes} bytes of initcode"
-        );
         let reached = verifier
-            .is_valid_signature(account, [0; 32], longest.signature().clone(), Some(1))
+            .is_valid_signature(
+                account,
+                [0; 32],
+                vec![0; MAX_SCW_SIGNATURE_BYTES].into(),
+                Some(1),
+            )
             .await;
         assert!(matches!(reached, Err(VerifierError::Provider(_))));
         assert!(asserter.read_q().is_empty(), "the provider was not called");

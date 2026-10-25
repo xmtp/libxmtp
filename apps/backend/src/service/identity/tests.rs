@@ -381,13 +381,11 @@ async fn scw_signature_limit_accepts_exact_count_and_rejects_one_past() {
 /// An entry that no chain can verify fails the whole request with
 /// `INVALID_ARGUMENT` before the first verifier call, even behind a valid
 /// entry: a zero or non-`eip155` account, whose verdict would be any
-/// signature's, and a signature longer than the cap, from which the verifier
-/// would build code of the caller's length. The longest signature the cap
-/// admits gets its verdict.
+/// signature's, and a signature longer than the cap, whose verification code
+/// no chain executes. The longest signature the cap admits gets its verdict.
 // verifies: API-301, IDENT-093
 #[xmtp_common::test(unwrap_try = true)]
 async fn scw_verify_request_rejects_unverifiable_inputs_before_verification() {
-    const EIP3860_MAX_INITCODE_BYTES: usize = 49_152;
     const ACCOUNT: &str = "eip155:1:0x1111111111111111111111111111111111111111";
     let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let server =
@@ -417,7 +415,6 @@ async fn scw_verify_request_rejects_unverifiable_inputs_before_verification() {
             65,
         ),
         entry(ACCOUNT, MAX_SCW_SIGNATURE_BYTES + 1),
-        entry(ACCOUNT, EIP3860_MAX_INITCODE_BYTES + 1),
     ] {
         let error = verify(vec![entry(ACCOUNT, 65), unverifiable.clone()])
             .await
