@@ -84,9 +84,10 @@ pub(in crate::groups) async fn calculate_membership_changes_with_keypackages<'a>
     ))
 }
 
-/// Drop the configured installations' packages, as if the backend served none.
+/// Drop the configured installations' packages, as if the backend served none,
+/// and put each configured unchecked package in place of its installation's.
 #[cfg(any(test, feature = "test-utils"))]
-pub(super) fn inject_failed_installations_for_test(
+pub(super) fn inject_test_key_packages(
     key_packages: &mut HashMap<
         Vec<u8>,
         Result<
@@ -95,8 +96,16 @@ pub(super) fn inject_failed_installations_for_test(
         >,
     >,
 ) {
-    let malformed = crate::utils::test_mocks_helpers::get_test_mode_malformed_installations();
+    use crate::utils::test_mocks_helpers::{
+        get_test_mode_malformed_installations, test_mode_unchecked_key_package,
+    };
+    let malformed = get_test_mode_malformed_installations();
     key_packages.retain(|id, _| !malformed.contains(id));
+    for (id, served) in key_packages.iter_mut() {
+        if let Some(package) = test_mode_unchecked_key_package(id) {
+            *served = Ok(package);
+        }
+    }
 }
 
 /// Fetch a key package for every requested installation except this one.
@@ -127,7 +136,7 @@ pub(super) async fn get_keypackages_for_installation_ids(
         .await?;
 
     #[cfg(any(test, feature = "test-utils"))]
-    inject_failed_installations_for_test(&mut key_packages);
+    inject_test_key_packages(&mut key_packages);
 
     // implements: JOIN-093, JOIN-012, GMOD-009
     for (installation_id, owner_inbox_ids) in requested {

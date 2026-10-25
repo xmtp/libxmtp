@@ -77,6 +77,69 @@ async fn unknown_pointer_aead_value_is_ignored() {
     );
 }
 
+/// A member applies a commit that adds a key package which fails the
+/// addressing checks. Only senders run those checks: members that disagreed
+/// about a key package in a commit would fork the group. Alix skips them
+/// here, as a client from before them would.
+#[cfg(not(target_arch = "wasm32"))]
+#[xmtp_common::test(unwrap_try = true)]
+// verifies: JOIN-090
+async fn commit_adding_unusable_package_is_applied_by_members() {
+    use crate::groups::mls_ext::WelcomePointersExtension;
+    use crate::utils::{
+        key_package_with_extensions, test_mocks_helpers::set_test_mode_unchecked_key_package,
+    };
+    use openmls::prelude::{Extension, KeyPackageIn, UnknownExtension, tls_codec::Deserialize};
+    use openmls_traits::OpenMlsProvider;
+    use xmtp_configuration::WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID;
+    use xmtp_cryptography::configuration::MLS_PROTOCOL_VERSION;
+    use xmtp_id::key_package::{VerifiedKeyPackageV2, WrapperEncryptionExtension};
+    use xmtp_proto::xmtp::identity::MlsCredential;
+
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    tester!(caro, disable_workers);
+    let alix_group = alix
+        .create_group_with_members(&[caro.inbox_id()], None, None)
+        .await?;
+    caro.sync_welcomes().await?;
+    let caro_group = caro.group(&alix_group.group_id)?;
+
+    // Bo's package carries a pointee AEAD extension that does not decode.
+    let bytes = key_package_with_extensions(
+        &bo.context,
+        vec![Extension::Unknown(
+            WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID,
+            UnknownExtension(vec![0xff]),
+        )],
+    );
+    let inner = KeyPackageIn::tls_deserialize_exact(&bytes)?
+        .validate(bo.context.mls_provider().crypto(), MLS_PROTOCOL_VERSION)?;
+    assert!(VerifiedKeyPackageV2::try_from(inner.clone()).is_err());
+    set_test_mode_unchecked_key_package(VerifiedKeyPackageV2 {
+        credential: MlsCredential {
+            inbox_id: bo.inbox_id().to_string(),
+        },
+        installation_public_key: bo.installation_public_key().to_vec(),
+        wrapper: WrapperEncryptionExtension::advertised_by(&inner)?,
+        pointee_aead: WelcomePointersExtension::empty(),
+        inner,
+    });
+
+    alix_group.add_members(&[bo.inbox_id()]).await?;
+    caro_group.sync().await?;
+    let caro_members: Vec<String> = caro_group
+        .members()
+        .await?
+        .into_iter()
+        .map(|member| member.inbox_id)
+        .collect();
+    assert!(
+        caro_members.contains(&bo.inbox_id().to_string()),
+        "Caro must apply the commit that adds Bo"
+    );
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_create_from_welcome_validation() {
