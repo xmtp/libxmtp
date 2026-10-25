@@ -403,28 +403,36 @@ async fn classical_tester() -> crate::utils::ClientTester {
 /// A failed configuration check before dispatch sent nothing. Its status is
 /// neither a backend refusal, which ends an intent, nor an `OUT_OF_RANGE`
 /// that needs a recovery read. The same status from the backend is both.
-#[rstest::rstest]
-#[case::invalid_argument(tonic::Code::InvalidArgument)]
-#[case::out_of_range(tonic::Code::OutOfRange)]
+///
+/// The codes run in a loop, not as `#[rstest]` cases: this sync test is in
+/// the wasm32 binary, where `RSTEST_TIMEOUT` makes rstest run a sync case on
+/// a spawned thread, which wasm32 cannot do.
 #[xmtp_common::test]
-fn a_failed_configuration_check_is_not_a_backend_status(#[case] code: tonic::Code) {
-    let status = || {
-        xmtp_proto::api::ApiClientError::client(xmtp_api_grpc::error::GrpcError::Status(
-            tonic::Status::new(code, "injected"),
-        ))
-    };
-    let classify = |error: &xmtp_api::ApiError| (definite_refusal(error), out_of_range(error));
-    let backend = xmtp_api::dyn_err(status());
-    assert_eq!(
-        classify(&backend),
-        (
-            code == tonic::Code::InvalidArgument,
-            code == tonic::Code::OutOfRange
-        )
-    );
-    let preflight =
-        xmtp_api::ApiError::Preflight(xmtp_api::preflight::PreflightError::new(status()));
-    assert_eq!(classify(&preflight), (false, false));
+fn a_failed_configuration_check_is_not_a_backend_status() {
+    for code in [tonic::Code::InvalidArgument, tonic::Code::OutOfRange] {
+        let status = || {
+            xmtp_proto::api::ApiClientError::client(xmtp_api_grpc::error::GrpcError::Status(
+                tonic::Status::new(code, "injected"),
+            ))
+        };
+        let classify = |error: &xmtp_api::ApiError| (definite_refusal(error), out_of_range(error));
+        let backend = xmtp_api::dyn_err(status());
+        assert_eq!(
+            classify(&backend),
+            (
+                code == tonic::Code::InvalidArgument,
+                code == tonic::Code::OutOfRange
+            ),
+            "{code:?} from the backend"
+        );
+        let preflight =
+            xmtp_api::ApiError::Preflight(xmtp_api::preflight::PreflightError::new(status()));
+        assert_eq!(
+            classify(&preflight),
+            (false, false),
+            "{code:?} from a configuration check"
+        );
+    }
 }
 
 /// A smaller deployment limit can leave saved Welcome bytes that no longer
