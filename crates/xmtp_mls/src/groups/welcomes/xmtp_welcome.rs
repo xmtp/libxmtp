@@ -466,7 +466,7 @@ where
             &added_by_installation_id,
             context.server_configuration().commit_log_enabled(),
         )?;
-        // implements: FORK-084
+        // implements: FORK-089
         // A Welcome carries no prior publisher tenure history. Its authenticated
         // group-message anchor is the boundary for this installed membership.
         let publisher_boundary =
@@ -599,6 +599,8 @@ where
             Cursor(prior_membership_cutoff as u64),
         )?;
         db.update_cursor(group_id, EntityKind::CommitLogPublisherRecovery, Cursor(1))?;
+        // This membership has an authenticated Welcome boundary instead of a legacy floor.
+        db.set_commit_log_reader_epoch_floor(&group_id, 0)?;
         stored_group.should_publish_commit_log = should_publish;
         let consent_entity = hex::encode(stored_group.id);
         let prior_consent = db.get_consent_record(

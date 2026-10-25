@@ -386,13 +386,17 @@ where
         let recovery = crate::state_tx::state_write(self.context.mls_storage(), |tx| {
             tx.with_group(*conversation_id, |group, storage| {
                 use crate::groups::mls_ext::CommitLogStorer;
-                group
-                    .recover_commit_log_publisher(&storage.db(), self.context.inbox_id().as_ref())
-                    .map_err(GroupError::from)
+                let db = storage.db();
+                let permits = group
+                    .recover_commit_log_publisher(&db, self.context.inbox_id().as_ref())
+                    .map_err(GroupError::from)?;
+                // Bound this batch to the same state that authorized publication.
+                // Keep cursor read errors outside the per-conversation recovery fallback.
+                Ok::<_, GroupError>((permits, db.get_local_commit_log_cursor(conversation_id)))
             })
             .map(Continue)
         });
-        let permits = match recovery {
+        let (permits, local_commit_log_cursor) = match recovery {
             Ok(outcome) => outcome.into_continued(),
             Err(error) if error.needs_db_reconnect() => return Err(error.into()),
             Err(error) => {
@@ -410,9 +414,7 @@ where
         }
         // Propagate read errors (incl. a dropped pool) to the supervisor; a
         // missing cursor legitimately defaults to 0.
-        let local_commit_log_cursor = conn
-            .get_local_commit_log_cursor(conversation_id)?
-            .unwrap_or(0);
+        let local_commit_log_cursor = local_commit_log_cursor?.unwrap_or(0);
         let membership_floor = conn
             .get_latest_chain_start_rowid(conversation_id)?
             .unwrap_or(0) as u64;
@@ -430,11 +432,12 @@ where
 
         // Local commit log entries are returned sorted in ascending order of `rowid`
         // All local commit log will have rowid > 0 since sqlite rowid starts at 1 https://www.sqlite.org/autoinc.html
-        let logs = conn.get_local_commit_log_after_cursor(
+        let mut logs = conn.get_local_commit_log_after_cursor(
             conversation_id,
             published_commit_log_cursor as i64,
             LocalCommitLogOrder::AscendingByRowid,
         )?;
+        logs.retain(|log| log.rowid <= local_commit_log_cursor);
         let Some(max_rowid) = logs.last().map(|log| log.rowid) else {
             return Ok(None);
         };
@@ -674,7 +677,7 @@ where
         keys: &GroupKeys,
         entries: Vec<DecodedCommitLogEntry>,
     ) -> Result<(usize, bool), CommitLogError> {
-        // implements: FORK-078
+        // implements: FORK-087
         // Read the durable processed position before loading the tree. Commits
         // and their positions share a transaction, so this tree cannot precede
         // the position against which the hold is checked.
@@ -684,13 +687,15 @@ where
                 &[xmtp_db::refresh_state::EntityKind::ApplicationMessage],
             )?
             .0;
-        let (active, publishers, boundaries) =
+        let (active, publishers, boundaries, reader_epoch_floor) =
             crate::state_tx::state_write(self.context.mls_storage(), |tx| {
                 tx.with_group(*group_id, |g, storage| {
+                    use crate::groups::mls_ext::CommitLogStorer;
                     Ok::<_, GroupError>((
                         g.is_active(),
                         ForkActors::from_group(g)?.publisher_keys(g)?,
                         storage.db().get_commit_log_publisher_boundaries(group_id)?,
+                        g.initialize_commit_log_reader_epoch(&storage.db())?,
                     ))
                 })
                 .map(Continue)
@@ -709,6 +714,11 @@ where
                 evaluated_to = Some(decoded.cursor);
                 continue;
             };
+            // implements: FORK-087
+            if log_entry.applied_epoch_number < reader_epoch_floor {
+                evaluated_to = Some(decoded.cursor);
+                continue;
+            }
             if active && log_entry.commit_sequence_id > processed {
                 held = true;
                 break;
@@ -1423,5 +1433,146 @@ mod stored_cursor_tests {
     #[xmtp_common::test(unwrap_try = true)]
     fn a_conversation_with_only_skipped_rows_moves_past_them() {
         assert_eq!(conversation(2, 0).stored_cursor(0), Some(5));
+    }
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod publication_snapshot_tests {
+    use super::*;
+    use crate::groups::UpdateAdminListType::{AddSuper, RemoveSuper};
+    use crate::tester;
+    use std::sync::{Arc, Mutex, mpsc};
+    use xmtp_db::mock::MockDbQuery;
+
+    // verifies: FORK-085
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn publication_excludes_a_demotion_applied_after_its_authority_snapshot() {
+        tester!(alix, disable_workers);
+        tester!(bo, disable_workers);
+        let a = alix
+            .create_group_with_members(&[bo.inbox_id()], None, None)
+            .await?;
+        bo.sync_welcomes().await?;
+        let b = bo.group(&a.group_id)?;
+        a.update_admin_list(AddSuper, bo.inbox_id().to_string())
+            .await?;
+        b.sync().await?;
+        let mut worker = CommitLogWorker::new(alix.context.clone());
+        worker.publish_commit_logs_to_remote().await?;
+
+        a.update_group_name("pending before demotion".into())
+            .await?;
+        b.sync().await?;
+        let pending = alix.context.db().get_latest_log_for_group(&a.group_id)??;
+        b.update_admin_list(RemoveSuper, alix.inbox_id().to_string())
+            .await?;
+        let demotion = bo.context.db().get_latest_log_for_group(&a.group_id)??;
+
+        let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
+        let (resume_tx, resume_rx) = mpsc::channel();
+        let gate = Arc::new(Mutex::new(Some((ready_tx, resume_rx))));
+        let pause = Arc::new(move || {
+            let barrier = gate.lock().unwrap().take();
+            if let Some((ready, resume)) = barrier {
+                ready.send(()).unwrap();
+                resume.recv_timeout(Duration::from_secs(30)).unwrap();
+            }
+        });
+        let context = alix.context.clone();
+        let group_id = a.group_id;
+        let preparation = std::thread::spawn(move || {
+            let mut conn = MockDbQuery::new();
+            // Forward every read to the real database. Pause at the first read
+            // outside the state transaction, even if the maximum-row read is
+            // incorrectly moved out of that transaction in a future change.
+            let db = context.db();
+            let pause_cursor = pause.clone();
+            conn.expect_get_local_commit_log_cursor()
+                .returning(move |id| {
+                    pause_cursor();
+                    db.get_local_commit_log_cursor(id)
+                });
+            let db = context.db();
+            conn.expect_get_latest_chain_start_rowid()
+                .returning(move |id| {
+                    pause();
+                    db.get_latest_chain_start_rowid(id)
+                });
+            let db = context.db();
+            conn.expect_get_last_cursor()
+                .returning(move |id, kind| db.get_last_cursor(id, kind));
+            let db = context.db();
+            conn.expect_get_local_commit_log_after_cursor()
+                .returning(move |id, cursor, order| {
+                    db.get_local_commit_log_after_cursor(id, cursor, order)
+                });
+            CommitLogWorker::new(context)
+                .prepare_conversation_publish(&conn, &group_id)
+                .unwrap()
+                .unwrap()
+        });
+
+        xmtp_common::time::timeout(Duration::from_secs(30), ready_rx).await??;
+        a.sync().await?;
+        assert!(
+            !alix
+                .context
+                .db()
+                .find_group(&a.group_id)??
+                .should_publish_commit_log
+        );
+        assert_eq!(
+            alix.context
+                .db()
+                .get_latest_log_for_group(&a.group_id)??
+                .commit_sequence_id,
+            demotion.commit_sequence_id
+        );
+        resume_tx.send(())?;
+        let prepared = preparation.join().unwrap();
+
+        let mut stored = Vec::new();
+        alix.context
+            .api()
+            .publish_commit_log(prepared.entries, &mut stored)
+            .await?;
+        let keys = worker.group_keys(&a.group_id)??;
+        let topic = Topic::new_commit_log(keys.commit_log_id());
+        let remote = alix
+            .context
+            .api()
+            .query_commit_log([(topic, Cursor(0))].into())
+            .await?;
+        let entries = remote
+            .iter()
+            .map(|entry| {
+                open_entry(
+                    &keys,
+                    a.group_id.as_slice(),
+                    entry.cursor.0,
+                    entry.sealed.as_ref().unwrap(),
+                )
+                .unwrap()
+            })
+            .collect::<Vec<_>>();
+        assert!(
+            entries
+                .iter()
+                .any(|entry| entry.commit_sequence_id == pending.commit_sequence_id as u64)
+        );
+        assert!(
+            entries
+                .iter()
+                .all(|entry| entry.commit_sequence_id != demotion.commit_sequence_id as u64)
+        );
+        assert_eq!(
+            prepared.cursor_info.stored_cursor(stored.len()),
+            Some(i64::from(pending.rowid))
+        );
+        assert!(
+            worker
+                .prepare_conversation_publish(&alix.context.db(), &a.group_id)?
+                .is_none()
+        );
     }
 }

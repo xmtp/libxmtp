@@ -1599,7 +1599,7 @@ async fn test_consecutive_entries_verification_happy_case() {
     // the one commit-log id their shared root derives.
 }
 
-// verifies: FORK-078
+// verifies: FORK-087
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_member_cannot_poison_the_commit_log() {
     tester!(alix, with_commit_log_worker: false);
@@ -1797,7 +1797,7 @@ async fn a_readded_publisher_does_not_publish_its_earlier_membership() {
         && entry.commit_sequence_id > previous));
 }
 
-// verifies: FORK-078
+// verifies: FORK-087
 #[xmtp_common::test(unwrap_try = true)]
 async fn an_entry_ahead_of_the_reader_is_held() {
     tester!(alix, disable_workers);
@@ -1849,7 +1849,7 @@ async fn an_entry_ahead_of_the_reader_is_held() {
     );
 }
 
-// verifies: FORK-078
+// verifies: FORK-087
 #[xmtp_common::test(unwrap_try = true)]
 async fn an_inactive_reader_does_not_hold() {
     tester!(alix, disable_workers);
@@ -1883,7 +1883,7 @@ async fn an_inactive_reader_does_not_hold() {
     );
 }
 
-// verifies: FORK-030, FORK-078
+// verifies: FORK-030, FORK-087
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_held_entry_stops_later_pages_of_its_topic() {
     tester!(alix, disable_workers);
@@ -1981,7 +1981,7 @@ async fn a_held_entry_stops_later_pages_of_its_topic() {
     );
 }
 
-// verifies: FORK-078, FORK-083, FORK-085
+// verifies: FORK-087, FORK-083, FORK-085
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_publisher_handover_keeps_the_log_readable() {
     use crate::groups::UpdateAdminListType::{AddSuper, RemoveSuper};
@@ -2304,13 +2304,13 @@ async fn assert_returning_publisher_progresses(change: PublisherReturn) {
     }
 }
 
-// verifies: FORK-083, FORK-084
+// verifies: FORK-083, FORK-089
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_repromoted_publisher_keeps_old_and_new_readers_progressing() {
     assert_returning_publisher_progresses(PublisherReturn::Role).await;
 }
 
-// verifies: FORK-083, FORK-084
+// verifies: FORK-083, FORK-089
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_readded_publisher_keeps_old_and_new_readers_progressing() {
     assert_returning_publisher_progresses(PublisherReturn::Readd).await;

@@ -61,6 +61,12 @@ pub trait CommitLogStorer: std::marker::Sized {
         commit_log_enabled: bool,
     ) -> Result<(), GroupMessageProcessingError>;
 
+    /// Retain a one-time epoch admission baseline for an existing membership.
+    fn initialize_commit_log_reader_epoch(
+        &self,
+        db: &impl xmtp_db::DbQuery,
+    ) -> Result<u64, GroupMessageProcessingError>;
+
     /// Recover legacy publication eligibility once, in the caller's state transaction.
     fn recover_commit_log_publisher(
         &self,
@@ -124,6 +130,11 @@ impl CommitLogStorer for MlsGroup {
             EntityKind::CommitLogPublisherRecovery,
             Cursor(1),
         )?;
+
+        provider
+            .key_store()
+            .db()
+            .set_commit_log_reader_epoch_floor(&group_id, 0)?;
 
         Ok(mls_group)
     }
@@ -218,6 +229,7 @@ impl CommitLogStorer for MlsGroup {
                 .map_err(|_| GroupMessageProcessingError::GroupInactive)?,
         )?;
         let db = provider.key_store().db();
+        self.initialize_commit_log_reader_epoch(&db)?;
         let permitted_before = self.recover_commit_log_publisher(&db, &publisher_inbox)?;
         let publishers_before = if !metadata.super_admins_added.is_empty()
             || !metadata.super_admins_removed.is_empty()
@@ -240,7 +252,7 @@ impl CommitLogStorer for MlsGroup {
             db.update_cursor(group_id, EntityKind::CommitLogUpload, Cursor(cursor as u64))?;
         }
         db.set_should_publish_commit_log(&group_id, permits)?;
-        // implements: FORK-084
+        // implements: FORK-089
         if let Some(previous) = publishers_before {
             let publishers = actors.publisher_keys(self)?;
             let mut boundaries = db.get_commit_log_publisher_boundaries(&group_id)?;
@@ -326,6 +338,25 @@ impl CommitLogStorer for MlsGroup {
         }
 
         Ok(())
+    }
+
+    // implements: FORK-088
+    fn initialize_commit_log_reader_epoch(
+        &self,
+        db: &impl xmtp_db::DbQuery,
+    ) -> Result<u64, GroupMessageProcessingError> {
+        let group_id: GroupId = self.group_id().try_into()?;
+        if let Some(state) =
+            db.get_refresh_state(group_id, EntityKind::CommitLogReaderEpochFloor)?
+        {
+            return Ok(u64::try_from(state.sequence_id).map_err(|_| StorageError::DbDeserialize)?);
+        }
+        // The public context advances on removal even though the removed
+        // reader retains older MLS secrets. Log envelopes use the group root.
+        let epoch = self.epoch().as_u64();
+        let stored_epoch = i64::try_from(epoch).map_err(|_| StorageError::DbSerialize)?;
+        db.set_commit_log_reader_epoch_floor(&group_id, stored_epoch)?;
+        Ok(epoch)
     }
 
     // implements: FORK-085, FORK-086

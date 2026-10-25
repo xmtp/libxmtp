@@ -167,15 +167,17 @@ async fn legacy_publisher_recovery_preserves_the_eligible_backlog(
     }
     // Run the real down migration and remove its tracking row. Reopening each
     // file runs pending migrations before opening its cached identity.
-    for client in [&alix, &bo, &caro] {
+    // Caro is an already-current reader; the publishers upgrade independently.
+    for client in [&alix, &bo] {
         // The prior build had no publisher-boundary records.
         client
             .context
             .db()
             .raw_query(|conn| {
-                diesel::sql_query("DELETE FROM refresh_state WHERE entity_kind IN (?, ?)")
+                diesel::sql_query("DELETE FROM refresh_state WHERE entity_kind IN (?, ?, ?)")
                     .bind::<Integer, _>(EntityKind::CommitLogPublisherBoundary as i32)
                     .bind::<Integer, _>(EntityKind::CommitLogPublisherRecovery as i32)
+                    .bind::<Integer, _>(EntityKind::CommitLogReaderEpochFloor as i32)
                     .execute(conn)
             })
             .unwrap();
@@ -504,4 +506,274 @@ async fn legacy_recovery_excludes_history_before_an_unlogged_transition(#[case] 
             .any(|entry| entry.commit_sequence_id == connected_entry),
         "the provably connected suffix must still publish after an unlogged transition"
     );
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum LegacyReaderState {
+    Current,
+    Stale,
+    MergeBeforeRead,
+    MissingHistory,
+    Inactive,
+}
+
+// verifies: FORK-083, FORK-087, FORK-088, FORK-089
+#[rstest::rstest]
+#[case::current(LegacyReaderState::Current)]
+#[case::stale(LegacyReaderState::Stale)]
+#[case::merge_before_read(LegacyReaderState::MergeBeforeRead)]
+#[case::missing_history(LegacyReaderState::MissingHistory)]
+#[case::inactive(LegacyReaderState::Inactive)]
+#[xmtp_common::test(unwrap_try = true)]
+async fn legacy_readers_admit_returned_publishers_after_upgrade(#[case] state: LegacyReaderState) {
+    tester!(alix, disable_workers);
+    tester!(bo, persistent_db, disable_workers);
+    let logging = state != LegacyReaderState::MissingHistory;
+    tester!(caro, persistent_db, disable_workers, config_provider:
+    Arc::new(xmtp_configuration::StaticConfigProvider::edited(|configuration| {
+        configuration.mls.commit_log_enabled = Some(logging);
+    })));
+    let a = alix
+        .create_group_with_members(&[bo.inbox_id(), caro.inbox_id()], None, None)
+        .await
+        .unwrap();
+    bo.sync_welcomes().await.unwrap();
+    caro.sync_welcomes().await.unwrap();
+    let b = bo.group(&a.group_id).unwrap();
+    let c = caro.group(&a.group_id).unwrap();
+    b.update_consent_state(ConsentState::Allowed).unwrap();
+    c.update_consent_state(ConsentState::Allowed).unwrap();
+    a.update_admin_list(AddSuper, bo.inbox_id().to_string())
+        .await
+        .unwrap();
+    a.key_update().await.unwrap();
+    b.sync().await.unwrap();
+    c.sync().await.unwrap();
+    let prefix = b
+        .local_commit_log()
+        .await
+        .unwrap()
+        .last()
+        .unwrap()
+        .commit_sequence_id;
+    a.key_update().await.unwrap();
+    a.update_admin_list(RemoveSuper, bo.inbox_id().to_string())
+        .await
+        .unwrap();
+    a.update_admin_list(AddSuper, bo.inbox_id().to_string())
+        .await
+        .unwrap();
+    let promotion = a
+        .local_commit_log()
+        .await
+        .unwrap()
+        .last()
+        .unwrap()
+        .commit_sequence_id;
+    let stale_reader = matches!(
+        state,
+        LegacyReaderState::Stale | LegacyReaderState::MergeBeforeRead
+    );
+    if !stale_reader {
+        c.sync().await.unwrap();
+    }
+    let expected_first = if state == LegacyReaderState::Inactive {
+        a.remove_members(&[caro.inbox_id()]).await.unwrap();
+        c.sync().await.unwrap();
+        assert!(!c.is_active().unwrap());
+        a.local_commit_log()
+            .await
+            .unwrap()
+            .last()
+            .unwrap()
+            .commit_sequence_id
+    } else {
+        promotion
+    };
+    a.send_message(b"application traffic after the return", Default::default())
+        .await
+        .unwrap();
+    if !stale_reader && state != LegacyReaderState::Inactive {
+        c.sync().await.unwrap();
+    }
+    assert_eq!(
+        a.local_commit_log()
+            .await
+            .unwrap()
+            .last()
+            .unwrap()
+            .commit_sequence_id,
+        expected_first,
+        "application traffic must not add a hidden commit to the fixture"
+    );
+    let group_id = a.group_id;
+    if state == LegacyReaderState::MissingHistory {
+        assert!(c.local_commit_log().await.unwrap().is_empty());
+        caro.context
+            .db()
+            .clear_messages(Some(&[group_id]), None)
+            .unwrap();
+    }
+    for client in [&bo, &caro] {
+        client
+            .context
+            .db()
+            .raw_query(|conn| {
+                diesel::sql_query("DELETE FROM refresh_state WHERE entity_kind IN (?, ?, ?)")
+                    .bind::<Integer, _>(EntityKind::CommitLogPublisherBoundary as i32)
+                    .bind::<Integer, _>(EntityKind::CommitLogPublisherRecovery as i32)
+                    .bind::<Integer, _>(EntityKind::CommitLogReaderEpochFloor as i32)
+                    .execute(conn)?;
+                diesel::sql_query(
+                    "DELETE FROM refresh_state WHERE entity_id = ? AND entity_kind = ?",
+                )
+                .bind::<Binary, _>(group_id.as_slice())
+                .bind::<Integer, _>(EntityKind::CommitLogUpload as i32)
+                .execute(conn)
+            })
+            .unwrap();
+        client
+            .context
+            .db()
+            .rollback_to_version("20261025000000")
+            .unwrap();
+    }
+    let paths = [&bo, &caro].map(|client| match client.context.store().opts() {
+        StorageOption::Persistent(path) => path.clone(),
+        StorageOption::Ephemeral => panic!("upgrade test needs persistent storage"),
+    });
+    drop((b, c, bo, caro));
+    let bo = reopen_commit_log_client(&paths[0]).await;
+    let caro = reopen_commit_log_client(&paths[1]).await;
+    let b = bo.group(&group_id).unwrap();
+    let c = caro.group(&group_id).unwrap();
+    // B still sees its old publisher tenure. Reading must initialize independently
+    // of any publish attempt by the ordinary reader Caro.
+    CommitLogWorker::new(bo.context.clone())
+        .run_test(CommitLogTestFunction::PublishCommitLogsToRemote, None)
+        .await
+        .unwrap();
+    if state != LegacyReaderState::MergeBeforeRead {
+        CommitLogWorker::new(caro.context.clone())
+            .run_test(CommitLogTestFunction::SaveRemoteCommitLog, None)
+            .await
+            .unwrap();
+    }
+    a.key_update().await.unwrap();
+    let latest = a
+        .local_commit_log()
+        .await
+        .unwrap()
+        .last()
+        .unwrap()
+        .commit_sequence_id;
+    if state != LegacyReaderState::Inactive {
+        c.sync().await.unwrap();
+    }
+    // A read after a later applied epoch and a real restart must retain the
+    // original admission baseline, so the promotion/removal entry remains eligible.
+    drop((c, caro));
+    let caro = reopen_commit_log_client(&paths[1]).await;
+    b.sync().await.unwrap();
+    CommitLogWorker::new(bo.context.clone())
+        .run_test(CommitLogTestFunction::PublishCommitLogsToRemote, None)
+        .await
+        .unwrap();
+    CommitLogWorker::new(caro.context.clone())
+        .run_test(CommitLogTestFunction::SaveRemoteCommitLog, None)
+        .await
+        .unwrap();
+    let entries = caro
+        .context
+        .db()
+        .get_remote_commit_log_after_cursor(&group_id, 0, RemoteCommitLogOrder::AscendingByRowid)
+        .unwrap();
+    assert_eq!(
+        entries.last().map(|entry| entry.commit_sequence_id),
+        Some(latest),
+        "an upgraded reader must progress past a real publisher return"
+    );
+    assert!(
+        entries
+            .iter()
+            .any(|entry| entry.commit_sequence_id == expected_first),
+        "the initialized baseline must survive later commits/restart and admit the removal epoch for an inactive reader"
+    );
+    assert_eq!(
+        entries
+            .iter()
+            .any(|entry| entry.commit_sequence_id == prefix),
+        stale_reader,
+        "a current legacy reader discards the pre-return tip; a stale reader preserves its earlier baseline and observes the real future boundary"
+    );
+    if state == LegacyReaderState::Inactive {
+        assert!(
+            !entries
+                .iter()
+                .any(|entry| entry.commit_sequence_id == promotion),
+            "the inactive baseline is the public removal epoch, not the retained secret epoch"
+        );
+        let old_entry = b
+            .local_commit_log()
+            .await
+            .unwrap()
+            .into_iter()
+            .find(|entry| entry.commit_sequence_id == prefix)
+            .unwrap();
+        a.add_members(&[caro.inbox_id()]).await.unwrap();
+        let welcome_anchor = a
+            .local_commit_log()
+            .await
+            .unwrap()
+            .last()
+            .unwrap()
+            .commit_sequence_id;
+        b.sync().await.unwrap();
+        caro.sync_welcomes().await.unwrap();
+        // A valid publisher can attest a divergent older epoch for a commit in
+        // the new membership. The authenticated Welcome boundary, not the old
+        // legacy floor, now governs admission of this signed rejection.
+        let keys = xmtp_mls_common::app_data::group_root::group_keys_from_extensions(
+            b.load_group_context().unwrap().extensions(),
+        )
+        .unwrap();
+        let mut rejected =
+            xmtp_proto::xmtp::mls::message_contents::PlaintextCommitLogEntry::from(&old_entry);
+        rejected.commit_sequence_id = welcome_anchor as u64;
+        rejected.commit_result =
+            xmtp_proto::xmtp::mls::message_contents::CommitResult::WrongEpoch as i32;
+        rejected
+            .last_epoch_authenticator
+            .clone_from(&rejected.applied_epoch_authenticator);
+        xmtp_mls_common::commit_log::sign_entry_author(
+            &keys,
+            &bo.context.identity().installation_keys,
+            &mut rejected,
+        )
+        .unwrap();
+        let sealed = xmtp_mls_common::commit_log::seal_entry(&keys, &rejected).unwrap();
+        bo.context
+            .api()
+            .publish_commit_log(vec![sealed], &mut Vec::new())
+            .await
+            .unwrap();
+        CommitLogWorker::new(caro.context.clone())
+            .run_test(CommitLogTestFunction::SaveRemoteCommitLog, None)
+            .await
+            .unwrap();
+        let admitted = caro
+            .context
+            .db()
+            .get_latest_remote_log_for_group(&group_id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            admitted.commit_sequence_id, welcome_anchor,
+            "a replacement Welcome must reset the legacy epoch floor"
+        );
+        assert_eq!(
+            admitted.applied_epoch_number,
+            old_entry.applied_epoch_number
+        );
+    }
 }

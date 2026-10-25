@@ -146,6 +146,14 @@ pub enum RemoteCommitLogOrder {
 }
 
 pub trait QueryRemoteCommitLog {
+    /// Set the admission floor exactly, including reset to zero on a Welcome.
+    /// The caller must hold the corresponding MLS state transaction.
+    fn set_commit_log_reader_epoch_floor(
+        &self,
+        group_id: &GroupId,
+        epoch: i64,
+    ) -> Result<(), crate::ConnectionError>;
+
     fn get_commit_log_publisher_boundaries(
         &self,
         group_id: &GroupId,
@@ -176,6 +184,14 @@ impl<T> QueryRemoteCommitLog for &T
 where
     T: QueryRemoteCommitLog,
 {
+    fn set_commit_log_reader_epoch_floor(
+        &self,
+        group_id: &GroupId,
+        epoch: i64,
+    ) -> Result<(), crate::ConnectionError> {
+        (**self).set_commit_log_reader_epoch_floor(group_id, epoch)
+    }
+
     fn get_commit_log_publisher_boundaries(
         &self,
         group_id: &GroupId,
@@ -221,6 +237,27 @@ fn publisher_boundary_range(group_id: &GroupId) -> (Vec<u8>, Vec<u8>) {
 }
 
 impl<C: ConnectionExt> QueryRemoteCommitLog for DbConnection<C> {
+    fn set_commit_log_reader_epoch_floor(
+        &self,
+        group_id: &GroupId,
+        epoch: i64,
+    ) -> Result<(), crate::ConnectionError> {
+        use crate::schema::refresh_state::dsl as state;
+        self.raw_query(|db| {
+            diesel::insert_into(state::refresh_state)
+                .values((
+                    state::entity_id.eq(group_id.as_slice()),
+                    state::entity_kind.eq(EntityKind::CommitLogReaderEpochFloor),
+                    state::sequence_id.eq(epoch),
+                ))
+                .on_conflict((state::entity_id, state::entity_kind))
+                .do_update()
+                .set(state::sequence_id.eq(epoch))
+                .execute(db)?;
+            Ok(())
+        })
+    }
+
     fn get_commit_log_publisher_boundaries(
         &self,
         group_id: &GroupId,
