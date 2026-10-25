@@ -377,6 +377,8 @@ pub struct GroupQueryArgs {
     pub created_before_ns: Option<i64>,
     pub last_activity_after_ns: Option<i64>,
     pub last_activity_before_ns: Option<i64>,
+    /// No limit returns every matching group. Callers that need every group
+    /// (stream catch-up, barriers, device sync, commit-log scans) rely on it.
     pub limit: Option<i64>,
     pub conversation_type: Option<ConversationType>,
     pub consent_states: Option<Vec<ConsentState>>,
@@ -384,6 +386,11 @@ pub struct GroupQueryArgs {
     pub include_duplicate_dms: bool,
     pub should_publish_commit_log: Option<bool>,
     pub order_by: Option<GroupQueryOrderBy>,
+    /// Breaks ties at the list order's before time
+    /// ([`GroupQueryArgs::order_before_ns`]): a group at exactly that time is
+    /// returned only when its id is lower in byte order. It needs that before
+    /// time. Only `fetch_conversation_list` honors it; `find_groups` ignores it.
+    pub before_id: Option<GroupId>,
 }
 
 impl AsRef<GroupQueryArgs> for GroupQueryArgs {
@@ -412,7 +419,23 @@ impl GroupQueryArgs {
             ));
         }
 
+        if self.before_id.is_some() && self.order_before_ns().is_none() {
+            return Err(crate::ConnectionError::InvalidQuery(
+                "before_id needs the before time of the list order".to_string(),
+            ));
+        }
+
         Ok(())
+    }
+
+    /// The before time of the list order, which `before_id` breaks ties at:
+    /// `created_before_ns` in creation order, `last_activity_before_ns` in
+    /// activity order.
+    pub fn order_before_ns(&self) -> Option<i64> {
+        match self.order_by.clone().unwrap_or_default() {
+            GroupQueryOrderBy::CreatedAt => self.created_before_ns,
+            GroupQueryOrderBy::LastActivity => self.last_activity_before_ns,
+        }
     }
 }
 
@@ -810,6 +833,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
             last_activity_before_ns,
             should_publish_commit_log,
             order_by,
+            before_id: _,
         } = args.as_ref();
 
         // An empty filter names no consent state, so it matches no conversation.

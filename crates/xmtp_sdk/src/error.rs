@@ -672,6 +672,7 @@ impl XmtpError {
             ClientError::SignatureRequest(
                 source @ xmtp_id::associations::builder::SignatureRequestError::TooManyActions(_),
             ) => Self::invalid(source.to_string()),
+            ClientError::InvalidListOptions(reason) => Self::invalid_argument(*reason),
             _ => return None,
         })
     }

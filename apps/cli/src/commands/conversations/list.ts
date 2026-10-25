@@ -52,7 +52,8 @@ Use --created-after / --created-before to filter by creation time.`;
       description: "Filter by conversation type",
     })(),
     limit: Flags.integer({
-      description: "Maximum number of conversations to return",
+      description:
+        "Maximum number of conversations to return, from 1 to 1000 (default 100)",
       helpValue: "<number>",
     }),
     "consent-state": Flags.option({

@@ -4,10 +4,11 @@ use crate::group::{ConversationType, GroupMembershipState, GroupQueryArgs, Group
 use crate::group_message::{ContentType, GroupMessageKind};
 use crate::{DbConnection, StorageError};
 use diesel::query_builder::{BoxedSqlQuery, SqlQuery};
-use diesel::sql_types::{BigInt, Integer};
+use diesel::sql_types::{BigInt, Binary, Integer};
 use diesel::sqlite::Sqlite;
 use diesel::{QueryableByName, RunQueryDsl, sql_query};
 use serde::{Deserialize, Serialize};
+use xmtp_proto::types::GroupId;
 
 /// Content types whose application messages set a conversation's activity
 /// time.
@@ -28,7 +29,7 @@ pub const CONVERSATION_LIST_CONTENT_TYPES: &[ContentType] = &[
 pub struct ConversationListItem {
     /// Group ID.
     #[diesel(sql_type = diesel::sql_types::Binary)]
-    pub id: xmtp_proto::types::GroupId,
+    pub id: GroupId,
     /// Time of the Welcome.
     #[diesel(sql_type = BigInt)]
     pub created_at_ns: i64,
@@ -204,16 +205,22 @@ fn build_regular_list_query(head: &str, args: &GroupQueryArgs, current_time_ns: 
             .sql(" AND g.created_at_ns > ?")
             .bind::<BigInt, _>(after);
     }
+    // `before_id` breaks ties only at the before time of the list order.
+    let order = args.order_by.clone().unwrap_or_default();
     if let Some(before) = args.last_activity_before_ns {
+        let before_id = matches!(order, GroupQueryOrderBy::LastActivity)
+            .then_some(args.before_id)
+            .flatten();
         query = query
-            .sql(format!(" AND {activity} < ?"))
-            .bind::<BigInt, _>(current_time_ns)
-            .bind::<BigInt, _>(before);
+            .sql(format!(" AND ({activity}"))
+            .bind::<BigInt, _>(current_time_ns);
+        query = before_cursor(query, before, before_id);
     }
     if let Some(before) = args.created_before_ns {
-        query = query
-            .sql(" AND g.created_at_ns < ?")
-            .bind::<BigInt, _>(before);
+        let before_id = matches!(order, GroupQueryOrderBy::CreatedAt)
+            .then_some(args.before_id)
+            .flatten();
+        query = before_cursor(query.sql(" AND (g.created_at_ns"), before, before_id);
     }
     if let Some(conversation_type) = args.conversation_type {
         query = query
@@ -239,11 +246,30 @@ fn build_regular_list_query(head: &str, args: &GroupQueryArgs, current_time_ns: 
         }
     }
 
+    // implements: CONS-049
     query = query.sql(" ORDER BY listing_time_ns DESC, g.id DESC");
     if let Some(limit) = args.limit {
         query = query.sql(" LIMIT ?").bind::<BigInt, _>(limit);
     }
     query
+}
+
+/// Close a before condition whose open parenthesis and time expression
+/// `query` ends with. Without `before_id` it admits a time less than `before`.
+/// With it, it also admits a time equal to `before` with a group id lower in
+/// byte order, so a page resumes after the last row of the previous page even
+/// when other groups share that row's time.
+///
+/// Binds: `before`, then `before_id`.
+// implements: CONS-047
+fn before_cursor(query: ListQuery, before: i64, before_id: Option<GroupId>) -> ListQuery {
+    match before_id {
+        None => query.sql(") < ?").bind::<BigInt, _>(before),
+        Some(before_id) => query
+            .sql(", g.id) < (?, ?)")
+            .bind::<BigInt, _>(before)
+            .bind::<Binary, _>(before_id),
+    }
 }
 
 /// `head` is SQL placed before the statement.
@@ -384,6 +410,25 @@ pub(crate) mod tests {
                 plan.iter().any(|step| step
                     == "SEARCH gm USING COVERING INDEX group_messages_sent_at_id_sort (group_id=?)"),
                 "an activity-order list query does not seek the latest message index: {plan:#?}"
+            );
+            Ok(())
+        })?
+    }
+
+    /// Internal callers that name no limit need every group, so neither query
+    /// applies a default page size.
+    #[xmtp_common::test(unwrap_try = true)]
+    fn group_queries_without_limit_return_every_group() {
+        const GROUPS: usize = 150;
+        with_connection(|conn| -> Result<(), crate::StorageError> {
+            for _ in 0..GROUPS {
+                generate_group(None).store(conn)?;
+            }
+            assert_eq!(conn.find_groups(GroupQueryArgs::default())?.len(), GROUPS);
+            assert_eq!(
+                conn.fetch_conversation_list(GroupQueryArgs::default())?
+                    .len(),
+                GROUPS
             );
             Ok(())
         })?

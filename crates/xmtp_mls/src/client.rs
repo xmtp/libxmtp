@@ -39,7 +39,10 @@ use std::{
 use thiserror::Error;
 use xmtp_api::{ApiClientWrapper, XmtpApi};
 use xmtp_common::{ErrorCode, Event, Retry, retry_async, retryable};
-use xmtp_configuration::{CREATE_PQ_KEY_PACKAGE_EXTENSION, KEY_PACKAGE_ROTATION_INTERVAL_NS};
+use xmtp_configuration::{
+    CONVERSATION_LIST_DEFAULT_LIMIT, CREATE_PQ_KEY_PACKAGE_EXTENSION,
+    KEY_PACKAGE_ROTATION_INTERVAL_NS, LOCAL_PAGE_MAX_LIMIT,
+};
 use xmtp_cryptography::signature::IdentifierValidationError;
 use xmtp_db::TransactionOutcome::Continue;
 use xmtp_db::{
@@ -261,6 +264,13 @@ pub enum ClientError {
         chain: String,
         accepted: Vec<String>,
     },
+    /// Invalid list options.
+    ///
+    /// A conversation listing named a limit below 1 or above the maximum page
+    /// size, or a before conversation id without the before time of its list
+    /// order. Not retryable — fix the options.
+    #[error("invalid list options: {0}")]
+    InvalidListOptions(&'static str),
 }
 
 impl ClientError {
@@ -1093,14 +1103,35 @@ where
             .map_err(Into::into)
     }
 
+    /// List one page of the app's conversations, in activity order unless
+    /// `args` names another order. A page holds at most `args.limit`
+    /// conversations, or [`CONVERSATION_LIST_DEFAULT_LIMIT`] when it names
+    /// none. To read the next page, pass the last row's `listing_time_ns` as
+    /// the order's before time and its group id as `before_id`.
+    ///
+    /// Internal callers that need every group use `find_groups` or
+    /// `fetch_conversation_list`, which apply no default limit.
+    // implements: CONS-046, CONS-049
     pub fn list_conversations(
         &self,
-        args: GroupQueryArgs,
+        mut args: GroupQueryArgs,
     ) -> Result<Vec<ConversationListItem<Context>>, ClientError> {
-        let mut args = args.clone();
-        // Default to last activity order by for this endpoint
         if args.order_by.is_none() {
             args.order_by = Some(GroupQueryOrderBy::LastActivity);
+        }
+        let limit = args
+            .limit
+            .unwrap_or(i64::from(CONVERSATION_LIST_DEFAULT_LIMIT));
+        if !(1..=i64::from(LOCAL_PAGE_MAX_LIMIT)).contains(&limit) {
+            return Err(ClientError::InvalidListOptions(
+                "limit must be at least 1 and at most the maximum page size",
+            ));
+        }
+        args.limit = Some(limit);
+        if args.before_id.is_some() && args.order_before_ns().is_none() {
+            return Err(ClientError::InvalidListOptions(
+                "before_id needs the before time of the list order",
+            ));
         }
         Ok(self
             .context

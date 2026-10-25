@@ -43,3 +43,10 @@ pub const STREAM_BLOCKED_WELCOME_RESCAN_INTERVAL: Duration = Duration::from_secs
 pub const STREAM_PERMANENT_RETRY_INITIAL: Duration = Duration::from_secs(5);
 /// Longest delay between retries of a receiver that keeps failing permanently.
 pub const STREAM_PERMANENT_RETRY_MAX: Duration = Duration::from_secs(300);
+/// Conversations returned by one app conversation listing that names no limit.
+pub const CONVERSATION_LIST_DEFAULT_LIMIT: u32 = 100;
+/// Largest limit an app may name for one conversation-list or reaction page.
+pub const LOCAL_PAGE_MAX_LIMIT: u32 = 1000;
+/// Reaction messages in a message's reaction summary, and in one reaction page
+/// that names no limit.
+pub const MESSAGE_REACTION_LIMIT: u32 = 50;

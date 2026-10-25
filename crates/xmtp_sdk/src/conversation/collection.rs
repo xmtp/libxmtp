@@ -412,7 +412,7 @@ impl Conversations {
         let client = self.client.clone();
         let client_key = self.client_key;
         on_sdk_worker(self.client.context.clone(), async move {
-            let args: GroupQueryArgs = options.unwrap_or_default().into();
+            let args: GroupQueryArgs = options.unwrap_or_default().try_into()?;
             list_local(client, client_key, args).await
         })
         .await

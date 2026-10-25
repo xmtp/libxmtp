@@ -2,7 +2,33 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 
 import { createSigner, createUser, type User } from "@test/helpers";
-import { Client, type ClientOptions } from "@xmtp/node-sdk";
+import {
+  Client,
+  type ClientOptions,
+  type ListConversationsOptions,
+  type Timestamp,
+} from "@xmtp/node-sdk";
+
+/** The largest page the SDK returns. */
+const CONVERSATION_PAGE_LIMIT = 1000;
+
+/** Read every page of a creation-order list, newest first. */
+const listAll = async <T extends { id: string; createdAt: Timestamp }>(
+  list: (options: ListConversationsOptions) => Promise<T[]>,
+) => {
+  const all: T[] = [];
+  for (;;) {
+    const last = all.at(-1);
+    const page = await list({
+      orderBy: "createdAt",
+      createdBefore: last?.createdAt,
+      beforeId: last?.id,
+      limit: CONVERSATION_PAGE_LIMIT,
+    });
+    all.push(...page);
+    if (page.length < CONVERSATION_PAGE_LIMIT) return all;
+  }
+};
 
 export const createRegisteredClient = async (
   user: User,
@@ -95,9 +121,12 @@ await primaryAccountClient.conversations.syncAll(undefined);
 
 console.log("Querying DM groups...");
 
-const groupConvos =
-  await primaryAccountClient.conversations.listGroups(undefined);
-const dmConvos = await primaryAccountClient.conversations.listDms(undefined);
+const groupConvos = await listAll((options) =>
+  primaryAccountClient.conversations.listGroups(options),
+);
+const dmConvos = await listAll((options) =>
+  primaryAccountClient.conversations.listDms(options),
+);
 
 console.log(`Found ${dmConvos.length} DM conversations`);
 console.log(`Found ${groupConvos.length} group conversations`);

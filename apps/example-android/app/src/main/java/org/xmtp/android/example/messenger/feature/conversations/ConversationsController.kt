@@ -21,6 +21,9 @@ import org.xmtp.android.example.shared.feature.conversations.*
 import uniffi.xmtp_sdk.*
 import java.util.concurrent.atomic.AtomicLong
 
+/** The SDK rejects a conversation list limit above this. */
+private const val MAX_LIST_LIMIT = 1000
+
 internal class ConversationsController(
     private val session: AppSession,
     private val queries: ConversationQueries,
@@ -166,7 +169,7 @@ internal class ConversationsController(
 
             ConversationsAction.LoadMore -> {
                 if (ui.value.pageLoading || !ui.value.hasMore) return
-                ui.update { it.copy(pageLoading = true, listLimit = it.listLimit + 50) }
+                ui.update { it.copy(pageLoading = true, listLimit = minOf(it.listLimit + 50, MAX_LIST_LIMIT)) }
                 refresh()
             }
 
@@ -245,7 +248,7 @@ internal class ConversationsController(
                             owner,
                             ListConversationsOptions(
                                 limit =
-                                    (limit + 1).toUInt(),
+                                    minOf(limit + 1, MAX_LIST_LIMIT).toUInt(),
                                 consentStates =
                                     listOf(ConsentState.ALLOWED),
                             ),

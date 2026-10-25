@@ -12915,6 +12915,12 @@ public func FfiConverterTypeLimitsConfiguration_lower(_ value: LimitsConfigurati
 }
 
 
+/**
+ * One page of a conversation listing. To read the next page, pass the last
+ * conversation's `created_at` as `created_before` in creation order, or its
+ * `last_activity_at()` as `last_activity_before` in activity order, and its
+ * id as `before_id`.
+ */
 public struct ListConversationsOptions: Equatable, Hashable {
     public var kind: ConversationKind?
     public var consentStates: [ConsentState]?
@@ -12922,13 +12928,32 @@ public struct ListConversationsOptions: Equatable, Hashable {
     public var createdBefore: Timestamp?
     public var lastActivityAfter: Timestamp?
     public var lastActivityBefore: Timestamp?
+    /**
+     * At most this many conversations, from 1 to 1000; 100 when absent.
+     */
     public var limit: UInt32?
     public var orderBy: ConversationOrder?
     public var includeDuplicateDms: Bool
+    /**
+     * Resume after this conversation: a conversation at exactly the before
+     * time of the list order is returned only when its id is lower. Needs
+     * `created_before` in creation order or `last_activity_before` in
+     * activity order.
+     */
+    public var beforeId: ConversationId?
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(kind: ConversationKind? = nil, consentStates: [ConsentState]? = nil, createdAfter: Timestamp? = nil, createdBefore: Timestamp? = nil, lastActivityAfter: Timestamp? = nil, lastActivityBefore: Timestamp? = nil, limit: UInt32? = nil, orderBy: ConversationOrder? = nil, includeDuplicateDms: Bool = false) {
+    public init(kind: ConversationKind? = nil, consentStates: [ConsentState]? = nil, createdAfter: Timestamp? = nil, createdBefore: Timestamp? = nil, lastActivityAfter: Timestamp? = nil, lastActivityBefore: Timestamp? = nil,
+        /**
+         * At most this many conversations, from 1 to 1000; 100 when absent.
+         */limit: UInt32? = nil, orderBy: ConversationOrder? = nil, includeDuplicateDms: Bool = false,
+        /**
+         * Resume after this conversation: a conversation at exactly the before
+         * time of the list order is returned only when its id is lower. Needs
+         * `created_before` in creation order or `last_activity_before` in
+         * activity order.
+         */beforeId: ConversationId? = nil) {
         self.kind = kind
         self.consentStates = consentStates
         self.createdAfter = createdAfter
@@ -12938,6 +12963,7 @@ public struct ListConversationsOptions: Equatable, Hashable {
         self.limit = limit
         self.orderBy = orderBy
         self.includeDuplicateDms = includeDuplicateDms
+        self.beforeId = beforeId
     }
 
 
@@ -12964,7 +12990,8 @@ public struct FfiConverterTypeListConversationsOptions: FfiConverterRustBuffer {
                 lastActivityBefore: FfiConverterOptionTypeTimestamp.read(from: &buf),
                 limit: FfiConverterOptionUInt32.read(from: &buf),
                 orderBy: FfiConverterOptionTypeConversationOrder.read(from: &buf),
-                includeDuplicateDms: FfiConverterBool.read(from: &buf)
+                includeDuplicateDms: FfiConverterBool.read(from: &buf),
+                beforeId: FfiConverterOptionTypeConversationId.read(from: &buf)
         )
     }
 
@@ -12978,6 +13005,7 @@ public struct FfiConverterTypeListConversationsOptions: FfiConverterRustBuffer {
         FfiConverterOptionUInt32.write(value.limit, into: &buf)
         FfiConverterOptionTypeConversationOrder.write(value.orderBy, into: &buf)
         FfiConverterBool.write(value.includeDuplicateDms, into: &buf)
+        FfiConverterOptionTypeConversationId.write(value.beforeId, into: &buf)
     }
 }
 
@@ -27159,6 +27187,30 @@ fileprivate struct FfiConverterOptionDictionaryStringString: FfiConverterRustBuf
         switch try readInt(&buf) as Int8 {
         case 0: return nil
         case 1: return try FfiConverterDictionaryStringString.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionTypeConversationId: FfiConverterRustBuffer {
+    typealias SwiftType = ConversationId?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeConversationId.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeConversationId.read(from: &buf)
         default: throw UniffiInternalError.unexpectedOptionalTag
         }
     }
