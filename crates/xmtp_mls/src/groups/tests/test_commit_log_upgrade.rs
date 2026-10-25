@@ -120,6 +120,21 @@ async fn an_ordinary_commit_repairs_preupgrade_publisher_flags() {
         .await?;
     a.sync().await?;
     c.sync().await?;
+    assert!(
+        !alix
+            .context
+            .db()
+            .find_group(&group_id)??
+            .should_publish_commit_log,
+        "an ordinary merge must disable the demoted publisher after upgrade"
+    );
+    assert!(
+        bo.context
+            .db()
+            .find_group(&group_id)??
+            .should_publish_commit_log,
+        "an ordinary merge must enable the current publisher after upgrade"
+    );
     let latest_commit = b.local_commit_log().await?.last()?.commit_sequence_id;
 
     for client in [&alix, &bo] {
