@@ -11,8 +11,8 @@ use xmtp_common::RetryableError;
 use xmtp_id::{
     associations::{
         self, AccountId, AssociationError, AssociationState, AssociationStateDiff, Handle,
-        IdentityAction as _, SignatureError, try_map_vec, unverified::UnverifiedIdentityUpdate,
-        verify_updates,
+        IdentityAction as _, SignatureError, check_update_shape, try_map_vec,
+        unverified::UnverifiedIdentityUpdate, verify_updates,
     },
     key_package::{KeyPackageVerificationError, VerifiedKeyPackageV2},
     scw_verifier::{BlockStamp, ChainBlocks, SmartContractSignatureVerifier, VerifierError},
@@ -487,8 +487,10 @@ pub fn verify_publish(parsed: &ParsedEnvelope) -> Result<(), ValidationError> {
 ///
 /// Key packages receive their existing package checks. Identity updates are
 /// folded against the caller's snapshot and return a projection diff; only the
-/// new update, never the stored history, must first pass [`check_freshness`].
-/// Other kinds need no admission here beyond the parsing phase.
+/// new update, never the stored history, must first pass [`check_update_shape`]
+/// and then [`check_freshness`], so a shape no validator accepts is rejected
+/// for good before any chain access. Other kinds need no admission here beyond
+/// the parsing phase.
 ///
 /// Publish signatures are not checked here. A caller verifies every envelope
 /// that [`ParsedEnvelope::is_signed`] calls signed with [`verify_publish`],
@@ -511,6 +513,7 @@ pub async fn validate_envelope(
             Ok(None)
         }
         Payload::IdentityUpdate(update) => {
+            check_update_shape(update).map_err(ValidationError::IdentityEncoding)?;
             check_freshness(update, chain).await?;
             Ok(Some(
                 validate_identity_updates(history.to_vec(), vec![update.clone()], verifier).await?,
