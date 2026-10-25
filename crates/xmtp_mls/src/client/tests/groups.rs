@@ -503,6 +503,22 @@ async fn conversation_list_is_bounded_and_carries_listing_time() {
             "limit {limit} was accepted"
         );
     }
+    // Sync groups would bypass the page's limit and cursor.
+    for args in [
+        GroupQueryArgs {
+            include_sync_groups: true,
+            ..Default::default()
+        },
+        GroupQueryArgs {
+            conversation_type: Some(xmtp_proto::types::ConversationType::Sync),
+            ..Default::default()
+        },
+    ] {
+        assert!(matches!(
+            bo.list_conversations(args),
+            Err(ClientError::InvalidListOptions(_))
+        ));
+    }
 
     for _ in GROUP_COUNT..SEEDED_ROWS {
         store_listed_group(&db, GroupId::generate(), now_ns())?;

@@ -1,7 +1,7 @@
 use super::*;
 use crate::{Reaction, ReactionAction, ReactionSchema};
-use xmtp_db::Store;
 use xmtp_db::group_message::{QueryGroupMessage, StoredGroupMessage};
+use xmtp_db::{ConnectionExt, Store, diesel::prelude::*, schema::group_messages::dsl};
 use xmtp_proto::types::GroupId;
 
 fn thumbs_up() -> Reaction {
@@ -36,7 +36,8 @@ fn reaction_ids(page: &[crate::ReactionMessage]) -> Vec<MessageId> {
 
 /// Reaction pages run newest first by send time, then sequence id, then id,
 /// so a page boundary inside a run of equal send times neither skips nor
-/// repeats a reaction. A bad limit or cursor is an invalid argument.
+/// repeats a reaction. A bad limit or cursor is an invalid argument, and a
+/// deleted or expired parent shows no reactions, as in its summary.
 // verifies: PROC-054
 #[xmtp_common::test(unwrap_try = true)]
 async fn message_reactions_page_newest_first() {
@@ -103,11 +104,21 @@ async fn message_reactions_page_newest_first() {
     let mut expired = reaction_copy(&template, group.inner.group_id, vec![0xe1; 32], base);
     expired.expire_at_ns = Some(xmtp_common::time::now_ns() - 1);
     expired.store(&db)?;
+    let reply = group
+        .send_reply(
+            parent.clone(),
+            Some(client.inbox_id()),
+            crate::encode_text("reply".into())?,
+            None,
+        )
+        .await?;
     for (before, limit) in [
         (None, Some(0)),
         (None, Some(1001)),
         (Some(MessageId::from_bytes(&elsewhere.id)?), None),
         (Some(MessageId::from_bytes(&expired.id)?), None),
+        // A reply to the same parent is not a reaction.
+        (Some(reply), None),
     ] {
         let result = group
             .message_reactions(parent.clone(), before.clone(), limit)
@@ -117,6 +128,23 @@ async fn message_reactions_page_newest_first() {
             "before {before:?} with limit {limit:?} was accepted"
         );
     }
+
+    let other_reactions = || group.message_reactions(other_parent.clone(), None, None);
+    assert_eq!(other_reactions().await?.len(), 1);
+    let other_id = other_parent.to_bytes()?;
+    db.raw_query(|conn| {
+        xmtp_db::diesel::update(dsl::group_messages.filter(dsl::id.eq(&other_id)))
+            .set(dsl::expire_at_ns.eq(xmtp_common::time::now_ns() - 1))
+            .execute(conn)
+    })?;
+    assert!(other_reactions().await?.is_empty());
+    group.delete_message(parent.clone()).await?;
+    assert!(
+        group
+            .message_reactions(parent.clone(), None, None)
+            .await?
+            .is_empty()
+    );
     client.end().await?;
 }
 

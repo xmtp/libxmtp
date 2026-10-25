@@ -267,8 +267,8 @@ pub enum ClientError {
     /// Invalid list options.
     ///
     /// A conversation listing named a limit below 1 or above the maximum page
-    /// size, or a before conversation id without the before time of its list
-    /// order. Not retryable — fix the options.
+    /// size, a before conversation id without the before time of its list
+    /// order, or sync or one-shot groups. Not retryable — fix the options.
     #[error("invalid list options: {0}")]
     InvalidListOptions(&'static str),
 }
@@ -1131,6 +1131,14 @@ where
         if args.before_id.is_some() && args.order_before_ns().is_none() {
             return Err(ClientError::InvalidListOptions(
                 "before_id needs the before time of the list order",
+            ));
+        }
+        // Requested sync groups bypass the page's limit, order and cursor, and
+        // a sync group is not a conversation.
+        if args.include_sync_groups || args.conversation_type.is_some_and(|kind| kind.is_virtual())
+        {
+            return Err(ClientError::InvalidListOptions(
+                "a conversation listing cannot include sync or one-shot groups",
             ));
         }
         Ok(self

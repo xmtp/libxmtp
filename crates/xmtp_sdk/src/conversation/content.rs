@@ -108,6 +108,18 @@ pub(super) fn reaction_page<C: XmtpSharedContext>(
     }
     let reaction = [ContentType::Reaction];
     let db = group.context.db();
+    // A deleted or expired parent shows no reactions, as in its summary.
+    let Some(parent_row) = db
+        .get_app_visible_group_message(parent, xmtp_common::time::now_ns())
+        .map_err(XmtpError::from_core)?
+    else {
+        return Ok(Vec::new());
+    };
+    if xmtp_mls::messages::enrichment::is_deleted(group.context.db(), &parent_row)
+        .map_err(XmtpError::from_core)?
+    {
+        return Ok(Vec::new());
+    }
     // A stitched DM's reactions can be in any of its groups, so the cursor
     // and the page range over all of them.
     let before = before

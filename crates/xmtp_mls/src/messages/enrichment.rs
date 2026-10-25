@@ -104,6 +104,17 @@ pub(crate) fn is_deletion_valid(
     is_sender || deletion.is_super_admin_deletion
 }
 
+/// Whether a valid deletion replaces `message`, as enrichment applies one.
+pub fn is_deleted(
+    conn: impl DbQuery,
+    message: &StoredGroupMessage,
+) -> Result<bool, EnrichMessageError> {
+    Ok(conn
+        .get_deletions_for_messages(vec![message.id.clone()])?
+        .iter()
+        .any(|deletion| is_deletion_valid(deletion, message, &message.group_id)))
+}
+
 #[xmtp_common::mls_span]
 pub fn enrich_messages(
     conn: impl DbQuery,

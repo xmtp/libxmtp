@@ -455,7 +455,7 @@ macro_rules! common_conversation {
             /// 50 when absent). For the next page, pass the last returned id
             /// as `before`. A `before` that is not an unexpired reaction to
             /// this message fails with InvalidArgument; restart from the
-            /// newest reaction.
+            /// newest reaction. A deleted or expired message has none.
             #[uniffi::method(default(before = None, limit = None))]
             pub async fn message_reactions(
                 &self,

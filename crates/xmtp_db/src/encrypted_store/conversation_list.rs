@@ -58,7 +58,8 @@ pub struct ConversationListItem {
     #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Bool>)]
     pub is_commit_log_forked: Option<bool>,
     /// The time the list orders by: the creation time in creation order, and
-    /// the activity time in activity order.
+    /// the activity time in activity order. Requested sync groups follow the
+    /// regular rows and always carry their creation time.
     #[diesel(sql_type = BigInt)]
     pub listing_time_ns: i64,
 }

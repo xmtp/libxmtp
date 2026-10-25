@@ -3740,7 +3740,7 @@ public protocol DmProtocol: AnyObject, Sendable {
      * 50 when absent). For the next page, pass the last returned id
      * as `before`. A `before` that is not an unexpired reaction to
      * this message fails with InvalidArgument; restart from the
-     * newest reaction.
+     * newest reaction. A deleted or expired message has none.
      */
     func messageReactions(messageId: MessageId, before: MessageId?, limit: UInt32?) async throws  -> [ReactionMessage]
 
@@ -4190,7 +4190,7 @@ open func messageHistorySnapshot(limit: UInt32)async throws  -> MessageHistorySn
      * 50 when absent). For the next page, pass the last returned id
      * as `before`. A `before` that is not an unexpired reaction to
      * this message fails with InvalidArgument; restart from the
-     * newest reaction.
+     * newest reaction. A deleted or expired message has none.
      */
 open func messageReactions(messageId: MessageId, before: MessageId? = nil, limit: UInt32? = nil)async throws  -> [ReactionMessage]  {
     return
@@ -5327,7 +5327,7 @@ public protocol GroupProtocol: AnyObject, Sendable {
      * 50 when absent). For the next page, pass the last returned id
      * as `before`. A `before` that is not an unexpired reaction to
      * this message fails with InvalidArgument; restart from the
-     * newest reaction.
+     * newest reaction. A deleted or expired message has none.
      */
     func messageReactions(messageId: MessageId, before: MessageId?, limit: UInt32?) async throws  -> [ReactionMessage]
 
@@ -5942,7 +5942,7 @@ open func messageHistorySnapshot(limit: UInt32)async throws  -> MessageHistorySn
      * 50 when absent). For the next page, pass the last returned id
      * as `before`. A `before` that is not an unexpired reaction to
      * this message fails with InvalidArgument; restart from the
-     * newest reaction.
+     * newest reaction. A deleted or expired message has none.
      */
 open func messageReactions(messageId: MessageId, before: MessageId? = nil, limit: UInt32? = nil)async throws  -> [ReactionMessage]  {
     return
@@ -30389,7 +30389,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtp_sdk_checksum_method_dm_message_history_snapshot() != 11434) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_method_dm_message_reactions() != 106) {
+    if (uniffi_xmtp_sdk_checksum_method_dm_message_reactions() != 22758) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_method_dm_message_reader() != 16038) {
@@ -30572,7 +30572,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtp_sdk_checksum_method_group_message_history_snapshot() != 50554) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_method_group_message_reactions() != 12430) {
+    if (uniffi_xmtp_sdk_checksum_method_group_message_reactions() != 4413) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_method_group_message_reader() != 32244) {
