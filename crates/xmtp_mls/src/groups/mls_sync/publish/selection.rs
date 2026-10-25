@@ -18,13 +18,17 @@ use xmtp_mls_common::app_data::{
     typed::Component,
 };
 use xmtp_mls_common::tls_map::{TlsMapDelta, TlsMapError, TlsMapMutation};
-use xmtp_mls_validation::commit::CommitRuleError;
+use xmtp_mls_validation::{
+    commit::{CommitRuleError, extract_group_membership_with_failures, membership_entries},
+    group_membership::FailedInstallations,
+};
 
 /// A read-only snapshot. Dependency resolution never retains a mutable MLS group.
 pub(super) struct SelectionRequirements {
     proposals: Vec<QueuedProposal>,
     membership_bytes: Vec<u8>,
     old: GroupMembership,
+    old_failed: FailedInstallations,
     own_update: Option<UpdateGroupMembershipIntentData>,
     readds: HashSet<Vec<u8>>,
     can_replace: HashSet<Vec<u8>>,
@@ -134,12 +138,14 @@ impl SelectionRequirements {
                 );
             }
         }
+        let (old, old_failed) = extract_group_membership_with_failures(group.extensions())?;
         Ok(Some(Self {
             proposals,
             membership_bytes: read_from_app_data_dict(ComponentId::GROUP_MEMBERSHIP, group)
                 .ok_or(GroupError::InvalidGroupMembership)?
                 .to_vec(),
-            old: extract_group_membership(group.extensions())?,
+            old,
+            old_failed,
             own_update: (intent.kind == IntentKind::UpdateGroupMembership)
                 .then(|| UpdateGroupMembershipIntentData::try_from(intent.data.as_slice()))
                 .transpose()?,
@@ -172,9 +178,10 @@ impl SelectionRequirements {
     fn membership(
         &self,
         omitted: &mut HashSet<usize>,
+        conflicts: &mut HashSet<usize>,
         own_payload: Option<&[u8]>,
         same_request: &HashSet<usize>,
-    ) -> Result<GroupMembership, GroupError> {
+    ) -> Result<(GroupMembership, FailedInstallations), GroupError> {
         let mut bytes = self.membership_bytes.clone();
         for (index, proposal) in self.proposals.iter().enumerate() {
             if matches!(
@@ -198,8 +205,9 @@ impl SelectionRequirements {
                     )) => {
                         // Each proposal was accepted against the committed
                         // dictionary. Concurrent Insert/Delete deltas can conflict.
-                        // Keep one whole delta, then recompute its tree changes.
-                        omitted.insert(index);
+                        // Retry this delta if an earlier invalid delta is later omitted.
+                        // Otherwise the first valid delta keeps precedence.
+                        conflicts.insert(index);
                     }
                     Err(error) => return Err(error.into()),
                 }
@@ -208,12 +216,14 @@ impl SelectionRequirements {
         // The builder reuses an equivalent accepted delta. Otherwise it appends
         // its own encoded delta, which can be empty after a competing commit.
         if let Some(payload) = own_payload
-            && !same_request.iter().any(|index| !omitted.contains(index))
+            && !same_request
+                .iter()
+                .any(|index| !omitted.contains(index) && !conflicts.contains(index))
         {
             bytes = GroupMembershipComponent::apply_update_payload(payload, Some(&bytes))
                 .map_err(ComponentSourceError::from)?;
         }
-        membership_from_app_data_bytes(&bytes)
+        Ok(membership_entries(&bytes)?)
     }
 
     /// Whether a membership delta writes an entry this client cannot decode,
@@ -357,7 +367,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                 Some(&requirements.membership_bytes),
             )
             .map_err(ComponentSourceError::from)?;
-            let target = membership_from_app_data_bytes(&target_bytes)?;
+            let (target, target_failed) = membership_entries(&target_bytes)?;
             for (index, proposal) in requirements.proposals.iter().enumerate() {
                 if selection.omitted.contains(&index) {
                     continue;
@@ -368,10 +378,8 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                         Some(&requirements.membership_bytes),
                     )
                     .map_err(ComponentSourceError::from)?;
-                    let mut membership = membership_from_app_data_bytes(&bytes)?;
-                    membership.failed_installations.sort_unstable();
-                    membership.failed_installations.dedup();
-                    if membership == target {
+                    let (membership, failed) = membership_entries(&bytes)?;
+                    if membership.members == target.members && failed == target_failed {
                         same_request.insert(index);
                     }
                 }
@@ -468,14 +476,17 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                 reusable.entry(id.clone()).or_insert(*index);
             }
         }
+        let leaf_inboxes: HashSet<_> = owners.values().map(String::as_str).collect();
         loop {
             // Each retry omits another complete membership delta. Recompute
             // tree proposals because removing a delta can restore an earlier value.
             selection
                 .omitted
                 .retain(|index| membership_operation(&requirements.proposals[*index]).is_some());
-            let target = requirements.membership(
+            let mut conflicts = HashSet::new();
+            let (target, new_failed) = requirements.membership(
                 &mut selection.omitted,
+                &mut conflicts,
                 own_payload.as_deref(),
                 &same_request,
             )?;
@@ -517,6 +528,35 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
             )
             .map_err(InstallationDiffError::from)?;
             let mut changed = false;
+            let mut unproven: HashMap<&str, Vec<&[u8]>> = HashMap::new();
+            for (inbox, key) in new_failed.unproven_new_failures(&requirements.old_failed, &owners)
+            {
+                unproven.entry(inbox).or_default().push(key);
+            }
+            for (inbox, keys) in unproven {
+                let sequence = target.get(inbox).copied().unwrap_or(0);
+                let invalid = if sequence == 0 {
+                    true
+                } else {
+                    let state = identity
+                        .get_association_state(&self.context.db(), inbox, Some(sequence as i64))
+                        .await?;
+                    let installations: HashSet<_> = state.installation_ids().into_iter().collect();
+                    keys.iter().any(|key| !installations.contains(*key))
+                };
+                if invalid {
+                    if !requirements.omit_dependencies(inbox, &mut selection.omitted)? {
+                        return Err(CommitValidationError::Rule(
+                            CommitRuleError::InboxValidationFailed(inbox.to_string()),
+                        )
+                        .into());
+                    }
+                    changed = true;
+                }
+            }
+            if changed {
+                continue;
+            }
             let mut replacements = Vec::new();
             let mut included = HashSet::new();
             // The inboxes whose Add this commit carries.
@@ -652,19 +692,15 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                 }
             }
             // implements: GMOD-038, GMOD-047
-            // Receivers attribute each inbox the membership adds or removes
-            // to an Add or Remove of it, or reject with `ProposerNotFound`.
-            // Omit a delta whose inbox change no carried proposal covers.
+            // Added inboxes need an Add. A removed inbox needs a Remove only
+            // when it has a pre-commit leaf; leafless deletes carry their proposer.
             let uncovered = inbox_diff
                 .added_inboxes
                 .iter()
                 .filter(|inbox| !added.contains(inbox.as_str()))
-                .chain(
-                    inbox_diff
-                        .removed_inboxes
-                        .iter()
-                        .filter(|inbox| !removed.contains(inbox.as_str())),
-                )
+                .chain(inbox_diff.removed_inboxes.iter().filter(|inbox| {
+                    leaf_inboxes.contains(inbox.as_str()) && !removed.contains(inbox.as_str())
+                }))
                 .filter(|inbox| !own_inboxes.contains(inbox.as_str()));
             for inbox in uncovered {
                 changed |= requirements.omit_dependencies(inbox, &mut selection.omitted)?;
@@ -672,6 +708,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
             if changed {
                 continue;
             }
+            selection.omitted.extend(conflicts);
             selection.replacements = replacements;
             return Ok(selection);
         }

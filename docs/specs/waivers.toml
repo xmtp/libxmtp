@@ -540,32 +540,11 @@ issue = "TBD-octane-tracking"
 reason = "The chain-continuity check does not consider the entry's author, so any holder of the commit-log key can extend or break the accepted chain."
 
 [[waiver]]
-id = "GMOD-047"
-kind = "gap"
-owner = "Nicholas Molnar"
-issue = "TBD-octane-tracking"
-reason = "The sender's selection of pending proposals does not omit membership deltas that receivers reject under the rules GMOD-046, GMOD-049 and PERM-030 add."
-
-[[waiver]]
-id = "GMOD-049"
-kind = "gap"
-owner = "Nicholas Molnar"
-issue = "TBD-octane-tracking"
-reason = "A commit can list in one inbox's failed_installations a key that belongs to another inbox."
-
-[[waiver]]
 id = "GMOD-052"
 kind = "gap"
 owner = "Nicholas Molnar"
 issue = "TBD-octane-tracking"
 reason = "Only a super admin's matched remove-and-add is treated as a readd, so a DM member's readd is rejected."
-
-[[waiver]]
-id = "PERM-030"
-kind = "gap"
-owner = "Nicholas Molnar"
-issue = "TBD-octane-tracking"
-reason = "A commit that removes an inbox with no leaf has no Remove proposer, so the removal is not judged under PERM-015 with the proposer of the AppDataUpdate that deletes the entry."
 
 [[waiver]]
 id = "JOIN-089"

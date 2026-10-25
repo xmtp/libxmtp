@@ -2,35 +2,6 @@
 
 use super::*;
 
-/// Compare membership intent results without depending on delta mutation order.
-pub(super) fn membership_from_app_data_bytes(bytes: &[u8]) -> Result<GroupMembership, GroupError> {
-    use xmtp_mls_common::app_data::component_source::ComponentSourceError;
-    use xmtp_mls_common::app_data::{
-        components::tls_map_components::GroupMembershipComponent, typed::Component,
-    };
-    let entries =
-        GroupMembershipComponent::decode_value(bytes).map_err(ComponentSourceError::from)?;
-    let mut membership = GroupMembership::new();
-    for (inbox, bytes) in entries.iter() {
-        let entry = xmtp_proto::xmtp::mls::message_contents::GroupMembershipEntry::decode(
-            bytes.as_slice(),
-        )?;
-        let Some(xmtp_proto::xmtp::mls::message_contents::group_membership_entry::Version::V1(
-            entry,
-        )) = entry.version
-        else {
-            return Err(GroupError::InvalidGroupMembership);
-        };
-        membership.add(inbox.to_hex(), entry.sequence_id);
-        membership
-            .failed_installations
-            .extend(entry.failed_installations);
-    }
-    membership.failed_installations.sort_unstable();
-    membership.failed_installations.dedup();
-    Ok(membership)
-}
-
 // Extracts the message sender, but does not do any validation to ensure that the
 // installation_id is actually part of the inbox.
 pub(super) fn extract_message_sender(

@@ -31,6 +31,7 @@ use xmtp_mls_common::{
 };
 use xmtp_mls_validation::commit::{
     CommitRuleError, extract_group_membership, inbox_id_from_credential, leaf_owners,
+    membership_entries,
 };
 use xmtp_proto::xmtp::mls::message_contents::{GroupMembershipEntry, group_membership_entry};
 
@@ -96,12 +97,12 @@ pub(super) fn build_membership_delta(
     let prior =
         GroupMembershipComponent::decode_value(old_bytes).map_err(ComponentSourceError::from)?;
     let wanted: HashSet<_> = new.failed_installations.iter().cloned().collect();
-    let mut owners: HashMap<Vec<u8>, InboxId> = HashMap::new();
+    let mut owners: HashMap<Vec<u8>, HashSet<InboxId>> = HashMap::new();
     for (inbox, bytes) in prior.iter() {
         let value = GroupMembershipEntry::decode(bytes.as_slice())?;
         if let Some(group_membership_entry::Version::V1(value)) = value.version {
             for installation in value.failed_installations {
-                owners.insert(installation, *inbox);
+                owners.entry(installation).or_default().insert(*inbox);
             }
         }
     }
@@ -120,7 +121,7 @@ pub(super) fn build_membership_delta(
             .map_err(crate::groups::validated_commit::CommitValidationError::from)?;
             let inbox = InboxId::from_hex(inbox).map_err(ComponentSourceError::from)?;
             for installation in state.installation_ids() {
-                owners.insert(installation, inbox);
+                owners.entry(installation).or_default().insert(inbox);
             }
         }
     }
@@ -131,7 +132,11 @@ pub(super) fn build_membership_delta(
         let inbox = InboxId::from_hex(inbox_id_str).map_err(ComponentSourceError::from)?;
         let mut failed_installations: Vec<_> = wanted
             .iter()
-            .filter(|installation| owners.get(*installation) == Some(&inbox))
+            .filter(|installation| {
+                owners
+                    .get(*installation)
+                    .is_some_and(|inboxes| inboxes.contains(&inbox))
+            })
             .cloned()
             .collect();
         failed_installations.sort_unstable();
@@ -489,7 +494,7 @@ pub(super) fn has_pending_membership_delta(
     .ok_or(GroupError::InvalidGroupMembership)?;
     let desired = GroupMembershipComponent::apply_update_payload(payload, Some(prior))
         .map_err(xmtp_mls_common::app_data::component_source::ComponentSourceError::from)?;
-    let desired = membership_from_app_data_bytes(&desired)?;
+    let (desired, desired_failed) = membership_entries(&desired)?;
     for proposal in group.pending_proposals() {
         if let Proposal::AppDataUpdate(update) = proposal.proposal()
             && update.component_id() == ComponentId::GROUP_MEMBERSHIP.as_u16()
@@ -500,7 +505,8 @@ pub(super) fn has_pending_membership_delta(
                     .map_err(
                         xmtp_mls_common::app_data::component_source::ComponentSourceError::from,
                     )?;
-            if membership_from_app_data_bytes(&retained)? == desired {
+            let (retained, retained_failed) = membership_entries(&retained)?;
+            if retained.members == desired.members && retained_failed == desired_failed {
                 return Ok(true);
             }
         }
