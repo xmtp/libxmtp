@@ -1480,6 +1480,18 @@ fn mutable_metadata_field_changes(
         .collect()
 }
 
+/// Map each pre-commit leaf's installation key to its credential inbox.
+pub fn leaf_owners(
+    members: impl Iterator<Item = openmls::group::Member>,
+) -> Result<HashMap<Vec<u8>, String>, CommitRuleError> {
+    members
+        .map(|member| {
+            let inbox = inbox_id_from_credential(&member.credential)?;
+            Ok((member.signature_key, inbox))
+        })
+        .collect()
+}
+
 /// Extracts the inbox ID from a credential.
 pub fn inbox_id_from_credential(credential: &OpenMlsCredential) -> Result<String, CommitRuleError> {
     let basic_credential = BasicCredential::try_from(credential.clone())?;

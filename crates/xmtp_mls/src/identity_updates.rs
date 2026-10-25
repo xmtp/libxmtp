@@ -740,6 +740,54 @@ pub(crate) fn get_installation_diff_local(
     })
 }
 
+/// Required removals include leafed identity removals and stale leaves of
+/// every inbox whose membership entry advances or disappears.
+// implements: GMOD-046
+pub(crate) fn required_leaf_removals(
+    conn: &impl DbQuery,
+    old: &GroupMembership,
+    new: &GroupMembership,
+    diff_removals: &HashSet<Vec<u8>>,
+    leaf_owners: &HashMap<Vec<u8>, String>,
+) -> Result<HashSet<Vec<u8>>, IdentityDependencyError> {
+    let mut required: HashSet<_> = diff_removals
+        .iter()
+        .filter(|key| leaf_owners.contains_key(*key))
+        .cloned()
+        .collect();
+    let mut by_inbox: HashMap<&str, Vec<&Vec<u8>>> = HashMap::new();
+    for (key, inbox) in leaf_owners {
+        by_inbox.entry(inbox).or_default().push(key);
+    }
+    let mut missing = MissingProofs::default();
+    for (inbox, keys) in by_inbox {
+        match (old.get(inbox), new.get(inbox)) {
+            (Some(_), None) => required.extend(keys.into_iter().cloned()),
+            (before, Some(after)) if *after != 0 && before != Some(after) => {
+                let Some(state) = missing.read(
+                    conn,
+                    &IdentityRequirement {
+                        inbox_id: inbox.to_string(),
+                        sequence_id: *after,
+                    },
+                )?
+                else {
+                    continue;
+                };
+                let associated: HashSet<_> = state.installation_ids().into_iter().collect();
+                required.extend(
+                    keys.into_iter()
+                        .filter(|key| !associated.contains(*key))
+                        .cloned(),
+                );
+            }
+            _ => {}
+        }
+    }
+    missing.check()?;
+    Ok(required)
+}
+
 /// Load identity updates and report changes to this client's own installations.
 pub(crate) async fn load_identity_updates_for_client<Context: XmtpSharedContext>(
     context: &Context,
@@ -916,6 +964,78 @@ pub(crate) mod tests {
         tester,
         utils::{FullXmtpClient, Tester},
     };
+    // verifies: GMOD-046
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn required_leaf_removals_include_stale_leaves() {
+        use super::{
+            IdentityDependencyError, IdentityRequirement, get_installation_diff_local,
+            required_leaf_removals,
+        };
+        use std::collections::{BTreeSet, HashMap, HashSet};
+        tester!(alix, disable_workers);
+        tester!(alix2, from: alix, disable_workers);
+        let mut revoke = alix
+            .identity_updates()
+            .revoke_installations(vec![alix2.installation_id.to_vec()])
+            .await?;
+        add_wallet_signature(&mut revoke, &alix.builder.owner).await;
+        alix.identity_updates()
+            .apply_signature_request(revoke)
+            .await?;
+        alix.inbox_state(true).await?;
+        let sequence2 = alix
+            .context
+            .db()
+            .get_latest_sequence_id_for_inbox(alix.inbox_id())? as u64;
+        tester!(alix3, from: alix, disable_workers);
+        alix.inbox_state(true).await?;
+        let sequence3 = alix
+            .context
+            .db()
+            .get_latest_sequence_id_for_inbox(alix.inbox_id())? as u64;
+        let mut old = GroupMembership::new();
+        old.add(alix.inbox_id().into(), sequence2);
+        let mut new = GroupMembership::new();
+        new.add(alix.inbox_id().into(), sequence3);
+        let owners = HashMap::from([
+            (alix.installation_id.to_vec(), alix.inbox_id().into()),
+            (alix2.installation_id.to_vec(), alix.inbox_id().into()),
+        ]);
+        // Alix2 was created before S3 and has not loaded that proof. A
+        // missing proof must not produce an incomplete set of removals.
+        let missing =
+            required_leaf_removals(&alix2.context.db(), &old, &new, &HashSet::new(), &owners)
+                .expect_err("the exact S3 proof is not cached on Alix2");
+        assert!(matches!(
+            missing,
+            IdentityDependencyError::Need(needed)
+                if needed == BTreeSet::from([IdentityRequirement {
+                    inbox_id: alix.inbox_id().into(),
+                    sequence_id: sequence3,
+                }])
+        ));
+
+        let db = alix.context.db();
+        let diff = get_installation_diff_local(&db, &old, &new, &old.diff(&new))?;
+        assert!(diff.removed_installations.is_empty());
+        let stale = HashSet::from([alix2.installation_id.to_vec()]);
+        assert_eq!(
+            required_leaf_removals(&db, &old, &new, &diff.removed_installations, &owners)?,
+            stale
+        );
+        assert_eq!(
+            required_leaf_removals(&db, &old, &GroupMembership::new(), &HashSet::new(), &owners)?,
+            owners.keys().cloned().collect()
+        );
+        old.add(alix.inbox_id().into(), 0);
+        assert_eq!(
+            required_leaf_removals(&db, &old, &new, &HashSet::new(), &owners)?,
+            stale
+        );
+        assert!(required_leaf_removals(&db, &new, &new, &HashSet::new(), &owners)?.is_empty());
+        drop(alix3);
+    }
+
     use alloy::signers::Signer;
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_id::{

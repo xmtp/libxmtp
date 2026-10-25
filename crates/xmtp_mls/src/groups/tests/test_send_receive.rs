@@ -3,6 +3,117 @@
 use super::*;
 use xmtp_events::{ClientEvent, EventFilter, EventKind, MessageStatus};
 
+#[derive(Clone, Copy, Debug)]
+enum RefreshCase {
+    SuperAdmin,
+    Member,
+    DmRevocation,
+    DmAddition,
+}
+
+// Port of the 5adea8f7 evidence test, with both DM identity-change paths.
+// verifies: GMOD-050, PERM-003
+#[rstest::rstest]
+#[case::super_admin_refreshes_own_revoked_installation(RefreshCase::SuperAdmin)]
+#[case::member_refreshes_another_inbox_under_admin_only_policy(RefreshCase::Member)]
+#[case::dm_member_refreshes_after_peer_revokes_device(RefreshCase::DmRevocation)]
+#[case::dm_member_adds_own_new_installation(RefreshCase::DmAddition)]
+#[xmtp_common::test(unwrap_try = true)]
+async fn revoked_installation_refresh_reaches_every_member(
+    #[case] case: RefreshCase,
+) -> Result<(), Box<dyn std::error::Error>> {
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    tester!(caro, disable_workers);
+    let is_dm = matches!(case, RefreshCase::DmRevocation | RefreshCase::DmAddition);
+    let addition = matches!(case, RefreshCase::DmAddition);
+    let group = if is_dm {
+        alix.find_or_create_dm(bo.inbox_id(), None).await?
+    } else {
+        let policies = matches!(case, RefreshCase::Member)
+            .then(|| PreconfiguredPolicies::AdminsOnly.to_policy_set());
+        alix.create_group_with_members(&[bo.inbox_id(), caro.inbox_id()], policies, None)
+            .await?
+    };
+    let bo_group = receive_group_invite(&bo).await;
+    let caro_group = if is_dm {
+        None
+    } else {
+        Some(receive_group_invite(&caro).await)
+    };
+    let owner = match case {
+        RefreshCase::SuperAdmin | RefreshCase::DmAddition => &alix,
+        RefreshCase::Member => &caro,
+        RefreshCase::DmRevocation => &bo,
+    };
+    tester!(device, from: owner, disable_workers);
+    let device_id = device.installation_id.to_vec();
+    let revoked_group = if addition {
+        None
+    } else {
+        group.add_missing_installations().await?;
+        bo_group.sync().await?;
+        if let Some(peer) = &caro_group {
+            peer.sync().await?;
+        }
+        let device_group = receive_group_invite(&device).await;
+        let mut revoke = owner
+            .identity_updates()
+            .revoke_installations(vec![device_id.clone()])
+            .await?;
+        xmtp_id::associations::test_utils::add_wallet_signature(&mut revoke, &owner.builder.owner)
+            .await;
+        owner
+            .identity_updates()
+            .apply_signature_request(revoke)
+            .await?;
+        Some(device_group)
+    };
+    let refresher = if matches!(case, RefreshCase::Member) {
+        &bo_group
+    } else {
+        &group
+    };
+    refresher.add_missing_installations().await?;
+    group.sync().await?;
+    bo_group.sync().await?;
+    if let Some(peer) = &caro_group {
+        peer.sync().await?;
+    }
+    let authenticator = group.epoch_authenticator().await?;
+    for peer in [&group, &bo_group].into_iter().chain(caro_group.as_ref()) {
+        assert_eq!(peer.epoch_authenticator().await?, authenticator);
+        assert_eq!(
+            peer.with_group_snapshot(|mls| Ok::<_, GroupError>(
+                mls.members()
+                    .any(|member| member.signature_key == device_id)
+            ))?,
+            addition
+        );
+    }
+    if let Some(revoked_group) = revoked_group {
+        revoked_group.sync().await?;
+        assert!(!revoked_group.is_active()?);
+    } else {
+        let added_group = receive_group_invite(&device).await;
+        assert!(added_group.is_active()?);
+        assert_eq!(added_group.epoch_authenticator().await?, authenticator);
+    }
+    group
+        .send_message(b"after refresh", Default::default())
+        .await?;
+    bo_group.sync().await?;
+    bo_group
+        .send_message(b"peer after refresh", Default::default())
+        .await?;
+    group.sync().await?;
+    assert_eq!(
+        group.test_last_message_bytes().await?,
+        Some(b"peer after refresh".to_vec())
+    );
+    Ok(())
+}
+
 // verifies: EVENT-001, EVENT-018, EVENT-019, EVENT-024
 #[xmtp_common::test(unwrap_try = true)]
 async fn group_membership_and_received_message_emit_once_after_storage() {

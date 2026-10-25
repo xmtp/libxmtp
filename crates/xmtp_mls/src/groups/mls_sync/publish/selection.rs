@@ -4,7 +4,10 @@
 use super::*;
 use crate::groups::app_data::Committable;
 use crate::groups::group_permissions::MembershipPolicy;
-use crate::identity_updates::{IdentityDependencyError, InstallationDiffError};
+use crate::identity_updates::{
+    IdentityDependencyError, InstallationDiffError, get_installation_diff_local,
+    required_leaf_removals,
+};
 use openmls::group::QueuedProposal;
 use openmls::messages::proposals::AppDataUpdateOperation;
 use tls_codec::{Deserialize, VLBytes};
@@ -25,6 +28,7 @@ pub(super) struct SelectionRequirements {
     own_update: Option<UpdateGroupMembershipIntentData>,
     readds: HashSet<Vec<u8>>,
     can_replace: HashSet<Vec<u8>>,
+    is_super_admin: bool,
     /// Each leaf's installation and inbox.
     leaves: HashMap<LeafNodeIndex, (Vec<u8>, String)>,
 }
@@ -148,6 +152,7 @@ impl SelectionRequirements {
                 HashSet::new()
             },
             can_replace,
+            is_super_admin: actor.is_super_admin,
             leaves: group
                 .members()
                 .map(|member| {
@@ -308,10 +313,21 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                 selection.omitted.insert(index);
             }
         }
+        let owners: HashMap<_, _> = requirements.leaves.values().cloned().collect();
         let mut same_request = HashSet::new();
         let mut own_inboxes = HashSet::new();
+        let mut own_removals = HashSet::new();
         let own_payload = if let Some(update) = &requirements.own_update {
             let mut target = update.apply_to_group_membership(&requirements.old);
+            let no_removals = HashSet::new();
+            own_removals = required_leaf_removals(
+                &self.context.db(),
+                &requirements.old,
+                &target,
+                own_changes.map_or(&no_removals, |changes| &changes.removed_installations),
+                &owners,
+            )
+            .map_err(InstallationDiffError::from)?;
             // Publication writes the same failed list.
             let (fetch_failures, added) = own_changes.map_or((&[][..], &[][..]), |changes| {
                 (
@@ -492,6 +508,14 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                 }
                 Err(error) => return Err(error.into()),
             };
+            let required = required_leaf_removals(
+                &self.context.db(),
+                &requirements.old,
+                &target,
+                &diff.removed_installations,
+                &owners,
+            )
+            .map_err(InstallationDiffError::from)?;
             let mut changed = false;
             let mut replacements = Vec::new();
             let mut included = HashSet::new();
@@ -563,19 +587,67 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
             }
             // The inboxes whose Remove this commit carries.
             let mut removed = HashSet::new();
+            let mut removed_keys = HashSet::new();
             for (index, proposal) in requirements.proposals.iter().enumerate() {
                 let Proposal::Remove(remove) = proposal.proposal() else {
                     continue;
                 };
                 match requirements.leaves.get(&remove.removed()) {
                     Some((id, inbox))
-                        if diff.removed_installations.contains(id)
-                            || requirements.readds.contains(id) =>
+                        if required.contains(id) || requirements.readds.contains(id) =>
                     {
                         removed.insert(inbox.as_str());
+                        // The receiver removes failed readds from its
+                        // actual-removal set, so they cannot cover this delta.
+                        if !requirements.is_super_admin || !target.failed_installations.contains(id)
+                        {
+                            removed_keys.insert(id);
+                        }
                     }
                     _ => {
                         selection.omitted.insert(index);
+                    }
+                }
+            }
+            // An own update builds these removals inline. Readds do not
+            // cover them: the receiver excludes matched Adds and Removes.
+            // Attribute each missing removal to the inbox update requiring it.
+            // A shared key's leaf can name a different, unchanged inbox.
+            let uncovered_removals: HashSet<_> = required
+                .iter()
+                .filter(|key| !removed_keys.contains(*key) && !own_removals.contains(*key))
+                .cloned()
+                .collect();
+            if !uncovered_removals.is_empty() {
+                for inbox in inbox_diff
+                    .added_inboxes
+                    .iter()
+                    .chain(&inbox_diff.updated_inboxes)
+                    .chain(&inbox_diff.removed_inboxes)
+                {
+                    let mut inbox_target = requirements.old.clone();
+                    if let Some(sequence) = target.get(inbox) {
+                        inbox_target.add((*inbox).clone(), *sequence);
+                    } else {
+                        inbox_target.remove(inbox);
+                    }
+                    let inbox_changes = get_installation_diff_local(
+                        &self.context.db(),
+                        &requirements.old,
+                        &inbox_target,
+                        &requirements.old.diff(&inbox_target),
+                    )
+                    .map_err(InstallationDiffError::from)?;
+                    let inbox_removals = required_leaf_removals(
+                        &self.context.db(),
+                        &requirements.old,
+                        &inbox_target,
+                        &inbox_changes.removed_installations,
+                        &owners,
+                    )
+                    .map_err(InstallationDiffError::from)?;
+                    if !inbox_removals.is_disjoint(&uncovered_removals) {
+                        changed |= requirements.omit_dependencies(inbox, &mut selection.omitted)?;
                     }
                 }
             }

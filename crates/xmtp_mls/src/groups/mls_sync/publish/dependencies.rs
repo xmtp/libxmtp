@@ -1,6 +1,7 @@
 //! Immutable requirements for outgoing MLS preparation.
 
 use super::*;
+use crate::identity_updates::{IdentityRequirement, resolve_identity_requirements};
 use std::collections::HashMap;
 use xmtp_mls_validation::commit::inbox_id_from_credential;
 
@@ -10,6 +11,10 @@ pub(super) struct PublishRequirements {
     pub intent: StoredGroupIntent,
     /// Committed MLS state that must still match after dependency resolution.
     pub base: PreparedBase,
+    /// The part of a membership refresh being tried against the envelope limit.
+    pub membership_update: Option<UpdateGroupMembershipIntentData>,
+    pub partial_membership_update: bool,
+    pub fail_refresh_additions: bool,
     old_membership: Option<GroupMembership>,
     new_membership: Option<GroupMembership>,
     add_inboxes: Vec<String>,
@@ -28,6 +33,9 @@ impl PublishRequirements {
         let mut requirements = Self {
             intent: intent.clone(),
             base: PreparedBase::capture(group)?,
+            membership_update: None,
+            partial_membership_update: false,
+            fail_refresh_additions: false,
             old_membership: None,
             new_membership: None,
             add_inboxes: Vec::new(),
@@ -40,6 +48,7 @@ impl PublishRequirements {
                 let old = extract_group_membership(group.extensions())?;
                 let data = UpdateGroupMembershipIntentData::try_from(intent.data.as_slice())?;
                 requirements.new_membership = Some(data.apply_to_group_membership(&old));
+                requirements.membership_update = Some(data);
                 requirements.old_membership = Some(old);
             }
             IntentKind::ProposeMemberUpdate => {
@@ -79,6 +88,8 @@ pub(super) struct PublishDependencies {
     pub selection: super::selection::ProposalSelection,
     /// Whether preparation omitted pending proposals no commit can carry.
     pub omitted_uncommittable: bool,
+    /// A fitting child refresh saved in place of the original desired target.
+    pub prepared_intent: Option<StoredGroupIntent>,
 }
 
 impl PublishDependencies {
@@ -107,6 +118,54 @@ impl PublishDependencies {
 }
 
 impl<Context: XmtpSharedContext> MlsGroup<Context> {
+    /// Retry only still-raised inboxes. The original intent remains the desired
+    /// target until every part lands, so its caller waits for the whole refresh.
+    pub(super) fn smaller_membership_refresh(
+        &self,
+        requirements: &PublishRequirements,
+    ) -> Result<Option<PublishRequirements>, GroupError> {
+        let Some(mut data) = requirements.membership_update.clone() else {
+            return Ok(None);
+        };
+        let Some(old) = &requirements.old_membership else {
+            return Ok(None);
+        };
+        // Explicit add_members calls can also advance existing inboxes.
+        // Match the sender's inline-Add classification, not the intent's
+        // marker for entries that must never be inserted after removal.
+        let mut refreshed: Vec<_> = data
+            .membership_updates
+            .iter()
+            .filter(|(inbox, after)| old.get(*inbox).is_some_and(|before| *after > before))
+            .map(|(inbox, _)| inbox.clone())
+            .collect();
+        refreshed.sort_unstable();
+        let (partial, fail_additions) = if refreshed.len() > 1 {
+            for inbox in refreshed.drain(refreshed.len() / 2..) {
+                data.membership_updates.remove(&inbox);
+            }
+            data.refreshed_members
+                .retain(|inbox| data.membership_updates.contains_key(inbox));
+            (true, false)
+        } else if refreshed.len() == 1 && !requirements.fail_refresh_additions {
+            (requirements.partial_membership_update, true)
+        } else {
+            return Ok(None);
+        };
+        self.with_group_snapshot(|group| {
+            if PreparedBase::capture(group)? != requirements.base {
+                return Err(OutgoingPreparationError::StateChanged.into());
+            }
+            let mut part = requirements.intent.clone();
+            part.data = Vec::from(data).into();
+            let mut next = PublishRequirements::capture(group, &part)?;
+            next.intent = requirements.intent.clone();
+            next.partial_membership_update = partial;
+            next.fail_refresh_additions = fail_additions;
+            Ok(Some(next))
+        })
+    }
+
     /// Resolve external inputs after the snapshot transaction has ended.
     /// The caller must recheck the intent and MLS base before using the result.
     pub(super) async fn resolve_publish_dependencies(
@@ -170,6 +229,47 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                 installations.keys().cloned().collect(),
                 failed_installations,
             ));
+        }
+        if requirements.fail_refresh_additions
+            && let (Some(old), Some(changes)) =
+                (&requirements.old_membership, &mut dependencies.changes)
+        {
+            let mut failed = HashSet::new();
+            changes.new_key_packages.retain(|package| {
+                let suppress = inbox_id_from_credential(package.leaf_node().credential())
+                    .is_ok_and(|inbox| old.get(&inbox).is_some());
+                if suppress {
+                    failed.insert(package.leaf_node().signature_key().as_slice().to_vec());
+                }
+                !suppress
+            });
+            changes
+                .new_installations
+                .retain(|installation| !failed.contains(&installation.installation_key));
+            changes.failed_installations.extend(failed);
+        }
+        if let Some((_, target)) = &dependencies.memberships
+            && (!target.failed_installations.is_empty()
+                || dependencies
+                    .changes
+                    .as_ref()
+                    .is_some_and(|changes| !changes.failed_installations.is_empty()))
+        {
+            // The membership delta assigns failed keys to their owning inbox.
+            // Its proof reads include unchanged inboxes at their exact target
+            // sequences; prepare those snapshots before entering the writer.
+            let proofs = target
+                .members
+                .iter()
+                .filter(|(_, sequence_id)| **sequence_id != 0)
+                .map(|(inbox_id, sequence_id)| IdentityRequirement {
+                    inbox_id: inbox_id.clone(),
+                    sequence_id: *sequence_id,
+                })
+                .collect();
+            resolve_identity_requirements(&self.context, &proofs)
+                .await
+                .map_err(CommitValidationError::from)?;
         }
         if let Some(selection) = &requirements.selection {
             dependencies.selection = self

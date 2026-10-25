@@ -246,7 +246,16 @@ where
         );
 
         // Keep the round future off the containing group sync poll stack.
-        let result = Box::pin(self.sync_until_intent_resolved_inner(intent_id)).await;
+        let result = async {
+            let mut summary = Box::pin(self.sync_until_intent_resolved_inner(intent_id)).await?;
+            // A split target can become a no-op after another member completes
+            // it. Its already-applied children can still owe Welcome delivery.
+            for child in self.pending_membership_children(intent_id)? {
+                summary.extend(Box::pin(self.sync_until_intent_resolved_inner(child)).await?);
+            }
+            Ok::<_, GroupError>(summary)
+        }
+        .await;
         let summary = match &result {
             Ok(summary) => Some(summary),
             Err(GroupError::Sync(summary)) => Some(&**summary),
@@ -307,6 +316,20 @@ where
             let wait_for = backoff
                 .backoff(attempt + 1, time_spent)
                 .unwrap_or(Duration::from_millis(50));
+            let membership_before = match Fetch::<StoredGroupIntent>::fetch(&db, &intent_id)? {
+                Some(intent)
+                    if intent.kind == IntentKind::UpdateGroupMembership
+                        && intent.state == IntentState::ToPublish =>
+                {
+                    Some((
+                        UpdateGroupMembershipIntentData::try_from(intent.data.as_slice())?,
+                        self.with_group_snapshot(|group| {
+                            extract_group_membership(group.extensions()).map_err(GroupError::from)
+                        })?,
+                    ))
+                }
+                _ => None,
+            };
 
             log_event!(
                 Event::GroupSyncAttempt,
@@ -408,13 +431,33 @@ where
             };
             // A round can finish a queued state change without publishing the
             // requested intent. That is progress, not a failed send attempt.
-            if round_succeeded
-                && waiting_to_publish
-                && let Some(predecessor) = predecessor
-                && Fetch::<StoredGroupIntent>::fetch(&db, &predecessor)?
-                    .is_some_and(|intent| intent.state == IntentState::Processed)
-            {
-                continue;
+            if round_succeeded && waiting_to_publish {
+                let predecessor_finished = if let Some(predecessor) = predecessor {
+                    Fetch::<StoredGroupIntent>::fetch(&db, &predecessor)?
+                        .is_some_and(|intent| intent.state == IntentState::Processed)
+                } else {
+                    false
+                };
+                // Split refresh children have later IDs. Count a round as
+                // progress only when it completes a requested inbox change;
+                // unrelated commits and repeated failures consume the budget.
+                let membership_advanced = if let Some((target, before)) = membership_before {
+                    let after = self.with_group_snapshot(|group| {
+                        extract_group_membership(group.extensions()).map_err(GroupError::from)
+                    })?;
+                    target.membership_updates.iter().any(|(inbox, target)| {
+                        before.get(inbox).is_none_or(|old| old < target)
+                            && after.get(inbox).is_some_and(|new| new >= target)
+                    }) || target
+                        .removed_members
+                        .iter()
+                        .any(|inbox| before.get(inbox).is_some() && after.get(inbox).is_none())
+                } else {
+                    false
+                };
+                if predecessor_finished || membership_advanced {
+                    continue;
+                }
             }
             attempt += 1;
             if attempt < MAX_GROUP_SYNC_RETRIES {
@@ -432,7 +475,7 @@ where
         {
             return Ok(summary);
         }
-        if self.published_intent_target(intent_id)?.is_some() {
+        if self.published_request_target(intent_id)?.is_some() {
             return Err(GroupError::PublishedButUnconfirmed {
                 intent_id,
                 cause: None,
@@ -458,7 +501,7 @@ where
             Ok(Err(error)) => summary.add_publish_err(error),
             Err(_) => return Err(GroupError::SyncFailedToWait(Box::new(summary))),
         }
-        let receipt = self.published_intent_target(intent_id)?;
+        let receipt = self.request_read_target(intent_id)?;
         let blocker = match receipt {
             Some(_) => None,
             None => self.blocking_target(predecessor)?,
@@ -475,7 +518,7 @@ where
         )
         .await
         {
-            return Err(if receipt.is_some() {
+            return Err(if self.published_request_target(intent_id)?.is_some() {
                 GroupError::PublishedButUnconfirmed {
                     intent_id,
                     cause: Some(Box::new(cause)),

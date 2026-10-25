@@ -431,6 +431,14 @@ async fn revoked_pending_add_does_not_block_publication(
     let caro_group = caro.group(&group.group_id)?;
     caro_group.receive().await?;
     tester!(bo2, from: bo, disable_workers);
+    // Refresh leaf changes are inline. Seed the accepted standalone Add
+    // explicitly so this test still exercises pending-proposal recovery.
+    publish_installation_add(
+        &caro_group,
+        bo2.installation_id.as_slice(),
+        &[&group, &caro_group],
+    )
+    .await?;
     // Caro is not an admin, so receivers reject the removal.
     assert!(caro_group.remove_members(&[eve.inbox_id()]).await.is_err());
     receive_completed_prefix(&caro_group, &group).await?;
@@ -725,6 +733,14 @@ async fn send_after_rejected_membership_refreshes_pending_adds_immediately() {
     let caro_group = caro.group(&group.group_id)?;
     caro_group.receive().await?;
     tester!(bo2, from: bo, disable_workers);
+    // Refresh leaf changes are inline. Seed the accepted standalone Add
+    // explicitly so this test still exercises pending-proposal recovery.
+    publish_installation_add(
+        &caro_group,
+        bo2.installation_id.as_slice(),
+        &[&group, &caro_group],
+    )
+    .await?;
     // Caro is not an admin, so receivers reject the removal.
     assert!(caro_group.remove_members(&[eve.inbox_id()]).await.is_err());
     receive_completed_prefix(&caro_group, &group).await?;
@@ -795,6 +811,14 @@ async fn rejected_removal_with_new_installation_does_not_block_publication(
             CommitRuleError::InsufficientPermissions
         ))
     )));
+    // Refresh leaf changes are inline. Seed the accepted standalone Add
+    // explicitly so this test still exercises pending-proposal recovery.
+    publish_installation_add(
+        &caro_group,
+        bo2.installation_id.as_slice(),
+        &[&group, &bo_group, &caro_group],
+    )
+    .await?;
     for peer in [&group, &bo_group, &caro_group] {
         receive_completed_prefix(&caro_group, peer).await?;
         assert_eq!(peer.members().await?.len(), 4);
@@ -1470,6 +1494,37 @@ async fn stale_refresh_does_not_lower_committed_sequence() -> Result<(), GroupEr
     }
     drop((alix2, alix3));
     Ok(())
+}
+
+// Seed the standalone Add whose recovery is under test. Membership refreshes
+// carry this leaf change inline, so a rejected refresh no longer leaves it.
+async fn publish_installation_add(
+    author: &crate::utils::TestMlsGroup,
+    installation: &[u8],
+    peers: &[&crate::utils::TestMlsGroup],
+) -> Result<(), GroupError> {
+    let package = MlsStore::new(author.context.clone())
+        .get_key_packages_for_installation_ids(vec![installation.to_vec()])
+        .await?
+        .remove(installation)
+        .expect("installation has a key package")
+        .expect("key package verifies")
+        .inner;
+    let payload = crate::state_tx::state_write(author.context.mls_storage(), |tx| {
+        tx.with_group(author.group_id, |mls, storage| {
+            let provider = XmtpOpenMlsProviderRef::new(storage);
+            let (message, _) = mls
+                .propose_add_member(
+                    &provider,
+                    &author.context.identity().installation_keys,
+                    &package,
+                )
+                .map_err(GroupError::ProposeAddMember)?;
+            Ok::<_, GroupError>(Continue(message.tls_serialize_detached()?))
+        })
+    })?
+    .into_continued();
+    publish_standalone_proposal(author, payload, peers).await
 }
 
 // Publish one signed standalone proposal and wait until each peer processed it.

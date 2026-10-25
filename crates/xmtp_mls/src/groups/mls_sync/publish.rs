@@ -138,12 +138,37 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                     after = Some(id);
                     continue;
                 }
-                NextPublish::Resolve(requirements) => {
-                    let result = match self.resolve_publish_dependencies(&requirements).await {
-                        Ok(mut dependencies) => {
-                            self.prepare_publish_attempt(&requirements, &mut dependencies)
+                NextPublish::Resolve(mut requirements) => {
+                    let result = loop {
+                        let mut dependencies =
+                            match self.resolve_publish_dependencies(&requirements).await {
+                                Ok(dependencies) => dependencies,
+                                Err(error) => break Err(error),
+                            };
+                        let result = self.prepare_publish_attempt(&requirements, &mut dependencies);
+                        if matches!(
+                            result,
+                            Err(GroupError::WrappedApi(xmtp_api::ApiError::EnvelopeTooLarge))
+                        ) {
+                            match self.smaller_membership_refresh(&requirements) {
+                                Ok(Some(smaller)) => {
+                                    requirements = smaller;
+                                    continue;
+                                }
+                                Ok(None) => {}
+                                Err(error) => break Err(error),
+                            }
                         }
-                        Err(error) => Err(error),
+                        break result.map(|attempt| {
+                            attempt.map(|attempt| {
+                                (
+                                    dependencies
+                                        .prepared_intent
+                                        .unwrap_or_else(|| requirements.intent.clone()),
+                                    attempt,
+                                )
+                            })
+                        });
                     };
                     match result {
                         Err(GroupError::OutgoingPreparation(
@@ -210,7 +235,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                             after = Some(requirements.intent.id);
                             continue;
                         }
-                        Ok(Some(attempt)) => (requirements.intent, attempt),
+                        Ok(Some(prepared)) => prepared,
                     }
                 }
             };
@@ -359,10 +384,29 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                     return Ok(Continue(false));
                 }
                 self.fail_intent(&db, &current, event_writer)?;
+                Self::fail_membership_parent(&db, &current, &saved)?;
                 Ok::<_, GroupError>(Continue(true))
             },
         )
         .map(TransactionOutcome::into_continued)
+    }
+
+    /// A terminal failure of a split part also fails its requested target.
+    /// Called under the same writer that records the child's failure.
+    fn fail_membership_parent(
+        db: &impl DbQuery,
+        child: &StoredGroupIntent,
+        attempt: &PreparedAttempt,
+    ) -> Result<(), GroupError> {
+        if let Some(parent_id) = attempt.parent_intent
+            && let Some(parent) = Fetch::<StoredGroupIntent>::fetch(db, &parent_id)?
+            && parent.group_id == child.group_id
+            && parent.kind == IntentKind::UpdateGroupMembership
+            && parent.state == IntentState::ToPublish
+        {
+            db.set_group_intent_error(parent.id)?;
+        }
+        Ok(())
     }
 
     /// Mark the intent `Error` and its application message `Failed` under the
@@ -406,7 +450,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
             let result = tx.savepoint(|tx| {
                 tx.with_group(self.group_id, |group, storage| {
                     let db = storage.db();
-                    let Some(intent) =
+                    let Some(mut intent) =
                         Fetch::<StoredGroupIntent>::fetch(&db, &requirements.intent.id)?
                     else {
                         return Ok(Continue(None));
@@ -433,6 +477,9 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                         return Err(OutgoingPreparationError::StateChanged.into());
                     }
                     dependencies.validate_local(storage)?;
+                    if let Some(data) = &requirements.membership_update {
+                        intent.data = Vec::from(data.clone()).into();
+                    }
                     let original_proposals = group.pending_proposals().cloned().collect::<Vec<_>>();
                     let replacement_payloads = dependencies.selection.apply(
                         group,
@@ -519,6 +566,9 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                     let attempt = PreparedAttempt {
                         version: prepared::PREPARED_ATTEMPT_VERSION,
                         base: requirements.base.clone(),
+                        parent_intent: requirements
+                            .partial_membership_update
+                            .then_some(requirements.intent.id),
                         payload_hash: sha256(payload).to_vec(),
                         envelopes: envelopes
                             .iter()
@@ -532,6 +582,16 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                     };
                     // Validate size and shape before any ratchet writes can commit.
                     attempt.publish_unit(self.context.api().limits())?;
+                    if requirements.partial_membership_update {
+                        // Leave the original desired target pending. Its next
+                        // diff against the advanced group contains only the
+                        // unfinished inboxes. The published child preempts it.
+                        intent = QueueIntent::update_group_membership()
+                            .data(intent.data.as_slice().to_vec())
+                            .should_push(intent.should_push)
+                            .queue_in(&db, self)?;
+                        dependencies.prepared_intent = Some(intent.clone());
+                    }
                     let encoded = xmtp_db::db_serialize(&attempt)?;
                     if !db.compare_and_set_prepared_envelopes(intent.id, None, Some(&encoded))? {
                         return Err(OutgoingPreparationError::StateChanged.into());

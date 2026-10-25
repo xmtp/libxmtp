@@ -4,7 +4,7 @@ use crate::{
     context::XmtpSharedContext,
     identity_updates::{
         IdentityDependencyError, IdentityRequirement, InstallationDiff, InstallationDiffError,
-        get_installation_diff_local, require_association_state,
+        get_installation_diff_local, require_association_state, required_leaf_removals,
     },
 };
 use openmls::{
@@ -35,11 +35,10 @@ use xmtp_mls_validation::{
         CommitParticipant, CommitRuleError, Inbox, MembershipValidationInfo, MetadataChanges,
         ProposalChanges, build_inbox_with_proposer, extract_commit_participant,
         extract_committer_and_proposers, extract_group_membership, extract_readded_installations,
-        get_current_group_members, get_latest_group_membership, get_proposal_changes,
-        inbox_id_from_credential, metadata_changes_between, read_committed_metadata,
-        read_post_commit_mutable_metadata, validate_app_data_update_proposals_in_commit,
-        validate_committed_proposals, validate_identity_sequence_order, validate_membership_diff,
-        validate_one_app_data_update,
+        get_latest_group_membership, get_proposal_changes, inbox_id_from_credential, leaf_owners,
+        metadata_changes_between, read_committed_metadata, read_post_commit_mutable_metadata,
+        validate_app_data_update_proposals_in_commit, validate_committed_proposals,
+        validate_identity_sequence_order, validate_membership_diff, validate_one_app_data_update,
     },
     group_membership::GroupMembership,
     group_permissions::{GroupMutablePermissionsError, MembershipPolicy, PolicySet},
@@ -246,7 +245,9 @@ impl ValidatedCommit {
                         CommitRuleError::GroupMutablePermissions(error),
                     ))
                 })?;
-        let current_group_members = get_current_group_members(openmls_group);
+        let leaf_owners =
+            leaf_owners(openmls_group.members()).map_err(CommitValidationError::installed_state)?;
+        let current_group_members = leaf_owners.keys().cloned().collect();
 
         // Reuse the committed registry for all component checks. Apply pending
         // floor updates to this view, then check their policy before pausing.
@@ -358,15 +359,13 @@ impl ValidatedCommit {
             .cloned()
             .collect();
 
-        // A deleted inbox has no post-commit entry to retain its failures.
-        // Keep authenticated old failures only when they have no current leaf.
-        failed_installations.extend(
-            old_group_membership
-                .failed_installations
-                .iter()
-                .filter(|id| !current_group_members.contains(*id))
-                .cloned(),
-        );
+        let required_removals = required_leaf_removals(
+            conn,
+            &old_group_membership,
+            &new_group_membership,
+            &expected_installation_diff.removed_installations,
+            &leaf_owners,
+        )?;
 
         // Remove readded installations from the added/removed/failed lists before going through validation
         let readded_installations = extract_readded_installations(
@@ -380,8 +379,8 @@ impl ValidatedCommit {
             &expected_installation_diff,
             added_installations,
             removed_installations,
-            current_group_members,
-            failed_installations,
+            &required_removals,
+            &current_group_members,
         )?;
         credentials_to_verify.push(actor.clone());
 
@@ -691,8 +690,8 @@ fn expected_diff_matches_commit(
     expected_diff: &InstallationDiff,
     added_installations: HashSet<Vec<u8>>,
     removed_installations: HashSet<Vec<u8>>,
-    existing_installation_ids: HashSet<Vec<u8>>,
-    failed_installation_ids: HashSet<Vec<u8>>,
+    required_removals: &HashSet<Vec<u8>>,
+    existing_installation_ids: &HashSet<Vec<u8>>,
 ) -> Result<(), CommitValidationError> {
     // Check and make sure that any added installations are either:
     // 1. In the expected diff
@@ -713,16 +712,9 @@ fn expected_diff_matches_commit(
         ));
     }
 
-    let filtered_expected: HashSet<_> = expected_diff
-        .removed_installations
-        .iter()
-        .filter(|id| !failed_installation_ids.contains(*id))
-        .cloned()
-        .collect();
-
-    if removed_installations != filtered_expected {
+    if &removed_installations != required_removals {
         let unexpected: Vec<_> = removed_installations
-            .difference(&expected_diff.removed_installations)
+            .symmetric_difference(required_removals)
             .cloned()
             .collect();
 

@@ -8,7 +8,7 @@ use crate::groups::send_message_opts::SendMessageOpts;
 use std::sync::atomic::Ordering;
 use xmtp_db::group_message::DeliveryStatus;
 
-fn intents_in<C: XmtpSharedContext>(
+pub(super) fn intents_in<C: XmtpSharedContext>(
     group: &MlsGroup<C>,
     states: &[IntentState],
     kind: IntentKind,
@@ -20,13 +20,16 @@ fn intents_in<C: XmtpSharedContext>(
         .unwrap()
 }
 
-const UNRESOLVED: [IntentState; 3] = [
+pub(super) const UNRESOLVED: [IntentState; 3] = [
     IntentState::ToPublish,
     IntentState::Published,
     IntentState::Committed,
 ];
 
-fn status<C: XmtpSharedContext>(group: &MlsGroup<C>, message_id: &[u8]) -> DeliveryStatus {
+pub(super) fn status<C: XmtpSharedContext>(
+    group: &MlsGroup<C>,
+    message_id: &[u8],
+) -> DeliveryStatus {
     let message: StoredGroupMessage = group
         .context
         .db()

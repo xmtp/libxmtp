@@ -23,6 +23,8 @@ pub(super) enum Fault {
     Refuse(tonic::Code),
     /// Store the request, then lose its response to `OUT_OF_RANGE`.
     LoseResponse,
+    /// Store the request, then return an ambiguous UNAVAILABLE error.
+    StoreThenUnavailable,
 }
 
 /// Passes every request to the test backend, except that each publish carrying
@@ -65,6 +67,11 @@ impl FaultyApi {
             poisoned: Default::default(),
             serial: Default::default(),
         }
+    }
+
+    /// Model an ordered read that fails after publication returned a receipt.
+    pub(super) fn reject_queries(&self) {
+        self.poisoned.store(true, Ordering::SeqCst);
     }
 
     /// Let queries through again, as a restarted process would.
@@ -114,22 +121,27 @@ impl XmtpBackendClient for FaultyApi {
         let _serial = self.serial.lock().await;
         let fault = self.faults.lock().pop_front();
         self.requests.lock().push(request.clone());
-        let out_of_range = match fault {
+        let publish_error = match fault {
             None => return self.inner.publish(request).await,
             Some(Fault::Refuse(code)) if code != tonic::Code::OutOfRange => {
                 return Err(status(code));
             }
             Some(Fault::Refuse(_)) => status(tonic::Code::OutOfRange),
-            Some(Fault::LoseResponse) => {
+            Some(Fault::LoseResponse | Fault::StoreThenUnavailable) => {
                 let response = self.inner.publish(request).await?;
                 self.lost.lock().extend(response.envelope_metas);
-                status(tonic::Code::OutOfRange)
+                let code = if fault == Some(Fault::StoreThenUnavailable) {
+                    tonic::Code::Unavailable
+                } else {
+                    tonic::Code::OutOfRange
+                };
+                status(code)
             }
         };
         if self.stop_before_recovery.swap(false, Ordering::SeqCst) {
             self.poisoned.store(true, Ordering::SeqCst);
         }
-        Err(out_of_range)
+        Err(publish_error)
     }
 
     async fn create_upload(
