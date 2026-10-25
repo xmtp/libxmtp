@@ -25,6 +25,13 @@ pub const MAX_GROUP_SIZE: usize = 250;
 
 pub const MAX_INSTALLATIONS_PER_INBOX: usize = 10;
 
+/// Most actions one identity update may carry. Validators reject a larger
+/// update when they decode it, before they verify any of its signatures, and
+/// clients refuse to build one. It is also the most installations a client
+/// accepts as a deployment's installation ceiling, so one update can revoke
+/// every installation that ceiling allows.
+pub const MAX_IDENTITY_UPDATE_ACTIONS: usize = 100;
+
 pub const MAX_PAST_EPOCHS: usize = 3;
 
 /// Healthy primary-read time allowed for an absent pinned identity update.

@@ -1,5 +1,6 @@
 use super::*;
 
+// verifies: IDENT-093
 #[xmtp_common::test(unwrap_try = true)]
 fn eip155_chain_ids_parse_only_in_canonical_decimal_form() {
     for (chain, id) in [

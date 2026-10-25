@@ -407,27 +407,6 @@ issue = "https://github.com/xmtp/libxmtp/issues/4644"
 reason = "OpenMLS logs the serialized group context, root included, at TRACE under `openmls::schedule`, which a Rust host that installs its own global subscriber with the `tracing-log` bridge receives, because `xmtp_logging::group_context_guard` covers only the subscribers libxmtp installs."
 
 [[waiver]]
-id = "IDENT-093"
-kind = "gap"
-owner = "Nicholas Molnar"
-issue = "TBD-octane-tracking"
-reason = "A validator accepts an ERC-6492 signature of any length, and an account_id with an all-zero address or a non-canonical chain reference, and reaches the chain for them."
-
-[[waiver]]
-id = "API-301"
-kind = "gap"
-owner = "Nicholas Molnar"
-issue = "TBD-octane-tracking"
-reason = "VerifySmartContractWalletSignatures does not fail a request with INVALID_ARGUMENT before chain access for an all-zero account address or an oversized signature."
-
-[[waiver]]
-id = "IDENT-094"
-kind = "gap"
-owner = "Nicholas Molnar"
-issue = "TBD-octane-tracking"
-reason = "An identity update's actions have no count bound, so a validator verifies every signature of an update with any number of actions."
-
-[[waiver]]
 id = "API-302"
 kind = "gap"
 owner = "Nicholas Molnar"

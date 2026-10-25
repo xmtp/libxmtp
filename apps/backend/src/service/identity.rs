@@ -2,7 +2,10 @@ use super::query::count;
 use crate::{Backend, api, validation::lookup_key};
 use tonic::{Request, Response, Status};
 use xmtp_common::RetryableError;
-use xmtp_id::{associations::AccountId, scw_verifier::SmartContractSignatureVerifier};
+use xmtp_id::{
+    associations::AccountId,
+    scw_verifier::{ScwInput, SmartContractSignatureVerifier},
+};
 
 #[cfg(test)]
 mod tests;
@@ -49,9 +52,12 @@ impl api::identity_service_server::IdentityService for Backend {
     #[xmtp_common::rpc_span]
     /// Verify each supplied smart-contract-wallet signature independently.
     ///
-    /// Malformed account IDs and hashes fail before verifier calls. Provider
-    /// failures map to `UNAVAILABLE`, while a negative signature verdict is a
-    /// successful response with `is_valid` set to false.
+    /// Every entry is checked before the first verifier call, so one whose
+    /// account id is not a non-zero `eip155` account, whose hash is not 32
+    /// bytes, or whose signature is longer than `MAX_SCW_SIGNATURE_BYTES`
+    /// fails the request with `INVALID_ARGUMENT` and reaches no chain or
+    /// cache. Provider failures map to `UNAVAILABLE`, while a negative
+    /// signature verdict is a successful response with `is_valid` set to false.
     // implements: API-231, API-301
     async fn verify_smart_contract_wallet_signatures(
         &self,
@@ -72,13 +78,19 @@ impl api::identity_service_server::IdentityService for Backend {
                     .hash
                     .try_into()
                     .map_err(|_| Status::invalid_argument("hash must contain 32 bytes"))?;
-                Ok((account, hash, input.signature, input.block_number))
+                ScwInput::checked(account, hash, input.signature.into(), input.block_number)
+                    .map_err(|_| Status::invalid_argument("unverifiable account id or signature"))
             })
             .collect::<Result<Vec<_>, Status>>()?;
         let mut responses = Vec::with_capacity(inputs.len());
-        for (account, hash, signature, block) in inputs {
+        for input in inputs {
             let result = crate::validation::ObservedVerifier(&self.verifier)
-                .is_valid_signature(account, hash, signature.into(), block)
+                .is_valid_signature(
+                    input.account_id().clone(),
+                    input.hash(),
+                    input.signature().clone(),
+                    input.block_number(),
+                )
                 .await
                 .map_err(|error| {
                     if error.is_retryable() {

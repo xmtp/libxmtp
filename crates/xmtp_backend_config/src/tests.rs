@@ -399,7 +399,8 @@ enum AuthSource {
 }
 
 /// A configuration that loads and holds every table of the field table, with
-/// an enabled `[auth]` table.
+/// an enabled `[auth]` table, and the installation ceiling at the top of its
+/// range.
 fn full_document(auth: AuthSource) -> toml::Table {
     let mut document: toml::Table = toml::from_str(
         r#"
@@ -415,6 +416,7 @@ url = "postgres://localhost/xmtp"
 [validation]
 [limits]
 [mls]
+max_installations_per_inbox = 100
 [handles]
 [chains]
 "eip155:1" = "https://rpc.example.org"
@@ -1053,8 +1055,8 @@ fn failing_values() -> Vec<FailingValue> {
         failing("limits.max_push_topics", MAX_INT, "2147483648"),
         failing("mls.max_group_members", "range 1..65535", "0"),
         failing("mls.max_group_members", "range 1..65535", "65536"),
-        failing("mls.max_installations_per_inbox", "range 1..65535", "0"),
-        failing("mls.max_installations_per_inbox", "range 1..65535", "65536"),
+        failing("mls.max_installations_per_inbox", "range 1..100", "0"),
+        failing("mls.max_installations_per_inbox", "range 1..100", "101"),
         failing_name(
             "chains.<chain id>",
             "url http, https",

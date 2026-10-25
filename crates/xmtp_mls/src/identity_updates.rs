@@ -9,6 +9,7 @@ use futures::future::try_join_all;
 use std::collections::{HashMap, HashSet};
 use thiserror::Error;
 use xmtp_common::{Event, Retry, RetryableError, retry_async, retryable};
+use xmtp_configuration::MAX_IDENTITY_UPDATE_ACTIONS;
 use xmtp_cryptography::CredentialSign;
 use xmtp_db::StorageError;
 use xmtp_db::XmtpDb;
@@ -187,12 +188,23 @@ pub fn identifier_opens_inbox(
     membership.unwrap_or_else(|| identifier.inbox_id(nonce).is_ok_and(|own| own == inbox_id))
 }
 
-/// Revoke the given installations from the association state for the client's inbox
+/// Refuse to revoke more members than one identity update may carry, before
+/// any request is built or signed: every validator would reject that update.
+fn check_revocation_count(count: usize) -> Result<(), ClientError> {
+    if count > MAX_IDENTITY_UPDATE_ACTIONS {
+        return Err(SignatureRequestError::TooManyActions(count).into());
+    }
+    Ok(())
+}
+
+/// Revoke the given installations from the association state for the client's inbox.
+/// More installations than one identity update may revoke fail before a request is built.
 pub fn revoke_installations_with_verifier(
     identifier: &Identifier,
     inbox_id: &str,
     installation_ids: Vec<Vec<u8>>,
 ) -> Result<SignatureRequest, ClientError> {
+    check_revocation_count(installation_ids.len())?;
     let mut builder = SignatureRequestBuilder::new(inbox_id);
 
     for installation_id in installation_ids {
@@ -472,11 +484,13 @@ where
         Ok(signature_request)
     }
 
-    /// Revoke the given identities from the association state for the client's inbox
+    /// Revoke the given identities from the association state for the client's inbox.
+    /// More identities than one identity update may revoke fail before any network read.
     pub async fn revoke_identities(
         &self,
         identities_to_revoke: Vec<Identifier>,
     ) -> Result<SignatureRequest, ClientError> {
+        check_revocation_count(identities_to_revoke.len())?;
         let inbox_id = self.context.inbox_id();
         let current_state = retry_async!(
             Retry::default(),
@@ -1502,6 +1516,60 @@ pub(crate) mod tests {
             result.is_err(),
             "an inbox added at sequence_id 0 must be rejected, not resolved at latest"
         );
+    }
+
+    /// One identity update revokes at most its action limit, so a larger
+    /// revocation fails before any request exists to sign, from either
+    /// helper. A revocation at the limit is one request with that many actions.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn revoke_requests_over_action_limit_fail_before_signing() {
+        use crate::client::ClientError;
+        use xmtp_configuration::MAX_IDENTITY_UPDATE_ACTIONS;
+        tester!(alix);
+        let installations = |count| (0..count).map(|_| rand_vec::<32>()).collect::<Vec<_>>();
+        let identities = |count| {
+            (0..count)
+                .map(|_| generate_local_wallet().identifier())
+                .collect::<Vec<_>>()
+        };
+        let revoke_installations = |count| {
+            super::revoke_installations_with_verifier(
+                &alix.identifier(),
+                alix.inbox_id(),
+                installations(count),
+            )
+        };
+
+        let over = MAX_IDENTITY_UPDATE_ACTIONS + 1;
+        for error in [
+            revoke_installations(over).unwrap_err(),
+            alix.identity_updates()
+                .revoke_identities(identities(over))
+                .await
+                .unwrap_err(),
+        ] {
+            assert!(
+                matches!(
+                    error,
+                    ClientError::SignatureRequest(SignatureRequestError::TooManyActions(count))
+                        if count == over
+                ),
+                "{error}"
+            );
+        }
+
+        for mut request in [
+            revoke_installations(MAX_IDENTITY_UPDATE_ACTIONS)?,
+            alix.identity_updates()
+                .revoke_identities(identities(MAX_IDENTITY_UPDATE_ACTIONS))
+                .await?,
+        ] {
+            add_wallet_signature(&mut request, &alix.builder.owner).await;
+            assert_eq!(
+                request.build_identity_update()?.actions.len(),
+                MAX_IDENTITY_UPDATE_ACTIONS
+            );
+        }
     }
 
     #[rstest::rstest]

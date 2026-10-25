@@ -11,8 +11,8 @@ use xmtp_common::RetryableError;
 use xmtp_id::{
     associations::{
         self, AccountId, AssociationError, AssociationState, AssociationStateDiff, Handle,
-        IdentityAction as _, SignatureError, try_map_vec, unverified::UnverifiedIdentityUpdate,
-        verify_updates,
+        IdentityAction as _, SignatureError, UpdateShapeError, check_update_shape, try_map_vec,
+        unverified::UnverifiedIdentityUpdate, verify_updates,
     },
     key_package::{KeyPackageVerificationError, VerifiedKeyPackageV2},
     scw_verifier::{BlockStamp, ChainBlocks, SmartContractSignatureVerifier, VerifierError},
@@ -30,11 +30,11 @@ use xmtp_proto::{
             ClientEnvelope, SealedCommitLogEntry, client_envelope::Payload, publish_error::Reason,
             welcome_message::Version,
         },
-        identity::associations::{
-            IdentityUpdate, SmartContractWalletSignature, identity_action, signature,
-        },
+        identity::associations::IdentityUpdate,
     },
 };
+
+pub use xmtp_id::associations::erc6492_signatures;
 
 pub mod commit;
 pub mod fork_actors;
@@ -107,6 +107,19 @@ pub enum ValidationError {
     #[error(transparent)]
     #[error_code(inherit)]
     InvalidAccountId(ConversionError),
+}
+
+impl From<UpdateShapeError> for ValidationError {
+    fn from(error: UpdateShapeError) -> Self {
+        match error {
+            UpdateShapeError::Malformed(error) => Self::IdentityEncoding(error),
+            // Rejected like a malformed account id: a signature that can never
+            // verify.
+            UpdateShapeError::SignatureTooLong(length) => {
+                Self::Signature(VerifierError::SignatureTooLong(length).into())
+            }
+        }
+    }
 }
 
 impl RetryableError for ValidationError {
@@ -374,37 +387,6 @@ pub async fn validate_identity_updates(
 /// The oldest a new update's ERC-6492 block may be, relative to the chain head.
 pub const MAX_BLOCK_AGE_SECS: u64 = 1800;
 
-/// Every ERC-6492 signature an identity update carries, in action order.
-pub fn erc6492_signatures(
-    update: &IdentityUpdate,
-) -> impl Iterator<Item = &SmartContractWalletSignature> {
-    update
-        .actions
-        .iter()
-        .flat_map(|action| match &action.kind {
-            Some(identity_action::Kind::CreateInbox(value)) => {
-                [value.initial_identifier_signature.as_ref(), None]
-            }
-            Some(identity_action::Kind::Add(value)) => [
-                value.existing_member_signature.as_ref(),
-                value.new_member_signature.as_ref(),
-            ],
-            Some(identity_action::Kind::Revoke(value)) => {
-                [value.recovery_identifier_signature.as_ref(), None]
-            }
-            Some(identity_action::Kind::ChangeRecoveryAddress(value)) => {
-                [value.existing_recovery_identifier_signature.as_ref(), None]
-            }
-            Some(identity_action::Kind::ClaimHandle(value)) => [value.signature.as_ref(), None],
-            None => [None, None],
-        })
-        .flatten()
-        .filter_map(|value| match &value.signature {
-            Some(signature::Signature::Erc6492(signature)) => Some(signature),
-            _ => None,
-        })
-}
-
 /// Reject a new update whose ERC-6492 signature names a block after its
 /// chain's head, or one more than [`MAX_BLOCK_AGE_SECS`] before it.
 ///
@@ -518,8 +500,10 @@ pub fn verify_publish(parsed: &ParsedEnvelope) -> Result<(), ValidationError> {
 ///
 /// Key packages receive their existing package checks. Identity updates are
 /// folded against the caller's snapshot and return a projection diff; only the
-/// new update, never the stored history, must first pass [`check_freshness`].
-/// Other kinds need no admission here beyond the parsing phase.
+/// new update, never the stored history, must first pass [`check_update_shape`]
+/// and then [`check_freshness`], so a shape no validator accepts is rejected
+/// for good before any chain access. Other kinds need no admission here beyond
+/// the parsing phase.
 ///
 /// Publish signatures are not checked here. A caller verifies every envelope
 /// that [`ParsedEnvelope::is_signed`] calls signed with [`verify_publish`],
@@ -542,6 +526,7 @@ pub async fn validate_envelope(
             Ok(None)
         }
         Payload::IdentityUpdate(update) => {
+            check_update_shape(update)?;
             check_freshness(update, chain).await?;
             Ok(Some(
                 validate_identity_updates(history.to_vec(), vec![update.clone()], verifier).await?,

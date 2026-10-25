@@ -7,6 +7,7 @@ use crate::api::publish_error::Reason;
 use prost::Message;
 use support::TestServer;
 use tonic::Code;
+use xmtp_configuration::{MAX_IDENTITY_UPDATE_ACTIONS, MAX_SCW_SIGNATURE_BYTES};
 use xmtp_id::associations::{
     Identifier, MemberIdentifier,
     builder::SignatureRequestBuilder,
@@ -377,6 +378,65 @@ async fn scw_signature_limit_accepts_exact_count_and_rejects_one_past() {
     server.stop().await?;
 }
 
+/// An entry that no chain can verify fails the whole request with
+/// `INVALID_ARGUMENT` before the first verifier call, even behind a valid
+/// entry: a zero or non-`eip155` account, whose verdict would be any
+/// signature's, and a signature longer than the cap, whose verification code
+/// no chain executes. The longest signature the cap admits gets its verdict.
+// verifies: API-301, IDENT-093
+#[xmtp_common::test(unwrap_try = true)]
+async fn scw_verify_request_rejects_unverifiable_inputs_before_verification() {
+    const ACCOUNT: &str = "eip155:1:0x1111111111111111111111111111111111111111";
+    let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let server =
+        TestServer::with_verifier(|_| {}, CountingVerifier(calls.clone()), TestChain::at(1))
+            .await?;
+    let entry = |account_id: &str, length: usize| {
+        api::verify_smart_contract_wallet_signatures_request::Signature {
+            account_id: account_id.into(),
+            hash: vec![1; 32],
+            signature: vec![1; length],
+            block_number: Some(1),
+        }
+    };
+    let verify = async |signatures| {
+        server
+            .identity()
+            .verify_smart_contract_wallet_signatures(
+                api::VerifySmartContractWalletSignaturesRequest { signatures },
+            )
+            .await
+    };
+
+    for unverifiable in [
+        entry("eip155:1:0x0000000000000000000000000000000000000000", 65),
+        entry(
+            "cosmos:cosmoshub-4:0x1111111111111111111111111111111111111111",
+            65,
+        ),
+        entry(ACCOUNT, MAX_SCW_SIGNATURE_BYTES + 1),
+    ] {
+        let error = verify(vec![entry(ACCOUNT, 65), unverifiable.clone()])
+            .await
+            .unwrap_err();
+        assert_eq!(
+            error.code(),
+            Code::InvalidArgument,
+            "{}: {error:?}",
+            unverifiable.account_id
+        );
+    }
+    assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 0);
+
+    let responses = verify(vec![entry(ACCOUNT, MAX_SCW_SIGNATURE_BYTES)])
+        .await?
+        .into_inner()
+        .responses;
+    assert_eq!(responses.len(), 1);
+    assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+    server.stop().await?;
+}
+
 #[xmtp_common::test(unwrap_try = true)]
 async fn identity_update_scw_signature_limit_is_checked_before_verification() {
     let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
@@ -431,6 +491,7 @@ async fn identity_update_scw_signature_limit_is_checked_before_verification() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+// verifies: API-301
 async fn scw_verdicts_preserve_input_order_and_resolved_blocks() {
     let Some(metrics) = crate::test_support::metrics::isolated(
         "service::identity::tests::scw_verdicts_preserve_input_order_and_resolved_blocks",
@@ -558,22 +619,42 @@ fn encoded_identity_envelope(update: &[u8]) -> Vec<u8> {
     xmtp_id::associations::test_utils::length_delimited(4, update)
 }
 
+/// The smart contract wallet signature of the fixture's inbox creation.
+fn fixture_scw_signature(
+    update: &mut IdentityUpdate,
+) -> &mut xmtp_proto::xmtp::identity::associations::SmartContractWalletSignature {
+    let Some(Kind::CreateInbox(create)) = &mut update.actions[0].kind else {
+        unreachable!("the fixture creates an inbox")
+    };
+    let Some(signature::Signature::Erc6492(scw)) = create
+        .initial_identifier_signature
+        .as_mut()
+        .and_then(|signature| signature.signature.as_mut())
+    else {
+        unreachable!("the fixture is signed by a smart contract wallet")
+    };
+    scw
+}
+
 /// Each update a validator must reject is refused on admission as an invalid
 /// argument, before any chain call, and leaves the log and the identifier
 /// lookups exactly as they were: an empty update, a revoked member in mixed
 /// case (that revocation would apply if the form were not checked), an add of
-/// a current member, a smart contract wallet signature outside `eip155`, and a
-/// signature in the retired field 4. Each fails with
+/// a current member, a smart contract wallet signature outside `eip155`, a
+/// signature in the retired field 4, and, each signed by a smart contract
+/// wallet, 101 actions, a claim beside another action and a signature longer
+/// than the cap. The chain is down, so a check that read it first would
+/// answer `UNAVAILABLE`. Each fails with
 /// the reason for the rule it breaks. Only an inbox id that names no identity
 /// topic, one byte short or not hexadecimal, is a malformed payload, even when
 /// the update would break a rule as well.
-// verifies: IDENT-001, IDENT-013, IDENT-040, API-230, TOPIC-002
+// verifies: IDENT-001, IDENT-013, IDENT-040, IDENT-079, IDENT-093, IDENT-094, API-230, TOPIC-002
 #[xmtp_common::test(unwrap_try = true)]
 async fn identity_invalid_mutations_are_rejected_on_admission() {
     let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
-    let server =
-        TestServer::with_verifier(|_| {}, CountingVerifier(calls.clone()), TestChain::at(1))
-            .await?;
+    let chain = TestChain::at(1);
+    chain.set(None);
+    let server = TestServer::with_verifier(|_| {}, CountingVerifier(calls.clone()), chain).await?;
     let wallet = xmtp_cryptography::utils::generate_local_wallet();
     let installation = xmtp_cryptography::basic_credential::XmtpInstallationCredential::new();
     let mut request = SignatureRequestBuilder::new(wallet.get_inbox_id(0))
@@ -627,18 +708,55 @@ async fn identity_invalid_mutations_are_rejected_on_admission() {
         .build();
     add_wallet_signature(&mut duplicate_add, &wallet).await;
     add_installation_key_signature(&mut duplicate_add, &installation).await;
-    let mut cosmos = scw_create_inbox_update();
-    let Some(Kind::CreateInbox(create)) = &mut cosmos.actions[0].kind else {
-        unreachable!("the fixture creates an inbox")
+    let scw_shape = |edit: fn(&mut IdentityUpdate)| {
+        let mut update = scw_create_inbox_update();
+        edit(&mut update);
+        update.encode_to_vec()
     };
-    let Some(signature::Signature::Erc6492(scw)) = create
-        .initial_identifier_signature
-        .as_mut()
-        .and_then(|signature| signature.signature.as_mut())
-    else {
-        unreachable!("the fixture is signed by a smart contract wallet")
-    };
-    scw.account_id = scw.account_id.replacen("eip155:1", "cosmos:cosmoshub-4", 1);
+    let cosmos = scw_shape(|update| {
+        let scw = fixture_scw_signature(update);
+        scw.account_id = scw.account_id.replacen("eip155:1", "cosmos:cosmoshub-4", 1);
+    });
+    let too_many_actions = scw_shape(|update| {
+        use xmtp_proto::xmtp::identity::associations as proto;
+        let revoke = proto::IdentityAction {
+            kind: Some(Kind::Revoke(proto::RevokeAssociation {
+                member_to_revoke: Some(proto::MemberIdentifier {
+                    kind: Some(proto::member_identifier::Kind::InstallationPublicKey(
+                        vec![1; 32],
+                    )),
+                }),
+                recovery_identifier_signature: Some(proto::Signature {
+                    signature: Some(signature::Signature::Erc191(
+                        proto::RecoverableEcdsaSignature { bytes: vec![1; 65] },
+                    )),
+                }),
+            })),
+        };
+        update
+            .actions
+            .extend(std::iter::repeat_n(revoke, MAX_IDENTITY_UPDATE_ACTIONS));
+    });
+    let claim_beside_create = scw_shape(|update| {
+        let signature = Some(xmtp_proto::xmtp::identity::associations::Signature {
+            signature: Some(signature::Signature::Erc6492(
+                fixture_scw_signature(update).clone(),
+            )),
+        });
+        update
+            .actions
+            .push(xmtp_proto::xmtp::identity::associations::IdentityAction {
+                kind: Some(Kind::ClaimHandle(
+                    xmtp_proto::xmtp::identity::associations::ClaimHandle {
+                        handle: "nick".into(),
+                        signature,
+                    },
+                )),
+            });
+    });
+    let oversized_signature = scw_shape(|update| {
+        fixture_scw_signature(update).signature = vec![1; MAX_SCW_SIGNATURE_BYTES + 1];
+    });
     let legacy_inbox = Identifier::eth(LEGACY_WALLET)?.inbox_id(0)?;
 
     for (case, envelope, reason) in [
@@ -657,9 +775,20 @@ async fn identity_invalid_mutations_are_rejected_on_admission() {
             IdentityUpdate::from(duplicate_add.build_identity_update()?).encode_to_vec(),
             Reason::InvalidIdentityUpdate,
         ),
+        ("non-eip155 account", cosmos, Reason::InvalidSignature),
         (
-            "non-eip155 account",
-            cosmos.encode_to_vec(),
+            "101 actions",
+            too_many_actions,
+            Reason::InvalidIdentityUpdate,
+        ),
+        (
+            "claim beside another action",
+            claim_beside_create,
+            Reason::InvalidIdentityUpdate,
+        ),
+        (
+            "oversized signature",
+            oversized_signature,
             Reason::InvalidSignature,
         ),
         (

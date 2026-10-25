@@ -1,19 +1,22 @@
 mod cached;
 pub use cached::CachedSmartContractSignatureVerifier;
 mod chain_rpc_verifier;
+mod input;
 mod remote_signature_verifier;
-use crate::associations::AccountId;
+use crate::associations::{AccountId, AccountIdError};
 use alloy::{
     primitives::{BlockNumber, Bytes},
     providers::DynProvider,
 };
 pub use chain_rpc_verifier::*;
+pub use input::ScwInput;
 pub use remote_signature_verifier::*;
 use std::{collections::HashMap, fs, path::Path, sync::Arc};
 use thiserror::Error;
 use tracing::info;
 use url::Url;
 use xmtp_common::{ErrorCode, MaybeSend, MaybeSync, RetryableError};
+use xmtp_configuration::MAX_SCW_SIGNATURE_BYTES;
 
 static DEFAULT_CHAIN_URLS: &str = include_str!("chain_urls_default.json");
 
@@ -67,6 +70,16 @@ pub enum VerifierError {
     /// Hash has invalid length or format. Not retryable.
     #[error("hash was invalid length or otherwise malformed")]
     InvalidHash(Vec<u8>),
+    /// The account id is not a verifiable `eip155` account. Not retryable.
+    #[error(transparent)]
+    #[error_code(inherit)]
+    InvalidAccountId(AccountIdError),
+    /// Signature too long.
+    ///
+    /// The smart contract wallet signature is longer than
+    /// `MAX_SCW_SIGNATURE_BYTES`, so it is never verified. Not retryable.
+    #[error("smart contract wallet signature of {0} bytes exceeds {MAX_SCW_SIGNATURE_BYTES}")]
+    SignatureTooLong(usize),
     /// Other error.
     ///
     /// Unclassified verifier error. May be retryable.
@@ -316,6 +329,8 @@ impl MultiSmartContractSignatureVerifier {
 
 #[xmtp_common::async_trait]
 impl SmartContractSignatureVerifier for MultiSmartContractSignatureVerifier {
+    /// Checks the input before it routes, so an input no chain can verify is
+    /// refused for good, never answered as a retryable missing route.
     async fn is_valid_signature(
         &self,
         account_id: AccountId,
@@ -323,8 +338,14 @@ impl SmartContractSignatureVerifier for MultiSmartContractSignatureVerifier {
         signature: Bytes,
         block_number: Option<BlockNumber>,
     ) -> Result<ValidationResponse, VerifierError> {
-        self.route(&account_id.chain_id)?
-            .is_valid_signature(account_id, hash, signature, block_number)
+        let input = ScwInput::checked(account_id, hash, signature, block_number)?;
+        self.route(input.account_id().get_chain_id())?
+            .is_valid_signature(
+                input.account_id().clone(),
+                input.hash(),
+                input.signature().clone(),
+                input.block_number(),
+            )
             .await
     }
 }

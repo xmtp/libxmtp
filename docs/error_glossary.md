@@ -4,7 +4,7 @@
 
 This document lists all error codes defined in LibXMTP, the core library underlying the XMTP SDKs. Each error code is a unique identifier returned to help diagnose issues.
 
-**39 error types** across **10 crates** with **421 total error codes**.
+**39 error types** across **10 crates** with **423 total error codes**.
 
 ## xmtp_api
 
@@ -240,7 +240,7 @@ Stable storage failures that preserve receipt, processing, and delivery invarian
 |:-----------|:------------|
 | `AccountIdError::InvalidChainId` | Invalid chain ID. Chain ID is not a u64 in canonical decimal form. Not retryable. |
 | `AccountIdError::MissingEip155Prefix` | Missing EIP-155 prefix. Chain ID is not prefixed with `eip155:`. Not retryable. |
-| `AccountIdError::InvalidAddress` | Invalid account address. Account address is not `0x` followed by 40 hexadecimal characters. Not retryable. |
+| `AccountIdError::InvalidAddress` | Invalid account address. Account address is not `0x` followed by 40 hexadecimal characters that are not all zero. Not retryable. |
 
 ### AssociationError <sub>enum</sub>
 
@@ -334,6 +334,7 @@ The string is not a handle under the handle grammar. Not retryable.
 | `SignatureRequestError::MissingSigner` | Missing signer. Required signature was not provided. Not retryable. |
 | `SignatureRequestError::BlockNumber` | Unable to get block number. Block number not returned after successful SCW verification. May be retryable. |
 | `SignatureRequestError::ChainNotAccepted` | The deployment does not accept this chain. The smart contract wallet signature names a chain outside the list the backend published. Not retryable. |
+| `SignatureRequestError::TooManyActions` | Too many actions. The request would hold more actions than one identity update may carry, so every validator would reject it. Split it. Not retryable. |
 
 ### VerifierError <sub>enum</sub>
 
@@ -350,6 +351,7 @@ The string is not a handle under the handle grammar. Not retryable.
 | `VerifierError::NoVerifier` | No verifier. Verifier not configured for the given chain ID. Retryable. |
 | `VerifierError::MissingBlock` | Missing block. The chain did not return a block at or below its reported head. Retryable. |
 | `VerifierError::InvalidHash` | Invalid hash. Hash has invalid length or format. Not retryable. |
+| `VerifierError::SignatureTooLong` | Signature too long. The smart contract wallet signature is longer than `MAX_SCW_SIGNATURE_BYTES`, so it is never verified. Not retryable. |
 | `VerifierError::Other` | Other error. Unclassified verifier error. May be retryable. |
 
 ## xmtp_legacy_migration
