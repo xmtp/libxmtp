@@ -430,7 +430,8 @@ These operations require `--force` to skip confirmation:
 xmtp client add-account --new-wallet-key <wallet-key> --force
 # remove a wallet from this inbox
 xmtp client remove-account --identifier <address> --force
-# change the recovery wallet address for this inbox
+# change the recovery wallet address for this inbox; the address must already
+# be an account of this inbox, so run client add-account for it first
 xmtp client change-recovery-identifier --identifier <address> --force
 # verify the current inbox state after changes
 xmtp preferences inbox-state

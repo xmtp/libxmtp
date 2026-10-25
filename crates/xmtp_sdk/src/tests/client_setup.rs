@@ -115,6 +115,50 @@ async fn account_moves_to_another_inbox_only_with_explicit_reassignment() {
     first.end().await?;
 }
 
+/// Recovery moves only to an identity of the inbox. A change to any other
+/// identity fails as invalid input before the signer is asked. Once the
+/// identity is added, the same call signs once and moves recovery.
+#[xmtp_common::test(unwrap_try = true)]
+async fn change_recovery_identifier_requires_a_member() {
+    let calls = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let owner: Arc<dyn Signer> = Arc::new(RecordingSigner {
+        key: PrivateKeySigner::random(),
+        calls: calls.clone(),
+    });
+    let owner_identity = signer::identity(owner.clone()).await?;
+    let client = Client::create(owner.clone(), options()).await?;
+    calls.lock().expect("calls").clear();
+    let fresh = crate::generate_local_signer().await;
+    let fresh_identity = signer::identity(fresh.clone()).await?;
+
+    let refused = client
+        .change_recovery_identifier(owner.clone(), fresh_identity.clone())
+        .await;
+    assert!(
+        matches!(&refused, Err(XmtpError::InvalidInput(details))
+            if details.message == "the new recovery identity is not an identity of the inbox"),
+        "a change to a non-member must refuse, got {refused:?}"
+    );
+    assert!(calls.lock().expect("calls").is_empty());
+    let state = client.inbox_state(true).await?;
+    assert_eq!(
+        state.recovery_identity.identifier,
+        owner_identity.identifier
+    );
+
+    client.unsafe_add_account(fresh, false).await?;
+    client
+        .change_recovery_identifier(owner, fresh_identity.clone())
+        .await?;
+    assert_eq!(*calls.lock().expect("calls"), ["sign"]);
+    let state = client.inbox_state(true).await?;
+    assert_eq!(
+        state.recovery_identity.identifier,
+        fresh_identity.identifier
+    );
+    client.end().await?;
+}
+
 #[xmtp_common::test(unwrap_try = true)]
 async fn encryption_round_trips_and_rejects_changed_bytes() {
     let plaintext = b"sdk attachment".to_vec();

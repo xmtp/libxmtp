@@ -8,10 +8,21 @@ import {
 } from "../../helpers.js";
 
 describe("client change-recovery-identifier", () => {
-  it("changes the recovery identifier", async () => {
+  it("changes the recovery identifier to an added account", async () => {
     const identity = await createRegisteredIdentity();
-    const newRecoveryAddress =
-      privateKeyToAccount(generatePrivateKey()).address;
+    const newRecoveryKey = generatePrivateKey();
+    const newRecoveryAddress = privateKeyToAccount(newRecoveryKey).address;
+
+    // The new recovery identifier must already be an account of the inbox.
+    const added = await runWithIdentity(identity, [
+      "client",
+      "add-account",
+      "--new-wallet-key",
+      newRecoveryKey,
+      "--force",
+      "--json",
+    ]);
+    expect(added.exitCode).toBe(0);
 
     const result = await runWithIdentity(identity, [
       "client",
