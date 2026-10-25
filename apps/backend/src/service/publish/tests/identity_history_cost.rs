@@ -1,0 +1,230 @@
+//! What an identity publish costs in history reads and chain calls.
+
+use super::*;
+use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering::SeqCst},
+};
+use xmtp_configuration::{MAX_IDENTITY_UPDATE_ACTIONS, MAX_SCW_SIGNATURE_BYTES};
+use xmtp_id::associations::{
+    AccountId, MemberIdentifier,
+    unsigned_actions::{UnsignedClaimHandle, UnsignedRevokeAssociation},
+    unverified::{
+        UnverifiedAction, UnverifiedClaimHandle, UnverifiedIdentityUpdate,
+        UnverifiedRevokeAssociation, UnverifiedSignature,
+    },
+};
+use xmtp_id::scw_verifier::{SmartContractSignatureVerifier, ValidationResponse, VerifierError};
+use xmtp_proto::xmtp::identity::associations::IdentityUpdate;
+
+/// The smart contract wallet that creates the fixture inbox, and so holds its
+/// recovery role.
+const WALLET: &str = "0x1111111111111111111111111111111111111111";
+
+/// The SCW revocations in the fixture log after its creation.
+const HISTORY_REVOCATIONS: u8 = 100;
+
+/// The verifier calls that admitting the fixture log costs: the creation and
+/// each revocation.
+const HISTORY_CHECKS: usize = HISTORY_REVOCATIONS as usize + 1;
+
+/// Model the provider work behind the backend's bounded SCW verdict cache.
+struct CountingVerifier(Arc<AtomicUsize>);
+
+#[xmtp_common::async_trait]
+impl SmartContractSignatureVerifier for CountingVerifier {
+    async fn is_valid_signature(
+        &self,
+        _account_id: AccountId,
+        _hash: [u8; 32],
+        _signature: alloy_primitives::Bytes,
+        block_number: Option<u64>,
+    ) -> Result<ValidationResponse, VerifierError> {
+        self.0.fetch_add(1, SeqCst);
+        Ok(ValidationResponse {
+            is_valid: true,
+            block_number,
+            error: None,
+        })
+    }
+}
+
+/// An ERC-6492 signature of the fixture wallet at block 1.
+fn scw(bytes: Vec<u8>) -> UnverifiedSignature {
+    UnverifiedSignature::new_smart_contract_wallet(bytes, AccountId::new_evm(1, WALLET.into()), 1)
+}
+
+/// A revocation of an identifier the inbox does not hold, which applies.
+fn revoke(signature: UnverifiedSignature) -> UnverifiedAction {
+    UnverifiedAction::RevokeAssociation(UnverifiedRevokeAssociation::new(
+        UnsignedRevokeAssociation {
+            revoked_member: MemberIdentifier::eth("0x2222222222222222222222222222222222222222")
+                .expect("the fixture identifier is valid"),
+        },
+        signature,
+    ))
+}
+
+fn update(
+    inbox_id: &str,
+    client_timestamp_ns: u64,
+    actions: Vec<UnverifiedAction>,
+) -> IdentityUpdate {
+    UnverifiedIdentityUpdate::new(inbox_id.into(), client_timestamp_ns, actions).into()
+}
+
+/// A server whose verdict cache holds one entry, and a stored log of two
+/// updates for the fixture wallet's inbox that carry [`HISTORY_CHECKS`]
+/// distinct SCW signatures, more than the cache holds, so verifying the log
+/// again would cost one verifier call for each. Returns the verifier's call
+/// count and the inbox id.
+async fn scw_history() -> support::TestResult<(TestServer, Arc<AtomicUsize>, String)> {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let server = TestServer::with_verifier(
+        |config| config.validation.max_scw_cache_entries = 1,
+        CountingVerifier(calls.clone()),
+        TestChain::at(1),
+    )
+    .await?;
+    let create = scw_create_inbox_update_at(1);
+    let inbox_id = create.inbox_id.clone();
+    assert_eq!(publish_identity(&server, create).await?, (Ok(()), 1));
+    let revocations = (0..HISTORY_REVOCATIONS)
+        .map(|n| revoke(scw(vec![0xff, n])))
+        .collect();
+    let revocations = update(&inbox_id, 2, revocations);
+    assert_eq!(publish_identity(&server, revocations).await?, (Ok(()), 2));
+    assert_eq!(calls.load(SeqCst), HISTORY_CHECKS);
+    Ok((server, calls, inbox_id))
+}
+
+/// Set every stored row's payload to NULL, which a history read cannot
+/// decode, so any read of a log fails as `UNAVAILABLE`.
+async fn make_logs_unreadable(server: &TestServer) -> support::TestResult {
+    sqlx::raw_sql(
+        "ALTER TABLE envelopes ALTER COLUMN payload DROP NOT NULL;
+         UPDATE envelopes SET payload = NULL;",
+    )
+    .execute(&server.backend.store.primary)
+    .await?;
+    Ok(())
+}
+
+/// An update with no actions is refused before its inbox's log is read, so it
+/// costs no read and no verifier call however many SCW verdicts that log
+/// holds (finding 9825c590), and it fails for its own reason. The log is
+/// unreadable, so an update that read it would fail as `UNAVAILABLE`.
+// verifies: API-302
+#[xmtp_common::test(unwrap_try = true)]
+async fn rejected_empty_identity_updates_cost_no_history_verification() {
+    let (server, calls, inbox_id) = scw_history().await?;
+    make_logs_unreadable(&server).await?;
+    for client_timestamp_ns in [3, 4] {
+        let empty = update(&inbox_id, client_timestamp_ns, vec![]);
+        assert_eq!(
+            publish_identity(&server, empty).await?,
+            (
+                Err((Code::InvalidArgument, Some(Reason::InvalidIdentityUpdate))),
+                2
+            )
+        );
+        assert_eq!(calls.load(SeqCst), HISTORY_CHECKS);
+    }
+    server.stop().await?;
+}
+
+/// A valid update costs a verifier call for each of its own SCW signatures and
+/// none for the stored log's, which the backend verified when it admitted
+/// them, however many more verdicts the log holds than the cache.
+// verifies: IDENT-095
+#[xmtp_common::test(unwrap_try = true)]
+async fn valid_identity_update_verifies_only_its_own_scw_signatures() {
+    let (server, calls, inbox_id) = scw_history().await?;
+    let own = (0..3).map(|n| revoke(scw(vec![0xfe, n]))).collect();
+    assert_eq!(
+        publish_identity(&server, update(&inbox_id, 3, own)).await?,
+        (Ok(()), 3)
+    );
+    assert_eq!(calls.load(SeqCst), HISTORY_CHECKS + 3);
+    server.stop().await?;
+}
+
+/// Admission replays an inbox's stored log in a blocking task, never on the
+/// thread that runs the request, once for each update it validates against
+/// that log. Publishing the fixture log replays it once, for the revocations;
+/// the creation has no log to replay.
+#[xmtp_common::test(unwrap_try = true)]
+async fn identity_history_replay_runs_off_the_request_thread() {
+    let (server, _, _) = scw_history().await?;
+    assert_eq!(server.backend.identity_replays.load(SeqCst), 1);
+    server.stop().await?;
+}
+
+/// Each update that a check needing no history rejects fails for its own
+/// reason without reading its inbox's log. The log is unreadable, so any read
+/// of it fails as `UNAVAILABLE`, as it does for the well-formed control. None
+/// fails as `ABORTED`, although the inbox has a head that the update never
+/// read.
+// verifies: API-302, API-303
+#[xmtp_common::test(unwrap_try = true)]
+async fn identity_shape_rejections_read_no_history() {
+    const MAX_SCW_SIGNATURES: u8 = 2;
+    let server = TestServer::with_verifier(
+        |config| config.limits.max_scw_signatures = MAX_SCW_SIGNATURES.into(),
+        CountingVerifier(Arc::default()),
+        TestChain::at(1),
+    )
+    .await?;
+    let create = scw_create_inbox_update_at(1);
+    let inbox_id = create.inbox_id.clone();
+    assert_eq!(publish_identity(&server, create).await?, (Ok(()), 1));
+    make_logs_unreadable(&server).await?;
+
+    let ecdsa = || UnverifiedSignature::new_recoverable_ecdsa(vec![1; 65]);
+    let claim = UnverifiedAction::ClaimHandle(UnverifiedClaimHandle::new(
+        UnsignedClaimHandle {
+            handle: "nick".into(),
+        },
+        ecdsa(),
+    ));
+    let invalid = Err((Code::InvalidArgument, Some(Reason::InvalidIdentityUpdate)));
+    for (case, actions, result) in [
+        ("no actions", vec![], invalid),
+        (
+            "a claim beside another action",
+            vec![revoke(ecdsa()), claim],
+            invalid,
+        ),
+        (
+            "101 actions",
+            (0..=MAX_IDENTITY_UPDATE_ACTIONS)
+                .map(|_| revoke(ecdsa()))
+                .collect(),
+            invalid,
+        ),
+        (
+            "an oversized ERC-6492 signature",
+            vec![revoke(scw(vec![1; MAX_SCW_SIGNATURE_BYTES + 1]))],
+            Err((Code::InvalidArgument, Some(Reason::InvalidSignature))),
+        ),
+        (
+            "too many ERC-6492 signatures",
+            (0..=MAX_SCW_SIGNATURES)
+                .map(|n| revoke(scw(vec![n])))
+                .collect(),
+            Err((Code::InvalidArgument, Some(Reason::TooLarge))),
+        ),
+        (
+            "the well-formed control",
+            vec![revoke(ecdsa())],
+            Err((Code::Unavailable, None)),
+        ),
+    ] {
+        assert_eq!(
+            publish_identity(&server, update(&inbox_id, 2, actions)).await?,
+            (result, 1),
+            "{case}"
+        );
+    }
+    server.stop().await?;
+}

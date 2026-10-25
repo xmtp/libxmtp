@@ -193,30 +193,40 @@ async fn a_dropped_concurrent_failure_leaves_nothing_after_it_unchecked() {
     }
 }
 
+/// An identity update validated against a history that grows before commit
+/// aborts the whole request and stores nothing of it, whether its validation
+/// passed or failed: a failure against a stale history is not a verdict, so
+/// it must stay retryable.
 #[xmtp_common::test(unwrap_try = true)]
 // verifies: API-303
 async fn changed_history_aborts_all_new_rows_after_verification() {
-    let (server, entered, resume) = paused_server(true).await?;
-    let original = scw_create_inbox_update();
-    let request = api::PublishRequest {
-        envelopes: vec![
-            identity_envelope(original.clone()),
-            xmtp_mls_validation::test_utils::inline_welcome_envelope([9; 32]),
-        ],
-    };
-    let mut client = server.publisher();
-    let first = tokio::spawn(async move { client.publish(request).await });
-    entered.notified().await;
-    let mut replacement = original;
-    replacement.client_timestamp_ns += 1;
-    server.publish(vec![identity_envelope(replacement)]).await?;
-    resume.notify_one();
-    assert_eq!(first.await?.unwrap_err().code(), Code::Aborted);
-    let count = sqlx::query_scalar!("SELECT count(*) FROM envelopes")
-        .fetch_one(&server.backend.store.primary)
-        .await?;
-    assert_eq!(count, Some(1));
-    server.stop().await?;
+    for valid in [true, false] {
+        let (server, entered, resume) = paused_server(valid).await?;
+        let original = scw_create_inbox_update();
+        let request = api::PublishRequest {
+            envelopes: vec![
+                identity_envelope(original.clone()),
+                xmtp_mls_validation::test_utils::inline_welcome_envelope([9; 32]),
+            ],
+        };
+        let mut client = server.publisher();
+        let first = tokio::spawn(async move { client.publish(request).await });
+        entered.notified().await;
+        let mut replacement = original;
+        replacement.client_timestamp_ns += 1;
+        server.publish(vec![identity_envelope(replacement)]).await?;
+        resume.notify_one();
+        assert_eq!(
+            first.await?.unwrap_err().code(),
+            Code::Aborted,
+            "valid: {valid}"
+        );
+        let count = sqlx::query_scalar!("SELECT count(*) FROM envelopes")
+            .fetch_one(&server.backend.store.primary)
+            .await?;
+        assert_eq!(count, Some(1), "valid: {valid}");
+        server.stop().await?;
+    }
 }
 
 async fn ordered_writers(

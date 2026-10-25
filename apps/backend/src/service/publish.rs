@@ -2,7 +2,7 @@ use super::error::publish_invalid;
 use crate::{
     Backend,
     api::{self, client_envelope::Payload, publish_error::Reason},
-    db::{IdentityAdmission, PendingEnvelope},
+    db::{History, IdentityAdmission, PendingEnvelope},
     error::AdmissionError,
     handles,
     validation::projection,
@@ -12,8 +12,10 @@ use std::collections::{HashMap, HashSet};
 use tonic::{Request, Response, Status};
 use xmtp_common::time::{Duration, timeout};
 use xmtp_configuration::MAX_PUBLISH_ENVELOPES;
+use xmtp_id::associations::check_update_shape;
 use xmtp_mls_validation::{
-    ParsedEnvelope, erc6492_signatures, parse_envelope, validate_envelope, verify_publish,
+    AdmittedState, ParsedEnvelope, ValidationError, admitted_state, erc6492_signatures,
+    parse_envelope, validate_envelope, verify_publish,
 };
 use xmtp_proto::types::TopicKind;
 
@@ -221,7 +223,7 @@ impl Backend {
                 identity: (parsed.topic.kind() == TopicKind::IdentityUpdatesV1).then(|| {
                     IdentityAdmission {
                         inbox_id: parsed.topic.identifier().to_vec(),
-                        head: 0,
+                        head: None,
                         claim: None,
                     }
                 }),
@@ -242,10 +244,15 @@ impl Backend {
 
     /// Validate only pending envelopes that are not known duplicates.
     ///
-    /// Identity updates use one complete primary history snapshot and retain
-    /// its head for the locked comparison during commit. Other payload kinds
-    /// use shared structural validation, and verifier retryability is preserved
-    /// for transport mapping. A claim that passes validation then passes the
+    /// An identity update first passes the checks that need no history, its
+    /// ERC-6492 signature count and [`check_update_shape`]; one that fails
+    /// them is rejected without reading its inbox's history and keeps no
+    /// head, so the commit reports its own rejection and never a stale
+    /// history. Every other identity update uses one complete primary history
+    /// snapshot, replayed without chain access by [`Self::replay_history`],
+    /// and retains its head for the locked comparison during commit. Other
+    /// payload kinds use shared structural validation, and verifier
+    /// retryability is preserved for transport mapping. A claim that passes validation then passes the
     /// handle policy that needs no lock; the taken check runs during commit.
     /// Publish signatures are verified last, together, by
     /// [`Self::verify_signatures`], the only place that verifies them:
@@ -264,52 +271,42 @@ impl Backend {
                 continue;
             }
             let mut stored_claims = Vec::new();
-            let history = if let Some(Payload::IdentityUpdate(update)) = &parsed.envelope.payload {
-                let history = self.store.history(&item.topic).await?;
-                item.identity
-                    .as_mut()
-                    .ok_or_else(|| Status::internal("identity metadata missing"))?
-                    .head = history.head;
+            let mut prior = AdmittedState::default();
+            if let Some(Payload::IdentityUpdate(update)) = &parsed.envelope.payload {
+                // implements: API-302
                 if erc6492_signatures(update).count() > self.config.limits.max_scw_signatures {
                     item.validation = Err(AdmissionError::TooLarge(
                         "identity update exceeds signature limit",
                     ));
                     continue;
                 }
+                if let Err(error) = check_update_shape(update) {
+                    item.validation = Err(ValidationError::from(error).into());
+                    continue;
+                }
+                let history = self.store.history(&item.topic).await?;
+                // implements: API-303
+                item.identity
+                    .as_mut()
+                    .ok_or_else(|| Status::internal("identity metadata missing"))?
+                    .head = Some(history.head);
                 if history.payloads.len() >= self.config.limits.max_identity_entries {
                     item.validation = Err(AdmissionError::InvalidIdentity(
                         "identity history limit reached",
                     ));
                     continue;
                 }
-                let updates = history
-                    .payloads
-                    .into_iter()
-                    .map(|payload| {
-                        match api::ClientEnvelope::decode(payload.as_slice())
-                            .map_err(|_| Status::internal("stored identity envelope is invalid"))?
-                            .payload
-                        {
-                            Some(Payload::IdentityUpdate(update)) => Ok(update),
-                            _ => Err(Status::internal(
-                                "identity history contains another payload kind",
-                            )),
-                        }
-                    })
-                    .collect::<Result<Vec<_>, Status>>()?;
-                stored_claims = updates
-                    .iter()
-                    .zip(&history.server_ns)
-                    .filter(|(update, _)| handles::carries_claim(update))
-                    .map(|(_, server_ns)| *server_ns)
-                    .collect();
-                updates
-            } else {
-                Vec::new()
-            };
+                match self.replay_history(history).await? {
+                    Ok(replayed) => (stored_claims, prior) = replayed,
+                    Err(error) => {
+                        item.validation = Err(error.into());
+                        continue;
+                    }
+                }
+            }
             let validation = match validate_envelope(
                 parsed,
-                &history,
+                &prior,
                 crate::validation::ObservedVerifier(&self.verifier),
                 &*self.chains,
             )
@@ -344,6 +341,66 @@ impl Backend {
             };
         }
         self.verify_signatures(pending, parsed).await
+    }
+
+    /// Decode an inbox's stored identity log and replay it to the state a new
+    /// update is validated against, inside one blocking task, with the
+    /// `server_ns` of each stored update that claims a handle.
+    ///
+    /// The replay asks no chain about a stored ERC-6492 signature
+    /// ([`admitted_state`]), and that is safe only because `history` is this
+    /// backend's own primary snapshot. It is still CPU work, up to two
+    /// signature checks for each stored action, so it runs off the async
+    /// runtime. A stored row that is not an identity envelope is an internal
+    /// error; a stored update that fails validation rejects the new update,
+    /// as the inner error. A cancelled request leaves the task to finish; the
+    /// entry limit bounds it at one log.
+    // implements: IDENT-095
+    async fn replay_history(
+        &self,
+        history: History,
+    ) -> Result<Result<(Vec<i64>, AdmittedState), ValidationError>, Status> {
+        let History {
+            payloads,
+            server_ns,
+            ..
+        } = history;
+        if payloads.is_empty() {
+            return Ok(Ok(Default::default()));
+        }
+        #[cfg(test)]
+        let (replays, caller) = (self.identity_replays.clone(), std::thread::current().id());
+        let span = tracing::Span::current();
+        tokio::task::spawn_blocking(move || {
+            let _span = span.enter();
+            #[cfg(test)]
+            if std::thread::current().id() != caller {
+                replays.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            }
+            let updates = payloads
+                .into_iter()
+                .map(|payload| {
+                    match api::ClientEnvelope::decode(payload.as_slice())
+                        .map_err(|_| Status::internal("stored identity envelope is invalid"))?
+                        .payload
+                    {
+                        Some(Payload::IdentityUpdate(update)) => Ok(update),
+                        _ => Err(Status::internal(
+                            "identity history contains another payload kind",
+                        )),
+                    }
+                })
+                .collect::<Result<Vec<_>, Status>>()?;
+            let claims = updates
+                .iter()
+                .zip(server_ns)
+                .filter(|(update, _)| handles::carries_claim(update))
+                .map(|(_, server_ns)| server_ns)
+                .collect();
+            Ok(admitted_state(updates).map(|prior| (claims, prior)))
+        })
+        .await
+        .map_err(|_| Status::internal("identity replay task failed"))?
     }
 
     /// Verify the publish signature of every signed envelope that is not a

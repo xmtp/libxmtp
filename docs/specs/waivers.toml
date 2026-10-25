@@ -407,20 +407,6 @@ issue = "https://github.com/xmtp/libxmtp/issues/4644"
 reason = "OpenMLS logs the serialized group context, root included, at TRACE under `openmls::schedule`, which a Rust host that installs its own global subscriber with the `tracing-log` bridge receives, because `xmtp_logging::group_context_guard` covers only the subscribers libxmtp installs."
 
 [[waiver]]
-id = "API-302"
-kind = "gap"
-owner = "Nicholas Molnar"
-issue = "TBD-octane-tracking"
-reason = "The backend reads the inbox's identity topic before it rejects an update for its action count, an oversized ERC-6492 signature, or too many ERC-6492 signatures."
-
-[[waiver]]
-id = "IDENT-095"
-kind = "gap"
-owner = "Nicholas Molnar"
-issue = "TBD-octane-tracking"
-reason = "Backend admission verifies again the ERC-6492 signatures of updates already in the snapshot, so a stored update's chain result can reject a new update."
-
-[[waiver]]
 id = "API-304"
 kind = "gap"
 owner = "Nicholas Molnar"

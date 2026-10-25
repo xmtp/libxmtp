@@ -170,7 +170,7 @@ async fn validate_envelope_leaves_publish_signatures_to_verify_publish() {
         assert!(
             validate_envelope(
                 &parsed,
-                &[],
+                &AdmittedState::default(),
                 MockSmartContractSignatureVerifier::new(false),
                 &TestChain::at(1),
             )

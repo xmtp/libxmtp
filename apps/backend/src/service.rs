@@ -29,6 +29,11 @@ pub struct Backend {
     /// Counts publish-signature verification work for tests.
     #[cfg(test)]
     pub(crate) signature_checks: Arc<publish::SignatureChecks>,
+    /// Counts identity-log replays that ran off the thread that started
+    /// them, for tests. A replay run inline on the async runtime is not
+    /// counted.
+    #[cfg(test)]
+    pub(crate) identity_replays: Arc<std::sync::atomic::AtomicUsize>,
 }
 
 impl Backend {
@@ -57,6 +62,8 @@ impl Backend {
             configuration,
             #[cfg(test)]
             signature_checks: Arc::default(),
+            #[cfg(test)]
+            identity_replays: Arc::default(),
         }
     }
 }

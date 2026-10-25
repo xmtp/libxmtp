@@ -186,7 +186,7 @@ async fn key_package_admission_accepts_the_existing_credential_shape() {
         assert!(
             validate_envelope(
                 &parsed,
-                &[],
+                &AdmittedState::default(),
                 MockSmartContractSignatureVerifier::new(false),
                 &TestChain::at(1),
             )
@@ -255,7 +255,7 @@ async fn key_package_parse_precedes_existing_cryptographic_validation() {
         );
         let error = validate_envelope(
             &parsed,
-            &[],
+            &AdmittedState::default(),
             MockSmartContractSignatureVerifier::new(false),
             &TestChain::at(1),
         )
@@ -304,7 +304,7 @@ async fn key_package_admission_rejects_a_last_resort_mark_with_data() {
         assert!(
             validate_envelope(
                 &parsed,
-                &[],
+                &AdmittedState::default(),
                 MockSmartContractSignatureVerifier::new(false),
                 &TestChain::at(1),
             )
@@ -318,7 +318,7 @@ async fn key_package_admission_rejects_a_last_resort_mark_with_data() {
     )?;
     let error = validate_envelope(
         &parsed,
-        &[],
+        &AdmittedState::default(),
         MockSmartContractSignatureVerifier::new(false),
         &TestChain::at(1),
     )
@@ -349,7 +349,7 @@ async fn identity_admission_folds_real_history_and_a_passkey_update() {
     );
     let result = validate_envelope(
         &parsed,
-        &fixture.history,
+        &admitted_state(fixture.history)?,
         MockSmartContractSignatureVerifier::new(false),
         &TestChain::at(1),
     )
@@ -605,6 +605,91 @@ async fn freshness_reads_each_head_and_block_once() {
     check_freshness(&with_second_signature(|scw| scw.block_number = 2), &chain).await?;
     assert_eq!(chain.heads.into_inner(), 2);
     assert_eq!(chain.timestamps.into_inner(), 3);
+}
+
+/// The chains of [`freshness_block_reads_keep_eight_in_flight`].
+const CHAINS: u64 = 100;
+
+/// The blocks between two chains' heads in [`InFlightChain`].
+const HEAD_SPACING: u64 = 10_000;
+
+/// Chain `eip155:n` has its head at block `n * HEAD_SPACING`, and block `b`
+/// of any chain has timestamp `b`. Records the most reads in flight at once.
+/// A read on chain `n` yields `CHAINS + 1 - n` times before it answers, so
+/// reads started together overlap and a later chain's read finishes first.
+#[derive(Default)]
+struct InFlightChain {
+    now: std::sync::atomic::AtomicUsize,
+    most: std::sync::atomic::AtomicUsize,
+}
+
+impl InFlightChain {
+    async fn read<T>(&self, chain_id: &str, answer: impl FnOnce(u64) -> T) -> T {
+        use std::sync::atomic::Ordering::SeqCst;
+        let chain: u64 = chain_id
+            .strip_prefix("eip155:")
+            .and_then(|chain| chain.parse().ok())
+            .expect("the test names eip155 chains");
+        let now = self.now.fetch_add(1, SeqCst) + 1;
+        self.most.fetch_max(now, SeqCst);
+        for _ in chain..=CHAINS {
+            xmtp_common::task::yield_now().await;
+        }
+        self.now.fetch_sub(1, SeqCst);
+        answer(chain)
+    }
+}
+
+#[xmtp_common::async_trait]
+impl ChainBlocks for InFlightChain {
+    async fn head(&self, chain_id: &str) -> Result<BlockStamp, VerifierError> {
+        Ok(self
+            .read(chain_id, |chain| BlockStamp {
+                number: chain * HEAD_SPACING,
+                timestamp: chain * HEAD_SPACING,
+            })
+            .await)
+    }
+
+    async fn timestamp(&self, chain_id: &str, number: u64) -> Result<u64, VerifierError> {
+        Ok(self.read(chain_id, |_| number).await)
+    }
+}
+
+/// Freshness keeps at most eight chain reads in flight, for the heads and for
+/// the block timestamps, so an update's ERC-6492 signatures cannot start one
+/// chain call each at once, and it judges each block by its own chain's head
+/// and its own timestamp although later reads finish first. These 100
+/// signatures name 100 chains, each at the oldest block its own head admits,
+/// so a block judged by another chain's head or another block's timestamp is
+/// stale or after the head; the other way round, a stale block could be
+/// admitted.
+#[xmtp_common::test(unwrap_try = true)]
+async fn freshness_block_reads_keep_eight_in_flight() {
+    use xmtp_proto::xmtp::identity::associations::{identity_action, signature};
+    let mut update = scw_create_inbox_update_at(1);
+    let create = update.actions.remove(0);
+    for chain in 1..=CHAINS {
+        let mut action = create.clone();
+        let Some(identity_action::Kind::CreateInbox(create)) = &mut action.kind else {
+            unreachable!("fixture creates an inbox")
+        };
+        let Some(signature::Signature::Erc6492(scw)) = create
+            .initial_identifier_signature
+            .as_mut()
+            .and_then(|value| value.signature.as_mut())
+        else {
+            unreachable!("fixture signs with a smart-contract wallet")
+        };
+        scw.account_id = scw
+            .account_id
+            .replacen("eip155:1:", &format!("eip155:{chain}:"), 1);
+        scw.block_number = chain * HEAD_SPACING - MAX_BLOCK_AGE_SECS;
+        update.actions.push(action);
+    }
+    let chain = InFlightChain::default();
+    check_freshness(&update, &chain).await?;
+    assert_eq!(chain.most.into_inner(), MAX_CHAIN_CALLS_IN_FLIGHT);
 }
 
 /// A claim a smart contract wallet signs carries an ERC-6492 signature like
