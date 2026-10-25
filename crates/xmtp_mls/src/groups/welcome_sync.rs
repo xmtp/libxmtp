@@ -1698,23 +1698,27 @@ mod tests {
 
     /// Query failures, including a response with invalid metadata, obey the
     /// same fixed fetch window as absent pointees, including rows persisted as
-    /// welcome_retry by older clients. An existing
-    /// unreadable hold keeps its own deadline through transport failures.
+    /// welcome_retry by older clients. An existing unreadable hold keeps its
+    /// own deadline through transport failures. A metadata fault is held like
+    /// `Denied` once it is classified, so only a fresh row needs that case.
     // verifies: JOIN-094, JOIN-087, JOIN-063, JOIN-035
     #[rstest]
-    #[case::fresh(None, false)]
-    #[case::legacy_retry(Some("welcome_retry"), false)]
-    #[case::unreadable(Some("welcome_blocked"), true)]
+    #[case::fresh_unavailable(None, false, PointeeQueryFailure::Unavailable)]
+    #[case::fresh_denied(None, false, PointeeQueryFailure::Denied)]
+    #[case::fresh_bad_metadata(None, false, PointeeQueryFailure::BadMetadata)]
+    #[case::legacy_retry_unavailable(
+        Some("welcome_retry"),
+        false,
+        PointeeQueryFailure::Unavailable
+    )]
+    #[case::legacy_retry_denied(Some("welcome_retry"), false, PointeeQueryFailure::Denied)]
+    #[case::unreadable_unavailable(Some("welcome_blocked"), true, PointeeQueryFailure::Unavailable)]
+    #[case::unreadable_denied(Some("welcome_blocked"), true, PointeeQueryFailure::Denied)]
     #[xmtp_common::test(unwrap_try = true)]
     async fn pointer_query_errors_have_bounded_retention(
         #[case] prior_code: Option<&'static str>,
         #[case] unreadable: bool,
-        #[values(
-            PointeeQueryFailure::Unavailable,
-            PointeeQueryFailure::Denied,
-            PointeeQueryFailure::BadMetadata
-        )]
-        failure: PointeeQueryFailure,
+        #[case] failure: PointeeQueryFailure,
     ) {
         use xmtp_proto::backend_v1 as wire;
         let retryable = matches!(failure, PointeeQueryFailure::Unavailable);
