@@ -429,7 +429,7 @@ The Agent SDK adds `createDmWithHandle`, `createGroupWithHandles`, and `addMembe
 
 ### What happens when a user removes an identity?
 
-If the user removes an identity from the inbox, the identity no longer has access to the inbox it was removed from.
+If the user removes an identity from the inbox, the identity no longer has access to the inbox it was removed from. The one exception is the recovery identity: removing it keeps its recovery role, so its signer can still remove identities, revoke installations, and change the recovery identity.
 
 ![An identity removed from an inbox](https://raw.githubusercontent.com/xmtp/docs-xmtp-org/refs/heads/main/docs/pages/img/removed-id.png)
 
