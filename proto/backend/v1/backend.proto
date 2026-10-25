@@ -407,7 +407,7 @@ message GetInboxIdsResponse {
 }
 
 message VerifySmartContractWalletSignaturesRequest {
-  // Max 100 signatures per request.
+  // At most the published max_scw_signatures signatures per request.
   message Signature {
     // CAIP-10 account id.
     string account_id = 1;

@@ -4,7 +4,9 @@ title: Rate limits and capacity
 
 The backend limits below show each configuration key and its default. Client
 limits are listed separately. Each count and rate limit under `[limits]` can be
-set from 1 to 4294967295, except `limits.max_push_topics`, which stops at 2147483647. The
+set from 1 to 4294967295, except `limits.max_push_topics`, which stops at 2147483647,
+and `limits.max_scw_signatures`, which stops at 200, two for each action of the
+largest identity update. The
 [configuration field table](/specs/conf-backend-configuration/#12-keys-and-checks)
 gives the range and checks of every key.
 

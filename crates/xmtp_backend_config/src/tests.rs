@@ -415,6 +415,7 @@ url = "postgres://localhost/xmtp"
 [retention]
 [validation]
 [limits]
+max_scw_signatures = 200
 [mls]
 max_installations_per_inbox = 100
 [handles]
@@ -1057,6 +1058,8 @@ fn failing_values() -> Vec<FailingValue> {
         failing("mls.max_group_members", "range 1..65535", "65536"),
         failing("mls.max_installations_per_inbox", "range 1..100", "0"),
         failing("mls.max_installations_per_inbox", "range 1..100", "101"),
+        failing("limits.max_scw_signatures", "range 1..200", "0"),
+        failing("limits.max_scw_signatures", "range 1..200", "201"),
         failing_name(
             "chains.<chain id>",
             "url http, https",
@@ -1162,7 +1165,6 @@ fn failing_values() -> Vec<FailingValue> {
         "limits.max_stream_topics",
         "limits.max_static_topics",
         "limits.max_lookup_identifiers",
-        "limits.max_scw_signatures",
         "limits.max_identity_entries",
     ] {
         cases.push(failing(key, COUNT, "0"));

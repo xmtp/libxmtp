@@ -1248,9 +1248,10 @@
           "default": 250
         },
         "max_scw_signatures": {
+          "description": "At most two for each action one identity update may carry, the most\nERC-6492 signatures one update holds.",
           "type": "integer",
           "minimum": 1,
-          "maximum": 4294967295,
+          "maximum": 200,
           "default": 100
         },
         "max_identity_entries": {

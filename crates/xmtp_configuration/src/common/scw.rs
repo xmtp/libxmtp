@@ -12,6 +12,16 @@ pub const ANVIL_URL_DEFAULT: &str = "http://127.0.0.1:8545";
 /// 32, so a signature one byte longer can never be verified this way.
 pub const MAX_SCW_SIGNATURE_BYTES: usize = 47_232;
 
+/// The most chain calls one batch of smart contract wallet checks keeps in
+/// flight, so a batch never starts every check before the first completes.
+pub const MAX_CHAIN_CALLS_IN_FLIGHT: usize = 8;
+
+/// The most ERC-6492 signatures one verify request carries: two for each
+/// action of the largest identity update, so no update needs more. The
+/// backend refuses a larger `max_scw_signatures`, and a client sizes its
+/// requests by the smaller of this and the published value.
+pub const MAX_SCW_SIGNATURES_PER_REQUEST: usize = 2 * super::MAX_IDENTITY_UPDATE_ACTIONS;
+
 /// Local chain used for smart-contract-wallet verification.
 pub struct DockerUrls;
 impl DockerUrls {

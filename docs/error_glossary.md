@@ -4,7 +4,7 @@
 
 This document lists all error codes defined in LibXMTP, the core library underlying the XMTP SDKs. Each error code is a unique identifier returned to help diagnose issues.
 
-**39 error types** across **10 crates** with **423 total error codes**.
+**39 error types** across **10 crates** with **424 total error codes**.
 
 ## xmtp_api
 
@@ -22,6 +22,7 @@ This document lists all error codes defined in LibXMTP, the core library underly
 | `ApiError::ResponseTooLarge` | A single-topic response still exceeds a backend limit. Not retryable. |
 | `ApiError::InvalidRequest` | The request has invalid input. Not retryable. |
 | `ApiError::InvalidResponse` | A response does not match the request. Not retryable. |
+| `ApiError::VerdictCount` | A signature verification response holds a different number of verdicts than its request holds signatures. Retryable: no verdict is taken from it, and the signatures may still be valid. |
 | `ApiError::InvalidEnvelope` | The payload cannot be parsed. Not retryable. |
 | `ApiError::Envelope` | A returned backend envelope cannot be decoded. Not retryable. |
 | `ApiError::ProtoConversion` | Proto conversion error. Protobuf conversion failed. Not retryable. |

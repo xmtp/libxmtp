@@ -177,7 +177,7 @@ The standard checks table defines each standard check. A rule that relates keys,
 | `limits.max_stream_topics` | integer | optional | section 3 | `range 1..4294967295`; CONF-089 | |
 | `limits.max_static_topics` | integer | optional | section 3 | `range 1..4294967295` | |
 | `limits.max_lookup_identifiers` | integer | optional | section 3 | `range 1..4294967295` | |
-| `limits.max_scw_signatures` | integer | optional | section 3 | `range 1..4294967295` | |
+| `limits.max_scw_signatures` | integer | optional | section 3 | `range 1..200` | Not above two for each action IDENT-094 allows, the most ERC-6492 signatures one identity update can carry. Clients size verify requests by it. |
 | `limits.max_identity_entries` | integer | optional | section 3 | `range 1..4294967295` | API-234. |
 | `limits.max_http2_streams` | integer | optional | `100` | `range 1..4294967295` | Concurrent HTTP/2 streams per connection. Open subscriptions count toward it. Not published. |
 | `limits.max_update_frames_per_second` | integer | optional | section 3 | `range 1..4294967295` | API-258. |
