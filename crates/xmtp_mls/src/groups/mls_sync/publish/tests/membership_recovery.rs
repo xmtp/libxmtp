@@ -1714,11 +1714,53 @@ async fn uncommittable_membership_delta_is_omitted_whole(
     #[case] uncommittable: UncommittableDelta,
 ) -> Result<(), GroupError> {
     use tls_codec::VLBytes;
+    use xmtp_cryptography::{CredentialSign, XmtpInstallationCredential};
+    use xmtp_id::associations::{
+        InstallationKeyContext, MemberIdentifier,
+        builder::SignatureRequestBuilder,
+        test_utils::{WalletTestExt, add_wallet_signature},
+        unverified::UnverifiedSignature,
+    };
     use xmtp_mls_common::{inbox_id::InboxId, tls_map::TlsMapDelta};
     tester!(alix, disable_workers);
     tester!(bo, disable_workers);
     tester!(caro, disable_workers);
+    // Markers are real absent installations. The second belongs to both
+    // inboxes whose entries the uncommittable cases can replace.
+    let kept_key = XmtpInstallationCredential::new();
+    let omitted_key = XmtpInstallationCredential::new();
+    for (client, installation) in [
+        (&alix, &kept_key),
+        (&alix, &omitted_key),
+        (&caro, &omitted_key),
+    ] {
+        let mut request = SignatureRequestBuilder::new(client.inbox_id())
+            .add_association(
+                MemberIdentifier::installation(installation.public_slice().to_vec()),
+                client.builder.owner.identifier().into(),
+            )
+            .build();
+        let signature = installation
+            .credential_sign::<InstallationKeyContext>(request.signature_text())
+            .unwrap();
+        request
+            .add_signature(
+                UnverifiedSignature::new_installation_key(signature, installation.verifying_key()),
+                &client.context.scw_verifier(),
+            )
+            .await
+            .unwrap();
+        add_wallet_signature(&mut request, &client.builder.owner).await;
+        client
+            .identity_updates()
+            .apply_signature_request(request)
+            .await?;
+    }
+    let kept_marker = kept_key.public_slice().to_vec();
+    let omitted_marker = omitted_key.public_slice().to_vec();
     let [group, bo_group, caro_group] = group_of_three(&alix, &bo, &caro).await?;
+    assert!(!has_leaf(&group, &kept_marker));
+    assert!(!has_leaf(&group, &omitted_marker));
     let members = [&group, &bo_group, &caro_group];
 
     // A commit raises Caro from S1 to S2, so S1 is a real stale sequence.
@@ -1739,8 +1781,6 @@ async fn uncommittable_membership_delta_is_omitted_whole(
     assert!(committed_sequence(&group, bo.inbox_id()).unwrap() < raised);
     let alix_sequence = committed_sequence(&group, alix.inbox_id()).unwrap();
     let key = |inbox: &str| InboxId::from_hex(inbox).expect("valid inbox id");
-    let kept_marker = vec![0xA1; 32];
-    let omitted_marker = vec![0xB2; 32];
 
     // Alix may add and remove members. A same-sequence entry and a raised
     // entry write no committed inbox lower, so the commit must keep them.
@@ -1752,6 +1792,12 @@ async fn uncommittable_membership_delta_is_omitted_whole(
         .update(
             key(bo.inbox_id()),
             membership_entry(raised, vec![bo2.installation_id.to_vec()]),
+        )
+        // Clear the second marker here too so the final assertions detect
+        // any retained marker write from the uncommittable delta.
+        .update(
+            key(caro.inbox_id()),
+            membership_entry(caro_sequence, vec![]),
         );
     let caro_key = key(caro.inbox_id());
     let uncommittable = match uncommittable {
