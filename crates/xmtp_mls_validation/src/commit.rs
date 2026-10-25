@@ -34,6 +34,7 @@ use xmtp_proto::xmtp::{
 };
 
 use crate::{
+    ReaddAuthority,
     group_membership::{FailedInstallations, GroupMembership, MembershipDiff},
     group_permissions::GroupMutablePermissionsError,
 };
@@ -605,16 +606,16 @@ pub fn validate_identity_sequence_order(
     Ok(())
 }
 
-/// Superadmins are permitted to readd installations, e.g. for fork recovery
-/// We can take these readded installations out of the list of installations to validate
+/// Exclude authorized readds from identity-driven leaf changes.
+/// DM participants may use matched pairs; only super admins may remove failed keys.
 // implements: GMOD-052
 pub fn extract_readded_installations(
-    actor: &CommitParticipant,
+    authority: ReaddAuthority,
     added_installations: &mut HashSet<Vec<u8>>,
     removed_installations: &mut HashSet<Vec<u8>>,
     failed_installations: &mut HashSet<Vec<u8>>,
 ) -> HashSet<Vec<u8>> {
-    if !actor.is_super_admin {
+    if authority == ReaddAuthority::None {
         return HashSet::new();
     }
     let successfully_readded = added_installations
@@ -623,6 +624,11 @@ pub fn extract_readded_installations(
         .collect::<HashSet<Vec<u8>>>();
     added_installations.retain(|installation_id| !successfully_readded.contains(installation_id));
     removed_installations.retain(|installation_id| !successfully_readded.contains(installation_id));
+
+
+    if authority == ReaddAuthority::DmParticipant {
+        return successfully_readded;
+    }
 
     // We only want to intersect with *remaining* removed installations here, to avoid double counting
     let unsuccessfully_readded = failed_installations
