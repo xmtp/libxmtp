@@ -1385,6 +1385,18 @@ pub mod tests {
         }
     }
 
+    // verifies: PERM-003
+    #[xmtp_common::test(unwrap_try = true)]
+    fn super_admin_inbox_removal_is_rejected_at_commit() {
+        let mut changes = build_membership_changes(None, None, true, true, None);
+        let mut removed = build_change(None, true, true);
+        removed.proposer = Some(changes.actor.clone());
+        changes.removed_inboxes.push(removed);
+        let mut policy = default_policy();
+        policy.remove_member_policy = MembershipPolicies::allow();
+        assert!(!policy.evaluate_membership(&changes.validation_info()));
+    }
+
     /// Tests that a commit by a non admin/super admin can add and remove members
     /// with allow policies.
     #[xmtp_common::test]

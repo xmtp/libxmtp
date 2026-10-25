@@ -245,7 +245,18 @@ where
             )
         {
             if matches!(error, GroupMessageProcessingError::OldEpoch(..)) {
+                let split_child = db
+                    .prepared_envelopes(intent.id)?
+                    .map(|bytes| publish::PreparedAttempt::decode(&bytes))
+                    .transpose()
+                    .map_err(|error| GroupMessageProcessingError::PreparedAttempt(Box::new(error)))?
+                    .is_some_and(|attempt| attempt.parent_intent.is_some());
                 db.set_group_intent_to_publish(intent.id)?;
+                if split_child {
+                    // Its original target recomputes against the new epoch.
+                    // Do not leave a second copy of this partial change queued.
+                    db.set_group_intent_superseded(intent.id)?;
+                }
             } else {
                 Self::record_intent_rejection(&db, &intent, envelope, error)?;
                 let message_id = calculate_message_id_for_intent(&intent)?;

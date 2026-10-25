@@ -110,6 +110,9 @@ pub(crate) struct PreparedAttempt {
     pub version: u8,
     /// Exact committed state against which this attempt was prepared.
     pub base: PreparedBase,
+    /// Original desired membership target, when this attempt is one split part.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_intent: Option<ID>,
     /// Inner MLS hash of the last payload, used to match the ordered intent result.
     #[serde(with = "xmtp_db::byte_string")]
     pub payload_hash: Vec<u8>,
@@ -130,6 +133,21 @@ pub(crate) struct PreparedAttempt {
 }
 
 impl PreparedAttempt {
+    /// Largest encoded request envelope, including required Welcome delivery.
+    #[cfg(test)]
+    pub(in crate::groups) fn max_envelope_size(&self) -> usize {
+        self.envelopes
+            .iter()
+            .chain(
+                self.welcomes
+                    .iter()
+                    .flat_map(|welcomes| &welcomes.envelopes),
+            )
+            .map(Vec::len)
+            .max()
+            .unwrap_or_default()
+    }
+
     /// Decode local state and verify its inner payload identity before reuse.
     ///
     /// The column is CBOR, which stores field names. A field added later as
@@ -210,6 +228,7 @@ impl PreparedAttempt {
     pub(super) fn same_attempt(&self, other: &Self) -> bool {
         self.version == other.version
             && self.base == other.base
+            && self.parent_intent == other.parent_intent
             && self.payload_hash == other.payload_hash
             && self.envelopes == other.envelopes
             && self.proposals == other.proposals
@@ -217,6 +236,38 @@ impl PreparedAttempt {
 }
 
 impl<Context: XmtpSharedContext> MlsGroup<Context> {
+    /// A split target is not complete until every child finishes its Welcomes.
+    /// The processed target can no longer create children, so one snapshot of
+    /// its remaining children is sufficient for the caller's completion wait.
+    pub(in crate::groups::mls_sync) fn pending_membership_children(
+        &self,
+        parent_id: ID,
+    ) -> Result<Vec<ID>, GroupError> {
+        let db = self.context.db();
+        if !Fetch::<StoredGroupIntent>::fetch(&db, &parent_id)?
+            .is_some_and(|intent| intent.kind == IntentKind::UpdateGroupMembership)
+        {
+            return Ok(Vec::new());
+        }
+        let mut children = Vec::new();
+        for intent in db.find_group_intents(
+            self.group_id,
+            Some(vec![IntentState::Published, IntentState::Committed]),
+            Some(vec![IntentKind::UpdateGroupMembership]),
+        )? {
+            if intent.id <= parent_id {
+                continue;
+            }
+            let Some(bytes) = db.prepared_envelopes(intent.id)? else {
+                continue;
+            };
+            if PreparedAttempt::decode(&bytes)?.parent_intent == Some(parent_id) {
+                children.push(intent.id);
+            }
+        }
+        Ok(children)
+    }
+
     /// Read the accepted publish target. An ambiguous attempt has no target.
     pub(crate) fn published_intent_target(
         &self,

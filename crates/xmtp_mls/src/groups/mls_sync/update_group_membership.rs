@@ -6,6 +6,7 @@ use crate::groups::{
     intents::{PostCommitAction, UpdateGroupMembershipIntentData},
 };
 use crate::identity::parse_credential;
+use crate::identity_updates::required_leaf_removals;
 use openmls::{
     credentials::BasicCredential,
     key_packages::KeyPackage,
@@ -28,7 +29,9 @@ use xmtp_mls_common::{
     inbox_id::InboxId,
     tls_map::TlsMapDelta,
 };
-use xmtp_mls_validation::commit::{CommitRuleError, extract_group_membership};
+use xmtp_mls_validation::commit::{
+    CommitRuleError, extract_group_membership, inbox_id_from_credential, leaf_owners,
+};
 use xmtp_proto::xmtp::mls::message_contents::{GroupMembershipEntry, group_membership_entry};
 
 /// Inbox ids that received at least one Add proposal in this commit.
@@ -258,6 +261,17 @@ pub(crate) fn apply_update_group_membership_intent(
 
     let membership_diff = old_group_membership.diff(&new_group_membership);
 
+    changes_with_kps.removed_installations.extend(
+        required_leaf_removals(
+            &storage.db(),
+            &old_group_membership,
+            &new_group_membership,
+            &changes_with_kps.removed_installations,
+            &leaf_owners(openmls_group.members())?,
+        )
+        .map_err(crate::identity_updates::InstallationDiffError::from)?,
+    );
+
     let leaf_nodes_to_remove: Vec<LeafNodeIndex> =
         get_removed_leaf_nodes(openmls_group, &changes_with_kps.removed_installations);
 
@@ -280,10 +294,6 @@ pub(crate) fn apply_update_group_membership_intent(
 
     // The publish-time fetch decides which Add proposals exist. The intent's
     // list is older, so it can be wrong. Union the two lists; do not assign.
-    // The fetch drops ids that this commit also removes.
-    // `expected_diff_matches_commit` needs those ids. They explain a removal
-    // that the commit could not make. Assign breaks
-    // `test_remove_inbox_with_bad_installation_from_group`.
     // Either list can name an installation that now has a leaf, or that this
     // commit adds. Selection builds its target with the same filter.
     let leaves: HashSet<Vec<u8>> = openmls_group
@@ -326,28 +336,23 @@ pub(crate) fn apply_update_group_membership_intent(
         changes_with_kps.new_key_packages,
         leaf_nodes_to_remove,
         app_data_payload,
-        false,
         catalogue,
         signer,
     )?;
     Ok(Some(publish_intent_data))
 }
 
-/// Creates MLS proposals (Add/Remove + AppDataUpdate) and a commit that references them.
+/// Creates a commit with inline identity leaf changes and referenced inbox additions.
+// implements: GMOD-050
 /// All payloads are returned together so they can be published in a single
 /// `send_group_messages` call, eliminating multiple network roundtrips.
 #[tracing::instrument(level = "trace", skip_all)]
-#[expect(
-    clippy::too_many_arguments,
-    reason = "the catalogue is the client's fixed snapshot, threaded explicitly"
-)]
 fn compute_publish_data_for_proposal_based_update(
     storage: &impl XmtpMlsStorageProvider,
     openmls_group: &mut OpenMlsGroup,
     key_packages_to_add: Vec<KeyPackage>,
     leaf_nodes_to_remove: Vec<LeafNodeIndex>,
     app_data_membership_payload: Vec<u8>,
-    inline_membership: bool,
     catalogue: &[ApplicationComponentDefinition],
     signer: impl Signer,
 ) -> Result<PublishIntentData, GroupError> {
@@ -389,20 +394,18 @@ fn compute_publish_data_for_proposal_based_update(
                 .filter(|leaf| !pending_removals.contains(leaf))
                 .collect();
 
-            // 1. Create Add proposals
-            for kp in key_packages_to_add.iter().filter(|_| !inline_membership) {
-                let (msg, _) = group
-                    .propose_add_member(provider, &signer, kp)
-                    .map_err(GroupError::ProposeAddMember)?;
-                proposal_payloads.push(msg.tls_serialize_detached()?);
-            }
-
-            // 2. Create Remove proposals
-            for &leaf_index in leaf_nodes_to_remove.iter().filter(|_| !inline_membership) {
-                let (msg, _) = group
-                    .propose_remove_member(provider, &signer, leaf_index)
-                    .map_err(GroupError::ProposeRemoveMember)?;
-                proposal_payloads.push(msg.tls_serialize_detached()?);
+            let membership = extract_group_membership(group.extensions())?;
+            let mut inline_adds = Vec::new();
+            for kp in key_packages_to_add {
+                let inbox = inbox_id_from_credential(kp.leaf_node().credential())?;
+                if membership.get(&inbox).is_some() {
+                    inline_adds.push(kp);
+                } else {
+                    let (msg, _) = group
+                        .propose_add_member(provider, &signer, &kp)
+                        .map_err(GroupError::ProposeAddMember)?;
+                    proposal_payloads.push(msg.tls_serialize_detached()?);
+                }
             }
 
             // 3. Emit the AppDataUpdate(GROUP_MEMBERSHIP) proposal carrying the delta.
@@ -434,18 +437,8 @@ fn compute_publish_data_for_proposal_based_update(
                     builder
                         .consume_proposal_store(true)
                         .add_proposals(upkeep)
-                        .propose_adds(
-                            key_packages_to_add
-                                .iter()
-                                .filter(|_| inline_membership)
-                                .cloned(),
-                        )
-                        .propose_removals(
-                            leaf_nodes_to_remove
-                                .iter()
-                                .filter(|_| inline_membership)
-                                .copied(),
-                        )
+                        .propose_adds(inline_adds)
+                        .propose_removals(leaf_nodes_to_remove)
                 },
             )
             .map_err(CommitToPendingProposalsError::from)?;
@@ -611,9 +604,6 @@ pub(crate) fn apply_readd_installations_intent(
         key_packages_to_welcome,
         leaf_indices_to_remove,
         payload,
-        // A super-admin re-add must be checked as one commit. Its Remove
-        // alone is forbidden; the matching Add keeps the inbox present.
-        true,
         catalogue,
         signer,
     )?;
@@ -732,7 +722,6 @@ mod tests {
                         changes.new_key_packages.clone(),
                         vec![],
                         payload,
-                        false,
                         &[],
                         group.context.identity().installation_keys.clone(),
                     )?;

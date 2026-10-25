@@ -583,3 +583,141 @@ async fn send_state_transitions_send_commits_a_proposal_that_lands_during_the_se
     assert!(group.with_group_snapshot(|mls| Ok(mls.pending_proposals().next().is_none()))?);
     published_sequence(&group, &message);
 }
+
+/// A peer can complete the remaining membership while the sender still owes
+/// a Welcome from an earlier split part. The original call must wait for it,
+/// including when its own remaining membership change becomes a no-op.
+// verifies: SEND-011
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_split_refresh_waits_for_every_welcome() {
+    use std::sync::Arc;
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    tester!(caro, disable_workers);
+    let group = alix
+        .create_group_with_members(&[bo.inbox_id(), caro.inbox_id()], None, None)
+        .await?;
+    let probe = alix
+        .create_group_with_members(&[bo.inbox_id(), caro.inbox_id()], None, None)
+        .await?;
+    let combined_probe = alix
+        .create_group_with_members(&[bo.inbox_id(), caro.inbox_id()], None, None)
+        .await?;
+    bo.sync_welcomes().await?;
+    let bo_group = bo.group(&group.group_id)?;
+    let measured_attempt = |probe: &crate::utils::TestMlsGroup| {
+        let intent = intents_in(
+            probe,
+            &[IntentState::Processed],
+            IntentKind::UpdateGroupMembership,
+        )
+        .into_iter()
+        .max_by_key(|intent| intent.id)
+        .unwrap();
+        let saved = probe
+            .context
+            .db()
+            .prepared_envelopes(intent.id)
+            .unwrap()
+            .unwrap();
+        PreparedAttempt::decode(&saved).unwrap()
+    };
+    // Each partial batch, including its Welcomes, must fit the same limit.
+    // Enough Adds make the combined commit larger than either complete part.
+    const NEW_DEVICES_PER_INBOX: usize = 8;
+    let mut new_devices = Vec::new();
+    for _ in 0..NEW_DEVICES_PER_INBOX {
+        tester!(device, from: bo, disable_workers);
+        new_devices.push(device);
+    }
+    probe.add_missing_installations().await?;
+    let first_size = measured_attempt(&probe).max_envelope_size();
+    for _ in 0..NEW_DEVICES_PER_INBOX {
+        tester!(device, from: caro, disable_workers);
+        new_devices.push(device);
+    }
+    probe.add_missing_installations().await?;
+    const ENCODING_MARGIN: usize = 128;
+    let limit = first_size.max(measured_attempt(&probe).max_envelope_size()) + ENCODING_MARGIN;
+    combined_probe.add_missing_installations().await?;
+    let combined = measured_attempt(&combined_probe);
+    assert!(
+        combined
+            .envelopes
+            .iter()
+            .any(|envelope| envelope.len() > limit),
+        "the combined commit must exceed the complete single-inbox batch limit"
+    );
+    tester!(limited, from: alix, snapshot: Arc::new(alix.db_snapshot()),
+        configured: |config| config.limits.max_envelope_bytes = limit,
+        disable_workers);
+    let faults = std::iter::repeat_n(
+        Fault::Refuse(tonic::Code::InvalidArgument),
+        MAX_GROUP_SYNC_RETRIES * 4 + 1,
+    );
+    let api = FaultyApi::new(&limited, welcome, faults);
+    let source = faulty_group(&limited, &group.group_id, api).await;
+    let root = QueueIntent::update_group_membership()
+        .data(source.get_membership_update_intent(&[], &[]).await?)
+        .queue(&source)?;
+    source.publish_intents().await?;
+    let child = intents_in(
+        &source,
+        &[IntentState::Published],
+        IntentKind::UpdateGroupMembership,
+    )
+    .into_iter()
+    .find(|intent| intent.id != root.id)
+    .expect("a split child was published");
+
+    // The peer finishes the second half, without sending the first child's Welcome.
+    let child_cursor = source.published_intent_target(child.id)?.unwrap();
+    crate::subscriptions::barrier::wait_through(
+        &bo_group.context,
+        [(Topic::new_group_message(group.group_id), child_cursor)].into(),
+        None,
+    )
+    .await?;
+    bo_group.add_missing_installations().await?;
+    let peer_cursor = bo_group
+        .context
+        .db()
+        .topic_progress(&xmtp_db::incoming_envelope::StreamTopic::group(
+            group.group_id,
+        ))?
+        .processed;
+    crate::subscriptions::barrier::wait_through(
+        &source.context,
+        [(Topic::new_group_message(group.group_id), peer_cursor)].into(),
+        None,
+    )
+    .await?;
+    assert!(
+        source.sync_until_intent_resolved(root.id).await.is_err(),
+        "the original refresh cannot succeed while its child Welcome fails"
+    );
+    let unfinished: StoredGroupIntent = source.context.db().fetch(&child.id)?.unwrap();
+    assert_eq!(unfinished.state, IntentState::Committed);
+
+    // Restarting with working publication finishes the same durable Welcome work.
+    let resumed = faulty_group(
+        &limited,
+        &group.group_id,
+        FaultyApi::new(&limited, welcome, []),
+    )
+    .await;
+    resumed.sync_until_intent_resolved(root.id).await?;
+    let child_attempt =
+        PreparedAttempt::decode(&resumed.context.db().prepared_envelopes(child.id)?.unwrap())?;
+    assert!(child_attempt.max_envelope_size() <= limit);
+    assert!(intents_in(&resumed, &UNRESOLVED, IntentKind::UpdateGroupMembership).is_empty());
+    for client in &new_devices {
+        client.sync_welcomes().await?;
+        let peer = client.group(&group.group_id)?;
+        peer.sync().await?;
+        assert_eq!(
+            peer.epoch_authenticator().await?,
+            resumed.epoch_authenticator().await?
+        );
+    }
+}

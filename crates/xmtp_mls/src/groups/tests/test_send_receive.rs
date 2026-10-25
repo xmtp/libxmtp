@@ -3,6 +3,356 @@
 use super::*;
 use xmtp_events::{ClientEvent, EventFilter, EventKind, MessageStatus};
 
+#[derive(Clone, Copy, Debug)]
+enum RefreshCase {
+    SuperAdmin,
+    Member,
+    DmRevocation,
+    DmAddition,
+}
+
+// Port of the 5adea8f7 evidence test, with both DM identity-change paths.
+// verifies: GMOD-050, PERM-003
+#[rstest::rstest]
+#[case::super_admin_refreshes_own_revoked_installation(RefreshCase::SuperAdmin)]
+#[case::member_refreshes_another_inbox_under_admin_only_policy(RefreshCase::Member)]
+#[case::dm_member_refreshes_after_peer_revokes_device(RefreshCase::DmRevocation)]
+#[case::dm_member_adds_own_new_installation(RefreshCase::DmAddition)]
+#[xmtp_common::test(unwrap_try = true)]
+async fn revoked_installation_refresh_reaches_every_member(
+    #[case] case: RefreshCase,
+) -> Result<(), Box<dyn std::error::Error>> {
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    tester!(caro, disable_workers);
+    let is_dm = matches!(case, RefreshCase::DmRevocation | RefreshCase::DmAddition);
+    let addition = matches!(case, RefreshCase::DmAddition);
+    let group = if is_dm {
+        alix.find_or_create_dm(bo.inbox_id(), None).await?
+    } else {
+        let policies = matches!(case, RefreshCase::Member)
+            .then(|| PreconfiguredPolicies::AdminsOnly.to_policy_set());
+        alix.create_group_with_members(&[bo.inbox_id(), caro.inbox_id()], policies, None)
+            .await?
+    };
+    let bo_group = receive_group_invite(&bo).await;
+    let caro_group = if is_dm {
+        None
+    } else {
+        Some(receive_group_invite(&caro).await)
+    };
+    let owner = match case {
+        RefreshCase::SuperAdmin | RefreshCase::DmAddition => &alix,
+        RefreshCase::Member => &caro,
+        RefreshCase::DmRevocation => &bo,
+    };
+    tester!(device, from: owner, disable_workers);
+    let device_id = device.installation_id.to_vec();
+    let revoked_group = if addition {
+        None
+    } else {
+        group.add_missing_installations().await?;
+        bo_group.sync().await?;
+        if let Some(peer) = &caro_group {
+            peer.sync().await?;
+        }
+        let device_group = receive_group_invite(&device).await;
+        let mut revoke = owner
+            .identity_updates()
+            .revoke_installations(vec![device_id.clone()])
+            .await?;
+        xmtp_id::associations::test_utils::add_wallet_signature(&mut revoke, &owner.builder.owner)
+            .await;
+        owner
+            .identity_updates()
+            .apply_signature_request(revoke)
+            .await?;
+        Some(device_group)
+    };
+    let refresher = if matches!(case, RefreshCase::Member) {
+        &bo_group
+    } else {
+        &group
+    };
+    refresher.add_missing_installations().await?;
+    group.sync().await?;
+    bo_group.sync().await?;
+    if let Some(peer) = &caro_group {
+        peer.sync().await?;
+    }
+    let authenticator = group.epoch_authenticator().await?;
+    for peer in [&group, &bo_group].into_iter().chain(caro_group.as_ref()) {
+        assert_eq!(peer.epoch_authenticator().await?, authenticator);
+        assert_eq!(
+            peer.with_group_snapshot(|mls| Ok::<_, GroupError>(
+                mls.members()
+                    .any(|member| member.signature_key == device_id)
+            ))?,
+            addition
+        );
+    }
+    if let Some(revoked_group) = revoked_group {
+        revoked_group.sync().await?;
+        assert!(!revoked_group.is_active()?);
+    } else {
+        let added_group = receive_group_invite(&device).await;
+        assert!(added_group.is_active()?);
+        assert_eq!(added_group.epoch_authenticator().await?, authenticator);
+    }
+    group
+        .send_message(b"after refresh", Default::default())
+        .await?;
+    bo_group.sync().await?;
+    bo_group
+        .send_message(b"peer after refresh", Default::default())
+        .await?;
+    group.sync().await?;
+    assert_eq!(
+        group.test_last_message_bytes().await?,
+        Some(b"peer after refresh".to_vec())
+    );
+    Ok(())
+}
+
+fn last_refresh_attempt<C: XmtpSharedContext>(
+    group: &crate::groups::MlsGroup<C>,
+) -> crate::groups::mls_sync::publish::PreparedAttempt {
+    use crate::groups::mls_sync::publish::PreparedAttempt;
+    use xmtp_db::group_intent::{IntentKind, QueryPreparedEnvelope};
+    let db = group.context.db();
+    let intent = db
+        .find_group_intents(
+            group.group_id,
+            Some(vec![IntentState::Processed]),
+            Some(vec![IntentKind::UpdateGroupMembership]),
+        )
+        .unwrap()
+        .into_iter()
+        .max_by_key(|intent| (intent.published_in_epoch, intent.id))
+        .unwrap();
+    PreparedAttempt::decode(&db.prepared_envelopes(intent.id).unwrap().unwrap()).unwrap()
+}
+
+// verifies: GMOD-029
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_refresh_over_the_envelope_limit_is_split() {
+    use std::sync::Arc;
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    tester!(caro, disable_workers);
+    let group = alix
+        .create_group_with_members(&[bo.inbox_id(), caro.inbox_id()], None, None)
+        .await?;
+    let probe = alix
+        .create_group_with_members(&[bo.inbox_id(), caro.inbox_id()], None, None)
+        .await?;
+    let combined_probe = alix
+        .create_group_with_members(&[bo.inbox_id(), caro.inbox_id()], None, None)
+        .await?;
+    bo.sync_welcomes().await?;
+    caro.sync_welcomes().await?;
+
+    // Many Adds make the combined commit larger than each complete one-inbox
+    // publication, including its Welcome. The target remains unchanged.
+    const NEW_INSTALLATIONS_PER_INBOX: usize = 8;
+    let mut bo_devices = Vec::new();
+    for _ in 0..NEW_INSTALLATIONS_PER_INBOX {
+        tester!(device, from: bo, disable_workers);
+        bo_devices.push(device);
+    }
+    probe.add_missing_installations().await?;
+    let first_size = last_refresh_attempt(&probe).max_envelope_size();
+    let mut caro_devices = Vec::new();
+    for _ in 0..NEW_INSTALLATIONS_PER_INBOX {
+        tester!(device, from: caro, disable_workers);
+        caro_devices.push(device);
+    }
+    probe.add_missing_installations().await?;
+    const ENCODING_MARGIN: usize = 128;
+    let limit = first_size.max(last_refresh_attempt(&probe).max_envelope_size()) + ENCODING_MARGIN;
+    combined_probe.add_missing_installations().await?;
+    let combined_size = last_refresh_attempt(&combined_probe)
+        .envelopes
+        .iter()
+        .map(Vec::len)
+        .max()
+        .unwrap();
+    assert!(
+        combined_size > limit,
+        "combined={combined_size}, limit={limit}"
+    );
+    tester!(limited, from: alix, snapshot: Arc::new(alix.db_snapshot()),
+        configured: |config| config.limits.max_envelope_bytes = limit,
+        disable_workers);
+    let limited_group = limited.group(&group.group_id)?;
+    let before = limited_group.epoch().await?;
+    limited_group.add_missing_installations().await?;
+    assert_eq!(limited_group.epoch().await?, before + 2);
+    {
+        use crate::groups::mls_sync::publish::PreparedAttempt;
+        use xmtp_db::group_intent::{IntentKind, QueryPreparedEnvelope};
+        let db = limited.context.db();
+        let before = i64::try_from(before)?;
+        let parts: Vec<_> = db
+            .find_group_intents(
+                group.group_id,
+                Some(vec![IntentState::Processed]),
+                Some(vec![IntentKind::UpdateGroupMembership]),
+            )?
+            .into_iter()
+            .filter(|intent| {
+                intent
+                    .published_in_epoch
+                    .is_some_and(|epoch| epoch >= before)
+            })
+            .collect();
+        assert_eq!(parts.len(), 2);
+        for part in parts {
+            let saved = db.prepared_envelopes(part.id)?.unwrap();
+            let attempt = PreparedAttempt::decode(&saved)?;
+            assert!(attempt.max_envelope_size() <= limit);
+        }
+    }
+    let authenticator = limited_group.epoch_authenticator().await?;
+    let added_ids: Vec<_> = bo_devices
+        .iter()
+        .chain(&caro_devices)
+        .map(|client| client.installation_id.to_vec())
+        .collect();
+    for client in [&bo, &caro]
+        .into_iter()
+        .chain(&bo_devices)
+        .chain(&caro_devices)
+    {
+        client.sync_welcomes().await?;
+        let peer = client.group(&group.group_id)?;
+        peer.sync().await?;
+        assert_eq!(peer.epoch_authenticator().await?, authenticator);
+        let leaves = peer.with_group_snapshot(|mls| {
+            Ok::<_, GroupError>(
+                mls.members()
+                    .map(|member| member.signature_key)
+                    .collect::<Vec<_>>(),
+            )
+        })?;
+        assert_eq!(leaves.len(), added_ids.len() + 3);
+        assert!(added_ids.iter().all(|id| leaves.contains(id)));
+    }
+    assert!(limited_group.with_group_snapshot(|mls| {
+        let leaves: Vec<_> = mls.members().map(|member| member.signature_key).collect();
+        Ok::<_, GroupError>(added_ids.iter().all(|id| leaves.contains(id)))
+    })?);
+    // The original target is complete, including the child part, on return.
+    assert!(
+        limited
+            .context
+            .db()
+            .find_group_intents(
+                group.group_id,
+                Some(vec![
+                    IntentState::ToPublish,
+                    IntentState::Published,
+                    IntentState::Committed
+                ]),
+                Some(vec![
+                    xmtp_db::group_intent::IntentKind::UpdateGroupMembership
+                ]),
+            )?
+            .is_empty()
+    );
+}
+
+// verifies: GMOD-029, GMOD-046
+#[xmtp_common::test(unwrap_try = true)]
+async fn an_inbox_over_the_envelope_limit_keeps_its_removes() {
+    use std::sync::Arc;
+    use xmtp_mls_common::app_data::{
+        component_id::ComponentId, component_source::read_from_app_data_dict,
+        components::tls_map_components::GroupMembershipComponent, typed::Component,
+    };
+    use xmtp_mls_validation::commit::extract_group_membership;
+    use xmtp_proto::xmtp::mls::message_contents::{GroupMembershipEntry, group_membership_entry};
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    tester!(caro, disable_workers);
+    let group = alix
+        .create_group_with_members(&[bo.inbox_id(), caro.inbox_id()], None, None)
+        .await?;
+    let probe = alix
+        .create_group_with_members(&[bo.inbox_id(), caro.inbox_id()], None, None)
+        .await?;
+    bo.sync_welcomes().await?;
+    caro.sync_welcomes().await?;
+    let bo_group = bo.group(&group.group_id)?;
+    tester!(bo2, from: bo, disable_workers);
+    let mut revoke = bo
+        .identity_updates()
+        .revoke_installations(vec![bo.installation_id.to_vec()])
+        .await?;
+    xmtp_id::associations::test_utils::add_wallet_signature(&mut revoke, &bo.builder.owner).await;
+    bo.identity_updates()
+        .apply_signature_request(revoke)
+        .await?;
+    probe.add_missing_installations().await?;
+    // Leave room for the removal and failed key, but exclude the measured Add.
+    const EXCLUDED_ADD_BYTES: usize = 512;
+    let full_size = last_refresh_attempt(&probe)
+        .envelopes
+        .iter()
+        .map(Vec::len)
+        .max()
+        .unwrap();
+    let limit = full_size - EXCLUDED_ADD_BYTES;
+    tester!(limited, from: alix, snapshot: Arc::new(alix.db_snapshot()),
+        configured: |config| config.limits.max_envelope_bytes = limit,
+        disable_workers);
+    let limited_group = limited.group(&group.group_id)?;
+    let before = limited_group.epoch().await?;
+    limited_group.add_missing_installations().await?;
+    assert_eq!(limited_group.epoch().await?, before + 1);
+    assert!(last_refresh_attempt(&limited_group).max_envelope_size() <= limit);
+    let caro_group = caro.group(&group.group_id)?;
+    caro_group.sync().await?;
+    assert_eq!(
+        limited_group.epoch_authenticator().await?,
+        caro_group.epoch_authenticator().await?
+    );
+    for peer in [&limited_group, &caro_group] {
+        peer.with_group_snapshot(|mls| {
+            let membership = extract_group_membership(mls.extensions())?;
+            assert!(membership.get(bo.inbox_id()).is_some());
+            let entries = GroupMembershipComponent::decode_value(
+                read_from_app_data_dict(ComponentId::GROUP_MEMBERSHIP, mls).unwrap(),
+            )
+            .unwrap();
+            let bo_inbox = xmtp_mls_common::inbox_id::InboxId::from_hex(bo.inbox_id()).unwrap();
+            let entry = GroupMembershipEntry::decode(entries.get(&bo_inbox).unwrap().as_slice())?;
+            let Some(group_membership_entry::Version::V1(entry)) = entry.version else {
+                panic!("expected Bo's v1 membership entry");
+            };
+            assert_eq!(
+                entry.failed_installations,
+                vec![bo2.installation_id.to_vec()]
+            );
+            assert!(
+                !mls.members()
+                    .any(|member| member.signature_key == bo.installation_id.as_slice())
+            );
+            assert!(
+                !mls.members()
+                    .any(|member| member.signature_key == bo2.installation_id.as_slice())
+            );
+            Ok::<_, GroupError>(())
+        })?;
+    }
+    bo_group.sync().await?;
+    assert!(!bo_group.is_active()?);
+    // An unchanged inbox does not produce a fresh oversized commit forever.
+    // The already-associated failed key stays listed rather than being added again.
+    limited_group.add_missing_installations().await?;
+    assert_eq!(limited_group.epoch().await?, before + 1);
+}
+
 // verifies: EVENT-001, EVENT-018, EVENT-019, EVENT-024
 #[xmtp_common::test(unwrap_try = true)]
 async fn group_membership_and_received_message_emit_once_after_storage() {

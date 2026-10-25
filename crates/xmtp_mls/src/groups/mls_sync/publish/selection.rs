@@ -4,7 +4,9 @@
 use super::*;
 use crate::groups::app_data::Committable;
 use crate::groups::group_permissions::MembershipPolicy;
-use crate::identity_updates::{IdentityDependencyError, InstallationDiffError};
+use crate::identity_updates::{
+    IdentityDependencyError, InstallationDiffError, required_leaf_removals,
+};
 use openmls::group::QueuedProposal;
 use openmls::messages::proposals::AppDataUpdateOperation;
 use tls_codec::{Deserialize, VLBytes};
@@ -308,10 +310,21 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                 selection.omitted.insert(index);
             }
         }
+        let owners: HashMap<_, _> = requirements.leaves.values().cloned().collect();
         let mut same_request = HashSet::new();
         let mut own_inboxes = HashSet::new();
+        let mut own_removals = HashSet::new();
         let own_payload = if let Some(update) = &requirements.own_update {
             let mut target = update.apply_to_group_membership(&requirements.old);
+            let no_removals = HashSet::new();
+            own_removals = required_leaf_removals(
+                &self.context.db(),
+                &requirements.old,
+                &target,
+                own_changes.map_or(&no_removals, |changes| &changes.removed_installations),
+                &owners,
+            )
+            .map_err(InstallationDiffError::from)?;
             // Publication writes the same failed list.
             let (fetch_failures, added) = own_changes.map_or((&[][..], &[][..]), |changes| {
                 (
@@ -492,6 +505,14 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                 }
                 Err(error) => return Err(error.into()),
             };
+            let required = required_leaf_removals(
+                &self.context.db(),
+                &requirements.old,
+                &target,
+                &diff.removed_installations,
+                &owners,
+            )
+            .map_err(InstallationDiffError::from)?;
             let mut changed = false;
             let mut replacements = Vec::new();
             let mut included = HashSet::new();
@@ -563,20 +584,32 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
             }
             // The inboxes whose Remove this commit carries.
             let mut removed = HashSet::new();
+            let mut removed_keys = HashSet::new();
             for (index, proposal) in requirements.proposals.iter().enumerate() {
                 let Proposal::Remove(remove) = proposal.proposal() else {
                     continue;
                 };
                 match requirements.leaves.get(&remove.removed()) {
                     Some((id, inbox))
-                        if diff.removed_installations.contains(id)
-                            || requirements.readds.contains(id) =>
+                        if required.contains(id) || requirements.readds.contains(id) =>
                     {
                         removed.insert(inbox.as_str());
+                        removed_keys.insert(id);
                     }
                     _ => {
                         selection.omitted.insert(index);
                     }
+                }
+            }
+            // A failure claim cannot cover a required Remove. An own update
+            // builds these same required removals inline in the sender path.
+            for key in &required {
+                if !removed_keys.contains(key)
+                    && !requirements.readds.contains(key)
+                    && !own_removals.contains(key)
+                    && let Some(inbox) = owners.get(key)
+                {
+                    changed |= requirements.omit_dependencies(inbox, &mut selection.omitted)?;
                 }
             }
             // implements: GMOD-038, GMOD-047

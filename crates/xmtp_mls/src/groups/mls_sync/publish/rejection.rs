@@ -204,6 +204,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
             )? {
                 return Err(OutgoingPreparationError::StateChanged.into());
             }
+            Self::fail_membership_parent(db, intent, &attempt)?;
             Ok(())
         };
         record().map_err(|error| GroupMessageProcessingError::PreparedAttempt(Box::new(error)))
