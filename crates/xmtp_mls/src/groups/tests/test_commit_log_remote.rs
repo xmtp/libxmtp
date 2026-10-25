@@ -1983,8 +1983,9 @@ async fn a_held_entry_stops_later_pages_of_its_topic() {
 
 /// A download stores each page and moves the cursor past it before it
 /// requests the next one. A reader stopped after three pages keeps their
-/// entries, and the next download starts with the fourth page.
-// verifies: FORK-030
+/// entries, and the next download starts with the fourth page and checks it
+/// against the entries already stored.
+// verifies: FORK-030, FORK-083
 #[xmtp_common::test(unwrap_try = true)]
 async fn commit_log_download_commits_each_page() {
     const ENTRIES: u64 = 16;
@@ -2015,15 +2016,25 @@ async fn commit_log_download_commits_each_page() {
     let keys = keys_of(&a);
     let topic = Topic::new_commit_log(keys.commit_log_id());
     let envelope_base = processed + 100;
-    let entries = (1..=ENTRIES)
-        .map(|sequence| {
+    // The first envelope after the stored pages replays the last stored commit
+    // with another result, which the chain rules discard.
+    let stored = STORED_PAGES as u64 * u64::from(PAGE_ROWS);
+    let mut commits: Vec<_> = (1..=ENTRIES)
+        .map(|sequence| (sequence, sequence as u8 + 1))
+        .collect();
+    commits.insert(stored as usize, (stored, 0xee));
+    let envelopes = commits.len() as u64;
+    let entries = commits
+        .into_iter()
+        .zip(1..)
+        .map(|((sequence, applied), position)| {
             let mut entry = PlaintextCommitLogEntry {
                 group_id: a.group_id.to_vec(),
                 commit_sequence_id: sequence,
                 commit_result: ProtoCommitResult::Applied as i32,
                 last_epoch_authenticator: vec![sequence as u8; 32],
                 applied_epoch_number: sequence + 1,
-                applied_epoch_authenticator: vec![sequence as u8 + 1; 32],
+                applied_epoch_authenticator: vec![applied; 32],
                 ..Default::default()
             };
             sign_entry_author(
@@ -2034,7 +2045,7 @@ async fn commit_log_download_commits_each_page() {
             .unwrap();
             server_envelope(
                 &topic,
-                envelope_base + sequence,
+                envelope_base + position,
                 Payload::SealedCommitLogEntry(seal_entry(&keys, &entry).unwrap()),
             )
         })
@@ -2072,7 +2083,6 @@ async fn commit_log_download_commits_each_page() {
             .await
             .is_err()
     );
-    let stored = STORED_PAGES as u64 * u64::from(PAGE_ROWS);
     assert_eq!(accepted(), (1..=stored).collect::<Vec<_>>());
     assert_eq!(download_cursor(), envelope_base + stored);
 
@@ -2086,11 +2096,11 @@ async fn commit_log_download_commits_each_page() {
         .await?;
     assert_eq!(
         script.lock().read.len() as u64,
-        (ENTRIES - stored).div_ceil(u64::from(PAGE_ROWS)),
+        (envelopes - stored).div_ceil(u64::from(PAGE_ROWS)),
         "the resumed download starts after the stored pages"
     );
     assert_eq!(accepted(), (1..=ENTRIES).collect::<Vec<_>>());
-    assert_eq!(download_cursor(), envelope_base + ENTRIES);
+    assert_eq!(download_cursor(), envelope_base + envelopes);
 }
 
 // verifies: FORK-087, FORK-083, FORK-085

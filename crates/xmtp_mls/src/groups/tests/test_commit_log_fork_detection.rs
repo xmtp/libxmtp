@@ -19,7 +19,8 @@ use xmtp_db::{
 use xmtp_proto::types::{Cursor, Topic};
 
 // A conversation whose log is not read has no remote entry to compare, so no
-// fork check selects it, however many unsolicited conversations there are.
+// fork check selects it, however many unsolicited conversations there are. It
+// is checked once it is allowed.
 // verifies: FORK-082
 #[xmtp_common::test(unwrap_try = true)]
 async fn fork_checks_select_only_allowed_conversations() {
@@ -37,8 +38,7 @@ async fn fork_checks_select_only_allowed_conversations() {
     let incoming_dm = alix.group(&unsolicited_dm.group_id)?;
     assert_eq!(incoming_dm.consent_state()?, ConsentState::Unknown);
 
-    // Unsolicited DM rows, half with no consent record and half denied, each
-    // with a local entry the check would compare.
+    // Unsolicited DM rows, half with no consent record and half denied.
     let db = alix.context.db();
     let mut unconsented = vec![incoming_dm.group_id];
     for marker in 100..164_u8 {
@@ -61,49 +61,31 @@ async fn fork_checks_select_only_allowed_conversations() {
             }
             .store(&db)?;
         }
-        NewLocalCommitLog {
-            group_id,
-            commit_sequence_id: 1,
-            last_epoch_authenticator: vec![1],
-            commit_result: CommitResult::Success,
-            error_message: None,
-            applied_epoch_number: 1,
-            applied_epoch_authenticator: vec![2],
-            sender_inbox_id: None,
-            sender_installation_id: None,
-            commit_type: None,
-        }
-        .store(&db)?;
         unconsented.push(group_id);
     }
-
-    let mut worker = CommitLogWorker::new(alix.context.clone());
-    for _ in 0..2 {
-        let selected = db.get_conversation_ids_for_fork_check()?;
-        assert_eq!(
-            unconsented
-                .iter()
-                .filter(|id| selected.iter().any(|candidate| candidate == id.as_slice()))
-                .count(),
-            0,
-            "no unknown or denied conversation is selected"
-        );
-        worker.update_forked_state().await?;
-        for id in &unconsented {
-            assert_eq!(db.get_group_commit_log_forked_status(id)?, None);
-            assert_eq!(
-                db.get_last_cursor(id, EntityKind::CommitLogForkCheckLocal)?,
-                Cursor(0)
-            );
-        }
-    }
-
-    incoming_dm.update_consent_state(ConsentState::Allowed)?;
-    assert!(
-        db.get_conversation_ids_for_fork_check()?
+    let selected = db.get_conversation_ids_for_fork_check()?;
+    assert_eq!(
+        unconsented
             .iter()
-            .any(|id| id == incoming_dm.group_id.as_slice())
+            .filter(|id| selected.iter().any(|candidate| candidate == id.as_slice()))
+            .count(),
+        0,
+        "no unknown or denied conversation is selected"
     );
+
+    // The DM's Welcome entry moves its fork-check cursor only when a pass
+    // checks it.
+    let checked_through = || {
+        db.get_last_cursor(incoming_dm.group_id, EntityKind::CommitLogForkCheckLocal)
+            .unwrap()
+    };
+    let mut worker = CommitLogWorker::new(alix.context.clone());
+    worker.update_forked_state().await?;
+    let before_allowed = checked_through();
+    assert_eq!(before_allowed, Cursor(0));
+    incoming_dm.update_consent_state(ConsentState::Allowed)?;
+    worker.update_forked_state().await?;
+    assert!(checked_through() > before_allowed);
 }
 
 // The fault is artificial. State changes, log writing, signatures, transport,
@@ -790,7 +772,7 @@ async fn test_fork_detection_not_triggered_by_removal_and_readd()
     alix_group.add_members(&[bo.inbox_id()]).await?;
     bo.sync_welcomes().await?;
     let bo_group = bo.group(&alix_group.group_id)?;
-    // Only a conversation whose log is read gets a fork state.
+    // Fork checks select only allowed conversations, so allow Bo's copy first.
     bo_group.update_consent_state(xmtp_db::consent_record::ConsentState::Allowed)?;
     bo_group.sync().await?;
 
