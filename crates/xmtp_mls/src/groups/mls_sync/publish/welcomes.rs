@@ -128,6 +128,13 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
     /// that owes no Welcomes without any network work; then each saved batch
     /// is sent or settled in id order. One intent's failure does not hold the
     /// others, and the lowest intent's error is returned after the last one.
+    //
+    // Known limitation: a call waiting on one intent runs this whole step, so
+    // it also publishes every earlier intent's follow-up batch. One stalled
+    // earlier publish can hold that call past its deadline. Avoiding that
+    // needs a durable resume task or a background publish, and either one
+    // brings in concurrent runs of this step for the same intents. The gap
+    // waiver in docs/specs/waivers.toml tracks it.
     // implements: SEND-024
     pub(in crate::groups::mls_sync) async fn publish_required_welcomes(
         &self,
