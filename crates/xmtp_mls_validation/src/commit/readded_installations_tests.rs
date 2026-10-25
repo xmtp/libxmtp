@@ -28,43 +28,22 @@ fn test_extract_readded_installations_without_authority_returns_empty() {
 // verifies: GMOD-052
 #[xmtp_common::test(unwrap_try = true)]
 fn test_extract_readded_installations_super_admin_both_types_of_readd() {
-    let authority = ReaddAuthority::SuperAdmin;
-    let mut added = HashSet::from([vec![1, 2, 3], vec![4, 5, 6]]);
-    let mut removed = HashSet::from([vec![1, 2, 3], vec![7, 8, 9], vec![10, 11, 12]]);
-    let mut failed = HashSet::from([vec![7, 8, 9]]);
+    let mut added = HashSet::from([vec![1], vec![2]]);
+    let mut removed = HashSet::from([vec![1], vec![3], vec![4]]);
+    let mut failed = HashSet::from([vec![1], vec![3], vec![5]]);
 
-    let result = extract_readded_installations(authority, &mut added, &mut removed, &mut failed);
+    let readded = extract_readded_installations(
+        ReaddAuthority::SuperAdmin,
+        &mut added,
+        &mut removed,
+        &mut failed,
+    );
 
-    // Should return both types: added+removed intersection AND failed+removed intersection
-    assert_eq!(result, HashSet::from([vec![1, 2, 3], vec![7, 8, 9]]));
-    // Should remove readded from added
-    assert_eq!(added, HashSet::from([vec![4, 5, 6]]));
-    // Should remove both types from removed
-    assert_eq!(removed, HashSet::from([vec![10, 11, 12]]));
-    // Should remove from failed
-    assert!(failed.is_empty());
-}
-
-// verifies: GMOD-052
-#[xmtp_common::test(unwrap_try = true)]
-fn test_extract_readded_installations_super_admin_overlapping_scenarios() {
-    // Test case where an installation appears in all three sets
-    // This tests the order of operations (added+removed processed before failed+removed)
-    let authority = ReaddAuthority::SuperAdmin;
-    let mut added = HashSet::from([vec![1, 2, 3]]);
-    let mut removed = HashSet::from([vec![1, 2, 3], vec![4, 5, 6]]);
-    let mut failed = HashSet::from([vec![1, 2, 3], vec![4, 5, 6]]);
-
-    let result = extract_readded_installations(authority, &mut added, &mut removed, &mut failed);
-
-    // Installation [1,2,3] is in added+removed (counted first)
-    // Installation [4,5,6] is in failed+removed (counted second)
-    assert_eq!(result, HashSet::from([vec![1, 2, 3], vec![4, 5, 6]]));
-    // All sets should be empty
-    assert!(added.is_empty());
-    assert!(removed.is_empty());
-    // 1,2,3 was already intersected against added+removed
-    assert_eq!(failed, HashSet::from([vec![1, 2, 3]]));
+    assert_eq!(readded, HashSet::from([vec![1], vec![3]]));
+    assert_eq!(added, HashSet::from([vec![2]]));
+    assert_eq!(removed, HashSet::from([vec![4]]));
+    // Matched Add+Remove is handled first, leaving its failed entry untouched.
+    assert_eq!(failed, HashSet::from([vec![1], vec![5]]));
 }
 
 // verifies: GMOD-052

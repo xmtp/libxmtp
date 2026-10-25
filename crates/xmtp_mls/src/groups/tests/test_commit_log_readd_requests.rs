@@ -104,70 +104,7 @@ async fn test_request_readd() {
     );
 }
 
-#[xmtp_common::test]
-async fn test_request_readd_dm() {
-    tester!(alix, enable_fork_recovery_requests);
-    tester!(bo);
-    let dm = alix
-        .find_or_create_dm(bo.inbox_id().to_string(), None)
-        .await
-        .unwrap();
-    bo.sync_all_welcomes_and_groups(None).await.unwrap();
-    let bo_dm = bo.group(&dm.group_id).unwrap();
-    bo_dm.update_consent_state(ConsentState::Allowed).unwrap();
-
-    let mut a_worker = CommitLogWorker::new(alix.context.clone());
-    a_worker._tick().await.unwrap();
-
-    let a_conn = alix.context.db();
-    let b_conn = bo.context.db();
-    // Simulate a fork
-    a_conn
-        .set_group_commit_log_forked_status(&dm.group_id, Some(true))
-        .unwrap();
-
-    // No readd requests yet
-    assert!(
-        !a_conn
-            .is_awaiting_readd(&dm.group_id, alix.context.installation_id().as_slice(),)
-            .unwrap()
-    );
-    assert!(
-        !b_conn
-            .is_awaiting_readd(&dm.group_id, alix.context.installation_id().as_slice(),)
-            .unwrap()
-    );
-
-    // Should trigger readd requests to be sent
-    a_worker._tick().await.unwrap();
-    // Should no-op
-    a_worker._tick().await.unwrap();
-    // Receive any oneshot messages
-    alix.sync_welcomes().await.unwrap();
-    bo.sync_welcomes().await.unwrap();
-
-    assert!(
-        a_conn
-            .is_awaiting_readd(&dm.group_id, alix.context.installation_id().as_slice(),)
-            .unwrap()
-    );
-    assert!(
-        b_conn
-            .is_awaiting_readd(&dm.group_id, alix.context.installation_id().as_slice(),)
-            .unwrap()
-    );
-    assert!(
-        !a_conn
-            .is_awaiting_readd(&dm.group_id, bo.context.installation_id().as_slice(),)
-            .unwrap()
-    );
-    assert!(
-        !b_conn
-            .is_awaiting_readd(&dm.group_id, bo.context.installation_id().as_slice(),)
-            .unwrap()
-    );
-}
-
+// verifies: FORK-041
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_readd_installation_succeeds() {
     use xmtp_db::{prelude::QueryRefreshState, refresh_state::EntityKind};
@@ -197,6 +134,9 @@ async fn test_readd_installation_succeeds() {
         b_group.epoch_authenticator().await.unwrap(),
         prev_authenticator
     );
+    bo.context
+        .db()
+        .set_group_commit_log_forked_status(&a_group.group_id, Some(true))?;
     a_group
         .readd_installations(vec![bo_installation_id.to_vec()])
         .await
@@ -211,6 +151,12 @@ async fn test_readd_installation_succeeds() {
     // Process the removal at the same anchor carried by the replacement Welcome.
     b_group.sync_with_conn().await?;
     assert!(!b_group.is_active()?);
+    assert_eq!(
+        bo.context
+            .db()
+            .get_group_commit_log_forked_status(&a_group.group_id)?,
+        Some(true)
+    );
     assert_eq!(b_group.epoch().await?, a_group.epoch().await?);
     let anchor = alix
         .context
@@ -245,6 +191,12 @@ async fn test_readd_installation_succeeds() {
         new_authenticator
     );
     assert!(b_group.is_active()?);
+    assert_eq!(
+        bo.context
+            .db()
+            .get_group_commit_log_forked_status(&a_group.group_id)?,
+        None
+    );
     assert_eq!(b_group.epoch().await?, a_group.epoch().await?);
     b_group.with_group_snapshot(|mls_group| {
         assert!(
@@ -475,37 +427,6 @@ async fn test_request_readd_with_allowlisted_groups() {
     );
 }
 
-#[xmtp_common::test(unwrap_try = true)]
-async fn test_dictionary_native_readd_succeeds() {
-    tester!(alix);
-    tester!(bo);
-    tester!(caro);
-    let group = alix
-        .create_group_with_members(&[bo.inbox_id(), caro.inbox_id()], None, None)
-        .await?;
-
-    bo.sync_all_welcomes_and_groups(None).await?;
-    caro.sync_all_welcomes_and_groups(None).await?;
-    let bo_group = bo.group(&group.group_id)?;
-    let caro_group = caro.group(&group.group_id)?;
-    let before = group.epoch_authenticator().await?;
-    group
-        .readd_installations(vec![bo.context.installation_id().to_vec()])
-        .await?;
-    assert_ne!(group.epoch_authenticator().await?, before);
-    caro_group.sync().await?;
-    assert_eq!(
-        caro_group.epoch_authenticator().await?,
-        group.epoch_authenticator().await?
-    );
-    bo_group.sync_with_conn().await?;
-    bo.sync_welcomes().await?;
-    assert_eq!(
-        bo_group.epoch_authenticator().await?,
-        group.epoch_authenticator().await?
-    );
-}
-
 // verifies: FORK-062
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_readd_without_a_usable_key_package_waits() {
@@ -619,7 +540,7 @@ async fn a_readd_without_a_usable_key_package_waits() {
     assert_eq!(group.epoch().await?, before_epoch + 1);
 }
 
-// verifies: FORK-050, FORK-053, FORK-063, FORK-080, GMOD-052, FORK-041
+// verifies: FORK-050, FORK-053, FORK-080, GMOD-052, FORK-041
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_dm_peer_answers_a_readd_request() {
     tester!(alix, disable_workers, enable_fork_recovery_requests);
@@ -641,12 +562,32 @@ async fn a_dm_peer_answers_a_readd_request() {
     let bo_db = bo.context.db();
     let installation = alix.context.installation_id();
     let epoch_before = bo_dm.epoch().await?;
+    assert!(!alix_db.is_awaiting_readd(&dm.group_id, installation.as_slice())?);
+    assert!(!bo_db.is_awaiting_readd(&dm.group_id, installation.as_slice())?);
     // Simulate fork detection without creating divergent MLS epoch secrets.
     alix_db.set_group_commit_log_forked_status(&dm.group_id, Some(true))?;
     alix_worker._tick().await?;
     bo.sync_welcomes().await?;
     assert!(bo_db.is_awaiting_readd(&dm.group_id, installation.as_slice())?);
     assert!(alix_db.is_awaiting_readd(&dm.group_id, installation.as_slice())?);
+    let requested_at = alix_db
+        .get_readd_status(&dm.group_id, installation.as_slice())?
+        .unwrap()
+        .requested_at_sequence_id;
+    assert!(requested_at.is_some());
+    // A second requester tick keeps the original request while the peer has not answered.
+    alix_worker._tick().await?;
+    alix.sync_welcomes().await?;
+    bo.sync_welcomes().await?;
+    for db in [&alix_db, &bo_db] {
+        assert_eq!(
+            db.get_readd_status(&dm.group_id, installation.as_slice())?
+                .unwrap()
+                .requested_at_sequence_id,
+            requested_at
+        );
+        assert!(!db.is_awaiting_readd(&dm.group_id, bo.context.installation_id().as_slice())?);
+    }
 
     let mut bo_worker = CommitLogWorker::new(bo.context.clone());
     for _ in 0..3 {
@@ -678,40 +619,6 @@ async fn a_dm_peer_answers_a_readd_request() {
     bo_worker._tick().await?;
     assert_eq!(dm.epoch().await?, repaired_epoch);
     assert_eq!(bo_dm.epoch().await?, repaired_epoch);
-}
-
-// verifies: FORK-041
-#[xmtp_common::test(unwrap_try = true)]
-async fn a_replacement_welcome_resets_the_fork_state() {
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
-    let group = alix
-        .create_group_with_members(&[bo.inbox_id()], None, None)
-        .await?;
-    bo.sync_all_welcomes_and_groups(None).await?;
-    let bo_group = bo.group(&group.group_id)?;
-    bo.context
-        .db()
-        .set_group_commit_log_forked_status(&group.group_id, Some(true))?;
-    group
-        .readd_installations(vec![bo.context.installation_id().to_vec()])
-        .await?;
-    bo_group.sync_with_conn().await?;
-    assert!(!bo_group.is_active()?);
-    assert_eq!(
-        bo.context
-            .db()
-            .get_group_commit_log_forked_status(&group.group_id)?,
-        Some(true)
-    );
-    bo.sync_welcomes().await?;
-    assert!(bo_group.is_active()?);
-    assert_eq!(
-        bo.context
-            .db()
-            .get_group_commit_log_forked_status(&group.group_id)?,
-        None
-    );
 }
 
 // verifies: FORK-050, FORK-080, FORK-064, GMOD-052
@@ -784,7 +691,7 @@ async fn a_dm_readd_is_answered_once_by_peer_or_sibling() {
     assert_eq!(bo_dm.epoch().await?, epoch_before + 1);
 }
 
-// verifies: FORK-080, FORK-061
+// verifies: FORK-080
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_future_readd_claim_publishes_no_commit() {
     tester!(alix, disable_workers);
