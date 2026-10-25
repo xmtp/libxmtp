@@ -399,7 +399,8 @@ enum AuthSource {
 }
 
 /// A configuration that loads and holds every table of the field table, with
-/// an enabled `[auth]` table.
+/// an enabled `[auth]` table, and the installation ceiling at the top of its
+/// range.
 fn full_document(auth: AuthSource) -> toml::Table {
     let mut document: toml::Table = toml::from_str(
         r#"
@@ -415,6 +416,7 @@ url = "postgres://localhost/xmtp"
 [validation]
 [limits]
 [mls]
+max_installations_per_inbox = 100
 [handles]
 [chains]
 "eip155:1" = "https://rpc.example.org"
