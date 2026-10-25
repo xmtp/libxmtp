@@ -157,6 +157,15 @@ async fn client_with_stalled_api(
     tester: &crate::utils::ClientTester,
     call: StalledCall,
 ) -> crate::Client<StalledContext> {
+    client_with_stalled_api_within(tester, call, BUDGET).await
+}
+
+/// As [`client_with_stalled_api`], with `budget` as the intent wait deadline.
+async fn client_with_stalled_api_within(
+    tester: &crate::utils::ClientTester,
+    call: StalledCall,
+    budget: Duration,
+) -> crate::Client<StalledContext> {
     let api = StalledApi {
         inner: tester.context.api().api_client.raw_for_test().clone(),
         call,
@@ -166,7 +175,7 @@ async fn client_with_stalled_api(
         welcomes: Arc::new(AtomicUsize::new(0)),
     };
     let mut settings = tester.context.incoming_runtime().policy().clone();
-    settings.barrier_timeout = BUDGET;
+    settings.barrier_timeout = budget;
     // Reuse registered tester state to inject one non-completing async RPC.
     crate::builder::ClientBuilder::from_client(tester.client.clone())
         .api_client(api)
@@ -258,4 +267,63 @@ async fn intent_sync_deadline_bounds_a_stalled_welcome_publish() {
     assert_eq!(api.welcomes.load(Ordering::SeqCst), 1);
     bo.sync_welcomes().await?;
     bo.group(&group.group_id)?;
+}
+
+/// An earlier membership change whose Welcome publish never answers must not
+/// hold a later send. The send's wait completes the send once its echo is
+/// applied and never starts the earlier batch's publish; a group sync owns
+/// that work. The earlier change stays committed and still owes its batch.
+// verifies: SEND-024
+#[xmtp_common::test(unwrap_try = true)]
+async fn later_send_completes_while_earlier_welcomes_fail() {
+    /// Long enough for the send's own round on a loaded test machine.
+    const SEND_BUDGET: Duration = Duration::from_secs(10);
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    let group = alix.create_group(None, None)?;
+    group.key_update().await?;
+    let membership = commit_membership_change(&group, &[bo.inbox_id()]).await;
+    let client =
+        client_with_stalled_api_within(&alix, StalledCall::WelcomePublish, SEND_BUDGET).await;
+    let (stalled, _) = MlsGroup::new_cached(client.context.clone(), &group.group_id)?;
+
+    timeout(
+        SEND_BUDGET * 2,
+        stalled.send_message(b"after the membership change", Default::default()),
+    )
+    .await??;
+    let api = client.context.api().api_client.raw_for_test();
+    assert!(!api.entered.load(Ordering::SeqCst));
+    let sends = group.context.db().find_group_intents(
+        group.group_id,
+        Some(vec![IntentState::Processed]),
+        Some(vec![IntentKind::SendMessage]),
+    )?;
+    assert_eq!(sends.len(), 1);
+    let owed: StoredGroupIntent = group.context.db().fetch(&membership)?.unwrap();
+    assert_eq!(owed.state, IntentState::Committed);
+}
+
+/// A wait can end before any round reads its intent's state. When the
+/// intent's follow-up batch was already ended, the call still reports that
+/// the membership change is applied but its Welcomes were not sent.
+// verifies: SEND-025
+#[xmtp_common::test(unwrap_try = true)]
+async fn waiter_on_an_ended_follow_up_reports_unsent_welcomes() {
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    let group = alix.create_group(None, None)?;
+    group.key_update().await?;
+    let membership = commit_membership_change(&group, &[bo.inbox_id()]).await;
+    group
+        .context
+        .db()
+        .set_group_intent_follow_up_failed(membership)?;
+    let client = client_with_stalled_api(&alix, StalledCall::TargetQuery).await;
+    let (stalled, _) = MlsGroup::new_cached(client.context.clone(), &group.group_id)?;
+
+    let result = timeout(OUTER_BOUND, stalled.sync_until_intent_resolved(membership)).await?;
+    assert!(welcomes_unsendable(&result), "{result:?}");
+    let api = client.context.api().api_client.raw_for_test();
+    assert!(api.entered.load(Ordering::SeqCst));
 }

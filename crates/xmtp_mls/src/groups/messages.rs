@@ -1,6 +1,20 @@
 //! Sending, preparing, and querying messages.
 
+use super::mls_sync::publish::OutgoingPreparationError;
 use super::*;
+
+/// An installation refresh before a send applies its membership change even
+/// when the Welcomes for the installations it adds cannot be sent. The send
+/// goes on; the membership change's own waiter already received that outcome.
+fn unsent_welcomes_do_not_stop_a_send(result: Result<(), GroupError>) -> Result<(), GroupError> {
+    match result {
+        Err(GroupError::OutgoingPreparation(OutgoingPreparationError::WelcomesUnsendable)) => {
+            tracing::warn!("installations added before a send have no Welcome");
+            Ok(())
+        }
+        other => other,
+    }
+}
 
 impl<Context> MlsGroup<Context>
 where
@@ -23,7 +37,9 @@ where
 
         self.ensure_not_paused().await?;
         let update_interval_ns = Some(SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS);
-        self.maybe_update_installations(update_interval_ns).await?;
+        unsent_welcomes_do_not_stop_a_send(
+            self.maybe_update_installations(update_interval_ns).await,
+        )?;
 
         // Check for pending proposals and commit them first
         // OpenMLS blocks message creation when there are pending proposals
@@ -57,7 +73,7 @@ where
             // its membership update. Refresh before committing that proposal,
             // even when the regular installation-check interval has not elapsed.
             if has_pending_add {
-                self.add_missing_installations().await?;
+                unsent_welcomes_do_not_stop_a_send(self.add_missing_installations().await)?;
             }
             tracing::debug!(
                 inbox_id = self.context.inbox_id(),
@@ -80,7 +96,9 @@ where
     pub async fn publish_messages(&self) -> Result<(), GroupError> {
         self.ensure_not_paused().await?;
         let update_interval_ns = Some(SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS);
-        self.maybe_update_installations(update_interval_ns).await?;
+        unsent_welcomes_do_not_stop_a_send(
+            self.maybe_update_installations(update_interval_ns).await,
+        )?;
         self.sync_until_last_intent_resolved().await?;
 
         // implicitly set group consent state to allowed
@@ -262,8 +280,10 @@ where
         };
 
         // Publish
-        self.maybe_update_installations(Some(SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS))
-            .await?;
+        unsent_welcomes_do_not_stop_a_send(
+            self.maybe_update_installations(Some(SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS))
+                .await,
+        )?;
         self.sync_until_intent_resolved(intent_id).await?;
 
         // Implicitly set group consent state to allowed

@@ -7,7 +7,7 @@
 //! follow-up failure never holds another intent.
 
 use super::faults::{Fault, FaultyApi, FaultyContext, faulty_group, group_message, welcome};
-use super::welcomes::WelcomeEnvelopeKind;
+use super::welcomes::{PreparedWelcomes, WelcomeEnvelopeKind};
 use super::*;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -115,36 +115,6 @@ async fn group_after_envelope_limit_shrink(
     MlsGroup::new_cached(client.context.clone(), group_id)
         .unwrap()
         .0
-}
-
-/// Publish a membership change that adds `inbox_ids` and apply its echo,
-/// without sending its Welcomes. Returns the committed intent's id.
-async fn commit_membership_change<C: XmtpSharedContext>(
-    group: &MlsGroup<C>,
-    inbox_ids: &[&str],
-) -> i32 {
-    let data = group
-        .get_membership_update_intent(inbox_ids, &[])
-        .await
-        .unwrap();
-    let intent = QueueIntent::update_group_membership()
-        .data(data)
-        .queue(group)
-        .unwrap();
-    group.publish_intents().await.unwrap();
-    assert!(!group.receive().await.unwrap().is_errored());
-    intent.id
-}
-
-/// The call reports that the membership change is applied but its Welcomes
-/// were not sent.
-fn welcomes_unsendable<T>(result: &Result<T, GroupError>) -> bool {
-    matches!(
-        result,
-        Err(GroupError::OutgoingPreparation(
-            OutgoingPreparationError::WelcomesUnsendable
-        ))
-    )
 }
 
 /// A publish can commit and then lose its response to `OUT_OF_RANGE`, which
@@ -383,45 +353,87 @@ async fn publish_out_of_range_settlement_completes_a_mixed_topic_welcome_batch()
     }
 }
 
-/// While the backend is unreachable for an earlier membership change's
-/// Welcomes, that change stays committed and owes them. A later send must
-/// still complete once its own echo is applied, instead of waiting behind
-/// the earlier batch and returning published but unconfirmed.
-// verifies: SEND-024
-#[xmtp_common::test(unwrap_try = true)]
-async fn later_send_completes_while_earlier_welcomes_fail() {
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
-    let group = alix.create_group(None, None)?;
-    group.key_update().await?;
-    let api =
-        FaultyApi::new(&alix, welcome, []).then_always(Fault::Refuse(tonic::Code::Unavailable));
-    let outage = faulty_group(&alix, &group.group_id, api.clone()).await;
-    let membership = commit_membership_change(&outage, &[bo.inbox_id()]).await;
+/// Publish a membership change that adds `inbox_ids`, apply its echo, and
+/// save its Welcome batch without sending it.
+async fn save_welcome_batch<C: XmtpSharedContext>(
+    group: &MlsGroup<C>,
+    inbox_ids: &[&str],
+) -> (i32, PreparedWelcomes) {
+    let intent_id = commit_membership_change(group, inbox_ids).await;
+    let welcomes = group
+        .prepare_required_welcomes(intent_id)
+        .unwrap()
+        .and_then(|attempt| attempt.welcomes)
+        .expect("the batch must be saved");
+    (intent_id, welcomes)
+}
 
-    outage
-        .send_message(b"after the membership change", Default::default())
-        .await?;
-    only_intent(&group, IntentState::Processed, IntentKind::SendMessage);
-    let owed = only_intent(
-        &group,
-        IntentState::Committed,
-        IntentKind::UpdateGroupMembership,
+/// The saved envelopes of `welcomes` that have the role `kind`.
+fn of_kind(welcomes: &PreparedWelcomes, kind: WelcomeEnvelopeKind) -> Vec<wire::ClientEnvelope> {
+    envelopes(&welcomes.envelopes)
+        .into_iter()
+        .zip(welcomes.kinds().unwrap())
+        .filter(|(_, found)| *found == kind)
+        .map(|(envelope, _)| envelope)
+        .collect()
+}
+
+/// A client whose key packages do not advertise pointees, so it gets an
+/// inline Welcome.
+async fn inline_only_tester() -> crate::utils::ClientTester {
+    crate::identity::ENABLE_WELCOME_POINTERS
+        .scope(false, async {
+            tester!(eve, disable_workers);
+            eve
+        })
+        .await
+}
+
+/// A client whose newest key package has only a classical wrapper, so its
+/// inline Welcome is smaller than one wrapped for a post-quantum key.
+async fn classical_tester() -> crate::utils::ClientTester {
+    tester!(fred, disable_workers);
+    fred.identity()
+        .rotate_and_upload_key_package(fred.context.api(), fred.context.mls_storage(), false)
+        .await
+        .unwrap();
+    fred
+}
+
+/// A failed configuration check before dispatch sent nothing. Its status is
+/// neither a backend refusal, which ends an intent, nor an `OUT_OF_RANGE`
+/// that needs a recovery read. The same status from the backend is both.
+#[rstest::rstest]
+#[case::invalid_argument(tonic::Code::InvalidArgument)]
+#[case::out_of_range(tonic::Code::OutOfRange)]
+#[xmtp_common::test]
+fn a_failed_configuration_check_is_not_a_backend_status(#[case] code: tonic::Code) {
+    let status = || {
+        xmtp_proto::api::ApiClientError::client(xmtp_api_grpc::error::GrpcError::Status(
+            tonic::Status::new(code, "injected"),
+        ))
+    };
+    let classify = |error: &xmtp_api::ApiError| (definite_refusal(error), out_of_range(error));
+    let backend = xmtp_api::dyn_err(status());
+    assert_eq!(
+        classify(&backend),
+        (
+            code == tonic::Code::InvalidArgument,
+            code == tonic::Code::OutOfRange
+        )
     );
-    assert_eq!(owed.id, membership);
-    assert!(saved_attempt(&group, owed.id).welcomes?.receipts.is_none());
-    assert!(
-        !api.requests.lock().is_empty(),
-        "the Welcome batch was never attempted"
-    );
+    let preflight =
+        xmtp_api::ApiError::Preflight(xmtp_api::preflight::PreflightError::new(status()));
+    assert_eq!(classify(&preflight), (false, false));
 }
 
 /// A smaller deployment limit can leave saved Welcome bytes that no longer
 /// fit in one request, after a publish that returned `OUT_OF_RANGE` stored
-/// none of them. The intent cannot end before a recovery read proves that.
-/// It then ends in `FollowUpFailed` with nothing published, the call reports
-/// that the membership change is applied but its Welcomes were not sent, no
-/// later round selects it again, and a later send completes.
+/// none of them. The intent cannot end before a recovery read proves that,
+/// and only the attempt that is still saved can end it. It then ends in
+/// `FollowUpFailed` with nothing published, the call reports that the
+/// membership change is applied but its Welcomes were not sent, no later
+/// round selects it again, and a later send completes.
 // verifies: SEND-023, SEND-025
 #[xmtp_common::test(unwrap_try = true)]
 async fn smaller_limit_fails_an_unstored_welcome_batch() {
@@ -450,6 +462,9 @@ async fn smaller_limit_fails_an_unstored_welcome_batch() {
     // The recovery read fails, so the intent stays committed.
     assert!(restarted.publish_required_welcomes().await.is_err());
     assert_eq!(saved_attempt(&group, intent.id), attempt);
+    let mut stale = attempt.clone();
+    stale.welcomes.as_mut()?.commit_sequence_id += 1;
+    restarted.end_follow_up(intent.id, &stale)?;
     only_intent(
         &group,
         IntentState::Committed,
@@ -497,11 +512,7 @@ async fn smaller_limit_settles_a_stored_welcome_batch() {
     tester!(bo, disable_workers);
     let group = alix.create_group(None, None)?;
     group.key_update().await?;
-    let intent_id = commit_membership_change(&group, &[bo.inbox_id()]).await;
-    let welcomes = group
-        .prepare_required_welcomes(intent_id)?
-        .unwrap()
-        .welcomes?;
+    let (intent_id, welcomes) = save_welcome_batch(&group, &[bo.inbox_id()]).await;
     let api = group.context.api();
     let stored = api
         .publish_units(
@@ -538,33 +549,103 @@ async fn smaller_limit_settles_a_stored_welcome_batch() {
     );
 }
 
-/// When some saved Welcome bytes no longer fit and the backend holds none of
-/// them, the batch cannot complete, but every recipient that can still join
-/// must get its envelope before the intent ends. The pointers go out when
-/// their pointee is stored, and never when the pointee is lost too. An
-/// inline Welcome that does not fit is never sent.
-// verifies: SEND-025
+/// When the read returns a saved pointee that no longer fits, the pointers
+/// it did not return still fit and go out again unchanged, and the batch
+/// completes with the pointee's original receipt. If that publish returns
+/// `OUT_OF_RANGE`, the batch is marked for a recovery read, so no later
+/// round sends the same request again without one.
+// verifies: SEND-023, SEND-007
 #[rstest::rstest]
-#[case::pointee_stored(true)]
-#[case::pointee_lost(false)]
+#[case::published(None)]
+#[case::out_of_range(Some(Fault::Refuse(tonic::Code::OutOfRange)))]
 #[xmtp_common::test(unwrap_try = true)]
-async fn smaller_limit_publishes_pointers_whose_pointee_is_stored(
-    #[case] pointee_stored: bool,
+async fn smaller_limit_republishes_the_pointers_of_a_stored_pointee(
+    #[case] fault: Option<Fault>,
 ) -> Result<(), GroupError> {
     tester!(alix, disable_workers);
     tester!(bo, disable_workers);
     tester!(caro, disable_workers);
     tester!(dan, disable_workers);
-    // An installation that does not advertise pointees gets an inline Welcome.
-    let eve = crate::identity::ENABLE_WELCOME_POINTERS
-        .scope(false, async {
-            tester!(eve, disable_workers);
-            eve
-        })
-        .await;
     let group = alix.create_group(None, None)?;
     group.key_update().await?;
-    let intent_id = commit_membership_change(
+    let (intent_id, welcomes) =
+        save_welcome_batch(&group, &[bo.inbox_id(), caro.inbox_id(), dan.inbox_id()]).await;
+    let pointers = of_kind(&welcomes, WelcomeEnvelopeKind::Pointer);
+    let pointees = of_kind(&welcomes, WelcomeEnvelopeKind::Pointee);
+    let [pointee] = &pointees[..] else {
+        panic!("the batch must carry one pointee");
+    };
+    assert_eq!(pointers.len(), 3);
+    let limit = pointers.iter().map(measured_len).max().unwrap();
+    assert!(measured_len(pointee) > limit);
+    let api = group.context.api();
+    let stored = api
+        .publish_units(vec![PublishUnit::single_within(
+            pointee.clone(),
+            api.limits(),
+        )?])
+        .await?;
+    let recorder = FaultyApi::new(&alix, welcome, fault);
+    let restarted =
+        group_after_envelope_limit_shrink(&alix, &group.group_id, recorder.clone(), limit).await;
+
+    let result = restarted.publish_required_welcomes().await;
+    assert_eq!(recorder.sends_of(pointee), 0);
+    for pointer in &pointers {
+        assert_eq!(recorder.sends_of(pointer), 1);
+    }
+    let saved = saved_attempt(&group, intent_id);
+    if fault.is_some() {
+        assert!(result.is_err());
+        only_intent(
+            &group,
+            IntentState::Committed,
+            IntentKind::UpdateGroupMembership,
+        );
+        assert_eq!(saved.unsettled, Some(Unsettled::Welcomes));
+        return Ok(());
+    }
+    result?;
+    only_intent(
+        &group,
+        IntentState::Processed,
+        IntentKind::UpdateGroupMembership,
+    );
+    let index = envelopes(&welcomes.envelopes)
+        .iter()
+        .position(|envelope| envelope == pointee)
+        .unwrap();
+    let receipts = saved.welcomes.and_then(|saved| saved.receipts).unwrap();
+    assert_eq!(receipts[index], stored[0].encode_to_vec());
+    Ok(())
+}
+
+/// When some saved Welcome bytes no longer fit and the backend holds none of
+/// them, the batch cannot complete, but every recipient that can still join
+/// must get its envelope before the intent ends. An unreturned pointee that
+/// fits goes out first, and the pointers follow only when their pointee is
+/// stored. An inline Welcome that does not fit is never sent, the saved
+/// batch keeps no receipts, and its bytes never change.
+// verifies: SEND-025
+#[rstest::rstest]
+#[case::pointee_stored(true, false, None)]
+#[case::pointee_lost(false, false, None)]
+#[case::pointee_fits(false, true, None)]
+#[case::pointee_refused(false, true, Some(Fault::Refuse(tonic::Code::InvalidArgument)))]
+#[xmtp_common::test(unwrap_try = true)]
+async fn smaller_limit_publishes_pointers_whose_pointee_is_stored(
+    #[case] pointee_stored: bool,
+    #[case] pointee_fits: bool,
+    #[case] fault: Option<Fault>,
+) -> Result<(), GroupError> {
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    tester!(caro, disable_workers);
+    tester!(dan, disable_workers);
+    let eve = inline_only_tester().await;
+    let group = alix.create_group(None, None)?;
+    group.key_update().await?;
+    let (intent_id, welcomes) = save_welcome_batch(
         &group,
         &[
             bo.inbox_id(),
@@ -574,35 +655,23 @@ async fn smaller_limit_publishes_pointers_whose_pointee_is_stored(
         ],
     )
     .await;
-    let welcomes = group
-        .prepare_required_welcomes(intent_id)?
-        .and_then(|attempt| attempt.welcomes)
-        .expect("the batch must be saved");
-    let batch: Vec<_> = envelopes(&welcomes.envelopes)
-        .into_iter()
-        .zip(welcomes.kinds()?)
-        .collect();
-    let of_kind = |kind| {
-        batch
-            .iter()
-            .filter(move |(_, found)| *found == kind)
-            .map(|(envelope, _)| envelope)
-            .collect::<Vec<_>>()
-    };
-    let pointers = of_kind(WelcomeEnvelopeKind::Pointer);
-    let [pointee] = of_kind(WelcomeEnvelopeKind::Pointee)[..] else {
+    let pointers = of_kind(&welcomes, WelcomeEnvelopeKind::Pointer);
+    let pointees = of_kind(&welcomes, WelcomeEnvelopeKind::Pointee);
+    let [pointee] = &pointees[..] else {
         panic!("the batch must carry one pointee");
     };
-    let [inline] = of_kind(WelcomeEnvelopeKind::Inline)[..] else {
+    let inlines = of_kind(&welcomes, WelcomeEnvelopeKind::Inline);
+    let [inline] = &inlines[..] else {
         panic!("the batch must carry one inline Welcome");
     };
     assert_eq!(pointers.len(), 3);
-    let limit = pointers
-        .iter()
-        .map(|pointer| measured_len(pointer))
-        .max()
-        .expect("the batch must carry pointers");
-    assert!(measured_len(pointee) > limit && measured_len(inline) > limit);
+    let limit = if pointee_fits {
+        measured_len(pointee)
+    } else {
+        pointers.iter().map(measured_len).max().unwrap()
+    };
+    assert!(measured_len(inline) > limit);
+    assert!(pointee_fits || measured_len(pointee) > limit);
     let api = group.context.api();
     if pointee_stored {
         api.publish_units(vec![PublishUnit::single_within(
@@ -611,7 +680,7 @@ async fn smaller_limit_publishes_pointers_whose_pointee_is_stored(
         )?])
         .await?;
     }
-    let recorder = FaultyApi::new(&alix, welcome, []);
+    let recorder = FaultyApi::new(&alix, welcome, fault);
     let restarted =
         group_after_envelope_limit_shrink(&alix, &group.group_id, recorder.clone(), limit).await;
 
@@ -622,12 +691,14 @@ async fn smaller_limit_publishes_pointers_whose_pointee_is_stored(
         IntentState::FollowUpFailed,
         IntentKind::UpdateGroupMembership,
     );
-    assert_eq!(recorder.sends_of(pointee), 0);
+    assert_eq!(saved_attempt(&group, intent_id).welcomes, Some(welcomes));
+    assert_eq!(recorder.sends_of(pointee), usize::from(pointee_fits));
     assert_eq!(recorder.sends_of(inline), 0);
+    let pointers_sent = pointee_stored || (pointee_fits && fault.is_none());
     for pointer in &pointers {
-        assert_eq!(recorder.sends_of(pointer), usize::from(pointee_stored));
+        assert_eq!(recorder.sends_of(pointer), usize::from(pointers_sent));
     }
-    if pointee_stored {
+    if pointers_sent {
         for member in [&bo, &caro, &dan] {
             xmtp_common::wait_for_ok(|| async {
                 member
@@ -640,6 +711,40 @@ async fn smaller_limit_publishes_pointers_whose_pointee_is_stored(
         }
     }
     Ok(())
+}
+
+/// An inline Welcome that still fits goes out before the batch ends, even
+/// though another recipient's Welcome no longer fits.
+// verifies: SEND-025
+#[xmtp_common::test(unwrap_try = true)]
+async fn smaller_limit_publishes_the_inline_welcomes_that_fit() {
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    let fred = classical_tester().await;
+    let group = alix.create_group(None, None)?;
+    group.key_update().await?;
+    let (_, welcomes) = save_welcome_batch(&group, &[bo.inbox_id(), fred.inbox_id()]).await;
+    let mut inline = of_kind(&welcomes, WelcomeEnvelopeKind::Inline);
+    inline.sort_by_key(measured_len);
+    let [classical, post_quantum] = &inline[..] else {
+        panic!("each recipient must get an inline Welcome");
+    };
+    let limit = measured_len(classical);
+    assert!(measured_len(post_quantum) > limit);
+    let recorder = FaultyApi::new(&alix, welcome, []);
+    let restarted =
+        group_after_envelope_limit_shrink(&alix, &group.group_id, recorder.clone(), limit).await;
+
+    assert!(welcomes_unsendable(
+        &restarted.publish_required_welcomes().await
+    ));
+    only_intent(
+        &group,
+        IntentState::FollowUpFailed,
+        IntentKind::UpdateGroupMembership,
+    );
+    assert_eq!(recorder.sends_of(classical), 1);
+    assert_eq!(recorder.sends_of(post_quantum), 0);
 }
 
 /// A fresh Welcome batch that does not fit in one request under the current
@@ -676,21 +781,95 @@ async fn smaller_limit_fails_a_fresh_welcome_batch() {
     assert!(recorder.requests.lock().is_empty());
 }
 
-/// `INVALID_ARGUMENT` proves that the backend stored nothing, and the same
-/// request may not be sent again. The membership change must end at once,
-/// the waiting call must report that its Welcomes were not sent, and no
-/// later round may send the refused request again.
-// verifies: SEND-025
+/// One intent's follow-up failure does not stop the others, and the call
+/// reports the earliest intent's error after the last intent, whichever of
+/// the two fails first. One batch fits and fails with a transient error, so
+/// its intent stays owed; the other is a fresh batch that does not fit, so
+/// its intent ends.
+#[rstest::rstest]
+#[case::earlier_owed(true)]
+#[case::earlier_ended(false)]
 #[xmtp_common::test(unwrap_try = true)]
-async fn refused_welcome_publish_ends_the_batch() {
+async fn follow_up_errors_are_reported_from_the_earliest_intent(
+    #[case] earlier_fits: bool,
+) -> Result<(), GroupError> {
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    // Fred's Welcome is classical and small; Bo's is post-quantum and larger.
+    let fred = classical_tester().await;
+    let group = alix.create_group(None, None)?;
+    group.key_update().await?;
+    let (first, second) = if earlier_fits {
+        (fred.inbox_id(), bo.inbox_id())
+    } else {
+        (bo.inbox_id(), fred.inbox_id())
+    };
+    let earlier = commit_membership_change(&group, &[first]).await;
+    let later = commit_membership_change(&group, &[second]).await;
+    let (fits, ends) = if earlier_fits {
+        (earlier, later)
+    } else {
+        (later, earlier)
+    };
+    let welcomes = group
+        .prepare_required_welcomes(fits)?
+        .and_then(|attempt| attempt.welcomes)
+        .expect("the batch must be saved");
+    let limit = envelopes(&welcomes.envelopes)
+        .iter()
+        .map(measured_len)
+        .max()
+        .unwrap();
+    let api =
+        FaultyApi::new(&alix, welcome, []).then_always(Fault::Refuse(tonic::Code::Unavailable));
+    let restarted =
+        group_after_envelope_limit_shrink(&alix, &group.group_id, api.clone(), limit).await;
+
+    let result = restarted.publish_required_welcomes().await;
+    let unavailable = matches!(&result, Err(GroupError::WrappedApi(error))
+        if xmtp_proto::api::grpc_status(error)
+            .is_some_and(|status| status.code() == tonic::Code::Unavailable));
+    if earlier_fits {
+        assert!(unavailable, "{result:?}");
+    } else {
+        assert!(welcomes_unsendable(&result), "{result:?}");
+    }
+    let owed = only_intent(
+        &group,
+        IntentState::Committed,
+        IntentKind::UpdateGroupMembership,
+    );
+    assert_eq!(owed.id, fits);
+    let ended = only_intent(
+        &group,
+        IntentState::FollowUpFailed,
+        IntentKind::UpdateGroupMembership,
+    );
+    assert_eq!(ended.id, ends);
+    Ok(())
+}
+
+/// `INVALID_ARGUMENT` proves that the backend stored nothing, and the same
+/// request may not be sent again. On the first publish and on the publish
+/// after a recovery read alike, the membership change must end at once, the
+/// waiting call must report that its Welcomes were not sent, and no later
+/// round may send the refused request again.
+// verifies: SEND-025
+#[rstest::rstest]
+#[case::first_publish(vec![Fault::Refuse(tonic::Code::InvalidArgument)])]
+#[case::after_recovery_read(vec![
+    Fault::Refuse(tonic::Code::OutOfRange),
+    Fault::Refuse(tonic::Code::InvalidArgument),
+])]
+#[xmtp_common::test(unwrap_try = true)]
+async fn refused_welcome_publish_ends_the_batch(
+    #[case] faults: Vec<Fault>,
+) -> Result<(), GroupError> {
     tester!(alix, disable_workers);
     tester!(bo, disable_workers);
     let group = alix.create_group(None, None)?;
-    let api = FaultyApi::new(
-        &alix,
-        welcome,
-        [Fault::Refuse(tonic::Code::InvalidArgument)],
-    );
+    let requests = faults.len();
+    let api = FaultyApi::new(&alix, welcome, faults);
     let refusing = faulty_group(&alix, &group.group_id, api.clone()).await;
 
     let added = refusing.add_members(&[bo.inbox_id()]).await;
@@ -703,9 +882,49 @@ async fn refused_welcome_publish_ends_the_batch() {
     refusing.publish_required_welcomes().await?;
     assert_eq!(
         api.requests.lock().len(),
-        1,
+        requests,
         "the refused request was sent again"
     );
+    Ok(())
+}
+
+/// A send first refreshes the group's installations. When the Welcomes for
+/// an installation that refresh adds cannot be sent, the membership change
+/// is still applied, so the send goes on and completes. The new installation
+/// has no Welcome.
+#[xmtp_common::test(unwrap_try = true)]
+async fn send_goes_on_when_refreshed_installations_get_no_welcome() {
+    use xmtp_db::{ConnectionExt, diesel::prelude::*, schema::groups::dsl};
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    let group = alix
+        .create_group_with_members(&[bo.inbox_id()], None, None)
+        .await?;
+    tester!(bo2, from: bo, disable_workers);
+    let api = FaultyApi::new(
+        &alix,
+        welcome,
+        [Fault::Refuse(tonic::Code::InvalidArgument)],
+    );
+    let refusing = faulty_group(&alix, &group.group_id, api).await;
+    // The send refreshes installations now, not after its usual interval.
+    alix.context.db().raw_query(|conn| {
+        xmtp_db::diesel::update(dsl::groups.find(&group.group_id))
+            .set(dsl::installations_last_checked.eq(0))
+            .execute(conn)
+    })?;
+
+    refusing
+        .send_message(b"after a new installation", Default::default())
+        .await?;
+    only_intent(&group, IntentState::Processed, IntentKind::SendMessage);
+    only_intent(
+        &group,
+        IntentState::FollowUpFailed,
+        IntentKind::UpdateGroupMembership,
+    );
+    bo2.sync_welcomes().await?;
+    assert!(bo2.group(&group.group_id).is_err());
 }
 
 /// Rewrite the saved one-envelope attempt of `intent_id` as an earlier build

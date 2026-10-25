@@ -125,10 +125,33 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
     /// Resume required work for committed intents, including after restart.
     /// A commit is not `Processed` until its complete Welcome batch has receipts.
     /// One intent's failure does not hold the others: every committed intent
-    /// is attempted in id order, and the first error is returned at the end.
-    // implements: SEND-024
+    /// is attempted in id order, and the lowest intent's error is returned
+    /// after the last one.
     pub(in crate::groups::mls_sync) async fn publish_required_welcomes(
         &self,
+    ) -> Result<(), GroupError> {
+        self.publish_required_welcomes_where(|_| true).await
+    }
+
+    /// The follow-up work of a call waiting on `intent_id`: complete every
+    /// committed intent that owes no Welcomes, and send only the Welcomes of
+    /// `intent_id`. Another intent's batch, which can stall or fail, never
+    /// delays this intent's outcome; `publish_required_welcomes` sends it.
+    pub(in crate::groups::mls_sync) async fn publish_required_welcomes_of(
+        &self,
+        intent_id: i32,
+    ) -> Result<(), GroupError> {
+        self.publish_required_welcomes_where(|id| id == intent_id)
+            .await
+    }
+
+    /// Prepare the follow-up of every committed intent, which completes an
+    /// intent that owes no Welcomes without any network work, then send or
+    /// settle the batches of the intents `send` selects.
+    // implements: SEND-024
+    async fn publish_required_welcomes_where(
+        &self,
+        send: impl Fn(i32) -> bool,
     ) -> Result<(), GroupError> {
         let ids = self
             .context
@@ -140,26 +163,40 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
             )?
             .into_iter()
             .map(|intent| intent.id);
-        let mut first_error = None;
+        let mut first_error: Option<(i32, GroupError)> = None;
+        let mut record = |id: i32, error: GroupError| {
+            tracing::warn!(
+                group_id = %self.group_id.short_hex(),
+                intent_id = id,
+                "required Welcomes not published: {error}"
+            );
+            if first_error.as_ref().is_none_or(|(first, _)| id < *first) {
+                first_error = Some((id, error));
+            }
+        };
+        let mut batches = Vec::new();
         for id in ids {
-            if let Err(error) = self.publish_required_welcomes_for(id).await {
-                tracing::warn!(
-                    group_id = %self.group_id.short_hex(),
-                    intent_id = id,
-                    "required Welcomes not published: {error}"
-                );
-                first_error.get_or_insert(error);
+            match self.prepare_required_welcomes(id) {
+                Ok(Some(attempt)) if send(id) => batches.push((id, attempt)),
+                Ok(_) => {}
+                Err(error) => record(id, error),
             }
         }
-        first_error.map_or(Ok(()), Err)
+        for (id, attempt) in batches {
+            if let Err(error) = self.send_required_welcomes(id, &attempt).await {
+                record(id, error);
+            }
+        }
+        first_error.map_or(Ok(()), |(_, error)| Err(error))
     }
 
-    /// Publish or settle the required Welcome batch of one committed intent.
+    /// Publish or settle the saved Welcome batch of committed intent `id`.
     /// Returns `WelcomesUnsendable` when this call ended the intent.
-    async fn publish_required_welcomes_for(&self, id: i32) -> Result<(), GroupError> {
-        let Some(attempt) = self.prepare_required_welcomes(id)? else {
-            return Ok(());
-        };
+    async fn send_required_welcomes(
+        &self,
+        id: i32,
+        attempt: &PreparedAttempt,
+    ) -> Result<(), GroupError> {
         let welcomes = attempt
             .welcomes
             .as_ref()
@@ -174,19 +211,19 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                     // A refused request stored nothing and is never sent again.
                     Err(error) if definite_refusal(&error) => Delivery::Unsendable,
                     Err(error) if out_of_range(&error) => {
-                        self.mark_unsettled(id, &attempt, Unsettled::Welcomes)?;
-                        self.settle_welcomes(welcomes, units).await?
+                        self.mark_unsettled(id, attempt, Unsettled::Welcomes)?;
+                        self.settle_welcomes(id, attempt, units).await?
                     }
                     Err(error) => return Err(error.into()),
                 }
             }
             // Saved bytes that may be stored, or that no longer fit in one
             // request, are settled by a read before anything else is sent.
-            _ => self.settle_welcomes(welcomes, units).await?,
+            _ => self.settle_welcomes(id, attempt, units).await?,
         };
         match delivery {
-            Delivery::Stored(receipts) => self.record_welcome_receipts(id, &attempt, receipts),
-            Delivery::Unsendable => self.end_follow_up(id, &attempt),
+            Delivery::Stored(receipts) => self.record_welcome_receipts(id, attempt, receipts),
+            Delivery::Unsendable => self.end_follow_up(id, attempt),
         }
     }
 
@@ -201,14 +238,19 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
     /// from a response, and an unstored envelope belonged to a request that
     /// never completed. Otherwise the batch cannot be completed: each
     /// unreturned envelope that fits is published once, except the pointers
-    /// to a pointee that is unreturned and does not fit, and the batch is
-    /// unsendable. The batch is never re-encrypted.
+    /// to a pointee that is not stored, and the batch is unsendable. The
+    /// batch is never re-encrypted.
     // implements: SEND-007, SEND-023
     async fn settle_welcomes(
         &self,
-        welcomes: &PreparedWelcomes,
+        id: i32,
+        attempt: &PreparedAttempt,
         mut units: Vec<Option<PublishUnit>>,
     ) -> Result<Delivery, GroupError> {
+        let welcomes = attempt
+            .welcomes
+            .as_ref()
+            .ok_or(OutgoingPreparationError::InvalidPreparedAttempt)?;
         let api = self.context.api();
         let mut settled = api.settle_units(&welcomes.settlement_units()?).await?;
         let unreturned: Vec<_> = (0..settled.len())
@@ -227,6 +269,12 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                 {
                     Ok(resent) => resent,
                     Err(error) if definite_refusal(&error) => return Ok(Delivery::Unsendable),
+                    // The next round settles these bytes again, whatever the
+                    // limits are by then.
+                    Err(error) if out_of_range(&error) => {
+                        self.mark_unsettled(id, attempt, Unsettled::Welcomes)?;
+                        return Err(error.into());
+                    }
                     Err(error) => return Err(error.into()),
                 };
                 for (index, meta) in unreturned.into_iter().zip(resent) {
@@ -244,27 +292,46 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
         // implements: SEND-025
         // A recipient whose envelope is stored or still fits can join, so it
         // gets that envelope before the intent ends. A pointer cannot resolve
-        // once its pointee is lost. This publish comes first, so a restart
-        // before the intent ends reaches the same decision, and its result
-        // does not change that decision.
+        // without its pointee, so an unreturned pointee goes out first and
+        // alone, and the pointers follow only once it is stored. These
+        // publishes come first, so a restart before the intent ends reaches
+        // the same decision, and their results do not change that decision.
         let kinds = welcomes.kinds()?;
-        let pointee_lost = unreturned
+        let pointee_stored = match unreturned
             .iter()
-            .any(|&index| kinds[index] == WelcomeEnvelopeKind::Pointee && units[index].is_none());
+            .find(|&&index| kinds[index] == WelcomeEnvelopeKind::Pointee)
+        {
+            None => true,
+            Some(&index) => match units[index].take() {
+                None => false,
+                Some(pointee) => self.publish_unsendable(vec![pointee]).await,
+            },
+        };
         let useful: Vec<_> = unreturned
             .into_iter()
-            .filter(|&index| !(pointee_lost && kinds[index] == WelcomeEnvelopeKind::Pointer))
+            .filter(|&index| pointee_stored || kinds[index] != WelcomeEnvelopeKind::Pointer)
             .filter_map(|index| units[index].take())
             .collect();
-        if !useful.is_empty()
-            && let Err(error) = api.publish_units(useful).await
-        {
-            tracing::warn!(
-                group_id = %self.group_id.short_hex(),
-                "Welcomes of an unsendable batch not published: {error}"
-            );
+        if !useful.is_empty() {
+            self.publish_unsendable(useful).await;
         }
         Ok(Delivery::Unsendable)
+    }
+
+    /// Publish envelopes of a batch that is about to end. A failure is logged
+    /// and does not change that outcome. Returns whether the backend
+    /// acknowledged every unit.
+    async fn publish_unsendable(&self, units: Vec<PublishUnit>) -> bool {
+        match self.context.api().publish_units(units).await {
+            Ok(_) => true,
+            Err(error) => {
+                tracing::warn!(
+                    group_id = %self.group_id.short_hex(),
+                    "Welcomes of an unsendable batch not published: {error}"
+                );
+                false
+            }
+        }
     }
 
     /// Save follow-up bytes once, after a positive ordered commit cursor is known.
@@ -431,7 +498,11 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
     /// saved attempt stays as it is. Returns `WelcomesUnsendable` when this
     /// call ended the intent.
     // implements: SEND-025
-    fn end_follow_up(&self, id: i32, sent_attempt: &PreparedAttempt) -> Result<(), GroupError> {
+    pub(super) fn end_follow_up(
+        &self,
+        id: i32,
+        sent_attempt: &PreparedAttempt,
+    ) -> Result<(), GroupError> {
         let ended = crate::state_tx::state_write(self.context.mls_storage(), |tx| {
             let storage = tx.storage();
             let db = storage.db();

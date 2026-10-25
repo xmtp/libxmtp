@@ -487,10 +487,14 @@ where
                 xmtp_common::time::sleep(wait_for.min(remaining)).await;
             }
         }
-        if Fetch::<StoredGroupIntent>::fetch(&db, &intent_id)?
-            .is_some_and(|intent| intent.state == IntentState::Processed)
-        {
-            return Ok(summary);
+        // The wait can end before a round reads the intent's state.
+        match Fetch::<StoredGroupIntent>::fetch(&db, &intent_id)?.map(|intent| intent.state) {
+            Some(IntentState::Processed) => return Ok(summary),
+            // implements: SEND-025
+            Some(IntentState::FollowUpFailed) => {
+                return Err(super::publish::OutgoingPreparationError::WelcomesUnsendable.into());
+            }
+            _ => {}
         }
         if self.published_request_target(intent_id)?.is_some() {
             return Err(GroupError::PublishedButUnconfirmed {
@@ -544,7 +548,7 @@ where
                 cause.into()
             });
         }
-        if let Err(error) = self.post_commit().await {
+        if let Err(error) = self.publish_required_welcomes_of(intent_id).await {
             summary.add_post_commit_err(error);
         }
         Ok(summary)
