@@ -319,6 +319,61 @@ async fn an_inbox_over_the_envelope_limit_keeps_its_removes(
     Ok(())
 }
 
+/// Publish the first part of an oversized refresh through `api`, then let Bo
+/// complete the rest without sending that part's Welcomes. The original
+/// target is then a no-op while its published child still owes Welcomes.
+/// Returns the source group, the original target and the child.
+async fn owe_a_split_child_welcome(
+    limited: &crate::utils::ClientTester,
+    bo: &crate::utils::ClientTester,
+    group_id: GroupId,
+    api: FaultyApi,
+) -> (
+    MlsGroup<super::faults::FaultyContext>,
+    StoredGroupIntent,
+    StoredGroupIntent,
+) {
+    let bo_group = bo.group(&group_id).unwrap();
+    let source = faulty_group(limited, &group_id, api).await;
+    let root = QueueIntent::update_group_membership()
+        .data(source.get_membership_update_intent(&[], &[]).await.unwrap())
+        .queue(&source)
+        .unwrap();
+    source.publish_intents().await.unwrap();
+    let child = intents_in(
+        &source,
+        &[IntentState::Published],
+        IntentKind::UpdateGroupMembership,
+    )
+    .into_iter()
+    .find(|intent| intent.id != root.id)
+    .expect("a split child was published");
+
+    let child_cursor = source.published_intent_target(child.id).unwrap().unwrap();
+    crate::subscriptions::barrier::wait_through(
+        &bo_group.context,
+        [(Topic::new_group_message(group_id), child_cursor)].into(),
+        None,
+    )
+    .await
+    .unwrap();
+    bo_group.add_missing_installations().await.unwrap();
+    let peer_cursor = bo_group
+        .context
+        .db()
+        .topic_progress(&xmtp_db::incoming_envelope::StreamTopic::group(group_id))
+        .unwrap()
+        .processed;
+    crate::subscriptions::barrier::wait_through(
+        &source.context,
+        [(Topic::new_group_message(group_id), peer_cursor)].into(),
+        None,
+    )
+    .await
+    .unwrap();
+    (source, root, child)
+}
+
 /// A peer can complete the remaining membership while the sender still owes
 /// a Welcome from an earlier split part. The original call must wait for it,
 /// including when its own remaining membership change becomes a no-op.
@@ -333,46 +388,10 @@ async fn a_split_refresh_waits_for_every_welcome() {
         limit,
         ..
     } = split_refresh_fixture(None).await?;
-    let bo_group = bo.group(&group_id)?;
-    let faults = std::iter::repeat_n(
-        Fault::Refuse(tonic::Code::InvalidArgument),
-        MAX_GROUP_SYNC_RETRIES * 4 + 1,
-    );
-    let api = FaultyApi::new(&limited, welcome, faults);
-    let source = faulty_group(&limited, &group_id, api).await;
-    let root = QueueIntent::update_group_membership()
-        .data(source.get_membership_update_intent(&[], &[]).await?)
-        .queue(&source)?;
-    source.publish_intents().await?;
-    let child = intents_in(
-        &source,
-        &[IntentState::Published],
-        IntentKind::UpdateGroupMembership,
-    )
-    .into_iter()
-    .find(|intent| intent.id != root.id)
-    .expect("a split child was published");
-
-    // The peer finishes the second half, without sending the first child's Welcome.
-    let child_cursor = source.published_intent_target(child.id)?.unwrap();
-    crate::subscriptions::barrier::wait_through(
-        &bo_group.context,
-        [(Topic::new_group_message(group_id), child_cursor)].into(),
-        None,
-    )
-    .await?;
-    bo_group.add_missing_installations().await?;
-    let peer_cursor = bo_group
-        .context
-        .db()
-        .topic_progress(&xmtp_db::incoming_envelope::StreamTopic::group(group_id))?
-        .processed;
-    crate::subscriptions::barrier::wait_through(
-        &source.context,
-        [(Topic::new_group_message(group_id), peer_cursor)].into(),
-        None,
-    )
-    .await?;
+    // An ambiguous failure can follow a stored Welcome, so the batch stays owed.
+    let api =
+        FaultyApi::new(&limited, welcome, []).then_always(Fault::Refuse(tonic::Code::Unavailable));
+    let (source, root, child) = owe_a_split_child_welcome(&limited, &bo, group_id, api).await;
     assert!(
         source.sync_until_intent_resolved(root.id).await.is_err(),
         "the original refresh cannot succeed while its child Welcome fails"
@@ -396,6 +415,27 @@ async fn a_split_refresh_waits_for_every_welcome() {
             resumed.epoch_authenticator().await?
         );
     }
+}
+
+/// A refused Welcome ends the split part's batch in a round of the original
+/// call, while no wait reads that part. The original call still reports that
+/// its membership change is applied but its Welcomes were not sent.
+// verifies: SEND-025
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_refused_split_child_welcome_fails_the_original_call() {
+    let SplitRefreshFixture {
+        limited,
+        bo,
+        group_id,
+        ..
+    } = split_refresh_fixture(None).await?;
+    let api = FaultyApi::new(&limited, welcome, [])
+        .then_always(Fault::Refuse(tonic::Code::InvalidArgument));
+    let (source, root, child) = owe_a_split_child_welcome(&limited, &bo, group_id, api).await;
+    let result = source.sync_until_intent_resolved(root.id).await;
+    assert!(welcomes_unsendable(&result), "{result:?}");
+    let ended: StoredGroupIntent = source.context.db().fetch(&child.id)?.unwrap();
+    assert_eq!(ended.state, IntentState::FollowUpFailed);
 }
 
 fn saved_child<C: XmtpSharedContext>(

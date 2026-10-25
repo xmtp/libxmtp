@@ -253,6 +253,12 @@ where
             for child in self.pending_membership_children(intent_id)? {
                 summary.extend(Box::pin(self.sync_until_intent_resolved_inner(child)).await?);
             }
+            // implements: SEND-025
+            // A part can end its batch in a round of the wait above, while the
+            // original target is still publishing, and then no wait reads it.
+            if self.membership_child_follow_up_failed(intent_id)? {
+                return Err(super::publish::OutgoingPreparationError::WelcomesUnsendable.into());
+            }
             Ok::<_, GroupError>(summary)
         }
         .await;

@@ -293,6 +293,22 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
         .collect())
     }
 
+    /// Whether a split part of this target ended its Welcome batch unsent.
+    /// Its Welcomes belong to the original request, so that request's
+    /// Welcomes were not all sent either.
+    pub(in crate::groups::mls_sync) fn membership_child_follow_up_failed(
+        &self,
+        parent_id: ID,
+    ) -> Result<bool, GroupError> {
+        Ok(!Self::membership_child_attempts(
+            &self.context.db(),
+            self.group_id,
+            parent_id,
+            &[IntentState::FollowUpFailed],
+        )?
+        .is_empty())
+    }
+
     /// A saved child receipt is publication of its original membership request,
     /// including a committed part that still owes Welcomes.
     // implements: SEND-015
