@@ -138,18 +138,20 @@ mod tests {
         }
     }
 
-    /// The same entry sealed twice is the same bytes, and it opens to
-    /// itself under its own group.
+    /// Signing and sealing the same entry twice gives the same bytes, and
+    /// it opens to itself under its own group.
     // verifies: FORK-074, FORK-076, FORK-077
     #[xmtp_common::test(unwrap_try = true)]
     fn a_sealed_entry_opens_to_itself() {
         let keys = keys();
+        let author = XmtpInstallationCredential::new();
         let mut entry = entry(&keys, 5);
-        sign_entry_author(&keys, &XmtpInstallationCredential::new(), &mut entry)?;
+        sign_entry_author(&keys, &author, &mut entry)?;
         let sealed = seal_entry(&keys, &entry)?;
-        assert_eq!(sealed, seal_entry(&keys, &entry)?);
         assert_eq!(sealed.commit_log_id, keys.commit_log_id());
         assert_eq!(open_entry(&keys, &keys.group_id(), 10, &sealed)?, entry);
+        sign_entry_author(&keys, &author, &mut entry)?;
+        assert_eq!(sealed, seal_entry(&keys, &entry)?);
     }
 
     /// The checks after decryption: an entry that names another group,
@@ -159,15 +161,19 @@ mod tests {
     #[xmtp_common::test(unwrap_try = true)]
     fn a_validly_sealed_entry_must_name_its_group_and_a_commit() {
         let keys = keys();
+        let author = XmtpInstallationCredential::new();
         let mut other_group = entry(&keys, 5);
         other_group.group_id = vec![9; 32];
+        sign_entry_author(&keys, &author, &mut other_group)?;
         let sealed = seal_entry(&keys, &other_group)?;
         assert!(matches!(
             open_entry(&keys, &keys.group_id(), 10, &sealed),
             Err(DiscardReason::OtherGroup)
         ));
 
-        let sealed = seal_entry(&keys, &entry(&keys, 0))?;
+        let mut no_commit = entry(&keys, 0);
+        sign_entry_author(&keys, &author, &mut no_commit)?;
+        let sealed = seal_entry(&keys, &no_commit)?;
         assert!(matches!(
             open_entry(&keys, &keys.group_id(), 10, &sealed),
             Err(DiscardReason::NoCommitSequenceId)
@@ -224,18 +230,6 @@ mod tests {
             Some(b"XMTP commit-log author v1"),
             &Signature::from_slice(&entry.author_signature)?,
         )?;
-    }
-
-    // verifies: FORK-074, FORK-076
-    #[xmtp_common::test(unwrap_try = true)]
-    fn a_signed_entry_seals_to_the_same_bytes() {
-        let keys = keys();
-        let author = XmtpInstallationCredential::new();
-        let mut entry = entry(&keys, 5);
-        sign_entry_author(&keys, &author, &mut entry)?;
-        let first = seal_entry(&keys, &entry)?;
-        sign_entry_author(&keys, &author, &mut entry)?;
-        assert_eq!(first, seal_entry(&keys, &entry)?);
     }
 
     // verifies: FORK-077

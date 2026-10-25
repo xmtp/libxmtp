@@ -280,52 +280,6 @@ async fn activating_a_placeholder_stores_its_commit_log_id() {
     );
 }
 
-/// A sealed entry goes out on the topic its commit-log id names and comes
-/// back as it was published.
-// verifies: FORK-074
-#[xmtp_common::test(unwrap_try = true)]
-async fn test_commit_log_publish_and_query_apis() {
-    tester!(alix);
-
-    let keys = GroupKeys::derive(&GroupRoot::generate());
-    let mut entry = PlaintextCommitLogEntry {
-        group_id: keys.group_id().to_vec(),
-        commit_sequence_id: 1,
-        last_epoch_authenticator: vec![5, 6, 7, 8],
-        commit_result: 1, // Success
-        applied_epoch_number: 456,
-        applied_epoch_authenticator: vec![9, 10, 11, 12],
-        ..Default::default()
-    };
-    sign_entry_author(
-        &keys,
-        &alix.context.identity().installation_keys,
-        &mut entry,
-    )?;
-    let sealed = seal_entry(&keys, &entry)?;
-
-    let mut stored = Vec::new();
-    alix.context
-        .api()
-        .publish_commit_log(vec![sealed.clone()], &mut stored)
-        .await?;
-    assert_eq!(stored.len(), 1);
-
-    let query = [(Topic::new_commit_log(keys.commit_log_id()), Cursor(0))].into();
-    let response = alix.context.api().query_commit_log(query).await?;
-    assert_eq!(response.len(), 1);
-    assert_eq!(response[0].sealed.as_ref(), Some(&sealed));
-    assert_eq!(
-        open_entry(
-            &keys,
-            &keys.group_id(),
-            response[0].cursor.0,
-            response[0].sealed.as_ref()?
-        )?,
-        entry
-    );
-}
-
 /// The worker publishes each local entry as a sealed entry on the topic its
 /// commit-log id names, not its group id. The envelope holds neither the
 /// group id nor the entry's authenticators, the entry opens to the local
@@ -816,6 +770,11 @@ async fn a_reader_discards_each_entry_that_fails_fork_075() {
     let other_seed = commit_log_seed(&other_root);
     let mut other_group = entry(1, 30);
     other_group.group_id = vec![9; 32];
+    sign_entry_author(
+        &keys,
+        &alix.context.identity().installation_keys,
+        &mut other_group,
+    )?;
     let discarded = [
         seal_entry(&GroupKeys::derive(&other_root), &entry(1, 50))?,
         signed_entry(&other_seed, &id, forged.nonce, forged.ciphertext),
@@ -1806,39 +1765,6 @@ async fn the_publisher_flag_follows_the_super_admin_list() {
 
 // verifies: FORK-081
 #[xmtp_common::test(unwrap_try = true)]
-async fn a_promoted_publisher_publishes_from_its_promotion() {
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
-    let a = alix
-        .create_group_with_members(&[bo.inbox_id()], None, None)
-        .await?;
-    bo.sync_welcomes().await?;
-    let b = bo.group(&a.group_id)?;
-    b.update_consent_state(ConsentState::Allowed)?;
-    a.update_group_name("before promotion".into()).await?;
-    b.sync().await?;
-    a.update_admin_list(
-        crate::groups::UpdateAdminListType::AddSuper,
-        bo.inbox_id().to_string(),
-    )
-    .await?;
-    b.sync().await?;
-    let promotion = b.local_commit_log().await?.last()?.commit_sequence_id as u64;
-    publish_turn(&mut CommitLogWorker::new(bo.context.clone())).await;
-    let entries = remote_entries(&bo, &b).await;
-    assert!(!entries.is_empty());
-    assert!(entries.iter().all(|entry| entry.author_installation_key
-        == bo.context.installation_id().to_vec()
-        && entry.commit_sequence_id >= promotion));
-    assert!(
-        entries
-            .iter()
-            .any(|entry| entry.commit_sequence_id == promotion)
-    );
-}
-
-// verifies: FORK-081
-#[xmtp_common::test(unwrap_try = true)]
 async fn a_readded_publisher_does_not_publish_its_earlier_membership() {
     tester!(alix, disable_workers);
     tester!(bo, disable_workers);
@@ -2130,6 +2056,12 @@ async fn a_publisher_handover_keeps_the_log_readable() {
             .iter()
             .all(|entry| entry.commit_sequence_id >= promotion),
         "the new publisher must not publish its earlier history"
+    );
+    assert!(
+        bo_entries
+            .iter()
+            .any(|entry| entry.commit_sequence_id == promotion),
+        "the promotion commit must be published"
     );
     for mut reader in [reader, CommitLogWorker::new(dan.context.clone())] {
         reader
