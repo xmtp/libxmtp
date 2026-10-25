@@ -942,7 +942,7 @@ where
 
         let processed = conn
             .latest_cursor_for_id(
-                &mls_group.group_id,
+                mls_group.group_id,
                 &[xmtp_db::refresh_state::EntityKind::ApplicationMessage],
             )?
             .0;
