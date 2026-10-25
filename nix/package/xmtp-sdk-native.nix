@@ -27,6 +27,17 @@ let
     # Darwin setup replaces this variable before the Cargo build.
     preBuild = "export MACOSX_DEPLOYMENT_TARGET=11.0";
   }
+  # The library embeds its build directory. The Linux sandbox makes it
+  # /build on every machine; outside it, it is a random host path, and the
+  # cache would mix differing builds of one path. Fail those builds.
+  // lib.optionalAttrs stdenv.buildPlatform.isLinux {
+    preBuild = ''
+      if [ "$NIX_BUILD_TOP" != /build ]; then
+        echo "xmtp-sdk-native: the build directory is $NIX_BUILD_TOP, not /build; build in the Nix sandbox" >&2
+        exit 1
+      fi
+    '';
+  }
   # rustc's release default `strip = "debuginfo"` passes `--strip-debug`, and
   # zig's linker strips the whole static symbol table for it. UniFFI reads its
   # metadata from that table, so the renders of this host library need it.

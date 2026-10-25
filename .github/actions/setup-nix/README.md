@@ -17,6 +17,14 @@ explicitly request that pinned Xcode. It preserves Nix's default host paths;
 it does not mount Xcode into other derivations or disable their sandbox.
 Keep this path aligned with `lib.reactNativeXcode`.
 
+On Linux, every derivation that does not opt out (`__noChroot`) builds in the
+Nix sandbox, in `/build`, on every runner class. The GitHub-hosted images block
+the user namespaces that single-user Nix needs, so the action allows them
+first, and `sandbox-fallback = false` fails a build that cannot get the
+sandbox instead of silently building without it. The Linux SDK native build
+(`nix/package/xmtp-sdk-native.nix`) also fails when its build directory is
+not `/build`.
+
 The Nix store is not persisted between jobs. Each job substitutes from Cachix
 and cache.nixos.org, and Nix checks the signature of every path it adds.
 

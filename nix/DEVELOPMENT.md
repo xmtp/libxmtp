@@ -65,6 +65,10 @@ The check links `iconv`; a basic libc link does not detect mixed toolchains.
   shared-library byte comparisons.
   Final Apple SDK fixup uses LLVM ranlib: cctools ranlib records the build
   user's UID when Nix rebuilds stripped archive indexes.
+- Linux SDK native builds, dependency layer and final, fail unless
+  `NIX_BUILD_TOP` is `/build`, the Linux sandbox's build directory. The
+  library embeds that directory, so a build outside the sandbox would put
+  different bytes under the same store path.
 - Backend builds restore only the shared dependency sources over the dummy workspace. Include migrations, SQL query files, and `apps/backend/.sqlx` metadata. Add each new shared dependency to the restored crate list. Build with `SQLX_OFFLINE=true`; no database is allowed during the build.
 - The Rust shell provides sqlx-cli. Keep its version aligned with the backend SQLx dependency.
 - SDK compiler sources use a dummy workspace and restore the selected local
