@@ -509,7 +509,19 @@ async fn malformed_welcome_pointer_is_rejected_before_retrieval() {
         .expect("published pointer");
     pending_welcome_for_test(&bo.context, &welcome).await?;
 
-    let outcome = WelcomeService::new(bo.context.clone())
+    // Resolve through a backend that fails the test on any query.
+    let mut api = xmtp_api_backend::MockBackendClient::new();
+    api.expect_query().never();
+    let offline = crate::builder::ClientBuilder::from_client(bo.client.clone())
+        .api_client(std::sync::Arc::new(api))
+        .config_provider(std::sync::Arc::new(
+            xmtp_configuration::StaticConfigProvider::default(),
+        ))
+        .with_allow_offline(Some(true))
+        .with_disable_workers(true)
+        .build()
+        .await?;
+    let outcome = WelcomeService::new(offline.context.clone())
         .resolve_pending_welcome(welcome.cursor)
         .await?;
     assert!(matches!(
