@@ -198,7 +198,6 @@ The legacy recovery boundary table selects the boundary within the connected leg
 
 Retained role evidence after the chosen boundary is what rules out a later loss of the current role. A publisher's continuing role cannot be inferred from its cached flag. The last unresolved commit itself is included: the current role and the absence of a later role transition establish its post-commit role, while the uncertainty concerns the earlier prefix.
 
-
 A recorded classification that permits changes to group membership, permissions, or administrator lists permits a super-admin-list change for this purpose: one applied commit can combine those changes. A classification confined to a key update or to non-role metadata does not. A rejected commit does not change the role. These classifications describe the retained local evidence; the internal enum and storage layout remain outside the spec.
 
 | ID | Title | Requirement | Why |
