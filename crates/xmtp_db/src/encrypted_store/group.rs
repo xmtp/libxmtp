@@ -167,6 +167,23 @@ fn conversation_consent_join() -> ConversationConsentJoin {
         .and(consent_records::entity_type.eq(ConsentType::ConversationId))
 }
 
+/// The conversations whose commit log the client reads: allowed DMs and
+/// groups other than one-shot, sync and restored groups. The download and
+/// the fork check both select from it, so their scopes cannot drift. A
+/// correlated `EXISTS` keeps it a plain groups query.
+// implements: FORK-030
+fn allowed_commit_log_groups() -> groups::BoxedQuery<'static, Sqlite> {
+    dsl::groups
+        .filter(dsl::membership_state.ne(GroupMembershipState::Restored))
+        .filter(dsl::conversation_type.ne_all(ConversationType::virtual_types()))
+        .filter(diesel::dsl::exists(
+            consent_records::table
+                .filter(conversation_consent_join())
+                .filter(consent_records::state.eq(ConsentState::Allowed)),
+        ))
+        .into_boxed()
+}
+
 impl<C: ConnectionExt> QueryConversationState for DbConnection<C> {
     fn conversation_state_row(
         &self,
@@ -403,12 +420,14 @@ pub trait QueryGroup {
         &self,
     ) -> Result<Vec<StoredGroupCommitLogPublicKey>, crate::ConnectionError>;
 
-    /// Get conversations for all conversations that require a remote commit log download (DMs and groups that are not sync groups)
+    /// The conversations whose commit log the client reads: allowed DMs and
+    /// groups other than one-shot, sync and restored groups.
     fn get_conversation_ids_for_remote_log_download(
         &self,
     ) -> Result<Vec<StoredGroupCommitLogPublicKey>, crate::ConnectionError>;
 
-    /// Get conversation IDs for fork checking (excludes already forked conversations and sync groups)
+    /// The conversations whose commit log the client reads, other than those
+    /// already forked. Any other conversation keeps its last fork state.
     fn get_conversation_ids_for_fork_check(&self) -> Result<Vec<Vec<u8>>, crate::ConnectionError>;
 
     /// Get conversation IDs for conversations that are forked and need readd requests
@@ -1148,39 +1167,24 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
         self.raw_query(|conn| query.load::<StoredGroupCommitLogPublicKey>(conn))
     }
 
-    // All dms and groups that are not sync groups and have consent state Allowed
     #[xmtp_common::db_span]
     fn get_conversation_ids_for_remote_log_download(
         &self,
     ) -> Result<Vec<StoredGroupCommitLogPublicKey>, crate::ConnectionError> {
-        use crate::schema::consent_records::dsl as consent_dsl;
-
-        let query = dsl::groups
-            .filter(dsl::membership_state.ne(GroupMembershipState::Restored))
-            .filter(dsl::conversation_type.ne_all(ConversationType::virtual_types()))
-            .inner_join(consent_dsl::consent_records.on(conversation_consent_join()))
-            .filter(consent_dsl::state.eq(ConsentState::Allowed))
-            .select((dsl::id, dsl::commit_log_public_key));
-
+        let query = allowed_commit_log_groups().select((dsl::id, dsl::commit_log_public_key));
         self.raw_query(|conn| query.load::<StoredGroupCommitLogPublicKey>(conn))
     }
 
-    // Get conversation IDs for fork checking (excludes already forked conversations and sync groups)
+    // implements: FORK-082
     #[xmtp_common::db_span]
     fn get_conversation_ids_for_fork_check(&self) -> Result<Vec<Vec<u8>>, crate::ConnectionError> {
-        let query = dsl::groups
-            .filter(dsl::membership_state.ne(GroupMembershipState::Restored))
+        let query = allowed_commit_log_groups()
             .filter(
-                dsl::conversation_type
-                    .ne_all(ConversationType::virtual_types())
-                    .and(
-                        dsl::is_commit_log_forked
-                            .is_null()
-                            .or(dsl::is_commit_log_forked.ne(Some(true))),
-                    ),
+                dsl::is_commit_log_forked
+                    .is_null()
+                    .or(dsl::is_commit_log_forked.ne(Some(true))),
             )
             .select(dsl::id);
-
         self.raw_query(|conn| query.load::<Vec<u8>>(conn))
     }
 
