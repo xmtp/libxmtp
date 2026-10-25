@@ -16,6 +16,7 @@ mod signing;
 mod split_refresh;
 mod stale_refresh;
 mod uncommittable_proposals;
+mod unusable_key_packages;
 
 mod transcript;
 

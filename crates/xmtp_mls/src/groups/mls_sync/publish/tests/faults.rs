@@ -1,11 +1,12 @@
-//! A backend double that refuses chosen publishes, loses their responses, or
-//! answers `QueryNewest` from a lagged copy.
+//! A backend double that refuses chosen publishes, loses their responses,
+//! answers `QueryNewest` from a lagged copy, or serves chosen key packages.
 
 use super::*;
 use parking_lot::Mutex;
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use xmtp_proto::types::{Topic, TopicKind};
 use xmtp_proto::{api::ApiClientError, api_client::XmtpBackendClient, backend_v1 as wire};
 
 pub(super) type FaultyContext = Arc<
@@ -44,6 +45,9 @@ pub(super) struct FaultyApi {
     /// Answer every `QueryNewest` with no results, as a lagged copy that has
     /// not replayed the group's first envelope (OPS-009).
     pub lag_newest: Arc<AtomicBool>,
+    /// Key-package bytes served for an installation id in place of its
+    /// stored package, as a backend that admitted them would serve them.
+    pub served_key_packages: Arc<Mutex<HashMap<Vec<u8>, Vec<u8>>>>,
     poisoned: Arc<AtomicBool>,
     /// Intercepted publishes run one at a time, so the first to fail ends a
     /// concurrent batch before any other intercepted request is sent.
@@ -64,6 +68,7 @@ impl FaultyApi {
             lost: Default::default(),
             stop_before_recovery: Default::default(),
             lag_newest: Default::default(),
+            served_key_packages: Default::default(),
             poisoned: Default::default(),
             serial: Default::default(),
         }
@@ -165,7 +170,25 @@ impl XmtpBackendClient for FaultyApi {
         if self.lag_newest.load(Ordering::SeqCst) {
             return Ok(wire::QueryNewestResponse::default());
         }
-        self.inner.query_newest(request).await
+        let mut response = self.inner.query_newest(request).await?;
+        let served = self.served_key_packages.lock();
+        for result in &mut response.results {
+            let Some(topic) = &result.topic else { continue };
+            let Ok(topic) = Topic::parse(&topic.topic) else {
+                continue;
+            };
+            if topic.kind() != TopicKind::KeyPackagesV1 {
+                continue;
+            }
+            if let (Some(bytes), Some(envelope)) =
+                (served.get(topic.identifier()), result.envelope.as_mut())
+            {
+                envelope.payload = Some(Payload::KeyPackage(wire::KeyPackage {
+                    key_package_tls_serialized: bytes.clone(),
+                }));
+            }
+        }
+        Ok(response)
     }
 
     async fn get_inbox_ids(

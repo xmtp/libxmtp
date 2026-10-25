@@ -526,7 +526,7 @@ pub(crate) fn installations_for_staged_adds(
                 proposal.add_proposal().key_package().clone(),
             )
             .map_err(crate::groups::intents::IntentError::from)?;
-            Installation::from_verified_key_package(&key_package).map_err(Into::into)
+            Ok(Installation::from_verified_key_package(&key_package))
         })
         .collect()
 }

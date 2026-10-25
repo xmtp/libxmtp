@@ -2,6 +2,88 @@
 
 use super::*;
 
+/// A key package that advertises only a pointee AEAD value this client does
+/// not define is usable, because the value counts as absent. The backend
+/// admits it, an add and a refresh both add the installation, and it gets an
+/// inline Welcome under its Curve25519 init key.
+#[cfg(not(target_arch = "wasm32"))]
+#[xmtp_common::test(unwrap_try = true)]
+// verifies: JOIN-090, JOIN-093
+async fn unknown_pointer_aead_value_is_ignored() {
+    use crate::utils::key_package_with_extensions;
+    use openmls::prelude::{Extension, UnknownExtension};
+    use openmls_traits::OpenMlsProvider;
+    use xmtp_configuration::WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID;
+    use xmtp_id::key_package::VerifiedKeyPackageV2;
+    use xmtp_mls_validation::commit::extract_group_membership;
+    use xmtp_proto::xmtp::mls::message_contents::{
+        WelcomePointeeEncryptionAeadTypesExtension, WelcomeWrapperAlgorithm,
+    };
+
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    tester!(caro, disable_workers);
+    let alix_group = alix
+        .create_group_with_members(&[bo.inbox_id()], None, None)
+        .await?;
+
+    // Bo adds a second installation, whose package advertises only an AEAD
+    // value this client does not define.
+    tester!(bo2, from: bo, disable_workers);
+    let bo2_id = bo2.context.installation_id();
+    let pointee_aead = WelcomePointeeEncryptionAeadTypesExtension {
+        supported_aead_types: vec![i32::MAX],
+    };
+    let bytes = key_package_with_extensions(
+        &bo2.context,
+        vec![Extension::Unknown(
+            WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID,
+            UnknownExtension(pointee_aead.encode_to_vec()),
+        )],
+    );
+    bo2.context.api().upload_key_package(bytes.clone()).await?;
+
+    let fetched = alix.context.api().fetch_key_packages(&[bo2_id]).await?;
+    let served = fetched.get(&bo2_id).unwrap().as_ref().unwrap();
+    assert_eq!(served.key_package_tls_serialized, bytes);
+    let verified = VerifiedKeyPackageV2::from_bytes(
+        bo2.context.mls_provider().crypto(),
+        &served.key_package_tls_serialized,
+    )?;
+    assert!(verified.pointee_aead.supported_aead_types.is_empty());
+
+    let caro_group = caro
+        .create_group_with_members(&[bo.inbox_id()], None, None)
+        .await?;
+    let failed_installations = caro_group
+        .load_mls_group_with_lock_async(async |mls_group| {
+            Ok::<_, GroupError>(
+                extract_group_membership(mls_group.extensions())?.failed_installations,
+            )
+        })
+        .await?;
+    assert!(failed_installations.is_empty());
+    let welcomes = caro.context.api().query_welcome_messages(bo2_id).await?;
+    let [welcome] = welcomes.as_slice() else {
+        panic!("expected one Welcome for Bo's second installation");
+    };
+    let Some(inline) = welcome.as_v1() else {
+        panic!("an installation with no usable pointee AEAD must get an inline Welcome");
+    };
+    assert_eq!(
+        inline.wrapper_algorithm,
+        WelcomeWrapperAlgorithm::Curve25519
+    );
+
+    alix_group.update_installations().await?;
+    let welcomes = alix.context.api().query_welcome_messages(bo2_id).await?;
+    assert_eq!(
+        welcomes.len(),
+        2,
+        "the refresh must add the installation too"
+    );
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_create_from_welcome_validation() {

@@ -1,4 +1,4 @@
-use super::WrapperEncryptionExtension;
+use super::{WelcomePointersExtension, WrapperEncryptionExtension};
 use openmls::{
     credentials::{BasicCredential, errors::BasicCredentialError},
     key_packages::Lifetime,
@@ -12,7 +12,9 @@ use prost::Message;
 use std::panic::{self, AssertUnwindSafe};
 use thiserror::Error;
 use xmtp_common::ErrorCode;
-use xmtp_configuration::WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID;
+use xmtp_configuration::{
+    WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID, WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID,
+};
 use xmtp_cryptography::configuration::MLS_PROTOCOL_VERSION;
 use xmtp_proto::xmtp::identity::MlsCredential;
 
@@ -63,22 +65,16 @@ pub struct VerifiedKeyPackageV2 {
     pub inner: KeyPackage,
     pub credential: MlsCredential,
     pub installation_public_key: Vec<u8>,
+    /// The wrapper a sender encrypts this installation's Welcomes under: the
+    /// `0xff03` extension, else Curve25519 under the init key. It passed
+    /// [`WrapperEncryptionExtension::check_usable`].
+    pub wrapper: WrapperEncryptionExtension,
+    /// The pointee AEAD types of the `0xff04` extension, without undefined
+    /// values; empty when the extension is absent.
+    pub pointee_aead: WelcomePointersExtension,
 }
 
 impl VerifiedKeyPackageV2 {
-    /// Create a new verified key package from its raw parts.
-    pub fn new(
-        kp: KeyPackage,
-        credential: MlsCredential,
-        installation_public_key: Vec<u8>,
-    ) -> Self {
-        Self {
-            inner: kp,
-            credential,
-            installation_public_key,
-        }
-    }
-
     /// Create a verified key package from TLS-Serialized bytes.
     // implements: JOIN-007, JOIN-008
     pub fn from_bytes(
@@ -121,16 +117,34 @@ impl VerifiedKeyPackageV2 {
     }
 }
 
+/// The one place a key package's addressing extensions are decoded and
+/// checked, so backend admission and a sender's fetch reach the same verdict.
+/// Commit receivers never call it: members that disagree about a key package
+/// in a commit would fork the group.
 impl TryFrom<KeyPackage> for VerifiedKeyPackageV2 {
     type Error = KeyPackageVerificationError;
 
-    // implements: JOIN-004
+    // implements: JOIN-004, JOIN-090
     fn try_from(kp: KeyPackage) -> Result<Self, Self::Error> {
         let leaf_node = kp.leaf_node();
         let basic_credential = BasicCredential::try_from(leaf_node.credential().clone())?;
-        let pub_key_bytes = leaf_node.signature_key().as_slice().to_vec();
+        let installation_public_key = leaf_node.signature_key().as_slice().to_vec();
         let credential = MlsCredential::decode(basic_credential.identity())?;
+        let wrapper = WrapperEncryptionExtension::advertised_by(&kp)?;
+        wrapper.check_usable()?;
+        let pointee_aead = kp
+            .extensions()
+            .unknown(WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID)
+            .map(WelcomePointersExtension::try_from)
+            .transpose()?
+            .unwrap_or_else(WelcomePointersExtension::empty);
 
-        Ok(Self::new(kp, credential, pub_key_bytes))
+        Ok(Self {
+            inner: kp,
+            credential,
+            installation_public_key,
+            wrapper,
+            pointee_aead,
+        })
     }
 }

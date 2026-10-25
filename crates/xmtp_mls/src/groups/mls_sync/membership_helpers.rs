@@ -137,10 +137,12 @@ pub(super) async fn get_keypackages_for_installation_ids(
             {
                 fetched_installations.push(Installation::from_verified_key_package(
                     &verified_key_package,
-                )?);
+                ));
                 fetched_key_packages.push(verified_key_package.inner);
             }
-            // An absent package fails the installation exactly as an invalid one does.
+            // An absent package fails the installation exactly as an invalid
+            // one does, including one whose addressing extensions no sender
+            // can use.
             Some(_) | None => failed_installations.push(installation_id),
         }
     }

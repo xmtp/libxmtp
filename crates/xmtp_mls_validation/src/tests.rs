@@ -230,10 +230,20 @@ fn p256_key_package_envelope() -> (ClientEnvelope, Vec<u8>) {
     )
 }
 
+// verifies: JOIN-090
 #[xmtp_common::test(unwrap_try = true)]
 fn key_package_topic_length_is_separate_from_ciphersuite_validation() {
     let (envelope, bytes) = p256_key_package_envelope();
-    assert!(verify_key_package(&bytes).is_ok());
+    // Without a 0xff03 extension the wrapper is Curve25519 under the init
+    // key, and a P-256 init key does not have the Curve25519 key length.
+    assert!(matches!(
+        verify_key_package(&bytes),
+        Err(
+            xmtp_id::key_package::KeyPackageVerificationError::ConversionError(
+                xmtp_proto::ConversionError::InvalidLength { .. }
+            )
+        )
+    ));
     let error = parse_envelope(envelope)
         .err()
         .expect("P-256 signature keys do not satisfy the 32-byte topic contract");
@@ -739,4 +749,68 @@ async fn validation_reports_claimed_handle() {
 
     let created = validate_identity_updates(vec![], vec![create], &verifier).await?;
     assert!(created.claimed_handles.is_empty());
+}
+
+/// A key package whose addressing extensions no sender can use is refused
+/// at admission as an invalid key package. An undefined pointee AEAD value
+/// is not a reason to refuse one.
+// verifies: JOIN-090, API-230
+#[xmtp_common::test(unwrap_try = true)]
+async fn key_package_admission_rejects_unusable_addressing_extensions() {
+    use xmtp_configuration::{
+        WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID as POINTEE_AEAD,
+        WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID as WRAPPER,
+    };
+    use xmtp_proto::xmtp::mls::message_contents::{
+        WelcomePointeeEncryptionAeadTypesExtension, WelcomeWrapperEncryption,
+    };
+    async fn admit(
+        fixture: KeyPackageFixture,
+    ) -> Result<Option<AssociationValidation>, ValidationError> {
+        let parsed = parse_envelope(fixture.envelope)?;
+        validate_envelope(
+            &parsed,
+            &[],
+            MockSmartContractSignatureVerifier::new(false),
+            &TestChain::at(1),
+        )
+        .await
+    }
+    let wrapper = |algorithm, key_bytes| {
+        WelcomeWrapperEncryption {
+            pub_key: vec![9; key_bytes],
+            algorithm,
+        }
+        .encode_to_vec()
+    };
+
+    let undefined_aead = WelcomePointeeEncryptionAeadTypesExtension {
+        supported_aead_types: vec![i32::MAX],
+    };
+    let fixture = addressing_key_package_envelope(POINTEE_AEAD, undefined_aead.encode_to_vec());
+    assert!(admit(fixture).await?.is_none());
+
+    for (extension_id, data) in [
+        (POINTEE_AEAD, vec![0xff]),
+        (WRAPPER, wrapper(0, 32)),
+        (WRAPPER, wrapper(99, 32)),
+        (WRAPPER, wrapper(1, 31)),
+        (WRAPPER, wrapper(2, 1215)),
+    ] {
+        let error = admit(addressing_key_package_envelope(extension_id, data.clone()))
+            .await
+            .err()
+            .expect("an unusable addressing extension must fail admission");
+        assert!(
+            matches!(
+                &error,
+                ValidationError::KeyPackage(
+                    xmtp_id::key_package::KeyPackageVerificationError::ConversionError(_)
+                )
+            ),
+            "{extension_id:#x} {}: {error:?}",
+            data.len()
+        );
+        assert_eq!(error.reason(), Reason::InvalidKeyPackage);
+    }
 }

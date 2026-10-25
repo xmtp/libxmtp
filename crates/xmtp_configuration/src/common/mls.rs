@@ -79,6 +79,12 @@ pub const WELCOME_POINTEE_KEY_BYTES: usize = 32;
 /// Length of each of a welcome pointer's two ChaCha20-Poly1305 nonces.
 pub const WELCOME_POINTEE_NONCE_BYTES: usize = 12;
 
+/// Length of a key package's Curve25519 Welcome wrapper key.
+pub const WELCOME_WRAPPER_CURVE25519_KEY_BYTES: usize = 32;
+
+/// Length of a key package's X-Wing (ML-KEM-768 draft 6) Welcome wrapper key.
+pub const WELCOME_WRAPPER_XWING_KEY_BYTES: usize = 1216;
+
 /// the base backoff time that is multiplied by 3
 pub const SYNC_BACKOFF_WAIT_MS: u16 = 50;
 /// the total wait for all attempts

@@ -638,3 +638,51 @@ pub fn retired_commit_log_envelope_bytes(group_id: impl AsRef<[u8]>) -> Vec<u8> 
     prost::encoding::bytes::encode(5, &retired, &mut envelope);
     envelope
 }
+
+/// Build a key package with one XMTP addressing extension, `extension_id`
+/// (`0xff03` or `0xff04`) holding `data`, that its capabilities advertise.
+pub fn addressing_key_package_envelope(extension_id: u16, data: Vec<u8>) -> KeyPackageFixture {
+    let inbox_id = "addressing-key-package".to_string();
+    let provider = OpenMlsRustCrypto::default();
+    let installation_keys = XmtpInstallationCredential::new();
+    let ciphersuite = xmtp_cryptography::configuration::CIPHERSUITE;
+    let bundle = OpenMlsKeyPackage::builder()
+        .leaf_node_capabilities(Capabilities::new(
+            None,
+            Some(&[ciphersuite]),
+            Some(&[ExtensionType::Unknown(extension_id)]),
+            None,
+            None,
+        ))
+        .key_package_extensions(
+            Extensions::single(Extension::Unknown(
+                extension_id,
+                openmls::extensions::UnknownExtension(data),
+            ))
+            .expect("one unknown extension is a valid extension list"),
+        )
+        .build(
+            ciphersuite,
+            &provider,
+            &installation_keys,
+            CredentialWithKey {
+                credential: create_credential(&inbox_id),
+                signature_key: installation_keys.public_slice().into(),
+            },
+        )
+        .expect("addressing key-package fixture builds");
+    let tls_bytes = bundle
+        .key_package()
+        .tls_serialize_detached()
+        .expect("addressing key-package fixture serializes");
+    KeyPackageFixture {
+        envelope: ClientEnvelope {
+            payload: Some(Payload::KeyPackage(KeyPackage {
+                key_package_tls_serialized: tls_bytes.clone(),
+            })),
+        },
+        tls_bytes,
+        installation_id: installation_keys.public_slice().to_vec(),
+        inbox_id,
+    }
+}
