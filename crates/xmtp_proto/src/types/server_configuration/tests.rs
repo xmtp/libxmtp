@@ -236,6 +236,22 @@ fn a_zero_field_reads_as_the_compiled_default() {
     assert_eq!(configuration.limits.max_query_topics, 5);
 }
 
+/// One identity update revokes at most its action limit, so a published
+/// installation ceiling above that limit is held at the limit; the client
+/// never lets an inbox reach installations that one update cannot revoke.
+#[xmtp_common::test(unwrap_try = true)]
+fn published_max_installations_per_inbox_is_clamped() {
+    for (published, held) in [(1000, 100), (101, 100), (100, 100), (7, 7)] {
+        let mut response = populated();
+        response.mls.as_mut()?.max_installations_per_inbox = published;
+        let configuration = ServerConfiguration::from(response);
+        assert_eq!(
+            configuration.mls.max_installations_per_inbox, held,
+            "{published}"
+        );
+    }
+}
+
 // verifies: CONF-025
 #[xmtp_common::test(unwrap_try = true)]
 fn an_absent_submessage_reads_as_every_compiled_default() {

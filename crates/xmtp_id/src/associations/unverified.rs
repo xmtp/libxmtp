@@ -436,12 +436,106 @@ impl UnverifiedSmartContractWalletSignature {
 
 #[cfg(test)]
 mod tests {
-    use crate::associations::{member::Identifier, unsigned_actions::UnsignedCreateInbox};
+    use crate::associations::{
+        MemberIdentifier, get_state,
+        member::Identifier,
+        test_utils::{MockSmartContractSignatureVerifier, WalletTestExt},
+        unsigned_actions::{UnsignedCreateInbox, UnsignedRevokeAssociation},
+    };
+    use alloy::signers::{Signer, local::PrivateKeySigner};
+    use xmtp_configuration::MAX_IDENTITY_UPDATE_ACTIONS;
+    use xmtp_proto::{
+        ConversionError, xmtp::identity::associations::IdentityUpdate as IdentityUpdateProto,
+    };
 
     use super::{
         UnverifiedAction, UnverifiedCreateInbox, UnverifiedIdentityUpdate,
-        UnverifiedRecoverableEcdsaSignature, UnverifiedSignature,
+        UnverifiedRecoverableEcdsaSignature, UnverifiedRevokeAssociation, UnverifiedSignature,
     };
+
+    /// An update of `actions` genuinely signed actions: `wallet` creates its
+    /// inbox and revokes an absent member over and over.
+    async fn signed_revocations(
+        wallet: &PrivateKeySigner,
+        actions: usize,
+    ) -> Result<IdentityUpdateProto, Box<dyn std::error::Error>> {
+        let owner = wallet.identifier();
+        let absent_member = MemberIdentifier::rand_installation();
+        let placeholder = UnverifiedSignature::new_recoverable_ecdsa(vec![0; 65]);
+        let create = UnverifiedAction::CreateInbox(UnverifiedCreateInbox::new(
+            UnsignedCreateInbox {
+                nonce: 0,
+                account_identifier: owner.clone(),
+            },
+            placeholder.clone(),
+        ));
+        let revoke = UnverifiedAction::RevokeAssociation(UnverifiedRevokeAssociation::new(
+            UnsignedRevokeAssociation {
+                revoked_member: absent_member,
+            },
+            placeholder,
+        ));
+        let mut update = UnverifiedIdentityUpdate::new(
+            owner.inbox_id(0)?,
+            1,
+            std::iter::once(create)
+                .chain(std::iter::repeat_n(revoke, actions - 1))
+                .collect(),
+        );
+        let signature = UnverifiedSignature::new_recoverable_ecdsa(
+            wallet
+                .sign_message(update.signature_text().as_bytes())
+                .await?
+                .as_bytes()
+                .to_vec(),
+        );
+        for action in &mut update.actions {
+            match action {
+                UnverifiedAction::CreateInbox(action) => {
+                    action.initial_identifier_signature = signature.clone()
+                }
+                UnverifiedAction::RevokeAssociation(action) => {
+                    action.recovery_identifier_signature = signature.clone()
+                }
+                _ => unreachable!("the update only creates and revokes"),
+            }
+        }
+        Ok(update.into())
+    }
+
+    /// Every validator replays every action of every stored update, so an
+    /// update with more actions than the limit fails when it is decoded,
+    /// before any of its signatures is verified, even when each one is
+    /// genuine. An update at the limit decodes, verifies and applies.
+    // verifies: IDENT-094
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn identity_update_over_action_limit_fails_decode() {
+        let wallet = PrivateKeySigner::random();
+        for actions in [MAX_IDENTITY_UPDATE_ACTIONS + 1, 513] {
+            let result =
+                UnverifiedIdentityUpdate::try_from(signed_revocations(&wallet, actions).await?);
+            assert!(
+                matches!(
+                    result,
+                    Err(ConversionError::InvalidLength {
+                        item: "identity update actions",
+                        expected: MAX_IDENTITY_UPDATE_ACTIONS,
+                        got,
+                    }) if got == actions
+                ),
+                "{actions}: {result:?}"
+            );
+        }
+
+        let at_limit = UnverifiedIdentityUpdate::try_from(
+            signed_revocations(&wallet, MAX_IDENTITY_UPDATE_ACTIONS).await?,
+        )?;
+        let verified = at_limit
+            .to_verified(MockSmartContractSignatureVerifier::new(false))
+            .await?;
+        assert_eq!(verified.actions.len(), MAX_IDENTITY_UPDATE_ACTIONS);
+        assert_eq!(get_state([verified])?.inbox_id(), at_limit.inbox_id);
+    }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), test)]

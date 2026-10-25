@@ -9,6 +9,7 @@ use crate::scw_verifier::SmartContractSignatureVerifier;
 use thiserror::Error;
 use xmtp_common::ErrorCode;
 use xmtp_common::time::now_ns;
+use xmtp_configuration::MAX_IDENTITY_UPDATE_ACTIONS;
 
 use super::{
     AccountId, Handle, MemberIdentifier, MemberKind, SignatureError,
@@ -200,6 +201,14 @@ pub enum SignatureRequestError {
         chain: String,
         accepted: Vec<String>,
     },
+    /// Too many actions.
+    ///
+    /// The request would hold more actions than one identity update may carry,
+    /// so every validator would reject it. Split it. Not retryable.
+    #[error(
+        "an identity update holds at most {MAX_IDENTITY_UPDATE_ACTIONS} actions; this one holds {0}"
+    )]
+    TooManyActions(usize),
 }
 
 /// A signature request is meant to be sent over the FFI barrier (wrapped in a mutex) to platform SDKs.

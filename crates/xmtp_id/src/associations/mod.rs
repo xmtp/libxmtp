@@ -21,7 +21,9 @@ pub mod verified_signature;
 pub use self::association_log::*;
 pub use self::handle::{Handle, InvalidHandle, MAX_HANDLE_CLAIMS, MAX_HANDLE_NAME_LEN};
 pub use self::member::{HasMemberKind, Identifier, Member, MemberIdentifier, MemberKind};
-pub use self::serialization::{DeserializationError, map_vec, try_map_vec};
+pub use self::serialization::{
+    DeserializationError, check_update_shape, erc6492_signatures, map_vec, try_map_vec,
+};
 pub use self::signature::*;
 pub use self::state::{AssociationState, AssociationStateDiff};
 

@@ -20,6 +20,7 @@ use regex::Regex;
 use std::collections::{HashMap, HashSet};
 use thiserror::Error;
 use xmtp_common::ErrorCode;
+use xmtp_configuration::{MAX_IDENTITY_UPDATE_ACTIONS, MAX_SCW_SIGNATURE_BYTES};
 use xmtp_cryptography::signature::IdentifierValidationError;
 use xmtp_proto::ConversionError;
 use xmtp_proto::xmtp::identity::{
@@ -118,10 +119,90 @@ pub enum DeserializationError {
     AddressValidation(#[from] IdentifierValidationError),
 }
 
+/// Every ERC-6492 signature an identity update carries, in action order.
+pub fn erc6492_signatures(
+    update: &IdentityUpdateProto,
+) -> impl Iterator<Item = &SmartContractWalletSignatureProto> {
+    update
+        .actions
+        .iter()
+        .flat_map(|action| match &action.kind {
+            Some(IdentityActionKindProto::CreateInbox(value)) => {
+                [value.initial_identifier_signature.as_ref(), None]
+            }
+            Some(IdentityActionKindProto::Add(value)) => [
+                value.existing_member_signature.as_ref(),
+                value.new_member_signature.as_ref(),
+            ],
+            Some(IdentityActionKindProto::Revoke(value)) => {
+                [value.recovery_identifier_signature.as_ref(), None]
+            }
+            Some(IdentityActionKindProto::ChangeRecoveryAddress(value)) => {
+                [value.existing_recovery_identifier_signature.as_ref(), None]
+            }
+            Some(IdentityActionKindProto::ClaimHandle(value)) => [value.signature.as_ref(), None],
+            None => [None, None],
+        })
+        .flatten()
+        .filter_map(|value| match &value.signature {
+            Some(SignatureKindProto::Erc6492(signature)) => Some(signature),
+            _ => None,
+        })
+}
+
+/// Reject an identity update that no validator accepts whatever its
+/// signatures: one with no actions, with more than
+/// [`MAX_IDENTITY_UPDATE_ACTIONS`], with a claim beside another action, or
+/// with an ERC-6492 signature longer than [`MAX_SCW_SIGNATURE_BYTES`].
+///
+/// It reads only counts and lengths, and counts the actions before it looks
+/// at any of them, so it is the first check of every decode, and the backend
+/// can run it before it reads the inbox's history.
+// implements: IDENT-001, IDENT-079, IDENT-093, IDENT-094
+pub fn check_update_shape(update: &IdentityUpdateProto) -> Result<(), ConversionError> {
+    let actions = update.actions.len();
+    if actions == 0 {
+        return Err(ConversionError::Missing {
+            item: "action",
+            r#type: std::any::type_name::<IdentityActionProto>(),
+        });
+    }
+    if actions > MAX_IDENTITY_UPDATE_ACTIONS {
+        return Err(ConversionError::InvalidLength {
+            item: "identity update actions",
+            expected: MAX_IDENTITY_UPDATE_ACTIONS,
+            got: actions,
+        });
+    }
+    let claims = update
+        .actions
+        .iter()
+        .filter(|action| matches!(action.kind, Some(IdentityActionKindProto::ClaimHandle(_))))
+        .count();
+    if claims > 0 && actions > 1 {
+        return Err(ConversionError::InvalidValue {
+            item: "identity update",
+            expected: "a claim as its only action",
+            got: format!("{claims} claims among {actions} actions"),
+        });
+    }
+    if let Some(signature) = erc6492_signatures(update)
+        .find(|signature| signature.signature.len() > MAX_SCW_SIGNATURE_BYTES)
+    {
+        return Err(ConversionError::InvalidLength {
+            item: "erc_6492 signature",
+            expected: MAX_SCW_SIGNATURE_BYTES,
+            got: signature.signature.len(),
+        });
+    }
+    Ok(())
+}
+
 impl TryFrom<IdentityUpdateProto> for UnverifiedIdentityUpdate {
     type Error = ConversionError;
 
     fn try_from(proto: IdentityUpdateProto) -> Result<Self, Self::Error> {
+        check_update_shape(&proto)?;
         let IdentityUpdateProto {
             client_timestamp_ns,
             inbox_id,

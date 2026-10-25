@@ -473,7 +473,7 @@ A backend that cannot reach a chain answers the same way whether the chain is un
 
 Once an inbox's log reaches the deployment's `max_identity_entries`, no further update is stored for it, and there is no compaction. The log stays readable; the inbox can no longer add, revoke, or claim anything.
 
-One update revokes at most as many members as IDENT-094 allows actions.
+One update revokes at most as many members as IDENT-094 allows actions. CONF bounds the published installation ceiling by the same number, but two clients that register at once can leave an inbox above the ceiling (section 8); revoking every installation of such an inbox takes more than one update, and each update spends an entry of the log.
 
 Only the backend checks that no two inboxes hold one handle (section 10). A backend that admits one handle for two inboxes is seen only by a client that derives the states of both inboxes, and IDENT-085 accepts an answer that names either of them, because the log of each claims the handle.
 

@@ -186,7 +186,7 @@ The standard checks table defines each standard check. A rule that relates keys,
 | `limits.max_ping_burst` | integer | optional | section 3 | `range 1..4294967295` | API-258. |
 | `mls` | table | optional | `{}` | | |
 | `mls.max_group_members` | integer | optional | section 3 | `range 1..65535` | Advisory. Clients apply it (CONF-043). |
-| `mls.max_installations_per_inbox` | integer | optional | section 3 | `range 1..65535` | Advisory. Clients apply it (CONF-044). |
+| `mls.max_installations_per_inbox` | integer | optional | section 3 | `range 1..100` | Advisory. Clients apply it (CONF-044). Not above the action limit of IDENT-094, so one update can revoke every installation within the ceiling. |
 | `mls.commit_log_enabled` | boolean | optional | section 3 | | CONF-045. |
 | `handles` | table | optional | `{}` | | |
 | `handles.min_name_length` | integer | optional | section 3 | ; CONF-080 | API-297 applies it to claims. |

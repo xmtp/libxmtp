@@ -407,13 +407,6 @@ issue = "https://github.com/xmtp/libxmtp/issues/4644"
 reason = "OpenMLS logs the serialized group context, root included, at TRACE under `openmls::schedule`, which a Rust host that installs its own global subscriber with the `tracing-log` bridge receives, because `xmtp_logging::group_context_guard` covers only the subscribers libxmtp installs."
 
 [[waiver]]
-id = "IDENT-094"
-kind = "gap"
-owner = "Nicholas Molnar"
-issue = "TBD-octane-tracking"
-reason = "An identity update's actions have no count bound, so a validator verifies every signature of an update with any number of actions."
-
-[[waiver]]
 id = "API-302"
 kind = "gap"
 owner = "Nicholas Molnar"

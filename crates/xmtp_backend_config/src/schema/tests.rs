@@ -226,6 +226,9 @@ fn published_schema_enforces_every_numeric_scalar_range() {
                 ) => u32::MAX as u64,
                 ("database", "max_statement_timeout_ms") | ("publishing", _) => i32::MAX as u64,
                 ("retention", _) => i64::MAX as u64 / 1_000_000_000,
+                ("mls", "max_installations_per_inbox") => {
+                    super::super::MAX_INSTALLATIONS_LIMIT as u64
+                }
                 ("mls", _) => super::super::MAX_MLS_LIMIT as u64,
                 ("handles", "min_name_length") => 27,
                 _ => u64::MAX,

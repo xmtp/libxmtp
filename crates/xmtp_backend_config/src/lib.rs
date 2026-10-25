@@ -51,6 +51,9 @@ const MAX_RETENTION_SECONDS: u64 = i64::MAX as u64 / NS_IN_SEC as u64;
 const MAX_DATABASE_TIMEOUT_MS: u64 = i32::MAX as u64;
 /// Advisory MLS group shapes are published as `uint32` and bounded here.
 pub const MAX_MLS_LIMIT: u32 = u16::MAX as u32;
+/// The most installations per inbox a deployment may publish: one identity
+/// update's actions.
+pub const MAX_INSTALLATIONS_LIMIT: u32 = xmtp_configuration::MAX_IDENTITY_UPDATE_ACTIONS as u32;
 
 const DEFAULT_LISTEN: &str = "0.0.0.0:5050";
 const DEFAULT_DRAIN_DURATION_MS: u64 = 10_000;
@@ -633,7 +636,9 @@ impl ValidationConfig {
 pub struct MlsConfig {
     #[schemars(schema_with = "schema::positive_integer::<{ MAX_MLS_LIMIT as u64 }>")]
     pub max_group_members: u32,
-    #[schemars(schema_with = "schema::positive_integer::<{ MAX_MLS_LIMIT as u64 }>")]
+    /// At most the number of actions one identity update may carry, so one
+    /// update can revoke every installation the ceiling allows.
+    #[schemars(schema_with = "schema::positive_integer::<{ MAX_INSTALLATIONS_LIMIT as u64 }>")]
     pub max_installations_per_inbox: u32,
     /// Publish and read the remote commit log. False switches both off for
     /// every client of this deployment.
@@ -652,16 +657,23 @@ impl Default for MlsConfig {
 
 impl MlsConfig {
     fn validate(&self) -> Result<(), ConfigError> {
-        for (field, value) in [
-            ("mls.max_group_members", self.max_group_members),
+        for (field, value, maximum, too_large) in [
+            (
+                "mls.max_group_members",
+                self.max_group_members,
+                MAX_MLS_LIMIT,
+                "must not exceed 65535",
+            ),
             (
                 "mls.max_installations_per_inbox",
                 self.max_installations_per_inbox,
+                MAX_INSTALLATIONS_LIMIT,
+                "must not exceed the actions of one identity update",
             ),
         ] {
             positive(value, field)?;
-            if value > MAX_MLS_LIMIT {
-                return Err(invalid(field, "must not exceed 65535"));
+            if value > maximum {
+                return Err(invalid(field, too_large));
             }
         }
         Ok(())

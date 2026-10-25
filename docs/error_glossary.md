@@ -4,7 +4,7 @@
 
 This document lists all error codes defined in LibXMTP, the core library underlying the XMTP SDKs. Each error code is a unique identifier returned to help diagnose issues.
 
-**39 error types** across **10 crates** with **422 total error codes**.
+**39 error types** across **10 crates** with **423 total error codes**.
 
 ## xmtp_api
 
@@ -334,6 +334,7 @@ The string is not a handle under the handle grammar. Not retryable.
 | `SignatureRequestError::MissingSigner` | Missing signer. Required signature was not provided. Not retryable. |
 | `SignatureRequestError::BlockNumber` | Unable to get block number. Block number not returned after successful SCW verification. May be retryable. |
 | `SignatureRequestError::ChainNotAccepted` | The deployment does not accept this chain. The smart contract wallet signature names a chain outside the list the backend published. Not retryable. |
+| `SignatureRequestError::TooManyActions` | Too many actions. The request would hold more actions than one identity update may carry, so every validator would reject it. Split it. Not retryable. |
 
 ### VerifierError <sub>enum</sub>
 

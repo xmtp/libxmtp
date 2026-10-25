@@ -1053,8 +1053,8 @@ fn failing_values() -> Vec<FailingValue> {
         failing("limits.max_push_topics", MAX_INT, "2147483648"),
         failing("mls.max_group_members", "range 1..65535", "0"),
         failing("mls.max_group_members", "range 1..65535", "65536"),
-        failing("mls.max_installations_per_inbox", "range 1..65535", "0"),
-        failing("mls.max_installations_per_inbox", "range 1..65535", "65536"),
+        failing("mls.max_installations_per_inbox", "range 1..100", "0"),
+        failing("mls.max_installations_per_inbox", "range 1..100", "101"),
         failing_name(
             "chains.<chain id>",
             "url http, https",

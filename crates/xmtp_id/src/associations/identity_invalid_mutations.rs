@@ -30,8 +30,8 @@ use xmtp_proto::xmtp::identity::associations::{
     ClaimHandle as ClaimHandleProto, CreateInbox as CreateInboxProto, IdentifierKind,
     IdentityAction as ActionProto, IdentityUpdate as IdentityUpdateProto,
     MemberIdentifier as MemberIdentifierProto, RecoverableEcdsaSignature,
-    RevokeAssociation as RevokeProto, Signature, identity_action::Kind, member_identifier,
-    signature,
+    RevokeAssociation as RevokeProto, Signature, SmartContractWalletSignature,
+    identity_action::Kind, member_identifier, signature,
 };
 
 fn erc191() -> Signature {
@@ -105,7 +105,9 @@ impl SmartContractSignatureVerifier for CountingVerifier {
 
 /// An update with no actions carries no signature, so every signature rule
 /// passes it. Rejecting it keeps an inbox's finite log from filling with
-/// updates that change nothing and so blocking a later revocation.
+/// updates that change nothing and so blocking a later revocation. The wire
+/// form fails when it is decoded; an update built directly fails when it is
+/// applied.
 // verifies: IDENT-001
 #[xmtp_common::test(unwrap_try = true)]
 fn empty_update_is_rejected() {
@@ -113,17 +115,69 @@ fn empty_update_is_rejected() {
     let inbox_id = state.inbox_id().to_string();
     let empty = IdentityUpdate::new_test(vec![], inbox_id.clone());
 
+    let decoded = decode(&identity_update(&inbox_id, vec![]));
+    assert!(
+        matches!(
+            decoded,
+            Err(ConversionError::Missing { item: "action", .. })
+        ),
+        "{decoded:?}"
+    );
     assert!(matches!(
         apply_update(state.clone(), empty.clone()),
         Err(AssociationError::EmptyUpdate)
     ));
-    // The wire form decodes, so rejection must come from validation.
-    let decoded = decode(&identity_update(&inbox_id, vec![]))?;
-    assert!(decoded.actions.is_empty());
     assert!(matches!(
         get_state(vec![empty.clone()]),
         Err(AssociationError::EmptyUpdate)
     ));
+}
+
+/// An ERC-6492 signature longer than the cap, in any signature slot, fails
+/// when the update is decoded, before any signature is verified. The longest
+/// signature the cap admits decodes.
+// verifies: IDENT-093
+#[xmtp_common::test(unwrap_try = true)]
+fn erc6492_signature_over_limit_fails_decode() {
+    let add = |length: usize| {
+        ActionProto {
+            kind: Some(Kind::Add(AddProto {
+                new_member_identifier: eth(&rand_hexstring()),
+                existing_member_signature: Some(erc191()),
+                new_member_signature: Some(Signature {
+                    signature: Some(signature::Signature::Erc6492(
+                        SmartContractWalletSignature {
+                            account_id: format!("eip155:1:{}", rand_hexstring()),
+                            block_number: 1,
+                            signature: vec![1; length],
+                        },
+                    )),
+                }),
+                relying_party: None,
+            })),
+        }
+        .encode_to_vec()
+    };
+
+    let result = decode(&identity_update(
+        "inbox",
+        vec![add(MAX_SCW_SIGNATURE_BYTES + 1)],
+    ));
+    assert!(
+        matches!(
+            result,
+            Err(ConversionError::InvalidLength {
+                item: "erc_6492 signature",
+                expected: MAX_SCW_SIGNATURE_BYTES,
+                got,
+            }) if got == MAX_SCW_SIGNATURE_BYTES + 1
+        ),
+        "{result:?}"
+    );
+    decode(&identity_update(
+        "inbox",
+        vec![add(MAX_SCW_SIGNATURE_BYTES)],
+    ))?;
 }
 
 /// A signer is always derived as `0x` and 40 lowercase hex characters, so an
@@ -429,7 +483,30 @@ fn claim_with_another_action_is_rejected() {
         IdentityUpdate::new_test(vec![installation_claim("nick")], inbox_id.clone()),
     )?;
     assert_eq!(claimed.handle_claims(), 1);
-    apply_update(state, IdentityUpdate::new_test(vec![add()], inbox_id))?;
+    apply_update(
+        state,
+        IdentityUpdate::new_test(vec![add()], inbox_id.clone()),
+    )?;
+
+    // The wire form of a claim beside another action fails when decoded.
+    let [_, wire_add, ..] = actions_carrying(&rand_hexstring());
+    let wire_claim = Kind::ClaimHandle(ClaimHandleProto {
+        handle: "nick".into(),
+        signature: Some(erc191()),
+    });
+    let encoded =
+        [wire_claim, wire_add].map(|kind| ActionProto { kind: Some(kind) }.encode_to_vec());
+    let result = decode(&identity_update(&inbox_id, encoded.to_vec()));
+    assert!(
+        matches!(
+            result,
+            Err(ConversionError::InvalidValue {
+                item: "identity update",
+                ..
+            })
+        ),
+        "{result:?}"
+    );
 }
 
 /// A claim outside the grammar is rejected when it is applied, and is never

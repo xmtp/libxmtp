@@ -669,6 +669,9 @@ impl XmtpError {
             ClientError::Api(api) => Self::api_cause(api),
             ClientError::Storage(storage) => Self::storage_cause(storage),
             ClientError::Handle(handle) => Self::from_handle(handle),
+            ClientError::SignatureRequest(
+                source @ xmtp_id::associations::builder::SignatureRequestError::TooManyActions(_),
+            ) => Self::invalid(source.to_string()),
             _ => return None,
         })
     }
