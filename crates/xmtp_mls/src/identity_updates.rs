@@ -967,8 +967,11 @@ pub(crate) mod tests {
     // verifies: GMOD-046
     #[xmtp_common::test(unwrap_try = true)]
     async fn required_leaf_removals_include_stale_leaves() {
-        use super::{get_installation_diff_local, required_leaf_removals};
-        use std::collections::{HashMap, HashSet};
+        use super::{
+            IdentityDependencyError, IdentityRequirement, get_installation_diff_local,
+            required_leaf_removals,
+        };
+        use std::collections::{BTreeSet, HashMap, HashSet};
         tester!(alix, disable_workers);
         tester!(alix2, from: alix, disable_workers);
         let mut revoke = alix
@@ -998,6 +1001,20 @@ pub(crate) mod tests {
             (alix.installation_id.to_vec(), alix.inbox_id().into()),
             (alix2.installation_id.to_vec(), alix.inbox_id().into()),
         ]);
+        // Alix2 was created before S3 and has not loaded that proof. A
+        // missing proof must not produce an incomplete set of removals.
+        let missing =
+            required_leaf_removals(&alix2.context.db(), &old, &new, &HashSet::new(), &owners)
+                .expect_err("the exact S3 proof is not cached on Alix2");
+        assert!(matches!(
+            missing,
+            IdentityDependencyError::Need(needed)
+                if needed == BTreeSet::from([IdentityRequirement {
+                    inbox_id: alix.inbox_id().into(),
+                    sequence_id: sequence3,
+                }])
+        ));
+
         let db = alix.context.db();
         let diff = get_installation_diff_local(&db, &old, &new, &old.diff(&new))?;
         assert!(diff.removed_installations.is_empty());
