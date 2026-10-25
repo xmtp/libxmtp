@@ -39,7 +39,7 @@ Out of scope: durable message delivery and acknowledgement (PROC section 7), int
 | `SEND` | Owns message delivery status (SEND-003, SEND-009, SEND-013, SEND-016, SEND-018). |
 | `CTYPE` | Owns content type ids (CTYPE-001), deletion eligibility (CTYPE-018), and the reply and reaction encodings. |
 | `IDENT` | Owns installation keys (section 8), installation addition and revocation (section 5, IDENT-044), and handle claims and the handles of the association state (IDENT-082). |
-| `FORK` | Owns the fork state (FORK-040). |
+| `FORK` | Owns the fork state (FORK-082). |
 | `CONF` | Owns the blocked connection and the two conditions that set it (CONF-030, CONF-036). CONF-075 closes streams with network interest while EVENT-016 keeps event subscriptions open. |
 | `AUTH` | Owns credential lockout (AUTH-023) and replacing the credential (AUTH-024). |
 | `PUSH` | Owns the notification state (PUSH-262). |
@@ -88,7 +88,7 @@ One act can produce events of more than one kind. A commit that removes the own 
 | `identity.own_installation_revoked` | The client applies an identity update of the own inbox that revokes an installation, including one IDENT-044 revokes with an identifier | Installation | `own_installation_revoked` |
 | `client.rejected_by_server` | The server rejects the client and blocks its connection: its backend does not match the stored one, or its version is below the server's minimum (CONF-075) | Rejection | `rejected_by_server` |
 | `client.lockout_changed` | The client enters lockout under AUTH-023, or leaves it: when the first request after the cool-down proceeds, or under AUTH-024 | Entry or exit | `lockout_changed` |
-| `conversation.fork_detected` | A conversation's fork state becomes `forked` under FORK-040 | Group | `conversation_fork_detected` |
+| `conversation.fork_detected` | A conversation's fork state becomes `forked` under FORK-082 | Group | `conversation_fork_detected` |
 | `notifications.failed` | The notification state becomes failed under PUSH-262 | Failure | `notifications_failed` |
 | `archive.restored` | An archive import ends, with or without an error, after it stored at least one element (ARCH-021) | Import | `archive_restored` |
 | `connection.state_changed` | The client-wide state of open app streams that hold network interest changes under EVENT-027 | Transition | `connection_state_changed` |

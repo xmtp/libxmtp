@@ -361,7 +361,6 @@ async fn identity_admission_folds_real_history_and_a_passkey_update() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
-// verifies: IDENT-050
 async fn identity_admission_preserves_typed_replay_failure() {
     let fixture = identity_history_with_passkey().await;
     let mut history = fixture.history;
@@ -522,7 +521,7 @@ impl ChainBlocks for RoutelessChain {
 /// that chain reaches it and stays retryable. Every malformed form fails its
 /// signature, whether or not it is a CAIP-10 account id at all.
 #[xmtp_common::test]
-// verifies: IDENT-060, IDENT-061, API-230
+// verifies: IDENT-061, API-230
 async fn freshness_rejects_any_malformed_account_before_chain_access() {
     let chain = RoutelessChain::default();
     for malformed in [

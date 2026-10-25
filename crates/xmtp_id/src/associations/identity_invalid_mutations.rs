@@ -226,7 +226,6 @@ fn add_of_current_member_is_rejected() {
 /// characters, can never be verified, so it is rejected
 /// permanently and before any chain call; routing it would instead fail as
 /// a retryable missing route and keep it pending for ever.
-// verifies: IDENT-060
 #[xmtp_common::test(unwrap_try = true)]
 async fn non_eip155_account_id_is_rejected_without_chain_call() {
     let verifier = CountingVerifier::default();

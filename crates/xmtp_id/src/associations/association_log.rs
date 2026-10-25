@@ -116,7 +116,7 @@ pub trait IdentityAction: Send {
     ) -> Result<AssociationState, AssociationError>;
     /// The canonical replay key of every signature the action carries (see [`VerifiedSignature`]).
     fn replay_keys(&self) -> Vec<Vec<u8>>;
-    // implements: IDENT-050
+    // implements: IDENT-090
     fn replay_check(&self, state: &AssociationState) -> Result<(), AssociationError> {
         if self.replay_keys().iter().any(|key| state.has_seen(key)) {
             return Err(AssociationError::Replay);
@@ -720,7 +720,6 @@ mod tests {
     /// 27/28 recovery-byte forms or with `s` negated, is the same add and must not re-add the
     /// wallet.
     #[xmtp_common::test]
-    // verifies: IDENT-050
     async fn identity_replay_aliases_wallet_add_after_revoke() {
         let recovery = PrivateKeySigner::random();
         let member = PrivateKeySigner::random();
@@ -739,7 +738,6 @@ mod tests {
     /// A revoked passkey's add, republished with the passkey's `s` negated and the recovery
     /// wallet's recovery byte re-encoded, is the same add and must not re-add the passkey.
     #[xmtp_common::test]
-    // verifies: IDENT-050
     async fn identity_replay_aliases_passkey_add_after_revoke() {
         let recovery = PrivateKeySigner::random();
         let passkey = PasskeyUser::new().await;

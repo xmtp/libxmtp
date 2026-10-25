@@ -578,7 +578,7 @@ pub fn validate_identity_sequence_order(
 
 /// Superadmins are permitted to readd installations, e.g. for fork recovery
 /// We can take these readded installations out of the list of installations to validate
-// implements: GMOD-015
+// implements: GMOD-052
 pub fn extract_readded_installations(
     actor: &CommitParticipant,
     added_installations: &mut HashSet<Vec<u8>>,

@@ -30,7 +30,7 @@ fn row(topic: &Topic, sequence: u64, payload: Option<Payload>) -> wire::ServerEn
 /// An envelope that holds no sealed entry comes back without one, so the
 /// reader discards it and still reads past it. An envelope whose metadata
 /// does not decode is left out. Neither fails the read, and the order holds.
-// verifies: FORK-075
+// verifies: FORK-077
 #[xmtp_common::test(unwrap_try = true)]
 async fn one_bad_commit_log_envelope_does_not_fail_the_read() {
     let keys = GroupKeys::derive(&GroupRoot::from_bytes(&[3; 32])?);

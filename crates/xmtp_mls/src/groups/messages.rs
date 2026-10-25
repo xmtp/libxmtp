@@ -233,7 +233,7 @@ where
                     // It fails here and is never queued; the transaction commits.
                     // A saved prepared attempt may already be on the backend, so
                     // its outcome stays unknown and its saved bytes may still publish.
-                    // implements: GMOD-035
+                    // implements: GMOD-054
                     if message.delivery_status != DeliveryStatus::Published
                         && Self::is_reserved_transcript_content(&message.decrypted_message_bytes)
                         && !self.has_saved_attempt(&db, &message.id)?
@@ -393,7 +393,7 @@ where
 
     /// Whether the outer content type is a reserved transcript type. Only the
     /// `xmtp.org` authority reserves these type ids, at any version.
-    // implements: GMOD-035
+    // implements: GMOD-054
     pub(in crate::groups) fn is_reserved_transcript_content(message: &[u8]) -> bool {
         encoded_content_type(message)
             .ok()

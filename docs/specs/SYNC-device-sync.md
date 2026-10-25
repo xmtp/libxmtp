@@ -123,7 +123,7 @@ Both update kinds merge under a total order, the consent record under CONS-010 a
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
 | SYNC-020 | Wire format | When the client publishes a preference update, it MUST publish a sync message whose `DeviceSyncContent` carries `preference_updates` with each update as a `PreferenceUpdate` defined above, with a consent record encoded under CONS-002. | |
-| SYNC-021 | Publish every decision | When the client stores a consent record under CONS-011, CONS-020, or CONS-021, it MUST publish that record as a preference update, whether or not its state differs from the record it replaced, and MUST NOT publish a record it stored under CONS-010, CONS-023, CONS-025, or DMS-010. | A repeated decision that stays on one device loses to an older decision made elsewhere; a republished record makes every installation echo every other. |
+| SYNC-021 | Publish every decision | When the client stores a consent record under CONS-011, CONS-020, or CONS-021, it MUST publish that record as a preference update, whether or not its state differs from the record it replaced, and MUST NOT publish a record it stored under CONS-010, CONS-045, CONS-025, or DMS-010. | A repeated decision that stays on one device loses to an older decision made elsewhere; a republished record makes every installation echo every other. |
 | SYNC-022 | The greater root key wins | When the client receives an `HmacKeyUpdate` whose `key` is 42 bytes, it MUST store the received key and `cycled_at_ns` when it holds no root key, or when `cycled_at_ns` is greater than the stored cycle time, or when they are equal and the received `key` is greater under byte order; otherwise it MUST leave the stored key unchanged. When `key` is not 42 bytes, it MUST NOT store it. | Two installations that keep different root keys register different per-conversation keys, and a message one of them sends notifies the other. A tie left to arrival order leaves two devices with two keys. |
 | SYNC-023 | Ignore what cannot be used | When a sync message's `DeviceSyncContent` has no `content` set, carries `acknowledge`, or contains a `PreferenceUpdate` with no `update` set, the client MUST ignore that content or that update without failing the message and MUST apply the other admissible updates in the same message. | An older installation's history transfer, or a newer installation's update kind, would otherwise stop every update behind it. |
 
@@ -146,9 +146,9 @@ Both acts survive a restart. The add is a commit the peer owes until it lands or
 
 ## Known limitations
 
-A revoked installation stays in the sync group until a commit removes it, and reads the root key published under SYNC-015 in the meantime. The cycle limits how long the old key is valid; it does not deny the new key to a device that has not yet been removed.
+A revoked installation that keeps a sync-group leaf stays in the sync group until the next membership refresh removes it, and in the meantime can still receive every preference update published to that group, including the root key published under SYNC-015 and consent records. The cycle limits how long the old key is valid; it does not deny the new key to a device that has not yet been removed.
 
-A new installation receives no consent record that predates it. A conversation the user allowed on an older device is unknown on the new one until the user decides again on any device, unless it was created by the own inbox (CONS-023) or is a DM the new device already holds a record for (DMS-010).
+A new installation receives no consent record that predates it. A conversation the user allowed on an older device is unknown on the new one until the user decides again on any device, unless it names the own inbox as creator and an installation of the own inbox added the new one (CONS-045), or it is a DM the new device already holds a record for (DMS-010).
 
 An installation that needs a per-conversation key before it holds a root key generates one and does not publish it. Its keys differ from its peers' until the next cycle under SYNC-015.
 

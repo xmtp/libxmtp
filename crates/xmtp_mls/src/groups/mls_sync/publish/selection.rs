@@ -579,7 +579,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                     }
                 }
             }
-            // implements: GMOD-038, GMOD-044
+            // implements: GMOD-038, GMOD-047
             // Receivers attribute each inbox the membership adds or removes
             // to an Add or Remove of it, or reject with `ProposerNotFound`.
             // Omit a delta whose inbox change no carried proposal covers.
@@ -665,7 +665,7 @@ pub(super) fn commits_proposals(kind: IntentKind) -> bool {
 /// Drop each pending proposal no commit can carry (see
 /// [`Committable::pending`]), and return whether any was dropped. It
 /// expires with the epoch.
-// implements: GMOD-044
+// implements: GMOD-047
 pub(super) fn omit_uncommittable_proposals(
     group: &mut OpenMlsGroup,
     storage: &impl XmtpMlsStorageProvider,

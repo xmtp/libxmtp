@@ -232,7 +232,7 @@ impl AccountId {
     /// the chain id as [`Self::get_chain_id_u64`] requires, and an address of
     /// `0x` followed by 40 hexadecimal characters. Checked before any chain
     /// access, so a malformed account id is never routed.
-    // implements: IDENT-060
+    // implements: IDENT-093
     pub fn eip155_chain_id(&self) -> Result<u64, AccountIdError> {
         let chain_id = self.get_chain_id_u64()?;
         self.account_address

@@ -339,7 +339,7 @@ The backend retains messages under its retention policy. A recipient can keep a 
 | META-050 | Expiry from the sent time | When the client first stores a published application message, it MUST assign an expiry exactly when both disappearing settings are present and positive and `sent_at_ns` is not less than `MESSAGE_DISAPPEAR_FROM_NS`. It MUST compute that expiry as `sent_at_ns` plus `MESSAGE_DISAPPEAR_IN_NS` using checked signed 64-bit addition, with a result above `9223372036854775807` clamped to that value. It MUST retain that expiry through later setting changes and MUST NOT assign a disappearing expiry to a membership-change message. | Processing-time expiry gives an offline installation a longer retention period. |
 | META-051 | Expired messages are hidden | When a message's expiry is not later than the current time, the client MUST exclude it from history queries, direct message-id lookups, and new stream deliveries to an app. | A delayed delete must not extend the message's visible life. |
 | META-063 | Delete at the cleanup pass | When a local disappearing-message cleanup pass completes successfully, the client MUST have deleted every published application message whose expiry was not later than the time that pass began. | A sender relies on cooperating recipients removing expired local copies. |
-| META-052 | Settings are readable and settable | An SDK MUST let an app read a conversation's disappearing settings, set both values, and clear them. It MUST report them as enabled exactly when both values are present and greater than 0. | |
+| META-076 | Settings change in one commit | When an app sets or clears a conversation's disappearing settings through the SDK's disappearing-settings call, the SDK MUST write every changed value of `MESSAGE_DISAPPEAR_FROM_NS` and `MESSAGE_DISAPPEAR_IN_NS` in one commit. An SDK MUST let an app read a conversation's disappearing settings, set both values, and clear them, and MUST report them as enabled exactly when both values are present and greater than 0. | A message sent between two commits gets its expiry from half a setting, and META-050 keeps that expiry. |
 
 ## 7. The protocol version floor
 
@@ -362,5 +362,7 @@ A component without a built-in definition is applied by its supported registry t
 Every rejection of an `AppDataUpdate` proposal, whether for authority, for a malformed payload, or for an invariant, is reported to the sender as one error kind. An app cannot tell a permission failure from a malformed value.
 
 Cleanup depends on local execution; META-063 imposes no wall-clock deadline while the client or cleanup work is stopped. Apps can retain copies already delivered to them.
+
+A generic metadata write under META-071 can still change one disappearing setting alone. While only one of the two values is present and positive, META-050 assigns no expiry, and a later setting change does not add one.
 
 Legacy-only groups lack the dictionary identity required by META-019. This spec defines no migration procedure. Previously migrated groups and dictionary-bearing groups with ignored legacy extensions are not excluded.

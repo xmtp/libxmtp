@@ -22,16 +22,16 @@ flowchart LR
 
 In scope: the consent states, the two entities a record names, the wire form of a record, the merge rule, the records a client stores on creation, on send, and on join, the precedence between a join default and an inherited record, how consent filters listings and streams, and what an SDK exposes to an app.
 
-Out of scope: how records travel between installations (`SYNC`), the DM identifier and how a record carries across the groups of one DM (`DMS`), how a stream is delivered (`PROC`), push suppression by consent (`PUSH`), readd requests gated by consent (FORK-053, FORK-060), and archive import (`ARCH`).
+Out of scope: how records travel between installations (`SYNC`), the DM identifier and how a record carries across the groups of one DM (`DMS`), how a stream is delivered (`PROC`), push suppression by consent (`PUSH`), readd requests gated by consent (FORK-053, FORK-080), and archive import (`ARCH`).
 
 | Related | Relation |
 | --- | --- |
 | `SYNC` | Owns the message that carries a record to a peer installation and when one is published. This spec owns the record and the merge. |
 | `JOIN` | Owns the join itself. This spec owns the record a conversation starts with when the join completes. |
 | `DMS` | Owns the DM identifier and DMS-010, which carries a record across the groups of one DM. CONS-024 owns only its precedence against a join default. |
-| `META` | Owns `CREATOR_INBOX_ID` and `CONVERSATION_TYPE`, which CONS-023 reads, and META-075, which binds the creator to write its own inbox id. |
+| `META` | Owns `CREATOR_INBOX_ID` and `CONVERSATION_TYPE`, which CONS-045 reads, and META-075, which binds the creator to write its own inbox id. |
 | `PUSH` | Owns which conversations produce push notifications. It reads conversation consent. |
-| FORK-053, FORK-060 | Own acceptance and response to readd requests, including consent checks. |
+| FORK-053, FORK-080 | Own acceptance and response to readd requests, including consent checks. |
 | `ARCH` | Owns the archive. An imported record is merged under CONS-010. |
 | `EVENT` | EVENT-001 owns `consent.changed` emission. EVENT-030 and EVENT-031 own queue loss and the `lagged` report. |
 
@@ -47,12 +47,13 @@ Out of scope: how records travel between installations (`SYNC`), the DM identifi
 | App act | An app setting a state through an SDK. |
 | Default | A record the client stores without a decision, at consent time 0. |
 | Consent filter | The set of states an app passes when it lists or streams conversations or messages. An absent filter and an empty filter are different things. |
+| Listing time | The time a conversation listing orders by: a conversation's creation time when the app orders by creation, and its last-activity time under CONS-048 otherwise. |
 
 ## 1. States and entities
 
 A record is in one of three states. Unknown is both a stored state and the state of an entity with no record; the two are indistinguishable to an app and to a filter. Allowed and denied are decisions.
 
-A record names one of two entities. Conversation consent is what the client acts on: it gates listing and streaming (section 4), push notifications (`PUSH`), and readd requests (FORK-053, FORK-060). Inbox consent is state an app reads and sets, and that the client reports for each member of a group; the client does not derive conversation consent from it, and no listing or stream reads it (Known limitations).
+A record names one of two entities. Conversation consent is what the client acts on: it gates listing and streaming (section 4), push notifications (`PUSH`), and readd requests (FORK-053, FORK-080). Inbox consent is state an app reads and sets, and that the client reports for each member of a group; the client does not derive conversation consent from it, and no listing or stream reads it (Known limitations).
 
 The record has one wire form. A peer installation reads it (`SYNC`) and an archive stores it (`ARCH`), so its encoding is a compatibility contract between installations and between versions.
 
@@ -118,8 +119,8 @@ Leaving a group and being added back replaces previously set consent state with 
 | CONS-020 | Creating allows | When the client creates a group or a DM at an app's request, it MUST store allowed for that conversation with the current time as the consent time. | |
 | CONS-021 | Sending allows | When the client publishes a message an app sent in a conversation whose conversation consent is not allowed, it MUST store allowed for that conversation with the current time as the consent time. | A conversation the user replied in that stays unknown drops out of the listing on the next filter. |
 | CONS-022 | Joining stores no decision | When the client completes a join from a Welcome, it MUST NOT store a record with a consent time other than 0 for that conversation, except under CONS-025 and DMS-010. | A conversation the user did not ask for that starts allowed is presented as wanted, on every installation at once. |
-| CONS-023 | The own inbox's group is allowed | When the client completes a join from a Welcome whose `CREATOR_INBOX_ID` is the own inbox and whose adder under JOIN-025 is the own inbox, and the conversation has no record, it MUST store allowed for it at consent time 0. When either names another inbox, it MUST NOT store allowed. | `CREATOR_INBOX_ID` alone is the creator's claim; a group that names the recipient as its creator and is added by a stranger is a stranger's group. |
-| CONS-024 | Inherited beats a default | When a join qualifies for DMS-010 and for CONS-023, the client MUST store the inherited record and MUST NOT store the default; when it qualifies for DMS-010 and for CONS-025, the client MUST apply CONS-025 to the inherited record. | An inherited record is the user's decision about the pair; a default replacing it undoes a block. |
+| CONS-045 | The own inbox's group is allowed | When the client completes a join from a Welcome whose `CREATOR_INBOX_ID` is the own inbox and whose adder under JOIN-025 is the own inbox, and the conversation has no record, it MUST store allowed for it at consent time 0. When either names another inbox, it MUST NOT store allowed for it, except a record it inherits under DMS-010. | `CREATOR_INBOX_ID` alone is the creator's claim; a group that names the recipient as its creator and is added by a stranger is a stranger's group. |
+| CONS-024 | Inherited beats a default | When a join qualifies for DMS-010 and for CONS-045, the client MUST store the inherited record and MUST NOT store the default; when it qualifies for DMS-010 and for CONS-025, the client MUST apply CONS-025 to the inherited record. | An inherited record is the user's decision about the pair; a default replacing it undoes a block. |
 | CONS-025 | Re-added after leaving | When the client completes a join from a Welcome for a group it holds a published leave request for, and the stored record's consent time is less than the backend's timestamp on the Welcome, it MUST store unknown for that conversation with that timestamp as the consent time. | A user who left is added back without asking. Allowed carried over lists the group as if they had agreed. |
 
 ## 4. Gating listing and streaming
@@ -135,6 +136,10 @@ A message listing within one conversation is not filtered: the app named the con
 | CONS-042 | Default all-message stream | When an app streams messages across all its conversations with no consent filter, the client MUST deliver only messages from conversations whose conversation consent is allowed or unknown, as CONS-031 does for listings. | Messages from a denied conversation must not reach an app that used the default consent choice. |
 | CONS-043 | One conversation stream | When an app streams messages from one named conversation with no consent filter, the client MUST NOT filter that stream by the conversation's consent state. | The app has selected that conversation explicitly. |
 | CONS-044 | Default conversation stream | When an app streams conversations with no consent filter, the client MUST deliver new conversations of every consent state. | An app that hides a new denied conversation cannot show it in a blocked list. |
+| CONS-046 | Conversation page size | When an app lists conversations, an SDK MUST return at most the `limit` the app names, or at most 100 conversations when the app names none, and MUST fail the call with an invalid-argument error when `limit` is less than 1 or greater than 1000. | The default listing includes unknown conversations (CONS-031), so without a page size one call returns every conversation that any stranger creates for the user. |
+| CONS-047 | Pages resume after ties | When an app lists conversations with a before time and a conversation id, an SDK MUST return only conversations whose listing time is less than that time, or equal to it with a group id lower in byte order than that conversation's group id. | A cursor of time alone skips every conversation that shares the boundary time, and a sender can give many conversations the same last-activity time. |
+| CONS-049 | Pages are ordered | When an app lists conversations, an SDK MUST return the matching conversations in order of descending listing time and then descending group id in byte order, starting with the first that CONS-047 admits, up to the page size of CONS-046, where the listing time is the creation time in creation order and the CONS-048 time in activity order; when the app names a before conversation id without a before time, the SDK MUST fail the call with an invalid-argument error. | A page that may hold any matching subset, or that orders ties by ascending id, skips or repeats every conversation that shares the boundary time, even with the CONS-047 cursor. |
+| CONS-048 | Activity time matches the listing | When an app reads a conversation's last-activity time without naming content types, an SDK MUST return the greatest send time among the conversation's unexpired application messages that an activity-ordered listing counts, or its creation time when there is none. An activity-ordered listing MUST use that same time as its listing time under CONS-049. | An app pages an activity-ordered listing with this time, and a time that counts an expired message names a later boundary than the listing used and returns the same conversations again. |
 
 ## 5. What an app can read and set
 
@@ -148,10 +153,12 @@ An app reads consent to build its inbox and its request list, sets it when the u
 
 The consent time is the setting installation's clock. An installation whose clock is behind loses every merge against one whose clock is ahead, including for a decision the user made later. The client does not correct for skew.
 
-CONS-023 proves that an installation of the own inbox added this one to a group that names the own inbox as creator, not that the own inbox created it. A stranger's group that names the recipient as creator is unknown on the installation the stranger added, and allowed on a second installation that the first one adds under GMOD-029. The window closes when the user decides on either.
+CONS-045 proves that an installation of the own inbox added this one to a group that names the own inbox as creator, not that the own inbox created it. A stranger's group that names the recipient as creator is unknown on the installation the stranger added, and allowed on a second installation that the first one adds under GMOD-029. The window closes when the user decides on either.
 
 Inbox consent gates nothing. Denying an inbox does not hide its DM or block its group invitations; only the conversation's own consent does. An app that offers "block this person" sets the conversation consent of every conversation with that inbox itself.
 
 A join default is derived on each installation and not published. Two installations converge because each applies the same rule to the same Welcome, and because a default sits at time 0 under every decision, not because either tells the other.
 
 Two groups for one DM identifier can hold different consent after an app act, because the act names one group. A listing presents one group per DM identifier (DMS-007), so the app sees one state, and a further duplicate inherits the greatest under DMS-010.
+
+In activity order, a conversation whose last-activity time changes between two pages, because a message arrives or expires, can be returned twice or skipped. In creation order, a group's creation time does not change, so each conversation is returned once, with two exceptions. A DM whose listed group changes between two pages, because a message arrives in another group for the same DM identifier (DMS-007, DMS-013), is then listed with that group's id and creation time, so it can be returned twice or skipped. A restored group whose Welcome arrives between two pages takes the Welcome's processing time as its creation time, so it can be skipped.

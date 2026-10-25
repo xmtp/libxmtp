@@ -198,8 +198,8 @@ message GroupMessageSave {
   optional int64 sequence_id = 14;
   optional int64 originator_id = 15;
   string content_type = 16;
-  optional int64 expires_at_ns = 17; // pending: absolute expiry under ARCH-019
-  optional bool expiry_known = 18;   // pending: true distinguishes no expiry from unknown
+  optional int64 expires_at_ns = 17; // absolute expiry under ARCH-019
+  optional bool expiry_known = 18;   // true distinguishes no expiry from unknown
 }
 
 // Group message kind
@@ -252,7 +252,7 @@ The eligibility table defines the exported set. An empty explicit selection sele
 | MESSAGES: messages | Every application message in those conversations that satisfies ARCH-009 |
 | CONSENT | Every consent record, with no time window |
 
-Expiry is the absolute deadline assigned under META-050, not one recalculated from group settings at restore time. Settings may have changed after a message was sent. The pending fields in `GroupMessageSave` distinguish a known deadline, known absence of a deadline, and missing historical information.
+Expiry is the absolute deadline assigned under META-050, not one recalculated from group settings at restore time. Settings may have changed after a message was sent. The `expires_at_ns` and `expiry_known` fields in `GroupMessageSave` distinguish a known deadline, known absence of a deadline, and missing historical information.
 
 Legacy conversion uses the same selection and required-record rules. MIG-005 permits absent optional metadata when legacy decoding fails. Ordinary SDK database export retains the strict metadata failure rule.
 
@@ -298,7 +298,7 @@ Restored conversations report an unknown creator, empty member and role lists, a
 
 A restored conversation whose group id is 16 bytes can never be activated: no installation holds a group root that derives a 16-byte id, so every Welcome naming it fails JOIN-083. Its history stays read-only on the installation that imported it.
 
-A message with a future expiry can remain in the archive after its deadline. Import applies META-051 only when the archive preserves that deadline. Legacy archives lack per-message expiry information; they remain readable with unknown expiry under ARCH-019. The store records unknown expiry and no expiry alike, so after activation, `exclude_disappearing_messages` can export imported messages whose expiry is unknown. This is waived under ARCH-009 until the store can tell them apart.
+A message with a future expiry can remain in the archive after its deadline. Import applies META-051 only when the archive preserves that deadline. Archives written before `expiry_known` existed lack per-message expiry information; their messages remain readable with unknown expiry under ARCH-019, and current group settings cannot recover their deadlines. A message imported by a client version that did not record unknown expiry reports no expiry, because nothing stored separates it from a message that never expires, and an export with `exclude_disappearing_messages` still includes it.
 
 A frame for a missing group fails restoration when the destination lacks that group. This does not delete source data or corrupt the destination. Earlier completed elements remain, and an unchanged retry reaches the same failure.
 

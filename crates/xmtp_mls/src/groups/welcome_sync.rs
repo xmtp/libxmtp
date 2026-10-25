@@ -535,7 +535,7 @@ where
     }
 
     /// Resolve one Welcome's dependencies. Group-prefix work stays with the coordinator.
-    // implements: JOIN-086
+    // implements: JOIN-094
     pub(crate) async fn resolve_pending_welcome(
         &self,
         cursor: Cursor,
@@ -1532,7 +1532,7 @@ mod tests {
     /// miss, but the fixed pointer deadline still bounds missing data. At the
     /// cutoff, a real fetch can recover the join; a miss must release the row.
     /// Missing legacy deadlines use the pointer timestamp, never the retry time.
-    // verifies: JOIN-086, JOIN-063, JOIN-035
+    // verifies: JOIN-063, JOIN-035
     #[rstest]
     #[case::recovered(false)]
     #[case::still_missing(true)]
@@ -1688,7 +1688,7 @@ mod tests {
     /// Query failures obey the same fixed fetch window as absent pointees,
     /// including rows persisted as welcome_retry by older clients. An existing
     /// unreadable hold keeps its own deadline through transport failures.
-    // verifies: JOIN-086, JOIN-087, JOIN-063, JOIN-035
+    // verifies: JOIN-087, JOIN-063, JOIN-035
     #[rstest]
     #[case::fresh(None, false)]
     #[case::legacy_retry(Some("welcome_retry"), false)]

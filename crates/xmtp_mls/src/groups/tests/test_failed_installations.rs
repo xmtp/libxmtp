@@ -25,7 +25,7 @@ use xmtp_mls_validation::commit::extract_group_membership;
 /// records the absent one as failed. Every installation in the inbox is then
 /// a leaf or a failed installation, so a joiner accepts the Welcome. Dropping
 /// the absent installation silently would make every joiner reject it.
-// verifies: JOIN-011, JOIN-012, GMOD-009
+// verifies: JOIN-012, GMOD-009
 #[xmtp_common::test(unwrap_try = true)]
 async fn missing_package_is_recorded() {
     tester!(alix);
