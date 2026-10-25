@@ -111,7 +111,18 @@ async fn group(alix: &FullXmtpClient, bo: &FullXmtpClient) -> (TestMlsGroup, Tes
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await
         .unwrap();
-    let bo_group = bo.wait_for_welcomes().await.unwrap().remove(0);
+    // A fixed-target sync can return no new groups after the Welcome was imported.
+    xmtp_common::wait_for_eq(
+        || async {
+            bo.sync_welcomes().await.unwrap();
+            bo.group(&alix_group.group_id)
+                .is_ok_and(|group| group.is_active().unwrap())
+        },
+        true,
+    )
+    .await
+    .unwrap();
+    let bo_group = bo.group(&alix_group.group_id).unwrap();
     bo_group.sync().await.unwrap();
     (alix_group, bo_group)
 }
