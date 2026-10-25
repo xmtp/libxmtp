@@ -623,20 +623,23 @@ async fn smaller_limit_republishes_the_pointers_of_a_stored_pointee(
 /// When some saved Welcome bytes no longer fit and the backend holds none of
 /// them, the batch cannot complete, but every recipient that can still join
 /// must get its envelope before the intent ends. An unreturned pointee that
-/// fits goes out first, and the pointers follow only when their pointee is
+/// fits goes out first, and the pointers follow unless the pointee does not
+/// fit or the backend refused it; a pointee whose response was lost may be
 /// stored. An inline Welcome that does not fit is never sent, the saved
 /// batch keeps no receipts, and its bytes never change.
 // verifies: SEND-025
 #[rstest::rstest]
-#[case::pointee_stored(true, false, None)]
-#[case::pointee_lost(false, false, None)]
-#[case::pointee_fits(false, true, None)]
-#[case::pointee_refused(false, true, Some(Fault::Refuse(tonic::Code::InvalidArgument)))]
+#[case::pointee_stored(true, false, None, true)]
+#[case::pointee_lost(false, false, None, false)]
+#[case::pointee_fits(false, true, None, true)]
+#[case::pointee_refused(false, true, Some(Fault::Refuse(tonic::Code::InvalidArgument)), false)]
+#[case::pointee_response_lost(false, true, Some(Fault::LoseResponse), true)]
 #[xmtp_common::test(unwrap_try = true)]
 async fn smaller_limit_publishes_pointers_whose_pointee_is_stored(
     #[case] pointee_stored: bool,
     #[case] pointee_fits: bool,
     #[case] fault: Option<Fault>,
+    #[case] pointers_sent: bool,
 ) -> Result<(), GroupError> {
     tester!(alix, disable_workers);
     tester!(bo, disable_workers);
@@ -694,7 +697,6 @@ async fn smaller_limit_publishes_pointers_whose_pointee_is_stored(
     assert_eq!(saved_attempt(&group, intent_id).welcomes, Some(welcomes));
     assert_eq!(recorder.sends_of(pointee), usize::from(pointee_fits));
     assert_eq!(recorder.sends_of(inline), 0);
-    let pointers_sent = pointee_stored || (pointee_fits && fault.is_none());
     for pointer in &pointers {
         assert_eq!(recorder.sends_of(pointer), usize::from(pointers_sent));
     }
@@ -925,6 +927,31 @@ async fn send_goes_on_when_refreshed_installations_get_no_welcome() {
     );
     bo2.sync_welcomes().await?;
     assert!(bo2.group(&group.group_id).is_err());
+}
+
+/// A process can stop after a membership change's echo is applied and before
+/// its Welcomes are sent, and nothing else resumes that batch. The next send
+/// in the conversation must send it, so the new member can join.
+// verifies: SEND-011
+#[xmtp_common::test(unwrap_try = true)]
+async fn next_send_publishes_owed_welcomes() {
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    let group = alix.create_group(None, None)?;
+    group.key_update().await?;
+    let membership = commit_membership_change(&group, &[bo.inbox_id()]).await;
+
+    group
+        .send_message(b"after a restart", Default::default())
+        .await?;
+    let completed = only_intent(
+        &group,
+        IntentState::Processed,
+        IntentKind::UpdateGroupMembership,
+    );
+    assert_eq!(completed.id, membership);
+    bo.sync_welcomes().await?;
+    bo.group(&group.group_id)?;
 }
 
 /// Rewrite the saved one-envelope attempt of `intent_id` as an earlier build

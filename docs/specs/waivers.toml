@@ -379,6 +379,13 @@ issue = "https://github.com/xmtp/libxmtp/issues/4644"
 reason = "OpenMLS logs the serialized group context, root included, at TRACE under `openmls::schedule`, which a Rust host that installs its own global subscriber with the `tracing-log` bridge receives, because `xmtp_logging::group_context_guard` covers only the subscribers libxmtp installs."
 
 [[waiver]]
+id = "SEND-024"
+kind = "gap"
+owner = "Nicholas Molnar"
+issue = "TBD-octane-tracking"
+reason = "A call waiting on a later intent still runs every earlier intent's Welcome publish in the same round. When that publish stalls past the wait's deadline, a later intent that owes its own Welcomes returns published but unconfirmed, and a later intent that owes none reports success only at that deadline. An earlier publish that fails no longer blocks the later intent."
+
+[[waiver]]
 id = "CONS-046"
 kind = "gap"
 owner = "Nicholas Molnar"

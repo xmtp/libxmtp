@@ -124,34 +124,13 @@ impl PreparedWelcomes {
 impl<Context: XmtpSharedContext> MlsGroup<Context> {
     /// Resume required work for committed intents, including after restart.
     /// A commit is not `Processed` until its complete Welcome batch has receipts.
-    /// One intent's failure does not hold the others: every committed intent
-    /// is attempted in id order, and the lowest intent's error is returned
-    /// after the last one.
+    /// Every committed intent is prepared first, which completes an intent
+    /// that owes no Welcomes without any network work; then each saved batch
+    /// is sent or settled in id order. One intent's failure does not hold the
+    /// others, and the lowest intent's error is returned after the last one.
+    // implements: SEND-024
     pub(in crate::groups::mls_sync) async fn publish_required_welcomes(
         &self,
-    ) -> Result<(), GroupError> {
-        self.publish_required_welcomes_where(|_| true).await
-    }
-
-    /// The follow-up work of a call waiting on `intent_id`: complete every
-    /// committed intent that owes no Welcomes, and send only the Welcomes of
-    /// `intent_id`. Another intent's batch, which can stall or fail, never
-    /// delays this intent's outcome; `publish_required_welcomes` sends it.
-    pub(in crate::groups::mls_sync) async fn publish_required_welcomes_of(
-        &self,
-        intent_id: i32,
-    ) -> Result<(), GroupError> {
-        self.publish_required_welcomes_where(|id| id == intent_id)
-            .await
-    }
-
-    /// Prepare the follow-up of every committed intent, which completes an
-    /// intent that owes no Welcomes without any network work, then send or
-    /// settle the batches of the intents `send` selects.
-    // implements: SEND-024
-    async fn publish_required_welcomes_where(
-        &self,
-        send: impl Fn(i32) -> bool,
     ) -> Result<(), GroupError> {
         let ids = self
             .context
@@ -177,8 +156,8 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
         let mut batches = Vec::new();
         for id in ids {
             match self.prepare_required_welcomes(id) {
-                Ok(Some(attempt)) if send(id) => batches.push((id, attempt)),
-                Ok(_) => {}
+                Ok(Some(attempt)) => batches.push((id, attempt)),
+                Ok(None) => {}
                 Err(error) => record(id, error),
             }
         }
@@ -238,8 +217,8 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
     /// from a response, and an unstored envelope belonged to a request that
     /// never completed. Otherwise the batch cannot be completed: each
     /// unreturned envelope that fits is published once, except the pointers
-    /// to a pointee that is not stored, and the batch is unsendable. The
-    /// batch is never re-encrypted.
+    /// to a pointee that does not fit or that the backend refused, and the
+    /// batch is unsendable. The batch is never re-encrypted.
     // implements: SEND-007, SEND-023
     async fn settle_welcomes(
         &self,
@@ -293,23 +272,28 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
         // A recipient whose envelope is stored or still fits can join, so it
         // gets that envelope before the intent ends. A pointer cannot resolve
         // without its pointee, so an unreturned pointee goes out first and
-        // alone, and the pointers follow only once it is stored. These
-        // publishes come first, so a restart before the intent ends reaches
-        // the same decision, and their results do not change that decision.
+        // alone. The pointers are held back only when the pointee cannot be
+        // stored: it does not fit, or the backend refused it. Any other
+        // failure can follow a stored pointee. These publishes come first, so
+        // a restart before the intent ends reaches the same decision, and
+        // their results do not change that decision.
         let kinds = welcomes.kinds()?;
-        let pointee_stored = match unreturned
+        let pointee_lost = match unreturned
             .iter()
             .find(|&&index| kinds[index] == WelcomeEnvelopeKind::Pointee)
         {
-            None => true,
+            None => false,
             Some(&index) => match units[index].take() {
-                None => false,
-                Some(pointee) => self.publish_unsendable(vec![pointee]).await,
+                None => true,
+                Some(pointee) => self
+                    .publish_unsendable(vec![pointee])
+                    .await
+                    .is_some_and(|error| definite_refusal(&error)),
             },
         };
         let useful: Vec<_> = unreturned
             .into_iter()
-            .filter(|&index| pointee_stored || kinds[index] != WelcomeEnvelopeKind::Pointer)
+            .filter(|&index| !(pointee_lost && kinds[index] == WelcomeEnvelopeKind::Pointer))
             .filter_map(|index| units[index].take())
             .collect();
         if !useful.is_empty() {
@@ -319,19 +303,15 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
     }
 
     /// Publish envelopes of a batch that is about to end. A failure is logged
-    /// and does not change that outcome. Returns whether the backend
-    /// acknowledged every unit.
-    async fn publish_unsendable(&self, units: Vec<PublishUnit>) -> bool {
-        match self.context.api().publish_units(units).await {
-            Ok(_) => true,
-            Err(error) => {
-                tracing::warn!(
-                    group_id = %self.group_id.short_hex(),
-                    "Welcomes of an unsendable batch not published: {error}"
-                );
-                false
-            }
-        }
+    /// and does not change that outcome; it is returned for the caller to
+    /// classify.
+    async fn publish_unsendable(&self, units: Vec<PublishUnit>) -> Option<xmtp_api::ApiError> {
+        let error = self.context.api().publish_units(units).await.err()?;
+        tracing::warn!(
+            group_id = %self.group_id.short_hex(),
+            "Welcomes of an unsendable batch not published: {error}"
+        );
+        Some(error)
     }
 
     /// Save follow-up bytes once, after a positive ordered commit cursor is known.

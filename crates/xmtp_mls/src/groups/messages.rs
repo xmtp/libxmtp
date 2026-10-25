@@ -4,8 +4,9 @@ use super::mls_sync::publish::OutgoingPreparationError;
 use super::*;
 
 /// An installation refresh before a send applies its membership change even
-/// when the Welcomes for the installations it adds cannot be sent. The send
-/// goes on; the membership change's own waiter already received that outcome.
+/// when the Welcomes for the installations it adds cannot be sent. That
+/// outcome is logged and dropped here, so the send goes on; the installations
+/// stay without a Welcome, as the SEND Known limitations describe.
 fn unsent_welcomes_do_not_stop_a_send(result: Result<(), GroupError>) -> Result<(), GroupError> {
     match result {
         Err(GroupError::OutgoingPreparation(OutgoingPreparationError::WelcomesUnsendable)) => {

@@ -270,14 +270,16 @@ async fn intent_sync_deadline_bounds_a_stalled_welcome_publish() {
 }
 
 /// An earlier membership change whose Welcome publish never answers must not
-/// hold a later send. The send's wait completes the send once its echo is
-/// applied and never starts the earlier batch's publish; a group sync owns
-/// that work. The earlier change stays committed and still owes its batch.
+/// turn a later send into published but unconfirmed. The round completes the
+/// send once its echo is applied, before it runs the earlier batch's publish.
+/// That publish still holds the wait until its deadline, and then the send
+/// reports success. The earlier change stays committed and still owes its
+/// batch.
 // verifies: SEND-024
 #[xmtp_common::test(unwrap_try = true)]
 async fn later_send_completes_while_earlier_welcomes_fail() {
     /// Long enough for the send's own round on a loaded test machine.
-    const SEND_BUDGET: Duration = Duration::from_secs(10);
+    const SEND_BUDGET: Duration = Duration::from_secs(5);
     tester!(alix, disable_workers);
     tester!(bo, disable_workers);
     let group = alix.create_group(None, None)?;
@@ -293,7 +295,7 @@ async fn later_send_completes_while_earlier_welcomes_fail() {
     )
     .await??;
     let api = client.context.api().api_client.raw_for_test();
-    assert!(!api.entered.load(Ordering::SeqCst));
+    assert!(api.entered.load(Ordering::SeqCst));
     let sends = group.context.db().find_group_intents(
         group.group_id,
         Some(vec![IntentState::Processed]),

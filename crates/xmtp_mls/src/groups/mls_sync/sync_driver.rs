@@ -548,7 +548,7 @@ where
                 cause.into()
             });
         }
-        if let Err(error) = self.publish_required_welcomes_of(intent_id).await {
+        if let Err(error) = self.post_commit().await {
             summary.add_post_commit_err(error);
         }
         Ok(summary)
