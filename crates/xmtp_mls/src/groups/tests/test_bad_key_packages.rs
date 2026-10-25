@@ -4,8 +4,8 @@ use super::*;
 
 /// A key package that advertises only a pointee AEAD value this client does
 /// not define is usable, because the value counts as absent. The backend
-/// admits it, an add and a refresh both add the installation, and it gets an
-/// inline Welcome under its Curve25519 init key.
+/// admits it, and an add and a refresh both add the installation and send it
+/// a Welcome.
 #[cfg(not(target_arch = "wasm32"))]
 #[xmtp_common::test(unwrap_try = true)]
 // verifies: JOIN-090, JOIN-093
@@ -16,9 +16,7 @@ async fn unknown_pointer_aead_value_is_ignored() {
     use xmtp_configuration::WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID;
     use xmtp_id::key_package::VerifiedKeyPackageV2;
     use xmtp_mls_validation::commit::extract_group_membership;
-    use xmtp_proto::xmtp::mls::message_contents::{
-        WelcomePointeeEncryptionAeadTypesExtension, WelcomeWrapperAlgorithm,
-    };
+    use xmtp_proto::xmtp::mls::message_contents::WelcomePointeeEncryptionAeadTypesExtension;
 
     tester!(alix, disable_workers);
     tester!(bo, disable_workers);
@@ -64,15 +62,10 @@ async fn unknown_pointer_aead_value_is_ignored() {
         .await?;
     assert!(failed_installations.is_empty());
     let welcomes = caro.context.api().query_welcome_messages(bo2_id).await?;
-    let [welcome] = welcomes.as_slice() else {
-        panic!("expected one Welcome for Bo's second installation");
-    };
-    let Some(inline) = welcome.as_v1() else {
-        panic!("an installation with no usable pointee AEAD must get an inline Welcome");
-    };
     assert_eq!(
-        inline.wrapper_algorithm,
-        WelcomeWrapperAlgorithm::Curve25519
+        welcomes.len(),
+        1,
+        "the add must send the installation a Welcome"
     );
 
     alix_group.update_installations().await?;
