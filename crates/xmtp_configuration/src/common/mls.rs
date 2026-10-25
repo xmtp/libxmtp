@@ -42,7 +42,8 @@ pub const IDENTITY_REFERENCE_WAIT: std::time::Duration = std::time::Duration::fr
 pub const IDENTITY_REFERENCE_RETRY_INTERVAL: std::time::Duration =
     std::time::Duration::from_millis(250);
 
-/// Maximum concurrent identity proof requests in one resolver batch.
+/// Maximum concurrent identity proof requests in one resolver batch, and the
+/// most association states one batch read derives at once.
 pub const IDENTITY_DEPENDENCY_CONCURRENCY: usize = 8;
 
 pub const CREATE_PQ_KEY_PACKAGE_EXTENSION: bool = true;
