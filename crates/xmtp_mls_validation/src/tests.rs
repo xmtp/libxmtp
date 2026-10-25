@@ -230,12 +230,14 @@ fn p256_key_package_envelope() -> (ClientEnvelope, Vec<u8>) {
     )
 }
 
+/// A P-256 key package fails two separate checks. Verification refuses it
+/// because, without a 0xff03 extension, its wrapper is Curve25519 under its
+/// init key, which is a P-256 key. Parsing refuses it first, as a malformed
+/// payload, because its 65-byte signature key breaks the topic contract.
 // verifies: JOIN-090
 #[xmtp_common::test(unwrap_try = true)]
-fn key_package_topic_length_is_separate_from_ciphersuite_validation() {
+fn p256_key_package_fails_the_init_key_wrapper_and_topic_checks() {
     let (envelope, bytes) = p256_key_package_envelope();
-    // Without a 0xff03 extension the wrapper is Curve25519 under the init
-    // key, and a P-256 init key does not have the Curve25519 key length.
     assert!(matches!(
         verify_key_package(&bytes),
         Err(
@@ -751,15 +753,16 @@ async fn validation_reports_claimed_handle() {
     assert!(created.claimed_handles.is_empty());
 }
 
-/// A key package whose addressing extensions no sender can use is refused
-/// at admission as an invalid key package. An undefined pointee AEAD value
-/// is not a reason to refuse one.
+/// Admission runs the addressing checks: a key package whose X-Wing wrapper
+/// key is one byte short is refused as an invalid key package. An undefined
+/// pointee AEAD value is not a reason to refuse one. The xmtp_id unit tests
+/// cover each other unusable extension.
 // verifies: JOIN-090, API-230
 #[xmtp_common::test(unwrap_try = true)]
 async fn key_package_admission_rejects_unusable_addressing_extensions() {
     use xmtp_configuration::{
-        WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID as POINTEE_AEAD,
-        WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID as WRAPPER,
+        WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID,
+        WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID, WELCOME_WRAPPER_XWING_KEY_BYTES,
     };
     use xmtp_proto::xmtp::mls::message_contents::{
         WelcomePointeeEncryptionAeadTypesExtension, WelcomeWrapperEncryption,
@@ -776,41 +779,38 @@ async fn key_package_admission_rejects_unusable_addressing_extensions() {
         )
         .await
     }
-    let wrapper = |algorithm, key_bytes| {
-        WelcomeWrapperEncryption {
-            pub_key: vec![9; key_bytes],
-            algorithm,
-        }
-        .encode_to_vec()
-    };
 
     let undefined_aead = WelcomePointeeEncryptionAeadTypesExtension {
         supported_aead_types: vec![i32::MAX],
     };
-    let fixture = addressing_key_package_envelope(POINTEE_AEAD, undefined_aead.encode_to_vec());
+    let fixture = addressing_key_package_envelope(
+        WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID,
+        undefined_aead.encode_to_vec(),
+    );
     assert!(admit(fixture).await?.is_none());
 
-    for (extension_id, data) in [
-        (POINTEE_AEAD, vec![0xff]),
-        (WRAPPER, wrapper(0, 32)),
-        (WRAPPER, wrapper(99, 32)),
-        (WRAPPER, wrapper(1, 31)),
-        (WRAPPER, wrapper(2, 1215)),
-    ] {
-        let error = admit(addressing_key_package_envelope(extension_id, data.clone()))
-            .await
-            .err()
-            .expect("an unusable addressing extension must fail admission");
-        assert!(
-            matches!(
-                &error,
-                ValidationError::KeyPackage(
-                    xmtp_id::key_package::KeyPackageVerificationError::ConversionError(_)
+    let short_xwing_key = WelcomeWrapperEncryption {
+        pub_key: vec![9; WELCOME_WRAPPER_XWING_KEY_BYTES - 1],
+        algorithm: xmtp_id::key_package::WrapperAlgorithm::XWingMLKEM768Draft6.into(),
+    };
+    let fixture = addressing_key_package_envelope(
+        WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID,
+        short_xwing_key.encode_to_vec(),
+    );
+    let error = admit(fixture)
+        .await
+        .err()
+        .expect("a short X-Wing wrapper key must fail admission");
+    assert!(
+        matches!(
+            &error,
+            ValidationError::KeyPackage(
+                xmtp_id::key_package::KeyPackageVerificationError::ConversionError(
+                    xmtp_proto::ConversionError::InvalidLength { .. }
                 )
-            ),
-            "{extension_id:#x} {}: {error:?}",
-            data.len()
-        );
-        assert_eq!(error.reason(), Reason::InvalidKeyPackage);
-    }
+            )
+        ),
+        "{error:?}"
+    );
+    assert_eq!(error.reason(), Reason::InvalidKeyPackage);
 }
