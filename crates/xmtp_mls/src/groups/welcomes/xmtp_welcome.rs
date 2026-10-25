@@ -564,6 +564,14 @@ where
             db.update_group_membership(existing.id, GroupMembershipState::Allowed)?;
         }
 
+        // implements: FORK-041
+        if existing_group
+            .as_ref()
+            .is_some_and(|group| group.membership_state != GroupMembershipState::Restored)
+        {
+            db.set_group_commit_log_forked_status(&group_id, None)?;
+        }
+
         // Insert the group, replace a Restored placeholder, or advance an existing cursor.
         let stored_group = db.insert_or_replace_group(to_store)?;
         let consent_entity = hex::encode(stored_group.id);

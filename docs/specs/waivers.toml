@@ -35,27 +35,6 @@ issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "A super admin promoted after joining never publishes commit-log entries, because should_publish_commit_log is set only at group creation and at Welcome."
 
 [[waiver]]
-id = "FORK-041"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "is_commit_log_forked is never reset after a replacement Welcome, and the worker excludes groups already marked forked, so a repaired member reports forked for ever."
-
-[[waiver]]
-id = "FORK-080"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "The readd responder requires is_super_admin and a DM's super admin list is empty, so a DM readd request is never answered."
-
-[[waiver]]
-id = "FORK-062"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "apply_readd_installations_intent removes a target whose key package fetch failed and records it in failed_installations instead of leaving it in place."
-
-[[waiver]]
 id = "IDENT-091"
 kind = "gap"
 owner = "protocol"
@@ -538,13 +517,6 @@ kind = "gap"
 owner = "Nicholas Molnar"
 issue = "TBD-octane-tracking"
 reason = "The chain-continuity check does not consider the entry's author, so any holder of the commit-log key can extend or break the accepted chain."
-
-[[waiver]]
-id = "GMOD-052"
-kind = "gap"
-owner = "Nicholas Molnar"
-issue = "TBD-octane-tracking"
-reason = "Only a super admin's matched remove-and-add is treated as a readd, so a DM member's readd is rejected."
 
 [[waiver]]
 id = "JOIN-089"

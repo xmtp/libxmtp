@@ -32,6 +32,7 @@ use xmtp_mls_common::{
     libxmtp_version::{InvalidVersionFormat, LibXMTPVersion},
 };
 use xmtp_mls_validation::{
+    ForkActors,
     commit::{
         CommitParticipant, CommitRuleError, Inbox, MembershipValidationInfo, MetadataChanges,
         ProposalChanges, build_inbox_with_proposer, extract_commit_participant,
@@ -372,7 +373,8 @@ impl ValidatedCommit {
 
         // Remove readded installations from the added/removed/failed lists before going through validation
         let readded_installations = extract_readded_installations(
-            &actor,
+            ForkActors::new(&immutable_metadata, &mutable_metadata)
+                .readd_authority(&actor.inbox_id),
             &mut added_installations,
             &mut removed_installations,
             &mut failed_installations,

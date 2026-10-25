@@ -548,6 +548,7 @@ pub(crate) fn welcome_post_commit_action(
 }
 
 #[xmtp_common::mls_span]
+// implements: FORK-062
 pub(crate) fn apply_readd_installations_intent(
     storage: &impl XmtpMlsStorageProvider,
     openmls_group: &mut OpenMlsGroup,
@@ -559,13 +560,17 @@ pub(crate) fn apply_readd_installations_intent(
     let readded_installations: HashSet<Vec<u8>> =
         intent_data.readded_installations.into_iter().collect();
 
-    // Filter out installations not in the ratchet tree. Do not readd installations:
-    // 1. That have since been removed
-    // 2. Are in the failed installations list (these should be retried by group members some other way)
+    let usable: HashSet<Vec<u8>> = changes_with_kps
+        .new_key_packages
+        .iter()
+        .map(|package| package.leaf_node().signature_key().as_slice().to_vec())
+        .collect();
+    // A missing key package must leave the installation's existing leaf intact.
     let mut installations_to_readd = HashSet::new();
     let mut leaf_indices_to_remove = Vec::new();
     for member in openmls_group.members() {
         if readded_installations.contains(&member.signature_key)
+            && usable.contains(&member.signature_key)
             && member.index != openmls_group.own_leaf_index()
         {
             installations_to_readd.insert(member.signature_key);
@@ -583,27 +588,7 @@ pub(crate) fn apply_readd_installations_intent(
             installations_to_readd.contains(key_package.leaf_node().signature_key().as_slice())
         })
         .collect();
-    let failed_installations = changes_with_kps
-        .failed_installations
-        .into_iter()
-        .filter(|installation| installations_to_readd.contains(installation));
-
-    // Update group membership to reflect any failed installations.
-    let extensions = openmls_group.extensions().clone();
-    let old_group_membership = extract_group_membership(&extensions)?;
-    let failed_installations: HashSet<Vec<u8>> = old_group_membership
-        .failed_installations
-        .clone()
-        .into_iter()
-        .chain(failed_installations)
-        .collect();
-    let mut failed_installations: Vec<_> = failed_installations.into_iter().collect();
-    failed_installations.sort_unstable();
-    let new_group_membership = GroupMembership {
-        members: old_group_membership.members.clone(),
-        failed_installations,
-    };
-    let payload = build_readd_membership_payload(openmls_group, &new_group_membership)?;
+    let payload = TlsMapDelta::<InboxId, VLBytes>::new().tls_serialize_detached()?;
     let publish_intent_data = compute_publish_data_for_proposal_based_update(
         storage,
         openmls_group,
@@ -615,57 +600,6 @@ pub(crate) fn apply_readd_installations_intent(
     )?;
 
     Ok(Some(publish_intent_data))
-}
-
-/// Keep existing failures in their inbox entries. Attribute new failures with
-/// the current ratchet tree, before the readd removes those installations.
-fn build_readd_membership_payload(
-    group: &OpenMlsGroup,
-    membership: &GroupMembership,
-) -> Result<Vec<u8>, GroupError> {
-    use xmtp_mls_common::app_data::component_source::{ComponentSourceError, read_component_bytes};
-
-    let malformed = |reason: &str| ComponentSourceError::MalformedComponentValue {
-        component_id: ComponentId::GROUP_MEMBERSHIP,
-        reason: reason.to_string(),
-    };
-    let bytes = read_component_bytes(ComponentId::GROUP_MEMBERSHIP, group.extensions())?
-        .ok_or_else(|| malformed("missing membership component"))?;
-    let entries =
-        GroupMembershipComponent::decode_value(bytes).map_err(ComponentSourceError::from)?;
-    let failed: HashSet<_> = membership.failed_installations.iter().collect();
-    let mut failures_by_inbox: HashMap<InboxId, Vec<Vec<u8>>> = HashMap::new();
-    for member in group.members() {
-        if failed.contains(&member.signature_key) {
-            let credential = BasicCredential::try_from(member.credential)?;
-            let inbox = InboxId::from_hex(&parse_credential(credential.identity())?)
-                .map_err(ComponentSourceError::from)?;
-            failures_by_inbox
-                .entry(inbox)
-                .or_default()
-                .push(member.signature_key);
-        }
-    }
-
-    let mut delta = TlsMapDelta::<InboxId, VLBytes>::new();
-    for (inbox, failures) in failures_by_inbox {
-        let prior = entries
-            .get(&inbox)
-            .ok_or_else(|| malformed("failed installation inbox is absent from membership"))?;
-        let mut entry = GroupMembershipEntry::decode(prior.as_slice())?;
-        let Some(group_membership_entry::Version::V1(value)) = &mut entry.version else {
-            return Err(malformed("membership entry has no version").into());
-        };
-        value.failed_installations.extend(failures);
-        value.failed_installations.sort_unstable();
-        value.failed_installations.dedup();
-        let updated = entry.encode_to_vec();
-        if updated != prior.as_slice() {
-            delta = delta.update(inbox, VLBytes::new(updated));
-        }
-    }
-    GroupMembershipComponent::encode_mutation(&delta)
-        .map_err(|error| ComponentSourceError::from(error).into())
 }
 
 #[cfg(test)]

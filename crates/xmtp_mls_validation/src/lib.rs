@@ -37,6 +37,8 @@ use xmtp_proto::{
 };
 
 pub mod commit;
+pub mod fork_actors;
+pub use fork_actors::{ForkActors, ReaddAuthority};
 pub mod group_membership;
 pub mod group_permissions;
 #[cfg(any(test, feature = "test-utils"))]
