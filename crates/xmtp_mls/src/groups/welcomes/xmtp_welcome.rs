@@ -458,6 +458,7 @@ where
             .as_ref()
             .is_some_and(|g| g.membership_state == GroupMembershipState::PendingRemove);
 
+        let prior_membership_cutoff = db.get_local_commit_log_cursor(&group_id)?.unwrap_or(0);
         let mls_group = OpenMlsGroup::from_welcome_logged(
             &provider,
             staged_welcome,
@@ -465,6 +466,17 @@ where
             &added_by_installation_id,
             context.server_configuration().commit_log_enabled(),
         )?;
+        // implements: FORK-089
+        // A Welcome carries no prior publisher tenure history. Its authenticated
+        // group-message anchor is the boundary for this installed membership.
+        let publisher_boundary =
+            i64::try_from(anchor.0).map_err(|_| xmtp_db::StorageError::DbSerialize)?;
+        let publisher_boundaries = xmtp_mls_validation::ForkActors::from_group(&mls_group)?
+            .publisher_keys(&mls_group)?
+            .into_iter()
+            .map(|author| (author, publisher_boundary))
+            .collect();
+        db.set_commit_log_publisher_boundaries(&group_id, &publisher_boundaries)?;
         let dm_members = metadata.dm_members;
         let conversation_type = metadata.conversation_type;
         // Required metadata must not bypass the version check.
@@ -573,7 +585,23 @@ where
         }
 
         // Insert the group, replace a Restored placeholder, or advance an existing cursor.
-        let stored_group = db.insert_or_replace_group(to_store)?;
+        let should_publish = to_store.should_publish_commit_log;
+        let mut stored_group = db.insert_or_replace_group(to_store)?;
+        // implements: FORK-085
+        // Existing rows retain their fields on rejoin; refresh the publisher role
+        // from this Welcome in the same state transaction.
+        db.set_should_publish_commit_log(&stored_group.id, should_publish)?;
+        // This Welcome starts a new membership even when local logging is off.
+        // Exclude every older local record and durably finish legacy recovery.
+        db.update_cursor(
+            group_id,
+            EntityKind::CommitLogUpload,
+            Cursor(prior_membership_cutoff as u64),
+        )?;
+        db.update_cursor(group_id, EntityKind::CommitLogPublisherRecovery, Cursor(1))?;
+        // This membership has an authenticated Welcome boundary instead of a legacy floor.
+        db.set_commit_log_reader_epoch_floor(&group_id, 0)?;
+        stored_group.should_publish_commit_log = should_publish;
         let consent_entity = hex::encode(stored_group.id);
         let prior_consent = db.get_consent_record(
             consent_entity.clone(),

@@ -426,6 +426,14 @@ pub trait QueryGroup {
         group_id: &GroupId,
     ) -> Result<ConversationType, crate::ConnectionError>;
 
+    /// Update the cached publisher role in the caller's state transaction.
+    /// The caller owns publication eligibility and any role-transition cutoff.
+    fn set_should_publish_commit_log(
+        &self,
+        group_id: &GroupId,
+        should_publish: bool,
+    ) -> Result<(), crate::ConnectionError>;
+
     /// Updates the is_commit_log_forked status for a group
     fn set_group_commit_log_forked_status(
         &self,
@@ -593,6 +601,14 @@ where
         group_id: &GroupId,
     ) -> Result<ConversationType, crate::ConnectionError> {
         (**self).get_conversation_type(group_id)
+    }
+
+    fn set_should_publish_commit_log(
+        &self,
+        group_id: &GroupId,
+        should_publish: bool,
+    ) -> Result<(), crate::ConnectionError> {
+        (**self).set_should_publish_commit_log(group_id, should_publish)
     }
 
     fn set_group_commit_log_forked_status(
@@ -1095,14 +1111,23 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
         })
     }
 
-    /// Get conversation IDs for all conversations that require a remote commit log publish
-    /// (DMs and groups where user is super admin, excluding sync groups and rejected groups)
+    /// Get allowed publisher candidates, including groups whose legacy role
+    /// has not yet been recovered. Sync and restored groups are excluded.
+    // implements: FORK-086
     #[xmtp_common::db_span]
     fn get_conversation_ids_for_remote_log_publish(
         &self,
     ) -> Result<Vec<StoredGroupCommitLogPublicKey>, crate::ConnectionError> {
         use crate::schema::consent_records::dsl as consent_dsl;
 
+        let unrecovered = diesel::dsl::not(diesel::dsl::exists(
+            crate::schema::refresh_state::table
+                .filter(crate::schema::refresh_state::entity_id.eq(dsl::id))
+                .filter(
+                    crate::schema::refresh_state::entity_kind
+                        .eq(super::refresh_state::EntityKind::CommitLogPublisherRecovery),
+                ),
+        ));
         let query = dsl::groups
             .filter(dsl::membership_state.ne(GroupMembershipState::Restored))
             .filter(
@@ -1110,7 +1135,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
                     .eq(ConversationType::Dm)
                     .or(dsl::conversation_type
                         .eq(ConversationType::Group)
-                        .and(dsl::should_publish_commit_log.eq(true))),
+                        .and(dsl::should_publish_commit_log.eq(true).or(unrecovered))),
             )
             .inner_join(consent_dsl::consent_records.on(conversation_consent_join()))
             .filter(consent_dsl::state.eq(ConsentState::Allowed))
@@ -1216,6 +1241,20 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
             .select(dsl::conversation_type);
         let conversation_type = self.raw_query(|conn| query.first(conn))?;
         Ok(conversation_type)
+    }
+
+    // implements: FORK-085
+    fn set_should_publish_commit_log(
+        &self,
+        group_id: &GroupId,
+        should_publish: bool,
+    ) -> Result<(), crate::ConnectionError> {
+        self.raw_query(|conn| {
+            diesel::update(dsl::groups.find(group_id))
+                .set(dsl::should_publish_commit_log.eq(should_publish))
+                .execute(conn)?;
+            Ok(())
+        })
     }
 
     fn set_group_commit_log_forked_status(

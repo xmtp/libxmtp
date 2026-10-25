@@ -185,6 +185,7 @@ pub fn sealed_commit_log_envelope(keys: &GroupKeys, commit_sequence_id: u64) -> 
         commit_result: 1,
         applied_epoch_number: 8,
         applied_epoch_authenticator: vec![0x62, 0x63],
+        ..Default::default()
     };
     ClientEnvelope {
         payload: Some(Payload::SealedCommitLogEntry(
@@ -628,6 +629,7 @@ pub fn retired_commit_log_envelope_bytes(group_id: impl AsRef<[u8]>) -> Vec<u8> 
         commit_result: 1,
         applied_epoch_number: 8,
         applied_epoch_authenticator: vec![0x62, 0x63],
+        ..Default::default()
     }
     .encode_to_vec();
     let mut retired = Vec::new();

@@ -260,6 +260,8 @@ mock! {
 
         fn get_conversation_type(&self, group_id: &GroupId) -> Result<ConversationType, crate::ConnectionError>;
 
+        fn set_should_publish_commit_log(&self, group_id: &GroupId, should_publish: bool) -> Result<(), crate::ConnectionError>;
+
         fn set_group_commit_log_forked_status(
             &self,
             group_id: &GroupId,
@@ -732,6 +734,10 @@ mock! {
     }
 
     impl QueryRemoteCommitLog for DbQuery {
+        fn set_commit_log_reader_epoch_floor(&self, group_id: &GroupId, epoch: i64) -> Result<(), crate::ConnectionError>;
+        fn get_commit_log_publisher_boundaries(&self, group_id: &GroupId) -> Result<HashMap<Vec<u8>, i64>, crate::ConnectionError>;
+        fn set_commit_log_publisher_boundaries(&self, group_id: &GroupId, boundaries: &HashMap<Vec<u8>, i64>) -> Result<(), crate::ConnectionError>;
+
         fn get_latest_remote_log_for_group(&self, group_id: &GroupId) -> Result<Option<RemoteCommitLog>, crate::ConnectionError>;
 
         fn get_remote_commit_log_after_cursor(

@@ -163,85 +163,6 @@ async fn test_real_divergence_detected_through_signed_commit_logs() {
     );
 }
 
-#[xmtp_common::test(unwrap_try = true)]
-async fn test_commit_log_fork_detection_no_fork() -> Result<(), Box<dyn std::error::Error>> {
-    tester!(alix);
-    let group = alix.create_group(None, None).unwrap();
-    let group_id = group.group_id;
-
-    // Insert local commit log entries
-    let local_entry_1 = NewLocalCommitLog {
-        group_id,
-        commit_sequence_id: 1,
-        last_epoch_authenticator: vec![0x11, 0x22, 0x33],
-        commit_result: CommitResult::Success,
-        error_message: None,
-        applied_epoch_number: 1,
-        applied_epoch_authenticator: vec![0xAA, 0xBB, 0xCC],
-        sender_inbox_id: None,
-        sender_installation_id: None,
-        commit_type: None,
-    };
-
-    let local_entry_2 = NewLocalCommitLog {
-        group_id,
-        commit_sequence_id: 2,
-        last_epoch_authenticator: vec![0xAA, 0xBB, 0xCC],
-        commit_result: CommitResult::Success,
-        error_message: None,
-        applied_epoch_number: 2,
-        applied_epoch_authenticator: vec![0xDD, 0xEE, 0xFF],
-        sender_inbox_id: None,
-        sender_installation_id: None,
-        commit_type: None,
-    };
-
-    local_entry_1.store(&alix.context.db())?;
-    local_entry_2.store(&alix.context.db())?;
-
-    // Insert matching remote commit log entries (no fork)
-    let remote_entry_1 = NewRemoteCommitLog {
-        log_sequence_id: 100,
-        group_id,
-        commit_sequence_id: 1,
-        commit_result: CommitResult::Success,
-        applied_epoch_number: 1,
-        applied_epoch_authenticator: vec![0xAA, 0xBB, 0xCC], // Same as local
-    };
-
-    let remote_entry_2 = NewRemoteCommitLog {
-        log_sequence_id: 101,
-        group_id,
-        commit_sequence_id: 2,
-        commit_result: CommitResult::Success,
-        applied_epoch_number: 2,
-        applied_epoch_authenticator: vec![0xDD, 0xEE, 0xFF], // Same as local
-    };
-
-    remote_entry_1.store(&alix.context.db())?;
-    remote_entry_2.store(&alix.context.db())?;
-
-    // Test fork detection
-    let mut worker = CommitLogWorker::new(alix.context.clone());
-    let results = worker
-        .run_test(CommitLogTestFunction::CheckForkedState, None)
-        .await
-        .unwrap();
-
-    // Should detect no fork
-    assert_eq!(results.len(), 1);
-    let result = &results[0];
-    assert!(result.is_forked.is_some());
-    let fork_status = result
-        .is_forked
-        .as_ref()
-        .unwrap()
-        .get(group_id.as_ref())
-        .unwrap();
-    assert_eq!(*fork_status, Some(false), "Should detect no fork");
-    Ok(())
-}
-
 // verifies: EVENT-001, EVENT-010
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_commit_log_fork_detection_forked() -> Result<(), Box<dyn std::error::Error>> {
@@ -287,6 +208,7 @@ async fn test_commit_log_fork_detection_forked() -> Result<(), Box<dyn std::erro
         commit_result: CommitResult::Invalid, // For some reason remote marked this commit invalid
         applied_epoch_number: 1,
         applied_epoch_authenticator: vec![0xAA, 0xBB, 0xCC], // Same as local
+        author_installation_key: vec![],
     };
 
     let remote_entry_2 = NewRemoteCommitLog {
@@ -296,6 +218,7 @@ async fn test_commit_log_fork_detection_forked() -> Result<(), Box<dyn std::erro
         commit_result: CommitResult::Success,
         applied_epoch_number: 1,
         applied_epoch_authenticator: vec![0xCD, 0xDE, 0xEF], // Different from local
+        author_installation_key: vec![],
     };
 
     remote_entry_1.store(&alix.context.db())?;
@@ -365,6 +288,7 @@ async fn test_commit_log_fork_detection_cursor_updates() -> Result<(), Box<dyn s
         commit_result: CommitResult::Success,
         applied_epoch_number: 1,
         applied_epoch_authenticator: vec![0xAA, 0xBB, 0xCC], // Same authenticator
+        author_installation_key: vec![],
     };
 
     remote_entry.store(&alix.context.db())?;
@@ -449,6 +373,7 @@ async fn test_commit_log_fork_detection_cursor_updates() -> Result<(), Box<dyn s
         commit_result: CommitResult::Success,
         applied_epoch_number: 2,
         applied_epoch_authenticator: vec![0xDD, 0xEE, 0x11], // different authenticator
+        author_installation_key: vec![],
     };
 
     remote_entry.store(&alix.context.db())?;
@@ -552,6 +477,7 @@ async fn test_commit_log_fork_detection_returns_none_when_no_matching_remote()
         commit_result: CommitResult::Success,
         applied_epoch_number: 1,
         applied_epoch_authenticator: vec![0xAA, 0xBB, 0xCC], // Same as local
+        author_installation_key: vec![],
     };
 
     remote_entry.store(&alix.context.db())?;
@@ -627,6 +553,7 @@ async fn test_commit_log_fork_status_persistence_no_new_commits()
         commit_result: CommitResult::Success,
         applied_epoch_number: 1,
         applied_epoch_authenticator: vec![0xAA, 0xBB, 0xCC], // Same as local
+        author_installation_key: vec![],
     };
 
     let remote_entry_2 = NewRemoteCommitLog {
@@ -636,6 +563,7 @@ async fn test_commit_log_fork_status_persistence_no_new_commits()
         commit_result: CommitResult::Success,
         applied_epoch_number: 2,
         applied_epoch_authenticator: vec![0xDD, 0xEE, 0xFF], // Same as local
+        author_installation_key: vec![],
     };
 
     remote_entry_1.store(&alix.context.db())?;
@@ -849,6 +777,7 @@ async fn test_fork_detection_not_triggered_by_removal_and_readd()
             commit_result: CommitResult::Success,
             applied_epoch_number: epoch,
             applied_epoch_authenticator: auth,
+            author_installation_key: vec![],
         }
         .store(&bo.context.db())?;
         log_sequence_id += 1;

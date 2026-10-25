@@ -73,13 +73,15 @@ fn keys() -> GroupKeys {
 /// One conversation's entries for commit sequence ids 1 to `count`, sealed.
 fn commit_log_entries(count: u64) -> Vec<wire::SealedCommitLogEntry> {
     let keys = keys();
+    let author = xmtp_cryptography::XmtpInstallationCredential::new();
     (1..=count)
         .map(|sequence| {
-            let entry = PlaintextCommitLogEntry {
+            let mut entry = PlaintextCommitLogEntry {
                 group_id: keys.group_id().to_vec(),
                 commit_sequence_id: sequence,
                 ..Default::default()
             };
+            xmtp_mls_common::commit_log::sign_entry_author(&keys, &author, &mut entry).unwrap();
             seal_entry(&keys, &entry).unwrap()
         })
         .collect()
@@ -96,7 +98,7 @@ fn commit_sequence_ids(request: &wire::PublishRequest) -> Vec<u64> {
             else {
                 unreachable!()
             };
-            open_entry(&keys, &keys.group_id(), entry)
+            open_entry(&keys, &keys.group_id(), u64::MAX, entry)
                 .unwrap()
                 .commit_sequence_id
         })

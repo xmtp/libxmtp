@@ -52,6 +52,7 @@ fn entry(keys: &GroupKeys, commit_sequence_id: u64) -> Vec<u8> {
         commit_result: 1,
         applied_epoch_number: 8,
         applied_epoch_authenticator: vec![0x62; 32],
+        ..Default::default()
     }
     .encode_to_vec()
 }
