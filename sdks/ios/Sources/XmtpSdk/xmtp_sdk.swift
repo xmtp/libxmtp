@@ -1495,6 +1495,11 @@ public protocol ClientProtocol: AnyObject, Sendable {
 
     func unsafeApplySignatureRequest(request: SignatureRequest) async throws
 
+    /**
+     * Recovery moves only to an identity of the inbox, so a change to any
+     * other identity fails here, against the inbox's state fetched from the
+     * network, before anything asks a signer to sign.
+     */
     func unsafeChangeRecoveryIdentifierSignatureRequest(identity: PublicIdentity) async throws  -> SignatureRequest
 
     func unsafeCreateInboxSignatureRequest() async throws  -> SignatureRequest?
@@ -2283,6 +2288,11 @@ open func unsafeApplySignatureRequest(request: SignatureRequest)async throws   {
         )
 }
 
+    /**
+     * Recovery moves only to an identity of the inbox, so a change to any
+     * other identity fails here, against the inbox's state fetched from the
+     * network, before anything asks a signer to sign.
+     */
 open func unsafeChangeRecoveryIdentifierSignatureRequest(identity: PublicIdentity)async throws  -> SignatureRequest  {
     return
         try  await uniffiRustCallAsync(
@@ -30057,7 +30067,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtp_sdk_checksum_method_client_unsafe_apply_signature_request() != 64034) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_method_client_unsafe_change_recovery_identifier_signature_request() != 45674) {
+    if (uniffi_xmtp_sdk_checksum_method_client_unsafe_change_recovery_identifier_signature_request() != 16873) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_method_client_unsafe_create_inbox_signature_request() != 10436) {
