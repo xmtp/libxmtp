@@ -247,19 +247,26 @@ where
 
         // Keep the round future off the containing group sync poll stack.
         let result = async {
-            let mut summary = Box::pin(self.sync_until_intent_resolved_inner(intent_id)).await?;
-            // A split target can become a no-op after another member completes
-            // it. Its already-applied children can still owe Welcome delivery.
-            for child in self.pending_membership_children(intent_id)? {
-                summary.extend(Box::pin(self.sync_until_intent_resolved_inner(child)).await?);
+            let waited = async {
+                let mut summary =
+                    Box::pin(self.sync_until_intent_resolved_inner(intent_id)).await?;
+                // A split target can become a no-op after another member completes
+                // it. Its already-applied children can still owe Welcome delivery.
+                for child in self.pending_membership_children(intent_id)? {
+                    summary.extend(Box::pin(self.sync_until_intent_resolved_inner(child)).await?);
+                }
+                Ok::<_, GroupError>(summary)
             }
+            .await;
             // implements: SEND-025
-            // A part can end its batch in a round of the wait above, while the
+            // A part can end its batch in a round of a wait above, while the
             // original target is still publishing, and then no wait reads it.
+            // That outcome wins over any error of another part's wait: the
+            // membership change is applied, but its Welcomes were not sent.
             if self.membership_child_follow_up_failed(intent_id)? {
                 return Err(super::publish::OutgoingPreparationError::WelcomesUnsendable.into());
             }
-            Ok::<_, GroupError>(summary)
+            waited
         }
         .await;
         let summary = match &result {

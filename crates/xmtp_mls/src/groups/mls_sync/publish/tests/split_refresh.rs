@@ -445,6 +445,41 @@ async fn a_refused_split_child_welcome_fails_the_original_call() {
     assert_eq!(ended.state, IntentState::FollowUpFailed);
 }
 
+/// A split part can end its batch while the wait for another part of the
+/// same target fails. The original call must still report that its
+/// membership change is applied but its Welcomes were not sent, not the
+/// other wait's error.
+// verifies: SEND-025
+#[xmtp_common::test(unwrap_try = true)]
+async fn an_ended_split_part_wins_over_a_failed_wait() {
+    let SplitRefreshFixture {
+        limited, group_id, ..
+    } = split_refresh_fixture(None).await?;
+    let api = FaultyApi::new(
+        &limited,
+        welcome,
+        [Fault::Refuse(tonic::Code::InvalidArgument)],
+    );
+    let group = faulty_group(&limited, &group_id, api.clone()).await;
+    let root = QueueIntent::update_group_membership()
+        .data(group.get_membership_update_intent(&[], &[]).await?)
+        .queue(&group)?;
+    group.publish_intents().await?;
+    let (child, _) = saved_child(&group, &[IntentState::Published]);
+    assert!(!group.receive().await?.is_errored());
+    // The first part's Welcomes are refused, so its batch ends.
+    assert!(welcomes_unsendable(
+        &group.publish_required_welcomes().await
+    ));
+    let ended: StoredGroupIntent = group.context.db().fetch(&child.id)?.unwrap();
+    assert_eq!(ended.state, IntentState::FollowUpFailed);
+    // The rest of the target can no longer be confirmed by a read.
+    api.reject_queries();
+
+    let result = group.sync_until_intent_resolved(root.id).await;
+    assert!(welcomes_unsendable(&result), "{result:?}");
+}
+
 fn saved_child<C: XmtpSharedContext>(
     group: &MlsGroup<C>,
     states: &[IntentState],
