@@ -346,6 +346,11 @@ mock! {
             intent_id: crate::group_intent::ID,
         ) -> Result<(), StorageError>;
 
+        fn set_group_intent_follow_up_failed(
+            &self,
+            intent_id: crate::group_intent::ID,
+        ) -> Result<(), StorageError>;
+
         fn supersede_pending_intents_for_inactive_group(
             &self,
             group_id: &[u8],

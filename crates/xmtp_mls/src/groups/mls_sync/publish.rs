@@ -18,18 +18,25 @@ pub(crate) use prepared::{
     OutgoingPreparationError, PreparedAttempt, PreparedBase, PreparedProposal, Unsettled,
 };
 
+/// The status the backend returned for a publish. A failed configuration
+/// check before dispatch sent nothing, so its status is not the backend's.
+fn backend_status(error: &xmtp_api::ApiError) -> Option<tonic::Code> {
+    if xmtp_api::preflight::failure(error).is_some() {
+        return None;
+    }
+    xmtp_proto::api::grpc_status(error).map(|status| status.code())
+}
+
 /// Only `INVALID_ARGUMENT` proves that an atomic publish stored nothing.
 /// Every other failure, including `OUT_OF_RANGE`, can follow a commit.
 fn definite_refusal(error: &xmtp_api::ApiError) -> bool {
-    xmtp_proto::api::grpc_status(error)
-        .is_some_and(|status| status.code() == tonic::Code::InvalidArgument)
+    backend_status(error) == Some(tonic::Code::InvalidArgument)
 }
 
 /// `OUT_OF_RANGE` can follow a committed publish, and the same request cannot
 /// be sent again, so only a recovery read can settle the bytes it carried.
 fn out_of_range(error: &xmtp_api::ApiError) -> bool {
-    xmtp_proto::api::grpc_status(error)
-        .is_some_and(|status| status.code() == tonic::Code::OutOfRange)
+    backend_status(error) == Some(tonic::Code::OutOfRange)
 }
 
 /// An `AppDataUpdate` that cannot apply to the current component value, such

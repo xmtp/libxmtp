@@ -27,6 +27,11 @@ pub enum OutgoingPreparationError {
     /// proved that the backend stored none of it.
     #[error("the backend stored none of a saved attempt that cannot be sent again")]
     Unstored,
+    /// The membership change is applied, but its required follow-up Welcome
+    /// batch cannot be sent, so some installations it added have no Welcome.
+    /// The intent ended in `FollowUpFailed`. Not retryable.
+    #[error("the membership change is applied, but its Welcomes were not sent")]
+    WelcomesUnsendable,
     /// The group holds no 32-byte root that derives its id, so it cannot sign
     /// a group message. A Restored placeholder or a legacy group. Not retryable.
     #[error("the group cannot sign group messages: {0}")]
@@ -286,6 +291,22 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
         .into_iter()
         .map(|(intent, _)| intent.id)
         .collect())
+    }
+
+    /// Whether a split part of this target ended its Welcome batch unsent.
+    /// Its Welcomes belong to the original request, so that request's
+    /// Welcomes were not all sent either.
+    pub(in crate::groups::mls_sync) fn membership_child_follow_up_failed(
+        &self,
+        parent_id: ID,
+    ) -> Result<bool, GroupError> {
+        Ok(!Self::membership_child_attempts(
+            &self.context.db(),
+            self.group_id,
+            parent_id,
+            &[IntentState::FollowUpFailed],
+        )?
+        .is_empty())
     }
 
     /// A saved child receipt is publication of its original membership request,

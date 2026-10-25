@@ -247,13 +247,26 @@ where
 
         // Keep the round future off the containing group sync poll stack.
         let result = async {
-            let mut summary = Box::pin(self.sync_until_intent_resolved_inner(intent_id)).await?;
-            // A split target can become a no-op after another member completes
-            // it. Its already-applied children can still owe Welcome delivery.
-            for child in self.pending_membership_children(intent_id)? {
-                summary.extend(Box::pin(self.sync_until_intent_resolved_inner(child)).await?);
+            let waited = async {
+                let mut summary =
+                    Box::pin(self.sync_until_intent_resolved_inner(intent_id)).await?;
+                // A split target can become a no-op after another member completes
+                // it. Its already-applied children can still owe Welcome delivery.
+                for child in self.pending_membership_children(intent_id)? {
+                    summary.extend(Box::pin(self.sync_until_intent_resolved_inner(child)).await?);
+                }
+                Ok::<_, GroupError>(summary)
             }
-            Ok::<_, GroupError>(summary)
+            .await;
+            // implements: SEND-025
+            // A part can end its batch in a round of a wait above, while the
+            // original target is still publishing, and then no wait reads it.
+            // That outcome wins over any error of another part's wait: the
+            // membership change is applied, but its Welcomes were not sent.
+            if self.membership_child_follow_up_failed(intent_id)? {
+                return Err(super::publish::OutgoingPreparationError::WelcomesUnsendable.into());
+            }
+            waited
         }
         .await;
         let summary = match &result {
@@ -411,6 +424,23 @@ where
                     summary.extend(self.rejected_intent_summary(intent_id)?);
                     return Err(GroupError::from(summary));
                 }
+                // implements: SEND-025
+                // The commit is applied, but its Welcomes were not sent, and
+                // no later round can send them.
+                Ok(Some(StoredGroupIntent {
+                    state: IntentState::FollowUpFailed,
+                    kind,
+                    ..
+                })) => {
+                    log_event!(
+                        Event::GroupSyncIntentErrored,
+                        self.context.installation_id(),
+                        level = warn,
+                        group_id = self.group_id, intent_id = intent_id,
+                        intent_kind = ?kind
+                    );
+                    return Err(super::publish::OutgoingPreparationError::WelcomesUnsendable.into());
+                }
                 Ok(Some(StoredGroupIntent { state, kind, .. })) => {
                     log_event!(
                         Event::GroupSyncIntentRetry,
@@ -470,10 +500,14 @@ where
                 xmtp_common::time::sleep(wait_for.min(remaining)).await;
             }
         }
-        if Fetch::<StoredGroupIntent>::fetch(&db, &intent_id)?
-            .is_some_and(|intent| intent.state == IntentState::Processed)
-        {
-            return Ok(summary);
+        // The wait can end before a round reads the intent's state.
+        match Fetch::<StoredGroupIntent>::fetch(&db, &intent_id)?.map(|intent| intent.state) {
+            Some(IntentState::Processed) => return Ok(summary),
+            // implements: SEND-025
+            Some(IntentState::FollowUpFailed) => {
+                return Err(super::publish::OutgoingPreparationError::WelcomesUnsendable.into());
+            }
+            _ => {}
         }
         if self.published_request_target(intent_id)?.is_some() {
             return Err(GroupError::PublishedButUnconfirmed {

@@ -172,6 +172,11 @@ impl std::fmt::Display for SyncSummary {
             }
             if !self.post_commit_errors.is_empty() {
                 writeln!(f, "{} errors post commit", self.post_commit_errors.len())?;
+                // A call that ended a membership change's follow-up reports it
+                // only here, so each error names its outcome.
+                for error in &self.post_commit_errors {
+                    writeln!(f, "  {error}")?;
+                }
             }
             if let Some(e) = &self.other {
                 writeln!(f, "{}", e)?;
@@ -524,9 +529,15 @@ mod tests {
     #[xmtp_common::test]
     fn post_commit_only_error_is_errored() {
         let mut summary = SyncSummary::default();
-        summary.add_post_commit_err(GroupError::GroupInactive);
+        let error = GroupError::from(
+            crate::groups::mls_sync::publish::OutgoingPreparationError::WelcomesUnsendable,
+        );
+        let outcome = error.to_string();
+        summary.add_post_commit_err(error);
         assert!(summary.is_errored());
         assert!(errored_banner(&summary));
+        // A sync that ended a follow-up batch tells the app what happened.
+        assert!(GroupError::from(summary).to_string().contains(&outcome));
     }
 
     #[xmtp_common::test]

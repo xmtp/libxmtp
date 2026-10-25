@@ -195,6 +195,36 @@ async fn prepare_kind<C: XmtpSharedContext>(
     Ok((requirements.intent, attempt))
 }
 
+/// Publish a membership change that adds `inbox_ids` and apply its echo,
+/// without sending its Welcomes. Returns the committed intent's id.
+async fn commit_membership_change<C: XmtpSharedContext>(
+    group: &MlsGroup<C>,
+    inbox_ids: &[&str],
+) -> i32 {
+    let data = group
+        .get_membership_update_intent(inbox_ids, &[])
+        .await
+        .unwrap();
+    let intent = QueueIntent::update_group_membership()
+        .data(data)
+        .queue(group)
+        .unwrap();
+    group.publish_intents().await.unwrap();
+    assert!(!group.receive().await.unwrap().is_errored());
+    intent.id
+}
+
+/// The call reports that the membership change is applied but its Welcomes
+/// were not sent.
+fn welcomes_unsendable<T>(result: &Result<T, GroupError>) -> bool {
+    matches!(
+        result,
+        Err(GroupError::OutgoingPreparation(
+            OutgoingPreparationError::WelcomesUnsendable
+        ))
+    )
+}
+
 /// A frozen stored attempt: its file name, its hex text, and the SHA-256 of
 /// the text.
 struct GoldenAttempt {
@@ -989,7 +1019,12 @@ async fn welcome_followup_retries_exact_bytes_after_restart() {
     group
         .context
         .api()
-        .publish_units(welcomes.units(group.context.api().limits())?)
+        .publish_units(
+            welcomes
+                .units(group.context.api().limits())?
+                .into_iter()
+                .collect::<Option<_>>()?,
+        )
         .await?;
 
     let group_id = group.group_id;
