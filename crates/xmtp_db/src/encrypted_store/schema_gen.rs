@@ -276,6 +276,7 @@ diesel::table! {
         commit_result -> Integer,
         applied_epoch_number -> BigInt,
         applied_epoch_authenticator -> Binary,
+        author_installation_key -> Binary,
     }
 }
 

@@ -14,6 +14,7 @@ use xmtp_db::{
     remote_commit_log::CommitResult,
 };
 
+use xmtp_mls_validation::{ForkActors, commit::inbox_id_from_credential};
 use xmtp_proto::types::GroupId;
 /// This trait wraps openmls groups to include commit logs for any mutations to encryption state.
 /// This helps with fork detection.
@@ -190,7 +191,28 @@ impl CommitLogStorer for MlsGroup {
         let removed_us = staged_commit.self_removed();
         let last_epoch_number = self.epoch().as_u64() as i64;
         let last_epoch_authenticator = self.epoch_authenticator().as_slice().to_vec();
+        let metadata = &validated_commit.metadata_changes;
+        let publisher_inbox = if !metadata.super_admins_added.is_empty()
+            || !metadata.super_admins_removed.is_empty()
+        {
+            Some(inbox_id_from_credential(
+                self.credential()
+                    .map_err(|_| GroupMessageProcessingError::GroupInactive)?,
+            )?)
+        } else {
+            None
+        };
         self.merge_staged_commit(provider, staged_commit)?;
+        // implements: FORK-081
+        // Move the upload cursor before recording the promotion commit, which
+        // is the first entry this publisher must publish. Capture the inbox
+        // before merging because this commit may also remove our leaf.
+        if let Some(own_inbox) = publisher_inbox {
+            provider.key_store().db().set_should_publish_commit_log(
+                &self.group_id().try_into()?,
+                ForkActors::from_group(self)?.permits(&own_inbox),
+            )?;
+        }
         // The merge emptied the proposal store; its delivery evidence goes with it.
         provider
             .key_store()

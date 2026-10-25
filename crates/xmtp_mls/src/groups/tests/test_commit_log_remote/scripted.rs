@@ -176,10 +176,12 @@ impl XmtpBackendClient for ScriptedApi {
                         .collect::<Vec<_>>()
                 })
         };
-        if let Some(envelopes) = scripted {
+        if let Some(mut envelopes) = scripted {
+            let has_more = envelopes.len() > request.limit as usize;
+            envelopes.truncate(request.limit as usize);
             return Ok(wire::QueryResponse {
                 envelopes,
-                continuation: Some(wire::Continuation { has_more: false }),
+                continuation: Some(wire::Continuation { has_more }),
             });
         }
         self.inner.query(request).await
@@ -235,6 +237,13 @@ impl XmtpBackendClient for ScriptedApi {
 pub(super) async fn scripted(
     base: &crate::utils::FullXmtpClient,
 ) -> (crate::Client<Context>, Arc<Mutex<Script>>) {
+    scripted_with_page_size(base, xmtp_configuration::STREAM_BATCH_ROWS).await
+}
+
+pub(super) async fn scripted_with_page_size(
+    base: &crate::utils::FullXmtpClient,
+    page_size: u32,
+) -> (crate::Client<Context>, Arc<Mutex<Script>>) {
     let script = Arc::new(Mutex::new(Script::default()));
     let api = ScriptedApi {
         inner: base.context.api().api_client.raw_for_test().clone(),
@@ -242,6 +251,10 @@ pub(super) async fn scripted(
     };
     let client = crate::builder::ClientBuilder::from_client(base.clone())
         .api_client(api)
+        .stream_policy(crate::subscriptions::policy::StreamPolicy {
+            max_fetched_rows: page_size,
+            ..Default::default()
+        })
         .with_disable_workers(true)
         .with_allow_offline(Some(true))
         .build()

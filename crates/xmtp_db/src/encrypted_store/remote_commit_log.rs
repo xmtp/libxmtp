@@ -29,6 +29,8 @@ pub struct NewRemoteCommitLog {
     pub commit_result: CommitResult,
     pub applied_epoch_number: i64,
     pub applied_epoch_authenticator: Vec<u8>,
+    /// Verified installation key of the entry publisher.
+    pub author_installation_key: Vec<u8>,
 }
 
 impl_store!(NewRemoteCommitLog, remote_commit_log);
@@ -51,6 +53,8 @@ pub struct RemoteCommitLog {
     pub applied_epoch_number: i64,
     // The state after the commit was applied, or the existing state otherwise
     pub applied_epoch_authenticator: Vec<u8>,
+    /// Verified installation key of the entry publisher.
+    pub author_installation_key: Vec<u8>,
 }
 
 impl_store!(RemoteCommitLog, remote_commit_log);

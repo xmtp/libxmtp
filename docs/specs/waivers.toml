@@ -28,13 +28,6 @@ issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "A group whose members do not all advertise a capability silently drops that capability for the whole group rather than the non-advertising installation being excluded, and a key package that fails verification is treated as one that does not advertise the capability."
 
 [[waiver]]
-id = "FORK-081"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "A super admin promoted after joining never publishes commit-log entries, because should_publish_commit_log is set only at group creation and at Welcome."
-
-[[waiver]]
 id = "IDENT-091"
 kind = "gap"
 owner = "protocol"
@@ -489,34 +482,6 @@ kind = "gap"
 owner = "Nicholas Molnar"
 issue = "TBD-octane-tracking"
 reason = "UpdateSubscriptions applies no count bound to adds, removes, or HMAC keys before it decodes them and reads recipients."
-
-[[waiver]]
-id = "FORK-076"
-kind = "gap"
-owner = "Nicholas Molnar"
-issue = "TBD-octane-tracking"
-reason = "Commit-log entries carry no author installation key and no author signature."
-
-[[waiver]]
-id = "FORK-077"
-kind = "gap"
-owner = "Nicholas Molnar"
-issue = "TBD-octane-tracking"
-reason = "A reader opens commit-log entries without verifying an author signature, because entries are unsigned."
-
-[[waiver]]
-id = "FORK-078"
-kind = "gap"
-owner = "Nicholas Molnar"
-issue = "TBD-octane-tracking"
-reason = "A reader counts an entry from any holder of the commit-log key, not only a publisher's leaf, and does not wait for the message topic to reach the entry's commit_sequence_id."
-
-[[waiver]]
-id = "FORK-079"
-kind = "gap"
-owner = "Nicholas Molnar"
-issue = "TBD-octane-tracking"
-reason = "The chain-continuity check does not consider the entry's author, so any holder of the commit-log key can extend or break the accepted chain."
 
 [[waiver]]
 id = "JOIN-089"

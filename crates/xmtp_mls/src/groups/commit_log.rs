@@ -24,7 +24,7 @@ use xmtp_db::{
     remote_commit_log::{CommitResult, NewRemoteCommitLog},
 };
 use xmtp_mls_common::app_data::group_root::group_keys_from_extensions;
-use xmtp_mls_common::commit_log::{open_entry, seal_entry};
+use xmtp_mls_common::commit_log::{open_entry, seal_entry, sign_entry_author};
 use xmtp_mls_common::group_keys::{GroupKeys, SealError};
 use xmtp_mls_validation::ForkActors;
 use xmtp_proto::backend_v1::SealedCommitLogEntry;
@@ -375,7 +375,7 @@ where
     /// ascending row order, with the cursor that publishing them reaches.
     /// `None` when it has no new entries, or when they cannot be sealed this
     /// turn.
-    // implements: FORK-021
+    // implements: FORK-021, FORK-081
     fn prepare_conversation_publish(
         &self,
         conn: &impl DbQuery,
@@ -386,12 +386,16 @@ where
         let local_commit_log_cursor = conn
             .get_local_commit_log_cursor(conversation_id)?
             .unwrap_or(0);
+        let membership_floor = conn
+            .get_latest_chain_start_rowid(conversation_id)?
+            .unwrap_or(0) as u64;
         let published_commit_log_cursor = conn
             .get_last_cursor(
                 conversation_id,
                 xmtp_db::refresh_state::EntityKind::CommitLogUpload,
             )?
-            .0;
+            .0
+            .max(membership_floor);
         if local_commit_log_cursor <= published_commit_log_cursor as i32 {
             // We have no new commits to publish for this conversation
             return Ok(None);
@@ -464,7 +468,14 @@ where
         };
         let mut sealed = Vec::with_capacity(plaintext_commit_log_entries.len());
         for entry in plaintext_commit_log_entries {
-            match self.apply_seal_fault(conversation_id, seal_entry(&keys, entry)) {
+            let mut entry = entry.clone();
+            let sealed_entry = sign_entry_author(
+                &keys,
+                &self.context.identity().installation_keys,
+                &mut entry,
+            )
+            .and_then(|()| seal_entry(&keys, &entry));
+            match self.apply_seal_fault(conversation_id, sealed_entry) {
                 Ok(entry) => sealed.push(entry),
                 Err(error) => {
                     tracing::error!(
@@ -572,26 +583,56 @@ where
             return Ok(HashMap::new());
         }
 
-        // A query returns each topic's envelopes in sequence id order.
-        let api = self.context.api();
-        let query_commit_log_responses = api.query_commit_log(query_log_requests).await?;
-
-        let mut grouped: HashMap<GroupId, Vec<DecodedCommitLogEntry>> = HashMap::new();
-        for entry in query_commit_log_responses {
-            if let Some(group_id) = conversations.get(entry.topic.identifier()) {
-                grouped.entry(*group_id).or_default().push(entry);
+        let mut keys_by_group = HashMap::new();
+        let mut cursors = query_log_requests;
+        for group_id in conversations.values() {
+            if let Some(keys) = self.group_keys(group_id)? {
+                keys_by_group.insert(*group_id, keys);
             }
         }
+        cursors.retain(|topic, _| {
+            conversations
+                .get(topic.identifier())
+                .is_some_and(|group| keys_by_group.contains_key(group))
+        });
+        let policy = self.context.incoming_runtime().policy();
+        let limits = xmtp_proto::types::IncomingBatchLimits {
+            max_rows: policy.max_fetched_rows as usize,
+            max_bytes: usize::try_from(policy.max_fetched_bytes).unwrap_or(usize::MAX),
+        };
         let mut save_remote_commit_log_results = HashMap::new();
-        for (group_id, entries) in grouped {
-            let Some(keys) = self.group_keys(&group_id)? else {
-                continue;
-            };
-            let num_entries = self.save_remote_commit_log_entries_and_update_cursors(
-                conn, &group_id, &keys, entries,
-            )?;
-            save_remote_commit_log_results.insert(group_id.to_vec(), num_entries);
-        }
+        self.context
+            .api()
+            .fold_ordered_pages(cursors, limits, |batches, cursors| {
+                for batch in batches {
+                    let Some(group_id) = conversations.get(batch.topic.identifier()) else {
+                        continue;
+                    };
+                    let Some(keys) = keys_by_group.get(group_id) else {
+                        continue;
+                    };
+                    let entries = batch
+                        .envelopes
+                        .into_iter()
+                        .map(xmtp_api_backend::envelope::decode_commit_log_entry)
+                        .collect::<Result<Vec<_>, _>>()
+                        .map_err(ApiError::from)?;
+                    let (num_entries, held) = self
+                        .save_remote_commit_log_entries_and_update_cursors(
+                            conn, group_id, keys, entries,
+                        )?;
+                    *save_remote_commit_log_results
+                        .entry(group_id.to_vec())
+                        .or_insert(0) += num_entries;
+                    if held {
+                        // The durable cursor still precedes the held entry. Do not
+                        // fetch or evaluate any later page from this topic this turn.
+                        cursors.remove(&batch.topic);
+                    }
+                }
+                Ok::<_, CommitLogError>(())
+            })
+            .await?;
 
         Ok(save_remote_commit_log_results)
     }
@@ -605,7 +646,23 @@ where
         group_id: &GroupId,
         keys: &GroupKeys,
         entries: Vec<DecodedCommitLogEntry>,
-    ) -> Result<usize, CommitLogError> {
+    ) -> Result<(usize, bool), CommitLogError> {
+        // implements: FORK-078
+        // Read the durable processed position before loading the tree. Commits
+        // and their positions share a transaction, so this tree cannot precede
+        // the position against which the hold is checked.
+        let processed = conn
+            .latest_cursor_for_id(
+                group_id,
+                &[xmtp_db::refresh_state::EntityKind::ApplicationMessage],
+            )?
+            .0;
+        let (group, _) = MlsGroup::new_cached(self.context.clone(), group_id)?;
+        let (active, publishers) = group.with_group_snapshot(|g| {
+            Ok::<_, GroupError>((g.is_active(), ForkActors::from_group(g)?.publisher_keys(g)?))
+        })?;
+        let mut evaluated_to = None;
+        let mut held = false;
         let mut num_entries_saved = 0;
         // From the stored remote commit log, fetch the following info:
         // 1. The latest applied epoch authenticator
@@ -614,9 +671,25 @@ where
         let mut latest_saved_remote_log = conn.get_latest_remote_log_for_group(group_id)?;
         for decoded in &entries {
             let Some(log_entry) = open_remote_entry(keys, group_id, decoded) else {
+                evaluated_to = Some(decoded.cursor);
                 continue;
             };
-            if should_skip_remote_commit_log_entry(latest_saved_remote_log.as_ref(), &log_entry) {
+            if active && log_entry.commit_sequence_id > processed {
+                held = true;
+                break;
+            }
+            evaluated_to = Some(decoded.cursor);
+            if !publishers.contains(&log_entry.author_installation_key) {
+                continue;
+            }
+            let chain_holds = latest_saved_remote_log
+                .as_ref()
+                .is_some_and(|latest| publishers.contains(&latest.author_installation_key));
+            if should_skip_remote_commit_log_entry(
+                latest_saved_remote_log.as_ref(),
+                &log_entry,
+                chain_holds,
+            ) {
                 continue;
             }
 
@@ -632,6 +705,7 @@ where
                 commit_result,
                 applied_epoch_number: log_entry.applied_epoch_number as i64,
                 applied_epoch_authenticator: log_entry.applied_epoch_authenticator.clone(),
+                author_installation_key: log_entry.author_installation_key.clone(),
             }
             .store(conn)?;
 
@@ -643,17 +717,18 @@ where
                 commit_result,
                 applied_epoch_number: log_entry.applied_epoch_number as i64,
                 applied_epoch_authenticator: log_entry.applied_epoch_authenticator,
+                author_installation_key: log_entry.author_installation_key,
             });
         }
-        if let Some(last_entry) = entries.last() {
+        if let Some(cursor) = evaluated_to {
             conn.update_cursor(
                 group_id,
                 xmtp_db::refresh_state::EntityKind::CommitLogDownload,
-                last_entry.cursor,
+                cursor,
             )?;
         }
 
-        Ok(num_entries_saved)
+        Ok((num_entries_saved, held))
     }
 
     // Updates fork status for conversations in the database
@@ -1122,7 +1197,7 @@ fn open_remote_entry(
         );
         return None;
     };
-    open_entry(keys, group_id.as_slice(), sealed)
+    open_entry(keys, group_id.as_slice(), decoded.cursor.0, sealed)
         .inspect_err(|reason| {
             tracing::warn!(
                 commit_log_id = %commit_log_id.as_slice().snippet(),
@@ -1134,7 +1209,8 @@ fn open_remote_entry(
         .ok()
 }
 
-// An opened entry is skipped if:
+// If the last accepted author has lost its publisher role, only rule 1 applies.
+// Otherwise an opened entry is skipped if:
 // 1. The commit_sequence_id of the entry is not greater than the most recently stored entry, if one exists.
 // 2. The last_epoch_authenticator does not match the epoch_authenticator of the most recently stored entry with a CommitResult of COMMIT_RESULT_APPLIED, if one exists.
 // 3. The entry has a CommitResult of COMMIT_RESULT_APPLIED, but the epoch number is not exactly 1 greater than the most recently stored entry with a result of COMMIT_RESULT_APPLIED, if one exists.
@@ -1143,11 +1219,15 @@ fn open_remote_entry(
 pub(crate) fn should_skip_remote_commit_log_entry(
     latest_saved_remote_log: Option<&RemoteCommitLog>,
     entry: &PlaintextCommitLogEntry,
+    chain_holds: bool,
 ) -> bool {
     let Some(latest_saved_remote_log) = latest_saved_remote_log else {
         return false;
     };
 
+    if !chain_holds {
+        return entry.commit_sequence_id <= latest_saved_remote_log.commit_sequence_id as u64;
+    }
     let is_applied = entry.commit_result == ProtoCommitResult::Applied as i32;
 
     entry.commit_sequence_id <= latest_saved_remote_log.commit_sequence_id as u64

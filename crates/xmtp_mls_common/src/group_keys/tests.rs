@@ -68,6 +68,7 @@ fn vector_entry() -> PlaintextCommitLogEntry {
         commit_result: CommitResult::Applied as i32,
         applied_epoch_number: vector_u64("entry_applied_epoch_number"),
         applied_epoch_authenticator: vector("entry_applied_epoch_authenticator"),
+        ..Default::default()
     }
 }
 

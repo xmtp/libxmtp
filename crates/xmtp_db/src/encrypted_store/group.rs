@@ -426,6 +426,15 @@ pub trait QueryGroup {
         group_id: &GroupId,
     ) -> Result<ConversationType, crate::ConnectionError>;
 
+    /// Update the publisher role in the caller's state transaction. On promotion,
+    /// move CommitLogUpload past all existing local entries before recording the
+    /// promotion commit itself.
+    fn set_should_publish_commit_log(
+        &self,
+        group_id: &GroupId,
+        should_publish: bool,
+    ) -> Result<(), crate::ConnectionError>;
+
     /// Updates the is_commit_log_forked status for a group
     fn set_group_commit_log_forked_status(
         &self,
@@ -593,6 +602,14 @@ where
         group_id: &GroupId,
     ) -> Result<ConversationType, crate::ConnectionError> {
         (**self).get_conversation_type(group_id)
+    }
+
+    fn set_should_publish_commit_log(
+        &self,
+        group_id: &GroupId,
+        should_publish: bool,
+    ) -> Result<(), crate::ConnectionError> {
+        (**self).set_should_publish_commit_log(group_id, should_publish)
     }
 
     fn set_group_commit_log_forked_status(
@@ -1216,6 +1233,37 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
             .select(dsl::conversation_type);
         let conversation_type = self.raw_query(|conn| query.first(conn))?;
         Ok(conversation_type)
+    }
+
+    // implements: FORK-081
+    fn set_should_publish_commit_log(
+        &self,
+        group_id: &GroupId,
+        should_publish: bool,
+    ) -> Result<(), crate::ConnectionError> {
+        self.raw_query(|conn| {
+            // Both writes use the caller's transaction. The old flag selects only
+            // promotions, so a continuing publisher keeps its pending entries.
+            if should_publish {
+                diesel::sql_query(
+                    r#"INSERT INTO refresh_state (entity_id, entity_kind, sequence_id)
+                       SELECT id, ?, COALESCE((SELECT MAX(rowid) FROM local_commit_log
+                           WHERE group_id = groups.id), 0)
+                       FROM groups WHERE id = ? AND should_publish_commit_log = 0
+                       ON CONFLICT(entity_id, entity_kind) DO UPDATE
+                       SET sequence_id = MAX(sequence_id, excluded.sequence_id)"#,
+                )
+                .bind::<diesel::sql_types::Integer, _>(
+                    super::refresh_state::EntityKind::CommitLogUpload as i32,
+                )
+                .bind::<diesel::sql_types::Binary, _>(group_id.as_slice())
+                .execute(conn)?;
+            }
+            diesel::update(dsl::groups.find(group_id))
+                .set(dsl::should_publish_commit_log.eq(should_publish))
+                .execute(conn)?;
+            Ok(())
+        })
     }
 
     fn set_group_commit_log_forked_status(

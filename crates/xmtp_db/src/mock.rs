@@ -260,6 +260,8 @@ mock! {
 
         fn get_conversation_type(&self, group_id: &GroupId) -> Result<ConversationType, crate::ConnectionError>;
 
+        fn set_should_publish_commit_log(&self, group_id: &GroupId, should_publish: bool) -> Result<(), crate::ConnectionError>;
+
         fn set_group_commit_log_forked_status(
             &self,
             group_id: &GroupId,

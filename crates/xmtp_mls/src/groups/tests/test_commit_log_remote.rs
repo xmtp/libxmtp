@@ -20,7 +20,7 @@ use xmtp_db::prelude::*;
 use xmtp_db::refresh_state::EntityKind;
 use xmtp_db::remote_commit_log::{CommitResult, RemoteCommitLog, RemoteCommitLogOrder};
 use xmtp_mls_common::app_data::group_root::{group_keys_from_extensions, read_group_root};
-use xmtp_mls_common::commit_log::{open_entry, seal_entry};
+use xmtp_mls_common::commit_log::{open_entry, seal_entry, sign_entry_author};
 use xmtp_mls_common::group::GroupMetadataOptions;
 use xmtp_mls_common::group_keys::{GroupKeys, GroupRoot, SealError};
 use xmtp_proto::backend_v1::{self as wire, SealedCommitLogEntry, client_envelope::Payload};
@@ -150,7 +150,16 @@ async fn publishable(group: &MlsGroup<impl XmtpSharedContext>) -> Vec<PlaintextC
         .unwrap()
         .iter()
         .filter(|log| log.commit_sequence_id > 0)
-        .map(PlaintextCommitLogEntry::from)
+        .map(|log| {
+            let mut entry = PlaintextCommitLogEntry::from(log);
+            sign_entry_author(
+                &keys_of(group),
+                &group.context.identity().installation_keys,
+                &mut entry,
+            )
+            .unwrap();
+            entry
+        })
         .collect()
 }
 
@@ -172,6 +181,7 @@ async fn remote_entries(
             open_entry(
                 &keys,
                 group.group_id.as_slice(),
+                read.cursor.0,
                 read.sealed.as_ref().unwrap(),
             )
             .unwrap()
@@ -278,14 +288,20 @@ async fn test_commit_log_publish_and_query_apis() {
     tester!(alix);
 
     let keys = GroupKeys::derive(&GroupRoot::generate());
-    let entry = PlaintextCommitLogEntry {
+    let mut entry = PlaintextCommitLogEntry {
         group_id: keys.group_id().to_vec(),
-        commit_sequence_id: 123,
+        commit_sequence_id: 1,
         last_epoch_authenticator: vec![5, 6, 7, 8],
         commit_result: 1, // Success
         applied_epoch_number: 456,
         applied_epoch_authenticator: vec![9, 10, 11, 12],
+        ..Default::default()
     };
+    sign_entry_author(
+        &keys,
+        &alix.context.identity().installation_keys,
+        &mut entry,
+    )?;
     let sealed = seal_entry(&keys, &entry)?;
 
     let mut stored = Vec::new();
@@ -300,7 +316,12 @@ async fn test_commit_log_publish_and_query_apis() {
     assert_eq!(response.len(), 1);
     assert_eq!(response[0].sealed.as_ref(), Some(&sealed));
     assert_eq!(
-        open_entry(&keys, &keys.group_id(), response[0].sealed.as_ref()?)?,
+        open_entry(
+            &keys,
+            &keys.group_id(),
+            response[0].cursor.0,
+            response[0].sealed.as_ref()?
+        )?,
         entry
     );
 }
@@ -348,8 +369,19 @@ async fn test_publish_commit_log_to_remote() {
         .await?;
     assert_eq!(response.len(), 1);
     let sealed = response[0].sealed.clone()?;
-    let entry = open_entry(&keys, alix_group.group_id.as_slice(), &sealed)?;
-    assert_eq!(entry, PlaintextCommitLogEntry::from(last_commit_log_entry));
+    let entry = open_entry(
+        &keys,
+        alix_group.group_id.as_slice(),
+        response[0].cursor.0,
+        &sealed,
+    )?;
+    let mut expected = PlaintextCommitLogEntry::from(last_commit_log_entry);
+    sign_entry_author(
+        &keys,
+        &alix.context.identity().installation_keys,
+        &mut expected,
+    )?;
+    assert_eq!(entry, expected);
 
     let envelope = wire::ClientEnvelope {
         payload: Some(Payload::SealedCommitLogEntry(sealed.clone())),
@@ -730,7 +762,7 @@ async fn a_failed_publish_ends_the_turn_not_the_worker() {
 /// rules then discard an entry with the wrong last epoch authenticator and a
 /// repeated entry. A later read extends the chain. Discard logs never name
 /// the group id.
-// verifies: FORK-079
+// verifies: FORK-077, FORK-079
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_reader_discards_each_entry_that_fails_fork_075() {
     tester!(alix, disable_workers);
@@ -742,20 +774,35 @@ async fn a_reader_discards_each_entry_that_fails_fork_075() {
     let bo_group = bo.group(&alix_group.group_id)?;
     bo_group.update_consent_state(ConsentState::Allowed)?;
 
+    alix_group
+        .update_group_name("processed prefix".into())
+        .await?;
+    bo_group.sync().await?;
+
     let keys = keys_of(&bo_group);
     let seed = commit_log_seed(&root_of(&bo_group));
     let id = keys.commit_log_id();
     let group_id = bo_group.group_id.to_vec();
-    let entry = |commit_sequence_id, epoch: u8| PlaintextCommitLogEntry {
-        group_id: group_id.clone(),
-        commit_sequence_id,
-        last_epoch_authenticator: vec![epoch; 32],
-        commit_result: ProtoCommitResult::Applied as i32,
-        applied_epoch_number: u64::from(epoch) + 1,
-        applied_epoch_authenticator: vec![epoch + 1; 32],
+    let entry = |commit_sequence_id, epoch: u8| {
+        let mut entry = PlaintextCommitLogEntry {
+            group_id: group_id.clone(),
+            commit_sequence_id,
+            last_epoch_authenticator: vec![epoch; 32],
+            commit_result: ProtoCommitResult::Applied as i32,
+            applied_epoch_number: u64::from(epoch) + 1,
+            applied_epoch_authenticator: vec![epoch + 1; 32],
+            ..Default::default()
+        };
+        sign_entry_author(
+            &keys,
+            &alix.context.identity().installation_keys,
+            &mut entry,
+        )
+        .unwrap();
+        entry
     };
-    let first = seal_entry(&keys, &entry(10, 1))?;
-    let second = seal_entry(&keys, &entry(11, 2))?;
+    let first = seal_entry(&keys, &entry(1, 1))?;
+    let second = seal_entry(&keys, &entry(2, 2))?;
     // The test signer signs exactly as the commit-log signing key does.
     assert_eq!(
         signed_entry(&seed, &id, first.nonce.clone(), first.ciphertext.clone()),
@@ -764,13 +811,13 @@ async fn a_reader_discards_each_entry_that_fails_fork_075() {
 
     // Accepted, either of these would start another chain, and the valid
     // chain would then be discarded by the chain rules.
-    let forged = seal_entry(&keys, &entry(10, 40))?;
+    let forged = seal_entry(&keys, &entry(1, 40))?;
     let other_root = GroupRoot::generate();
     let other_seed = commit_log_seed(&other_root);
-    let mut other_group = entry(10, 30);
+    let mut other_group = entry(1, 30);
     other_group.group_id = vec![9; 32];
     let discarded = [
-        seal_entry(&GroupKeys::derive(&other_root), &entry(10, 50))?,
+        seal_entry(&GroupKeys::derive(&other_root), &entry(1, 50))?,
         signed_entry(&other_seed, &id, forged.nonce, forged.ciphertext),
         signed_entry(&seed, &id, vec![1; 12], vec![2; 32]),
         seal_entry(&keys, &other_group)?,
@@ -780,8 +827,8 @@ async fn a_reader_discards_each_entry_that_fails_fork_075() {
         signed_entry(&seed, &id, first.nonce.clone(), vec![3; 15]),
     ];
     // Each opens under the conversation's keys; the chain rules discard both.
-    let wrong_last_authenticator = seal_entry(&keys, &entry(12, 7))?;
-    let repeated = seal_entry(&keys, &entry(11, 2))?;
+    let wrong_last_authenticator = seal_entry(&keys, &entry(3, 7))?;
+    let repeated = seal_entry(&keys, &entry(2, 2))?;
     let topic = Topic::new_commit_log(id);
     let mut envelopes: Vec<_> = discarded
         .into_iter()
@@ -831,7 +878,7 @@ async fn a_reader_discards_each_entry_that_fails_fork_075() {
             .iter()
             .map(|log| (log.commit_sequence_id, log.applied_epoch_number))
             .collect::<Vec<_>>(),
-        vec![(10, 2), (11, 3)]
+        vec![(1, 2), (2, 3)]
     );
     // The discarded envelopes are read past, never evaluated again.
     assert_eq!(
@@ -846,7 +893,7 @@ async fn a_reader_discards_each_entry_that_fails_fork_075() {
     envelopes.push(server_envelope(
         &topic,
         last_sequence_id + 1,
-        Payload::SealedCommitLogEntry(seal_entry(&keys, &entry(12, 3))?),
+        Payload::SealedCommitLogEntry(seal_entry(&keys, &entry(3, 3))?),
     ));
     script.lock().reads.insert(topic.cloned_vec(), envelopes);
     let results = worker
@@ -1264,6 +1311,7 @@ fn test_should_skip_remote_log_entry() {
         commit_result: CommitResult::Success,
         applied_epoch_number: 3,
         applied_epoch_authenticator: vec![0x01, 0x02, 0x03],
+        author_installation_key: vec![],
     };
 
     let entry = PlaintextCommitLogEntry {
@@ -1273,10 +1321,12 @@ fn test_should_skip_remote_log_entry() {
         commit_result: 1,
         applied_epoch_number: 4,
         applied_epoch_authenticator: vec![0x01, 0x02, 0x04],
+        ..Default::default()
     };
     assert!(!should_skip_remote_commit_log_entry(
         Some(&latest_saved_remote_log),
-        &entry
+        &entry,
+        true,
     ));
 
     // Skips if commit_sequence_id of the entry is not greater than the most recently stored entry, if one exists.
@@ -1288,6 +1338,7 @@ fn test_should_skip_remote_log_entry() {
         commit_result: CommitResult::Success,
         applied_epoch_number: 3,
         applied_epoch_authenticator: vec![0x01, 0x02, 0x03],
+        author_installation_key: vec![],
     };
     let entry = PlaintextCommitLogEntry {
         group_id: vec![0x11, 0x22, 0x33],
@@ -1296,10 +1347,12 @@ fn test_should_skip_remote_log_entry() {
         commit_result: 1,
         applied_epoch_number: 4,
         applied_epoch_authenticator: vec![0x01, 0x02, 0x04],
+        ..Default::default()
     };
     assert!(should_skip_remote_commit_log_entry(
         Some(&latest_saved_remote_log),
-        &entry
+        &entry,
+        true,
     ));
 
     // Skips if the last_epoch_authenticator does not match the epoch_authenticator of
@@ -1312,6 +1365,7 @@ fn test_should_skip_remote_log_entry() {
         commit_result: CommitResult::Success,
         applied_epoch_number: 3,
         applied_epoch_authenticator: vec![0x01, 0x02, 0x03],
+        author_installation_key: vec![],
     };
     let entry = PlaintextCommitLogEntry {
         group_id: vec![0x11, 0x22, 0x33],
@@ -1320,10 +1374,12 @@ fn test_should_skip_remote_log_entry() {
         commit_result: 1,
         applied_epoch_number: 4,
         applied_epoch_authenticator: vec![0x01, 0x02, 0x04],
+        ..Default::default()
     };
     assert!(should_skip_remote_commit_log_entry(
         Some(&latest_saved_remote_log),
-        &entry
+        &entry,
+        true,
     ));
 
     // Skips if the applied_epoch_number of the entry is not exactly 1 greater than
@@ -1336,6 +1392,7 @@ fn test_should_skip_remote_log_entry() {
         commit_result: CommitResult::Success,
         applied_epoch_number: 3,
         applied_epoch_authenticator: vec![0x01, 0x02, 0x03],
+        author_installation_key: vec![],
     };
     let entry = PlaintextCommitLogEntry {
         group_id: vec![0x11, 0x22, 0x33],
@@ -1344,10 +1401,12 @@ fn test_should_skip_remote_log_entry() {
         commit_result: 1,
         applied_epoch_number: 5,
         applied_epoch_authenticator: vec![0x01, 0x02, 0x04],
+        ..Default::default()
     };
     assert!(should_skip_remote_commit_log_entry(
         Some(&latest_saved_remote_log),
-        &entry
+        &entry,
+        true,
     ));
 
     // Skips if the applied_epoch_number of the entry is not exactly 1 greater than
@@ -1360,6 +1419,7 @@ fn test_should_skip_remote_log_entry() {
         commit_result: CommitResult::Success,
         applied_epoch_number: 3,
         applied_epoch_authenticator: vec![0x01, 0x02, 0x03],
+        author_installation_key: vec![],
     };
     let entry = PlaintextCommitLogEntry {
         group_id: vec![0x11, 0x22, 0x33],
@@ -1368,10 +1428,12 @@ fn test_should_skip_remote_log_entry() {
         commit_result: 1,
         applied_epoch_number: 3,
         applied_epoch_authenticator: vec![0x01, 0x02, 0x04],
+        ..Default::default()
     };
     assert!(should_skip_remote_commit_log_entry(
         Some(&latest_saved_remote_log),
-        &entry
+        &entry,
+        true,
     ));
 
     // Skips if the applied_epoch_number of the entry is not exactly 1 greater than
@@ -1384,6 +1446,7 @@ fn test_should_skip_remote_log_entry() {
         commit_result: CommitResult::Success,
         applied_epoch_number: 3,
         applied_epoch_authenticator: vec![0x01, 0x02, 0x03],
+        author_installation_key: vec![],
     };
     let entry = PlaintextCommitLogEntry {
         group_id: vec![0x11, 0x22, 0x33],
@@ -1392,10 +1455,12 @@ fn test_should_skip_remote_log_entry() {
         commit_result: 1,
         applied_epoch_number: 2,
         applied_epoch_authenticator: vec![0x01, 0x02, 0x04],
+        ..Default::default()
     };
     assert!(should_skip_remote_commit_log_entry(
         Some(&latest_saved_remote_log),
-        &entry
+        &entry,
+        true,
     ));
 
     // Skips if entry CommitResult is not COMMIT_RESULT_APPLIED, and the epoch authenticator or epoch number does not match the most recently applied values
@@ -1407,6 +1472,7 @@ fn test_should_skip_remote_log_entry() {
         commit_result: CommitResult::Success,
         applied_epoch_number: 3,
         applied_epoch_authenticator: vec![0x01, 0x02, 0x03],
+        author_installation_key: vec![],
     };
     let entry = PlaintextCommitLogEntry {
         group_id: vec![0x11, 0x22, 0x33],
@@ -1415,10 +1481,12 @@ fn test_should_skip_remote_log_entry() {
         commit_result: 2,
         applied_epoch_number: 4,
         applied_epoch_authenticator: vec![0x01, 0x02, 0x03],
+        ..Default::default()
     };
     assert!(should_skip_remote_commit_log_entry(
         Some(&latest_saved_remote_log),
-        &entry
+        &entry,
+        true,
     ));
     let entry = PlaintextCommitLogEntry {
         group_id: vec![0x11, 0x22, 0x33],
@@ -1427,10 +1495,12 @@ fn test_should_skip_remote_log_entry() {
         commit_result: 2,
         applied_epoch_number: 3,
         applied_epoch_authenticator: vec![0x01, 0x02, 0x04],
+        ..Default::default()
     };
     assert!(should_skip_remote_commit_log_entry(
         Some(&latest_saved_remote_log),
-        &entry
+        &entry,
+        true,
     ));
 }
 
@@ -1568,4 +1638,522 @@ async fn test_consecutive_entries_verification_happy_case() {
 
     // Both parties verify consecutive entries published by each other under
     // the one commit-log id their shared root derives.
+}
+
+// verifies: FORK-078
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_member_cannot_poison_the_commit_log() {
+    tester!(alix, with_commit_log_worker: false);
+    tester!(bo, with_commit_log_worker: false);
+
+    let a = alix
+        .create_group_with_members(&[bo.inbox_id()], None, None)
+        .await?;
+    let b = bo.wait_for_welcomes().await?.first()?.to_owned();
+    a.update_group_name("shared".into()).await?;
+    b.sync().await?;
+    assert_eq!(
+        a.epoch_authenticator().await?,
+        b.epoch_authenticator().await?
+    );
+
+    // The honest prefix establishes the reader's accepted chain.
+    let mut publisher = CommitLogWorker::new(alix.context.clone());
+    publish_turn(&mut publisher).await;
+    let mut reader = CommitLogWorker::new(alix.context.clone());
+    reader
+        .run_test(CommitLogTestFunction::SaveRemoteCommitLog, None)
+        .await?;
+    reader
+        .run_test(CommitLogTestFunction::CheckForkedState, None)
+        .await?;
+    assert_eq!(
+        alix.context
+            .db()
+            .get_group_commit_log_forked_status(&a.group_id)?,
+        Some(false)
+    );
+
+    a.update_group_name("next".into()).await?;
+    b.sync().await?;
+    assert_eq!(
+        a.epoch_authenticator().await?,
+        b.epoch_authenticator().await?
+    );
+    let honest = PlaintextCommitLogEntry::from(a.local_commit_log().await?.last()?);
+    let mut forged = PlaintextCommitLogEntry::from(b.local_commit_log().await?.last()?);
+    assert_eq!(forged, honest);
+    forged.applied_epoch_authenticator[0] ^= 1;
+    assert_ne!(
+        forged.applied_epoch_authenticator,
+        honest.applied_epoch_authenticator
+    );
+
+    sign_entry_author(
+        &keys_of(&b),
+        &bo.context.identity().installation_keys,
+        &mut forged,
+    )?;
+
+    // Bo uses only the shared root in his own group state and his authenticated
+    // backend session. The backend stores this entry before Alix's worker runs.
+    let mut stored = Vec::new();
+    bo.context
+        .api()
+        .publish_commit_log(vec![seal_entry(&keys_of(&b), &forged)?], &mut stored)
+        .await?;
+    assert_eq!(stored.len(), 1);
+    publish_turn(&mut publisher).await;
+
+    let downloaded = reader
+        .run_test(CommitLogTestFunction::SaveRemoteCommitLog, None)
+        .await?;
+    assert_eq!(
+        downloaded[0].save_remote_commit_log_results.as_ref()?[a.group_id.as_slice()],
+        1,
+        "only the honest publisher entry is accepted"
+    );
+    let accepted = alix.context.db().get_remote_commit_log_after_cursor(
+        &a.group_id,
+        0,
+        RemoteCommitLogOrder::DescendingByRowid,
+    )?;
+    assert_eq!(
+        accepted[0].commit_sequence_id,
+        honest.commit_sequence_id as i64
+    );
+    assert_eq!(
+        accepted[0].applied_epoch_authenticator,
+        honest.applied_epoch_authenticator
+    );
+    assert_eq!(
+        accepted[0].author_installation_key,
+        alix.context.installation_id().to_vec()
+    );
+    reader
+        .run_test(CommitLogTestFunction::CheckForkedState, None)
+        .await?;
+    assert_eq!(
+        alix.context
+            .db()
+            .get_group_commit_log_forked_status(&a.group_id)?,
+        Some(false),
+        "a non-publisher cannot forge a fork verdict"
+    );
+    assert_eq!(
+        a.epoch_authenticator().await?,
+        b.epoch_authenticator().await?
+    );
+}
+
+// verifies: FORK-081
+#[xmtp_common::test(unwrap_try = true)]
+async fn the_publisher_flag_follows_the_super_admin_list() {
+    use crate::groups::UpdateAdminListType::{AddSuper, RemoveSuper};
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    let a = alix
+        .create_group_with_members(&[bo.inbox_id()], None, None)
+        .await?;
+    bo.sync_welcomes().await?;
+    let b = bo.group(&a.group_id)?;
+    assert!(
+        !bo.context
+            .db()
+            .find_group(&a.group_id)??
+            .should_publish_commit_log
+    );
+    a.update_admin_list(AddSuper, bo.inbox_id().to_string())
+        .await?;
+    b.sync().await?;
+    assert!(
+        bo.context
+            .db()
+            .find_group(&a.group_id)??
+            .should_publish_commit_log
+    );
+    b.update_admin_list(RemoveSuper, alix.inbox_id().to_string())
+        .await?;
+    a.sync().await?;
+    assert!(
+        !alix
+            .context
+            .db()
+            .find_group(&a.group_id)??
+            .should_publish_commit_log
+    );
+
+    // Model the cached role left by an older client before replacing its MLS state.
+    crate::state_tx::state_write(alix.context.mls_storage(), |tx| {
+        use xmtp_db::XmtpMlsStorageProvider;
+        tx.storage()
+            .db()
+            .set_should_publish_commit_log(&a.group_id, true)?;
+        Ok::<_, xmtp_db::ConnectionError>(xmtp_db::TransactionOutcome::Continue(()))
+    })?;
+    b.readd_installations(vec![alix.context.installation_id().to_vec()])
+        .await?;
+    a.sync_with_conn().await?;
+    alix.sync_welcomes().await?;
+    assert!(
+        !alix
+            .context
+            .db()
+            .find_group(&a.group_id)??
+            .should_publish_commit_log
+    );
+}
+
+// verifies: FORK-081
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_promoted_publisher_publishes_from_its_promotion() {
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    let a = alix
+        .create_group_with_members(&[bo.inbox_id()], None, None)
+        .await?;
+    bo.sync_welcomes().await?;
+    let b = bo.group(&a.group_id)?;
+    b.update_consent_state(ConsentState::Allowed)?;
+    a.update_group_name("before promotion".into()).await?;
+    b.sync().await?;
+    a.update_admin_list(
+        crate::groups::UpdateAdminListType::AddSuper,
+        bo.inbox_id().to_string(),
+    )
+    .await?;
+    b.sync().await?;
+    let promotion = b.local_commit_log().await?.last()?.commit_sequence_id as u64;
+    publish_turn(&mut CommitLogWorker::new(bo.context.clone())).await;
+    let entries = remote_entries(&bo, &b).await;
+    assert!(!entries.is_empty());
+    assert!(entries.iter().all(|entry| entry.author_installation_key
+        == bo.context.installation_id().to_vec()
+        && entry.commit_sequence_id >= promotion));
+    assert!(
+        entries
+            .iter()
+            .any(|entry| entry.commit_sequence_id == promotion)
+    );
+}
+
+// verifies: FORK-081
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_readded_publisher_does_not_publish_its_earlier_membership() {
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    let a = alix
+        .create_group_with_members(&[bo.inbox_id()], None, None)
+        .await?;
+    bo.sync_welcomes().await?;
+    let b = bo.group(&a.group_id)?;
+    b.update_consent_state(ConsentState::Allowed)?;
+    a.update_admin_list(
+        crate::groups::UpdateAdminListType::AddSuper,
+        bo.inbox_id().to_string(),
+    )
+    .await?;
+    a.update_group_name("unpublished before rejoin".into())
+        .await?;
+    b.sync().await?;
+    let previous = b.local_commit_log().await?.last()?.commit_sequence_id as u64;
+    a.readd_installations(vec![bo.context.installation_id().to_vec()])
+        .await?;
+    b.sync_with_conn().await?;
+    bo.sync_welcomes().await?;
+    a.update_group_name("after rejoin".into()).await?;
+    b.sync().await?;
+    publish_turn(&mut CommitLogWorker::new(bo.context.clone())).await;
+    let entries = remote_entries(&bo, &b).await;
+    assert!(!entries.is_empty());
+    assert!(entries.iter().all(|entry| entry.author_installation_key
+        == bo.context.installation_id().to_vec()
+        && entry.commit_sequence_id > previous));
+}
+
+// verifies: FORK-078
+#[xmtp_common::test(unwrap_try = true)]
+async fn an_entry_ahead_of_the_reader_is_held() {
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    tester!(caro, disable_workers);
+    let a = alix
+        .create_group_with_members(&[bo.inbox_id(), caro.inbox_id()], None, None)
+        .await?;
+    bo.sync_welcomes().await?;
+    caro.sync_welcomes().await?;
+    let b = bo.group(&a.group_id)?;
+    let c = caro.group(&a.group_id)?;
+    b.update_consent_state(ConsentState::Allowed)?;
+    c.update_consent_state(ConsentState::Allowed)?;
+    a.update_admin_list(
+        crate::groups::UpdateAdminListType::AddSuper,
+        bo.inbox_id().to_string(),
+    )
+    .await?;
+    b.sync().await?;
+    publish_turn(&mut CommitLogWorker::new(bo.context.clone())).await;
+    let mut reader = CommitLogWorker::new(caro.context.clone());
+    reader
+        .run_test(CommitLogTestFunction::SaveRemoteCommitLog, None)
+        .await?;
+    assert!(
+        caro.context
+            .db()
+            .get_latest_remote_log_for_group(&a.group_id)?
+            .is_none()
+    );
+    assert_eq!(
+        caro.context
+            .db()
+            .get_last_cursor(a.group_id, EntityKind::CommitLogDownload)?
+            .0,
+        0
+    );
+    c.sync().await?;
+    reader
+        .run_test(CommitLogTestFunction::SaveRemoteCommitLog, None)
+        .await?;
+    assert_eq!(
+        caro.context
+            .db()
+            .get_latest_remote_log_for_group(&a.group_id)??
+            .author_installation_key,
+        bo.context.installation_id().to_vec()
+    );
+}
+
+// verifies: FORK-078
+#[xmtp_common::test(unwrap_try = true)]
+async fn an_inactive_reader_does_not_hold() {
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    let a = alix
+        .create_group_with_members(&[bo.inbox_id()], None, None)
+        .await?;
+    bo.sync_welcomes().await?;
+    let b = bo.group(&a.group_id)?;
+    b.update_consent_state(ConsentState::Allowed)?;
+    a.remove_members(&[bo.inbox_id()]).await?;
+    b.sync_with_conn().await?;
+    assert!(!b.is_active()?);
+    a.update_group_name("after removal".into()).await?;
+    publish_turn(&mut CommitLogWorker::new(alix.context.clone())).await;
+    let topic = Topic::new_commit_log(keys_of(&a).commit_log_id());
+    let entries = alix
+        .context
+        .api()
+        .query_commit_log([(topic, Cursor(0))].into())
+        .await?;
+    let last = entries.last()?.cursor;
+    CommitLogWorker::new(bo.context.clone())
+        .run_test(CommitLogTestFunction::SaveRemoteCommitLog, None)
+        .await?;
+    assert_eq!(
+        bo.context
+            .db()
+            .get_last_cursor(a.group_id, EntityKind::CommitLogDownload)?,
+        last
+    );
+}
+
+// verifies: FORK-030, FORK-078
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_held_entry_stops_later_pages_of_its_topic() {
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    let a = alix
+        .create_group_with_members(&[bo.inbox_id()], None, None)
+        .await?;
+    bo.sync_welcomes().await?;
+    let b = bo.group(&a.group_id)?;
+    b.update_consent_state(ConsentState::Allowed)?;
+    a.update_group_name("reader processed prefix".into())
+        .await?;
+    b.sync().await?;
+    a.update_group_name("reader has not processed this commit".into())
+        .await?;
+    let future = a.local_commit_log().await?.last()?.commit_sequence_id as u64;
+    let keys = keys_of(&a);
+    let topic = Topic::new_commit_log(keys.commit_log_id());
+    let entry = |sequence, epoch: u64, author: &xmtp_cryptography::XmtpInstallationCredential| {
+        let mut entry = PlaintextCommitLogEntry {
+            group_id: a.group_id.to_vec(),
+            commit_sequence_id: sequence,
+            commit_result: ProtoCommitResult::Applied as i32,
+            last_epoch_authenticator: vec![epoch as u8; 32],
+            applied_epoch_number: epoch + 1,
+            applied_epoch_authenticator: vec![epoch as u8 + 1; 32],
+            ..Default::default()
+        };
+        sign_entry_author(&keys, author, &mut entry).unwrap();
+        seal_entry(&keys, &entry).unwrap()
+    };
+    let envelope_base = future + 100;
+    let entries = [
+        entry(1, 1, &alix.context.identity().installation_keys),
+        entry(future, 2, &bo.context.identity().installation_keys),
+        entry(2, 2, &alix.context.identity().installation_keys),
+    ]
+    .into_iter()
+    .enumerate()
+    .map(|(index, entry)| {
+        server_envelope(
+            &topic,
+            envelope_base + index as u64,
+            Payload::SealedCommitLogEntry(entry),
+        )
+    })
+    .collect();
+    let (client, script) = scripted::scripted_with_page_size(&bo.client, 2).await;
+    script.lock().reads.insert(topic.cloned_vec(), entries);
+    let mut reader = CommitLogWorker::new(client.context.clone());
+    reader
+        .run_test(CommitLogTestFunction::SaveRemoteCommitLog, None)
+        .await?;
+    assert_eq!(
+        script.lock().read.len(),
+        1,
+        "held topics must not request page two"
+    );
+    assert_eq!(
+        bo.context
+            .db()
+            .get_last_cursor(b.group_id, EntityKind::CommitLogDownload)?
+            .0,
+        envelope_base
+    );
+    assert_eq!(
+        bo.context
+            .db()
+            .get_latest_remote_log_for_group(&b.group_id)??
+            .commit_sequence_id,
+        1
+    );
+    b.sync().await?;
+    reader
+        .run_test(CommitLogTestFunction::SaveRemoteCommitLog, None)
+        .await?;
+    let accepted = bo.context.db().get_remote_commit_log_after_cursor(
+        &b.group_id,
+        0,
+        RemoteCommitLogOrder::AscendingByRowid,
+    )?;
+    assert_eq!(
+        accepted
+            .iter()
+            .map(|entry| entry.commit_sequence_id)
+            .collect::<Vec<_>>(),
+        vec![1, 2]
+    );
+    assert_eq!(
+        bo.context
+            .db()
+            .get_last_cursor(b.group_id, EntityKind::CommitLogDownload)?
+            .0,
+        envelope_base + 2
+    );
+}
+
+// verifies: FORK-078, FORK-079, FORK-081
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_publisher_handover_keeps_the_log_readable() {
+    use crate::groups::UpdateAdminListType::{AddSuper, RemoveSuper};
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    tester!(caro, disable_workers);
+    tester!(dan, disable_workers);
+    let a = alix
+        .create_group_with_members(
+            &[bo.inbox_id(), caro.inbox_id(), dan.inbox_id()],
+            None,
+            None,
+        )
+        .await?;
+    bo.sync_welcomes().await?;
+    caro.sync_welcomes().await?;
+    dan.sync_welcomes().await?;
+    let b = bo.group(&a.group_id)?;
+    let c = caro.group(&a.group_id)?;
+    let d = dan.group(&a.group_id)?;
+    for group in [&b, &c, &d] {
+        group.update_consent_state(ConsentState::Allowed)?;
+    }
+    a.update_group_name("accepted old publisher prefix".into())
+        .await?;
+    c.sync().await?;
+    publish_turn(&mut CommitLogWorker::new(alix.context.clone())).await;
+    let mut reader = CommitLogWorker::new(caro.context.clone());
+    reader
+        .run_test(CommitLogTestFunction::SaveRemoteCommitLog, None)
+        .await?;
+    let last_old = caro
+        .context
+        .db()
+        .get_latest_remote_log_for_group(&a.group_id)??
+        .commit_sequence_id;
+    // This unpublished entry leaves a gap before Bo's promotion.
+    a.update_group_name("unpublished gap".into()).await?;
+    a.update_admin_list(AddSuper, bo.inbox_id().to_string())
+        .await?;
+    b.sync().await?;
+    let promotion = b.local_commit_log().await?.last()?.commit_sequence_id as u64;
+    b.update_admin_list(RemoveSuper, alix.inbox_id().to_string())
+        .await?;
+    a.sync().await?;
+    c.sync().await?;
+    d.sync().await?;
+    let mut demoted = PlaintextCommitLogEntry::from(a.local_commit_log().await?.last()?);
+    let keys = keys_of(&a);
+    sign_entry_author(
+        &keys,
+        &alix.context.identity().installation_keys,
+        &mut demoted,
+    )?;
+    let mut stored = Vec::new();
+    alix.context
+        .api()
+        .publish_commit_log(vec![seal_entry(&keys, &demoted)?], &mut stored)
+        .await?;
+    publish_turn(&mut CommitLogWorker::new(bo.context.clone())).await;
+    let published = remote_entries(&bo, &b).await;
+    let bo_entries = published
+        .iter()
+        .filter(|entry| entry.author_installation_key == bo.context.installation_id().to_vec())
+        .collect::<Vec<_>>();
+    assert!(
+        !bo_entries.is_empty(),
+        "the promoted publisher must publish"
+    );
+    assert!(
+        bo_entries
+            .iter()
+            .all(|entry| entry.commit_sequence_id >= promotion),
+        "the new publisher must not publish its earlier history"
+    );
+    for mut reader in [reader, CommitLogWorker::new(dan.context.clone())] {
+        reader
+            .run_test(CommitLogTestFunction::SaveRemoteCommitLog, None)
+            .await?;
+        reader
+            .run_test(CommitLogTestFunction::CheckForkedState, None)
+            .await?;
+    }
+    for client in [&caro, &dan] {
+        let entries = client.context.db().get_remote_commit_log_after_cursor(
+            &a.group_id,
+            0,
+            RemoteCommitLogOrder::AscendingByRowid,
+        )?;
+        assert!(entries.iter().any(|entry| entry.author_installation_key == bo.context.installation_id().to_vec()));
+        assert!(entries.iter().filter(|entry| entry.commit_sequence_id > last_old)
+            .all(|entry| entry.author_installation_key == bo.context.installation_id().to_vec()));
+        assert_eq!(
+            client
+                .context
+                .db()
+                .get_group_commit_log_forked_status(&a.group_id)?,
+            Some(false)
+        );
+    }
 }

@@ -207,6 +207,7 @@ async fn test_commit_log_fork_detection_no_fork() -> Result<(), Box<dyn std::err
         commit_result: CommitResult::Success,
         applied_epoch_number: 1,
         applied_epoch_authenticator: vec![0xAA, 0xBB, 0xCC], // Same as local
+        author_installation_key: vec![],
     };
 
     let remote_entry_2 = NewRemoteCommitLog {
@@ -216,6 +217,7 @@ async fn test_commit_log_fork_detection_no_fork() -> Result<(), Box<dyn std::err
         commit_result: CommitResult::Success,
         applied_epoch_number: 2,
         applied_epoch_authenticator: vec![0xDD, 0xEE, 0xFF], // Same as local
+        author_installation_key: vec![],
     };
 
     remote_entry_1.store(&alix.context.db())?;
@@ -287,6 +289,7 @@ async fn test_commit_log_fork_detection_forked() -> Result<(), Box<dyn std::erro
         commit_result: CommitResult::Invalid, // For some reason remote marked this commit invalid
         applied_epoch_number: 1,
         applied_epoch_authenticator: vec![0xAA, 0xBB, 0xCC], // Same as local
+        author_installation_key: vec![],
     };
 
     let remote_entry_2 = NewRemoteCommitLog {
@@ -296,6 +299,7 @@ async fn test_commit_log_fork_detection_forked() -> Result<(), Box<dyn std::erro
         commit_result: CommitResult::Success,
         applied_epoch_number: 1,
         applied_epoch_authenticator: vec![0xCD, 0xDE, 0xEF], // Different from local
+        author_installation_key: vec![],
     };
 
     remote_entry_1.store(&alix.context.db())?;
@@ -365,6 +369,7 @@ async fn test_commit_log_fork_detection_cursor_updates() -> Result<(), Box<dyn s
         commit_result: CommitResult::Success,
         applied_epoch_number: 1,
         applied_epoch_authenticator: vec![0xAA, 0xBB, 0xCC], // Same authenticator
+        author_installation_key: vec![],
     };
 
     remote_entry.store(&alix.context.db())?;
@@ -449,6 +454,7 @@ async fn test_commit_log_fork_detection_cursor_updates() -> Result<(), Box<dyn s
         commit_result: CommitResult::Success,
         applied_epoch_number: 2,
         applied_epoch_authenticator: vec![0xDD, 0xEE, 0x11], // different authenticator
+        author_installation_key: vec![],
     };
 
     remote_entry.store(&alix.context.db())?;
@@ -552,6 +558,7 @@ async fn test_commit_log_fork_detection_returns_none_when_no_matching_remote()
         commit_result: CommitResult::Success,
         applied_epoch_number: 1,
         applied_epoch_authenticator: vec![0xAA, 0xBB, 0xCC], // Same as local
+        author_installation_key: vec![],
     };
 
     remote_entry.store(&alix.context.db())?;
@@ -627,6 +634,7 @@ async fn test_commit_log_fork_status_persistence_no_new_commits()
         commit_result: CommitResult::Success,
         applied_epoch_number: 1,
         applied_epoch_authenticator: vec![0xAA, 0xBB, 0xCC], // Same as local
+        author_installation_key: vec![],
     };
 
     let remote_entry_2 = NewRemoteCommitLog {
@@ -636,6 +644,7 @@ async fn test_commit_log_fork_status_persistence_no_new_commits()
         commit_result: CommitResult::Success,
         applied_epoch_number: 2,
         applied_epoch_authenticator: vec![0xDD, 0xEE, 0xFF], // Same as local
+        author_installation_key: vec![],
     };
 
     remote_entry_1.store(&alix.context.db())?;
@@ -849,6 +858,7 @@ async fn test_fork_detection_not_triggered_by_removal_and_readd()
             commit_result: CommitResult::Success,
             applied_epoch_number: epoch,
             applied_epoch_authenticator: auth,
+            author_installation_key: vec![],
         }
         .store(&bo.context.db())?;
         log_sequence_id += 1;
