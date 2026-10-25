@@ -989,7 +989,12 @@ async fn welcome_followup_retries_exact_bytes_after_restart() {
     group
         .context
         .api()
-        .publish_units(welcomes.units(group.context.api().limits())?)
+        .publish_units(
+            welcomes
+                .units(group.context.api().limits())?
+                .into_iter()
+                .collect::<Option<_>>()?,
+        )
         .await?;
 
     let group_id = group.group_id;

@@ -140,6 +140,11 @@ pub enum IntentState {
     /// wrong, the write is simply stale, and the caller is expected to
     /// re-derive it from the value that actually landed and queue again.
     Superseded = 6,
+    /// Terminal. The commit is applied, but its required follow-up Welcome
+    /// batch cannot be sent, so some installations it added have no Welcome.
+    /// Distinct from [`IntentState::Error`] (the commit did not fail) and from
+    /// [`IntentState::Processed`] (the change is not complete).
+    FollowUpFailed = 7,
 }
 
 #[derive(Queryable, Selectable, Identifiable, PartialEq, Clone)]
@@ -298,6 +303,11 @@ pub trait QueryGroupIntent {
     /// compare-and-swap guard no longer matches the committed state.
     fn set_group_intent_superseded(&self, intent_id: ID) -> Result<(), StorageError>;
 
+    /// Set a `Committed` intent to `FollowUpFailed`: its commit is applied and
+    /// its follow-up Welcome batch was ended unsent. `NotFound` when the
+    /// intent is not `Committed`.
+    fn set_group_intent_follow_up_failed(&self, intent_id: ID) -> Result<(), StorageError>;
+
     /// Abandon every unpublished and unconfirmed intent for a group that this
     /// installation is no longer a member of. Returns the number abandoned.
     ///
@@ -423,6 +433,10 @@ where
 
     fn set_group_intent_superseded(&self, intent_id: ID) -> Result<(), StorageError> {
         (**self).set_group_intent_superseded(intent_id)
+    }
+
+    fn set_group_intent_follow_up_failed(&self, intent_id: ID) -> Result<(), StorageError> {
+        (**self).set_group_intent_follow_up_failed(intent_id)
     }
 
     fn supersede_pending_intents_for_inactive_group(
@@ -629,6 +643,25 @@ impl<C: ConnectionExt> QueryGroupIntent for DbConnection<C> {
 
         if rows_changed == 0 {
             return Err(NotFound::IntentForToPublish(intent_id).into());
+        }
+
+        Ok(())
+    }
+
+    /// Only a `Committed` intent owes a follow-up batch, so it is the only
+    /// state that can move to `FollowUpFailed`.
+    #[tracing::instrument(level = "debug", skip(self))]
+    fn set_group_intent_follow_up_failed(&self, intent_id: ID) -> Result<(), StorageError> {
+        let rows_changed = self.raw_query(|conn| {
+            diesel::update(dsl::group_intents)
+                .filter(dsl::id.eq(intent_id))
+                .filter(dsl::state.eq(IntentState::Committed))
+                .set(dsl::state.eq(IntentState::FollowUpFailed))
+                .execute(conn)
+        })?;
+
+        if rows_changed == 0 {
+            return Err(NotFound::IntentById(intent_id).into());
         }
 
         Ok(())
@@ -913,6 +946,7 @@ where
             4 => Ok(IntentState::Error),
             5 => Ok(IntentState::Processed),
             6 => Ok(IntentState::Superseded),
+            7 => Ok(IntentState::FollowUpFailed),
             x => Err(format!("Unrecognized variant {}", x).into()),
         }
     }
@@ -1310,6 +1344,39 @@ pub(crate) mod tests {
             assert_eq!(intent.state, IntentState::Committed);
             // Make sure we haven't lost the payload hash
             assert_eq!(intent.payload_hash, Some(payload_hash.clone()));
+        })
+    }
+
+    /// Only a committed intent owes a follow-up batch, so only it can end in
+    /// `FollowUpFailed`, and the stored state reads back.
+    #[xmtp_common::test]
+    fn follow_up_failed_is_reached_only_from_committed() {
+        let group_id = GroupId::generate();
+
+        with_connection(|conn| {
+            insert_group(conn, group_id);
+            NewGroupIntent::new(
+                IntentKind::UpdateGroupMembership,
+                group_id,
+                rand_vec::<24>(),
+                false,
+            )
+            .store(conn)
+            .unwrap();
+            let intent = find_first_intent(conn, group_id);
+            conn.set_group_intent_published(intent.id, &rand_vec::<24>(), None, None, 1)
+                .unwrap();
+            assert!(matches!(
+                conn.set_group_intent_follow_up_failed(intent.id),
+                Err(StorageError::NotFound(NotFound::IntentById(id))) if id == intent.id
+            ));
+
+            conn.set_group_intent_committed(intent.id, Cursor::default())
+                .unwrap();
+            conn.set_group_intent_follow_up_failed(intent.id).unwrap();
+            let stored: StoredGroupIntent = conn.fetch(&intent.id).unwrap().unwrap();
+            assert_eq!(stored.state, IntentState::FollowUpFailed);
+            assert!(conn.set_group_intent_follow_up_failed(intent.id).is_err());
         })
     }
 

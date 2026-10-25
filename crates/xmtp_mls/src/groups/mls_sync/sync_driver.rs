@@ -411,6 +411,23 @@ where
                     summary.extend(self.rejected_intent_summary(intent_id)?);
                     return Err(GroupError::from(summary));
                 }
+                // implements: SEND-025
+                // The commit is applied, but its Welcomes were not sent, and
+                // no later round can send them.
+                Ok(Some(StoredGroupIntent {
+                    state: IntentState::FollowUpFailed,
+                    kind,
+                    ..
+                })) => {
+                    log_event!(
+                        Event::GroupSyncIntentErrored,
+                        self.context.installation_id(),
+                        level = warn,
+                        group_id = self.group_id, intent_id = intent_id,
+                        intent_kind = ?kind
+                    );
+                    return Err(super::publish::OutgoingPreparationError::WelcomesUnsendable.into());
+                }
                 Ok(Some(StoredGroupIntent { state, kind, .. })) => {
                     log_event!(
                         Event::GroupSyncIntentRetry,

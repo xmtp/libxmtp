@@ -27,6 +27,11 @@ pub enum OutgoingPreparationError {
     /// proved that the backend stored none of it.
     #[error("the backend stored none of a saved attempt that cannot be sent again")]
     Unstored,
+    /// The membership change is applied, but its required follow-up Welcome
+    /// batch cannot be sent, so some installations it added have no Welcome.
+    /// The intent ended in `FollowUpFailed`. Not retryable.
+    #[error("the membership change is applied, but its Welcomes were not sent")]
+    WelcomesUnsendable,
     /// The group holds no 32-byte root that derives its id, so it cannot sign
     /// a group message. A Restored placeholder or a legacy group. Not retryable.
     #[error("the group cannot sign group messages: {0}")]

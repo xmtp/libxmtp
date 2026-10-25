@@ -95,7 +95,7 @@ id = "SEND-019"
 kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "MlsGroup::publish_messages (SDK publishMessages) waits only for the last intent it selected and does not report an exact outcome for each earlier intent. The SDK also maps an ordered rejection to Unknown without the rejected intent's stable reason code; that mapping moves to a later SEND-019 change."
+reason = "MlsGroup::publish_messages (SDK publishMessages) waits only for the last intent it selected and does not report an exact outcome for each earlier intent. The SDK also maps an ordered rejection to Unknown without the rejected intent's stable reason code, and maps a follow-up Welcome batch that SEND-025 ended to Unknown; those mappings move to a later SEND-019 change."
 
 [[waiver]]
 id = "ARCH-008"
@@ -377,20 +377,6 @@ kind = "gap"
 owner = "Nicholas Molnar"
 issue = "https://github.com/xmtp/libxmtp/issues/4644"
 reason = "OpenMLS logs the serialized group context, root included, at TRACE under `openmls::schedule`, which a Rust host that installs its own global subscriber with the `tracing-log` bridge receives, because `xmtp_logging::group_context_guard` covers only the subscribers libxmtp installs."
-
-[[waiver]]
-id = "SEND-023"
-kind = "gap"
-owner = "Nicholas Molnar"
-issue = "TBD-octane-tracking"
-reason = "A saved follow-up Welcome batch that exceeds a bound under the current limits is not checked against a Query of its topics before the intent ends."
-
-[[waiver]]
-id = "SEND-025"
-kind = "gap"
-owner = "Nicholas Molnar"
-issue = "TBD-octane-tracking"
-reason = "An intent whose required follow-up Welcome batch cannot be sent under CONF-073, or is refused with INVALID_ARGUMENT, is not ended with a report that its Welcomes were not sent."
 
 [[waiver]]
 id = "CONS-046"
