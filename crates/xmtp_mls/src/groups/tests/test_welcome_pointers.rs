@@ -68,6 +68,7 @@ async fn test_welcome_pointer_round_trip_without_welcome_pointers() {
     .await;
 }
 
+// verifies: JOIN-091
 #[xmtp_common::timeout(Duration::from_secs(40))]
 #[rstest::rstest]
 #[xmtp_common::test(unwrap_try = true)]
@@ -256,6 +257,81 @@ async fn test_welcome_pointer_round_trip(
 
     // The test has successfully demonstrated welcome pointer functionality
     // by creating a group with multiple members and installations
+}
+
+/// Bo's key package advertises ChaCha20-Poly1305 pointees but only the
+/// classical wrapper, a valid first-party combination. A pointer cannot be
+/// wrapped for Bo, so Bo gets an inline Welcome, and Bo does not count toward
+/// the pointer threshold: two post-quantum co-recipients stay below it, three
+/// exceed it.
+// verifies: JOIN-091
+#[xmtp_common::timeout(Duration::from_secs(80))]
+#[rstest::rstest]
+#[case::below_threshold(2)]
+#[case::above_threshold(3)]
+#[xmtp_common::test]
+async fn classical_pointee_recipient_gets_an_inline_welcome(#[case] pq_recipients: usize) {
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    bo.identity()
+        .rotate_and_upload_key_package(bo.context.api(), bo.context.mls_storage(), false)
+        .await
+        .unwrap();
+    let mut pq = Vec::new();
+    for _ in 0..pq_recipients {
+        tester!(recipient, disable_workers);
+        pq.push(recipient);
+    }
+
+    let group = alix.create_group(None, None).unwrap();
+    group
+        .add_members(
+            std::iter::once(bo.inbox_id())
+                .chain(pq.iter().map(|recipient| recipient.inbox_id()))
+                .collect::<Vec<_>>(),
+        )
+        .await
+        .unwrap();
+    group.sync().await.unwrap();
+
+    let pointer_mode =
+        pq_recipients > xmtp_configuration::INSTALLATION_THRESHOLD_FOR_WELCOME_POINTER_SENDING;
+    for recipient in &pq {
+        let welcomes = alix
+            .context
+            .api()
+            .query_welcome_messages(recipient.context.installation_id())
+            .await
+            .unwrap();
+        let [welcome] = welcomes.as_slice() else {
+            panic!("expected one Welcome per recipient");
+        };
+        assert_eq!(
+            matches!(welcome.variant, WelcomeMessageType::WelcomePointer(_)),
+            pointer_mode
+        );
+    }
+    let welcomes = alix
+        .context
+        .api()
+        .query_welcome_messages(bo.context.installation_id())
+        .await
+        .unwrap();
+    let [welcome] = welcomes.as_slice() else {
+        panic!("expected one Welcome for Bo");
+    };
+    let Some(inline) = welcome.as_v1() else {
+        panic!("Bo must get an inline Welcome");
+    };
+    assert_eq!(
+        inline.wrapper_algorithm,
+        WelcomeWrapperAlgorithm::Curve25519
+    );
+
+    for recipient in std::iter::once(&bo).chain(&pq) {
+        recipient.sync_welcomes().await.unwrap();
+        assert!(recipient.group(&group.group_id).is_ok());
+    }
 }
 
 #[test]

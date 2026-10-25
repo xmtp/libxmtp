@@ -256,14 +256,12 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
         let welcome_metadata = WelcomeMetadata { message_cursor };
         let welcome_metadata_bytes = welcome_metadata.encode_to_vec();
 
+        // The threshold counts the same installations the loop below sends
+        // pointers to, so a pointee is built only when enough of them use it.
         let wp_capable = action
             .installations
             .iter()
-            .filter(|installation| {
-                installation
-                    .welcome_pointee_encryption_aead_types
-                    .compatible()
-            })
+            .filter(|installation| installation.pointer_capable())
             .count();
 
         let (welcome_pointer_bytes, welcome_pointee) = if wp_capable
@@ -329,11 +327,11 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
 
         let welcomes_iter = action.installations.into_iter().map(
             |installation| -> Result<WelcomeMessageInput, WrapPayloadError> {
-                // Unconditionally use the wrapper algorithm for the welcome pointer because it will always be post quantum compatible.
                 let algorithm = installation.welcome_wrapper_algorithm;
-                let wp_cap = installation.welcome_pointee_encryption_aead_types;
+                // A pointer-capable installation's wrapper is post-quantum, so its
+                // value is also the pointer's wrapper value.
                 if let Some(welcome_pointer) = &welcome_pointer_bytes
-                    && wp_cap.compatible()
+                    && installation.pointer_capable()
                 {
                     Ok(WelcomeMessageInput {
                         version: Some(WelcomeMessageInputVersion::WelcomePointer(
