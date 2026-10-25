@@ -712,11 +712,7 @@ where
 
     /// Process all Welcomes through one fixed replica-visible target.
     pub async fn sync_welcomes(&self) -> Result<Vec<MlsGroup<Context>>, GroupError> {
-        let scope = GroupScope {
-            consent: Some(vec![ConsentState::Allowed, ConsentState::Unknown]),
-            include_sync: true,
-            include_restored: true,
-        };
+        let scope = GroupScope::listing(None);
         let before: HashSet<_> = self
             .context
             .db()
@@ -899,15 +895,7 @@ where
         let groups: Vec<_> = self
             .context
             .db()
-            .stored_group_refs(&GroupScope {
-                consent: Some(
-                    consent_states
-                        .clone()
-                        .unwrap_or_else(|| vec![ConsentState::Allowed, ConsentState::Unknown]),
-                ),
-                include_sync: true,
-                include_restored: false,
-            })?
+            .stored_group_refs(&GroupScope::listing(consent_states.clone()).without_restored())?
             .into_iter()
             .map(|group| self.mls_group(group))
             .collect();

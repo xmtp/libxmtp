@@ -12,10 +12,20 @@ std::thread_local! {
         const { std::cell::RefCell::new(None) };
     /// Groups-table reads by Welcome discovery on this thread.
     static GROUPS_READS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    static AFTER_DISCOVERY_READ: std::cell::RefCell<Option<Box<dyn FnOnce()>>> =
+        const { std::cell::RefCell::new(None) };
 }
 
 pub(super) fn count_groups_read() {
     GROUPS_READS.with(|reads| reads.set(reads.get() + 1));
+}
+
+/// Runs between Welcome discovery's reads and its gate record.
+pub(super) fn after_discovery_read() {
+    let hook = AFTER_DISCOVERY_READ.with(|slot| slot.borrow_mut().take());
+    if let Some(hook) = hook {
+        hook();
+    }
 }
 
 pub(super) fn before_progress_read() {
@@ -307,6 +317,7 @@ async fn target_capture_timeout_reports_every_starting_topic() {
 async fn welcome_discovery_reads_groups_once_per_generation() {
     tester!(alix, disable_workers);
     let earlier = alix.create_group(None, None)?;
+    let joined = alix.create_group(None, None)?;
     let discovery = WelcomeDiscovery {
         topic: Topic::new_welcome_message(alix.context.installation_id()),
         target: Cursor(10),
@@ -317,20 +328,26 @@ async fn welcome_discovery_reads_groups_once_per_generation() {
     let reads = || GROUPS_READS.with(std::cell::Cell::get);
     let mut gate = GroupSetGate::default();
 
+    // A Welcome commits between the discovery reads and the gate's record.
+    let context = alix.context.clone();
+    let joined_id = joined.group_id;
+    AFTER_DISCOVERY_READ.with(|slot| {
+        *slot.borrow_mut() = Some(Box::new(move || {
+            context
+                .db()
+                .record_welcome_discovery(joined_id, Cursor(5))
+                .unwrap();
+        }));
+    });
     let first = discover_welcome_groups(&alix.context, &discovery, &mut gate)?;
     assert_eq!(first, Some(vec![earlier.group_id]));
+    let second = discover_welcome_groups(&alix.context, &discovery, &mut gate)?;
+    assert_eq!(second, Some(vec![earlier.group_id, joined.group_id]));
     for _ in 0..2 {
         assert_eq!(
             discover_welcome_groups(&alix.context, &discovery, &mut gate)?,
             None
         );
     }
-    assert_eq!(reads(), 1, "an unchanged group set was read again");
-
-    // A Welcome stores its group and records its discovery in one transaction.
-    let joined = alix.create_group(None, None)?;
-    db.record_welcome_discovery(joined.group_id, Cursor(5))?;
-    let discovered = discover_welcome_groups(&alix.context, &discovery, &mut gate)?;
-    assert_eq!(reads(), 2);
-    assert_eq!(discovered, Some(vec![earlier.group_id, joined.group_id]));
+    assert_eq!(reads(), 2, "an unchanged group set was read again");
 }

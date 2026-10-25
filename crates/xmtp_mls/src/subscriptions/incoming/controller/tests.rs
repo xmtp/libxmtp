@@ -345,6 +345,54 @@ async fn retired_groups_are_rechecked_only_after_a_group_change() {
     assert!(controller.is_retired(&topics[2]));
 }
 
+/// Welcome publication order is not epoch order, so a rejoin Welcome can carry
+/// a lower cursor than the one the group's row already holds. Installing it
+/// still changes the group set, so the retired topic is checked again.
+// verifies: PROC-051
+#[xmtp_common::test(unwrap_try = true)]
+async fn an_older_rejoin_welcome_unretires_the_group() {
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    let group = alix
+        .create_group_with_members(&[bo.inbox_id()], None, None)
+        .await?;
+    bo.sync_welcomes().await?;
+    group.remove_members(&[bo.inbox_id()]).await?;
+    let bo_group = bo.group(&group.group_id)?;
+    bo_group.sync().await?;
+    assert!(!bo_group.is_active()?);
+    // A later-published earlier Welcome already advanced the row's cursor.
+    run_raw_sql(
+        &bo.context,
+        &format!(
+            "UPDATE groups SET sequence_id = {} WHERE id = x'{}'",
+            i64::MAX,
+            hex::encode(group.group_id)
+        ),
+    );
+    let topic = Topic::new_group_message(group.group_id);
+    let mut controller = controller(bo.context.clone());
+    controller.command(Command::Acquire {
+        id: 1,
+        scope: IncomingScope::Groups(vec![group.group_id]),
+    });
+    controller.reconcile()?;
+    assert!(controller.is_retired(&topic));
+
+    group.add_members(&[bo.inbox_id()]).await?;
+    xmtp_common::wait_for_eq(
+        || async {
+            bo.sync_welcomes().await.unwrap();
+            bo.group(&group.group_id).unwrap().is_active().unwrap()
+        },
+        true,
+    )
+    .await?;
+    controller.reconcile()?;
+    assert!(!controller.is_retired(&topic));
+    assert!(controller.interested().contains(&topic));
+}
+
 /// A scope opened while no other all-groups scope is open takes the topics of
 /// the last discovery read when the group set has not changed since.
 // verifies: PROC-015

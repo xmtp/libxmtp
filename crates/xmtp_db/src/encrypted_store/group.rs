@@ -300,6 +300,39 @@ pub struct GroupScope {
     pub include_restored: bool,
 }
 
+impl GroupScope {
+    /// The groups a conversation listing with `consent` names (none means
+    /// Allowed and Unknown), with every group of a DM, sync groups and
+    /// Restored placeholders.
+    pub fn listing(consent: Option<Vec<ConsentState>>) -> Self {
+        Self {
+            consent: Some(
+                consent.unwrap_or_else(|| vec![ConsentState::Allowed, ConsentState::Unknown]),
+            ),
+            include_sync: true,
+            include_restored: true,
+        }
+    }
+
+    /// Every stored group whatever its consent, sync groups and Restored
+    /// placeholders included.
+    pub fn every_group() -> Self {
+        Self {
+            consent: None,
+            include_sync: true,
+            include_restored: true,
+        }
+    }
+
+    /// The same selection without Restored archive placeholders.
+    pub fn without_restored(self) -> Self {
+        Self {
+            include_restored: false,
+            ..self
+        }
+    }
+}
+
 // TODO: Create two more structs that delegate to StoredGroup
 impl_fetch!(StoredGroup, groups, GroupId);
 impl_store!(StoredGroup, groups);
@@ -429,6 +462,9 @@ pub trait QueryGroup {
         in_ns: Option<i64>,
     ) -> Result<(), StorageError>;
 
+    /// Store the group a Welcome installs: insert it, replace a Restored
+    /// placeholder, or keep an existing row and advance its Welcome cursor.
+    /// Every successful call changes the group-set generation.
     fn insert_or_replace_group(&self, group: StoredGroup) -> Result<StoredGroup, StorageError>;
 
     /// Get all the welcome ids turned into groups
@@ -714,6 +750,17 @@ where
 }
 
 impl<C: ConnectionExt> DbConnection<C> {
+    /// Change the group-set generation for a write its triggers do not see.
+    fn bump_group_set_generation(&self) -> Result<(), crate::ConnectionError> {
+        use crate::schema::group_set_generation::dsl as generation_dsl;
+        self.raw_query(|conn| {
+            diesel::update(generation_dsl::group_set_generation)
+                .set(generation_dsl::generation.eq(generation_dsl::generation + 1))
+                .execute(conn)
+        })?;
+        Ok(())
+    }
+
     /// The stored rows of the sync groups the app asked for, or none. The
     /// conversation list's `requested_sync_groups` applies the same rule.
     // implements: SYNC-005
@@ -1115,6 +1162,11 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
                             .execute(c)
                     })?;
                     existing_group.sequence_id = group.sequence_id;
+                } else {
+                    // Welcome publication order is not epoch order: an older
+                    // Welcome can still rejoin an inactive group. It writes no
+                    // triggered column, so record the change here.
+                    self.bump_group_set_generation()?;
                 }
                 Ok(existing_group)
             }
@@ -2512,26 +2564,23 @@ pub(crate) mod tests {
         })
     }
 
-    /// Welcome sync and group discovery enumerate stored groups through a
-    /// projection with no message, so a peer's payloads do not add to their
-    /// cost. Each caller's scope selects exactly what its former query selected,
-    /// with no row limit.
+    /// Welcome sync and group discovery enumerate stored groups through this
+    /// projection, which has no message field and no row limit. Each scope the
+    /// callers use selects, in the same order, what that caller's former query
+    /// selected, in every membership state.
     // verifies: PROC-015
     #[xmtp_common::test(unwrap_try = true)]
     fn stored_group_refs_select_like_listing_without_previews() {
         use crate::conversation_list::QueryConversationList;
-        use crate::group_message::tests::generate_message;
         use ConsentState::{Allowed, Denied, Unknown};
 
-        const PREVIEW_GROUPS: usize = 16;
-        const PREVIEW_BYTES: usize = 32 * 1024;
+        // More than a default page, so a row limit would leave some out.
         const UNKNOWN_GROUPS: usize = 150;
 
         // The pattern names every field, so a field added to the projection
         // fails to compile here.
         fn ids(refs: Vec<StoredGroupRef>) -> Vec<GroupId> {
-            let mut ids: Vec<_> = refs
-                .into_iter()
+            refs.into_iter()
                 .map(
                     |StoredGroupRef {
                          id,
@@ -2541,9 +2590,7 @@ pub(crate) mod tests {
                          membership_state: _,
                      }| id,
                 )
-                .collect();
-            ids.sort();
-            ids
+                .collect()
         }
         fn sorted(ids: impl IntoIterator<Item = GroupId>) -> Vec<GroupId> {
             let mut ids: Vec<_> = ids.into_iter().collect();
@@ -2574,16 +2621,9 @@ pub(crate) mod tests {
                 Ok(group.id)
             };
             use ConversationType::{Dm, Group, Oneshot, Sync};
-            use GroupMembershipState::{Allowed as Joined, Restored};
-            let mut previews = Vec::new();
-            for _ in 0..PREVIEW_GROUPS {
-                let id = store(Joined, Group, None, None)?;
-                let mut message =
-                    generate_message(None, Some(&id), None, Some(ContentType::Text), None, None);
-                message.decrypted_message_bytes = vec![7; PREVIEW_BYTES];
-                message.store(conn)?;
-                previews.push(id);
-            }
+            use GroupMembershipState::{
+                Allowed as Joined, Pending, PendingRemove, Rejected, Restored,
+            };
             let mut unknown = Vec::new();
             for _ in 0..UNKNOWN_GROUPS {
                 unknown.push(store(Joined, Group, None, None)?);
@@ -2591,6 +2631,9 @@ pub(crate) mod tests {
             let allowed = store(Joined, Group, None, Some(Allowed))?;
             let denied = store(Joined, Group, None, Some(Denied))?;
             let recorded_unknown = store(Joined, Group, None, Some(Unknown))?;
+            let pending = store(Pending, Group, None, None)?;
+            let leaving = store(PendingRemove, Group, None, None)?;
+            let rejected = store(Rejected, Group, None, None)?;
             let restored = store(Restored, Group, None, None)?;
             let oneshot = store(Joined, Oneshot, None, Some(Allowed))?;
             let sync = store(Joined, Sync, None, Some(Denied))?;
@@ -2607,74 +2650,85 @@ pub(crate) mod tests {
                 })
             };
             let found = |consent_states: Option<Vec<ConsentState>>| {
-                conn.find_groups(GroupQueryArgs {
+                let found = conn.find_groups(GroupQueryArgs {
                     consent_states,
                     include_sync_groups: true,
                     include_duplicate_dms: true,
                     ..Default::default()
-                })
+                })?;
+                Ok::<_, StorageError>(found)
             };
-            let refs = |consent: Option<Vec<ConsentState>>, include_restored| {
-                conn.stored_group_refs(&GroupScope {
-                    consent,
-                    include_sync: true,
-                    include_restored,
-                })
-                .map(ids)
-            };
+            let refs = |scope: GroupScope| conn.stored_group_refs(&scope).map(ids);
 
-            // sync_welcomes: the default conversation list with sync groups.
-            let welcome_sync = refs(Some(vec![Allowed, Unknown]), true)?;
-            assert_eq!(
-                welcome_sync,
-                sorted(listed(None)?.into_iter().map(|g| g.id))
-            );
-            let expected = previews.iter().chain(&unknown).copied().chain([
+            let filters = [
+                None,
+                Some(vec![Allowed]),
+                Some(vec![Denied]),
+                Some(vec![Unknown, Denied]),
+                Some(vec![]),
+            ];
+            for states in filters {
+                // sync_welcomes and barrier Welcome discovery: the listing,
+                // Restored rows kept.
+                let listing = refs(GroupScope::listing(states.clone()))?;
+                let rows = listed(states.clone())?;
+                assert_eq!(listing, rows.iter().map(|g| g.id).collect::<Vec<_>>());
+                assert_eq!(
+                    sorted(listing),
+                    sorted(found(states.clone())?.into_iter().map(|g| g.id))
+                );
+                // sync_all_welcomes_and_groups: the listing without Restored rows.
+                let unrestored = rows
+                    .iter()
+                    .filter(|g| g.membership_state != Restored)
+                    .map(|g| g.id);
+                assert_eq!(
+                    refs(GroupScope::listing(states).without_restored())?,
+                    unrestored.collect::<Vec<_>>()
+                );
+            }
+            let expected = unknown.iter().copied().chain([
                 allowed,
                 recorded_unknown,
+                pending,
+                leaving,
+                rejected,
                 restored,
                 sync,
                 restored_sync,
                 dm,
                 duplicate_dm,
             ]);
-            assert_eq!(welcome_sync, sorted(expected));
+            assert_eq!(sorted(refs(GroupScope::listing(None))?), sorted(expected));
+            // Newest first.
+            assert_eq!(
+                refs(GroupScope::listing(Some(vec![])))?,
+                vec![restored_sync, sync]
+            );
 
-            // sync_all_welcomes_and_groups: the caller's states, no Restored row.
-            for states in [None, Some(vec![Denied]), Some(vec![Allowed]), Some(vec![])] {
-                let scope = states.clone().unwrap_or_else(|| vec![Allowed, Unknown]);
-                let listed = listed(states)?
-                    .into_iter()
-                    .filter(|g| g.membership_state != Restored)
-                    .map(|g| g.id);
-                assert_eq!(refs(Some(scope), false)?, sorted(listed));
-            }
-            assert_eq!(refs(Some(vec![]), false)?, vec![sync]);
-
-            // The incoming controller: every state, no Restored row.
-            let all_groups = refs(None, false)?;
+            // The incoming controller: every group, without Restored rows.
+            let all_groups = refs(GroupScope::every_group().without_restored())?;
             let selected = found(Some(vec![Allowed, Unknown, Denied]))?
                 .into_iter()
                 .filter(|g| g.membership_state != Restored)
                 .map(|g| g.id);
-            assert_eq!(all_groups, sorted(selected));
-            let expected = previews.iter().chain(&unknown).copied().chain([
+            assert_eq!(sorted(all_groups.clone()), sorted(selected));
+            let expected = unknown.iter().copied().chain([
                 allowed,
                 denied,
                 recorded_unknown,
+                pending,
+                leaving,
+                rejected,
                 sync,
                 dm,
                 duplicate_dm,
             ]);
-            assert_eq!(all_groups, sorted(expected));
-            assert!(!all_groups.contains(&oneshot));
-
-            // Barrier Welcome discovery: the run's states, Restored rows kept.
-            for states in [None, Some(vec![Allowed]), Some(vec![Unknown, Denied])] {
-                let scope = states.clone().unwrap_or_else(|| vec![Allowed, Unknown]);
-                let selected = found(states)?.into_iter().map(|g| g.id);
-                assert_eq!(refs(Some(scope), true)?, sorted(selected));
-            }
+            assert_eq!(sorted(all_groups), sorted(expected));
+            assert!(
+                !refs(GroupScope::every_group())?.contains(&oneshot),
+                "a Oneshot group was selected"
+            );
 
             // The listing query can be row-limited; the projection has no limit.
             let limited = conn.fetch_conversation_list(GroupQueryArgs {
@@ -2722,6 +2776,20 @@ pub(crate) mod tests {
                     .execute(c)
             })?;
             assert_eq!(changed_by()?, 1, "Welcome cursor");
+            let welcome = |sequence_id| StoredGroup {
+                sequence_id: Some(sequence_id),
+                ..group.clone()
+            };
+            conn.insert_or_replace_group(welcome(7))?;
+            assert_eq!(changed_by()?, 1, "newer Welcome for a stored group");
+            conn.insert_or_replace_group(welcome(3))?;
+            assert_eq!(changed_by()?, 1, "older Welcome for a stored group");
+            conn.raw_query(|c| {
+                diesel::update(dsl::groups.find(&group.id))
+                    .set(dsl::conversation_type.eq(ConversationType::Dm))
+                    .execute(c)
+            })?;
+            assert_eq!(changed_by()?, 1, "conversation type");
             conn.raw_query(|c| {
                 diesel::update(dsl::groups.find(&group.id))
                     .set(dsl::dm_id.eq(Some("dm:alix:bo")))
@@ -2753,8 +2821,21 @@ pub(crate) mod tests {
                 entity.clone(),
             )?;
             assert_eq!(changed_by()?, 1, "conversation consent change");
-            consent(ConsentType::ConversationId, ConsentState::Allowed, entity)?;
+            consent(
+                ConsentType::ConversationId,
+                ConsentState::Allowed,
+                entity.clone(),
+            )?;
             assert_eq!(changed_by()?, 0, "same conversation consent");
+            conn.raw_query(|c| {
+                diesel::delete(
+                    consent_records::table
+                        .filter(consent_records::entity_type.eq(ConsentType::ConversationId))
+                        .filter(consent_records::entity.eq(&entity)),
+                )
+                .execute(c)
+            })?;
+            assert_eq!(changed_by()?, 1, "conversation consent delete");
             consent(ConsentType::InboxId, ConsentState::Denied, "bo".into())?;
             consent(ConsentType::InboxId, ConsentState::Allowed, "bo".into())?;
             assert_eq!(changed_by()?, 0, "inbox consent");

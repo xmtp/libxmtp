@@ -393,8 +393,8 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             .db()
             .group_set_generation()
             .map_err(|error| IncomingError::Storage(error.into()))?;
-        // Only a Welcome activates a retired group. It replaces a Restored row
-        // or advances the row's Welcome cursor (insert_or_replace_group), so an
+        // Only a Welcome activates a retired group, and storing its group
+        // (insert_or_replace_group) always changes the generation, so an
         // unchanged generation leaves every retired group inactive.
         if self.retired_gate.changed(generation) {
             self.recheck_retired()?;
@@ -683,13 +683,9 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
         Ok(self
             .context
             .db()
-            .stored_group_refs(&GroupScope {
-                consent: None,
-                include_sync: true,
-                // A Restored archive placeholder is inert until a Welcome activates it.
-                // implements: PROC-051
-                include_restored: false,
-            })
+            // A Restored archive placeholder is inert until a Welcome activates it.
+            // implements: PROC-051
+            .stored_group_refs(&GroupScope::every_group().without_restored())
             .map_err(|error| IncomingError::Storage(error.into()))?
             .into_iter()
             .map(|group| Topic::new_group_message(group.id))

@@ -316,19 +316,12 @@ fn discover_welcome_groups<C: XmtpSharedContext>(
     tests::count_groups_read();
     let eligible = db.group_ids_discovered_through(discovery.target)?;
     let selected: HashSet<_> = db
-        .stored_group_refs(&GroupScope {
-            consent: Some(
-                discovery
-                    .consent_states
-                    .clone()
-                    .unwrap_or_else(|| vec![ConsentState::Allowed, ConsentState::Unknown]),
-            ),
-            include_sync: true,
-            include_restored: true,
-        })?
+        .stored_group_refs(&GroupScope::listing(discovery.consent_states.clone()))?
         .into_iter()
         .map(|group| group.id)
         .collect();
+    #[cfg(test)]
+    tests::after_discovery_read();
     gate.record(generation);
     Ok(Some(
         eligible

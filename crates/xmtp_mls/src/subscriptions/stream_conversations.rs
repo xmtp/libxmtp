@@ -69,9 +69,10 @@ impl KnownConversations {
 
 /// The groups the stream selects, or none while the group-set generation
 /// equals the one `gate` recorded at its last successful read. A new group, a
-/// later Welcome and a consent change all change the generation, and they are
-/// the only changes `KnownConversations` reports. A DM's ranking can change
-/// with a message, but `KnownConversations` keeps its first group per DM.
+/// later Welcome and a consent change all change the generation. A message
+/// does not, though it can make another group a stitched DM's winner: when
+/// that DM's groups hold different consent, a consent-filtered stream reports
+/// it at the next change of the group set instead of the next pass.
 // implements: PROC-015
 fn changed_groups<C: XmtpSharedContext>(
     context: &C,
