@@ -98,13 +98,27 @@ async fn scw_history() -> support::TestResult<(TestServer, Arc<AtomicUsize>, Str
     Ok((server, calls, inbox_id))
 }
 
+/// Set every stored row's payload to NULL, which a history read cannot
+/// decode, so any read of a log fails as `UNAVAILABLE`.
+async fn make_logs_unreadable(server: &TestServer) -> support::TestResult {
+    sqlx::raw_sql(
+        "ALTER TABLE envelopes ALTER COLUMN payload DROP NOT NULL;
+         UPDATE envelopes SET payload = NULL;",
+    )
+    .execute(&server.backend.store.primary)
+    .await?;
+    Ok(())
+}
+
 /// An update with no actions is refused before its inbox's log is read, so it
-/// costs no verifier call however many SCW verdicts that log holds (finding
-/// 9825c590), and it fails for its own reason.
+/// costs no read and no verifier call however many SCW verdicts that log
+/// holds (finding 9825c590), and it fails for its own reason. The log is
+/// unreadable, so an update that read it would fail as `UNAVAILABLE`.
 // verifies: API-302
 #[xmtp_common::test(unwrap_try = true)]
 async fn rejected_empty_identity_updates_cost_no_history_verification() {
     let (server, calls, inbox_id) = scw_history().await?;
+    make_logs_unreadable(&server).await?;
     for client_timestamp_ns in [3, 4] {
         let empty = update(&inbox_id, client_timestamp_ns, vec![]);
         assert_eq!(
@@ -147,10 +161,10 @@ async fn identity_history_replay_runs_off_the_request_thread() {
 }
 
 /// Each update that a check needing no history rejects fails for its own
-/// reason without reading its inbox's log. The stored row's payload is NULL,
-/// which the read cannot decode, so any read of the log fails as
-/// `UNAVAILABLE`, as it does for the well-formed control. None fails as
-/// `ABORTED`, although the inbox has a head that the update never read.
+/// reason without reading its inbox's log. The log is unreadable, so any read
+/// of it fails as `UNAVAILABLE`, as it does for the well-formed control. None
+/// fails as `ABORTED`, although the inbox has a head that the update never
+/// read.
 // verifies: API-302, API-303
 #[xmtp_common::test(unwrap_try = true)]
 async fn identity_shape_rejections_read_no_history() {
@@ -164,12 +178,7 @@ async fn identity_shape_rejections_read_no_history() {
     let create = scw_create_inbox_update_at(1);
     let inbox_id = create.inbox_id.clone();
     assert_eq!(publish_identity(&server, create).await?, (Ok(()), 1));
-    sqlx::raw_sql(
-        "ALTER TABLE envelopes ALTER COLUMN payload DROP NOT NULL;
-         UPDATE envelopes SET payload = NULL;",
-    )
-    .execute(&server.backend.store.primary)
-    .await?;
+    make_logs_unreadable(&server).await?;
 
     let ecdsa = || UnverifiedSignature::new_recoverable_ecdsa(vec![1; 65]);
     let claim = UnverifiedAction::ClaimHandle(UnverifiedClaimHandle::new(
