@@ -773,7 +773,7 @@ async fn key_package_admission_rejects_unusable_addressing_extensions() {
         let parsed = parse_envelope(fixture.envelope)?;
         validate_envelope(
             &parsed,
-            &[],
+            &AdmittedState::default(),
             MockSmartContractSignatureVerifier::new(false),
             &TestChain::at(1),
         )
