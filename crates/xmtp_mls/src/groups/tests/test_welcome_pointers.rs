@@ -78,11 +78,12 @@ async fn test_welcome_pointer_round_trip_with_random_mix_of_welcome_pointers() {
         .into_iter()
         .map(|b| b & 1 == 1)
         .collect::<Vec<_>>();
-    // set the first n to true to ensure that welcome pointers are used when updating installations.
-    // it's required to not have random test failures (where the first 9 calls don't have 2 or more set to true)
+    // The sender uses pointers only when more than the threshold of the added
+    // installations can open one. Force threshold + 1 of the first 9 calls on,
+    // so the update of Bola's installations always uses pointers.
     random_vec
         .iter_mut()
-        .take(xmtp_configuration::INSTALLATION_THRESHOLD_FOR_WELCOME_POINTER_SENDING)
+        .take(xmtp_configuration::INSTALLATION_THRESHOLD_FOR_WELCOME_POINTER_SENDING + 1)
         .for_each(|b| *b = true);
     let mut gen_count = random_vec.len();
     let mut assert_count = random_vec.len();
