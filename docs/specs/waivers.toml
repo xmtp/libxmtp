@@ -386,13 +386,6 @@ issue = "TBD-octane-tracking"
 reason = "A saved follow-up Welcome batch that exceeds a bound under the current limits is not checked against a Query of its topics before the intent ends."
 
 [[waiver]]
-id = "SEND-024"
-kind = "gap"
-owner = "Nicholas Molnar"
-issue = "TBD-octane-tracking"
-reason = "A later intent of the same group waits for an earlier intent's unacknowledged follow-up Welcome batch before it reports confirmed success."
-
-[[waiver]]
 id = "SEND-025"
 kind = "gap"
 owner = "Nicholas Molnar"

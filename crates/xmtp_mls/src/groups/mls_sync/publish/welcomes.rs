@@ -50,6 +50,9 @@ impl PreparedWelcomes {
 impl<Context: XmtpSharedContext> MlsGroup<Context> {
     /// Resume required work for committed intents, including after restart.
     /// A commit is not `Processed` until its complete Welcome batch has receipts.
+    /// One intent's failure does not hold the others: every committed intent
+    /// is attempted in id order, and the first error is returned at the end.
+    // implements: SEND-024
     pub(in crate::groups::mls_sync) async fn publish_required_welcomes(
         &self,
     ) -> Result<(), GroupError> {
@@ -62,33 +65,45 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                 Some(IntentKind::all().collect()),
             )?
             .into_iter()
-            .map(|intent| intent.id)
-            .collect::<Vec<_>>();
+            .map(|intent| intent.id);
+        let mut first_error = None;
         for id in ids {
-            let Some(attempt) = self.prepare_required_welcomes(id)? else {
-                continue;
-            };
-            let welcomes = attempt
-                .welcomes
-                .as_ref()
-                .ok_or(OutgoingPreparationError::InvalidPreparedAttempt)?;
-            // All crypto and durable state writes finished before this request.
-            let units = welcomes.units(self.context.api().limits())?;
-            let receipts = if attempt.unsettled == Some(Unsettled::Welcomes) {
-                self.settle_welcomes(units).await?
-            } else {
-                match self.context.api().publish_units(units.clone()).await {
-                    Ok(receipts) => receipts,
-                    Err(error) if out_of_range(&error) => {
-                        self.mark_unsettled(id, &attempt, Unsettled::Welcomes)?;
-                        self.settle_welcomes(units).await?
-                    }
-                    Err(error) => return Err(error.into()),
-                }
-            };
-            self.record_welcome_receipts(id, &attempt, receipts)?;
+            if let Err(error) = self.publish_required_welcomes_for(id).await {
+                tracing::warn!(
+                    group_id = %self.group_id.short_hex(),
+                    intent_id = id,
+                    "required Welcomes not published: {error}"
+                );
+                first_error.get_or_insert(error);
+            }
         }
-        Ok(())
+        first_error.map_or(Ok(()), Err)
+    }
+
+    /// Publish or settle the required Welcome batch of one committed intent.
+    async fn publish_required_welcomes_for(&self, id: i32) -> Result<(), GroupError> {
+        let Some(attempt) = self.prepare_required_welcomes(id)? else {
+            return Ok(());
+        };
+        let welcomes = attempt
+            .welcomes
+            .as_ref()
+            .ok_or(OutgoingPreparationError::InvalidPreparedAttempt)?;
+        // All crypto and durable state writes finished before this request.
+        let units = welcomes.units(self.context.api().limits())?;
+        let receipts = if attempt.unsettled == Some(Unsettled::Welcomes) {
+            self.settle_welcomes(units).await?
+        } else {
+            match self.context.api().publish_units(units.clone()).await {
+                Ok(receipts) => receipts,
+                Err(error) if out_of_range(&error) => {
+                    self.mark_unsettled(id, &attempt, Unsettled::Welcomes)?;
+                    self.settle_welcomes(units).await?
+                }
+                Err(error) => return Err(error.into()),
+            }
+        };
+        self.record_welcome_receipts(id, &attempt, receipts)
     }
 
     /// Settle a Welcome batch whose publish returned `OUT_OF_RANGE` with a

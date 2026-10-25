@@ -316,6 +316,46 @@ async fn publish_out_of_range_settlement_completes_a_mixed_topic_welcome_batch()
     }
 }
 
+/// While the backend is unreachable for an earlier membership change's
+/// Welcomes, that change stays committed and owes them. A later send must
+/// still complete once its own echo is applied, instead of waiting behind
+/// the earlier batch and returning published but unconfirmed.
+// verifies: SEND-024
+#[xmtp_common::test(unwrap_try = true)]
+async fn later_send_completes_while_earlier_welcomes_fail() {
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    let group = alix.create_group(None, None)?;
+    group.key_update().await?;
+    let api =
+        FaultyApi::new(&alix, welcome, []).then_always(Fault::Refuse(tonic::Code::Unavailable));
+    let outage = faulty_group(&alix, &group.group_id, api.clone()).await;
+    let data = outage
+        .get_membership_update_intent(&[bo.inbox_id()], &[])
+        .await?;
+    let membership = QueueIntent::update_group_membership()
+        .data(data)
+        .queue(&outage)?;
+    outage.publish_intents().await?;
+    assert!(!outage.receive().await?.is_errored());
+
+    outage
+        .send_message(b"after the membership change", Default::default())
+        .await?;
+    only_intent(&group, IntentState::Processed, IntentKind::SendMessage);
+    let owed = only_intent(
+        &group,
+        IntentState::Committed,
+        IntentKind::UpdateGroupMembership,
+    );
+    assert_eq!(owed.id, membership.id);
+    assert!(saved_attempt(&group, owed.id).welcomes?.receipts.is_none());
+    assert!(
+        !api.requests.lock().is_empty(),
+        "the Welcome batch was never attempted"
+    );
+}
+
 /// Rewrite the saved one-envelope attempt of `intent_id` as an earlier build
 /// could have saved it, with more envelopes than one request may carry. Each
 /// copy is the same envelope, so the backend stores at most one.
