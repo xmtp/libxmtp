@@ -306,6 +306,11 @@ where
                     Err(e) => Err(e),
                     Ok(Continue(group)) => {
                         db.complete_pending_envelope(&self.topic(), self.welcome.cursor)?;
+                        // Rotate the key package this Welcome used only once it is
+                        // installed, in the same transaction. Receipt, a hold, or a
+                        // rejection never queues rotation.
+                        crate::worker::key_package_maintenance::queue_key_rotation_in(&storage)?;
+                        event_buffer.emit(None, Some(InternalEvent::TaskScheduled));
                         self.context.task_channels().mark_notification_changed();
                         Ok(Continue(CommitResult::Ok(group)))
                     }
