@@ -609,16 +609,13 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                     }
                 }
             }
-            // An own update builds these removals inline. Attribute any
-            // missing removal to the inbox update that requires it: a shared
-            // key's leaf credential can name a different, unchanged inbox.
+            // An own update builds these removals inline. Readds do not
+            // cover them: the receiver excludes matched Adds and Removes.
+            // Attribute each missing removal to the inbox update requiring it.
+            // A shared key's leaf can name a different, unchanged inbox.
             let uncovered_removals: HashSet<_> = required
                 .iter()
-                .filter(|key| {
-                    !removed_keys.contains(*key)
-                        && !requirements.readds.contains(*key)
-                        && !own_removals.contains(*key)
-                })
+                .filter(|key| !removed_keys.contains(*key) && !own_removals.contains(*key))
                 .cloned()
                 .collect();
             if !uncovered_removals.is_empty() {

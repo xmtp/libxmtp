@@ -288,19 +288,41 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
         .collect())
     }
 
-    /// A saved child receipt is publication of its original membership request.
-    /// Do not classify an unrelated blocking intent as this request's receipt.
+    /// A saved child receipt is publication of its original membership request,
+    /// including a committed part that still owes Welcomes.
     // implements: SEND-015
     pub(in crate::groups::mls_sync) fn published_request_target(
         &self,
         intent_id: ID,
     ) -> Result<Option<Cursor>, GroupError> {
+        self.request_target(intent_id, &[IntentState::Published, IntentState::Committed])
+    }
+
+    /// Only an unapplied child receipt can drive the request's next read.
+    /// An older applied part must not hide a newer ambiguous publication.
+    pub(in crate::groups::mls_sync) fn request_read_target(
+        &self,
+        intent_id: ID,
+    ) -> Result<Option<Cursor>, GroupError> {
+        self.request_target(intent_id, &[IntentState::Published])
+    }
+
+    fn request_target(
+        &self,
+        intent_id: ID,
+        child_states: &[IntentState],
+    ) -> Result<Option<Cursor>, GroupError> {
         if let Some(target) = self.published_intent_target(intent_id)? {
             return Ok(Some(target));
         }
         let mut target = None;
-        for child in self.pending_membership_children(intent_id)? {
-            target = target.max(self.published_intent_target(child)?);
+        for (child, _) in Self::membership_child_attempts(
+            &self.context.db(),
+            self.group_id,
+            intent_id,
+            child_states,
+        )? {
+            target = target.max(self.published_intent_target(child.id)?);
         }
         Ok(target)
     }

@@ -581,3 +581,59 @@ async fn a_refused_split_child_fails_its_parent_and_releases_later_work() {
         .await?;
     assert_eq!(status(&group, &message), DeliveryStatus::Published);
 }
+
+/// A confirmed split part can still owe Welcomes while the next part has an
+/// ambiguous publish. Reading the old receipt must not hide the newer echo.
+// verifies: SEND-015, SEND-022
+#[xmtp_common::test(unwrap_try = true)]
+async fn an_applied_split_child_does_not_hide_an_ambiguous_parent_echo() {
+    let SplitRefreshFixture {
+        limited, group_id, ..
+    } = split_refresh_fixture(None).await?;
+    let group = limited.group(&group_id)?;
+    let root = QueueIntent::update_group_membership()
+        .data(group.get_membership_update_intent(&[], &[]).await?)
+        .queue(&group)?;
+    group.publish_intents().await?;
+    let (child, attempt) = saved_child(&group, &[IntentState::Published]);
+    assert_eq!(attempt.parent_intent, Some(root.id));
+    let child_cursor = group.published_intent_target(child.id)?.unwrap();
+    crate::subscriptions::barrier::wait_through(
+        &group.context,
+        [(Topic::new_group_message(group_id), child_cursor)].into(),
+        None,
+    )
+    .await?;
+    let committed: StoredGroupIntent = group.context.db().fetch(&child.id)?.unwrap();
+    assert_eq!(committed.state, IntentState::Committed);
+    drop(group);
+
+    // No OUT_OF_RANGE settlement or live subscription can rescue this read.
+    // The first request is the remaining parent commit. Every later group or
+    // Welcome publish stays ambiguous, while ordered queries remain healthy.
+    const LATER_PUBLISH_FAILURES: usize = 100;
+    let faults = std::iter::once(Fault::StoreThenUnavailable).chain(std::iter::repeat_n(
+        Fault::Refuse(tonic::Code::Unavailable),
+        LATER_PUBLISH_FAILURES,
+    ));
+    let api = FaultyApi::new(
+        &limited,
+        |payload| group_message(payload) || welcome(payload),
+        faults,
+    );
+    let source = faulty_group(&limited, &group_id, api.clone()).await;
+    assert!(source.sync_until_intent_resolved(root.id).await.is_err());
+    assert!(
+        !api.lost.lock().is_empty(),
+        "the parent was stored before UNAVAILABLE"
+    );
+    let parent: StoredGroupIntent = source.context.db().fetch(&root.id)?.unwrap();
+    assert_eq!(
+        parent.state,
+        IntentState::Committed,
+        "the available parent echo must apply while the older child still owes Welcomes"
+    );
+    let child: StoredGroupIntent = source.context.db().fetch(&child.id)?.unwrap();
+    assert_eq!(child.state, IntentState::Committed);
+    assert!(parent.sequence_id.unwrap() > child.sequence_id.unwrap());
+}

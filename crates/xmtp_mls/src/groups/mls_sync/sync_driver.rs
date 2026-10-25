@@ -501,7 +501,7 @@ where
             Ok(Err(error)) => summary.add_publish_err(error),
             Err(_) => return Err(GroupError::SyncFailedToWait(Box::new(summary))),
         }
-        let receipt = self.published_request_target(intent_id)?;
+        let receipt = self.request_read_target(intent_id)?;
         let blocker = match receipt {
             Some(_) => None,
             None => self.blocking_target(predecessor)?,
@@ -518,7 +518,7 @@ where
         )
         .await
         {
-            return Err(if receipt.is_some() {
+            return Err(if self.published_request_target(intent_id)?.is_some() {
                 GroupError::PublishedButUnconfirmed {
                     intent_id,
                     cause: Some(Box::new(cause)),

@@ -106,15 +106,25 @@ fn legacy_entry(group: &TestMlsGroup, payload: Vec<u8>) -> Result<(), GroupError
     Ok(())
 }
 
-// verifies: GMOD-047
+// verifies: GMOD-047, GMOD-052
+#[rstest::rstest]
+#[case::commit_pending(false)]
+#[case::readd(true)]
 #[xmtp_common::test(unwrap_try = true)]
-async fn shared_key_revocation_delta_without_remove_is_omitted() -> Result<(), GroupError> {
+async fn shared_key_revocation_delta_without_remove_is_omitted(
+    #[case] readd: bool,
+) -> Result<(), GroupError> {
     tester!(alix, disable_workers);
     tester!(alix2, from: alix, disable_workers);
     tester!(bo, disable_workers);
     associate(&bo, &alix2).await;
     let group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
+        .await?;
+    // The readd entry point must not consume the pending delta in a prior
+    // minimum-version commit.
+    group
+        .update_group_min_version(xmtp_configuration::PROPOSALS_MIN_PROTOCOL_VERSION)
         .await?;
     let key = alix2.installation_id.to_vec();
     assert!(has_leaf(&group, &key));
@@ -150,8 +160,14 @@ async fn shared_key_revocation_delta_without_remove_is_omitted() -> Result<(), G
         .await?
         .membership_updates[bo.inbox_id()];
     accept_delta(&group, entry_update(bo.inbox_id(), raised, vec![])).await?;
-    let commit = QueueIntent::commit_pending_proposals().queue(&group)?;
-    group.sync_until_intent_resolved(commit.id).await?;
+    if readd {
+        let epoch = group.epoch().await?;
+        group.readd_installations(vec![key.clone()]).await?;
+        assert_eq!(group.epoch().await?, epoch + 1, "the readd must commit");
+    } else {
+        let commit = QueueIntent::commit_pending_proposals().queue(&group)?;
+        group.sync_until_intent_resolved(commit.id).await?;
+    }
     assert_eq!(
         committed_membership(&group).get(bo.inbox_id()),
         Some(&old_sequence)
