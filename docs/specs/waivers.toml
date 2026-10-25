@@ -386,13 +386,6 @@ issue = "TBD-octane-tracking"
 reason = "A key package whose 0xff03 or 0xff04 extension does not decode, or whose wrapper key has the wrong length, is not rejected at admission or by a sender choosing installations."
 
 [[waiver]]
-id = "JOIN-091"
-kind = "gap"
-owner = "Nicholas Molnar"
-issue = "TBD-octane-tracking"
-reason = "A sender can send a welcome pointer to an installation whose key package does not advertise the post-quantum wrapper."
-
-[[waiver]]
 id = "JOIN-092"
 kind = "gap"
 owner = "Nicholas Molnar"
@@ -405,13 +398,6 @@ kind = "gap"
 owner = "Nicholas Molnar"
 issue = "TBD-octane-tracking"
 reason = "An installation whose addressing extension does not decode fails the whole operation instead of being left out of the add."
-
-[[waiver]]
-id = "JOIN-094"
-kind = "gap"
-owner = "Nicholas Molnar"
-issue = "TBD-octane-tracking"
-reason = "Pointer holds do not separate well-formed pointers from malformed ones, so a malformed pointer is held for retrieval instead of being rejected under JOIN-048."
 
 [[waiver]]
 id = "SEND-023"

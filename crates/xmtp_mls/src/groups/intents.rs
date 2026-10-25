@@ -54,7 +54,7 @@ use xmtp_proto::{
             self, V1 as UpdatePermissionV1, Version as UpdatePermissionVersion,
         },
     },
-    xmtp::mls::message_contents::ComponentType,
+    xmtp::mls::message_contents::{ComponentType, WelcomePointerWrapperAlgorithm},
 };
 
 mod queue;
@@ -1006,6 +1006,15 @@ impl Installation {
             welcome_pointee_encryption_aead_types: welcome_pointee_encryption_aead_types
                 .unwrap_or_else(WelcomePointersExtension::empty),
         })
+    }
+
+    /// The installation can open a welcome pointer: it advertises a
+    /// ChaCha20-Poly1305 pointee, and its wrapper is one the pointer wire format
+    /// can name. Pointers are always wrapped post-quantum.
+    // implements: JOIN-091
+    pub(crate) fn pointer_capable(&self) -> bool {
+        self.welcome_pointee_encryption_aead_types.compatible()
+            && WelcomePointerWrapperAlgorithm::try_from(self.welcome_wrapper_algorithm).is_ok()
     }
 }
 

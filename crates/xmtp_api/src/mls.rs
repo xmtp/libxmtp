@@ -5,8 +5,8 @@ use xmtp_proto::{
     api_client::{XmtpBackendClient, XmtpMlsStreams},
     backend_v1 as wire,
     types::{
-        Cursor, GroupId, GroupMessage, GroupMessageMetadata, InstallationId, Topic, TopicCursor,
-        WelcomeMessage,
+        Cursor, GroupId, GroupMessage, GroupMessageMetadata, IncomingBatchLimits, InstallationId,
+        Topic, TopicCursor, WelcomeMessage,
     },
 };
 
@@ -76,6 +76,32 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
             Cursor(0),
         )]))
         .await
+    }
+    /// The lowest-sequence envelope on the Welcome topic of `destination`,
+    /// with validated metadata and an undecoded payload. One `Query` with
+    /// limit 1 from cursor 0, so later envelopes are never fetched.
+    // implements: JOIN-032
+    #[xmtp_common::rpc_span]
+    pub async fn query_first_welcome(
+        &self,
+        destination: InstallationId,
+        max_bytes: usize,
+    ) -> Result<Option<wire::ServerEnvelope>> {
+        let page = self
+            .query_ordered_page(
+                HashMap::from([(Topic::new_welcome_message(destination), Cursor(0))]),
+                1,
+                IncomingBatchLimits {
+                    max_rows: 1,
+                    max_bytes,
+                },
+            )
+            .await?;
+        Ok(page
+            .batches
+            .into_iter()
+            .flat_map(|batch| batch.envelopes)
+            .next())
     }
     pub async fn query_welcome_messages_with_cursors(
         &self,
