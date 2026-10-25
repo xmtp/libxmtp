@@ -392,6 +392,8 @@ async fn server_drain_interrupts_blocked_push_queries_within_the_shared_budget()
     server.shutdown();
     timeout(Duration::from_millis(500), server.wait_stopped()).await??;
     blocker.rollback().await?;
-    assert!(holder_pid(&server.backend.store).await.is_none());
+    // Drain closes the lock session. PostgreSQL drops its advisory lock when
+    // that session's server process exits, which can be after the drain ends.
+    xmtp_common::wait_for_eq(|| holder_pid(&server.backend.store), None).await?;
     server.stop().await?;
 }
