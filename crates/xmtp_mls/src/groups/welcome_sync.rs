@@ -1,7 +1,8 @@
 //! Durable Welcome processing for the incoming coordinator and client sync APIs.
 //!
 //! `WelcomeService` installs independent joins, resolves their dependencies, and
-//! holds Welcomes with unsupported formats or unavailable keys for a bounded window.
+//! holds Welcomes with unsupported formats, unavailable keys, unresolved pointers,
+//! or unreached group prefixes for a bounded window.
 //! `WelcomeHeadOutcome` tells the coordinator which work remains; `GroupSyncSummary`
 //! reports completed group synchronization.
 
@@ -26,6 +27,7 @@ use std::collections::{BTreeSet, HashSet};
 #[cfg(test)]
 use xmtp_common::Event;
 use xmtp_common::RetryableError;
+use xmtp_configuration::WELCOME_RETENTION_NS;
 use xmtp_db::incoming_envelope::{
     IncomingRetry, NetworkEntityKind, StoredIncomingEnvelope, StreamTopic,
 };
@@ -41,7 +43,6 @@ use xmtp_macro::log_event;
 use xmtp_proto::types::Topic;
 use xmtp_proto::types::{Cursor, GroupId};
 
-const WELCOME_POINTER_RETENTION_NS: i64 = 3 * xmtp_common::NS_IN_DAY;
 /// How long a Welcome this build cannot process is retained before it is
 /// completed and removed. A client that supports it within the window still
 /// joins; past the window the row must not keep the Welcome barrier, the
@@ -60,6 +61,9 @@ pub(crate) enum WelcomeRequirement {
         group_id: GroupId,
         /// Last group log position already covered by the joined state.
         anchor: Cursor,
+        /// Stored retry deadline. At or after it the coordinator reads the
+        /// group topic's newest position before it may expire the hold.
+        deadline_ns: i64,
     },
 }
 
@@ -107,6 +111,15 @@ fn unsupported_welcome_wire(wire: &xmtp_proto::backend_v1::ServerEnvelope) -> bo
         },
         _ => false,
     }
+}
+
+/// The backend's timestamp on a stored Welcome, the base of its retention deadlines.
+fn welcome_timestamp_ns(pending: &StoredIncomingEnvelope) -> Result<i64, GroupError> {
+    let wire = xmtp_proto::backend_v1::ServerEnvelope::decode(pending.envelope.as_slice())
+        .map_err(|_| xmtp_db::StorageError::DbDeserialize)?;
+    let welcome = xmtp_api_backend::envelope::decode_welcome_message(wire)
+        .map_err(xmtp_api::ApiError::from)?;
+    Ok(welcome.timestamp())
 }
 
 #[derive(Debug, Clone)]
@@ -395,13 +408,22 @@ where
                     requirement: WelcomeRequirement::Identity(requirements),
                 })
             }
+            // implements: JOIN-092
+            // A deadline alone never rejects: only the coordinator's final
+            // catch-up can, so a restart past the deadline reads the group
+            // topic before it decides.
             Err(GroupError::WelcomeGroupPrefixPending { group_id, anchor }) => {
-                self.defer_pending(pending, "group_prefix", false, None)?;
+                let deadline_ns = match pending.retry_expires_at_ns {
+                    Some(deadline) => deadline,
+                    None => welcome_timestamp_ns(pending)?.saturating_add(WELCOME_RETENTION_NS),
+                };
+                self.defer_pending(pending, "group_prefix", false, Some(deadline_ns))?;
                 Ok(WelcomeHeadOutcome::Need {
                     cursor,
                     requirement: WelcomeRequirement::GroupPrefix {
                         group_id,
                         anchor: Cursor(anchor),
+                        deadline_ns,
                     },
                 })
             }
@@ -534,6 +556,65 @@ where
         Ok(())
     }
 
+    /// Reject a group-prefix hold whose deadline has passed, given `target`, the
+    /// newest position of the group's message topic read at or after that
+    /// deadline. It rejects only when processing has reached `target` and stops
+    /// below `anchor`. Otherwise the row stays pending for a later attempt.
+    // implements: JOIN-092
+    pub(crate) fn expire_group_prefix_welcome(
+        &self,
+        cursor: Cursor,
+        group_id: GroupId,
+        anchor: Cursor,
+        target: Cursor,
+    ) -> Result<WelcomeHeadOutcome<Context>, GroupError> {
+        enum Expiry {
+            Gone,
+            Kept { code: String, blocked: bool },
+            Rejected,
+        }
+        let now = xmtp_common::time::now_ns();
+        let expiry = crate::state_tx::state_write(self.context.mls_storage(), |tx| {
+            let storage = tx.storage();
+            let db = storage.db();
+            let Some(pending) = db.pending_envelope(&self.topic(), cursor)? else {
+                return Ok::<_, GroupError>(xmtp_db::TransactionOutcome::Continue(Expiry::Gone));
+            };
+            let processed = db.topic_progress(&StreamTopic::group(group_id))?.processed;
+            let expired = pending.error_code.as_deref() == Some("group_prefix")
+                && pending
+                    .retry_expires_at_ns
+                    .is_some_and(|deadline| deadline <= now)
+                && target <= processed
+                && processed < anchor;
+            if !expired {
+                return Ok(xmtp_db::TransactionOutcome::Continue(Expiry::Kept {
+                    code: pending.error_code.unwrap_or_default(),
+                    blocked: pending.blocked,
+                }));
+            }
+            db.record_terminal_rejection(&self.topic(), cursor, "group_prefix_expired")?;
+            db.complete_pending_envelope(&self.topic(), cursor)?;
+            Ok(xmtp_db::TransactionOutcome::Continue(Expiry::Rejected))
+        })?
+        .into_continued();
+        Ok(match expiry {
+            Expiry::Gone => WelcomeHeadOutcome::Idle { cursor },
+            Expiry::Kept { code, blocked } => WelcomeHeadOutcome::Waiting {
+                cursor,
+                code,
+                blocked,
+            },
+            Expiry::Rejected => WelcomeHeadOutcome::Progress {
+                cursor,
+                result: Err(GroupError::WelcomeGroupPrefixPending {
+                    group_id,
+                    anchor: anchor.0,
+                }),
+            },
+        })
+    }
+
     /// Resolve one Welcome's dependencies. Group-prefix work stays with the coordinator.
     // implements: JOIN-094
     pub(crate) async fn resolve_pending_welcome(
@@ -566,11 +647,9 @@ where
                 if pending.unreadable_expires_at_ns.is_some() {
                     return self.retain_unreadable_welcome(&pending, error, "welcome_blocked");
                 }
-                let deadline = pending.retry_expires_at_ns.unwrap_or_else(|| {
-                    welcome
-                        .timestamp()
-                        .saturating_add(WELCOME_POINTER_RETENTION_NS)
-                });
+                let deadline = pending
+                    .retry_expires_at_ns
+                    .unwrap_or_else(|| welcome.timestamp().saturating_add(WELCOME_RETENTION_NS));
                 // A legacy blocked row gets a real fetch before its cutoff is
                 // applied. Missing data still obeys the fixed pointer deadline.
                 if deadline <= xmtp_common::time::now_ns() {
@@ -1301,6 +1380,159 @@ mod tests {
         assert!(removed.is_none());
     }
 
+    /// A group-prefix hold gets a deadline 3 days after the Welcome's backend
+    /// timestamp and keeps key material until the hold ends. Classifying it
+    /// past the deadline still holds it; only the coordinator's final catch-up
+    /// expires it, and expiry releases the Welcome barrier and the key package.
+    // verifies: JOIN-092
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn group_prefix_wait_expires_after_three_days() {
+        use crate::worker::key_package_maintenance::sweep_expired;
+        use diesel::{ExpressionMethods, QueryDsl, RunQueryDsl};
+        use openmls_traits::storage::StorageProvider;
+        use xmtp_db::ConnectionExt;
+        use xmtp_db::schema::{incoming_envelopes, key_package_history};
+
+        tester!(alix, disable_workers);
+        tester!(bo, disable_workers);
+        let group = alix.create_group(None, None)?;
+        group.invite(&bo).await?;
+        let welcome = bo
+            .context
+            .api()
+            .query_welcome_messages(bo.context.installation_id())
+            .await?
+            .pop()
+            .unwrap();
+        let pending = pending_welcome_for_test(&bo.context, &welcome).await?;
+        let service = WelcomeService::new(bo.context.clone());
+        let db = bo.context.db();
+        // The error XmtpWelcome::commit returns when an active group's
+        // processed cursor is below the authenticated join anchor.
+        let prefix_pending = || {
+            Err(GroupError::WelcomeGroupPrefixPending {
+                group_id: group.group_id,
+                anchor: 2,
+            })
+        };
+        let expire = || {
+            service.expire_group_prefix_welcome(
+                welcome.cursor,
+                group.group_id,
+                Cursor(2),
+                Cursor(0),
+            )
+        };
+
+        let deadline = welcome.timestamp() + WELCOME_RETENTION_NS;
+        let waiting = service.classify_pending_result(&pending, prefix_pending())?;
+        assert!(matches!(
+            waiting,
+            WelcomeHeadOutcome::Need {
+                requirement: WelcomeRequirement::GroupPrefix {
+                    anchor: Cursor(2),
+                    deadline_ns,
+                    ..
+                },
+                ..
+            } if deadline_ns == deadline
+        ));
+        let held = db
+            .pending_envelope(&service.topic(), welcome.cursor)?
+            .unwrap();
+        assert_eq!(held.error_code.as_deref(), Some("group_prefix"));
+        assert!(!held.blocked);
+        assert_eq!(held.retry_expires_at_ns, Some(deadline));
+        assert!(!crate::subscriptions::barrier::durable_complete(
+            NetworkEntityKind::Welcome,
+            Some(welcome.cursor),
+            db.topic_progress(&service.topic())?,
+            1,
+        ));
+
+        let history = db
+            .find_key_package_history_entries_before_id(i32::MAX)?
+            .pop()
+            .unwrap();
+        let hash =
+            crate::identity::deserialize_key_package_hash_ref(&history.key_package_hash_ref)?;
+        db.raw_query(|conn| {
+            diesel::update(
+                key_package_history::table.filter(key_package_history::id.eq(history.id)),
+            )
+            .set(key_package_history::delete_at_ns.eq(0))
+            .execute(conn)
+        })?;
+        sweep_expired(&bo.context)?;
+        let retained: Option<openmls::prelude::KeyPackageBundle> =
+            bo.context.mls_storage().key_package(&hash)?;
+        assert!(
+            retained.is_some(),
+            "a prefix hold keeps expired private keys"
+        );
+
+        // Before the deadline the hold cannot expire.
+        assert!(matches!(expire()?, WelcomeHeadOutcome::Waiting { .. }));
+        assert!(
+            db.pending_envelope(&service.topic(), welcome.cursor)?
+                .is_some()
+        );
+
+        // Past the deadline, classification keeps the stored deadline and
+        // still holds the Welcome until the coordinator decides.
+        db.raw_query(|conn| {
+            diesel::update(incoming_envelopes::table.find((
+                bo.context.installation_id().to_vec(),
+                EntityKind::Welcome,
+                welcome.cursor.0 as i64,
+            )))
+            .set(incoming_envelopes::retry_expires_at_ns.eq(Some(1i64)))
+            .execute(conn)
+        })?;
+        let held = db
+            .pending_envelope(&service.topic(), welcome.cursor)?
+            .unwrap();
+        assert!(matches!(
+            service.classify_pending_result(&held, prefix_pending())?,
+            WelcomeHeadOutcome::Need {
+                requirement: WelcomeRequirement::GroupPrefix { deadline_ns: 1, .. },
+                ..
+            }
+        ));
+        assert_eq!(
+            db.pending_envelope(&service.topic(), welcome.cursor)?
+                .unwrap()
+                .retry_expires_at_ns,
+            Some(1)
+        );
+
+        assert!(matches!(
+            expire()?,
+            WelcomeHeadOutcome::Progress {
+                result: Err(GroupError::WelcomeGroupPrefixPending { .. }),
+                ..
+            }
+        ));
+        assert_eq!(
+            db.read_last_rejection(&service.topic())?.unwrap().code,
+            "group_prefix_expired"
+        );
+        assert!(
+            db.pending_envelope(&service.topic(), welcome.cursor)?
+                .is_none()
+        );
+        assert!(crate::subscriptions::barrier::durable_complete(
+            NetworkEntityKind::Welcome,
+            Some(welcome.cursor),
+            db.topic_progress(&service.topic())?,
+            0,
+        ));
+        sweep_expired(&bo.context)?;
+        let retired: Option<openmls::prelude::KeyPackageBundle> =
+            bo.context.mls_storage().key_package(&hash)?;
+        assert!(retired.is_none(), "key is retired once the hold ends");
+    }
+
     /// Only unreadable MLS formats and missing Welcome key material get this
     /// deadline; local failures and required group versions keep their policy.
     // verifies: JOIN-087, JOIN-084, JOIN-085
@@ -1570,7 +1802,7 @@ mod tests {
         let deadline = if stored_deadline {
             xmtp_common::time::now_ns() + xmtp_common::NS_IN_HOUR
         } else {
-            welcome.timestamp() + WELCOME_POINTER_RETENTION_NS
+            welcome.timestamp() + WELCOME_RETENTION_NS
         };
         db.set_incoming_retry(
             &service.topic(),
@@ -1833,7 +2065,7 @@ mod tests {
             Some(if unreadable {
                 1
             } else {
-                welcome.timestamp() + WELCOME_POINTER_RETENTION_NS
+                welcome.timestamp() + WELCOME_RETENTION_NS
             })
         );
         assert_eq!(pending.unreadable_expires_at_ns, unreadable_deadline);

@@ -91,3 +91,8 @@ pub const SYNC_BACKOFF_WAIT_MS: u16 = 50;
 pub const SYNC_BACKOFF_TOTAL_WAIT_MAX_SECS: u16 = 10;
 /// jitter time between attempts in ms
 pub const SYNC_JITTER_MS: u16 = 25;
+
+/// How long after the backend's timestamp on a Welcome the client keeps it
+/// waiting for a welcome pointee or for its group's message topic to reach the
+/// join anchor.
+pub const WELCOME_RETENTION_NS: i64 = 3 * crate::ns::NS_IN_DAY;

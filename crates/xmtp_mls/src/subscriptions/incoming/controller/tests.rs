@@ -1059,6 +1059,201 @@ async fn removal_wakes_a_welcome_before_its_join_anchor() {
     );
 }
 
+/// Alix removed and re-added Bo, and Bo received the group topic only through
+/// its removal, so Bo holds the re-add Welcome while the group is active.
+/// The hold's stored deadline has passed, as for a client restarted after it.
+struct PrefixDeadlineRestart {
+    /// The restarted controller after its first pass.
+    controller: Controller<crate::utils::TestXmtpMlsContext>,
+    alix_group: crate::utils::TestMlsGroup,
+    bo_group: crate::utils::TestMlsGroup,
+    welcome: Cursor,
+    anchor: Cursor,
+    removal: xmtp_db::incoming_envelope::AdmissionResult,
+}
+
+async fn restart_after_prefix_deadline(
+    alix: &crate::utils::FullXmtpClient,
+    bo: &crate::utils::FullXmtpClient,
+) -> PrefixDeadlineRestart {
+    use crate::groups::welcome_sync::{WelcomeService, pending_welcome_for_test};
+    use diesel::{ExpressionMethods, QueryDsl, RunQueryDsl};
+    use xmtp_db::{ConnectionExt, refresh_state::EntityKind, schema::incoming_envelopes};
+
+    let alix_group = alix.create_group(None, None).unwrap();
+    alix_group.add_members(&[bo.inbox_id()]).await.unwrap();
+    let bo_group = bo.sync_welcomes().await.unwrap().pop().unwrap();
+    alix_group.remove_members(&[bo.inbox_id()]).await.unwrap();
+    let page = MlsStore::new(bo.context.clone())
+        .receive_topics_once(
+            &[Topic::new_group_message(bo_group.group_id)],
+            bo.context
+                .incoming_runtime()
+                .policy()
+                .incoming_limits(NetworkEntityKind::Group),
+        )
+        .await
+        .unwrap();
+    let removal = page.admissions[0].1;
+    alix_group.add_members(&[bo.inbox_id()]).await.unwrap();
+    let welcome = bo
+        .context
+        .api()
+        .query_welcome_messages(bo.context.installation_id())
+        .await
+        .unwrap()
+        .into_iter()
+        .max_by_key(|welcome| welcome.cursor)
+        .unwrap();
+    pending_welcome_for_test(&bo.context, &welcome)
+        .await
+        .unwrap();
+    // The first classification stores the hold's deadline.
+    WelcomeService::new(bo.context.clone())
+        .process_pending_welcomes_once(&[])
+        .unwrap();
+    // The deadline passes while the client is stopped.
+    bo.context
+        .db()
+        .raw_query(|conn| {
+            diesel::update(incoming_envelopes::table.find((
+                bo.context.installation_id().to_vec(),
+                EntityKind::Welcome,
+                welcome.cursor.0 as i64,
+            )))
+            .set((
+                incoming_envelopes::retry_expires_at_ns.eq(Some(1i64)),
+                incoming_envelopes::retry_at_ns.eq(0i64),
+            ))
+            .execute(conn)
+        })
+        .unwrap();
+
+    // A restarted controller attempts the Welcome again on its first pass.
+    let mut controller = controller(bo.context.clone());
+    controller
+        .read_queue
+        .push_back(Topic::new_welcome_message(bo.context.installation_id()));
+    controller.welcome_blocked_scan = None;
+    assert!(!controller.process_ready());
+    let (cursor, group, anchor) = controller.dependency_registry.prefixes().next().unwrap();
+    assert_eq!((cursor, group), (welcome.cursor, bo_group.group_id));
+    assert!(removal.received < anchor);
+    PrefixDeadlineRestart {
+        controller,
+        alix_group,
+        bo_group,
+        welcome: welcome.cursor,
+        anchor,
+        removal,
+    }
+}
+
+/// A coordinator restarted after a group-prefix deadline must read the group
+/// topic's newest position before it decides. A topic that reaches the anchor
+/// keeps the Welcome until the removal is processed, and the re-add joins.
+// verifies: JOIN-092
+#[xmtp_common::test(unwrap_try = true)]
+async fn expired_prefix_wait_catches_up_before_deciding() {
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    let PrefixDeadlineRestart {
+        mut controller,
+        alix_group,
+        bo_group,
+        welcome,
+        anchor,
+        removal,
+    } = restart_after_prefix_deadline(&alix, &bo).await;
+    let welcome_key = topic_key(&Topic::new_welcome_message(bo.context.installation_id()))?;
+    let pending = || bo.context.db().pending_envelope(&welcome_key, welcome);
+    assert!(pending()?.is_some());
+    assert!(bo_group.is_active()?);
+    // One newest-position read runs; a later pass does not repeat it.
+    assert_eq!(controller.dependencies.len(), 1);
+    assert!(!controller.process_ready());
+    assert_eq!(controller.dependencies.len(), 1);
+
+    let result =
+        xmtp_common::time::timeout(Duration::from_secs(10), controller.dependencies.next())
+            .await?
+            .unwrap();
+    let DependencyResult::PrefixTarget(cursor, _, Ok(target)) = &result else {
+        panic!("expected the group prefix target");
+    };
+    assert_eq!(*cursor, welcome);
+    assert!(*target >= anchor);
+    controller.dependency_finished(result);
+    assert!(!controller.process_ready());
+    assert!(pending()?.is_some());
+    assert!(controller.dependencies.is_empty());
+
+    controller
+        .read_queue
+        .push_front(Topic::new_group_message(bo_group.group_id));
+    for _ in 0..removal.inserted {
+        assert!(controller.process_ready());
+    }
+    assert!(pending()?.is_none());
+    assert!(bo_group.is_active()?);
+    assert_eq!(
+        bo_group.epoch_authenticator().await?,
+        alix_group.epoch_authenticator().await?
+    );
+}
+
+/// After the deadline, a newest read below the anchor that processing has
+/// reached rejects the Welcome and leaves the held group unchanged. The read
+/// result is injected; it models a lagging copy of the store.
+// verifies: JOIN-092
+#[xmtp_common::test(unwrap_try = true)]
+async fn expired_prefix_wait_rejects_below_a_reached_final_target() {
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    let PrefixDeadlineRestart {
+        mut controller,
+        bo_group,
+        welcome,
+        anchor,
+        ..
+    } = restart_after_prefix_deadline(&alix, &bo).await;
+    let welcome_topic = Topic::new_welcome_message(bo.context.installation_id());
+    let welcome_key = topic_key(&welcome_topic)?;
+    let epoch = bo_group.epoch().await?;
+    let processed = bo
+        .context
+        .db()
+        .topic_progress(&StreamTopic::group(bo_group.group_id))?
+        .processed;
+    assert!(processed < anchor);
+
+    controller.dependency_finished(DependencyResult::PrefixTarget(
+        welcome,
+        Topic::new_group_message(bo_group.group_id),
+        Ok(processed),
+    ));
+    assert!(controller.process_ready());
+    assert!(
+        bo.context
+            .db()
+            .pending_envelope(&welcome_key, welcome)?
+            .is_none()
+    );
+    let rejection = bo.context.db().read_last_rejection(&welcome_key)?.unwrap();
+    assert_eq!(rejection.code, "group_prefix_expired");
+    assert_eq!(rejection.sequence_id, welcome);
+    assert_eq!(controller.dependency_registry.prefixes().count(), 0);
+    assert!(bo_group.is_active()?);
+    assert_eq!(bo_group.epoch().await?, epoch);
+    assert_eq!(
+        bo.context
+            .db()
+            .topic_progress(&StreamTopic::group(bo_group.group_id))?
+            .processed,
+        processed
+    );
+}
+
 /// A pointer whose fetch is still running must not occupy every ready batch;
 /// an independent later Welcome must join without rewriting the held row.
 // verifies: PROC-013
