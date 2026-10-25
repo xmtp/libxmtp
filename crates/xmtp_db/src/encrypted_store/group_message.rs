@@ -18,7 +18,7 @@ use diesel::{
     expression::AsExpression,
     prelude::*,
     serialize::{self, IsNull, Output, ToSql},
-    sql_types::Integer,
+    sql_types::{BigInt, Binary, Integer},
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -37,7 +37,16 @@ pub mod messages_newer_than_tests;
 pub mod tests;
 
 #[derive(
-    Debug, Clone, Serialize, Deserialize, Queryable, Selectable, Identifiable, Eq, PartialEq,
+    Debug,
+    Clone,
+    Serialize,
+    Deserialize,
+    Queryable,
+    QueryableByName,
+    Selectable,
+    Identifiable,
+    Eq,
+    PartialEq,
 )]
 #[diesel(table_name = group_messages)]
 #[diesel(primary_key(id))]
@@ -509,14 +518,31 @@ impl MsgQueryArgs {
     }
 }
 
+/// Inbound relations to one message sort by send time, then sequence id
+/// (0 while unpublished), then message id. The backend gives one request one
+/// send time and sequence ids in request order, so an addition sorts before
+/// a removal published after it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RelationCursor {
+    pub sent_at_ns: i64,
+    pub sequence_id: i64,
+    pub id: Vec<u8>,
+}
+
 #[derive(Default, Clone, Builder)]
 pub struct RelationQuery {
     #[builder(default = None)]
     pub content_types: Option<Vec<ContentType>>,
+    /// At most this many relations for each referenced message: the ones
+    /// that sort last in [`RelationCursor`] order.
     #[builder(default = None)]
     pub limit: Option<i64>,
+    /// The order of each referenced message's relations.
     #[builder(default = SortDirection::Ascending)]
     pub direction: SortDirection,
+    /// Only relations that sort before this position.
+    #[builder(default = None)]
+    pub before: Option<RelationCursor>,
 }
 
 impl RelationQuery {
@@ -589,6 +615,17 @@ pub trait QueryGroupMessage {
         message_ids: &[&[u8]],
         relation_query: RelationQuery,
     ) -> Result<RelationCounts, crate::ConnectionError>;
+
+    /// The position of `relation_id` when it is an unexpired message of one
+    /// of `content_types` that refers to `message_id`, in `group_id` or a
+    /// group stitched to it.
+    fn get_inbound_relation_cursor(
+        &self,
+        group_id: &GroupId,
+        message_id: &[u8],
+        relation_id: &[u8],
+        content_types: &[ContentType],
+    ) -> Result<Option<RelationCursor>, crate::ConnectionError>;
 
     /// Get a particular group message
     fn get_group_message<MessageId: AsRef<[u8]>>(
@@ -757,6 +794,16 @@ where
         (**self).get_inbound_relation_counts(group_id, message_ids, relation_query)
     }
 
+    fn get_inbound_relation_cursor(
+        &self,
+        group_id: &GroupId,
+        message_id: &[u8],
+        relation_id: &[u8],
+        content_types: &[ContentType],
+    ) -> Result<Option<RelationCursor>, crate::ConnectionError> {
+        (**self).get_inbound_relation_cursor(group_id, message_id, relation_id, content_types)
+    }
+
     fn get_latest_message_times_by_sender<Id: AsRef<[u8]>>(
         &self,
         group_id: Id,
@@ -907,18 +954,18 @@ macro_rules! apply_message_filters {
         if let Some(position) = $args.history_before {
             query = query.filter(
                 diesel_sql::<diesel::sql_types::Bool>("(sent_at_ns, delivery_sequence) < (")
-                    .bind::<diesel::sql_types::BigInt, _>(position.sent_at_ns)
+                    .bind::<BigInt, _>(position.sent_at_ns)
                     .sql(",")
-                    .bind::<diesel::sql_types::BigInt, _>(position.cursor.delivery_sequence as i64)
+                    .bind::<BigInt, _>(position.cursor.delivery_sequence as i64)
                     .sql(")"),
             );
         }
         if let Some(position) = $args.history_after {
             query = query.filter(
                 diesel_sql::<diesel::sql_types::Bool>("(sent_at_ns, delivery_sequence) > (")
-                    .bind::<diesel::sql_types::BigInt, _>(position.sent_at_ns)
+                    .bind::<BigInt, _>(position.sent_at_ns)
                     .sql(",")
-                    .bind::<diesel::sql_types::BigInt, _>(position.cursor.delivery_sequence as i64)
+                    .bind::<BigInt, _>(position.cursor.delivery_sequence as i64)
                     .sql(")"),
             );
         }
@@ -1114,6 +1161,10 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
         })
     }
 
+    /// One window query: each referenced message's relations are ranked
+    /// newest first, and at most `limit` of them are kept, so a message with
+    /// many relations does not starve the others.
+    // implements: PROC-053, PROC-054
     #[xmtp_common::db_span]
     fn get_inbound_relations(
         &self,
@@ -1121,49 +1172,81 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
         message_ids: &[&[u8]],
         relation_query: RelationQuery,
     ) -> Result<InboundRelations, crate::ConnectionError> {
-        let mut inbound_relations: HashMap<Vec<u8>, Vec<StoredGroupMessage>> = HashMap::new();
-
-        let mut inbound_relations_query = dsl::group_messages
-            .filter(group_id_filter(group_id.as_ref()))
-            .filter(dsl::reference_id.is_not_null())
-            .filter(dsl::reference_id.eq_any(message_ids))
-            .filter(
-                dsl::expire_at_ns
-                    .is_null()
-                    .or(dsl::expire_at_ns.gt(now_ns())),
-            )
-            .into_boxed();
-
-        if relation_query.direction == SortDirection::Descending {
-            inbound_relations_query = inbound_relations_query.order(dsl::sent_at_ns.desc());
-        } else {
-            inbound_relations_query = inbound_relations_query.order(dsl::sent_at_ns.asc());
+        let RelationQuery {
+            content_types,
+            limit,
+            direction,
+            before,
+        } = relation_query;
+        if message_ids.is_empty() {
+            return Ok(HashMap::new());
         }
-
-        if let Some(content_types) = relation_query.content_types {
-            inbound_relations_query =
-                inbound_relations_query.filter(dsl::content_type.eq_any(content_types));
+        let placeholders = |count: usize| vec!["?"; count].join(", ");
+        let mut query = diesel::sql_query(format!(
+            "SELECT * FROM (
+               SELECT gm.*, ROW_NUMBER() OVER (
+                 PARTITION BY gm.reference_id
+                 ORDER BY gm.sent_at_ns DESC, gm.sequence_id DESC, gm.id DESC
+               ) AS relation_rank
+               FROM group_messages gm
+               WHERE gm.group_id IN ({STITCHED_GROUPS})
+                 AND gm.reference_id IN ({})
+                 AND (gm.expire_at_ns IS NULL OR gm.expire_at_ns > ?)",
+            placeholders(message_ids.len()),
+        ))
+        .into_boxed::<Sqlite>()
+        .bind::<Binary, _>(*group_id)
+        .bind::<Binary, _>(*group_id);
+        for id in message_ids {
+            query = query.bind::<Binary, _>(id.to_vec());
         }
-
-        if let Some(limit) = relation_query.limit {
-            inbound_relations_query = inbound_relations_query.limit(limit);
+        query = query.bind::<BigInt, _>(now_ns());
+        if let Some(content_types) = content_types {
+            query = query.sql(format!(
+                " AND gm.content_type IN ({})",
+                placeholders(content_types.len())
+            ));
+            for content_type in content_types {
+                query = query.bind::<Integer, _>(content_type as i32);
+            }
         }
+        if let Some(RelationCursor {
+            sent_at_ns,
+            sequence_id,
+            id,
+        }) = before
+        {
+            query = query
+                .sql(" AND (gm.sent_at_ns, gm.sequence_id, gm.id) < (?, ?, ?)")
+                .bind::<BigInt, _>(sent_at_ns)
+                .bind::<BigInt, _>(sequence_id)
+                .bind::<Binary, _>(id);
+        }
+        query = query.sql(")");
+        if let Some(limit) = limit {
+            query = query
+                .sql(" WHERE relation_rank <= ?")
+                .bind::<BigInt, _>(limit);
+        }
+        let order = match direction {
+            SortDirection::Ascending => "ASC",
+            SortDirection::Descending => "DESC",
+        };
+        query = query.sql(format!(
+            " ORDER BY sent_at_ns {order}, sequence_id {order}, id {order}"
+        ));
 
-        let raw_inbound_relations: Vec<StoredGroupMessage> = self.raw_query(|conn| {
-            inbound_relations_query
-                .select(StoredGroupMessage::as_select())
-                .load::<StoredGroupMessage>(conn)
-        })?;
-
-        for inbound_reference in raw_inbound_relations {
-            if let Some(reference_id) = &inbound_reference.reference_id {
+        let rows: Vec<StoredGroupMessage> =
+            self.raw_query(|conn| query.load::<StoredGroupMessage>(conn))?;
+        let mut inbound_relations = InboundRelations::new();
+        for relation in rows {
+            if let Some(reference_id) = &relation.reference_id {
                 inbound_relations
                     .entry(reference_id.clone())
                     .or_default()
-                    .push(inbound_reference);
+                    .push(relation);
             }
         }
-
         Ok(inbound_relations)
     }
 
@@ -1226,6 +1309,39 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
             .into_iter()
             .filter_map(|(reference_id, count)| reference_id.map(|id| (id, count as usize)))
             .collect())
+    }
+
+    #[xmtp_common::db_span]
+    fn get_inbound_relation_cursor(
+        &self,
+        group_id: &GroupId,
+        message_id: &[u8],
+        relation_id: &[u8],
+        content_types: &[ContentType],
+    ) -> Result<Option<RelationCursor>, crate::ConnectionError> {
+        let position = self.raw_query(|conn| {
+            dsl::group_messages
+                .filter(group_id_filter(group_id.as_ref()))
+                .filter(dsl::id.eq(relation_id))
+                .filter(dsl::reference_id.eq(message_id))
+                .filter(dsl::content_type.eq_any(content_types))
+                .filter(
+                    dsl::expire_at_ns
+                        .is_null()
+                        .or(dsl::expire_at_ns.gt(now_ns())),
+                )
+                .into_boxed()
+                .select((dsl::sent_at_ns, dsl::sequence_id, dsl::id))
+                .first::<(i64, i64, Vec<u8>)>(conn)
+                .optional()
+        })?;
+        Ok(
+            position.map(|(sent_at_ns, sequence_id, id)| RelationCursor {
+                sent_at_ns,
+                sequence_id,
+                id,
+            }),
+        )
     }
 
     #[xmtp_common::db_span]
@@ -1533,6 +1649,13 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
         self.raw_query(|conn| query.execute(conn))
     }
 }
+
+/// The ids of a group and of every group stitched to it, as SQL that
+/// `group_id_filter` also expresses.
+///
+/// Binds: the group id, twice.
+const STITCHED_GROUPS: &str = "SELECT g.id FROM groups g
+    WHERE g.id = ? OR g.dm_id IN (SELECT dm_id FROM groups WHERE id = ?)";
 
 fn group_id_filter(
     group_id: &[u8],

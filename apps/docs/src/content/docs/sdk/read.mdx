@@ -24,6 +24,12 @@ Time filters use `Timestamp` values. A `Timestamp` has an `ns` field for nanosec
 
 `countMessages(options)` returns a count without loading messages. It accepts `ListMessagesOptions`, but ignores `limit`, `direction`, and `sortBy`.
 
+### Reactions
+
+`message.reactions` holds at most the 50 latest reaction messages to a message, oldest first. `reactionMessageCount` counts every unexpired reaction message to it, including removals and reactions that do not decode, so it is not a per-emoji tally. A UI that tallies from `message.reactions` undercounts a message with more than 50 reaction messages.
+
+To read the rest, call `conversation.messageReactions(messageId, before, limit)`. It returns reaction messages newest first, at most `limit` (1 to 1000, default 50). For the next page, pass the last returned reaction's ID as `before`. If that reaction expires or is deleted between two calls, the call fails with `InvalidArgument`; start again from the newest reaction.
+
 <Tabs syncKey="sdk">
 <TabItem label="Browser">
 

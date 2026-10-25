@@ -67,6 +67,10 @@ public extension Message {
         data.`reactions`
     }
 
+    var `reactionMessageCount`: UInt64 {
+        data.`reactionMessageCount`
+    }
+
     var `inReplyTo`: ReplyParent? {
         data.`inReplyTo`
     }

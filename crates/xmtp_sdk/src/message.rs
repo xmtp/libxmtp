@@ -288,7 +288,13 @@ pub struct MessageData {
     pub encoded: Option<SdkEncodedContent>,
     pub content: MessageContent,
     pub reply_count: u64,
+    /// At most the 50 latest reaction messages, oldest first, that decode as
+    /// reactions. Read the rest with `message_reactions`.
     pub reactions: Vec<ReactionMessage>,
+    /// Unexpired reaction messages to this message, including removals and
+    /// ones that do not decode. It is not a reaction tally.
+    #[uniffi(default = 0)]
+    pub reaction_message_count: u64,
     pub in_reply_to: Option<ReplyParent>,
 }
 
@@ -411,6 +417,7 @@ impl Message {
             content,
             reply_count: 0,
             reactions: Vec::new(),
+            reaction_message_count: 0,
             in_reply_to: None,
         }))
     }
@@ -428,29 +435,9 @@ impl Message {
         message.0.reactions = enriched
             .reactions
             .into_iter()
-            .filter_map(|reaction| {
-                let CoreBody::Reaction(value) = reaction.content else {
-                    return None;
-                };
-                let reaction_id = hex::encode(&reaction.metadata.id);
-                let converted: Result<ReactionMessage, XmtpError> = (|| {
-                    Ok(ReactionMessage {
-                        id: MessageId::from_bytes(&reaction.metadata.id)?,
-                        sender_inbox_id: InboxId::try_from(reaction.metadata.sender_inbox_id)?,
-                        sent_at: Timestamp(reaction.metadata.sent_at_ns),
-                        delivery_status: reaction.metadata.delivery_status.into(),
-                        reaction: crate::Reaction::from_proto(value),
-                    })
-                })();
-                match converted {
-                    Ok(reaction) => Some(reaction),
-                    Err(error) => {
-                        tracing::warn!(%reaction_id, %error, "skipping stored reaction");
-                        None
-                    }
-                }
-            })
+            .filter_map(ReactionMessage::from_decoded)
             .collect();
+        message.0.reaction_message_count = enriched.num_reaction_messages as u64;
         if let CoreBody::Reply(reply) = &enriched.content
             && let Some(parent) = &reply.in_reply_to
         {
@@ -494,6 +481,36 @@ impl Message {
             }
         }
         Ok(message)
+    }
+}
+
+impl ReactionMessage {
+    /// A reaction message the app can read, or none when it does not decode
+    /// as a reaction or its ids do not convert.
+    pub(crate) fn from_decoded(
+        reaction: xmtp_mls::messages::decoded_message::DecodedMessage,
+    ) -> Option<Self> {
+        let xmtp_mls::messages::decoded_message::MessageBody::Reaction(value) = reaction.content
+        else {
+            return None;
+        };
+        let reaction_id = hex::encode(&reaction.metadata.id);
+        let converted: Result<Self, XmtpError> = (|| {
+            Ok(Self {
+                id: MessageId::from_bytes(&reaction.metadata.id)?,
+                sender_inbox_id: InboxId::try_from(reaction.metadata.sender_inbox_id)?,
+                sent_at: Timestamp(reaction.metadata.sent_at_ns),
+                delivery_status: reaction.metadata.delivery_status.into(),
+                reaction: crate::Reaction::from_proto(value),
+            })
+        })();
+        match converted {
+            Ok(reaction) => Some(reaction),
+            Err(error) => {
+                tracing::warn!(%reaction_id, %error, "skipping stored reaction");
+                None
+            }
+        }
     }
 }
 

@@ -486,6 +486,14 @@ mock! {
             relation_query: crate::group_message::RelationQuery,
         ) -> Result<crate::group_message::RelationCounts, crate::ConnectionError>;
 
+        fn get_inbound_relation_cursor<'a>(
+            &self,
+            group_id: &'a GroupId,
+            message_id: &'a [u8],
+            relation_id: &'a [u8],
+            content_types: &'a [crate::group_message::ContentType],
+        ) -> Result<Option<crate::group_message::RelationCursor>, crate::ConnectionError>;
+
         #[mockall::concretize]
         fn get_group_message<MessageId: AsRef<[u8]>>(
             &self,

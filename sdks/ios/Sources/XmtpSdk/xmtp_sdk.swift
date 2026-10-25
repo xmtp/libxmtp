@@ -3734,6 +3734,16 @@ public protocol DmProtocol: AnyObject, Sendable {
 
     func messageHistorySnapshot(limit: UInt32) async throws  -> MessageHistorySnapshot
 
+    /**
+     * Reaction messages to `message_id`, newest first by send time,
+     * then sequence id, then message id: at most `limit` (1 to 1000;
+     * 50 when absent). For the next page, pass the last returned id
+     * as `before`. A `before` that is not an unexpired reaction to
+     * this message fails with InvalidArgument; restart from the
+     * newest reaction.
+     */
+    func messageReactions(messageId: MessageId, before: MessageId?, limit: UInt32?) async throws  -> [ReactionMessage]
+
     func messageReader(options: ConversationMessageReaderOptions?) async throws  -> MessageReader
 
     /**
@@ -4170,6 +4180,31 @@ open func messageHistorySnapshot(limit: UInt32)async throws  -> MessageHistorySn
             cancelFunc: ffi_xmtp_sdk_rust_future_cancel_rust_buffer,
             freeFunc: ffi_xmtp_sdk_rust_future_free_rust_buffer,
             liftFunc: FfiConverterTypeMessageHistorySnapshot_lift,
+            errorHandler: FfiConverterTypeXmtpError_lift
+        )
+}
+
+    /**
+     * Reaction messages to `message_id`, newest first by send time,
+     * then sequence id, then message id: at most `limit` (1 to 1000;
+     * 50 when absent). For the next page, pass the last returned id
+     * as `before`. A `before` that is not an unexpired reaction to
+     * this message fails with InvalidArgument; restart from the
+     * newest reaction.
+     */
+open func messageReactions(messageId: MessageId, before: MessageId? = nil, limit: UInt32? = nil)async throws  -> [ReactionMessage]  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_xmtp_sdk_fn_method_dm_message_reactions(
+                        self.uniffiCloneHandle(),FfiConverterTypeMessageId_lower(messageId),FfiConverterOptionTypeMessageId.lower(before),FfiConverterOptionUInt32.lower(limit)
+                )
+            },
+            pollFunc: ffi_xmtp_sdk_rust_future_poll_rust_buffer,
+            completeFunc: ffi_xmtp_sdk_rust_future_complete_rust_buffer,
+            cancelFunc: ffi_xmtp_sdk_rust_future_cancel_rust_buffer,
+            freeFunc: ffi_xmtp_sdk_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterSequenceTypeReactionMessage.lift,
             errorHandler: FfiConverterTypeXmtpError_lift
         )
 }
@@ -5286,6 +5321,16 @@ public protocol GroupProtocol: AnyObject, Sendable {
 
     func messageHistorySnapshot(limit: UInt32) async throws  -> MessageHistorySnapshot
 
+    /**
+     * Reaction messages to `message_id`, newest first by send time,
+     * then sequence id, then message id: at most `limit` (1 to 1000;
+     * 50 when absent). For the next page, pass the last returned id
+     * as `before`. A `before` that is not an unexpired reaction to
+     * this message fails with InvalidArgument; restart from the
+     * newest reaction.
+     */
+    func messageReactions(messageId: MessageId, before: MessageId?, limit: UInt32?) async throws  -> [ReactionMessage]
+
     func messageReader(options: ConversationMessageReaderOptions?) async throws  -> MessageReader
 
     /**
@@ -5887,6 +5932,31 @@ open func messageHistorySnapshot(limit: UInt32)async throws  -> MessageHistorySn
             cancelFunc: ffi_xmtp_sdk_rust_future_cancel_rust_buffer,
             freeFunc: ffi_xmtp_sdk_rust_future_free_rust_buffer,
             liftFunc: FfiConverterTypeMessageHistorySnapshot_lift,
+            errorHandler: FfiConverterTypeXmtpError_lift
+        )
+}
+
+    /**
+     * Reaction messages to `message_id`, newest first by send time,
+     * then sequence id, then message id: at most `limit` (1 to 1000;
+     * 50 when absent). For the next page, pass the last returned id
+     * as `before`. A `before` that is not an unexpired reaction to
+     * this message fails with InvalidArgument; restart from the
+     * newest reaction.
+     */
+open func messageReactions(messageId: MessageId, before: MessageId? = nil, limit: UInt32? = nil)async throws  -> [ReactionMessage]  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_xmtp_sdk_fn_method_group_message_reactions(
+                        self.uniffiCloneHandle(),FfiConverterTypeMessageId_lower(messageId),FfiConverterOptionTypeMessageId.lower(before),FfiConverterOptionUInt32.lower(limit)
+                )
+            },
+            pollFunc: ffi_xmtp_sdk_rust_future_poll_rust_buffer,
+            completeFunc: ffi_xmtp_sdk_rust_future_complete_rust_buffer,
+            cancelFunc: ffi_xmtp_sdk_rust_future_cancel_rust_buffer,
+            freeFunc: ffi_xmtp_sdk_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterSequenceTypeReactionMessage.lift,
             errorHandler: FfiConverterTypeXmtpError_lift
         )
 }
@@ -13658,7 +13728,16 @@ public struct MessageData: Equatable, Hashable {
     public var encoded: EncodedContent?
     public var content: MessageContent
     public var replyCount: UInt64
+    /**
+     * At most the 50 latest reaction messages, oldest first, that decode as
+     * reactions. Read the rest with `message_reactions`.
+     */
     public var reactions: [ReactionMessage]
+    /**
+     * Unexpired reaction messages to this message, including removals and
+     * ones that do not decode. It is not a reaction tally.
+     */
+    public var reactionMessageCount: UInt64
     public var inReplyTo: ReplyParent?
 
     // Default memberwise initializers are never public by default, so we
@@ -13672,7 +13751,15 @@ public struct MessageData: Equatable, Hashable {
          */contentType: ContentTypeId?, fallback: String?,
         /**
          * Uncompressed codec input. Absent if conversion or decompression fails.
-         */encoded: EncodedContent?, content: MessageContent, replyCount: UInt64, reactions: [ReactionMessage], inReplyTo: ReplyParent?) {
+         */encoded: EncodedContent?, content: MessageContent, replyCount: UInt64,
+        /**
+         * At most the 50 latest reaction messages, oldest first, that decode as
+         * reactions. Read the rest with `message_reactions`.
+         */reactions: [ReactionMessage],
+        /**
+         * Unexpired reaction messages to this message, including removals and
+         * ones that do not decode. It is not a reaction tally.
+         */reactionMessageCount: UInt64 = UInt64(0), inReplyTo: ReplyParent?) {
         self.id = id
         self.clientKey = clientKey
         self.deliveryCursor = deliveryCursor
@@ -13691,6 +13778,7 @@ public struct MessageData: Equatable, Hashable {
         self.content = content
         self.replyCount = replyCount
         self.reactions = reactions
+        self.reactionMessageCount = reactionMessageCount
         self.inReplyTo = inReplyTo
     }
 
@@ -13728,6 +13816,7 @@ public struct FfiConverterTypeMessageData: FfiConverterRustBuffer {
                 content: FfiConverterTypeMessageContent.read(from: &buf),
                 replyCount: FfiConverterUInt64.read(from: &buf),
                 reactions: FfiConverterSequenceTypeReactionMessage.read(from: &buf),
+                reactionMessageCount: FfiConverterUInt64.read(from: &buf),
                 inReplyTo: FfiConverterOptionTypeReplyParent.read(from: &buf)
         )
     }
@@ -13751,6 +13840,7 @@ public struct FfiConverterTypeMessageData: FfiConverterRustBuffer {
         FfiConverterTypeMessageContent.write(value.content, into: &buf)
         FfiConverterUInt64.write(value.replyCount, into: &buf)
         FfiConverterSequenceTypeReactionMessage.write(value.reactions, into: &buf)
+        FfiConverterUInt64.write(value.reactionMessageCount, into: &buf)
         FfiConverterOptionTypeReplyParent.write(value.inReplyTo, into: &buf)
     }
 }
@@ -27267,6 +27357,30 @@ fileprivate struct FfiConverterOptionTypeMessage: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionTypeMessageId: FfiConverterRustBuffer {
+    typealias SwiftType = MessageId?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeMessageId.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeMessageId.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionTypeTimestamp: FfiConverterRustBuffer {
     typealias SwiftType = Timestamp?
 
@@ -30275,6 +30389,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtp_sdk_checksum_method_dm_message_history_snapshot() != 11434) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_xmtp_sdk_checksum_method_dm_message_reactions() != 106) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_xmtp_sdk_checksum_method_dm_message_reader() != 16038) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -30453,6 +30570,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_method_group_message_history_snapshot() != 50554) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_xmtp_sdk_checksum_method_group_message_reactions() != 12430) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_method_group_message_reader() != 32244) {

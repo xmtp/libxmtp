@@ -635,6 +635,7 @@ mod metadata_fields;
 mod permissions;
 mod public_error_actions;
 mod query_costs;
+mod reaction_pages;
 mod reader_delivery;
 mod reader_recovery;
 mod retained_content;

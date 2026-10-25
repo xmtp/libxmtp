@@ -386,20 +386,6 @@ issue = "TBD-octane-tracking"
 reason = "A call waiting on a later intent still runs every earlier intent's Welcome publish in the same round. When that publish stalls past the wait's deadline, a later intent that owes its own Welcomes returns published but unconfirmed, and a later intent that owes none reports success only at that deadline. An earlier publish that fails no longer blocks the later intent. See the Known limitation comment on publish_required_welcomes in crates/xmtp_mls/src/groups/mls_sync/publish/welcomes.rs."
 
 [[waiver]]
-id = "PROC-053"
-kind = "gap"
-owner = "Nicholas Molnar"
-issue = "TBD-octane-tracking"
-reason = "A message's reaction summary holds every reaction message to it, with no bound and no count."
-
-[[waiver]]
-id = "PROC-054"
-kind = "gap"
-owner = "Nicholas Molnar"
-issue = "TBD-octane-tracking"
-reason = "The SDK has no paged read of the reaction messages to one message."
-
-[[waiver]]
 id = "DMS-019"
 kind = "gap"
 owner = "Nicholas Molnar"
