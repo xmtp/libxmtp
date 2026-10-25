@@ -610,6 +610,59 @@ in_dms = false
         second.stop().await?;
     }
 
+    /// The default verifier sizes its verify requests by the limits the
+    /// deployment publishes, not by the compiled defaults: five signatures at
+    /// a published maximum of two take three requests.
+    // verifies: CONF-073
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn the_default_verifier_sizes_requests_by_the_published_limits() {
+        use alloy::signers::SignerSync;
+        use xmtp_id::{
+            associations::AccountId,
+            scw_verifier::{ScwInput, SmartContractSignatureVerifier},
+        };
+        let backend = EphemeralBackend::start(&format!(
+            "[limits]\nmax_scw_signatures = 2\n[chains]\n\"eip155:31337\" = {:?}\n",
+            xmtp_configuration::DockerUrls::anvil()
+        ))
+        .await?;
+        let owner = generate_local_wallet();
+        let client = Client::builder(identity_setup(&owner))
+            .store(TestDb::create_ephemeral_store().await)
+            .api_client_with_streams(Arc::new(api_at(backend.url())))
+            .with_remote_verifier()?
+            .with_disable_workers(true)
+            .default_mls_store()?
+            .build()
+            .await?;
+        // An account without code verifies as the key that signed the hash.
+        let signer = generate_local_wallet();
+        let account = AccountId::new_evm(31337, signer.address().to_string().to_lowercase());
+        let inputs = (0..5u8)
+            .map(|index| {
+                let hash = [index; 32];
+                let signature = signer.sign_hash_sync(&hash.into())?;
+                Ok(ScwInput::checked(
+                    account.clone(),
+                    hash,
+                    signature.as_bytes().to_vec().into(),
+                    None,
+                )?)
+            })
+            .collect::<Result<Vec<_>, Box<dyn std::error::Error>>>()?;
+        client.clear_stats();
+        let verdicts = client.scw_verifier().verify_many(&inputs).await?;
+        assert!(verdicts.iter().all(|verdict| verdict.is_valid));
+        assert_eq!(
+            client
+                .identity_api_stats()
+                .verify_smart_contract_wallet_signatures
+                .get_count(),
+            3
+        );
+        backend.stop().await?;
+    }
+
     // A deployment that requires a newer client refuses this one at
     // build, before any identity work.
     // verifies: CONF-049

@@ -618,9 +618,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
         if server_configuration.requires_preflight() {
             api_client.api_client.require_preflight();
         }
-        if !custom_scw_verifier {
-            scw_verifier = Box::new(api_client.clone());
-        }
         if let Some(recorder) = deployment_recorder {
             if !has_config_provider && !server_configuration.configuration().identifier.is_empty() {
                 recorder
@@ -635,6 +632,11 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             server_configuration.configuration(),
             version_info.pkg_semver().semver(),
         )?;
+        // Clone after admission, so the default verifier sizes its verify
+        // requests by the published limits.
+        if !custom_scw_verifier {
+            scw_verifier = Box::new(api_client.clone());
+        }
 
         let identifier_check = match &identity_strategy {
             IdentityStrategy::CreateIfNotFound {
