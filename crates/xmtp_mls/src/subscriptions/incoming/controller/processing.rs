@@ -26,11 +26,11 @@ pub(super) enum DependencyResult<C> {
 /// The final catch-up of one group-prefix hold. Kept in memory only: after a
 /// restart the hold is rebuilt from the stored deadline and reads again.
 pub(super) struct PrefixHold {
-    deadline_ns: i64,
-    target: PrefixTarget,
+    pub(super) deadline_ns: i64,
+    pub(super) target: PrefixTarget,
 }
 
-enum PrefixTarget {
+pub(super) enum PrefixTarget {
     /// No read since the deadline, or the last one failed and retries at `retry_at`.
     Unrequested {
         retry_at: Option<Instant>,
@@ -269,15 +269,19 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
 
     /// Read the newest position of a held Welcome's group topic. The read takes
     /// a dependency request slot; the Welcome keeps its prefix watch meanwhile.
+    /// Like fixed-target capture, it waits while live work is suspended or the
+    /// transport backs off.
     // implements: API-284
     fn request_prefix_target(&mut self, cursor: Cursor, topic: Topic) {
         let request = RequestKey::QueryNewest(HashSet::from([topic.clone()]));
-        if self.dependencies.len()
-            >= self
-                .context
-                .incoming_runtime()
-                .policy()
-                .max_dependency_requests
+        if self.live_suspended()
+            || self.transport.backing_off()
+            || self.dependencies.len()
+                >= self
+                    .context
+                    .incoming_runtime()
+                    .policy()
+                    .max_dependency_requests
             || self
                 .rejected_requests
                 .lock()

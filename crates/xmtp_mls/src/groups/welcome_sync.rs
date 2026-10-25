@@ -1415,13 +1415,14 @@ mod tests {
                 anchor: 2,
             })
         };
-        let expire = || {
-            service.expire_group_prefix_welcome(
-                welcome.cursor,
-                group.group_id,
-                Cursor(2),
-                Cursor(0),
-            )
+        // Bo does not hold the group, so its processed position is 0.
+        let expire = |anchor, target| {
+            service.expire_group_prefix_welcome(welcome.cursor, group.group_id, anchor, target)
+        };
+        let held = || -> Result<bool, GroupError> {
+            Ok(db
+                .pending_envelope(&service.topic(), welcome.cursor)?
+                .is_some())
         };
 
         let deadline = welcome.timestamp() + WELCOME_RETENTION_NS;
@@ -1437,18 +1438,13 @@ mod tests {
                 ..
             } if deadline_ns == deadline
         ));
-        let held = db
+        let row = db
             .pending_envelope(&service.topic(), welcome.cursor)?
             .unwrap();
-        assert_eq!(held.error_code.as_deref(), Some("group_prefix"));
-        assert!(!held.blocked);
-        assert_eq!(held.retry_expires_at_ns, Some(deadline));
-        assert!(!crate::subscriptions::barrier::durable_complete(
-            NetworkEntityKind::Welcome,
-            Some(welcome.cursor),
-            db.topic_progress(&service.topic())?,
-            1,
-        ));
+        assert_eq!(row.error_code.as_deref(), Some("group_prefix"));
+        assert!(!row.blocked);
+        assert_eq!(row.retry_expires_at_ns, Some(deadline));
+        assert!(!db.welcome_barrier_complete(&service.topic(), welcome.cursor)?);
 
         let history = db
             .find_key_package_history_entries_before_id(i32::MAX)?
@@ -1472,28 +1468,39 @@ mod tests {
         );
 
         // Before the deadline the hold cannot expire.
-        assert!(matches!(expire()?, WelcomeHeadOutcome::Waiting { .. }));
-        assert!(
-            db.pending_envelope(&service.topic(), welcome.cursor)?
-                .is_some()
-        );
+        assert!(matches!(
+            expire(Cursor(2), Cursor(0))?,
+            WelcomeHeadOutcome::Waiting { .. }
+        ));
+        assert!(held()?);
 
-        // Past the deadline, classification keeps the stored deadline and
-        // still holds the Welcome until the coordinator decides.
+        // Past the deadline, a row that is no longer a group-prefix hold
+        // cannot expire.
         db.raw_query(|conn| {
             diesel::update(incoming_envelopes::table.find((
                 bo.context.installation_id().to_vec(),
                 EntityKind::Welcome,
                 welcome.cursor.0 as i64,
             )))
-            .set(incoming_envelopes::retry_expires_at_ns.eq(Some(1i64)))
+            .set((
+                incoming_envelopes::retry_expires_at_ns.eq(Some(1i64)),
+                incoming_envelopes::error_code.eq("identity_dependency"),
+            ))
             .execute(conn)
         })?;
-        let held = db
+        assert!(matches!(
+            expire(Cursor(2), Cursor(0))?,
+            WelcomeHeadOutcome::Waiting { .. }
+        ));
+        assert!(held()?);
+
+        // Classification keeps the stored deadline and still holds the
+        // Welcome until the coordinator decides.
+        let row = db
             .pending_envelope(&service.topic(), welcome.cursor)?
             .unwrap();
         assert!(matches!(
-            service.classify_pending_result(&held, prefix_pending())?,
+            service.classify_pending_result(&row, prefix_pending())?,
             WelcomeHeadOutcome::Need {
                 requirement: WelcomeRequirement::GroupPrefix { deadline_ns: 1, .. },
                 ..
@@ -1506,27 +1513,28 @@ mod tests {
             Some(1)
         );
 
+        // Processing has not reached the target, or is not below the anchor.
+        for (anchor, target) in [(Cursor(2), Cursor(1)), (Cursor(0), Cursor(0))] {
+            assert!(matches!(
+                expire(anchor, target)?,
+                WelcomeHeadOutcome::Waiting { .. }
+            ));
+            assert!(held()?);
+        }
+
         assert!(matches!(
-            expire()?,
+            expire(Cursor(2), Cursor(0))?,
             WelcomeHeadOutcome::Progress {
                 result: Err(GroupError::WelcomeGroupPrefixPending { .. }),
                 ..
             }
         ));
+        assert!(db.welcome_barrier_complete(&service.topic(), welcome.cursor)?);
         assert_eq!(
             db.read_last_rejection(&service.topic())?.unwrap().code,
             "group_prefix_expired"
         );
-        assert!(
-            db.pending_envelope(&service.topic(), welcome.cursor)?
-                .is_none()
-        );
-        assert!(crate::subscriptions::barrier::durable_complete(
-            NetworkEntityKind::Welcome,
-            Some(welcome.cursor),
-            db.topic_progress(&service.topic())?,
-            0,
-        ));
+        assert!(!held()?);
         sweep_expired(&bo.context)?;
         let retired: Option<openmls::prelude::KeyPackageBundle> =
             bo.context.mls_storage().key_package(&hash)?;
