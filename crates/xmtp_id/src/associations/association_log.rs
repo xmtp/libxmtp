@@ -1086,9 +1086,10 @@ mod tests {
         assert_eq!(moved.recovery_identifier(), &victim);
     }
 
-    /// Recovery moves only to a current member, and the role takes that member's chain. The role
-    /// keeps the chain after the member is revoked, so a signature from the same address on
-    /// another chain is rejected and one from the recorded chain applies.
+    /// Only the recovery identifier moves recovery, and only to a current member; the role takes
+    /// that member's chain. The role keeps the chain after the member is revoked, so a signature
+    /// from the same address on another chain is rejected and one from the recorded chain
+    /// applies.
     #[xmtp_common::test(unwrap_try = true)]
     // verifies: IDENT-091
     fn recovery_moves_only_to_a_member() {
@@ -1131,6 +1132,25 @@ mod tests {
             matches!(result, Err(AssociationError::RecoveryNotMember)),
             "{result:?}"
         );
+        // A member that is not the recovery identifier cannot move recovery, and the signer
+        // check runs before the membership check.
+        for new_recovery in [&wallet, &Identifier::rand_ethereum()] {
+            let result = apply_update(
+                state.clone(),
+                update(Action::ChangeRecoveryIdentity(ChangeRecoveryIdentity {
+                    recovery_identifier_signature: signed_by(
+                        &wallet_member,
+                        SignatureKind::Erc1271,
+                        Some(5),
+                    ),
+                    new_recovery_identifier: new_recovery.clone(),
+                })),
+            );
+            assert!(
+                matches!(result, Err(AssociationError::MissingExistingMember)),
+                "{result:?}"
+            );
+        }
 
         let moved = apply_update(state, update(change_to(&wallet)))?;
         assert_eq!(moved.recovery_identifier(), &wallet);

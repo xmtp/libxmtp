@@ -253,7 +253,6 @@ mod tests {
     };
     use alloy::signers::Signer;
     use alloy::signers::local::PrivateKeySigner;
-    use xmtp_common::rand_hexstring;
     use xmtp_cryptography::{CredentialSign, XmtpInstallationCredential};
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
@@ -354,7 +353,7 @@ mod tests {
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
-    // verifies: IDENT-030
+    // verifies: IDENT-030, IDENT-090
     async fn test_installation_key() {
         let key = XmtpInstallationCredential::new();
         let verifying_key = key.verifying_key();
@@ -369,6 +368,13 @@ mod tests {
         let expected = MemberIdentifier::installation(verifying_key.as_bytes().to_vec());
         assert_eq!(expected, verified_sig.signer);
         assert_eq!(SignatureKind::InstallationKey, verified_sig.kind);
+        // The replay key is the SHA-256 of the domain, the member kind, the signer's identifier
+        // text, and the signature text, joined by line feeds; never the signature bytes.
+        let preimage = format!(
+            "XMTP identity replay key v1\ninstallation\n{}\n{signature_text}",
+            hex::encode(verifying_key.as_bytes())
+        );
+        assert_eq!(verified_sig.replay_key(), sha256_bytes(preimage.as_bytes()));
 
         // Make sure it fails with the wrong signature text
         VerifiedSignature::from_installation_key(
@@ -387,12 +393,16 @@ mod tests {
         .expect_err("should fail with incorrect verifying key");
     }
 
+    /// A smart contract wallet signature has the replay key of an ERC-191 signature by the same
+    /// address over the same text, whatever its bytes or chain.
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    // verifies: IDENT-090
     async fn test_smart_contract_wallet() {
         let mock_verifier = MockSmartContractSignatureVerifier::new(true);
         let chain_id: u64 = 24;
-        let account_address = rand_hexstring();
+        let wallet = PrivateKeySigner::random();
+        let account_address = wallet.identifier().to_string();
         let account_id = AccountId::new(format!("eip155:{chain_id}"), account_address.clone());
         let signature_text = "test_smart_contract_wallet_signature";
         let signature_bytes = &[1, 2, 3];
@@ -413,5 +423,14 @@ mod tests {
         );
         assert_eq!(verified_sig.kind, SignatureKind::Erc1271);
         assert_eq!(verified_sig.chain_id, Some(chain_id));
+
+        let erc191 = wallet
+            .sign_message(signature_text.as_bytes())
+            .await
+            .unwrap();
+        let erc191 = VerifiedSignature::from_recoverable_ecdsa(signature_text, &erc191.as_bytes())
+            .expect("should succeed");
+        assert_eq!(erc191.signer, verified_sig.signer);
+        assert_eq!(erc191.replay_key(), verified_sig.replay_key());
     }
 }
