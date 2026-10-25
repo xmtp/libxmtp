@@ -90,11 +90,19 @@ pub struct IdentityResolutionRegistry {
     /// One request limit shared by single-proof and batch callers.
     permits: OnceLock<Arc<tokio::sync::Semaphore>>,
     /// Serializes own-inbox loads and their event emission for one client.
-    own_inbox_refresh: tokio::sync::Mutex<()>,
+    own_inbox_refresh: tokio::sync::Mutex<OwnInstallationEvents>,
+}
+
+/// How far this client has reported changes to its own installations.
+#[derive(Debug, Default)]
+pub(crate) struct OwnInstallationEvents {
+    /// The own-inbox identity update through which changes are emitted.
+    /// `None` until the first own-inbox load reads the latest stored one.
+    pub(crate) emitted_through: Option<i64>,
 }
 
 impl IdentityResolutionRegistry {
-    pub(crate) fn own_inbox_refresh(&self) -> &tokio::sync::Mutex<()> {
+    pub(crate) fn own_inbox_refresh(&self) -> &tokio::sync::Mutex<OwnInstallationEvents> {
         &self.own_inbox_refresh
     }
 

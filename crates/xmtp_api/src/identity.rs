@@ -95,7 +95,8 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
     /// sequence order for each inbox, without retaining earlier pages. Every
     /// update names one of the filters' inboxes exactly. An API or fold error
     /// stops the read; the caller stores each page before the next request.
-    pub async fn fold_identity_updates<E: From<ApiError>>(
+    #[xmtp_common::rpc_span]
+    pub async fn fold_identity_updates<E: From<ApiError> + std::fmt::Display>(
         &self,
         filters: Vec<GetIdentityUpdatesV2Filter>,
         limits: IncomingBatchLimits,
