@@ -119,6 +119,33 @@ async fn rejected_empty_identity_updates_cost_no_history_verification() {
     server.stop().await?;
 }
 
+/// A valid update costs a verifier call for each of its own SCW signatures and
+/// none for the stored log's, which the backend verified when it admitted
+/// them, however many more verdicts the log holds than the cache.
+// verifies: IDENT-095
+#[xmtp_common::test(unwrap_try = true)]
+async fn valid_identity_update_verifies_only_its_own_scw_signatures() {
+    let (server, calls, inbox_id) = scw_history().await?;
+    let own = (0..3).map(|n| revoke(scw(vec![0xfe, n]))).collect();
+    assert_eq!(
+        publish_identity(&server, update(&inbox_id, 3, own)).await?,
+        (Ok(()), 3)
+    );
+    assert_eq!(calls.load(SeqCst), HISTORY_CHECKS + 3);
+    server.stop().await?;
+}
+
+/// Admission replays an inbox's stored log in a blocking task, never on the
+/// thread that runs the request, once for each update it validates against
+/// that log. Publishing the fixture log replays it once, for the revocations;
+/// the creation has no log to replay.
+#[xmtp_common::test(unwrap_try = true)]
+async fn identity_history_replay_runs_off_the_request_thread() {
+    let (server, _, _) = scw_history().await?;
+    assert_eq!(server.backend.identity_replays.load(SeqCst), 1);
+    server.stop().await?;
+}
+
 /// Each update that a check needing no history rejects fails for its own
 /// reason without reading its inbox's log. The stored row's payload is NULL,
 /// which the read cannot decode, so any read of the log fails as

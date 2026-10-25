@@ -186,7 +186,7 @@ async fn key_package_admission_accepts_the_existing_credential_shape() {
         assert!(
             validate_envelope(
                 &parsed,
-                &[],
+                &AdmittedState::default(),
                 MockSmartContractSignatureVerifier::new(false),
                 &TestChain::at(1),
             )
@@ -255,7 +255,7 @@ async fn key_package_parse_precedes_existing_cryptographic_validation() {
         );
         let error = validate_envelope(
             &parsed,
-            &[],
+            &AdmittedState::default(),
             MockSmartContractSignatureVerifier::new(false),
             &TestChain::at(1),
         )
@@ -304,7 +304,7 @@ async fn key_package_admission_rejects_a_last_resort_mark_with_data() {
         assert!(
             validate_envelope(
                 &parsed,
-                &[],
+                &AdmittedState::default(),
                 MockSmartContractSignatureVerifier::new(false),
                 &TestChain::at(1),
             )
@@ -318,7 +318,7 @@ async fn key_package_admission_rejects_a_last_resort_mark_with_data() {
     )?;
     let error = validate_envelope(
         &parsed,
-        &[],
+        &AdmittedState::default(),
         MockSmartContractSignatureVerifier::new(false),
         &TestChain::at(1),
     )
@@ -349,7 +349,7 @@ async fn identity_admission_folds_real_history_and_a_passkey_update() {
     );
     let result = validate_envelope(
         &parsed,
-        &fixture.history,
+        &admitted_state(fixture.history)?,
         MockSmartContractSignatureVerifier::new(false),
         &TestChain::at(1),
     )

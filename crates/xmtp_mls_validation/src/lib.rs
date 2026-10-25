@@ -13,7 +13,7 @@ use xmtp_id::{
     associations::{
         self, AccountId, AssociationError, AssociationState, AssociationStateDiff, Handle,
         IdentityAction as _, SignatureError, UpdateShapeError, check_update_shape, try_map_vec,
-        unverified::UnverifiedIdentityUpdate, verify_updates,
+        unverified::UnverifiedIdentityUpdate, verify_admitted_updates, verify_updates,
     },
     key_package::{KeyPackageVerificationError, VerifiedKeyPackageV2},
     scw_verifier::{BlockStamp, ChainBlocks, SmartContractSignatureVerifier, VerifierError},
@@ -363,7 +363,46 @@ pub async fn validate_identity_updates(
     } else {
         Some(associations::get_state(old)?)
     };
-    let mut state = old_state.clone();
+    apply_suffix(old_state.as_ref(), new)
+}
+
+/// The association state of an identity log that the backend admitted and
+/// stored, replayed without chain access. Only [`admitted_state`] builds one
+/// from a log, so every prior state [`validate_envelope`] accepts is either
+/// that replay or, by [`Default`], the state of an empty log.
+#[derive(Debug, Clone, Default)]
+pub struct AdmittedState(Option<AssociationState>);
+
+/// Replay the backend's own stored identity log, in sequence order, to the
+/// state a new update is validated against.
+///
+/// Every stored update passes every check a client makes except the chain
+/// call of its ERC-6492 signatures ([`verify_admitted_updates`]), so a stored
+/// update that does not decode, verify or apply fails as it would in
+/// [`validate_identity_updates`]. It is CPU work with no I/O, up to two
+/// signature checks for each stored action, so a caller on an async runtime
+/// runs it in a blocking task.
+///
+/// Only a backend may call this, and only for a log read from its own store:
+/// an ERC-6492 signature in the log is taken as valid without asking a chain.
+/// A client validates every log it reads with [`validate_identity_updates`].
+// implements: IDENT-095
+pub fn admitted_state(history: Vec<IdentityUpdate>) -> Result<AdmittedState, ValidationError> {
+    let updates = try_map_vec(history).map_err(ValidationError::IdentityEncoding)?;
+    let updates = verify_admitted_updates(updates)?;
+    if updates.is_empty() {
+        return Ok(AdmittedState::default());
+    }
+    Ok(AdmittedState(Some(associations::get_state(updates)?)))
+}
+
+/// Apply verified `new` updates, in order, to `old_state`, the state of the
+/// log before them or `None` for an empty log. Pure state transitions.
+fn apply_suffix(
+    old_state: Option<&AssociationState>,
+    new: Vec<associations::IdentityUpdate>,
+) -> Result<AssociationValidation, ValidationError> {
+    let mut state = old_state.cloned();
     let mut claimed_handles = Vec::new();
     for update in new {
         let applied = update.update_state(state, update.client_timestamp_ns)?;
@@ -374,7 +413,7 @@ pub async fn validate_identity_updates(
         state = Some(applied);
     }
     let state = state.ok_or(AssociationError::NotCreated)?;
-    let diff = match &old_state {
+    let diff = match old_state {
         Some(old_state) => old_state.diff(&state),
         None => state.as_diff(),
     };
@@ -506,12 +545,12 @@ pub fn verify_publish(parsed: &ParsedEnvelope) -> Result<(), ValidationError> {
 
 /// Validate one parsed envelope after duplicate lookup.
 ///
-/// Key packages receive their existing package checks. Identity updates are
-/// folded against the caller's snapshot and return a projection diff; only the
-/// new update, never the stored history, must first pass [`check_update_shape`]
-/// and then [`check_freshness`], so a shape no validator accepts is rejected
-/// for good before any chain access. Other kinds need no admission here beyond
-/// the parsing phase.
+/// Key packages receive their existing package checks. An identity update is
+/// verified and applied to `prior`, the state of its inbox's stored log, and
+/// returns a projection diff; it must first pass [`check_update_shape`] and
+/// then [`check_freshness`], so a shape no validator accepts is rejected for
+/// good before any chain access. Other kinds need no admission here beyond
+/// the parsing phase, and their callers pass [`AdmittedState::default`].
 ///
 /// Publish signatures are not checked here. A caller verifies every envelope
 /// that [`ParsedEnvelope::is_signed`] calls signed with [`verify_publish`],
@@ -519,7 +558,7 @@ pub fn verify_publish(parsed: &ParsedEnvelope) -> Result<(), ValidationError> {
 /// verification path.
 pub async fn validate_envelope(
     parsed: &ParsedEnvelope,
-    history: &[IdentityUpdate],
+    prior: &AdmittedState,
     verifier: impl SmartContractSignatureVerifier,
     chain: &dyn ChainBlocks,
 ) -> Result<Option<AssociationValidation>, ValidationError> {
@@ -536,9 +575,11 @@ pub async fn validate_envelope(
         Payload::IdentityUpdate(update) => {
             check_update_shape(update)?;
             check_freshness(update, chain).await?;
-            Ok(Some(
-                validate_identity_updates(history.to_vec(), vec![update.clone()], verifier).await?,
-            ))
+            let update = UnverifiedIdentityUpdate::try_from(update.clone())
+                .map_err(ValidationError::IdentityEncoding)?
+                .to_verified(verifier)
+                .await?;
+            Ok(Some(apply_suffix(prior.0.as_ref(), vec![update])?))
         }
         _ => Ok(None),
     }

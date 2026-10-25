@@ -6,7 +6,8 @@
 //! does no I/O, so a permanent rejection always wins over a retryable outage.
 //! One [`SmartContractSignatureVerifier::verify_many`] call then judges each
 //! distinct ERC-6492 input once, and [`assemble`] applies each verdict to every
-//! signature with that input.
+//! signature with that input. [`verify_admitted_updates`] runs the first and
+//! last phases alone, for a log the backend admitted.
 
 use super::{
     Action, IdentityUpdate, SignatureError,
@@ -26,6 +27,32 @@ pub async fn verify_updates(
     scw_verifier: impl SmartContractSignatureVerifier,
 ) -> Result<Vec<IdentityUpdate>, SignatureError> {
     verify_all(&updates, scw_verifier).await
+}
+
+/// Verify updates that the backend admitted and stored, without a chain.
+/// Every check of [`verify_updates`] runs except the
+/// [`SmartContractSignatureVerifier`] call: each ERC-6492 input still passes
+/// [`ScwInput::checked`], and is then judged valid, because the backend
+/// verified it against a chain when it admitted the update. Does no I/O.
+///
+/// Only a backend may call this, and only for a log it read from its own
+/// store. Any other caller, a client among them, verifies a log with
+/// [`verify_updates`].
+// implements: IDENT-095
+pub fn verify_admitted_updates(
+    updates: Vec<UnverifiedIdentityUpdate>,
+) -> Result<Vec<IdentityUpdate>, SignatureError> {
+    let prepared = prepare(&updates)?;
+    let admitted: Vec<_> = prepared
+        .inputs()
+        .iter()
+        .map(|input| ValidationResponse {
+            is_valid: true,
+            block_number: input.block_number(),
+            error: None,
+        })
+        .collect();
+    assemble(prepared, &admitted)
 }
 
 /// [`verify_updates`] over borrowed updates.
@@ -237,7 +264,7 @@ impl Bound<'_> {
 
 #[cfg(test)]
 mod tests {
-    use super::verify_updates;
+    use super::{verify_admitted_updates, verify_updates};
     use crate::associations::{
         AccountId, Identifier, MemberIdentifier, SignatureError, get_state,
         unsigned_actions::{UnsignedAddAssociation, UnsignedCreateInbox},
@@ -566,5 +593,52 @@ mod tests {
             "{error}"
         );
         assert!(!error.is_retryable());
+    }
+
+    /// A log the backend admitted replays with no verifier, and every check
+    /// but the chain call still runs: an ERC-6492 input still passes its
+    /// checks before chain access, and a signature of another kind still
+    /// verifies.
+    // verifies: IDENT-095
+    #[xmtp_common::test(unwrap_try = true)]
+    fn admitted_updates_skip_only_the_chain_call() {
+        let [owner, member, zero] = [address(1), address(2), address(0)];
+        let history = |member: &str, signature: UnverifiedSignature| {
+            vec![UnverifiedIdentityUpdate::new(
+                inbox_of(&owner),
+                1_000_000_000,
+                vec![
+                    create(&owner, scw_signature(1, &owner, &[1])),
+                    add(member, signature, scw_signature(1, &owner, &[2])),
+                ],
+            )]
+        };
+
+        let state = get_state(verify_admitted_updates(history(
+            &member,
+            scw_signature(2, &member, &[3]),
+        ))?)?;
+        assert_eq!(
+            state
+                .get(&MemberIdentifier::eth(&member)?)?
+                .added_on_chain_id,
+            Some(2)
+        );
+
+        let error =
+            verify_admitted_updates(history(&zero, scw_signature(1, &zero, &[3]))).unwrap_err();
+        assert!(
+            matches!(
+                error,
+                SignatureError::VerifierError(VerifierError::InvalidAccountId(_))
+            ),
+            "{error}"
+        );
+        let error = verify_admitted_updates(history(
+            &member,
+            UnverifiedSignature::new_recoverable_ecdsa(vec![1, 2, 3]),
+        ))
+        .unwrap_err();
+        assert!(matches!(error, SignatureError::Invalid), "{error}");
     }
 }
