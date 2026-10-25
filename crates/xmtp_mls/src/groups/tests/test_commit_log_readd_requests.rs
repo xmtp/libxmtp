@@ -1,11 +1,14 @@
 use crate::{
     context::XmtpSharedContext,
-    groups::{UpdateAdminListType, commit_log::CommitLogWorker},
+    groups::{UpdateAdminListType, commit_log::CommitLogWorker, oneshot::Oneshot},
     tester,
 };
 use xmtp_db::{consent_record::ConsentState, group::QueryGroup, prelude::QueryReaddStatus};
 
-use xmtp_proto::types::GroupId;
+use xmtp_proto::{
+    types::GroupId,
+    xmtp::mls::message_contents::{OneshotMessage, ReaddRequest, oneshot_message::MessageType},
+};
 
 #[xmtp_common::test]
 async fn test_request_readd() {
@@ -503,90 +506,385 @@ async fn test_dictionary_native_readd_succeeds() {
     );
 }
 
+// verifies: FORK-062
 #[xmtp_common::test(unwrap_try = true)]
-async fn test_dictionary_native_readd_records_failed_installations() {
-    use crate::groups::{
-        GroupError,
-        intents::MembershipDiffWithKeyPackages,
-        intents::ReaddInstallationsIntentData,
-        mls_sync::{
-            decode_staged_commit, update_group_membership::apply_readd_installations_intent,
-        },
-    };
-    use xmtp_mls_common::app_data::{
-        component_id::ComponentId, migration::decode_group_membership_dict,
-    };
-    use xmtp_mls_common::inbox_id::InboxId;
-    use xmtp_proto::xmtp::mls::message_contents::group_membership_entry::Version;
+async fn a_readd_without_a_usable_key_package_waits() {
+    use crate::utils::test_mocks_helpers::set_test_mode_upload_malformed_keypackage;
+    use xmtp_db::{prelude::QueryRefreshState, refresh_state::EntityKind};
+    use xmtp_mls_common::app_data::component_id::ComponentId;
 
-    tester!(alix);
-    tester!(bo);
-    tester!(caro);
-    let group = alix
-        .create_group_with_members(&[bo.inbox_id(), caro.inbox_id()], None, None)
-        .await?;
-
-    // Supply failed fetch results directly. Each commit must keep prior failures.
-    for failed in [&bo, &caro] {
-        let installation = failed.context.installation_id().to_vec();
-        crate::state_tx::state_write(alix.context.mls_storage(), |tx| {
-            tx.with_group(group.group_id, |mls_group, storage| {
-                let publish = apply_readd_installations_intent(
-                    storage,
-                    mls_group,
-                    ReaddInstallationsIntentData::new(vec![installation.clone()]),
-                    MembershipDiffWithKeyPackages::new(
-                        vec![],
-                        vec![],
-                        Default::default(),
-                        vec![installation.clone()],
-                    ),
-                    &[],
-                    &alix.identity().installation_keys,
-                )?
-                .unwrap();
-                mls_group.merge_staged_commit(
-                    &xmtp_db::XmtpOpenMlsProviderRef::new(storage),
-                    decode_staged_commit(publish.staged_commit.as_deref().unwrap())?,
-                )?;
-                Ok::<_, GroupError>(xmtp_db::TransactionOutcome::Continue(()))
-            })
-        })?;
+    struct RestoreKeyPackages;
+    impl Drop for RestoreKeyPackages {
+        fn drop(&mut self) {
+            set_test_mode_upload_malformed_keypackage(false, None);
+        }
     }
-    group.load_mls_group_with_lock(alix.context.mls_storage(), |mls_group| {
-        assert!(
-            !mls_group
-                .extensions()
-                .iter()
-                .any(|extension| extension.extension_type()
-                    == openmls::extensions::ExtensionType::Unknown(
-                        xmtp_configuration::GROUP_MEMBERSHIP_EXTENSION_ID
-                    ))
-        );
-        let dictionary = mls_group
+
+    tester!(alix, disable_workers);
+    tester!(caro, disable_workers);
+    let group = alix
+        .create_group_with_members(&[caro.inbox_id()], None, None)
+        .await?;
+    group
+        .update_group_min_version(xmtp_configuration::PROPOSALS_MIN_PROTOCOL_VERSION)
+        .await?;
+    caro.sync_all_welcomes_and_groups(None).await?;
+    let caro_group = caro.group(&group.group_id)?;
+    let installation = caro.context.installation_id();
+    let mut worker = CommitLogWorker::new(alix.context.clone());
+    worker._tick().await?;
+    let cursor = alix
+        .context
+        .db()
+        .latest_cursor_for_id(group.group_id, &[EntityKind::ApplicationMessage])?
+        .0;
+    Oneshot::send_message(
+        caro.context.clone(),
+        vec![alix.inbox_id()],
+        OneshotMessage {
+            message_type: Some(MessageType::ReaddRequest(ReaddRequest {
+                group_id: group.group_id.to_vec(),
+                latest_commit_sequence_id: cursor,
+            })),
+        },
+    )
+    .await?;
+    alix.sync_welcomes().await?;
+
+    let before_epoch = group.epoch().await?;
+    let before_membership = group.with_group_snapshot(|mls_group| {
+        Ok(mls_group
             .extensions()
             .app_data_dictionary()
             .unwrap()
-            .dictionary();
-        let entries = decode_group_membership_dict(
-            dictionary
+            .dictionary()
+            .get(&ComponentId::GROUP_MEMBERSHIP.as_u16())
+            .unwrap()
+            .to_vec())
+    })?;
+    set_test_mode_upload_malformed_keypackage(true, Some(vec![installation.to_vec()]));
+    let restore = RestoreKeyPackages;
+    worker._tick().await?;
+    assert_eq!(group.epoch().await?, before_epoch);
+    group.with_group_snapshot(|mls_group| {
+        assert_eq!(mls_group.members().count(), 2);
+        assert!(
+            mls_group
+                .members()
+                .any(|member| member.signature_key == installation.as_slice())
+        );
+        assert_eq!(
+            mls_group
+                .extensions()
+                .app_data_dictionary()
+                .unwrap()
+                .dictionary()
                 .get(&ComponentId::GROUP_MEMBERSHIP.as_u16())
                 .unwrap(),
-        )
-        .unwrap();
-        for failed in [&bo, &caro] {
-            let entry = entries
-                .get(&InboxId::from_hex(failed.inbox_id()).unwrap())
-                .unwrap();
-            let Some(Version::V1(value)) = &entry.version else {
-                panic!("expected V1 membership entry")
-            };
-            assert_eq!(
-                value.failed_installations,
-                vec![failed.context.installation_id().to_vec()]
-            );
-        }
-        assert_eq!(mls_group.members().count(), 1);
+            before_membership.as_slice()
+        );
         Ok(())
     })?;
+    assert!(
+        alix.context
+            .db()
+            .is_awaiting_readd(&group.group_id, installation.as_slice())?
+    );
+    assert_eq!(
+        alix.context
+            .db()
+            .get_readd_status(&group.group_id, installation.as_slice())?
+            .unwrap()
+            .responded_at_sequence_id,
+        None
+    );
+
+    drop(restore);
+    caro.rotate_and_upload_key_package().await?;
+    worker._tick().await?;
+    assert_eq!(group.epoch().await?, before_epoch + 1);
+    assert!(
+        !alix
+            .context
+            .db()
+            .is_awaiting_readd(&group.group_id, installation.as_slice())?
+    );
+    caro_group.sync_with_conn().await?;
+    caro.sync_welcomes().await?;
+    assert_eq!(
+        caro_group.epoch_authenticator().await?,
+        group.epoch_authenticator().await?
+    );
+    worker._tick().await?;
+    assert_eq!(group.epoch().await?, before_epoch + 1);
+}
+
+// verifies: FORK-050, FORK-053, FORK-063, FORK-080, GMOD-052, FORK-041
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_dm_peer_answers_a_readd_request() {
+    tester!(alix, disable_workers, enable_fork_recovery_requests);
+    tester!(bo, disable_workers);
+    let dm = alix
+        .find_or_create_dm(bo.inbox_id().to_string(), None)
+        .await?;
+    bo.sync_all_welcomes_and_groups(None).await?;
+    let bo_dm = bo.group(&dm.group_id)?;
+    bo_dm.update_consent_state(ConsentState::Allowed)?;
+    assert!(bo_dm.super_admin_list()?.is_empty());
+    // Give both members a post-Welcome commit to compare before recovery.
+    dm.key_update().await?;
+    bo_dm.sync().await?;
+
+    let mut alix_worker = CommitLogWorker::new(alix.context.clone());
+    alix_worker._tick().await?;
+    let alix_db = alix.context.db();
+    let bo_db = bo.context.db();
+    let installation = alix.context.installation_id();
+    let epoch_before = bo_dm.epoch().await?;
+    // Simulate fork detection without creating divergent MLS epoch secrets.
+    alix_db.set_group_commit_log_forked_status(&dm.group_id, Some(true))?;
+    alix_worker._tick().await?;
+    bo.sync_welcomes().await?;
+    assert!(bo_db.is_awaiting_readd(&dm.group_id, installation.as_slice())?);
+    assert!(alix_db.is_awaiting_readd(&dm.group_id, installation.as_slice())?);
+
+    let mut bo_worker = CommitLogWorker::new(bo.context.clone());
+    for _ in 0..3 {
+        bo_worker._tick().await?;
+        if !bo_db.is_awaiting_readd(&dm.group_id, installation.as_slice())? {
+            break;
+        }
+    }
+    let status = bo_db
+        .get_readd_status(&dm.group_id, installation.as_slice())?
+        .expect("the response retains its bookkeeping row");
+    assert!(status.responded_at_sequence_id.is_some());
+    assert!(!bo_db.is_awaiting_readd(&dm.group_id, installation.as_slice())?);
+    assert!(bo_dm.epoch().await? > epoch_before);
+    dm.sync_with_conn().await?;
+    assert!(!dm.is_active()?);
+    alix.sync_welcomes().await?;
+    assert!(dm.is_active()?);
+    assert_eq!(
+        dm.epoch_authenticator().await?,
+        bo_dm.epoch_authenticator().await?
+    );
+    assert_eq!(
+        alix_db.get_group_commit_log_forked_status(&dm.group_id)?,
+        None
+    );
+    let repaired_epoch = dm.epoch().await?;
+    alix_worker._tick().await?;
+    bo_worker._tick().await?;
+    assert_eq!(dm.epoch().await?, repaired_epoch);
+    assert_eq!(bo_dm.epoch().await?, repaired_epoch);
+}
+
+// verifies: FORK-041
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_replacement_welcome_resets_the_fork_state() {
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    let group = alix
+        .create_group_with_members(&[bo.inbox_id()], None, None)
+        .await?;
+    bo.sync_all_welcomes_and_groups(None).await?;
+    let bo_group = bo.group(&group.group_id)?;
+    bo.context
+        .db()
+        .set_group_commit_log_forked_status(&group.group_id, Some(true))?;
+    group
+        .readd_installations(vec![bo.context.installation_id().to_vec()])
+        .await?;
+    bo_group.sync_with_conn().await?;
+    assert!(!bo_group.is_active()?);
+    assert_eq!(
+        bo.context
+            .db()
+            .get_group_commit_log_forked_status(&group.group_id)?,
+        Some(true)
+    );
+    bo.sync_welcomes().await?;
+    assert!(bo_group.is_active()?);
+    assert_eq!(
+        bo.context
+            .db()
+            .get_group_commit_log_forked_status(&group.group_id)?,
+        None
+    );
+}
+
+// verifies: FORK-050, FORK-080, FORK-064, GMOD-052
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_dm_readd_is_answered_once_by_peer_or_sibling() {
+    tester!(alix, disable_workers, enable_fork_recovery_requests);
+    tester!(alix2, from: alix, disable_workers);
+    tester!(bo, disable_workers);
+    let dm = alix
+        .find_or_create_dm(bo.inbox_id().to_string(), None)
+        .await?;
+    dm.update_group_min_version(xmtp_configuration::PROPOSALS_MIN_PROTOCOL_VERSION)
+        .await?;
+    alix2.sync_all_welcomes_and_groups(None).await?;
+    bo.sync_all_welcomes_and_groups(None).await?;
+    let sibling_dm = alix2.group(&dm.group_id)?;
+    let bo_dm = bo.group(&dm.group_id)?;
+    sibling_dm.update_consent_state(ConsentState::Allowed)?;
+    bo_dm.update_consent_state(ConsentState::Allowed)?;
+    dm.key_update().await?;
+    sibling_dm.sync().await?;
+    bo_dm.sync().await?;
+    let mut alix_worker = CommitLogWorker::new(alix.context.clone());
+    alix_worker._tick().await?;
+    alix.context
+        .db()
+        .set_group_commit_log_forked_status(&dm.group_id, Some(true))?;
+    alix_worker._tick().await?;
+    alix2.sync_welcomes().await?;
+    bo.sync_welcomes().await?;
+    let installation = alix.context.installation_id();
+    assert!(
+        alix2
+            .context
+            .db()
+            .is_awaiting_readd(&dm.group_id, installation.as_slice())?
+    );
+    assert!(
+        bo.context
+            .db()
+            .is_awaiting_readd(&dm.group_id, installation.as_slice())?
+    );
+    let epoch_before = dm.epoch().await?;
+    let mut sibling_worker = CommitLogWorker::new(alix2.context.clone());
+    sibling_worker._tick().await?;
+    assert_eq!(sibling_dm.epoch().await?, epoch_before + 1);
+    assert!(
+        !alix2
+            .context
+            .db()
+            .is_awaiting_readd(&dm.group_id, installation.as_slice())?
+    );
+    let mut bo_worker = CommitLogWorker::new(bo.context.clone());
+    bo_worker._tick().await?;
+    assert_eq!(bo_dm.epoch().await?, epoch_before + 1);
+    assert!(
+        !bo.context
+            .db()
+            .is_awaiting_readd(&dm.group_id, installation.as_slice())?
+    );
+    assert!(
+        bo.context
+            .db()
+            .get_readd_status(&dm.group_id, installation.as_slice())?
+            .unwrap()
+            .responded_at_sequence_id
+            .is_some()
+    );
+    bo_worker._tick().await?;
+    assert_eq!(bo_dm.epoch().await?, epoch_before + 1);
+}
+
+// verifies: FORK-080, FORK-061
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_future_readd_claim_publishes_no_commit() {
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    let group = alix
+        .create_group_with_members(&[bo.inbox_id()], None, None)
+        .await?;
+    bo.sync_all_welcomes_and_groups(None).await?;
+    let mut worker = CommitLogWorker::new(alix.context.clone());
+    worker._tick().await?;
+    Oneshot::send_message(
+        bo.context.clone(),
+        vec![alix.inbox_id()],
+        OneshotMessage {
+            message_type: Some(MessageType::ReaddRequest(ReaddRequest {
+                group_id: group.group_id.to_vec(),
+                latest_commit_sequence_id: i64::MAX as u64,
+            })),
+        },
+    )
+    .await?;
+    alix.sync_welcomes().await?;
+    let installation = bo.context.installation_id();
+    let epoch_before = group.epoch().await?;
+    for _ in 0..3 {
+        worker._tick().await?;
+        assert_eq!(group.epoch().await?, epoch_before);
+        let status = alix
+            .context
+            .db()
+            .get_readd_status(&group.group_id, installation.as_slice())?
+            .expect("the responder must retain a future request");
+        assert_eq!(status.requested_at_sequence_id, Some(i64::MAX));
+        assert_eq!(status.responded_at_sequence_id, None);
+        assert!(
+            alix.context
+                .db()
+                .is_awaiting_readd(&group.group_id, installation.as_slice())?
+        );
+    }
+}
+
+// verifies: FORK-080, FORK-064
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_claim_at_the_processed_cursor_is_answered_once() {
+    use xmtp_db::{
+        prelude::{QueryLocalCommitLog, QueryRefreshState},
+        refresh_state::EntityKind,
+    };
+
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    let group = alix
+        .create_group_with_members(&[bo.inbox_id()], None, None)
+        .await?;
+    group
+        .update_group_min_version(xmtp_configuration::PROPOSALS_MIN_PROTOCOL_VERSION)
+        .await?;
+    bo.sync_all_welcomes_and_groups(None).await?;
+    group
+        .send_message(b"advance the processed cursor", Default::default())
+        .await?;
+    let db = alix.context.db();
+    let cursor = db
+        .latest_cursor_for_id(group.group_id, &[EntityKind::ApplicationMessage])?
+        .0;
+    assert!(
+        cursor
+            > db.get_latest_log_for_group(&group.group_id)?
+                .unwrap()
+                .commit_sequence_id as u64
+    );
+    let mut worker = CommitLogWorker::new(alix.context.clone());
+    worker._tick().await?;
+    Oneshot::send_message(
+        bo.context.clone(),
+        vec![alix.inbox_id()],
+        OneshotMessage {
+            message_type: Some(MessageType::ReaddRequest(ReaddRequest {
+                group_id: group.group_id.to_vec(),
+                latest_commit_sequence_id: cursor,
+            })),
+        },
+    )
+    .await?;
+    alix.sync_welcomes().await?;
+    let epoch_before = group.epoch().await?;
+    worker._tick().await?;
+    assert_eq!(group.epoch().await?, epoch_before + 1);
+    let installation = bo.context.installation_id();
+    assert!(!db.is_awaiting_readd(&group.group_id, installation.as_slice())?);
+    assert!(
+        db.get_readd_status(&group.group_id, installation.as_slice())?
+            .unwrap()
+            .responded_at_sequence_id
+            .unwrap()
+            > cursor as i64
+    );
+    for _ in 0..2 {
+        worker._tick().await?;
+        assert_eq!(group.epoch().await?, epoch_before + 1);
+    }
 }
