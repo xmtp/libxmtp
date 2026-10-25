@@ -1,6 +1,14 @@
 /// Local chain address when no worktree environment is loaded.
 pub const ANVIL_URL_DEFAULT: &str = "http://127.0.0.1:8545";
 
+/// The longest ERC-6492 signature a validator verifies.
+///
+/// At least twice the estimated length of a counterfactual Coinbase Smart
+/// Wallet passkey signature and of a 5-owner Safe signature. With the 1,792
+/// bytes of verification code, a signature of this length builds 18,304 bytes
+/// of initcode, under the 49,152 bytes EIP-3860 allows.
+pub const MAX_SCW_SIGNATURE_BYTES: usize = 16_384;
+
 /// Local chain used for smart-contract-wallet verification.
 pub struct DockerUrls;
 impl DockerUrls {

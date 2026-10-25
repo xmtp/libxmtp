@@ -377,6 +377,69 @@ async fn scw_signature_limit_accepts_exact_count_and_rejects_one_past() {
     server.stop().await?;
 }
 
+/// An entry that no chain can verify fails the whole request with
+/// `INVALID_ARGUMENT` before the first verifier call, even behind a valid
+/// entry: a zero or non-`eip155` account, whose verdict would be any
+/// signature's, and a signature longer than the cap, from which the verifier
+/// would build code of the caller's length. The longest signature the cap
+/// admits gets its verdict.
+// verifies: API-301, IDENT-093
+#[xmtp_common::test(unwrap_try = true)]
+async fn scw_verify_request_rejects_unverifiable_inputs_before_verification() {
+    use xmtp_configuration::MAX_SCW_SIGNATURE_BYTES;
+    const EIP3860_MAX_INITCODE_BYTES: usize = 49_152;
+    const ACCOUNT: &str = "eip155:1:0x1111111111111111111111111111111111111111";
+    let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let server =
+        TestServer::with_verifier(|_| {}, CountingVerifier(calls.clone()), TestChain::at(1))
+            .await?;
+    let entry = |account_id: &str, length: usize| {
+        api::verify_smart_contract_wallet_signatures_request::Signature {
+            account_id: account_id.into(),
+            hash: vec![1; 32],
+            signature: vec![1; length],
+            block_number: Some(1),
+        }
+    };
+    let verify = async |signatures| {
+        server
+            .identity()
+            .verify_smart_contract_wallet_signatures(
+                api::VerifySmartContractWalletSignaturesRequest { signatures },
+            )
+            .await
+    };
+
+    for unverifiable in [
+        entry("eip155:1:0x0000000000000000000000000000000000000000", 65),
+        entry(
+            "cosmos:cosmoshub-4:0x1111111111111111111111111111111111111111",
+            65,
+        ),
+        entry(ACCOUNT, MAX_SCW_SIGNATURE_BYTES + 1),
+        entry(ACCOUNT, EIP3860_MAX_INITCODE_BYTES + 1),
+    ] {
+        let error = verify(vec![entry(ACCOUNT, 65), unverifiable.clone()])
+            .await
+            .unwrap_err();
+        assert_eq!(
+            error.code(),
+            Code::InvalidArgument,
+            "{}: {error:?}",
+            unverifiable.account_id
+        );
+    }
+    assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 0);
+
+    let responses = verify(vec![entry(ACCOUNT, MAX_SCW_SIGNATURE_BYTES)])
+        .await?
+        .into_inner()
+        .responses;
+    assert_eq!(responses.len(), 1);
+    assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+    server.stop().await?;
+}
+
 #[xmtp_common::test(unwrap_try = true)]
 async fn identity_update_scw_signature_limit_is_checked_before_verification() {
     let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
@@ -431,6 +494,7 @@ async fn identity_update_scw_signature_limit_is_checked_before_verification() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+// verifies: API-301
 async fn scw_verdicts_preserve_input_order_and_resolved_blocks() {
     let Some(metrics) = crate::test_support::metrics::isolated(
         "service::identity::tests::scw_verdicts_preserve_input_order_and_resolved_blocks",
@@ -567,7 +631,7 @@ fn encoded_identity_envelope(update: &[u8]) -> Vec<u8> {
 /// the reason for the rule it breaks. Only an inbox id that names no identity
 /// topic, one byte short or not hexadecimal, is a malformed payload, even when
 /// the update would break a rule as well.
-// verifies: IDENT-001, IDENT-013, IDENT-040, API-230, TOPIC-002
+// verifies: IDENT-001, IDENT-013, IDENT-040, IDENT-093, API-230, TOPIC-002
 #[xmtp_common::test(unwrap_try = true)]
 async fn identity_invalid_mutations_are_rejected_on_admission() {
     let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));

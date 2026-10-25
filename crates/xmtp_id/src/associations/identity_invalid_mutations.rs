@@ -23,6 +23,7 @@ use alloy::primitives::{BlockNumber, Bytes};
 use prost::Message;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use xmtp_common::{RetryableError, rand_hexstring, rand_vec};
+use xmtp_configuration::MAX_SCW_SIGNATURE_BYTES;
 use xmtp_proto::ConversionError;
 use xmtp_proto::xmtp::identity::associations::{
     AddAssociation as AddProto, ChangeRecoveryAddress as ChangeRecoveryProto,
@@ -223,14 +224,16 @@ fn add_of_current_member_is_rejected() {
 /// A smart contract wallet signature names its chain in a CAIP-10 account id.
 /// One outside the `eip155` namespace, whose reference is not a chain id in
 /// canonical decimal form, or whose address is not `0x` and 40 hexadecimal
-/// characters, can never be verified, so it is rejected
+/// characters or is all zero, can never be verified, and neither can a
+/// signature longer than the cap, so each is rejected
 /// permanently and before any chain call; routing it would instead fail as
 /// a retryable missing route and keep it pending for ever.
+// verifies: IDENT-093
 #[xmtp_common::test(unwrap_try = true)]
 async fn non_eip155_account_id_is_rejected_without_chain_call() {
     let verifier = CountingVerifier::default();
     let account = rand_hexstring();
-    let update = |chain_id: &str, address: &str| {
+    let update_signed = |chain_id: &str, address: &str, signature: Vec<u8>| {
         let identifier = Identifier::eth(&account).unwrap();
         UnverifiedIdentityUpdate::new_test(
             vec![UnverifiedAction::CreateInbox(UnverifiedCreateInbox {
@@ -239,7 +242,7 @@ async fn non_eip155_account_id_is_rejected_without_chain_call() {
                     account_identifier: identifier.clone(),
                 },
                 initial_identifier_signature: UnverifiedSignature::new_smart_contract_wallet(
-                    rand_vec::<65>(),
+                    signature,
                     AccountId::new(chain_id.to_string(), address.to_string()),
                     1,
                 ),
@@ -247,7 +250,13 @@ async fn non_eip155_account_id_is_rejected_without_chain_call() {
             identifier.inbox_id(0).unwrap(),
         )
     };
+    let update = |chain_id: &str, address: &str| update_signed(chain_id, address, rand_vec::<65>());
 
+    let oversized = update_signed("eip155:1", &account, vec![0; MAX_SCW_SIGNATURE_BYTES + 1])
+        .to_verified(&verifier)
+        .await
+        .unwrap_err();
+    assert!(!oversized.is_retryable(), "{oversized}");
     for (chain_id, address) in [
         "cosmos:cosmoshub-4",
         "eip155",
@@ -266,6 +275,7 @@ async fn non_eip155_account_id_is_rejected_without_chain_call() {
             account.trim_start_matches("0x").to_string(),
             format!("{account}0"),
             format!("0x{}g", &account[3..]),
+            format!("0x{}", "0".repeat(40)),
             String::new(),
         ]
         .map(|address| ("eip155:1", address)),

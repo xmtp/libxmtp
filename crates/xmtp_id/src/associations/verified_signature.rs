@@ -3,7 +3,7 @@ use super::{
     AccountId, HasMemberKind, InstallationKeyContext, MemberIdentifier, SignatureError,
     SignatureKind, ident,
 };
-use crate::scw_verifier::SmartContractSignatureVerifier;
+use crate::scw_verifier::{ScwInput, SmartContractSignatureVerifier, ValidationResponse};
 use alloy::primitives::Signature as EtherSignature;
 use base64::Engine;
 use base64::prelude::BASE64_URL_SAFE_NO_PAD;
@@ -196,7 +196,9 @@ impl VerifiedSignature {
         ))
     }
 
-    /// Verifies a smart contract wallet signature using the provided signature verifier.
+    /// Verifies a smart contract wallet signature using the provided signature verifier. The
+    /// input is checked before the verifier is called, and a valid verdict writes the block it
+    /// was reached at to `block_number`.
     pub async fn from_smart_contract_wallet<Text: AsRef<str>>(
         signature_text: Text,
         signature_verifier: impl SmartContractSignatureVerifier,
@@ -205,33 +207,46 @@ impl VerifiedSignature {
         block_number: &mut Option<u64>,
     ) -> Result<Self, SignatureError> {
         // implements: IDENT-093
-        let chain_id = account_id.eip155_chain_id()?;
+        let input = ScwInput::checked(
+            account_id,
+            alloy::primitives::eip191_hash_message(signature_text.as_ref()).into(),
+            signature_bytes.to_vec().into(),
+            *block_number,
+        )?;
         let response = signature_verifier
             .is_valid_signature(
-                account_id.clone(),
-                alloy::primitives::eip191_hash_message(signature_text.as_ref()).into(),
-                signature_bytes.to_vec().into(),
-                *block_number,
+                input.account_id().clone(),
+                input.hash(),
+                input.signature().clone(),
+                input.block_number(),
             )
             .await?;
+        let verified = Self::from_scw_verdict(&input, &response, signature_text.as_ref())?;
+        // set the block the signature was validated on
+        *block_number = response.block_number;
+        Ok(verified)
+    }
 
-        if response.is_valid {
-            // set the block the signature was validated on
-            *block_number = response.block_number;
-
-            Ok(Self::new_verified(
-                MemberIdentifier::eth(account_id.get_account_address())?,
-                SignatureKind::Erc1271,
-                signature_text.as_ref(),
-                Some(chain_id),
-            ))
-        } else {
+    /// The signature a verifier judged valid for `input`: by the account's address, on the
+    /// account's chain. An invalid verdict is [`SignatureError::Invalid`].
+    pub(crate) fn from_scw_verdict(
+        input: &ScwInput,
+        response: &ValidationResponse,
+        signature_text: &str,
+    ) -> Result<Self, SignatureError> {
+        if !response.is_valid {
             tracing::error!(
                 "Smart contract wallet signature is invalid {:?}",
                 response.error
             );
-            Err(SignatureError::Invalid)
+            return Err(SignatureError::Invalid);
         }
+        Ok(Self::new_verified(
+            MemberIdentifier::eth(input.account_id().get_account_address())?,
+            SignatureKind::Erc1271,
+            signature_text,
+            Some(input.chain_id()),
+        ))
     }
 }
 

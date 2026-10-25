@@ -522,11 +522,12 @@ impl ChainBlocks for RoutelessChain {
 /// that chain reaches it and stays retryable. Every malformed form fails its
 /// signature, whether or not it is a CAIP-10 account id at all.
 #[xmtp_common::test]
-// verifies: IDENT-061, API-230
+// verifies: IDENT-061, IDENT-093, API-230
 async fn freshness_rejects_any_malformed_account_before_chain_access() {
     let chain = RoutelessChain::default();
     for malformed in [
         "eip155:01:0x1111111111111111111111111111111111111111",
+        "eip155:1:0x0000000000000000000000000000000000000000",
         "eip155:1:bad",
         "eip155:1:1111111111111111111111111111111111111111",
         "eip155:1:0x111111111111111111111111111111111111111g",
