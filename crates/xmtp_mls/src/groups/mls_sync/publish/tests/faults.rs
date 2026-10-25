@@ -67,6 +67,11 @@ impl FaultyApi {
         }
     }
 
+    /// Model an ordered read that fails after publication returned a receipt.
+    pub(super) fn reject_queries(&self) {
+        self.poisoned.store(true, Ordering::SeqCst);
+    }
+
     /// Let queries through again, as a restarted process would.
     pub(super) fn restart(&self) {
         self.poisoned.store(false, Ordering::SeqCst);

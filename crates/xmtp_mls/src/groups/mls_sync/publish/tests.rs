@@ -10,8 +10,10 @@ mod faults;
 mod membership_component;
 mod membership_recovery;
 mod out_of_range_settlement;
+mod removal_selection;
 mod send_state_transitions;
 mod signing;
+mod split_refresh;
 mod stale_refresh;
 mod uncommittable_proposals;
 

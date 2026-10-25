@@ -236,23 +236,24 @@ impl PreparedAttempt {
 }
 
 impl<Context: XmtpSharedContext> MlsGroup<Context> {
-    /// A split target is not complete until every child finishes its Welcomes.
-    /// The processed target can no longer create children, so one snapshot of
-    /// its remaining children is sufficient for the caller's completion wait.
-    pub(in crate::groups::mls_sync) fn pending_membership_children(
-        &self,
+    /// Read only attempts whose durable marker names this membership target.
+    /// Callers already holding a writer pass its connection so rejection
+    /// lookup and parent state observe the same committed child outcome.
+    pub(super) fn membership_child_attempts(
+        db: &impl DbQuery,
+        group_id: GroupId,
         parent_id: ID,
-    ) -> Result<Vec<ID>, GroupError> {
-        let db = self.context.db();
-        if !Fetch::<StoredGroupIntent>::fetch(&db, &parent_id)?
-            .is_some_and(|intent| intent.kind == IntentKind::UpdateGroupMembership)
-        {
+        states: &[IntentState],
+    ) -> Result<Vec<(StoredGroupIntent, PreparedAttempt)>, GroupError> {
+        if !Fetch::<StoredGroupIntent>::fetch(db, &parent_id)?.is_some_and(|intent| {
+            intent.group_id == group_id && intent.kind == IntentKind::UpdateGroupMembership
+        }) {
             return Ok(Vec::new());
         }
         let mut children = Vec::new();
         for intent in db.find_group_intents(
-            self.group_id,
-            Some(vec![IntentState::Published, IntentState::Committed]),
+            group_id,
+            Some(states.to_vec()),
             Some(vec![IntentKind::UpdateGroupMembership]),
         )? {
             if intent.id <= parent_id {
@@ -261,11 +262,47 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
             let Some(bytes) = db.prepared_envelopes(intent.id)? else {
                 continue;
             };
-            if PreparedAttempt::decode(&bytes)?.parent_intent == Some(parent_id) {
-                children.push(intent.id);
+            let attempt = PreparedAttempt::decode(&bytes)?;
+            if attempt.parent_intent == Some(parent_id) {
+                attempt.validate_intent(&intent)?;
+                children.push((intent, attempt));
             }
         }
         Ok(children)
+    }
+
+    /// A split target is not complete until every child finishes its Welcomes.
+    /// Once the original target is processed, it cannot create more children.
+    pub(in crate::groups::mls_sync) fn pending_membership_children(
+        &self,
+        parent_id: ID,
+    ) -> Result<Vec<ID>, GroupError> {
+        Ok(Self::membership_child_attempts(
+            &self.context.db(),
+            self.group_id,
+            parent_id,
+            &[IntentState::Published, IntentState::Committed],
+        )?
+        .into_iter()
+        .map(|(intent, _)| intent.id)
+        .collect())
+    }
+
+    /// A saved child receipt is publication of its original membership request.
+    /// Do not classify an unrelated blocking intent as this request's receipt.
+    // implements: SEND-015
+    pub(in crate::groups::mls_sync) fn published_request_target(
+        &self,
+        intent_id: ID,
+    ) -> Result<Option<Cursor>, GroupError> {
+        if let Some(target) = self.published_intent_target(intent_id)? {
+            return Ok(Some(target));
+        }
+        let mut target = None;
+        for child in self.pending_membership_children(intent_id)? {
+            target = target.max(self.published_intent_target(child)?);
+        }
+        Ok(target)
     }
 
     /// Read the accepted publish target. An ambiguous attempt has no target.

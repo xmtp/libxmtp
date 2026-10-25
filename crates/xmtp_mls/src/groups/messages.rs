@@ -257,14 +257,14 @@ where
             },
         )?
         .into_continued()?;
-        if !queued {
+        let Some(intent_id) = queued else {
             return Ok(());
-        }
+        };
 
         // Publish
         self.maybe_update_installations(Some(SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS))
             .await?;
-        self.sync_until_last_intent_resolved().await?;
+        self.sync_until_intent_resolved(intent_id).await?;
 
         // Implicitly set group consent state to allowed
         self.update_consent_state(ConsentState::Allowed)?;
@@ -482,21 +482,21 @@ where
     ///
     /// A published message is never queued again, and an unresolved intent for
     /// the same envelope is reused. A retry of a failed message returns it to
-    /// `Unpublished` in the same transaction as its new intent. Returns whether
-    /// the message has work to publish.
+    /// `Unpublished` in the same transaction as its new intent. Returns that
+    /// exact intent's ID, or None when the message is already published.
     // implements: SEND-003
     fn queue_stored_message(
         &self,
         db: &impl DbQuery,
         events: &impl xmtp_events::EventWriter<crate::subscriptions::internal::InternalEvent>,
         message: &StoredGroupMessage,
-    ) -> Result<bool, GroupError> {
+    ) -> Result<Option<i32>, GroupError> {
         if message.delivery_status == DeliveryStatus::Published {
-            return Ok(false);
+            return Ok(None);
         }
         let envelope =
             Self::encode_envelope(&message.decrypted_message_bytes, &message.idempotency_key);
-        QueueIntent::send_message()
+        let intent = QueueIntent::send_message()
             .data(Vec::<u8>::from(SendMessageIntentData::new(envelope)))
             .should_push(message.should_push)
             .queue_in(db, self)?;
@@ -508,7 +508,7 @@ where
                 events,
             );
         }
-        Ok(true)
+        Ok(Some(intent.id))
     }
 
     /// Check membership while holding the same writer as the new message or intent.

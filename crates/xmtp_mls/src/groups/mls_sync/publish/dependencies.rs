@@ -130,17 +130,14 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
         let Some(old) = &requirements.old_membership else {
             return Ok(None);
         };
+        // Explicit add_members calls can also advance existing inboxes.
+        // Match the sender's inline-Add classification, not the intent's
+        // marker for entries that must never be inserted after removal.
         let mut refreshed: Vec<_> = data
-            .refreshed_members
+            .membership_updates
             .iter()
-            .filter(|inbox| {
-                old.get(inbox).is_some_and(|before| {
-                    data.membership_updates
-                        .get(*inbox)
-                        .is_some_and(|after| *after > *before)
-                })
-            })
-            .cloned()
+            .filter(|(inbox, after)| old.get(*inbox).is_some_and(|before| *after > before))
+            .map(|(inbox, _)| inbox.clone())
             .collect();
         refreshed.sort_unstable();
         let (partial, fail_additions) = if refreshed.len() > 1 {
@@ -234,13 +231,13 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
             ));
         }
         if requirements.fail_refresh_additions
-            && let (Some(data), Some(changes)) =
-                (&requirements.membership_update, &mut dependencies.changes)
+            && let (Some(old), Some(changes)) =
+                (&requirements.old_membership, &mut dependencies.changes)
         {
             let mut failed = HashSet::new();
             changes.new_key_packages.retain(|package| {
                 let suppress = inbox_id_from_credential(package.leaf_node().credential())
-                    .is_ok_and(|inbox| data.refreshed_members.contains(&inbox));
+                    .is_ok_and(|inbox| old.get(&inbox).is_some());
                 if suppress {
                     failed.insert(package.leaf_node().signature_key().as_slice().to_vec());
                 }

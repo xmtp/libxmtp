@@ -235,15 +235,15 @@ async fn test_parallel_syncs() {
         .unwrap();
     assert_eq!(alix2_welcomes.len(), 1);
 
-    // The installation add emits an Add proposal, a membership AppDataUpdate proposal,
-    // and the commit that consumes both proposals.
+    // The installation Add is inline. The refresh emits a membership
+    // AppDataUpdate proposal and the commit that consumes it.
     let group_messages = alix1
         .context
         .api()
         .query_group_messages(alix1_group.group_id)
         .await
         .unwrap();
-    assert_eq!(group_messages.len(), 3);
+    assert_eq!(group_messages.len(), 2);
 
     let alix2_group = receive_group_invite(&alix2).await;
 

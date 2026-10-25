@@ -1385,18 +1385,6 @@ pub mod tests {
         }
     }
 
-    // verifies: PERM-003
-    #[xmtp_common::test(unwrap_try = true)]
-    fn super_admin_inbox_removal_is_rejected_at_commit() {
-        let mut changes = build_membership_changes(None, None, true, true, None);
-        let mut removed = build_change(None, true, true);
-        removed.proposer = Some(changes.actor.clone());
-        changes.removed_inboxes.push(removed);
-        let mut policy = default_policy();
-        policy.remove_member_policy = MembershipPolicies::allow();
-        assert!(!policy.evaluate_membership(&changes.validation_info()));
-    }
-
     /// Tests that a commit by a non admin/super admin can add and remove members
     /// with allow policies.
     #[xmtp_common::test]
@@ -1442,8 +1430,18 @@ pub mod tests {
     }
 
     /// Tests that a group creator can perform super admin actions.
-    #[xmtp_common::test]
+    // verifies: PERM-003
+    #[xmtp_common::test(unwrap_try = true)]
     fn test_actor_is_creator() {
+        // Even an authorized proposer and permissive policy cannot delete a super admin.
+        let mut changes = build_membership_changes(None, None, true, true, None);
+        let mut removed = build_change(None, true, true);
+        removed.proposer = Some(changes.actor.clone());
+        changes.removed_inboxes.push(removed);
+        let mut policy = default_policy();
+        policy.remove_member_policy = MembershipPolicies::allow();
+        assert!(!policy.evaluate_membership(&changes.validation_info()));
+
         let permissions = PolicySet::new(
             MembershipPolicies::allow_if_actor_super_admin(),
             MembershipPolicies::allow_if_actor_super_admin(),

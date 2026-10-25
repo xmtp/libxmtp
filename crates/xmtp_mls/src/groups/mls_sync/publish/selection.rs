@@ -5,7 +5,8 @@ use super::*;
 use crate::groups::app_data::Committable;
 use crate::groups::group_permissions::MembershipPolicy;
 use crate::identity_updates::{
-    IdentityDependencyError, InstallationDiffError, required_leaf_removals,
+    IdentityDependencyError, InstallationDiffError, get_installation_diff_local,
+    required_leaf_removals,
 };
 use openmls::group::QueuedProposal;
 use openmls::messages::proposals::AppDataUpdateOperation;
@@ -27,6 +28,7 @@ pub(super) struct SelectionRequirements {
     own_update: Option<UpdateGroupMembershipIntentData>,
     readds: HashSet<Vec<u8>>,
     can_replace: HashSet<Vec<u8>>,
+    is_super_admin: bool,
     /// Each leaf's installation and inbox.
     leaves: HashMap<LeafNodeIndex, (Vec<u8>, String)>,
 }
@@ -150,6 +152,7 @@ impl SelectionRequirements {
                 HashSet::new()
             },
             can_replace,
+            is_super_admin: actor.is_super_admin,
             leaves: group
                 .members()
                 .map(|member| {
@@ -594,22 +597,61 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                         if required.contains(id) || requirements.readds.contains(id) =>
                     {
                         removed.insert(inbox.as_str());
-                        removed_keys.insert(id);
+                        // The receiver removes failed readds from its
+                        // actual-removal set, so they cannot cover this delta.
+                        if !requirements.is_super_admin || !target.failed_installations.contains(id)
+                        {
+                            removed_keys.insert(id);
+                        }
                     }
                     _ => {
                         selection.omitted.insert(index);
                     }
                 }
             }
-            // A failure claim cannot cover a required Remove. An own update
-            // builds these same required removals inline in the sender path.
-            for key in &required {
-                if !removed_keys.contains(key)
-                    && !requirements.readds.contains(key)
-                    && !own_removals.contains(key)
-                    && let Some(inbox) = owners.get(key)
+            // An own update builds these removals inline. Attribute any
+            // missing removal to the inbox update that requires it: a shared
+            // key's leaf credential can name a different, unchanged inbox.
+            let uncovered_removals: HashSet<_> = required
+                .iter()
+                .filter(|key| {
+                    !removed_keys.contains(*key)
+                        && !requirements.readds.contains(*key)
+                        && !own_removals.contains(*key)
+                })
+                .cloned()
+                .collect();
+            if !uncovered_removals.is_empty() {
+                for inbox in inbox_diff
+                    .added_inboxes
+                    .iter()
+                    .chain(&inbox_diff.updated_inboxes)
+                    .chain(&inbox_diff.removed_inboxes)
                 {
-                    changed |= requirements.omit_dependencies(inbox, &mut selection.omitted)?;
+                    let mut inbox_target = requirements.old.clone();
+                    if let Some(sequence) = target.get(inbox) {
+                        inbox_target.add((*inbox).clone(), *sequence);
+                    } else {
+                        inbox_target.remove(inbox);
+                    }
+                    let inbox_changes = get_installation_diff_local(
+                        &self.context.db(),
+                        &requirements.old,
+                        &inbox_target,
+                        &requirements.old.diff(&inbox_target),
+                    )
+                    .map_err(InstallationDiffError::from)?;
+                    let inbox_removals = required_leaf_removals(
+                        &self.context.db(),
+                        &requirements.old,
+                        &inbox_target,
+                        &inbox_changes.removed_installations,
+                        &owners,
+                    )
+                    .map_err(InstallationDiffError::from)?;
+                    if !inbox_removals.is_disjoint(&uncovered_removals) {
+                        changed |= requirements.omit_dependencies(inbox, &mut selection.omitted)?;
+                    }
                 }
             }
             // implements: GMOD-038, GMOD-047

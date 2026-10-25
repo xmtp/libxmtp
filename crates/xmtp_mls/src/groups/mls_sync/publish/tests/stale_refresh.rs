@@ -96,13 +96,8 @@ async fn selection_reuses_an_add_for_a_stale_failure() -> Result<(), GroupError>
     tester!(alix, disable_workers);
     tester!(bo, disable_workers);
     tester!(caro, disable_workers);
-    tester!(eve, disable_workers);
     let group = alix
-        .create_group_with_members(
-            &[bo.inbox_id(), caro.inbox_id(), eve.inbox_id()],
-            None,
-            None,
-        )
+        .create_group_with_members(&[bo.inbox_id(), caro.inbox_id()], None, None)
         .await?;
     caro.wait_for_welcomes().await?;
     let caro_group = caro.group(&group.group_id)?;

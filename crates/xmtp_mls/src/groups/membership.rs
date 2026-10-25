@@ -1,6 +1,11 @@
 //! Adding, removing, and re-adding members.
 
 use super::*;
+use prost::Message;
+use xmtp_mls_common::app_data::{
+    components::tls_map_components::GroupMembershipComponent, typed_facade::MlsGroupAppData,
+};
+use xmtp_proto::xmtp::mls::message_contents::{GroupMembershipEntry, group_membership_entry};
 
 impl<Context> MlsGroup<Context>
 where
@@ -73,11 +78,11 @@ where
         // TODO:nm this isn't the best test for whether the request is valid
         // If some existing group member has an update, this will return an intent with changes
         // when we really should return an error
-        let ok_result = Ok(UpdateGroupMembershipResult::from(intent_data.clone()));
+        let mut result = UpdateGroupMembershipResult::from(intent_data.clone());
 
         if intent_data.is_empty() {
             tracing::warn!("Member already added");
-            return ok_result;
+            return Ok(result);
         }
 
         // The deployment sets the ceiling, checked here — the one
@@ -113,6 +118,29 @@ where
         self.sync_until_intent_resolved(intent.id).await?;
         let epoch = self.epoch().await?;
 
+        // Publication can discover failures after the request was built,
+        // including additions suppressed to fit an envelope. Read the final
+        // entries for this request so split-child failures reach its caller.
+        result.failed_installations = self.with_group_snapshot(|group| {
+            let entries = MlsGroupAppData::new(group.extensions())
+                .get::<GroupMembershipComponent>()?
+                .ok_or(GroupError::InvalidGroupMembership)?;
+            let mut failed = Vec::new();
+            for (inbox, bytes) in entries.iter() {
+                if !result.added_members.contains_key(&inbox.to_hex()) {
+                    continue;
+                }
+                let entry = GroupMembershipEntry::decode(bytes.as_slice())?;
+                let Some(group_membership_entry::Version::V1(entry)) = entry.version else {
+                    return Err(GroupError::InvalidGroupMembership);
+                };
+                failed.extend(entry.failed_installations);
+            }
+            failed.sort_unstable();
+            failed.dedup();
+            Ok(failed)
+        })?;
+
         log_event!(
             Event::AddedMembers,
             self.context.installation_id(),
@@ -121,7 +149,7 @@ where
             epoch
         );
 
-        ok_result
+        Ok(result)
     }
 
     /// Removes members from the group by their account addresses.
