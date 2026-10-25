@@ -29,6 +29,7 @@ use xmtp_id::scw_verifier::{
 };
 
 mod auth;
+mod count_gate;
 mod lifecycle;
 pub(crate) mod telemetry;
 #[cfg(test)]
@@ -218,6 +219,9 @@ pub async fn serve(
         .layer(telemetry::GrpcStatusLayer)
         .layer(auth_layer)
         .layer(lifecycle::AdmissionLayer(lifecycle.clone()))
+        .layer(count_gate::CountGateLayer {
+            max_request_bytes: receive,
+        })
         .add_service(health)
         .add_service(configuration)
         .add_service(attachment)

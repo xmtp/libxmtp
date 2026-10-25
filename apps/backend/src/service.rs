@@ -8,6 +8,8 @@ mod publish;
 mod query;
 mod subscription;
 
+pub(crate) use error::publish_invalid;
+
 use crate::{config::ValidatedConfig, db::Store};
 use std::sync::Arc;
 use xmtp_id::scw_verifier::{CachedSmartContractSignatureVerifier, ChainBlocks};

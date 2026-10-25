@@ -238,9 +238,10 @@ message QueryNewestResponse {
 // Publish
 // ---------------------------------------------------------------------------
 
-// Atomic: every envelope is stored or none is. No envelope count limit; the
-// request is at most 25 MiB, each envelope at most 1 MiB, and there are
-// at most 1000 distinct topics.
+// Atomic: every envelope is stored or none is. At most 1000 envelopes,
+// duplicates included, and 100000 identity actions in total; the request
+// is at most 25 MiB, each envelope at most 1 MiB, and there are at most
+// 1000 distinct topics.
 // At most one identity update per inbox per request. A repeat of an envelope
 // already stored on its topic (same MessageHash) is not an error: the stored
 // meta is returned as success.
