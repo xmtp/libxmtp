@@ -388,9 +388,13 @@ async fn a_split_refresh_waits_for_every_welcome() {
         limit,
         ..
     } = split_refresh_fixture(None).await?;
-    // An ambiguous failure can follow a stored Welcome, so the batch stays owed.
-    let api =
-        FaultyApi::new(&limited, welcome, []).then_always(Fault::Refuse(tonic::Code::Unavailable));
+    // A failure that is not a refusal can follow a stored Welcome, so the
+    // batch stays owed through every round of the call.
+    let faults = std::iter::repeat_n(
+        Fault::Refuse(tonic::Code::PermissionDenied),
+        MAX_GROUP_SYNC_RETRIES * 4 + 1,
+    );
+    let api = FaultyApi::new(&limited, welcome, faults);
     let (source, root, child) = owe_a_split_child_welcome(&limited, &bo, group_id, api).await;
     assert!(
         source.sync_until_intent_resolved(root.id).await.is_err(),
@@ -429,8 +433,11 @@ async fn a_refused_split_child_welcome_fails_the_original_call() {
         group_id,
         ..
     } = split_refresh_fixture(None).await?;
-    let api = FaultyApi::new(&limited, welcome, [])
-        .then_always(Fault::Refuse(tonic::Code::InvalidArgument));
+    let api = FaultyApi::new(
+        &limited,
+        welcome,
+        [Fault::Refuse(tonic::Code::InvalidArgument)],
+    );
     let (source, root, child) = owe_a_split_child_welcome(&limited, &bo, group_id, api).await;
     let result = source.sync_until_intent_resolved(root.id).await;
     assert!(welcomes_unsendable(&result), "{result:?}");

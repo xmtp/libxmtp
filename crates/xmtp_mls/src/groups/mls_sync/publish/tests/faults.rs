@@ -29,14 +29,12 @@ pub(super) enum Fault {
 }
 
 /// Passes every request to the test backend, except that each publish carrying
-/// an envelope `intercepts` selects takes the next queued fault, one at a time,
-/// and then the fault set by [`FaultyApi::then_always`], if any.
+/// an envelope `intercepts` selects takes the next queued fault, one at a time.
 #[derive(Clone)]
 pub(super) struct FaultyApi {
     inner: crate::utils::TestClient,
     intercepts: fn(&Payload) -> bool,
     faults: Arc<Mutex<VecDeque<Fault>>>,
-    always: Option<Fault>,
     /// Every intercepted request, in the order sent.
     pub requests: Arc<Mutex<Vec<wire::PublishRequest>>>,
     /// Metadata of each stored request whose response was lost.
@@ -66,7 +64,6 @@ impl FaultyApi {
             inner: tester.context.api().api_client.raw_for_test().clone(),
             intercepts,
             faults: Arc::new(Mutex::new(faults.into_iter().collect())),
-            always: None,
             requests: Default::default(),
             lost: Default::default(),
             stop_before_recovery: Default::default(),
@@ -75,12 +72,6 @@ impl FaultyApi {
             poisoned: Default::default(),
             serial: Default::default(),
         }
-    }
-
-    /// Apply `fault` to every intercepted publish once the queue is empty.
-    pub(super) fn then_always(mut self, fault: Fault) -> Self {
-        self.always = Some(fault);
-        self
     }
 
     /// Model an ordered read that fails after publication returned a receipt.
@@ -133,7 +124,7 @@ impl XmtpBackendClient for FaultyApi {
             return self.inner.publish(request).await;
         }
         let _serial = self.serial.lock().await;
-        let fault = self.faults.lock().pop_front().or(self.always);
+        let fault = self.faults.lock().pop_front();
         self.requests.lock().push(request.clone());
         let publish_error = match fault {
             None => return self.inner.publish(request).await,

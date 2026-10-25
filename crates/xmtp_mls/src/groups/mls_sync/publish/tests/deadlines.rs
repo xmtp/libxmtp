@@ -277,7 +277,7 @@ async fn intent_sync_deadline_bounds_a_stalled_welcome_publish() {
 /// batch.
 // verifies: SEND-024
 #[xmtp_common::test(unwrap_try = true)]
-async fn later_send_completes_while_earlier_welcomes_fail() {
+async fn later_send_completes_while_earlier_welcomes_stall() {
     /// Long enough for the send's own round on a loaded test machine.
     const SEND_BUDGET: Duration = Duration::from_secs(5);
     tester!(alix, disable_workers);
@@ -294,6 +294,8 @@ async fn later_send_completes_while_earlier_welcomes_fail() {
         stalled.send_message(b"after the membership change", Default::default()),
     )
     .await??;
+    // The wait ran the stalled publish, the waived known limitation on
+    // publish_required_welcomes. Delete this line when that limitation goes.
     let api = client.context.api().api_client.raw_for_test();
     assert!(api.entered.load(Ordering::SeqCst));
     let sends = group.context.db().find_group_intents(

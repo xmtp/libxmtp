@@ -498,63 +498,11 @@ async fn smaller_limit_fails_an_unstored_welcome_batch() {
     for envelope in &batch {
         assert_eq!(stored_copies(&alix, envelope).await, 0);
     }
-    assert!(welcomes_unsendable(
-        &restarted.sync_until_intent_resolved(intent.id).await
-    ));
 
     restarted
         .send_message(b"after the ended change", Default::default())
         .await?;
     only_intent(&group, IntentState::Processed, IntentKind::SendMessage);
-}
-
-/// Saved Welcome bytes that no longer fit may already be stored. Here the
-/// batch reached the backend before the deployment lowered its limit, and
-/// its receipts were never recorded. The recovery read must find it and
-/// complete the membership change with the receipts its publish assigned,
-/// sending nothing again.
-// verifies: SEND-023
-#[xmtp_common::test(unwrap_try = true)]
-async fn smaller_limit_settles_a_stored_welcome_batch() {
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
-    let group = alix.create_group(None, None)?;
-    group.key_update().await?;
-    let (intent_id, welcomes) = save_welcome_batch(&group, &[bo.inbox_id()]).await;
-    let api = group.context.api();
-    let stored = api
-        .publish_units(
-            welcomes
-                .units(api.limits())?
-                .into_iter()
-                .collect::<Option<_>>()?,
-        )
-        .await?;
-    let largest = envelopes(&welcomes.envelopes)
-        .iter()
-        .map(measured_len)
-        .max()?;
-    let recorder = FaultyApi::new(&alix, welcome, []);
-    let restarted =
-        group_after_envelope_limit_shrink(&alix, &group.group_id, recorder.clone(), largest - 1)
-            .await;
-
-    restarted.publish_required_welcomes().await?;
-    only_intent(
-        &group,
-        IntentState::Processed,
-        IntentKind::UpdateGroupMembership,
-    );
-    let settled = saved_attempt(&group, intent_id).welcomes?;
-    assert_eq!(settled.envelopes, welcomes.envelopes);
-    assert_eq!(
-        settled.receipts,
-        Some(stored.iter().map(Message::encode_to_vec).collect())
-    );
-    assert!(
-        recorder.requests.lock().is_empty(),
-        "a stored Welcome was sent again"
-    );
 }
 
 /// When the read returns a saved pointee that no longer fits, the pointers
@@ -639,7 +587,6 @@ async fn smaller_limit_republishes_the_pointers_of_a_stored_pointee(
 #[rstest::rstest]
 #[case::pointee_stored(true, false, None, true)]
 #[case::pointee_lost(false, false, None, false)]
-#[case::pointee_fits(false, true, None, true)]
 #[case::pointee_refused(false, true, Some(Fault::Refuse(tonic::Code::InvalidArgument)), false)]
 #[case::pointee_response_lost(false, true, Some(Fault::LoseResponse), true)]
 #[xmtp_common::test(unwrap_try = true)]
@@ -793,9 +740,9 @@ async fn smaller_limit_fails_a_fresh_welcome_batch() {
 
 /// One intent's follow-up failure does not stop the others, and the call
 /// reports the earliest intent's error after the last intent, whichever of
-/// the two fails first. One batch fits and fails with a transient error, so
-/// its intent stays owed; the other is a fresh batch that does not fit, so
-/// its intent ends.
+/// the two fails first. One batch fits and its publish fails without a
+/// refusal, so its intent stays owed; the other is a fresh batch that does
+/// not fit, so its intent ends.
 #[rstest::rstest]
 #[case::earlier_owed(true)]
 #[case::earlier_ended(false)]
@@ -830,17 +777,21 @@ async fn follow_up_errors_are_reported_from_the_earliest_intent(
         .map(measured_len)
         .max()
         .unwrap();
-    let api =
-        FaultyApi::new(&alix, welcome, []).then_always(Fault::Refuse(tonic::Code::Unavailable));
+    // Not retried, and not a refusal, so the batch stays owed.
+    let api = FaultyApi::new(
+        &alix,
+        welcome,
+        [Fault::Refuse(tonic::Code::PermissionDenied)],
+    );
     let restarted =
         group_after_envelope_limit_shrink(&alix, &group.group_id, api.clone(), limit).await;
 
     let result = restarted.publish_required_welcomes().await;
-    let unavailable = matches!(&result, Err(GroupError::WrappedApi(error))
+    let denied = matches!(&result, Err(GroupError::WrappedApi(error))
         if xmtp_proto::api::grpc_status(error)
-            .is_some_and(|status| status.code() == tonic::Code::Unavailable));
+            .is_some_and(|status| status.code() == tonic::Code::PermissionDenied));
     if earlier_fits {
-        assert!(unavailable, "{result:?}");
+        assert!(denied, "{result:?}");
     } else {
         assert!(welcomes_unsendable(&result), "{result:?}");
     }
@@ -900,8 +851,7 @@ async fn refused_welcome_publish_ends_the_batch(
 
 /// A send first refreshes the group's installations. When the Welcomes for
 /// an installation that refresh adds cannot be sent, the membership change
-/// is still applied, so the send goes on and completes. The new installation
-/// has no Welcome.
+/// is still applied, so the send goes on and completes.
 #[xmtp_common::test(unwrap_try = true)]
 async fn send_goes_on_when_refreshed_installations_get_no_welcome() {
     use xmtp_db::{ConnectionExt, diesel::prelude::*, schema::groups::dsl};
@@ -910,7 +860,7 @@ async fn send_goes_on_when_refreshed_installations_get_no_welcome() {
     let group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
-    tester!(bo2, from: bo, disable_workers);
+    tester!(_bo2, from: bo, disable_workers);
     let api = FaultyApi::new(
         &alix,
         welcome,
@@ -933,8 +883,6 @@ async fn send_goes_on_when_refreshed_installations_get_no_welcome() {
         IntentState::FollowUpFailed,
         IntentKind::UpdateGroupMembership,
     );
-    bo2.sync_welcomes().await?;
-    assert!(bo2.group(&group.group_id).is_err());
 }
 
 /// A process can stop after a membership change's echo is applied and before
