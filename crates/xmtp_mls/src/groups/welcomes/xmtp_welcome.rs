@@ -611,10 +611,8 @@ where
         db.set_commit_log_reader_epoch_floor(&group_id, 0)?;
         stored_group.should_publish_commit_log = should_publish;
         let consent_entity = hex::encode(stored_group.id);
-        let prior_consent = db.get_consent_record(
-            consent_entity.clone(),
-            xmtp_db::consent_record::ConsentType::ConversationId,
-        )?;
+        let prior_consent =
+            db.get_consent_record(consent_entity.clone(), ConsentType::ConversationId)?;
         resolve_join_consent(
             &db,
             &stored_group,
@@ -706,10 +704,8 @@ where
         );
 
         if !stored_group.conversation_type.is_virtual() {
-            let final_consent = db.get_consent_record(
-                consent_entity,
-                xmtp_db::consent_record::ConsentType::ConversationId,
-            )?;
+            let final_consent =
+                db.get_consent_record(consent_entity, ConsentType::ConversationId)?;
             if prior_consent.as_ref().map(|record| record.state)
                 != final_consent.as_ref().map(|record| record.state)
                 && let Some(record) = final_consent
