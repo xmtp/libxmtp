@@ -427,12 +427,25 @@ async fn test_request_readd_with_allowlisted_groups() {
     );
 }
 
-// verifies: FORK-062
+// verifies: FORK-062, FORK-080
+#[rstest::rstest]
+#[case::no_prior_failure(false)]
+#[case::historical_failure(true)]
 #[xmtp_common::test(unwrap_try = true)]
-async fn a_readd_without_a_usable_key_package_waits() {
+async fn a_readd_without_a_usable_key_package_waits(
+    #[case] prior_failure: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use crate::groups::{GroupError, intents::QueueIntent};
     use crate::utils::test_mocks_helpers::set_test_mode_upload_malformed_keypackage;
-    use xmtp_db::{prelude::QueryRefreshState, refresh_state::EntityKind};
+    use openmls::prelude::{AppDataUpdateOperation, Proposal};
+    use tls_codec::Serialize;
+    use xmtp_db::{
+        TransactionOutcome::Continue, XmtpOpenMlsProviderRef, prelude::QueryRefreshState,
+        refresh_state::EntityKind,
+    };
     use xmtp_mls_common::app_data::component_id::ComponentId;
+    use xmtp_mls_validation::commit::extract_group_membership;
+    use xmtp_proto::types::Topic;
 
     struct RestoreKeyPackages;
     impl Drop for RestoreKeyPackages {
@@ -442,39 +455,129 @@ async fn a_readd_without_a_usable_key_package_waits() {
     }
 
     tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
     tester!(caro, disable_workers);
     let group = alix
-        .create_group_with_members(&[caro.inbox_id()], None, None)
+        .create_group_with_members(&[bo.inbox_id(), caro.inbox_id()], None, None)
         .await?;
     group
         .update_group_min_version(xmtp_configuration::PROPOSALS_MIN_PROTOCOL_VERSION)
         .await?;
+    let installation = bo.context.installation_id();
+
+    if prior_failure {
+        // Older commits may leave a live leaf also listed as failed.
+        use prost::Message;
+        use xmtp_mls_common::{inbox_id::InboxId, tls_map::TlsMapDelta};
+        use xmtp_proto::xmtp::mls::message_contents::{
+            GroupMembershipEntry, group_membership_entry,
+        };
+        let sequence_id = group.with_group_snapshot(|mls| {
+            Ok(extract_group_membership(mls.extensions())?.members[bo.inbox_id()])
+        })?;
+        let entry = GroupMembershipEntry {
+            version: Some(group_membership_entry::Version::V1(
+                group_membership_entry::V1 {
+                    sequence_id,
+                    failed_installations: vec![installation.to_vec()],
+                },
+            )),
+        };
+        let payload = TlsMapDelta::new()
+            .update(
+                InboxId::from_hex(bo.inbox_id())?,
+                tls_codec::VLBytes::new(entry.encode_to_vec()),
+            )
+            .tls_serialize_detached()?;
+        let proposal = crate::state_tx::state_write(alix.context.mls_storage(), |tx| {
+            tx.with_group(group.group_id, |mls, storage| {
+                let provider = XmtpOpenMlsProviderRef::new(storage);
+                let (message, _) = mls
+                    .propose_app_data_update(
+                        &provider,
+                        &alix.context.identity().installation_keys,
+                        ComponentId::GROUP_MEMBERSHIP.as_u16(),
+                        AppDataUpdateOperation::Update(payload.into()),
+                    )
+                    .map_err(GroupError::Proposal)?;
+                Ok::<_, GroupError>(Continue(message.tls_serialize_detached()?))
+            })
+        })?
+        .into_continued();
+        let messages = group.prepare_group_messages(vec![(proposal.as_slice(), false)])?;
+        let receipts = alix.context.api().send_group_messages(messages).await?;
+        let topic = Topic::new_group_message(group.group_id);
+        let (_, cursor, _) = xmtp_api_backend::envelope::metadata(&receipts[0], topic.kind())?;
+        crate::subscriptions::barrier::wait_through(&alix.context, [(topic, cursor)].into(), None)
+            .await?;
+        let intent = QueueIntent::commit_pending_proposals().queue(&group)?;
+        group.sync_until_intent_resolved(intent.id).await?;
+        assert!(group.with_group_snapshot(|mls| {
+            Ok(extract_group_membership(mls.extensions())?
+                .failed_installations
+                .contains(&installation.to_vec()))
+        })?);
+    }
+    bo.sync_all_welcomes_and_groups(None).await?;
     caro.sync_all_welcomes_and_groups(None).await?;
+    let bo_group = bo.group(&group.group_id)?;
     let caro_group = caro.group(&group.group_id)?;
-    let installation = caro.context.installation_id();
     let mut worker = CommitLogWorker::new(alix.context.clone());
     worker._tick().await?;
+
+    // An admitted standalone Remove must not bypass the usable-package gate.
+    let removal = crate::state_tx::state_write(alix.context.mls_storage(), |tx| {
+        tx.with_group(group.group_id, |mls, storage| {
+            let leaf = mls
+                .members()
+                .find(|member| member.signature_key == installation.as_slice())
+                .unwrap()
+                .index;
+            let provider = XmtpOpenMlsProviderRef::new(storage);
+            let (message, _) = mls
+                .propose_remove_member(&provider, &alix.context.identity().installation_keys, leaf)
+                .map_err(GroupError::ProposeRemoveMember)?;
+            Ok::<_, GroupError>(Continue(message.tls_serialize_detached()?))
+        })
+    })?
+    .into_continued();
+    let messages = group.prepare_group_messages(vec![(removal.as_slice(), false)])?;
+    let receipts = alix.context.api().send_group_messages(messages).await?;
+    let topic = Topic::new_group_message(group.group_id);
+    let (_, proposal_cursor, _) = xmtp_api_backend::envelope::metadata(&receipts[0], topic.kind())?;
+    crate::subscriptions::barrier::wait_through(
+        &alix.context,
+        [(topic, proposal_cursor)].into(),
+        None,
+    )
+    .await?;
+    assert!(group.with_group_snapshot(|mls| {
+        Ok(mls
+            .pending_proposals()
+            .any(|proposal| matches!(proposal.proposal(), Proposal::Remove(_))))
+    })?);
     let cursor = alix
         .context
         .db()
         .latest_cursor_for_id(group.group_id, &[EntityKind::ApplicationMessage])?
         .0;
-    Oneshot::send_message(
-        caro.context.clone(),
-        vec![alix.inbox_id()],
-        OneshotMessage {
-            message_type: Some(MessageType::ReaddRequest(ReaddRequest {
-                group_id: group.group_id.to_vec(),
-                latest_commit_sequence_id: cursor,
-            })),
-        },
-    )
-    .await?;
+    for requester in [&bo, &caro] {
+        Oneshot::send_message(
+            requester.context.clone(),
+            vec![alix.inbox_id()],
+            OneshotMessage {
+                message_type: Some(MessageType::ReaddRequest(ReaddRequest {
+                    group_id: group.group_id.to_vec(),
+                    latest_commit_sequence_id: cursor,
+                })),
+            },
+        )
+        .await?;
+    }
     alix.sync_welcomes().await?;
-
     let before_epoch = group.epoch().await?;
-    let before_membership = group.with_group_snapshot(|mls_group| {
-        Ok(mls_group
+    let before_membership = group.with_group_snapshot(|mls| {
+        Ok(mls
             .extensions()
             .app_data_dictionary()
             .unwrap()
@@ -486,17 +589,19 @@ async fn a_readd_without_a_usable_key_package_waits() {
     set_test_mode_upload_malformed_keypackage(true, Some(vec![installation.to_vec()]));
     let restore = RestoreKeyPackages;
     worker._tick().await?;
-    assert_eq!(group.epoch().await?, before_epoch);
-    group.with_group_snapshot(|mls_group| {
-        assert_eq!(mls_group.members().count(), 2);
+    assert_eq!(
+        group.epoch().await?,
+        before_epoch + 1,
+        "Caro's repair must progress"
+    );
+    group.with_group_snapshot(|mls| {
+        assert_eq!(mls.members().count(), 3);
         assert!(
-            mls_group
-                .members()
+            mls.members()
                 .any(|member| member.signature_key == installation.as_slice())
         );
         assert_eq!(
-            mls_group
-                .extensions()
+            mls.extensions()
                 .app_data_dictionary()
                 .unwrap()
                 .dictionary()
@@ -506,38 +611,42 @@ async fn a_readd_without_a_usable_key_package_waits() {
         );
         Ok(())
     })?;
-    assert!(
-        alix.context
-            .db()
-            .is_awaiting_readd(&group.group_id, installation.as_slice())?
-    );
+    let db = alix.context.db();
+    assert!(db.is_awaiting_readd(&group.group_id, installation.as_slice())?);
     assert_eq!(
-        alix.context
-            .db()
-            .get_readd_status(&group.group_id, installation.as_slice())?
+        db.get_readd_status(&group.group_id, installation.as_slice())?
             .unwrap()
             .responded_at_sequence_id,
         None
     );
-
-    drop(restore);
-    caro.rotate_and_upload_key_package().await?;
-    worker._tick().await?;
-    assert_eq!(group.epoch().await?, before_epoch + 1);
-    assert!(
-        !alix
-            .context
-            .db()
-            .is_awaiting_readd(&group.group_id, installation.as_slice())?
-    );
+    assert!(!db.is_awaiting_readd(&group.group_id, caro.context.installation_id().as_slice())?);
     caro_group.sync_with_conn().await?;
     caro.sync_welcomes().await?;
     assert_eq!(
         caro_group.epoch_authenticator().await?,
         group.epoch_authenticator().await?
     );
+    bo_group.sync().await?;
+    assert!(bo_group.is_active()?);
+
+    // With only the unusable requester left, publish nothing and keep waiting.
     worker._tick().await?;
     assert_eq!(group.epoch().await?, before_epoch + 1);
+    assert!(db.is_awaiting_readd(&group.group_id, installation.as_slice())?);
+    drop(restore);
+    bo.rotate_and_upload_key_package().await?;
+    worker._tick().await?;
+    assert_eq!(group.epoch().await?, before_epoch + 2);
+    assert!(!db.is_awaiting_readd(&group.group_id, installation.as_slice())?);
+    bo_group.sync_with_conn().await?;
+    bo.sync_welcomes().await?;
+    assert_eq!(
+        bo_group.epoch_authenticator().await?,
+        group.epoch_authenticator().await?
+    );
+    worker._tick().await?;
+    assert_eq!(group.epoch().await?, before_epoch + 2);
+    Ok(())
 }
 
 // verifies: FORK-050, FORK-053, FORK-080, GMOD-052, FORK-041
@@ -692,14 +801,23 @@ async fn a_dm_readd_is_answered_once_by_peer_or_sibling() {
 }
 
 // verifies: FORK-080
+#[rstest::rstest]
+#[case::signed_max(i64::MAX as u64)]
+#[case::unsigned_max(u64::MAX)]
 #[xmtp_common::test(unwrap_try = true)]
-async fn a_future_readd_claim_publishes_no_commit() {
+async fn a_future_readd_claim_publishes_no_commit(
+    #[case] claimed: u64,
+) -> Result<(), Box<dyn std::error::Error>> {
     tester!(alix, disable_workers);
     tester!(bo, disable_workers);
     let group = alix
-        .create_group_with_members(&[bo.inbox_id()], None, None)
+        .find_or_create_dm(bo.inbox_id().to_string(), None)
         .await?;
     bo.sync_all_welcomes_and_groups(None).await?;
+    let bo_group = bo.group(&group.group_id)?;
+    assert!(group.super_admin_list()?.is_empty());
+    group.key_update().await?;
+    bo_group.sync().await?;
     let mut worker = CommitLogWorker::new(alix.context.clone());
     worker._tick().await?;
     Oneshot::send_message(
@@ -708,7 +826,7 @@ async fn a_future_readd_claim_publishes_no_commit() {
         OneshotMessage {
             message_type: Some(MessageType::ReaddRequest(ReaddRequest {
                 group_id: group.group_id.to_vec(),
-                latest_commit_sequence_id: i64::MAX as u64,
+                latest_commit_sequence_id: claimed,
             })),
         },
     )
@@ -724,14 +842,20 @@ async fn a_future_readd_claim_publishes_no_commit() {
             .db()
             .get_readd_status(&group.group_id, installation.as_slice())?
             .expect("the responder must retain a future request");
-        assert_eq!(status.requested_at_sequence_id, Some(i64::MAX));
+        assert_eq!(status.requested_at_sequence_id, Some(claimed as i64));
         assert_eq!(status.responded_at_sequence_id, None);
         assert!(
             alix.context
                 .db()
-                .is_awaiting_readd(&group.group_id, installation.as_slice())?
+                .get_readds_awaiting_response(
+                    &group.group_id,
+                    alix.context.installation_id().as_slice(),
+                )?
+                .iter()
+                .any(|pending| pending.installation_id == installation.as_slice())
         );
     }
+    Ok(())
 }
 
 // verifies: FORK-080, FORK-064

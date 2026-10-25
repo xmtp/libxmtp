@@ -945,14 +945,16 @@ where
                 &mls_group.group_id,
                 &[xmtp_db::refresh_state::EntityKind::ApplicationMessage],
             )?
-            .0 as i64;
+            .0;
+        // Unsigned wire claims above i64::MAX are stored as negative values.
+        // Keep them pending instead of treating them as an earlier position.
         Ok(readd_statuses
             .into_iter()
             .filter(|status| {
                 verified.contains(&status.installation_id)
-                    && status
-                        .requested_at_sequence_id
-                        .is_some_and(|requested| requested <= processed)
+                    && status.requested_at_sequence_id.is_some_and(|requested| {
+                        u64::try_from(requested).is_ok_and(|requested| requested <= processed)
+                    })
             })
             .map(|status| status.installation_id)
             .collect())

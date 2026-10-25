@@ -323,6 +323,15 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                 selection.omitted.insert(index);
             }
         }
+        // Readd package resolution includes only current, non-own leaves.
+        // Pending proposals must use the same usable targets as the builder;
+        // a requested installation without a package must keep its leaf.
+        let usable_readds: HashSet<_> = own_changes
+            .into_iter()
+            .flat_map(|changes| &changes.new_key_packages)
+            .map(|package| package.leaf_node().signature_key().as_slice())
+            .filter(|key| requirements.readds.contains(*key))
+            .collect();
         let owners: HashMap<_, _> = requirements.leaves.values().cloned().collect();
         let mut same_request = HashSet::new();
         let mut own_inboxes = HashSet::new();
@@ -564,7 +573,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
             for (index, id, inbox, _) in &pending {
                 let desired = (diff.added_installations.contains_key(id)
                     && !target.failed_installations.contains(id))
-                    || requirements.readds.contains(id);
+                    || usable_readds.contains(id.as_slice());
                 if !desired || !active.get(inbox).is_some_and(|ids| ids.contains(id)) {
                     selection.omitted.insert(*index);
                     if desired {
@@ -634,7 +643,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                 };
                 match requirements.leaves.get(&remove.removed()) {
                     Some((id, inbox))
-                        if required.contains(id) || requirements.readds.contains(id) =>
+                        if required.contains(id) || usable_readds.contains(id.as_slice()) =>
                     {
                         removed.insert(inbox.as_str());
                         // The receiver removes failed readds from its
