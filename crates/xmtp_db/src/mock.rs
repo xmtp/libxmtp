@@ -281,6 +281,10 @@ mock! {
             fn get_groups_have_pending_leave_request(
         &self,
     ) -> Result<Vec<Vec<u8>>, crate::ConnectionError>;
+
+        fn stored_group_refs(&self, scope: &crate::group::GroupScope) -> Result<Vec<crate::group::StoredGroupRef>, crate::ConnectionError>;
+
+        fn group_set_generation(&self) -> Result<i64, crate::ConnectionError>;
     }
 
     impl QueryGroupVersion for DbQuery {

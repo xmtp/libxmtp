@@ -1,6 +1,7 @@
 use super::*;
 use crate::tester;
 use prost::Message;
+use xmtp_db::group::GroupQueryArgs;
 use xmtp_db::incoming_envelope::{IncomingRetry, NewIncomingEnvelope};
 use xmtp_proto::backend_v1 as wire;
 
@@ -9,6 +10,12 @@ const TEST_TIMEOUT: Duration = Duration::from_secs(2);
 std::thread_local! {
     static BEFORE_PROGRESS_READ: std::cell::RefCell<Option<Box<dyn FnOnce()>>> =
         const { std::cell::RefCell::new(None) };
+    /// Groups-table reads by Welcome discovery on this thread.
+    static GROUPS_READS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+pub(super) fn count_groups_read() {
+    GROUPS_READS.with(|reads| reads.set(reads.get() + 1));
 }
 
 pub(super) fn before_progress_read() {
@@ -293,4 +300,37 @@ async fn target_capture_timeout_reports_every_starting_topic() {
         assert_eq!(status.processed, Cursor(0));
         assert!(matches!(status.cause, Some(BarrierCause::TargetPending)));
     }
+}
+
+// verifies: PROC-015
+#[xmtp_common::test(unwrap_try = true)]
+async fn welcome_discovery_reads_groups_once_per_generation() {
+    tester!(alix, disable_workers);
+    let earlier = alix.create_group(None, None)?;
+    let discovery = WelcomeDiscovery {
+        topic: Topic::new_welcome_message(alix.context.installation_id()),
+        target: Cursor(10),
+        consent_states: None,
+    };
+    let db = alix.context.db();
+    db.record_welcome_discovery(earlier.group_id, Cursor(1))?;
+    let reads = || GROUPS_READS.with(std::cell::Cell::get);
+    let mut gate = GroupSetGate::default();
+
+    let first = discover_welcome_groups(&alix.context, &discovery, &mut gate)?;
+    assert_eq!(first, Some(vec![earlier.group_id]));
+    for _ in 0..2 {
+        assert_eq!(
+            discover_welcome_groups(&alix.context, &discovery, &mut gate)?,
+            None
+        );
+    }
+    assert_eq!(reads(), 1, "an unchanged group set was read again");
+
+    // A Welcome stores its group and records its discovery in one transaction.
+    let joined = alix.create_group(None, None)?;
+    db.record_welcome_discovery(joined.group_id, Cursor(5))?;
+    let discovered = discover_welcome_groups(&alix.context, &discovery, &mut gate)?;
+    assert_eq!(reads(), 2);
+    assert_eq!(discovered, Some(vec![earlier.group_id, joined.group_id]));
 }

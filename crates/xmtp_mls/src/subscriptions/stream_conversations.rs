@@ -1,7 +1,7 @@
 //! Live conversation notifications from committed group discovery.
 
 use super::{
-    Result,
+    GroupSetGate, Result,
     incoming::{IncomingCoordinator, IncomingLease, IncomingScope},
     internal::InternalEvent,
 };
@@ -67,6 +67,33 @@ impl KnownConversations {
     }
 }
 
+/// The groups the stream selects, or none while the group-set generation
+/// equals the one `gate` recorded at its last successful read. A new group, a
+/// later Welcome and a consent change all change the generation, and they are
+/// the only changes `KnownConversations` reports. A DM's ranking can change
+/// with a message, but `KnownConversations` keeps its first group per DM.
+// implements: PROC-015
+fn changed_groups<C: XmtpSharedContext>(
+    context: &C,
+    query: &GroupQueryArgs,
+    gate: &mut GroupSetGate,
+) -> std::result::Result<Vec<StoredGroup>, xmtp_db::ConnectionError> {
+    let db = context.db();
+    let generation = db.group_set_generation()?;
+    if !gate.changed(generation) {
+        return Ok(Vec::new());
+    }
+    let groups = if query.consent_states.as_ref().is_some_and(Vec::is_empty) {
+        Vec::new()
+    } else {
+        #[cfg(test)]
+        test::count_groups_read();
+        db.find_groups(query)?
+    };
+    gate.record(generation);
+    Ok(groups)
+}
+
 /// Notify one subscriber of committed local creation and Welcome joins.
 pub struct StreamConversations<C: XmtpSharedContext> {
     inner: BoxDynStream<'static, Result<MlsGroup<C>>>,
@@ -130,9 +157,17 @@ impl<C: XmtpSharedContext + 'static> StreamConversations<C> {
         };
         let observer = Arc::downgrade(&lease);
         let stream = futures::stream::unfold(
-            Some((context, events, lease, known, VecDeque::new(), query)),
+            Some((
+                context,
+                events,
+                lease,
+                known,
+                VecDeque::new(),
+                query,
+                GroupSetGate::default(),
+            )),
             |state| async move {
-                let (context, events, lease, mut known, mut ready, query) = state?;
+                let (context, events, lease, mut known, mut ready, query, mut gate) = state?;
                 loop {
                     if let Err(error) = context.server_configuration().check() {
                         lease.close();
@@ -151,15 +186,12 @@ impl<C: XmtpSharedContext + 'static> StreamConversations<C> {
                     if let Some(group) = ready.pop_front() {
                         return Some((
                             Ok(group),
-                            Some((context, events, lease, known, ready, query)),
+                            Some((context, events, lease, known, ready, query, gate)),
                         ));
                     }
-                    let groups = if query.consent_states.as_ref().is_some_and(Vec::is_empty) {
-                        Ok(Vec::new())
-                    } else {
-                        context.db().find_groups(&query)
-                    };
-                    match groups {
+                    #[cfg(test)]
+                    test::count_pass();
+                    match changed_groups(&context, &query, &mut gate) {
                         Ok(groups) => {
                             for group in groups {
                                 if known.observe(&group, query.include_duplicate_dms) {
@@ -224,7 +256,45 @@ mod test {
     use xmtp_db::group::GroupQueryArgs;
 
     use futures::StreamExt;
+    use std::cell::Cell;
     use xmtp_cryptography::utils::generate_local_wallet;
+
+    std::thread_local! {
+        /// Discovery passes of conversation streams polled on this thread.
+        static PASSES: Cell<usize> = const { Cell::new(0) };
+        /// Groups-table reads by those passes.
+        static GROUPS_READS: Cell<usize> = const { Cell::new(0) };
+    }
+
+    pub(super) fn count_pass() {
+        PASSES.with(|passes| passes.set(passes.get() + 1));
+    }
+
+    pub(super) fn count_groups_read() {
+        GROUPS_READS.with(|reads| reads.set(reads.get() + 1));
+    }
+
+    /// Idle passes do not reread the groups table, and an invitation that
+    /// changes the group set is still delivered on the next pass.
+    // verifies: CONS-044, PROC-015
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn conversation_stream_rereads_groups_only_after_a_change() {
+        tester!(alix, disable_workers);
+        tester!(bo, disable_workers);
+        let passes = || PASSES.with(Cell::get);
+        let reads = || GROUPS_READS.with(Cell::get);
+        let mut stream = StreamConversations::new(&bo.context, None, false, None).await?;
+        tokio::select! {
+            _ = stream.next() => panic!("the stream yielded with no new conversation"),
+            waited = xmtp_common::wait_for_ge(|| async { passes() }, 3) => waited?,
+        }
+        assert_eq!(reads(), 1, "an idle pass reread the groups table");
+
+        let group = alix.create_group(None, None)?;
+        group.add_members(&[bo.inbox_id()]).await?;
+        assert_eq!(stream.next().await.unwrap()?.group_id, group.group_id);
+        assert_eq!(reads(), 2);
+    }
 
     // verifies: CONF-075
     #[xmtp_common::test(unwrap_try = true)]

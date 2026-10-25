@@ -818,6 +818,11 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![(None, Some(100)), (Some(200), None), (None, None)]
         );
+        let generation = connection.raw_query(|conn| {
+            diesel::sql_query("SELECT generation AS count FROM group_set_generation WHERE id = 1")
+                .get_result::<Count>(conn)
+        })?;
+        assert_eq!(generation.count, 0);
         let latest = connection.raw_query(|conn| {
             conn.applied_migrations()
                 .map_err(diesel::result::Error::QueryBuilderError)

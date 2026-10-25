@@ -35,7 +35,7 @@ use xmtp_db::incoming_envelope::{
 use xmtp_db::refresh_state::EntityKind;
 use xmtp_db::{
     consent_record::ConsentState,
-    group::{GroupMembershipState, GroupQueryArgs},
+    group::{GroupMembershipState, GroupScope, StoredGroupRef},
     prelude::*,
 };
 #[cfg(test)]
@@ -712,15 +712,15 @@ where
 
     /// Process all Welcomes through one fixed replica-visible target.
     pub async fn sync_welcomes(&self) -> Result<Vec<MlsGroup<Context>>, GroupError> {
-        let args = GroupQueryArgs {
-            include_sync_groups: true,
-            include_duplicate_dms: true,
-            ..Default::default()
+        let scope = GroupScope {
+            consent: Some(vec![ConsentState::Allowed, ConsentState::Unknown]),
+            include_sync: true,
+            include_restored: true,
         };
         let before: HashSet<_> = self
             .context
             .db()
-            .fetch_conversation_list(args.clone())?
+            .stored_group_refs(&scope)?
             .into_iter()
             .map(|group| group.id)
             .collect();
@@ -732,19 +732,21 @@ where
         Ok(self
             .context
             .db()
-            .fetch_conversation_list(args)?
+            .stored_group_refs(&scope)?
             .into_iter()
             .filter(|group| !before.contains(&group.id))
-            .map(|group| {
-                MlsGroup::new(
-                    self.context.clone(),
-                    group.id,
-                    group.dm_id,
-                    group.conversation_type,
-                    group.created_at_ns,
-                )
-            })
+            .map(|group| self.mls_group(group))
             .collect())
+    }
+
+    fn mls_group(&self, group: StoredGroupRef) -> MlsGroup<Context> {
+        MlsGroup::new(
+            self.context.clone(),
+            group.id,
+            group.dm_id,
+            group.conversation_type,
+            group.created_at_ns,
+        )
     }
 
     /// Publish, process fixed targets, and finish required work under one deadline.
@@ -897,23 +899,17 @@ where
         let groups: Vec<_> = self
             .context
             .db()
-            .fetch_conversation_list(GroupQueryArgs {
-                consent_states: consent_states.clone(),
-                include_duplicate_dms: true,
-                include_sync_groups: true,
-                ..Default::default()
+            .stored_group_refs(&GroupScope {
+                consent: Some(
+                    consent_states
+                        .clone()
+                        .unwrap_or_else(|| vec![ConsentState::Allowed, ConsentState::Unknown]),
+                ),
+                include_sync: true,
+                include_restored: false,
             })?
             .into_iter()
-            .filter(|group| group.membership_state != GroupMembershipState::Restored)
-            .map(|group| {
-                MlsGroup::new(
-                    self.context.clone(),
-                    group.id,
-                    group.dm_id,
-                    group.conversation_type,
-                    group.created_at_ns,
-                )
-            })
+            .map(|group| self.mls_group(group))
             .collect();
         let initial_ids = groups.iter().map(|group| group.group_id).collect();
         let mut topics = group_sync_topics(&groups);

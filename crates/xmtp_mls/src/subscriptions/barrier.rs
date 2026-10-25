@@ -12,14 +12,18 @@ use xmtp_common::{
 use xmtp_db::{
     StorageError,
     consent_record::ConsentState,
-    group::GroupQueryArgs,
+    group::GroupScope,
     incoming_envelope::{NetworkEntityKind, QueryIncomingEnvelope, StreamTopic, TopicProgress},
     prelude::*,
 };
 use xmtp_proto::types::{Cursor, GroupId, Topic, TopicCursor, TopicKind};
 
-use super::incoming::{
-    IncomingCoordinator, IncomingError, IncomingProcessing, IncomingReceivePolicy, IncomingScope,
+use super::{
+    GroupSetGate,
+    incoming::{
+        IncomingCoordinator, IncomingError, IncomingProcessing, IncomingReceivePolicy,
+        IncomingScope,
+    },
 };
 use crate::{
     context::XmtpSharedContext,
@@ -290,6 +294,50 @@ struct WelcomeDiscovery {
     consent_states: Option<Vec<ConsentState>>,
 }
 
+/// The groups first discovered through the fixed Welcome target that pass the
+/// run's consent selection. Returns `None`, reading neither the Welcome
+/// discovery table nor the groups table, while the group-set generation equals
+/// the one `gate` recorded at its last successful read. Call it after the
+/// progress reads: a Welcome records its discovery and stores its group in the
+/// transaction that completes it, so a completion those reads saw has already
+/// changed the generation.
+// implements: PROC-015
+fn discover_welcome_groups<C: XmtpSharedContext>(
+    context: &C,
+    discovery: &WelcomeDiscovery,
+    gate: &mut GroupSetGate,
+) -> Result<Option<Vec<GroupId>>, StorageError> {
+    let db = context.db();
+    let generation = db.group_set_generation()?;
+    if !gate.changed(generation) {
+        return Ok(None);
+    }
+    #[cfg(test)]
+    tests::count_groups_read();
+    let eligible = db.group_ids_discovered_through(discovery.target)?;
+    let selected: HashSet<_> = db
+        .stored_group_refs(&GroupScope {
+            consent: Some(
+                discovery
+                    .consent_states
+                    .clone()
+                    .unwrap_or_else(|| vec![ConsentState::Allowed, ConsentState::Unknown]),
+            ),
+            include_sync: true,
+            include_restored: true,
+        })?
+        .into_iter()
+        .map(|group| group.id)
+        .collect();
+    gate.record(generation);
+    Ok(Some(
+        eligible
+            .into_iter()
+            .filter(|id| selected.contains(id))
+            .collect(),
+    ))
+}
+
 /// Process starting groups and enrolled Welcome discoveries under one deadline.
 /// Later local groups and Welcomes above the sampled head cannot extend the run.
 pub async fn receive_with_welcomes_until<C: XmtpSharedContext>(
@@ -486,6 +534,7 @@ async fn wait_for_targets_snapshot<C: XmtpSharedContext>(
         deadline,
         receive_policy,
     });
+    let mut discovery_gate = GroupSetGate::default();
     loop {
         #[cfg(test)]
         tests::before_progress_read();
@@ -497,26 +546,9 @@ async fn wait_for_targets_snapshot<C: XmtpSharedContext>(
             .collect();
         let mut discovery_failure = None;
         if let Some(discovery) = &discovery {
-            let discovered = (|| -> Result<Vec<GroupId>, StorageError> {
-                let db = context.db();
-                let eligible = db.group_ids_discovered_through(discovery.target)?;
-                let selected: HashSet<_> = db
-                    .find_groups(GroupQueryArgs {
-                        consent_states: discovery.consent_states.clone(),
-                        include_sync_groups: true,
-                        include_duplicate_dms: true,
-                        ..Default::default()
-                    })?
-                    .into_iter()
-                    .map(|group| group.id)
-                    .collect();
-                Ok(eligible
-                    .into_iter()
-                    .filter(|id| selected.contains(id))
-                    .collect())
-            })();
-            match discovered {
-                Ok(discovered) => {
+            match discover_welcome_groups(context, discovery, &mut discovery_gate) {
+                Ok(None) => {}
+                Ok(Some(discovered)) => {
                     let new_topics: Vec<_> = discovered
                         .into_iter()
                         .filter(|id| groups.insert(*id))

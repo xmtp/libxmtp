@@ -62,6 +62,13 @@ diesel::table! {
 }
 
 diesel::table! {
+    group_set_generation (id) {
+        id -> Integer,
+        generation -> BigInt,
+    }
+}
+
+diesel::table! {
     group_welcome_discovery (group_id) {
         group_id -> Binary,
         first_welcome_sequence_id -> BigInt,
@@ -342,6 +349,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     consent_records,
     group_intents,
     group_messages,
+    group_set_generation,
     group_welcome_discovery,
     groups,
     identity,
