@@ -196,7 +196,7 @@ pub(crate) fn queue_key_rotation<Context: XmtpSharedContext>(
     Ok(())
 }
 
-/// Queue rotation on the caller's writer so Welcome receipt can commit with it.
+/// Queue rotation on the caller's writer so a Welcome install can commit with it.
 /// The caller emits the task fact in its event buffer.
 pub(crate) fn queue_key_rotation_in(
     storage: &impl XmtpMlsStorageProvider,

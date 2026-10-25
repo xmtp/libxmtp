@@ -1028,6 +1028,9 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
                 )))
             } else {
                 tracing::info!("Group already exists");
+                // The row keeps its conversation type and dm id. Its only
+                // production caller, XmtpWelcome::commit, rejects a Welcome
+                // that would change either before it calls this.
                 // If the welcome id is greater than the existing group welcome, update the welcome id
                 // on the existing group
                 if group.sequence_id.is_some()

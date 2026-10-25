@@ -67,23 +67,24 @@ impl StoredConsentRecord {
         }
     }
 
-    /// This function will perform some logic to see if a new group should be auto-consented
-    /// or auto-denied based on past consent.
+    /// Give a group with a dm id the greatest consent record held for any
+    /// group with that dm id, with that record's own time. The copy is a
+    /// merge, so a record already stored for the group only loses to a
+    /// greater one.
+    // implements: DMS-010
     pub fn stitch_dm_consent(conn: &impl DbQuery, group: &StoredGroup) -> Result<(), StorageError> {
-        if let Some(dm_id) = &group.dm_id {
-            let mut past_consent = conn.find_consent_by_dm_id(dm_id)?;
-            let Some(last_consent) = past_consent.pop() else {
-                return Ok(());
-            };
-
-            let cr = Self::new(
-                ConsentType::ConversationId,
-                last_consent.state,
-                hex::encode(group.id),
-            );
-            conn.insert_newer_consent_record(cr)?;
-        }
-
+        let Some(dm_id) = &group.dm_id else {
+            return Ok(());
+        };
+        let Some(greatest) = conn.find_consent_by_dm_id(dm_id)?.into_iter().next() else {
+            return Ok(());
+        };
+        conn.insert_newer_consent_record(Self {
+            entity_type: ConsentType::ConversationId,
+            state: greatest.state,
+            entity: hex::encode(group.id),
+            consented_at_ns: greatest.consented_at_ns,
+        })?;
         Ok(())
     }
 }
@@ -114,7 +115,9 @@ pub trait QueryConsentRecord {
         record: StoredConsentRecord,
     ) -> Result<ConsentMerge, crate::ConnectionError>;
 
-    /// Insert consent_records, and replace existing entries, returns records that are new or changed
+    /// Store app decisions. A record that is new or changes the stored state
+    /// is written with its time and returned; a record with the stored state
+    /// is skipped and keeps the stored time.
     fn insert_or_replace_consent_records(
         &self,
         records: &[StoredConsentRecord],
@@ -125,6 +128,8 @@ pub trait QueryConsentRecord {
         record: &StoredConsentRecord,
     ) -> Result<Option<StoredConsentRecord>, crate::ConnectionError>;
 
+    /// Conversation records of every group with `dm_id`, greatest first:
+    /// newest time, then greatest state.
     fn find_consent_by_dm_id(
         &self,
         dm_id: &str,
@@ -206,7 +211,8 @@ impl<C: ConnectionExt> QueryConsentRecord for DbConnection<C> {
         })
     }
 
-    /// Insert consent_records, and replace existing entries, returns records that are new or changed
+    /// Write only the records that are new or change the stored state, each
+    /// with its own time. A same-state record keeps the stored time.
     fn insert_or_replace_consent_records(
         &self,
         records: &[StoredConsentRecord],
@@ -235,12 +241,15 @@ impl<C: ConnectionExt> QueryConsentRecord for DbConnection<C> {
                 .collect();
 
             conn.transaction::<_, diesel::result::Error, _>(|conn| {
-                for record in records.iter() {
+                for record in &changed {
                     diesel::insert_into(dsl::consent_records)
                         .values(record)
                         .on_conflict((dsl::entity_type, dsl::entity))
                         .do_update()
-                        .set(dsl::state.eq(excluded(dsl::state)))
+                        .set((
+                            dsl::state.eq(excluded(dsl::state)),
+                            dsl::consented_at_ns.eq(excluded(dsl::consented_at_ns)),
+                        ))
                         .execute(conn)?;
                 }
                 Ok(())
@@ -294,7 +303,9 @@ impl<C: ConnectionExt> QueryConsentRecord for DbConnection<C> {
             dsl::consent_records
                 .filter(dsl::entity.eq_any(group_id_hexes))
                 .filter(dsl::entity_type.eq(ConsentType::ConversationId))
-                .order(dsl::consented_at_ns.desc())
+                // State breaks a time tie as insert_newer_consent_record does:
+                // ConsentState's integer order is Unknown < Allowed < Denied.
+                .order((dsl::consented_at_ns.desc(), dsl::state.desc()))
                 .load::<StoredConsentRecord>(conn)
         })
     }
@@ -513,9 +524,7 @@ mod tests {
                     ))?
                     .state_changed
                 );
-                // The local act keeps the stored time: the waived gap in
-                // docs/specs/waivers.toml for the local same-state act time.
-                // Update this test when that waiver closes.
+                // The local act changes the state, so it stores its time.
                 conn.insert_or_replace_consent_records(&[record(
                     entity_type,
                     entity,
@@ -527,7 +536,7 @@ mod tests {
                     .unwrap();
                 assert_eq!(
                     (stored.state, stored.consented_at_ns),
-                    (ConsentState::Denied, 10)
+                    (ConsentState::Denied, 20)
                 );
                 // Its echo is newer but carries the same state: applied (the
                 // time moves) but not a state change.
@@ -535,7 +544,7 @@ mod tests {
                     entity_type,
                     entity,
                     ConsentState::Denied,
-                    20,
+                    25,
                 ))?;
                 assert!(merge.applied);
                 assert!(
@@ -547,7 +556,7 @@ mod tests {
                     .unwrap();
                 assert_eq!(
                     (stored.state, stored.consented_at_ns),
-                    (ConsentState::Denied, 20)
+                    (ConsentState::Denied, 25)
                 );
                 // A newer different state is still a change.
                 assert!(
@@ -749,6 +758,67 @@ mod tests {
             assert_eq!(records.len(), 1);
             assert_eq!(records.pop()?, cr);
         })
+    }
+
+    /// A new DM copies the greatest record of its pair, newest time first and
+    /// then greatest state, with that record's own time. The tie at `t`
+    /// resolves by state, whichever group id sorts first and whichever row
+    /// came first.
+    // verifies: DMS-010
+    #[xmtp_common::test(unwrap_try = true)]
+    fn stitch_dm_consent_copies_greatest_record_and_time() {
+        with_connection(|conn| {
+            let t = 1_000;
+            for (dm_id, denied_first) in [("dm:alpha:beta", true), ("dm:alpha:gamma", false)] {
+                let mut groups: Vec<_> = (0..4)
+                    .map(|_| {
+                        let mut group = generate_group(None);
+                        group.dm_id = Some(dm_id.into());
+                        group
+                    })
+                    .collect();
+                // The tied pair holds the two lowest ids; which one is denied
+                // and which one is stored first swaps between the cases.
+                groups.sort_by_key(|group| group.id);
+                let [low, high, older, new_dm] = groups.try_into().unwrap();
+                let (denied, allowed) = if denied_first {
+                    (low, high)
+                } else {
+                    (high, low)
+                };
+                let rows = [
+                    (&older, ConsentState::Allowed, t - 1),
+                    (&denied, ConsentState::Denied, t),
+                    (&allowed, ConsentState::Allowed, t),
+                ];
+                let ordered: Vec<_> = if denied_first {
+                    rows.into_iter().collect()
+                } else {
+                    rows.into_iter().rev().collect()
+                };
+                for (group, state, at) in ordered {
+                    group.store(conn)?;
+                    conn.insert_newer_consent_record(record(
+                        ConsentType::ConversationId,
+                        &hex::encode(group.id),
+                        state,
+                        at,
+                    ))?;
+                }
+                new_dm.store(conn)?;
+
+                StoredConsentRecord::stitch_dm_consent(conn, &new_dm)?;
+                let inherited = conn
+                    .get_consent_record(hex::encode(new_dm.id), ConsentType::ConversationId)?
+                    .unwrap();
+                assert_eq!(
+                    (inherited.state, inherited.consented_at_ns),
+                    (ConsentState::Denied, t),
+                    "{dm_id}"
+                );
+            }
+            Ok::<(), StorageError>(())
+        })?;
     }
 
     #[xmtp_common::test]

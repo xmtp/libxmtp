@@ -1389,8 +1389,7 @@ where
         Ok(())
     }
 
-    /// Upload a new key package to the network replacing an existing key package
-    /// This is expected to be run any time the client receives new Welcome messages
+    /// Upload a new key package to the network replacing an existing key package.
     pub async fn rotate_and_upload_key_package(&self) -> Result<(), ClientError> {
         // A client with a blocked connection publishes nothing. This one
         // reaches `Identity` directly instead of going through a group or the

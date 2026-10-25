@@ -132,6 +132,7 @@ async fn restored_dm_backup_stub_activates_with_archived_history() {
     assert!(bo.group(&dm.group_id)?.is_active()?);
 }
 
+// verifies: JOIN-089
 #[xmtp_common::test(unwrap_try = true)]
 async fn restored_foreign_pair_rejects_different_welcome_pair() {
     use xmtp_db::group::{GroupMembershipState, QueryGroup};
@@ -160,13 +161,15 @@ async fn restored_foreign_pair_rejects_different_welcome_pair() {
         Some(historical_pair.to_string().as_str())
     );
 
-    let _ = bo.sync_welcomes().await;
+    bo.wait_for_newest_welcome_rejected(xmtp_proto::types::Cursor(0))
+        .await;
     let after = bo.db().find_group(&dm.group_id)?.expect("Restored group");
     assert_eq!(after.membership_state, GroupMembershipState::Restored);
     assert_eq!(after.dm_id, before.dm_id);
     // A rejected Welcome keeps the archived record in use.
 }
 
+// verifies: JOIN-089
 #[xmtp_common::test(unwrap_try = true)]
 async fn restored_group_rejects_dm_welcome_kind_change() {
     use xmtp_db::group::{ConversationType, GroupMembershipState, QueryGroup};
@@ -184,7 +187,8 @@ async fn restored_group_rejects_dm_welcome_kind_change() {
         None,
         false,
     )?;
-    let _ = bo.sync_welcomes().await;
+    bo.wait_for_newest_welcome_rejected(xmtp_proto::types::Cursor(0))
+        .await;
     let stored = bo.db().find_group(&dm.group_id)?.expect("Restored group");
     assert_eq!(stored.membership_state, GroupMembershipState::Restored);
     assert_eq!(stored.conversation_type, ConversationType::Group);

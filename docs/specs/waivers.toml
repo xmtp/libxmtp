@@ -32,35 +32,14 @@ id = "CONS-011"
 kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "insert_or_replace_consent_records sets only state, so a repeated same-state act by an app is reported unchanged and the stored time never moves."
-
-[[waiver]]
-id = "CONS-045"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "Creator auto-allow tests creator_inbox_id only, not the adder, and stores it with the current time, replacing any existing record including a synced denial."
-
-[[waiver]]
-id = "CONS-024"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "The creator auto-allow runs after DM consent stitching and overwrites the inherited record."
-
-[[waiver]]
-id = "CONS-025"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "The re-add reset is stored with each device's own clock rather than the Welcome's backend timestamp, and is skipped when the creator branch matched."
+reason = "insert_or_replace_consent_records writes only a record whose state differs from the stored one, so a repeated same-state act by an app keeps the stored time and is reported unchanged."
 
 [[waiver]]
 id = "SYNC-021"
 kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "Only records the store reports as changed are published, so a repeated same-state decision is never published. The join path also publishes, with origin Local, the records it stores under CONS-045, CONS-025 and DMS-010."
+reason = "Only records the store reports as changed are published, so a repeated same-state decision is never published. When the client joins a new sync group, evt_new_sync_group_from_welcome publishes every stored consent record, including records stored under CONS-010, CONS-045, CONS-025 and DMS-010, because the store does not record why a record was stored."
 
 [[waiver]]
 id = "PUSH-257"
@@ -82,13 +61,6 @@ kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "Final membership authorization evaluates the retained proposer for each inbox rather than the proposer of every corresponding Add or Remove."
-
-[[waiver]]
-id = "DMS-010"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "Consent inheritance orders records by descending time and then takes the last, selecting the oldest decision, and replaces its timestamp with the current time."
 
 [[waiver]]
 id = "DMS-011"
@@ -405,13 +377,6 @@ kind = "gap"
 owner = "Nicholas Molnar"
 issue = "https://github.com/xmtp/libxmtp/issues/4644"
 reason = "OpenMLS logs the serialized group context, root included, at TRACE under `openmls::schedule`, which a Rust host that installs its own global subscriber with the `tracing-log` bridge receives, because `xmtp_logging::group_context_guard` covers only the subscribers libxmtp installs."
-
-[[waiver]]
-id = "JOIN-089"
-kind = "gap"
-owner = "Nicholas Molnar"
-issue = "TBD-octane-tracking"
-reason = "The conversation type and DM pair of a Welcome are compared only for a restored placeholder, so a Welcome for an active held group can change its type or DM members."
 
 [[waiver]]
 id = "JOIN-090"
