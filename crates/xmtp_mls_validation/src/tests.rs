@@ -230,10 +230,22 @@ fn p256_key_package_envelope() -> (ClientEnvelope, Vec<u8>) {
     )
 }
 
+/// A P-256 key package fails two separate checks. Verification refuses it
+/// because, without a 0xff03 extension, its wrapper is Curve25519 under its
+/// init key, which is a P-256 key. Parsing refuses it first, as a malformed
+/// payload, because its 65-byte signature key breaks the topic contract.
+// verifies: JOIN-090
 #[xmtp_common::test(unwrap_try = true)]
-fn key_package_topic_length_is_separate_from_ciphersuite_validation() {
+fn p256_key_package_fails_the_init_key_wrapper_and_topic_checks() {
     let (envelope, bytes) = p256_key_package_envelope();
-    assert!(verify_key_package(&bytes).is_ok());
+    assert!(matches!(
+        verify_key_package(&bytes),
+        Err(
+            xmtp_id::key_package::KeyPackageVerificationError::ConversionError(
+                xmtp_proto::ConversionError::InvalidLength { .. }
+            )
+        )
+    ));
     let error = parse_envelope(envelope)
         .err()
         .expect("P-256 signature keys do not satisfy the 32-byte topic contract");
@@ -739,4 +751,66 @@ async fn validation_reports_claimed_handle() {
 
     let created = validate_identity_updates(vec![], vec![create], &verifier).await?;
     assert!(created.claimed_handles.is_empty());
+}
+
+/// Admission runs the addressing checks: a key package whose X-Wing wrapper
+/// key is one byte short is refused as an invalid key package. An undefined
+/// pointee AEAD value is not a reason to refuse one. The xmtp_id unit tests
+/// cover each other unusable extension.
+// verifies: JOIN-090, API-230
+#[xmtp_common::test(unwrap_try = true)]
+async fn key_package_admission_rejects_unusable_addressing_extensions() {
+    use xmtp_configuration::{
+        WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID,
+        WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID, WELCOME_WRAPPER_XWING_KEY_BYTES,
+    };
+    use xmtp_proto::xmtp::mls::message_contents::{
+        WelcomePointeeEncryptionAeadTypesExtension, WelcomeWrapperEncryption,
+    };
+    async fn admit(
+        fixture: KeyPackageFixture,
+    ) -> Result<Option<AssociationValidation>, ValidationError> {
+        let parsed = parse_envelope(fixture.envelope)?;
+        validate_envelope(
+            &parsed,
+            &AdmittedState::default(),
+            MockSmartContractSignatureVerifier::new(false),
+            &TestChain::at(1),
+        )
+        .await
+    }
+
+    let undefined_aead = WelcomePointeeEncryptionAeadTypesExtension {
+        supported_aead_types: vec![i32::MAX],
+    };
+    let fixture = addressing_key_package_envelope(
+        WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID,
+        undefined_aead.encode_to_vec(),
+    );
+    assert!(admit(fixture).await?.is_none());
+
+    let short_xwing_key = WelcomeWrapperEncryption {
+        pub_key: vec![9; WELCOME_WRAPPER_XWING_KEY_BYTES - 1],
+        algorithm: xmtp_id::key_package::WrapperAlgorithm::XWingMLKEM768Draft6.into(),
+    };
+    let fixture = addressing_key_package_envelope(
+        WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID,
+        short_xwing_key.encode_to_vec(),
+    );
+    let error = admit(fixture)
+        .await
+        .err()
+        .expect("a short X-Wing wrapper key must fail admission");
+    assert!(
+        matches!(
+            &error,
+            ValidationError::KeyPackage(
+                xmtp_id::key_package::KeyPackageVerificationError::ConversionError(
+                    xmtp_proto::ConversionError::InvalidLength { .. }
+                )
+            )
+        ),
+        "{error:?}"
+    );
+    assert_eq!(error.reason(), Reason::InvalidKeyPackage);
 }

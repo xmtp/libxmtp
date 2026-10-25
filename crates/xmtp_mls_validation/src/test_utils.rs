@@ -1,9 +1,7 @@
 //! Stateless payload fixtures for native and wasm callers.
 
 use openmls::{
-    extensions::{
-        AppDataDictionary, AppDataDictionaryExtension, Extension, ExtensionType, Extensions,
-    },
+    extensions::{AppDataDictionary, AppDataDictionaryExtension, Extension, Extensions},
     key_packages::Lifetime,
     prelude::{
         Capabilities, Ciphersuite, CredentialWithKey, GroupId as OpenMlsGroupId,
@@ -336,42 +334,59 @@ pub const LAST_RESORT_COMPONENT: u16 = 0x0004;
 /// Build a key package whose `app_data_dictionary` extension holds
 /// `components`, with capabilities that advertise the dictionary.
 pub fn app_data_key_package_envelope(components: &[(u16, Vec<u8>)]) -> KeyPackageFixture {
-    let inbox_id = "app-data-key-package".to_string();
-    let provider = OpenMlsRustCrypto::default();
-    let installation_keys = XmtpInstallationCredential::new();
     let mut dictionary = AppDataDictionary::new();
     for (component, data) in components {
         let _ = dictionary.insert(*component, data.clone());
     }
+    single_extension_key_package_envelope(
+        "app-data-key-package",
+        Extension::AppDataDictionary(AppDataDictionaryExtension::new(dictionary)),
+    )
+}
+
+/// Build a key package with one XMTP addressing extension, `extension_id`
+/// (`0xff03` or `0xff04`) holding `data`, that its capabilities advertise.
+pub fn addressing_key_package_envelope(extension_id: u16, data: Vec<u8>) -> KeyPackageFixture {
+    single_extension_key_package_envelope(
+        "addressing-key-package",
+        Extension::Unknown(extension_id, openmls::extensions::UnknownExtension(data)),
+    )
+}
+
+/// A key package for `inbox_id` whose only key package extension is
+/// `extension`, with capabilities that advertise its type.
+fn single_extension_key_package_envelope(
+    inbox_id: &str,
+    extension: Extension,
+) -> KeyPackageFixture {
+    let provider = OpenMlsRustCrypto::default();
+    let installation_keys = XmtpInstallationCredential::new();
     let ciphersuite = xmtp_cryptography::configuration::CIPHERSUITE;
     let bundle = OpenMlsKeyPackage::builder()
         .leaf_node_capabilities(Capabilities::new(
             None,
             Some(&[ciphersuite]),
-            Some(&[ExtensionType::AppDataDictionary]),
+            Some(&[extension.extension_type()]),
             None,
             None,
         ))
         .key_package_extensions(
-            Extensions::from_vec(vec![Extension::AppDataDictionary(
-                AppDataDictionaryExtension::new(dictionary),
-            )])
-            .expect("one AppData dictionary is a valid extension list"),
+            Extensions::single(extension).expect("one extension is a valid extension list"),
         )
         .build(
             ciphersuite,
             &provider,
             &installation_keys,
             CredentialWithKey {
-                credential: create_credential(&inbox_id),
+                credential: create_credential(inbox_id),
                 signature_key: installation_keys.public_slice().into(),
             },
         )
-        .expect("AppData key-package fixture builds");
+        .expect("single-extension key-package fixture builds");
     let tls_bytes = bundle
         .key_package()
         .tls_serialize_detached()
-        .expect("AppData key-package fixture serializes");
+        .expect("single-extension key-package fixture serializes");
     KeyPackageFixture {
         envelope: ClientEnvelope {
             payload: Some(Payload::KeyPackage(KeyPackage {
@@ -380,7 +395,7 @@ pub fn app_data_key_package_envelope(components: &[(u16, Vec<u8>)]) -> KeyPackag
         },
         tls_bytes,
         installation_id: installation_keys.public_slice().to_vec(),
-        inbox_id,
+        inbox_id: inbox_id.to_string(),
     }
 }
 

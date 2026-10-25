@@ -2,6 +2,144 @@
 
 use super::*;
 
+/// A key package that advertises only a pointee AEAD value this client does
+/// not define is usable, because the value counts as absent. The backend
+/// admits it, and an add and a refresh both add the installation and send it
+/// a Welcome.
+#[cfg(not(target_arch = "wasm32"))]
+#[xmtp_common::test(unwrap_try = true)]
+// verifies: JOIN-090, JOIN-093
+async fn unknown_pointer_aead_value_is_ignored() {
+    use crate::utils::key_package_with_extensions;
+    use openmls::prelude::{Extension, UnknownExtension};
+    use openmls_traits::OpenMlsProvider;
+    use xmtp_configuration::WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID;
+    use xmtp_id::key_package::VerifiedKeyPackageV2;
+    use xmtp_mls_validation::commit::extract_group_membership;
+    use xmtp_proto::xmtp::mls::message_contents::WelcomePointeeEncryptionAeadTypesExtension;
+
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    tester!(caro, disable_workers);
+    let alix_group = alix
+        .create_group_with_members(&[bo.inbox_id()], None, None)
+        .await?;
+
+    // Bo adds a second installation, whose package advertises only an AEAD
+    // value this client does not define.
+    tester!(bo2, from: bo, disable_workers);
+    let bo2_id = bo2.context.installation_id();
+    let pointee_aead = WelcomePointeeEncryptionAeadTypesExtension {
+        supported_aead_types: vec![i32::MAX],
+    };
+    let bytes = key_package_with_extensions(
+        &bo2.context,
+        vec![Extension::Unknown(
+            WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID,
+            UnknownExtension(pointee_aead.encode_to_vec()),
+        )],
+    );
+    bo2.context.api().upload_key_package(bytes.clone()).await?;
+
+    let fetched = alix.context.api().fetch_key_packages(&[bo2_id]).await?;
+    let served = fetched.get(&bo2_id).unwrap().as_ref().unwrap();
+    assert_eq!(served.key_package_tls_serialized, bytes);
+    let verified = VerifiedKeyPackageV2::from_bytes(
+        bo2.context.mls_provider().crypto(),
+        &served.key_package_tls_serialized,
+    )?;
+    assert!(verified.pointee_aead.supported_aead_types.is_empty());
+
+    let caro_group = caro
+        .create_group_with_members(&[bo.inbox_id()], None, None)
+        .await?;
+    let failed_installations = caro_group
+        .load_mls_group_with_lock_async(async |mls_group| {
+            Ok::<_, GroupError>(
+                extract_group_membership(mls_group.extensions())?.failed_installations,
+            )
+        })
+        .await?;
+    assert!(failed_installations.is_empty());
+    let welcomes = caro.context.api().query_welcome_messages(bo2_id).await?;
+    assert_eq!(
+        welcomes.len(),
+        1,
+        "the add must send the installation a Welcome"
+    );
+
+    alix_group.update_installations().await?;
+    let welcomes = alix.context.api().query_welcome_messages(bo2_id).await?;
+    assert_eq!(
+        welcomes.len(),
+        2,
+        "the refresh must add the installation too"
+    );
+}
+
+/// A member applies a commit that adds a key package which fails the
+/// addressing checks. Only senders run those checks: members that disagreed
+/// about a key package in a commit would fork the group. Alix skips them
+/// here, as a client from before them would.
+#[cfg(not(target_arch = "wasm32"))]
+#[xmtp_common::test(unwrap_try = true)]
+// verifies: JOIN-090
+async fn commit_adding_unusable_package_is_applied_by_members() {
+    use crate::groups::mls_ext::WelcomePointersExtension;
+    use crate::utils::{
+        key_package_with_extensions, test_mocks_helpers::set_test_mode_unchecked_key_package,
+    };
+    use openmls::prelude::{Extension, KeyPackageIn, UnknownExtension, tls_codec::Deserialize};
+    use openmls_traits::OpenMlsProvider;
+    use xmtp_configuration::WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID;
+    use xmtp_cryptography::configuration::MLS_PROTOCOL_VERSION;
+    use xmtp_id::key_package::{VerifiedKeyPackageV2, WrapperEncryptionExtension};
+    use xmtp_proto::xmtp::identity::MlsCredential;
+
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    tester!(caro, disable_workers);
+    let alix_group = alix
+        .create_group_with_members(&[caro.inbox_id()], None, None)
+        .await?;
+    caro.sync_welcomes().await?;
+    let caro_group = caro.group(&alix_group.group_id)?;
+
+    // Bo's package carries a pointee AEAD extension that does not decode.
+    let bytes = key_package_with_extensions(
+        &bo.context,
+        vec![Extension::Unknown(
+            WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID,
+            UnknownExtension(vec![0xff]),
+        )],
+    );
+    let inner = KeyPackageIn::tls_deserialize_exact(&bytes)?
+        .validate(bo.context.mls_provider().crypto(), MLS_PROTOCOL_VERSION)?;
+    assert!(VerifiedKeyPackageV2::try_from(inner.clone()).is_err());
+    set_test_mode_unchecked_key_package(VerifiedKeyPackageV2 {
+        credential: MlsCredential {
+            inbox_id: bo.inbox_id().to_string(),
+        },
+        installation_public_key: bo.installation_public_key().to_vec(),
+        wrapper: WrapperEncryptionExtension::advertised_by(&inner)?,
+        pointee_aead: WelcomePointersExtension::empty(),
+        inner,
+    });
+
+    alix_group.add_members(&[bo.inbox_id()]).await?;
+    caro_group.sync().await?;
+    let caro_members: Vec<String> = caro_group
+        .members()
+        .await?
+        .into_iter()
+        .map(|member| member.inbox_id)
+        .collect();
+    assert!(
+        caro_members.contains(&bo.inbox_id().to_string()),
+        "Caro must apply the commit that adds Bo"
+    );
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_create_from_welcome_validation() {

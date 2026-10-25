@@ -12,13 +12,9 @@ use prost::{Message, bytes::Bytes};
 use std::collections::{HashMap, HashSet};
 use thiserror::Error;
 use xmtp_common::types::Address;
-use xmtp_configuration::{
-    GROUP_KEY_ROTATION_INTERVAL_NS, WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID,
-};
+use xmtp_configuration::GROUP_KEY_ROTATION_INTERVAL_NS;
 use xmtp_cryptography::secret::{Zeroize, Zeroizing};
-use xmtp_id::key_package::{
-    KeyPackageVerificationError, VerifiedKeyPackageV2, WrapperAlgorithm, WrapperEncryptionExtension,
-};
+use xmtp_id::key_package::{KeyPackageVerificationError, VerifiedKeyPackageV2, WrapperAlgorithm};
 use xmtp_mls_common::{
     app_data::{
         component_id::ComponentId,
@@ -987,25 +983,15 @@ pub struct Installation {
 }
 
 impl Installation {
-    pub fn from_verified_key_package(
-        key_package: &VerifiedKeyPackageV2,
-    ) -> Result<Self, IntentError> {
-        let wrapper_encryption = WrapperEncryptionExtension::advertised_by(&key_package.inner)?;
-
-        let welcome_pointee_encryption_aead_types = key_package
-            .inner
-            .extensions()
-            .unknown(WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID)
-            .map(|ext| ext.0.as_slice().try_into())
-            .transpose()?;
-
-        Ok(Self {
+    /// The addressing fields verification already decoded and checked, so a
+    /// sender can always wrap a Welcome for the result.
+    pub fn from_verified_key_package(key_package: &VerifiedKeyPackageV2) -> Self {
+        Self {
             installation_key: key_package.installation_id(),
-            hpke_public_key: wrapper_encryption.pub_key_bytes,
-            welcome_wrapper_algorithm: wrapper_encryption.algorithm,
-            welcome_pointee_encryption_aead_types: welcome_pointee_encryption_aead_types
-                .unwrap_or_else(WelcomePointersExtension::empty),
-        })
+            hpke_public_key: key_package.wrapper.pub_key_bytes.clone(),
+            welcome_wrapper_algorithm: key_package.wrapper.algorithm,
+            welcome_pointee_encryption_aead_types: key_package.pointee_aead.clone(),
+        }
     }
 
     /// The installation can open a welcome pointer: it advertises a

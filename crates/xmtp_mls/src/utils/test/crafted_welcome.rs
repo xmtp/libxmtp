@@ -220,7 +220,7 @@ pub(crate) async fn send_crafted_welcome_with(
         )
         .unwrap();
 
-    let installation = Installation::from_verified_key_package(&key_package).unwrap();
+    let installation = Installation::from_verified_key_package(&key_package);
     let (data, welcome_metadata) = wrap_payload_hpke(
         &welcome.tls_serialize_detached().unwrap(),
         &WelcomeMetadata {

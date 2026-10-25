@@ -56,24 +56,14 @@ impl TryFrom<&UnknownExtension> for WelcomePointersExtension {
     }
 }
 
+/// Fails only when the bytes do not decode. Undefined AEAD values are dropped,
+/// so a value a later client defines never makes its installation unaddable.
+// implements: JOIN-090
 impl TryFrom<&[u8]> for WelcomePointersExtension {
     type Error = ConversionError;
 
     fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
-        let proto = WelcomePointeeEncryptionAeadTypesExtensionProto::decode(value)?;
-        let supported_aead_types: Vec<AeadType> = proto
-            .supported_aead_types
-            .iter()
-            .copied()
-            .map(|aead_type| {
-                WelcomePointeeEncryptionAeadTypeProto::try_from(aead_type)
-                    .map_err(ConversionError::UnknownEnumValue)
-                    .and_then(TryInto::try_into)
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        Ok(WelcomePointersExtension {
-            supported_aead_types,
-        })
+        Ok(WelcomePointeeEncryptionAeadTypesExtensionProto::decode(value)?.into())
     }
 }
 

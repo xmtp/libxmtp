@@ -287,6 +287,69 @@ mod tests {
         (kp.public, kp.private.to_vec())
     }
 
+    /// `check_usable` accepts exactly the keys a sender can wrap a Welcome
+    /// for, so a verified key package never fails a Welcome batch after its
+    /// commit has applied. A wrap that panics counts as a failure.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[xmtp_common::test]
+    // verifies: JOIN-090
+    fn wrapper_key_check_matches_wrap() {
+        use xmtp_id::key_package::WrapperEncryptionExtension;
+        let (curve25519, _) = fresh_curve25519_keypair();
+        let (xwing, _) = fresh_xwing_keypair();
+        // An X-Wing key is the ML-KEM-768 key followed by the X25519 key.
+        let x25519_start = xwing.len() - curve25519.len();
+        let mut xwing_with_low_order_x25519 = xwing.clone();
+        xwing_with_low_order_x25519[x25519_start..].fill(0);
+        let mut low_order_curve25519 = vec![0; 32];
+        low_order_curve25519[0] = 1;
+        let cases = [
+            (WrapperAlgorithm::Curve25519, curve25519.clone(), true),
+            (WrapperAlgorithm::Curve25519, vec![0; 32], false),
+            (WrapperAlgorithm::Curve25519, low_order_curve25519, false),
+            (
+                WrapperAlgorithm::Curve25519,
+                curve25519[..31].to_vec(),
+                false,
+            ),
+            (WrapperAlgorithm::Curve25519, xwing.clone(), false),
+            (WrapperAlgorithm::XWingMLKEM768Draft6, xwing.clone(), true),
+            (
+                WrapperAlgorithm::XWingMLKEM768Draft6,
+                vec![0xff; 1216],
+                false,
+            ),
+            (
+                WrapperAlgorithm::XWingMLKEM768Draft6,
+                xwing_with_low_order_x25519,
+                false,
+            ),
+            (
+                WrapperAlgorithm::XWingMLKEM768Draft6,
+                xwing[..1215].to_vec(),
+                false,
+            ),
+            (WrapperAlgorithm::XWingMLKEM768Draft6, curve25519, false),
+        ];
+        for (algorithm, key, usable) in cases {
+            let checked = WrapperEncryptionExtension::new(algorithm, key.clone())
+                .check_usable()
+                .is_ok();
+            let wrapped = std::panic::catch_unwind(|| {
+                wrap_payload_hpke(b"welcome", b"metadata", &key, algorithm, WELCOME_HPKE_LABEL)
+                    .is_ok()
+            })
+            .unwrap_or(false);
+            assert_eq!(
+                (checked, wrapped),
+                (usable, usable),
+                "{algorithm:?} key of {} bytes starting {:?}",
+                key.len(),
+                &key[..4]
+            );
+        }
+    }
+
     #[xmtp_common::test]
     fn round_trip_curve25519_hpke() {
         let (pk, sk) = fresh_curve25519_keypair();

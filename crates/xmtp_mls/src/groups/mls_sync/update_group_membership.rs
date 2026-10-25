@@ -522,11 +522,19 @@ pub(crate) fn installations_for_staged_adds(
     staged_commit
         .add_proposals()
         .map(|proposal| {
-            let key_package = xmtp_id::key_package::VerifiedKeyPackageV2::try_from(
-                proposal.add_proposal().key_package().clone(),
-            )
-            .map_err(crate::groups::intents::IntentError::from)?;
-            Installation::from_verified_key_package(&key_package).map_err(Into::into)
+            let key_package = proposal.add_proposal().key_package();
+            #[cfg(any(test, feature = "test-utils"))]
+            if let Some(unchecked) =
+                crate::utils::test_mocks_helpers::test_mode_unchecked_key_package(
+                    key_package.leaf_node().signature_key().as_slice(),
+                )
+            {
+                return Ok(Installation::from_verified_key_package(&unchecked));
+            }
+            let key_package =
+                xmtp_id::key_package::VerifiedKeyPackageV2::try_from(key_package.clone())
+                    .map_err(crate::groups::intents::IntentError::from)?;
+            Ok(Installation::from_verified_key_package(&key_package))
         })
         .collect()
 }

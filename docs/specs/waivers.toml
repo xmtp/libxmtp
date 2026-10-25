@@ -379,25 +379,11 @@ issue = "https://github.com/xmtp/libxmtp/issues/4644"
 reason = "OpenMLS logs the serialized group context, root included, at TRACE under `openmls::schedule`, which a Rust host that installs its own global subscriber with the `tracing-log` bridge receives, because `xmtp_logging::group_context_guard` covers only the subscribers libxmtp installs."
 
 [[waiver]]
-id = "JOIN-090"
-kind = "gap"
-owner = "Nicholas Molnar"
-issue = "TBD-octane-tracking"
-reason = "A key package whose 0xff03 or 0xff04 extension does not decode, or whose wrapper key has the wrong length, is not rejected at admission or by a sender choosing installations."
-
-[[waiver]]
 id = "JOIN-092"
 kind = "gap"
 owner = "Nicholas Molnar"
 issue = "TBD-octane-tracking"
 reason = "A Welcome for an active held group that waits for its removal is kept with no deadline."
-
-[[waiver]]
-id = "JOIN-093"
-kind = "gap"
-owner = "Nicholas Molnar"
-issue = "TBD-octane-tracking"
-reason = "An installation whose addressing extension does not decode fails the whole operation instead of being left out of the add."
 
 [[waiver]]
 id = "SEND-023"
