@@ -115,9 +115,11 @@ async fn account_moves_to_another_inbox_only_with_explicit_reassignment() {
     first.end().await?;
 }
 
-/// Recovery moves only to an identity of the inbox. A change to any other
-/// identity fails as invalid input before the signer is asked. Once the
-/// identity is added, the same call signs once and moves recovery.
+/// Recovery moves only to an identity of the inbox, as the network reports
+/// it. A change to any other identity fails as invalid input before the
+/// signer is asked. Once another installation adds the identity, the same
+/// call on this installation, which has not read that add, signs once and
+/// moves recovery.
 #[xmtp_common::test(unwrap_try = true)]
 async fn change_recovery_identifier_requires_a_member() {
     let calls = Arc::new(std::sync::Mutex::new(Vec::new()));
@@ -127,6 +129,8 @@ async fn change_recovery_identifier_requires_a_member() {
     });
     let owner_identity = signer::identity(owner.clone()).await?;
     let client = Client::create(owner.clone(), options()).await?;
+    let other_installation = Client::create(owner.clone(), options()).await?;
+    assert_eq!(other_installation.inbox_id(), client.inbox_id());
     calls.lock().expect("calls").clear();
     let fresh = crate::generate_local_signer().await;
     let fresh_identity = signer::identity(fresh.clone()).await?;
@@ -146,7 +150,8 @@ async fn change_recovery_identifier_requires_a_member() {
         owner_identity.identifier
     );
 
-    client.unsafe_add_account(fresh, false).await?;
+    other_installation.unsafe_add_account(fresh, false).await?;
+    wait_for_backend_inbox(&fresh_identity, client.inbox_id()).await?;
     client
         .change_recovery_identifier(owner, fresh_identity.clone())
         .await?;
@@ -156,6 +161,7 @@ async fn change_recovery_identifier_requires_a_member() {
         state.recovery_identity.identifier,
         fresh_identity.identifier
     );
+    other_installation.end().await?;
     client.end().await?;
 }
 
