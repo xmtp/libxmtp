@@ -482,3 +482,90 @@ async fn test_delete_message() {
         "Deleting non-existent message should return 0"
     );
 }
+
+/// A new DM inherits the newest decision about its pair with that decision's
+/// time, so a block made in a later DM stays a block in the next one: the
+/// new DM is hidden from the default list, default all-message delivery, and
+/// the default push rule.
+// verifies: DMS-010
+#[xmtp_common::test(unwrap_try = true)]
+async fn newer_dm_inherits_newest_decision_with_its_time() {
+    use crate::{
+        client::notifications::{NotificationChannel, NotificationConfig, encode_config},
+        subscriptions::local_delivery::{DeliveryScope, LocalDelivery, LocalDeliveryFilter},
+    };
+
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    let record = |group_id| {
+        bo.db()
+            .get_consent_record(hex::encode(group_id), ConsentType::ConversationId)
+    };
+
+    let first = alix
+        .create_dm_by_inbox_id(bo.inbox_id().to_string(), None)
+        .await?;
+    bo.sync_welcomes().await?;
+    let bo_first = bo.group(&first.group_id)?;
+    bo_first.update_consent_state(ConsentState::Allowed)?;
+
+    let second = alix
+        .create_dm_by_inbox_id(bo.inbox_id().to_string(), None)
+        .await?;
+    bo.sync_welcomes().await?;
+    let bo_second = bo.group(&second.group_id)?;
+    assert_eq!(bo_second.consent_state()?, ConsentState::Allowed);
+    bo_second.update_consent_state(ConsentState::Denied)?;
+
+    let third = alix
+        .create_dm_by_inbox_id(bo.inbox_id().to_string(), None)
+        .await?;
+    bo.sync_welcomes().await?;
+    let bo_third = bo.group(&third.group_id)?;
+    let oldest_decision = record(first.group_id)?.expect("older Allowed decision");
+    let newest_decision = record(second.group_id)?.expect("newer Denied decision");
+    let inherited = record(third.group_id)?.expect("inherited consent");
+    assert_eq!(oldest_decision.state, ConsentState::Allowed);
+    assert_eq!(newest_decision.state, ConsentState::Denied);
+    assert!(oldest_decision.consented_at_ns < newest_decision.consented_at_ns);
+    assert_eq!(
+        (inherited.state, inherited.consented_at_ns),
+        (ConsentState::Denied, newest_decision.consented_at_ns)
+    );
+
+    let blocked_message = second
+        .send_message(b"blocked DM", SendMessageOpts::default())
+        .await?;
+    bo_second.sync().await?;
+    let reexposed_message = third
+        .send_message(b"new DM after block", SendMessageOpts::default())
+        .await?;
+    bo_third.sync().await?;
+    let default_delivery = LocalDelivery::history_snapshot(
+        &bo.context,
+        &DeliveryScope::All,
+        &LocalDeliveryFilter::default(),
+        100,
+    )?;
+    assert!(
+        default_delivery
+            .messages
+            .iter()
+            .all(|message| ![&blocked_message, &reexposed_message].contains(&&message.message.id))
+    );
+
+    // The default push rule allows only Allowed conversations.
+    let mut notification = bo.db().notification_record()?;
+    notification.push_state = 1;
+    notification.push_config = Some(encode_config(&NotificationConfig::new(
+        NotificationChannel::Http {
+            url: "https://example.test/push".into(),
+            signing_key: vec![7; 32].into(),
+        },
+    ))?);
+    bo.db().save_notification_record(&notification)?;
+    assert!(!bo_second.notifications_enabled()?);
+    assert!(!bo_third.notifications_enabled()?);
+
+    assert!(bo.find_groups(GroupQueryArgs::default())?.is_empty());
+}

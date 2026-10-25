@@ -32,7 +32,7 @@ id = "CONS-011"
 kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "insert_or_replace_consent_records sets only state, so a repeated same-state act by an app is reported unchanged and the stored time never moves."
+reason = "insert_or_replace_consent_records writes only a record whose state differs from the stored one, so a repeated same-state act by an app keeps the stored time and is reported unchanged."
 
 [[waiver]]
 id = "CONS-045"
@@ -82,13 +82,6 @@ kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "Final membership authorization evaluates the retained proposer for each inbox rather than the proposer of every corresponding Add or Remove."
-
-[[waiver]]
-id = "DMS-010"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "Consent inheritance orders records by descending time and then takes the last, selecting the oldest decision, and replaces its timestamp with the current time."
 
 [[waiver]]
 id = "DMS-011"
