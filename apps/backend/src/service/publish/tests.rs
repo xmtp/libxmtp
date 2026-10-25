@@ -2,6 +2,7 @@ use crate::test_support as support;
 
 mod identity_history_cost;
 mod signatures;
+mod transport;
 
 use crate::api::{self, publish_error::Reason};
 use prost::Message;

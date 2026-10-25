@@ -7,6 +7,7 @@ pub(crate) mod webhook_url;
 use std::collections::HashSet;
 use subtle::ConstantTimeEq;
 use tonic::{Request, Response, Status};
+use xmtp_configuration::MAX_SUBSCRIPTION_HMAC_KEYS;
 use xmtp_cryptography::secret::Zeroizing;
 use xmtp_proto::types::{Topic, TopicKind};
 
@@ -20,7 +21,6 @@ const IDENTITY_BYTES: usize = 32;
 const MAX_DELIVERY_CHARACTERS: usize = 2048;
 const MIN_SIGNING_KEY_BYTES: usize = 16;
 const MAX_SIGNING_KEY_BYTES: usize = 64;
-const MAX_HMAC_KEYS: usize = 3;
 const HMAC_KEY_BYTES: usize = 42;
 pub(crate) const MALFORMED_REQUEST: &str = "request is malformed";
 const MALFORMED_SUBSCRIPTION: &str = "subscription is malformed";
@@ -206,7 +206,7 @@ fn validate_subscriptions(
         .iter_mut()
         .map(|add| {
             if add.hmac_epoch_base < 0
-                || add.hmac_keys.len() > MAX_HMAC_KEYS
+                || add.hmac_keys.len() > MAX_SUBSCRIPTION_HMAC_KEYS
                 || add.hmac_keys.iter().any(|key| key.len() != HMAC_KEY_BYTES)
             {
                 return Err(malformed());

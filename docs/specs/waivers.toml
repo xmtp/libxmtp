@@ -407,20 +407,6 @@ issue = "https://github.com/xmtp/libxmtp/issues/4644"
 reason = "OpenMLS logs the serialized group context, root included, at TRACE under `openmls::schedule`, which a Rust host that installs its own global subscriber with the `tracing-log` bridge receives, because `xmtp_logging::group_context_guard` covers only the subscribers libxmtp installs."
 
 [[waiver]]
-id = "API-304"
-kind = "gap"
-owner = "Nicholas Molnar"
-issue = "TBD-octane-tracking"
-reason = "Publish applies no count bound to envelopes or identity actions before it decodes them."
-
-[[waiver]]
-id = "PUSH-264"
-kind = "gap"
-owner = "Nicholas Molnar"
-issue = "TBD-octane-tracking"
-reason = "UpdateSubscriptions applies no count bound to adds, removes, or HMAC keys before it decodes them and reads recipients."
-
-[[waiver]]
 id = "JOIN-089"
 kind = "gap"
 owner = "Nicholas Molnar"
