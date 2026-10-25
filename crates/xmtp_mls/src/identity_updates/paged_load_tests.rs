@@ -427,3 +427,60 @@ async fn conflict_reload_reports_the_pages_it_stored() {
     client.inbox_state(true).await?;
     assert_eq!(drained(&events), vec![added(&alix3)]);
 }
+
+/// A registration's publish conflict reloads the own inbox. A reload that
+/// stores a page and then fails still reports that page.
+// verifies: EVENT-001
+#[xmtp_common::test(unwrap_try = true)]
+async fn registration_conflict_reload_reports_the_pages_it_stored() {
+    tester!(alix, disable_workers);
+    let script = Arc::new(Mutex::new(IdentityScript::default()));
+    let client = ClientBuilder::new_test_builder(&alix.builder.owner)
+        .await
+        .api_client(ScriptedIdentity {
+            inner: alix.context.api().api_client.raw_for_test().clone(),
+            script: script.clone(),
+        })
+        .with_disable_workers(true)
+        .build()
+        .await?;
+    let events = own_installation_events(&client);
+    // Stored after the new installation's client was built.
+    tester!(alix3, from: alix, disable_workers);
+
+    {
+        let mut script = script.lock();
+        script.conflicts = 1;
+        script.one_per_read = true;
+        script.reads_before_stop = Some(1);
+    }
+    assert!(
+        client
+            .register_with_owner(&alix.builder.owner)
+            .await
+            .is_err()
+    );
+    assert!(script.lock().reads_before_stop.is_none());
+    assert_eq!(drained(&events), vec![added(&alix3)]);
+}
+
+/// An own-inbox update stored without an emission, as the incoming controller
+/// stores one, before the client's first own-inbox load is reported by it.
+// verifies: EVENT-001
+#[xmtp_common::test(unwrap_try = true)]
+async fn an_update_stored_before_the_first_own_load_is_reported() {
+    tester!(alix, disable_workers);
+    tester!(alix2, from: alix, disable_workers);
+    let (client, _) = scripted_client(&alix, xmtp_configuration::STREAM_BATCH_ROWS).await;
+    let events = own_installation_events(&client);
+    load_identity_updates(
+        client.context.api(),
+        &client.context.db(),
+        &[alix.inbox_id()],
+    )
+    .await?;
+    assert_eq!(drained(&events), vec![]);
+
+    client.inbox_state(true).await?;
+    assert_eq!(drained(&events), vec![added(&alix2)]);
+}
