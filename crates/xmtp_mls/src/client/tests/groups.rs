@@ -569,3 +569,39 @@ async fn newer_dm_inherits_newest_decision_with_its_time() {
 
     assert!(bo.find_groups(GroupQueryArgs::default())?.is_empty());
 }
+
+/// A DM this inbox created, joined from a Welcome another installation of
+/// this inbox sent, inherits the pair's newest decision instead of the
+/// allowed default for this inbox's own conversations.
+// verifies: CONS-024
+#[xmtp_common::test(unwrap_try = true)]
+async fn own_inbox_dm_join_keeps_inherited_denial() {
+    tester!(alix, disable_workers);
+    tester!(bo1, disable_workers);
+    tester!(bo2, from: bo1, disable_workers);
+    let record = |group_id| {
+        bo2.db()
+            .get_consent_record(hex::encode(group_id), ConsentType::ConversationId)
+    };
+
+    let first = alix
+        .create_dm_by_inbox_id(bo1.inbox_id().to_string(), None)
+        .await?;
+    bo2.sync_welcomes().await?;
+    bo2.group(&first.group_id)?
+        .update_consent_state(ConsentState::Denied)?;
+    let denial = record(first.group_id)?.expect("the denial");
+
+    let second = bo1
+        .create_dm_by_inbox_id(alix.inbox_id().to_string(), None)
+        .await?;
+    second.update_installations().await?;
+    bo2.sync_welcomes().await?;
+    let bo2_second = bo2.group(&second.group_id)?;
+    assert_eq!(bo2_second.added_by_inbox_id()?, bo1.inbox_id());
+    let inherited = record(second.group_id)?.expect("inherited consent");
+    assert_eq!(
+        (inherited.state, inherited.consented_at_ns),
+        (ConsentState::Denied, denial.consented_at_ns)
+    );
+}

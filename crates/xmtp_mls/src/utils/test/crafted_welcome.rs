@@ -114,6 +114,22 @@ pub(crate) async fn send_crafted_welcome_with_anchor(
     send_crafted_welcome_with(creator, joiner, group_id, Some(root), options).await
 }
 
+/// [`send_crafted_welcome`] whose `CREATOR_INBOX_ID` names `claimed_creator`;
+/// the creator still signs and adds as itself.
+pub(crate) async fn send_crafted_welcome_with_creator_claim(
+    creator: &FullXmtpClient,
+    joiner: &FullXmtpClient,
+    group_id: &[u8],
+    root: &GroupRoot,
+    claimed_creator: &str,
+) {
+    let options = CraftedWelcome {
+        claimed_creator: Some(claimed_creator),
+        ..Default::default()
+    };
+    send_crafted_welcome_with(creator, joiner, group_id, Some(root), options).await
+}
+
 /// A DM between `creator` and `peer_inbox_id` whose Welcome goes to `joiner`,
 /// at epoch `prior_epoch + 1` with the join anchor `anchor`. A peer other
 /// than the joiner gives a DM pair that excludes the joiner.

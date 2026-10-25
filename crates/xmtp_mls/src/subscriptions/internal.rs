@@ -63,8 +63,13 @@ pub enum GroupOrigin {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PreferenceOrigin {
+    /// A decision made on this installation. Device sync publishes it.
     Local,
+    /// Received from another installation or an archive.
     Sync,
+    /// Stored by rule when joining. Every installation derives its own, so
+    /// it is never published.
+    Derived,
 }
 
 pub(crate) fn emit_preference_updates(

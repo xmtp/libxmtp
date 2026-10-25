@@ -1185,3 +1185,71 @@ async fn creator_readd_preserves_welcome_stream_cursor() {
     let stream = creator.stream_conversations(None, false).await?;
     drop(stream);
 }
+
+/// A re-add after leaving resets consent to unknown at the re-add Welcome's
+/// backend time, but leaves a decision newer than that Welcome as it is.
+// verifies: CONS-025
+#[rstest]
+#[case::older_allowed(false)]
+#[case::newer_denied(true)]
+#[xmtp_common::test(unwrap_try = true)]
+async fn readd_after_leave_resets_only_an_older_decision(
+    #[case] newer_denial: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use xmtp_db::consent_record::{ConsentType, StoredConsentRecord};
+
+    tester!(amal, disable_workers);
+    tester!(bola, disable_workers);
+    let amal_group = amal.create_group(None, None)?;
+    amal_group.add_members(&[bola.inbox_id()]).await?;
+    let bola_group = bola.sync_welcomes().await?.pop().expect("Bola joined");
+    let entity = hex::encode(bola_group.group_id);
+    let record = || {
+        bola.db()
+            .get_consent_record(entity.clone(), ConsentType::ConversationId)
+    };
+    bola_group.update_consent_state(ConsentState::Allowed)?;
+
+    bola_group.leave_group().await?;
+    amal_group.sync().await?;
+    amal_group.process_pending_self_removals().await?;
+    bola_group.sync().await?;
+    assert!(!bola_group.is_active()?);
+    assert_eq!(
+        bola_group.membership_state()?,
+        GroupMembershipState::PendingRemove
+    );
+
+    amal_group.add_members(&[bola.inbox_id()]).await?;
+    let readd_ns = bola
+        .context
+        .api()
+        .query_welcome_messages(bola.context.installation_id())
+        .await?
+        .into_iter()
+        .max_by_key(|welcome| welcome.cursor)
+        .expect("the re-add Welcome")
+        .timestamp();
+    if newer_denial {
+        // A decision another installation made after the re-add.
+        bola.db().insert_newer_consent_record(StoredConsentRecord {
+            entity_type: ConsentType::ConversationId,
+            state: ConsentState::Denied,
+            entity: entity.clone(),
+            consented_at_ns: readd_ns + xmtp_common::NS_IN_HOUR,
+        })?;
+    }
+    let before = record()?.expect("a decision before the re-add");
+    assert!(before.consented_at_ns != readd_ns);
+
+    bola.sync_welcomes().await?;
+    assert!(bola.group(&bola_group.group_id)?.is_active()?);
+    let after = record()?.expect("a consent record");
+    let expected = if newer_denial {
+        (before.state, before.consented_at_ns)
+    } else {
+        (ConsentState::Unknown, readd_ns)
+    };
+    assert_eq!((after.state, after.consented_at_ns), expected);
+    Ok(())
+}

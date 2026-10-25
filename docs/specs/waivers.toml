@@ -35,32 +35,11 @@ issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "insert_or_replace_consent_records writes only a record whose state differs from the stored one, so a repeated same-state act by an app keeps the stored time and is reported unchanged."
 
 [[waiver]]
-id = "CONS-045"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "Creator auto-allow tests creator_inbox_id only, not the adder, and stores it with the current time, replacing any existing record including a synced denial."
-
-[[waiver]]
-id = "CONS-024"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "The creator auto-allow runs after DM consent stitching and overwrites the inherited record."
-
-[[waiver]]
-id = "CONS-025"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "The re-add reset is stored with each device's own clock rather than the Welcome's backend timestamp, and is skipped when the creator branch matched."
-
-[[waiver]]
 id = "SYNC-021"
 kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "Only records the store reports as changed are published, so a repeated same-state decision is never published. The join path also publishes, with origin Local, the records it stores under CONS-045, CONS-025 and DMS-010."
+reason = "Only records the store reports as changed are published, so a repeated same-state decision is never published."
 
 [[waiver]]
 id = "PUSH-257"
