@@ -1068,3 +1068,54 @@ fn inbound_relations_window_spans_stitched_dm_groups() {
         );
     })
 }
+
+/// The reaction window ranks key columns only, so a read of a message's 50
+/// latest reactions does not copy every reaction payload into SQLite's
+/// sorter. A member's reactions are otherwise a memory cost that grows with
+/// every reaction they send.
+#[cfg(not(target_arch = "wasm32"))]
+#[xmtp_common::test(unwrap_try = true)]
+fn reaction_window_does_not_sort_payloads() {
+    const REACTIONS: i64 = 500;
+    const PAYLOAD_BYTES: usize = 32 * 1024;
+    /// Room for the 50 returned rows (1.6 MiB) and the page cache, half the
+    /// 16 MiB of stored payloads. A sort of every payload uses about 25 MB.
+    const MAX_EXTRA_BYTES: i64 = 8 * 1024 * 1024;
+
+    with_connection(|conn| {
+        let group = generate_group(None);
+        group.store(conn).unwrap();
+        let parent = generate_message_with_reference(conn, &group.id, 1, ContentType::Text, None);
+        for index in 0..REACTIONS {
+            let mut reaction = generate_message(
+                None,
+                Some(&group.id),
+                Some(1_000 + index),
+                Some(ContentType::Reaction),
+                None,
+                None,
+            );
+            reaction.reference_id = Some(parent.id.clone());
+            reaction.sequence_id = index + 1;
+            reaction.decrypted_message_bytes = vec![7; PAYLOAD_BYTES];
+            reaction.store(conn).unwrap();
+        }
+        let query = RelationQuery {
+            content_types: Some(vec![ContentType::Reaction]),
+            limit: Some(50),
+            ..Default::default()
+        };
+        // SAFETY: plain reads of SQLite's global allocation counters.
+        let before = unsafe { libsqlite3_sys::sqlite3_memory_used() };
+        unsafe { libsqlite3_sys::sqlite3_memory_highwater(1) };
+        let window = conn
+            .get_inbound_relations(&group.id, &[parent.id.as_slice()], query)
+            .unwrap();
+        let extra = unsafe { libsqlite3_sys::sqlite3_memory_highwater(0) } - before;
+        assert_eq!(window[&parent.id].len(), 50);
+        assert!(
+            extra < MAX_EXTRA_BYTES,
+            "a 50-row window over {REACTIONS} reactions used {extra} extra bytes"
+        );
+    })
+}

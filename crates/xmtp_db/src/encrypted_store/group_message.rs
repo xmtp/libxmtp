@@ -1161,9 +1161,10 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
         })
     }
 
-    /// One window query: each referenced message's relations are ranked
-    /// newest first, and at most `limit` of them are kept, so a message with
-    /// many relations does not starve the others.
+    /// Each referenced message's relations are ranked newest first, and at
+    /// most `limit` of them are kept, so a message with many relations does
+    /// not starve the others. The window ranks key columns only; full rows
+    /// are read for the kept ids alone, so the sort never holds a payload.
     // implements: PROC-053, PROC-054
     #[xmtp_common::db_span]
     fn get_inbound_relations(
@@ -1183,15 +1184,16 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
         }
         let placeholders = |count: usize| vec!["?"; count].join(", ");
         let mut query = diesel::sql_query(format!(
-            "SELECT * FROM (
-               SELECT gm.*, ROW_NUMBER() OVER (
-                 PARTITION BY gm.reference_id
-                 ORDER BY gm.sent_at_ns DESC, gm.sequence_id DESC, gm.id DESC
-               ) AS relation_rank
-               FROM group_messages gm
-               WHERE gm.group_id IN ({STITCHED_GROUPS})
-                 AND gm.reference_id IN ({})
-                 AND (gm.expire_at_ns IS NULL OR gm.expire_at_ns > ?)",
+            "SELECT * FROM group_messages WHERE id IN (
+               SELECT id FROM (
+                 SELECT gm.id, ROW_NUMBER() OVER (
+                   PARTITION BY gm.reference_id
+                   ORDER BY gm.sent_at_ns DESC, gm.sequence_id DESC, gm.id DESC
+                 ) AS relation_rank
+                 FROM group_messages gm
+                 WHERE gm.group_id IN ({STITCHED_GROUPS})
+                   AND gm.reference_id IN ({})
+                   AND (gm.expire_at_ns IS NULL OR gm.expire_at_ns > ?)",
             placeholders(message_ids.len()),
         ))
         .into_boxed::<Sqlite>()
@@ -1228,6 +1230,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
                 .sql(" WHERE relation_rank <= ?")
                 .bind::<BigInt, _>(limit);
         }
+        query = query.sql(")");
         let order = match direction {
             SortDirection::Ascending => "ASC",
             SortDirection::Descending => "DESC",
