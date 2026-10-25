@@ -38,7 +38,7 @@ Out of scope: commit validation, the membership component, and the protocol-vers
 | `TOPIC` | Owns the commit-log kind byte and its 32-byte commit-log identifier (TOPIC-001, TOPIC-002). |
 | `OPS` | Owns retention. API-212 assigns commit-log expiry; OPS-001 prevents deletion of an exempt envelope. |
 | PERM-001, GMOD-052 | Own the super admin role and the same-installation readd exception used by FORK-062. |
-| [CONS section 1](CONS-consent.md#1-states-and-entities) | Defines the conversation consent state tested by FORK-081, FORK-030, and FORK-053. |
+| [CONS section 1](CONS-consent.md#1-states-and-entities) | Defines the conversation consent state tested by FORK-085, FORK-030, and FORK-053. |
 | [META section 2](META-group-metadata.md#2-well-known-components) | Owns the `GROUP_ROOT_KEY`, `ONESHOT_MESSAGE`, and minimum protocol version components. This spec states their use. |
 | GMOD-040, GMOD-041 | Own the group root and the commit-log keys derived from it. |
 | `ARCH` | Owns restored groups (ARCH-015). A restored group holds no group root, so it has no commit-log id, and FORK-030 does not read it. |
@@ -58,6 +58,10 @@ Out of scope: commit validation, the membership component, and the protocol-vers
 | Entry | A commit-log entry: a `PlaintextCommitLogEntry` (section 2), which a publisher seals into a `SealedCommitLogEntry` (FORK-074). |
 | Commit-log topic | The topic of a conversation's entries, named by its commit-log id (TOPIC-001). |
 | Publisher | An installation whose leaf node names an inbox in the conversation's `DM_MEMBERS`, for a DM, or in its super admin list, for a group. |
+| Legacy local history | Local commit-log entries recorded by a client that did not yet support author-signed entries under FORK-076. |
+| Connected legacy suffix | The longest suffix of local entries that can be followed backward from the current MLS epoch and epoch authenticator through consecutive applied states, stopping at the current membership start or the first missing or inconsistent state transition. Rejected entries retain the same epoch and authenticator. A removal entry is excluded and stops the suffix. A zero-sequence membership marker identifies the current membership start only when this backward proof reaches its recorded state. |
+| Retained role evidence | A `GroupUpdated` record the client created when it applied an MLS commit, associated with that commit's group and sequence id. An application message whose content claims to be `GroupUpdated` is not retained role evidence. |
+| Unresolved role commit | An applied commit in legacy local history whose recorded change classification permits a super-admin-list change, or is absent or unrecognized, and for which retained role evidence is absent or cannot be decoded. |
 | Publisher boundary | The group-message sequence position for a publisher that FORK-084 uses when testing continuity. |
 | Accepted entry | An entry a client read from the commit-log topic and kept under FORK-077, FORK-078, and FORK-083. |
 | Fork state | One of `forked`, `not forked`, or `unknown`, held for each conversation and set under section 5. |
@@ -170,9 +174,36 @@ A publisher appends its local entries to the conversation's commit-log topic in 
 
 The backend routes an entry by its `commit_log_id` (TOPIC-001). It refuses the entry unless its signature passes API-300 (API-230), assigns it a sequence id (API-286 through API-289), and stores it. It cannot decrypt it. A read returns a prefix of the topic in sequence id order (API-201), and a commit-log entry never expires (OPS-001), so the order every member reads is the order every member reads.
 
+A client upgrading legacy local history may hold a publisher flag that predates later role changes. Publication eligibility comes from its current MLS state and its current role's start, rather than from that old flag. The client's retained role evidence can identify a promotion that happened after the current membership began.
+
+Administrative message clearing can remove that evidence while preserving local commit-log entries. Logging disabled during a commit or replacement Welcome can also leave a gap in the recorded states. Recovery first limits history to the connected legacy suffix; an older zero-sequence marker by itself does not establish the current membership. Where the evidence cannot distinguish a role change from another applied change, recovery keeps the suffix whose eligibility follows from the current role and the remaining evidence. It omits the uncertain earlier entries. It does not move publication progress backwards. This is a one-time rule for legacy local history; ordinary subsequent role changes keep the current-role rule.
+
+The connected-suffix state-proof table computes the connected suffix in reverse local recording order. Start `(E, A)` at the current MLS epoch number and epoch authenticator. Each row below describes the next older local record. A mismatch excludes that record and all earlier records. A state match compares the complete authenticator bytes.
+
+| Record | State proof and stopping rule |
+| --- | --- |
+| Removal entry | Stop before including this record, even if its retained pre-removal state matches. |
+| Zero-sequence membership marker | Stop without publishing this marker. It establishes the membership start only if its applied epoch number and applied authenticator equal `(E, A)`; otherwise the earlier prefix remains unproved. |
+| Applied entry | Require `(applied_epoch_number, applied_epoch_authenticator) = (E, A)` and `E > 0`. Include it and continue with `(E − 1, last_epoch_authenticator)`. |
+| Rejected entry | Require `applied_epoch_number = E` and both `last_epoch_authenticator` and `applied_epoch_authenticator` equal `A`. Include it and continue with unchanged `(E, A)`. |
+
+The legacy recovery boundary table selects the boundary within the connected legacy suffix. If that suffix is empty, no legacy entry is eligible. A position in the table refers to the corresponding local entry, and that entry is included in the suffix. The entry of a promotion is included just as it is during normal operation.
+
+| Conversation | Legacy recovery boundary |
+| --- | --- |
+| DM | The start of the connected legacy suffix. Both members are publishers throughout that membership. |
+| Group with a retained own-inbox super-admin promotion or an unresolved role commit in the connected legacy suffix | Whichever of those commits has the greatest commit sequence id. A retained promotion is identified by the client's inbox in `GroupUpdated.added_super_admin_inboxes`. |
+| Group with neither such commit | The start of the connected legacy suffix. |
+
+Retained role evidence after the chosen boundary is what rules out a later loss of the current role. A publisher's continuing role cannot be inferred from its cached flag. The last unresolved commit itself is included: the current role and the absence of a later role transition establish its post-commit role, while the uncertainty concerns the earlier prefix.
+
+
+A recorded classification that permits changes to group membership, permissions, or administrator lists permits a super-admin-list change for this purpose: one applied commit can combine those changes. A classification confined to a key update or to non-role metadata does not. A rejected commit does not change the role. These classifications describe the retained local evidence; the internal enum and storage layout remain outside the spec.
+
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
-| FORK-081 | Publish from the current role | While `commit_log_enabled` is `true`, a conversation's consent state is allowed, and the client is a publisher of that conversation, it MUST publish an entry for each local entry, other than a removal entry, that it recorded in its current membership since it last became a publisher, with `group_id`, `commit_sequence_id`, `last_epoch_authenticator`, `commit_result`, `applied_epoch_number`, and `applied_epoch_authenticator` equal to the local entry's values of the same name, and MUST NOT publish any other local entry. The local entry of the commit that made it a publisher counts as recorded since then. | A publisher that does not publish leaves members with no log to compare against, and a published removal entry contradicts the entry the remaining members publish for the same commit. An entry from an earlier membership is followed by the gap its removal left, which ends the log of a reader that starts its chain there, and entries from before the role duplicate other publishers' entries on a topic that never expires (OPS-001). |
+| FORK-085 | Publish from the current role | While `commit_log_enabled` is `true`, a conversation's consent state is allowed, and the client is a publisher of that conversation, it MUST publish an entry for each local entry, other than a removal entry, that it recorded in its current membership since it last became a publisher, with `group_id`, `commit_sequence_id`, `last_epoch_authenticator`, `commit_result`, `applied_epoch_number`, and `applied_epoch_authenticator` equal to the local entry's values of the same name, and MUST NOT publish any other local entry, except that legacy local history is subject to FORK-086. The local entry of the commit that made it a publisher counts as recorded since then. | A publisher that skips an eligible entry can leave readers without evidence, while entries from an earlier membership or role can precede a gap and duplicate permanent log history. |
+| FORK-086 | Recover legacy publication eligibility | When publication eligibility for legacy local history has not yet been recovered, before the first publication attempt or first subsequent applied commit, the client MUST retain for publication exactly the suffix selected by the connected-suffix state-proof table and the legacy recovery boundary table if its current MLS role permits publication, subject to existing publication progress and the other conditions of FORK-085. It MUST publish those eligible legacy entries while the enable, consent, and actual-role conditions in FORK-085 hold, and MUST NOT publish a legacy entry preceding that boundary. The client MUST preserve recorded publication progress and its resulting eligibility through restart. | An idle promoted publisher otherwise remains excluded, and treating flag repair as a promotion permanently skips pending entries, including in a DM whose authority never changed. |
 | FORK-021 | No gaps, in order | The client MUST publish a conversation's entries in ascending `commit_sequence_id` order, and when a publish request fails or its response does not carry a sequence id greater than 0 for an entry, it MUST publish that entry again before it publishes any later entry of that conversation. | An entry published ahead of one the backend never stored is discarded by every reader under FORK-083, and the missing one can never be inserted behind it. |
 
 ## 4. Reading the remote log
@@ -299,6 +330,8 @@ An app can read each conversation's fork state, and its local and accepted remot
 | FORK-072 | Apps read the fork state | An SDK MUST expose for each conversation its fork state, as one of `forked`, `not forked`, and `unknown`, and expose its local entries and accepted remote entries. | |
 
 ## Known limitations
+
+A conservative legacy recovery boundary is not a publisher boundary under FORK-084. If publisher A has already published C1/C2, publisher B recovers at C5 and omits uncertain C3/C4, and A remains a current publisher, a reader that accepted A:C2 rejects B:C5 under FORK-083 until a current publisher supplies the missing chain or a real publisher boundary permits a restart.
 
 A member whose epoch secrets have diverged cannot decrypt the readd commit. It stays active in its own view, so JOIN-092 holds the repair Welcome and JOIN-042 never lets it replace the state. The readd path repairs a member that can still process its removal. A rule that lets a Welcome from a permitted readder replace an active group whose fork state is `forked` would repair the rest; no spec states one, and JOIN is not amended here.
 

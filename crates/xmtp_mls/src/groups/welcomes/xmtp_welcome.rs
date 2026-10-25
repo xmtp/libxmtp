@@ -458,6 +458,7 @@ where
             .as_ref()
             .is_some_and(|g| g.membership_state == GroupMembershipState::PendingRemove);
 
+        let prior_membership_cutoff = db.get_local_commit_log_cursor(&group_id)?.unwrap_or(0);
         let mls_group = OpenMlsGroup::from_welcome_logged(
             &provider,
             staged_welcome,
@@ -586,10 +587,18 @@ where
         // Insert the group, replace a Restored placeholder, or advance an existing cursor.
         let should_publish = to_store.should_publish_commit_log;
         let mut stored_group = db.insert_or_replace_group(to_store)?;
-        // implements: FORK-081
+        // implements: FORK-085
         // Existing rows retain their fields on rejoin; refresh the publisher role
         // from this Welcome in the same state transaction.
         db.set_should_publish_commit_log(&stored_group.id, should_publish)?;
+        // This Welcome starts a new membership even when local logging is off.
+        // Exclude every older local record and durably finish legacy recovery.
+        db.update_cursor(
+            group_id,
+            EntityKind::CommitLogUpload,
+            Cursor(prior_membership_cutoff as u64),
+        )?;
+        db.update_cursor(group_id, EntityKind::CommitLogPublisherRecovery, Cursor(1))?;
         stored_group.should_publish_commit_log = should_publish;
         let consent_entity = hex::encode(stored_group.id);
         let prior_consent = db.get_consent_record(

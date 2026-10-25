@@ -375,12 +375,39 @@ where
     /// ascending row order, with the cursor that publishing them reaches.
     /// `None` when it has no new entries, or when they cannot be sealed this
     /// turn.
-    // implements: FORK-021, FORK-081
+    // implements: FORK-021, FORK-085
     fn prepare_conversation_publish(
         &self,
         conn: &impl DbQuery,
         conversation_id: &GroupId,
     ) -> Result<Option<PendingPublish>, CommitLogError> {
+        // Recovery and its durable cutoff share the MLS state transaction.
+        // Enumeration includes unrecovered groups even when their old flag is false.
+        let recovery = crate::state_tx::state_write(self.context.mls_storage(), |tx| {
+            tx.with_group(*conversation_id, |group, storage| {
+                use crate::groups::mls_ext::CommitLogStorer;
+                group
+                    .recover_commit_log_publisher(&storage.db(), self.context.inbox_id().as_ref())
+                    .map_err(GroupError::from)
+            })
+            .map(Continue)
+        });
+        let permits = match recovery {
+            Ok(outcome) => outcome.into_continued(),
+            Err(error) if error.needs_db_reconnect() => return Err(error.into()),
+            Err(error) => {
+                tracing::warn!(
+                    group_id = %conversation_id.as_slice().snippet(),
+                    %error,
+                    "A conversation's publisher state did not load; it skips publication this turn"
+                );
+                return Ok(None);
+            }
+        };
+
+        if !permits {
+            return Ok(None);
+        }
         // Propagate read errors (incl. a dropped pool) to the supervisor; a
         // missing cursor legitimately defaults to 0.
         let local_commit_log_cursor = conn

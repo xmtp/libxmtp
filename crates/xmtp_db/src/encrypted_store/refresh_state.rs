@@ -27,6 +27,7 @@ pub enum EntityKind {
     DeliveryAllocator = 9,
     Delivery = 10,
     CommitLogPublisherBoundary = 11, // Group commit position at the publisher tenure boundary
+    CommitLogPublisherRecovery = 12, // Publication eligibility has been recovered for this membership
 }
 
 pub trait HasEntityKind {
@@ -59,6 +60,7 @@ impl std::fmt::Display for EntityKind {
             DeliveryAllocator => write!(f, "delivery_allocator"),
             Delivery => write!(f, "delivery"),
             CommitLogPublisherBoundary => write!(f, "commit_log_publisher_boundary"),
+            CommitLogPublisherRecovery => write!(f, "commit_log_publisher_recovery"),
         }
     }
 }
@@ -89,6 +91,7 @@ where
             9 => Ok(EntityKind::DeliveryAllocator),
             10 => Ok(EntityKind::Delivery),
             11 => Ok(EntityKind::CommitLogPublisherBoundary),
+            12 => Ok(EntityKind::CommitLogPublisherRecovery),
             x => Err(format!("Unrecognized variant {}", x).into()),
         }
     }

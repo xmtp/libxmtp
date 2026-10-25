@@ -1705,7 +1705,7 @@ async fn a_member_cannot_poison_the_commit_log() {
     );
 }
 
-// verifies: FORK-081
+// verifies: FORK-085
 #[xmtp_common::test(unwrap_try = true)]
 async fn the_publisher_flag_follows_the_super_admin_list() {
     use crate::groups::UpdateAdminListType::{AddSuper, RemoveSuper};
@@ -1763,7 +1763,7 @@ async fn the_publisher_flag_follows_the_super_admin_list() {
     );
 }
 
-// verifies: FORK-081
+// verifies: FORK-085
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_readded_publisher_does_not_publish_its_earlier_membership() {
     tester!(alix, disable_workers);
@@ -1981,7 +1981,7 @@ async fn a_held_entry_stops_later_pages_of_its_topic() {
     );
 }
 
-// verifies: FORK-078, FORK-083, FORK-081
+// verifies: FORK-078, FORK-083, FORK-085
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_publisher_handover_keeps_the_log_readable() {
     use crate::groups::UpdateAdminListType::{AddSuper, RemoveSuper};

@@ -426,9 +426,8 @@ pub trait QueryGroup {
         group_id: &GroupId,
     ) -> Result<ConversationType, crate::ConnectionError>;
 
-    /// Update the publisher role in the caller's state transaction. On promotion,
-    /// move CommitLogUpload past all existing local entries before recording the
-    /// promotion commit itself.
+    /// Update the cached publisher role in the caller's state transaction.
+    /// The caller owns publication eligibility and any role-transition cutoff.
     fn set_should_publish_commit_log(
         &self,
         group_id: &GroupId,
@@ -1112,14 +1111,23 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
         })
     }
 
-    /// Get conversation IDs for all conversations that require a remote commit log publish
-    /// (DMs and groups where user is super admin, excluding sync groups and rejected groups)
+    /// Get allowed publisher candidates, including groups whose legacy role
+    /// has not yet been recovered. Sync and restored groups are excluded.
+    // implements: FORK-086
     #[xmtp_common::db_span]
     fn get_conversation_ids_for_remote_log_publish(
         &self,
     ) -> Result<Vec<StoredGroupCommitLogPublicKey>, crate::ConnectionError> {
         use crate::schema::consent_records::dsl as consent_dsl;
 
+        let unrecovered = diesel::dsl::not(diesel::dsl::exists(
+            crate::schema::refresh_state::table
+                .filter(crate::schema::refresh_state::entity_id.eq(dsl::id))
+                .filter(
+                    crate::schema::refresh_state::entity_kind
+                        .eq(super::refresh_state::EntityKind::CommitLogPublisherRecovery),
+                ),
+        ));
         let query = dsl::groups
             .filter(dsl::membership_state.ne(GroupMembershipState::Restored))
             .filter(
@@ -1127,7 +1135,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
                     .eq(ConversationType::Dm)
                     .or(dsl::conversation_type
                         .eq(ConversationType::Group)
-                        .and(dsl::should_publish_commit_log.eq(true))),
+                        .and(dsl::should_publish_commit_log.eq(true).or(unrecovered))),
             )
             .inner_join(consent_dsl::consent_records.on(conversation_consent_join()))
             .filter(consent_dsl::state.eq(ConsentState::Allowed))
@@ -1235,30 +1243,13 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
         Ok(conversation_type)
     }
 
-    // implements: FORK-081
+    // implements: FORK-085
     fn set_should_publish_commit_log(
         &self,
         group_id: &GroupId,
         should_publish: bool,
     ) -> Result<(), crate::ConnectionError> {
         self.raw_query(|conn| {
-            // Both writes use the caller's transaction. The old flag selects only
-            // promotions, so a continuing publisher keeps its pending entries.
-            if should_publish {
-                diesel::sql_query(
-                    r#"INSERT INTO refresh_state (entity_id, entity_kind, sequence_id)
-                       SELECT id, ?, COALESCE((SELECT MAX(rowid) FROM local_commit_log
-                           WHERE group_id = groups.id), 0)
-                       FROM groups WHERE id = ? AND should_publish_commit_log = 0
-                       ON CONFLICT(entity_id, entity_kind) DO UPDATE
-                       SET sequence_id = MAX(sequence_id, excluded.sequence_id)"#,
-                )
-                .bind::<diesel::sql_types::Integer, _>(
-                    super::refresh_state::EntityKind::CommitLogUpload as i32,
-                )
-                .bind::<diesel::sql_types::Binary, _>(group_id.as_slice())
-                .execute(conn)?;
-            }
             diesel::update(dsl::groups.find(group_id))
                 .set(dsl::should_publish_commit_log.eq(should_publish))
                 .execute(conn)?;
