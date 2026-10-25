@@ -10,8 +10,10 @@ use xmtp_configuration::MAX_SCW_SIGNATURE_BYTES;
 /// at most [`MAX_SCW_SIGNATURE_BYTES`].
 ///
 /// The fields are private to this module, so [`ScwInput::checked`] is the only
-/// constructor, and a verifier entry that takes one cannot reach a chain, a
-/// cache or an encoder with any other input.
+/// constructor. The identity path, the routing and RPC verifiers and the
+/// backend verify handler build one before they call a verifier, route, build
+/// a cache key or encode; the caching and remote verifiers rely on their
+/// callers having done so.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ScwInput {
     account_id: AccountId,

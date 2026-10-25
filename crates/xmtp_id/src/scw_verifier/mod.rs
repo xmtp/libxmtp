@@ -329,6 +329,8 @@ impl MultiSmartContractSignatureVerifier {
 
 #[xmtp_common::async_trait]
 impl SmartContractSignatureVerifier for MultiSmartContractSignatureVerifier {
+    /// Checks the input before it routes, so an input no chain can verify is
+    /// refused for good, never answered as a retryable missing route.
     async fn is_valid_signature(
         &self,
         account_id: AccountId,
@@ -336,8 +338,14 @@ impl SmartContractSignatureVerifier for MultiSmartContractSignatureVerifier {
         signature: Bytes,
         block_number: Option<BlockNumber>,
     ) -> Result<ValidationResponse, VerifierError> {
-        self.route(&account_id.chain_id)?
-            .is_valid_signature(account_id, hash, signature, block_number)
+        let input = ScwInput::checked(account_id, hash, signature, block_number)?;
+        self.route(input.account_id().get_chain_id())?
+            .is_valid_signature(
+                input.account_id().clone(),
+                input.hash(),
+                input.signature().clone(),
+                input.block_number(),
+            )
             .await
     }
 }

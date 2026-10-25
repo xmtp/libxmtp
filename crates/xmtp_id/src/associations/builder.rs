@@ -733,7 +733,7 @@ pub(crate) mod tests {
     // Ordered processing never sees this check. It
     // verifies an identity update that is already on the network, where a chain
     // with no route is the retryable `NoVerifier`, not `ChainNotAccepted`.
-    // verifies: IDENT-061
+    // verifies: IDENT-061, IDENT-093
     #[xmtp_common::test(unwrap_try = true)]
     async fn an_unknown_chain_stays_retryable_during_ordered_processing() {
         use crate::scw_verifier::{
@@ -761,5 +761,24 @@ pub(crate) mod tests {
             "ordered processing must see a missing route, got {error}"
         );
         assert!(error.is_retryable(), "a missing route retries");
+
+        // An input no chain can verify is refused before it is routed, so it
+        // never waits as a missing route.
+        let Err(error) = verifier
+            .is_valid_signature(
+                AccountId::new_evm(424242, format!("0x{}", "0".repeat(40))),
+                [0u8; 32],
+                vec![1, 2, 3].into(),
+                None,
+            )
+            .await
+        else {
+            panic!("a zero account must not verify");
+        };
+        assert!(
+            matches!(error, VerifierError::InvalidAccountId(_)),
+            "a zero account is refused before routing, got {error}"
+        );
+        assert!(!error.is_retryable());
     }
 }
