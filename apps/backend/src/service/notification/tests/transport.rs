@@ -66,8 +66,9 @@ fn topics(count: usize) -> impl Iterator<Item = Vec<u8>> {
     })
 }
 
-/// A batch over the bound fails before any insert. A sequence counts insert
-/// attempts, which a rollback does not undo.
+/// Adds and removes count together, and a batch over the bound fails before
+/// any insert. A sequence counts insert attempts, which a rollback does not
+/// undo.
 #[xmtp_common::test(unwrap_try = true)]
 // verifies: PUSH-264
 async fn subscription_batch_over_bound_does_no_database_work() {
@@ -89,7 +90,10 @@ async fn subscription_batch_over_bound_does_no_database_work() {
     )
     .execute(&server.backend.store.primary)
     .await?;
-    let adds = topics(NOTIFICATION_BATCH_TOPICS + 1)
+    let mut entries: Vec<_> = topics(NOTIFICATION_BATCH_TOPICS + 1).collect();
+    let removes = entries.split_off(NOTIFICATION_BATCH_TOPICS / 2 + 1);
+    let adds = entries
+        .into_iter()
         .map(|topic| api::Subscription {
             topic,
             hmac_epoch_base: 0,
@@ -98,7 +102,7 @@ async fn subscription_batch_over_bound_does_no_database_work() {
         })
         .collect();
     let error = client
-        .update_subscriptions(update(adds, vec![]))
+        .update_subscriptions(update(adds, removes))
         .await
         .unwrap_err();
     status(error, Code::InvalidArgument, BATCH_LIMIT);
@@ -250,9 +254,12 @@ async fn all_notification_methods_use_global_auth_and_scopes_before_identity_che
             .code(),
         Code::Unauthenticated
     );
+    // A batch over the count bound gets the auth status too, because the
+    // count gate runs inside auth.
+    let over_bound = || update(vec![], topics(NOTIFICATION_BATCH_TOPICS + 1).collect());
     assert_eq!(
         client
-            .update_subscriptions(api::UpdateSubscriptionsRequest::default())
+            .update_subscriptions(over_bound())
             .await
             .unwrap_err()
             .code(),
@@ -277,10 +284,7 @@ async fn all_notification_methods_use_global_auth_and_scopes_before_identity_che
     );
     assert_eq!(
         client
-            .update_subscriptions(authorized(
-                api::UpdateSubscriptionsRequest::default(),
-                &insufficient
-            ))
+            .update_subscriptions(authorized(over_bound(), &insufficient))
             .await
             .unwrap_err()
             .code(),

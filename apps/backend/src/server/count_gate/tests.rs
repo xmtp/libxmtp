@@ -290,6 +290,13 @@ async fn first_message_never_holds_more_than_the_limit() {
         assert_eq!(bytes[..], message[..7]);
         assert_eq!(drain(replay(bytes, end)).await.pop()?, expected);
     }
+    // The buffer grows with the bytes that arrive, so a stream that claims
+    // the largest length and then stalls never holds that much.
+    let mut held = Vec::new();
+    for _ in 0..16 {
+        append(&mut held, &[7], 1 << 20);
+    }
+    assert!(held.capacity() <= 32, "{}", held.capacity());
 }
 
 #[xmtp_common::test(unwrap_try = true)]

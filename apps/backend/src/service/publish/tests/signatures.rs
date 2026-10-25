@@ -3,7 +3,6 @@
 use super::transport::{PUBLISH, empty_envelopes};
 use super::*;
 use support::native::{framed, raw_unary};
-use xmtp_configuration::MAX_PUBLISH_IDENTITY_ACTIONS;
 use xmtp_mls_validation::test_utils::{
     group_keys, keyed_group_message_envelope, sealed_commit_log_envelope,
 };
@@ -88,27 +87,34 @@ async fn publish_count_is_rejected_before_decode() {
     server.stop().await?;
 }
 
-/// The action bound is request-wide, so one identity update with more
-/// actions than every envelope may carry together is refused before decode.
+/// The action bound is 100,000 across the request, ahead of the bound on one
+/// update. Behind a truncated tail, an update at the bound reaches the
+/// decoder, which fails on the tail, and one more action is refused before
+/// decode.
 #[xmtp_common::test(unwrap_try = true)]
 // verifies: API-304
 async fn publish_identity_actions_are_rejected_before_decode() {
     use xmtp_proto::xmtp::identity::associations::{IdentityAction, IdentityUpdate};
+    let body = |actions| {
+        let mut message = api::PublishRequest {
+            envelopes: vec![api::ClientEnvelope {
+                payload: Some(api::client_envelope::Payload::IdentityUpdate(
+                    IdentityUpdate {
+                        actions: vec![IdentityAction::default(); actions],
+                        client_timestamp_ns: 1,
+                        inbox_id: "inbox".into(),
+                    },
+                )),
+            }],
+        }
+        .encode_to_vec();
+        message.extend_from_slice(&[0x0a, 0x05]);
+        framed(&message)
+    };
     let server = TestServer::new(|_| {}).await?;
-    let mut message = api::PublishRequest {
-        envelopes: vec![api::ClientEnvelope {
-            payload: Some(api::client_envelope::Payload::IdentityUpdate(
-                IdentityUpdate {
-                    actions: vec![IdentityAction::default(); MAX_PUBLISH_IDENTITY_ACTIONS + 1],
-                    client_timestamp_ns: 1,
-                    inbox_id: "inbox".into(),
-                },
-            )),
-        }],
-    }
-    .encode_to_vec();
-    message.extend_from_slice(&[0x0a, 0x05]);
-    let error = raw_unary(&server, PUBLISH, &[], framed(&message), true).await?;
+    let at_bound = raw_unary(&server, PUBLISH, &[], body(100_000), true).await?;
+    assert_eq!(at_bound.code(), Code::Internal, "{at_bound:?}");
+    let error = raw_unary(&server, PUBLISH, &[], body(100_001), true).await?;
     assert_eq!(
         error.message(),
         "publish request exceeds identity action limit"

@@ -113,21 +113,27 @@ async fn publish_count_at_bound_keeps_decoder_status() {
     server.stop().await?;
 }
 
-/// Tonic refuses a length over its limit from the prefix alone, and a
-/// compressed body from its headers, since no gated service accepts
-/// compression. The body stays open, so a gate that waited for more bytes
-/// would never answer.
+/// On each gated route, tonic refuses a length over its limit from the prefix
+/// alone, and a compressed body from its headers, since no gated service
+/// accepts compression. Each body stays open after a valid-looking prefix
+/// for its case, so a gate that read past the prefix, or read a compressed
+/// body at all, would never answer.
 #[xmtp_common::test(unwrap_try = true)]
 async fn over_limit_prefix_keeps_the_transport_status() {
     let server = TestServer::new(|_| {}).await?;
     let length = server.backend.config.limits.max_request_bytes as u32 + 1;
-    let mut prefix = vec![0];
-    prefix.extend_from_slice(&length.to_be_bytes());
-    let error = raw_unary(&server, PUBLISH, &[], prefix, false).await?;
-    assert_eq!(error.code(), Code::OutOfRange, "{error:?}");
+    let mut over_limit = vec![0];
+    over_limit.extend_from_slice(&length.to_be_bytes());
     let compressed = [("grpc-encoding", "gzip")];
-    let error = raw_unary(&server, PUBLISH, &compressed, vec![1, 0, 0, 0, 9], false).await?;
-    assert_eq!(error.code(), Code::Unimplemented, "{error:?}");
+    for path in [
+        PUBLISH,
+        "/xmtp.backend.v1.NotificationService/UpdateSubscriptions",
+    ] {
+        let error = raw_unary(&server, path, &[], over_limit.clone(), false).await?;
+        assert_eq!(error.code(), Code::OutOfRange, "{path}: {error:?}");
+        let error = raw_unary(&server, path, &compressed, vec![0, 0, 0, 0, 9], false).await?;
+        assert_eq!(error.code(), Code::Unimplemented, "{path}: {error:?}");
+    }
     assert_eq!(stored_rows(&server).await?, 0);
     server.stop().await?;
 }
