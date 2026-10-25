@@ -625,7 +625,6 @@ pub fn extract_readded_installations(
     added_installations.retain(|installation_id| !successfully_readded.contains(installation_id));
     removed_installations.retain(|installation_id| !successfully_readded.contains(installation_id));
 
-
     if authority == ReaddAuthority::DmParticipant {
         return successfully_readded;
     }

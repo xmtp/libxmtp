@@ -12,8 +12,6 @@ use xmtp_common::hex::NormalizeHex;
 use xmtp_common::snippet::Snippet;
 use xmtp_db::TransactionOutcome::Continue;
 use xmtp_db::consent_record::ConsentState;
-use xmtp_db::group::ConversationType;
-use xmtp_db::group::DmIdExt;
 use xmtp_db::group::StoredGroupForRespondingReadds;
 use xmtp_db::remote_commit_log::RemoteCommitLog;
 use xmtp_db::remote_commit_log::RemoteCommitLogOrder;
@@ -28,6 +26,7 @@ use xmtp_db::{
 use xmtp_mls_common::app_data::group_root::group_keys_from_extensions;
 use xmtp_mls_common::commit_log::{open_entry, seal_entry};
 use xmtp_mls_common::group_keys::{GroupKeys, SealError};
+use xmtp_mls_validation::ForkActors;
 use xmtp_proto::backend_v1::SealedCommitLogEntry;
 use xmtp_proto::types::Cursor;
 use xmtp_proto::types::{CommitLogEntry as DecodedCommitLogEntry, Topic, TopicCursor};
@@ -692,22 +691,13 @@ where
         Ok(())
     }
 
-    /// Returns the list of permitted readders for a group
-    /// Note: Does not return self - self is always a permitted readder
+    /// Explicit request recipients; the one-shot sender also includes its own inbox.
+    // implements: FORK-050
     async fn permitted_readders(&self, group_id: &GroupId) -> Result<Vec<String>, CommitLogError> {
-        let (group, stored_group) = MlsGroup::new_cached(self.context.clone(), group_id)?;
-        if stored_group.conversation_type == ConversationType::Dm {
-            let Some(dm_id) = stored_group.dm_id.clone() else {
-                tracing::error!(group_id = %group_id, "DM group has no dm_id");
-                return Ok(vec![]);
-            };
-            return Ok(dm_id
-                .other_inbox_id(self.context.inbox_id())
-                .into_iter()
-                .collect());
-        }
-        let super_admins = group.super_admin_list()?;
-        Ok(super_admins)
+        let (group, _) = MlsGroup::new_cached(self.context.clone(), group_id)?;
+        Ok(group.with_group_snapshot(|g| {
+            Ok::<_, GroupError>(ForkActors::from_group(g)?.request_targets(self.context.inbox_id()))
+        })?)
     }
 
     async fn request_readd(
@@ -728,7 +718,7 @@ where
 
         tracing::debug!(group_id = %group_id, "Sending readd request");
 
-        // Send oneshot message with readd request to super admins
+        // Send the one-shot request to the permitted readders.
         let latest_commit_sequence_id = group_info
             .latest_commit_sequence_id
             .ok_or(CommitLogError::MissingLatestCommitSequenceId { group_id })?;
@@ -878,7 +868,7 @@ where
         Ok(())
     }
 
-    // implements: FORK-061
+    // implements: FORK-080, FORK-061
     async fn validate_pending_readds(
         &self,
         conn: &impl DbQuery,
@@ -902,10 +892,11 @@ where
                 "Group is not active".to_string(),
             ));
         }
-        let is_super_admin = mls_group.live_is_super_admin(self.context.inbox_id())?;
-        if !is_super_admin {
+        let actors =
+            mls_group.with_group_snapshot(|g| Ok::<_, GroupError>(ForkActors::from_group(g)?))?;
+        if !actors.permits(self.context.inbox_id()) {
             return Err(CommitLogError::GroupReaddValidationError(
-                "No longer super admin of group".to_string(),
+                "No longer a permitted readder of group".to_string(),
             ));
         }
 
@@ -949,7 +940,22 @@ where
         );
         conn.delete_readd_statuses(&mls_group.group_id, unverified)?;
 
-        Ok(verified)
+        let processed = conn
+            .latest_cursor_for_id(
+                &mls_group.group_id,
+                &[xmtp_db::refresh_state::EntityKind::ApplicationMessage],
+            )?
+            .0 as i64;
+        Ok(readd_statuses
+            .into_iter()
+            .filter(|status| {
+                verified.contains(&status.installation_id)
+                    && status
+                        .requested_at_sequence_id
+                        .is_some_and(|requested| requested <= processed)
+            })
+            .map(|status| status.installation_id)
+            .collect())
     }
 
     fn check_conversation_fork_state(
