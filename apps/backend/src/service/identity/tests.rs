@@ -789,7 +789,7 @@ async fn identity_invalid_mutations_are_rejected_on_admission() {
         (
             "oversized signature",
             oversized_signature,
-            Reason::InvalidIdentityUpdate,
+            Reason::InvalidSignature,
         ),
         (
             "retired field 4",

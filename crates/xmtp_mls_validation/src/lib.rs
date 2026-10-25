@@ -11,7 +11,7 @@ use xmtp_common::RetryableError;
 use xmtp_id::{
     associations::{
         self, AccountId, AssociationError, AssociationState, AssociationStateDiff, Handle,
-        IdentityAction as _, SignatureError, check_update_shape, try_map_vec,
+        IdentityAction as _, SignatureError, UpdateShapeError, check_update_shape, try_map_vec,
         unverified::UnverifiedIdentityUpdate, verify_updates,
     },
     key_package::{KeyPackageVerificationError, VerifiedKeyPackageV2},
@@ -107,6 +107,19 @@ pub enum ValidationError {
     #[error(transparent)]
     #[error_code(inherit)]
     InvalidAccountId(ConversionError),
+}
+
+impl From<UpdateShapeError> for ValidationError {
+    fn from(error: UpdateShapeError) -> Self {
+        match error {
+            UpdateShapeError::Malformed(error) => Self::IdentityEncoding(error),
+            // Rejected like a malformed account id: a signature that can never
+            // verify.
+            UpdateShapeError::SignatureTooLong(length) => {
+                Self::Signature(VerifierError::SignatureTooLong(length).into())
+            }
+        }
+    }
 }
 
 impl RetryableError for ValidationError {
@@ -513,7 +526,7 @@ pub async fn validate_envelope(
             Ok(None)
         }
         Payload::IdentityUpdate(update) => {
-            check_update_shape(update).map_err(ValidationError::IdentityEncoding)?;
+            check_update_shape(update)?;
             check_freshness(update, chain).await?;
             Ok(Some(
                 validate_identity_updates(history.to_vec(), vec![update.clone()], verifier).await?,
