@@ -421,13 +421,6 @@ issue = "https://github.com/xmtp/libxmtp/issues/4644"
 reason = "OpenMLS logs the serialized group context, root included, at TRACE under `openmls::schedule`, which a Rust host that installs its own global subscriber with the `tracing-log` bridge receives, because `xmtp_logging::group_context_guard` covers only the subscribers libxmtp installs."
 
 [[waiver]]
-id = "IDENT-090"
-kind = "gap"
-owner = "Nicholas Molnar"
-issue = "TBD-octane-tracking"
-reason = "Seen keys hold the signature bytes rather than the pair of signer and signature text, so an ERC-191 authorization re-wrapped as an ERC-6492 signature is accepted again."
-
-[[waiver]]
 id = "IDENT-092"
 kind = "gap"
 owner = "Nicholas Molnar"

@@ -114,7 +114,7 @@ pub trait IdentityAction: Send {
         existing_state: Option<AssociationState>,
         client_timestamp_ns: u64,
     ) -> Result<AssociationState, AssociationError>;
-    /// The canonical replay key of every signature the action carries (see [`VerifiedSignature`]).
+    /// The replay key of every signature the action carries: its signer and signature text.
     fn replay_keys(&self) -> Vec<Vec<u8>>;
     // implements: IDENT-090
     fn replay_check(&self, state: &AssociationState) -> Result<(), AssociationError> {
@@ -163,7 +163,7 @@ impl IdentityAction for CreateInbox {
     }
 
     fn replay_keys(&self) -> Vec<Vec<u8>> {
-        vec![self.initial_identifier_signature.replay_key.clone()]
+        vec![self.initial_identifier_signature.replay_key().to_vec()]
     }
 }
 
@@ -254,8 +254,8 @@ impl IdentityAction for AddAssociation {
 
     fn replay_keys(&self) -> Vec<Vec<u8>> {
         vec![
-            self.existing_member_signature.replay_key.clone(),
-            self.new_member_signature.replay_key.clone(),
+            self.existing_member_signature.replay_key().to_vec(),
+            self.new_member_signature.replay_key().to_vec(),
         ]
     }
 }
@@ -311,7 +311,7 @@ impl IdentityAction for RevokeAssociation {
     }
 
     fn replay_keys(&self) -> Vec<Vec<u8>> {
-        vec![self.recovery_identifier_signature.replay_key.clone()]
+        vec![self.recovery_identifier_signature.replay_key().to_vec()]
     }
 }
 
@@ -345,7 +345,7 @@ impl IdentityAction for ChangeRecoveryIdentity {
     }
 
     fn replay_keys(&self) -> Vec<Vec<u8>> {
-        vec![self.recovery_identifier_signature.replay_key.clone()]
+        vec![self.recovery_identifier_signature.replay_key().to_vec()]
     }
 }
 
@@ -389,7 +389,7 @@ impl IdentityAction for ClaimHandle {
     }
 
     fn replay_keys(&self) -> Vec<Vec<u8>> {
-        vec![self.signature.replay_key.clone()]
+        vec![self.signature.replay_key().to_vec()]
     }
 }
 
@@ -581,7 +581,7 @@ mod tests {
     use crate::{
         InboxOwner,
         associations::{
-            apply_update,
+            AccountId, apply_update,
             builder::SignatureRequestBuilder,
             get_state,
             test_utils::{
@@ -720,6 +720,7 @@ mod tests {
     /// 27/28 recovery-byte forms or with `s` negated, is the same add and must not re-add the
     /// wallet.
     #[xmtp_common::test]
+    // verifies: IDENT-090
     async fn identity_replay_aliases_wallet_add_after_revoke() {
         let recovery = PrivateKeySigner::random();
         let member = PrivateKeySigner::random();
@@ -738,6 +739,7 @@ mod tests {
     /// A revoked passkey's add, republished with the passkey's `s` negated and the recovery
     /// wallet's recovery byte re-encoded, is the same add and must not re-add the passkey.
     #[xmtp_common::test]
+    // verifies: IDENT-090
     async fn identity_replay_aliases_passkey_add_after_revoke() {
         let recovery = PrivateKeySigner::random();
         let passkey = PasskeyUser::new().await;
@@ -749,5 +751,126 @@ mod tests {
             _ => recovery_byte_form(s),
         })
         .await;
+    }
+
+    /// A revoked wallet's public ERC-191 add, re-wrapped as ERC-6492 signatures that the
+    /// verifier's EOA fallback accepts, has the same signers and signature text as the original.
+    /// It is a replay, so it does not re-add the wallet.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[xmtp_common::test(unwrap_try = true)]
+    // verifies: IDENT-090
+    async fn erc6492_rewrap_of_erc191_add_is_replay() {
+        use crate::{scw_verifier::RpcSmartContractWalletVerifier, utils::test::docker_provider};
+        use alloy::providers::Provider;
+
+        let chain = docker_provider().await;
+        let recovery = chain.owner0.clone();
+        let member = chain.owner1.clone();
+        let (_, revoked_member, add) = add_then_revoke(&recovery, &member).await;
+        // With the recovery wallet no longer a member, no member record binds its chain.
+        let recovery_id = recovery.member_identifier();
+        let revoke_recovery = sign(
+            SignatureRequestBuilder::new(recovery.get_inbox_id(0))
+                .revoke_association(recovery_id.clone(), recovery_id),
+            &[&recovery],
+        )
+        .await;
+        let revoked = apply_update(revoked_member, verify(&revoke_recovery).await)?;
+
+        let chain_id = chain.provider.get_chain_id().await?;
+        let block_number = chain.provider.get_block_number().await?;
+        let mut replay = add.clone();
+        let UnverifiedAction::AddAssociation(add_action) = &mut replay.actions[0] else {
+            panic!("the signed update must add a member");
+        };
+        let wrap_eoa = |signature: &mut UnverifiedSignature, address| {
+            let UnverifiedSignature::RecoverableEcdsa(ecdsa) = signature else {
+                panic!("the original add must carry an ERC-191 signature");
+            };
+            *signature = UnverifiedSignature::new_smart_contract_wallet(
+                ecdsa.signature_bytes.clone(),
+                AccountId::new_evm(chain_id, format!("{address:?}")),
+                block_number,
+            );
+        };
+        wrap_eoa(
+            &mut add_action.existing_member_signature,
+            recovery.address(),
+        );
+        wrap_eoa(&mut add_action.new_member_signature, member.address());
+        assert_ne!(replay, add);
+
+        let verifier = RpcSmartContractWalletVerifier::new_from_provider(chain.provider);
+        let result = apply_update(revoked, replay.to_verified(verifier).await?);
+        assert!(
+            matches!(result, Err(AssociationError::Replay)),
+            "{result:?}"
+        );
+    }
+
+    /// `builder`'s request signed by smart contract wallets on chain 1, with one signature of
+    /// the given bytes for each signer. The mock verifier accepts any bytes.
+    async fn scw_sign(
+        builder: SignatureRequestBuilder,
+        signers: &[(&Identifier, &[u8])],
+    ) -> UnverifiedIdentityUpdate {
+        let mut request = builder.build();
+        for (signer, bytes) in signers {
+            let signature = UnverifiedSignature::new_smart_contract_wallet(
+                bytes.to_vec(),
+                AccountId::new_evm(1, signer.to_string()),
+                1,
+            );
+            request
+                .add_signature(signature, MockSmartContractSignatureVerifier::new(true))
+                .await
+                .unwrap();
+        }
+        request.build_identity_update().unwrap()
+    }
+
+    /// A revoked smart contract wallet's add, republished with both ERC-6492 signatures in
+    /// another encoding that the wallet contracts accept, has the same signers and signature text
+    /// as the original. It is a replay, so it does not re-add the wallet.
+    #[xmtp_common::test(unwrap_try = true)]
+    // verifies: IDENT-090
+    async fn erc6492_reencoding_is_replay() {
+        let accepts = MockSmartContractSignatureVerifier::new(true);
+        let recovery = Identifier::rand_ethereum();
+        let member = Identifier::rand_ethereum();
+        let member_id: MemberIdentifier = member.clone().into();
+        let inbox_id = recovery.inbox_id(0)?;
+        let create = scw_sign(
+            SignatureRequestBuilder::new(&inbox_id).create_inbox(recovery.clone(), 0),
+            &[(&recovery, &[1])],
+        )
+        .await;
+        let add = scw_sign(
+            SignatureRequestBuilder::new(&inbox_id)
+                .add_association(member_id.clone(), recovery.clone().into()),
+            &[(&recovery, &[2]), (&member, &[3])],
+        )
+        .await;
+        let revoke = scw_sign(
+            SignatureRequestBuilder::new(&inbox_id)
+                .revoke_association(recovery.clone().into(), member_id),
+            &[(&recovery, &[4])],
+        )
+        .await;
+        let state = get_state([create.to_verified(&accepts).await?])?;
+        let state = apply_update(state, add.to_verified(&accepts).await?)?;
+        let revoked = apply_update(state, revoke.to_verified(&accepts).await?)?;
+
+        let replay = reencode(&add, |signature| {
+            if let UnverifiedSignature::SmartContractWallet(scw) = signature {
+                scw.signature_bytes.push(0);
+            }
+        });
+        assert_ne!(replay, add);
+        let result = apply_update(revoked, replay.to_verified(&accepts).await?);
+        assert!(
+            matches!(result, Err(AssociationError::Replay)),
+            "{result:?}"
+        );
     }
 }

@@ -212,6 +212,7 @@ fn only_current_members_sign_claims() {
 /// A claim's signature is used once. An old claim published again, to move
 /// an older handle back without a new signature, is a replay, in its own
 /// encoding or in another encoding of the same signature.
+// verifies: IDENT-090
 #[xmtp_common::test(unwrap_try = true)]
 async fn claim_signature_is_used_once() {
     let wallet = PrivateKeySigner::random();
