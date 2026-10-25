@@ -446,22 +446,30 @@ mod tests {
         assert!(matches!(error, SignatureError::Invalid), "{error}");
     }
 
-    /// Fails every check as an unrouted chain.
-    struct Unrouted;
+    /// Fails every check with the error its function makes.
+    struct Failing(fn() -> VerifierError);
 
     #[xmtp_common::async_trait]
-    impl SmartContractSignatureVerifier for Unrouted {
+    impl SmartContractSignatureVerifier for Failing {
         async fn is_valid_signature(
             &self,
-            account_id: AccountId,
+            _: AccountId,
             _: [u8; 32],
             _: Bytes,
             _: Option<BlockNumber>,
         ) -> Result<ValidationResponse, VerifierError> {
-            Err(VerifierError::NoVerifier(
-                account_id.get_chain_id().to_string(),
-            ))
+            Err((self.0)())
         }
+    }
+
+    /// An outage: the chain has no route.
+    fn unrouted() -> VerifierError {
+        VerifierError::NoVerifier("eip155:1".to_string())
+    }
+
+    /// A permanent refusal from the verifier.
+    fn refused() -> VerifierError {
+        VerifierError::UnexpectedERC6492Result("refused".to_string())
     }
 
     /// Answers one verdict fewer than it is asked for.
@@ -492,8 +500,9 @@ mod tests {
 
     /// A verifier that reaches no verdict, or answers the wrong number of
     /// verdicts, leaves the updates eligible for a later attempt: the error is
-    /// retryable and never an invalid signature. A rejection that needs no
-    /// chain stays permanent, even behind a signature that waits on an outage.
+    /// retryable and never an invalid signature. A verifier's permanent
+    /// refusal stays permanent. A rejection that needs no chain stays
+    /// permanent too, even behind a signature that waits on an outage.
     // verifies: IDENT-061
     #[xmtp_common::test(unwrap_try = true)]
     async fn verify_updates_keeps_verifier_failures_retryable() {
@@ -514,7 +523,9 @@ mod tests {
         };
 
         for error in [
-            verify_updates(history(), Unrouted).await.unwrap_err(),
+            verify_updates(history(), Failing(unrouted))
+                .await
+                .unwrap_err(),
             verify_updates(history(), Short).await.unwrap_err(),
         ] {
             assert!(
@@ -522,6 +533,16 @@ mod tests {
                 "{error}"
             );
         }
+        let error = verify_updates(history(), Failing(refused))
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(
+                error,
+                SignatureError::VerifierError(VerifierError::UnexpectedERC6492Result(_))
+            ) && !error.is_retryable(),
+            "{error}"
+        );
 
         let zero = format!("0x{}", "0".repeat(40));
         let mut updates = history();
@@ -534,7 +555,9 @@ mod tests {
                 scw_signature(1, &owner, &[5]),
             )],
         ));
-        let error = verify_updates(updates, Unrouted).await.unwrap_err();
+        let error = verify_updates(updates, Failing(unrouted))
+            .await
+            .unwrap_err();
         assert!(
             matches!(
                 error,
