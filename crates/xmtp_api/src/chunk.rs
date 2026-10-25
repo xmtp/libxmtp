@@ -485,6 +485,41 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
         Ok(page)
     }
 
+    /// Fold one bounded ordered page at a time without retaining earlier pages.
+    /// Cursors advance before the fold runs. Remove a topic from the fold's
+    /// cursors to stop reading it. An API or fold error stops the read immediately;
+    /// the caller owns persistence of each page and its durable cursors.
+    pub async fn fold_ordered_pages<E: From<ApiError>>(
+        &self,
+        mut cursors: TopicCursor,
+        limits: IncomingBatchLimits,
+        mut fold: impl FnMut(Vec<OrderedEnvelopeBatch>, &mut TopicCursor) -> std::result::Result<(), E>,
+    ) -> std::result::Result<(), E> {
+        let limit = limits
+            .max_rows
+            .min(self.limits().max_query_limit)
+            .min(u32::MAX as usize) as u32;
+        while !cursors.is_empty() {
+            let page = self
+                .query_ordered_page(cursors.clone(), limit, limits)
+                .await?;
+            for batch in &page.batches {
+                let cursor = batch
+                    .envelopes
+                    .last()
+                    .and_then(|envelope| envelope.meta.as_ref())
+                    .and_then(|meta| meta.cursor.as_ref())
+                    .ok_or(ApiError::InvalidResponse("ordered page cursor"))?;
+                cursors.insert(batch.topic.clone(), Cursor(cursor.sequence_id));
+            }
+            fold(page.batches, &mut cursors)?;
+            if !page.has_more {
+                break;
+            }
+        }
+        Ok(())
+    }
+
     /// Capture fixed newest targets. Absent topics have target zero.
     /// Keep these targets unchanged while waiting for processing to reach them.
     // implements: PROC-015
@@ -511,6 +546,7 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
     }
 
     /// Read every page. Each topic advances only to its own returned cursor.
+    /// Use [`Self::fold_ordered_pages`] to process a backlog without retaining it all.
     pub async fn query_all(
         &self,
         cursors: TopicCursor,

@@ -26,6 +26,7 @@ mod handles;
 mod incoming;
 mod integration;
 mod limits;
+mod ordered_fold;
 mod ordered_publish;
 
 #[rstest]
