@@ -1,5 +1,6 @@
 use crate::test_support as support;
 
+mod identity_history_cost;
 mod signatures;
 
 use crate::api::{self, publish_error::Reason};

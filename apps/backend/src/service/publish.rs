@@ -12,8 +12,10 @@ use std::collections::{HashMap, HashSet};
 use tonic::{Request, Response, Status};
 use xmtp_common::time::{Duration, timeout};
 use xmtp_configuration::MAX_PUBLISH_ENVELOPES;
+use xmtp_id::associations::check_update_shape;
 use xmtp_mls_validation::{
-    ParsedEnvelope, erc6492_signatures, parse_envelope, validate_envelope, verify_publish,
+    ParsedEnvelope, ValidationError, erc6492_signatures, parse_envelope, validate_envelope,
+    verify_publish,
 };
 use xmtp_proto::types::TopicKind;
 
@@ -221,7 +223,7 @@ impl Backend {
                 identity: (parsed.topic.kind() == TopicKind::IdentityUpdatesV1).then(|| {
                     IdentityAdmission {
                         inbox_id: parsed.topic.identifier().to_vec(),
-                        head: 0,
+                        head: None,
                         claim: None,
                     }
                 }),
@@ -242,8 +244,13 @@ impl Backend {
 
     /// Validate only pending envelopes that are not known duplicates.
     ///
-    /// Identity updates use one complete primary history snapshot and retain
-    /// its head for the locked comparison during commit. Other payload kinds
+    /// An identity update first passes the checks that need no history, its
+    /// ERC-6492 signature count and [`check_update_shape`]; one that fails
+    /// them is rejected without reading its inbox's history and keeps no
+    /// head, so the commit reports its own rejection and never a stale
+    /// history. Every other identity update uses one complete primary history
+    /// snapshot and retains its head for the locked comparison during
+    /// commit. Other payload kinds
     /// use shared structural validation, and verifier retryability is preserved
     /// for transport mapping. A claim that passes validation then passes the
     /// handle policy that needs no lock; the taken check runs during commit.
@@ -265,17 +272,23 @@ impl Backend {
             }
             let mut stored_claims = Vec::new();
             let history = if let Some(Payload::IdentityUpdate(update)) = &parsed.envelope.payload {
-                let history = self.store.history(&item.topic).await?;
-                item.identity
-                    .as_mut()
-                    .ok_or_else(|| Status::internal("identity metadata missing"))?
-                    .head = history.head;
+                // implements: API-302
                 if erc6492_signatures(update).count() > self.config.limits.max_scw_signatures {
                     item.validation = Err(AdmissionError::TooLarge(
                         "identity update exceeds signature limit",
                     ));
                     continue;
                 }
+                if let Err(error) = check_update_shape(update) {
+                    item.validation = Err(ValidationError::from(error).into());
+                    continue;
+                }
+                let history = self.store.history(&item.topic).await?;
+                // implements: API-303
+                item.identity
+                    .as_mut()
+                    .ok_or_else(|| Status::internal("identity metadata missing"))?
+                    .head = Some(history.head);
                 if history.payloads.len() >= self.config.limits.max_identity_entries {
                     item.validation = Err(AdmissionError::InvalidIdentity(
                         "identity history limit reached",
