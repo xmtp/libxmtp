@@ -734,6 +734,9 @@ mock! {
     }
 
     impl QueryRemoteCommitLog for DbQuery {
+        fn get_commit_log_publisher_boundaries(&self, group_id: &GroupId) -> Result<HashMap<Vec<u8>, i64>, crate::ConnectionError>;
+        fn set_commit_log_publisher_boundaries(&self, group_id: &GroupId, boundaries: &HashMap<Vec<u8>, i64>) -> Result<(), crate::ConnectionError>;
+
         fn get_latest_remote_log_for_group(&self, group_id: &GroupId) -> Result<Option<RemoteCommitLog>, crate::ConnectionError>;
 
         fn get_remote_commit_log_after_cursor(

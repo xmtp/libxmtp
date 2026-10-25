@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use diesel::RunQueryDsl;
 
 use crate::{
@@ -19,6 +21,7 @@ use serde::{Deserialize, Serialize};
 use xmtp_common::snippet::Snippet;
 use xmtp_proto::xmtp::mls::message_contents::CommitResult as ProtoCommitResult;
 
+use crate::refresh_state::{EntityKind, RefreshState};
 use xmtp_proto::types::GroupId;
 #[derive(Insertable, Debug, Clone)]
 #[diesel(table_name = remote_commit_log)]
@@ -143,6 +146,19 @@ pub enum RemoteCommitLogOrder {
 }
 
 pub trait QueryRemoteCommitLog {
+    fn get_commit_log_publisher_boundaries(
+        &self,
+        group_id: &GroupId,
+    ) -> Result<HashMap<Vec<u8>, i64>, crate::ConnectionError>;
+
+    /// Replace the boundaries with exactly the current publishers. The caller
+    /// must hold the state transaction that installs the corresponding tree.
+    fn set_commit_log_publisher_boundaries(
+        &self,
+        group_id: &GroupId,
+        boundaries: &HashMap<Vec<u8>, i64>,
+    ) -> Result<(), crate::ConnectionError>;
+
     fn get_latest_remote_log_for_group(
         &self,
         group_id: &GroupId,
@@ -160,6 +176,21 @@ impl<T> QueryRemoteCommitLog for &T
 where
     T: QueryRemoteCommitLog,
 {
+    fn get_commit_log_publisher_boundaries(
+        &self,
+        group_id: &GroupId,
+    ) -> Result<HashMap<Vec<u8>, i64>, crate::ConnectionError> {
+        (**self).get_commit_log_publisher_boundaries(group_id)
+    }
+
+    fn set_commit_log_publisher_boundaries(
+        &self,
+        group_id: &GroupId,
+        boundaries: &HashMap<Vec<u8>, i64>,
+    ) -> Result<(), crate::ConnectionError> {
+        (**self).set_commit_log_publisher_boundaries(group_id, boundaries)
+    }
+
     fn get_latest_remote_log_for_group(
         &self,
         group_id: &GroupId,
@@ -177,7 +208,74 @@ where
     }
 }
 
+// Prefix the group id with its length so 16- and 32-byte ids cannot overlap.
+// Fixed-size author suffixes give an indexed range for this group's rows.
+fn publisher_boundary_range(group_id: &GroupId) -> (Vec<u8>, Vec<u8>) {
+    let mut first = Vec::with_capacity(1 + group_id.as_slice().len() + 32);
+    first.push(group_id.as_slice().len() as u8);
+    first.extend_from_slice(group_id.as_slice());
+    let mut last = first.clone();
+    first.extend_from_slice(&[0; 32]);
+    last.extend_from_slice(&[u8::MAX; 32]);
+    (first, last)
+}
+
 impl<C: ConnectionExt> QueryRemoteCommitLog for DbConnection<C> {
+    fn get_commit_log_publisher_boundaries(
+        &self,
+        group_id: &GroupId,
+    ) -> Result<HashMap<Vec<u8>, i64>, crate::ConnectionError> {
+        use crate::schema::refresh_state::dsl as state;
+        let (first, last) = publisher_boundary_range(group_id);
+        let prefix_len = 1 + group_id.as_slice().len();
+        let rows: Vec<RefreshState> = self.raw_query(|db| {
+            state::refresh_state
+                .filter(state::entity_id.between(first, last))
+                .filter(state::entity_kind.eq(EntityKind::CommitLogPublisherBoundary))
+                .select(RefreshState::as_select())
+                .load(db)
+        })?;
+        Ok(rows
+            .into_iter()
+            .map(|row| (row.entity_id[prefix_len..].to_vec(), row.sequence_id))
+            .collect())
+    }
+
+    fn set_commit_log_publisher_boundaries(
+        &self,
+        group_id: &GroupId,
+        boundaries: &HashMap<Vec<u8>, i64>,
+    ) -> Result<(), crate::ConnectionError> {
+        use crate::schema::refresh_state::dsl as state;
+        let (first, last) = publisher_boundary_range(group_id);
+        let prefix_len = 1 + group_id.as_slice().len();
+        let rows = boundaries
+            .iter()
+            .map(|(author, position)| {
+                let mut id = first[..prefix_len].to_vec();
+                id.extend_from_slice(author);
+                RefreshState {
+                    entity_id: id,
+                    entity_kind: EntityKind::CommitLogPublisherBoundary,
+                    sequence_id: *position,
+                    received_sequence_id: None,
+                }
+            })
+            .collect::<Vec<_>>();
+        self.raw_query(|db| {
+            diesel::delete(
+                state::refresh_state
+                    .filter(state::entity_id.between(first, last))
+                    .filter(state::entity_kind.eq(EntityKind::CommitLogPublisherBoundary)),
+            )
+            .execute(db)?;
+            diesel::insert_into(state::refresh_state)
+                .values(&rows)
+                .execute(db)?;
+            Ok(())
+        })
+    }
+
     fn get_latest_remote_log_for_group(
         &self,
         group_id: &GroupId,

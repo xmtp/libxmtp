@@ -192,13 +192,16 @@ impl CommitLogStorer for MlsGroup {
         let last_epoch_number = self.epoch().as_u64() as i64;
         let last_epoch_authenticator = self.epoch_authenticator().as_slice().to_vec();
         let metadata = &validated_commit.metadata_changes;
-        let publisher_inbox = if !metadata.super_admins_added.is_empty()
+        let publisher_inbox = inbox_id_from_credential(
+            self.credential()
+                .map_err(|_| GroupMessageProcessingError::GroupInactive)?,
+        )?;
+        let publishers_before = if !metadata.super_admins_added.is_empty()
             || !metadata.super_admins_removed.is_empty()
+            || validated_commit.installations_changed
+            || !validated_commit.readded_installations.is_empty()
         {
-            Some(inbox_id_from_credential(
-                self.credential()
-                    .map_err(|_| GroupMessageProcessingError::GroupInactive)?,
-            )?)
+            Some(ForkActors::from_group(self)?.publisher_keys(self)?)
         } else {
             None
         };
@@ -207,11 +210,27 @@ impl CommitLogStorer for MlsGroup {
         // Move the upload cursor before recording the promotion commit, which
         // is the first entry this publisher must publish. Capture the inbox
         // before merging because this commit may also remove our leaf.
-        if let Some(own_inbox) = publisher_inbox {
-            provider.key_store().db().set_should_publish_commit_log(
-                &self.group_id().try_into()?,
-                ForkActors::from_group(self)?.permits(&own_inbox),
-            )?;
+        let group_id = self.group_id().try_into()?;
+        let actors = ForkActors::from_group(self)?;
+        let db = provider.key_store().db();
+        // Reconcile on every merge so persisted flags from an older client
+        // follow the actual role before its first new local entry is recorded.
+        db.set_should_publish_commit_log(&group_id, actors.permits(&publisher_inbox))?;
+        // implements: FORK-084
+        if let Some(previous) = publishers_before {
+            let publishers = actors.publisher_keys(self)?;
+            let mut boundaries = db.get_commit_log_publisher_boundaries(&group_id)?;
+            boundaries.retain(|author, _| publishers.contains(author));
+            for author in publishers {
+                if !previous.contains(&author)
+                    || validated_commit.readded_installations.contains(&author)
+                {
+                    boundaries.insert(author, sequence_id);
+                } else {
+                    boundaries.entry(author).or_insert(0);
+                }
+            }
+            db.set_commit_log_publisher_boundaries(&group_id, &boundaries)?;
         }
         // The merge emptied the proposal store; its delivery evidence goes with it.
         provider

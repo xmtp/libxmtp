@@ -465,6 +465,17 @@ where
             &added_by_installation_id,
             context.server_configuration().commit_log_enabled(),
         )?;
+        // implements: FORK-084
+        // A Welcome carries no prior publisher tenure history. Its authenticated
+        // group-message anchor is the boundary for this installed membership.
+        let publisher_boundary =
+            i64::try_from(anchor.0).map_err(|_| xmtp_db::StorageError::DbSerialize)?;
+        let publisher_boundaries = xmtp_mls_validation::ForkActors::from_group(&mls_group)?
+            .publisher_keys(&mls_group)?
+            .into_iter()
+            .map(|author| (author, publisher_boundary))
+            .collect();
+        db.set_commit_log_publisher_boundaries(&group_id, &publisher_boundaries)?;
         let dm_members = metadata.dm_members;
         let conversation_type = metadata.conversation_type;
         // Required metadata must not bypass the version check.

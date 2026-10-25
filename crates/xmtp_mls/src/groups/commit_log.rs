@@ -657,10 +657,18 @@ where
                 &[xmtp_db::refresh_state::EntityKind::ApplicationMessage],
             )?
             .0;
-        let (group, _) = MlsGroup::new_cached(self.context.clone(), group_id)?;
-        let (active, publishers) = group.with_group_snapshot(|g| {
-            Ok::<_, GroupError>((g.is_active(), ForkActors::from_group(g)?.publisher_keys(g)?))
-        })?;
+        let (active, publishers, boundaries) =
+            crate::state_tx::state_write(self.context.mls_storage(), |tx| {
+                tx.with_group(*group_id, |g, storage| {
+                    Ok::<_, GroupError>((
+                        g.is_active(),
+                        ForkActors::from_group(g)?.publisher_keys(g)?,
+                        storage.db().get_commit_log_publisher_boundaries(group_id)?,
+                    ))
+                })
+                .map(Continue)
+            })?
+            .into_continued();
         let mut evaluated_to = None;
         let mut held = false;
         let mut num_entries_saved = 0;
@@ -682,9 +690,15 @@ where
             if !publishers.contains(&log_entry.author_installation_key) {
                 continue;
             }
-            let chain_holds = latest_saved_remote_log
-                .as_ref()
-                .is_some_and(|latest| publishers.contains(&latest.author_installation_key));
+            let chain_holds = latest_saved_remote_log.as_ref().is_some_and(|latest| {
+                let boundary = boundaries
+                    .get(&latest.author_installation_key)
+                    .copied()
+                    .unwrap_or(0);
+                publishers.contains(&latest.author_installation_key)
+                    && !(latest.commit_sequence_id < boundary
+                        && log_entry.commit_sequence_id >= boundary as u64)
+            });
             if should_skip_remote_commit_log_entry(
                 latest_saved_remote_log.as_ref(),
                 &log_entry,
@@ -1209,13 +1223,14 @@ fn open_remote_entry(
         .ok()
 }
 
-// If the last accepted author has lost its publisher role, only rule 1 applies.
+// If the last accepted author lost its publisher role or the entry crosses
+// that author's publisher boundary, only rule 1 applies.
 // Otherwise an opened entry is skipped if:
 // 1. The commit_sequence_id of the entry is not greater than the most recently stored entry, if one exists.
 // 2. The last_epoch_authenticator does not match the epoch_authenticator of the most recently stored entry with a CommitResult of COMMIT_RESULT_APPLIED, if one exists.
 // 3. The entry has a CommitResult of COMMIT_RESULT_APPLIED, but the epoch number is not exactly 1 greater than the most recently stored entry with a result of COMMIT_RESULT_APPLIED, if one exists.
 // 4. The entry CommitResult is not COMMIT_RESULT_APPLIED, and the epoch authenticator or epoch number does not match the most recently applied values
-// implements: FORK-079
+// implements: FORK-083
 pub(crate) fn should_skip_remote_commit_log_entry(
     latest_saved_remote_log: Option<&RemoteCommitLog>,
     entry: &PlaintextCommitLogEntry,
