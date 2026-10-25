@@ -30,7 +30,7 @@ You can enable a user to add multiple identities to their inbox. Adding an ident
 
 ![Diagram showing an added identity](https://raw.githubusercontent.com/xmtp/docs-xmtp-org/refs/heads/main/docs/pages/img/add-id.png)
 
-You can enable a user to remove an identity from their inbox. You cannot remove the recovery identity.
+You can enable a user to remove an identity from their inbox. Removing the recovery identity removes it from the inbox's identities, but it keeps the recovery role.
 
 ## Update and installation limits
 
@@ -153,10 +153,18 @@ Browser, Node, and React Native call `client.unsafeAddAccount(signer, allowInbox
 ## Remove an identity
 
 :::tip
-You cannot remove the recovery identity.
+Removing the recovery identity does not change who holds recovery. Only the recovery signer can remove an identity.
 :::
 
-Use `removeAccount(recoverySigner, identity)` on Browser, Node, React Native, or Kotlin. Swift uses `removeAccount(recoverySigner: recoverySigner, identity: identity)`. The recovery signer signs the removal. To remove the current recovery identity, first change the recovery identity with `changeRecoveryIdentifier`.
+Use `removeAccount(recoverySigner, identity)` on Browser, Node, React Native, or Kotlin. Swift uses `removeAccount(recoverySigner: recoverySigner, identity: identity)`. The recovery signer signs the removal.
+
+To move recovery to another identity, that identity must already be an identity of the inbox. `changeRecoveryIdentifier` with any other identity fails with an invalid-input error before it asks for a signature. Hand recovery over in these steps:
+
+1. Add the identity with `unsafeAddAccount`. When the identity belongs to another inbox, set `allowInboxReassign` to `true`; until you remove the identity again, lookups of that identity resolve to this inbox.
+2. Call `changeRecoveryIdentifier(recoverySigner, identity)`. The current recovery signer signs the change.
+3. Optionally, remove the identity with `removeAccount`. Its own signer now holds recovery and signs the removal. The identity keeps the recovery role.
+
+The handoff uses two or three identity updates of the [inbox update limit](#inbox-update-limit).
 
 ## Select an identity to display
 
@@ -421,7 +429,7 @@ The Agent SDK adds `createDmWithHandle`, `createGroupWithHandles`, and `addMembe
 
 ### What happens when a user removes an identity?
 
-If the user removes an identity from the inbox, the identity no longer has access to the inbox it was removed from.
+If the user removes an identity from the inbox, the identity no longer has access to the inbox it was removed from. The one exception is the recovery identity: removing it keeps its recovery role, so its signer can still remove identities, revoke installations, and change the recovery identity.
 
 ![An identity removed from an inbox](https://raw.githubusercontent.com/xmtp/docs-xmtp-org/refs/heads/main/docs/pages/img/removed-id.png)
 
@@ -430,6 +438,8 @@ That identity no longer resolves to the former inbox. This does not revoke exist
 ### How is the recovery identity used?
 
 The recovery identity and its signer can be used to sign transactions that remove identities and revoke installations. An added identity cannot remove the recovery identity because it does not control the recovery signer.
+
+An identity added or set as the recovery identity through an ERC-191 signature cannot later sign through ERC-1271. This matters when a wallet moves to smart contract signing and stops producing ERC-191 signatures: its signatures then authorize nothing for that identity, including recovery. Before that happens, add another wallet or a passkey and move recovery to it.
 
 ### Can two inboxes be combined?
 

@@ -516,8 +516,9 @@ pub fn scw_create_inbox_update_at(block_number: u64) -> IdentityUpdate {
     .into()
 }
 
-/// Move the fixture inbox's recovery identifier, signed by the wallet at
-/// `block_number`. It applies after [`scw_create_inbox_update_at`].
+/// Set the fixture inbox's recovery identifier to the wallet itself, its only
+/// member, signed by the wallet at `block_number`. It applies after
+/// [`scw_create_inbox_update_at`].
 pub fn scw_change_recovery_update_at(block_number: u64) -> IdentityUpdate {
     UnverifiedIdentityUpdate::new(
         scw_inbox_id(),
@@ -525,10 +526,8 @@ pub fn scw_change_recovery_update_at(block_number: u64) -> IdentityUpdate {
         vec![UnverifiedAction::ChangeRecoveryAddress(
             UnverifiedChangeRecoveryAddress::new(
                 UnsignedChangeRecoveryAddress {
-                    new_recovery_identifier: Identifier::eth(
-                        "0x3333333333333333333333333333333333333333",
-                    )
-                    .expect("fixture recovery is valid"),
+                    new_recovery_identifier: Identifier::eth(SCW_ACCOUNT)
+                        .expect("fixture account is valid"),
                 },
                 scw_signature(0x56, block_number),
             ),
@@ -538,8 +537,9 @@ pub fn scw_change_recovery_update_at(block_number: u64) -> IdentityUpdate {
 }
 
 /// Claim `handle` for the fixture inbox, signed by the wallet at
-/// `block_number`. The signature's bytes are `signature`, so two claims with
-/// two bytes have two replay keys. It applies after
+/// `block_number`. The signature's bytes are `signature`, and the update's
+/// time is `signature` seconds. A signature text holds whole seconds, so two
+/// claims with two bytes have two texts and two replay keys. It applies after
 /// [`scw_create_inbox_update_at`].
 pub fn scw_claim_handle_update_at(
     handle: &str,
@@ -548,7 +548,7 @@ pub fn scw_claim_handle_update_at(
 ) -> IdentityUpdate {
     UnverifiedIdentityUpdate::new(
         scw_inbox_id(),
-        3,
+        u64::from(signature) * xmtp_common::NS_IN_SEC.unsigned_abs(),
         vec![UnverifiedAction::ClaimHandle(UnverifiedClaimHandle::new(
             UnsignedClaimHandle {
                 handle: handle.to_string(),

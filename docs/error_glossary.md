@@ -4,7 +4,7 @@
 
 This document lists all error codes defined in LibXMTP, the core library underlying the XMTP SDKs. Each error code is a unique identifier returned to help diagnose issues.
 
-**39 error types** across **10 crates** with **420 total error codes**.
+**39 error types** across **10 crates** with **421 total error codes**.
 
 ## xmtp_api
 
@@ -265,6 +265,7 @@ Stable storage failures that preserve receipt, processing, and delivery invarian
 | `AssociationError::NotIdentifier` | Not an identifier. Value is not a valid public identifier. Not retryable. |
 | `AssociationError::ClaimNotAlone` | Claim not alone. An identity update that claims a handle carries another action. Not retryable. |
 | `AssociationError::HandleClaimLimit` | Handle claim limit reached. The inbox's log already holds the most handle claims it can hold. Not retryable. |
+| `AssociationError::RecoveryNotMember` | Recovery not member. The new recovery identifier is not a member of the inbox. Not retryable. |
 
 ### DeserializationError <sub>enum</sub>
 

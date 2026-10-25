@@ -232,15 +232,30 @@ impl Client {
         Ok(Some(self.request(request)))
     }
 
+    /// Recovery moves only to an identity of the inbox, so a change to any
+    /// other identity fails here, against the inbox's state fetched from the
+    /// network, before anything asks a signer to sign.
     pub async fn unsafe_change_recovery_identifier_signature_request(
         &self,
         identity: PublicIdentity,
     ) -> Result<Arc<SignatureRequest>, XmtpError> {
         let _call = self.ensure_open()?;
+        // A handle fails here, before any request.
+        let identifier = identity.to_core()?;
+        let state = self
+            .inner
+            .inbox_state(true)
+            .await
+            .map_err(XmtpError::from_client)?;
+        if state.get(&identifier.clone().into()).is_none() {
+            return Err(XmtpError::invalid(
+                "the new recovery identity is not an identity of the inbox",
+            ));
+        }
         let request = self
             .inner
             .identity_updates()
-            .change_recovery_identifier(identity.to_core()?)
+            .change_recovery_identifier(identifier)
             .await
             .map_err(XmtpError::from_client)?;
         Ok(self.request(request))

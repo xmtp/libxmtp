@@ -28,20 +28,6 @@ issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "A group whose members do not all advertise a capability silently drops that capability for the whole group rather than the non-advertising installation being excluded, and a key package that fails verification is treated as one that does not advertise the capability."
 
 [[waiver]]
-id = "IDENT-091"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "No chain id is recorded for the recovery role, so a recovery identifier that is not a member carries no chain binding."
-
-[[waiver]]
-id = "IDENT-046"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "The chain check runs only when the signer is found among the current members, and AddAssociation checks only existing_member_signature."
-
-[[waiver]]
 id = "CONS-011"
 kind = "gap"
 owner = "protocol"
@@ -419,20 +405,6 @@ kind = "gap"
 owner = "Nicholas Molnar"
 issue = "https://github.com/xmtp/libxmtp/issues/4644"
 reason = "OpenMLS logs the serialized group context, root included, at TRACE under `openmls::schedule`, which a Rust host that installs its own global subscriber with the `tracing-log` bridge receives, because `xmtp_logging::group_context_guard` covers only the subscribers libxmtp installs."
-
-[[waiver]]
-id = "IDENT-090"
-kind = "gap"
-owner = "Nicholas Molnar"
-issue = "TBD-octane-tracking"
-reason = "Seen keys hold the signature bytes rather than the pair of signer and signature text, so an ERC-191 authorization re-wrapped as an ERC-6492 signature is accepted again."
-
-[[waiver]]
-id = "IDENT-092"
-kind = "gap"
-owner = "Nicholas Molnar"
-issue = "TBD-octane-tracking"
-reason = "No chain id is recorded for the recovery identifier, so the new_member_signature of a re-added recovery identifier is not compared with it."
 
 [[waiver]]
 id = "IDENT-093"

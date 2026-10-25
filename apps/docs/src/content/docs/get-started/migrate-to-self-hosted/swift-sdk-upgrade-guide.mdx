@@ -259,7 +259,7 @@ func lookup(client: SDKClient, address: String) async throws -> ([String: Bool],
 | `SignatureRequest.addScwSignature(...)`                                | `addSignature(signature: .scw(...))`                                                             | Supply address and unsigned chain/block values in the enum.                                                        |
 | `SignatureRequest.signatureText()`                                     | Same method                                                                                      | Async `String`; no `throws`.                                                                                       |
 
-New operations include `changeRecoveryIdentifier(signer:identity:)`, its unsafe request form, and `SignatureRequest.sign(signer:)`. All account operations still need the appropriate account signature.
+New operations include `changeRecoveryIdentifier(signer:identity:)`, its unsafe request form, and `SignatureRequest.sign(signer:)`. All account operations still need the appropriate account signature. `changeRecoveryIdentifier` accepts only an identity that is already an identity of the inbox; see [Remove an identity](/sdk/inboxes/#remove-an-identity).
 
 ```swift title="Before"
 func revoke(client: Client, key: SigningKey, ids: [String]) async throws {

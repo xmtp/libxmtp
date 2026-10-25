@@ -361,6 +361,7 @@ async fn identity_admission_folds_real_history_and_a_passkey_update() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+// verifies: IDENT-090
 async fn identity_admission_preserves_typed_replay_failure() {
     let fixture = identity_history_with_passkey().await;
     let mut history = fixture.history;

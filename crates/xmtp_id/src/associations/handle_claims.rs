@@ -212,6 +212,7 @@ fn only_current_members_sign_claims() {
 /// A claim's signature is used once. An old claim published again, to move
 /// an older handle back without a new signature, is a replay, in its own
 /// encoding or in another encoding of the same signature.
+// verifies: IDENT-090
 #[xmtp_common::test(unwrap_try = true)]
 async fn claim_signature_is_used_once() {
     let wallet = PrivateKeySigner::random();
@@ -316,9 +317,8 @@ fn other_actions_keep_handles_and_claim_count() {
     let state = claimed_by_installation(new_test_inbox_with_installation(), &["a", "b"]);
     let wallet = wallet(&state);
     let installation = installation(&state);
-    let new_wallet = MemberIdentifier::rand_ethereum();
     let new_recovery = Identifier::rand_ethereum();
-    let new_recovery_member: MemberIdentifier = new_recovery.clone().into();
+    let new_wallet: MemberIdentifier = new_recovery.clone().into();
     let actions = [
         Action::AddAssociation(AddAssociation {
             new_member_identifier: new_wallet.clone(),
@@ -330,11 +330,11 @@ fn other_actions_keep_handles_and_claim_count() {
             new_recovery_identifier: new_recovery,
         }),
         Action::RevokeAssociation(RevokeAssociation {
-            recovery_identifier_signature: signed_by(&new_recovery_member, SignatureKind::Erc191),
+            recovery_identifier_signature: signed_by(&new_wallet, SignatureKind::Erc191),
             revoked_member: installation.clone(),
         }),
         Action::RevokeAssociation(RevokeAssociation {
-            recovery_identifier_signature: signed_by(&new_recovery_member, SignatureKind::Erc191),
+            recovery_identifier_signature: signed_by(&new_wallet, SignatureKind::Erc191),
             revoked_member: wallet,
         }),
     ];
