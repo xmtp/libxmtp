@@ -711,7 +711,7 @@ where
                 && let Some(record) = final_consent
             {
                 // implements: SYNC-021
-                // Apps see the change; device sync never publishes a join record.
+                // Apps see the change. Origin Derived keeps device sync from publishing it.
                 emit_preference_updates(
                     event_buffer,
                     vec![

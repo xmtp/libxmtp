@@ -68,7 +68,8 @@ pub enum PreferenceOrigin {
     /// Received from another installation or an archive.
     Sync,
     /// Stored by rule when joining. Every installation derives its own, so
-    /// it is never published.
+    /// device sync does not publish it when it is stored. (Joining a new sync
+    /// group republishes every stored record; see the waivers file.)
     Derived,
 }
 
