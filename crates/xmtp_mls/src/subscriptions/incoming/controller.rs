@@ -26,7 +26,7 @@ use transport::{RetryBackoff, Transport, TransportEvent, TransportState};
 #[cfg(test)]
 mod tests;
 use dependencies::{DependencyKey, DependencyParent, DependencyRegistry};
-use processing::DependencyResult;
+use processing::{DependencyResult, PrefixHold};
 
 /// Commands applied in one run-loop step before the next pass.
 const MAX_COMMANDS_PER_PASS: usize = 256;
@@ -158,6 +158,8 @@ pub(super) struct Controller<C: XmtpSharedContext> {
     read_queue: VecDeque<Topic>,
     dependencies: FuturesUnordered<BoxDynFuture<'static, DependencyResult<C>>>,
     dependency_registry: DependencyRegistry,
+    /// Deadline and final catch-up of each Welcome with a group-prefix watch.
+    prefix_holds: HashMap<Cursor, PrefixHold>,
     welcome_blocked_scan: Option<Cursor>,
     /// When the next full blocked-Welcome rescan is due. Blocked rows are
     /// otherwise only revisited on a new controller, so a long-lived process
@@ -201,6 +203,7 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             read_queue: VecDeque::new(),
             dependencies: FuturesUnordered::new(),
             dependency_registry: DependencyRegistry::default(),
+            prefix_holds: HashMap::new(),
             welcome_blocked_scan: Some(Cursor(0)),
             welcome_blocked_rescan_at: None,
             extra_topics: HashSet::new(),
@@ -558,6 +561,13 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             .prefixes()
             .map(|(_, group, _)| Topic::new_group_message(group))
             .collect();
+        let watched: HashSet<_> = self
+            .dependency_registry
+            .prefixes()
+            .map(|(welcome, _, _)| welcome)
+            .collect();
+        self.prefix_holds
+            .retain(|welcome, _| watched.contains(welcome));
         if self.scopes.values().any(|scope| match &scope.scope {
             ScopeKind::Groups(requested) => requested
                 .iter()
