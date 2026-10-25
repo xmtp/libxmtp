@@ -15,11 +15,38 @@ use xmtp_id::key_package::WrapperAlgorithm;
 use xmtp_mls_validation::commit::extract_group_membership;
 use xmtp_proto::xmtp::mls::message_contents::WelcomeWrapperEncryption;
 
+/// A pointee AEAD extension that does not decode.
+fn undecodable_pointee_aead() -> Extension {
+    Extension::Unknown(
+        WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID,
+        UnknownExtension(vec![0xff]),
+    )
+}
+
+/// An X-Wing wrapper key one byte short. It decodes, so a sender that does not
+/// check its length adds the installation and then fails every Welcome of the
+/// commit.
+fn short_xwing_wrapper_key() -> Extension {
+    let wrapper = WelcomeWrapperEncryption {
+        pub_key: vec![9; WELCOME_WRAPPER_XWING_KEY_BYTES - 1],
+        algorithm: WrapperAlgorithm::XWingMLKEM768Draft6.into(),
+    };
+    Extension::Unknown(
+        WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID,
+        UnknownExtension(wrapper.encode_to_vec()),
+    )
+}
+
 /// Alix adds Bo and Caro while the backend serves Bo's second installation a
 /// package carrying `extension`. The add succeeds, that installation is
-/// recorded as failed, the membership intent finishes with its Welcomes
+/// recorded as failed, the one membership intent finishes with its Welcomes
 /// sent, and Bo's first installation and Caro join.
-async fn add_records_only_the_unusable_installation(extension: Extension) {
+// verifies: JOIN-090, JOIN-093, JOIN-012
+#[rstest::rstest]
+#[case::undecodable_pointee_aead(undecodable_pointee_aead())]
+#[case::short_xwing_wrapper_key(short_xwing_wrapper_key())]
+#[xmtp_common::test]
+async fn unusable_package_fails_only_its_installation(#[case] extension: Extension) {
     tester!(alix, disable_workers);
     tester!(bo, disable_workers);
     tester!(bo2, from: bo, disable_workers);
@@ -45,7 +72,7 @@ async fn add_records_only_the_unusable_installation(extension: Extension) {
         .await
         .unwrap();
     assert_eq!(membership.failed_installations, vec![unusable]);
-    let membership_intents = group
+    let membership_intent_states: Vec<IntentState> = group
         .context
         .db()
         .find_group_intents(
@@ -53,43 +80,13 @@ async fn add_records_only_the_unusable_installation(extension: Extension) {
             None,
             Some(vec![IntentKind::UpdateGroupMembership]),
         )
-        .unwrap();
-    assert!(
-        membership_intents
-            .iter()
-            .all(|intent| intent.state == IntentState::Processed),
-        "{membership_intents:?}"
-    );
+        .unwrap()
+        .into_iter()
+        .map(|intent| intent.state)
+        .collect();
+    assert_eq!(membership_intent_states, vec![IntentState::Processed]);
     for joiner in [&bo, &caro] {
         joiner.sync_welcomes().await.unwrap();
         assert!(joiner.group(&group_id).is_ok());
     }
-}
-
-/// A pointee AEAD extension that does not decode.
-// verifies: JOIN-090, JOIN-093, JOIN-012
-#[xmtp_common::test]
-async fn undecodable_pointer_extension_records_a_failed_installation() {
-    add_records_only_the_unusable_installation(Extension::Unknown(
-        WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID,
-        UnknownExtension(vec![0xff]),
-    ))
-    .await;
-}
-
-/// An X-Wing wrapper key one byte short. It decodes, so a sender that does not
-/// check its length adds the installation and then fails every Welcome of the
-/// commit.
-// verifies: JOIN-090, JOIN-093, JOIN-012
-#[xmtp_common::test]
-async fn wrong_length_wrapper_key_records_a_failed_installation() {
-    let wrapper = WelcomeWrapperEncryption {
-        pub_key: vec![9; WELCOME_WRAPPER_XWING_KEY_BYTES - 1],
-        algorithm: WrapperAlgorithm::XWingMLKEM768Draft6.into(),
-    };
-    add_records_only_the_unusable_installation(Extension::Unknown(
-        WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID,
-        UnknownExtension(wrapper.encode_to_vec()),
-    ))
-    .await;
 }
