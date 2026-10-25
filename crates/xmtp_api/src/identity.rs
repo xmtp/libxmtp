@@ -172,14 +172,36 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
         let requests: Vec<_> =
             verify_requests(&request.signatures, per_request, limits.max_request_bytes)
                 .into_iter()
-                .map(
-                    |signatures| wire::VerifySmartContractWalletSignaturesRequest {
-                        signatures: signatures.to_vec(),
-                    },
-                )
+                .map(<[_]>::to_vec)
                 .collect();
-        let chunks: Vec<Vec<_>> = stream::iter(requests.into_iter().map(|request| async move {
-            let response = self
+        let chunks: Vec<Vec<_>> = stream::iter(
+            requests
+                .into_iter()
+                .map(|signatures| self.verify_chunk(signatures)),
+        )
+        .buffered(MAX_READ_CHUNKS_IN_FLIGHT)
+        .try_collect()
+        .await?;
+        Ok(wire::VerifySmartContractWalletSignaturesResponse {
+            responses: chunks.into_iter().flatten().collect(),
+        })
+    }
+
+    /// Verify the signatures of one request. The snapshot it was sized by
+    /// can be above the deployment's current limits, so a refusal of the
+    /// whole request as too large sends its halves instead, one after the
+    /// other, down to single signatures. A single signature's refusal is
+    /// returned.
+    async fn verify_chunk(
+        &self,
+        signatures: Vec<wire::verify_smart_contract_wallet_signatures_request::Signature>,
+    ) -> Result<Vec<wire::verify_smart_contract_wallet_signatures_response::Response>> {
+        let mut verdicts = Vec::with_capacity(signatures.len());
+        // The next request is the last one pushed, so halves go out in order.
+        let mut pending = vec![signatures];
+        while let Some(signatures) = pending.pop() {
+            let request = wire::VerifySmartContractWalletSignaturesRequest { signatures };
+            let response = match self
                 .retry_call(
                     || {
                         self.api_client
@@ -188,22 +210,40 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
                     false,
                 )
                 .await
-                .map_err(dyn_err)?;
+            {
+                Ok(response) => response,
+                Err(error) if request.signatures.len() > 1 && refused_as_too_large(&error) => {
+                    let mut first = request.signatures;
+                    let second = first.split_off(first.len() / 2);
+                    pending.extend([second, first]);
+                    continue;
+                }
+                Err(error) => return Err(dyn_err(error)),
+            };
             if response.responses.len() != request.signatures.len() {
                 return Err(ApiError::VerdictCount {
                     expected: request.signatures.len(),
                     got: response.responses.len(),
                 });
             }
-            Ok(response.responses)
-        }))
-        .buffered(MAX_READ_CHUNKS_IN_FLIGHT)
-        .try_collect()
-        .await?;
-        Ok(wire::VerifySmartContractWalletSignaturesResponse {
-            responses: chunks.into_iter().flatten().collect(),
-        })
+            verdicts.extend(response.responses);
+        }
+        Ok(verdicts)
     }
+}
+
+/// A refusal of a whole verify request that a smaller request can pass: the
+/// count limit (`INVALID_ARGUMENT`) or the byte limit (`OUT_OF_RANGE`). The
+/// backend also answers `INVALID_ARGUMENT` for one signature it refuses, so
+/// splitting ends at that signature with its own refusal.
+fn refused_as_too_large(error: &(dyn std::error::Error + 'static)) -> bool {
+    crate::preflight::failure(error).is_none()
+        && grpc_status(error).is_some_and(|status| {
+            matches!(
+                status.code(),
+                tonic::Code::InvalidArgument | tonic::Code::OutOfRange
+            )
+        })
 }
 
 /// Split `signatures` into verify requests the deployment accepts. A request
