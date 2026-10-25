@@ -627,7 +627,7 @@ enum Uncommittable {
 /// Every commit of pending proposals once carried them all and failed, so
 /// no member could send or change the group again. A commit omits each
 /// proposal it cannot carry instead, keeping the ones before it.
-// verifies: GMOD-044, GMOD-045
+// verifies: GMOD-047, GMOD-045
 #[rstest::rstest]
 #[case::insert_of_committed_name(Uncommittable::CommittedName)]
 #[case::second_pending_insert(Uncommittable::PendingName)]
@@ -833,7 +833,7 @@ async fn test_membership_delta_stored_twice_does_not_block_the_group() -> Result
 /// an installation of that inbox. Every commit of pending proposals carried
 /// one with an unregistered key and was refused, so no member could send
 /// again. No client proposes a leaf Update, so a commit never carries one.
-// verifies: GMOD-044
+// verifies: GMOD-047
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_pending_leaf_update_does_not_block_the_group() -> Result<(), GroupError> {
     use openmls::prelude::{CredentialWithKey, LeafNodeParameters, NewSignerBundle};
@@ -893,7 +893,7 @@ async fn test_pending_leaf_update_does_not_block_the_group() -> Result<(), Group
 /// that adds the owner back makes the owner a member after the commit,
 /// where the Delete is refused. The commit judges each proposal against
 /// the membership the kept proposals leave, so it omits the Delete.
-// verifies: GMOD-044
+// verifies: GMOD-047
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_pending_readd_omits_a_delete_it_forbids() -> Result<(), GroupError> {
     tester!(alix);
@@ -958,7 +958,7 @@ enum Orphan {
 /// one without them is refused (`ProposerNotFound`): the pre-publish check
 /// failed every commit of pending proposals, and no member could send
 /// again. The membership selection omits the delta instead.
-// verifies: GMOD-038, GMOD-044
+// verifies: GMOD-038, GMOD-047
 #[rstest::rstest]
 #[case::insert(Orphan::Insert)]
 #[case::delete(Orphan::Delete)]
@@ -1027,7 +1027,7 @@ async fn test_orphan_membership_delta_does_not_block_the_group(
 /// only the intent that carried them. The omission once also ran the
 /// membership selection's pre-publish check, whose refusal left the intent
 /// to retry forever, so every later intent of that member waited behind it.
-// verifies: GMOD-044
+// verifies: GMOD-047
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_omission_does_not_stall_a_conflicting_intent() -> Result<(), GroupError> {
     tester!(alix);

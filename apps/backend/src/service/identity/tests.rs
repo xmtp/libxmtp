@@ -431,7 +431,6 @@ async fn identity_update_scw_signature_limit_is_checked_before_verification() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
-// verifies: API-271
 async fn scw_verdicts_preserve_input_order_and_resolved_blocks() {
     let Some(metrics) = crate::test_support::metrics::isolated(
         "service::identity::tests::scw_verdicts_preserve_input_order_and_resolved_blocks",
@@ -567,7 +566,7 @@ fn encoded_identity_envelope(update: &[u8]) -> Vec<u8> {
 /// the reason for the rule it breaks. Only an inbox id that names no identity
 /// topic, one byte short or not hexadecimal, is a malformed payload, even when
 /// the update would break a rule as well.
-// verifies: IDENT-001, IDENT-013, IDENT-040, IDENT-060, API-230, TOPIC-002
+// verifies: IDENT-001, IDENT-013, IDENT-040, API-230, TOPIC-002
 #[xmtp_common::test(unwrap_try = true)]
 async fn identity_invalid_mutations_are_rejected_on_admission() {
     let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));

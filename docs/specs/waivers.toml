@@ -18,7 +18,7 @@ id = "JOIN-060"
 kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "Three separate failures. The two-party conversation check rejects only when every policy differs from the fixed set, so a conversation with a single permissive policy is accepted. A conversation the joiner added itself skips the policy and admin checks. A conversation naming the kind used between an inbox's own installations is installed with no validation at all."
+reason = "A conversation naming the kind used between an inbox's own installations is installed with no validation at all."
 
 [[waiver]]
 id = "JOIN-002"
@@ -28,7 +28,7 @@ issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "A group whose members do not all advertise a capability silently drops that capability for the whole group rather than the non-advertising installation being excluded, and a key package that fails verification is treated as one that does not advertise the capability."
 
 [[waiver]]
-id = "FORK-020"
+id = "FORK-081"
 kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
@@ -42,7 +42,7 @@ issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "is_commit_log_forked is never reset after a replacement Welcome, and the worker excludes groups already marked forked, so a repaired member reports forked for ever."
 
 [[waiver]]
-id = "FORK-060"
+id = "FORK-080"
 kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
@@ -56,7 +56,7 @@ issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "apply_readd_installations_intent removes a target whose key package fetch failed and records it in failed_installations instead of leaving it in place."
 
 [[waiver]]
-id = "IDENT-045"
+id = "IDENT-091"
 kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
@@ -77,7 +77,7 @@ issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "insert_or_replace_consent_records sets only state, so a repeated same-state act by an app is reported unchanged and the stored time never moves."
 
 [[waiver]]
-id = "CONS-023"
+id = "CONS-045"
 kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
@@ -102,7 +102,7 @@ id = "SYNC-021"
 kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "Only records the store reports as changed are published, so a repeated same-state decision is never published."
+reason = "Only records the store reports as changed are published, so a repeated same-state decision is never published. The join path also publishes, with origin Local, the records it stores under CONS-045, CONS-025 and DMS-010."
 
 [[waiver]]
 id = "PUSH-257"
@@ -447,3 +447,367 @@ kind = "gap"
 owner = "Nicholas Molnar"
 issue = "https://github.com/xmtp/libxmtp/issues/4644"
 reason = "OpenMLS logs the serialized group context, root included, at TRACE under `openmls::schedule`, which a Rust host that installs its own global subscriber with the `tracing-log` bridge receives, because `xmtp_logging::group_context_guard` covers only the subscribers libxmtp installs."
+
+[[waiver]]
+id = "IDENT-090"
+kind = "gap"
+owner = "Nicholas Molnar"
+issue = "TBD-octane-tracking"
+reason = "Seen keys hold the signature bytes rather than the pair of signer and signature text, so an ERC-191 authorization re-wrapped as an ERC-6492 signature is accepted again."
+
+[[waiver]]
+id = "IDENT-092"
+kind = "gap"
+owner = "Nicholas Molnar"
+issue = "TBD-octane-tracking"
+reason = "No chain id is recorded for the recovery identifier, so the new_member_signature of a re-added recovery identifier is not compared with it."
+
+[[waiver]]
+id = "IDENT-093"
+kind = "gap"
+owner = "Nicholas Molnar"
+issue = "TBD-octane-tracking"
+reason = "A validator accepts an ERC-6492 signature of any length, and an account_id with an all-zero address or a non-canonical chain reference, and reaches the chain for them."
+
+[[waiver]]
+id = "API-301"
+kind = "gap"
+owner = "Nicholas Molnar"
+issue = "TBD-octane-tracking"
+reason = "VerifySmartContractWalletSignatures does not fail a request with INVALID_ARGUMENT before chain access for an all-zero account address or an oversized signature."
+
+[[waiver]]
+id = "IDENT-094"
+kind = "gap"
+owner = "Nicholas Molnar"
+issue = "TBD-octane-tracking"
+reason = "An identity update's actions have no count bound, so a validator verifies every signature of an update with any number of actions."
+
+[[waiver]]
+id = "API-302"
+kind = "gap"
+owner = "Nicholas Molnar"
+issue = "TBD-octane-tracking"
+reason = "The backend reads the inbox's identity topic before it rejects an update for its action count, an oversized ERC-6492 signature, or too many ERC-6492 signatures."
+
+[[waiver]]
+id = "IDENT-095"
+kind = "gap"
+owner = "Nicholas Molnar"
+issue = "TBD-octane-tracking"
+reason = "Backend admission verifies again the ERC-6492 signatures of updates already in the snapshot, so a stored update's chain result can reject a new update."
+
+[[waiver]]
+id = "API-304"
+kind = "gap"
+owner = "Nicholas Molnar"
+issue = "TBD-octane-tracking"
+reason = "Publish applies no count bound to envelopes or identity actions before it decodes them."
+
+[[waiver]]
+id = "PUSH-264"
+kind = "gap"
+owner = "Nicholas Molnar"
+issue = "TBD-octane-tracking"
+reason = "UpdateSubscriptions applies no count bound to adds, removes, or HMAC keys before it decodes them and reads recipients."
+
+[[waiver]]
+id = "FORK-076"
+kind = "gap"
+owner = "Nicholas Molnar"
+issue = "TBD-octane-tracking"
+reason = "Commit-log entries carry no author installation key and no author signature."
+
+[[waiver]]
+id = "FORK-077"
+kind = "gap"
+owner = "Nicholas Molnar"
+issue = "TBD-octane-tracking"
+reason = "A reader opens commit-log entries without verifying an author signature, because entries are unsigned."
+
+[[waiver]]
+id = "FORK-078"
+kind = "gap"
+owner = "Nicholas Molnar"
+issue = "TBD-octane-tracking"
+reason = "A reader counts an entry from any holder of the commit-log key, not only a publisher's leaf, and does not wait for the message topic to reach the entry's commit_sequence_id."
+
+[[waiver]]
+id = "FORK-079"
+kind = "gap"
+owner = "Nicholas Molnar"
+issue = "TBD-octane-tracking"
+reason = "The chain-continuity check does not consider the entry's author, so any holder of the commit-log key can extend or break the accepted chain."
+
+[[waiver]]
+id = "GMOD-046"
+kind = "gap"
+owner = "Nicholas Molnar"
+issue = "TBD-octane-tracking"
+reason = "A key listed in a membership entry's failed_installations exempts its leaf from expected removal, so a commit can keep a leaf that it must remove."
+
+[[waiver]]
+id = "GMOD-047"
+kind = "gap"
+owner = "Nicholas Molnar"
+issue = "TBD-octane-tracking"
+reason = "The sender's selection of pending proposals does not omit membership deltas that receivers reject under the rules GMOD-046, GMOD-049 and PERM-030 add."
+
+[[waiver]]
+id = "GMOD-049"
+kind = "gap"
+owner = "Nicholas Molnar"
+issue = "TBD-octane-tracking"
+reason = "A commit can list in one inbox's failed_installations a key that belongs to another inbox."
+
+[[waiver]]
+id = "GMOD-050"
+kind = "gap"
+owner = "Nicholas Molnar"
+issue = "TBD-octane-tracking"
+reason = "An Add or Remove for a leaf whose inbox stays in GROUP_MEMBERSHIP can be carried as a standalone proposal rather than inline in the commit."
+
+[[waiver]]
+id = "GMOD-052"
+kind = "gap"
+owner = "Nicholas Molnar"
+issue = "TBD-octane-tracking"
+reason = "Only a super admin's matched remove-and-add is treated as a readd, so a DM member's readd is rejected."
+
+[[waiver]]
+id = "PERM-030"
+kind = "gap"
+owner = "Nicholas Molnar"
+issue = "TBD-octane-tracking"
+reason = "A commit that removes an inbox with no leaf has no Remove proposer, so the removal is not judged under PERM-015 with the proposer of the AppDataUpdate that deletes the entry."
+
+[[waiver]]
+id = "JOIN-089"
+kind = "gap"
+owner = "Nicholas Molnar"
+issue = "TBD-octane-tracking"
+reason = "The conversation type and DM pair of a Welcome are compared only for a restored placeholder, so a Welcome for an active held group can change its type or DM members."
+
+[[waiver]]
+id = "JOIN-090"
+kind = "gap"
+owner = "Nicholas Molnar"
+issue = "TBD-octane-tracking"
+reason = "A key package whose 0xff03 or 0xff04 extension does not decode, or whose wrapper key has the wrong length, is not rejected at admission or by a sender choosing installations."
+
+[[waiver]]
+id = "JOIN-091"
+kind = "gap"
+owner = "Nicholas Molnar"
+issue = "TBD-octane-tracking"
+reason = "A sender can send a welcome pointer to an installation whose key package does not advertise the post-quantum wrapper."
+
+[[waiver]]
+id = "JOIN-092"
+kind = "gap"
+owner = "Nicholas Molnar"
+issue = "TBD-octane-tracking"
+reason = "A Welcome for an active held group that waits for its removal is kept with no deadline."
+
+[[waiver]]
+id = "JOIN-093"
+kind = "gap"
+owner = "Nicholas Molnar"
+issue = "TBD-octane-tracking"
+reason = "An installation whose addressing extension does not decode fails the whole operation instead of being left out of the add."
+
+[[waiver]]
+id = "JOIN-094"
+kind = "gap"
+owner = "Nicholas Molnar"
+issue = "TBD-octane-tracking"
+reason = "Pointer holds do not separate well-formed pointers from malformed ones, so a malformed pointer is held for retrieval instead of being rejected under JOIN-048."
+
+[[waiver]]
+id = "SEND-023"
+kind = "gap"
+owner = "Nicholas Molnar"
+issue = "TBD-octane-tracking"
+reason = "A saved follow-up Welcome batch that exceeds a bound under the current limits is not checked against a Query of its topics before the intent ends."
+
+[[waiver]]
+id = "SEND-024"
+kind = "gap"
+owner = "Nicholas Molnar"
+issue = "TBD-octane-tracking"
+reason = "A later intent of the same group waits for an earlier intent's unacknowledged follow-up Welcome batch before it reports confirmed success."
+
+[[waiver]]
+id = "SEND-025"
+kind = "gap"
+owner = "Nicholas Molnar"
+issue = "TBD-octane-tracking"
+reason = "An intent whose required follow-up Welcome batch cannot be sent under CONF-073, or is refused with INVALID_ARGUMENT, is not ended with a report that its Welcomes were not sent."
+
+[[waiver]]
+id = "CONS-046"
+kind = "gap"
+owner = "Nicholas Molnar"
+issue = "TBD-octane-tracking"
+reason = "Listing conversations has no default page size and no maximum limit."
+
+[[waiver]]
+id = "CONS-047"
+kind = "gap"
+owner = "Nicholas Molnar"
+issue = "TBD-octane-tracking"
+reason = "Conversation pages have no tie-breaking cursor, so a page resumed from a before time can skip or repeat conversations that share a listing time."
+
+[[waiver]]
+id = "CONS-048"
+kind = "gap"
+owner = "Nicholas Molnar"
+issue = "TBD-octane-tracking"
+reason = "The last-activity time and the activity-ordered listing time can count expired messages and can differ from each other."
+
+[[waiver]]
+id = "CONS-049"
+kind = "gap"
+owner = "Nicholas Molnar"
+issue = "TBD-octane-tracking"
+reason = "Conversation listings are not ordered by listing time and then group id, and a before conversation id with no before time is not rejected."
+
+[[waiver]]
+id = "PROC-053"
+kind = "gap"
+owner = "Nicholas Molnar"
+issue = "TBD-octane-tracking"
+reason = "A message's reaction summary holds every reaction message to it, with no bound and no count."
+
+[[waiver]]
+id = "PROC-054"
+kind = "gap"
+owner = "Nicholas Molnar"
+issue = "TBD-octane-tracking"
+reason = "The SDK has no paged read of the reaction messages to one message."
+
+[[waiver]]
+id = "DMS-019"
+kind = "gap"
+owner = "Nicholas Molnar"
+issue = "TBD-octane-tracking"
+reason = "Syncing a stitched DM stops at the first group of the set that fails, and can return another group's failure."
+
+[[waiver]]
+id = "DMS-020"
+kind = "gap"
+owner = "Nicholas Molnar"
+issue = "TBD-octane-tracking"
+reason = "An SDK can return, or send a message in, a stored DM whose GROUP_MEMBERSHIP holds no entry for the peer inbox."
+
+[[waiver]]
+id = "DMS-021"
+kind = "gap"
+owner = "Nicholas Molnar"
+issue = "TBD-octane-tracking"
+reason = "DM admission compares the policies of the permission set, not every registry entry outside the application range byte for byte."
+
+[[waiver]]
+id = "IDENT-096"
+kind = "gap"
+owner = "Nicholas Molnar"
+issue = "TBD-octane-tracking"
+reason = "The client returns the inbox a GetInboxIds answer names without checking that the inbox's association state holds the identifier."
+
+[[waiver]]
+id = "GMOD-026"
+kind = "gap"
+owner = "Nicholas Molnar"
+issue = "TBD-octane-tracking"
+reason = "The floor comparison gives build metadata precedence, so a floor change that differs only in build metadata is rejected as a downgrade."
+
+[[waiver]]
+id = "GMOD-053"
+kind = "gap"
+owner = "Nicholas Molnar"
+issue = "TBD-octane-tracking"
+reason = "The client decodes a group_updated or group_membership_change payload that arrives as an application message as a transcript."
+
+[[waiver]]
+id = "GMOD-054"
+kind = "gap"
+owner = "Nicholas Molnar"
+issue = "TBD-octane-tracking"
+reason = "The send guard checks only the top-level content type, so a transcript type nested in a reply is published."
+
+[[waiver]]
+id = "META-076"
+kind = "gap"
+owner = "Nicholas Molnar"
+issue = "TBD-octane-tracking"
+reason = "The SDK writes MESSAGE_DISAPPEAR_FROM_NS and MESSAGE_DISAPPEAR_IN_NS in separate commits, which leaves a retention gap between them."
+
+[[waiver]]
+id = "PROC-055"
+kind = "gap"
+owner = "Nicholas Molnar"
+issue = "TBD-octane-tracking"
+reason = "An application message whose sender data names an out-of-range leaf index or a far-forward generation is not terminally rejected, so it holds the ordered group head."
+
+[[waiver]]
+id = "PROC-056"
+kind = "gap"
+owner = "Nicholas Molnar"
+issue = "TBD-octane-tracking"
+reason = "A stored deletion that does not pass PROC-037, such as one from another group, makes the client refuse a delete as already deleted."
+
+[[waiver]]
+id = "AUTH-036"
+kind = "gap"
+owner = "Nicholas Molnar"
+issue = "TBD-octane-tracking"
+reason = "A request that carries a credential waits behind an in-progress callback invocation even when the client holds a usable credential."
+
+[[waiver]]
+id = "CONF-093"
+kind = "gap"
+owner = "Nicholas Molnar"
+issue = "TBD-octane-tracking"
+reason = "Native Update pacing does not follow the snapshot's max_update_frames_per_second and max_update_burst."
+
+[[waiver]]
+id = "CTYPE-032"
+kind = "gap"
+owner = "Nicholas Molnar"
+issue = "TBD-octane-tracking"
+reason = "In-memory decryption of a CTYPE-015 payload accepts a ciphertext of any length."
+
+[[waiver]]
+id = "PUSH-265"
+kind = "gap"
+owner = "Nicholas Molnar"
+issue = "TBD-octane-tracking"
+reason = "After a disable whose Unregister failed, the client can send Register or UpdateSubscriptions for that recipient before a later Unregister succeeds."
+
+[[waiver]]
+id = "PUSH-266"
+kind = "gap"
+owner = "Nicholas Molnar"
+issue = "TBD-octane-tracking"
+reason = "Enable and disable do not order the reset, the Unregister and the Register as this row states, so a failed disable can leave uploaded topics the client no longer tracks."
+
+[[waiver]]
+id = "STORE-023"
+kind = "gap"
+owner = "Nicholas Molnar"
+issue = "TBD-octane-tracking"
+reason = "An interrupted keyed creation, such as one stopped during the SQLCipher header migration, can leave a database that a later open with the same key cannot read."
+
+[[waiver]]
+id = "STORE-024"
+kind = "gap"
+owner = "Nicholas Molnar"
+issue = "TBD-octane-tracking"
+reason = "A keyed open that cannot read the database is not shown to leave the database and its salt file unchanged."
+
+[[waiver]]
+id = "STORE-025"
+kind = "gap"
+owner = "Nicholas Molnar"
+issue = "TBD-octane-tracking"
+reason = "A browser build ignores a supplied database encryption key and opens the database without it instead of failing."

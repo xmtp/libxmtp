@@ -433,7 +433,7 @@ fn sealing_twice_gives_identical_bytes() {
     assert_eq!(envelope_bytes(first), envelope_bytes(second));
 }
 
-// verifies: FORK-075
+// verifies: FORK-077
 #[xmtp_common::test(unwrap_try = true)]
 fn opening_recovers_the_plaintext() {
     let keys = vector_keys();
@@ -481,7 +481,7 @@ fn entries_that_differ_in_one_field_get_different_nonces() {
     }
 }
 
-// verifies: FORK-075
+// verifies: FORK-077
 #[xmtp_common::test(unwrap_try = true)]
 fn an_entry_sealed_under_other_associated_data_does_not_open() {
     let keys = vector_keys();
@@ -518,7 +518,7 @@ fn the_sealed_envelope_hides_the_group_id_and_the_plaintext() {
     assert_ne!(keys.commit_log_id(), group_id);
 }
 
-// verifies: FORK-075
+// verifies: FORK-077
 #[xmtp_common::test(unwrap_try = true)]
 fn open_refuses_malformed_fields_before_any_cryptography() {
     let keys = vector_keys();
@@ -564,7 +564,7 @@ fn open_refuses_malformed_fields_before_any_cryptography() {
 
 /// Lengths come before the signature, and the signature before the AEAD:
 /// each entry below fails two checks and must report the earlier one.
-// verifies: FORK-075
+// verifies: FORK-077
 #[xmtp_common::test(unwrap_try = true)]
 fn open_checks_lengths_then_the_signature_then_the_aead() {
     let keys = vector_keys();
@@ -597,7 +597,7 @@ fn open_checks_lengths_then_the_signature_then_the_aead() {
     ));
 }
 
-// verifies: FORK-075
+// verifies: FORK-077
 #[xmtp_common::test(unwrap_try = true)]
 fn open_refuses_an_entry_of_another_commit_log() {
     let entry = seal_commit_log_entry(&other_keys(), &vector("plaintext"))?;
@@ -607,7 +607,7 @@ fn open_refuses_an_entry_of_another_commit_log() {
     ));
 }
 
-// verifies: FORK-075
+// verifies: FORK-077
 #[xmtp_common::test(unwrap_try = true)]
 fn open_refuses_a_signature_by_another_key() {
     let keys = vector_keys();
@@ -622,7 +622,7 @@ fn open_refuses_a_signature_by_another_key() {
     }
 }
 
-// verifies: FORK-075
+// verifies: FORK-077
 #[xmtp_common::test(unwrap_try = true)]
 fn open_refuses_a_ciphertext_that_does_not_decrypt() {
     let keys = vector_keys();

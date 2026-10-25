@@ -426,7 +426,7 @@ impl UpdateGroupMembershipIntentData {
                 // A queued refresh can be older than a commit that raised this
                 // entry. Keep the higher sequence id; never lower it.
                 Some(&current) => current.max(sequence_id),
-                // implements: GMOD-045
+                // implements: GMOD-051
                 // A refresh raises an existing entry. A commit may have removed
                 // the inbox after the refresh was built; do not insert it again.
                 None if self.refreshed_members.contains(inbox_id) => continue,

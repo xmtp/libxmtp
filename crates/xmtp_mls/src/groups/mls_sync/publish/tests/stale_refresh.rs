@@ -12,7 +12,7 @@ use crate::utils::test_mocks_helpers::set_test_mode_upload_malformed_keypackage;
 /// succeeds, or another member's refresh added it. The commit must not list
 /// it as failed, or a later revocation removes nothing and the revoked
 /// installation keeps reading the group.
-// verifies: GMOD-044, GMOD-011
+// verifies: GMOD-044
 #[rstest::rstest]
 #[case::publish_time_fetch(false)]
 #[case::concurrent_refresh(true)]
@@ -154,7 +154,7 @@ async fn selection_reuses_an_add_for_a_stale_failure() -> Result<(), GroupError>
 
 /// A refresh built before a commit removed an inbox must not insert that
 /// inbox when it publishes. Only an add request inserts an inbox.
-// verifies: GMOD-045
+// verifies: GMOD-051
 #[xmtp_common::test(unwrap_try = true)]
 async fn stale_refresh_does_not_readd_a_removed_inbox() -> Result<(), GroupError> {
     tester!(alix, disable_workers);
@@ -191,7 +191,7 @@ async fn stale_refresh_does_not_readd_a_removed_inbox() -> Result<(), GroupError
 /// Older clients can list an installation that has a leaf as failed. A
 /// revocation of that installation must still remove its leaf: receivers do
 /// not exempt a key that has a leaf before the commit.
-// verifies: GMOD-011
+// verifies: GMOD-046
 #[xmtp_common::test(unwrap_try = true)]
 async fn revocation_removes_a_leaf_that_an_entry_lists_as_failed() -> Result<(), GroupError> {
     tester!(alix, disable_workers);

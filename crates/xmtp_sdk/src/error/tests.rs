@@ -391,7 +391,6 @@ fn group_errors_keep_storage_retry_policy_on_reads_only() {
     }
 }
 
-// verifies: GMOD-035
 #[xmtp_common::test(unwrap_try = true)]
 fn reserved_transcript_type_is_a_stable_input_error() {
     use xmtp_mls::groups::GroupError;

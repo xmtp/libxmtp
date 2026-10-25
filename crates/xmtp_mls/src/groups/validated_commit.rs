@@ -686,7 +686,7 @@ impl ExpectedDiff {
 /// Compare the list of installations added and removed in the commit to the expected diff based on the changes
 /// to the inbox state.
 /// Satisfies Rule 3 and Rule 7
-// implements: GMOD-010, GMOD-011
+// implements: GMOD-010, GMOD-046
 fn expected_diff_matches_commit(
     expected_diff: &InstallationDiff,
     added_installations: HashSet<Vec<u8>>,

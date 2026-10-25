@@ -588,7 +588,7 @@ pub(crate) mod tests {
     }
 
     #[wasm_bindgen_test(unsupported = test)]
-    // verifies: IDENT-043, IDENT-045
+    // verifies: IDENT-043
     fn change_recovery_address() {
         let initial_state = new_test_inbox_with_installation();
         let inbox_id = initial_state.inbox_id().to_string();

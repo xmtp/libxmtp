@@ -22,13 +22,13 @@ flowchart TD
 
 In scope: the identity update wire format and its actions, the association state and how each action changes it, the signature text and the signature kinds, which kind may sign for which member, inbox id derivation, replay protection, recovery authorization, smart contract wallet verification and chain binding, what an installation's registration and revocation mean, how an identifier resolves to an inbox, local Ethereum signing-key export and restoration, and handles: the claim action, the handle grammar, how a claim changes the association state, and how a client checks a handle lookup answer and reports an inbox's handles.
 
-Out of scope: how an identity update is published, stored, ordered, and read back as an envelope, the snapshot the backend validates against and what it does when that snapshot moves (API-232), duplicate publishes (API-222), the lookup RPC and its answer (API-270), the verifier RPC, the checks of a claim that only the backend applies, and the error codes (`API`); the identity topic layout (TOPIC-001); the published limits and chains, and the minimum name length of a handle (`CONF`); what a key package carries (`JOIN`); how a group's membership follows a change of an inbox's installations (GMOD-029); and the event that reports a change of display handle (`EVENT`).
+Out of scope: how an identity update is published, stored, ordered, and read back as an envelope, the snapshot the backend validates against and what it does when that snapshot moves (API-303), duplicate publishes (API-222), the lookup RPC and its answer (API-270), the verifier RPC, the checks of a claim that only the backend applies, and the error codes (`API`); the identity topic layout (TOPIC-001); the published limits and chains, and the minimum name length of a handle (`CONF`); what a key package carries (`JOIN`); how a group's membership follows a change of an inbox's installations (GMOD-029); and the event that reports a change of display handle (`EVENT`).
 
 | Related | Relation |
 | --- | --- |
 | `CONF` | Owns the published installation ceiling a client applies (CONF-044), the chains a deployment verifies (CONF-070), the client's chain check before it signs (CONF-046, CONF-048), and the minimum name length of a handle. |
 | `JOIN` | Owns the key package an installation publishes (JOIN-001) and the check of a group's leaves against association state at a sequence id (JOIN-052, JOIN-053, JOIN-059). |
-| `API` | Owns the publish and query contract an identity update travels under, the sequence id it receives, the one-snapshot admission and its `ABORTED` (API-232), duplicates (API-222), the resolution RPC (API-270), the verifier RPC, the checks of a claim that only the backend applies, and the error codes. This spec owns what the validation in API-232 checks. |
+| `API` | Owns the publish and query contract an identity update travels under, the sequence id it receives, the one-snapshot admission and its `ABORTED` (API-303), duplicates (API-222), the resolution RPC (API-270), the verifier RPC, the checks of a claim that only the backend applies, and the error codes. This spec owns what the validation in API-303 checks. |
 | `GMOD-029` | Owns how a member commits the installations an inbox gained or lost between two sequence ids. |
 | `EVENT` | EVENT-001 reports own installation additions, revocations, and completed registration. `EVENT` also owns the event that reports a change of display handle. |
 
@@ -44,7 +44,7 @@ Out of scope: how an identity update is published, stored, ordered, and read bac
 | Recovery identifier | The identifier the association state names as permitted to revoke members and to reassign this role. Not always a member. |
 | Signer | The identifier or installation key a validator derives from a signature under section 4. |
 | Signature text | The string built from an update under section 3 that every signature in that update signs. |
-| Replay key | The bytes a validator records for a signature after it is applied, as section 4 states for each kind. |
+| Replay key | What a validator records for a signature after it is applied: the signature's signer and the signature text it signed (IDENT-090). |
 | Adder | The existing member whose signature added a member. |
 | Chain id | The `eip155` chain of a smart contract wallet signature, as a number; absent for every other signature kind. The association state records one for each member and one for the recovery identifier. |
 | Handles | The handles an association state holds for its inbox, in the order IDENT-082 produces. |
@@ -52,7 +52,7 @@ Out of scope: how an identity update is published, stored, ordered, and read bac
 
 ## 1. The identity update
 
-An identity update is one or more actions signed together. It is published as an envelope on the topic derived from its `inbox_id` and receives its sequence id from the backend; `API` owns that envelope's storage, order, and duplicates (API-222), and TOPIC-001 owns identity topic derivation. The log is validated the same way by the backend before it stores an update (API-232 names the snapshot it validates against) and by a client after it reads one. A validator is either of them. An update with no actions changes nothing, so accepting one would let anyone who can publish fill an inbox's log with signed-by-nobody entries.
+An identity update is one or more actions signed together. It is published as an envelope on the topic derived from its `inbox_id` and receives its sequence id from the backend; `API` owns that envelope's storage, order, and duplicates (API-222), and TOPIC-001 owns identity topic derivation. The log is validated the same way by the backend before it stores an update (API-303 names the snapshot it validates against) and by a client after it reads one. A validator is either of them. An update with no actions changes nothing, so accepting one would let anyone who can publish fill an inbox's log with signed-by-nobody entries.
 
 `client_timestamp_ns` is set by the sender and is not checked by anyone. It is covered by the signature text, and it is the time a member records as when it was added.
 
@@ -111,9 +111,10 @@ message RevokeAssociation {
   Signature recovery_identifier_signature = 2;
 }
 
-// Changes the recovery identifier for an XID. The recovery identifier is not required
-// to be a member of the XID. In addition to being able to add members, the
-// recovery identifier can also revoke members.
+// Changes the recovery identifier for an XID. The new recovery identifier must be
+// a current member of the XID; it keeps the role if it is later revoked as a
+// member. In addition to being able to add members, the recovery identifier can
+// also revoke members.
 message ChangeRecoveryAddress {
   string new_recovery_identifier = 1;
   Signature existing_recovery_identifier_signature = 2;
@@ -155,9 +156,10 @@ An `IdentifierKind` of `IDENTIFIER_KIND_UNSPECIFIED` reads as Ethereum. The `rel
 | IDENT-002 | Whole update or nothing | If any action of an update fails a rule in sections 2 to 7 or section 10, then a validator MUST reject the whole update and MUST leave the association state as it was before the update. | A half-applied update gives two validators two member sets from one log. |
 | IDENT-003 | The update names its inbox | When the inbox id of the association state after an update's actions are applied differs from the update's `inbox_id`, a validator MUST reject the update. | The topic is derived from `inbox_id`, so a mismatch stores one inbox's log under another's topic. |
 | IDENT-004 | Apply in log order | A validator MUST apply an inbox's updates in ascending sequence id order, and each update's actions in the order listed, each starting from the state the previous one produced. | |
-| IDENT-005 | Admission checks this spec | When the backend validates an identity update under API-232, it MUST apply sections 1 to 7 and section 10 of this spec to the snapshot API-232 names, and MUST NOT store an update that fails them. | A stored update that does not apply stops every client from resolving the inbox at any later sequence id. |
+| IDENT-094 | At most 100 actions | If an identity update's `actions` has more than 100 elements, then a validator MUST reject the update before it verifies any signature the update carries. | Every validator replays every action of every stored update, so one update with unbounded actions multiplies the work of every party that resolves the inbox. |
+| IDENT-095 | Admission checks this spec | When the backend validates an identity update under API-303, it MUST apply sections 1 to 7 and section 10 of this spec to the snapshot API-303 names followed by that update, and MUST NOT store the update when they fail. For an `erc_6492` signature of an update already in that snapshot, it MUST NOT access a chain and MUST NOT reject the new update because of that signature's result under IDENT-093. | A stored update that does not apply stops every client from resolving the inbox at any later sequence id. Verifying the stored log against a chain on every publish costs chain calls in proportion to the history, even for an update that is then rejected. |
 
-`API` owns what a caller receives for an update rejected under IDENT-005, a duplicate of an update already stored (API-222), and the limit on stored updates per inbox that CONF publishes as `max_identity_entries`.
+`API` owns what a caller receives for an update rejected under IDENT-095, a duplicate of an update already stored (API-222), and the limit on stored updates per inbox that CONF publishes as `max_identity_entries`.
 
 ## 2. Inbox ids and creation
 
@@ -281,14 +283,14 @@ message Signature {
 }
 ```
 
-The verification of each kind, the signer it yields, and its replay key. A replay key is a canonical form: two byte strings that verify as the same signature by the same signer produce the same key, so a re-encoding is caught by IDENT-050. A secp256k1 recovery byte is accepted as 0, 1, 27, or 28 and canonicalised to 0 or 1; an ECDSA `s` is canonicalised to the lower half of the curve order.
+The verification of each kind and the signer it yields. A secp256k1 recovery byte is accepted as 0, 1, 27, or 28, and an ECDSA `s` is accepted in either half of the curve order.
 
-| Field | Signs for | Verification | Signer | Replay key |
-| --- | --- | --- | --- | --- |
-| `erc_191` | Ethereum | `bytes` is 65 bytes `r`, `s`, recovery. Recover the secp256k1 public key from the personal-message hash ([EIP 191](https://eips.ethereum.org/EIPS/eip-191), version `0x45`) of the signature text. | The recovered address, lowercase, `0x`-prefixed | 65 bytes: `r`, `s` in the lower half, recovery as 0 or 1 |
-| `erc_6492` | Ethereum | Section 7: the account at `account_id` validates `signature` over the personal-message hash of the signature text at block `block_number`. | The address part of `account_id`, lowercase; chain id from its `eip155` reference | The `signature` bytes as given (Known limitations) |
-| `installation_key` | Installation | Ed25519ph ([RFC 8032 §5.1](https://www.rfc-editor.org/rfc/rfc8032.html#section-5.1)) over the signature text with the context string `IDENTITY UPDATE SIGNATURE`, under `public_key`. | The 32-byte `public_key` | The 64 signature bytes |
-| `passkey` | Passkey | `client_data_json` parses as WebAuthn client data whose `challenge` equals the base64url encoding without padding of the signature text. `signature` is a DER-encoded ECDSA P-256 signature, under the SEC1 key `public_key`, over `authenticator_data` followed by the SHA-256 digest of `client_data_json` ([WebAuthn Level 2 §6.1](https://www.w3.org/TR/webauthn-2/#sctn-authenticator-data), [§7.2 step 20](https://www.w3.org/TR/webauthn-2/#sctn-verifying-assertion)). | `Passkey` with `key` equal to `public_key`; `relying_party` is the client data's `origin` | 64 bytes: `r`, `s` in the lower half |
+| Field | Signs for | Verification | Signer |
+| --- | --- | --- | --- |
+| `erc_191` | Ethereum | `bytes` is 65 bytes `r`, `s`, recovery. Recover the secp256k1 public key from the personal-message hash ([EIP 191](https://eips.ethereum.org/EIPS/eip-191), version `0x45`) of the signature text. | The recovered address, lowercase, `0x`-prefixed |
+| `erc_6492` | Ethereum | Section 7: the account at `account_id` validates `signature` over the personal-message hash of the signature text at block `block_number`. | The address part of `account_id`, lowercase; chain id from its `eip155` reference |
+| `installation_key` | Installation | Ed25519ph ([RFC 8032 §5.1](https://www.rfc-editor.org/rfc/rfc8032.html#section-5.1)) over the signature text with the context string `IDENTITY UPDATE SIGNATURE`, under `public_key`. | The 32-byte `public_key` |
+| `passkey` | Passkey | `client_data_json` parses as WebAuthn client data whose `challenge` equals the base64url encoding without padding of the signature text. `signature` is a DER-encoded ECDSA P-256 signature, under the SEC1 key `public_key`, over `authenticator_data` followed by the SHA-256 digest of `client_data_json` ([WebAuthn Level 2 §6.1](https://www.w3.org/TR/webauthn-2/#sctn-authenticator-data), [§7.2 step 20](https://www.w3.org/TR/webauthn-2/#sctn-verifying-assertion)). | `Passkey` with `key` equal to `public_key`; `relying_party` is the client data's `origin` |
 
 A `Signature` whose `signature` is unset, or set to a field this definition does not list, is rejected under IDENT-001. Field 4 carried a legacy delegated signature, which this definition retires. It is now an unknown field: a `Signature` holding only field 4 has `signature` unset and is rejected, and field 4 beside a listed field is ignored like any unknown field, so it never changes which signature is verified.
 
@@ -301,7 +303,7 @@ A `passkey` signature proves possession of the P-256 key bound to this signature
 
 ## 5. Adding, revoking, and recovery
 
-Every add is approved by both sides: an existing member or the recovery identifier, and the new member. Only the recovery identifier revokes, and only the recovery identifier hands the role on. A new recovery identifier does not sign, so a user can delegate recovery to a party they do not control without that party being a member.
+Every add is approved by both sides: an existing member or the recovery identifier, and the new member. Only the recovery identifier revokes, and only the recovery identifier hands the role on. A new recovery identifier does not sign, so it must already be a member, and the role takes the chain id the log recorded for that member. To hand recovery to another party, a user first adds that party as a member; one update can carry the add and the change, in that order. The new recovery identifier can then be revoked as a member and keep its role.
 
 The pairs an add permits:
 
@@ -321,29 +323,30 @@ An Ethereum address is not one account across chains: a contract at the same add
 | IDENT-042 | An add records its adder | When a validator applies an `AddAssociation`, it MUST produce a state that holds the new member with the existing signer as its adder, the update's `client_timestamp_ns` as its time, and the new member signature's chain id recorded. | IDENT-044 removes installations by adder, so an unrecorded adder leaves a revoked wallet's installations live. |
 | IDENT-043 | Only the recovery identifier revokes | If a `RevokeAssociation`'s `recovery_identifier_signature` signer differs from the association state's recovery identifier, then a validator MUST reject the update. | |
 | IDENT-044 | Revocation cascades to installations | When a validator applies a `RevokeAssociation`, it MUST produce a state that no longer holds `member_to_revoke` nor any installation member whose adder is `member_to_revoke`, and that holds every other member, the recovery identifier, and its chain id unchanged. | An installation added by a compromised wallet is as compromised as the wallet. |
-| IDENT-045 | Only the recovery identifier changes recovery | If a `ChangeRecoveryAddress`'s `existing_recovery_identifier_signature` signer differs from the association state's recovery identifier, then a validator MUST reject the update. When it applies one, the validator MUST set the recovery identifier to `new_recovery_identifier` under `new_recovery_identifier_kind`, without any signature from it, with the chain id recorded for that identifier as a current member or absent when it is not one, and MUST leave the members unchanged. | A new recovery identifier signs nothing, so the only chain it can be bound to is one the log already vouches for. |
+| IDENT-091 | Recovery moves only to a member | If a `ChangeRecoveryAddress`'s `existing_recovery_identifier_signature` signer differs from the association state's recovery identifier, or `new_recovery_identifier` under `new_recovery_identifier_kind` is not a current member, then a validator MUST reject the update. When it applies one, the validator MUST set the recovery identifier to that member, without any signature from it, with that member's recorded chain id as the recovery identifier's chain id, and MUST leave the members unchanged. | A new recovery identifier signs nothing, so only a member's record can give it a chain id; a contract wallet set while not a member would hold none, IDENT-046 would reject every signature it can make, and no member could be revoked or recovery moved again. |
 | IDENT-046 | A signer keeps its chain | If a signature's signer is a current member, or the signature is the `recovery_identifier_signature` of a `RevokeAssociation`, the `existing_recovery_identifier_signature` of a `ChangeRecoveryAddress`, or an `existing_member_signature` from the recovery identifier, and the signature's chain id differs from the chain id recorded for that member or for the recovery identifier, then a validator MUST reject the update. | A recovery identifier that is not a member has no member record to check against, and the same address on another configured chain would otherwise revoke and reassign. |
+| IDENT-092 | Re-added recovery keeps its chain | If an `AddAssociation`'s `new_member_identifier` is the association state's recovery identifier and the `new_member_signature`'s chain id differs from the chain id recorded for the recovery identifier, then a validator MUST reject the update. | The member would hold one chain id and the role another, IDENT-046 would then reject every signature from the recovery identifier, and no member could be revoked or recovery moved again. |
 
 A `RevokeAssociation` naming an identifier that is not a member applies: it removes every installation whose adder is that identifier, which is how installations the recovery identifier added while not a member are removed, and it consumes its replay key and a slot of the log. The recovery identifier may revoke itself as a member; it keeps its role and its chain id.
 
 ## 6. Replay protection
 
-A signature authorizes one update. Once the update is applied, the same signature cannot be used again, so that an attacker who holds the public log cannot re-add a member the recovery identifier has since revoked. The check is on the replay key of each signature (section 4), recorded in the association state after the update applies, and the key is chosen so that a malleated encoding of the same signature records the same bytes.
+A signer approves an update by signing its signature text. Once the update is applied, no signature by that signer over that text can be used again, so that an attacker who holds the public log cannot re-add a member the recovery identifier has since revoked. The replay key is the signer and the signature text, never the signature bytes: a re-encoded signature, an `erc_191` signature carried again inside an `erc_6492` signature, and a second encoding that a wallet contract accepts all record the same key. One signer can sign several actions of one update. Their signatures share a key, which the check allows, because the check runs against the state the update is applied to and the keys are recorded after all of its actions apply. The signature text records time in whole seconds, so two updates with the same actions built in the same second share a text, and the second is rejected.
 
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
-| IDENT-050 | A signature is used once | When an update is applied, a validator MUST add the replay key of every signature it carried to the association state's seen keys. If an action carries a signature whose replay key is among the seen keys, then it MUST reject the update. | A revoked member's original add, republished with its signatures, would otherwise re-add it. |
+| IDENT-090 | An authorization is used once | When an update is applied, a validator MUST add to the association state's seen keys, for every signature the update carried, the pair of that signature's signer and the update's signature text. If an action carries a signature whose signer and signature text are a pair among the seen keys of the state the update is applied to, then the validator MUST reject the update. | A revoked member's original add, republished with its signatures re-encoded or carried in another signature kind, would otherwise re-add it. |
 
 ## 7. Smart contract wallets
 
 A smart contract wallet has no private key of its own; its contract decides which signatures it accepts, and that decision can change with every block. The signature therefore names the block at which it is to be judged, and every validator judges it at that block, so an identity update accepted once is accepted by every later reader whatever the wallet's signers become. That pinning cuts the other way at admission: a signer the wallet has removed can still produce a new signature today and name a block from before its removal. The backend therefore admits a new update only when its stated block is close to the chain head, and that freshness check runs once, at admission, never when a stored log is replayed.
 
-Validation needs chain access. A deployment publishes the chains it verifies (CONF-070); a client refuses to produce a signature for any other chain (CONF-046) and never applies that check to a signature it reads (CONF-048). `API` owns the verifier RPC a client may use in place of its own chain access, and the error a caller receives when the backend cannot reach a chain. The form checks in IDENT-060 run before any chain access, so a malformed `account_id` is rejected and never retried.
+Validation needs chain access. A deployment publishes the chains it verifies (CONF-070); a client refuses to produce a signature for any other chain (CONF-046) and never applies that check to a signature it reads (CONF-048). `API` owns the verifier RPC a client may use in place of its own chain access, and the error a caller receives when the backend cannot reach a chain. The checks in IDENT-093 that need no chain run before any chain access, so a malformed `account_id` or an oversized `signature` is rejected and never retried.
 
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
-| IDENT-060 | Verify at the stated block | If an `erc_6492` signature's `account_id` is not a [CAIP-10](https://github.com/ChainAgnostic/CAIPs/blob/main/CAIPs/caip-10.md) account id whose namespace is `eip155`, whose reference is a chain id in decimal with no sign and no leading zero, and whose account address is `0x` followed by 40 hexadecimal characters, then a validator MUST reject the update before any chain access. Otherwise it MUST verify `signature` by [ERC-6492](https://eips.ethereum.org/EIPS/eip-6492) universal signature validation for the account named, over the personal-message hash of the signature text as the table in section 4 states, against the chain state at `block_number`, and MUST reject the update when the result is not valid. | Judged at the current block instead, a signer rotation would invalidate the whole log behind it. |
-| IDENT-061 | Unreachable is not invalid | If a validator cannot obtain a result under IDENT-060 for a signature that passed its form check, because it has no route for the chain or the chain call fails, then it MUST NOT reject the update and MUST leave it eligible for a later attempt. | A rejection recorded for an outage is permanent, and the update behind it is valid. |
+| IDENT-093 | Verify at the stated block | If an `erc_6492` signature's `signature` is longer than 16384 bytes, or its `account_id` is not a [CAIP-10](https://github.com/ChainAgnostic/CAIPs/blob/main/CAIPs/caip-10.md) account id whose namespace is `eip155`, whose reference is a chain id in decimal with no sign and no leading zero, and whose account address is `0x` followed by 40 hexadecimal characters that are not all `0`, then a validator MUST reject the update before any chain access. Otherwise, except for a signature that IDENT-095 exempts from chain access, it MUST verify `signature` by [ERC-6492](https://eips.ethereum.org/EIPS/eip-6492) universal signature validation for the account named, over the personal-message hash of the signature text as the table in section 4 states, against the chain state at `block_number`, and MUST reject the update when the result is not valid. | Judged at the current block instead, a signer rotation would invalidate the whole log behind it. Universal signature validation reports any invalid signature as valid for the zero address, and an unbounded signature makes every validator build verification code as long as the sender chooses. |
+| IDENT-061 | Unreachable is not invalid | If a validator cannot obtain a result under IDENT-093 for a signature that passed the checks IDENT-093 makes before chain access, because it has no route for the chain or the chain call fails, then it MUST NOT reject the update and MUST leave it eligible for a later attempt. | A rejection recorded for an outage is permanent, and the update behind it is valid. |
 | IDENT-062 | Fresh block at admission | When the backend validates an update it has not stored, if an `erc_6492` signature's `block_number` is greater than the chain's head block number, or the timestamp of that block is more than 1800 seconds before the timestamp of the head block, then the backend MUST reject the update. | A signer removed from a wallet can otherwise sign for it for ever by naming a block from before its removal. |
 
 ## 8. Installations
@@ -374,6 +377,10 @@ An app resolves an identifier to an inbox under API-270, which selects the live 
 
 One identifier can be a live member of several inboxes at once: a user creates two inboxes from one wallet with two nonces, or links one wallet to two inboxes. No validator rejects this, and the identifier resolves to the inbox of its most recent live association (API-270). Revoking that association exposes the older inbox again.
 
+| ID | Title | Requirement | Why |
+| --- | --- | --- | --- |
+| IDENT-096 | An account answer is checked | When a `GetInboxIds` answer names an inbox for an entry whose `identifier_kind` is not `IDENTIFIER_KIND_HANDLE`, or names none and the client derives an inbox for that identifier under IDENT-010, a client MUST NOT return that inbox to the app, or act on it as the inbox of that identifier, unless the members of the association state at the highest sequence id the client holds for that inbox, after it reads that inbox's identity updates for this answer and derives the state under IDENT-071, contain the entry's identifier. A derived inbox whose log holds no update also passes this check. It MUST compare an Ethereum address without regard to letter case and a passkey by its public key bytes. | A backend could otherwise send a user's messages to an inbox that never held the account the user entered, or to one the account has left (IDENT-044), including the inbox the account first derived. |
+
 ## 10. Handles
 
 A handle is a short public name, such as `nick` or `nick#2341`, that an inbox claims so that other users can find it. An inbox claims a handle with a `ClaimHandle` action that one of its current members signs, so any party can check from the log that the inbox itself made each claim. A handle is not a member: it signs nothing and adds no one.
@@ -390,7 +397,7 @@ code   = 4DIGIT
 ; matched against the whole string.
 ```
 
-An association state holds the inbox's handles in claim order, and a claim count. A claim adds its handle at the end. A claim of a handle that the inbox already holds moves that handle to the end, which is how a user goes back to an older handle. The last handle is the display handle. Nothing removes a handle: every other action leaves the handles as they were, so an old handle still names its inbox. IDENT-050 stops anyone from publishing an old claim again.
+An association state holds the inbox's handles in claim order, and a claim count. A claim adds its handle at the end. A claim of a handle that the inbox already holds moves that handle to the end, which is how a user goes back to an older handle. The last handle is the display handle. Nothing removes a handle: every other action leaves the handles as they were, so an old handle still names its inbox. IDENT-090 stops anyone from publishing an old claim again.
 
 An update that carries a claim carries no other action. So one update makes at most one claim, and an inbox exists before it claims. One log holds at most 64 claims, and a claim of a handle that the inbox already holds counts. Claims use the same log entries that membership changes need (API-234). Without the limit, an inbox that changes its handle often fills its log, and it can then no longer revoke a lost installation (Known limitations).
 
@@ -436,8 +443,13 @@ Several rules reject updates that an earlier validator accepted and stored:
 - IDENT-013 replaces a rule that stored an Ethereum identifier in whatever case it was given.
 - IDENT-001 rejects an update with no actions, and a `Signature` whose only signature is the retired legacy delegated signature, field 4.
 - IDENT-040 rejects an add of a current member.
-- IDENT-060 rejects an `account_id` outside the `eip155` namespace, with a chain id not in canonical decimal form, or with an account address other than `0x` followed by 40 hexadecimal characters.
+- IDENT-093 rejects an `account_id` outside the `eip155` namespace, with a chain id not in canonical decimal form, or with an account address other than `0x` followed by 40 hexadecimal characters that are not all `0`, and a `signature` longer than its limit.
+- IDENT-094 rejects an update with more actions than its limit.
 - IDENT-077 rejects a `CreateInbox` or a `ChangeRecoveryAddress` whose identifier kind is `IDENTIFIER_KIND_HANDLE` or a value that `IdentifierKind` does not list. An earlier validator read every such kind as Ethereum.
+- IDENT-090 rejects an update whose signatures are by the same signers over the same signature text as an update already applied, in another encoding or another signature kind. An earlier validator keyed replay protection on the signature bytes.
+- IDENT-046 rejects a signature from a recovery identifier that is not a member when its chain id differs from the chain id recorded for the role. An earlier validator checked chain ids only for current members.
+- IDENT-091 rejects a `ChangeRecoveryAddress` whose new recovery identifier is not a current member.
+- IDENT-092 rejects an add of the recovery identifier as a member on a chain other than the one its role records.
 
 A validator applies each of them to every update it reads, on admission and when it replays a stored log. A log holding an update any of them rejects cannot be read past that update, and no replay path accepts it. A database written by an earlier build of this backend, or imported from the earlier networks, must hold no such update before this validator reads it. A deployment is assumed to start from an empty database, which meets this condition.
 
@@ -445,11 +457,13 @@ A validator applies each of them to every update it reads, on admission and when
 
 A `passkey` signature verifies the challenge binding and the P-256 signature, and nothing else of the WebAuthn assertion: not the ceremony `type`, the relying party id hash, the user-present or user-verified flags, the signature counter, a minimum authenticator data length, or the `origin`. A forged update still needs the private key. The omitted checks protect against phishing and cloned authenticators, not against forgery, and their absence has not been shown to permit a forgery.
 
-The replay key of an `erc_6492` signature is its bytes as given, because the encoding is the wallet contract's own. A contract that accepts more than one encoding of one signature leaves a replay possible under IDENT-050 when every signature in the replayed update is an `erc_6492` signature with that property.
-
 IDENT-062 bounds the window for a removed signer to 1800 seconds at admission. It does not close it, and it does not run when a stored log is replayed, so a signature admitted in that window stays valid for ever.
 
+A member or a recovery identifier added or set through an `erc_191` signature has no chain id. An `erc_6492` signature always has one, so IDENT-046 rejects every `erc_6492` signature that stands for that member or role. Suppose the address later can sign only through ERC-1271, for example an account delegated to contract code whose wallet software no longer produces `erc_191` signatures. That wallet can then authorize nothing for that member or role again. This also holds for the recovery role after the recovery identifier is revoked as a member. No action changes a recorded chain id, because a chain id that a later signature could replace would let a contract at the same address on another chain take over the inbox. The recovery identifier can revoke such a member and add it again with an `erc_6492` signature, which records the new chain id and also revokes every installation that member added (IDENT-044). The recovery role has no such path. A user who wants to keep recovery must add another wallet or a passkey as a member, and move recovery to it (IDENT-091), before the wallet stops producing `erc_191` signatures.
+
 A block number names chain state only up to a reorganization. A validator that caches a verdict for a block keeps it after that block is replaced, until the entry is evicted or the process restarts, so a signature validated against an orphaned block can stay accepted. No validator checks block identity or finality.
+
+The backend does not ask a chain again about an `erc_6492` signature of an update it has stored (IDENT-095). The verdict it reached at admission stays in force for every later update on that inbox, as a verdict cached for a reorganized block already does. A client still verifies every signature of every log it reads (IDENT-071), with its own chain access or through the backend's verifier RPC.
 
 A client that uses the backend's verifier RPC for smart contract wallet signatures trusts the backend for those verdicts. It can verify against a chain of its own instead.
 
@@ -457,7 +471,11 @@ A backend that cannot reach a chain answers the same way whether the chain is un
 
 Once an inbox's log reaches the deployment's `max_identity_entries`, no further update is stored for it, and there is no compaction. The log stays readable; the inbox can no longer add, revoke, or claim anything.
 
+One update revokes at most as many members as IDENT-094 allows actions.
+
 Only the backend checks that no two inboxes hold one handle (section 10). A backend that admits one handle for two inboxes is seen only by a client that derives the states of both inboxes, and IDENT-085 accepts an answer that names either of them, because the log of each claims the handle.
+
+IDENT-096 checks the answered inbox's log as the backend serves it. A backend that withholds the update that revoked an identifier from an inbox can still direct a lookup of that identifier to that inbox. A lagged answer (OPS-009) that names an inbox the identifier has just left is rejected, so the lookup finds no inbox until the backend's copy catches up. When an identifier is a live member of two inboxes (section 9), the check accepts an answer that names either of them. IDENT-096 is only as strong as the signature checks behind the state it derives. A client that uses the backend's verifier RPC trusts the backend's smart contract wallet verdicts (the verifier limitation above), and an `erc_6492` signature can sign for any Ethereum address (section 4). A backend that answers both `GetInboxIds` and the verifier RPC falsely can therefore add any Ethereum address to an inbox it chooses and direct a lookup of that address there; a client that verifies against a chain of its own closes this.
 
 Claim policy applies only when the backend admits a claim (IDENT-084). When a later release adds a name part to the reserved list, or a deployment raises its minimum name length, a handle claimed before the change stays with the inbox that claimed it. A lookup still resolves it (API-299), and IDENT-085 accepts the answer, because the inbox's log claims the handle. So an inbox that claimed `support` before a release reserved `support` keeps it, and every user who looks that handle up reaches that inbox. This is accepted: a change of policy must never stop a stored log from applying or a claimed handle from resolving. Only a release changes the reserved list ([API section 3.1](API-backend-api.md#31-admission)), so a name is protected only if the backend already reserves it when someone first tries to claim it.
 

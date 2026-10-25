@@ -12,7 +12,6 @@ fn create_test_actor(is_super_admin: bool) -> CommitParticipant {
     }
 }
 
-// verifies: GMOD-015
 #[test]
 fn test_extract_readded_installations_non_super_admin_returns_empty() {
     let actor = create_test_actor(false);
@@ -34,7 +33,7 @@ fn test_extract_readded_installations_non_super_admin_returns_empty() {
     assert_eq!(failed, original_failed);
 }
 
-// verifies: GMOD-015
+// verifies: GMOD-052
 #[test]
 fn test_extract_readded_installations_super_admin_both_types_of_readd() {
     let actor = create_test_actor(true);
@@ -54,7 +53,7 @@ fn test_extract_readded_installations_super_admin_both_types_of_readd() {
     assert!(failed.is_empty());
 }
 
-// verifies: GMOD-015
+// verifies: GMOD-052
 #[test]
 fn test_extract_readded_installations_super_admin_overlapping_scenarios() {
     // Test case where an installation appears in all three sets

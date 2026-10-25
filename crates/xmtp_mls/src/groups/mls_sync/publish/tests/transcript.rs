@@ -68,7 +68,6 @@ fn status<Context: XmtpSharedContext>(group: &MlsGroup<Context>, id: &[u8]) -> D
 
 /// Every new send refuses both reserved types, under `xmtp.org` only, at any
 /// version, before it stores a row, queues an intent, or publishes.
-// verifies: GMOD-035
 #[xmtp_common::test(unwrap_try = true)]
 async fn transcript_types_are_never_sent() {
     tester!(alix, disable_workers);
@@ -142,7 +141,6 @@ async fn transcript_types_are_never_sent() {
 
 /// A reserved row that an older build stored fails when it is published by
 /// ID. It is never queued or sent, and a second attempt changes nothing.
-// verifies: GMOD-035
 #[xmtp_common::test(unwrap_try = true)]
 async fn stored_reserved_message_fails_at_publish() {
     tester!(alix, disable_workers);
@@ -199,7 +197,6 @@ async fn stored_reserved_message_fails_at_publish() {
 
 /// An unprepared reserved intent that an older build queued is failed with
 /// its message, is not published, and does not block a later send.
-// verifies: GMOD-035
 #[xmtp_common::test(unwrap_try = true)]
 async fn queued_reserved_intent_fails_without_blocking_later_sends() {
     tester!(alix, disable_workers);
@@ -234,7 +231,6 @@ async fn queued_reserved_intent_fails_without_blocking_later_sends() {
 /// its unknown outcome: `publish_stored_message` neither fails the row nor
 /// reports a refusal, because the saved bytes may already be on the backend
 /// and may still publish.
-// verifies: GMOD-035
 #[xmtp_common::test(unwrap_try = true)]
 async fn stored_reserved_message_with_saved_attempt_is_not_refused() {
     use xmtp_db::diesel::prelude::*;

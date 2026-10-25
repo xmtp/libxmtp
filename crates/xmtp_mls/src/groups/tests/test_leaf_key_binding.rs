@@ -379,7 +379,7 @@ async fn update_path_leaf_key_must_be_registered() {
 /// package with a credential that names Alix. A membership refresh must not
 /// add that package, which every receiver would reject. It records the
 /// installation as failed instead, and the refresh still succeeds.
-// verifies: JOIN-011, JOIN-012
+// verifies: JOIN-012
 #[xmtp_common::test(unwrap_try = true)]
 async fn refresh_skips_package_that_names_another_inbox() {
     let alix = member().await;
@@ -438,7 +438,6 @@ async fn refresh_skips_package_that_names_another_inbox() {
 /// Bo's entry, so K is an expected addition under Bo only. The package does
 /// not name Bo, so the refresh records K as failed and leaves the pending Add
 /// out, instead of selecting a leaf that receivers reject.
-// verifies: JOIN-011
 #[xmtp_common::test(unwrap_try = true)]
 async fn refresh_omits_pending_add_under_another_owner() {
     let alix = member().await;

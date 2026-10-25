@@ -382,7 +382,7 @@ where
             return Err(GroupError::InvalidGroupMembership);
         }
         self.validator.check_verified_membership(&membership, &db)?;
-        // implements: DMS-015, JOIN-081
+        // implements: JOIN-089
         // A Restored row carries historical identity. A Welcome can activate
         // it only when its authenticated kind and DM pair are unchanged.
         let group_id = GroupId::try_from(staged_welcome.group_context().group_id())?;

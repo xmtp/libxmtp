@@ -41,7 +41,7 @@ pub enum DiscardReason {
 /// first, then the signature under the conversation's commit-log id, then
 /// the decryption. The decrypted entry must name `group_id` and a commit
 /// sequence id greater than 0. A failure discards this envelope only.
-// implements: FORK-075
+// implements: FORK-077
 pub fn open_entry(
     keys: &GroupKeys,
     group_id: &[u8],
@@ -81,7 +81,7 @@ mod tests {
 
     /// The same entry sealed twice is the same bytes, and it opens to
     /// itself under its own group.
-    // verifies: FORK-074, FORK-075
+    // verifies: FORK-074
     #[xmtp_common::test(unwrap_try = true)]
     fn a_sealed_entry_opens_to_itself() {
         let keys = keys();
@@ -95,7 +95,7 @@ mod tests {
     /// The checks after decryption: an entry that names another group,
     /// or commit sequence id 0, is discarded even though it is validly
     /// sealed. Bytes that are not an entry are discarded too.
-    // verifies: FORK-075
+    // verifies: FORK-077
     #[xmtp_common::test(unwrap_try = true)]
     fn a_validly_sealed_entry_must_name_its_group_and_a_commit() {
         let keys = keys();
@@ -123,7 +123,7 @@ mod tests {
 
     /// An entry of another conversation's commit log, or with a malformed
     /// field, is discarded before decryption, and the reason shows no bytes.
-    // verifies: FORK-075
+    // verifies: FORK-077
     #[xmtp_common::test(unwrap_try = true)]
     fn an_entry_that_does_not_open_is_discarded() {
         let keys = keys();

@@ -730,7 +730,7 @@ async fn a_failed_publish_ends_the_turn_not_the_worker() {
 /// rules then discard an entry with the wrong last epoch authenticator and a
 /// repeated entry. A later read extends the chain. Discard logs never name
 /// the group id.
-// verifies: FORK-075, FORK-032
+// verifies: FORK-079
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_reader_discards_each_entry_that_fails_fork_075() {
     tester!(alix, disable_workers);
@@ -1252,7 +1252,7 @@ async fn test_download_commit_log_from_remote() {
 }
 
 /// The chain conditions, on entries that already opened.
-// verifies: FORK-032
+// verifies: FORK-079
 #[xmtp_common::test(unwrap_try = true)]
 fn test_should_skip_remote_log_entry() {
     // Does not skip if entry meets all conditions

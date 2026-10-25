@@ -164,7 +164,7 @@ impl VerifiedSignature {
         account_id: AccountId,
         block_number: &mut Option<u64>,
     ) -> Result<Self, SignatureError> {
-        // implements: IDENT-060
+        // implements: IDENT-093
         let chain_id = account_id.eip155_chain_id()?;
         let response = signature_verifier
             .is_valid_signature(
@@ -240,7 +240,7 @@ mod tests {
     /// half) recovers the same signer and yields one replay key: `r`, low `s`, parity as 0 or 1.
     /// Any other recovery byte or length is rejected, so no further alias exists.
     #[xmtp_common::test(unwrap_try = true)]
-    // verifies: IDENT-030, IDENT-050
+    // verifies: IDENT-030
     async fn identity_replay_aliases_share_a_wallet_key() {
         let wallet = PrivateKeySigner::random();
         let text = "replay alias";
@@ -273,7 +273,7 @@ mod tests {
     /// Both `s` forms of one passkey signature verify and yield one 64-byte replay key with `s` in
     /// the lower half.
     #[xmtp_common::test(unwrap_try = true)]
-    // verifies: IDENT-030, IDENT-050
+    // verifies: IDENT-030
     async fn identity_replay_aliases_share_a_passkey_key() {
         let passkey = PasskeyUser::new().await;
         let text = "replay alias";

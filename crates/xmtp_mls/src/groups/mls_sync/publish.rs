@@ -599,7 +599,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                 // We can safely assume all SendMessage intents have data
                 let intent_data = SendMessageIntentData::from_bytes(intent.data.as_slice())?;
                 // An older build queued this intent before the creation check.
-                // implements: GMOD-035
+                // implements: GMOD-054
                 // The envelope content can hold a device-sync HMAC root key;
                 // the decoded envelope wipes it on drop.
                 if let Ok(PlaintextEnvelope {

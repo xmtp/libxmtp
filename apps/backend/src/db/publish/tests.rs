@@ -194,7 +194,7 @@ async fn a_dropped_concurrent_failure_leaves_nothing_after_it_unchecked() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
-// verifies: API-232
+// verifies: API-303
 async fn changed_history_aborts_all_new_rows_after_verification() {
     let (server, entered, resume) = paused_server(true).await?;
     let original = scw_create_inbox_update();

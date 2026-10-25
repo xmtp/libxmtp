@@ -158,7 +158,7 @@ pub(super) async fn get_keypackages_for_installation_ids(
     #[cfg(any(test, feature = "test-utils"))]
     inject_failed_installations_for_test(&mut key_packages);
 
-    // implements: JOIN-011, JOIN-012, GMOD-009
+    // implements: JOIN-093, JOIN-012, GMOD-009
     for (installation_id, owner_inbox_ids) in requested {
         match key_packages.remove(&installation_id) {
             Some(Ok(verified_key_package))

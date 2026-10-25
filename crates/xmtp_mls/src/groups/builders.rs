@@ -111,7 +111,7 @@ pub fn filter_inbox_ids_needing_updates<'a>(
     Ok(needs_update)
 }
 
-// implements: DMS-003
+// implements: DMS-021
 pub(in crate::groups) fn validate_dm_group(
     context: impl XmtpSharedContext,
     mls_group: &OpenMlsGroup,

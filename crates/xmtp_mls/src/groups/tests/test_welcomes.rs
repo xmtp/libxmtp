@@ -196,7 +196,6 @@ async fn test_welcome_cursor() {
 
 /// An archive can declare a non-DM type other than the type of a later
 /// Welcome for the same group id.
-// verifies: JOIN-081
 #[xmtp_common::test(unwrap_try = true)]
 async fn restored_placeholder_rejects_non_dm_type_change() {
     use xmtp_db::group::{GroupMembershipState, QueryGroup};

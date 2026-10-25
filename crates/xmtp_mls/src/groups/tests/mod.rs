@@ -546,7 +546,6 @@ async fn test_max_past_epochs() {
     assert_eq!(alix_messages.len(), 3); // Fails here, 2 != 3
 }
 
-// verifies: DMS-003
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_validate_dm_group() {
     use crate::groups::build_group_config;

@@ -1099,7 +1099,7 @@ where
 /// discards it; the reason is logged without entry bytes. The log names the
 /// envelope by its commit-log id and sequence id only, never by group id, so
 /// it does not link the conversation to its commit-log topic.
-// implements: FORK-075
+// implements: FORK-077
 fn open_remote_entry(
     keys: &GroupKeys,
     group_id: &GroupId,
@@ -1131,7 +1131,7 @@ fn open_remote_entry(
 // 2. The last_epoch_authenticator does not match the epoch_authenticator of the most recently stored entry with a CommitResult of COMMIT_RESULT_APPLIED, if one exists.
 // 3. The entry has a CommitResult of COMMIT_RESULT_APPLIED, but the epoch number is not exactly 1 greater than the most recently stored entry with a result of COMMIT_RESULT_APPLIED, if one exists.
 // 4. The entry CommitResult is not COMMIT_RESULT_APPLIED, and the epoch authenticator or epoch number does not match the most recently applied values
-// implements: FORK-032
+// implements: FORK-079
 pub(crate) fn should_skip_remote_commit_log_entry(
     latest_saved_remote_log: Option<&RemoteCommitLog>,
     entry: &PlaintextCommitLogEntry,
