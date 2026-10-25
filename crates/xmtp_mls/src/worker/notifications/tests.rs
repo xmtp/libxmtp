@@ -1024,30 +1024,43 @@ xmtp_common::if_native! {
 
 /// The backend rejects a batch with more than `REQUEST_TOPICS` adds and
 /// removes before it applies any, and that rejection is terminal, so removes
-/// take their share of the batch before any add.
+/// take their share of the batch first, and adds of new or stale topics fill
+/// only the rest.
 #[xmtp_common::test]
 fn diff_keeps_adds_and_removes_within_the_batch_bound() {
     let epoch = crate::utils::time::hmac_epoch();
-    let topics = synthetic_desired(1400);
-    let desired: Desired = topics
-        .iter()
-        .take(700)
-        .map(|(topic, rule)| (topic.clone(), rule.clone()))
-        .collect();
-    let stale: Vec<_> = topics
-        .keys()
-        .skip(700)
-        .map(|topic| UploadedTopic {
-            topic: topic.clone(),
-            hmac_epoch_base: Some(epoch - 1),
-            include_commits: false,
-            root_key_fingerprint: vec![3; 32],
-            stale: false,
-        })
-        .collect();
-    let (adds, removes) = diff(&desired, &stale, epoch, &[3; 32], false);
-    assert_eq!(removes.len(), 700);
-    assert_eq!(adds.len(), REQUEST_TOPICS - 700);
-    assert!(adds.iter().all(|topic| desired.contains_key(topic)));
-    assert!(removes.iter().all(|topic| !desired.contains_key(topic)));
+    let topics = synthetic_desired(2100);
+    let uploaded = |list: &[&Vec<u8>], stale| -> Vec<_> {
+        list.iter()
+            .map(|&topic| UploadedTopic {
+                topic: topic.clone(),
+                hmac_epoch_base: Some(epoch - 1),
+                include_commits: false,
+                root_key_fingerprint: vec![3; 32],
+                stale,
+            })
+            .collect()
+    };
+    let keys: Vec<_> = topics.keys().collect();
+    // (desired and not uploaded, desired and uploaded stale, uploaded and not
+    // desired) -> (adds, removes)
+    for (new, stale, unwanted, expected) in [
+        (700, 0, 700, (300, 700)),
+        (0, 0, 1500, (0, REQUEST_TOPICS)),
+        (0, 600, 600, (400, 600)),
+    ] {
+        let (new_topics, rest) = keys.split_at(new);
+        let (stale_topics, rest) = rest.split_at(stale);
+        let desired: Desired = new_topics
+            .iter()
+            .chain(stale_topics)
+            .map(|&topic| (topic.clone(), topics[topic].clone()))
+            .collect();
+        let mut rows = uploaded(stale_topics, true);
+        rows.extend(uploaded(&rest[..unwanted], false));
+        let (adds, removes) = diff(&desired, &rows, epoch, &[3; 32], false);
+        assert_eq!((adds.len(), removes.len()), expected);
+        assert!(adds.iter().all(|topic| desired.contains_key(topic)));
+        assert!(removes.iter().all(|topic| !desired.contains_key(topic)));
+    }
 }
