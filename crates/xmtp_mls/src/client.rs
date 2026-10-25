@@ -1260,17 +1260,22 @@ where
         )
         .await?;
 
-        // Step 5: Fetch and store in local DB (needed for group operations)
-        retry_async!(
+        // Step 5: Fetch and store in local DB (needed for group operations).
+        // Report what was stored even when every attempt fails: the next load
+        // starts after it.
+        let loaded = retry_async!(
             Retry::default(),
             (async {
                 load_identity_updates(self.context.api(), &self.context.db(), &[inbox_id.as_str()])
                     .await
             })
-        )?;
-        self.identity_updates()
+        );
+        let emitted = self
+            .identity_updates()
             .emit_own_installation_updates(&self.context.db(), &inbox_id, before, previous_sequence)
-            .await?;
+            .await;
+        loaded?;
+        emitted?;
 
         // Backend publication order can differ from local generation order.
         crate::state_tx::state_write(self.context.mls_storage(), |tx| {

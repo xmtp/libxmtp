@@ -5,13 +5,13 @@ use crate::{
 };
 use futures::{StreamExt, TryStreamExt, stream};
 use prost::Message;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use xmtp_configuration::MAX_SCW_SIGNATURES_PER_REQUEST;
 use xmtp_proto::{
     api::grpc_status,
     api_client::XmtpBackendClient,
     backend_v1 as wire,
-    types::{ApiIdentifier, Cursor, IdentityUpdateLog, Topic, TopicCursor},
+    types::{ApiIdentifier, Cursor, IdentityUpdateLog, IncomingBatchLimits, Topic, TopicCursor},
     xmtp::identity::associations::{IdentifierKind, IdentityUpdate},
 };
 
@@ -66,37 +66,69 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
                 .unwrap_or(error)),
         }
     }
+    /// Read every update the filters name and return them by inbox, in
+    /// sequence order. Use [`Self::fold_identity_updates`] to store a long
+    /// history without retaining it all.
     #[xmtp_common::rpc_span]
     pub async fn get_identity_updates_v2(
         &self,
         filters: Vec<GetIdentityUpdatesV2Filter>,
     ) -> Result<HashMap<String, Vec<IdentityUpdateLog>>> {
+        let mut result: HashMap<_, Vec<_>> = filters
+            .iter()
+            .map(|filter| (filter.inbox_id.clone(), Vec::new()))
+            .collect();
+        self.fold_identity_updates(filters, IncomingBatchLimits::STREAM_BATCH, |updates| {
+            for update in updates {
+                result
+                    .entry(update.update.inbox_id.clone())
+                    .or_default()
+                    .push(update);
+            }
+            Ok::<_, ApiError>(())
+        })
+        .await?;
+        Ok(result)
+    }
+
+    /// Read the updates the filters name one bounded page at a time, in
+    /// sequence order for each inbox, without retaining earlier pages. Every
+    /// update names one of the filters' inboxes exactly. An API or fold error
+    /// stops the read; the caller stores each page before the next request.
+    pub async fn fold_identity_updates<E: From<ApiError>>(
+        &self,
+        filters: Vec<GetIdentityUpdatesV2Filter>,
+        limits: IncomingBatchLimits,
+        mut fold: impl FnMut(Vec<IdentityUpdateLog>) -> std::result::Result<(), E>,
+    ) -> std::result::Result<(), E> {
         let mut cursors = TopicCursor::new();
-        let mut result = HashMap::new();
-        for filter in filters {
+        for filter in &filters {
             let bytes =
                 hex::decode(&filter.inbox_id).map_err(|_| ApiError::InvalidRequest("inbox id"))?;
             let topic = Topic::new_identity_update(bytes);
-            Topic::parse(&topic)?;
+            Topic::parse(&topic).map_err(ApiError::from)?;
+            let after = Cursor(filter.sequence_id.unwrap_or(0));
             cursors
                 .entry(topic)
-                .and_modify(|cursor| {
-                    *cursor = (*cursor).min(Cursor(filter.sequence_id.unwrap_or(0)))
+                .and_modify(|cursor| *cursor = (*cursor).min(after))
+                .or_insert(after);
+        }
+        let requested: HashSet<_> = filters.iter().map(|filter| &filter.inbox_id).collect();
+        self.fold_ordered_pages(cursors, limits, |batches, _| {
+            let updates = batches
+                .into_iter()
+                .flat_map(|batch| batch.envelopes)
+                .map(|envelope| {
+                    let update = xmtp_api_backend::envelope::decode_identity_update(envelope)?;
+                    if !requested.contains(&update.update.inbox_id) {
+                        return Err(ApiError::InvalidResponse("unrequested inbox"));
+                    }
+                    Ok(update)
                 })
-                .or_insert(Cursor(filter.sequence_id.unwrap_or(0)));
-            result.entry(filter.inbox_id).or_insert_with(Vec::new);
-        }
-        for envelope in self
-            .query_all(cursors, self.limits().max_query_limit as u32)
-            .await?
-        {
-            let update = xmtp_api_backend::envelope::decode_identity_update(envelope)?;
-            result
-                .get_mut(&update.update.inbox_id)
-                .ok_or(ApiError::InvalidResponse("unrequested inbox"))?
-                .push(update);
-        }
-        Ok(result)
+                .collect::<Result<Vec<_>>>()?;
+            fold(updates)
+        })
+        .await
     }
     /// Return one optional inbox id for every input, in the same order.
     #[xmtp_common::rpc_span]

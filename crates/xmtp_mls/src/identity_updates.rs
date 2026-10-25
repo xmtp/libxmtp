@@ -32,13 +32,14 @@ use xmtp_macro::log_event;
 use xmtp_proto::{
     ShortHex,
     api_client::XmtpBackendClient,
-    types::{Cursor, GroupId},
+    types::{Cursor, GroupId, IncomingBatchLimits},
 };
 
 use xmtp_api::{ApiClientWrapper, GetIdentityUpdatesV2Filter};
-use xmtp_id::InboxUpdate;
 
 mod dependencies;
+#[cfg(test)]
+mod paged_load_tests;
 mod state_store;
 pub use dependencies::{IdentityDependencyError, IdentityRequirement, IdentityResolutionRegistry};
 pub(crate) use dependencies::{
@@ -630,22 +631,21 @@ where
         )
         .await?;
 
-        // Load the identity updates for the inbox so that we have a record in our DB
-        retry_async!(
+        // Load the identity updates for the inbox so that we have a record in
+        // our DB. Report what was stored even when every attempt fails: the
+        // next load starts after it.
+        let loaded = retry_async!(
             Retry::default(),
             (async {
                 load_identity_updates(self.context.api(), &self.context.db(), &[inbox_id.as_str()])
                     .await
             })
-        )?;
-
-        self.emit_own_installation_updates(
-            &self.context.db(),
-            &inbox_id,
-            before,
-            previous_sequence,
-        )
-        .await?;
+        );
+        let emitted = self
+            .emit_own_installation_updates(&self.context.db(), &inbox_id, before, previous_sequence)
+            .await;
+        loaded?;
+        emitted?;
 
         Ok(())
     }
@@ -820,11 +820,13 @@ pub(crate) fn required_leaf_removals(
 }
 
 /// Load identity updates and report changes to this client's own installations.
+/// A load that fails after storing some pages still reports the changes those
+/// pages make, because the next load starts after them.
 pub(crate) async fn load_identity_updates_for_client<Context: XmtpSharedContext>(
     context: &Context,
     conn: &impl DbQuery,
     inbox_ids: &[&str],
-) -> Result<HashMap<String, Vec<InboxUpdate>>, ClientError> {
+) -> Result<(), ClientError> {
     let own_inbox = context.inbox_id();
     let includes_own = inbox_ids.contains(&own_inbox);
     let _own_refresh = if includes_own {
@@ -850,23 +852,49 @@ pub(crate) async fn load_identity_updates_for_client<Context: XmtpSharedContext>
     } else {
         None
     };
-    let updates = load_identity_updates(context.api(), conn, inbox_ids).await?;
-    IdentityUpdates::new(context)
+    let loaded = store_identity_update_pages(
+        context.api(),
+        conn,
+        inbox_ids,
+        context.incoming_runtime().policy().fetched_limits(),
+    )
+    .await;
+    let emitted = IdentityUpdates::new(context)
         .emit_own_installation_updates(conn, own_inbox, before, previous_sequence)
-        .await?;
-    Ok(updates)
+        .await;
+    loaded?;
+    emitted
 }
 
-/// For the given list of `inbox_id`s get all updates from the network that are newer than the last known `sequence_id`,
-/// write them in the db, and return the updates
+/// Store every identity update of `inbox_ids` newer than the latest stored
+/// one of each inbox.
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn load_identity_updates<ApiClient: XmtpApi>(
     api_client: &ApiClientWrapper<ApiClient>,
     conn: &impl xmtp_db::DbQuery,
     inbox_ids: &[&str],
-) -> Result<HashMap<String, Vec<InboxUpdate>>, ClientError> {
+) -> Result<(), ClientError> {
+    store_identity_update_pages(
+        api_client,
+        conn,
+        inbox_ids,
+        IncomingBatchLimits::STREAM_BATCH,
+    )
+    .await
+}
+
+/// Read the updates of `inbox_ids` after the latest stored one of each inbox,
+/// one bounded page at a time, and store each page before the next request.
+/// A failure leaves each inbox with a stored prefix of its log, and the next
+/// load resumes after it.
+async fn store_identity_update_pages<ApiClient: XmtpApi>(
+    api_client: &ApiClientWrapper<ApiClient>,
+    conn: &impl DbQuery,
+    inbox_ids: &[&str],
+    limits: IncomingBatchLimits,
+) -> Result<(), ClientError> {
     if inbox_ids.is_empty() {
-        return Ok(HashMap::new());
+        return Ok(());
     }
     tracing::debug!("Fetching identity updates for: {:?}", inbox_ids);
 
@@ -878,42 +906,30 @@ pub async fn load_identity_updates<ApiClient: XmtpApi>(
             inbox_id: inbox_id.to_string(),
         })
         .collect();
-
-    let updates = api_client.get_identity_updates_v2(filters).await?;
-    let updates = updates
-        .into_iter()
-        .map(|(inbox_id, entries)| {
-            let entries = entries
+    api_client
+        .fold_identity_updates(filters, limits, |page| {
+            let page = page
                 .into_iter()
                 .map(|entry| {
-                    Ok(InboxUpdate {
-                        sequence_id: entry
-                            .meta
-                            .cursor
-                            .ok_or(xmtp_api::ApiError::InvalidResponse("identity cursor"))?
-                            .sequence_id,
-                        server_timestamp_ns: entry.meta.server_ns,
-                        update: entry.update.try_into()?,
+                    let sequence_id = entry
+                        .meta
+                        .cursor
+                        .ok_or(xmtp_api::ApiError::InvalidResponse("identity cursor"))?
+                        .sequence_id;
+                    let inbox_id = entry.update.inbox_id.clone();
+                    let update: UnverifiedIdentityUpdate = entry.update.try_into()?;
+                    Ok(StoredIdentityUpdate {
+                        inbox_id,
+                        sequence_id: sequence_id as i64,
+                        server_timestamp_ns: entry.meta.server_ns as i64,
+                        payload: update.into(),
                     })
                 })
                 .collect::<Result<Vec<_>, ClientError>>()?;
-            Ok((inbox_id, entries))
+            conn.insert_or_ignore_identity_updates(&page)?;
+            Ok(())
         })
-        .collect::<Result<HashMap<_, _>, ClientError>>()?;
-    let to_store = updates
-        .iter()
-        .flat_map(move |(inbox_id, updates)| {
-            updates.iter().map(move |update| StoredIdentityUpdate {
-                inbox_id: inbox_id.clone(),
-                sequence_id: update.sequence_id as i64,
-                server_timestamp_ns: update.server_timestamp_ns as i64,
-                payload: update.update.clone().into(),
-            })
-        })
-        .collect::<Vec<StoredIdentityUpdate>>();
-
-    conn.insert_or_ignore_identity_updates(&to_store)?;
-    Ok(updates)
+        .await
 }
 
 /// A static lookup method to verify if an identity is a member of an inbox

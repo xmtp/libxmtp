@@ -12,6 +12,15 @@ pub struct IncomingBatchLimits {
     pub max_bytes: usize,
 }
 
+impl IncomingBatchLimits {
+    /// One fetched page of the default client stream policy, for a reader
+    /// that holds no client policy.
+    pub const STREAM_BATCH: Self = Self {
+        max_rows: xmtp_configuration::STREAM_BATCH_ROWS as usize,
+        max_bytes: xmtp_configuration::STREAM_BATCH_BYTES as usize,
+    };
+}
+
 trait ReceiptSink: MaybeSend + MaybeSync {
     fn acknowledge(&self, cursors: TopicCursor);
 }
