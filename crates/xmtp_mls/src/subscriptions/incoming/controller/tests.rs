@@ -31,7 +31,7 @@ async fn internal_interest_does_not_change_client_connection_state() {
     assert!(events.drain().is_empty());
 }
 use crate::{
-    groups::welcome_sync::{HeldReadd, WelcomeHeadOutcome, WelcomeService, held_readd},
+    groups::welcome_sync::{HeldReadd, WelcomeService, held_readd},
     test::mock::context,
     tester,
 };
@@ -1276,11 +1276,14 @@ async fn expired_prefix_wait_rejects_below_a_reached_final_target() {
 
 /// Another process has already processed the removal, so this controller has
 /// not retired the group. A newest read below the anchor that processing has
-/// reached must not reject the re-add: the group is no longer active, and a
-/// later attempt joins.
+/// reached must not reject the re-add: the group is no longer active. The
+/// controller releases the hold and joins on a later attempt.
 // verifies: JOIN-092
 #[xmtp_common::test(unwrap_try = true)]
 async fn expired_prefix_wait_keeps_a_welcome_for_an_inactive_group() {
+    use diesel::{ExpressionMethods, QueryDsl, RunQueryDsl};
+    use xmtp_db::{ConnectionExt, refresh_state::EntityKind, schema::incoming_envelopes};
+
     tester!(alix, disable_workers);
     tester!(bo, disable_workers);
     let PrefixDeadlineRestart {
@@ -1315,13 +1318,25 @@ async fn expired_prefix_wait_keeps_a_welcome_for_an_inactive_group() {
             .is_some()
     );
     assert!(bo.context.db().read_last_rejection(&welcome_key)?.is_none());
-    assert!(matches!(
-        WelcomeService::new(bo.context.clone()).retry_pending_welcome(welcome, None)?,
-        WelcomeHeadOutcome::Progress {
-            result: Ok(Some(_)),
-            ..
-        }
-    ));
+
+    // Once its retry time comes, the next pass attempts the Welcome again.
+    bo.context.db().raw_query(|conn| {
+        diesel::update(incoming_envelopes::table.find((
+            bo.context.installation_id().to_vec(),
+            EntityKind::Welcome,
+            welcome.0 as i64,
+        )))
+        .set(incoming_envelopes::retry_at_ns.eq(0i64))
+        .execute(conn)
+    })?;
+    assert!(controller.process_ready());
+    assert!(
+        bo.context
+            .db()
+            .pending_envelope(&welcome_key, welcome)?
+            .is_none()
+    );
+    assert!(bo.context.db().read_last_rejection(&welcome_key)?.is_none());
     assert_eq!(
         bo_group.epoch_authenticator().await?,
         alix_group.epoch_authenticator().await?
