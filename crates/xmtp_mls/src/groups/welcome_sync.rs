@@ -1685,8 +1685,20 @@ mod tests {
         assert!(db.read_last_rejection(&service.topic()).unwrap().is_none());
     }
 
-    /// Query failures obey the same fixed fetch window as absent pointees,
-    /// including rows persisted as welcome_retry by older clients. An existing
+    /// How the backend fails a pointee query.
+    #[derive(Clone, Copy, Debug)]
+    enum PointeeQueryFailure {
+        Unavailable,
+        Denied,
+        /// A row whose metadata the ordered read rejects. That is a backend
+        /// fault, not a property of the pointee, unlike a first row whose
+        /// payload does not decode.
+        BadMetadata,
+    }
+
+    /// Query failures, including a response with invalid metadata, obey the
+    /// same fixed fetch window as absent pointees, including rows persisted as
+    /// welcome_retry by older clients. An existing
     /// unreadable hold keeps its own deadline through transport failures.
     // verifies: JOIN-094, JOIN-087, JOIN-063, JOIN-035
     #[rstest]
@@ -1697,8 +1709,15 @@ mod tests {
     async fn pointer_query_errors_have_bounded_retention(
         #[case] prior_code: Option<&'static str>,
         #[case] unreadable: bool,
-        #[values(false, true)] retryable: bool,
+        #[values(
+            PointeeQueryFailure::Unavailable,
+            PointeeQueryFailure::Denied,
+            PointeeQueryFailure::BadMetadata
+        )]
+        failure: PointeeQueryFailure,
     ) {
+        use xmtp_proto::backend_v1 as wire;
+        let retryable = matches!(failure, PointeeQueryFailure::Unavailable);
         use diesel::{ExpressionMethods, QueryDsl, RunQueryDsl};
         use xmtp_db::{ConnectionExt, schema::incoming_envelopes};
 
@@ -1747,13 +1766,34 @@ mod tests {
         .unwrap();
 
         let mut api = xmtp_api_backend::MockBackendClient::new();
-        api.expect_query().returning(move |_| {
-            Err(xmtp_proto::api::ApiClientError::client(
-                xmtp_api_grpc::error::GrpcError::Status(if retryable {
+        api.expect_query().returning(move |request| {
+            let status = match failure {
+                PointeeQueryFailure::Unavailable => {
                     tonic::Status::unavailable("pointee query unavailable")
-                } else {
+                }
+                PointeeQueryFailure::Denied => {
                     tonic::Status::permission_denied("pointee query denied")
-                }),
+                }
+                PointeeQueryFailure::BadMetadata => {
+                    // The hash is one byte short of SHA-256.
+                    return Ok(wire::QueryResponse {
+                        envelopes: vec![wire::ServerEnvelope {
+                            meta: Some(wire::EnvelopeMeta {
+                                topic: request.queries[0].topic.clone(),
+                                cursor: Some(wire::Cursor { sequence_id: 1 }),
+                                message_hash: Some(wire::MessageHash {
+                                    hash: Some(wire::message_hash::Hash::Sha256(vec![7; 31])),
+                                }),
+                                ..Default::default()
+                            }),
+                            envelope: None,
+                        }],
+                        continuation: Some(wire::Continuation { has_more: false }),
+                    });
+                }
+            };
+            Err(xmtp_proto::api::ApiClientError::client(
+                xmtp_api_grpc::error::GrpcError::Status(status),
             ))
         });
         let failing_client = crate::builder::ClientBuilder::from_client(bo.client.clone())
