@@ -56,19 +56,11 @@ impl WelcomeMembership {
                 ))
             })
             .collect::<Result<_, GroupError>>()?;
-        Ok(Self::from_parts(membership, failed, members))
-    }
-
-    fn from_parts(
-        membership: GroupMembership,
-        failed: FailedInstallations,
-        members: Vec<(String, Vec<u8>)>,
-    ) -> Self {
-        Self {
+        Ok(Self {
             membership,
             failed,
             members,
-        }
+        })
     }
 
     fn requirements(&self) -> impl Iterator<Item = IdentityRequirement> + '_ {
@@ -265,7 +257,11 @@ mod tests {
                 .collect::<BTreeMap<_, _>>();
             let (membership, failed) =
                 membership_entries(&encode_group_membership_dict(&entries)?)?;
-            let welcome = WelcomeMembership::from_parts(membership, failed, members.clone());
+            let welcome = WelcomeMembership {
+                membership,
+                failed,
+                members: members.clone(),
+            };
             let result = validator.check_initial_membership(&welcome).await;
             if owner == bo.inbox_id() {
                 result?;

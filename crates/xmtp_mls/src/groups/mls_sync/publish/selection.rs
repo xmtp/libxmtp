@@ -178,6 +178,7 @@ impl SelectionRequirements {
     fn membership(
         &self,
         omitted: &mut HashSet<usize>,
+        conflicts: &mut HashSet<usize>,
         own_payload: Option<&[u8]>,
         same_request: &HashSet<usize>,
     ) -> Result<(GroupMembership, FailedInstallations), GroupError> {
@@ -204,8 +205,9 @@ impl SelectionRequirements {
                     )) => {
                         // Each proposal was accepted against the committed
                         // dictionary. Concurrent Insert/Delete deltas can conflict.
-                        // Keep one whole delta, then recompute its tree changes.
-                        omitted.insert(index);
+                        // Retry this delta if an earlier invalid delta is later omitted.
+                        // Otherwise the first valid delta keeps precedence.
+                        conflicts.insert(index);
                     }
                     Err(error) => return Err(error.into()),
                 }
@@ -214,7 +216,9 @@ impl SelectionRequirements {
         // The builder reuses an equivalent accepted delta. Otherwise it appends
         // its own encoded delta, which can be empty after a competing commit.
         if let Some(payload) = own_payload
-            && !same_request.iter().any(|index| !omitted.contains(index))
+            && !same_request
+                .iter()
+                .any(|index| !omitted.contains(index) && !conflicts.contains(index))
         {
             bytes = GroupMembershipComponent::apply_update_payload(payload, Some(&bytes))
                 .map_err(ComponentSourceError::from)?;
@@ -479,8 +483,10 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
             selection
                 .omitted
                 .retain(|index| membership_operation(&requirements.proposals[*index]).is_some());
+            let mut conflicts = HashSet::new();
             let (target, new_failed) = requirements.membership(
                 &mut selection.omitted,
+                &mut conflicts,
                 own_payload.as_deref(),
                 &same_request,
             )?;
@@ -702,6 +708,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
             if changed {
                 continue;
             }
+            selection.omitted.extend(conflicts);
             selection.replacements = replacements;
             return Ok(selection);
         }

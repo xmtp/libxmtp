@@ -5,13 +5,11 @@
 
 use std::collections::HashSet;
 
-use crate::builder::ClientBuilder;
 use crate::groups::GroupError;
 use crate::groups::intents::QueueIntent;
 use crate::tester;
 use crate::utils::TestMlsGroup;
 use crate::utils::test_mocks_helpers::set_test_mode_upload_malformed_keypackage;
-use xmtp_cryptography::utils::generate_local_wallet;
 use xmtp_cryptography::{CredentialSign, XmtpInstallationCredential};
 use xmtp_db::group::GroupQueryArgs;
 use xmtp_id::associations::builder::SignatureRequestBuilder;
@@ -19,6 +17,13 @@ use xmtp_id::associations::test_utils::{WalletTestExt, add_wallet_signature};
 use xmtp_id::associations::unverified::UnverifiedSignature;
 use xmtp_id::associations::{InstallationKeyContext, MemberIdentifier};
 use xmtp_mls_validation::commit::extract_group_membership;
+
+struct RestoreKeyPackages;
+impl Drop for RestoreKeyPackages {
+    fn drop(&mut self) {
+        set_test_mode_upload_malformed_keypackage(false, None);
+    }
+}
 
 /// Requirement: when the backend serves no key package for one of an inbox's
 /// installations, the sender adds the inbox with its other installations and
@@ -29,39 +34,44 @@ use xmtp_mls_validation::commit::extract_group_membership;
 #[xmtp_common::test(unwrap_try = true)]
 async fn missing_package_is_recorded() {
     tester!(alix);
+    tester!(bo);
     tester!(caro);
-    let bo_wallet = generate_local_wallet();
-    let bo = ClientBuilder::new_test_client(&bo_wallet).await;
 
-    // A sibling installation that joins bo's inbox but never publishes a key package.
+    // The same absent installation belongs to both inboxes; both retain a primary.
     let absent = XmtpInstallationCredential::new();
     let absent_id = absent.public_slice().to_vec();
-    let mut request = SignatureRequestBuilder::new(bo.inbox_id())
-        .add_association(
-            MemberIdentifier::installation(absent_id.clone()),
-            bo_wallet.identifier().into(),
-        )
-        .build();
-    let signature = absent.credential_sign::<InstallationKeyContext>(request.signature_text())?;
-    request
-        .add_signature(
-            UnverifiedSignature::new_installation_key(signature, absent.verifying_key()),
-            &bo.context.scw_verifier(),
-        )
-        .await?;
-    add_wallet_signature(&mut request, &bo_wallet).await;
-    bo.identity_updates()
-        .apply_signature_request(request)
-        .await?;
+    for member in [&bo, &caro] {
+        let mut request = SignatureRequestBuilder::new(member.inbox_id())
+            .add_association(
+                MemberIdentifier::installation(absent_id.clone()),
+                member.builder.owner.identifier().into(),
+            )
+            .build();
+        let signature =
+            absent.credential_sign::<InstallationKeyContext>(request.signature_text())?;
+        request
+            .add_signature(
+                UnverifiedSignature::new_installation_key(signature, absent.verifying_key()),
+                &member.context.scw_verifier(),
+            )
+            .await?;
+        add_wallet_signature(&mut request, &member.builder.owner).await;
+        member
+            .identity_updates()
+            .apply_signature_request(request)
+            .await?;
+    }
 
     let alix_group = alix
         .create_group_with_members(&[bo.inbox_id(), caro.inbox_id()], None, None)
         .await?;
 
-    let (membership, leaves) = alix_group
+    let ((membership, failed), leaves) = alix_group
         .load_mls_group_with_lock_async(async |mls_group| {
             Ok::<_, GroupError>((
-                extract_group_membership(mls_group.extensions())?,
+                xmtp_mls_validation::commit::extract_group_membership_with_failures(
+                    mls_group.extensions(),
+                )?,
                 mls_group
                     .members()
                     .map(|member| member.signature_key)
@@ -70,37 +80,52 @@ async fn missing_package_is_recorded() {
         })
         .await?;
     assert_eq!(
-        membership.failed_installations,
-        vec![absent_id.clone()],
+        membership
+            .failed_installations
+            .iter()
+            .collect::<HashSet<_>>(),
+        HashSet::from([&absent_id]),
         "the installation with no key package must be recorded as failed"
     );
     assert!(
-        leaves.contains(bo.installation_public_key().as_slice()),
-        "bo's sibling with a valid key package must still be added"
-    );
-    assert!(
         !leaves.contains(&absent_id),
-        "the installation with no key package must have no leaf"
+        "the absent installation must have no leaf"
     );
-    let bo_state = bo
-        .identity_updates()
-        .get_latest_association_state(&bo.context.db(), bo.inbox_id())
+    for joiner in [&bo, &caro] {
+        assert!(leaves.contains(joiner.installation_public_key().as_slice()));
+        assert!(
+            failed
+                .of(joiner.inbox_id())
+                .is_some_and(|keys| keys.contains(&absent_id)),
+            "each inbox that owns the absent installation must list its failure"
+        );
+        let state = joiner
+            .identity_updates()
+            .get_latest_association_state(&joiner.context.db(), joiner.inbox_id())
+            .await?;
+        assert_eq!(state.installation_ids().len(), 2);
+        assert!(state.installation_ids().iter().all(|key| {
+            leaves.contains(key)
+                || failed
+                    .of(joiner.inbox_id())
+                    .is_some_and(|keys| keys.contains(key))
+        }));
+    }
+    for joiner in [&bo, &caro] {
+        xmtp_common::wait_for_eq(
+            || async {
+                joiner.sync_welcomes().await.unwrap();
+                joiner
+                    .group(&alix_group.group_id)
+                    .is_ok_and(|group| group.is_active().unwrap())
+            },
+            true,
+        )
         .await?;
-    assert_eq!(bo_state.installation_ids().len(), 2);
-    assert!(
-        bo_state
-            .installation_ids()
-            .iter()
-            .all(|id| leaves.contains(id) || membership.failed_installations.contains(id)),
-        "every installation in bo's identity state must be a leaf or a failed installation"
-    );
-
-    for joiner in [&*caro, &bo] {
-        joiner.sync_welcomes().await?;
         assert_eq!(
             joiner.find_groups(GroupQueryArgs::default())?.len(),
             1,
-            "a joiner must accept a Welcome whose membership accounts for the absent installation"
+            "a joiner must accept a Welcome that accounts for every inbox's absent installation"
         );
     }
 }
@@ -230,12 +255,6 @@ async fn failed_key_package_publish_log_omits_installation_ids() {
             Ok(())
         }
     }
-    struct RestoreKeyPackages;
-    impl Drop for RestoreKeyPackages {
-        fn drop(&mut self) {
-            set_test_mode_upload_malformed_keypackage(false, None);
-        }
-    }
 
     tester!(alix);
     tester!(bo);
@@ -308,87 +327,40 @@ async fn failed_key_package_publish_log_omits_installation_ids() {
     );
 }
 
-// verifies: PERM-030, PERM-015
+// verifies: GMOD-047, PERM-030, PERM-015
+#[rstest::rstest]
+#[case::direct(false)]
+#[case::pending_by_other_member(true)]
 #[xmtp_common::test(unwrap_try = true)]
-async fn failed_only_inbox_can_be_removed() {
-    struct RestoreKeyPackages;
-    impl Drop for RestoreKeyPackages {
-        fn drop(&mut self) {
-            set_test_mode_upload_malformed_keypackage(false, None);
-        }
-    }
-
-    tester!(alix);
-    tester!(bo);
-    tester!(caro);
-    let group = alix
-        .create_group_with_members(&[bo.inbox_id(), caro.inbox_id()], None, None)
-        .await?;
-
-    let bo_installation = bo.context.installation_id().to_vec();
-    let _restore = RestoreKeyPackages;
-    set_test_mode_upload_malformed_keypackage(true, Some(vec![bo_installation.clone()]));
-    group
-        .readd_installations(vec![bo_installation.clone()])
-        .await?;
-
-    let (membership, leaves) = group
-        .load_mls_group_with_lock_async(async |mls_group| {
-            Ok::<_, GroupError>((
-                extract_group_membership(mls_group.extensions())?,
-                mls_group
-                    .members()
-                    .map(|member| member.signature_key)
-                    .collect::<HashSet<_>>(),
-            ))
-        })
-        .await?;
-    assert!(membership.get(bo.inbox_id()).is_some());
-    assert!(membership.failed_installations.contains(&bo_installation));
-    assert!(!leaves.contains(&bo_installation));
-
-    assert_eq!(group.members().await?.len(), 3);
-    group.remove_members(&[bo.inbox_id()]).await?;
-    let membership = group
-        .load_mls_group_with_lock_async(async |mls| {
-            Ok::<_, GroupError>(extract_group_membership(mls.extensions())?)
-        })
-        .await?;
-    assert!(membership.get(bo.inbox_id()).is_none());
-    assert_eq!(group.members().await?.len(), 2);
-}
-
-// verifies: GMOD-047, PERM-030
-#[xmtp_common::test(unwrap_try = true)]
-async fn pending_leafless_delete_is_committed() {
+async fn leafless_inbox_removal_uses_delete_proposer(
+    #[case] pending: bool,
+) -> Result<(), GroupError> {
     use xmtp_db::incoming_envelope::QueryIncomingEnvelope;
-    struct RestoreKeyPackages;
-    impl Drop for RestoreKeyPackages {
-        fn drop(&mut self) {
-            set_test_mode_upload_malformed_keypackage(false, None);
-        }
-    }
-
     tester!(alix);
     tester!(bo);
     tester!(caro);
     let group = alix
         .create_group_with_members(&[bo.inbox_id(), caro.inbox_id()], None, None)
         .await?;
-
-    let bo_installation = bo.context.installation_id().to_vec();
+    tester!(bo2, from: bo, disable_workers);
+    let revoked_installation = bo.context.installation_id().to_vec();
+    let mut revoke = bo
+        .identity_updates()
+        .revoke_installations(vec![revoked_installation.clone()])
+        .await?;
+    add_wallet_signature(&mut revoke, &bo.builder.owner).await;
+    bo.identity_updates()
+        .apply_signature_request(revoke)
+        .await?;
+    let bo_installation = bo2.context.installation_id().to_vec();
     let _restore = RestoreKeyPackages;
     set_test_mode_upload_malformed_keypackage(true, Some(vec![bo_installation.clone()]));
-    group
-        .readd_installations(vec![bo_installation.clone()])
-        .await?;
-
+    group.add_missing_installations().await?;
     let (membership, leaves) = group
-        .load_mls_group_with_lock_async(async |mls_group| {
+        .load_mls_group_with_lock_async(async |mls| {
             Ok::<_, GroupError>((
-                extract_group_membership(mls_group.extensions())?,
-                mls_group
-                    .members()
+                extract_group_membership(mls.extensions())?,
+                mls.members()
                     .map(|member| member.signature_key)
                     .collect::<HashSet<_>>(),
             ))
@@ -397,20 +369,59 @@ async fn pending_leafless_delete_is_committed() {
     assert!(membership.get(bo.inbox_id()).is_some());
     assert!(membership.failed_installations.contains(&bo_installation));
     assert!(!leaves.contains(&bo_installation));
-
-    caro.sync_welcomes().await?;
+    assert!(!leaves.contains(&revoked_installation));
+    assert_eq!(group.members().await?.len(), 3);
+    xmtp_common::wait_for_eq(
+        || async {
+            caro.sync_welcomes().await.unwrap();
+            caro.group(&group.group_id)
+                .is_ok_and(|group| group.is_active().unwrap())
+        },
+        true,
+    )
+    .await
+    .unwrap();
     let caro_group = caro.group(&group.group_id)?;
     caro_group.sync().await?;
-    let intent = QueueIntent::propose_member_update()
-        .data(Vec::<u8>::try_from(
-            crate::groups::intents::ProposeMemberUpdateIntentData::new(
-                vec![],
-                vec![bo.inbox_id().to_string()],
-            ),
-        )?)
-        .queue(&group)?;
-    group.sync_until_intent_resolved(intent.id).await?;
-    let cursor = group
+    if pending {
+        // Caro commits Alix's authorized proposal; Caro is not an admin.
+        let intent = QueueIntent::propose_member_update()
+            .data(Vec::<u8>::try_from(
+                crate::groups::intents::ProposeMemberUpdateIntentData::new(
+                    vec![],
+                    vec![bo.inbox_id().to_string()],
+                ),
+            )?)
+            .queue(&group)?;
+        group.sync_until_intent_resolved(intent.id).await?;
+        let cursor = group
+            .context
+            .db()
+            .topic_progress(&xmtp_db::incoming_envelope::StreamTopic::group(
+                group.group_id,
+            ))?
+            .processed;
+        crate::subscriptions::barrier::wait_through(
+            &caro_group.context,
+            [(
+                xmtp_proto::types::Topic::new_group_message(group.group_id),
+                cursor,
+            )]
+            .into(),
+            None,
+        )
+        .await?;
+        let intent = QueueIntent::commit_pending_proposals().queue(&caro_group)?;
+        caro_group.sync_until_intent_resolved(intent.id).await?;
+    } else {
+        group.remove_members(&[bo.inbox_id()]).await?;
+    }
+    let (author, receiver) = if pending {
+        (&caro_group, &group)
+    } else {
+        (&group, &caro_group)
+    };
+    let cursor = author
         .context
         .db()
         .topic_progress(&xmtp_db::incoming_envelope::StreamTopic::group(
@@ -418,26 +429,7 @@ async fn pending_leafless_delete_is_committed() {
         ))?
         .processed;
     crate::subscriptions::barrier::wait_through(
-        &caro_group.context,
-        [(
-            xmtp_proto::types::Topic::new_group_message(group.group_id),
-            cursor,
-        )]
-        .into(),
-        None,
-    )
-    .await?;
-    let intent = QueueIntent::commit_pending_proposals().queue(&caro_group)?;
-    caro_group.sync_until_intent_resolved(intent.id).await?;
-    let cursor = caro_group
-        .context
-        .db()
-        .topic_progress(&xmtp_db::incoming_envelope::StreamTopic::group(
-            group.group_id,
-        ))?
-        .processed;
-    crate::subscriptions::barrier::wait_through(
-        &group.context,
+        &receiver.context,
         [(
             xmtp_proto::types::Topic::new_group_message(group.group_id),
             cursor,
@@ -455,4 +447,5 @@ async fn pending_leafless_delete_is_committed() {
         assert!(membership.get(bo.inbox_id()).is_none());
         assert_eq!(member_group.members().await?.len(), 2);
     }
+    Ok(())
 }
