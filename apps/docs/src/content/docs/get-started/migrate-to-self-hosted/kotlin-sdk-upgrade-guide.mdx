@@ -56,6 +56,8 @@ Keep Android core library desugaring enabled. The SDK requires API 23 or later a
 | `GroupMembershipState`                                                     | `MembershipState`; the allowed/rejected/pending/restored/pending-remove values remain                                                                                                                                                                                                                                                         |
 | `Conversation.Type`, `Conversations.ConversationFilterType`                | `ConversationKind`; omit the kind to select both groups and DMs                                                                                                                                                                                                                                                                               |
 
+`reactions` holds at most the 50 latest reaction messages to a message. `reactionMessageCount` counts every unexpired reaction message to it, removals included, so it is not a per-emoji tally. Read older reactions with `messageReactions(messageId, before, limit)`. See [Reactions](/sdk/read/#reactions).
+
 Many old client and conversation properties are now methods. For example, use `client.inboxId()`, `client.installationId()`, `client.identity()`, `client.preferences()`, `group.id()`, and `group.createdAt()`. `client.conversations` remains a property. Message fields remain properties, such as `message.id` and `message.sentAt`.
 
 ## Client creation, storage, and signing
@@ -295,8 +297,8 @@ suspend fun conversations(client: SDKClient, peer: InboxId): Group {
 
 `Conversation` is still a tagged group or DM value. Match `Conversation.Group` and `.Dm` to use a group-only or DM-only operation. Shared generated forwarding methods support common conversation operations.
 
-Conversation lists now default to creation time instead of last activity.
-Set `orderBy = ConversationOrder.LAST_ACTIVITY` to retain the old sort key.
+Conversation lists sort by last activity when you pass no `orderBy`.
+Conversation lists return at most 100 conversations when you pass no `limit`. A `limit` below 1 or above 1000 fails with `InvalidArgument`. To read every conversation, order by creation time and pass the last conversation's `createdAt()` as `createdBefore` and its ID as `beforeId`. See [Paginate conversations](/sdk/read/#paginate-conversations).
 Message lists now default to ascending order instead of descending order.
 Set `direction = MessageOrder.DESCENDING` to retain newest-first message order.
 

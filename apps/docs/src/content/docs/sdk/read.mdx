@@ -24,12 +24,6 @@ Time filters use `Timestamp` values. A `Timestamp` has an `ns` field for nanosec
 
 `countMessages(options)` returns a count without loading messages. It accepts `ListMessagesOptions`, but ignores `limit`, `direction`, and `sortBy`.
 
-### Reactions
-
-`message.reactions` holds at most the 50 latest reaction messages to a message, oldest first. `reactionMessageCount` counts every unexpired reaction message to it, including removals and reactions that do not decode, so it is not a per-emoji tally. A UI that tallies from `message.reactions` undercounts a message with more than 50 reaction messages.
-
-To read the rest, call `conversation.messageReactions(messageId, before, limit)`. It returns reaction messages newest first, at most `limit` (1 to 1000, default 50). For the next page, pass the last returned reaction's ID as `before`. If that reaction expires or is deleted between two calls, the call fails with `InvalidArgument`; start again from the newest reaction.
-
 <Tabs syncKey="sdk">
 <TabItem label="Browser">
 
@@ -66,6 +60,14 @@ let messages = try await conversation.messages(options: ListMessagesOptions(limi
 </Tabs>
 
 Read the message's `content` value and handle its content kind. For a reply, also inspect `replyContent` or `inReplyToContent`.
+
+### Reactions
+
+`message.reactions` holds at most the 50 latest reaction messages to a message, oldest first. `reactionMessageCount` counts every unexpired reaction message to it, including removals, so it is not a per-emoji tally. A UI that tallies from `message.reactions` undercounts a message with more than 50 reaction messages.
+
+To read the rest, call `messageReactions(messageId, before, limit)` on the conversation. It returns reaction messages newest first, at most `limit` (1 to 1000, default 50). For the next page, pass the last returned reaction's ID as `before`. A deleted or expired message has no reactions to read.
+
+The cursor is the reaction's current position. If that reaction expires or is deleted between two calls, the call fails with `InvalidArgument`; start again from the newest reaction. If it is your own reaction and it is published between two calls, it moves to the time the backend gives it, so the next page can repeat or skip reactions.
 
 ### Paginate messages
 
@@ -195,7 +197,7 @@ These options are available on all five platform SDKs. Time bounds use `Timestam
 
 A list returns conversations newest first, by listing time and then by conversation ID. To read every conversation once, set `orderBy` to creation time. For the next page, pass the last conversation's `createdAt` as `createdBefore` and its ID as `beforeId`. A time alone skips conversations that share the boundary time.
 
-In last-activity order, pass the last conversation's `lastActivityAt()` as `lastActivityBefore` and its ID as `beforeId`. A conversation whose activity changes between two pages, because a message arrives or expires, can be returned twice or skipped.
+In last-activity order, pass the last conversation's `lastActivityAt()` as `lastActivityBefore` and its ID as `beforeId`. A conversation whose activity changes between two pages, because a message arrives or expires, can be returned twice or skipped. The cursor is read after the page, so a change to the last conversation moves it: a message that arrives there makes the next page repeat conversations, and its newest message expiring makes the next page skip conversations whose activity did not change.
 
 Creation order can also return a DM twice or skip it when a message in another group of the same DM changes which group the list shows. A restored group whose Welcome arrives between two pages can be skipped. `beforeId` without the before time that matches `orderBy` fails with `InvalidArgument`.
 

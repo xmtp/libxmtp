@@ -346,10 +346,11 @@ func recentGroups(client: SDKClient, afterNs: Int64) async throws -> [Group] {
 }
 ```
 
-Conversation lists now default to creation time instead of last activity.
-Set `orderBy` explicitly to retain the old order. Message lists now default to
-ascending order instead of descending order. Set `direction` explicitly when
-newest-first order is required.
+Conversation lists sort by last activity when you pass no `orderBy`.
+Conversation lists return at most 100 conversations when you pass no `limit`. A `limit` below 1 or above 1000 fails with `InvalidArgument`. To read every conversation, order by creation time and pass the last conversation's `createdAt()` as `createdBefore` and its ID as `beforeId`. See [Paginate conversations](/sdk/read/#paginate-conversations).
+
+Message lists now default to ascending order instead of descending order. Set
+`direction` explicitly when newest-first order is required.
 
 ## Read conversation and group state
 
@@ -578,6 +579,8 @@ func messageText(_ message: Message) -> String? {
 | `Reply.inReplyTo`                                                      | `inReplyTo: ReplyParent?`, `inReplyToContent`, `replyContent` | Parent and body use typed records/enums.                                               |
 | `kind: FfiConversationMessageKind`                                     | `kind: MessageKind`                                           | Keep `.application` and `.membershipChange`.                                           |
 | No matching old field                                                  | `replyCount: UInt64`, `deliveryCursor: String?`               | Reply totals and replay position are explicit.                                         |
+
+`reactions` holds at most the 50 latest reaction messages to a message. `reactionMessageCount` counts every unexpired reaction message to it, removals included, so it is not a per-emoji tally. Read older reactions with `messageReactions(messageId, before, limit)`. See [Reactions](/sdk/read/#reactions).
 
 A custom decode failure is a result, not a failed message list. `.custom` holds `encoded`, `rawBytes`, optional decoded `value`, and optional `ErrorDetails`. `.unknown` holds the optional envelope, bytes, and an error. A standard result is `MessageContent`, including text, markdown, reaction, reply, attachment, group update, leave request, or deletion.
 
