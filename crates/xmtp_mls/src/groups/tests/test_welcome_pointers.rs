@@ -592,6 +592,182 @@ async fn test_welcome_pointer_resolution_to_another_welcome_pointer() {
         .unwrap_err();
 }
 
+/// Anyone who learns a pointee's destination can publish to it, so only the
+/// lowest-sequence row there counts. Caro, neither sender nor recipient,
+/// writes an undecodable row, which the backend accepts. After the real
+/// pointee it changes nothing; before it, it is the pointee, and the pointer
+/// is rejected at once.
+// verifies: JOIN-032, JOIN-048
+#[rstest::rstest]
+#[case::later_invalid_pointee_does_not_block_the_first(false)]
+#[case::malformed_first_pointee_is_rejected(true)]
+#[xmtp_common::test]
+async fn only_the_first_pointee_row_counts(#[case] junk_first: bool) {
+    use crate::groups::GroupError;
+    use crate::groups::welcome_sync::{
+        WelcomeHeadOutcome, WelcomeService, pending_welcome_for_test,
+    };
+    use xmtp_proto::backend_v1::welcome_message::{V1, Version, WelcomePointer};
+
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    tester!(caro, disable_workers);
+
+    let bo_key_package = bo
+        .context
+        .identity()
+        .new_key_package(&bo.context.mls_provider(), true)
+        .unwrap();
+    let bo_hpke_public_key = bo_key_package.pq_pub_key.as_deref().unwrap();
+    let group = crate::groups::MlsGroup::create_and_insert(
+        alix.context.clone(),
+        xmtp_db::group::ConversationType::Group,
+        crate::groups::group_permissions::PolicySet::default(),
+        xmtp_mls_common::group::GroupMetadataOptions::default(),
+        None,
+    )
+    .unwrap();
+    group.sync().await.unwrap();
+    let (welcome_message, join_anchor) =
+        publish_commit_without_welcome(&group, bo.inbox_id()).await;
+
+    let destination = xmtp_common::rand_array::<32>();
+    let pointer = DecryptedWelcomePointer {
+        destination: destination.into(),
+        aead_type: WelcomePointeeEncryptionAeadType::Chacha20Poly1305,
+        encryption_key: xmtp_common::rand_vec::<32>(),
+        data_nonce: xmtp_common::rand_vec::<12>(),
+        welcome_metadata_nonce: xmtp_common::rand_vec::<12>(),
+    };
+    let seal = |plaintext: &[u8], nonce: &[u8]| {
+        wrap_payload_symmetric(
+            plaintext,
+            WelcomePointersExtension::preferred_type(),
+            &pointer.encryption_key,
+            nonce,
+        )
+        .unwrap()
+    };
+    let pointee = xmtp_proto::backend_v1::WelcomeMessage {
+        version: Some(Version::V1(V1 {
+            installation_key: destination.to_vec(),
+            data: seal(&welcome_message, &pointer.data_nonce),
+            hpke_public_key: vec![],
+            wrapper_algorithm: WelcomeWrapperAlgorithm::SymmetricKey.into(),
+            welcome_metadata: seal(
+                &WelcomeMetadata {
+                    message_cursor: join_anchor,
+                }
+                .encode_to_vec(),
+                &pointer.welcome_metadata_nonce,
+            ),
+        })),
+    };
+    let junk = xmtp_proto::backend_v1::WelcomeMessage {
+        version: Some(Version::V1(V1 {
+            installation_key: destination.to_vec(),
+            data: vec![],
+            hpke_public_key: vec![],
+            wrapper_algorithm: i32::MAX,
+            welcome_metadata: vec![],
+        })),
+    };
+    let mut rows = [(&alix, pointee), (&caro, junk)];
+    if junk_first {
+        rows.reverse();
+    }
+    for (publisher, row) in rows {
+        publisher
+            .context
+            .api()
+            .send_welcome_messages(&[row])
+            .await
+            .unwrap();
+    }
+
+    let resolved = resolve_welcome_pointer(&pointer, &bo.context).await;
+    if junk_first {
+        assert!(matches!(resolved, Err(GroupError::ConversionError(_))));
+    } else {
+        let first = resolved.unwrap().expect("the first pointee");
+        assert_eq!(
+            first.wrapper_algorithm,
+            WelcomeWrapperAlgorithm::SymmetricKey
+        );
+    }
+
+    let encrypted_pointer = wrap_payload_hpke(
+        &pointer.clone().to_proto().encode_to_vec(),
+        &[],
+        bo_hpke_public_key,
+        WrapperAlgorithm::XWingMLKEM768Draft6,
+        WELCOME_HPKE_LABEL,
+    )
+    .unwrap()
+    .0;
+    alix.context
+        .api()
+        .send_welcome_messages(&[xmtp_proto::backend_v1::WelcomeMessage {
+            version: Some(Version::WelcomePointer(WelcomePointer {
+                installation_key: bo.context.installation_id().to_vec(),
+                welcome_pointer: encrypted_pointer,
+                hpke_public_key: bo_hpke_public_key.to_vec(),
+                wrapper_algorithm: WelcomePointerWrapperAlgorithm::XwingMlkem768Draft6.into(),
+            })),
+        }])
+        .await
+        .unwrap();
+    let welcome = alix
+        .context
+        .api()
+        .query_welcome_messages(bo.context.installation_id())
+        .await
+        .unwrap()
+        .pop()
+        .expect("published pointer");
+    pending_welcome_for_test(&bo.context, &welcome)
+        .await
+        .unwrap();
+
+    let outcome = WelcomeService::new(bo.context.clone())
+        .resolve_pending_welcome(welcome.cursor)
+        .await
+        .unwrap();
+    let topic = xmtp_db::incoming_envelope::StreamTopic {
+        entity_id: bo.context.installation_id().to_vec(),
+        kind: xmtp_db::incoming_envelope::NetworkEntityKind::Welcome,
+    };
+    let db = bo.context.db();
+    assert!(
+        db.pending_envelope(&topic, welcome.cursor)
+            .unwrap()
+            .is_none()
+    );
+    if junk_first {
+        assert!(matches!(
+            outcome,
+            WelcomeHeadOutcome::Progress {
+                result: Err(GroupError::ConversionError(_)),
+                ..
+            }
+        ));
+        assert_eq!(
+            db.read_last_rejection(&topic).unwrap().unwrap().code,
+            "invalid_welcome"
+        );
+        assert!(db.find_group(&group.group_id).unwrap().is_none());
+    } else {
+        assert!(matches!(
+            outcome,
+            WelcomeHeadOutcome::Progress {
+                result: Ok(Some(_)),
+                ..
+            }
+        ));
+        assert!(db.find_group(&group.group_id).unwrap().is_some());
+    }
+}
+
 /// Missing pointees retain their fixed fetch deadline and can later join. If a
 /// fetched pointee has an unsupported MLS version, it receives a separate full
 /// day of retention whose deadline survives retries past the fetch deadline.
