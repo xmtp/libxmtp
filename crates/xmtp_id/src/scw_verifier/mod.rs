@@ -466,10 +466,8 @@ mod tests {
             .collect::<Result<Vec<_>, _>>()?;
         let verifier = InFlight::default();
         let verdicts = verifier.verify_many(&inputs).await?;
-        assert_eq!(
-            verifier.most.load(Ordering::SeqCst),
-            MAX_CHAIN_CALLS_IN_FLIGHT
-        );
+        // The required width is 8, so the test does not read the constant.
+        assert_eq!(verifier.most.load(Ordering::SeqCst), 8);
         assert_eq!(
             verdicts
                 .iter()

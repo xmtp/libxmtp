@@ -415,6 +415,7 @@ url = "postgres://localhost/xmtp"
 [retention]
 [validation]
 [limits]
+max_scw_signatures = 200
 [mls]
 max_installations_per_inbox = 100
 [handles]

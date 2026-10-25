@@ -543,11 +543,11 @@ async fn scw_verdicts_preserve_input_order_and_resolved_blocks() {
     server.stop().await?;
 }
 
-/// Records the most checks in flight at once, and finishes a check only
-/// once the test releases a permit for it.
+/// Records the most checks in flight at once, and finishes the check at
+/// block `n` only once the test releases gate `n`.
 struct GatedVerifier {
     started: tokio::sync::mpsc::UnboundedSender<()>,
-    gate: std::sync::Arc<tokio::sync::Semaphore>,
+    gates: std::sync::Arc<Vec<tokio::sync::Semaphore>>,
     now: std::sync::Arc<std::sync::atomic::AtomicUsize>,
     most: std::sync::Arc<std::sync::atomic::AtomicUsize>,
 }
@@ -566,11 +566,8 @@ impl xmtp_id::scw_verifier::SmartContractSignatureVerifier for GatedVerifier {
         let now = self.now.fetch_add(1, SeqCst) + 1;
         self.most.fetch_max(now, SeqCst);
         let _ = self.started.send(());
-        self.gate
-            .acquire()
-            .await
-            .expect("the gate stays open")
-            .forget();
+        let gate = &self.gates[block_number.expect("every entry names a block") as usize];
+        gate.acquire().await.expect("no gate closes").forget();
         self.now.fetch_sub(1, SeqCst);
         Ok(xmtp_id::scw_verifier::ValidationResponse {
             is_valid: true,
@@ -581,21 +578,26 @@ impl xmtp_id::scw_verifier::SmartContractSignatureVerifier for GatedVerifier {
 }
 
 /// One request's entries are verified eight at a time, not one after
-/// another and not all at once, and are answered in request order.
+/// another and not all at once, and are answered in request order although
+/// the first eight finish in reverse.
 // verifies: API-301
 #[xmtp_common::test(unwrap_try = true)]
 async fn scw_verify_request_runs_eight_verifications_at_once() {
     use std::sync::{Arc, atomic::AtomicUsize, atomic::Ordering::SeqCst};
-    use xmtp_configuration::MAX_CHAIN_CALLS_IN_FLIGHT;
     const ENTRIES: u64 = 20;
+    const IN_FLIGHT: usize = 8;
     let (started, mut starts) = tokio::sync::mpsc::unbounded_channel();
-    let gate = Arc::new(tokio::sync::Semaphore::new(0));
+    let gates: Arc<Vec<_>> = Arc::new(
+        (0..ENTRIES)
+            .map(|_| tokio::sync::Semaphore::new(0))
+            .collect(),
+    );
     let most = Arc::new(AtomicUsize::new(0));
     let server = TestServer::with_verifier(
         |_| {},
         GatedVerifier {
             started,
-            gate: gate.clone(),
+            gates: gates.clone(),
             now: Arc::default(),
             most: most.clone(),
         },
@@ -622,14 +624,16 @@ async fn scw_verify_request_runs_eight_verifications_at_once() {
             )
             .await
     });
-    for _ in 0..MAX_CHAIN_CALLS_IN_FLIGHT {
+    for _ in 0..IN_FLIGHT {
         xmtp_common::time::timeout(xmtp_common::time::Duration::from_secs(10), starts.recv())
             .await?
             .ok_or("the verifier stopped")?;
     }
-    gate.add_permits(ENTRIES as usize);
+    for gate in gates[..IN_FLIGHT].iter().rev().chain(&gates[IN_FLIGHT..]) {
+        gate.add_permits(1);
+    }
     let responses = request.await??.into_inner().responses;
-    assert_eq!(most.load(SeqCst), MAX_CHAIN_CALLS_IN_FLIGHT);
+    assert_eq!(most.load(SeqCst), IN_FLIGHT);
     assert_eq!(
         responses
             .iter()
