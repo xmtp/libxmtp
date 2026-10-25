@@ -400,13 +400,6 @@ issue = "TBD-octane-tracking"
 reason = "Conversation pages have no tie-breaking cursor, so a page resumed from a before time can skip or repeat conversations that share a listing time."
 
 [[waiver]]
-id = "CONS-048"
-kind = "gap"
-owner = "Nicholas Molnar"
-issue = "TBD-octane-tracking"
-reason = "The last-activity time and the activity-ordered listing time can count expired messages and can differ from each other."
-
-[[waiver]]
 id = "CONS-049"
 kind = "gap"
 owner = "Nicholas Molnar"

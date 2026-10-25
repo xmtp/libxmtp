@@ -1,56 +1,46 @@
 use super::*;
 
-// verifies: META-051
+// verifies: CONS-048
 #[xmtp_common::test(unwrap_try = true)]
-async fn expired_conversation_preview_is_not_returned() {
+async fn expired_messages_do_not_set_listing_or_activity_time() {
     use crate::test::mock::generate_stored_msg;
-    use xmtp_db::{Store, group_message::QueryGroupMessage};
+    use xmtp_db::Store;
     use xmtp_proto::types::Cursor;
 
     tester!(alix, disable_workers);
     let group = alix.create_group(None, None)?;
-    let all_expired_group = alix.create_group(None, None)?;
+    let expired_only = alix.create_group(None, None)?;
     let db = alix.context.db();
     let now = now_ns();
+    for (cursor, group_id, sent_at_ns, expire_at_ns) in [
+        (100, group.group_id, 200, now + xmtp_common::NS_IN_DAY),
+        (200, group.group_id, 300, now - 1),
+        (300, expired_only.group_id, 400, now - 1),
+    ] {
+        let mut message = generate_stored_msg(Cursor(cursor), group_id);
+        message.sent_at_ns = sent_at_ns;
+        message.expire_at_ns = Some(expire_at_ns);
+        message.store(&db)?;
+    }
 
-    let mut live = generate_stored_msg(Cursor(100), group.group_id);
-    live.sent_at_ns = 200;
-    live.decrypted_message_bytes = TextCodec::encode("live preview".into())?.encode_to_vec();
-    live.expire_at_ns = Some(now + xmtp_common::NS_IN_DAY);
-    live.expiry_ns = Some(now + xmtp_common::NS_IN_DAY * 2);
-    live.store(&db)?;
-
-    let mut expired = generate_stored_msg(Cursor(200), group.group_id);
-    expired.sent_at_ns = 300;
-    expired.decrypted_message_bytes = TextCodec::encode("expired preview".into())?.encode_to_vec();
-    expired.expire_at_ns = Some(now - 1);
-    expired.store(&db)?;
-
-    let mut only_expired = generate_stored_msg(Cursor(300), all_expired_group.group_id);
-    only_expired.sent_at_ns = 400;
-    only_expired.decrypted_message_bytes =
-        TextCodec::encode("only expired preview".into())?.encode_to_vec();
-    only_expired.expire_at_ns = Some(now - 1);
-    only_expired.store(&db)?;
-
-    assert!(db.get_group_message(&expired.id)?.is_some());
-    assert!(db.get_group_message(&only_expired.id)?.is_some());
     let listed = alix.list_conversations(GroupQueryArgs::default())?;
-    let visible = listed
-        .iter()
-        .find(|item| item.group.group_id == group.group_id)
-        .expect("group remains listed");
-    let last = visible.last_message.as_ref().expect("older live preview");
-    assert_eq!(last.id, live.id);
-    assert_eq!(last.decrypted_message_bytes, live.decrypted_message_bytes);
-    assert_eq!(last.expire_at_ns, live.expire_at_ns);
-    assert_eq!(last.expiry_ns, live.expiry_ns);
-
-    let all_expired = listed
-        .iter()
-        .find(|item| item.group.group_id == all_expired_group.group_id)
-        .expect("all-expired group remains listed");
-    assert!(all_expired.last_message.is_none());
+    let listing_time = |group_id| {
+        listed
+            .iter()
+            .find(|item| item.group.group_id == group_id)
+            .map(|item| item.listing_time_ns)
+            .expect("group remains listed")
+    };
+    assert_eq!(group.last_activity_ns(None)?, 200);
+    assert_eq!(listing_time(group.group_id), 200);
+    assert_eq!(
+        expired_only.last_activity_ns(None)?,
+        expired_only.created_at_ns
+    );
+    assert_eq!(
+        listing_time(expired_only.group_id),
+        expired_only.created_at_ns
+    );
 }
 
 // verifies: META-051
@@ -414,15 +404,7 @@ async fn test_list_conversations_pagination() {
 
         all_conversation_ids.extend(results.iter().map(|item| item.group.group_id));
 
-        before_ns = Some(
-            results
-                .last()
-                .unwrap()
-                .last_message
-                .as_ref()
-                .unwrap()
-                .sent_at_ns,
-        );
+        before_ns = Some(results.last().unwrap().listing_time_ns);
     }
 
     assert_eq!(

@@ -204,6 +204,10 @@ impl<C: ConnectionExt> QueryConversationState for DbConnection<C> {
         })?)
     }
 
+    /// With the list content types, this is the activity time that an
+    /// activity-ordered conversation list sorts by (`activity_time` in
+    /// conversation_list.rs).
+    // implements: CONS-048
     fn last_activity_ns(
         &self,
         group_id: &GroupId,
@@ -227,6 +231,11 @@ impl<C: ConnectionExt> QueryConversationState for DbConnection<C> {
                 .filter(group_messages::group_id.eq(group_id))
                 .filter(group_messages::kind.eq(GroupMessageKind::Application))
                 .filter(group_messages::content_type.eq_any(content_types))
+                .filter(
+                    group_messages::expire_at_ns
+                        .is_null()
+                        .or(group_messages::expire_at_ns.gt(xmtp_common::time::now_ns())),
+                )
                 .select(diesel::dsl::max(group_messages::sent_at_ns))
                 .first::<Option<i64>>(conn)
         })?;

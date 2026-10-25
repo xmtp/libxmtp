@@ -1107,46 +1107,8 @@ where
             .db()
             .fetch_conversation_list(args)?
             .into_iter()
-            .map(|conversation_item: DbConversationListItem| {
-                let message = conversation_item.message_id.and_then(|message_id| {
-                    if conversation_item
-                        .expire_at_ns
-                        .is_some_and(|deadline| deadline <= xmtp_common::time::now_ns())
-                    {
-                        return None;
-                    }
-                    // Only construct StoredGroupMessage if all fields are Some
-                    let msg: Option<StoredGroupMessage> = Some(StoredGroupMessage {
-                        id: message_id,
-                        group_id: conversation_item.id,
-                        decrypted_message_bytes: conversation_item.decrypted_message_bytes?,
-                        sent_at_ns: conversation_item.sent_at_ns?,
-                        sender_installation_id: conversation_item.sender_installation_id?,
-                        sender_inbox_id: conversation_item.sender_inbox_id?,
-                        kind: conversation_item.kind?,
-                        delivery_status: conversation_item.delivery_status?,
-                        content_type: conversation_item.content_type?,
-                        version_major: conversation_item.version_major?,
-                        version_minor: conversation_item.version_minor?,
-                        authority_id: conversation_item.authority_id?,
-                        reference_id: None, // conversation_item does not use message reference_id
-                        sequence_id: conversation_item.sequence_id?,
-                        envelope_hash: None,
-                        expiry_ns: conversation_item.expiry_ns,
-                        expire_at_ns: conversation_item.expire_at_ns,
-                        inserted_at_ns: 0, // Not used for conversation list display
-                        should_push: true, // Not used for conversation list display
-                        // The conversation-list query does not carry the key; use
-                        // the timestamp proxy (display-only, never republished).
-                        idempotency_key: conversation_item.sent_at_ns.unwrap_or_default().to_string(),
-                    });
-                    if msg.is_none() {
-                        tracing::warn!("tried listing message, but message had missing fields so it was skipped");
-                    }
-                    msg
-                });
-
-                ConversationListItem {
+            .map(
+                |conversation_item: DbConversationListItem| ConversationListItem {
                     membership_state: conversation_item.membership_state,
                     added_by_inbox_id: conversation_item.added_by_inbox_id,
                     group: MlsGroup::new(
@@ -1156,10 +1118,10 @@ where
                         conversation_item.conversation_type,
                         conversation_item.created_at_ns,
                     ),
-                    last_message: message,
                     is_commit_log_forked: conversation_item.is_commit_log_forked,
-                }
-            })
+                    listing_time_ns: conversation_item.listing_time_ns,
+                },
+            )
             .collect())
     }
 
