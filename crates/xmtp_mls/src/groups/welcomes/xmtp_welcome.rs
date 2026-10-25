@@ -1056,35 +1056,6 @@ mod tests {
         assert_eq!(joined.group_id.as_slice(), joined_id.as_slice());
     }
 
-    fn welcome_topic(client: &crate::utils::FullXmtpClient) -> StreamTopic {
-        StreamTopic {
-            entity_id: client.context.installation_id().to_vec(),
-            kind: NetworkEntityKind::Welcome,
-        }
-    }
-
-    /// Assert that `client` rejected its newest Welcome for good.
-    async fn assert_newest_welcome_rejected(client: &crate::utils::FullXmtpClient) {
-        let newest = client
-            .context
-            .api()
-            .query_welcome_messages(client.context.installation_id())
-            .await
-            .unwrap()
-            .into_iter()
-            .map(|welcome| welcome.cursor)
-            .max()
-            .expect("a published Welcome");
-        let rejected = client
-            .context
-            .db()
-            .read_last_rejection(&welcome_topic(client))
-            .unwrap()
-            .expect("a terminal rejection");
-        assert_eq!(rejected.sequence_id, newest);
-        assert_eq!(rejected.code, "invalid_welcome");
-    }
-
     /// A former member can offer a second MLS branch under the group's root,
     /// at a lower epoch than the removed copy and with an anchor past the
     /// removal. It is rejected for good, and the removed copy keeps its
@@ -1161,21 +1132,24 @@ mod tests {
             ),
             "{result:?}"
         );
-        assert_newest_welcome_rejected(&bo).await;
+        bo.assert_newest_welcome_rejected().await;
         assert!(!bo_group.is_active()?);
         assert_eq!(bo_group.epoch().await?, old_epoch);
         assert_eq!(db.topic_progress(&topic)?.processed, before.processed);
         assert!(db.pending_envelope(&topic, forged_anchor)?.is_some());
     }
 
-    /// A removed former member reuses the group's root to offer a DM under
-    /// the group's id. The Welcome is rejected for good before anything is
-    /// installed: the stored row, MLS state, and cursor stay as they were, and
-    /// the removed group still cannot send.
+    /// A removed former member reuses the group's root to offer a DM, then a
+    /// one-shot group, under the group's id. Each Welcome is rejected for good
+    /// before anything is installed or any one-shot handling runs: the stored
+    /// row, MLS state, and cursor stay as they were, and the removed group
+    /// still cannot send.
     // verifies: JOIN-089
     #[xmtp_common::test(unwrap_try = true)]
     async fn replacement_welcome_cannot_change_conversation_type() {
-        use crate::utils::test::crafted_welcome::send_crafted_dm_welcome_with_peer;
+        use crate::utils::test::crafted_welcome::{
+            send_crafted_dm_welcome_with_peer, send_crafted_welcome_of_type,
+        };
         use xmtp_mls_common::app_data::group_root::read_group_root;
 
         tester!(alix, disable_workers);
@@ -1222,7 +1196,23 @@ mod tests {
             matches!(result, Err(GroupError::InvalidWelcomeMetadata)),
             "{result:?}"
         );
-        assert_newest_welcome_rejected(&bo).await;
+        bo.assert_newest_welcome_rejected().await;
+
+        send_crafted_welcome_of_type(
+            &caro,
+            &bo,
+            original.group_id.as_slice(),
+            Some(&retained_root),
+            ConversationType::Oneshot,
+        )
+        .await;
+        let result = process_newest_welcome(&bo).await;
+        assert!(
+            matches!(result, Err(GroupError::InvalidWelcomeMetadata)),
+            "{result:?}"
+        );
+        bo.assert_newest_welcome_rejected().await;
+
         assert_eq!(
             bo.context.db().find_group(&original.group_id)?,
             Some(row_before_forgery)
@@ -1289,7 +1279,7 @@ mod tests {
             ),
             "{result:?}"
         );
-        assert_newest_welcome_rejected(&bo).await;
+        bo.assert_newest_welcome_rejected().await;
         assert_eq!(bo.context.db().find_group(&alix_dm.group_id)?, row_before);
         assert_eq!(bo_dm.cursor().await?, cursor_before);
         assert_eq!(bo_dm.epoch().await?, epoch_before);

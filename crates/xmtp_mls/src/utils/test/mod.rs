@@ -221,6 +221,36 @@ where
             .await
             .expect("no welcome arrived within 20 s")
     }
+
+    /// Assert that this installation rejected its newest published Welcome
+    /// for good: the last terminal rejection names it with `invalid_welcome`
+    /// and its pending row is gone.
+    pub async fn assert_newest_welcome_rejected(&self) {
+        use xmtp_db::incoming_envelope::{NetworkEntityKind, QueryIncomingEnvelope, StreamTopic};
+
+        let topic = StreamTopic {
+            entity_id: self.context.installation_id().to_vec(),
+            kind: NetworkEntityKind::Welcome,
+        };
+        let newest = self
+            .context
+            .api()
+            .query_welcome_messages(self.context.installation_id())
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|welcome| welcome.cursor)
+            .max()
+            .expect("a published Welcome");
+        let db = self.context.db();
+        let rejected = db
+            .read_last_rejection(&topic)
+            .unwrap()
+            .expect("a terminal rejection");
+        assert_eq!(rejected.sequence_id, newest);
+        assert_eq!(rejected.code, "invalid_welcome");
+        assert!(db.pending_envelope(&topic, newest).unwrap().is_none());
+    }
 }
 
 pub async fn register_client<Context: XmtpSharedContext>(

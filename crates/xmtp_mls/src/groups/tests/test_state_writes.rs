@@ -78,13 +78,15 @@ async fn failed_intent_insert_rolls_back_optimistic_message() {
 }
 
 /// A Welcome install, its pending-row completion, and its key-package
-/// rotation work commit or roll back together. Receipt queues no rotation.
+/// rotation work commit or roll back together, and the task runner hears of
+/// the work only after commit. Receipt queues no rotation.
 #[xmtp_common::test(unwrap_try = true)]
 async fn welcome_install_queues_rotation_atomically() {
     use crate::groups::{
         InitialMembershipValidator,
         welcome_sync::{WelcomeService, pending_welcome_for_test},
     };
+    use crate::subscriptions::internal::InternalEvent;
     use xmtp_common::time::now_ns;
     use xmtp_configuration::KEY_PACKAGE_QUEUE_INTERVAL_NS;
     use xmtp_db::{
@@ -116,6 +118,12 @@ async fn welcome_install_queues_rotation_atomically() {
         .execute(conn)
     })?;
 
+    let scheduled = bo.context.events().subscribe(
+        xmtp_events::EventFilter::default()
+            .with_internal(|event| matches!(event, InternalEvent::TaskScheduled)),
+        None,
+    );
+
     // Receipt stores the Welcome without queuing rotation work.
     pending_welcome_for_test(&bo.context, &welcome).await?;
     // The rotation task cannot be stored, so the install rolls back.
@@ -131,10 +139,12 @@ async fn welcome_install_queues_rotation_atomically() {
     assert!(db.pending_envelope(&key, welcome.cursor)?.is_some());
     assert_eq!(db.next_key_package_rotation_ns()?, before);
     assert!(db.get_tasks()?.is_empty());
+    assert!(scheduled.drain().is_empty());
 
     db.raw_query(|conn| diesel::sql_query("DROP TRIGGER fail_welcome_rotation").execute(conn))?;
     let joined = welcomes.process_new_welcome(&welcome, validator()).await?;
     assert_eq!(joined?.group_id, group.group_id);
+    assert!(!scheduled.drain().is_empty());
     assert!(db.pending_envelope(&key, welcome.cursor)?.is_none());
     assert!(db.next_key_package_rotation_ns()?? <= now_ns() + KEY_PACKAGE_QUEUE_INTERVAL_NS);
 }
@@ -167,6 +177,7 @@ async fn rejected_welcomes_do_not_schedule_key_package_rotation() {
     let initial_count = history()?.len();
     assert_eq!(initial_count, 1);
 
+    let mut last_rejected = None;
     for round in 1_u8..=2 {
         let current_key = history()?
             .pop()
@@ -185,11 +196,18 @@ async fn rejected_welcomes_do_not_schedule_key_package_rotation() {
             })),
         };
         alix.context.api().send_welcome_messages(&[message]).await?;
-        assert!(bo.sync_welcomes().await?.is_empty());
-        assert_eq!(
-            db.read_last_rejection(&topic)?.unwrap().code,
-            "invalid_welcome"
-        );
+        // Wait for this round's own Welcome: the newest rejection must be
+        // past the previous round's, which a replica lag could otherwise hide.
+        let rejected = xmtp_common::wait_for_some(|| async {
+            assert!(bo.sync_welcomes().await.unwrap().is_empty());
+            db.read_last_rejection(&topic)
+                .unwrap()
+                .filter(|rejection| last_rejected.is_none_or(|last| rejection.sequence_id > last))
+        })
+        .await
+        .expect("this round's Welcome is rejected");
+        assert_eq!(rejected.code, "invalid_welcome");
+        last_rejected = Some(rejected.sequence_id);
         assert!(db.next_key_package_rotation_ns()?? > now_ns() + NS_IN_DAY);
         assert!(!rotate_if_needed(&bo.context).await?);
         assert_eq!(history()?.len(), initial_count);
