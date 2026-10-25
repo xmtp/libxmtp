@@ -2,12 +2,13 @@
 
 use std::collections::{BTreeSet, HashMap};
 
-use futures::future::try_join_all;
+use futures::{StreamExt, TryStreamExt, stream};
 use openmls::prelude::{ContentType, KeyPackageIn, MlsMessageIn, ProtocolMessage};
 use openmls_rust_crypto::RustCrypto;
 use tls_codec::Deserialize;
 use xmtp_common::RetryableError;
 
+use xmtp_configuration::MAX_CHAIN_CALLS_IN_FLIGHT;
 use xmtp_id::{
     associations::{
         self, AccountId, AssociationError, AssociationState, AssociationStateDiff, Handle,
@@ -393,7 +394,8 @@ pub const MAX_BLOCK_AGE_SECS: u64 = 1800;
 /// Every account id's form, chain id and address, is checked before
 /// the first chain call, so a malformed one is rejected without chain access. Each chain's head is then
 /// read once, so a block after it is rejected without further calls, and each
-/// distinct block's timestamp once; reads within a round run concurrently.
+/// distinct block's timestamp once; reads within a round run concurrently, at
+/// most [`MAX_CHAIN_CALLS_IN_FLIGHT`] at a time.
 /// Chain failures stay retryable; they are never a verdict on the signature.
 /// A block stamped after its head, as reads straddling a reorg can report, is
 /// rejected rather than read as fresh.
@@ -413,28 +415,21 @@ pub async fn check_freshness(
         })
         .collect::<Result<BTreeSet<_>, ValidationError>>()?;
     let chain_ids: BTreeSet<&str> = blocks.iter().map(|(id, _)| id.as_str()).collect();
-    let heads: HashMap<&str, BlockStamp> = try_join_all(
-        chain_ids
-            .into_iter()
-            .map(|id| async move { Ok::<_, VerifierError>((id, chain.head(id).await?)) }),
-    )
-    .await
-    .map_err(SignatureError::from)?
-    .into_iter()
-    .collect();
+    let heads = chain_reads(chain_ids.iter().map(|id| chain.head(id)).collect()).await?;
+    let heads: HashMap<&str, BlockStamp> = chain_ids.into_iter().zip(heads).collect();
     if let Some((_, number)) = blocks
         .iter()
         .find(|(id, number)| *number > heads[id.as_str()].number)
     {
         return Err(ValidationError::StaleBlock(*number));
     }
-    let timestamps = try_join_all(
+    let timestamps = chain_reads(
         blocks
             .iter()
-            .map(|(id, number)| chain.timestamp(id, *number)),
+            .map(|(id, number)| chain.timestamp(id, *number))
+            .collect(),
     )
-    .await
-    .map_err(SignatureError::from)?;
+    .await?;
     blocks
         .iter()
         .zip(timestamps)
@@ -444,6 +439,19 @@ pub async fn check_freshness(
                 _ => Err(ValidationError::StaleBlock(*number)),
             }
         })
+}
+
+/// Run `reads`, at most [`MAX_CHAIN_CALLS_IN_FLIGHT`] at a time, and return
+/// their results in the order of `reads`. Each read is a future that starts
+/// only when it is polled; a failure is retryable when the read's is.
+async fn chain_reads<T>(
+    reads: Vec<impl Future<Output = Result<T, VerifierError>>>,
+) -> Result<Vec<T>, ValidationError> {
+    stream::iter(reads)
+        .buffered(MAX_CHAIN_CALLS_IN_FLIGHT)
+        .try_collect()
+        .await
+        .map_err(|error| SignatureError::from(error).into())
 }
 
 /// Verify the publish signature of a parsed envelope with the rule every

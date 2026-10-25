@@ -607,6 +607,79 @@ async fn freshness_reads_each_head_and_block_once() {
     assert_eq!(chain.timestamps.into_inner(), 3);
 }
 
+/// The chains and blocks of [`freshness_block_reads_keep_eight_in_flight`].
+const CHAINS: u64 = 100;
+
+/// Records the most reads in flight at once over a [`TestChain`] at block
+/// [`CHAINS`]. Each read yields [`CHAINS`] times before it answers, so reads
+/// started together overlap.
+struct InFlightChain {
+    chain: TestChain,
+    now: std::sync::atomic::AtomicUsize,
+    most: std::sync::atomic::AtomicUsize,
+}
+
+impl InFlightChain {
+    async fn read<T>(&self, read: impl std::future::Future<Output = T>) -> T {
+        use std::sync::atomic::Ordering::SeqCst;
+        let now = self.now.fetch_add(1, SeqCst) + 1;
+        self.most.fetch_max(now, SeqCst);
+        for _ in 0..CHAINS {
+            xmtp_common::task::yield_now().await;
+        }
+        let result = read.await;
+        self.now.fetch_sub(1, SeqCst);
+        result
+    }
+}
+
+#[xmtp_common::async_trait]
+impl ChainBlocks for InFlightChain {
+    async fn head(&self, chain_id: &str) -> Result<BlockStamp, VerifierError> {
+        self.read(self.chain.head(chain_id)).await
+    }
+
+    async fn timestamp(&self, chain_id: &str, number: u64) -> Result<u64, VerifierError> {
+        self.read(self.chain.timestamp(chain_id, number)).await
+    }
+}
+
+/// Freshness keeps at most eight chain reads in flight, for the heads and for
+/// the block timestamps, so an update's ERC-6492 signatures cannot start one
+/// chain call each at once. These 100 signatures name 100 chains and 100
+/// blocks.
+#[xmtp_common::test(unwrap_try = true)]
+async fn freshness_block_reads_keep_eight_in_flight() {
+    use xmtp_proto::xmtp::identity::associations::{identity_action, signature};
+    let mut update = scw_create_inbox_update_at(1);
+    let create = update.actions.remove(0);
+    for block in 1..=CHAINS {
+        let mut action = create.clone();
+        let Some(identity_action::Kind::CreateInbox(create)) = &mut action.kind else {
+            unreachable!("fixture creates an inbox")
+        };
+        let Some(signature::Signature::Erc6492(scw)) = create
+            .initial_identifier_signature
+            .as_mut()
+            .and_then(|value| value.signature.as_mut())
+        else {
+            unreachable!("fixture signs with a smart-contract wallet")
+        };
+        scw.account_id = scw
+            .account_id
+            .replacen("eip155:1:", &format!("eip155:{block}:"), 1);
+        scw.block_number = block;
+        update.actions.push(action);
+    }
+    let chain = InFlightChain {
+        chain: TestChain::at(CHAINS),
+        now: Default::default(),
+        most: Default::default(),
+    };
+    check_freshness(&update, &chain).await?;
+    assert_eq!(chain.most.into_inner(), MAX_CHAIN_CALLS_IN_FLIGHT);
+}
+
 /// A claim a smart contract wallet signs carries an ERC-6492 signature like
 /// any other action: it counts toward the per-request signature limit, and
 /// its block must be fresh at admission.
