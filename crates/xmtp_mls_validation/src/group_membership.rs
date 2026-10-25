@@ -1,6 +1,31 @@
 use prost::{DecodeError, Message};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use xmtp_proto::xmtp::mls::message_contents::GroupMembership as GroupMembershipProto;
+
+/// Failed installation keys, indexed by the inbox that lists them.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct FailedInstallations(pub(crate) HashMap<String, HashSet<Vec<u8>>>);
+
+impl FailedInstallations {
+    pub fn of(&self, inbox_id: &str) -> Option<&HashSet<Vec<u8>>> {
+        self.0.get(inbox_id)
+    }
+
+    /// New listings not already proven by a pre-commit leaf of the same inbox.
+    pub fn unproven_new_failures<'a>(
+        &'a self,
+        before: &'a Self,
+        leaf_owners: &'a HashMap<Vec<u8>, String>,
+    ) -> impl Iterator<Item = (&'a str, &'a [u8])> + 'a {
+        self.0.iter().flat_map(move |(inbox, keys)| {
+            keys.iter().filter_map(move |key| {
+                let already_listed = before.of(inbox).is_some_and(|keys| keys.contains(key));
+                let has_leaf = leaf_owners.get(key) == Some(inbox);
+                (!already_listed && !has_leaf).then_some((inbox.as_str(), key.as_slice()))
+            })
+        })
+    }
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct GroupMembership {

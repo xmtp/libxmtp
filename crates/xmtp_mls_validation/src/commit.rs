@@ -34,7 +34,7 @@ use xmtp_proto::xmtp::{
 };
 
 use crate::{
-    group_membership::{GroupMembership, MembershipDiff},
+    group_membership::{FailedInstallations, GroupMembership, MembershipDiff},
     group_permissions::GroupMutablePermissionsError,
 };
 
@@ -414,6 +414,7 @@ pub struct ProposalChanges {
  * check against the identity state of their credentials' inboxes.
  * Tracks which proposer created each proposal for permission validation.
  */
+// implements: PERM-030
 pub fn get_proposal_changes(
     staged_commit: &StagedCommit,
     openmls_group: &OpenMlsGroup,
@@ -426,6 +427,8 @@ pub fn get_proposal_changes(
     let mut credentials_to_verify: Vec<CommitParticipant> = vec![];
     let mut added_inbox_proposers: HashMap<String, CommitParticipant> = HashMap::new();
     let mut removed_inbox_proposers: HashMap<String, CommitParticipant> = HashMap::new();
+
+    let mut membership_deletes = Vec::new();
 
     for proposal in staged_commit.queued_proposals() {
         // Extract the proposer for this proposal
@@ -473,8 +476,34 @@ pub fn get_proposal_changes(
                 removed_installations.insert(installation_id);
                 removed_inbox_proposers.insert(inbox_id, proposer);
             }
+            Proposal::AppDataUpdate(update)
+                if ComponentId::from(update.component_id()) == ComponentId::GROUP_MEMBERSHIP =>
+            {
+                use tls_codec::{Deserialize as _, VLBytes};
+                use xmtp_mls_common::{
+                    inbox_id::InboxId,
+                    tls_map::{TlsMapDelta, TlsMapMutation},
+                };
+
+                if let AppDataUpdateOperation::Update(payload) = update.operation() {
+                    let delta =
+                        TlsMapDelta::<InboxId, VLBytes>::tls_deserialize_exact(payload.as_slice())
+                            .map_err(ComponentSourceError::from)?;
+                    for mutation in delta.mutations {
+                        if let TlsMapMutation::Delete { key } = mutation {
+                            membership_deletes.push((key.to_string(), proposer.clone()));
+                        }
+                    }
+                }
+            }
             _ => continue,
         }
+    }
+
+    // A Remove's proposer takes precedence. The removal check still requires
+    // every pre-commit leaf of a deleted inbox to be removed.
+    for (inbox, proposer) in membership_deletes {
+        removed_inbox_proposers.entry(inbox).or_insert(proposer);
     }
 
     Ok(ProposalChanges {
@@ -1344,6 +1373,56 @@ pub fn extract_group_membership(
         members: proto.members,
         failed_installations: proto.failed_installations,
     })
+}
+
+/// Decode the membership snapshot once, retaining each failure's inbox.
+pub fn membership_entries(
+    bytes: &[u8],
+) -> Result<(GroupMembership, FailedInstallations), CommitRuleError> {
+    use tls_codec::{Deserialize as _, VLBytes};
+    use xmtp_mls_common::{inbox_id::InboxId, tls_map::TlsMap};
+    use xmtp_proto::xmtp::mls::message_contents::{
+        GroupMembershipEntry, group_membership_entry::Version,
+    };
+
+    let snapshot = TlsMap::<InboxId, VLBytes>::tls_deserialize_exact(bytes)
+        .map_err(ComponentSourceError::from)?;
+    let mut membership = GroupMembership::new();
+    let mut failed = FailedInstallations::default();
+    for (inbox, value) in snapshot {
+        let entry = GroupMembershipEntry::decode(value.as_slice())?;
+        let Some(Version::V1(entry)) = entry.version else {
+            return Err(ComponentSourceError::MalformedComponentValue {
+                component_id: ComponentId::GROUP_MEMBERSHIP,
+                reason: "GroupMembershipEntry has unknown or unset version".into(),
+            }
+            .into());
+        };
+        let inbox = inbox.to_string();
+        membership.add(inbox.clone(), entry.sequence_id);
+        membership
+            .failed_installations
+            .extend(entry.failed_installations.iter().cloned());
+        failed
+            .0
+            .insert(inbox, entry.failed_installations.into_iter().collect());
+    }
+    Ok((membership, failed))
+}
+
+/// Read the membership snapshot and per-inbox failures from the dictionary.
+pub fn extract_group_membership_with_failures(
+    extensions: &Extensions<GroupContext>,
+) -> Result<(GroupMembership, FailedInstallations), CommitRuleError> {
+    let bytes = extensions
+        .app_data_dictionary()
+        .and_then(|extension| {
+            extension
+                .dictionary()
+                .get(&ComponentId::GROUP_MEMBERSHIP.as_u16())
+        })
+        .ok_or(CommitRuleError::MissingGroupMembership)?;
+    membership_entries(bytes)
 }
 
 pub fn metadata_changes_between(

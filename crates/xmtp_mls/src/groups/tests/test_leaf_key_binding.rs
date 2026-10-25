@@ -51,9 +51,9 @@ type LocalWallet = alloy::signers::local::PrivateKeySigner;
 macro_rules! publish_raw {
     ($sender:expr, $group:expr, |$mls:ident, $provider:ident| $build:block) => {{
         let storage = $sender.context.mls_storage();
-        let payloads = state_write(storage, |tx| {
+        let (payloads, staged_commit, committer) = state_write(storage, |tx| {
             tx.with_group($group.group_id, |mls_group, storage| {
-                let (messages, _staged_commit, _epoch) =
+                let (messages, staged_commit, _epoch) =
                     generate_prepared_commit(storage, mls_group, |$mls, $provider| {
                         let messages: Vec<MlsMessageOut> = $build;
                         Ok::<_, GroupError>(messages)
@@ -62,7 +62,11 @@ macro_rules! publish_raw {
                     .iter()
                     .map(Serialize::tls_serialize_detached)
                     .collect::<Result<Vec<_>, _>>()?;
-                Ok::<_, GroupError>(Continue(payloads))
+                Ok::<_, GroupError>(Continue((
+                    payloads,
+                    staged_commit,
+                    mls_group.own_leaf_index(),
+                )))
             })
         })
         .unwrap()
@@ -75,12 +79,18 @@ macro_rules! publish_raw {
                     .collect(),
             )
             .unwrap();
-        $sender
+        let receipts = $sender
             .context
             .api()
             .send_group_messages(messages)
             .await
             .unwrap();
+        let (_, cursor, _) = xmtp_api_backend::envelope::metadata(
+            receipts.last().unwrap(),
+            xmtp_proto::types::Topic::new_group_message($group.group_id).kind(),
+        )
+        .unwrap();
+        (staged_commit, committer, cursor)
     }};
 }
 
@@ -496,4 +506,250 @@ async fn refresh_omits_pending_add_under_another_owner() {
     alix_group
         .update_group_name("after the refresh".into())
         .await?;
+}
+
+/// Check the receiver's exact rule error, then its durable network rejection.
+async fn assert_rule_rejection(
+    group: &TestMlsGroup,
+    before: &openmls::group::MlsGroup,
+    raw: (
+        Option<Vec<u8>>,
+        openmls::prelude::LeafNodeIndex,
+        xmtp_proto::types::Cursor,
+    ),
+    matches_rule: impl Fn(&xmtp_mls_validation::commit::CommitRuleError) -> bool,
+) {
+    use crate::groups::validated_commit::{CommitValidationError, ValidatedCommit};
+    let staged = xmtp_db::db_deserialize(&raw.0.expect("the raw update carries a commit")).unwrap();
+    let error = ValidatedCommit::from_staged_commit(&group.context, &staged, raw.1, before)
+        .await
+        .expect_err("the raw commit must be rejected");
+    assert!(
+        matches!(&error, CommitValidationError::Rule(rule) if matches_rule(rule)),
+        "{error:?}"
+    );
+    crate::subscriptions::barrier::wait_through(
+        &group.context,
+        [(
+            xmtp_proto::types::Topic::new_group_message(group.group_id),
+            raw.2,
+        )]
+        .into(),
+        None,
+    )
+    .await
+    .unwrap();
+    let rejection = group
+        .context
+        .db()
+        .read_last_rejection(&StreamTopic::group(group.group_id))
+        .unwrap()
+        .expect("the network commit must be terminally rejected");
+    assert_eq!(rejection.sequence_id, raw.2);
+    assert_eq!(rejection.code, "commit_validation_failure");
+}
+
+// verifies: GMOD-049
+#[xmtp_common::test(unwrap_try = true)]
+async fn receiver_rejects_misattributed_failed_installation() {
+    use prost::Message as _;
+    use tls_codec::VLBytes;
+    use xmtp_mls_common::{
+        app_data::{components::tls_map_components::GroupMembershipComponent, typed::Component},
+        inbox_id::InboxId,
+        tls_map::TlsMapDelta,
+    };
+    use xmtp_proto::xmtp::mls::message_contents::{
+        GroupMembershipEntry,
+        group_membership_entry::{V1, Version},
+    };
+
+    let alix = member().await;
+    let bo = member().await;
+    let (alix_group, bo_group) = group(&alix.client, &bo.client).await;
+    let absent = XmtpInstallationCredential::new();
+    associate(&bo, &absent).await;
+    let absent_id = absent.public_slice().to_vec();
+    bo.client.inbox_state(true).await?;
+    let bo_sequence = bo
+        .client
+        .context
+        .db()
+        .get_latest_sequence_id_for_inbox(bo.client.inbox_id())? as u64;
+    let before = membership(&bo_group).await;
+    let receiver_group = openmls::group::MlsGroup::load(
+        bo.client.context.mls_storage(),
+        &bo_group.group_id.to_openmls(),
+    )?
+    .unwrap();
+    let alix_client = &alix.client;
+    let signer = alix_client.context.identity().installation_keys.clone();
+    let raw = publish_raw!(alix_client, alix_group, |mls, provider| {
+        let old = extract_group_membership(mls.extensions()).unwrap();
+        assert!(bo_sequence > *old.get(bo.client.inbox_id()).unwrap());
+        let entry = |sequence_id, failed_installations| GroupMembershipEntry {
+            version: Some(Version::V1(V1 {
+                sequence_id,
+                failed_installations,
+            })),
+        };
+        let delta = TlsMapDelta::<InboxId, VLBytes>::new()
+            .update(
+                InboxId::from_hex(alix_client.inbox_id()).unwrap(),
+                VLBytes::new(
+                    entry(
+                        *old.get(alix_client.inbox_id()).unwrap(),
+                        vec![absent_id.clone()],
+                    )
+                    .encode_to_vec(),
+                ),
+            )
+            .update(
+                InboxId::from_hex(bo.client.inbox_id()).unwrap(),
+                VLBytes::new(entry(bo_sequence, vec![]).encode_to_vec()),
+            );
+        let payload = GroupMembershipComponent::encode_mutation(&delta).unwrap();
+        let (mut proposals, bundle) = stage_app_data_proposals_and_commit(
+            mls,
+            provider,
+            &signer,
+            &[],
+            vec![(
+                ComponentId::GROUP_MEMBERSHIP,
+                AppDataUpdateOperation::Update(payload.into()),
+            )],
+        )
+        .unwrap();
+        let (commit, _welcome, _) = bundle.into_messages();
+        proposals.push(commit);
+        proposals
+    });
+
+    assert_rule_rejection(&bo_group, &receiver_group, raw, |rule| {
+        matches!(rule,
+            xmtp_mls_validation::commit::CommitRuleError::InboxValidationFailed(inbox)
+                if inbox == alix_client.inbox_id()
+        )
+    })
+    .await;
+    assert_eq!(membership(&bo_group).await, before);
+}
+
+// verifies: GMOD-046, PERM-030
+#[xmtp_common::test(unwrap_try = true)]
+async fn dictionary_delete_cannot_hide_a_live_leaf() {
+    use prost::Message as _;
+    use tls_codec::VLBytes;
+    use xmtp_mls_common::{inbox_id::InboxId, tls_map::TlsMapDelta};
+    use xmtp_proto::xmtp::mls::message_contents::{
+        GroupMembershipEntry,
+        group_membership_entry::{V1, Version},
+    };
+
+    let alix = member().await;
+    let bo = member().await;
+    let (alix_group, bo_group) = group(&alix.client, &bo.client).await;
+    let before = membership(&bo_group).await;
+    let receiver_group = openmls::group::MlsGroup::load(
+        bo.client.context.mls_storage(),
+        &bo_group.group_id.to_openmls(),
+    )?
+    .unwrap();
+    let bo_id = bo.client.context.installation_id().to_vec();
+    let alix_client = &alix.client;
+    let signer = alix_client.context.identity().installation_keys.clone();
+    let raw = publish_raw!(alix_client, alix_group, |mls, provider| {
+        let old = extract_group_membership(mls.extensions()).unwrap();
+        let entry = GroupMembershipEntry {
+            version: Some(Version::V1(V1 {
+                sequence_id: *old.get(alix_client.inbox_id()).unwrap(),
+                failed_installations: vec![bo_id.clone()],
+            })),
+        };
+        let delta = TlsMapDelta::<InboxId, VLBytes>::new()
+            .update(
+                InboxId::from_hex(alix_client.inbox_id()).unwrap(),
+                VLBytes::new(entry.encode_to_vec()),
+            )
+            .delete(InboxId::from_hex(bo.client.inbox_id()).unwrap());
+        let payload = delta.tls_serialize_detached().unwrap();
+        let (mut proposals, bundle) = stage_app_data_proposals_and_commit(
+            mls,
+            provider,
+            &signer,
+            &[],
+            vec![(
+                ComponentId::GROUP_MEMBERSHIP,
+                AppDataUpdateOperation::Update(payload.into()),
+            )],
+        )
+        .unwrap();
+        proposals.push(bundle.into_messages().0);
+        proposals
+    });
+    assert_rule_rejection(&bo_group, &receiver_group, raw, |rule| {
+        matches!(
+            rule,
+            xmtp_mls_validation::commit::CommitRuleError::UnexpectedInstallationsRemoved(_)
+        )
+    })
+    .await;
+    assert_eq!(membership(&bo_group).await, before);
+    assert!(has_leaf(&bo_group, &bo_id, bo.client.inbox_id()).await);
+}
+
+// verifies: GMOD-047, GMOD-049
+#[xmtp_common::test(unwrap_try = true)]
+async fn misattributed_pending_delta_is_omitted() {
+    use crate::groups::intents::QueueIntent;
+    use prost::Message as _;
+    use tls_codec::VLBytes;
+    use xmtp_mls_common::{inbox_id::InboxId, tls_map::TlsMapDelta};
+    use xmtp_proto::xmtp::mls::message_contents::{
+        GroupMembershipEntry,
+        group_membership_entry::{V1, Version},
+    };
+
+    let alix = member().await;
+    let bo = member().await;
+    let (alix_group, bo_group) = group(&alix.client, &bo.client).await;
+    let absent = XmtpInstallationCredential::new();
+    associate(&bo, &absent).await;
+    let before = membership(&bo_group).await;
+    let alix_client = &alix.client;
+    let signer = alix_client.context.identity().installation_keys.clone();
+    let raw = publish_raw!(alix_client, alix_group, |mls, provider| {
+        let entry = GroupMembershipEntry {
+            version: Some(Version::V1(V1 {
+                sequence_id: *before.get(alix_client.inbox_id()).unwrap(),
+                failed_installations: vec![absent.public_slice().to_vec()],
+            })),
+        };
+        let delta = TlsMapDelta::<InboxId, VLBytes>::new().update(
+            InboxId::from_hex(alix_client.inbox_id()).unwrap(),
+            VLBytes::new(entry.encode_to_vec()),
+        );
+        let (proposal, _) = mls
+            .propose_app_data_update(
+                provider,
+                &signer,
+                ComponentId::GROUP_MEMBERSHIP.as_u16(),
+                AppDataUpdateOperation::Update(delta.tls_serialize_detached().unwrap().into()),
+            )
+            .unwrap();
+        vec![proposal]
+    });
+    crate::subscriptions::barrier::wait_through(
+        &bo_group.context,
+        [(
+            xmtp_proto::types::Topic::new_group_message(bo_group.group_id),
+            raw.2,
+        )]
+        .into(),
+        None,
+    )
+    .await?;
+    let intent = QueueIntent::commit_pending_proposals().queue(&bo_group)?;
+    bo_group.sync_until_intent_resolved(intent.id).await?;
+    assert_eq!(membership(&bo_group).await, before);
 }

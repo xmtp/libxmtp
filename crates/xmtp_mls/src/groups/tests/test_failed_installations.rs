@@ -307,3 +307,152 @@ async fn failed_key_package_publish_log_omits_installation_ids() {
         Some("FailedToVerifyInstallations")
     );
 }
+
+// verifies: PERM-030, PERM-015
+#[xmtp_common::test(unwrap_try = true)]
+async fn failed_only_inbox_can_be_removed() {
+    struct RestoreKeyPackages;
+    impl Drop for RestoreKeyPackages {
+        fn drop(&mut self) {
+            set_test_mode_upload_malformed_keypackage(false, None);
+        }
+    }
+
+    tester!(alix);
+    tester!(bo);
+    tester!(caro);
+    let group = alix
+        .create_group_with_members(&[bo.inbox_id(), caro.inbox_id()], None, None)
+        .await?;
+
+    let bo_installation = bo.context.installation_id().to_vec();
+    let _restore = RestoreKeyPackages;
+    set_test_mode_upload_malformed_keypackage(true, Some(vec![bo_installation.clone()]));
+    group
+        .readd_installations(vec![bo_installation.clone()])
+        .await?;
+
+    let (membership, leaves) = group
+        .load_mls_group_with_lock_async(async |mls_group| {
+            Ok::<_, GroupError>((
+                extract_group_membership(mls_group.extensions())?,
+                mls_group
+                    .members()
+                    .map(|member| member.signature_key)
+                    .collect::<HashSet<_>>(),
+            ))
+        })
+        .await?;
+    assert!(membership.get(bo.inbox_id()).is_some());
+    assert!(membership.failed_installations.contains(&bo_installation));
+    assert!(!leaves.contains(&bo_installation));
+
+    assert_eq!(group.members().await?.len(), 3);
+    group.remove_members(&[bo.inbox_id()]).await?;
+    let membership = group
+        .load_mls_group_with_lock_async(async |mls| {
+            Ok::<_, GroupError>(extract_group_membership(mls.extensions())?)
+        })
+        .await?;
+    assert!(membership.get(bo.inbox_id()).is_none());
+    assert_eq!(group.members().await?.len(), 2);
+}
+
+// verifies: GMOD-047, PERM-030
+#[xmtp_common::test(unwrap_try = true)]
+async fn pending_leafless_delete_is_committed() {
+    use xmtp_db::incoming_envelope::QueryIncomingEnvelope;
+    struct RestoreKeyPackages;
+    impl Drop for RestoreKeyPackages {
+        fn drop(&mut self) {
+            set_test_mode_upload_malformed_keypackage(false, None);
+        }
+    }
+
+    tester!(alix);
+    tester!(bo);
+    tester!(caro);
+    let group = alix
+        .create_group_with_members(&[bo.inbox_id(), caro.inbox_id()], None, None)
+        .await?;
+
+    let bo_installation = bo.context.installation_id().to_vec();
+    let _restore = RestoreKeyPackages;
+    set_test_mode_upload_malformed_keypackage(true, Some(vec![bo_installation.clone()]));
+    group
+        .readd_installations(vec![bo_installation.clone()])
+        .await?;
+
+    let (membership, leaves) = group
+        .load_mls_group_with_lock_async(async |mls_group| {
+            Ok::<_, GroupError>((
+                extract_group_membership(mls_group.extensions())?,
+                mls_group
+                    .members()
+                    .map(|member| member.signature_key)
+                    .collect::<HashSet<_>>(),
+            ))
+        })
+        .await?;
+    assert!(membership.get(bo.inbox_id()).is_some());
+    assert!(membership.failed_installations.contains(&bo_installation));
+    assert!(!leaves.contains(&bo_installation));
+
+    caro.sync_welcomes().await?;
+    let caro_group = caro.group(&group.group_id)?;
+    caro_group.sync().await?;
+    let intent = QueueIntent::propose_member_update()
+        .data(Vec::<u8>::try_from(
+            crate::groups::intents::ProposeMemberUpdateIntentData::new(
+                vec![],
+                vec![bo.inbox_id().to_string()],
+            ),
+        )?)
+        .queue(&group)?;
+    group.sync_until_intent_resolved(intent.id).await?;
+    let cursor = group
+        .context
+        .db()
+        .topic_progress(&xmtp_db::incoming_envelope::StreamTopic::group(
+            group.group_id,
+        ))?
+        .processed;
+    crate::subscriptions::barrier::wait_through(
+        &caro_group.context,
+        [(
+            xmtp_proto::types::Topic::new_group_message(group.group_id),
+            cursor,
+        )]
+        .into(),
+        None,
+    )
+    .await?;
+    let intent = QueueIntent::commit_pending_proposals().queue(&caro_group)?;
+    caro_group.sync_until_intent_resolved(intent.id).await?;
+    let cursor = caro_group
+        .context
+        .db()
+        .topic_progress(&xmtp_db::incoming_envelope::StreamTopic::group(
+            group.group_id,
+        ))?
+        .processed;
+    crate::subscriptions::barrier::wait_through(
+        &group.context,
+        [(
+            xmtp_proto::types::Topic::new_group_message(group.group_id),
+            cursor,
+        )]
+        .into(),
+        None,
+    )
+    .await?;
+    for member_group in [&group, &caro_group] {
+        let membership = member_group
+            .load_mls_group_with_lock_async(async |mls| {
+                Ok::<_, GroupError>(extract_group_membership(mls.extensions())?)
+            })
+            .await?;
+        assert!(membership.get(bo.inbox_id()).is_none());
+        assert_eq!(member_group.members().await?.len(), 2);
+    }
+}
