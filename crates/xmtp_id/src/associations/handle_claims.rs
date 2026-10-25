@@ -317,9 +317,8 @@ fn other_actions_keep_handles_and_claim_count() {
     let state = claimed_by_installation(new_test_inbox_with_installation(), &["a", "b"]);
     let wallet = wallet(&state);
     let installation = installation(&state);
-    let new_wallet = MemberIdentifier::rand_ethereum();
     let new_recovery = Identifier::rand_ethereum();
-    let new_recovery_member: MemberIdentifier = new_recovery.clone().into();
+    let new_wallet: MemberIdentifier = new_recovery.clone().into();
     let actions = [
         Action::AddAssociation(AddAssociation {
             new_member_identifier: new_wallet.clone(),
@@ -331,11 +330,11 @@ fn other_actions_keep_handles_and_claim_count() {
             new_recovery_identifier: new_recovery,
         }),
         Action::RevokeAssociation(RevokeAssociation {
-            recovery_identifier_signature: signed_by(&new_recovery_member, SignatureKind::Erc191),
+            recovery_identifier_signature: signed_by(&new_wallet, SignatureKind::Erc191),
             revoked_member: installation.clone(),
         }),
         Action::RevokeAssociation(RevokeAssociation {
-            recovery_identifier_signature: signed_by(&new_recovery_member, SignatureKind::Erc191),
+            recovery_identifier_signature: signed_by(&new_wallet, SignatureKind::Erc191),
             revoked_member: wallet,
         }),
     ];

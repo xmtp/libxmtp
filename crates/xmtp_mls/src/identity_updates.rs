@@ -1797,6 +1797,19 @@ pub(crate) mod tests {
         let installation_member_timestamp = installation_member.unwrap().client_timestamp_ns;
         assert!(installation_member_timestamp.is_some());
 
+        // Recovery moves only to a member, so associate the new recovery wallet first
+        let mut associate_request = client
+            .identity_updates()
+            .associate_identity(new_recovery_wallet.identifier())
+            .await
+            .unwrap();
+        add_wallet_signature(&mut associate_request, &new_recovery_wallet).await;
+        client
+            .identity_updates()
+            .apply_signature_request(associate_request)
+            .await
+            .unwrap();
+
         // Create a signature request to change the recovery address
         let mut change_recovery_request = client
             .identity_updates()
@@ -1821,8 +1834,9 @@ pub(crate) mod tests {
             &new_recovery_wallet.identifier()
         );
 
-        // Verify that the associated wallet still includes the original wallet
-        assert!(association_state_after.members().len() == 2);
+        // Verify that the members are the original wallet, the new recovery wallet, and the
+        // installation
+        assert!(association_state_after.members().len() == 3);
         // Verify that one of the members is the recovery address
         let binding = association_state_after.members();
         let recovery_member = binding

@@ -602,6 +602,7 @@ impl From<AssociationState> for AssociationStateProto {
             members,
             recovery_identifier: state.recovery_identifier.to_string(),
             recovery_identifier_kind: kind as i32,
+            recovery_chain_id: state.recovery_chain_id,
             seen_signatures: state.seen_signatures.into_iter().collect(),
             relying_party,
             handles: state.handles.into_iter().map(String::from).collect(),
@@ -658,6 +659,7 @@ impl TryFrom<AssociationStateProto> for AssociationState {
             inbox_id: proto.inbox_id,
             members,
             recovery_identifier,
+            recovery_chain_id: proto.recovery_chain_id,
             seen_signatures: HashSet::from_iter(proto.seen_signatures),
             handles,
             handle_claims: proto.handle_claims,
@@ -809,7 +811,9 @@ pub(crate) mod tests {
     }
 
     /// A claim keeps its handle as carried and its signature through the wire
-    /// form, and a state keeps its handles in order and its claim count.
+    /// form, and a state keeps its handles in order, its claim count, and the
+    /// recovery role's chain id after the recovery identifier is revoked as a
+    /// member.
     // verifies: IDENT-001
     #[xmtp_common::test(unwrap_try = true)]
     fn claim_and_state_round_trip() {
@@ -834,7 +838,8 @@ pub(crate) mod tests {
         )?)?;
         assert_eq!(decoded, claim);
 
-        let state = AssociationState::new(account_identifier, 0, None)?
+        let state = AssociationState::new(account_identifier.clone(), 0, Some(7))?
+            .remove(&account_identifier.into())
             .claim_handle(Handle::parse("a")?)
             .claim_handle(Handle::parse("b#0001")?)
             .claim_handle(Handle::parse("a")?);
@@ -846,6 +851,7 @@ pub(crate) mod tests {
         )?)?;
         assert_eq!(decoded.handles(), state.handles());
         assert_eq!(decoded.handle_claims(), 3);
+        assert_eq!(decoded.recovery_chain_id, Some(7));
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
