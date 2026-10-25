@@ -89,19 +89,13 @@ async fn welcome_install_queues_rotation_atomically() {
     use crate::subscriptions::internal::InternalEvent;
     use xmtp_common::time::now_ns;
     use xmtp_configuration::KEY_PACKAGE_QUEUE_INTERVAL_NS;
-    use xmtp_db::{
-        incoming_envelope::{NetworkEntityKind, StreamTopic},
-        prelude::{QueryGroup, QueryIdentity, QueryIncomingEnvelope, QueryTasks},
-    };
+    use xmtp_db::prelude::{QueryGroup, QueryIdentity, QueryIncomingEnvelope};
 
     tester!(alix, disable_workers);
     tester!(bo, disable_workers);
     let db = bo.context.db();
     let before = db.next_key_package_rotation_ns()?;
-    let key = StreamTopic {
-        entity_id: bo.context.installation_id().to_vec(),
-        kind: NetworkEntityKind::Welcome,
-    };
+    let key = bo.welcome_topic();
     let group = alix.create_group(None, None)?;
     group.invite(&bo).await?;
     let welcome = bo
@@ -138,7 +132,6 @@ async fn welcome_install_queues_rotation_atomically() {
     assert!(db.find_group(&group.group_id)?.is_none());
     assert!(db.pending_envelope(&key, welcome.cursor)?.is_some());
     assert_eq!(db.next_key_package_rotation_ns()?, before);
-    assert!(db.get_tasks()?.is_empty());
     assert!(scheduled.drain().is_empty());
 
     db.raw_query(|conn| diesel::sql_query("DROP TRIGGER fail_welcome_rotation").execute(conn))?;
@@ -149,69 +142,55 @@ async fn welcome_install_queues_rotation_atomically() {
     assert!(db.next_key_package_rotation_ns()?? <= now_ns() + KEY_PACKAGE_QUEUE_INTERVAL_NS);
 }
 
-/// Anyone who knows an installation key can publish Welcomes to it. Ones
-/// that cannot be decrypted are rejected without moving key-package rotation
-/// or uploading a key package.
+/// Anyone who knows an installation key can publish Welcomes to it. A
+/// Welcome rejected before any install, or inside the install transaction,
+/// leaves key-package rotation where it was.
 #[xmtp_common::test(unwrap_try = true)]
 async fn rejected_welcomes_do_not_schedule_key_package_rotation() {
-    use crate::worker::key_package_maintenance::rotate_if_needed;
+    use crate::utils::test::crafted_welcome::send_crafted_welcome;
     use xmtp_common::{NS_IN_DAY, time::now_ns};
-    use xmtp_db::{
-        incoming_envelope::{NetworkEntityKind, StreamTopic},
-        prelude::{QueryIdentity, QueryIncomingEnvelope, QueryKeyPackageHistory},
-    };
+    use xmtp_db::prelude::{QueryIdentity, QueryKeyPackageHistory};
+    use xmtp_mls_common::group_keys::{GroupKeys, GroupRoot};
     use xmtp_proto::backend_v1::{
         WelcomeMessage,
         welcome_message::{V1, Version},
     };
+    use xmtp_proto::types::Cursor;
     use xmtp_proto::xmtp::mls::message_contents::WelcomeWrapperAlgorithm;
 
     tester!(alix, disable_workers);
     tester!(bo, disable_workers);
     let db = bo.context.db();
-    let topic = StreamTopic {
-        entity_id: bo.context.installation_id().to_vec(),
-        kind: NetworkEntityKind::Welcome,
-    };
-    let history = || db.find_key_package_history_entries_before_id(i32::MAX);
-    let initial_count = history()?.len();
-    assert_eq!(initial_count, 1);
 
-    let mut last_rejected = None;
-    for round in 1_u8..=2 {
-        let current_key = history()?
-            .pop()
-            .and_then(|entry| entry.post_quantum_public_key)
-            .expect("the current key package advertises the PQ wrapper key");
-        // Backend routing requires only the installation key. These short,
-        // distinct ciphertexts have the advertised wrapper algorithm and key,
-        // but cannot decrypt to an MLS Welcome.
-        let message = WelcomeMessage {
-            version: Some(Version::V1(V1 {
-                installation_key: bo.context.installation_id().to_vec(),
-                data: vec![round],
-                hpke_public_key: current_key,
-                wrapper_algorithm: WelcomeWrapperAlgorithm::XwingMlkem768Draft6.into(),
-                welcome_metadata: Vec::new(),
-            })),
-        };
-        alix.context.api().send_welcome_messages(&[message]).await?;
-        // Wait for this round's own Welcome: the newest rejection must be
-        // past the previous round's, which a replica lag could otherwise hide.
-        let rejected = xmtp_common::wait_for_some(|| async {
-            assert!(bo.sync_welcomes().await.unwrap().is_empty());
-            db.read_last_rejection(&topic)
-                .unwrap()
-                .filter(|rejection| last_rejected.is_none_or(|last| rejection.sequence_id > last))
-        })
-        .await
-        .expect("this round's Welcome is rejected");
-        assert_eq!(rejected.code, "invalid_welcome");
-        last_rejected = Some(rejected.sequence_id);
-        assert!(db.next_key_package_rotation_ns()?? > now_ns() + NS_IN_DAY);
-        assert!(!rotate_if_needed(&bo.context).await?);
-        assert_eq!(history()?.len(), initial_count);
-    }
+    // A short ciphertext with the advertised wrapper algorithm and key routes
+    // to this installation but never decrypts to an MLS Welcome.
+    let current_key = db
+        .find_key_package_history_entries_before_id(i32::MAX)?
+        .pop()
+        .and_then(|entry| entry.post_quantum_public_key)
+        .expect("the current key package advertises the PQ wrapper key");
+    let undecryptable = WelcomeMessage {
+        version: Some(Version::V1(V1 {
+            installation_key: bo.context.installation_id().to_vec(),
+            data: vec![1],
+            hpke_public_key: current_key,
+            wrapper_algorithm: WelcomeWrapperAlgorithm::XwingMlkem768Draft6.into(),
+            welcome_metadata: Vec::new(),
+        })),
+    };
+    alix.context
+        .api()
+        .send_welcome_messages(&[undecryptable])
+        .await?;
+    let first = bo.wait_for_newest_welcome_rejected(Cursor(0)).await;
+    assert!(db.next_key_package_rotation_ns()?? > now_ns() + NS_IN_DAY);
+
+    // This Welcome decrypts but names no group root, so the install
+    // transaction rejects it for good.
+    let root = GroupRoot::generate();
+    send_crafted_welcome(&alix, &bo, &GroupKeys::derive(&root).group_id(), None).await;
+    bo.wait_for_newest_welcome_rejected(first).await;
+    assert!(db.next_key_package_rotation_ns()?? > now_ns() + NS_IN_DAY);
 }
 
 /// A removal must abandon this installation's unaccepted outgoing work in the

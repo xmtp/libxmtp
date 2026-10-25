@@ -1207,18 +1207,26 @@ enum PriorDecision {
 #[case::allowed_at_readd(PriorDecision::AtReadd)]
 #[case::newer_denied(PriorDecision::Newer)]
 #[xmtp_common::test(unwrap_try = true)]
-async fn readd_after_leave_resets_only_an_older_decision(
-    #[case] prior: PriorDecision,
-) -> Result<(), Box<dyn std::error::Error>> {
+async fn readd_after_leave_resets_only_an_older_decision(#[case] prior: PriorDecision) {
     use xmtp_db::consent_record::{ConsentType, StoredConsentRecord};
 
     tester!(amal, disable_workers);
     tester!(bola, disable_workers);
     tester!(bola2, from: bola, disable_workers);
-    let amal_group = amal.create_group(None, None)?;
-    amal_group.add_members(&[bola.inbox_id()]).await?;
-    let bola_group = bola.sync_welcomes().await?.pop().expect("Bola joined");
-    let leaver = bola2.sync_welcomes().await?.pop().expect("Bola2 joined");
+    let amal_group = amal.create_group(None, None).unwrap();
+    amal_group.add_members(&[bola.inbox_id()]).await.unwrap();
+    let bola_group = bola
+        .sync_welcomes()
+        .await
+        .unwrap()
+        .pop()
+        .expect("Bola joined");
+    let leaver = bola2
+        .sync_welcomes()
+        .await
+        .unwrap()
+        .pop()
+        .expect("Bola2 joined");
     let entity = hex::encode(bola_group.group_id);
     let decision = || {
         bola.db()
@@ -1226,25 +1234,28 @@ async fn readd_after_leave_resets_only_an_older_decision(
             .map(|record| record.map(|record| (record.state, record.consented_at_ns)))
     };
     if prior == PriorDecision::Older {
-        bola_group.update_consent_state(ConsentState::Allowed)?;
+        bola_group
+            .update_consent_state(ConsentState::Allowed)
+            .unwrap();
     }
 
-    leaver.leave_group().await?;
-    amal_group.sync().await?;
-    amal_group.process_pending_self_removals().await?;
-    bola_group.sync().await?;
-    assert!(!bola_group.is_active()?);
+    leaver.leave_group().await.unwrap();
+    amal_group.sync().await.unwrap();
+    amal_group.process_pending_self_removals().await.unwrap();
+    bola_group.sync().await.unwrap();
+    assert!(!bola_group.is_active().unwrap());
     assert_eq!(
-        bola_group.membership_state()?,
+        bola_group.membership_state().unwrap(),
         GroupMembershipState::PendingRemove
     );
 
-    amal_group.add_members(&[bola.inbox_id()]).await?;
+    amal_group.add_members(&[bola.inbox_id()]).await.unwrap();
     let readd_ns = bola
         .context
         .api()
         .query_welcome_messages(bola.context.installation_id())
-        .await?
+        .await
+        .unwrap()
         .into_iter()
         .max_by_key(|welcome| welcome.cursor)
         .expect("the re-add Welcome")
@@ -1256,26 +1267,32 @@ async fn readd_after_leave_resets_only_an_older_decision(
         PriorDecision::None | PriorDecision::Older => None,
     };
     if let Some((state, consented_at_ns)) = synced {
-        bola.db().insert_newer_consent_record(StoredConsentRecord {
-            entity_type: ConsentType::ConversationId,
-            state,
-            entity: entity.clone(),
-            consented_at_ns,
-        })?;
+        bola.db()
+            .insert_newer_consent_record(StoredConsentRecord {
+                entity_type: ConsentType::ConversationId,
+                state,
+                entity: entity.clone(),
+                consented_at_ns,
+            })
+            .unwrap();
     }
-    let before = decision()?;
+    let before = decision().unwrap();
     match prior {
         PriorDecision::None => assert_eq!(before, None),
         PriorDecision::Older => assert!(before.is_some_and(|(_, at)| at < readd_ns)),
         PriorDecision::AtReadd | PriorDecision::Newer => assert_eq!(before, synced),
     }
 
-    bola.sync_welcomes().await?;
-    assert!(bola.group(&bola_group.group_id)?.is_active()?);
+    bola.sync_welcomes().await.unwrap();
+    assert!(
+        bola.group(&bola_group.group_id)
+            .unwrap()
+            .is_active()
+            .unwrap()
+    );
     let expected = match prior {
         PriorDecision::Older => Some((ConsentState::Unknown, readd_ns)),
         PriorDecision::None | PriorDecision::AtReadd | PriorDecision::Newer => before,
     };
-    assert_eq!(decision()?, expected);
-    Ok(())
+    assert_eq!(decision().unwrap(), expected);
 }

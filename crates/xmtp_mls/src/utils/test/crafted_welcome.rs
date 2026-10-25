@@ -45,17 +45,19 @@ use crate::context::XmtpSharedContext;
 use crate::groups::{build_group_config, group_permissions::PolicySet, intents::Installation};
 use crate::utils::FullXmtpClient;
 
-/// What a crafted Welcome claims besides its group id and root.
-struct CraftedWelcome<'a> {
-    conversation_type: ConversationType,
+/// What a crafted Welcome claims besides its group id and root. The default
+/// is a group the creator could have made, at epoch 1 with join anchor 1.
+pub(crate) struct CraftedWelcome<'a> {
+    pub(crate) conversation_type: ConversationType,
     /// The `message_cursor` the Welcome names as its join anchor.
-    anchor: u64,
+    pub(crate) anchor: u64,
     /// Commits the creator merges before the add; the Welcome's epoch is one more.
-    prior_epoch: u64,
+    pub(crate) prior_epoch: u64,
     /// The `CREATOR_INBOX_ID` claim. `None` names the creator's own inbox.
-    claimed_creator: Option<&'a str>,
-    /// The DM member other than the creator. `None` names the joiner.
-    dm_peer: Option<&'a str>,
+    pub(crate) claimed_creator: Option<&'a str>,
+    /// The DM member other than the creator. `None` names the joiner. A peer
+    /// other than the joiner gives a DM pair that excludes the joiner.
+    pub(crate) dm_peer: Option<&'a str>,
 }
 
 impl Default for CraftedWelcome<'_> {
@@ -99,62 +101,12 @@ pub(crate) async fn send_crafted_welcome_of_type(
     send_crafted_welcome_with(creator, joiner, group_id, root, options).await
 }
 
-/// [`send_crafted_welcome`] at epoch 1 with a join anchor the creator chose.
-pub(crate) async fn send_crafted_welcome_with_anchor(
-    creator: &FullXmtpClient,
-    joiner: &FullXmtpClient,
-    group_id: &[u8],
-    root: &GroupRoot,
-    anchor: u64,
-) {
-    let options = CraftedWelcome {
-        anchor,
-        ..Default::default()
-    };
-    send_crafted_welcome_with(creator, joiner, group_id, Some(root), options).await
-}
-
-/// [`send_crafted_welcome`] whose `CREATOR_INBOX_ID` names `claimed_creator`;
-/// the creator still signs and adds as itself.
-pub(crate) async fn send_crafted_welcome_with_creator_claim(
-    creator: &FullXmtpClient,
-    joiner: &FullXmtpClient,
-    group_id: &[u8],
-    root: &GroupRoot,
-    claimed_creator: &str,
-) {
-    let options = CraftedWelcome {
-        claimed_creator: Some(claimed_creator),
-        ..Default::default()
-    };
-    send_crafted_welcome_with(creator, joiner, group_id, Some(root), options).await
-}
-
-/// A DM between `creator` and `peer_inbox_id` whose Welcome goes to `joiner`,
-/// at epoch `prior_epoch + 1` with the join anchor `anchor`. A peer other
-/// than the joiner gives a DM pair that excludes the joiner.
-pub(crate) async fn send_crafted_dm_welcome_with_peer(
-    creator: &FullXmtpClient,
-    joiner: &FullXmtpClient,
-    group_id: &[u8],
-    root: &GroupRoot,
-    peer_inbox_id: &str,
-    anchor: u64,
-    prior_epoch: u64,
-) {
-    let options = CraftedWelcome {
-        conversation_type: ConversationType::Dm,
-        anchor,
-        prior_epoch,
-        dm_peer: Some(peer_inbox_id),
-        ..Default::default()
-    };
-    send_crafted_welcome_with(creator, joiner, group_id, Some(root), options).await
-}
-
+/// `creator` builds the group `options` describes under `group_id`, with
+/// `root` (or no root) in its dictionary, adds `joiner`'s current key
+/// package, and publishes only the Welcome.
 // A test drives OpenMLS convenience commits; their GroupInfo never leaves the test.
 #[allow(clippy::disallowed_methods)]
-async fn send_crafted_welcome_with(
+pub(crate) async fn send_crafted_welcome_with(
     creator: &FullXmtpClient,
     joiner: &FullXmtpClient,
     group_id: &[u8],

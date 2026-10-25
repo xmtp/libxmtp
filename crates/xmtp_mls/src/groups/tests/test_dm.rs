@@ -132,28 +132,6 @@ async fn restored_dm_backup_stub_activates_with_archived_history() {
     assert!(bo.group(&dm.group_id)?.is_active()?);
 }
 
-/// Sync Welcomes until one is rejected for good. The Welcome a test just
-/// sent can reach the backend's read replica after the first query.
-async fn wait_for_welcome_rejection(client: &crate::utils::FullXmtpClient) {
-    use xmtp_db::incoming_envelope::{NetworkEntityKind, QueryIncomingEnvelope, StreamTopic};
-
-    let topic = StreamTopic {
-        entity_id: client.context.installation_id().to_vec(),
-        kind: NetworkEntityKind::Welcome,
-    };
-    xmtp_common::wait_for_some(|| async {
-        let _ = client.sync_welcomes().await;
-        client
-            .context
-            .db()
-            .read_last_rejection(&topic)
-            .ok()
-            .flatten()
-    })
-    .await
-    .expect("a Welcome is rejected within 20 s");
-}
-
 // verifies: JOIN-089
 #[xmtp_common::test(unwrap_try = true)]
 async fn restored_foreign_pair_rejects_different_welcome_pair() {
@@ -183,8 +161,8 @@ async fn restored_foreign_pair_rejects_different_welcome_pair() {
         Some(historical_pair.to_string().as_str())
     );
 
-    wait_for_welcome_rejection(&bo).await;
-    bo.assert_newest_welcome_rejected().await;
+    bo.wait_for_newest_welcome_rejected(xmtp_proto::types::Cursor(0))
+        .await;
     let after = bo.db().find_group(&dm.group_id)?.expect("Restored group");
     assert_eq!(after.membership_state, GroupMembershipState::Restored);
     assert_eq!(after.dm_id, before.dm_id);
@@ -209,8 +187,8 @@ async fn restored_group_rejects_dm_welcome_kind_change() {
         None,
         false,
     )?;
-    wait_for_welcome_rejection(&bo).await;
-    bo.assert_newest_welcome_rejected().await;
+    bo.wait_for_newest_welcome_rejected(xmtp_proto::types::Cursor(0))
+        .await;
     let stored = bo.db().find_group(&dm.group_id)?.expect("Restored group");
     assert_eq!(stored.membership_state, GroupMembershipState::Restored);
     assert_eq!(stored.conversation_type, ConversationType::Group);

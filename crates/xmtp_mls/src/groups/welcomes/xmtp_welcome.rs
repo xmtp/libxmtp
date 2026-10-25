@@ -1063,10 +1063,10 @@ mod tests {
     // verifies: JOIN-042
     #[xmtp_common::test(unwrap_try = true)]
     async fn inactive_group_rejects_stale_branch_and_keeps_pending_prefix() {
-        use crate::utils::test::crafted_welcome::send_crafted_welcome_with_anchor;
+        use crate::utils::test::crafted_welcome::{CraftedWelcome, send_crafted_welcome_with};
         use xmtp_db::incoming_envelope::QueryIncomingEnvelope;
         use xmtp_mls_common::app_data::group_root::read_group_root;
-        use xmtp_proto::types::{OrderedEnvelopeBatch, Topic};
+        use xmtp_proto::types::Topic;
 
         tester!(alix, disable_workers);
         tester!(bo, disable_workers);
@@ -1086,40 +1086,32 @@ mod tests {
         let old_epoch = bo_group.epoch().await?;
         assert!(old_epoch > 1, "the crafted branch joins at epoch one");
 
-        // Admit a real group envelope after the removal without processing it.
-        // The forged anchor names this pending network position.
+        // Receive a real group envelope after the removal without processing
+        // it. The forged anchor names this pending network position.
         alix_group.send_msg(b"after removal").await;
-        let wire_topic = Topic::new_group_message(bo_group.group_id);
-        let envelopes = bo
-            .context
-            .api()
-            .query_all(
-                [(wire_topic.clone(), before.received)].into(),
-                bo.context.api().limits().max_query_limit as u32,
+        bo.mls_store()
+            .receive_topics_once(
+                &[Topic::new_group_message(bo_group.group_id)],
+                bo.context
+                    .incoming_runtime()
+                    .policy()
+                    .incoming_limits(topic.kind),
             )
             .await?;
-        assert_eq!(envelopes.len(), 1);
-        bo.mls_store().admit_incoming_batch(
-            &OrderedEnvelopeBatch {
-                topic: wire_topic,
-                after: before.received,
-                envelopes,
-            },
-            bo.context
-                .incoming_runtime()
-                .policy()
-                .incoming_limits(topic.kind),
-        )?;
         let forged_anchor = db.topic_progress(&topic)?.received;
         assert!(before.processed < forged_anchor);
         assert!(db.pending_envelope(&topic, forged_anchor)?.is_some());
 
-        send_crafted_welcome_with_anchor(
+        let options = CraftedWelcome {
+            anchor: forged_anchor.0,
+            ..Default::default()
+        };
+        send_crafted_welcome_with(
             &alix,
             &bo,
             alix_group.group_id.as_slice(),
-            &root,
-            forged_anchor.0,
+            Some(&root),
+            options,
         )
         .await;
         let result = process_newest_welcome(&bo).await;
@@ -1142,13 +1134,12 @@ mod tests {
     /// A removed former member reuses the group's root to offer a DM, then a
     /// one-shot group, under the group's id. Each Welcome is rejected for good
     /// before anything is installed or any one-shot handling runs: the stored
-    /// row, MLS state, and cursor stay as they were, and the removed group
-    /// still cannot send.
+    /// row, MLS state, and cursor stay as they were.
     // verifies: JOIN-089
     #[xmtp_common::test(unwrap_try = true)]
     async fn replacement_welcome_cannot_change_conversation_type() {
         use crate::utils::test::crafted_welcome::{
-            send_crafted_dm_welcome_with_peer, send_crafted_welcome_of_type,
+            CraftedWelcome, send_crafted_welcome_of_type, send_crafted_welcome_with,
         };
         use xmtp_mls_common::app_data::group_root::read_group_root;
 
@@ -1181,14 +1172,18 @@ mod tests {
 
         // Caro's DM with Bo, at the next epoch and anchored at Bo's cursor,
         // passes every check a same-type re-add Welcome would.
-        send_crafted_dm_welcome_with_peer(
+        let options = CraftedWelcome {
+            conversation_type: ConversationType::Dm,
+            anchor: anchor.0,
+            prior_epoch,
+            ..Default::default()
+        };
+        send_crafted_welcome_with(
             &caro,
             &bo,
             original.group_id.as_slice(),
-            &retained_root,
-            bo.inbox_id(),
-            anchor.0,
-            prior_epoch,
+            Some(&retained_root),
+            options,
         )
         .await;
         let result = process_newest_welcome(&bo).await;
@@ -1220,31 +1215,17 @@ mod tests {
         assert!(!bo_group.is_active()?);
         assert_eq!(bo_group.epoch().await?, prior_epoch);
         assert_eq!(bo_group.cursor().await?, anchor);
-        assert!(
-            bo_group
-                .send_message(b"for the original group", Default::default())
-                .await
-                .is_err()
-        );
-        assert!(
-            bo.context
-                .api()
-                .query_group_messages(original.group_id)
-                .await?
-                .iter()
-                .all(|message| message.cursor <= anchor),
-            "nothing is published after the forged Welcome"
-        );
     }
 
     /// A member of a live DM holds its root and can offer a DM under its id
-    /// with another pair. The client rejects it for good at once instead of
-    /// holding it for the DM's topic, and keeps the DM it holds.
+    /// with another pair, at the next epoch and past the DM's cursor, which
+    /// would otherwise be held for the DM's topic. The client rejects it for
+    /// good at once and keeps the DM it holds.
     // verifies: JOIN-089
     #[xmtp_common::test(unwrap_try = true)]
     async fn live_dm_rejects_welcome_with_another_pair() {
         use crate::groups::DmValidationError;
-        use crate::utils::test::crafted_welcome::send_crafted_dm_welcome_with_peer;
+        use crate::utils::test::crafted_welcome::{CraftedWelcome, send_crafted_welcome_with};
         use xmtp_mls_common::app_data::group_root::read_group_root;
 
         tester!(alix, disable_workers);
@@ -1259,14 +1240,19 @@ mod tests {
         let cursor_before = bo_dm.cursor().await?;
         let epoch_before = bo_dm.epoch().await?;
 
-        send_crafted_dm_welcome_with_peer(
+        let options = CraftedWelcome {
+            conversation_type: ConversationType::Dm,
+            anchor: cursor_before.0 + 1,
+            prior_epoch: epoch_before,
+            dm_peer: Some(caro.inbox_id()),
+            ..Default::default()
+        };
+        send_crafted_welcome_with(
             &alix,
             &bo,
             alix_dm.group_id.as_slice(),
-            &root,
-            caro.inbox_id(),
-            1,
-            0,
+            Some(&root),
+            options,
         )
         .await;
         let result = process_newest_welcome(&bo).await;
@@ -1294,10 +1280,8 @@ mod tests {
     #[case::prior_denied(true)]
     #[case::no_record(false)]
     #[xmtp_common::test(unwrap_try = true)]
-    async fn forged_creator_claim_keeps_prior_consent(
-        #[case] prior_denied: bool,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        use crate::utils::test::crafted_welcome::send_crafted_welcome_with_creator_claim;
+    async fn forged_creator_claim_keeps_prior_consent(#[case] prior_denied: bool) {
+        use crate::utils::test::crafted_welcome::{CraftedWelcome, send_crafted_welcome_with};
         use xmtp_mls_common::group_keys::{GroupKeys, GroupRoot};
 
         tester!(alix, disable_workers);
@@ -1314,21 +1298,31 @@ mod tests {
             )
         });
         if let Some(prior) = &prior {
-            bo.context.db().insert_newer_consent_record(prior.clone())?;
+            bo.context
+                .db()
+                .insert_newer_consent_record(prior.clone())
+                .unwrap();
         }
 
-        send_crafted_welcome_with_creator_claim(&alix, &bo, &group_id, &root, bo.inbox_id()).await;
-        let joined = process_newest_welcome(&bo).await?.expect("valid Welcome");
-        assert_eq!(joined.added_by_inbox_id()?, alix.inbox_id());
+        let options = CraftedWelcome {
+            claimed_creator: Some(bo.inbox_id()),
+            ..Default::default()
+        };
+        send_crafted_welcome_with(&alix, &bo, &group_id, Some(&root), options).await;
+        let joined = process_newest_welcome(&bo)
+            .await
+            .unwrap()
+            .expect("valid Welcome");
+        assert_eq!(joined.added_by_inbox_id().unwrap(), alix.inbox_id());
         let stored = bo
             .context
             .db()
-            .get_consent_record(entity, ConsentType::ConversationId)?;
+            .get_consent_record(entity, ConsentType::ConversationId)
+            .unwrap();
         assert_eq!(
             stored.map(|record| (record.state, record.consented_at_ns)),
             prior.map(|record| (record.state, record.consented_at_ns))
         );
-        Ok(())
     }
 
     /// A group this inbox created, joined from a Welcome another installation

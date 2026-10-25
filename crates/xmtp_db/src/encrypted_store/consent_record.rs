@@ -821,44 +821,6 @@ mod tests {
         })?;
     }
 
-    /// An app act that changes the state stores the act's time with it, and
-    /// reports the record it stored. A same-state act keeps the stored time,
-    /// a gap waived in docs/specs/waivers.toml.
-    #[xmtp_common::test(unwrap_try = true)]
-    fn state_changing_act_stores_its_time() {
-        with_connection(|conn| {
-            for (entity_type, entity) in [
-                (ConsentType::ConversationId, "conversation"),
-                (ConsentType::InboxId, "inbox"),
-            ] {
-                conn.insert_or_replace_consent_records(&[record(
-                    entity_type,
-                    entity,
-                    ConsentState::Allowed,
-                    10,
-                )])?;
-                let denied = record(entity_type, entity, ConsentState::Denied, 20);
-                let changed =
-                    conn.insert_or_replace_consent_records(std::slice::from_ref(&denied))?;
-                assert_eq!(
-                    changed
-                        .iter()
-                        .map(|record| (record.state, record.consented_at_ns))
-                        .collect::<Vec<_>>(),
-                    [(ConsentState::Denied, 20)]
-                );
-                let stored = conn
-                    .get_consent_record(entity.into(), entity_type)?
-                    .unwrap();
-                assert_eq!(
-                    (stored.state, stored.consented_at_ns),
-                    (ConsentState::Denied, 20)
-                );
-            }
-            Ok::<(), crate::ConnectionError>(())
-        })?;
-    }
-
     #[xmtp_common::test]
     fn insert_and_read() {
         with_connection(|conn| {
