@@ -50,3 +50,5 @@ pub const LOCAL_PAGE_MAX_LIMIT: u32 = 1000;
 /// Reaction messages in a message's reaction summary, and in one reaction page
 /// that names no limit.
 pub const MESSAGE_REACTION_LIMIT: u32 = 50;
+/// Extra refill delay for client Update pacing to absorb variation in arrival time.
+pub const STREAM_UPDATE_PACING_MARGIN: Duration = Duration::from_millis(500);

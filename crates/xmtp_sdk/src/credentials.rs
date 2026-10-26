@@ -58,6 +58,10 @@ impl From<uniffi::UnexpectedUniFFICallbackError> for CredentialError {
 }
 
 // Foreign traits need `with_foreign`, which `sdk_export` cannot emit.
+/// Supplies credentials one callback at a time. Requests with a fresh held
+/// credential do not wait for a callback that is still running.
+/// Call setCredential before using the client from a callback. Sending to the
+/// conversation whose sync started the callback still waits for that sync.
 #[uniffi::export(with_foreign)]
 #[xmtp_common::async_trait]
 pub trait CredentialSource: MaybeSend + MaybeSync + 'static {

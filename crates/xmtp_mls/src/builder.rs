@@ -622,6 +622,10 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             server_configuration.configuration(),
             version_info.pkg_semver().semver(),
         )?;
+        // A shared backend can admit a different snapshot for another client.
+        // Keep this client's receiving limits before its first lazy stream opens.
+        let incoming_factory = incoming_factory
+            .map(|factory| factory.bind_limits(api_client.limits()).unwrap_or(factory));
         // Clone after admission, so the default verifier sizes its verify
         // requests by the published limits.
         if !custom_scw_verifier {
