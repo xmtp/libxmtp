@@ -515,14 +515,17 @@ async fn dm_welcome_rejects_registry_that_blocks_membership_updates() {
 
 /// Every registry entry outside the application range must be byte-equal to
 /// the standard DM entry, and no entry may be missing or extra. Entries in
-/// the application range are the participants' to change.
+/// the application range are the participants' to change. Every DM registry
+/// profile is admitted.
 // verifies: DMS-021
 #[xmtp_common::test(unwrap_try = true)]
 async fn dm_admission_compares_every_protocol_registry_entry() {
     use crate::groups::{DmValidationError, MetadataPermissionsError};
     use prost::Message;
     use xmtp_common::assert_err;
-    use xmtp_mls_common::app_data::component_id::ComponentId;
+    use xmtp_mls_common::app_data::{
+        component_id::ComponentId, dm_registry_profile::dm_registry_profiles,
+    };
     use xmtp_proto::xmtp::mls::message_contents::{
         ComponentMetadata, ComponentPermissions, ComponentType, MetadataPolicy,
         metadata_policy::{Kind, MetadataBasePolicy},
@@ -670,5 +673,15 @@ async fn dm_admission_compares_every_protocol_registry_entry() {
     // Both ends of the application range.
     for id in [0xC000, 0xFEFF] {
         validate(with(ComponentId::new(id), Some(valid_entry.clone())))?;
+    }
+    // Every profile is admitted, so once a second profile exists this
+    // catches an admission that accepts only the newest.
+    for profile in dm_registry_profiles() {
+        validate(
+            profile
+                .raw_entries()
+                .map(|(id, bytes)| (id, bytes.to_vec()))
+                .collect(),
+        )?;
     }
 }

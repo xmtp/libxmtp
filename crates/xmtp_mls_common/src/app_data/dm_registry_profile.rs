@@ -7,17 +7,14 @@
 
 use prost::Message;
 use xmtp_proto::xmtp::mls::message_contents::{
-    ComponentPermissions, ComponentType,
-    metadata_policy::MetadataBasePolicy::{
-        self, Allow, AllowIfSelfOrNonMember, AllowIfSuperAdmin, Deny,
+    ComponentMetadata, ComponentPermissions, ComponentType, MetadataPolicy,
+    metadata_policy::{
+        Kind,
+        MetadataBasePolicy::{self, Allow, AllowIfSelfOrNonMember, AllowIfSuperAdmin, Deny},
     },
 };
 
-use crate::app_data::{
-    component_id::ComponentId,
-    component_registry::{ComponentRegistry, new_component_metadata},
-    creation::metadata_policy,
-};
+use crate::app_data::{component_id::ComponentId, component_registry::ComponentRegistry};
 
 /// A component, its type from META section 2, and its insert, update and
 /// delete policies.
@@ -93,18 +90,28 @@ const PROFILE_1: &[Row] = &[
 const PROFILES: &[&[Row]] = &[PROFILE_1];
 
 /// The DM registry profiles, oldest first. A DM creator writes the last one.
+/// Each entry is encoded here, not through the creator's helpers, so a change
+/// to the creator path cannot change a profile.
 pub fn dm_registry_profiles() -> Vec<ComponentRegistry> {
+    let policy = |base: MetadataBasePolicy| {
+        Some(MetadataPolicy {
+            kind: Some(Kind::Base(base as i32)),
+        })
+    };
     PROFILES
         .iter()
         .map(|rows| {
             ComponentRegistry::from_raw_entries(rows.iter().map(
                 |&(id, component_type, [insert, update, delete])| {
-                    let permissions = ComponentPermissions {
-                        insert_policy: Some(metadata_policy(insert)),
-                        update_policy: Some(metadata_policy(update)),
-                        delete_policy: Some(metadata_policy(delete)),
+                    let metadata = ComponentMetadata {
+                        component_type: component_type as i32,
+                        permissions: Some(ComponentPermissions {
+                            insert_policy: policy(insert),
+                            update_policy: policy(update),
+                            delete_policy: policy(delete),
+                        }),
+                        external_committer_permissions: None,
                     };
-                    let metadata = new_component_metadata(permissions, component_type);
                     (id, metadata.encode_to_vec())
                 },
             ))
@@ -132,6 +139,74 @@ fn protocol_entries(registry: &ComponentRegistry) -> impl Iterator<Item = (Compo
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::app_data::{component_registry::new_component_metadata, creation::metadata_policy};
+
+    /// Profile 1's bytes never change: each entry is `component_type` (field
+    /// 1) and the three base policies (field 2), with no other field.
+    // verifies: DMS-021
+    #[xmtp_common::test(unwrap_try = true)]
+    fn profile_1_bytes_are_frozen() {
+        let frozen = [
+            (ComponentId::ADMIN_LIST, "0806120c0a020802120208021a020802"),
+            (
+                ComponentId::GROUP_MEMBERSHIP,
+                "0804120c0a020802120208011a020802",
+            ),
+            (ComponentId::GROUP_NAME, "0802120c0a020801120208011a020804"),
+            (
+                ComponentId::GROUP_DESCRIPTION,
+                "0802120c0a020801120208011a020804",
+            ),
+            (
+                ComponentId::GROUP_IMAGE_URL,
+                "0802120c0a020801120208011a020804",
+            ),
+            (
+                ComponentId::MESSAGE_DISAPPEAR_FROM_NS,
+                "0801120c0a020801120208011a020804",
+            ),
+            (
+                ComponentId::MESSAGE_DISAPPEAR_IN_NS,
+                "0801120c0a020801120208011a020804",
+            ),
+            (ComponentId::APP_DATA, "0802120c0a020801120208011a020804"),
+            (
+                ComponentId::MIN_SUPPORTED_PROTOCOL_VERSION,
+                "0802120c0a020801120208011a020804",
+            ),
+            (
+                ComponentId::COMMIT_LOG_SIGNER,
+                "0801120c0a020804120208041a020804",
+            ),
+            (
+                ComponentId::USER_DISPLAY_NAME,
+                "0807120c0a020805120208051a020805",
+            ),
+            (
+                ComponentId::GROUP_ROOT_KEY,
+                "0801120c0a020804120208021a020802",
+            ),
+            (ComponentId::DM_MEMBERS, "0806120c0a020804120208021a020802"),
+            (
+                ComponentId::CREATOR_INBOX_ID,
+                "0801120c0a020804120208021a020802",
+            ),
+            (
+                ComponentId::CONVERSATION_TYPE,
+                "0801120c0a020804120208021a020802",
+            ),
+        ];
+        let profile_1 = dm_registry_profiles().into_iter().next()?;
+        let entries: Vec<_> = profile_1
+            .raw_entries()
+            .map(|(id, bytes)| (id, hex::encode(bytes)))
+            .collect();
+        let frozen: Vec<_> = frozen
+            .into_iter()
+            .map(|(id, bytes)| (id, bytes.to_string()))
+            .collect();
+        assert_eq!(entries, frozen);
+    }
 
     /// After a newer profile is added, a DM created with the older one still
     /// matches. A registry that is neither profile does not.
