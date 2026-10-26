@@ -319,15 +319,16 @@ mod tests {
             "sender1",
         );
 
-        // Store a GroupUpdated message
-        create_and_store_message(
-            &conn,
+        // Store a locally generated GroupUpdated transcript.
+        let mut transcript = create_test_message(
             &group.group_id,
             vec![2],
             TestContentGenerator::group_updated_content(vec!["inbox1".to_string()]),
-            1000,
-            "sender2",
+            now_ns() + 1000,
+            "sender2".to_string(),
         );
+        transcript.kind = GroupMessageKind::MembershipChange;
+        transcript.store(&conn).unwrap();
 
         // Query with default args - should return both messages
         let messages = group.find_messages_v2(&MsgQueryArgs::default()).unwrap();

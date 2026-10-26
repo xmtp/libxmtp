@@ -25,6 +25,7 @@ enum DecompressFailure {
 pub struct DecompressionBudget {
     remaining: usize,
     peak_capacity: usize,
+    limit_exceeded: bool,
 }
 
 impl Default for DecompressionBudget {
@@ -38,12 +39,18 @@ impl DecompressionBudget {
         Self {
             remaining: MAX_DECOMPRESSED_BYTES,
             peak_capacity: 0,
+            limit_exceeded: false,
         }
     }
 
     /// Largest output buffer capacity used by one decompression.
     pub const fn peak_capacity(&self) -> usize {
         self.peak_capacity
+    }
+
+    /// Whether any decompression has exceeded this shared budget.
+    pub const fn limit_exceeded(&self) -> bool {
+        self.limit_exceeded
     }
 
     /// Total bytes successfully decompressed so far.
@@ -69,6 +76,7 @@ fn read_bounded(
             return Ok(output);
         }
         if read > remaining {
+            budget.limit_exceeded = true;
             return Err(DecompressFailure::Limit);
         }
         output.reserve_exact(read);
@@ -206,7 +214,12 @@ mod tests {
             "6276786ea800000026000000e00568656c6c6f20636f6d7072657373656420584d54503815f077e25450060000000000000062767824",
         )?;
         content.compression = Some(Compression::Gzip as i32);
-        assert!(matches!(decompress(content), Err(CodecError::Decode(_))));
+        let mut budget = DecompressionBudget::new();
+        assert!(matches!(
+            decompress_with_budget(content, &mut budget),
+            Err(CodecError::Decode(_))
+        ));
+        assert!(!budget.limit_exceeded());
     }
 
     // verifies: CTYPE-025
@@ -231,12 +244,14 @@ mod tests {
         let compressed = encoder.finish()?;
         assert!(compressed.len() < 20_000);
         let mut budget = DecompressionBudget::new();
+        assert!(!budget.limit_exceeded());
         let mut reader = CountedRead {
             inner: ZlibDecoder::new(compressed.as_slice()),
             bytes_read: 0,
         };
         let result = read_bounded(&mut reader, &mut budget);
         assert!(matches!(result, Err(DecompressFailure::Limit)));
+        assert!(budget.limit_exceeded());
         // One extra byte detects the limit without reading the rest of the source.
         assert_eq!(reader.bytes_read, MAX_DECOMPRESSED_BYTES + 1);
         assert!(budget.peak_capacity() <= MAX_DECOMPRESSED_BYTES + COMPRESSION_CHUNK_BYTES);

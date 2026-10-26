@@ -68,6 +68,7 @@ fn status<Context: XmtpSharedContext>(group: &MlsGroup<Context>, id: &[u8]) -> D
 
 /// Every new send refuses both reserved types, under `xmtp.org` only, at any
 /// version, before it stores a row, queues an intent, or publishes.
+// verifies: GMOD-054
 #[xmtp_common::test(unwrap_try = true)]
 async fn transcript_types_are_never_sent() {
     tester!(alix, disable_workers);
@@ -115,7 +116,7 @@ async fn transcript_types_are_never_sent() {
         }
     }
 
-    // Only the outer type controls the check, even for compressed content.
+    // A reserved type is refused before its compressed payload is inspected.
     let mut compressed = EncodedContent::decode(
         transcript_content("group_membership_change", 7, "xmtp.org").as_slice(),
     )?;
@@ -131,16 +132,185 @@ async fn transcript_types_are_never_sent() {
     group
         .send_message(&other_authority, SendMessageOpts::default())
         .await?;
-    // A reply that wraps a reserved type is not itself reserved.
-    let mut reply = EncodedContent::decode(transcript_content("reply", 1, "xmtp.org").as_slice())?;
-    reply.content = transcript_content("group_updated", 7, "xmtp.org");
-    group
-        .send_message(&reply.encode_to_vec(), SendMessageOpts::default())
-        .await?;
 }
 
+// verifies: GMOD-054
+#[xmtp_common::test(unwrap_try = true)]
+async fn reply_wrapping_a_transcript_type_is_never_sent() {
+    use xmtp_content_types::{
+        ContentCodec,
+        compression::compress,
+        reply::{Reply, ReplyCodec},
+    };
+    use xmtp_proto::xmtp::mls::message_contents::Compression;
+
+    tester!(alix, disable_workers);
+    let group = alix.create_group(None, None)?;
+    group.key_update().await?;
+    for type_id in ["group_updated", "group_membership_change"] {
+        let transcript =
+            EncodedContent::decode(transcript_content(type_id, 7, "xmtp.org").as_slice())?;
+        let reply = ReplyCodec::encode(Reply {
+            reference: "00".repeat(32),
+            reference_inbox_id: None,
+            content: transcript,
+        })?;
+        let gzip_reply = compress(reply.clone(), Compression::Gzip)?;
+        let two_levels = ReplyCodec::encode(Reply {
+            reference: "01".repeat(32),
+            reference_inbox_id: None,
+            content: gzip_reply.clone(),
+        })?;
+        for content in [reply, gzip_reply, two_levels] {
+            let messages = group.find_messages(&Default::default())?.len();
+            let intents = || {
+                group
+                    .context
+                    .db()
+                    .find_group_intents(group.group_id, None, Some(IntentKind::all().collect()))
+                    .unwrap()
+                    .len()
+            };
+            let queued = intents();
+            let publish_count = || {
+                alix.context
+                    .api()
+                    .api_client
+                    .mls_stats()
+                    .publish
+                    .get_count()
+            };
+            let published = publish_count();
+            let bytes = content.encode_to_vec();
+            assert!(matches!(
+                group.send_message(&bytes, SendMessageOpts::default()).await,
+                Err(GroupError::ReservedTranscriptContentType)
+            ));
+            assert!(matches!(
+                group.send_message_optimistic(&bytes, SendMessageOpts::default()),
+                Err(GroupError::ReservedTranscriptContentType)
+            ));
+            assert!(matches!(
+                group.prepare_message_for_later_publish(&bytes, false, None),
+                Err(GroupError::ReservedTranscriptContentType)
+            ));
+            assert_eq!(group.find_messages(&Default::default())?.len(), messages);
+            assert_eq!(intents(), queued);
+            assert_eq!(publish_count(), published);
+        }
+    }
+}
+
+/// A reply that exceeds either scan bound is refused before
+/// message creation, intent preparation, or publication.
+// verifies: GMOD-054
+#[xmtp_common::test(unwrap_try = true)]
+async fn over_budget_reply_is_refused_before_writes() {
+    use crate::messages::decoded_message::{
+        MAX_REPLY_NESTING_DEPTH, MessageBody, carries_reserved_transcript,
+    };
+    use crate::utils::test::nested_reply;
+    use xmtp_content_types::{
+        ContentCodec, compression,
+        group_updated::GroupUpdatedCodec,
+        reply::{Reply as EncodedReply, ReplyCodec},
+        text::TextCodec,
+    };
+    use xmtp_db::group_intent::QueryPreparedEnvelope;
+    use xmtp_proto::xmtp::mls::message_contents::{Compression, GroupUpdated};
+
+    let content = nested_reply(
+        GroupUpdatedCodec::encode(GroupUpdated::default())?,
+        2,
+        9 * 1024 * 1024,
+    );
+    let mut layer = content.clone();
+    for _ in 0..2 {
+        let decoded = compression::decompress(layer)?;
+        assert_eq!(decoded.content.len(), 9 * 1024 * 1024);
+        layer = ReplyCodec::decode(decoded)?.content;
+    }
+    assert_eq!(GroupUpdatedCodec::decode(layer)?, GroupUpdated::default());
+    let compressed_bytes = content.encode_to_vec();
+    assert!(compressed_bytes.len() < 16 * 1024);
+
+    let wrap_reply = |content| {
+        ReplyCodec::encode(EncodedReply {
+            reference: "0102".into(),
+            reference_inbox_id: None,
+            content,
+        })
+    };
+    let mut at_limit = TextCodec::encode("ordinary reply".into())?;
+    for _ in 0..MAX_REPLY_NESTING_DEPTH {
+        at_limit = wrap_reply(at_limit)?;
+    }
+    let at_limit_bytes = at_limit.encode_to_vec();
+    assert!(matches!(
+        MessageBody::from_received_bytes(&at_limit_bytes),
+        MessageBody::Reply(_)
+    ));
+    let beyond_limit_bytes = wrap_reply(at_limit)?.encode_to_vec();
+    assert!(beyond_limit_bytes.len() < 16 * 1024);
+    eprintln!(
+        "reply depth boundary: {} allowed, {} requires refusal; over-depth wire {} bytes",
+        MAX_REPLY_NESTING_DEPTH,
+        MAX_REPLY_NESTING_DEPTH + 1,
+        beyond_limit_bytes.len()
+    );
+
+    // An invalid frame is still malformed, rather than a budget refusal.
+    let mut malformed = content;
+    malformed.compression = Some(Compression::Gzip as i32);
+    malformed.content = vec![0xff];
+    assert!(!carries_reserved_transcript(&malformed.encode_to_vec()));
+
+    tester!(alix, disable_workers);
+    let group = alix.create_group(None, None)?;
+    group.key_update().await?;
+    // The supported boundary is accepted through the real preparation API.
+    group.prepare_message_for_later_publish(&at_limit_bytes, false, None)?;
+    let publish_count = || {
+        alix.context
+            .api()
+            .api_client
+            .mls_stats()
+            .publish
+            .get_count()
+    };
+    let attempts = || {
+        let db = group.context.db();
+        db.find_group_intents(group.group_id, None, Some(IntentKind::all().collect()))
+            .unwrap()
+            .into_iter()
+            .map(|intent| (intent.id, db.prepared_envelopes(intent.id).unwrap()))
+            .collect::<Vec<_>>()
+    };
+    for bytes in [compressed_bytes, beyond_limit_bytes] {
+        let messages = group.find_messages(&Default::default())?.len();
+        let queued_and_prepared = attempts();
+        let published = publish_count();
+        let sent = group.send_message(&bytes, SendMessageOpts::default()).await;
+        assert!(
+            matches!(sent, Err(GroupError::ReservedTranscriptContentType)),
+            "expected bounded scan refusal, got {sent:?}"
+        );
+        assert!(matches!(
+            group.send_message_optimistic(&bytes, SendMessageOpts::default()),
+            Err(GroupError::ReservedTranscriptContentType)
+        ));
+        assert!(matches!(
+            group.prepare_message_for_later_publish(&bytes, false, None),
+            Err(GroupError::ReservedTranscriptContentType)
+        ));
+        assert_eq!(group.find_messages(&Default::default())?.len(), messages);
+        assert_eq!(attempts(), queued_and_prepared);
+        assert_eq!(publish_count(), published);
+    }
+}
 /// A reserved row that an older build stored fails when it is published by
 /// ID. It is never queued or sent, and a second attempt changes nothing.
+// verifies: GMOD-054
 #[xmtp_common::test(unwrap_try = true)]
 async fn stored_reserved_message_fails_at_publish() {
     tester!(alix, disable_workers);
@@ -197,6 +367,7 @@ async fn stored_reserved_message_fails_at_publish() {
 
 /// An unprepared reserved intent that an older build queued is failed with
 /// its message, is not published, and does not block a later send.
+// verifies: GMOD-054
 #[xmtp_common::test(unwrap_try = true)]
 async fn queued_reserved_intent_fails_without_blocking_later_sends() {
     tester!(alix, disable_workers);
@@ -231,6 +402,7 @@ async fn queued_reserved_intent_fails_without_blocking_later_sends() {
 /// its unknown outcome: `publish_stored_message` neither fails the row nor
 /// reports a refusal, because the saved bytes may already be on the backend
 /// and may still publish.
+// verifies: GMOD-054
 #[xmtp_common::test(unwrap_try = true)]
 async fn stored_reserved_message_with_saved_attempt_is_not_refused() {
     use xmtp_db::diesel::prelude::*;
