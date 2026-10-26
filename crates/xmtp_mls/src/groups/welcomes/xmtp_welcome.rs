@@ -1279,10 +1279,10 @@ mod tests {
     // verifies: DMS-021, JOIN-060
     #[xmtp_common::test(unwrap_try = true)]
     async fn dm_welcome_with_a_nonstandard_registry_is_rejected() {
-        use crate::groups::{DmValidationError, group_permissions::PolicySet};
+        use crate::groups::DmValidationError;
         use crate::utils::test::crafted_welcome::{CraftedWelcome, send_crafted_welcome_with};
         use xmtp_mls_common::app_data::{
-            component_id::ComponentId, creation::dm_creation_registry,
+            component_id::ComponentId, dm_registry_profile::dm_registry_profiles,
         };
         use xmtp_mls_common::group_keys::{GroupKeys, GroupRoot};
         use xmtp_proto::xmtp::mls::message_contents::{
@@ -1292,7 +1292,7 @@ mod tests {
 
         tester!(alix, disable_workers);
         tester!(bo, disable_workers);
-        let mut registry = dm_creation_registry(&PolicySet::new_dm().to_proto()?)?;
+        let mut registry = dm_registry_profiles().pop()?;
         let mut membership = registry.get(&ComponentId::GROUP_MEMBERSHIP)?.unwrap();
         membership.permissions.as_mut().unwrap().update_policy = Some(MetadataPolicy {
             kind: Some(Kind::Base(MetadataBasePolicy::Deny as i32)),

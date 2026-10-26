@@ -1,9 +1,8 @@
 //! Extension and group-config builders, plus DM validation.
 
 use super::*;
-use xmtp_mls_common::app_data::{
-    component_id::ComponentId, component_registry::ComponentRegistry,
-    creation::dm_creation_registry,
+use xmtp_mls_common::app_data::dm_registry_profile::{
+    dm_registry_profiles, matches_dm_registry_profile,
 };
 use xmtp_mls_validation::commit::{extract_group_membership, inbox_id_from_credential};
 
@@ -182,25 +181,12 @@ pub(in crate::groups) fn validate_dm_group(
         return Err(DmValidationError::MustHaveEmptyAdminAndSuperAdmin.into());
     }
 
-    // No DM participant can change a registry entry outside the application
-    // range, so whatever the DM holds there at the join stays for its life.
-    // Compare raw bytes: decoding drops unknown fields that a later release
-    // could read.
-    let expected = PolicySet::new_dm()
-        .to_proto()
-        .ok()
-        .and_then(|policies| dm_creation_registry(&policies).ok())
-        .ok_or(DmValidationError::InvalidPermissions)?;
+    // The entries outside the application range must be one DM registry
+    // profile, byte for byte.
     let received = app_data::load_component_registry(mls_group)?;
-    if !protocol_entries(&received).eq(protocol_entries(&expected)) {
+    if !matches_dm_registry_profile(&received, &dm_registry_profiles()) {
         return Err(DmValidationError::InvalidPermissions.into());
     }
 
     Ok(())
-}
-
-/// The registry entries outside the application range, which no DM
-/// participant can change.
-fn protocol_entries(registry: &ComponentRegistry) -> impl Iterator<Item = (ComponentId, &[u8])> {
-    registry.raw_entries().filter(|(id, _)| !id.is_app_range())
 }

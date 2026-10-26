@@ -408,93 +408,55 @@ async fn test_dictionary_native_dm_accepts_valid_permissions() {
     );
 }
 
-/// The registry entries a new DM writes, as raw `(id, bytes)` pairs.
+/// The registry of the newest DM registry profile, which a new DM writes.
+fn newest_dm_registry_profile() -> xmtp_mls_common::app_data::component_registry::ComponentRegistry
+{
+    xmtp_mls_common::app_data::dm_registry_profile::dm_registry_profiles()
+        .pop()
+        .unwrap()
+}
+
+/// The entries of the newest DM registry profile, as raw `(id, bytes)` pairs.
 fn standard_dm_registry_entries() -> Vec<(
     xmtp_mls_common::app_data::component_id::ComponentId,
     Vec<u8>,
 )> {
-    use crate::groups::group_permissions::PolicySet;
-    use xmtp_mls_common::app_data::creation::dm_creation_registry;
-
-    dm_creation_registry(&PolicySet::new_dm().to_proto().unwrap())
-        .unwrap()
+    newest_dm_registry_profile()
         .raw_entries()
         .map(|(id, bytes)| (id, bytes.to_vec()))
         .collect()
 }
 
-/// A new DM's registry holds one entry for each row of the fixed DM policy
-/// tables, with that component's type, the row's three policies, and no
-/// other field.
+/// The registry a DM creator writes is the newest DM registry profile, so a
+/// change to the creator path fails until a new profile is added.
 // verifies: DMS-002
 #[xmtp_common::test(unwrap_try = true)]
-async fn dm_creation_registry_writes_the_fixed_dm_tables() {
-    use prost::Message;
-    use xmtp_mls_common::app_data::component_id::ComponentId;
-    use xmtp_proto::xmtp::mls::message_contents::{
-        ComponentMetadata, ComponentPermissions, ComponentType as Type, MetadataPolicy,
-        metadata_policy::{Kind, MetadataBasePolicy as Base},
+fn dm_creator_writes_the_newest_registry_profile() {
+    use crate::groups::group_permissions::PolicySet;
+    use xmtp_mls_common::{
+        app_data::{
+            component_id::ComponentId,
+            component_registry::ComponentRegistry,
+            creation::{InitialGroupKind, initial_dictionary},
+        },
+        group::GroupMetadataOptions,
+        group_keys::GroupRoot,
     };
 
-    let row = |id: ComponentId, component_type: Type, [insert, update, delete]: [Base; 3]| {
-        let policy = |base: Base| {
-            Some(MetadataPolicy {
-                kind: Some(Kind::Base(base as i32)),
-            })
-        };
-        let metadata = ComponentMetadata {
-            component_type: component_type as i32,
-            permissions: Some(ComponentPermissions {
-                insert_policy: policy(insert),
-                update_policy: policy(update),
-                delete_policy: policy(delete),
-            }),
-            external_committer_permissions: None,
-        };
-        (id, metadata.encode_to_vec())
-    };
-    let setting = [Base::Allow, Base::Allow, Base::AllowIfSuperAdmin];
-    let immutable = [Base::AllowIfSuperAdmin, Base::Deny, Base::Deny];
-    let self_owned = [Base::AllowIfSelfOrNonMember; 3];
-    let mut tables = vec![
-        row(
-            ComponentId::GROUP_MEMBERSHIP,
-            Type::TlsMapInboxIdBytes,
-            [Base::Deny, Base::Allow, Base::Deny],
-        ),
-        row(
-            ComponentId::ADMIN_LIST,
-            Type::TlsSetInboxId,
-            [Base::Deny; 3],
-        ),
-        row(ComponentId::GROUP_NAME, Type::String, setting),
-        row(ComponentId::GROUP_DESCRIPTION, Type::String, setting),
-        row(ComponentId::GROUP_IMAGE_URL, Type::String, setting),
-        row(ComponentId::APP_DATA, Type::String, setting),
-        row(ComponentId::MESSAGE_DISAPPEAR_FROM_NS, Type::Bytes, setting),
-        row(ComponentId::MESSAGE_DISAPPEAR_IN_NS, Type::Bytes, setting),
-        row(
-            ComponentId::MIN_SUPPORTED_PROTOCOL_VERSION,
-            Type::String,
-            setting,
-        ),
-        row(
-            ComponentId::COMMIT_LOG_SIGNER,
-            Type::Bytes,
-            [Base::AllowIfSuperAdmin; 3],
-        ),
-        row(
-            ComponentId::USER_DISPLAY_NAME,
-            Type::TlsMapInboxIdString,
-            self_owned,
-        ),
-        row(ComponentId::CONVERSATION_TYPE, Type::Bytes, immutable),
-        row(ComponentId::CREATOR_INBOX_ID, Type::Bytes, immutable),
-        row(ComponentId::DM_MEMBERS, Type::TlsSetInboxId, immutable),
-        row(ComponentId::GROUP_ROOT_KEY, Type::Bytes, immutable),
-    ];
-    tables.sort_by_key(|(id, _)| *id);
-    assert_eq!(standard_dm_registry_entries(), tables);
+    // The arguments of create_dm_and_insert, with no catalogue.
+    let dictionary = initial_dictionary(
+        InitialGroupKind::Dm {
+            target_inbox_id: &hex::encode([0x42; 32]),
+        },
+        &PolicySet::new_dm().to_proto()?,
+        &GroupMetadataOptions::default(),
+        &hex::encode([0x43; 32]),
+        Some(&GroupRoot::generate()),
+        &[],
+    )?;
+    let written =
+        ComponentRegistry::from_bytes(dictionary.get(&ComponentId::COMPONENT_REGISTRY.as_u16())?)?;
+    assert_eq!(written, newest_dm_registry_profile());
 }
 
 /// A registry holding exactly `entries`, including bytes that do not decode.
@@ -520,10 +482,8 @@ fn raw_registry(
 // verifies: DMS-021
 #[xmtp_common::test(unwrap_try = true)]
 async fn dm_welcome_rejects_registry_that_blocks_membership_updates() {
-    use crate::groups::{
-        DmValidationError, MetadataPermissionsError, group_permissions::PolicySet,
-    };
-    use xmtp_mls_common::app_data::{component_id::ComponentId, creation::dm_creation_registry};
+    use crate::groups::{DmValidationError, MetadataPermissionsError};
+    use xmtp_mls_common::app_data::component_id::ComponentId;
     use xmtp_proto::xmtp::mls::message_contents::{
         MetadataPolicy,
         metadata_policy::{Kind, MetadataBasePolicy},
@@ -531,7 +491,7 @@ async fn dm_welcome_rejects_registry_that_blocks_membership_updates() {
 
     tester!(alix);
     let added_by = hex::encode([0x42; 32]);
-    let mut registry = dm_creation_registry(&PolicySet::new_dm().to_proto()?)?;
+    let mut registry = newest_dm_registry_profile();
     let standard = dictionary_native_dm_with_registry(&alix.context, &added_by, registry.clone());
     crate::groups::validate_dm_group(&alix.context, &standard, &added_by)?;
 
