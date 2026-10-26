@@ -12821,6 +12821,7 @@ dependencies = [
  "wasm-bindgen-test",
  "xmtp-workspace-hack",
  "xmtp_common",
+ "xmtp_configuration",
  "xmtp_logging",
  "xmtp_proto",
 ]
