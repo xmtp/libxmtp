@@ -27,46 +27,79 @@ where
             .map_err(|error| self.context.server_configuration().blocked_or(error))
     }
 
+    /// Sync this group, then every other group of its stitched DM.
+    ///
+    /// The result is this group's own. Siblings sync even when this group
+    /// fails, and a sibling's failure is logged, never returned, so one paused
+    /// or failing group cannot stop the rest of the conversation. A paused
+    /// sibling fails in `handle_group_paused` before it processes anything,
+    /// so it stays held. If the siblings cannot be loaded, the call fails:
+    /// with this group's error when it has one, else with the load error.
+    // implements: DMS-019
     async fn sync_once(&self) -> Result<SyncSummary, GroupError> {
-        let conn = self.context.db();
-        if conn
-            .find_group(&self.group_id)?
-            .is_some_and(|group| group.membership_state == GroupMembershipState::Restored)
-        {
-            return Err(GroupError::GroupInactive);
-        }
         // A client with a blocked connection makes no further calls.
         self.context.server_configuration().check()?;
 
-        let epoch = self.epoch().await?;
-        tracing::debug!(
-            inbox_id = self.context.inbox_id(),
-            installation_id = self.context.installation_id().as_slice().snippet(),
-            group_id = self.group_id.short_hex(),
-            epoch,
-            "syncing group",
-        );
+        let conn = self.context.db();
+        let result = async {
+            if conn
+                .find_group(&self.group_id)?
+                .is_some_and(|group| group.membership_state == GroupMembershipState::Restored)
+            {
+                return Err(GroupError::GroupInactive);
+            }
+            let epoch = self.epoch().await?;
+            tracing::debug!(
+                inbox_id = self.context.inbox_id(),
+                installation_id = self.context.installation_id().as_slice().snippet(),
+                group_id = self.group_id.short_hex(),
+                epoch,
+                "syncing group",
+            );
+            let sync_summary = self.sync_with_conn().await.map_err(GroupError::from)?;
+            self.maybe_update_installations(None).await?;
+            Ok(sync_summary)
+        }
+        .await;
 
-        // Also sync the "stitched DMs", if any...
-        for other_dm in conn.other_dms(&self.group_id)? {
-            if other_dm.membership_state == GroupMembershipState::Restored {
+        let siblings = match conn.other_dms(&self.group_id) {
+            Ok(siblings) => siblings,
+            // The siblings were not synced, so the call does not succeed. The
+            // named group's own failure still wins.
+            Err(error) => {
+                result?;
+                return Err(error.into());
+            }
+        };
+        for sibling in siblings {
+            if sibling.membership_state == GroupMembershipState::Restored {
                 continue;
             }
-            let other_dm = Self::new_from_arc(
+            let sibling = Self::new_from_arc(
                 self.context.clone(),
-                other_dm.id,
-                other_dm.dm_id.clone(),
-                other_dm.conversation_type,
-                other_dm.created_at_ns,
+                sibling.id,
+                sibling.dm_id,
+                sibling.conversation_type,
+                sibling.created_at_ns,
             );
-
-            other_dm.sync_with_conn().await?;
-            other_dm.maybe_update_installations(None).await?;
+            if let Err(error) = sibling.sync_with_conn().await {
+                tracing::warn!(
+                    group_id = sibling.group_id.short_hex(),
+                    ?error,
+                    "stitched DM sibling sync failed"
+                );
+                continue;
+            }
+            if let Err(error) = sibling.maybe_update_installations(None).await {
+                tracing::warn!(
+                    group_id = sibling.group_id.short_hex(),
+                    ?error,
+                    "stitched DM sibling installation update failed"
+                );
+            }
         }
 
-        let sync_summary = self.sync_with_conn().await.map_err(GroupError::from)?;
-        self.maybe_update_installations(None).await?;
-        Ok(sync_summary)
+        result
     }
 
     fn handle_group_paused(&self) -> Result<(), GroupError> {

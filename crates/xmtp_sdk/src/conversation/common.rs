@@ -226,6 +226,12 @@ macro_rules! common_conversation {
                 on_sdk_worker(
                     self.inner.context.clone(),
                     Box::pin(async move {
+                        // A retry of a failed message queues a new intent.
+                        // implements: DMS-020
+                        group
+                            .ensure_dm_peer()
+                            .await
+                            .map_err(XmtpError::from_group_write)?;
                         group
                             .publish_stored_message(&bytes)
                             .await
@@ -502,17 +508,22 @@ macro_rules! common_conversation {
             pub async fn delete_message(&self, id: MessageId) -> Result<MessageId, XmtpError> {
                 let group = self.inner.clone();
                 let bytes = id.to_bytes()?;
-                on_sdk_worker(self.inner.context.clone(), async move {
-                    let stored = group
-                        .context
-                        .db()
-                        .get_group_message(&bytes)
-                        .map_err(XmtpError::from_core)?
-                        .ok_or_else(|| XmtpError::invalid("message not found"))?;
-                    let group = deletion_group(group, &stored)?;
-                    let deletion_id = group.delete_message(bytes).map_err(XmtpError::from_core)?;
-                    MessageId::from_bytes(&deletion_id)
-                })
+                on_sdk_worker(
+                    self.inner.context.clone(),
+                    // Swift cooperative threads cannot hold the nested MLS future.
+                    Box::pin(async move {
+                        let stored = group
+                            .context
+                            .db()
+                            .get_group_message(&bytes)
+                            .map_err(XmtpError::from_core)?
+                            .ok_or_else(|| XmtpError::invalid("message not found"))?;
+                        let group = deletion_group(group, &stored).await?;
+                        let deletion_id =
+                            group.delete_message(bytes).map_err(XmtpError::from_core)?;
+                        MessageId::from_bytes(&deletion_id)
+                    }),
+                )
                 .await
             }
 

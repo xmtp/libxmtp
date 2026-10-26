@@ -36,6 +36,8 @@ All five platform SDKs accept `SendOptions.optimistic`. Set it to `true` to stor
 
 Call `publishMessages()` to publish prepared messages, or `publishMessage(id)` to publish one message. Swift uses the `id:` label for `publishMessage`.
 
+A DM whose creation stopped before the peer was added is repaired before a message is stored. An optimistic send, `prepareMessage`, `publishMessage(id)`, and `deleteMessage` first add the peer to such a DM. That step does network work. If the add fails, or the backend has not accepted it when the wait ends, the call throws before it stores the message.
+
 `SendOptions` also accepts `idempotencyKey`. Re-sending identical content with the same key produces the same message ID.
 
 ### Key UX considerations for optimistically sent messages

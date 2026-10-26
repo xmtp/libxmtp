@@ -576,6 +576,22 @@ where
         )
     }
 
+    /// Store an allowed DM with `peer_inbox_id` without adding the peer: the
+    /// state a creation leaves when it stops between the insert and the add.
+    #[cfg(any(test, feature = "test-utils"))]
+    pub fn create_dm_without_peer(
+        context: &Context,
+        peer_inbox_id: InboxId,
+    ) -> Result<Self, GroupError> {
+        Self::create_dm_and_insert(
+            context,
+            GroupMembershipState::Allowed,
+            peer_inbox_id,
+            GroupMetadataOptions::default(),
+            None,
+        )
+    }
+
     fn create_dm_with_members(
         context: &Context,
         membership_state: GroupMembershipState,

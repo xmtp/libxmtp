@@ -331,3 +331,70 @@ async fn waiter_on_an_ended_follow_up_reports_unsent_welcomes() {
     let api = client.context.api().api_client.raw_for_test();
     assert!(api.entered.load(Ordering::SeqCst));
 }
+
+/// A send in a DM whose creation stopped before the peer was added runs the
+/// repair while the add's Welcome cannot be published. The repair's own
+/// unconfirmed outcome is not the send's: the message waits behind the add,
+/// completes, and reaches the peer once a sync sends the Welcome.
+// verifies: DMS-020, SEND-019
+#[xmtp_common::test(unwrap_try = true)]
+async fn an_unconfirmed_dm_repair_does_not_end_the_send() {
+    /// Long enough for the add's and the send's rounds on a loaded machine.
+    const SEND_BUDGET: Duration = Duration::from_secs(5);
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    let orphan = MlsGroup::create_dm_without_peer(&alix.context, bo.inbox_id().to_string())?;
+    let client =
+        client_with_stalled_api_within(&alix, StalledCall::WelcomePublish, SEND_BUDGET).await;
+    let (stalled, _) = MlsGroup::new_cached(client.context.clone(), &orphan.group_id)?;
+
+    let message = b"queued behind the repair";
+    let sent = timeout(
+        SEND_BUDGET * 3,
+        stalled.send_message(message, Default::default()),
+    )
+    .await?;
+    assert!(sent.is_ok(), "{sent:?}");
+    let api = client.context.api().api_client.raw_for_test();
+    assert!(api.entered.load(Ordering::SeqCst));
+
+    alix.group(&orphan.group_id)?.sync().await?;
+    bo.wait_for_welcomes().await?;
+    let bo_dm = bo.group(&orphan.group_id)?;
+    bo_dm.sync().await?;
+    let received = bo_dm.find_messages(&Default::default())?;
+    assert!(
+        received
+            .iter()
+            .any(|stored| stored.decrypted_message_bytes == message)
+    );
+}
+
+/// Find-or-create on an interrupted DM reports its own repair's outcome, as a
+/// fresh creation reports its add: an unconfirmed add is not a returned DM.
+// verifies: DMS-020
+#[xmtp_common::test(unwrap_try = true)]
+async fn find_or_create_dm_reports_its_unconfirmed_repair() {
+    /// Long enough for the add's round on a loaded machine.
+    const ADD_BUDGET: Duration = Duration::from_secs(5);
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    MlsGroup::create_dm_without_peer(&alix.context, bo.inbox_id().to_string())?;
+    let client =
+        client_with_stalled_api_within(&alix, StalledCall::WelcomePublish, ADD_BUDGET).await;
+
+    let result = timeout(
+        ADD_BUDGET * 3,
+        client.find_or_create_dm(bo.inbox_id(), None),
+    )
+    .await?;
+    assert!(
+        matches!(
+            &result,
+            Err(crate::client::ClientError::Group(error))
+                if matches!(**error, GroupError::PublishedButUnconfirmed { .. })
+        ),
+        "{:?}",
+        result.map(|dm| dm.group_id)
+    );
+}

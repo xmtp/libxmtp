@@ -629,6 +629,7 @@ mod group_options;
 mod handles;
 mod history_errors;
 mod identity_routes;
+mod interrupted_dm;
 mod lifecycle;
 mod message_actions;
 mod metadata_fields;

@@ -586,3 +586,27 @@ async fn send_state_transitions_send_commits_a_proposal_that_lands_during_the_se
     assert!(group.with_group_snapshot(|mls| Ok(mls.pending_proposals().next().is_none()))?);
     published_sequence(&group, &message);
 }
+
+/// Ambiguous failures leave the DM repair's add without a receipt when its
+/// wait ends, so the add may still be refused. The send-side repair fails
+/// instead of letting a message queue behind an add that could leave the
+/// peer out.
+// verifies: DMS-020
+#[xmtp_common::test(unwrap_try = true)]
+async fn send_state_transitions_dm_repair_without_a_receipt_fails_before_the_send() {
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    let orphan = MlsGroup::create_dm_without_peer(&alix.context, bo.inbox_id().to_string())?;
+    let refusing = refusing_group(
+        &alix,
+        &orphan.group_id,
+        std::iter::repeat_n(tonic::Code::Unavailable, 1000),
+    )
+    .await;
+
+    let result = refusing.ensure_dm_peer().await;
+    assert!(
+        matches!(result, Err(GroupError::SyncFailedToWait(_))),
+        "{result:?}"
+    );
+}

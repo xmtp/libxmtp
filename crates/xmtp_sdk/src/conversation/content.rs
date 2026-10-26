@@ -38,6 +38,14 @@ pub(super) async fn send_encoded(
                 idempotency_key: options.idempotency_key,
             };
             let id = if options.optimistic {
+                // A refused message does no network work for the DM repair.
+                MlsGroup::<xmtp_mls::MlsContext>::reject_reserved_transcript_content(&bytes)
+                    .map_err(XmtpError::from_group_write)?;
+                // implements: DMS-020
+                group
+                    .ensure_dm_peer()
+                    .await
+                    .map_err(XmtpError::from_group_write)?;
                 group
                     .send_message_optimistic(&bytes, opts)
                     .map_err(XmtpError::from_group_write)?
