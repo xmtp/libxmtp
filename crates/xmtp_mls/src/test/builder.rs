@@ -478,8 +478,8 @@ async fn identity_persistence_test() {
     assert_eq!(client_d.installation_public_key().to_vec(), keybytes_a);
 }
 
-// A stored identity trusts any identifier of its inbox ID, so a build that
-// requires it checks the identifier against the inbox's association state.
+// A stored identity trusts any identifier of its inbox ID, so the build
+// checks the identifier against the inbox's association state.
 #[xmtp_common::test(unwrap_try = true)]
 async fn stored_identity_opens_only_for_an_identifier_of_its_inbox() {
     let tmpdb = tmp_path();
@@ -499,22 +499,14 @@ async fn stored_identity_opens_only_for_an_identifier_of_its_inbox() {
     drop(client);
 
     let stranger = generate_local_wallet().identifier();
-    let rejected = builder(stranger)
-        .await
-        .require_identifier_in_inbox()
-        .build()
-        .await;
+    let rejected = builder(stranger).await.build().await;
     assert!(matches!(
         rejected,
         Err(ClientBuilderError::Identity(IdentityError::IdentifierNotInInbox { inbox_id: stored }))
             if stored == inbox_id
     ));
 
-    builder(owner.identifier())
-        .await
-        .require_identifier_in_inbox()
-        .build()
-        .await?;
+    builder(owner.identifier()).await.build().await?;
 }
 
 // An Ethereum address in upper case opens the inbox that holds it.

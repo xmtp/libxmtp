@@ -401,9 +401,8 @@ async fn an_inbox_the_account_left_is_rejected() {
 async fn an_identity_for_an_account_rejects_an_unheld_answer() {
     tester!(bo);
     let wallet = generate_local_wallet();
-    // A build that looks the wallet's inbox up, without opting in to the
-    // identifier check.
-    let build = async |lies: HashMap<String, String>| {
+    // A build for the wallet with default options, on a new store.
+    let build = async |strategy: IdentityStrategy, lies: HashMap<String, String>| {
         let api = ScriptedLookups {
             inner: bo.context.api().api_client.raw_for_test().clone(),
             script: Arc::new(Mutex::new(LookupScript {
@@ -411,7 +410,7 @@ async fn an_identity_for_an_account_rejects_an_unheld_answer() {
                 ..Default::default()
             })),
         };
-        crate::Client::builder(IdentityStrategy::for_identifier(wallet.identifier(), 0))
+        crate::Client::builder(strategy)
             .api_client(api)
             .with_remote_verifier()?
             .store(xmtp_db::TestDb::create_ephemeral_store().await)
@@ -421,20 +420,27 @@ async fn an_identity_for_an_account_rejects_an_unheld_answer() {
             .await
     };
 
-    // The backend names bo for a wallet that bo's log never holds.
+    // The backend names bo for a wallet that bo's log never holds, whether
+    // the build looks the inbox up or the caller names bo's inbox.
     let lie = HashMap::from([(wallet.identifier().to_string(), bo.inbox_id().to_owned())]);
-    let lied = build(lie).await;
-    assert!(
-        matches!(
-            &lied,
-            Err(ClientBuilderError::Identity(IdentityError::IdentifierNotInInbox { inbox_id }))
-                if inbox_id == bo.inbox_id()
-        ),
-        "build: {:?}",
-        lied.err()
-    );
+    for strategy in [
+        IdentityStrategy::for_identifier(wallet.identifier(), 0),
+        IdentityStrategy::new(bo.inbox_id().to_owned(), wallet.identifier(), 0),
+    ] {
+        let lied = build(strategy, lie.clone()).await;
+        assert!(
+            matches!(
+                &lied,
+                Err(ClientBuilderError::Identity(IdentityError::IdentifierNotInInbox { inbox_id }))
+                    if inbox_id == bo.inbox_id()
+            ),
+            "build: {:?}",
+            lied.err()
+        );
+    }
     // A new wallet still gets the inbox it creates, which has no update yet.
-    let client = build(HashMap::new()).await?;
+    let strategy = IdentityStrategy::for_identifier(wallet.identifier(), 0);
+    let client = build(strategy, HashMap::new()).await?;
     assert_eq!(client.inbox_id(), wallet.identifier().inbox_id(0)?);
 }
 
