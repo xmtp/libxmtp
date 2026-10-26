@@ -64,7 +64,8 @@ pub trait QueryMessageDeletion {
         group_id: &GroupId,
     ) -> Result<Vec<StoredMessageDeletion>, crate::ConnectionError>;
 
-    /// Check if a message has been deleted
+    /// Reports whether a deletion row is stored, not whether it takes effect.
+    /// Client code must also validate the group, target type, and sender.
     fn is_message_deleted(&self, message_id: &[u8]) -> Result<bool, crate::ConnectionError>;
 }
 

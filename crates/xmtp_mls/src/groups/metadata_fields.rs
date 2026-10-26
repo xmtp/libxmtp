@@ -143,7 +143,7 @@ where
     /// proposals carry out but the committed values do not still commits
     /// them, here and when it is published, so success never rests on an
     /// uncommitted value.
-    async fn write_fields(
+    pub(super) async fn write_fields(
         &self,
         plan: impl FnOnce(&FieldSnapshot<'_>) -> Result<Vec<FieldWrite>, FieldError>,
     ) -> Result<(), GroupError> {

@@ -8,7 +8,7 @@ use xmtp_db::DbQuery;
 use xmtp_db::group_message::{
     ContentType as DbContentType, Deletable, RelationCounts, RelationQuery, StoredGroupMessage,
 };
-use xmtp_db::message_deletion::StoredMessageDeletion;
+use xmtp_db::message_deletion::{QueryMessageDeletion, StoredMessageDeletion};
 use xmtp_proto::xmtp::mls::message_contents::{ContentTypeId, EncodedContent};
 
 use xmtp_proto::types::GroupId;
@@ -104,15 +104,24 @@ pub(crate) fn is_deletion_valid(
     is_sender || deletion.is_super_admin_deletion
 }
 
+/// The first stored deletion of `message` that takes effect.
+pub(crate) fn find_valid_deletion(
+    db: &impl QueryMessageDeletion,
+    message: &StoredGroupMessage,
+    group_id: &GroupId,
+) -> Result<Option<StoredMessageDeletion>, xmtp_db::ConnectionError> {
+    Ok(db
+        .get_deletions_for_messages(vec![message.id.clone()])?
+        .into_iter()
+        .find(|deletion| is_deletion_valid(deletion, message, group_id)))
+}
+
 /// Whether a valid deletion replaces `message`, as enrichment applies one.
 pub fn is_deleted(
     conn: impl DbQuery,
     message: &StoredGroupMessage,
 ) -> Result<bool, EnrichMessageError> {
-    Ok(conn
-        .get_deletions_for_messages(vec![message.id.clone()])?
-        .iter()
-        .any(|deletion| is_deletion_valid(deletion, message, &message.group_id)))
+    Ok(find_valid_deletion(&conn, message, &message.group_id)?.is_some())
 }
 
 #[xmtp_common::mls_span]

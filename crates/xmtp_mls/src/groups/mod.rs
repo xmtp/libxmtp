@@ -84,7 +84,7 @@ use xmtp_content_types::{
 };
 use xmtp_cryptography::configuration::CIPHERSUITE;
 use xmtp_cryptography::secret::Zeroize;
-use xmtp_db::message_deletion::{QueryMessageDeletion, StoredMessageDeletion};
+use xmtp_db::message_deletion::StoredMessageDeletion;
 use xmtp_db::pending_remove::QueryPendingRemove;
 use xmtp_db::prelude::*;
 use xmtp_db::user_preferences::HmacKey;

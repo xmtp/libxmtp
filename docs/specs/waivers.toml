@@ -399,16 +399,3 @@ owner = "Nicholas Molnar"
 issue = "TBD-octane-tracking"
 reason = "The send guard checks only the top-level content type, so a transcript type nested in a reply is published."
 
-[[waiver]]
-id = "META-076"
-kind = "gap"
-owner = "Nicholas Molnar"
-issue = "TBD-octane-tracking"
-reason = "The SDK writes MESSAGE_DISAPPEAR_FROM_NS and MESSAGE_DISAPPEAR_IN_NS in separate commits, which leaves a retention gap between them."
-
-[[waiver]]
-id = "PROC-056"
-kind = "gap"
-owner = "Nicholas Molnar"
-issue = "TBD-octane-tracking"
-reason = "A stored deletion that does not pass PROC-037, such as one from another group, makes the client refuse a delete as already deleted."

@@ -4,6 +4,10 @@ use xmtp_db::group_message::{ContentType, MsgQueryArgs};
 use xmtp_db::prelude::*;
 
 use crate::context::XmtpSharedContext;
+use crate::groups::{
+    GroupError, MlsGroup,
+    intents::{QueueIntent, UpdateMetadataIntentData},
+};
 use crate::tester;
 use crate::utils::TestMlsGroup;
 
@@ -253,6 +257,17 @@ async fn test_dm_welcome_with_preexisting_consent() {
     );
 }
 
+async fn queue_disappear_from_ns(
+    dm: &MlsGroup<impl XmtpSharedContext>,
+    value: i64,
+) -> Result<(), GroupError> {
+    let data: Vec<u8> =
+        UpdateMetadataIntentData::new_update_conversation_message_disappear_from_ns(value).into();
+    let intent = QueueIntent::metadata_update().data(data).queue(dm)?;
+    dm.sync_until_intent_resolved(intent.id).await?;
+    Ok(())
+}
+
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_group_update_dedupes() {
     tester!(alix);
@@ -267,24 +282,26 @@ async fn test_group_update_dedupes() {
         })?
     };
     assert_eq!(updates().len(), 1);
+    let epoch = dm.epoch().await?;
 
-    dm.update_conversation_message_disappear_from_ns(1).await?;
+    queue_disappear_from_ns(&dm, 1).await?;
     assert_eq!(updates().len(), 2);
 
-    // The same event in a row will be deduped
-    dm.update_conversation_message_disappear_from_ns(1).await?;
+    // The same event in a row commits but emits no second transcript.
+    queue_disappear_from_ns(&dm, 1).await?;
+    assert_eq!(dm.epoch().await?, epoch + 2);
     assert_eq!(updates().len(), 2);
 
     // Different time means different update, will not be deduped.
-    dm.update_conversation_message_disappear_from_ns(2).await?;
+    queue_disappear_from_ns(&dm, 2).await?;
     assert_eq!(updates().len(), 3);
 
     // Back to 1, will not be deduped because we set it to 2 and back.
-    dm.update_conversation_message_disappear_from_ns(1).await?;
+    queue_disappear_from_ns(&dm, 1).await?;
     assert_eq!(updates().len(), 4);
 
     // Continue to dedupe because the field did not change.
-    dm.update_conversation_message_disappear_from_ns(1).await?;
+    queue_disappear_from_ns(&dm, 1).await?;
     assert_eq!(updates().len(), 4);
 }
 
