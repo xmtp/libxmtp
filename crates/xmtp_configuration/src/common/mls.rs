@@ -34,6 +34,13 @@ pub const MAX_IDENTITY_UPDATE_ACTIONS: usize = 100;
 
 pub const MAX_PAST_EPOCHS: usize = 3;
 
+/// Largest gap from a sender's ratchet head accepted in the current epoch.
+/// OpenMLS persists this configuration per group; changing it needs a migration.
+pub const SENDER_RATCHET_MAX_FORWARD_DISTANCE: u32 = 1_000;
+
+/// Number of earlier sender generations retained for out-of-order messages.
+pub const SENDER_RATCHET_OUT_OF_ORDER_TOLERANCE: u32 = 5;
+
 /// Healthy primary-read time allowed for an absent pinned identity update.
 /// This exceeds the backend's default statement timeout.
 pub const IDENTITY_REFERENCE_WAIT: std::time::Duration = std::time::Duration::from_secs(30);

@@ -407,13 +407,6 @@ issue = "TBD-octane-tracking"
 reason = "The SDK writes MESSAGE_DISAPPEAR_FROM_NS and MESSAGE_DISAPPEAR_IN_NS in separate commits, which leaves a retention gap between them."
 
 [[waiver]]
-id = "PROC-055"
-kind = "gap"
-owner = "Nicholas Molnar"
-issue = "TBD-octane-tracking"
-reason = "An application message whose sender data names an out-of-range leaf index or a far-forward generation is not terminally rejected, so it holds the ordered group head."
-
-[[waiver]]
 id = "PROC-056"
 kind = "gap"
 owner = "Nicholas Molnar"

@@ -2,6 +2,240 @@
 
 use super::*;
 
+// verifies: PROC-055
+#[xmtp_common::test(unwrap_try = true)]
+async fn far_forward_application_message_is_rejected_and_later_message_arrives() {
+    use crate::{
+        groups::mls_sync::{GroupHeadOutcome, GroupMessageProcessingError},
+        state_tx::state_write,
+    };
+    use xmtp_db::{
+        TransactionOutcome::Continue,
+        incoming_envelope::{QueryIncomingEnvelope, StreamTopic},
+    };
+    use xmtp_proto::types::{OrderedEnvelopeBatch, Topic};
+    use xmtp_proto::xmtp::mls::message_contents::{
+        ContentTypeId, EncodedContent,
+        plaintext_envelope::{Content, V1},
+    };
+
+    const LAST_ACCEPTABLE_GENERATION: u32 = 1_000;
+
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    tester!(caro, disable_workers);
+    let alix_group = alix.create_group(None, None)?;
+    alix_group
+        .add_members(&[bo.inbox_id(), caro.inbox_id()])
+        .await?;
+    let bo_group = receive_group_invite(&bo).await;
+    let caro_group = receive_group_invite(&caro).await;
+    bo_group.receive().await?;
+    caro_group.receive().await?;
+
+    let topic = StreamTopic::group(bo_group.group_id);
+    let before = bo.context.db().topic_progress(&topic)?;
+    let before_count = bo_group.find_messages(&MsgQueryArgs::default())?.len();
+
+    // Prepare an honest peer's valid ciphertext before the attack, then
+    // publish it later. A normal send would first sync the attacker's head.
+    let honest_content = EncodedContent {
+        r#type: Some(ContentTypeId {
+            authority_id: "xmtp.org".into(),
+            type_id: "text".into(),
+            version_major: 1,
+            version_minor: 0,
+        }),
+        content: b"valid message behind the head".to_vec(),
+        ..Default::default()
+    }
+    .encode_to_vec();
+    let honest_payload = PlaintextEnvelope {
+        content: Some(Content::V1(V1 {
+            content: honest_content.clone(),
+            idempotency_key: "honest-peer".into(),
+        })),
+    }
+    .encode_to_vec();
+    let honest_message = state_write(caro.context.mls_storage(), |tx| {
+        tx.with_group(caro_group.group_id, |mls_group, storage| {
+            let mut last = None;
+            for _ in 0..=LAST_ACCEPTABLE_GENERATION {
+                let message = mls_group.create_message(
+                    &XmtpOpenMlsProviderRef::new(storage),
+                    &caro.context.identity().installation_keys,
+                    &honest_payload,
+                )?;
+                last = Some(message.to_bytes()?);
+            }
+            Ok::<_, GroupError>(Continue(last.expect("at least one ciphertext")))
+        })
+    })?
+    .into_continued();
+    let honest_units = caro_group.prepare_group_messages(vec![(&honest_message, false)])?;
+
+    // Generation 1001 is beyond the window; Carol's generation 1000 is at its edge.
+    let payload = PlaintextEnvelope { content: None }.encode_to_vec();
+    let distant_message = state_write(alix.context.mls_storage(), |tx| {
+        tx.with_group(alix_group.group_id, |mls_group, storage| {
+            let mut last = None;
+            for _ in 0..=LAST_ACCEPTABLE_GENERATION + 1 {
+                let message = mls_group.create_message(
+                    &XmtpOpenMlsProviderRef::new(storage),
+                    &alix.context.identity().installation_keys,
+                    &payload,
+                )?;
+                last = Some(message.to_bytes()?);
+            }
+            Ok::<_, GroupError>(Continue(last.expect("at least one ciphertext")))
+        })
+    })?
+    .into_continued();
+    alix.context
+        .api()
+        .send_group_messages(alix_group.prepare_group_messages(vec![(&distant_message, false)])?)
+        .await?;
+    caro.context.api().send_group_messages(honest_units).await?;
+
+    let wire_topic = Topic::new_group_message(bo_group.group_id);
+    let envelopes = bo
+        .context
+        .api()
+        .query_all(
+            [(wire_topic.clone(), before.received)].into(),
+            bo.context.api().limits().max_query_limit as u32,
+        )
+        .await?;
+    assert_eq!(envelopes.len(), 2);
+    bo.mls_store().admit_incoming_batch(
+        &OrderedEnvelopeBatch {
+            topic: wire_topic,
+            after: before.received,
+            envelopes,
+        },
+        bo.context
+            .incoming_runtime()
+            .policy()
+            .incoming_limits(topic.kind),
+    )?;
+    let db = bo.context.db();
+    let received = db.topic_progress(&topic)?.received;
+    let first_cursor = Cursor(db.first_pending_envelope(&topic)?.unwrap().sequence_id as u64);
+    let GroupHeadOutcome::Progress {
+        cursor,
+        result: Err(GroupMessageProcessingError::FarForwardApplicationMessage),
+    } = bo_group.process_pending_group_head(None)?
+    else {
+        panic!("far-forward application ciphertext must be terminally rejected");
+    };
+    assert_eq!(cursor, first_cursor);
+    let rejection = db.read_last_rejection(&topic)?.unwrap();
+    assert_eq!(rejection.sequence_id, cursor);
+    assert_eq!(rejection.code, "far_forward_generation");
+    assert_eq!(db.topic_progress(&topic)?.processed, cursor);
+    assert_eq!(db.pending_states_through(&topic, received)?.len(), 1);
+    assert_eq!(
+        bo_group.find_messages(&MsgQueryArgs::default())?.len(),
+        before_count
+    );
+
+    assert!(matches!(
+        bo_group.process_pending_group_head(None)?,
+        GroupHeadOutcome::Progress { result: Ok(_), cursor } if cursor == received
+    ));
+    assert_eq!(db.topic_progress(&topic)?.processed, received);
+    assert!(db.first_pending_envelope(&topic)?.is_none());
+    let messages = bo_group.find_messages(&MsgQueryArgs::default())?;
+    assert_eq!(messages.len(), before_count + 1);
+    assert_eq!(
+        messages.last().unwrap().decrypted_message_bytes,
+        honest_content
+    );
+    assert_eq!(db.read_last_rejection(&topic)?, Some(rejection));
+}
+
+// verifies: PROC-055
+#[xmtp_common::test(unwrap_try = true)]
+async fn far_forward_proposal_stays_held() {
+    use crate::{groups::mls_sync::GroupHeadOutcome, state_tx::state_write};
+    use openmls::prelude::LeafNodeParameters;
+    use xmtp_db::{
+        TransactionOutcome::Continue,
+        incoming_envelope::{QueryIncomingEnvelope, StreamTopic},
+    };
+    use xmtp_proto::types::{OrderedEnvelopeBatch, Topic};
+
+    const PROPOSAL_COUNT: u32 = 1_002;
+
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    let alix_group = alix.create_group(None, None)?;
+    alix_group.add_members(&[bo.inbox_id()]).await?;
+    let bo_group = receive_group_invite(&bo).await;
+    bo_group.receive().await?;
+    let topic = StreamTopic::group(bo_group.group_id);
+    let before = bo.context.db().topic_progress(&topic)?;
+    let message = state_write(alix.context.mls_storage(), |tx| {
+        tx.with_group(alix_group.group_id, |mls_group, storage| {
+            let mut last = None;
+            for _ in 0..PROPOSAL_COUNT {
+                let (message, _) = mls_group
+                    .propose_self_update(
+                        &XmtpOpenMlsProviderRef::new(storage),
+                        &alix.context.identity().installation_keys,
+                        LeafNodeParameters::default(),
+                    )
+                    .unwrap();
+                last = Some(message.to_bytes()?);
+            }
+            Ok::<_, GroupError>(Continue(last.expect("at least one proposal")))
+        })
+    })?
+    .into_continued();
+    alix.context
+        .api()
+        .send_group_messages(alix_group.prepare_group_messages(vec![(&message, false)])?)
+        .await?;
+
+    let wire_topic = Topic::new_group_message(bo_group.group_id);
+    let envelopes = bo
+        .context
+        .api()
+        .query_all(
+            [(wire_topic.clone(), before.received)].into(),
+            bo.context.api().limits().max_query_limit as u32,
+        )
+        .await?;
+    assert_eq!(envelopes.len(), 1);
+    bo.mls_store().admit_incoming_batch(
+        &OrderedEnvelopeBatch {
+            topic: wire_topic,
+            after: before.received,
+            envelopes,
+        },
+        bo.context
+            .incoming_runtime()
+            .policy()
+            .incoming_limits(topic.kind),
+    )?;
+    let db = bo.context.db();
+    let received = db.topic_progress(&topic)?.received;
+    let GroupHeadOutcome::Waiting {
+        cursor,
+        code,
+        blocked,
+    } = bo_group.process_pending_group_head(None)?
+    else {
+        panic!("far-forward proposal must stay held");
+    };
+    assert!(blocked);
+    assert_eq!(code, "mls_processing_failure");
+    assert_eq!(cursor, received);
+    assert_eq!(db.topic_progress(&topic)?.processed, before.processed);
+    assert_eq!(db.pending_states_through(&topic, received)?.len(), 1);
+    assert!(db.read_last_rejection(&topic)?.is_none());
+}
+
 // verifies: EVENT-001, EVENT-010
 #[xmtp_common::test(unwrap_try = true)]
 async fn process_messages_abort_on_retryable_error() {

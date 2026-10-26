@@ -1,6 +1,10 @@
 //! Extension and group-config builders, plus DM validation.
 
 use super::*;
+use openmls::prelude::SenderRatchetConfiguration;
+use xmtp_configuration::{
+    SENDER_RATCHET_MAX_FORWARD_DISTANCE, SENDER_RATCHET_OUT_OF_ORDER_TOLERANCE,
+};
 use xmtp_mls_common::app_data::dm_registry_profile::{
     dm_registry_profiles, matches_dm_registry_profile,
 };
@@ -89,6 +93,10 @@ pub(crate) fn build_group_config(
         .ciphersuite(CIPHERSUITE)
         .wire_format_policy(WireFormatPolicy::default())
         .max_past_epochs(MAX_PAST_EPOCHS)
+        .sender_ratchet_configuration(SenderRatchetConfiguration::new(
+            SENDER_RATCHET_OUT_OF_ORDER_TOLERANCE,
+            SENDER_RATCHET_MAX_FORWARD_DISTANCE,
+        ))
         .use_ratchet_tree_extension(true)
         .build())
 }

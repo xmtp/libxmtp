@@ -2,7 +2,8 @@ use crate::state_tx::state_write;
 use openmls::{
     group::{MlsGroupJoinConfig, StagedWelcome, WireFormatPolicy},
     prelude::{
-        BasicCredential, KeyPackageBundle, KeyPackageRef, MlsMessageBodyIn, MlsMessageIn, Welcome,
+        BasicCredential, KeyPackageBundle, KeyPackageRef, MlsMessageBodyIn, MlsMessageIn,
+        SenderRatchetConfiguration, Welcome,
     },
 };
 use prost::Message;
@@ -12,7 +13,10 @@ use xmtp_db::XmtpMlsStorageProvider;
 use xmtp_db::XmtpOpenMlsProviderRef;
 
 use crate::{groups::GroupError, identity::parse_credential};
-use xmtp_configuration::{MAX_PAST_EPOCHS, WELCOME_HPKE_LABEL};
+use xmtp_configuration::{
+    MAX_PAST_EPOCHS, SENDER_RATCHET_MAX_FORWARD_DISTANCE, SENDER_RATCHET_OUT_OF_ORDER_TOLERANCE,
+    WELCOME_HPKE_LABEL,
+};
 use xmtp_cryptography::secret::Zeroizing;
 use xmtp_db::{
     NotFound,
@@ -272,6 +276,10 @@ pub(crate) fn build_group_join_config() -> MlsGroupJoinConfig {
     MlsGroupJoinConfig::builder()
         .wire_format_policy(WireFormatPolicy::default())
         .max_past_epochs(MAX_PAST_EPOCHS)
+        .sender_ratchet_configuration(SenderRatchetConfiguration::new(
+            SENDER_RATCHET_OUT_OF_ORDER_TOLERANCE,
+            SENDER_RATCHET_MAX_FORWARD_DISTANCE,
+        ))
         .use_ratchet_tree_extension(true)
         .build()
 }

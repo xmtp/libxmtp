@@ -247,6 +247,8 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                 } else {
                     error
                 };
+                // implements: PROC-055
+                let error = error.classify_application_sender(envelope.message.content_type());
                 if let GroupMessageProcessingError::CommitValidation(CommitValidationError::Rule(
                     CommitRuleError::ProtocolVersionTooLow(version),
                 )) = &error
