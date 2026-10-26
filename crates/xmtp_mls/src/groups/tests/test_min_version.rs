@@ -124,6 +124,14 @@ async fn build_metadata_floor_does_not_pause_same_precedence_dm_peer() {
     })
     .await;
     assert!(delivered.is_some(), "the peer must store the later message");
+    // The committed floor keeps its build metadata.
+    let committed = victim_dm.mutable_metadata()?;
+    assert_eq!(
+        committed
+            .attributes()
+            .get(&MetadataField::MinimumSupportedProtocolVersion.to_string()),
+        Some(&floor)
+    );
     assert_eq!(victim_dm.paused_for_version()?, None);
     victim_dm
         .send_message(b"reply", SendMessageOpts::default())
