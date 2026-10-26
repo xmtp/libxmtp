@@ -288,22 +288,6 @@ async fn test_group_update_dedupes() {
     assert_eq!(updates().len(), 4);
 }
 
-fn dictionary_native_dm(
-    context: &impl XmtpSharedContext,
-    added_by_inbox: &str,
-    allow_add_member: bool,
-) -> openmls::group::MlsGroup {
-    use crate::groups::group_permissions::{MembershipPolicies, PolicySet};
-    use xmtp_mls_common::app_data::creation::dm_creation_registry;
-
-    let mut policies = PolicySet::new_dm();
-    if allow_add_member {
-        policies.add_member_policy = MembershipPolicies::allow();
-    }
-    let registry = dm_creation_registry(&policies.to_proto().unwrap()).unwrap();
-    dictionary_native_dm_with_registry(context, added_by_inbox, registry)
-}
-
 fn dictionary_native_dm_with_registry(
     context: &impl XmtpSharedContext,
     added_by_inbox: &str,
@@ -402,7 +386,7 @@ fn dictionary_native_dm_with_registry(
 
 /// A DM that `find_or_create_dm` creates passes the joiner's byte
 /// comparison of its registry, so creator and joiner agree.
-// verifies: DMS-021, DMS-002
+// verifies: DMS-021
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_dictionary_native_dm_accepts_valid_permissions() {
     tester!(alix, disable_workers);
@@ -424,28 +408,6 @@ async fn test_dictionary_native_dm_accepts_valid_permissions() {
     );
 }
 
-// verifies: DMS-021
-#[xmtp_common::test(unwrap_try = true)]
-async fn test_dictionary_native_dm_rejects_add_member_policy_alone() {
-    use crate::groups::{DmValidationError, MetadataPermissionsError};
-
-    tester!(alix);
-    let added_by = hex::encode([0x42; 32]);
-    let standard = dictionary_native_dm(&alix.context, &added_by, false);
-    crate::groups::validate_dm_group(&alix.context, &standard, &added_by)?;
-    let group = dictionary_native_dm(&alix.context, &added_by, true);
-    let result = crate::groups::validate_dm_group(&alix.context, &group, &added_by);
-    assert!(
-        matches!(
-            result,
-            Err(MetadataPermissionsError::DmValidation(
-                DmValidationError::InvalidPermissions
-            ))
-        ),
-        "unexpected validation result: {result:?}"
-    );
-}
-
 /// The registry entries a new DM writes, as raw `(id, bytes)` pairs.
 fn standard_dm_registry_entries() -> Vec<(
     xmtp_mls_common::app_data::component_id::ComponentId,
@@ -459,6 +421,80 @@ fn standard_dm_registry_entries() -> Vec<(
         .raw_entries()
         .map(|(id, bytes)| (id, bytes.to_vec()))
         .collect()
+}
+
+/// A new DM's registry holds one entry for each row of the fixed DM policy
+/// tables, with that component's type, the row's three policies, and no
+/// other field.
+// verifies: DMS-002
+#[xmtp_common::test(unwrap_try = true)]
+async fn dm_creation_registry_writes_the_fixed_dm_tables() {
+    use prost::Message;
+    use xmtp_mls_common::app_data::component_id::ComponentId;
+    use xmtp_proto::xmtp::mls::message_contents::{
+        ComponentMetadata, ComponentPermissions, ComponentType as Type, MetadataPolicy,
+        metadata_policy::{Kind, MetadataBasePolicy as Base},
+    };
+
+    let row = |id: ComponentId, component_type: Type, [insert, update, delete]: [Base; 3]| {
+        let policy = |base: Base| {
+            Some(MetadataPolicy {
+                kind: Some(Kind::Base(base as i32)),
+            })
+        };
+        let metadata = ComponentMetadata {
+            component_type: component_type as i32,
+            permissions: Some(ComponentPermissions {
+                insert_policy: policy(insert),
+                update_policy: policy(update),
+                delete_policy: policy(delete),
+            }),
+            external_committer_permissions: None,
+        };
+        (id, metadata.encode_to_vec())
+    };
+    let setting = [Base::Allow, Base::Allow, Base::AllowIfSuperAdmin];
+    let immutable = [Base::AllowIfSuperAdmin, Base::Deny, Base::Deny];
+    let self_owned = [Base::AllowIfSelfOrNonMember; 3];
+    let mut tables = vec![
+        row(
+            ComponentId::GROUP_MEMBERSHIP,
+            Type::TlsMapInboxIdBytes,
+            [Base::Deny, Base::Allow, Base::Deny],
+        ),
+        row(
+            ComponentId::ADMIN_LIST,
+            Type::TlsSetInboxId,
+            [Base::Deny; 3],
+        ),
+        row(ComponentId::GROUP_NAME, Type::String, setting),
+        row(ComponentId::GROUP_DESCRIPTION, Type::String, setting),
+        row(ComponentId::GROUP_IMAGE_URL, Type::String, setting),
+        row(ComponentId::APP_DATA, Type::String, setting),
+        row(ComponentId::MESSAGE_DISAPPEAR_FROM_NS, Type::Bytes, setting),
+        row(ComponentId::MESSAGE_DISAPPEAR_IN_NS, Type::Bytes, setting),
+        row(
+            ComponentId::MIN_SUPPORTED_PROTOCOL_VERSION,
+            Type::String,
+            setting,
+        ),
+        row(
+            ComponentId::COMMIT_LOG_SIGNER,
+            Type::Bytes,
+            [Base::AllowIfSuperAdmin; 3],
+        ),
+        row(
+            ComponentId::USER_DISPLAY_NAME,
+            Type::TlsMapInboxIdString,
+            self_owned,
+        ),
+        row(ComponentId::CONVERSATION_TYPE, Type::Bytes, immutable),
+        row(ComponentId::CREATOR_INBOX_ID, Type::Bytes, immutable),
+        row(ComponentId::DM_MEMBERS, Type::TlsSetInboxId, immutable),
+        row(ComponentId::GROUP_ROOT_KEY, Type::Bytes, immutable),
+    ];
+    tables.sort_by_key(|(id, _)| *id);
+    assert_eq!(standard_dm_registry_entries(), tables);
 }
 
 /// A registry holding exactly `entries`, including bytes that do not decode.
@@ -637,6 +673,21 @@ async fn dm_admission_compares_every_protocol_registry_entry() {
             unassigned,
             Some(vec![0xFF; 3]),
         ),
+        (
+            "entry at reserved 0xFF00",
+            ComponentId::new(0xFF00),
+            Some(valid_entry.clone()),
+        ),
+        (
+            "entry below the component space",
+            ComponentId::new(0x7FFF),
+            Some(valid_entry.clone()),
+        ),
+        (
+            "SUPER_ADMIN_LIST entry",
+            ComponentId::SUPER_ADMIN_LIST,
+            Some(valid_entry.clone()),
+        ),
     ] {
         rejected.push((case.into(), with(id, bytes)));
     }
@@ -656,5 +707,8 @@ async fn dm_admission_compares_every_protocol_registry_entry() {
             "{case}: {result:?}"
         );
     }
-    validate(with(ComponentId::new(0xC000), Some(valid_entry)))?;
+    // Both ends of the application range.
+    for id in [0xC000, 0xFEFF] {
+        validate(with(ComponentId::new(id), Some(valid_entry.clone())))?;
+    }
 }

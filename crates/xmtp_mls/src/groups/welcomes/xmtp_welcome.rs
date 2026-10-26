@@ -1272,6 +1272,67 @@ mod tests {
         alix_dm.test_can_talk_with(&bo_dm).await?;
     }
 
+    /// A DM Welcome whose registry differs from the fixed DM tables, here in
+    /// a `GROUP_MEMBERSHIP` update policy of deny, is rejected for good and
+    /// the DM never appears. The same crafted Welcome with the creator's
+    /// registry joins, so the registry is the only reason.
+    // verifies: DMS-021, JOIN-060
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn dm_welcome_with_a_nonstandard_registry_is_rejected() {
+        use crate::groups::{DmValidationError, group_permissions::PolicySet};
+        use crate::utils::test::crafted_welcome::{CraftedWelcome, send_crafted_welcome_with};
+        use xmtp_mls_common::app_data::{
+            component_id::ComponentId, creation::dm_creation_registry,
+        };
+        use xmtp_mls_common::group_keys::{GroupKeys, GroupRoot};
+        use xmtp_proto::xmtp::mls::message_contents::{
+            MetadataPolicy,
+            metadata_policy::{Kind, MetadataBasePolicy},
+        };
+
+        tester!(alix, disable_workers);
+        tester!(bo, disable_workers);
+        let mut registry = dm_creation_registry(&PolicySet::new_dm().to_proto()?)?;
+        let mut membership = registry.get(&ComponentId::GROUP_MEMBERSHIP)?.unwrap();
+        membership.permissions.as_mut().unwrap().update_policy = Some(MetadataPolicy {
+            kind: Some(Kind::Base(MetadataBasePolicy::Deny as i32)),
+        });
+        registry.set(ComponentId::GROUP_MEMBERSHIP, membership)?;
+
+        let crafted_dm = async |registry| {
+            let root = GroupRoot::generate();
+            let group_id = GroupKeys::derive(&root).group_id().to_vec();
+            let options = CraftedWelcome {
+                conversation_type: ConversationType::Dm,
+                registry,
+                ..Default::default()
+            };
+            send_crafted_welcome_with(&alix, &bo, &group_id, Some(&root), options).await;
+            group_id
+        };
+
+        let rejected_id = crafted_dm(Some(&registry)).await;
+        let result = process_newest_welcome(&bo).await;
+        assert!(
+            matches!(
+                result,
+                Err(GroupError::MetadataPermissionsError(
+                    MetadataPermissionsError::DmValidation(DmValidationError::InvalidPermissions)
+                ))
+            ),
+            "{result:?}"
+        );
+        bo.assert_newest_welcome_rejected().await;
+        let rejected_id = GroupId::try_from(rejected_id.as_slice())?;
+        assert!(bo.context.db().find_group(&rejected_id)?.is_none());
+
+        let joined_id = crafted_dm(None).await;
+        let joined = process_newest_welcome(&bo)
+            .await?
+            .expect("the creator's registry joins");
+        assert_eq!(joined.group_id.as_slice(), joined_id.as_slice());
+    }
+
     /// Another inbox can add this installation to a group whose creator field
     /// names this inbox. The join keeps a decision that reached this
     /// installation first, and stores no decision when there was none.
