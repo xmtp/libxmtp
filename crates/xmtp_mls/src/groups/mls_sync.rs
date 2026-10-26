@@ -283,6 +283,12 @@ pub enum GroupMessageProcessingError {
     /// evidence that the commit is invalid, so the head is held.
     #[error("a committed proposal was received but is missing from local state")]
     LostProposalState,
+    /// An application sender is beyond the fixed forward window. Not retryable.
+    #[error("application sender generation exceeds the forward window")]
+    FarForwardApplicationMessage,
+    /// An application sender names a leaf outside the ratchet tree. Not retryable.
+    #[error("application sender is outside the ratchet tree")]
+    ApplicationSenderOutsideTree,
     /// Supported envelope framing fails validation after its complete prefix.
     #[error(transparent)]
     Envelope(xmtp_api_backend::envelope::EnvelopeError),
@@ -418,6 +424,8 @@ impl RetryableError for GroupMessageProcessingError {
             Self::CorruptIncomingEnvelope(_)
             | Self::UnsupportedMlsVersion
             | Self::LostProposalState
+            | Self::FarForwardApplicationMessage
+            | Self::ApplicationSenderOutsideTree
             | Self::Envelope(_)
             | Self::OwnMessageWithoutAttempt
             | Self::UnsupportedOwnIntentKind(_) => false,
