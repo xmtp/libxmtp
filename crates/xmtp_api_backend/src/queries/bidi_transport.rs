@@ -69,8 +69,8 @@ const INCOMING_PAUSE_TIMEOUT: std::time::Duration = std::time::Duration::from_se
 // implements: CONF-093
 fn update_budget(limits: &MutateLimits) -> Bucket {
     Bucket::with_margin(
-        limits.update_rate,
-        limits.update_burst,
+        limits.update_rate.max(1),
+        limits.update_burst.max(1),
         xmtp_configuration::STREAM_UPDATE_PACING_MARGIN,
     )
 }
@@ -85,7 +85,7 @@ const PER_ENTRY_OVERHEAD: usize = 64;
 
 /// The interest-update frame sizes and pacing one deployment accepts. Adds and
 /// removes have separate caps because the backend enforces them separately.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct MutateLimits {
     pub add_cap: usize,
     pub remove_cap: usize,
@@ -435,6 +435,7 @@ where
     }
 
     /// Open lazily, chunking and pacing updates to what the deployment published.
+    /// Zero pacing values use the minimum rate and burst of one.
     pub fn new_within<O, Fut>(opener: O, initially_suspended: bool, mutate: MutateLimits) -> Self
     where
         O: Fn(B::Mutate) -> Fut + MaybeSend + MaybeSync + 'static,

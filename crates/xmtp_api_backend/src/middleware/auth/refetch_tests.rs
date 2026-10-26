@@ -725,7 +725,7 @@ async fn set_releases_requests_waiting_for_a_pending_refresh(#[case] rpc: Rpc) {
 #[xmtp_common::test(unwrap_try = true)]
 async fn lockout_during_a_pending_refresh_fails_requests_as_exhausted() {
     let (client, peer, callback) = fixture();
-    let (_release_callback, gate) = oneshot::channel();
+    let (release_callback, gate) = oneshot::channel();
     *callback.gate.lock().await = Some(gate);
     let mut refreshing = Box::pin(call(&client, Rpc::Unary));
     assert!(futures::poll!(&mut refreshing).is_pending());
@@ -774,6 +774,37 @@ async fn lockout_during_a_pending_refresh_fails_requests_as_exhausted() {
     );
     assert_eq!(callback.calls.load(Ordering::SeqCst), 1);
     assert!(futures::poll!(&mut refreshing).is_pending());
+    release_callback.send(()).expect("pending callback");
+    assert!(matches!(
+        timeout(WAIT, refreshing).await?,
+        Err(ApiClientError::Auth(AuthError::Exhausted))
+    ));
+    assert_eq!(
+        peer.sent.lock().await.len(),
+        MAX_CONSECUTIVE_AUTH_FAILURES as usize
+    );
+    assert_eq!(callback.calls.load(Ordering::SeqCst), 1);
+}
+
+// verifies: AUTH-021
+#[xmtp_common::test(unwrap_try = true)]
+async fn rejected_manual_credential_is_replaced_after_pending_callback() {
+    let (client, peer, callback) = fixture();
+    let (release, gate) = oneshot::channel();
+    *callback.gate.lock().await = Some(gate);
+    let mut refreshing = Box::pin(call(&client, Rpc::Unary));
+    assert!(futures::poll!(&mut refreshing).is_pending());
+    client.handle.set(credential("manual")).await;
+    peer.enqueue(tonic::Code::Unauthenticated).await;
+    assert!(call(&client, Rpc::Bidi).await.is_err());
+
+    release.send(()).expect("pending callback");
+    timeout(WAIT, refreshing).await??;
+    let sent = peer.sent.lock().await;
+    assert_eq!(sent.len(), 2);
+    assert_eq!(sent[0].0.headers["authorization"], "manual");
+    assert_eq!(sent[1].0.headers["authorization"], "token-2");
+    assert_eq!(callback.calls.load(Ordering::SeqCst), 2);
 }
 
 // verifies: AUTH-022

@@ -93,3 +93,34 @@ async fn open_wire_span_charges_the_snapshot_update_burst() {
     task.open_wire_span();
     assert!(task.update_budget.wait() > Duration::from_secs(1));
 }
+
+#[rstest::rstest]
+#[case::zero_rate(0, 1)]
+#[case::zero_burst(1, 0)]
+#[xmtp_common::test(unwrap_try = true)]
+async fn raw_zero_update_limits_keep_updates_live(#[case] rate: u32, #[case] burst: u32) {
+    let (transport, servers) = transport_within(MutateLimits {
+        update_rate: rate,
+        update_burst: burst,
+        ..MutateLimits::default()
+    });
+    let _first = transport
+        .lease(vec![(group_topic(b"first"), 0)], 8)
+        .await
+        .expect("first lease");
+    let mut server = take_server(&servers);
+    let opening = server.next_mutate().await;
+    server.ack_empty(opening.id);
+    let second = group_topic(b"second");
+    let _second = transport
+        .lease(vec![(second.clone(), 0)], 8)
+        .await
+        .expect("second lease");
+    let update = server.next_mutate().await;
+    assert!(update.adds.iter().any(|add| {
+        add.topic
+            .as_ref()
+            .is_some_and(|topic| topic.topic == second.cloned_vec())
+    }));
+    server.ack_empty(update.id);
+}

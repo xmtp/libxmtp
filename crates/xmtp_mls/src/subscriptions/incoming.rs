@@ -40,6 +40,14 @@ pub(crate) type RejectedRequests = Arc<Mutex<Vec<(RequestKey, Arc<IncomingError>
 pub(crate) trait SubscriptionFactory: MaybeSend + MaybeSync {
     fn open(&self, cursors: TopicCursor, limits: IncomingBatchLimits) -> SubscriptionFuture;
 
+    /// Bind a fresh factory to one client's admitted snapshot when it needs it.
+    fn bind_limits(
+        &self,
+        _limits: &xmtp_configuration::LimitsConfiguration,
+    ) -> Option<Arc<dyn SubscriptionFactory>> {
+        None
+    }
+
     /// A suspended live receiver must not start automatic unary network work.
     fn is_suspended(&self) -> bool {
         false
@@ -132,12 +140,13 @@ where
 xmtp_common::if_native! {
 pub(crate) struct BidiSubscriptionFactory<A> {
     api: A,
+    mutate: Option<xmtp_api_backend::MutateLimits>,
     transport: std::sync::OnceLock<Arc<xmtp_api_backend::BidiTransport<xmtp_api_backend::BackendBinding>>>,
 }
 
 impl<A> BidiSubscriptionFactory<A> {
     pub(crate) fn new(api: A) -> Self {
-        Self { api, transport: std::sync::OnceLock::new() }
+        Self { api, mutate: None, transport: std::sync::OnceLock::new() }
     }
 }
 
@@ -155,7 +164,10 @@ where
         // Keep the shared transport alive between this client's receiving calls.
         // The process registry must not keep credentials after factories and subscriptions drop.
         let transport = self.transport.get_or_init(|| {
-            super::router_callbacks::shared_transport(self.api.clone())
+            let mutate = self.mutate.unwrap_or_else(|| {
+                xmtp_api_backend::MutateLimits::from_limits(&self.api.bidi_limits())
+            });
+            super::router_callbacks::shared_transport_within(self.api.clone(), mutate)
         }).clone();
         Box::pin(async move {
             transport
@@ -177,6 +189,17 @@ where
                 })
                 .map_err(NetworkError::new)
         })
+    }
+
+    fn bind_limits(
+        &self,
+        limits: &xmtp_configuration::LimitsConfiguration,
+    ) -> Option<Arc<dyn SubscriptionFactory>> {
+        Some(Arc::new(Self {
+            api: self.api.clone(),
+            mutate: Some(xmtp_api_backend::MutateLimits::from_limits(limits)),
+            transport: std::sync::OnceLock::new(),
+        }))
     }
 
     fn is_suspended(&self) -> bool {

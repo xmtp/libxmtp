@@ -245,75 +245,71 @@ impl<C> AuthMiddleware<C> {
                 guard = inner.refresh.lock() => break guard,
             }
         };
-        let mut state = *inner.state.lock().await;
-        let now = Instant::now();
-        let lockout_left = state.locked_until.is_some_and(|until| until <= now);
-        if let Some(until) = state.locked_until {
-            if until > now {
-                return Err(AuthError::Exhausted);
-            }
-            state.locked_until = None;
-            state.failures = MAX_CONSECUTIVE_AUTH_FAILURES - 1;
-            state.stale = true;
-        }
-        let mut credential = inner.current.get().map(|current| current.load_full());
-        let needs_refresh = state.stale
-            || credential
-                .as_ref()
-                .is_none_or(|credential| credential.expires_at_seconds <= now_secs());
-        if needs_refresh && let Some(callback) = &self.callback {
-            let generation_before = state.generation;
-            let result = callback.on_auth_required().await;
-            let mut guard = inner.state.lock().await;
-            // `AuthHandle::set` may have run during the callback. Its credential
-            // is newer, so keep it and leave its state alone.
-            if guard.generation != generation_before {
-                return Ok((
-                    inner
-                        .current
-                        .get()
-                        .map(|current| current.load_full())
-                        .ok_or(AuthError::MissingCredential)?,
-                    guard.generation,
-                ));
-            }
-            match result {
-                Ok(new) => {
-                    inner.store(new);
-                    credential = inner.current.get().map(|current| current.load_full());
-                    state.generation += 1;
-                    state.stale = false;
+        loop {
+            let mut state = *inner.state.lock().await;
+            let now = Instant::now();
+            let lockout_left = state.locked_until.is_some_and(|until| until <= now);
+            if let Some(until) = state.locked_until {
+                if until > now {
+                    return Err(AuthError::Exhausted);
                 }
-                Err(_) => {
-                    let entered = state.fail();
-                    *guard = state;
-                    if lockout_left {
-                        inner.emit_lockout(LockoutChange::Left);
+                state.locked_until = None;
+                state.failures = MAX_CONSECUTIVE_AUTH_FAILURES - 1;
+                state.stale = true;
+            }
+            let mut credential = inner.current.get().map(|current| current.load_full());
+            let needs_refresh = state.stale
+                || credential
+                    .as_ref()
+                    .is_none_or(|credential| credential.expires_at_seconds <= now_secs());
+            if needs_refresh && let Some(callback) = &self.callback {
+                let generation_before = state.generation;
+                let result = callback.on_auth_required().await;
+                let mut guard = inner.state.lock().await;
+                // A credential set during the callback wins over its result. Other
+                // requests may have rejected it or entered lockout, so recheck the
+                // current state while keeping callbacks serialized.
+                if guard.generation != generation_before {
+                    continue;
+                }
+                match result {
+                    Ok(new) => {
+                        inner.store(new);
+                        credential = inner.current.get().map(|current| current.load_full());
+                        state.generation += 1;
+                        state.stale = false;
                     }
-                    if entered {
-                        inner.emit_lockout(LockoutChange::Entered);
+                    Err(_) => {
+                        let entered = state.fail();
+                        *guard = state;
+                        if lockout_left {
+                            inner.emit_lockout(LockoutChange::Left);
+                        }
+                        if entered {
+                            inner.emit_lockout(LockoutChange::Entered);
+                        }
+                        // Distinguish this failed refresh from later refusals.
+                        // Both keep the same public error code and cool-down.
+                        return Err(if state.locked_until.is_some() {
+                            AuthError::ExhaustedAfterAttempt
+                        } else {
+                            AuthError::CallbackFailed { retryable: true }
+                        });
                     }
-                    // Distinguish this failed refresh from later refusals.
-                    // Both keep the same public error code and cool-down.
-                    return Err(if state.locked_until.is_some() {
-                        AuthError::ExhaustedAfterAttempt
-                    } else {
-                        AuthError::CallbackFailed { retryable: true }
-                    });
+                }
+                *guard = state;
+                if lockout_left {
+                    inner.emit_lockout(LockoutChange::Left);
+                }
+            } else {
+                *inner.state.lock().await = state;
+                if lockout_left {
+                    inner.emit_lockout(LockoutChange::Left);
                 }
             }
-            *guard = state;
-            if lockout_left {
-                inner.emit_lockout(LockoutChange::Left);
-            }
-        } else {
-            *inner.state.lock().await = state;
-            if lockout_left {
-                inner.emit_lockout(LockoutChange::Left);
-            }
+            let credential = credential.ok_or(AuthError::MissingCredential)?;
+            return Ok((credential, state.generation));
         }
-        let credential = credential.ok_or(AuthError::MissingCredential)?;
-        Ok((credential, state.generation))
     }
 
     /// Return whether a current rejection permits one immediate replay.
