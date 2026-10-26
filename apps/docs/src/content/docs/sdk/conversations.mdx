@@ -70,7 +70,7 @@ try await group.addMembers(members: [memberInboxId])
 
 ## Create a DM
 
-Creating a DM returns the existing conversation if you already have one with that peer. You cannot create a DM with yourself.
+Creating a DM returns the existing conversation if you already have one with that peer. You cannot create a DM with yourself. If an earlier creation stopped before the peer was added, `createDm` adds the peer first. That step does network work and can throw the add's error.
 
 All five platform SDKs use `conversations.createDm(peer, options)`. Pass an inbox ID or a `PublicIdentity` value. Swift uses the labels `peer:` and `options:`.
 

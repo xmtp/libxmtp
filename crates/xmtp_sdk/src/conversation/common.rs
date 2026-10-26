@@ -226,6 +226,12 @@ macro_rules! common_conversation {
                 on_sdk_worker(
                     self.inner.context.clone(),
                     Box::pin(async move {
+                        // A retry of a failed message queues a new intent.
+                        // implements: DMS-020
+                        group
+                            .ensure_dm_peer()
+                            .await
+                            .map_err(XmtpError::from_group_write)?;
                         group
                             .publish_stored_message(&bytes)
                             .await
