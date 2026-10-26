@@ -2,8 +2,8 @@ use xmtp_db::group::{GroupQueryArgs, GroupQueryOrderBy};
 use xmtp_proto::types::ConversationType;
 
 use crate::{
-    ConsentState, ContentTypeId, DeliveryStatus, DisappearingSettings, InboxId, MessageKind,
-    PermissionPolicySet, Timestamp, XmtpError,
+    ConsentState, ContentTypeId, ConversationId, DeliveryStatus, DisappearingSettings, InboxId,
+    MessageKind, PermissionPolicySet, Timestamp, XmtpError,
 };
 
 #[derive(Clone, Debug, uniffi::Enum)]
@@ -205,6 +205,10 @@ pub enum ConversationOrder {
     LastActivity,
 }
 
+/// One page of a conversation listing. To read the next page, pass the last
+/// conversation's `created_at` as `created_before` in creation order, or its
+/// `last_activity_at()` as `last_activity_before` in activity order, and its
+/// id as `before_id`.
 #[derive(Clone, Debug, Default, uniffi::Record)]
 pub struct ListConversationsOptions {
     #[uniffi(default = None)]
@@ -219,17 +223,26 @@ pub struct ListConversationsOptions {
     pub last_activity_after: Option<Timestamp>,
     #[uniffi(default = None)]
     pub last_activity_before: Option<Timestamp>,
+    /// At most this many conversations, from 1 to 1000; 100 when absent.
     #[uniffi(default = None)]
     pub limit: Option<u32>,
     #[uniffi(default = None)]
     pub order_by: Option<ConversationOrder>,
     #[uniffi(default = false)]
     pub include_duplicate_dms: bool,
+    /// Resume after this conversation: a conversation at exactly the before
+    /// time of the list order is returned only when its id is lower. Needs
+    /// `created_before` in creation order or `last_activity_before` in
+    /// activity order.
+    #[uniffi(default = None)]
+    pub before_id: Option<ConversationId>,
 }
 
-impl From<ListConversationsOptions> for GroupQueryArgs {
-    fn from(value: ListConversationsOptions) -> Self {
-        Self {
+impl TryFrom<ListConversationsOptions> for GroupQueryArgs {
+    type Error = XmtpError;
+
+    fn try_from(value: ListConversationsOptions) -> Result<Self, Self::Error> {
+        Ok(Self {
             conversation_type: value.kind.map(|kind| match kind {
                 ConversationKind::Group => ConversationType::Group,
                 ConversationKind::Dm => ConversationType::Dm,
@@ -247,7 +260,8 @@ impl From<ListConversationsOptions> for GroupQueryArgs {
                 ConversationOrder::LastActivity => GroupQueryOrderBy::LastActivity,
             }),
             include_duplicate_dms: value.include_duplicate_dms,
+            before_id: value.before_id.map(TryInto::try_into).transpose()?,
             ..Default::default()
-        }
+        })
     }
 }

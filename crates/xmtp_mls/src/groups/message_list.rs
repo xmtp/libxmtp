@@ -431,6 +431,86 @@ mod tests {
         assert_has_reaction(original_msg, "❤️");
     }
 
+    /// Each message carries its 50 latest reaction messages, and a count of
+    /// all of its unexpired ones, on every read path. A parent with fewer
+    /// reactions keeps all of them.
+    // verifies: PROC-053, META-051
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn history_reaction_summary_is_bounded_per_message() {
+        const REACTION_COUNT: i64 = 256;
+        const SUMMARY: usize = 50;
+
+        let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let group = client.create_group(None, Default::default())?;
+        let conn = client.context.db();
+        let base = now_ns();
+        let busy_parent = vec![0xa5; 32];
+        let quiet_parent = vec![0xb6; 32];
+        for parent in [&busy_parent, &quiet_parent] {
+            create_test_message(
+                &group.group_id,
+                parent.clone(),
+                TestContentGenerator::text_content("target"),
+                base,
+                "victim".to_string(),
+            )
+            .store(&conn)?;
+        }
+        let reaction = |parent: &[u8], id: Vec<u8>, offset: i64| {
+            create_test_message(
+                &group.group_id,
+                id,
+                TestContentGenerator::reaction_content(
+                    &parent.encode_hex(),
+                    "👍",
+                    ReactionAction::Added,
+                ),
+                base + offset,
+                "participant".to_string(),
+            )
+        };
+        // Each row is a distinct, accepted reaction from a participant.
+        for offset in 1..=REACTION_COUNT {
+            reaction(&busy_parent, offset.to_be_bytes().to_vec(), offset).store(&conn)?;
+        }
+        // The newest reaction has expired, so it neither shows nor counts.
+        let mut expired = reaction(&busy_parent, vec![0xee; 8], REACTION_COUNT + 1);
+        expired.expire_at_ns = Some(now_ns() - 1);
+        expired.store(&conn)?;
+        for offset in 1..=3 {
+            reaction(&quiet_parent, vec![0xb6, offset as u8], offset).store(&conn)?;
+        }
+
+        let assert_summary = |message: &DecodedMessage| {
+            let offsets: Vec<_> = message
+                .reactions
+                .iter()
+                .map(|reaction| reaction.metadata.sent_at_ns - base)
+                .collect();
+            if message.metadata.id == busy_parent {
+                let latest: Vec<_> =
+                    (REACTION_COUNT - SUMMARY as i64 + 1..=REACTION_COUNT).collect();
+                assert_eq!(offsets, latest);
+                assert_eq!(message.num_reaction_messages, REACTION_COUNT as usize);
+            } else {
+                assert_eq!(offsets, [1, 2, 3]);
+                assert_eq!(message.num_reaction_messages, 3);
+            }
+        };
+
+        let history = group.find_messages_v2(&MsgQueryArgs::default())?;
+        assert_eq!(history.len(), 2);
+        history.iter().for_each(assert_summary);
+        for parent in [&busy_parent, &quiet_parent] {
+            assert_summary(&client.message_v2(parent.clone())?);
+        }
+        let sdk_history = group.find_messages_v2_with_stored(&MsgQueryArgs::default())?;
+        assert_eq!(sdk_history.len(), 2);
+        sdk_history
+            .iter()
+            .for_each(|message| assert_summary(&message.decoded));
+    }
+
     #[xmtp_common::test]
     async fn test_find_messages_with_replies() {
         let (group, context) = setup_test_group().await;

@@ -310,6 +310,8 @@ Current creation:
 | Legacy string topics                                                               | `conversation.topic` is `[group_message_v1/<hex-id>]`. Collection `.topic` is removed. Wire topics use a kind byte followed by the identifier; push payloads encode those bytes as base64. See [Topics](/protocol/topics/).                                                                                                   |
 | `processStreamedMessage(envelopeBytes)`                                            | Removed. A push contains a hint; use `conversations.sync()`, `conversation.sync()`, then local message queries.                                                                                                                                                                                                               |
 
+Conversation lists return at most 100 conversations when you pass no `limit`. A `limit` below 1 or above 1000 fails with `InvalidArgument`. To read every conversation, order by creation time and pass the last conversation's `createdAt` as `createdBefore` and its ID as `beforeId`. See [Paginate conversations](/sdk/read/#paginate-conversations).
+
 `sync`, `publishMessages`, `updateName`, `updateImageUrl`, `updateDescription`,
 `addAdmin`, `removeAdmin`, `addSuperAdmin`, `removeSuperAdmin`, and `requestRemoval`
 keep their call forms. `syncAll` now requires a consent array or `undefined`:
@@ -469,6 +471,8 @@ Do not install old codec packages to decode built-in content.
 | Undefined content after an unknown codec or decode error                                                                                                                                                                                                     | `"custom"` content retains `encoded`, `rawBytes`, optional decoded `value`, and optional `error`. Malformed or undecodable standard content is `"unknown"` with `rawBytes`, optional `encoded`, and `ErrorDetails`. |
 | Always present decoded `contentType`                                                                                                                                                                                                                         | Optional `contentType`, `fallback`, and `encoded`, plus always present `rawBytes`.                                                                                                                                  |
 | `isText`, `isMarkdown`, `isReply`, `isTextReply`, `isReaction`, `isAttachment`, `isRemoteAttachment`, `isMultiRemoteAttachment`, `isTransactionReference`, `isWalletSendCalls`, `isActions`, `isIntent`, `isReadReceipt`, `isGroupUpdated`, `isLeaveRequest` | Removed. Check `message.content.kind`, and for a text reply check `message.content.body.kind === "text"`.                                                                                                           |
+
+`reactions` holds at most the 50 latest reaction messages to a message. `reactionMessageCount` counts every unexpired reaction message to it, removals included, so it is not a per-emoji tally. Read older reactions with `messageReactions(messageId, before, limit)`. See [Reactions](/sdk/read/#reactions).
 
 Previous query and content read:
 

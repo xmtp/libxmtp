@@ -189,12 +189,16 @@ where
     }
 }
 
+/// One conversation of a list page. It carries no message content.
 pub struct ConversationListItem<Context> {
     pub group: MlsGroup<Context>,
     pub membership_state: GroupMembershipState,
     pub added_by_inbox_id: String,
-    pub last_message: Option<StoredGroupMessage>,
     pub is_commit_log_forked: Option<bool>,
+    /// The time the list orders by: the creation time in creation order, and
+    /// the activity time (`MlsGroup::last_activity_ns(None)`) in activity
+    /// order.
+    pub listing_time_ns: i64,
 }
 
 impl<Context: XmtpSharedContext> Clone for MlsGroup<Context> {

@@ -1,5 +1,9 @@
 # @xmtp/cli
 
+## Unreleased
+
+- `conversations list` returns at most 100 conversations unless you pass `--limit` (at most 1000). New `--before-id` resumes after a conversation, and each row now has `createdAtNs` to pass as `--created-before`.
+
 ## 0.2.0
 
 - Added default app version

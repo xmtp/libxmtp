@@ -45,11 +45,12 @@ fn bench_conversation_list(c: &mut Criterion) {
             for _ in 0..5 {
                 let args = GroupQueryArgs {
                     limit: Some(fixture::PAGE_SIZE),
-                    created_before_ns: before,
+                    created_before_ns: before.map(|(time, _)| time),
+                    before_id: before.map(|(_, id)| id),
                     ..Default::default()
                 };
                 let rows = db.fetch_conversation_list(&args).expect("list page");
-                before = rows.last().map(|row| row.created_at_ns);
+                before = rows.last().map(|row| (row.listing_time_ns, row.id));
                 black_box(rows);
             }
         });

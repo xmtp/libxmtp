@@ -89,6 +89,67 @@ pub(crate) fn lift_history_messages(
         .collect()
 }
 
+/// Reaction messages to `parent` in `group`'s conversation, newest first.
+// implements: PROC-054
+pub(super) fn reaction_page<C: XmtpSharedContext>(
+    group: &MlsGroup<C>,
+    parent: &[u8],
+    before: Option<&[u8]>,
+    limit: Option<u32>,
+) -> Result<Vec<crate::ReactionMessage>, XmtpError> {
+    use xmtp_configuration::{LOCAL_PAGE_MAX_LIMIT, MESSAGE_REACTION_LIMIT};
+    use xmtp_db::group_message::{ContentType, RelationQuery, SortDirection};
+
+    let limit = limit.unwrap_or(MESSAGE_REACTION_LIMIT);
+    if !(1..=LOCAL_PAGE_MAX_LIMIT).contains(&limit) {
+        return Err(XmtpError::invalid_argument(
+            "limit must be at least 1 and at most the maximum page size",
+        ));
+    }
+    let reaction = [ContentType::Reaction];
+    let db = group.context.db();
+    // A deleted or expired parent shows no reactions, as in its summary.
+    let Some(parent_row) = db
+        .get_app_visible_group_message(parent, xmtp_common::time::now_ns())
+        .map_err(XmtpError::from_core)?
+    else {
+        return Ok(Vec::new());
+    };
+    if xmtp_mls::messages::enrichment::is_deleted(group.context.db(), &parent_row)
+        .map_err(XmtpError::from_core)?
+    {
+        return Ok(Vec::new());
+    }
+    // A stitched DM's reactions can be in any of its groups, so the cursor
+    // and the page range over all of them.
+    let before = before
+        .map(|id| {
+            db.get_inbound_relation_cursor(&group.group_id, parent, id, &reaction)
+                .map_err(XmtpError::from_core)?
+                .ok_or_else(|| {
+                    XmtpError::invalid_argument(
+                        "before is not an unexpired reaction to this message",
+                    )
+                })
+        })
+        .transpose()?;
+    let query = RelationQuery {
+        content_types: Some(reaction.to_vec()),
+        limit: Some(i64::from(limit)),
+        direction: SortDirection::Descending,
+        before,
+    };
+    Ok(db
+        .get_inbound_relations(&group.group_id, &[parent], query)
+        .map_err(XmtpError::from_core)?
+        .remove(parent)
+        .unwrap_or_default()
+        .into_iter()
+        .map(xmtp_mls::messages::decoded_message::DecodedMessage::from)
+        .filter_map(crate::ReactionMessage::from_decoded)
+        .collect())
+}
+
 pub(crate) fn query_content_types(
     values: Vec<ContentTypeId>,
 ) -> Result<Vec<xmtp_db::group_message::ContentType>, XmtpError> {

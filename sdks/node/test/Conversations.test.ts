@@ -1,4 +1,5 @@
 import { createRegisteredClient, createSigner } from "@test/helpers";
+import { XmtpError } from "@xmtp/node-sdk";
 import { describe, expect, it } from "vitest";
 
 describe("Conversations", () => {
@@ -63,6 +64,17 @@ describe("Conversations", () => {
       await ids({ createdAfter: group.createdAt, createdBefore: dm.createdAt }),
     ).toEqual([]);
     expect(await ids({ limit: 1, orderBy: "createdAt" })).toEqual([dm.id]);
+    expect(
+      await ids({
+        orderBy: "createdAt",
+        createdBefore: dm.createdAt,
+        beforeId: dm.id,
+      }),
+    ).toEqual([group.id]);
+    // beforeId reaches Rust: without the order's before time it is rejected.
+    await expect(
+      client1.conversations.list({ orderBy: "createdAt", beforeId: dm.id }),
+    ).rejects.toBeInstanceOf(XmtpError.InvalidArgument);
     await group.sendText("latest activity");
     expect(await ids({ limit: 1, orderBy: "lastActivity" })).toEqual([
       group.id,

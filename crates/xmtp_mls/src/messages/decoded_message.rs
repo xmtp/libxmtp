@@ -195,10 +195,14 @@ pub struct DecodedMessage {
     pub content: MessageBody,
     // Fallback text for the message
     pub fallback_text: Option<String>,
-    // A list of reactions
+    // The latest reaction messages that decode as reactions, oldest first:
+    // at most `MESSAGE_REACTION_LIMIT` reaction messages are read.
     pub reactions: Vec<DecodedMessage>,
     // The number of replies to the message available
     pub num_replies: usize,
+    // Unexpired reaction messages to this message, including removals and
+    // ones that do not decode. It is not a reaction tally.
+    pub num_reaction_messages: usize,
 }
 
 #[cfg(feature = "conformance")]
@@ -423,6 +427,7 @@ impl DecodedMessage {
             fallback_text: None,
             reactions: Vec::new(),
             num_replies: 0,
+            num_reaction_messages: 0,
         }
     }
 }
@@ -459,6 +464,7 @@ impl From<StoredGroupMessage> for DecodedMessage {
             // Enrichment fills reactions and reply counts.
             reactions: Vec::new(),
             num_replies: 0,
+            num_reaction_messages: 0,
         }
     }
 }

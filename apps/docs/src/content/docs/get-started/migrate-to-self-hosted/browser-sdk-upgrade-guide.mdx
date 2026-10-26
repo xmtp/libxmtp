@@ -202,6 +202,8 @@ Pass either inbox IDs or public identities to `createGroup`, `createDm`, `addMem
 | `consentStates`                                 | Consent values are `"allowed"`, `"denied"`, and `"unknown"`.                                        |
 | No equivalent                                   | `lastActivityBefore` and `lastActivityAfter`, with `Timestamp` values.                              |
 
+Conversation lists return at most 100 conversations when you pass no `limit`. A `limit` below 1 or above 1000 fails with `InvalidArgument`. To read every conversation, order by creation time and pass the last conversation's `createdAt` as `createdBefore` and its ID as `beforeId`. See [Paginate conversations](/sdk/read/#paginate-conversations).
+
 The same required-position rule applies to `lastActivityAt(contentTypes)`,
 `userData(fields, inboxIds)`, and `catchUpToLive(timeoutMs)`. Pass `undefined`
 for a default value instead of omitting that argument.
@@ -374,6 +376,8 @@ New content handling:
 | `reactions: DecodedMessage<Reaction>[]`                             | `ReactionMessage[]`, with IDs, sender IDs, `Timestamp`, and `reaction`.                                                                                       |
 | Reply `content.referenceId`, `content.content`, `content.inReplyTo` | Reply content has `referenceId` and `body`. The message has optional `inReplyTo`, `inReplyToContent`, and `replyContent`. `parent()` fetches the full parent. |
 | No equivalent                                                       | Exact `rawBytes`, optional `encoded`, `topic`, and `deliveryCursor`.                                                                                          |
+
+`reactions` holds at most the 50 latest reaction messages to a message. `reactionMessageCount` counts every unexpired reaction message to it, removals included, so it is not a per-emoji tally. Read older reactions with `messageReactions(messageId, before, limit)`. See [Reactions](/sdk/read/#reactions).
 
 Unknown or failed content does not stop delivery of later messages. Preserve `rawBytes`. Do not replace absent encoded content or a missing type with invented empty values. `CodecNotFound`, `CodecDecodeFailed`, and `MalformedEnvelope` are separate failure codes.
 

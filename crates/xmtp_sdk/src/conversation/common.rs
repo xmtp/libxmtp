@@ -450,6 +450,28 @@ macro_rules! common_conversation {
                 .await
             }
 
+            /// Reaction messages to `message_id`, newest first by send time,
+            /// then sequence id, then message id: at most `limit` (1 to 1000;
+            /// 50 when absent). For the next page, pass the last returned id
+            /// as `before`. A `before` that is not an unexpired reaction to
+            /// this message fails with InvalidArgument; restart from the
+            /// newest reaction. A deleted or expired message has none.
+            #[uniffi::method(default(before = None, limit = None))]
+            pub async fn message_reactions(
+                &self,
+                message_id: MessageId,
+                before: Option<MessageId>,
+                limit: Option<u32>,
+            ) -> Result<Vec<crate::ReactionMessage>, XmtpError> {
+                let parent = message_id.to_bytes()?;
+                let before = before.map(|id| id.to_bytes()).transpose()?;
+                let group = self.inner.clone();
+                on_sdk_worker(self.inner.context.clone(), async move {
+                    reaction_page(&group, &parent, before.as_deref(), limit)
+                })
+                .await
+            }
+
             pub async fn count_messages(
                 &self,
                 options: Option<ListMessagesOptions>,
