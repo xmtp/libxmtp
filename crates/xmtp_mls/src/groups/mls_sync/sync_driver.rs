@@ -33,7 +33,8 @@ where
     /// fails, and a sibling's failure is logged, never returned, so one paused
     /// or failing group cannot stop the rest of the conversation. A paused
     /// sibling fails in `handle_group_paused` before it processes anything,
-    /// so it stays held.
+    /// so it stays held. If the siblings cannot be loaded, the call fails:
+    /// with this group's error when it has one, else with the load error.
     // implements: DMS-019
     async fn sync_once(&self) -> Result<SyncSummary, GroupError> {
         // A client with a blocked connection makes no further calls.
@@ -61,14 +62,15 @@ where
         }
         .await;
 
-        let siblings = conn.other_dms(&self.group_id).unwrap_or_else(|error| {
-            tracing::warn!(
-                group_id = self.group_id.short_hex(),
-                ?error,
-                "failed to load stitched DM siblings"
-            );
-            Vec::new()
-        });
+        let siblings = match conn.other_dms(&self.group_id) {
+            Ok(siblings) => siblings,
+            // The siblings were not synced, so the call does not succeed. The
+            // named group's own failure still wins.
+            Err(error) => {
+                result?;
+                return Err(error.into());
+            }
+        };
         for sibling in siblings {
             if sibling.membership_state == GroupMembershipState::Restored {
                 continue;
