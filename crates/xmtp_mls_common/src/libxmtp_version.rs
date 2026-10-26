@@ -8,26 +8,22 @@ pub struct InvalidVersionFormat(pub String);
 /// Wrapper around [`semver::Version`] used for the
 /// `MIN_SUPPORTED_PROTOCOL_VERSION` floor and related min-version checks.
 ///
-/// Delegates parsing and ordering to the [`semver`] crate so behavior
-/// matches the semver 2.0 spec — most importantly:
+/// Parsing follows SemVer 2.0.0. Equality and ordering are SemVer
+/// precedence ([`semver::Version::cmp_precedence`], SemVer section 11):
 ///
 /// * Pre-release versions sort *before* the release: `1.0.0-alpha <
-///   1.0.0-beta < 1.0.0`. The previous hand-rolled implementation got
-///   this backwards (`1.0.0 < 1.0.0-alpha`), which would silently
-///   pause clients running release builds against any group floor set
-///   by a caller passing a pre-release string.
+///   1.0.0-beta < 1.0.0`.
 /// * Pre-release identifiers compare numerically when all-digits, so
-///   `rc2 < rc10` instead of lexicographic `rc10 < rc2`.
-/// * Multi-segment pre-release tags like `1.0.0-alpha.1` parse cleanly
-///   instead of failing with `InvalidVersionFormat`.
-/// * Build metadata (after `+`) parses cleanly. Note: the [`semver`]
-///   crate's `Ord` impl deliberately *includes* build metadata for
-///   total-ordering / `Hash` consistency, deviating from semver 2.0
-///   §10 ("build metadata MUST be ignored when determining version
-///   precedence"). Irrelevant in practice — `CARGO_PKG_VERSION` and
-///   the application-facing `update_group_min_version` callers never
-///   pass `+`-suffixed input.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+///   `rc.2 < rc.10`.
+/// * Build metadata (after `+`) has no precedence (SemVer section 10), so
+///   `1.0.0+a == 1.0.0+b == 1.0.0`. The [`semver`] crate's own `Ord` reads
+///   build metadata, which would pause or reject a peer at equal
+///   precedence, so this type implements its comparisons by hand.
+///
+/// The type has no `Hash`: two equal values can differ in build metadata.
+/// Callers keep the original string as the displayed and signed value.
+// implements: GMOD-027
+#[derive(Debug, Clone)]
 pub struct LibXMTPVersion(semver::Version);
 
 impl LibXMTPVersion {
@@ -40,6 +36,26 @@ impl LibXMTPVersion {
     /// The parsed form. Spec 006 compares a published minimum against this.
     pub fn semver(&self) -> &semver::Version {
         &self.0
+    }
+}
+
+impl PartialEq for LibXMTPVersion {
+    fn eq(&self, other: &Self) -> bool {
+        self.cmp(other).is_eq()
+    }
+}
+
+impl Eq for LibXMTPVersion {}
+
+impl PartialOrd for LibXMTPVersion {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for LibXMTPVersion {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.0.cmp_precedence(&other.0)
     }
 }
 
@@ -134,21 +150,24 @@ mod tests {
         assert!(LibXMTPVersion::parse("1.0.0-rc.1.build.42").is_ok());
     }
 
+    /// Build metadata parses but has no precedence (SemVer section 10), so a
+    /// floor that differs from a version only in `+...` neither pauses nor
+    /// rejects it.
+    // verifies: GMOD-027
     #[xmtp_common::test(unwrap_try = true)]
-    fn test_build_metadata_parses() {
-        // Build metadata strings (`+...`) are accepted by the parser. Note
-        // that the [`semver`] crate's `Ord` impl deliberately includes
-        // build metadata for total-ordering / `Hash` consistency, which
-        // deviates from semver 2.0 §10 ("build metadata MUST be ignored
-        // when determining version precedence"). This is irrelevant for
-        // libxmtp's floor comparison because no caller passes a `+`-
-        // suffixed string today — `CARGO_PKG_VERSION` is a plain
-        // `X.Y.Z`, and the application-facing `update_group_min_version`
-        // host API never injects build metadata. Pinning parse-success
-        // here so a future caller that *does* pass `+`-suffixed input
-        // gets predictable behavior instead of `InvalidVersionFormat`.
-        assert!(LibXMTPVersion::parse("1.0.0+build.5").is_ok());
-        assert!(LibXMTPVersion::parse("1.0.0-rc.1+build.5").is_ok());
+    fn build_metadata_has_no_precedence() {
+        use std::cmp::Ordering::Equal;
+
+        let a = LibXMTPVersion::parse("1.0.0+a")?;
+        let b = LibXMTPVersion::parse("1.0.0+b")?;
+        let plain = LibXMTPVersion::parse("1.0.0")?;
+        let built = LibXMTPVersion::parse("1.0.0+x")?;
+        assert_eq!(a, b);
+        assert_eq!(plain, built);
+        // Neither `<` nor `>` holds.
+        assert_eq!(a.partial_cmp(&b), Some(Equal));
+        assert_eq!(plain.partial_cmp(&built), Some(Equal));
+        assert!(LibXMTPVersion::parse("1.0.0-rc.1+z")? < plain);
     }
 
     #[xmtp_common::test(unwrap_try = true)]

@@ -547,6 +547,7 @@ async fn test_max_past_epochs() {
     assert_eq!(alix_messages.len(), 3); // Fails here, 2 != 3
 }
 
+// verifies: DMS-021
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_validate_dm_group() {
     use crate::groups::build_group_config;
@@ -557,12 +558,15 @@ async fn test_validate_dm_group() {
             component_id::ComponentId,
             creation::{InitialGroupKind, initial_dictionary},
         },
+        group_keys::GroupRoot,
         inbox_id::InboxId as ComponentInboxId,
         tls_set::TlsSet,
     };
 
     tester!(client);
     let added_by_inbox = hex::encode([0x42; 32]);
+    // A DM Welcome must carry the group's root.
+    let root = GroupRoot::generate();
     let make_group = |policies: PolicySet,
                       changes: Vec<(ComponentId, Option<Vec<u8>>)>,
                       leaf_inbox: Option<&str>| {
@@ -573,7 +577,7 @@ async fn test_validate_dm_group() {
             &policies.to_proto().unwrap(),
             &GroupMetadataOptions::default(),
             client.inbox_id(),
-            None,
+            Some(&root),
             &[],
         )
         .unwrap();

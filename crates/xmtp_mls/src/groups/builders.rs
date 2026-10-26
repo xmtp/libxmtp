@@ -1,6 +1,9 @@
 //! Extension and group-config builders, plus DM validation.
 
 use super::*;
+use xmtp_mls_common::app_data::dm_registry_profile::{
+    dm_registry_profiles, matches_dm_registry_profile,
+};
 use xmtp_mls_validation::commit::{extract_group_membership, inbox_id_from_credential};
 
 // implements: DMS-001, ARCH-020
@@ -178,23 +181,10 @@ pub(in crate::groups) fn validate_dm_group(
         return Err(DmValidationError::MustHaveEmptyAdminAndSuperAdmin.into());
     }
 
-    // Validate permissions so no one adds us to a dm that they can unexpectedly add another member to
-    // Note: we don't validate mutable metadata permissions, because they don't affect group membership
-    let permissions = group_permissions::policy_set_from_dictionary(mls_group.extensions())?;
-    let mut expected_permissions = GroupMutablePermissions::new(PolicySet::new_dm());
-    // Dictionary permission updates require a super admin. A DM has none.
-    expected_permissions.policies.update_permissions_policy =
-        group_permissions::PermissionsPolicies::allow_if_actor_super_admin();
-
-    if permissions.policies.add_member_policy != expected_permissions.policies.add_member_policy
-        || permissions.policies.remove_member_policy
-            != expected_permissions.policies.remove_member_policy
-        || permissions.policies.add_admin_policy != expected_permissions.policies.add_admin_policy
-        || permissions.policies.remove_admin_policy
-            != expected_permissions.policies.remove_admin_policy
-        || permissions.policies.update_permissions_policy
-            != expected_permissions.policies.update_permissions_policy
-    {
+    // The entries outside the application range must be one DM registry
+    // profile, byte for byte.
+    let received = app_data::load_component_registry(mls_group)?;
+    if !matches_dm_registry_profile(&received, &dm_registry_profiles()) {
         return Err(DmValidationError::InvalidPermissions.into());
     }
 

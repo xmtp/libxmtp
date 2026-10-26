@@ -255,6 +255,27 @@ impl ComponentRegistry {
         Ok(self.inner.tls_serialize_detached()?)
     }
 
+    /// A registry holding exactly `entries`, unvalidated, for registries this
+    /// crate defines as data.
+    pub(crate) fn from_raw_entries(
+        entries: impl IntoIterator<Item = (ComponentId, Vec<u8>)>,
+    ) -> Self {
+        Self {
+            inner: entries
+                .into_iter()
+                .map(|(id, bytes)| (id, VLBytes::new(bytes)))
+                .collect(),
+        }
+    }
+
+    /// Iterate over every entry exactly as stored, recognized or not, in
+    /// ComponentId order. Compare entries through this, not
+    /// [`iter`](Self::iter): decoding drops unknown protobuf fields, which
+    /// the stored bytes keep.
+    pub fn raw_entries(&self) -> impl Iterator<Item = (ComponentId, &[u8])> + '_ {
+        self.inner.iter().map(|(&id, raw)| (id, raw.as_slice()))
+    }
+
     /// Deserialize a component registry from its **dict-storage format**: a
     /// raw `TlsMap<ComponentId, VLBytes>` snapshot.
     ///

@@ -21,6 +21,7 @@ use xmtp_db::prelude::*;
 use xmtp_mls_common::{
     app_data::{
         component_id::ComponentId,
+        component_registry::ComponentRegistry,
         creation::{InitialGroupKind, initial_dictionary},
         migration::encode_group_membership_dict,
     },
@@ -58,6 +59,8 @@ pub(crate) struct CraftedWelcome<'a> {
     /// The DM member other than the creator. `None` names the joiner. A peer
     /// other than the joiner gives a DM pair that excludes the joiner.
     pub(crate) dm_peer: Option<&'a str>,
+    /// The `COMPONENT_REGISTRY` value. `None` keeps the creator's registry.
+    pub(crate) registry: Option<&'a ComponentRegistry>,
 }
 
 impl Default for CraftedWelcome<'_> {
@@ -68,6 +71,7 @@ impl Default for CraftedWelcome<'_> {
             prior_epoch: 0,
             claimed_creator: None,
             dm_peer: None,
+            registry: None,
         }
     }
 }
@@ -119,6 +123,7 @@ pub(crate) async fn send_crafted_welcome_with(
         prior_epoch,
         claimed_creator,
         dm_peer,
+        registry,
     } = options;
     let (kind, policies) = match conversation_type {
         ConversationType::Dm => (
@@ -151,6 +156,12 @@ pub(crate) async fn send_crafted_welcome_with(
                 .unwrap()
                 .tls_serialize_detached()
                 .unwrap(),
+        );
+    }
+    if let Some(registry) = registry {
+        dictionary.insert(
+            ComponentId::COMPONENT_REGISTRY.as_u16(),
+            registry.to_bytes().unwrap(),
         );
     }
     // Name each member's identity state, as an add commit would.
