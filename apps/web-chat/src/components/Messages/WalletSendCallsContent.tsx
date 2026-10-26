@@ -26,7 +26,7 @@ export const WalletSendCallsContent: React.FC<WalletSendCallsContentProps> = ({
       </Text>
     </Text>
     <Text size="sm">
-      From:{" "}
+      From (provided by sender):{" "}
       <Text span inherit>
         {content.from}
       </Text>
