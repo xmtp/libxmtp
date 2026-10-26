@@ -4,7 +4,7 @@
 
 This document lists all error codes defined in LibXMTP, the core library underlying the XMTP SDKs. Each error code is a unique identifier returned to help diagnose issues.
 
-**39 error types** across **10 crates** with **425 total error codes**.
+**39 error types** across **10 crates** with **426 total error codes**.
 
 ## xmtp_api
 
@@ -142,6 +142,7 @@ Archive export or import failure.
 | `PlatformStorageError::PoolRequiresPath` | Pool requires path. DB pool requires a persistent file path. Not retryable. |
 | `PlatformStorageError::SqlCipherNotLoaded` | SQLCipher not loaded. Encryption key given but SQLCipher not available. Retryable. |
 | `PlatformStorageError::SqlCipherKeyIncorrect` | SQLCipher key incorrect. PRAGMA key or salt has wrong value. Not retryable. |
+| `PlatformStorageError::MissingSaltFile` | Missing salt file. Database has data but no salt file. Not retryable. |
 | `PlatformStorageError::DatabaseLocked` | Database locked. Database file is locked by another process. Retryable. |
 | `PlatformStorageError::DieselResult` | Diesel result error. Database query error. May be retryable. |
 | `PlatformStorageError::NotFound` | Not found. Record not found in storage. Not retryable. |

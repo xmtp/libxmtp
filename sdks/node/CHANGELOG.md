@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Opening a nonempty database with an encryption key now fails with a non-retryable `XmtpError.Storage` (`details.code: "Storage"`) when its `.sqlcipher_salt` file is missing, leaving the database unchanged. Restore the matching salt file, omit the key for an unencrypted database, or create a new client at a new path for an older encrypted format without a salt file. New encrypted databases publish the complete salt file before writing database pages, so interrupted creation can reopen with the same key.
+
 - `conversations.list()`, `listGroups()` and `listDms()` now return at most 100 conversations when you pass no `limit`, and fail with `XmtpError.InvalidArgument` for a `limit` below 1 or above 1000. A new `beforeId` option resumes after a conversation that shares its time with others: in creation order pass the last conversation's `createdAt` as `createdBefore` and its `id` as `beforeId`. `beforeId` without the before time of the list order fails with `XmtpError.InvalidArgument`.
 - `lastActivityAt()` with no content types now ignores expired disappearing messages, so it equals the time a last-activity list sorts by.
 - `message.reactions` now holds at most the 50 latest reaction messages, oldest first. The new `reactionMessageCount` counts every unexpired reaction message, removals included. Read older reactions newest first with `conversation.messageReactions(messageId, before, limit)`.
