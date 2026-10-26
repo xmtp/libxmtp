@@ -2,17 +2,18 @@ use super::*;
 use crate::{
     identity_updates::IdentityRequirement,
     mls_store::{MlsStore, ReceivedPage},
+    subscriptions::GroupSetGate,
 };
 use futures::{StreamExt, stream::FuturesUnordered};
 use prost::Message;
 use std::{
     collections::{BTreeSet, HashMap, HashSet, VecDeque},
+    hash::Hash,
     time::Duration,
 };
 use xmtp_common::{RetryableError, time::Instant};
 use xmtp_db::{
-    consent_record::ConsentState,
-    group::{GroupMembershipState, GroupQueryArgs},
+    group::{GroupMembershipState, GroupScope},
     incoming_envelope::{NetworkEntityKind, StreamTopic},
     prelude::*,
 };
@@ -47,7 +48,8 @@ enum ScopeKind {
         deadline: Instant,
         receive_policy: IncomingReceivePolicy,
     },
-    AllGroups,
+    /// Its topics come from the discovery read at this gate's generation.
+    AllGroups(GroupSetGate),
     DeviceSyncGroups,
 }
 
@@ -67,7 +69,10 @@ impl Scope {
             ),
             IncomingScope::Topics(topics) => (ScopeKind::Topics(topics), TopicCursor::new()),
             IncomingScope::Groups(groups) => (ScopeKind::Groups(groups), TopicCursor::new()),
-            IncomingScope::AllGroups => (ScopeKind::AllGroups, TopicCursor::new()),
+            IncomingScope::AllGroups => (
+                ScopeKind::AllGroups(GroupSetGate::default()),
+                TopicCursor::new(),
+            ),
             IncomingScope::DeviceSyncGroups => (ScopeKind::DeviceSyncGroups, TopicCursor::new()),
         };
         Self {
@@ -166,6 +171,17 @@ pub(super) struct Controller<C: XmtpSharedContext> {
     /// would never reach their retention deadline.
     welcome_blocked_rescan_at: Option<Instant>,
     extra_topics: HashSet<Topic>,
+    /// Group topics of the last all-groups discovery read. Kept while no
+    /// all-groups scope is open, so a later one at the same generation reuses it.
+    discovered_groups: HashSet<Topic>,
+    /// The generation of `discovered_groups`.
+    discovery_gate: GroupSetGate,
+    /// The generation of the last check of every retired topic.
+    retired_gate: GroupSetGate,
+    #[cfg(test)]
+    discovery_reads: usize,
+    #[cfg(test)]
+    retired_checks: usize,
     topics: HashMap<Topic, TopicSchedule>,
     /// Selected group topics with no stored group row yet.
     missing_group_topics: HashSet<Topic>,
@@ -207,6 +223,13 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             welcome_blocked_scan: Some(Cursor(0)),
             welcome_blocked_rescan_at: None,
             extra_topics: HashSet::new(),
+            discovered_groups: HashSet::new(),
+            discovery_gate: GroupSetGate::default(),
+            retired_gate: GroupSetGate::default(),
+            #[cfg(test)]
+            discovery_reads: 0,
+            #[cfg(test)]
+            retired_checks: 0,
             topics: HashMap::new(),
             missing_group_topics: HashSet::new(),
             storage_error: None,
@@ -363,72 +386,28 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
 
     fn reconcile(&mut self) -> Result<(), IncomingError> {
         let missing_group_topics = self.missing_group_topics.clone();
-        let retired: Vec<_> = self
-            .topics
-            .iter()
-            .filter(|(_, state)| state.processing.retired)
-            .map(|(topic, _)| topic.clone())
-            .collect();
-        for topic in retired {
-            let group_id = topic
-                .identifier()
-                .try_into()
-                .map_err(|_| IncomingError::UnsupportedTopic)?;
-            if MlsStore::new(self.context.clone())
-                .group(&group_id)?
-                .is_active()?
-            {
-                self.topics
-                    .entry(topic.clone())
-                    .or_default()
-                    .processing
-                    .retired = false;
-                self.dependency_registry
-                    .retain_parents(|parent| match parent {
-                        DependencyParent::GroupHead(current, _) => current != &topic,
-                        _ => true,
-                    });
-                self.topics
-                    .entry(topic.clone())
-                    .or_default()
-                    .processing
-                    .missing_reference = None;
-                self.topics.entry(topic.clone()).or_default().error = None;
-                self.topics
-                    .entry(topic.clone())
-                    .or_default()
-                    .receipt
-                    .last_read = None;
-            }
+        // Read the generation once, before any read it gates. A write that
+        // commits after this read changes the generation the next pass sees.
+        let generation = self
+            .context
+            .db()
+            .group_set_generation()
+            .map_err(|error| IncomingError::Storage(error.into()))?;
+        // Only a Welcome activates a retired group, and storing its group
+        // (insert_or_replace_group) always changes the generation, so an
+        // unchanged generation leaves every retired group inactive.
+        if self.retired_gate.changed(generation) {
+            self.recheck_retired()?;
+            self.retired_gate.record(generation);
         }
-        let discoveries = if self
+        let all_groups = self
             .scopes
             .values()
-            .any(|scope| matches!(scope.scope, ScopeKind::AllGroups))
-        {
-            self.context
-                .db()
-                .find_groups(GroupQueryArgs {
-                    include_sync_groups: true,
-                    include_duplicate_dms: true,
-                    // Receive every stored group regardless of app consent.
-                    consent_states: Some(vec![
-                        ConsentState::Allowed,
-                        ConsentState::Unknown,
-                        ConsentState::Denied,
-                    ]),
-                    ..Default::default()
-                })
-                .map_err(|error| IncomingError::Storage(error.into()))?
-                .into_iter()
-                // A Restored archive placeholder is inert until a Welcome activates it.
-                // implements: PROC-051
-                .filter(|group| group.membership_state != GroupMembershipState::Restored)
-                .map(|group| Topic::new_group_message(group.id))
-                .collect::<HashSet<_>>()
-        } else {
-            HashSet::new()
-        };
+            .any(|scope| matches!(scope.scope, ScopeKind::AllGroups(_)));
+        if all_groups && self.discovery_gate.changed(generation) {
+            self.discovered_groups = self.discover_all_groups()?;
+            self.discovery_gate.record(generation);
+        }
         let sync_groups = if self
             .scopes
             .values()
@@ -445,6 +424,13 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             HashSet::new()
         };
         for scope in self.scopes.values_mut() {
+            // An all-groups scope keeps its topics while the discovered set is
+            // the one they came from.
+            if let ScopeKind::AllGroups(group_set) = &scope.scope
+                && !group_set.changed(generation)
+            {
+                continue;
+            }
             let selected_scope = if let ScopeKind::Groups(groups) = &scope.scope {
                 Some(
                     self.context
@@ -484,7 +470,8 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                     .map(Topic::new_group_message)
                     .collect(),
                 ScopeKind::Barrier { .. } => scope.targets.keys().cloned().collect(),
-                ScopeKind::AllGroups => discoveries
+                ScopeKind::AllGroups(_) => self
+                    .discovered_groups
                     .iter()
                     .cloned()
                     .chain(std::iter::once(Topic::new_welcome_message(
@@ -503,7 +490,7 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             // a Restored row. Keep missing rows for later checks. A lookup error
             // fails the pass before this scope selects its new topics.
             // implements: PROC-051
-            if !matches!(scope.scope, ScopeKind::Groups(_) | ScopeKind::AllGroups) {
+            if !matches!(scope.scope, ScopeKind::Groups(_) | ScopeKind::AllGroups(_)) {
                 for topic in topics.difference(&scope.topics) {
                     if topic.kind() != TopicKind::GroupMessagesV1 {
                         continue;
@@ -532,6 +519,9 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             scope
                 .targets
                 .retain(|topic, _| scope.topics.contains(topic));
+            if let ScopeKind::AllGroups(group_set) = &mut scope.scope {
+                group_set.record(generation);
+            }
         }
         let scopes = &self.scopes;
         self.missing_group_topics
@@ -604,14 +594,7 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
         }
         self.callbacks
             .retain(|group, _| interested.contains(&Topic::new_group_message(*group)));
-        self.read_queue.retain(|topic| interested.contains(topic));
-        let mut additions: Vec<_> = interested
-            .iter()
-            .filter(|topic| !self.read_queue.contains(topic))
-            .cloned()
-            .collect();
-        additions.sort_by_key(Topic::cloned_vec);
-        self.read_queue.extend(additions);
+        merge_read_queue(&mut self.read_queue, &interested, Topic::cloned_vec);
         // A drained topic can rejoin reception. Other kinds keep their own capacity.
         for kind in [
             NetworkEntityKind::Group,
@@ -651,6 +634,64 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
         Ok(())
     }
 
+    /// Check each retired topic once, and return each whose group is active
+    /// again to processing.
+    fn recheck_retired(&mut self) -> Result<(), IncomingError> {
+        let retired: Vec<_> = self
+            .topics
+            .iter()
+            .filter(|(_, state)| state.processing.retired)
+            .map(|(topic, _)| topic.clone())
+            .collect();
+        for topic in retired {
+            #[cfg(test)]
+            {
+                self.retired_checks += 1;
+            }
+            let group_id = topic
+                .identifier()
+                .try_into()
+                .map_err(|_| IncomingError::UnsupportedTopic)?;
+            if !MlsStore::new(self.context.clone())
+                .group(&group_id)?
+                .is_active()?
+            {
+                continue;
+            }
+            self.dependency_registry
+                .retain_parents(|parent| match parent {
+                    DependencyParent::GroupHead(current, _) => current != &topic,
+                    _ => true,
+                });
+            let state = self.topics.entry(topic).or_default();
+            state.processing.retired = false;
+            state.processing.missing_reference = None;
+            state.error = None;
+            state.receipt.last_read = None;
+        }
+        Ok(())
+    }
+
+    /// The topic of every stored group, whatever its consent, that an
+    /// all-groups scope receives.
+    // implements: PROC-046
+    fn discover_all_groups(&mut self) -> Result<HashSet<Topic>, IncomingError> {
+        #[cfg(test)]
+        {
+            self.discovery_reads += 1;
+        }
+        Ok(self
+            .context
+            .db()
+            // A Restored archive placeholder is inert until a Welcome activates it.
+            // implements: PROC-051
+            .stored_group_refs(&GroupScope::every_group().without_restored())
+            .map_err(|error| IncomingError::Storage(error.into()))?
+            .into_iter()
+            .map(|group| Topic::new_group_message(group.id))
+            .collect())
+    }
+
     fn interested(&self) -> HashSet<Topic> {
         self.scopes
             .values()
@@ -666,14 +707,6 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             })
             .cloned()
             .collect()
-    }
-
-    fn fetched_limits(&self) -> IncomingBatchLimits {
-        let settings = self.context.incoming_runtime().policy();
-        IncomingBatchLimits {
-            max_rows: settings.max_fetched_rows as usize,
-            max_bytes: settings.max_fetched_bytes.min(usize::MAX as u64) as usize,
-        }
     }
 
     fn start_open(&mut self) {
@@ -725,7 +758,8 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             return;
         }
         let future: OpenFuture = if let Some(factory) = &self.transport.factory {
-            let future = factory.open(cursors, self.fetched_limits());
+            let limits = self.context.incoming_runtime().policy().fetched_limits();
+            let future = factory.open(cursors, limits);
             Box::pin(async move { future.await.map(Opened::Stream) })
         } else {
             let context = self.context.clone();
@@ -989,7 +1023,7 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
         let batches = xmtp_api_backend::envelope::ordered_batches(
             &mut cursors,
             batch.envelopes,
-            self.fetched_limits(),
+            self.context.incoming_runtime().policy().fetched_limits(),
         )
         .map_err(xmtp_api::ApiError::from)
         .map_err(crate::mls_store::MlsStoreError::from)?;
@@ -1490,6 +1524,25 @@ fn stored_membership<C: XmtpSharedContext>(
         .find_group(group_id)
         .map_err(|error| IncomingError::Storage(error.into()))?
         .map(|group| group.membership_state))
+}
+
+/// Keep only interested entries in `queue`, in their order, then append each
+/// interested entry it lacks, sorted by `sort_key`. Each entry costs one hash
+/// lookup, so a pass stays linear in the number of interested topics.
+fn merge_read_queue<T: Clone + Eq + Hash, K: Ord>(
+    queue: &mut VecDeque<T>,
+    interested: &HashSet<T>,
+    sort_key: impl FnMut(&T) -> K,
+) {
+    queue.retain(|entry| interested.contains(entry));
+    let queued: HashSet<&T> = queue.iter().collect();
+    let mut additions: Vec<T> = interested
+        .iter()
+        .filter(|entry| !queued.contains(entry))
+        .cloned()
+        .collect();
+    additions.sort_by_key(sort_key);
+    queue.extend(additions);
 }
 
 pub(crate) fn topic_key(topic: &Topic) -> Result<StreamTopic, IncomingError> {

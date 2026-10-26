@@ -36,7 +36,7 @@ use crate::{
     tester,
 };
 use xmtp_common::Generate;
-use xmtp_db::group::ConversationType;
+use xmtp_db::group::{ConversationType, GroupQueryArgs};
 use xmtp_proto::{
     backend_v1 as wire,
     types::{GroupId, OrderedEnvelopeBatch},
@@ -240,6 +240,222 @@ async fn all_group_network_interest_keeps_a_denied_conversation() {
     let topic = Topic::new_group_message(group.group_id);
     assert!(controller.scopes[&lease.id].topics.contains(&topic));
     assert!(controller.interested().contains(&topic));
+}
+
+/// An unrelated inbox can fill the receiver's all-group scope with valid
+/// invitations. Discovery reads the groups table again only after the stored
+/// group set changes, not on every pass.
+// verifies: PROC-046, PROC-015
+#[xmtp_common::test(unwrap_try = true)]
+async fn all_group_discovery_reruns_only_after_a_group_change() {
+    tester!(sender, disable_workers);
+    tester!(receiver, disable_workers);
+
+    const INVITATIONS: usize = 12;
+    let mut invited_topics = HashSet::new();
+    for _ in 0..INVITATIONS {
+        let group = sender.create_group(None, None)?;
+        group.add_members(&[receiver.inbox_id()]).await?;
+        invited_topics.insert(Topic::new_group_message(group.group_id));
+    }
+    receiver.sync_welcomes().await?;
+
+    let (coordinator, mut controller) = coordinated_controller(receiver.context.clone());
+    let lease = coordinator.acquire_stream(IncomingScope::AllGroups);
+    while let Ok(command) = controller.commands.try_recv() {
+        controller.command(command);
+    }
+    controller.reconcile()?;
+    for topic in &invited_topics {
+        let group_id = GroupId::try_from(topic.identifier())?;
+        assert!(receiver.context.db().find_group(&group_id)?.is_some());
+        assert!(controller.scopes[&lease.id].topics.contains(topic));
+        assert!(controller.interested().contains(topic));
+    }
+    assert!(controller.scopes[&lease.id].topics.len() >= INVITATIONS);
+    controller.reconcile()?;
+    controller.reconcile()?;
+    assert_eq!(
+        controller.discovery_reads, 1,
+        "an idle pass read every group"
+    );
+
+    let group = sender.create_group(None, None)?;
+    group.add_members(&[receiver.inbox_id()]).await?;
+    receiver.sync_welcomes().await?;
+    controller.reconcile()?;
+    assert_eq!(controller.discovery_reads, 2);
+    let topic = Topic::new_group_message(group.group_id);
+    assert!(controller.scopes[&lease.id].topics.contains(&topic));
+    assert!(controller.interested().contains(&topic));
+}
+
+/// A stranger who invites and then removes the user leaves a retired group.
+/// Its stored and MLS state are loaded again only after the group set changes.
+// verifies: PROC-051
+#[xmtp_common::test(unwrap_try = true)]
+async fn retired_groups_are_rechecked_only_after_a_group_change() {
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    let mut groups = Vec::new();
+    for _ in 0..3 {
+        let group = alix
+            .create_group_with_members(&[bo.inbox_id()], None, None)
+            .await?;
+        groups.push(group);
+    }
+    bo.sync_welcomes().await?;
+    for group in &groups {
+        group.remove_members(&[bo.inbox_id()]).await?;
+        let bo_group = bo.group(&group.group_id)?;
+        bo_group.sync().await?;
+        assert!(!bo_group.is_active()?);
+    }
+    let topics: Vec<_> = groups
+        .iter()
+        .map(|group| Topic::new_group_message(group.group_id))
+        .collect();
+    let mut controller = controller(bo.context.clone());
+    controller.command(Command::Acquire {
+        id: 1,
+        scope: IncomingScope::Groups(groups.iter().map(|group| group.group_id).collect()),
+    });
+    controller.reconcile()?;
+    assert!(topics.iter().all(|topic| controller.is_retired(topic)));
+    controller.reconcile()?;
+    controller.reconcile()?;
+    assert_eq!(
+        controller.retired_checks, 0,
+        "an idle pass loaded a retired group"
+    );
+
+    groups[0].add_members(&[bo.inbox_id()]).await?;
+    xmtp_common::wait_for_eq(
+        || async {
+            bo.sync_welcomes().await.unwrap();
+            bo.group(&groups[0].group_id).unwrap().is_active().unwrap()
+        },
+        true,
+    )
+    .await?;
+    controller.reconcile()?;
+    assert_eq!(controller.retired_checks, 3);
+    assert!(!controller.is_retired(&topics[0]));
+    assert!(controller.is_retired(&topics[1]));
+    assert!(controller.is_retired(&topics[2]));
+}
+
+/// Welcome publication order is not epoch order, so a rejoin Welcome can carry
+/// a lower cursor than the one the group's row already holds. Installing it
+/// still changes the group set, so the retired topic is checked again.
+// verifies: PROC-051
+#[xmtp_common::test(unwrap_try = true)]
+async fn an_older_rejoin_welcome_unretires_the_group() {
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    let group = alix
+        .create_group_with_members(&[bo.inbox_id()], None, None)
+        .await?;
+    bo.sync_welcomes().await?;
+    group.remove_members(&[bo.inbox_id()]).await?;
+    let bo_group = bo.group(&group.group_id)?;
+    bo_group.sync().await?;
+    assert!(!bo_group.is_active()?);
+    // A later-published earlier Welcome already advanced the row's cursor.
+    run_raw_sql(
+        &bo.context,
+        &format!(
+            "UPDATE groups SET sequence_id = {} WHERE id = x'{}'",
+            i64::MAX,
+            hex::encode(group.group_id)
+        ),
+    );
+    let topic = Topic::new_group_message(group.group_id);
+    let mut controller = controller(bo.context.clone());
+    controller.command(Command::Acquire {
+        id: 1,
+        scope: IncomingScope::Groups(vec![group.group_id]),
+    });
+    controller.reconcile()?;
+    assert!(controller.is_retired(&topic));
+
+    group.add_members(&[bo.inbox_id()]).await?;
+    xmtp_common::wait_for_eq(
+        || async {
+            bo.sync_welcomes().await.unwrap();
+            bo.group(&group.group_id).unwrap().is_active().unwrap()
+        },
+        true,
+    )
+    .await?;
+    controller.reconcile()?;
+    assert!(!controller.is_retired(&topic));
+    assert!(controller.interested().contains(&topic));
+}
+
+/// A scope opened while no other all-groups scope is open takes the topics of
+/// the last discovery read when the group set has not changed since.
+// verifies: PROC-015
+#[xmtp_common::test(unwrap_try = true)]
+async fn later_all_groups_scope_gets_cached_topics_at_an_unchanged_generation() {
+    tester!(alix, disable_workers);
+    let mut group_topics = HashSet::new();
+    for _ in 0..12 {
+        let group = alix.create_group(None, None)?;
+        group_topics.insert(Topic::new_group_message(group.group_id));
+    }
+    let mut controller = controller(alix.context.clone());
+    controller.command(Command::Acquire {
+        id: 1,
+        scope: IncomingScope::AllGroups,
+    });
+    controller.reconcile()?;
+    assert_eq!(controller.discovery_reads, 1);
+    controller.command(Command::Release(1));
+    controller.reconcile()?;
+
+    controller.command(Command::Acquire {
+        id: 2,
+        scope: IncomingScope::AllGroups,
+    });
+    controller.reconcile()?;
+    assert!(group_topics.is_subset(&controller.scopes[&2].topics));
+    assert_eq!(controller.discovery_reads, 1);
+}
+
+/// Rebuilding the read queue costs one hash lookup per topic, not a scan of
+/// the queue for each interested topic.
+#[xmtp_common::test]
+fn read_queue_merge_uses_one_lookup_per_topic() {
+    use std::cell::Cell;
+    std::thread_local! {
+        static EQUALITY_CHECKS: Cell<usize> = const { Cell::new(0) };
+    }
+    #[derive(Clone, Debug)]
+    struct Key(u64);
+    impl std::hash::Hash for Key {
+        fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+            self.0.hash(state);
+        }
+    }
+    impl PartialEq for Key {
+        fn eq(&self, other: &Self) -> bool {
+            EQUALITY_CHECKS.with(|checks| checks.set(checks.get() + 1));
+            self.0 == other.0
+        }
+    }
+    impl Eq for Key {}
+
+    const QUEUED: u64 = 2_000;
+    let mut queue: VecDeque<_> = (0..QUEUED).rev().map(Key).collect();
+    let interested: HashSet<_> = (0..=QUEUED).map(Key).collect();
+    EQUALITY_CHECKS.with(|checks| checks.set(0));
+    merge_read_queue(&mut queue, &interested, |key| key.0);
+    let checks = EQUALITY_CHECKS.with(Cell::get);
+    assert!(checks <= 16_004, "{checks} equality checks");
+    let order: Vec<_> = queue.iter().map(|key| key.0).collect();
+    let expected: Vec<_> = (0..QUEUED).rev().chain([QUEUED]).collect();
+    assert_eq!(order, expected);
 }
 
 fn meta(topic: &Topic, sequence_id: u64) -> wire::EnvelopeMeta {
@@ -3226,8 +3442,13 @@ async fn each_kind_keeps_its_budget_and_only_committed_chunks_are_acknowledged()
     add_scope(&mut controller, 1, &topic);
     add_scope(&mut controller, 2, &welcome);
     controller.transport.requested = [topic.clone(), welcome.clone()].into();
-    assert_eq!(controller.fetched_limits().max_rows, 8);
-    assert_eq!(controller.fetched_limits().max_bytes, 4096);
+    let limits = controller
+        .context
+        .incoming_runtime()
+        .policy()
+        .fetched_limits();
+    assert_eq!(limits.max_rows, 8);
+    assert_eq!(limits.max_bytes, 4096);
     let acknowledged = Arc::new(Mutex::new(Vec::new()));
     let observed = acknowledged.clone();
     controller.transport.state = TransportState::Streaming(IncomingSubscription::new(
