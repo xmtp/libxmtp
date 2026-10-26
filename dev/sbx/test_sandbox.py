@@ -45,6 +45,8 @@ if kind == "sbx":
         if any(row["name"] == "libxmtp-claude" for row in s["vms"]):
             s["disk"], s["keys"] = None, []
         s["vms"] = [row for row in s["vms"] if row["name"] != "libxmtp-claude"]
+    elif a[:1] == ["reset"]:
+        s["vms"], s["disk"], s["keys"], s["history"] = [], None, [], None
     elif a[:1] == ["stop"]:
         for row in s["vms"]:
             if row["name"] == a[-1]:
@@ -193,6 +195,8 @@ class SandboxTests(unittest.TestCase):
     def test_incompatible_same_name_vm_is_not_started_or_destroyed(self):
         for mismatch in (
             {"runtime_mounts": [{"source": "/host/private", "target": "/workspace"}]},
+            {"workspace": "/host/private", "mounts": []},
+            {"mounts": [{"source": "/host/private", "target": "/workspace"}]},
             {"agent": "claude"},
             {"kits": ["docker.io/docker/sbx-kit-claude:older"]},
         ):
@@ -256,7 +260,9 @@ class SandboxTests(unittest.TestCase):
         self.assertEqual(self.command("start").returncode, 0)
         state = self.state()
         state.update(
-            disk={"files": "agent work", "cache": "Nix cache"}, keys=["stored-key"]
+            disk={"files": "agent work", "cache": "Nix cache"},
+            keys=["stored-key"],
+            history="native retained Claude history",
         )
         self.save(state)
         self.assertEqual(self.command("pause").returncode, 0)
@@ -269,6 +275,7 @@ class SandboxTests(unittest.TestCase):
         self.assertEqual(deleted["vms"], [])
         self.assertIsNone(deleted["disk"])
         self.assertEqual(deleted["keys"], [])
+        self.assertEqual(deleted["history"], state["history"])
 
     def test_pause_without_an_orca_target_does_not_create_one(self):
         state = self.state()

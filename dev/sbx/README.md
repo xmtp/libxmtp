@@ -29,7 +29,7 @@ dev/sbx/sandbox start --api-key api.morphllm.com sbx-morph-libxmtp
 
 dev/sbx/sandbox start    # Create/resume and connect Orca.
 dev/sbx/sandbox pause    # Stop; keep files and keys.
-dev/sbx/sandbox destroy  # Delete VM disks and keys. Copy out work first.
+dev/sbx/sandbox destroy  # Delete VM disks and keys; retain Claude history.
 
 # Add or replace a provider key.
 dev/sbx/sandbox key api.other-provider.example sbx-other-libxmtp
@@ -42,6 +42,8 @@ wakeup; start restores the connection.
 
 The v3 kits in [sbxenv.yaml](sbxenv.yaml) include both CLIs. Kit changes require
 a fresh VM; copy out work before recreating it.
+Docker 0.50 retains Claude history volumes after destroy and reattaches them
+when the same name and kit are recreated. See [Docker's release notes](https://docs.docker.com/ai/sandboxes/release-notes/#0500).
 Use `sandbox key` for third-party providers such as Morph. For the kits'
 native OpenAI/Anthropic domains, use the service-credential commands below:
 `sbx` 0.50 strips custom placeholders on those domains. The published kits

@@ -37,6 +37,7 @@ state="$(jq -r '.[0].status // "absent"' <<<"$inventory")"
 check_vm() {
   sbx inspect "$name" --json | jq -e '
     .agent == "sbx-kit-claude" and .runtime_mounts == [] and
+    (.workspace // "") == "" and (.mounts // []) == [] and
     (.kits | sort) == (["docker.io/docker/sbx-kit-claude:2.1.267", "docker.io/sbx/codex-mixin:0.155.1"] | sort)
   ' >/dev/null || fail 'Existing VM has different kits or host mounts; inspect it before removing it manually'
 }
@@ -135,7 +136,7 @@ case "$action" in
       forget_orca
     fi
     sbx env rm --force "$environment"
-    echo 'Deleted the VM disks and scoped keys.'
+    echo 'Deleted the VM disks and scoped keys; Docker retains Claude history volumes.'
     ;;
   key)
     (($# == 2)) || { usage >&2; exit 2; }
