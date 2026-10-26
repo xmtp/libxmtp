@@ -38,6 +38,9 @@ it("the Agent root exposes the native page records and continuation", async () =
     expect(next.messages.map((message) => message.id)).toEqual([secondId]);
     expect(next.hasMore).toBe(false);
     await group.publishMessage(firstId);
+    // Publishing the anchor waits only for that message. Drain the older
+    // queued message before testing a new row against the saved boundary.
+    await group.publishMessages();
     const fresh = await group.sendText("after publication", {
       optimistic: true,
     });
