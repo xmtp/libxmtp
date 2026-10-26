@@ -183,6 +183,11 @@ pub enum PlatformStorageError {
     /// PRAGMA key or salt has wrong value. Not retryable.
     #[error("PRAGMA key or salt has incorrect value")]
     SqlCipherKeyIncorrect,
+    /// Missing salt file.
+    ///
+    /// Database has data but no salt file. Not retryable.
+    #[error("database has data but no salt file")]
+    MissingSaltFile,
     /// Database locked.
     ///
     /// Database file is locked by another process. Retryable.
@@ -713,6 +718,7 @@ mod tests {
         EncryptedMessageStore::<()>::remove_db_files(db_path)
     }
 
+    // verifies: STORE-024, STORE-025
     #[xmtp_common::test(unwrap_try = true)]
     async fn mismatched_encryption_key() {
         use crate::database::PlatformStorageError;
@@ -736,6 +742,8 @@ mod tests {
             .store(&db.conn())
             .unwrap();
         } // Drop it
+        let salt_path = EncryptedConnection::salt_file(&db_path)?;
+        let salt_before = std::fs::read(&salt_path)?;
         enc_key[3] = 145; // Alter the enc_key
         let err = NativeDb::builder()
             .persistent(db_path.clone())
@@ -753,6 +761,14 @@ mod tests {
         );
         assert_eq!(err.error_code(), "StorageError::Platform");
         assert!(!err.is_retryable());
+        assert_eq!(std::fs::read(&salt_path)?, salt_before);
+        let db = NativeDb::builder()
+            .persistent(db_path.clone())
+            .key([1u8; 32])
+            .build()?;
+        let identity: StoredIdentity = db.conn().fetch(&())?.unwrap();
+        assert_eq!(identity.inbox_id, "dummy_address");
+        drop(db);
         EncryptedMessageStore::<()>::remove_db_files(db_path)
     }
 

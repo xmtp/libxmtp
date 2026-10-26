@@ -215,6 +215,7 @@ test("default storage lives under the xmtp-sdk OPFS directory and reopens there"
   }
 });
 
+// verifies: STORE-025
 test("browser storage refuses an encryption key before it opens a database", async () => {
   const error = await Client.create(signer(), {
     ...options,

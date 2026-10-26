@@ -52,33 +52,23 @@ type LocationStoreOpener<Db> = Box<
     ) -> xmtp_common::BoxDynFuture<'static, Result<Db, ClientBuilderError>>,
 >;
 
+#[cfg(not(target_arch = "wasm32"))]
 fn open_location_store(
     paths: crate::storage_location::ResolvedPaths,
     key: xmtp_db::EncryptionKey,
 ) -> xmtp_common::BoxDynFuture<'static, Result<xmtp_db::DefaultStore, ClientBuilderError>> {
     Box::pin(async move {
-        #[cfg(not(target_arch = "wasm32"))]
-        let db = {
-            let parent = paths
-                .db_path
-                .parent()
-                .ok_or(crate::storage_location::StorageLocationError::InboxId)?;
-            xmtp_attachments::create_private_directory(parent)
-                .await
-                .map_err(crate::storage_location::StorageLocationError::from)?;
-            xmtp_db::NativeDb::builder()
-                .persistent(paths.db_path.to_string_lossy().into_owned())
-                .key(key)
-                .build()?
-        };
-        #[cfg(target_arch = "wasm32")]
-        let db = xmtp_db::WasmDb::new(&xmtp_db::StorageOption::Persistent(
-            paths.db_path.to_string_lossy().into_owned(),
-        ))
-        .await
-        .map_err(xmtp_db::StorageError::from)?;
-        #[cfg(target_arch = "wasm32")]
-        let _ = key;
+        let parent = paths
+            .db_path
+            .parent()
+            .ok_or(crate::storage_location::StorageLocationError::InboxId)?;
+        xmtp_attachments::create_private_directory(parent)
+            .await
+            .map_err(crate::storage_location::StorageLocationError::from)?;
+        let db = xmtp_db::NativeDb::builder()
+            .persistent(paths.db_path.to_string_lossy().into_owned())
+            .key(key)
+            .build()?;
         Ok(xmtp_db::EncryptedMessageStore::new(db)?)
     })
 }
@@ -940,6 +930,10 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
     }
 
     /// Save a deployment-scoped location. `build` resolves it after all options are set.
+    ///
+    /// Native only. Browser builds have no encrypted storage; call `data_location_with`
+    /// and open the store with `WasmDb::new_strict`.
+    #[cfg(not(target_arch = "wasm32"))]
     pub async fn data_location(
         self,
         location: crate::storage_location::StorageLocation,

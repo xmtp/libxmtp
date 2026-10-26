@@ -53,71 +53,42 @@ pub struct EncryptedConnection {
 }
 
 impl EncryptedConnection {
-    /// Creates a file for the salt and stores it
+    /// Prepare a keyed connection, publishing the salt before the first database page.
     pub fn new(key: EncryptionKey, opts: &StorageOption) -> Result<Self, PlatformStorageError> {
         use crate::StorageOption::*;
 
-        let salt = match opts {
-            Ephemeral => None,
-            Persistent(db_path) => {
-                {
-                    let mut conn = SqliteConnection::establish(db_path)?;
-                    Self::check_for_sqlcipher(opts, &mut conn)?;
-                }
-                let mut salt = [0u8; 16];
-                let db_pathbuf = PathBuf::from(db_path);
-                let salt_path = Self::salt_file(db_path)?;
-
-                match (salt_path.try_exists()?, db_pathbuf.try_exists()?) {
-                    // db and salt exist
-                    (true, true) => {
-                        tracing::debug!(
-                            salt = %salt_path.display(),
-                            db = %db_pathbuf.display(),
-                            "salt and database exist, db=[{}], salt=[{}]",
-                            db_pathbuf.display(),
-                            salt_path.display(),
-                        );
+        let salt =
+            match opts {
+                Ephemeral => None,
+                Persistent(db_path) => {
+                    let db_len = match std::fs::metadata(db_path) {
+                        Ok(metadata) => metadata.len(),
+                        Err(error) if error.kind() == std::io::ErrorKind::NotFound => 0,
+                        Err(error) => return Err(error.into()),
+                    };
+                    let salt_path = Self::salt_file(db_path)?;
+                    let has_salt = salt_path.try_exists()?;
+                    // implements: STORE-024
+                    if db_len > 0 && !has_salt {
+                        return Err(PlatformStorageError::MissingSaltFile);
+                    }
+                    {
+                        let mut conn = SqliteConnection::establish(db_path)?;
+                        Self::check_for_sqlcipher(opts, &mut conn)?;
+                    }
+                    let mut salt = [0u8; 16];
+                    if has_salt {
                         let file = BufReader::new(File::open(salt_path)?);
                         salt = <Salt as hex::FromHex>::from_hex(
                             file.bytes().take(32).collect::<Result<Vec<u8>, _>>()?,
                         )?;
-                    }
-                    // the db exists and needs to be migrated
-                    (false, true) => {
-                        tracing::debug!(
-                            "migrating sqlcipher db=[{}] to plaintext header with salt=[{}]",
-                            db_pathbuf.display(),
-                            salt_path.display()
-                        );
-                        Self::migrate(db_path, &key, &mut salt)?;
-                    }
-                    // the db doesn't exist yet and needs to be created
-                    (false, false) => {
-                        tracing::debug!(
-                            "creating new sqlcipher db=[{}] with salt=[{}]",
-                            db_pathbuf.display(),
-                            salt_path.display()
-                        );
+                    } else {
                         Self::create(db_path, &key, &mut salt)?;
                     }
-                    // the db doesn't exist but the salt does
-                    // This generally doesn't make sense & shouldn't happen.
-                    // Create a new database and delete the salt file.
-                    (true, false) => {
-                        tracing::debug!(
-                            "database [{}] does not exist, but the salt [{}] does, re-creating",
-                            db_pathbuf.display(),
-                            salt_path.display(),
-                        );
-                        std::fs::remove_file(salt_path)?;
-                        Self::create(db_path, &key, &mut salt)?;
-                    }
+                    tracing::info!("db_path=[{}]", db_path);
+                    Some(salt)
                 }
-                tracing::info!("db_path=[{}]", db_path);
-                Some(salt)
-            }
-        };
+            };
 
         Ok(Self {
             key,
@@ -147,42 +118,9 @@ impl EncryptedConnection {
         Ok(())
     }
 
-    /// Executes the steps outlined in the [SQLCipher Docs](https://www.zetetic.net/sqlcipher/sqlcipher-api/#cipher_plaintext_header_size)
-    /// Migrates the database to `cipher_plaintext_header_size` and returns the salt after
-    /// persisting it to SALT_FILE_NAME.
-    ///
-    /// if the salt file already exists, deletes it.
-    fn migrate(
-        path: &String,
-        key: &EncryptionKey,
-        salt: &mut [u8],
-    ) -> Result<(), PlatformStorageError> {
-        let conn = &mut SqliteConnection::establish(path)?;
-
-        conn.batch_execute(&format!(
-            r#"
-            {}
-            select count(*) from sqlite_master; -- trigger header read, currently it is encrypted
-        "#,
-            pragma_key(hex::encode(key))
-        ))?;
-
-        // get the salt and save it for later use
-        Self::write_salt(path, conn, salt)?;
-
-        conn.batch_execute(&format!(
-            r#"
-            {}
-            PRAGMA user_version = 1; -- force header write
-        "#,
-            pragma_plaintext_header()
-        ))?;
-
-        Ok(())
-    }
-
     /// Get the salt from the opened database, write it to `Self::salt_file(db_path)` as hex-encoded
     /// bytes, and then copy it to `buf` after decoding hex bytes.
+    // implements: STORE-023
     fn write_salt(
         path: &String,
         conn: &mut SqliteConnection,
@@ -194,17 +132,25 @@ impl EncryptedConnection {
             .next()
             .ok_or(NotFound::CipherSalt(path.to_string()))??;
         let salt = <String as FromSqlRow<diesel::sql_types::Text, _>>::build_from_row(&row)?;
-        tracing::debug!(
-            salt,
-            file = %Self::salt_file(PathBuf::from(path))?.display(),
-            "writing salt to file"
-        );
-        let mut f = File::create(Self::salt_file(PathBuf::from(path))?)?;
-
-        f.write_all(salt.as_bytes())?;
-        let mut perms = f.metadata()?.permissions();
-        perms.set_readonly(true);
-        f.set_permissions(perms)?;
+        let salt_path = Self::salt_file(path)?;
+        let temp_path = salt_path.with_extension(format!("{SALT_FILE_NAME}.tmp"));
+        let mut file = File::create(&temp_path)?;
+        file.write_all(salt.as_bytes())?;
+        file.sync_all()?;
+        std::fs::rename(temp_path, &salt_path)?;
+        #[cfg(unix)]
+        {
+            let parent = salt_path
+                .parent()
+                .filter(|path| !path.as_os_str().is_empty())
+                .unwrap_or_else(|| Path::new("."));
+            if let Err(error) = File::open(parent).and_then(|directory| directory.sync_all()) {
+                tracing::warn!(%error, "could not sync the database salt directory");
+            }
+        }
+        let mut permissions = file.metadata()?.permissions();
+        permissions.set_readonly(true);
+        file.set_permissions(permissions)?;
 
         let salt = hex::decode(salt)?;
         buf.copy_from_slice(&salt);
@@ -356,7 +302,9 @@ fn pragma_plaintext_header() -> impl Display {
 
 #[cfg(test)]
 mod tests {
-    use crate::{EncryptedMessageStore, NativeDb, ValidatedConnection, XmtpTestDb};
+    use crate::{
+        ConnectionExt, EncryptedMessageStore, NativeDb, ValidatedConnection, XmtpDb, XmtpTestDb,
+    };
     use diesel::connection::InstrumentationEvent;
     use diesel_migrations::MigrationHarness;
     use std::{fs::File, sync::mpsc};
@@ -368,6 +316,149 @@ mod tests {
     const LOCK_PROBE_TIMEOUT: Duration = Duration::from_millis(100);
     const VALIDATION_START_TIMEOUT: Duration = Duration::from_secs(10);
     use StorageOption::*;
+
+    fn legacy_header_database_with_row() -> String {
+        let path = tmp_path();
+        let mut conn = SqliteConnection::establish(&path).unwrap();
+        conn.batch_execute(&format!(
+            "{} CREATE TABLE interrupted_migration_fixture (value INTEGER NOT NULL); \
+             INSERT INTO interrupted_migration_fixture VALUES (42);",
+            pragma_key(hex::encode(VALIDATION_KEY))
+        ))
+        .unwrap();
+        drop(conn);
+        assert_ne!(
+            &std::fs::read(&path).unwrap()[..16],
+            SQLITE3_PLAINTEXT_HEADER.as_bytes()
+        );
+        path
+    }
+
+    enum UnsaltedFile {
+        Plaintext,
+        LegacyHeader,
+        Invalid,
+    }
+
+    // verifies: STORE-024
+    #[rstest::rstest]
+    #[case::plaintext(UnsaltedFile::Plaintext)]
+    #[case::legacy_header(UnsaltedFile::LegacyHeader)]
+    #[case::invalid(UnsaltedFile::Invalid)]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn keyed_open_without_salt_file_changes_nothing(#[case] format: UnsaltedFile) {
+        let path = match format {
+            UnsaltedFile::LegacyHeader => legacy_header_database_with_row(),
+            UnsaltedFile::Plaintext => {
+                let path = tmp_path();
+                let mut conn = SqliteConnection::establish(&path).unwrap();
+                conn.batch_execute(
+                    "CREATE TABLE preserved (value INTEGER); INSERT INTO preserved VALUES (42);",
+                )
+                .unwrap();
+                path
+            }
+            UnsaltedFile::Invalid => {
+                let path = tmp_path();
+                std::fs::write(&path, b"not a SQLite database").unwrap();
+                path
+            }
+        };
+        let salt_path = EncryptedConnection::salt_file(&path).unwrap();
+        let temp_path = salt_path.with_extension(format!("{SALT_FILE_NAME}.tmp"));
+        let before = std::fs::read(&path).unwrap();
+        assert!(!before.is_empty());
+        let error = NativeDb::builder()
+            .persistent(path.clone())
+            .key(VALIDATION_KEY)
+            .build()
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            crate::StorageError::Platform(PlatformStorageError::MissingSaltFile)
+        ));
+        assert_eq!(error.error_code(), "StorageError::Platform");
+        assert!(!error.is_retryable());
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+        assert!(!salt_path.exists());
+        assert!(!temp_path.exists());
+        std::fs::remove_file(path).unwrap();
+    }
+
+    // verifies: STORE-023
+    #[rstest::rstest]
+    #[case::empty(false, false)]
+    #[case::unfinished_salt(true, false)]
+    #[case::published_salt(false, true)]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn interrupted_keyed_creation_reopens(
+        #[case] unfinished_salt: bool,
+        #[case] published_salt: bool,
+    ) {
+        let path = tmp_path();
+        File::create(&path).unwrap();
+        let salt_path = EncryptedConnection::salt_file(&path).unwrap();
+        let temp_path = salt_path.with_extension(format!("{SALT_FILE_NAME}.tmp"));
+        let saved_salt = hex::encode([9u8; 16]);
+        if unfinished_salt {
+            std::fs::write(&temp_path, b"partial salt").unwrap();
+        }
+        if published_salt {
+            std::fs::write(&salt_path, &saved_salt).unwrap();
+        }
+        let db = NativeDb::builder()
+            .persistent(path.clone())
+            .key(VALIDATION_KEY)
+            .build()
+            .unwrap();
+        db.conn().raw_query(|conn| {
+            conn.batch_execute("CREATE TABLE interrupted_creation (value INTEGER NOT NULL); INSERT INTO interrupted_creation VALUES (42);")
+        }).unwrap();
+        drop(db);
+        let reopened = NativeDb::builder()
+            .persistent(path.clone())
+            .key(VALIDATION_KEY)
+            .build()
+            .unwrap();
+        let value = reopened
+            .conn()
+            .raw_query(|conn| {
+                diesel::select(diesel::dsl::sql::<diesel::sql_types::Integer>(
+                    "(SELECT value FROM interrupted_creation)",
+                ))
+                .get_result::<i32>(conn)
+            })
+            .unwrap();
+        assert_eq!(value, 42);
+        if published_salt {
+            assert_eq!(std::fs::read(&salt_path).unwrap(), saved_salt.as_bytes());
+        }
+        assert!(!temp_path.exists());
+        drop(reopened);
+        EncryptedMessageStore::<()>::remove_db_files(path);
+    }
+
+    // verifies: STORE-023
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn fresh_keyed_store_publishes_salt_before_any_page() {
+        let path = tmp_path();
+        let connection =
+            EncryptedConnection::new(VALIDATION_KEY.into(), &Persistent(path.clone()))?;
+        assert_eq!(std::fs::metadata(&path)?.len(), 0);
+        let salt_path = EncryptedConnection::salt_file(&path)?;
+        assert_eq!(
+            hex::decode(std::fs::read(&salt_path)?)?,
+            connection.salt.unwrap()
+        );
+        assert!(std::fs::metadata(&salt_path)?.permissions().readonly());
+        assert!(
+            !salt_path
+                .with_extension(format!("{SALT_FILE_NAME}.tmp"))
+                .exists()
+        );
+        drop(connection);
+        EncryptedMessageStore::<()>::remove_db_files(path);
+    }
 
     /// Keep a real encrypted WAL database locked until the caller drops the connection.
     fn locked_encrypted_database() -> (String, EncryptedConnection, SqliteConnection) {

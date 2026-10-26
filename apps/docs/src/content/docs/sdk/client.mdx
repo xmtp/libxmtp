@@ -58,9 +58,15 @@ If you want to inspect the database visually, you can use [DB Browser for SQLite
 
 ![DB Browser for SQLite](https://raw.githubusercontent.com/xmtp/docs-xmtp-org/refs/heads/main/docs/pages/img/db-browser-sqlite.png)
 
-### Common database error
+### Common database errors
 
 `PRAGMA key or salt has incorrect value` means the supplied encryption key does not match the database. It can also mean that the file is not an XMTP database. Do not replace the stored key automatically. A replacement key cannot open the existing encrypted database.
+
+`database has data but no salt file` means a keyed open found a nonempty database without its matching `.sqlcipher_salt` file. The open leaves the database unchanged. This is a non-retryable storage error (`XmtpError.Storage` / `XmtpException.Storage`, with `details.code` set to `Storage`). Resolve it based on how the database was created:
+
+- For a database created without encryption, omit `storage.encryptionKey` when reopening it.
+- If a copy or restore lost the salt file, restore the matching `.sqlcipher_salt` file from the same backup. Copy and back up that file with the encrypted database.
+- For an older encrypted database created without a salt file, keep a backup and create a new client at a new database path. The SDK does not convert that format.
 
 ## Create a client
 

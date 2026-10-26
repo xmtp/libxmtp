@@ -489,24 +489,3 @@ kind = "gap"
 owner = "Nicholas Molnar"
 issue = "TBD-octane-tracking"
 reason = "Enable and disable do not order the reset, the Unregister and the Register as this row states, so a failed disable can leave uploaded topics the client no longer tracks."
-
-[[waiver]]
-id = "STORE-023"
-kind = "gap"
-owner = "Nicholas Molnar"
-issue = "TBD-octane-tracking"
-reason = "An interrupted keyed creation, such as one stopped during the SQLCipher header migration, can leave a database that a later open with the same key cannot read."
-
-[[waiver]]
-id = "STORE-024"
-kind = "gap"
-owner = "Nicholas Molnar"
-issue = "TBD-octane-tracking"
-reason = "A keyed open that cannot read the database is not shown to leave the database and its salt file unchanged."
-
-[[waiver]]
-id = "STORE-025"
-kind = "gap"
-owner = "Nicholas Molnar"
-issue = "TBD-octane-tracking"
-reason = "A browser build ignores a supplied database encryption key and opens the database without it instead of failing."
