@@ -478,8 +478,8 @@ async fn identity_persistence_test() {
     assert_eq!(client_d.installation_public_key().to_vec(), keybytes_a);
 }
 
-// A stored identity trusts any identifier of its inbox ID, so a build that
-// requires it checks the identifier against the inbox's association state.
+// A stored identity trusts any identifier of its inbox ID, so the build
+// checks the identifier against the inbox's association state.
 #[xmtp_common::test(unwrap_try = true)]
 async fn stored_identity_opens_only_for_an_identifier_of_its_inbox() {
     let tmpdb = tmp_path();
@@ -499,22 +499,110 @@ async fn stored_identity_opens_only_for_an_identifier_of_its_inbox() {
     drop(client);
 
     let stranger = generate_local_wallet().identifier();
-    let rejected = builder(stranger)
-        .await
-        .require_identifier_in_inbox()
-        .build()
-        .await;
+    let rejected = builder(stranger).await.build().await;
     assert!(matches!(
         rejected,
         Err(ClientBuilderError::Identity(IdentityError::IdentifierNotInInbox { inbox_id: stored }))
             if stored == inbox_id
     ));
 
-    builder(owner.identifier())
+    builder(owner.identifier()).await.build().await?;
+}
+
+// An Ethereum address in upper case opens the inbox that holds it.
+// verifies: IDENT-096
+#[xmtp_common::test(unwrap_try = true)]
+async fn build_for_an_upper_case_address_opens_its_inbox() {
+    use xmtp_id::associations::ident;
+    let owner = generate_local_wallet();
+    let builder = |identifier: Identifier| {
+        Client::builder(IdentityStrategy::for_identifier(identifier, 0))
+            .api_client(DefaultTestClientCreator::create().build().unwrap())
+            .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
+            .with_disable_workers(true)
+    };
+    let client = builder(owner.identifier())
+        .temp_store()
         .await
-        .require_identifier_in_inbox()
+        .default_mls_store()?
         .build()
         .await?;
+    register_client(&client, &owner).await;
+
+    let Identifier::Ethereum(ident::Ethereum(address)) = owner.identifier() else {
+        panic!("a wallet's identifier is an Ethereum address");
+    };
+    let upper = Identifier::Ethereum(ident::Ethereum(format!(
+        "0x{}",
+        address[2..].to_uppercase()
+    )));
+    let reopened = builder(upper)
+        .temp_store()
+        .await
+        .default_mls_store()?
+        .build()
+        .await?;
+    assert_eq!(reopened.inbox_id(), client.inbox_id());
+}
+
+// An offline build for an identifier reads no identity update, but it still
+// checks the identifier, on the newest state the database stores.
+#[xmtp_common::test(unwrap_try = true)]
+async fn offline_build_for_an_identifier_checks_the_stored_state() {
+    use xmtp_id::associations::test_utils::add_wallet_signature;
+    let tmpdb = tmp_path();
+    let owner = generate_local_wallet();
+    let builder = async |allow_offline: bool| {
+        Client::builder(IdentityStrategy::for_identifier(owner.identifier(), 0))
+            .api_client(DefaultTestClientCreator::create().build().unwrap())
+            .store(xmtp_db::TestDb::create_persistent_store(Some(tmpdb.clone())).await)
+            .default_mls_store()
+            .unwrap()
+            .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
+            .with_allow_offline(Some(allow_offline))
+            .with_disable_workers(true)
+    };
+    let client = builder(false).await.build().await?;
+    register_client(&client, &owner).await;
+    let inbox_id = client.inbox_id().to_owned();
+    drop(client);
+
+    // Another installation removes the owner from the inbox, so only the
+    // network holds the removal.
+    let other = Client::builder(IdentityStrategy::for_identifier(owner.identifier(), 0))
+        .api_client(DefaultTestClientCreator::create().build().unwrap())
+        .temp_store()
+        .await
+        .default_mls_store()?
+        .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
+        .with_disable_workers(true)
+        .build()
+        .await?;
+    register_client(&other, &owner).await;
+    let mut removal = other
+        .identity_updates()
+        .revoke_identities(vec![owner.identifier()])
+        .await?;
+    add_wallet_signature(&mut removal, &owner).await;
+    other
+        .identity_updates()
+        .apply_signature_request(removal)
+        .await?;
+
+    // An online build stores the removal and refuses the owner. An offline
+    // build refuses it too, from the stored log.
+    for allow_offline in [false, true] {
+        let reopened = builder(allow_offline).await.build().await;
+        assert!(
+            matches!(
+                &reopened,
+                Err(ClientBuilderError::Identity(IdentityError::IdentifierNotInInbox { inbox_id: found }))
+                    if *found == inbox_id
+            ),
+            "allow_offline {allow_offline}: {:?}",
+            reopened.err()
+        );
+    }
 }
 
 // verifies: PROC-036

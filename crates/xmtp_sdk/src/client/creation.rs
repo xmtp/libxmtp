@@ -148,9 +148,10 @@ impl Client {
             .resolve()
             .await?;
         let auth_handle = backend.auth_handle.clone();
-        // Offline, check an explicit store with local identity updates. A
-        // smart contract wallet state that needs a request is not known.
-        let offline_stored_checked = if options.allow_offline
+        // Offline, check an explicit store with local identity updates before
+        // the build does. A smart contract wallet state that needs a request
+        // is not known, so it fails as a mismatch here.
+        if options.allow_offline
             && let Some((stored, opened)) = stored_inbox.as_ref().zip(opened.as_ref())
         {
             use xmtp_id::associations::SignatureError;
@@ -172,37 +173,21 @@ impl Client {
             if !identifier_opens_inbox(membership, &identifier, nonce, stored) {
                 return Err(XmtpError::identity_mismatch());
             }
-            true
-        } else {
-            false
-        };
-        // Whether the build checks that the identifier belongs to the inbox it
+        }
+        // The core build checks that the identifier belongs to the inbox it
         // opens, after it has checked the deployment and before any worker.
-        let mut check_membership = false;
         let strategy = |inbox_id| IdentityStrategy::new(inbox_id, identifier.clone(), nonce);
         let strategy = match (inbox_id, stored_inbox.zip(opened.as_ref())) {
-            (Some(value), _) => {
-                check_membership = !offline_stored_checked;
-                strategy(value)
-            }
-            (None, Some((stored, _))) if options.allow_offline => strategy(stored),
+            (Some(value), _) => strategy(value),
             // Online, the identity updates come from the backend, which the
             // build checks against the stored deployment before any identity
-            // request. The build checks the identifier on them before it
-            // starts any worker.
-            (None, Some((stored, _))) => {
-                check_membership = true;
-                strategy(stored)
-            }
+            // request.
+            (None, Some((stored, _))) => strategy(stored),
             // The build looks up the identifier's inbox after it checks the
             // deployment, because the request carries the identifier. With
             // no live inbox, it falls back to the one the identifier created,
-            // which a data directory may already store. The core build
-            // trusts that stored identity, so it checks the identifier too.
-            (None, None) => {
-                check_membership = true;
-                IdentityStrategy::for_identifier(identifier.clone(), nonce)
-            }
+            // which a data directory may already store.
+            (None, None) => IdentityStrategy::for_identifier(identifier.clone(), nonce),
         };
         let mode = if options.device_sync {
             DeviceSyncMode::Enabled
@@ -242,9 +227,6 @@ impl Client {
             }
         }
         .device_sync_worker_mode(mode);
-        if check_membership {
-            builder = builder.require_identifier_in_inbox();
-        }
         if let Some(recovery) = fork_recovery {
             builder = builder.fork_recovery_opts(recovery);
         }
