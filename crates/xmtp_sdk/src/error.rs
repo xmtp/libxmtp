@@ -330,16 +330,6 @@ impl XmtpError {
         ))
     }
 
-    /// No inbox holds the account that a lookup named.
-    pub(crate) fn account_not_found() -> Self {
-        Self::IdentityNotFound(Self::details(
-            "IdentityNotFound",
-            ErrorCategory::Identity,
-            false,
-            "no inbox holds the account",
-        ))
-    }
-
     pub(crate) fn identity_mismatch() -> Self {
         Self::IdentityMismatch(Self::details(
             "IdentityMismatch",
