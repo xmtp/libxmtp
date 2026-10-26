@@ -9,6 +9,7 @@ use xmtp_mls_common::{
 
 use crate::{groups::GroupError, messages::decoded_message::MessageBody, tester};
 
+// verifies: META-076
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_disappearing_message_update_message_in_group() {
     tester!(alix);
@@ -18,7 +19,9 @@ async fn test_disappearing_message_update_message_in_group() {
     let _bo_alix_dm = bo.find_or_create_dm(alix.inbox_id(), None).await?;
 
     alix_bo_dm
-        .update_conversation_message_disappear_from_ns(10)
+        .update_conversation_message_disappearing_settings(MessageDisappearingSettings::new(
+            10, NS_IN_HOUR,
+        ))
         .await?;
 
     alix.sync_all_welcomes_and_groups(None).await?;
@@ -124,5 +127,121 @@ async fn message_expiry_from_sent_time() {
         )?;
         assert!(!updates.is_empty());
         assert!(updates.iter().all(|m| m.expire_at_ns.is_none()));
+    }
+}
+
+// verifies: META-076
+#[xmtp_common::test(unwrap_try = true)]
+async fn disappearing_settings_change_in_one_commit() {
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    let group = alix.create_group(None, None)?;
+    group.add_members(&[bo.inbox_id()]).await?;
+    bo.sync_all_welcomes_and_groups(None).await?;
+    let bo_group = bo.group(&group.group_id)?;
+    let changed_fields = || {
+        let changes = bo_group
+            .find_messages_v2(&MsgQueryArgs {
+                kind: Some(GroupMessageKind::MembershipChange),
+                ..Default::default()
+            })?
+            .into_iter()
+            .map(|message| {
+                let MessageBody::GroupUpdated(update) = message.content else {
+                    panic!("membership change must decode as GroupUpdated");
+                };
+                let mut fields: Vec<_> = update
+                    .metadata_field_changes
+                    .into_iter()
+                    .map(|change| change.field_name)
+                    .collect();
+                fields.sort();
+                fields
+            })
+            .collect::<Vec<_>>();
+        Ok::<_, GroupError>(changes)
+    };
+    let epoch = bo_group.epoch().await?;
+    let initial_updates = changed_fields()?.len();
+    let both_fields = vec![
+        "message_disappear_from_ns".to_string(),
+        "message_disappear_in_ns".to_string(),
+    ];
+
+    let from_ns = now_ns();
+    group
+        .update_conversation_message_disappearing_settings(MessageDisappearingSettings::new(
+            from_ns, NS_IN_HOUR,
+        ))
+        .await?;
+    bo_group.sync().await?;
+    assert_eq!(bo_group.epoch().await?, epoch + 1);
+    let changes = changed_fields()?;
+    assert_eq!(changes.len(), initial_updates + 1);
+    assert_eq!(changes.last().unwrap(), &both_fields);
+    let settings = bo_group.conversation_message_disappearing_settings()?;
+    assert_eq!(
+        settings,
+        MessageDisappearingSettings::new(from_ns, NS_IN_HOUR)
+    );
+    assert!(settings.is_enabled());
+
+    let message = bo_group
+        .send_message(b"published after settings", Default::default())
+        .await?;
+    group.sync().await?;
+    for db in [alix.context.db(), bo.context.db()] {
+        let stored = db.get_group_message(&message)?.expect("message stored");
+        assert_eq!(stored.expire_at_ns, Some(stored.sent_at_ns + NS_IN_HOUR));
+    }
+
+    // Sending can refresh installations, so sample the state again before the next write.
+    let epoch = bo_group.epoch().await?;
+    let initial_updates = changed_fields()?.len();
+
+    // Changing only the duration records only that field, in one commit.
+    group
+        .update_conversation_message_disappearing_settings(MessageDisappearingSettings::new(
+            from_ns,
+            2 * NS_IN_HOUR,
+        ))
+        .await?;
+    bo_group.sync().await?;
+    assert_eq!(bo_group.epoch().await?, epoch + 1);
+    let changes = changed_fields()?;
+    assert_eq!(changes.len(), initial_updates + 1);
+    assert_eq!(
+        changes.last().unwrap(),
+        &vec!["message_disappear_in_ns".to_string()]
+    );
+
+    group
+        .update_conversation_message_disappearing_settings(MessageDisappearingSettings::new(
+            from_ns,
+            2 * NS_IN_HOUR,
+        ))
+        .await?;
+    bo_group.sync().await?;
+    assert_eq!(bo_group.epoch().await?, epoch + 1);
+    assert_eq!(changed_fields()?.len(), initial_updates + 1);
+
+    group
+        .remove_conversation_message_disappearing_settings()
+        .await?;
+    bo_group.sync().await?;
+    assert_eq!(bo_group.epoch().await?, epoch + 2);
+    let changes = changed_fields()?;
+    assert_eq!(changes.len(), initial_updates + 2);
+    assert_eq!(changes.last().unwrap(), &both_fields);
+    let settings = bo_group.conversation_message_disappearing_settings()?;
+    assert_eq!(settings, MessageDisappearingSettings::default());
+    assert!(!settings.is_enabled());
+    let message = bo_group
+        .send_message(b"published after clear", Default::default())
+        .await?;
+    group.sync().await?;
+    for db in [alix.context.db(), bo.context.db()] {
+        let stored = db.get_group_message(&message)?.expect("message stored");
+        assert_eq!(stored.expire_at_ns, None);
     }
 }

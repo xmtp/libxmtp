@@ -2,6 +2,7 @@
 
 use super::mls_sync::publish::OutgoingPreparationError;
 use super::*;
+use crate::messages::enrichment::find_valid_deletion;
 
 /// An installation refresh before a send applies its membership change even
 /// when the Welcomes for the installations it adds cannot be sent. That
@@ -335,8 +336,8 @@ where
             return Err(DeleteMessageError::NotAuthorized.into());
         }
 
-        // Check if message is already deleted
-        if conn.is_message_deleted(&message_id)? {
+        // implements: PROC-056
+        if find_valid_deletion(&conn, &original_msg, &self.group_id)?.is_some() {
             return Err(DeleteMessageError::MessageAlreadyDeleted.into());
         }
 
@@ -379,16 +380,8 @@ where
             |tx, events| {
                 let storage = tx.storage();
                 let db = storage.db();
-                let already_deleted = db
-                    .get_deletions_for_messages(vec![original_msg.id.clone()])?
-                    .iter()
-                    .any(|prior| {
-                        crate::messages::enrichment::is_deletion_valid(
-                            prior,
-                            &original_msg,
-                            &self.group_id,
-                        )
-                    });
+                let already_deleted =
+                    find_valid_deletion(&db, &original_msg, &self.group_id)?.is_some();
                 deletion.store(&db)?;
                 if !already_deleted {
                     crate::subscriptions::internal::emit_deleted_messages(

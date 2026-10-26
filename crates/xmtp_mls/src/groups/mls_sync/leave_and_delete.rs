@@ -12,12 +12,11 @@ where
         storage: &impl XmtpMlsStorageProvider,
         message: &StoredGroupMessage,
     ) -> Result<Option<StoredMessageDeletion>, GroupMessageProcessingError> {
-        let deletions = storage
-            .db()
-            .get_deletions_for_messages(vec![message.id.clone()])?;
-        Ok(deletions.into_iter().find(|deletion| {
-            crate::messages::enrichment::is_deletion_valid(deletion, message, &self.group_id)
-        }))
+        Ok(crate::messages::enrichment::find_valid_deletion(
+            &storage.db(),
+            message,
+            &self.group_id,
+        )?)
     }
 
     /// A target stored after its deletion now has a readable deletion state.

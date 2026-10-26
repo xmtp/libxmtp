@@ -836,6 +836,164 @@ async fn test_out_of_order_unauthorized_deletion_rejected() {
     }
 }
 
+// verifies: PROC-056
+#[xmtp_common::test(unwrap_try = true)]
+async fn unauthorized_pending_delete_does_not_block_super_admin_delete() {
+    use crate::context::XmtpSharedContext;
+    use xmtp_content_types::delete_message::DeleteMessageCodec;
+    use xmtp_proto::xmtp::mls::message_contents::content_types::DeleteMessage;
+
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    tester!(caro, disable_workers);
+    let alix_group = alix.create_group(None, None)?;
+    alix_group
+        .add_members(&[bo.inbox_id(), caro.inbox_id()])
+        .await?;
+    let bo_group = bo.wait_for_welcomes().await?.remove(0);
+    let caro_group = caro.wait_for_welcomes().await?.remove(0);
+    bo_group.sync().await?;
+    caro_group.sync().await?;
+
+    let original = TextCodec::encode("message for moderation".into())?;
+    let target_id = bo_group
+        .send_message(
+            &xmtp_content_types::encoded_content_to_bytes(original),
+            SendMessageOpts::default(),
+        )
+        .await?;
+    caro_group.sync().await?;
+    assert!(
+        alix.context.db().get_group_message(&target_id)?.is_none(),
+        "the super admin has not synced the target"
+    );
+
+    // Caro is an ordinary member. Publish a real MLS application message with
+    // the target ID, then deliver its decoded row before the target to exercise
+    // the receive handler's deferred-authorization path.
+    let delete = DeleteMessageCodec::encode(DeleteMessage {
+        message_id: hex::encode(&target_id),
+    })?;
+    let malicious_delete_id = caro_group
+        .send_message(
+            &xmtp_content_types::encoded_content_to_bytes(delete),
+            SendMessageOpts::default(),
+        )
+        .await?;
+    let malicious_delete = caro
+        .context
+        .db()
+        .get_group_message(&malicious_delete_id)?
+        .expect("the attacker's deletion message is stored");
+    // The normal receive path stores the DeleteMessage row before handling it.
+    malicious_delete.store(&alix.context.db())?;
+    let storage = alix.context.mls_storage();
+    alix_group.load_mls_group_with_lock(storage, |mls_group| {
+        alix_group
+            .process_delete_message(
+                &mls_group,
+                storage,
+                &malicious_delete,
+                alix_group.context.events(),
+            )
+            .map_err(|_| GroupError::InvalidGroupMembership)?;
+        Ok(())
+    })?;
+    assert!(alix.context.db().is_message_deleted(&target_id)?);
+
+    // The ordered sync now stores the target and processes the invalid delete
+    // again. Neither enrichment nor the local delete gate applies its unauthorized row.
+    alix_group.sync().await?;
+    let visible = alix_group
+        .find_messages_v2(&MsgQueryArgs::default())?
+        .into_iter()
+        .find(|message| message.metadata.id == target_id)
+        .expect("the target message is visible");
+    assert!(matches!(visible.content, MessageBody::Text(_)));
+    let deletion_id = alix_group.delete_message(target_id.clone())?;
+    assert!(!deletion_id.is_empty());
+    let visible = alix_group
+        .find_messages_v2(&MsgQueryArgs::default())?
+        .into_iter()
+        .find(|message| message.metadata.id == target_id)
+        .expect("the target has a deletion placeholder");
+    assert!(matches!(
+        visible.content,
+        MessageBody::DeletedMessage { .. }
+    ));
+}
+
+// verifies: PROC-056
+#[xmtp_common::test(unwrap_try = true)]
+async fn cross_group_pending_delete_does_not_block_super_admin_delete() {
+    use crate::context::XmtpSharedContext;
+    use xmtp_content_types::delete_message::DeleteMessageCodec;
+    use xmtp_proto::xmtp::mls::message_contents::content_types::DeleteMessage;
+
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    tester!(caro, disable_workers);
+    let target_group = alix
+        .create_group_with_members(&[bo.inbox_id(), caro.inbox_id()], None, None)
+        .await?;
+    let side_group = alix
+        .create_group_with_members(&[caro.inbox_id()], None, None)
+        .await?;
+    bo.sync_all_welcomes_and_groups(None).await?;
+    caro.sync_all_welcomes_and_groups(None).await?;
+    let bo_target = bo.group(&target_group.group_id)?;
+    let caro_target = caro.group(&target_group.group_id)?;
+    let caro_side = caro.group(&side_group.group_id)?;
+
+    let content = TextCodec::encode("message for moderation".into())?;
+    let target_id = bo_target
+        .send_message(
+            &xmtp_content_types::encoded_content_to_bytes(content),
+            SendMessageOpts::default(),
+        )
+        .await?;
+    caro_target.sync().await?;
+    assert!(alix.context.db().get_group_message(&target_id)?.is_none());
+
+    let deletion = DeleteMessageCodec::encode(DeleteMessage {
+        message_id: hex::encode(&target_id),
+    })?;
+    caro_side
+        .send_message(
+            &xmtp_content_types::encoded_content_to_bytes(deletion),
+            SendMessageOpts::default(),
+        )
+        .await?;
+    // Each topic remains ordered. The target topic simply is not synced yet.
+    side_group.sync().await?;
+    assert!(alix.context.db().get_group_message(&target_id)?.is_none());
+    let pending = alix
+        .context
+        .db()
+        .get_deletion_by_deleted_message_id(&target_id)?
+        .expect("cross-group candidate stored before target");
+    assert_eq!(pending.group_id, side_group.group_id);
+
+    target_group.sync().await?;
+    let visible = target_group
+        .find_messages_v2(&MsgQueryArgs::default())?
+        .into_iter()
+        .find(|message| message.metadata.id == target_id)
+        .expect("target remains visible in its true group");
+    assert!(matches!(visible.content, MessageBody::Text(_)));
+    let deletion_id = target_group.delete_message(target_id.clone())?;
+    assert!(!deletion_id.is_empty());
+    let visible = target_group
+        .find_messages_v2(&MsgQueryArgs::default())?
+        .into_iter()
+        .find(|message| message.metadata.id == target_id)
+        .expect("the target has a deletion placeholder");
+    assert!(matches!(
+        visible.content,
+        MessageBody::DeletedMessage { .. }
+    ));
+}
+
 /// Test that enrichment replaces deleted messages with placeholders
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_enrichment_with_deleted_messages() {
