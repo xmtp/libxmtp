@@ -249,34 +249,14 @@ where
                 self.ensure_active_for_send(tx)?;
                 let storage = tx.storage();
                 let db = storage.db();
-                let mut message = db
-                    .get_group_message(message_id)?
-                    .filter(|message| message.group_id == self.group_id)
-                    .ok_or_else(|| {
-                        GroupError::NotFound(NotFound::MessageById(message_id.to_vec()))
-                    })?;
+                let mut message = db.get_group_message(message_id)?.ok_or_else(|| {
+                    GroupError::NotFound(NotFound::MessageById(message_id.to_vec()))
+                })?;
                 // The content can hold a device-sync HMAC root key, or a
                 // commit-log signer an older build recorded, so it is wiped
                 // on every exit.
                 let outcome = (|| {
-                    // An older build stored this row before the creation check.
-                    // It fails here and is never queued; the transaction commits.
-                    // A saved prepared attempt may already be on the backend, so
-                    // its outcome stays unknown and its saved bytes may still publish.
-                    // implements: GMOD-054
-                    if message.delivery_status != DeliveryStatus::Published
-                        && Self::is_reserved_transcript_content(&message.decrypted_message_bytes)
-                        && !self.has_saved_attempt(&db, &message.id)?
-                    {
-                        if message.delivery_status == DeliveryStatus::Unpublished {
-                            db.set_delivery_status_to_failed(&message.id)?;
-                            self.emit_message_status_changed(
-                                message.id.clone(),
-                                xmtp_events::MessageStatus::Unpublished,
-                                xmtp_events::MessageStatus::Failed,
-                                events,
-                            );
-                        }
+                    if self.reject_reserved_stored_message(&db, &message, events)? {
                         return Ok(Continue(Err(GroupError::ReservedTranscriptContentType)));
                     }
                     self.queue_stored_message(&db, events, &message)
@@ -302,6 +282,42 @@ where
         self.update_consent_state(ConsentState::Allowed)?;
 
         Ok(())
+    }
+
+    /// Refuse reserved stored content before work that can publish, such as DM repair.
+    /// Publication rechecks the row under its own transaction.
+    pub fn reject_reserved_stored_transcript_content(
+        &self,
+        message_id: &[u8],
+    ) -> Result<(), GroupError> {
+        if !self.is_active()? {
+            return Err(GroupError::GroupInactive);
+        }
+        crate::state_tx::state_write_with_events(
+            self.context.mls_storage(),
+            self.context.events(),
+            |tx, events| {
+                self.ensure_active_for_send(tx)?;
+                let storage = tx.storage();
+                let db = storage.db();
+                let mut message = db.get_group_message(message_id)?.ok_or_else(|| {
+                    GroupError::NotFound(NotFound::MessageById(message_id.to_vec()))
+                })?;
+                let outcome = self
+                    .reject_reserved_stored_message(&db, &message, events)
+                    .map(|refused| {
+                        Continue(if refused {
+                            Err(GroupError::ReservedTranscriptContentType)
+                        } else {
+                            Ok(())
+                        })
+                    });
+                // Wipe even allowed, saved-attempt and wrong-group payloads.
+                message.decrypted_message_bytes.zeroize();
+                outcome
+            },
+        )?
+        .into_continued()
     }
 
     /// Delete a message by its ID. Returns the ID of the deletion message.
@@ -401,6 +417,39 @@ where
         Ok(deletion_message_id)
     }
 
+    /// Refuse an unsaved reserved row and persist its terminal failure in this write.
+    // implements: GMOD-054
+    fn reject_reserved_stored_message(
+        &self,
+        db: &impl DbQuery,
+        message: &StoredGroupMessage,
+        events: &impl xmtp_events::EventWriter<crate::subscriptions::internal::InternalEvent>,
+    ) -> Result<bool, GroupError> {
+        if message.group_id != self.group_id {
+            return Err(GroupError::NotFound(NotFound::MessageById(
+                message.id.clone(),
+            )));
+        }
+        // An older build may have stored this content before the creation check.
+        // Saved prepared bytes can already be on the backend and remain publishable.
+        if message.delivery_status == DeliveryStatus::Published
+            || !Self::is_reserved_transcript_content(&message.decrypted_message_bytes)
+            || self.has_saved_attempt(db, &message.id)?
+        {
+            return Ok(false);
+        }
+        if message.delivery_status == DeliveryStatus::Unpublished {
+            db.set_delivery_status_to_failed(&message.id)?;
+            self.emit_message_status_changed(
+                message.id.clone(),
+                xmtp_events::MessageStatus::Unpublished,
+                xmtp_events::MessageStatus::Failed,
+                events,
+            );
+        }
+        Ok(true)
+    }
+
     /// Whether a send intent for this message already has a saved attempt.
     fn has_saved_attempt(&self, db: &impl DbQuery, message_id: &[u8]) -> Result<bool, GroupError> {
         for intent in db.find_group_intents(
@@ -425,9 +474,8 @@ where
         carries_reserved_transcript(message)
     }
 
-    /// Refuse a message whose outer content type is a reserved transcript
-    /// type. Every send runs it; a caller that does network work before it
-    /// queues a message, such as [`Self::ensure_dm_peer`], runs it first.
+    /// Refuse reserved transcript types at any reply depth and replies that exceed
+    /// the bounded scan. Call this before network work such as [`Self::ensure_dm_peer`].
     pub fn reject_reserved_transcript_content(message: &[u8]) -> Result<(), GroupError> {
         if Self::is_reserved_transcript_content(message) {
             Err(GroupError::ReservedTranscriptContentType)

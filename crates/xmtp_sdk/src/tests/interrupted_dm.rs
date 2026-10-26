@@ -154,3 +154,81 @@ async fn reserved_send_is_refused_before_the_dm_repair() {
     assert_eq!(refused.code, "ReservedTranscriptContentType");
     alix.end().await?;
 }
+
+/// An invalid stored publication does no network work to repair an interrupted DM.
+#[xmtp_common::test(unwrap_try = true)]
+async fn reserved_stored_publish_is_refused_before_dm_repair() {
+    use xmtp_content_types::{
+        group_updated::GroupUpdatedCodec,
+        reply::{Reply, ReplyCodec},
+    };
+    use xmtp_db::{
+        Store,
+        group_intent::{IntentKind, QueryGroupIntent},
+        group_message::{ContentType as DbContentType, QueryGroupMessage},
+    };
+    use xmtp_proto::{api::HasStats, xmtp::mls::message_contents::GroupUpdated};
+
+    let (alix, bo, orphan) = interrupted_dm().await;
+    let raw = ReplyCodec::encode(Reply {
+        reference: "01".repeat(32),
+        reference_inbox_id: None,
+        content: GroupUpdatedCodec::encode(GroupUpdated::default())?,
+    })?
+    .encode_to_vec();
+    assert!(raw.len() < 1024);
+    let template = orphan.prepare_message_for_later_publish(
+        &TextCodec::encode("legacy template".into())?.encode_to_vec(),
+        false,
+        Some("legacy-reserved-dm".into()),
+    )?;
+    let db = orphan.context.db();
+    let mut message = db.get_group_message(&template)?.unwrap();
+    message.id =
+        xmtp_mls::utils::id::calculate_message_id(orphan.group_id, &raw, &message.idempotency_key);
+    message.decrypted_message_bytes = raw;
+    message.content_type = DbContentType::Reply;
+    message.reference_id = Some(vec![1; 32]);
+    message.store(&db)?;
+    assert!(
+        db.find_group_intents(orphan.group_id, None, Some(vec![IntentKind::SendMessage]))?
+            .is_empty()
+    );
+    let members_before = orphan.members().await?.len();
+    let dm = alix
+        .conversations()
+        .get_dm_by_inbox_id(bo.inbox_id())
+        .await?
+        .expect("stored DM");
+    let published = || {
+        alix.inner
+            .context
+            .api()
+            .api_client
+            .mls_stats()
+            .publish
+            .get_count()
+    };
+    let before = published();
+    let error = dm
+        .publish_message(MessageId::from_bytes(&message.id)?)
+        .await
+        .unwrap_err();
+    let XmtpError::InvalidInput(refused) = error else {
+        panic!("expected reserved refusal, got {error:?}");
+    };
+    assert_eq!(refused.code, "ReservedTranscriptContentType");
+    let after = published();
+    let members_after = orphan.members().await?.len();
+    eprintln!(
+        "requested application refused: {}; publications {} -> {}; members {} -> {}",
+        refused.code, before, after, members_before, members_after
+    );
+    assert_eq!(
+        after, before,
+        "DM repair published before the reserved stored-message refusal"
+    );
+    assert_eq!(members_after, members_before);
+    alix.end().await?;
+    bo.end().await?;
+}
