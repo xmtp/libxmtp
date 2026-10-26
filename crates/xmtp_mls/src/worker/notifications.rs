@@ -28,7 +28,7 @@ use xmtp_db::{
 };
 use xmtp_events::{ClientEvent, EventWriter, NotificationsFailed};
 use xmtp_proto::{
-    backend_v1::{RecipientState, Subscription, UpdateSubscriptionsRequest},
+    backend_v1::{RecipientState, Subscription, UnregisterRequest, UpdateSubscriptionsRequest},
     types::{GroupId, Topic},
     xmtp::mls::database::{NotificationSync, Task, task::Task as TaskKind},
 };
@@ -140,23 +140,82 @@ pub(crate) async fn bounded<T>(
         .map_err(NotificationError::from)
 }
 
+/// Send Unregister while the caller holds the notification request lock.
+/// On success or NOT_FOUND, clear the owed reset and uploaded set atomically.
+pub(crate) async fn unregister<Context: XmtpSharedContext>(
+    context: &Context,
+    record: &StoredNotification,
+) -> Result<(), NotificationError> {
+    let request = UnregisterRequest {
+        recipient_id: record.push_recipient_id.clone().unwrap_or_default(),
+        recipient_secret: recipient_secret(record),
+    };
+    match bounded(context.api().unregister(request)).await {
+        Ok(_) | Err(NotificationError::NotFound) => {
+            state_write(context.mls_storage(), |tx| {
+                let storage = tx.storage();
+                let db = storage.db();
+                let mut current = db.notification_record()?;
+                db.clear_uploaded_topics()?;
+                current.push_unregister_owed = false;
+                db.save_notification_record(&current)?;
+                Ok::<_, StorageError>(Continue(()))
+            })?;
+            Ok(())
+        }
+        Err(error) => Err(error),
+    }
+}
+
 /// Register while the caller holds the notification request lock.
+/// The owed reset and registration share one waiting budget.
 /// Return true only when the current generation accepts the successful response.
 pub(crate) async fn register<Context: XmtpSharedContext>(
     context: &Context,
     record: &StoredNotification,
     config: &NotificationConfig,
 ) -> Result<bool, NotificationError> {
-    match bounded(context.api().register(config.registration(record))).await {
-        Ok(response) => Ok(confirm(
-            context,
-            record.push_generation,
-            config,
-            &response,
-            &[],
-            &[],
-        )?),
-        Err(error) => {
+    // implements: PUSH-240
+    let result = time::timeout(NOTIFICATION_REQUEST_TIMEOUT, async {
+        // implements: PUSH-265
+        // The owed flag implies push_last_state is None, so run() reaches registration.
+        if record.push_unregister_owed {
+            if let Err(error) = unregister(context, record).await {
+                return if record_error(context, record.push_generation, &error, None)? {
+                    Err(error)
+                } else {
+                    Ok(false)
+                };
+            }
+            // Local settings can change while the reset waits on the backend.
+            let current = context.db().notification_record()?;
+            if current.push_generation != record.push_generation || current.push_state != 1 {
+                return Ok(false);
+            }
+        }
+        match bounded(context.api().register(config.registration(record))).await {
+            Ok(response) => Ok(confirm(
+                context,
+                record.push_generation,
+                config,
+                &response,
+                &[],
+                &[],
+            )?),
+            Err(error) => {
+                if record_error(context, record.push_generation, &error, None)? {
+                    Err(error)
+                } else {
+                    Ok(false)
+                }
+            }
+        }
+    })
+    .await;
+    match result {
+        Ok(result) => result,
+        Err(_) => {
+            let error = NotificationError::RequestTimeout;
             if record_error(context, record.push_generation, &error, None)? {
                 Err(error)
             } else {
@@ -175,20 +234,19 @@ pub(crate) fn confirm<Context: XmtpSharedContext>(
     adds: &[UploadedTopic],
     removes: &[Vec<u8>],
 ) -> Result<bool, StorageError> {
-    let mut pending = context.task_channels().notification_pending_topics.lock();
-    let (enabled, accepted) = state_write(context.mls_storage(), |tx| {
+    state_write(context.mls_storage(), |tx| {
         let storage = tx.storage();
         let db = storage.db();
         let mut record = db.notification_record()?;
         if record.push_state != 1 {
-            return Ok(Continue((false, false)));
+            return Ok(Continue(false));
         }
         // The request lock orders backend mutations and their confirmations.
         // A newer enable can change local rules while this request is in flight.
         // Retain its confirmed delta so the next scan can remove obsolete topics.
         db.confirm_uploaded_topics(adds, removes)?;
         if record.push_generation != generation {
-            return Ok(Continue((true, false)));
+            return Ok(Continue(false));
         }
         if !adds.is_empty() || !removes.is_empty() {
             record.push_suppressed = None;
@@ -217,22 +275,9 @@ pub(crate) fn confirm<Context: XmtpSharedContext>(
         record.push_deadlines = Some(encode(&next)?);
         record.push_last_state = Some(response.encode_to_vec());
         db.save_notification_record(&record)?;
-        Ok::<_, StorageError>(Continue((true, true)))
-    })?
-    .into_continued();
-    // Keep remote deltas even when Disable has cleared the local table.
-    // Change the memory snapshot only after the transaction commits.
-    for topic in removes {
-        pending.remove(topic);
-    }
-    for row in adds {
-        if enabled {
-            pending.remove(&row.topic);
-        } else {
-            pending.insert(row.topic.clone(), row.clone());
-        }
-    }
-    Ok(accepted)
+        Ok::<_, StorageError>(Continue(true))
+    })
+    .map(|outcome| outcome.into_continued())
 }
 
 /// Persist only typed terminal failures and repair/suppression state for this generation.
@@ -470,7 +515,7 @@ fn prepare_batch<Context: XmtpSharedContext>(
     .map_err(NotificationError::from)
 }
 
-/// Execute at most one request. A busy inline request never blocks the task runner.
+/// Execute one bounded notification turn. A busy inline request never blocks the task runner.
 pub(crate) async fn run<Context: XmtpSharedContext>(
     context: &Context,
 ) -> Result<TaskOutcome, NotificationError> {
@@ -493,7 +538,7 @@ pub(crate) async fn run<Context: XmtpSharedContext>(
         }
         return finish_turn(
             context,
-            register(context, &record, &config).await.map(|_| ()),
+            register(context, &current, &config).await.map(|_| ()),
         );
     }
     let revision = context.task_channels().notification_revision();

@@ -335,6 +335,7 @@ diesel::table! {
         push_repairing -> Bool,
         push_generation -> BigInt,
         push_suppressed -> Nullable<Binary>,
+        push_unregister_owed -> Bool,
     }
 }
 
