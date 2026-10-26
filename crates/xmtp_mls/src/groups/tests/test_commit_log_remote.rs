@@ -1981,6 +1981,128 @@ async fn a_held_entry_stops_later_pages_of_its_topic() {
     );
 }
 
+/// A download stores each page and moves the cursor past it before it
+/// requests the next one. A reader stopped after three pages keeps their
+/// entries, and the next download starts with the fourth page and checks it
+/// against the entries already stored.
+// verifies: FORK-030, FORK-083
+#[xmtp_common::test(unwrap_try = true)]
+async fn commit_log_download_commits_each_page() {
+    const ENTRIES: u64 = 16;
+    const PAGE_ROWS: u32 = 2;
+    const STORED_PAGES: usize = 3;
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    let a = alix
+        .create_group_with_members(&[bo.inbox_id()], None, None)
+        .await?;
+    bo.sync_welcomes().await?;
+    let b = bo.group(&a.group_id)?;
+    b.update_consent_state(ConsentState::Allowed)?;
+    // An active reader holds an entry for a commit it has not processed, so
+    // it first processes more envelopes than there are entries.
+    for _ in 0..ENTRIES {
+        a.send_message_optimistic(b"padding", SendMessageOpts::default())?;
+    }
+    a.publish_messages().await?;
+    b.sync().await?;
+    let processed = bo
+        .context
+        .db()
+        .latest_cursor_for_id(b.group_id, &[EntityKind::ApplicationMessage])?
+        .0;
+    assert!(processed >= ENTRIES);
+
+    let keys = keys_of(&a);
+    let topic = Topic::new_commit_log(keys.commit_log_id());
+    let envelope_base = processed + 100;
+    // The first envelope after the stored pages replays the last stored commit
+    // with another result, which the chain rules discard.
+    let stored = STORED_PAGES as u64 * u64::from(PAGE_ROWS);
+    let mut commits: Vec<_> = (1..=ENTRIES)
+        .map(|sequence| (sequence, sequence as u8 + 1))
+        .collect();
+    commits.insert(stored as usize, (stored, 0xee));
+    let envelopes = commits.len() as u64;
+    let entries = commits
+        .into_iter()
+        .zip(1..)
+        .map(|((sequence, applied), position)| {
+            let mut entry = PlaintextCommitLogEntry {
+                group_id: a.group_id.to_vec(),
+                commit_sequence_id: sequence,
+                commit_result: ProtoCommitResult::Applied as i32,
+                last_epoch_authenticator: vec![sequence as u8; 32],
+                applied_epoch_number: sequence + 1,
+                applied_epoch_authenticator: vec![applied; 32],
+                ..Default::default()
+            };
+            sign_entry_author(
+                &keys,
+                &alix.context.identity().installation_keys,
+                &mut entry,
+            )
+            .unwrap();
+            server_envelope(
+                &topic,
+                envelope_base + position,
+                Payload::SealedCommitLogEntry(seal_entry(&keys, &entry).unwrap()),
+            )
+        })
+        .collect();
+    let (client, script) = scripted::scripted_with_page_size(&bo.client, PAGE_ROWS).await;
+    {
+        let mut script = script.lock();
+        script.reads.insert(topic.cloned_vec(), entries);
+        script.stop_reads_after = Some(STORED_PAGES);
+    }
+    let accepted = || {
+        bo.context
+            .db()
+            .get_remote_commit_log_after_cursor(
+                &b.group_id,
+                0,
+                RemoteCommitLogOrder::AscendingByRowid,
+            )
+            .unwrap()
+            .iter()
+            .map(|entry| entry.commit_sequence_id as u64)
+            .collect::<Vec<_>>()
+    };
+    let download_cursor = || {
+        bo.context
+            .db()
+            .get_last_cursor(b.group_id, EntityKind::CommitLogDownload)
+            .unwrap()
+            .0
+    };
+
+    assert!(
+        CommitLogWorker::new(client.context.clone())
+            .run_test(CommitLogTestFunction::SaveRemoteCommitLog, None)
+            .await
+            .is_err()
+    );
+    assert_eq!(accepted(), (1..=stored).collect::<Vec<_>>());
+    assert_eq!(download_cursor(), envelope_base + stored);
+
+    {
+        let mut script = script.lock();
+        script.stop_reads_after = None;
+        script.read.clear();
+    }
+    CommitLogWorker::new(client.context.clone())
+        .run_test(CommitLogTestFunction::SaveRemoteCommitLog, None)
+        .await?;
+    assert_eq!(
+        script.lock().read.len() as u64,
+        (envelopes - stored).div_ceil(u64::from(PAGE_ROWS)),
+        "the resumed download starts after the stored pages"
+    );
+    assert_eq!(accepted(), (1..=ENTRIES).collect::<Vec<_>>());
+    assert_eq!(download_cursor(), envelope_base + envelopes);
+}
+
 // verifies: FORK-087, FORK-083, FORK-085
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_publisher_handover_keeps_the_log_readable() {

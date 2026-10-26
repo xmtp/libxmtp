@@ -703,6 +703,14 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             }
         }
 
+        // Own-installation events start after the own-inbox updates stored
+        // now, including any the load above stored.
+        let own_inbox_stored_through = conn
+            .get_latest_sequence_id(&[identity.inbox_id.as_str()])
+            .map_err(StorageError::from)?
+            .get(identity.inbox_id.as_str())
+            .copied();
+
         // Fold the legacy single-worker toggles into the unified enable map so
         // there is one source of truth for "is worker X enabled" that code paths
         // when it registers worker subscriptions. The old fields keep working;
@@ -780,7 +788,11 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             #[cfg(any(test, target_arch = "wasm32"))]
             message_clock: Default::default(),
             delivery_owner: Default::default(),
-            identity_resolutions: Default::default(),
+            identity_resolutions: Arc::new(
+                crate::identity_updates::IdentityResolutionRegistry::starting_after(
+                    own_inbox_stored_through,
+                ),
+            ),
         });
 
         crate::server_configuration::bind_preflight(&context);

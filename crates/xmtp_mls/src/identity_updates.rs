@@ -7,6 +7,7 @@ use crate::{
 };
 use futures::{StreamExt, TryStreamExt, stream};
 use std::collections::{HashMap, HashSet};
+use std::pin::Pin;
 use thiserror::Error;
 use xmtp_common::{Event, Retry, RetryableError, retry_async, retryable};
 use xmtp_configuration::{IDENTITY_DEPENDENCY_CONCURRENCY, MAX_IDENTITY_UPDATE_ACTIONS};
@@ -32,17 +33,18 @@ use xmtp_macro::log_event;
 use xmtp_proto::{
     ShortHex,
     api_client::XmtpBackendClient,
-    types::{Cursor, GroupId},
+    types::{Cursor, GroupId, IncomingBatchLimits},
 };
 
 use xmtp_api::{ApiClientWrapper, GetIdentityUpdatesV2Filter};
-use xmtp_id::InboxUpdate;
 
 mod dependencies;
+#[cfg(test)]
+mod paged_load_tests;
 mod state_store;
 pub use dependencies::{IdentityDependencyError, IdentityRequirement, IdentityResolutionRegistry};
 pub(crate) use dependencies::{
-    MissingProofs, require_association_state, resolve_identity_requirements,
+    MissingProofs, OwnInstallationEvents, require_association_state, resolve_identity_requirements,
 };
 pub(crate) use state_store::get_association_state_for_client;
 #[cfg(test)]
@@ -318,19 +320,8 @@ where
         self.get_association_state(conn, inbox_id, None).await
     }
 
-    fn emit_own_installation_changes(
-        &self,
-        inbox_id: InboxIdRef<'_>,
-        before: Option<&AssociationState>,
-        after: &AssociationState,
-    ) {
+    fn emit_own_installation_changes(&self, before: &AssociationState, after: &AssociationState) {
         use xmtp_events::{ClientEvent, EventWriter, InstallationRef, InstallationRevoked};
-        if inbox_id != self.context.inbox_id() {
-            return;
-        }
-        let Some(before) = before else {
-            return;
-        };
         let old: HashSet<_> = before.installation_ids().into_iter().collect();
         let new: HashSet<_> = after.installation_ids().into_iter().collect();
         for installation_key in new.difference(&old) {
@@ -355,28 +346,79 @@ where
         }
     }
 
-    pub(crate) async fn emit_own_installation_updates(
+    /// Run `load`, which can store updates of this client's own inbox, with
+    /// own-inbox loads serialized. Then, whether `load` succeeded or failed,
+    /// emit the own-installation changes of every own-inbox update stored
+    /// since the last emission. A load that stores pages and then fails,
+    /// including the reload after a publish conflict, therefore still reports
+    /// what it stored. Updates whose emission does not happen, because `load`
+    /// was dropped or the emission failed, are emitted after the next
+    /// own-inbox load. `load` is boxed to keep callers' futures small: SDK
+    /// worker futures have a size limit.
+    pub(crate) async fn with_own_installation_events<T>(
         &self,
         conn: &impl DbQuery,
-        inbox_id: InboxIdRef<'_>,
-        before: Option<AssociationState>,
-        previous_sequence: Option<i64>,
+        load: Pin<Box<impl Future<Output = Result<T, ClientError>>>>,
+    ) -> Result<T, ClientError> {
+        let mut events = self
+            .context
+            .identity_resolution_registry()
+            .own_inbox_refresh()
+            .lock()
+            .await;
+        if events.emitted_through.is_none() {
+            events.emitted_through = self.latest_own_sequence(conn)?;
+        }
+        let loaded = load.await;
+        let emitted = self.emit_own_installation_events(conn, &mut events).await;
+        match (loaded, emitted) {
+            (Ok(value), emitted) => emitted.map(|()| value),
+            (Err(error), Ok(())) => Err(error),
+            (Err(error), Err(emit_error)) => {
+                tracing::warn!(
+                    %emit_error,
+                    "own-installation events wait for the next own-inbox load"
+                );
+                Err(error)
+            }
+        }
+    }
+
+    fn latest_own_sequence(&self, conn: &impl DbQuery) -> Result<Option<i64>, ClientError> {
+        let inbox_id = self.context.inbox_id();
+        Ok(conn
+            .get_latest_sequence_id(&[inbox_id])?
+            .get(inbox_id)
+            .copied())
+    }
+
+    /// Emit the changes of each own-inbox update stored after
+    /// `emitted_through`, in sequence order, and move `emitted_through` past
+    /// each one emitted. With nothing emitted through yet, the latest stored
+    /// update becomes the starting point and nothing is emitted.
+    async fn emit_own_installation_events(
+        &self,
+        conn: &impl DbQuery,
+        events: &mut OwnInstallationEvents,
     ) -> Result<(), ClientError> {
-        let (Some(mut state), Some(previous_sequence)) = (before, previous_sequence) else {
+        let inbox_id = self.context.inbox_id();
+        let Some(through) = events.emitted_through else {
+            events.emitted_through = self.latest_own_sequence(conn)?;
             return Ok(());
         };
-        if inbox_id != self.context.inbox_id() {
+        let updates = conn.get_identity_updates(inbox_id, Some(through), None)?;
+        if updates.is_empty() {
             return Ok(());
         }
-        let updates = conn.get_identity_updates(inbox_id, None, None)?;
-        for update in updates
-            .into_iter()
-            .filter(|update| update.sequence_id > previous_sequence)
-        {
+        let mut state = self
+            .get_association_state(conn, inbox_id, Some(through))
+            .await?;
+        for update in updates {
             let next = self
                 .get_association_state(conn, inbox_id, Some(update.sequence_id))
                 .await?;
-            self.emit_own_installation_changes(inbox_id, Some(&state), &next);
+            self.emit_own_installation_changes(&state, &next);
+            events.emitted_through = Some(update.sequence_id);
             state = next;
         }
         Ok(())
@@ -596,58 +638,34 @@ where
         // A client with a blocked connection publishes no identity update.
         self.context.server_configuration().check()?;
         let inbox_id = signature_request.inbox_id().to_string();
-        let _own_refresh = if inbox_id == self.context.inbox_id() {
-            Some(
-                self.context
-                    .identity_resolution_registry()
-                    .own_inbox_refresh()
-                    .lock()
-                    .await,
+        let apply = async {
+            apply_signature_request_with_verifier(
+                self.context.api(),
+                &self.context.db(),
+                signature_request,
+                &self.context.scw_verifier(),
             )
-        } else {
-            None
-        };
-        let previous_sequence = self
-            .context
-            .db()
-            .get_latest_sequence_id(&[inbox_id.as_str()])?
-            .get(&inbox_id)
-            .copied();
-        let before = if previous_sequence.is_some() {
-            Some(
-                self.get_association_state(&self.context.db(), &inbox_id, None)
-                    .await?,
-            )
-        } else {
-            None
-        };
-
-        apply_signature_request_with_verifier(
-            self.context.api(),
-            &self.context.db(),
-            signature_request,
-            &self.context.scw_verifier(),
-        )
-        .await?;
-
-        // Load the identity updates for the inbox so that we have a record in our DB
-        retry_async!(
-            Retry::default(),
-            (async {
-                load_identity_updates(self.context.api(), &self.context.db(), &[inbox_id.as_str()])
+            .await?;
+            // Load the identity updates for the inbox so that we have a
+            // record in our DB.
+            retry_async!(
+                Retry::default(),
+                (async {
+                    load_identity_updates(
+                        self.context.api(),
+                        &self.context.db(),
+                        &[inbox_id.as_str()],
+                    )
                     .await
-            })
-        )?;
-
-        self.emit_own_installation_updates(
-            &self.context.db(),
-            &inbox_id,
-            before,
-            previous_sequence,
-        )
-        .await?;
-
-        Ok(())
+                })
+            )
+        };
+        if inbox_id == self.context.inbox_id() {
+            self.with_own_installation_events(&self.context.db(), Box::pin(apply))
+                .await
+        } else {
+            apply.await
+        }
     }
 
     /// Given two group memberships and the diff, get the list of installations that were added or removed
@@ -819,54 +837,58 @@ pub(crate) fn required_leaf_removals(
     Ok(required)
 }
 
-/// Load identity updates and report changes to this client's own installations.
+/// Load identity updates. A load that includes this client's own inbox
+/// reports the changes to its own installations of every update it stored,
+/// even when it fails after storing some pages.
 pub(crate) async fn load_identity_updates_for_client<Context: XmtpSharedContext>(
     context: &Context,
     conn: &impl DbQuery,
     inbox_ids: &[&str],
-) -> Result<HashMap<String, Vec<InboxUpdate>>, ClientError> {
-    let own_inbox = context.inbox_id();
-    let includes_own = inbox_ids.contains(&own_inbox);
-    let _own_refresh = if includes_own {
-        Some(
-            context
-                .identity_resolution_registry()
-                .own_inbox_refresh()
-                .lock()
-                .await,
-        )
+) -> Result<(), ClientError> {
+    let load = Box::pin(store_identity_update_pages(
+        context.api(),
+        conn,
+        inbox_ids,
+        context.incoming_runtime().policy().fetched_limits(),
+    ));
+    if inbox_ids.contains(&context.inbox_id()) {
+        IdentityUpdates::new(context)
+            .with_own_installation_events(conn, load)
+            .await
     } else {
-        None
-    };
-    let previous_sequence = if includes_own {
-        conn.get_latest_sequence_id(&[own_inbox])?
-            .get(own_inbox)
-            .copied()
-    } else {
-        None
-    };
-    let before = if previous_sequence.is_some() {
-        Some(get_association_state_for_client(context, conn, own_inbox, None).await?)
-    } else {
-        None
-    };
-    let updates = load_identity_updates(context.api(), conn, inbox_ids).await?;
-    IdentityUpdates::new(context)
-        .emit_own_installation_updates(conn, own_inbox, before, previous_sequence)
-        .await?;
-    Ok(updates)
+        load.await
+    }
 }
 
-/// For the given list of `inbox_id`s get all updates from the network that are newer than the last known `sequence_id`,
-/// write them in the db, and return the updates
+/// Store every identity update of `inbox_ids` newer than the latest stored
+/// one of each inbox.
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn load_identity_updates<ApiClient: XmtpApi>(
     api_client: &ApiClientWrapper<ApiClient>,
     conn: &impl xmtp_db::DbQuery,
     inbox_ids: &[&str],
-) -> Result<HashMap<String, Vec<InboxUpdate>>, ClientError> {
+) -> Result<(), ClientError> {
+    store_identity_update_pages(
+        api_client,
+        conn,
+        inbox_ids,
+        IncomingBatchLimits::STREAM_BATCH,
+    )
+    .await
+}
+
+/// Read the updates of `inbox_ids` after the latest stored one of each inbox,
+/// one bounded page at a time, and store each page before the next request.
+/// A failure leaves each inbox with a stored prefix of its log, and the next
+/// load resumes after it.
+async fn store_identity_update_pages<ApiClient: XmtpApi>(
+    api_client: &ApiClientWrapper<ApiClient>,
+    conn: &impl DbQuery,
+    inbox_ids: &[&str],
+    limits: IncomingBatchLimits,
+) -> Result<(), ClientError> {
     if inbox_ids.is_empty() {
-        return Ok(HashMap::new());
+        return Ok(());
     }
     tracing::debug!("Fetching identity updates for: {:?}", inbox_ids);
 
@@ -878,42 +900,30 @@ pub async fn load_identity_updates<ApiClient: XmtpApi>(
             inbox_id: inbox_id.to_string(),
         })
         .collect();
-
-    let updates = api_client.get_identity_updates_v2(filters).await?;
-    let updates = updates
-        .into_iter()
-        .map(|(inbox_id, entries)| {
-            let entries = entries
+    api_client
+        .fold_identity_updates(filters, limits, |page| {
+            let page = page
                 .into_iter()
                 .map(|entry| {
-                    Ok(InboxUpdate {
-                        sequence_id: entry
-                            .meta
-                            .cursor
-                            .ok_or(xmtp_api::ApiError::InvalidResponse("identity cursor"))?
-                            .sequence_id,
-                        server_timestamp_ns: entry.meta.server_ns,
-                        update: entry.update.try_into()?,
+                    let sequence_id = entry
+                        .meta
+                        .cursor
+                        .ok_or(xmtp_api::ApiError::InvalidResponse("identity cursor"))?
+                        .sequence_id;
+                    let inbox_id = entry.update.inbox_id.clone();
+                    let update: UnverifiedIdentityUpdate = entry.update.try_into()?;
+                    Ok(StoredIdentityUpdate {
+                        inbox_id,
+                        sequence_id: sequence_id as i64,
+                        server_timestamp_ns: entry.meta.server_ns as i64,
+                        payload: update.into(),
                     })
                 })
                 .collect::<Result<Vec<_>, ClientError>>()?;
-            Ok((inbox_id, entries))
+            conn.insert_or_ignore_identity_updates(&page)?;
+            Ok(())
         })
-        .collect::<Result<HashMap<_, _>, ClientError>>()?;
-    let to_store = updates
-        .iter()
-        .flat_map(move |(inbox_id, updates)| {
-            updates.iter().map(move |update| StoredIdentityUpdate {
-                inbox_id: inbox_id.clone(),
-                sequence_id: update.sequence_id as i64,
-                server_timestamp_ns: update.server_timestamp_ns as i64,
-                payload: update.update.clone().into(),
-            })
-        })
-        .collect::<Vec<StoredIdentityUpdate>>();
-
-    conn.insert_or_ignore_identity_updates(&to_store)?;
-    Ok(updates)
+        .await
 }
 
 /// A static lookup method to verify if an identity is a member of an inbox
