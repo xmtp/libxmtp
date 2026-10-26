@@ -1,4 +1,4 @@
-use crate::groups::GroupError;
+use crate::groups::{GroupError, encoded_content_type};
 use prost::Message;
 use xmtp_content_types::actions::{Actions, ActionsCodec};
 use xmtp_content_types::group_updated::GroupUpdatedCodec;
@@ -253,19 +253,19 @@ pub(crate) fn is_reserved_transcript_type(content_type: &ContentTypeId) -> bool 
         )
 }
 
-/// Whether content, or a reply nested at any depth, carries a reserved transcript type.
-/// Malformed content does not identify a reserved transcript.
+/// Refuse reserved types at any depth, or replies that exceed the bounded scan.
+/// Other malformed content does not identify a reserved transcript.
 pub(crate) fn carries_reserved_transcript(raw: &[u8]) -> bool {
     let mut budget = compression::DecompressionBudget::new();
     let mut current = std::borrow::Cow::Borrowed(raw);
     loop {
-        let Ok(envelope) = EncodedContent::decode(&*current) else {
+        let Ok(Some(kind)) = encoded_content_type(&current) else {
             return false;
         };
-        let Some(kind) = has_complete_type(&envelope) else {
+        if kind.authority_id.is_empty() || kind.type_id.is_empty() {
             return false;
-        };
-        if is_reserved_transcript_type(kind) {
+        }
+        if is_reserved_transcript_type(&kind) {
             return true;
         }
         let reply = kind.authority_id == "xmtp.org"
@@ -274,8 +274,11 @@ pub(crate) fn carries_reserved_transcript(raw: &[u8]) -> bool {
         if !reply {
             return false;
         }
-        let Ok(value) = compression::decompress_with_budget(envelope, &mut budget) else {
+        let Ok(envelope) = EncodedContent::decode(&*current) else {
             return false;
+        };
+        let Ok(value) = compression::decompress_with_budget(envelope, &mut budget) else {
+            return budget.limit_exceeded();
         };
         current = std::borrow::Cow::Owned(value.content);
     }
@@ -538,6 +541,7 @@ impl From<StoredGroupMessage> for DecodedMessage {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::utils::test::nested_reply;
     use xmtp_content_types::{
         actions::{Action, Actions},
         attachment::Attachment,
@@ -605,55 +609,57 @@ mod tests {
     #[xmtp_common::test(unwrap_try = true)]
     async fn application_transcripts_are_undecodable() {
         for type_id in ["group_updated", "group_membership_change"] {
-            for compression in [None, Some(Compression::Gzip as i32)] {
-                let mut transcript = GroupUpdatedCodec::encode(GroupUpdated::default())?;
-                transcript.r#type.as_mut().unwrap().type_id = type_id.into();
-                transcript.r#type.as_mut().unwrap().version_major = 7;
-                // Neither prost nor gzip can decode this payload. The provenance
-                // failure must happen before either one examines it.
-                transcript.content = vec![0xff];
-                transcript.compression = compression;
-                transcript.fallback = Some("untrusted transcript".into());
-                let reply = ReplyCodec::encode(EncodedReply {
-                    reference: "0102".into(),
-                    reference_inbox_id: None,
-                    content: transcript.clone(),
-                })?;
-                let gzip_reply = compress(reply.clone(), Compression::Gzip)?;
-                let two_levels = ReplyCodec::encode(EncodedReply {
-                    reference: "0304".into(),
-                    reference_inbox_id: None,
-                    content: gzip_reply.clone(),
-                })?;
-                for (content, prefix) in [
-                    (transcript, ""),
-                    (gzip_reply, "nested reply content: "),
-                    (two_levels, "nested reply content: nested reply content: "),
-                ] {
-                    let stored = stored_message(content.clone());
-                    let raw = stored.decrypted_message_bytes.clone();
-                    let id = stored.id.clone();
-                    let decoded = DecodedMessage::from(stored);
-                    assert_eq!(decoded.metadata.id, id);
-                    assert_eq!(decoded.metadata.content_type, content.r#type);
-                    assert_eq!(decoded.fallback_text, content.fallback);
-                    let MessageBody::Undecodable(value) = decoded.content else {
-                        panic!("application transcript was decoded");
-                    };
-                    assert_eq!(value.raw_bytes, raw);
-                    assert_eq!(value.encoded, Some(content.clone()));
-                    assert_eq!(
-                        value.failure.kind,
-                        ContentDecodeFailureKind::CodecDecodeFailed
-                    );
-                    assert_eq!(
-                        value.failure.message,
-                        format!("{prefix}transcript type in application content")
-                    );
-                    assert!(matches!(
-                        MessageBody::try_from(content),
-                        Err(GroupError::CodecError(CodecError::Decode(_)))
-                    ));
+            for version in [1, 7] {
+                for compression in [None, Some(Compression::Gzip as i32)] {
+                    let mut transcript = GroupUpdatedCodec::encode(GroupUpdated::default())?;
+                    transcript.r#type.as_mut().unwrap().type_id = type_id.into();
+                    transcript.r#type.as_mut().unwrap().version_major = version;
+                    // Neither prost nor gzip can decode this payload. The provenance
+                    // failure must happen before either one examines it.
+                    transcript.content = vec![0xff];
+                    transcript.compression = compression;
+                    transcript.fallback = Some("untrusted transcript".into());
+                    let reply = ReplyCodec::encode(EncodedReply {
+                        reference: "0102".into(),
+                        reference_inbox_id: None,
+                        content: transcript.clone(),
+                    })?;
+                    let gzip_reply = compress(reply.clone(), Compression::Gzip)?;
+                    let two_levels = ReplyCodec::encode(EncodedReply {
+                        reference: "0304".into(),
+                        reference_inbox_id: None,
+                        content: gzip_reply.clone(),
+                    })?;
+                    for (content, prefix) in [
+                        (transcript, ""),
+                        (gzip_reply, "nested reply content: "),
+                        (two_levels, "nested reply content: nested reply content: "),
+                    ] {
+                        let stored = stored_message(content.clone());
+                        let raw = stored.decrypted_message_bytes.clone();
+                        let id = stored.id.clone();
+                        let decoded = DecodedMessage::from(stored);
+                        assert_eq!(decoded.metadata.id, id);
+                        assert_eq!(decoded.metadata.content_type, content.r#type);
+                        assert_eq!(decoded.fallback_text, content.fallback);
+                        let MessageBody::Undecodable(value) = decoded.content else {
+                            panic!("application transcript was decoded");
+                        };
+                        assert_eq!(value.raw_bytes, raw);
+                        assert_eq!(value.encoded, Some(content.clone()));
+                        assert_eq!(
+                            value.failure.kind,
+                            ContentDecodeFailureKind::CodecDecodeFailed
+                        );
+                        assert_eq!(
+                            value.failure.message,
+                            format!("{prefix}transcript type in application content")
+                        );
+                        assert!(matches!(
+                            MessageBody::try_from(content),
+                            Err(GroupError::CodecError(CodecError::Decode(_)))
+                        ));
+                    }
                 }
             }
         }
@@ -870,31 +876,6 @@ mod tests {
         assert_eq!(nested.encoded.compression, None);
         assert_eq!(nested.encoded.content, b"custom payload");
         assert_eq!(nested.raw_bytes, outer.content);
-    }
-
-    fn nested_reply(mut content: EncodedContent, levels: usize, pad_to: usize) -> EncodedContent {
-        for _ in 0..levels {
-            let mut reply = ReplyCodec::encode(EncodedReply {
-                reference: "0102".into(),
-                reference_inbox_id: None,
-                content,
-            })
-            .unwrap();
-            if pad_to > reply.content.len() + 6 {
-                // An unknown protobuf field pads this reply without changing its body.
-                let padding = pad_to - reply.content.len() - 6;
-                reply.content.extend_from_slice(&[0xa2, 0x06]);
-                let mut length = padding;
-                while length >= 0x80 {
-                    reply.content.push((length as u8) | 0x80);
-                    length >>= 7;
-                }
-                reply.content.push(length as u8);
-                reply.content.resize(reply.content.len() + padding, 0);
-            }
-            content = compress(reply, Compression::Deflate).unwrap();
-        }
-        content
     }
 
     // verifies: CTYPE-008, CTYPE-025

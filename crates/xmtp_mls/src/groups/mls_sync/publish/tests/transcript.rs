@@ -201,6 +201,79 @@ async fn reply_wrapping_a_transcript_type_is_never_sent() {
     }
 }
 
+/// A valid reply that exceeds the cumulative scan budget is refused before
+/// message creation, intent preparation, or publication.
+// verifies: GMOD-054
+#[xmtp_common::test(unwrap_try = true)]
+async fn over_budget_reply_is_refused_before_writes() {
+    use crate::messages::decoded_message::carries_reserved_transcript;
+    use crate::utils::test::nested_reply;
+    use xmtp_content_types::{
+        ContentCodec, compression, group_updated::GroupUpdatedCodec, reply::ReplyCodec,
+    };
+    use xmtp_db::group_intent::QueryPreparedEnvelope;
+    use xmtp_proto::xmtp::mls::message_contents::{Compression, GroupUpdated};
+
+    let content = nested_reply(
+        GroupUpdatedCodec::encode(GroupUpdated::default())?,
+        2,
+        9 * 1024 * 1024,
+    );
+    let mut layer = content.clone();
+    for _ in 0..2 {
+        let decoded = compression::decompress(layer)?;
+        assert_eq!(decoded.content.len(), 9 * 1024 * 1024);
+        layer = ReplyCodec::decode(decoded)?.content;
+    }
+    assert_eq!(GroupUpdatedCodec::decode(layer)?, GroupUpdated::default());
+    let bytes = content.encode_to_vec();
+    assert!(bytes.len() < 16 * 1024);
+
+    // An invalid frame is still malformed, rather than a budget refusal.
+    let mut malformed = content;
+    malformed.compression = Some(Compression::Gzip as i32);
+    malformed.content = vec![0xff];
+    assert!(!carries_reserved_transcript(&malformed.encode_to_vec()));
+
+    tester!(alix, disable_workers);
+    let group = alix.create_group(None, None)?;
+    group.key_update().await?;
+    let publish_count = || {
+        alix.context
+            .api()
+            .api_client
+            .mls_stats()
+            .publish
+            .get_count()
+    };
+    let attempts = || {
+        let db = group.context.db();
+        db.find_group_intents(group.group_id, None, Some(IntentKind::all().collect()))
+            .unwrap()
+            .into_iter()
+            .map(|intent| (intent.id, db.prepared_envelopes(intent.id).unwrap()))
+            .collect::<Vec<_>>()
+    };
+    let messages = group.find_messages(&Default::default())?.len();
+    let queued_and_prepared = attempts();
+    let published = publish_count();
+    assert!(matches!(
+        group.send_message(&bytes, SendMessageOpts::default()).await,
+        Err(GroupError::ReservedTranscriptContentType)
+    ));
+    assert!(matches!(
+        group.send_message_optimistic(&bytes, SendMessageOpts::default()),
+        Err(GroupError::ReservedTranscriptContentType)
+    ));
+    assert!(matches!(
+        group.prepare_message_for_later_publish(&bytes, false, None),
+        Err(GroupError::ReservedTranscriptContentType)
+    ));
+    assert_eq!(group.find_messages(&Default::default())?.len(), messages);
+    assert_eq!(attempts(), queued_and_prepared);
+    assert_eq!(publish_count(), published);
+}
+
 /// A reserved row that an older build stored fails when it is published by
 /// ID. It is never queued or sent, and a second attempt changes nothing.
 // verifies: GMOD-054
