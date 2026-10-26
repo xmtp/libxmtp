@@ -5,6 +5,9 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use tokio::sync::{Mutex, oneshot};
 use xmtp_api_grpc::error::GrpcError;
 use xmtp_common::RetryableError;
+use xmtp_common::time::{Duration, timeout};
+
+const WAIT: Duration = Duration::from_secs(5);
 use xmtp_events::{ClientEvent, EventBus, EventFilter, EventKind, LockoutChange, PublicBusWriter};
 
 #[derive(Clone, Debug, PartialEq)]
@@ -624,6 +627,155 @@ async fn set_during_a_refetch_wins() {
     assert_eq!(callback.calls.load(Ordering::SeqCst), calls_after_set);
 }
 
+// verifies: AUTH-036
+#[rstest::rstest]
+#[case(Rpc::Unary)]
+#[case(Rpc::Stream)]
+#[case(Rpc::Bidi)]
+#[xmtp_common::test(unwrap_try = true)]
+async fn manual_credential_unblocks_requests_behind_pending_refresh(#[case] rpc: Rpc) {
+    let (client, peer, callback) = fixture();
+    client
+        .handle
+        .set(Credential::new(
+            None,
+            "expired".parse().expect("test header"),
+            now_secs(),
+        ))
+        .await;
+    let (release, gate) = oneshot::channel();
+    *callback.gate.lock().await = Some(gate);
+    let mut refreshing = Box::pin(call(&client, Rpc::Unary));
+    assert!(futures::poll!(&mut refreshing).is_pending());
+    assert_eq!(callback.calls.load(Ordering::SeqCst), 1);
+
+    client.handle.set(credential("manual")).await;
+    timeout(WAIT, call(&client, rpc))
+        .await
+        .expect("later RPC timed out")
+        .expect("later RPC");
+    assert!(futures::poll!(&mut refreshing).is_pending());
+    assert_eq!(callback.calls.load(Ordering::SeqCst), 1);
+    {
+        let sent = peer.sent.lock().await;
+        assert_eq!(sent.len(), 1);
+        assert_eq!(sent[0].0.headers["authorization"], "manual");
+    }
+
+    release.send(()).expect("pending callback");
+    timeout(WAIT, refreshing)
+        .await
+        .expect("original RPC timed out")
+        .expect("original RPC");
+    let sent = peer.sent.lock().await;
+    assert_eq!(sent.len(), 2);
+    assert_eq!(sent[1].0.headers["authorization"], "manual");
+    assert_eq!(callback.calls.load(Ordering::SeqCst), 1);
+}
+
+// verifies: AUTH-036
+#[rstest::rstest]
+#[case(Rpc::Unary)]
+#[case(Rpc::Stream)]
+#[case(Rpc::Bidi)]
+#[xmtp_common::test(unwrap_try = true)]
+async fn set_releases_requests_waiting_for_a_pending_refresh(#[case] rpc: Rpc) {
+    let (client, peer, callback) = fixture();
+    client
+        .handle
+        .set(Credential::new(
+            None,
+            "expired".parse().expect("test header"),
+            now_secs(),
+        ))
+        .await;
+    let (release, gate) = oneshot::channel();
+    *callback.gate.lock().await = Some(gate);
+    let mut refreshing = Box::pin(call(&client, Rpc::Unary));
+    assert!(futures::poll!(&mut refreshing).is_pending());
+    let mut queued = Box::pin(call(&client, rpc));
+    assert!(futures::poll!(&mut queued).is_pending());
+    assert!(peer.sent.lock().await.is_empty());
+
+    client.handle.set(credential("manual")).await;
+    timeout(WAIT, queued)
+        .await
+        .expect("queued RPC timed out")
+        .expect("queued RPC");
+    assert!(futures::poll!(&mut refreshing).is_pending());
+    assert_eq!(callback.calls.load(Ordering::SeqCst), 1);
+    {
+        let sent = peer.sent.lock().await;
+        assert_eq!(sent.len(), 1);
+        assert_eq!(sent[0].0.headers["authorization"], "manual");
+    }
+
+    release.send(()).expect("pending callback");
+    timeout(WAIT, refreshing)
+        .await
+        .expect("original RPC timed out")
+        .expect("original RPC");
+    let sent = peer.sent.lock().await;
+    assert_eq!(sent.len(), 2);
+    assert_eq!(sent[1].0.headers["authorization"], "manual");
+    assert_eq!(callback.calls.load(Ordering::SeqCst), 1);
+}
+
+// verifies: AUTH-023
+#[xmtp_common::test(unwrap_try = true)]
+async fn lockout_during_a_pending_refresh_fails_requests_as_exhausted() {
+    let (client, peer, callback) = fixture();
+    let (_release_callback, gate) = oneshot::channel();
+    *callback.gate.lock().await = Some(gate);
+    let mut refreshing = Box::pin(call(&client, Rpc::Unary));
+    assert!(futures::poll!(&mut refreshing).is_pending());
+    client.handle.set(credential("manual")).await;
+
+    let mut releases = Vec::new();
+    let mut failures = Vec::new();
+    for _ in 0..MAX_CONSECUTIVE_AUTH_FAILURES {
+        let (release, gate) = oneshot::channel();
+        releases.push(release);
+        peer.replies.lock().await.push_back(Reply {
+            code: tonic::Code::Unauthenticated,
+            gate: Some(gate),
+        });
+        let mut failure = Box::pin(call(&client, Rpc::Bidi));
+        assert!(futures::poll!(&mut failure).is_pending());
+        failures.push(failure);
+    }
+    assert_eq!(
+        peer.sent.lock().await.len(),
+        MAX_CONSECUTIVE_AUTH_FAILURES as usize
+    );
+    releases.remove(0).send(()).expect("pending response");
+    assert!(timeout(WAIT, failures.remove(0)).await?.is_err());
+    let mut queued = Box::pin(call(&client, Rpc::Bidi));
+    assert!(futures::poll!(&mut queued).is_pending());
+
+    for release in releases {
+        release.send(()).expect("pending response");
+    }
+    for result in timeout(WAIT, futures::future::join_all(failures)).await? {
+        assert!(result.is_err());
+    }
+    for result in [
+        timeout(WAIT, queued).await?,
+        timeout(WAIT, call(&client, Rpc::Bidi)).await?,
+    ] {
+        assert!(matches!(
+            result,
+            Err(ApiClientError::Auth(AuthError::Exhausted))
+        ));
+    }
+    assert_eq!(
+        peer.sent.lock().await.len(),
+        MAX_CONSECUTIVE_AUTH_FAILURES as usize
+    );
+    assert_eq!(callback.calls.load(Ordering::SeqCst), 1);
+    assert!(futures::poll!(&mut refreshing).is_pending());
+}
+
 // verifies: AUTH-022
 #[xmtp_common::test(unwrap_try = true)]
 async fn permission_denied_and_other_errors_pass_through() {
@@ -727,6 +879,79 @@ async fn callback_may_use_the_handle_without_deadlocking() {
         peer.sent.lock().await.last()?.0.headers["authorization"],
         "pushed-1"
     );
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn callback_reentering_publish_uses_the_credential_it_set() {
+    struct ReentrantPublish {
+        handle: AuthHandle,
+        client: Mutex<Option<std::sync::Weak<AuthMiddleware<Arc<Peer>>>>>,
+        calls: AtomicUsize,
+    }
+
+    #[xmtp_common::async_trait]
+    impl AuthCallback for ReentrantPublish {
+        async fn on_auth_required(&self) -> Result<Credential, BoxDynError> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            self.handle.set(credential("manual")).await;
+            let client = self
+                .client
+                .lock()
+                .await
+                .as_ref()
+                .and_then(std::sync::Weak::upgrade)
+                .expect("live client");
+            client
+                .request(
+                    http::Request::builder(),
+                    http::uri::PathAndQuery::from_static("/xmtp.backend.v1.PublishService/Publish"),
+                    Bytes::from_static(b"inner publish"),
+                )
+                .await
+                .expect("reentrant publish");
+            Ok(credential("callback"))
+        }
+    }
+
+    let peer = Arc::new(Peer::default());
+    let handle = AuthHandle::new();
+    let callback = Arc::new(ReentrantPublish {
+        handle: handle.clone(),
+        client: Mutex::new(None),
+        calls: AtomicUsize::new(0),
+    });
+    let client = Arc::new(AuthMiddleware::new(
+        peer.clone(),
+        Some(callback.clone()),
+        Some(handle.clone()),
+    ));
+    *callback.client.lock().await = Some(Arc::downgrade(&client));
+    handle
+        .set(Credential::new(
+            None,
+            "expired".parse().expect("test header"),
+            now_secs(),
+        ))
+        .await;
+
+    timeout(
+        WAIT,
+        client.request(
+            http::Request::builder(),
+            http::uri::PathAndQuery::from_static("/xmtp.backend.v1.PublishService/Publish"),
+            Bytes::from_static(b"outer publish"),
+        ),
+    )
+    .await??;
+    assert_eq!(callback.calls.load(Ordering::SeqCst), 1);
+    let sent = peer.sent.lock().await;
+    assert_eq!(sent.len(), 2);
+    for (parts, path, _) in sent.iter() {
+        assert_eq!(path.path(), "/xmtp.backend.v1.PublishService/Publish");
+        assert_eq!(parts.headers["authorization"], "manual");
+    }
+    assert_eq!(sent[0].2, Bytes::from_static(b"inner publish"));
+    assert_eq!(sent[1].2, Bytes::from_static(b"outer publish"));
 }
 
 xmtp_common::if_native! {

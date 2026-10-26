@@ -79,6 +79,7 @@ struct AuthInner {
     /// pushes its credential through the handle would deadlock on a lock this
     /// function held across the await. Tokio's mutex is not reentrant.
     refresh: tokio::sync::Mutex<()>,
+    recheck: tokio::sync::Notify,
     event_writers: parking_lot::Mutex<Vec<Weak<dyn EventWriter<()>>>>,
 }
 
@@ -149,6 +150,7 @@ impl AuthHandle {
             generation: state.generation + 1,
             ..AuthState::default()
         };
+        self.inner.recheck.notify_waiters();
         if was_locked {
             self.inner.emit_lockout(LockoutChange::Left);
         }
@@ -213,13 +215,36 @@ impl<C> AuthMiddleware<C> {
 
     /// Keep the credential and its generation together across each network call.
     /// Commit callback state only after the callback completes, including a probe.
-    // implements: AUTH-021
+    // implements: AUTH-021, AUTH-023, AUTH-036
     async fn get_credential(&self) -> Result<(Arc<Credential>, u64), AuthError> {
         let inner = &self.handle.inner;
-        // Take the refresh lock first so only one callback runs at a time. The
-        // state lock is taken and released around it, never held across the
-        // await, because `AuthHandle::set` needs it while a callback runs.
-        let _refresh = inner.refresh.lock().await;
+        let _refresh = loop {
+            // Create Notified before reading state: notify_waiters also wakes a
+            // future that has not been polled yet, so a later set cannot be lost.
+            let recheck = inner.recheck.notified();
+            tokio::pin!(recheck);
+            {
+                let state = inner.state.lock().await;
+                if state
+                    .locked_until
+                    .is_some_and(|until| until > Instant::now())
+                {
+                    return Err(AuthError::Exhausted);
+                }
+                if state.locked_until.is_none()
+                    && !state.stale
+                    && let Some(credential) = inner.current.get().map(|current| current.load_full())
+                    && credential.expires_at_seconds > now_secs()
+                {
+                    return Ok((credential, state.generation));
+                }
+            }
+            tokio::select! {
+                biased;
+                () = &mut recheck => continue,
+                guard = inner.refresh.lock() => break guard,
+            }
+        };
         let mut state = *inner.state.lock().await;
         let now = Instant::now();
         let lockout_left = state.locked_until.is_some_and(|until| until <= now);
@@ -311,6 +336,7 @@ impl<C> AuthMiddleware<C> {
                 state.stale = true;
                 if self.callback.is_some() && state.fail() {
                     self.handle.inner.emit_lockout(LockoutChange::Entered);
+                    self.handle.inner.recheck.notify_waiters();
                 }
             }
         }

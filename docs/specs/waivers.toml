@@ -428,20 +428,6 @@ issue = "TBD-octane-tracking"
 reason = "A stored deletion that does not pass PROC-037, such as one from another group, makes the client refuse a delete as already deleted."
 
 [[waiver]]
-id = "AUTH-036"
-kind = "gap"
-owner = "Nicholas Molnar"
-issue = "TBD-octane-tracking"
-reason = "A request that carries a credential waits behind an in-progress callback invocation even when the client holds a usable credential."
-
-[[waiver]]
-id = "CONF-093"
-kind = "gap"
-owner = "Nicholas Molnar"
-issue = "TBD-octane-tracking"
-reason = "Native Update pacing does not follow the snapshot's max_update_frames_per_second and max_update_burst."
-
-[[waiver]]
 id = "CTYPE-032"
 kind = "gap"
 owner = "Nicholas Molnar"

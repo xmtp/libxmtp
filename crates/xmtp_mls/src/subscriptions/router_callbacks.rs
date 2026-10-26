@@ -85,8 +85,8 @@ where
     C::SubscribeStream: 'static,
 {
     let key = (api.host().to_owned(), api.api_client_identity());
-    // Interest-update frames are chunked here, below
-    // `ApiClientWrapper`, so the caps come from the transport's own copy of the
+    // Interest-update frames are chunked and paced here, below
+    // `ApiClientWrapper`, so the limits come from the transport's own copy of the
     // snapshot. Whoever creates the transport donates them along with the API
     // client, and a transport that was never told keeps the compiled defaults.
     let mutate = xmtp_api_backend::MutateLimits::from_limits(&api.bidi_limits());

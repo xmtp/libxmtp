@@ -66,10 +66,12 @@ const OUTBOX_RETRY_INTERVAL: std::time::Duration = std::time::Duration::from_mil
 /// progressing backlog can keep the global wire gate active beyond this period.
 const INCOMING_PAUSE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
-fn update_budget() -> Bucket {
-    Bucket::new(
-        xmtp_configuration::BACKEND_DEFAULT_MAX_UPDATE_FRAMES_PER_SECOND,
-        xmtp_configuration::BACKEND_DEFAULT_MAX_UPDATE_BURST,
+// implements: CONF-093
+fn update_budget(limits: &MutateLimits) -> Bucket {
+    Bucket::with_margin(
+        limits.update_rate,
+        limits.update_burst,
+        xmtp_configuration::STREAM_UPDATE_PACING_MARGIN,
     )
 }
 
@@ -81,13 +83,15 @@ pub(crate) const MAX_MUTATE_BYTES: usize =
 /// Conservative protobuf overhead per topic, including cursor and length fields.
 const PER_ENTRY_OVERHEAD: usize = 64;
 
-/// The interest-update frame shapes one deployment accepts. Adds and
+/// The interest-update frame sizes and pacing one deployment accepts. Adds and
 /// removes have separate caps because the backend enforces them separately.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct MutateLimits {
     pub add_cap: usize,
     pub remove_cap: usize,
     pub byte_cap: usize,
+    pub update_rate: u32,
+    pub update_burst: u32,
 }
 
 impl Default for MutateLimits {
@@ -96,12 +100,14 @@ impl Default for MutateLimits {
             add_cap: MAX_MUTATE_TOPICS,
             remove_cap: xmtp_configuration::BACKEND_DEFAULT_MAX_UPDATE_REMOVES,
             byte_cap: MAX_MUTATE_BYTES,
+            update_rate: xmtp_configuration::BACKEND_DEFAULT_MAX_UPDATE_FRAMES_PER_SECOND,
+            update_burst: xmtp_configuration::BACKEND_DEFAULT_MAX_UPDATE_BURST,
         }
     }
 }
 
 impl MutateLimits {
-    /// Take the caps a deployment published, leaving the same room for the
+    /// Take the limits a deployment published, leaving the same room for the
     /// request wrapper the compiled default leaves.
     pub fn from_limits(limits: &xmtp_configuration::LimitsConfiguration) -> Self {
         Self {
@@ -111,6 +117,8 @@ impl MutateLimits {
                 .max_request_bytes
                 .saturating_sub(PER_ENTRY_OVERHEAD)
                 .max(1),
+            update_rate: limits.max_update_frames_per_second.max(1),
+            update_burst: limits.max_update_burst.max(1),
         }
     }
 }
@@ -426,7 +434,7 @@ where
         Self::spawn(opener, initially_suspended, MutateLimits::default())
     }
 
-    /// Open lazily, chunking interest updates to what the deployment published.
+    /// Open lazily, chunking and pacing updates to what the deployment published.
     pub fn new_within<O, Fut>(opener: O, initially_suspended: bool, mutate: MutateLimits) -> Self
     where
         O: Fn(B::Mutate) -> Fut + MaybeSend + MaybeSync + 'static,
@@ -453,6 +461,7 @@ where
                 add_cap: chunk_cap,
                 remove_cap: chunk_cap,
                 byte_cap: chunk_bytes,
+                ..MutateLimits::default()
             },
         )
     }
@@ -1415,7 +1424,7 @@ async fn run_ledger<B: TransportBinding>(
         wire_opens: 0,
         resume_notify: Vec::new(),
         outbox: Outbox::default(),
-        update_budget: update_budget(),
+        update_budget: update_budget(&mutate),
         deferred: std::collections::VecDeque::new(),
     }
     .run()
@@ -1566,7 +1575,7 @@ where
     }
 
     fn open_wire_span(&mut self) {
-        self.update_budget = update_budget();
+        self.update_budget = update_budget(&self.ledger.mutate);
         // The opener already sent the first Update on this connection.
         self.update_budget.take();
         self.wire_opened_at = Some(tokio::time::Instant::now());

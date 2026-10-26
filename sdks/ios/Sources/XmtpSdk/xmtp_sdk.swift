@@ -3274,11 +3274,23 @@ public func FfiConverterTypeConversations_lower(_ value: Conversations) -> UInt6
 
 
 
+/**
+ * Supplies credentials one callback at a time. Requests with a fresh held
+ * credential do not wait for a callback that is still running.
+ * Call setCredential before using the client from a callback. Sending to the
+ * conversation whose sync started the callback still waits for that sync.
+ */
 public protocol CredentialSource: AnyObject, Sendable {
 
     func credential() async throws  -> Credential
 
 }
+/**
+ * Supplies credentials one callback at a time. Requests with a fresh held
+ * credential do not wait for a callback that is still running.
+ * Call setCredential before using the client from a callback. Sending to the
+ * conversation whose sync started the callback still waits for that sync.
+ */
 open class CredentialSourceImpl: CredentialSource, @unchecked Sendable {
     fileprivate let handle: UInt64
 

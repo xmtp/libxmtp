@@ -205,6 +205,7 @@ fn ledger_task(
     outbox: Outbox<Mutate>,
 ) -> LedgerTask<BackendBinding> {
     let (cmds, receiver) = mpsc::unbounded_channel();
+    let update_budget = update_budget(&ledger.mutate);
     LedgerTask {
         opener: Box::new(
             |_| -> BoxDynFuture<'static, Result<Connection<BackendBinding>, OpenError>> {
@@ -223,7 +224,7 @@ fn ledger_task(
         wire_opens: 0,
         resume_notify: vec![],
         outbox,
-        update_budget: update_budget(),
+        update_budget,
         deferred: std::collections::VecDeque::new(),
     }
 }
@@ -245,5 +246,6 @@ mod coalescing;
 mod delivery;
 mod incoming;
 mod limits;
+mod rate_limit;
 mod reconnect;
 mod suspend;
