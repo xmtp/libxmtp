@@ -16,6 +16,8 @@ Type ID: `xmtp.org/walletSendCalls:1.0`. The payload is JSON-encoded `WalletSend
 
 Each call can contain a target address, value, call data, gas limit, and metadata. These fields are all optional. After execution, send a [transaction reference](/content-types/transaction-refs/) so the conversation can follow the result.
 
+A received request is content another conversation member wrote, not approval to execute it. The sender chooses every field, including `from` and the description. Show the target, value, and call data before the user's wallet executes a call. Never execute a call from its description alone.
+
 | Call field | Meaning                     |
 | ---------- | --------------------------- |
 | `to`       | Optional target address     |
