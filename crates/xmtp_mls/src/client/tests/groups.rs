@@ -208,7 +208,7 @@ async fn assert_peer_received(
     group_id: &xmtp_proto::types::GroupId,
     message: &[u8],
 ) {
-    let joined = peer.sync_welcomes().await.unwrap();
+    let joined = peer.wait_for_welcomes().await.unwrap();
     assert!(joined.iter().any(|group| &group.group_id == group_id));
     let group = peer.group(group_id).unwrap();
     group.sync().await.unwrap();
@@ -264,6 +264,83 @@ async fn interrupted_dm_creation_is_repaired_on_send() {
         .send_message(message, SendMessageOpts::default())
         .await?;
     assert_peer_received(&bo, &orphan.group_id, message).await;
+}
+
+/// Two repairs of one interrupted DM can run at once. Both succeed, and the
+/// peer joins and reads the message.
+// verifies: DMS-020
+#[xmtp_common::test(unwrap_try = true)]
+async fn concurrent_repairs_of_an_interrupted_dm_add_the_peer_once() {
+    use crate::groups::MlsGroup;
+
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    let orphan = MlsGroup::create_dm_without_peer(&alix.context, bo.inbox_id().to_string())?;
+
+    let message = b"sent during a second repair";
+    let (sent, found) = futures::join!(
+        orphan.send_message(message, SendMessageOpts::default()),
+        alix.find_or_create_dm(bo.inbox_id(), None),
+    );
+    sent?;
+    assert_eq!(found?.group_id, orphan.group_id);
+    assert_peer_received(&bo, &orphan.group_id, message).await;
+}
+
+/// When the peer of an interrupted DM cannot be added, find-or-create and
+/// send return the add's failure instead of the DM or the message.
+// verifies: DMS-020
+#[xmtp_common::test(unwrap_try = true)]
+async fn interrupted_dm_whose_peer_cannot_be_added_fails() {
+    use crate::groups::MlsGroup;
+
+    tester!(alix, disable_workers);
+    // An inbox with no identity log has no installation to add.
+    let peer = hex::encode(xmtp_cryptography::rand::rand_array::<32>());
+    let orphan = MlsGroup::create_dm_without_peer(&alix.context, peer.clone())?;
+
+    assert!(alix.find_or_create_dm(peer.as_str(), None).await.is_err());
+    let message = b"never queued";
+    let sent = alix
+        .group(&orphan.group_id)?
+        .send_message(message, SendMessageOpts::default())
+        .await;
+    assert!(sent.is_err());
+    let stored = orphan.find_messages(&MsgQueryArgs::default())?;
+    assert!(
+        !stored
+            .iter()
+            .any(|stored| stored.decrypted_message_bytes == message)
+    );
+}
+
+/// An installation its own inbox revoked cannot complete an interrupted DM:
+/// the add resolves as a no-op, so find-or-create fails instead of returning
+/// a DM without the peer.
+// verifies: DMS-020
+#[xmtp_common::test(unwrap_try = true)]
+async fn interrupted_dm_repair_that_adds_no_peer_fails() {
+    use crate::groups::MlsGroup;
+    use xmtp_id::associations::test_utils::add_wallet_signature;
+
+    tester!(alix, disable_workers);
+    tester!(alix2, from: alix, disable_workers);
+    tester!(bo, disable_workers);
+    let orphan = MlsGroup::create_dm_without_peer(&alix.context, bo.inbox_id().to_string())?;
+    let mut revoke = alix2
+        .identity_updates()
+        .revoke_installations(vec![alix.installation_id.to_vec()])
+        .await?;
+    add_wallet_signature(&mut revoke, &alix2.builder.owner).await;
+    alix2
+        .identity_updates()
+        .apply_signature_request(revoke)
+        .await?;
+
+    let result = alix.find_or_create_dm(bo.inbox_id(), None).await;
+    assert!(result.is_err(), "returned a DM without its peer");
+    assert!(bo.sync_welcomes().await?.is_empty());
+    assert!(bo.db().find_group(&orphan.group_id)?.is_none());
 }
 
 #[xmtp_common::test(unwrap_try = true)]
@@ -421,13 +498,19 @@ async fn duplicate_dm_sync_reaches_target_past_failing_sibling() {
     target.sync().await?;
     let stored = |id: &[u8]| alice.db().get_group_message(id).map(|m| m.is_some());
     assert!(stored(&target_message)?);
+    let mut held = None;
     for (group_id, message) in sibling_messages {
         assert_eq!(stored(&message)?, group_id != paused, "{group_id}");
+        if group_id == paused {
+            held = Some(message);
+        }
     }
-    assert_eq!(
-        alice.db().get_group_paused_version(&paused)?.as_deref(),
-        Some("999.0.0")
-    );
+
+    // The paused sibling's envelope was held, not skipped: once the group
+    // resumes, its sync processes it.
+    alice.db().unpause_group(&paused)?;
+    alice.group(&paused)?.sync().await?;
+    assert!(stored(&held?)?);
 }
 
 /// When the named group of a stitched DM fails, its siblings still sync and

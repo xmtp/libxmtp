@@ -163,14 +163,53 @@ where
     /// the peer never joins. Does nothing for a group that is not a DM, an
     /// inactive DM (such as a restored placeholder), or a DM whose pair does
     /// not include this inbox.
+    ///
+    /// Returns Ok when the wait for the add ends while the add is still
+    /// queued or unconfirmed. That outcome belongs to the add, not to the
+    /// caller's message, which is not queued yet. Nothing is prepared behind
+    /// a published state change until its echo is applied (SEND-022), so a
+    /// message queued next is still built at an epoch that holds the peer.
     // implements: DMS-020
     pub async fn ensure_dm_peer(&self) -> Result<(), GroupError> {
-        if self.conversation_type != ConversationType::Dm || !self.is_active()? {
+        let Some(peer) = self.missing_dm_peer()? else {
             return Ok(());
+        };
+        tracing::info!(
+            group_id = self.group_id.short_hex(),
+            "adding the missing peer of an interrupted DM creation"
+        );
+        match self.add_members(&[peer]).await {
+            Ok(_) => {}
+            Err(
+                error @ (GroupError::PublishedButUnconfirmed { .. }
+                | GroupError::SyncFailedToWait(_)),
+            ) => {
+                tracing::warn!(
+                    group_id = self.group_id.short_hex(),
+                    ?error,
+                    "the DM peer add is still pending; later intents wait behind it"
+                );
+                return Ok(());
+            }
+            Err(error) => return Err(error),
+        }
+        // An add can resolve as a no-op, such as one that would remove this
+        // installation's own leaf after its inbox revoked it.
+        if self.missing_dm_peer()?.is_some() {
+            return Err(GroupError::InvalidGroupMembership);
+        }
+        Ok(())
+    }
+
+    /// The peer of this DM when its `GROUP_MEMBERSHIP` lacks it. None for a
+    /// group that is not an active DM of this inbox.
+    fn missing_dm_peer(&self) -> Result<Option<String>, GroupError> {
+        if self.conversation_type != ConversationType::Dm || !self.is_active()? {
+            return Ok(None);
         }
         // Read the membership extension, not `members()`: that helper skips
         // an inbox at sequence id zero, where a joiner sees the creator.
-        let missing_peer = self.with_group_snapshot(|group| {
+        self.with_group_snapshot(|group| {
             let Some(pair) = extract_group_metadata(group.extensions())
                 .map_err(MetadataPermissionsError::from)?
                 .dm_members
@@ -188,15 +227,7 @@ where
             let membership =
                 xmtp_mls_validation::commit::extract_group_membership(group.extensions())?;
             Ok::<_, GroupError>(membership.get(&peer).is_none().then_some(peer))
-        })?;
-        if let Some(peer) = missing_peer {
-            tracing::info!(
-                group_id = self.group_id.short_hex(),
-                "adding the missing peer of an interrupted DM creation"
-            );
-            self.add_members(&[peer]).await?;
-        }
-        Ok(())
+        })
     }
 
     /// Removes members from the group by their account addresses.

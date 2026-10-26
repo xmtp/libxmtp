@@ -439,7 +439,10 @@ where
             })
     }
 
-    fn reject_reserved_transcript_content(message: &[u8]) -> Result<(), GroupError> {
+    /// Refuse a message whose outer content type is a reserved transcript
+    /// type. Every send runs it; a caller that does network work before it
+    /// queues a message, such as [`Self::ensure_dm_peer`], runs it first.
+    pub fn reject_reserved_transcript_content(message: &[u8]) -> Result<(), GroupError> {
         if Self::is_reserved_transcript_content(message) {
             Err(GroupError::ReservedTranscriptContentType)
         } else {
