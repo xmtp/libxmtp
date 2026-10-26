@@ -3442,8 +3442,13 @@ async fn each_kind_keeps_its_budget_and_only_committed_chunks_are_acknowledged()
     add_scope(&mut controller, 1, &topic);
     add_scope(&mut controller, 2, &welcome);
     controller.transport.requested = [topic.clone(), welcome.clone()].into();
-    assert_eq!(controller.fetched_limits().max_rows, 8);
-    assert_eq!(controller.fetched_limits().max_bytes, 4096);
+    let limits = controller
+        .context
+        .incoming_runtime()
+        .policy()
+        .fetched_limits();
+    assert_eq!(limits.max_rows, 8);
+    assert_eq!(limits.max_bytes, 4096);
     let acknowledged = Arc::new(Mutex::new(Vec::new()));
     let observed = acknowledged.clone();
     controller.transport.state = TransportState::Streaming(IncomingSubscription::new(

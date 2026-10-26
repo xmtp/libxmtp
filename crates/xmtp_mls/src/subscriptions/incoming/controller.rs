@@ -709,14 +709,6 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             .collect()
     }
 
-    fn fetched_limits(&self) -> IncomingBatchLimits {
-        let settings = self.context.incoming_runtime().policy();
-        IncomingBatchLimits {
-            max_rows: settings.max_fetched_rows as usize,
-            max_bytes: settings.max_fetched_bytes.min(usize::MAX as u64) as usize,
-        }
-    }
-
     fn start_open(&mut self) {
         // After a failed reconcile the scopes can be partly updated. Such a pass
         // only keeps or drops the interest of the last completed one; it never adds.
@@ -766,7 +758,8 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             return;
         }
         let future: OpenFuture = if let Some(factory) = &self.transport.factory {
-            let future = factory.open(cursors, self.fetched_limits());
+            let limits = self.context.incoming_runtime().policy().fetched_limits();
+            let future = factory.open(cursors, limits);
             Box::pin(async move { future.await.map(Opened::Stream) })
         } else {
             let context = self.context.clone();
@@ -1030,7 +1023,7 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
         let batches = xmtp_api_backend::envelope::ordered_batches(
             &mut cursors,
             batch.envelopes,
-            self.fetched_limits(),
+            self.context.incoming_runtime().policy().fetched_limits(),
         )
         .map_err(xmtp_api::ApiError::from)
         .map_err(crate::mls_store::MlsStoreError::from)?;
