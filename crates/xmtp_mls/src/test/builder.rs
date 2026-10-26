@@ -517,6 +517,42 @@ async fn stored_identity_opens_only_for_an_identifier_of_its_inbox() {
         .await?;
 }
 
+// An Ethereum address in upper case opens the inbox that holds it.
+// verifies: IDENT-096
+#[xmtp_common::test(unwrap_try = true)]
+async fn build_for_an_upper_case_address_opens_its_inbox() {
+    use xmtp_id::associations::ident;
+    let owner = generate_local_wallet();
+    let builder = |identifier: Identifier| {
+        Client::builder(IdentityStrategy::for_identifier(identifier, 0))
+            .api_client(DefaultTestClientCreator::create().build().unwrap())
+            .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
+            .with_disable_workers(true)
+    };
+    let client = builder(owner.identifier())
+        .temp_store()
+        .await
+        .default_mls_store()?
+        .build()
+        .await?;
+    register_client(&client, &owner).await;
+
+    let Identifier::Ethereum(ident::Ethereum(address)) = owner.identifier() else {
+        panic!("a wallet's identifier is an Ethereum address");
+    };
+    let upper = Identifier::Ethereum(ident::Ethereum(format!(
+        "0x{}",
+        address[2..].to_uppercase()
+    )));
+    let reopened = builder(upper)
+        .temp_store()
+        .await
+        .default_mls_store()?
+        .build()
+        .await?;
+    assert_eq!(reopened.inbox_id(), client.inbox_id());
+}
+
 // An offline build for an identifier reads no identity update, but it still
 // checks the identifier, on the newest state the database stores.
 #[xmtp_common::test(unwrap_try = true)]

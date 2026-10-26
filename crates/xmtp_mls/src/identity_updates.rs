@@ -163,9 +163,19 @@ pub async fn get_association_state_with_verifier(
     }
 }
 
+/// Whether `state` holds `identifier`. An Ethereum address matches in any
+/// letter case, and a passkey by its public key bytes.
+pub(crate) fn state_holds_identifier(state: &AssociationState, identifier: &Identifier) -> bool {
+    identifier
+        .clone()
+        .sanitize()
+        .is_ok_and(|identifier| state.get(&identifier.into()).is_some())
+}
+
 /// Whether the association state of the inbox in the database holds the
-/// identifier, or `None` when the database has no identity update of the
-/// inbox. Computing the state caches it in the database.
+/// identifier, an Ethereum address in any letter case, or `None` when the
+/// database has no identity update of the inbox. Computing the state caches
+/// it in the database.
 pub async fn identifier_membership(
     conn: &impl DbQuery,
     inbox_id: &str,
@@ -173,7 +183,7 @@ pub async fn identifier_membership(
     scw_verifier: &impl SmartContractSignatureVerifier,
 ) -> Result<Option<bool>, ClientError> {
     match get_association_state_with_verifier(conn, inbox_id, None, scw_verifier).await {
-        Ok(state) => Ok(Some(state.get(&identifier.clone().into()).is_some())),
+        Ok(state) => Ok(Some(state_holds_identifier(&state, identifier))),
         Err(ClientError::Association(AssociationError::MissingIdentityUpdate)) => Ok(None),
         Err(error) => Err(error),
     }

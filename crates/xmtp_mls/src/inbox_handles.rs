@@ -21,7 +21,7 @@ use crate::{
     groups::{GroupError, MlsGroup, UpdateGroupMembershipResult, group_permissions::PolicySet},
     identity_updates::{
         IdentityUpdates, get_association_state_for_client, get_association_state_with_verifier,
-        load_identity_updates, load_identity_updates_for_client,
+        load_identity_updates, load_identity_updates_for_client, state_holds_identifier,
     },
 };
 use futures::{StreamExt, TryStreamExt, stream};
@@ -168,10 +168,7 @@ fn state_if_logged(
 fn state_holds(state: &AssociationState, target: &IdentityTarget) -> bool {
     match target {
         IdentityTarget::Handle(handle) => state.handles().contains(handle),
-        IdentityTarget::Account(identifier) => identifier
-            .clone()
-            .sanitize()
-            .is_ok_and(|identifier| state.get(&identifier.into()).is_some()),
+        IdentityTarget::Account(identifier) => state_holds_identifier(state, identifier),
     }
 }
 
