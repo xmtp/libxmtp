@@ -369,3 +369,32 @@ async fn an_unconfirmed_dm_repair_does_not_end_the_send() {
             .any(|stored| stored.decrypted_message_bytes == message)
     );
 }
+
+/// Find-or-create on an interrupted DM reports its own repair's outcome, as a
+/// fresh creation reports its add: an unconfirmed add is not a returned DM.
+// verifies: DMS-020
+#[xmtp_common::test(unwrap_try = true)]
+async fn find_or_create_dm_reports_its_unconfirmed_repair() {
+    /// Long enough for the add's round on a loaded machine.
+    const ADD_BUDGET: Duration = Duration::from_secs(5);
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    MlsGroup::create_dm_without_peer(&alix.context, bo.inbox_id().to_string())?;
+    let client =
+        client_with_stalled_api_within(&alix, StalledCall::WelcomePublish, ADD_BUDGET).await;
+
+    let result = timeout(
+        ADD_BUDGET * 3,
+        client.find_or_create_dm(bo.inbox_id(), None),
+    )
+    .await?;
+    assert!(
+        matches!(
+            &result,
+            Err(crate::client::ClientError::Group(error))
+                if matches!(**error, GroupError::PublishedButUnconfirmed { .. })
+        ),
+        "{:?}",
+        result.map(|dm| dm.group_id)
+    );
+}

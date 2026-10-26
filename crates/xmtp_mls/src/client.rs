@@ -909,7 +909,8 @@ where
 
     /// Find or create a Direct Message by inbox_id with the default settings.
     /// A stored DM whose creation stopped before the peer was added gets the
-    /// peer first ([`MlsGroup::ensure_dm_peer`]).
+    /// peer first, and any failure of that add is returned, as a new DM's
+    /// creation returns its add's failure.
     pub async fn find_or_create_dm(
         &self,
         inbox_id: impl AsIdRef,
@@ -933,7 +934,7 @@ where
                 group.created_at_ns,
             );
             // implements: DMS-020
-            group.ensure_dm_peer().await?;
+            group.add_missing_dm_peer().await?;
             return Ok(group);
         }
         self.create_dm_by_inbox_id(inbox_id.to_string(), opts).await

@@ -153,7 +153,8 @@ where
         Ok(result)
     }
 
-    /// Add the DM peer when this DM's `GROUP_MEMBERSHIP` lacks it.
+    /// Add the DM peer when this DM's `GROUP_MEMBERSHIP` lacks it, before a
+    /// message is queued in the DM.
     ///
     /// A creation that stops between storing the DM and adding the peer
     /// leaves a DM that holds only its creator. A DM peer can never leave or
@@ -164,13 +165,32 @@ where
     /// inactive DM (such as a restored placeholder), or a DM whose pair does
     /// not include this inbox.
     ///
-    /// Returns Ok when the wait for the add ends while the add is still
-    /// queued or unconfirmed. That outcome belongs to the add, not to the
-    /// caller's message, which is not queued yet. Nothing is prepared behind
-    /// a published state change until its echo is applied (SEND-022), so a
-    /// message queued next is still built at an epoch that holds the peer.
+    /// Returns Ok when the add is published with a receipt but its processing
+    /// is not confirmed when the wait ends. That outcome belongs to the add,
+    /// not to the caller's message, which is not queued yet. The backend holds
+    /// the add, and nothing is prepared behind a published state change until
+    /// its echo is applied (SEND-022), so a message queued next is built at an
+    /// epoch that holds the peer. Every other failure of the add, including a
+    /// wait that ends before the add has a receipt, is returned.
     // implements: DMS-020
     pub async fn ensure_dm_peer(&self) -> Result<(), GroupError> {
+        match self.add_missing_dm_peer().await {
+            Err(error @ GroupError::PublishedButUnconfirmed { .. }) => {
+                tracing::warn!(
+                    group_id = self.group_id.short_hex(),
+                    ?error,
+                    "the DM peer add is published but unconfirmed; later intents wait behind it"
+                );
+                Ok(())
+            }
+            result => result,
+        }
+    }
+
+    /// Add the DM peer when this DM's `GROUP_MEMBERSHIP` lacks it, and return
+    /// every failure of the add, as a new DM's creation does.
+    // implements: DMS-020
+    pub(crate) async fn add_missing_dm_peer(&self) -> Result<(), GroupError> {
         let Some(peer) = self.missing_dm_peer()? else {
             return Ok(());
         };
@@ -178,21 +198,7 @@ where
             group_id = self.group_id.short_hex(),
             "adding the missing peer of an interrupted DM creation"
         );
-        match self.add_members(&[peer]).await {
-            Ok(_) => {}
-            Err(
-                error @ (GroupError::PublishedButUnconfirmed { .. }
-                | GroupError::SyncFailedToWait(_)),
-            ) => {
-                tracing::warn!(
-                    group_id = self.group_id.short_hex(),
-                    ?error,
-                    "the DM peer add is still pending; later intents wait behind it"
-                );
-                return Ok(());
-            }
-            Err(error) => return Err(error),
-        }
+        self.add_members(&[peer]).await?;
         // An add can resolve as a no-op, such as one that would remove this
         // installation's own leaf after its inbox revoked it.
         if self.missing_dm_peer()?.is_some() {
