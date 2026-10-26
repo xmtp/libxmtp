@@ -248,7 +248,6 @@ impl<C> AuthMiddleware<C> {
         loop {
             let mut guard = inner.state.lock().await;
             let mut state = *guard;
-            let failures_before = state.failures;
             let locked_until_before = state.locked_until;
             let now = Instant::now();
             let lockout_left = state.locked_until.is_some_and(|until| until <= now);
@@ -304,9 +303,9 @@ impl<C> AuthMiddleware<C> {
                 let lockout_left = lockout_left && !generation_changed;
                 if lockout_left {
                     state.locked_until = None;
-                    if state.failures == failures_before {
-                        state.failures = MAX_CONSECUTIVE_AUTH_FAILURES - 1;
-                    }
+                    // The cooldown credential gets one attempt even if an
+                    // older success reset the ordinary failure count.
+                    state.failures = MAX_CONSECUTIVE_AUTH_FAILURES - 1;
                     state.stale = true;
                 }
                 match result {

@@ -464,6 +464,81 @@ async fn cooldown_allows_one_probe(#[case] rejected: bool, #[case] callback_fail
     }
 }
 
+// verifies: AUTH-023
+#[rstest::rstest]
+#[case::rejected_probe(false)]
+#[case::callback_error(true)]
+#[xmtp_common::test(unwrap_try = true)]
+async fn old_success_during_cooldown_probe_preserves_one_attempt(#[case] callback_fails: bool) {
+    let (client, peer, callback) = fixture();
+    call(&client, Rpc::Bidi).await.expect("initial credential");
+    let (release_success, gate) = oneshot::channel();
+    peer.replies.lock().await.push_back(Reply {
+        code: tonic::Code::Ok,
+        gate: Some(gate),
+    });
+    let mut old_success = Box::pin(call(&client, Rpc::Bidi));
+    assert!(futures::poll!(&mut old_success).is_pending());
+
+    let mut releases = Vec::new();
+    for _ in 0..MAX_CONSECUTIVE_AUTH_FAILURES {
+        let (release, gate) = oneshot::channel();
+        releases.push(release);
+        peer.replies.lock().await.push_back(Reply {
+            code: tonic::Code::Unauthenticated,
+            gate: Some(gate),
+        });
+    }
+    let requests: Vec<_> = (0..MAX_CONSECUTIVE_AUTH_FAILURES)
+        .map(|_| Box::pin(call(&client, Rpc::Bidi)))
+        .collect();
+    let mut pending = Box::pin(futures::future::join_all(requests));
+    assert!(futures::poll!(&mut pending).is_pending());
+    for release in releases {
+        release.send(()).expect("pending rejection");
+    }
+    for result in pending.await {
+        assert!(result.is_err());
+    }
+    assert_locked(&client).await;
+    xmtp_common::time::sleep(AUTH_LOCKOUT_COOLDOWN).await;
+
+    let (release_callback, gate) = oneshot::channel();
+    *callback.gate.lock().await = Some(gate);
+    *callback.fail.lock().await = callback_fails;
+    if !callback_fails {
+        peer.enqueue(tonic::Code::Unauthenticated).await;
+    }
+    let probe_started = Instant::now();
+    let mut probe = Box::pin(call(&client, Rpc::Unary));
+    assert!(futures::poll!(&mut probe).is_pending());
+    assert_eq!(callback.calls.load(Ordering::SeqCst), 2);
+
+    // An older response may reset the ordinary failure count while the probe's
+    // callback waits. It must not grant the cooldown credential extra attempts.
+    release_success
+        .send(())
+        .expect("pending successful response");
+    old_success.await.expect("older successful request");
+    assert_eq!(client.handle.inner.state.lock().await.failures, 0);
+    release_callback.send(()).expect("pending probe callback");
+    let result = timeout(WAIT, probe).await.expect("probe completes");
+    assert!(matches!(
+        result,
+        Err(ApiClientError::Auth(AuthError::ExhaustedAfterAttempt))
+    ));
+    let state = client.handle.inner.state.lock().await;
+    assert_eq!(state.failures, MAX_CONSECUTIVE_AUTH_FAILURES);
+    assert!(state.locked_until.expect("probe lockout") >= probe_started + AUTH_LOCKOUT_COOLDOWN);
+    drop(state);
+    assert_locked(&client).await;
+    assert_eq!(callback.calls.load(Ordering::SeqCst), 2);
+    assert_eq!(
+        peer.sent.lock().await.len(),
+        MAX_CONSECUTIVE_AUTH_FAILURES as usize + if callback_fails { 2 } else { 3 }
+    );
+}
+
 #[xmtp_common::test(unwrap_try = true)]
 async fn concurrent_failures_are_capped() {
     let (client, peer, callback) = fixture();
