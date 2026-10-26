@@ -217,16 +217,28 @@ test("default storage lives under the xmtp-sdk OPFS directory and reopens there"
 
 // verifies: STORE-025
 test("browser storage refuses an encryption key before it opens a database", async () => {
+  const path = `storage-key-refusal-${crypto.randomUUID()}.db3`;
   const error = await Client.create(signer(), {
     ...options,
-    storage: { location: "inMemory", encryptionKey: new Uint8Array(32) },
+    storage: {
+      location: { dbPath: path, attachmentsDir: `${path}.attachments` },
+      encryptionKey: new Uint8Array(32),
+    },
   } as ClientOptions).then(
     async (client) => {
       await client.end();
-      throw new Error("The browser accepted an encryption key");
+      return new Error("The browser accepted an encryption key");
     },
     (reason: unknown) => reason,
   );
-  expect(error).toBeInstanceOf(XmtpError.InvalidInput);
-  expect((error as XmtpError).details.category).toBe("input");
+  const admin = await Storage.admin();
+  try {
+    const opened = await admin.fileExists(path);
+    if (opened) await admin.deleteFile(path);
+    expect(opened).toBe(false);
+    expect(error).toBeInstanceOf(XmtpError.InvalidInput);
+    expect((error as XmtpError).details.category).toBe("input");
+  } finally {
+    await admin.end();
+  }
 });
