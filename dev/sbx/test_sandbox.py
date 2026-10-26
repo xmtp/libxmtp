@@ -8,6 +8,8 @@ import subprocess
 import tempfile
 import unittest
 
+import yaml
+
 ROOT = Path(__file__).resolve().parents[2]
 NAME = "libxmtp-claude"
 KEY = "test-key-kept-off-the-command-line"
@@ -22,17 +24,23 @@ s["calls"].append(call)
 if kind == "sbx":
     if a[:2] == ["ls", "--json"]:
         print(json.dumps(s["vms"]))
+    elif a[:2] == ["mcp", "ls"]:
+        print(json.dumps(s["mcp_servers"]))
+    elif a[:1] == ["inspect"]:
+        print(json.dumps(next(row for row in s["vms"] if row["name"] == a[1])))
     elif a[:2] == ["settings", "get"]:
         print("false")
     elif a[:2] == ["env", "run"]:
-        declaration = pathlib.Path(a[-1])
-        s["mounted_host"] = not (declaration.is_absolute() and declaration.is_file())
         own = next((row for row in s["vms"] if row["name"] == "libxmtp-claude"), None)
         if own is None:
-            s["vms"].append({"name": "libxmtp-claude", "status": "running"})
+            s["vms"].append({"name": "libxmtp-claude", "status": "running", **s["details"]})
             s["disk"] = {"files": "new", "cache": "new"}
+            s["bootstrap_complete"] = True
         else:
             own["status"] = "running"
+    elif a[:1] == ["exec"] and a[2:4] == ["bash", "-c"]:
+        path.write_text(json.dumps(s))
+        sys.exit(0 if s["bootstrap_complete"] else 1)
     elif a[:2] == ["env", "rm"]:
         if any(row["name"] == "libxmtp-claude" for row in s["vms"]):
             s["disk"], s["keys"] = None, []
@@ -54,6 +62,11 @@ elif kind == "orca":
         print(json.dumps({"ok": True, "result": {"runtime": {"state": "ready" if ready else "starting", "reachable": ready}}}))
     if a[:2] == ["environment", "decommission"]:
         s["disk"] = None
+elif kind == "setup":
+    call["sandbox"] = os.environ.get("SBX_SANDBOX_NAME")
+    s["bootstrap_complete"] = not s.get("fail_setup", False)
+    path.write_text(json.dumps(s))
+    sys.exit(0 if s["bootstrap_complete"] else 1)
 else:
     action = a[1]
     if action == "ensure":
@@ -75,10 +88,18 @@ class SandboxTests(unittest.TestCase):
         self.tools.mkdir(parents=True)
         for name in ("sandbox", "sbxenv.yaml"):
             shutil.copy2(ROOT / "dev/sbx" / name, self.tools / name)
+        self.declaration = yaml.safe_load((self.tools / "sbxenv.yaml").read_text())
         self.state_file = self.root / "state.json"
         self.save(
             {
                 "vms": [],
+                "details": {
+                    "agent": self.declaration["agent"],
+                    "kits": self.declaration["kits"],
+                    "runtime_mounts": [],
+                },
+                "mcp_servers": [],
+                "bootstrap_complete": False,
                 "disk": None,
                 "keys": [],
                 "attached": False,
@@ -91,6 +112,7 @@ class SandboxTests(unittest.TestCase):
         app = self.root / "FakeOrca.app/Contents"
         for executable in (
             binary / "sbx",
+            self.tools / "setup",
             app / "Resources/bin/orca",
             app / "MacOS/Orca",
         ):
@@ -135,16 +157,100 @@ class SandboxTests(unittest.TestCase):
                         {k: v for k, v in state.items() if k != "calls"},
                     )
 
-    def test_start_creates_once_and_resumes_the_same_mountless_disk(self):
+    def test_environment_has_no_host_mounts_or_shared_skills(self):
+        for field in ("workspace", "additionalWorkspaces", "mounts"):
+            with self.subTest(field=field):
+                self.assertNotIn(field, self.declaration)
+        self.assertEqual(self.declaration["sandboxOptions"]["skills"], "off")
+
+    def test_start_creates_once_and_resumes_the_same_disk(self):
         self.assertEqual(self.command("start").returncode, 0)
         state = self.state()
-        self.assertFalse(state["mounted_host"])
+        run = next(
+            call for call in state["calls"] if call["args"][:2] == ["env", "run"]
+        )
+        self.assertEqual(run["args"][-1], str(self.tools / "sbxenv.yaml"))
+        self.assertTrue(Path(run["args"][-1]).is_absolute())
         self.assertEqual(len(state["vms"]), 1)
         state["disk"] = {"files": "agent work", "cache": "Nix cache"}
         self.save(state)
         self.assertEqual(self.command("start").returncode, 0)
         self.assertEqual(self.state()["disk"], state["disk"])
         self.assertEqual(len(self.state()["vms"]), 1)
+
+    def test_host_mcp_registration_blocks_start_before_creation(self):
+        state = self.state()
+        state["mcp_servers"] = [{"name": "host-files"}]
+        self.save(state)
+        result = self.command("start")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn("Ready:", result.stdout)
+        self.assertEqual(self.state()["vms"], [])
+        self.assertFalse(
+            any(call["args"][:2] == ["env", "run"] for call in self.state()["calls"])
+        )
+
+    def test_incompatible_same_name_vm_is_not_started_or_destroyed(self):
+        for mismatch in (
+            {"runtime_mounts": [{"source": "/host/private", "target": "/workspace"}]},
+            {"agent": "claude"},
+            {"kits": ["docker.io/docker/sbx-kit-claude:older"]},
+        ):
+            for action in ("start", "destroy"):
+                with self.subTest(mismatch=mismatch, action=action):
+                    state = self.state()
+                    state.update(
+                        vms=[
+                            {
+                                "name": NAME,
+                                "status": "stopped",
+                                **state["details"],
+                                **mismatch,
+                            }
+                        ],
+                        disk="preserved work",
+                        calls=[],
+                    )
+                    self.save(state)
+                    result = self.command(action)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertNotIn("Ready:", result.stdout)
+                    self.assertEqual(
+                        {k: v for k, v in self.state().items() if k != "calls"},
+                        {k: v for k, v in state.items() if k != "calls"},
+                    )
+
+    def incomplete_bootstrap(self, *, fail_setup=False):
+        state = self.state()
+        state.update(
+            vms=[{"name": NAME, "status": "stopped", **state["details"]}],
+            disk="preserved work",
+            bootstrap_complete=False,
+            fail_setup=fail_setup,
+        )
+        self.save(state)
+
+    def test_start_repairs_an_incomplete_existing_bootstrap(self):
+        self.incomplete_bootstrap()
+        result = self.command("start")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        state = self.state()
+        self.assertTrue(state["bootstrap_complete"])
+        self.assertEqual(state["disk"], "preserved work")
+        setup = [call for call in state["calls"] if call["kind"] == "setup"]
+        self.assertEqual(len(setup), 1)
+        self.assertEqual(setup[0]["sandbox"], NAME)
+        probes = [call for call in state["calls"] if call["args"][:1] == ["exec"]]
+        self.assertEqual(len(probes), 2)
+        self.assertIn("Ready:", result.stdout)
+
+    def test_failed_bootstrap_is_not_reported_as_ready(self):
+        self.incomplete_bootstrap(fail_setup=True)
+        result = self.command("start")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(self.state()["bootstrap_complete"])
+        self.assertNotIn("Ready:", result.stdout)
+        self.assertFalse(self.state()["attached"])
 
     def test_pause_prevents_autowake_and_destroy_removes_disk_and_keys(self):
         self.assertEqual(self.command("start").returncode, 0)

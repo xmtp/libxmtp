@@ -34,6 +34,17 @@ jq -e --arg name "$name" 'length <= 1 and all(.[]; .name == $name)' <<<"$invento
   || fail "Only $name may exist; remove other local sandboxes first"
 state="$(jq -r '.[0].status // "absent"' <<<"$inventory")"
 
+check_vm() {
+  sbx inspect "$name" --json | jq -e '
+    .agent == "sbx-kit-claude" and .runtime_mounts == [] and
+    (.kits | sort) == (["docker.io/docker/sbx-kit-claude:2.1.267", "docker.io/sbx/codex-mixin:0.155.1"] | sort)
+  ' >/dev/null || fail 'Existing VM has different kits or host mounts; inspect it before removing it manually'
+}
+guest_ready() {
+  # shellcheck disable=SC2016 # HOME belongs to the guest.
+  sbx exec "$name" bash -c 'test -x "$HOME/.nix-profile/bin/nix" && test -d "$HOME/libxmtp/.git" && test -f /tmp/libxmtp-sbx-smoke'
+}
+
 orca_adapter() {
   local executable app
   executable="$(command -v orca)" || fail 'Install the Orca CLI first'
@@ -79,11 +90,20 @@ register_key() {
 case "$action" in
   start)
     validate_key_options "$@"
+    sbx mcp ls --json | jq -e 'type == "array" and length == 0' >/dev/null \
+      || fail 'Remove Docker Sandboxes MCP registrations before starting; keep the catalog empty while this VM runs'
+    if [[ $state != absent ]]; then check_vm; fi
     [[ $(sbx settings get ssh.agentForwardingEnabled) == false ]] \
       || fail 'Disable host SSH-agent forwarding first; see dev/sbx/README.md'
     DOCKER_SANDBOXES_ROOT_SIZE=150g DOCKER_SANDBOXES_DOCKER_SIZE=80g \
       sbx env run --detach --force "$environment"
     state=running
+    check_vm
+    # Native postCreate does not run again after an interrupted first setup.
+    if ! guest_ready; then
+      SBX_SANDBOX_NAME="$name" "$tools/setup"
+      guest_ready || fail 'Guest setup is incomplete'
+    fi
     while (($#)); do
       register_key "$2" "$3"
       shift 3
@@ -110,7 +130,10 @@ case "$action" in
     ;;
   destroy)
     (($# == 0)) || { usage >&2; exit 2; }
-    if [[ $state != absent ]]; then forget_orca; fi
+    if [[ $state != absent ]]; then
+      check_vm
+      forget_orca
+    fi
     sbx env rm --force "$environment"
     echo 'Deleted the VM disks and scoped keys.'
     ;;

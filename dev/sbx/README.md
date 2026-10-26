@@ -4,6 +4,9 @@ One VM with Nix, Claude Code, Codex CLI, Orca, and a public libxmtp clone. No
 host folders are mounted and no backend ports are published. Run host commands
 from the repo root.
 
+Keep Docker's MCP catalog (`sbx mcp ls`) empty while this VM runs. Its gateway
+can reach host-registered servers; start refuses a nonempty catalog.
+
 ## Setup once
 
 Install Nix, Orca with its CLI, and Docker Sandboxes:
