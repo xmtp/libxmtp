@@ -295,6 +295,120 @@ async fn message_with_group_resolves_stitched_dm() {
     );
 }
 
+/// Alice's DM with bob, plus `count` more groups for the same pair that bob
+/// created and alice joined. Returns alice's DM and bob's sibling groups.
+async fn dm_with_peer_created_siblings(
+    alice: &crate::utils::FullXmtpClient,
+    bob: &crate::utils::FullXmtpClient,
+    count: usize,
+) -> (crate::utils::TestMlsGroup, Vec<crate::utils::TestMlsGroup>) {
+    let target = alice
+        .create_dm_by_inbox_id(bob.inbox_id().to_string(), None)
+        .await
+        .unwrap();
+    bob.sync_welcomes().await.unwrap();
+    let mut siblings = Vec::with_capacity(count);
+    for _ in 0..count {
+        siblings.push(
+            bob.create_dm_by_inbox_id(alice.inbox_id().to_string(), None)
+                .await
+                .unwrap(),
+        );
+    }
+    alice.sync_welcomes().await.unwrap();
+    assert_eq!(alice.db().other_dms(&target.group_id).unwrap().len(), count);
+    (target, siblings)
+}
+
+/// Sends one message in each group and returns `(group id, message id)` pairs.
+async fn send_in_each(
+    groups: &[crate::utils::TestMlsGroup],
+) -> Vec<(xmtp_proto::types::GroupId, Vec<u8>)> {
+    let mut sent = Vec::with_capacity(groups.len());
+    for group in groups {
+        let id = group
+            .send_message(b"sibling message", SendMessageOpts::default())
+            .await
+            .unwrap();
+        sent.push((group.group_id, id));
+    }
+    sent
+}
+
+/// A paused sibling of a stitched DM does not stop the DM's sync: the named
+/// group and every other sibling sync, and the paused sibling stays held.
+// verifies: DMS-019
+#[xmtp_common::test(unwrap_try = true)]
+async fn duplicate_dm_sync_reaches_target_past_failing_sibling() {
+    use xmtp_db::group::QueryGroupVersion;
+
+    tester!(alice, disable_workers);
+    tester!(bob, disable_workers);
+    let (target, siblings_for_bob) = dm_with_peer_created_siblings(&alice, &bob, 3).await;
+    let paused = alice.db().other_dms(&target.group_id)?.first()?.id;
+    alice.db().set_group_paused(&paused, "999.0.0")?;
+
+    let target_message = bob
+        .group(&target.group_id)?
+        .send_message(b"target message", SendMessageOpts::default())
+        .await?;
+    let sibling_messages = send_in_each(&siblings_for_bob).await;
+
+    target.sync().await?;
+    let stored = |id: &[u8]| alice.db().get_group_message(id).map(|m| m.is_some());
+    assert!(stored(&target_message)?);
+    for (group_id, message) in sibling_messages {
+        assert_eq!(stored(&message)?, group_id != paused, "{group_id}");
+    }
+    assert_eq!(
+        alice.db().get_group_paused_version(&paused)?.as_deref(),
+        Some("999.0.0")
+    );
+}
+
+/// When the named group of a stitched DM fails, its siblings still sync and
+/// the call returns the named group's own error.
+// verifies: DMS-019
+#[xmtp_common::test(unwrap_try = true)]
+async fn duplicate_dm_sync_reaches_siblings_past_failing_named_group() {
+    use crate::groups::GroupError;
+    use xmtp_db::group::{GroupMembershipState, QueryGroupVersion};
+
+    tester!(alice, disable_workers);
+    tester!(bob, disable_workers);
+    let (target, siblings_for_bob) = dm_with_peer_created_siblings(&alice, &bob, 2).await;
+    let assert_siblings_stored = |sent: Vec<(xmtp_proto::types::GroupId, Vec<u8>)>| {
+        for (group_id, message) in sent {
+            assert!(
+                alice.db().get_group_message(&message).unwrap().is_some(),
+                "{group_id}"
+            );
+        }
+    };
+
+    alice.db().set_group_paused(&target.group_id, "999.0.0")?;
+    let sent = send_in_each(&siblings_for_bob).await;
+    let error = target.sync().await.unwrap_err();
+    assert!(
+        matches!(
+            &error,
+            GroupError::Sync(summary)
+                if matches!(summary.other.as_deref(), Some(GroupError::GroupPausedUntilUpdate(_)))
+        ),
+        "{error:?}"
+    );
+    assert_siblings_stored(sent);
+
+    alice.db().unpause_group(&target.group_id)?;
+    alice
+        .db()
+        .update_group_membership(target.group_id, GroupMembershipState::Restored)?;
+    let sent = send_in_each(&siblings_for_bob).await;
+    let error = target.sync().await.unwrap_err();
+    assert!(matches!(error, GroupError::GroupInactive), "{error:?}");
+    assert_siblings_stored(sent);
+}
+
 #[rstest::rstest]
 #[xmtp_common::test]
 async fn test_add_remove_then_add_again() {
