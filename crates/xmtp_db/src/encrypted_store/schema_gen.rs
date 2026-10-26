@@ -58,6 +58,7 @@ diesel::table! {
         should_push -> Bool,
         idempotency_key -> Text,
         delivery_sequence -> Nullable<BigInt>,
+        expiry_unknown -> Bool,
     }
 }
 

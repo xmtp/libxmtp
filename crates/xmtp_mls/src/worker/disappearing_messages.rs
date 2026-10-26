@@ -398,6 +398,7 @@ mod tests {
             version_minor: 0,
             authority_id: "xmtp.org".into(),
             reference_id: None,
+            expiry_unknown: false,
             expire_at_ns: Some(now_ns() - 1),
             sequence_id: 1,
             envelope_hash: None,

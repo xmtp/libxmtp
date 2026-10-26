@@ -105,13 +105,6 @@ issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "Export reduces an unknown content type identifier to the string unknown, and import does not give the embedded identifier precedence."
 
 [[waiver]]
-id = "ARCH-009"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "An imported message carries no per-message expiry and no distinction between unknown expiry and no expiry. So when exclude_disappearing_messages is set, export still includes restored messages whose expiry is unknown (a NULL expire_at_ns), because the store cannot tell them from messages that never expire. Separating the two needs a schema change."
-
-[[waiver]]
 id = "ARCH-020"
 kind = "gap"
 owner = "protocol"

@@ -38,6 +38,7 @@ fn create_test_message(
         version_minor: 0,
         authority_id: "xmtp.org".to_string(),
         reference_id: None,
+        expiry_unknown: false,
         expire_at_ns: None,
         sequence_id: 1,
         envelope_hash: None,

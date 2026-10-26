@@ -1005,6 +1005,161 @@ mod tests {
         assert_eq!(alix.db().get_group_message(&known_id)?, Some(known));
     }
 
+    // verifies: ARCH-019, ARCH-009
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn imported_message_keeps_expiry_and_exclusion() {
+        tester!(alix, disable_workers);
+        tester!(bo, disable_workers);
+        let source = alix.create_group(
+            None,
+            Some(GroupMetadataOptions {
+                message_disappearing_settings: Some(MessageDisappearingSettings::new(
+                    1,
+                    xmtp_common::NS_IN_HOUR,
+                )),
+                ..Default::default()
+            }),
+        )?;
+        let message_id = source
+            .send_message(b"disappearing archive content", Default::default())
+            .await?;
+        let source_message = alix
+            .db()
+            .get_group_message(&message_id)?
+            .expect("sent message");
+        assert!(
+            source_message
+                .expire_at_ns
+                .is_some_and(|deadline| deadline > xmtp_common::time::now_ns()),
+            "the source message must still be eligible for export"
+        );
+
+        source
+            .remove_conversation_message_disappearing_settings()
+            .await?;
+        let permanent_id = source
+            .send_message(b"permanent archive content", Default::default())
+            .await?;
+        let permanent = alix
+            .db()
+            .get_group_message(&permanent_id)?
+            .expect("permanent source");
+        assert_eq!(
+            (permanent.expire_at_ns, permanent.expiry_unknown),
+            (None, false)
+        );
+
+        let key = [0x4a; 32];
+        let options = ArchiveOptions {
+            elements: vec![BackupElementSelection::Messages],
+            start_ns: None,
+            end_ns: None,
+            exclude_disappearing_messages: false,
+        };
+        let mut first_archive = Vec::new();
+        exporter::export(options.clone(), alix.db(), &key, &mut first_archive)?;
+        let reader = Box::pin(BufReader::new(Cursor::new(first_archive)));
+        let mut importer = ArchiveImporter::load(reader, &key).await?;
+        insert_importer(&mut importer, &bo.context).await?;
+
+        let imported = bo
+            .db()
+            .get_group_message(&message_id)?
+            .expect("imported message");
+        assert_eq!(
+            imported.decrypted_message_bytes,
+            source_message.decrypted_message_bytes
+        );
+        assert_eq!(imported.expire_at_ns, source_message.expire_at_ns);
+        assert!(!imported.expiry_unknown);
+        let permanent_copy = bo
+            .db()
+            .get_group_message(&permanent_id)?
+            .expect("permanent copy");
+        assert_eq!(
+            (permanent_copy.expire_at_ns, permanent_copy.expiry_unknown),
+            (None, false)
+        );
+        assert_eq!(
+            bo.db()
+                .find_group(&source.group_id)?
+                .expect("imported group")
+                .membership_state,
+            GroupMembershipState::Restored
+        );
+
+        source.add_members(&[bo.inbox_id()]).await?;
+        bo.sync_welcomes().await?;
+        assert!(bo.group(&source.group_id)?.is_active()?);
+
+        // An older archive lacks expiry_known, even if it carries a stray deadline.
+        let unknown_id = vec![0x5b; 32];
+        let mut old =
+            xmtp_proto::xmtp::device_sync::message_backup::GroupMessageSave::from(permanent);
+        old.id = unknown_id.clone();
+        old.expiry_known = None;
+        old.expires_at_ns = source_message.expire_at_ns;
+        let mut old_elements = futures::stream::iter([Ok::<_, std::io::Error>(BackupElement {
+            element: Some(Element::GroupMessage(old)),
+        })]);
+        insert_elements(&mut old_elements, &bo.context).await?;
+        let unknown = bo
+            .db()
+            .get_group_message(&unknown_id)?
+            .expect("old archive row");
+        assert_eq!((unknown.expire_at_ns, unknown.expiry_unknown), (None, true));
+
+        let mut excluded = options.clone();
+        excluded.exclude_disappearing_messages = true;
+        let mut second_archive = Vec::new();
+        exporter::export(excluded, bo.db(), &key, &mut second_archive)?;
+        let reader = Box::pin(BufReader::new(Cursor::new(second_archive)));
+        let messages: Vec<_> = ArchiveImporter::load(reader, &key)
+            .await?
+            .collect::<Vec<_>>()
+            .await
+            .into_iter()
+            .collect::<Result<_, _>>()?;
+        let saved: Vec<_> = messages
+            .into_iter()
+            .filter_map(|element| match element.element {
+                Some(Element::GroupMessage(saved)) => Some(saved),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            saved.len(),
+            1,
+            "only known non-disappearing history is exported"
+        );
+        assert_eq!(saved[0].id, permanent_id);
+        assert_eq!(
+            (saved[0].expiry_known, saved[0].expires_at_ns),
+            (Some(true), None)
+        );
+
+        let mut default_export = Vec::new();
+        exporter::export(options, bo.db(), &key, &mut default_export)?;
+        let reader = Box::pin(BufReader::new(Cursor::new(default_export)));
+        let exported = ArchiveImporter::load(reader, &key)
+            .await?
+            .collect::<Vec<_>>()
+            .await
+            .into_iter()
+            .collect::<Result<Vec<_>, _>>()?;
+        let saved = exported
+            .into_iter()
+            .find_map(|element| match element.element {
+                Some(Element::GroupMessage(saved)) if saved.id == unknown_id => Some(saved),
+                _ => None,
+            })
+            .expect("default export retains unknown history");
+        assert_eq!(
+            (saved.expiry_known, saved.expires_at_ns),
+            (Some(false), None)
+        );
+    }
+
     /// A DM restored before a failing element is a completed element. Its
     /// archived activity must survive the failed import, even when no
     /// retained message carries that timestamp.

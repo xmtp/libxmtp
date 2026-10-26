@@ -277,6 +277,8 @@ pub struct MessageData {
     pub sent_at: Timestamp,
     pub inserted_at: Timestamp,
     pub expires_at: Option<Timestamp>,
+    #[uniffi(default = false)]
+    pub expiry_unknown: bool,
     pub kind: MessageKind,
     pub delivery_status: DeliveryStatus,
     /// The original received serialization. Empty after deletion.
@@ -408,6 +410,7 @@ impl Message {
             sent_at: Timestamp(value.sent_at_ns),
             inserted_at: Timestamp(value.inserted_at_ns),
             expires_at: value.expire_at_ns.map(Timestamp),
+            expiry_unknown: value.expiry_unknown,
             kind,
             delivery_status,
             raw_bytes: message_bytes.to_vec(),

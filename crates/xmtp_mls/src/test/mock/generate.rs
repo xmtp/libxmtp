@@ -169,6 +169,7 @@ pub fn generate_stored_msg(
         sequence_id: cursor.0 as i64,
         envelope_hash: None,
         expiry_ns: None,
+        expiry_unknown: false,
         expire_at_ns: None,
         inserted_at_ns: 0,
         should_push: true,

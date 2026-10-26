@@ -212,6 +212,7 @@ where
             sequence_id: 0,
             envelope_hash: None,
             expiry_ns: None,
+            expiry_unknown: false,
             expire_at_ns: None,
             inserted_at_ns: 0,
             should_push,

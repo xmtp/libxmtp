@@ -213,8 +213,8 @@ pub(crate) fn export(
     if malformed_deletions.count != 0 {
         return Err(invalid("invalid required deletion identity or Boolean"));
     }
-    // Keep NULL expiry as unknown. Current group settings do not establish a
-    // historical message expiry (MIG-006; ARCH-009 gap waiver).
+    // A NULL expiry stays eligible and is written with expiry_known unset, which
+    // imports as unknown expiry. Current group settings do not establish a historical deadline.
     let unknown_kind = diesel::sql_query("SELECT count(*) AS count FROM group_messages m LEFT JOIN groups g ON m.group_id = g.id WHERE m.expire_at_ns IS NULL AND (m.kind IS NULL OR m.kind NOT IN (1,2)) AND (g.id IS NULL OR (g.conversation_type IN (1,2) AND g.membership_state IN (1,2,3,5)))")
         .get_result::<Count>(conn)?;
     if unknown_kind.count != 0 {
@@ -344,6 +344,8 @@ impl MessageRow {
             sequence_id: Some(self.sequence_id),
             originator_id: Some(self.originator_id),
             content_type: legacy_content_type(self.content_type).to_owned(),
+            expires_at_ns: None,
+            expiry_known: None,
         };
         if let Some(id) = encoded_type {
             save.authority_id = id.authority_id;

@@ -684,6 +684,7 @@ where
             sequence_id: cursor,
             envelope_hash: None,
             expiry_ns: None,
+            expiry_unknown: false,
             expire_at_ns: None,
             inserted_at_ns: 0, // Will be set by database
             should_push: true,

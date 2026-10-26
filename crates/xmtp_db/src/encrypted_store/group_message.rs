@@ -90,6 +90,9 @@ pub struct StoredGroupMessage {
     pub inserted_at_ns: i64,
     /// Timestamp (in NS) after which the message must be deleted
     pub expire_at_ns: Option<i64>,
+    /// Historical expiry information was absent when this message was imported.
+    #[serde(default)]
+    pub expiry_unknown: bool,
     /// Whether to send a push notification when publishing this message
     pub should_push: bool,
     /// The idempotency key the message id is derived from. Defaults to the send
@@ -144,6 +147,7 @@ struct NewStoredGroupMessage {
     pub expiry_ns: Option<i64>,
     // inserted_at_ns is NOT included - let database set it
     pub expire_at_ns: Option<i64>,
+    pub expiry_unknown: bool,
     pub should_push: bool,
     pub idempotency_key: String,
 }
@@ -167,6 +171,7 @@ impl From<&StoredGroupMessage> for NewStoredGroupMessage {
             sequence_id: msg.sequence_id,
             envelope_hash: msg.envelope_hash.clone(),
             expiry_ns: msg.expiry_ns,
+            expiry_unknown: msg.expiry_unknown,
             expire_at_ns: msg.expire_at_ns,
             should_push: msg.should_push,
             idempotency_key: msg.idempotency_key.clone(),
@@ -666,8 +671,8 @@ pub trait QueryGroupMessage {
     ) -> Result<Option<StoredGroupMessage>, crate::ConnectionError>;
 
     /// Mark a message published at the backend's `timestamp` and `cursor`. The
-    /// first publication stores `message_expire_at_ns`; a message already published
-    /// keeps the expiry it was first given.
+    /// first publication stores `message_expire_at_ns` as known expiry information.
+    /// A message already published keeps both its deadline and unknown flag.
     fn set_delivery_status_to_published<MessageId: AsRef<[u8]>>(
         &self,
         msg_id: &MessageId,
@@ -1462,24 +1467,30 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
             cursor
         );
         super::stream_storage::stream_transaction(self, |conn| {
-            let Some((group_id, previous_sent_at_ns, previous_status, previous_expire_at_ns)) =
-                dsl::group_messages
-                    .filter(dsl::id.eq(msg_id.as_ref()))
-                    .select((
-                        dsl::group_id,
-                        dsl::sent_at_ns,
-                        dsl::delivery_status,
-                        dsl::expire_at_ns,
-                    ))
-                    .first::<(GroupId, i64, DeliveryStatus, Option<i64>)>(conn)
-                    .optional()?
+            let Some((
+                group_id,
+                previous_sent_at_ns,
+                previous_status,
+                previous_expire_at_ns,
+                previous_expiry_unknown,
+            )) = dsl::group_messages
+                .filter(dsl::id.eq(msg_id.as_ref()))
+                .select((
+                    dsl::group_id,
+                    dsl::sent_at_ns,
+                    dsl::delivery_status,
+                    dsl::expire_at_ns,
+                    dsl::expiry_unknown,
+                ))
+                .first::<(GroupId, i64, DeliveryStatus, Option<i64>, bool)>(conn)
+                .optional()?
             else {
                 return Ok(0);
             };
-            let expire_at_ns = if previous_status == DeliveryStatus::Published {
-                previous_expire_at_ns
+            let (expire_at_ns, expiry_unknown) = if previous_status == DeliveryStatus::Published {
+                (previous_expire_at_ns, previous_expiry_unknown)
             } else {
-                message_expire_at_ns
+                (message_expire_at_ns, false)
             };
             let changed = diesel::update(dsl::group_messages)
                 .filter(dsl::id.eq(msg_id.as_ref()))
@@ -1488,6 +1499,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
                     dsl::sent_at_ns.eq(timestamp as i64),
                     dsl::sequence_id.eq(cursor.0 as i64),
                     dsl::expire_at_ns.eq(expire_at_ns),
+                    dsl::expiry_unknown.eq(expiry_unknown),
                 ))
                 .execute(conn)?;
             if changed > 0 {

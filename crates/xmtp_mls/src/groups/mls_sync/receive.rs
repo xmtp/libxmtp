@@ -158,6 +158,7 @@ where
             sequence_id: cursor.0 as i64,
             envelope_hash: None,
             expiry_ns: None,
+            expiry_unknown: false,
             expire_at_ns: None,
             inserted_at_ns: 0, // Will be set by database
             should_push: true,
@@ -313,6 +314,7 @@ mod tests {
                 sequence_id: i as i64 + 1,
                 envelope_hash: None,
                 expiry_ns: None,
+                expiry_unknown: false,
                 expire_at_ns: None,
                 inserted_at_ns: 0,
                 should_push: true,
