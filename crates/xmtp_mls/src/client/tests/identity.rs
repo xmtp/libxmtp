@@ -149,7 +149,7 @@ async fn test_find_inbox_id() {
     tester!(client);
     assert_eq!(
         client
-            .find_inbox_id_from_identifier(&client.context.db(), client.identifier())
+            .find_inbox_id_from_identifier(client.identifier())
             .await
             .unwrap(),
         Some(client.inbox_id().to_string())

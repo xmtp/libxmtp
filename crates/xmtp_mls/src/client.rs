@@ -10,6 +10,7 @@ use crate::{
         IdentityUpdateError, IdentityUpdates, load_identity_updates,
         load_identity_updates_for_client,
     },
+    inbox_handles::{IdentityTarget, resolve_verified_in},
     mls_store::{MlsStore, MlsStoreError},
     subscriptions::{
         LocalEventError,
@@ -30,7 +31,6 @@ use crate::{
         enrichment::{EnrichMessageError, enrich_messages},
     },
 };
-use itertools::Itertools;
 use openmls::prelude::tls_codec::Error as TlsCodecError;
 use std::{
     collections::{HashMap, HashSet},
@@ -53,7 +53,6 @@ use xmtp_db::{
     group::{ConversationType, GroupMembershipState, GroupQueryArgs},
     group_message::StoredGroupMessage,
     identity::StoredIdentity,
-    identity_cache::StoredIdentityKind,
 };
 use xmtp_db::{group::GroupQueryOrderBy, prelude::*};
 use xmtp_events::DeletionCause;
@@ -72,12 +71,11 @@ use xmtp_mls_common::{
     group_metadata::DmMembers,
     group_mutable_metadata::MessageDisappearingSettings,
 };
+use xmtp_proto::types::InstallationId;
 use xmtp_proto::{
-    ConversionError,
     api::HasStats,
     api_client::{ApiStats, IdentityStats, XmtpBackendClient},
 };
-use xmtp_proto::{types::InstallationId, xmtp::identity::associations::IdentifierKind};
 
 use xmtp_proto::types::GroupId;
 /// Enum representing the network the Client is connected to
@@ -551,62 +549,19 @@ where
         )
     }
 
-    /// Calls the server to look up the `inbox_id` associated with a given identifier
+    /// The inbox that holds `identifier`, or `None`. The backend's answer
+    /// counts only when the newest state the client derives for the answered
+    /// inbox holds the identifier.
     pub async fn find_inbox_id_from_identifier(
         &self,
-        conn: &impl DbQuery,
         identifier: Identifier,
     ) -> Result<Option<String>, ClientError> {
-        let results = self
-            .find_inbox_ids_from_identifiers(conn, &[identifier])
-            .await?;
-        Ok(results.into_iter().next().flatten())
-    }
-
-    /// Calls the server to look up the `inbox_id`s` associated with a list of identifiers.
-    /// If no `inbox_id` is found, returns None.
-    pub(crate) async fn find_inbox_ids_from_identifiers(
-        &self,
-        conn: &impl DbQuery,
-        identifiers: &[Identifier],
-    ) -> Result<Vec<Option<String>>, ClientError> {
-        let ids: Vec<(String, StoredIdentityKind)> = identifiers
-            .iter()
-            .map(|i| {
-                Ok::<_, ConversionError>((
-                    i.clone().to_string(),
-                    StoredIdentityKind::try_from(IdentifierKind::from(i))?,
-                ))
-            })
-            .try_collect()?;
-        let cached_inbox_ids = conn.fetch_cached_inbox_ids(&ids)?;
-        let mut new_inbox_ids: HashMap<&Identifier, Option<String>> = HashMap::new();
-
-        let missing: Vec<_> = identifiers
-            .iter()
-            .filter(|ident| !cached_inbox_ids.contains_key(&format!("{ident}")))
-            .collect();
-
-        if !missing.is_empty() {
-            let requests = missing
-                .iter()
-                .map(|identifier| (*identifier).into())
-                .collect();
-            let results = self.context.api().get_inbox_ids(requests).await?;
-            new_inbox_ids = missing.into_iter().zip(results).collect();
-        }
-
-        let inbox_ids = identifiers
-            .iter()
-            .map(|ident| {
-                let cache_key = format!("{ident}");
-                if let Some(inbox_id) = cached_inbox_ids.get(&cache_key) {
-                    return Some(inbox_id.clone());
-                }
-                new_inbox_ids.get(ident).cloned().flatten()
-            })
-            .collect();
-        Ok(inbox_ids)
+        Ok(
+            resolve_verified_in(&self.context, &[IdentityTarget::Account(identifier)])
+                .await?
+                .pop()
+                .flatten(),
+        )
     }
 
     /// Get the highest `sequence_id` from the local database for the client's `inbox_id`.
@@ -895,7 +850,7 @@ where
         self.ensure_identity_ready()?;
         tracing::info!("finding or creating dm with address: {target_identity}");
         let inbox_id = match self
-            .find_inbox_id_from_identifier(&self.context.db(), target_identity.clone())
+            .find_inbox_id_from_identifier(target_identity.clone())
             .await?
         {
             Some(id) => id,

@@ -15,6 +15,11 @@ where
     ///
     /// Add members to the group by account address
     ///
+    /// An account resolves to an inbox only when the newest state of the inbox
+    /// the backend names holds it. The add fails with
+    /// [`GroupError::AddressNotFound`], before any commit, when an account has
+    /// no such inbox.
+    ///
     /// If any existing members have new installations that have not been added or removed, the
     /// group membership will be updated to include those changes as well.
     /// # Returns
@@ -28,31 +33,9 @@ where
         &self,
         account_identifiers: &[Identifier],
     ) -> Result<UpdateGroupMembershipResult, GroupError> {
-        // Fetch the associated inbox_ids
-        let requests = account_identifiers.iter().map(Into::into).collect();
-        let inbox_id_map: HashMap<Identifier, String> = self
-            .context
-            .api()
-            .get_inbox_ids(requests)
-            .await?
-            .into_iter()
-            .zip(account_identifiers.iter().cloned())
-            .filter_map(|(inbox, identifier)| inbox.map(|inbox| (identifier, inbox)))
-            .collect();
-
-        // The member limit is enforced in `add_members`, the one method both entry
-        // points reach.
-        if inbox_id_map.len() != account_identifiers.len() {
-            // The requested identifiers with no inbox, in request order.
-            let missing_addresses = account_identifiers
-                .iter()
-                .filter(|identifier| !inbox_id_map.contains_key(*identifier))
-                .map(|identifier| identifier.to_string())
-                .collect();
-            return Err(GroupError::AddressNotFound(missing_addresses));
-        }
-
-        self.add_members(&inbox_id_map.into_values().collect::<Vec<_>>())
+        // The member limit is enforced in `add_members`, the one method every
+        // entry point reaches.
+        self.add_members_by_targets(&crate::inbox_handles::account_targets(account_identifiers))
             .await
     }
 
@@ -236,7 +219,9 @@ where
         })
     }
 
-    /// Removes members from the group by their account addresses.
+    /// Removes members from the group by their account addresses. An account
+    /// resolves to an inbox only when the newest state of the inbox the
+    /// backend names holds it; an account with no such inbox is skipped.
     ///
     /// # Arguments
     /// * `client` - The XMTP client.
@@ -248,21 +233,10 @@ where
         &self,
         account_addresses_to_remove: &[Identifier],
     ) -> Result<(), GroupError> {
-        let account_addresses_to_remove =
-            account_addresses_to_remove.iter().map(Into::into).collect();
-
-        let inbox_id_map = self
-            .context
-            .api()
-            .get_inbox_ids(account_addresses_to_remove)
-            .await?;
-
-        let ids = inbox_id_map
-            .iter()
-            .flatten()
-            .map(AsRef::as_ref)
-            .collect::<Vec<&str>>();
-        self.remove_members(ids.as_slice()).await
+        self.remove_members_by_targets(&crate::inbox_handles::account_targets(
+            account_addresses_to_remove,
+        ))
+        .await
     }
 
     /// Removes members from the group by their inbox IDs.

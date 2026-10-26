@@ -1,5 +1,5 @@
-//! The instance lookup through a backend that lies about which inbox holds
-//! a handle. The SDK client's transport is concrete, so the lie is told one
+//! Lookups through a backend that lies about which inbox holds a handle or
+//! an account. The SDK client's transport is concrete, so the lie is told one
 //! layer down, in the bytes of the `GetInboxIds` response.
 
 use super::*;
@@ -10,13 +10,13 @@ use xmtp_proto::{
         ToBoxedClient,
     },
     backend_v1::GetInboxIdsResponse,
-    xmtp::identity::associations::IdentifierKind,
 };
 
 const GET_INBOX_IDS: &str = "/xmtp.backend.v1.IdentityService/GetInboxIds";
 
 /// A transport that forwards every request to a real backend, but answers
-/// each listed handle with a chosen inbox, as a lying backend would.
+/// each listed handle or account with a chosen inbox, as a lying backend
+/// would.
 struct LyingTransport {
     inner: ArcClient,
     lies: HashMap<String, String>,
@@ -46,9 +46,7 @@ impl Transport for LyingTransport {
         let (parts, body) = response.into_parts();
         let mut answer = GetInboxIdsResponse::decode(body)?;
         for entry in &mut answer.responses {
-            if entry.identifier_kind == IdentifierKind::Handle as i32
-                && let Some(inbox_id) = self.lies.get(&entry.identifier)
-            {
+            if let Some(inbox_id) = self.lies.get(&entry.identifier) {
                 entry.inbox_id = Some(inbox_id.clone());
             }
         }
@@ -151,4 +149,91 @@ async fn instance_handle_lookup_drops_an_answer_the_inbox_did_not_claim() {
     alix.end().await?;
     bo.end().await?;
     caro.end().await?;
+}
+
+// verifies: IDENT-096
+#[xmtp_common::test(unwrap_try = true)]
+async fn account_lookup_lie_is_rejected() {
+    let victim = Client::create(crate::generate_local_signer().await, options()).await?;
+    let attacker = Client::create(crate::generate_local_signer().await, options()).await?;
+    let claimed = victim.identity();
+    assert_eq!(
+        attacker.inbox_id_for(claimed.clone()).await?,
+        Some(victim.inbox_id()),
+        "the honest backend maps the account to the victim"
+    );
+    // The backend names the attacker, whose log never holds the account.
+    let lies = HashMap::from([(
+        claimed.identifier.clone(),
+        attacker.inbox_id().into_checked()?,
+    )]);
+    let backend = lying_backend(lies).await?;
+    let sender = Client::create(
+        crate::generate_local_signer().await,
+        ClientOptions {
+            backend: Some(backend.clone()),
+            ..options()
+        },
+    )
+    .await?;
+
+    let error = sender
+        .conversations()
+        .create_dm_with_identity(claimed.clone(), None)
+        .await
+        .err()
+        .expect("a DM by an account the answered inbox does not hold must fail");
+    let expected = format!("inbox id for address {} not found", claimed.identifier);
+    assert!(error.to_string().contains(&expected), "got {error:?}");
+    assert_eq!(sender.inbox_id_for(claimed.clone()).await?, None);
+    // The static lookup falls back to the inbox the account derives, which
+    // still holds it.
+    assert_eq!(
+        crate::static_helpers::inbox_id_for_with_backend(backend, claimed).await?,
+        victim.inbox_id()
+    );
+    attacker.conversations().sync_all(None).await?;
+    assert!(
+        attacker.conversations().list(None).await?.is_empty(),
+        "the attacker holds no DM"
+    );
+
+    sender.end().await?;
+    victim.end().await?;
+    attacker.end().await?;
+}
+
+// verifies: IDENT-096
+#[xmtp_common::test(unwrap_try = true)]
+async fn static_account_lookup_refuses_a_derived_inbox_the_account_left() {
+    let wallet = crate::generate_local_signer().await;
+    let account = signer::identity(wallet.clone()).await?;
+    let creator = Client::create(wallet.clone(), options()).await?;
+    let derived = creator.inbox_id();
+    assert_eq!(crate::generate_inbox_id(account.clone(), None)?, derived);
+    // The account, as the recovery identifier, removes itself from the inbox
+    // it created.
+    creator.remove_account(wallet, account.clone()).await?;
+    creator.end().await?;
+
+    // Whether the backend names no inbox or the derived one, the derived
+    // inbox no longer holds the account.
+    let lies = HashMap::from([(account.identifier.clone(), derived.into_checked()?)]);
+    for backend in [shared_source(), lying_backend(lies).await?] {
+        let error = crate::static_helpers::inbox_id_for_with_backend(backend, account.clone())
+            .await
+            .expect_err("the account left its derived inbox");
+        assert!(
+            matches!(&error, XmtpError::IdentityNotFound(details) if !details.retryable),
+            "got {error:?}"
+        );
+    }
+
+    // A wallet that never created an inbox gets the inbox it would create,
+    // whose log holds no update.
+    let fresh = signer::identity(crate::generate_local_signer().await).await?;
+    assert_eq!(
+        crate::static_helpers::inbox_id_for_with_backend(shared_source(), fresh.clone()).await?,
+        crate::generate_inbox_id(fresh, None)?
+    );
 }

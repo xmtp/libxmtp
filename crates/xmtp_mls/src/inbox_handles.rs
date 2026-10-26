@@ -2,10 +2,11 @@
 //!
 //! A handle is a short public name that an inbox claims in its identity log
 //! (`xmtp_id::associations::handle`). Only the backend answers which inbox
-//! holds a handle, so every path from a handle to an inbox goes through one
-//! resolver. It looks the handle up, loads the answered inbox's identity
-//! updates, and keeps the answer only when a state the client derived holds
-//! the handle. The client reports a changed display handle with the
+//! holds a handle or an account, so every path from a handle or an account
+//! to an inbox goes through one resolver. It looks the target up, loads the
+//! answered inbox's identity updates, and keeps the answer only when the
+//! newest state the client derived holds the target. The client reports a
+//! changed display handle with the
 //! `handle.changed` event (`identity_updates::store_association_state`), and
 //! group members carry the handles of the newest state the client holds.
 //!
@@ -75,13 +76,43 @@ impl RetryableError for HandleError {
     }
 }
 
-/// Someone a caller wants to reach: an account identifier, which resolves as
-/// it always has, or a handle, which resolves only through the verified
-/// handle resolver.
+/// Someone a caller wants to reach: an account identifier or a handle.
+/// Either resolves to an inbox only through the verified resolver.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum IdentityTarget {
     Account(Identifier),
     Handle(Handle),
+}
+
+impl IdentityTarget {
+    /// The lookup of this target in `GetInboxIds`.
+    fn lookup(&self) -> ApiIdentifier {
+        match self {
+            Self::Account(identifier) => identifier.into(),
+            Self::Handle(handle) => ApiIdentifier {
+                identifier: handle.as_str().to_owned(),
+                identifier_kind: IdentifierKind::Handle,
+            },
+        }
+    }
+}
+
+/// `handles` as targets, in order.
+fn handle_targets(handles: &[Handle]) -> Vec<IdentityTarget> {
+    handles
+        .iter()
+        .cloned()
+        .map(IdentityTarget::Handle)
+        .collect()
+}
+
+/// `accounts` as targets, in order.
+pub(crate) fn account_targets(accounts: &[Identifier]) -> Vec<IdentityTarget> {
+    accounts
+        .iter()
+        .cloned()
+        .map(IdentityTarget::Account)
+        .collect()
 }
 
 /// Fail with [`HandleError::LimitReached`] when `state` has made as many
@@ -94,25 +125,17 @@ pub(crate) fn ensure_claim_allowed(state: &AssociationState) -> Result<(), Handl
     Ok(())
 }
 
-/// The lookup of one handle in `GetInboxIds`.
-fn handle_lookup(handle: &Handle) -> ApiIdentifier {
-    ApiIdentifier {
-        identifier: handle.as_str().to_owned(),
-        identifier_kind: IdentifierKind::Handle,
-    }
-}
-
-/// The inbox the backend names for each handle, in order. Nothing here checks
-/// an answer.
-async fn lookup_handles<A: XmtpApi>(
+/// The inbox the backend names for each target, in order, from one request.
+/// Nothing here checks an answer.
+async fn lookup_targets<A: XmtpApi>(
     api: &ApiClientWrapper<A>,
-    handles: &[Handle],
+    targets: &[IdentityTarget],
 ) -> Result<Vec<Option<InboxId>>, ClientError> {
-    if handles.is_empty() {
+    if targets.is_empty() {
         return Ok(Vec::new());
     }
     Ok(api
-        .get_inbox_ids(handles.iter().map(handle_lookup).collect())
+        .get_inbox_ids(targets.iter().map(IdentityTarget::lookup).collect())
         .await?)
 }
 
@@ -125,7 +148,7 @@ fn answered_inboxes(answers: &[Option<InboxId>]) -> Vec<InboxId> {
 }
 
 /// An inbox's state, or `None` when its log holds no update. Such an inbox
-/// holds no handle.
+/// holds no account and no handle.
 fn state_if_logged(
     result: Result<AssociationState, ClientError>,
 ) -> Result<Option<AssociationState>, ClientError> {
@@ -136,36 +159,52 @@ fn state_if_logged(
     }
 }
 
+/// Whether `state`, the newest state of an inbox after this answer's load,
+/// holds `target`. Nothing removes a handle, so the newest state holds every
+/// handle the inbox ever claimed. A revocation removes an account, so an
+/// older state that holds it does not count. An Ethereum address matches in
+/// any letter case, and a passkey by its public key bytes.
+fn state_holds(state: &AssociationState, target: &IdentityTarget) -> bool {
+    match target {
+        IdentityTarget::Handle(handle) => state.handles().contains(handle),
+        IdentityTarget::Account(identifier) => identifier
+            .clone()
+            .sanitize()
+            .is_ok_and(|identifier| state.get(&identifier.into()).is_some()),
+    }
+}
+
 /// Keep each answer only when the newest state of the inbox it names holds
-/// the handle. Nothing removes a handle, so the newest state holds every
-/// handle the inbox ever claimed.
-// implements: IDENT-085
+/// its target.
+// implements: IDENT-085, IDENT-096
 fn keep_verified(
-    handles: &[Handle],
+    targets: &[IdentityTarget],
     answers: Vec<Option<InboxId>>,
     states: &HashMap<InboxId, AssociationState>,
 ) -> Vec<Option<InboxId>> {
-    handles
+    targets
         .iter()
         .zip(answers)
-        .map(|(handle, answer)| {
+        .map(|(target, answer)| {
             answer.filter(|inbox_id| {
                 states
                     .get(inbox_id)
-                    .is_some_and(|state| state.handles().contains(handle))
+                    .is_some_and(|state| state_holds(state, target))
             })
         })
         .collect()
 }
 
-/// The verified handle resolver: look the handles up, load the identity
+/// The verified resolver, the only reader of a `GetInboxIds` answer that
+/// picks an inbox: look the targets up in one request, load the identity
 /// updates of every answered inbox in one incremental batch, derive each
-/// inbox's newest state, and drop any answer whose state lacks its handle.
-pub(crate) async fn resolve_handles_in<Context: XmtpSharedContext>(
+/// inbox's newest state, and drop any answer whose state does not hold its
+/// target.
+pub(crate) async fn resolve_verified_in<Context: XmtpSharedContext>(
     context: &Context,
-    handles: &[Handle],
+    targets: &[IdentityTarget],
 ) -> Result<Vec<Option<InboxId>>, ClientError> {
-    let answers = lookup_handles(context.api(), handles).await?;
+    let answers = lookup_targets(context.api(), targets).await?;
     let inboxes = answered_inboxes(&answers);
     if inboxes.is_empty() {
         return Ok(answers);
@@ -179,18 +218,18 @@ pub(crate) async fn resolve_handles_in<Context: XmtpSharedContext>(
     }))
     .await?;
     let states: HashMap<InboxId, AssociationState> = states.into_iter().flatten().collect();
-    Ok(keep_verified(handles, answers, &states))
+    Ok(keep_verified(targets, answers, &states))
 }
 
-/// The verified handle resolver for a caller with no client, such as an SDK
-/// static helper. It stores the states it derives, with no event.
-pub async fn resolve_handles_with_verifier<A: XmtpApi>(
+/// The verified resolver for a caller with no client, such as an SDK static
+/// helper. It stores the states it derives, with no event.
+pub async fn resolve_verified_with_verifier<A: XmtpApi>(
     api: &ApiClientWrapper<A>,
     conn: &impl DbQuery,
-    handles: &[Handle],
+    targets: &[IdentityTarget],
     verifier: &impl SmartContractSignatureVerifier,
 ) -> Result<Vec<Option<InboxId>>, ClientError> {
-    let answers = lookup_handles(api, handles).await?;
+    let answers = lookup_targets(api, targets).await?;
     let inboxes = answered_inboxes(&answers);
     if inboxes.is_empty() {
         return Ok(answers);
@@ -204,54 +243,29 @@ pub async fn resolve_handles_with_verifier<A: XmtpApi>(
             states.insert(inbox_id, state);
         }
     }
-    Ok(keep_verified(handles, answers, &states))
+    Ok(keep_verified(targets, answers, &states))
 }
 
-/// The inbox of each target, in order. Handles resolve through the verified
-/// resolver first, and a handle that no inbox holds fails with
-/// [`HandleError::NotFound`]. Accounts then resolve with one lookup, and an
-/// account with no inbox is `None`, so each route treats it as its
-/// account-only path does.
+/// The inbox of each target, in order, from one verified lookup. A handle
+/// that no inbox holds fails with [`HandleError::NotFound`]. An account with
+/// no inbox is `None`, so each route treats it as its account-only path does.
 pub(crate) async fn resolve_targets_in<Context: XmtpSharedContext>(
     context: &Context,
     targets: &[IdentityTarget],
 ) -> Result<Vec<Option<InboxId>>, ClientError> {
-    let handles: Vec<Handle> = targets
-        .iter()
-        .filter_map(|target| match target {
-            IdentityTarget::Handle(handle) => Some(handle.clone()),
-            IdentityTarget::Account(_) => None,
-        })
-        .collect();
-    let mut handle_inboxes = resolve_handles_in(context, &handles).await?.into_iter();
-    let accounts: Vec<ApiIdentifier> = targets
-        .iter()
-        .filter_map(|target| match target {
-            IdentityTarget::Account(identifier) => Some(identifier.into()),
-            IdentityTarget::Handle(_) => None,
-        })
-        .collect();
-    let mut account_inboxes = if accounts.is_empty() {
-        Vec::new()
-    } else {
-        context.api().get_inbox_ids(accounts).await?
-    }
-    .into_iter();
+    let inboxes = resolve_verified_in(context, targets).await?;
     targets
         .iter()
-        .map(|target| match target {
-            IdentityTarget::Handle(_) => handle_inboxes
-                .next()
-                .flatten()
-                .map(Some)
-                .ok_or_else(|| HandleError::NotFound.into()),
-            IdentityTarget::Account(_) => Ok(account_inboxes.next().flatten()),
+        .zip(inboxes)
+        .map(|(target, inbox)| match (target, inbox) {
+            (IdentityTarget::Handle(_), None) => Err(HandleError::NotFound.into()),
+            (_, inbox) => Ok(inbox),
         })
         .collect()
 }
 
-/// The inboxes of `targets`, failing as an account-only add does
-/// (`add_members_by_identity`) when an account has no inbox.
+/// The inboxes of `targets`, failing with [`GroupError::AddressNotFound`],
+/// which names each account with no inbox in request order.
 fn require_account_inboxes(
     targets: &[IdentityTarget],
     inboxes: Vec<Option<InboxId>>,
@@ -313,14 +327,14 @@ impl<Context: XmtpSharedContext> Client<Context> {
         &self,
         handles: &[Handle],
     ) -> Result<Vec<Option<InboxId>>, ClientError> {
-        resolve_handles_in(&self.context, handles).await
+        resolve_verified_in(&self.context, &handle_targets(handles)).await
     }
 
     /// Whether the backend names an inbox for each handle, in order. This
     /// checks no association state: use it only where a wrong answer costs a
     /// candidate, never to reach an inbox.
     pub async fn handles_have_owner(&self, handles: &[Handle]) -> Result<Vec<bool>, ClientError> {
-        Ok(lookup_handles(self.context.api(), handles)
+        Ok(lookup_targets(self.context.api(), &handle_targets(handles))
             .await?
             .iter()
             .map(Option::is_some)
@@ -387,24 +401,17 @@ impl<Context: XmtpSharedContext> Client<Context> {
             .collect()
     }
 
-    /// The active DM with `target`, or `None`. A handle that no inbox holds
+    /// The active DM with `target`, or `None`. A target that no inbox holds
     /// has no DM.
     pub async fn find_dm_by_target(
         &self,
         target: &IdentityTarget,
     ) -> Result<Option<MlsGroup<Context>>, ClientError> {
-        let peer = match target {
-            IdentityTarget::Account(identifier) => {
-                self.find_inbox_id_from_identifier(&self.context.db(), identifier.clone())
-                    .await?
-            }
-            IdentityTarget::Handle(handle) => self
-                .resolve_handles(std::slice::from_ref(handle))
-                .await?
-                .pop()
-                .flatten(),
-        };
-        let Some(peer) = peer else {
+        let Some(peer) = resolve_verified_in(&self.context, std::slice::from_ref(target))
+            .await?
+            .pop()
+            .flatten()
+        else {
             return Ok(None);
         };
         let stored = self.context.db().find_active_dm_group(&DmMembers {
@@ -461,33 +468,26 @@ impl<Context: XmtpSharedContext> Client<Context> {
 }
 
 impl<Context: XmtpSharedContext> MlsGroup<Context> {
-    /// Add `targets` to the group in one commit. A list of accounts only
-    /// keeps the account path and its errors. Any other list resolves every
-    /// target first and fails before any commit when a target has no inbox,
-    /// with the account path's error for an account.
+    /// Add `targets` to the group in one commit. Every target resolves first,
+    /// and the add fails before any commit when a target has no inbox: a
+    /// handle with [`HandleError::NotFound`], an account with
+    /// [`GroupError::AddressNotFound`].
     pub async fn add_members_by_targets(
         &self,
         targets: &[IdentityTarget],
     ) -> Result<UpdateGroupMembershipResult, GroupError> {
-        if let Some(accounts) = all_accounts(targets) {
-            return self.add_members_by_identity(&accounts).await;
-        }
         let inboxes = resolve_targets_in(&self.context, targets).await?;
         let inbox_ids = require_account_inboxes(targets, inboxes)?;
         self.add_members(&inbox_ids).await
     }
 
-    /// Remove `targets` from the group in one commit. A list of accounts only
-    /// keeps the account path and its errors. Any other list resolves every
-    /// target first. It fails before any commit when a handle has no inbox,
-    /// and skips an account with no inbox, as the account path does.
+    /// Remove `targets` from the group in one commit. Every target resolves
+    /// first. The removal fails before any commit when a handle has no inbox,
+    /// and skips an account with no inbox.
     pub async fn remove_members_by_targets(
         &self,
         targets: &[IdentityTarget],
     ) -> Result<(), GroupError> {
-        if let Some(accounts) = all_accounts(targets) {
-            return self.remove_members_by_identity(&accounts).await;
-        }
         let inbox_ids: Vec<InboxId> = resolve_targets_in(&self.context, targets)
             .await?
             .into_iter()

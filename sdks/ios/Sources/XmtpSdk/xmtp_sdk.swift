@@ -29775,11 +29775,13 @@ public func canMessageWithBackend(backend: BackendSource, identities: [PublicIde
         )
 }
 /**
- * The inbox of an account or a handle. An account with no live inbox gets
- * the inbox ID it would create with nonce 0. A handle never derives an inbox
- * ID: it resolves only when the inbox the backend names holds it in its own
- * identity log, and fails with `IdentityNotFound` otherwise. An old handle
- * of an inbox still resolves to it.
+ * The inbox of an account or a handle. Either resolves to the inbox the
+ * backend names only when the newest state of that inbox's own identity log
+ * holds it, and an old handle of an inbox still resolves to it. An account
+ * that resolves to no inbox gets the inbox ID it would create with nonce 0,
+ * but only when that inbox's log holds no update or still holds the account.
+ * A handle never derives an inbox ID. Any other lookup fails with
+ * `IdentityNotFound`.
  */
 public func inboxIdForWithBackend(backend: BackendSource, identity: PublicIdentity)async throws  -> InboxId  {
     return
@@ -30032,7 +30034,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtp_sdk_checksum_func_can_message_with_backend() != 19273) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_func_inbox_id_for_with_backend() != 7019) {
+    if (uniffi_xmtp_sdk_checksum_func_inbox_id_for_with_backend() != 7298) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_func_inbox_states_with_backend() != 12284) {
