@@ -398,4 +398,3 @@ kind = "gap"
 owner = "Nicholas Molnar"
 issue = "TBD-octane-tracking"
 reason = "The send guard checks only the top-level content type, so a transcript type nested in a reply is published."
-
