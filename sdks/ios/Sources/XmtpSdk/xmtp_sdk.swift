@@ -1436,10 +1436,10 @@ public protocol ClientProtocol: AnyObject, Sendable {
     func identity()  -> PublicIdentity
 
     /**
-     * The inbox of an account or a handle, or `None`. A handle resolves only
-     * when the inbox the backend names holds it in its own identity log, and
-     * an old handle of an inbox still resolves to it. This never derives an
-     * inbox ID from a handle.
+     * The inbox of an account or a handle, or `None`. Either resolves only
+     * when the newest state of the inbox the backend names holds it in that
+     * inbox's own identity log, and an old handle of an inbox still resolves
+     * to it. This never derives an inbox ID.
      */
     func inboxIdFor(identity: PublicIdentity) async throws  -> InboxId?
 
@@ -1917,10 +1917,10 @@ open func identity() -> PublicIdentity  {
 }
 
     /**
-     * The inbox of an account or a handle, or `None`. A handle resolves only
-     * when the inbox the backend names holds it in its own identity log, and
-     * an old handle of an inbox still resolves to it. This never derives an
-     * inbox ID from a handle.
+     * The inbox of an account or a handle, or `None`. Either resolves only
+     * when the newest state of the inbox the backend names holds it in that
+     * inbox's own identity log, and an old handle of an inbox still resolves
+     * to it. This never derives an inbox ID.
      */
 open func inboxIdFor(identity: PublicIdentity)async throws  -> InboxId?  {
     return
@@ -2687,9 +2687,9 @@ public protocol ConversationsProtocol: AnyObject, Sendable {
 
     /**
      * Find or create a DM with an account identity or a handle. Hosts
-     * present this as a `createDm` overload or union. A handle resolves
-     * through the verified handle resolver before the existing DM is looked
-     * up.
+     * present this as a `createDm` overload or union. An account or a handle
+     * resolves through the verified resolver before the existing DM is
+     * looked up.
      */
 
     func createGroup(members: [InboxId], options: CreateGroupOptions?) async throws  -> Group
@@ -2698,9 +2698,9 @@ public protocol ConversationsProtocol: AnyObject, Sendable {
 
     /**
      * Create a group from account identities and handles. Hosts present
-     * this as a `createGroup` overload or union. Every handle resolves
-     * through the verified handle resolver before the group exists, and all
-     * members join in one commit.
+     * this as a `createGroup` overload or union. Every account and handle
+     * resolves through the verified resolver, a handle before the group
+     * exists, and all members join in one commit.
      */
 
     func deleteMessage(id: MessageId) async throws  -> MessageId
@@ -2710,8 +2710,8 @@ public protocol ConversationsProtocol: AnyObject, Sendable {
     func getById(id: ConversationId) async throws  -> Conversation?
 
     /**
-     * The DM with an account or a handle, or `None`. A handle resolves
-     * through the verified handle resolver before the DM is looked up.
+     * The DM with an account or a handle, or `None`. Either resolves
+     * through the verified resolver before the DM is looked up.
      */
     func getDmByIdentity(identity: PublicIdentity) async throws  -> Dm?
 
@@ -2854,9 +2854,9 @@ open func createDm(peer: InboxId, options: CreateDmOptions? = nil)async throws  
 
     /**
      * Find or create a DM with an account identity or a handle. Hosts
-     * present this as a `createDm` overload or union. A handle resolves
-     * through the verified handle resolver before the existing DM is looked
-     * up.
+     * present this as a `createDm` overload or union. An account or a handle
+     * resolves through the verified resolver before the existing DM is
+     * looked up.
      */
 func createDmWithIdentity(peer: PublicIdentity, options: CreateDmOptions? = nil)async throws  -> Dm  {
     return
@@ -2911,9 +2911,9 @@ open func createGroupOptimistic(options: CreateGroupOptions? = nil)async throws 
 
     /**
      * Create a group from account identities and handles. Hosts present
-     * this as a `createGroup` overload or union. Every handle resolves
-     * through the verified handle resolver before the group exists, and all
-     * members join in one commit.
+     * this as a `createGroup` overload or union. Every account and handle
+     * resolves through the verified resolver, a handle before the group
+     * exists, and all members join in one commit.
      */
 func createGroupWithIdentities(members: [PublicIdentity], options: CreateGroupOptions? = nil)async throws  -> Group  {
     return
@@ -2984,8 +2984,8 @@ open func getById(id: ConversationId)async throws  -> Conversation?  {
 }
 
     /**
-     * The DM with an account or a handle, or `None`. A handle resolves
-     * through the verified handle resolver before the DM is looked up.
+     * The DM with an account or a handle, or `None`. Either resolves
+     * through the verified resolver before the DM is looked up.
      */
 open func getDmByIdentity(identity: PublicIdentity)async throws  -> Dm?  {
     return
@@ -5266,8 +5266,9 @@ public protocol GroupProtocol: AnyObject, Sendable {
 
     /**
      * Add members by account identity or handle. Hosts present this as an
-     * `addMembers` overload or union. Every handle resolves through the
-     * verified handle resolver first, and all members join in one commit.
+     * `addMembers` overload or union. Every account and handle resolves
+     * through the verified resolver first, and all members join in one
+     * commit.
      */
 
     func addSuperAdmin(inboxId: InboxId) async throws
@@ -5395,8 +5396,9 @@ public protocol GroupProtocol: AnyObject, Sendable {
 
     /**
      * Remove members by account identity or handle. Hosts present this as
-     * a `removeMembers` overload or union. Every handle resolves through the
-     * verified handle resolver first, and all members leave in one commit.
+     * a `removeMembers` overload or union. Every account and handle resolves
+     * through the verified resolver first, and all members leave in one
+     * commit.
      */
 
     func removeSuperAdmin(inboxId: InboxId) async throws
@@ -5568,8 +5570,9 @@ open func addMembers(members: [InboxId])async throws  -> MembershipResult  {
 
     /**
      * Add members by account identity or handle. Hosts present this as an
-     * `addMembers` overload or union. Every handle resolves through the
-     * verified handle resolver first, and all members join in one commit.
+     * `addMembers` overload or union. Every account and handle resolves
+     * through the verified resolver first, and all members join in one
+     * commit.
      */
 func addMembersByIdentity(members: [PublicIdentity])async throws  -> MembershipResult  {
     return
@@ -6220,8 +6223,9 @@ open func removeMembers(members: [InboxId])async throws   {
 
     /**
      * Remove members by account identity or handle. Hosts present this as
-     * a `removeMembers` overload or union. Every handle resolves through the
-     * verified handle resolver first, and all members leave in one commit.
+     * a `removeMembers` overload or union. Every account and handle resolves
+     * through the verified resolver first, and all members leave in one
+     * commit.
      */
 func removeMembersByIdentity(members: [PublicIdentity])async throws   {
     return
@@ -30175,7 +30179,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtp_sdk_checksum_method_client_identity() != 61052) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_method_client_inbox_id_for() != 1422) {
+    if (uniffi_xmtp_sdk_checksum_method_client_inbox_id_for() != 62264) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_method_client_inbox_state() != 57646) {
@@ -30286,7 +30290,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtp_sdk_checksum_method_conversations_create_dm() != 578) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_method_conversations_create_dm_with_identity() != 60772) {
+    if (uniffi_xmtp_sdk_checksum_method_conversations_create_dm_with_identity() != 11782) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_method_conversations_create_group() != 23137) {
@@ -30295,7 +30299,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtp_sdk_checksum_method_conversations_create_group_optimistic() != 41274) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_method_conversations_create_group_with_identities() != 24231) {
+    if (uniffi_xmtp_sdk_checksum_method_conversations_create_group_with_identities() != 29398) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_method_conversations_delete_message() != 23841) {
@@ -30307,7 +30311,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtp_sdk_checksum_method_conversations_get_by_id() != 32520) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_method_conversations_get_dm_by_identity() != 16124) {
+    if (uniffi_xmtp_sdk_checksum_method_conversations_get_dm_by_identity() != 62036) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_method_conversations_get_dm_by_inbox_id() != 61920) {
@@ -30514,7 +30518,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtp_sdk_checksum_method_group_add_members() != 43735) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_method_group_add_members_by_identity() != 10876) {
+    if (uniffi_xmtp_sdk_checksum_method_group_add_members_by_identity() != 15124) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_method_group_add_super_admin() != 2507) {
@@ -30628,7 +30632,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtp_sdk_checksum_method_group_remove_members() != 34386) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_method_group_remove_members_by_identity() != 29488) {
+    if (uniffi_xmtp_sdk_checksum_method_group_remove_members_by_identity() != 1052) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_method_group_remove_super_admin() != 29988) {

@@ -28,6 +28,7 @@ import {
   type StreamOptions,
   type TransactionReference,
   type WalletSendCalls,
+  XmtpError,
 } from "@xmtp/node-sdk";
 import { isHex, toBytes, type Hex } from "viem";
 
@@ -370,7 +371,13 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
           }
         }
         if (!options?.allowOffline && !resolvedInboxId) {
-          ids.add((await Client.inboxIdFor(identity, backend)).toLowerCase());
+          try {
+            ids.add((await Client.inboxIdFor(identity, backend)).toLowerCase());
+          } catch (error) {
+            // No inbox holds the identity, so no legacy database belongs to
+            // a current inbox of it.
+            if (!(error instanceof XmtpError.IdentityNotFound)) throw error;
+          }
           resolvedInboxId = true;
         }
         const candidate = { name: entry.name, inboxId: inboxId.toLowerCase() };

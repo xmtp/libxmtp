@@ -154,6 +154,19 @@ async fn test_find_inbox_id() {
             .unwrap(),
         Some(client.inbox_id().to_string())
     );
+    // An Ethereum address matches its inbox's state in any letter case.
+    use xmtp_id::associations::{Identifier, ident};
+    let Identifier::Ethereum(ident::Ethereum(address)) = client.identifier() else {
+        panic!("the tester's identifier is an Ethereum address");
+    };
+    let upper = Identifier::Ethereum(ident::Ethereum(format!(
+        "0x{}",
+        address[2..].to_uppercase()
+    )));
+    assert_eq!(
+        client.find_inbox_id_from_identifier(upper).await.unwrap(),
+        Some(client.inbox_id().to_string())
+    );
 }
 
 #[xmtp_common::test]

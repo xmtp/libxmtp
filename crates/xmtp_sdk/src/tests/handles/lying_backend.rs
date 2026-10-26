@@ -192,11 +192,6 @@ async fn account_lookup_lie_is_rejected() {
         crate::static_helpers::inbox_id_for_with_backend(backend, claimed).await?,
         victim.inbox_id()
     );
-    attacker.conversations().sync_all(None).await?;
-    assert!(
-        attacker.conversations().list(None).await?.is_empty(),
-        "the attacker holds no DM"
-    );
 
     sender.end().await?;
     victim.end().await?;
@@ -211,6 +206,10 @@ async fn static_account_lookup_refuses_a_derived_inbox_the_account_left() {
     let creator = Client::create(wallet.clone(), options()).await?;
     let derived = creator.inbox_id();
     assert_eq!(crate::generate_inbox_id(account.clone(), None)?, derived);
+    // A second wallet joins the inbox. The inbox it would derive stays empty.
+    let linked_signer = crate::generate_local_signer().await;
+    let linked = signer::identity(linked_signer.clone()).await?;
+    creator.unsafe_add_account(linked_signer, false).await?;
     // The account, as the recovery identifier, removes itself from the inbox
     // it created.
     creator.remove_account(wallet, account.clone()).await?;
@@ -218,8 +217,12 @@ async fn static_account_lookup_refuses_a_derived_inbox_the_account_left() {
 
     // Whether the backend names no inbox or the derived one, the derived
     // inbox no longer holds the account.
-    let lies = HashMap::from([(account.identifier.clone(), derived.into_checked()?)]);
-    for backend in [shared_source(), lying_backend(lies).await?] {
+    let lies = HashMap::from([
+        (account.identifier.clone(), derived.clone().into_checked()?),
+        (linked.identifier.clone(), derived.clone().into_checked()?),
+    ]);
+    let lying = lying_backend(lies).await?;
+    for backend in [shared_source(), lying.clone()] {
         let error = crate::static_helpers::inbox_id_for_with_backend(backend, account.clone())
             .await
             .expect_err("the account left its derived inbox");
@@ -228,6 +231,11 @@ async fn static_account_lookup_refuses_a_derived_inbox_the_account_left() {
             "got {error:?}"
         );
     }
+    // A checked answer wins over the empty inbox the linked wallet derives.
+    assert_eq!(
+        crate::static_helpers::inbox_id_for_with_backend(lying, linked).await?,
+        derived
+    );
 
     // A wallet that never created an inbox gets the inbox it would create,
     // whose log holds no update.

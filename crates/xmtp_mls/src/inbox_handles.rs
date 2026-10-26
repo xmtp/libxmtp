@@ -24,10 +24,11 @@ use crate::{
         load_identity_updates, load_identity_updates_for_client,
     },
 };
-use futures::future::try_join_all;
+use futures::{StreamExt, TryStreamExt, stream};
 use std::collections::HashMap;
 use xmtp_api::{ApiClientWrapper, XmtpApi};
 use xmtp_common::{ErrorCode, RetryableError};
+use xmtp_configuration::IDENTITY_DEPENDENCY_CONCURRENCY;
 use xmtp_db::{NotFound, prelude::*};
 use xmtp_id::{
     InboxId,
@@ -198,8 +199,8 @@ fn keep_verified(
 /// The verified resolver, the only reader of a `GetInboxIds` answer that
 /// picks an inbox: look the targets up in one request, load the identity
 /// updates of every answered inbox in one incremental batch, derive each
-/// inbox's newest state, and drop any answer whose state does not hold its
-/// target.
+/// inbox's newest state, at most [`IDENTITY_DEPENDENCY_CONCURRENCY`] at once,
+/// and drop any answer whose state does not hold its target.
 pub(crate) async fn resolve_verified_in<Context: XmtpSharedContext>(
     context: &Context,
     targets: &[IdentityTarget],
@@ -212,11 +213,19 @@ pub(crate) async fn resolve_verified_in<Context: XmtpSharedContext>(
     let conn = context.db();
     let inbox_refs: Vec<&str> = inboxes.iter().map(String::as_str).collect();
     load_identity_updates_for_client(context, &conn, &inbox_refs).await?;
-    let states = try_join_all(inboxes.into_iter().map(|inbox_id| async {
-        let state = get_association_state_for_client(context, &conn, &inbox_id, None).await;
-        Ok::<_, ClientError>(state_if_logged(state)?.map(|state| (inbox_id, state)))
-    }))
-    .await?;
+    // Collected first, as `IdentityUpdates::batch_get_association_state`
+    // does, so the future stays `Send` for every caller.
+    let reads: Vec<_> = inboxes
+        .into_iter()
+        .map(|inbox_id| async {
+            let state = get_association_state_for_client(context, &conn, &inbox_id, None).await;
+            Ok::<_, ClientError>(state_if_logged(state)?.map(|state| (inbox_id, state)))
+        })
+        .collect();
+    let states: Vec<_> = stream::iter(reads)
+        .buffered(IDENTITY_DEPENDENCY_CONCURRENCY)
+        .try_collect()
+        .await?;
     let states: HashMap<InboxId, AssociationState> = states.into_iter().flatten().collect();
     Ok(keep_verified(targets, answers, &states))
 }

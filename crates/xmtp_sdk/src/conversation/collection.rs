@@ -259,8 +259,8 @@ impl Conversations {
         .await
     }
 
-    /// The DM with an account or a handle, or `None`. A handle resolves
-    /// through the verified handle resolver before the DM is looked up.
+    /// The DM with an account or a handle, or `None`. Either resolves
+    /// through the verified resolver before the DM is looked up.
     pub async fn get_dm_by_identity(
         &self,
         identity: PublicIdentity,
@@ -331,9 +331,9 @@ impl Conversations {
     }
 
     /// Create a group from account identities and handles. Hosts present
-    /// this as a `createGroup` overload or union. Every handle resolves
-    /// through the verified handle resolver before the group exists, and all
-    /// members join in one commit.
+    /// this as a `createGroup` overload or union. Every account and handle
+    /// resolves through the verified resolver, a handle before the group
+    /// exists, and all members join in one commit.
     #[uniffi::method(default(options = None))]
     pub async fn create_group_with_identities(
         &self,
@@ -358,9 +358,9 @@ impl Conversations {
     }
 
     /// Find or create a DM with an account identity or a handle. Hosts
-    /// present this as a `createDm` overload or union. A handle resolves
-    /// through the verified handle resolver before the existing DM is looked
-    /// up.
+    /// present this as a `createDm` overload or union. An account or a handle
+    /// resolves through the verified resolver before the existing DM is
+    /// looked up.
     #[uniffi::method(default(options = None))]
     pub async fn create_dm_with_identity(
         &self,

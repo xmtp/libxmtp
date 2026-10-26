@@ -411,7 +411,7 @@ When the client stores a newer identity state for an inbox with a different curr
 
 ### Find an inbox by handle
 
-A `PublicIdentity` with the kind `handle` names the inbox that claimed the handle. Calls that take a `PublicIdentity` to find an inbox also take a handle: `inboxIdFor`, `getDmByIdentity`, `createDm`, `createGroup`, `addMembers`, and `removeMembers`. One list can mix handles and accounts. Before one of these calls, `client.inboxIdFor` or static `inboxIdFor` included, uses a lookup answer, the SDK checks that the inbox's own identity log claimed the handle. On both the client and the static path, it checks any smart contract wallet signature in that log with the backend's verifier, as it does for every identity log, so it trusts the backend for those verdicts. An old handle finds the inbox too.
+A `PublicIdentity` with the kind `handle` names the inbox that claimed the handle. Calls that take a `PublicIdentity` to find an inbox also take a handle: `inboxIdFor`, `getDmByIdentity`, `createDm`, `createGroup`, `addMembers`, and `removeMembers`. One list can mix handles and accounts. Before one of these calls, `client.inboxIdFor` or static `inboxIdFor` included, uses a lookup answer, the SDK checks the answered inbox's own identity log. For a handle, the log must have claimed it. For an account, the newest state the SDK derives from the log must hold it, so an inbox that the account left does not count. On both the client and the static path, it checks any smart contract wallet signature in that log with the backend's verifier, as it does for every identity log, so it trusts the backend for those verdicts. An old handle finds the inbox too.
 
 The SDK never derives an inbox ID from a handle. For a handle that no inbox claimed, `client.inboxIdFor` returns no inbox, static `inboxIdFor` fails with `IdentityNotFound`, and a call that creates a conversation or changes members fails with `IdentityNotFound`.
 
@@ -434,6 +434,8 @@ If the user removes an identity from the inbox, the identity no longer has acces
 ![An identity removed from an inbox](https://raw.githubusercontent.com/xmtp/docs-xmtp-org/refs/heads/main/docs/pages/img/removed-id.png)
 
 That identity no longer resolves to the former inbox. This does not revoke existing installation keys or erase their local messages. If someone sends a message to the identity, the message is not associated with the original inbox. A later client resolves the identity again. If it has no current association, the SDK falls back to the inbox ID derived from that identity and nonce. Do not assume this always creates a new inbox ID.
+
+A lookup of the removed identity no longer finds the former inbox. If no inbox holds the identity, `client.inboxIdFor` returns no inbox, and a call that creates a conversation or changes members fails. Static `inboxIdFor` returns the inbox ID that the identity derives with nonce 0 only while that inbox has no identity updates or still holds the identity. Otherwise it fails with `IdentityNotFound`.
 
 ### How is the recovery identity used?
 

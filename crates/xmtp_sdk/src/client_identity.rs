@@ -390,10 +390,10 @@ impl Client {
         Ok(result)
     }
 
-    /// The inbox of an account or a handle, or `None`. A handle resolves only
-    /// when the inbox the backend names holds it in its own identity log, and
-    /// an old handle of an inbox still resolves to it. This never derives an
-    /// inbox ID from a handle.
+    /// The inbox of an account or a handle, or `None`. Either resolves only
+    /// when the newest state of the inbox the backend names holds it in that
+    /// inbox's own identity log, and an old handle of an inbox still resolves
+    /// to it. This never derives an inbox ID.
     pub async fn inbox_id_for(
         &self,
         identity: PublicIdentity,
