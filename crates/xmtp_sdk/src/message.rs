@@ -383,7 +383,10 @@ impl Message {
             .as_ref()
             .and_then(|content| content.fallback.clone());
         let body = decoded.unwrap_or_else(|| {
-            xmtp_mls::messages::decoded_message::MessageBody::from_received_bytes(message_bytes)
+            xmtp_mls::messages::decoded_message::MessageBody::from_stored_bytes(
+                message_bytes,
+                value.kind,
+            )
         });
         let content = MessageContent::from_core(body, encoded.clone(), message_bytes)
             .unwrap_or_else(|error| MessageContent::Unknown {

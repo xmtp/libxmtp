@@ -2,6 +2,7 @@
 
 use super::mls_sync::publish::OutgoingPreparationError;
 use super::*;
+use crate::messages::decoded_message::carries_reserved_transcript;
 use crate::messages::enrichment::find_valid_deletion;
 
 /// An installation refresh before a send applies its membership change even
@@ -417,20 +418,11 @@ where
         Ok(false)
     }
 
-    /// Whether the outer content type is a reserved transcript type. Only the
-    /// `xmtp.org` authority reserves these type ids, at any version.
+    /// Whether content or any nested reply carries a reserved transcript type.
+    /// Only the `xmtp.org` authority reserves these type ids, at any version.
     // implements: GMOD-054
     pub(in crate::groups) fn is_reserved_transcript_content(message: &[u8]) -> bool {
-        encoded_content_type(message)
-            .ok()
-            .flatten()
-            .is_some_and(|content_type| {
-                content_type.authority_id == "xmtp.org"
-                    && matches!(
-                        content_type.type_id.as_str(),
-                        "group_updated" | "group_membership_change"
-                    )
-            })
+        carries_reserved_transcript(message)
     }
 
     /// Refuse a message whose outer content type is a reserved transcript
