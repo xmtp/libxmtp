@@ -1,0 +1,122 @@
+#!/usr/bin/env bash
+# A small host wrapper around sbx; configuration stays in sbxenv.yaml.
+set -euo pipefail
+
+tools="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+root="$(cd "$tools/../.." && pwd)"
+name=libxmtp-claude
+host="$name.sbx"
+environment="$tools/sbxenv.yaml"
+
+usage() {
+  echo 'Usage: dev/sbx/sandbox start [--api-key HOST PLACEHOLDER]... | pause | destroy | key HOST PLACEHOLDER'
+}
+validate_key_options() {
+  while (($#)); do
+    [[ $# -ge 3 && $1 == --api-key ]] || { usage >&2; exit 2; }
+    shift 3
+  done
+}
+fail() { echo "sandbox: $*" >&2; exit 1; }
+if [[ ${1:-} == --help || ${1:-} == -h ]]; then usage; exit; fi
+(($#)) || { usage >&2; exit 2; }
+action=$1; shift
+
+# Only jq and realpath need the repository's tools; sbx and Orca stay native.
+if ! command -v jq >/dev/null || ! command -v realpath >/dev/null; then
+  [[ ${LIBXMTP_SBX_NIX:-} != 1 ]] || fail 'jq and realpath are required'
+  exec env LIBXMTP_SBX_NIX=1 "$root/dev/nix-shell" --shell rust --command bash "$tools/sandbox" "$action" "$@"
+fi
+unset ORCA_ENVIRONMENT ORCA_PAIRING_CODE ORCA_REMOTE_PAIRING
+command -v sbx >/dev/null || fail 'Install Docker Sandboxes (sbx) first'
+inventory="$(sbx ls --json)"
+jq -e --arg name "$name" 'length <= 1 and all(.[]; .name == $name)' <<<"$inventory" >/dev/null \
+  || fail "Only $name may exist; remove other local sandboxes first"
+state="$(jq -r '.[0].status // "absent"' <<<"$inventory")"
+
+orca_adapter() {
+  local executable app
+  executable="$(command -v orca)" || fail 'Install the Orca CLI first'
+  executable="$(realpath "$executable")"
+  app="${executable%%.app/*}.app"
+  [[ -x $app/Contents/MacOS/Orca ]] || fail 'Could not locate Orca.app from its CLI'
+  ELECTRON_RUN_AS_NODE=1 "$app/Contents/MacOS/Orca" "$tools/orca.mjs" "$1" "$app" "$host"
+}
+local_orca() {
+  command -v orca >/dev/null || fail 'Install the Orca CLI first'
+  orca status --json >/dev/null 2>&1 || orca open --json >/dev/null
+}
+forget_orca() {
+  local connection identifier
+  local_orca
+  connection="$(orca_adapter lookup)"
+  identifier="$(jq -r '.environmentId // empty' <<<"$connection")"
+  if [[ -n $identifier ]]; then
+    orca environment forget --environment "$identifier" --yes --json >/dev/null
+  fi
+  orca_adapter remove >/dev/null
+}
+register_key() {
+  local target=$1 placeholder=$2 api_key secret_env
+  [[ $target =~ ^[A-Za-z0-9][A-Za-z0-9.-]*$ ]] || fail 'HOST must be a hostname, without a URL or port'
+  [[ $placeholder =~ ^sbx-[A-Za-z0-9_-]+$ ]] || fail 'PLACEHOLDER must start with sbx- and contain letters, digits, underscores, or hyphens'
+  [[ $state != absent ]] || fail 'Run start before registering a key'
+  secret_env="$(printf 'LIBXMTP_%s' "${placeholder//-/_}" | tr '[:lower:]' '[:upper:]')"
+  sbx policy allow network --sandbox "$name" "$target"
+  printf 'API key for %s [%s] (stored on host): ' "$target" "$placeholder" >&2
+  IFS= read -r -s api_key || [[ -n $api_key ]]
+  printf '\n'
+  [[ -n $api_key && ! $api_key =~ [[:space:]] ]] || fail 'The key must be nonempty and contain no whitespace'
+  if ! printf '%s\n' "$api_key" | sbx secret set-custom --sandbox "$name" \
+    --host "$target" --env "$secret_env" --placeholder "$placeholder" >/dev/null 2>&1; then
+    unset api_key
+    fail 'Could not register the key with the sandbox credential proxy'
+  fi
+  unset api_key
+  echo "Registered $placeholder for $target; the real key stays on the host."
+}
+
+case "$action" in
+  start)
+    validate_key_options "$@"
+    [[ $(sbx settings get ssh.agentForwardingEnabled) == false ]] \
+      || fail 'Disable host SSH-agent forwarding first; see dev/sbx/README.md'
+    DOCKER_SANDBOXES_ROOT_SIZE=150g DOCKER_SANDBOXES_DOCKER_SIZE=80g \
+      sbx env run --detach --force "$environment"
+    state=running
+    while (($#)); do
+      register_key "$2" "$3"
+      shift 3
+    done
+    sbx setup ssh
+    local_orca
+    connection="$(orca_adapter ensure)"
+    identifier="$(jq -er '.environmentId | select(type == "string" and length > 0)' <<<"$connection")"
+    orca status --environment "$identifier" --json \
+      | jq -e '.ok and .result.runtime.state == "ready" and .result.runtime.reachable' >/dev/null \
+      || fail 'Orca is not ready; see dev/sbx/README.md for recovery commands'
+    echo "Ready: $host; repository /home/agent/libxmtp"
+    ;;
+  pause)
+    (($# == 0)) || { usage >&2; exit 2; }
+    if [[ $state != absent ]]; then
+      # An Orca reconnect would wake a stopped VM, so unlink this target first.
+      forget_orca
+      sbx stop "$name"
+      [[ $(sbx ls --json | jq -r '.[0].status // "absent"') == stopped ]] \
+        || fail 'The VM did not remain stopped'
+    fi
+    echo 'Paused; the VM disk and scoped keys remain.'
+    ;;
+  destroy)
+    (($# == 0)) || { usage >&2; exit 2; }
+    if [[ $state != absent ]]; then forget_orca; fi
+    sbx env rm --force "$environment"
+    echo 'Deleted the VM disks and scoped keys.'
+    ;;
+  key)
+    (($# == 2)) || { usage >&2; exit 2; }
+    register_key "$1" "$2"
+    ;;
+  *) usage >&2; exit 2 ;;
+esac
