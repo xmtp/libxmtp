@@ -581,3 +581,85 @@ async fn test_operations_fail_when_not_ready() {
         err
     );
 }
+
+// An offline build makes no request. A stored log whose state needs a smart
+// contract wallet verdict, with no cached state, fails the identifier check
+// instead of asking the backend's verifier.
+#[rstest::rstest]
+#[xmtp_common::timeout(Duration::from_secs(60))]
+#[tokio::test]
+async fn offline_build_asks_no_verifier(#[future] docker_smart_wallet: SmartWalletContext) {
+    use crate::{builder::ClientBuilderError, identity::IdentityError};
+    use xmtp_db::{ConnectionExt, XmtpTestDb, diesel::RunQueryDsl};
+    let SmartWalletContext {
+        factory,
+        owner0: wallet,
+        sw,
+        sw_address,
+        ..
+    } = docker_smart_wallet.await;
+    let chain_id = factory.provider().get_chain_id().await.unwrap();
+    let account_address = format!("{sw_address}");
+    let ident = Identifier::eth(&account_address).unwrap();
+    let account_id = AccountId::new_evm(chain_id, account_address);
+    let inbox_id = ident.inbox_id(0).unwrap();
+    let path = xmtp_common::tmp_path();
+
+    let client = Client::builder(IdentityStrategy::new(inbox_id.clone(), ident.clone(), 0))
+        .store(xmtp_db::TestDb::create_persistent_store(Some(path.clone())).await)
+        .local()
+        .default_mls_store()
+        .unwrap()
+        .with_remote_verifier()
+        .unwrap()
+        .with_disable_workers(true)
+        .build()
+        .await
+        .unwrap();
+    let mut signature_request = client.context.signature_request().unwrap();
+    let hash_to_sign = alloy::primitives::eip191_hash_message(signature_request.signature_text());
+    let rsh = sw.replaySafeHash(hash_to_sign).call().await.unwrap();
+    let signed_hash = wallet.sign_hash(&rsh).await.unwrap().as_bytes().to_vec();
+    let signature_bytes = SignatureWithNonce::abi_encode(&(U256::from(0), signed_hash));
+    signature_request
+        .add_new_unverified_smart_contract_signature(
+            NewUnverifiedSmartContractWalletSignature::new(signature_bytes, account_id, None),
+            &client.scw_verifier(),
+        )
+        .await
+        .unwrap();
+    client.register_identity(signature_request).await.unwrap();
+    // Only the log stays: no derived state is cached.
+    client
+        .context
+        .db()
+        .raw_query(|c| {
+            xmtp_db::diesel::delete(xmtp_db::schema::association_state::table).execute(c)
+        })
+        .unwrap();
+    drop(client);
+
+    // Any request the offline build sent would reach no backend.
+    let mut api = xmtp_api_backend::MessageBackendBuilder::new();
+    api.host("http://127.0.0.1:1");
+    let offline = Client::builder(IdentityStrategy::new(inbox_id.clone(), ident, 0))
+        .api_client_with_streams(api.build().unwrap())
+        .with_remote_verifier()
+        .unwrap()
+        .store(xmtp_db::TestDb::create_persistent_store(Some(path)).await)
+        .default_mls_store()
+        .unwrap()
+        .with_allow_offline(Some(true))
+        .with_disable_workers(true)
+        .build()
+        .await;
+    assert!(
+        matches!(
+            &offline,
+            Err(ClientBuilderError::Identity(IdentityError::IdentifierNotInInbox { inbox_id: found }))
+                if *found == inbox_id
+        ),
+        "build: {:?}",
+        offline.err()
+    );
+}

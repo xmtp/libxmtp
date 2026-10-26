@@ -676,16 +676,22 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
         // The identity store trusts a stored identity of the same inbox. The
         // check runs on the identity updates loaded above and before any
         // worker, so a rejected identifier makes no request as the stored
-        // installation.
+        // installation. Offline, it reads only the database.
         // implements: IDENT-096
         if let Some((identifier, nonce)) = identifier_check {
-            let membership = crate::identity_updates::identifier_membership(
-                &conn,
-                &identity.inbox_id,
-                &identifier,
-                &scw_verifier,
-            )
-            .await?;
+            let inbox_id = identity.inbox_id.as_str();
+            let membership = if allow_offline {
+                crate::identity_updates::stored_identifier_membership(&conn, inbox_id, &identifier)
+                    .await?
+            } else {
+                crate::identity_updates::identifier_membership(
+                    &conn,
+                    inbox_id,
+                    &identifier,
+                    &scw_verifier,
+                )
+                .await?
+            };
             if !crate::identity_updates::identifier_opens_inbox(
                 membership,
                 &identifier,
