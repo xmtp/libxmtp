@@ -44,6 +44,7 @@ Out of scope: the join itself and its rejections (`JOIN`), component ids and enc
 | Activity timestamp | The retained `last_message_ns` value used for conversation ordering, including a value imported under ARCH-014. It can outlive the messages that supplied it. |
 | Restored placeholder | A group imported without MLS state under ARCH-015. |
 | Fixed DM policy | The policy values of section 2. |
+| DM registry profile | A numbered list of the registry entries outside the application range that a DM holds from its creation, defined in section 2. |
 | Membership-change message | A message for a commit or join that carries a `GroupUpdated` payload. |
 
 ## 1. The DM pair and its identifier
@@ -55,7 +56,7 @@ A DM is between two different inboxes. A client does not create a DM with itself
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
 | DMS-001 | Dm id derivation | The client MUST derive a DM's dm id as `dm:` followed by the two inbox ids of `DM_MEMBERS` in lowercase hexadecimal, sorted ascending by byte order and joined by `:`. | Two installations that derive it differently import each other's archives and consent records into different conversations. |
-| DMS-002 | What a creator writes | When a client creates a DM, it MUST set `CONVERSATION_TYPE` to `CONVERSATION_TYPE_DM`, `DM_MEMBERS` to its own inbox id and one distinct inbox id, and both `ADMIN_LIST` and `SUPER_ADMIN_LIST` to empty sets. It MUST initialize the registry policies to the values in the fixed DM policy tables in section 2. | |
+| DMS-002 | What a creator writes | When a client creates a DM, it MUST set `CONVERSATION_TYPE` to `CONVERSATION_TYPE_DM`, `DM_MEMBERS` to its own inbox id and one distinct inbox id, and both `ADMIN_LIST` and `SUPER_ADMIN_LIST` to empty sets. It MUST write, at ids outside the application range, exactly the registry entries of one DM registry profile of section 2. | A joiner rejects a DM whose entries match no profile (DMS-021). |
 
 ## 2. The fixed DM policy
 
@@ -66,7 +67,7 @@ A DM's fixed policies deny inbox additions, inbox removals, and admin changes. D
 | `GROUP_MEMBERSHIP` | `METADATA_BASE_POLICY_DENY` | `METADATA_BASE_POLICY_ALLOW` | `METADATA_BASE_POLICY_DENY` |
 | `ADMIN_LIST` | `METADATA_BASE_POLICY_DENY` | `METADATA_BASE_POLICY_DENY` | `METADATA_BASE_POLICY_DENY` |
 
-The settings policies below apply at creation under DMS-002. The component names and wire ids belong to META section 2. Permission evaluation belongs to PERM-011. Clearing disappearing settings writes disabled values instead of removing the components. The `USER_DISPLAY_NAME` row applies under META-066 rather than DMS-002, with the policies of PERM-029. A DM registry has no `GROUP_IMAGE` entry.
+The settings policies below apply at creation under DMS-002. The component names and wire ids belong to META section 2. Permission evaluation belongs to PERM-011. Clearing disappearing settings writes disabled values instead of removing the components. The `USER_DISPLAY_NAME` row has the policies of PERM-029, which META-066 also requires. A DM registry has no `GROUP_IMAGE` entry.
 
 | Registry entries | `insert_policy` | `update_policy` | `delete_policy` |
 | --- | --- | --- | --- |
@@ -75,9 +76,11 @@ The settings policies below apply at creation under DMS-002. The component names
 | `USER_DISPLAY_NAME` | `METADATA_BASE_POLICY_ALLOW_IF_SELF_OR_NON_MEMBER` | `METADATA_BASE_POLICY_ALLOW_IF_SELF_OR_NON_MEMBER` | `METADATA_BASE_POLICY_ALLOW_IF_SELF_OR_NON_MEMBER` |
 | `CONVERSATION_TYPE`, `CREATOR_INBOX_ID`, `DM_MEMBERS`, `GROUP_ROOT_KEY` | `METADATA_BASE_POLICY_ALLOW_IF_SUPER_ADMIN` | `METADATA_BASE_POLICY_DENY` | `METADATA_BASE_POLICY_DENY` |
 
+The two tables above are DM registry profile 1. A DM registry profile lists, for each component it names, one registry entry whose bytes are the serialized `ComponentMetadata` holding that component's `component_type` from META section 2 and the three policies of its table row, with no other field and its fields in field-number order. A change to the entries a creator writes outside the application range, such as a new well-known component or a new `ComponentMetadata` field, is a new profile with the next number. A profile is never changed or removed, because a DM keeps the entries it was created with for its life and new installations keep joining it. A release writes a new profile only after the minimum client version (CONF-036) excludes every client that does not accept it.
+
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
-| DMS-021 | A DM is what it claims | When a client joins a DM, it MUST verify that `DM_MEMBERS` is the distinct pair of META-030 and includes its own inbox, that the adder under JOIN-025 is either inbox of that pair, that every `GROUP_MEMBERSHIP` entry and every ratchet-tree leaf names an inbox in that pair, and that `SUPER_ADMIN_LIST` and `ADMIN_LIST` are empty. It MUST also verify, including when the adder is its own inbox, that the registry's entries at ids outside the application range are exactly one for each component that the fixed DM policy tables in section 2 list, each byte-equal to the serialized `ComponentMetadata` that holds that component's `component_type` from META section 2 and the three policies of its table row, with no other field and its fields in field-number order. If any check fails, it MUST reject the Welcome under JOIN-060. | Valid credentials for a third inbox do not make it a participant. PERM-026 lets no participant change a registry entry outside the application range, so an entry that differs, such as a `GROUP_MEMBERSHIP` update policy of deny or a field a later release would read, stays for the DM's life. |
+| DMS-021 | A DM is what it claims | When a client joins a DM, it MUST verify that `DM_MEMBERS` is the distinct pair of META-030 and includes its own inbox, that the adder under JOIN-025 is either inbox of that pair, that every `GROUP_MEMBERSHIP` entry and every ratchet-tree leaf names an inbox in that pair, and that `SUPER_ADMIN_LIST` and `ADMIN_LIST` are empty. It MUST also verify, including when the adder is its own inbox, that the registry's entries at ids outside the application range are exactly the entries of one DM registry profile of section 2, each byte-equal to that profile's entry for its id. If any check fails, it MUST reject the Welcome under JOIN-060. | Valid credentials for a third inbox do not make it a participant. PERM-026 lets no participant change a registry entry outside the application range, so an entry that differs, such as a `GROUP_MEMBERSHIP` update policy of deny or a field a later release would read, stays for the DM's life. A client that accepts only the newest profile rejects every older DM when a new installation joins it. |
 | DMS-004 | Only the pair is added | When a proposal in a DM adds exactly the other inbox of `DM_MEMBERS` relative to its proposer, the client MUST allow that inbox's `GROUP_MEMBERSHIP` insertion and its MLS Add proposals despite the fixed deny policy, subject to all other validation. It MUST reject an inbox addition outside that exception. | Without the exception the DM cannot gain its second participant. |
 
 ## 3. Duplicate groups and the winner
@@ -130,7 +133,7 @@ The winner can change when another group's activity timestamp becomes greater, i
 
 A Restored DM can contain history for two inboxes other than the importing inbox. It has no peer relative to that inbox under DMS-017. It stays inactive until a validated Welcome joins the exact stored pair and kind. Import preserves that pair, but current placeholder metadata can still replace other archived values such as creator and adder; ARCH-020 remains open for those values.
 
-A DM has no super admin, so its well-known registry entries cannot be changed through the fixed policies. Only application registry entries can change, under PERM-026. Because DMS-021 compares the entries outside the application range byte for byte at the join, a change to the entries a DM creator writes, including a new field in `ComponentMetadata`, makes older joiners reject new DMs, so every member must upgrade before creators write it.
+A DM has no super admin, so its well-known registry entries cannot be changed through the fixed policies. Only application registry entries can change, under PERM-026. A DM therefore keeps the profile it was created with for its life, and a component that a later profile adds is absent from older DMs. A client rejects a DM whose profile it does not know (DMS-021), so a creator that writes a new profile before every client accepts it makes those clients reject the DM.
 
 History imported from an archive is trusted as written, because the archive key is its only authentication. Import does not check a message's sender against the DM pair, so an archive can add history under any sender to a DM, and the stitched thread shows that history. The client does not check a stored DM against DMS-021 again after its join, because that check would load the MLS state of every stored DM at each client open. A DM that an older client accepted with an inbox outside its pair therefore stays in the stitched thread.
 
