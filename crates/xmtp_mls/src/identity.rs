@@ -107,7 +107,12 @@ impl IdentityStrategy {
     }
 
     /// Create an [`IdentityStrategy::CreateForIdentifier`], for a caller that
-    /// does not know the identifier's inbox.
+    /// does not know the identifier's inbox. The build takes the inbox the
+    /// backend names, or the one the identifier creates at `nonce`, and fails
+    /// with [`IdentityError::IdentifierNotInInbox`] unless the identifier
+    /// belongs to it, as
+    /// [`ClientBuilder::require_identifier_in_inbox`](crate::builder::ClientBuilder::require_identifier_in_inbox)
+    /// describes.
     pub fn for_identifier(identifier: Identifier, nonce: u64) -> Self {
         Self::CreateForIdentifier { identifier, nonce }
     }

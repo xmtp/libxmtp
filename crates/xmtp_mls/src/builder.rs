@@ -632,15 +632,15 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             scw_verifier = Box::new(api_client.clone());
         }
 
+        // A strategy for an identifier takes its inbox from the backend's
+        // answer, so the build always checks the identifier against it.
         let identifier_check = match &identity_strategy {
-            IdentityStrategy::CreateIfNotFound {
-                identifier, nonce, ..
-            }
-            | IdentityStrategy::CreateForIdentifier { identifier, nonce }
-                if require_identifier_in_inbox =>
-            {
+            IdentityStrategy::CreateForIdentifier { identifier, nonce } => {
                 Some((identifier.clone(), *nonce))
             }
+            IdentityStrategy::CreateIfNotFound {
+                identifier, nonce, ..
+            } if require_identifier_in_inbox => Some((identifier.clone(), *nonce)),
             _ => None,
         };
         let mut identity = if let Some(identity) = identity {
@@ -676,6 +676,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
         // check runs on the identity updates loaded above and before any
         // worker, so a rejected identifier makes no request as the stored
         // installation.
+        // implements: IDENT-096
         if let Some((identifier, nonce)) = identifier_check {
             let membership = crate::identity_updates::identifier_membership(
                 &conn,
@@ -1302,6 +1303,8 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
     /// only the identifier whose inbox at the strategy's nonce is that inbox
     /// belongs to it. A failure is
     /// [`IdentityError::IdentifierNotInInbox`](crate::identity::IdentityError::IdentifierNotInInbox).
+    /// A build with [`IdentityStrategy::for_identifier`] always makes this
+    /// check.
     pub fn require_identifier_in_inbox(self) -> Self {
         Self {
             require_identifier_in_inbox: true,

@@ -1,16 +1,24 @@
 //! Routes that take accounts or handles.
 
-use super::{random_handle, scripted_client, wait_until_claim_visible};
+use super::{
+    LookupScript, ScriptedLookups, random_handle, scripted_client, wait_until_claim_visible,
+};
 use crate::{
+    builder::ClientBuilderError,
     client::ClientError,
     context::XmtpSharedContext,
     groups::GroupError,
+    identity::{IdentityError, IdentityStrategy},
     inbox_handles::{HandleError, IdentityTarget},
     tester,
 };
-use std::collections::HashSet;
+use parking_lot::Mutex;
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 use xmtp_cryptography::utils::generate_local_wallet;
-use xmtp_db::{NotFound, StorageError, prelude::*};
+use xmtp_db::{NotFound, StorageError, XmtpTestDb, prelude::*};
 use xmtp_id::associations::{
     Identifier,
     test_utils::{WalletTestExt, add_wallet_signature},
@@ -383,4 +391,46 @@ async fn an_inbox_the_account_left_is_rejected() {
             .find_active_dm_group(&dm_with_bo)?
             .is_none()
     );
+}
+
+// verifies: IDENT-096
+#[xmtp_common::test(unwrap_try = true)]
+async fn an_identity_for_an_account_rejects_an_unheld_answer() {
+    tester!(bo);
+    let wallet = generate_local_wallet();
+    // A build that looks the wallet's inbox up, without opting in to the
+    // identifier check.
+    let build = async |lies: HashMap<String, String>| {
+        let api = ScriptedLookups {
+            inner: bo.context.api().api_client.raw_for_test().clone(),
+            script: Arc::new(Mutex::new(LookupScript {
+                lies,
+                ..Default::default()
+            })),
+        };
+        crate::Client::builder(IdentityStrategy::for_identifier(wallet.identifier(), 0))
+            .api_client(api)
+            .with_remote_verifier()?
+            .store(xmtp_db::TestDb::create_ephemeral_store().await)
+            .default_mls_store()?
+            .with_disable_workers(true)
+            .build()
+            .await
+    };
+
+    // The backend names bo for a wallet that bo's log never holds.
+    let lie = HashMap::from([(wallet.identifier().to_string(), bo.inbox_id().to_owned())]);
+    let lied = build(lie).await;
+    assert!(
+        matches!(
+            &lied,
+            Err(ClientBuilderError::Identity(IdentityError::IdentifierNotInInbox { inbox_id }))
+                if inbox_id == bo.inbox_id()
+        ),
+        "build: {:?}",
+        lied.err()
+    );
+    // A new wallet still gets the inbox it creates, which has no update yet.
+    let client = build(HashMap::new()).await?;
+    assert_eq!(client.inbox_id(), wallet.identifier().inbox_id(0)?);
 }
