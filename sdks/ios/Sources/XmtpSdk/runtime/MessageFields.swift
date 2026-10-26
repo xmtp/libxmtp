@@ -35,6 +35,10 @@ public extension Message {
         data.`expiresAt`
     }
 
+    var `expiryUnknown`: Bool {
+        data.`expiryUnknown`
+    }
+
     var `kind`: MessageKind {
         data.`kind`
     }

@@ -22,6 +22,8 @@ message GroupMessageSave {
   optional int64 sequence_id = 14;
   optional int64 originator_id = 15;
   string content_type = 16;
+  optional int64 expires_at_ns = 17;
+  optional bool expiry_known = 18;
 }
 
 // Group message kind

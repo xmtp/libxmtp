@@ -40,6 +40,7 @@ fn cached_text_row(
         version_minor: 0,
         authority_id: "xmtp.org".into(),
         reference_id: None,
+        expiry_unknown: false,
         expire_at_ns: None,
         sequence_id: 900_001,
         envelope_hash: None,
@@ -510,6 +511,7 @@ async fn test_true_out_of_order_deletion_by_sender() {
         version_minor: 0,
         authority_id: "xmtp.org".to_string(),
         reference_id: None,
+        expiry_unknown: false,
         expire_at_ns: None,
         sequence_id: 2,
         envelope_hash: None,
@@ -576,6 +578,7 @@ async fn test_true_out_of_order_deletion_by_sender() {
         version_minor: 0,
         authority_id: "xmtp.org".to_string(),
         reference_id: None,
+        expiry_unknown: false,
         expire_at_ns: None,
         sequence_id: 1,
         envelope_hash: None,
@@ -676,6 +679,7 @@ async fn out_of_order_admin_delete_of_expired_message_names_the_admin() {
     futures::pin_mut!(deletions);
 
     let target = StoredGroupMessage {
+        expiry_unknown: false,
         expire_at_ns: Some(xmtp_common::time::now_ns() - 1),
         ..cached_text_row(alix_group.group_id, target_id.clone(), "sender", "xmtp.org")?
     };
@@ -749,6 +753,7 @@ async fn test_out_of_order_unauthorized_deletion_rejected() {
         version_minor: 0,
         authority_id: "xmtp.org".to_string(),
         reference_id: None,
+        expiry_unknown: false,
         expire_at_ns: None,
         sequence_id: 3,
         envelope_hash: None,
@@ -789,6 +794,7 @@ async fn test_out_of_order_unauthorized_deletion_rejected() {
         version_minor: 0,
         authority_id: "xmtp.org".to_string(),
         reference_id: None,
+        expiry_unknown: false,
         expire_at_ns: None,
         sequence_id: 2,
         envelope_hash: None,
@@ -1691,6 +1697,7 @@ async fn test_out_of_order_sender_deletion_shows_correct_deleted_by() {
         version_minor: 0,
         authority_id: "xmtp.org".to_string(),
         reference_id: None,
+        expiry_unknown: false,
         expire_at_ns: None,
         sequence_id: 1,
         envelope_hash: None,
@@ -1730,6 +1737,7 @@ async fn test_out_of_order_sender_deletion_shows_correct_deleted_by() {
         version_minor: 0,
         authority_id: "xmtp.org".to_string(),
         reference_id: None,
+        expiry_unknown: false,
         expire_at_ns: None,
         sequence_id: 2,
         envelope_hash: None,

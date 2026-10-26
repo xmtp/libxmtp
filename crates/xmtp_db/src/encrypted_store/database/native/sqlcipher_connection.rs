@@ -847,6 +847,15 @@ mod tests {
                 );
             }
             diesel::sql_query(
+                "INSERT INTO groups (id, created_at_ns, membership_state, installations_last_checked, added_by_inbox_id)
+                 VALUES (zeroblob(32), 1, 4, 0, '')",
+            ).execute(conn)?;
+            diesel::sql_query(
+                "INSERT INTO group_messages (id, group_id, decrypted_message_bytes, sent_at_ns,
+                 sender_installation_id, sender_inbox_id, authority_id, sequence_id)
+                 VALUES (zeroblob(32), zeroblob(32), x'01', 1, x'01', 'sender', 'xmtp.org', 0)",
+            ).execute(conn)?;
+            diesel::sql_query(
                 "INSERT INTO refresh_state (entity_id, entity_kind, sequence_id) VALUES (x'01', 1, 0)",
             )
             .execute(conn)?;
@@ -914,6 +923,11 @@ mod tests {
                 .get_result::<Count>(conn)
         })?;
         assert_eq!(generation.count, 0);
+        let expiry = connection.raw_query(|conn| {
+            diesel::sql_query("SELECT expiry_unknown AS count FROM group_messages")
+                .get_result::<Count>(conn)
+        })?;
+        assert_eq!(expiry.count, 0);
         let latest = connection.raw_query(|conn| {
             conn.applied_migrations()
                 .map_err(diesel::result::Error::QueryBuilderError)

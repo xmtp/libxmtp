@@ -90,6 +90,9 @@ pub struct StoredGroupMessage {
     pub inserted_at_ns: i64,
     /// Timestamp (in NS) after which the message must be deleted
     pub expire_at_ns: Option<i64>,
+    /// Historical expiry information was absent when this message was imported.
+    #[serde(default)]
+    pub expiry_unknown: bool,
     /// Whether to send a push notification when publishing this message
     pub should_push: bool,
     /// The idempotency key the message id is derived from. Defaults to the send
@@ -144,6 +147,7 @@ struct NewStoredGroupMessage {
     pub expiry_ns: Option<i64>,
     // inserted_at_ns is NOT included - let database set it
     pub expire_at_ns: Option<i64>,
+    pub expiry_unknown: bool,
     pub should_push: bool,
     pub idempotency_key: String,
 }
@@ -167,6 +171,7 @@ impl From<&StoredGroupMessage> for NewStoredGroupMessage {
             sequence_id: msg.sequence_id,
             envelope_hash: msg.envelope_hash.clone(),
             expiry_ns: msg.expiry_ns,
+            expiry_unknown: msg.expiry_unknown,
             expire_at_ns: msg.expire_at_ns,
             should_push: msg.should_push,
             idempotency_key: msg.idempotency_key.clone(),

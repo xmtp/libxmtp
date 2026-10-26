@@ -31,6 +31,7 @@ pub(crate) fn generate_message(
         expiry_ns: None,
 
         expire_at_ns,
+        expiry_unknown: false,
         inserted_at_ns: 0, // Will be set by database
         should_push: true,
         idempotency_key: String::new(),
@@ -62,6 +63,7 @@ pub(crate) fn generate_message_with_reference<C: ConnectionExt>(
         envelope_hash: None,
         expiry_ns: None,
 
+        expiry_unknown: false,
         expire_at_ns: None,
         inserted_at_ns: 0, // Will be set by database
         should_push: true,

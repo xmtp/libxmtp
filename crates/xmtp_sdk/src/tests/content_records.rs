@@ -250,3 +250,28 @@ fn standard_content_types_decode_to_records() {
         ));
     }
 }
+
+// verifies: ARCH-019
+#[xmtp_common::test(unwrap_try = true)]
+fn message_data_reports_unknown_expiry() {
+    use xmtp_db::group_message::StoredGroupMessage;
+    use xmtp_proto::xmtp::device_sync::message_backup::{
+        DeliveryStatusSave, GroupMessageKindSave, GroupMessageSave,
+    };
+    let base = StoredGroupMessage::try_from(GroupMessageSave {
+        id: vec![1; 32],
+        group_id: vec![2; 32],
+        sender_inbox_id: hex::encode([3; 32]),
+        kind: GroupMessageKindSave::Application as i32,
+        delivery_status: DeliveryStatusSave::Published as i32,
+        ..Default::default()
+    })?;
+    for (deadline, unknown) in [(Some(123_456_789), false), (None, false), (None, true)] {
+        let mut stored = base.clone();
+        stored.expire_at_ns = deadline;
+        stored.expiry_unknown = unknown;
+        let message = crate::Message::from_stored(stored, 0)?.0;
+        assert_eq!(message.expiry_unknown, unknown);
+        assert_eq!(message.expires_at.map(|time| time.0), deadline);
+    }
+}

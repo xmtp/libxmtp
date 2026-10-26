@@ -115,7 +115,11 @@ fn read_in_transaction(
             messages = messages.filter(group_messages::sent_at_ns.le(end_ns));
         }
         messages = if opts.exclude_disappearing_messages {
-            messages.filter(group_messages::expire_at_ns.is_null())
+            messages.filter(
+                group_messages::expire_at_ns
+                    .is_null()
+                    .and(group_messages::expiry_unknown.eq(false)),
+            )
         } else {
             messages.filter(
                 group_messages::expire_at_ns

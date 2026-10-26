@@ -185,6 +185,8 @@ async fn stable_history_metadata_and_exclusions() {
             assert_eq!(message.content_type, "text");
             assert_eq!(message.version_major, 1);
             assert_eq!(message.delivery_status, 2);
+            assert_eq!(message.expires_at_ns, None);
+            assert_eq!(message.expiry_known, None);
         }
         let Element::Consent(consent) = &records[5] else {
             panic!("missing consent")

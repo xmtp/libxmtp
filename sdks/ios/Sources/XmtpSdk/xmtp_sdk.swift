@@ -13733,6 +13733,7 @@ public struct MessageData: Equatable, Hashable {
     public var sentAt: Timestamp
     public var insertedAt: Timestamp
     public var expiresAt: Timestamp?
+    public var expiryUnknown: Bool
     public var kind: MessageKind
     public var deliveryStatus: DeliveryStatus
     /**
@@ -13764,7 +13765,7 @@ public struct MessageData: Equatable, Hashable {
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(id: MessageId, clientKey: UInt64, deliveryCursor: String? = nil, conversationId: ConversationId, topic: String, senderInboxId: InboxId, sentAt: Timestamp, insertedAt: Timestamp, expiresAt: Timestamp?, kind: MessageKind, deliveryStatus: DeliveryStatus,
+    public init(id: MessageId, clientKey: UInt64, deliveryCursor: String? = nil, conversationId: ConversationId, topic: String, senderInboxId: InboxId, sentAt: Timestamp, insertedAt: Timestamp, expiresAt: Timestamp?, expiryUnknown: Bool = false, kind: MessageKind, deliveryStatus: DeliveryStatus,
         /**
          * The original received serialization. Empty after deletion.
          */rawBytes: Data,
@@ -13791,6 +13792,7 @@ public struct MessageData: Equatable, Hashable {
         self.sentAt = sentAt
         self.insertedAt = insertedAt
         self.expiresAt = expiresAt
+        self.expiryUnknown = expiryUnknown
         self.kind = kind
         self.deliveryStatus = deliveryStatus
         self.rawBytes = rawBytes
@@ -13829,6 +13831,7 @@ public struct FfiConverterTypeMessageData: FfiConverterRustBuffer {
                 sentAt: FfiConverterTypeTimestamp.read(from: &buf),
                 insertedAt: FfiConverterTypeTimestamp.read(from: &buf),
                 expiresAt: FfiConverterOptionTypeTimestamp.read(from: &buf),
+                expiryUnknown: FfiConverterBool.read(from: &buf),
                 kind: FfiConverterTypeMessageKind.read(from: &buf),
                 deliveryStatus: FfiConverterTypeDeliveryStatus.read(from: &buf),
                 rawBytes: FfiConverterData.read(from: &buf),
@@ -13853,6 +13856,7 @@ public struct FfiConverterTypeMessageData: FfiConverterRustBuffer {
         FfiConverterTypeTimestamp.write(value.sentAt, into: &buf)
         FfiConverterTypeTimestamp.write(value.insertedAt, into: &buf)
         FfiConverterOptionTypeTimestamp.write(value.expiresAt, into: &buf)
+        FfiConverterBool.write(value.expiryUnknown, into: &buf)
         FfiConverterTypeMessageKind.write(value.kind, into: &buf)
         FfiConverterTypeDeliveryStatus.write(value.deliveryStatus, into: &buf)
         FfiConverterData.write(value.rawBytes, into: &buf)

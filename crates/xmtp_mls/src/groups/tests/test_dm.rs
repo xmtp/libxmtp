@@ -35,6 +35,7 @@ fn archived_message(
         sequence_id: 1,
         envelope_hash: None,
         expiry_ns: None,
+        expiry_unknown: false,
         expire_at_ns: None,
         inserted_at_ns: 0,
         should_push: false,
