@@ -1,6 +1,10 @@
 //! Extension and group-config builders, plus DM validation.
 
 use super::*;
+use xmtp_mls_common::app_data::{
+    component_id::ComponentId, component_registry::ComponentRegistry,
+    creation::dm_creation_registry,
+};
 use xmtp_mls_validation::commit::{extract_group_membership, inbox_id_from_credential};
 
 // implements: DMS-001, ARCH-020
@@ -178,25 +182,25 @@ pub(in crate::groups) fn validate_dm_group(
         return Err(DmValidationError::MustHaveEmptyAdminAndSuperAdmin.into());
     }
 
-    // Validate permissions so no one adds us to a dm that they can unexpectedly add another member to
-    // Note: we don't validate mutable metadata permissions, because they don't affect group membership
-    let permissions = group_permissions::policy_set_from_dictionary(mls_group.extensions())?;
-    let mut expected_permissions = GroupMutablePermissions::new(PolicySet::new_dm());
-    // Dictionary permission updates require a super admin. A DM has none.
-    expected_permissions.policies.update_permissions_policy =
-        group_permissions::PermissionsPolicies::allow_if_actor_super_admin();
-
-    if permissions.policies.add_member_policy != expected_permissions.policies.add_member_policy
-        || permissions.policies.remove_member_policy
-            != expected_permissions.policies.remove_member_policy
-        || permissions.policies.add_admin_policy != expected_permissions.policies.add_admin_policy
-        || permissions.policies.remove_admin_policy
-            != expected_permissions.policies.remove_admin_policy
-        || permissions.policies.update_permissions_policy
-            != expected_permissions.policies.update_permissions_policy
-    {
+    // No DM participant can change a registry entry outside the application
+    // range, so whatever the DM holds there at the join stays for its life.
+    // Compare raw bytes: decoding drops unknown fields that a later release
+    // could read.
+    let expected = PolicySet::new_dm()
+        .to_proto()
+        .ok()
+        .and_then(|policies| dm_creation_registry(&policies).ok())
+        .ok_or(DmValidationError::InvalidPermissions)?;
+    let received = app_data::load_component_registry(mls_group)?;
+    if !protocol_entries(&received).eq(protocol_entries(&expected)) {
         return Err(DmValidationError::InvalidPermissions.into());
     }
 
     Ok(())
+}
+
+/// The registry entries outside the application range, which no DM
+/// participant can change.
+fn protocol_entries(registry: &ComponentRegistry) -> impl Iterator<Item = (ComponentId, &[u8])> {
+    registry.raw_entries().filter(|(id, _)| !id.is_app_range())
 }

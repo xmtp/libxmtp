@@ -65,6 +65,19 @@ pub fn synthesize_registry_from_policy_set(
     build_registry(policy_set, true, true, true)
 }
 
+/// The registry a new DM writes for `policy_set`, without catalogue entries.
+/// It registers `DM_MEMBERS` and `GROUP_ROOT_KEY`, which every joinable DM
+/// holds, and no `ONESHOT_MESSAGE` or `GROUP_IMAGE`. A joiner compares the
+/// DM's entries outside the application range with these, byte for byte, so
+/// [`initial_dictionary`] for a DM must write the same entries.
+pub fn dm_creation_registry(
+    policy_set: &PolicySetProto,
+) -> Result<ComponentRegistry, MigrationError> {
+    let mut registry = build_registry(policy_set, true, false, true)?;
+    register_configured_fields(&mut registry, ConversationType::Dm, &[])?;
+    Ok(registry)
+}
+
 pub(crate) fn build_registry(
     policy_set: &PolicySetProto,
     include_dm_members: bool,

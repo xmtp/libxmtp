@@ -38,7 +38,7 @@ fn archived_message(
     }
 }
 
-// verifies: JOIN-080, JOIN-044
+// verifies: DMS-021, JOIN-080, JOIN-044
 #[xmtp_common::test(unwrap_try = true)]
 async fn restored_dm_placeholder_activates_with_archived_history() {
     use xmtp_db::{
@@ -88,7 +88,7 @@ async fn restored_dm_placeholder_activates_with_archived_history() {
     assert!(bo.group(&dm.group_id)?.is_active()?);
 }
 
-// verifies: JOIN-080, JOIN-044
+// verifies: DMS-021, JOIN-080, JOIN-044
 #[xmtp_common::test(unwrap_try = true)]
 async fn restored_dm_backup_stub_activates_with_archived_history() {
     use xmtp_db::{
@@ -294,15 +294,13 @@ fn dictionary_native_dm(
     allow_add_member: bool,
 ) -> openmls::group::MlsGroup {
     use crate::groups::group_permissions::{MembershipPolicies, PolicySet};
-    use xmtp_mls_common::app_data::creation::synthesize_registry_from_policy_set;
+    use xmtp_mls_common::app_data::creation::dm_creation_registry;
 
-    // Build the dictionary directly. DM bootstrap synthesis is a separate task.
     let mut policies = PolicySet::new_dm();
     if allow_add_member {
         policies.add_member_policy = MembershipPolicies::allow();
     }
-    let policy_proto = policies.to_proto().unwrap();
-    let registry = synthesize_registry_from_policy_set(&policy_proto).unwrap();
+    let registry = dm_creation_registry(&policies.to_proto().unwrap()).unwrap();
     dictionary_native_dm_with_registry(context, added_by_inbox, registry)
 }
 
@@ -402,6 +400,9 @@ fn dictionary_native_dm_with_registry(
     .unwrap()
 }
 
+/// A DM that `find_or_create_dm` creates passes the joiner's byte
+/// comparison of its registry, so creator and joiner agree.
+// verifies: DMS-021, DMS-002
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_dictionary_native_dm_accepts_valid_permissions() {
     tester!(alix, disable_workers);
@@ -423,12 +424,15 @@ async fn test_dictionary_native_dm_accepts_valid_permissions() {
     );
 }
 
+// verifies: DMS-021
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_dictionary_native_dm_rejects_add_member_policy_alone() {
     use crate::groups::{DmValidationError, MetadataPermissionsError};
 
     tester!(alix);
     let added_by = hex::encode([0x42; 32]);
+    let standard = dictionary_native_dm(&alix.context, &added_by, false);
+    crate::groups::validate_dm_group(&alix.context, &standard, &added_by)?;
     let group = dictionary_native_dm(&alix.context, &added_by, true);
     let result = crate::groups::validate_dm_group(&alix.context, &group, &added_by);
     assert!(
@@ -440,4 +444,217 @@ async fn test_dictionary_native_dm_rejects_add_member_policy_alone() {
         ),
         "unexpected validation result: {result:?}"
     );
+}
+
+/// The registry entries a new DM writes, as raw `(id, bytes)` pairs.
+fn standard_dm_registry_entries() -> Vec<(
+    xmtp_mls_common::app_data::component_id::ComponentId,
+    Vec<u8>,
+)> {
+    use crate::groups::group_permissions::PolicySet;
+    use xmtp_mls_common::app_data::creation::dm_creation_registry;
+
+    dm_creation_registry(&PolicySet::new_dm().to_proto().unwrap())
+        .unwrap()
+        .raw_entries()
+        .map(|(id, bytes)| (id, bytes.to_vec()))
+        .collect()
+}
+
+/// A registry holding exactly `entries`, including bytes that do not decode.
+fn raw_registry(
+    entries: Vec<(
+        xmtp_mls_common::app_data::component_id::ComponentId,
+        Vec<u8>,
+    )>,
+) -> xmtp_mls_common::app_data::component_registry::ComponentRegistry {
+    use tls_codec::{Serialize, VLBytes};
+    use xmtp_mls_common::{app_data::component_registry::ComponentRegistry, tls_map::TlsMap};
+
+    let map: TlsMap<_, _> = entries
+        .into_iter()
+        .map(|(id, bytes)| (id, VLBytes::new(bytes)))
+        .collect();
+    ComponentRegistry::from_bytes(&map.tls_serialize_detached().unwrap()).unwrap()
+}
+
+/// A DM whose `GROUP_MEMBERSHIP` update policy denies would refuse every
+/// later sequence bump of its members, and no participant could repair the
+/// entry. The joiner rejects it at the Welcome.
+// verifies: DMS-021
+#[xmtp_common::test(unwrap_try = true)]
+async fn dm_welcome_rejects_registry_that_blocks_membership_updates() {
+    use crate::groups::{
+        DmValidationError, MetadataPermissionsError, group_permissions::PolicySet,
+    };
+    use xmtp_mls_common::app_data::{component_id::ComponentId, creation::dm_creation_registry};
+    use xmtp_proto::xmtp::mls::message_contents::{
+        MetadataPolicy,
+        metadata_policy::{Kind, MetadataBasePolicy},
+    };
+
+    tester!(alix);
+    let added_by = hex::encode([0x42; 32]);
+    let mut registry = dm_creation_registry(&PolicySet::new_dm().to_proto()?)?;
+    let standard = dictionary_native_dm_with_registry(&alix.context, &added_by, registry.clone());
+    crate::groups::validate_dm_group(&alix.context, &standard, &added_by)?;
+
+    let mut membership = registry.get(&ComponentId::GROUP_MEMBERSHIP)?.unwrap();
+    membership.permissions.as_mut().unwrap().update_policy = Some(MetadataPolicy {
+        kind: Some(Kind::Base(MetadataBasePolicy::Deny as i32)),
+    });
+    registry.set(ComponentId::GROUP_MEMBERSHIP, membership)?;
+    let group = dictionary_native_dm_with_registry(&alix.context, &added_by, registry);
+    let result = crate::groups::validate_dm_group(&alix.context, &group, &added_by);
+    assert!(
+        matches!(
+            result,
+            Err(MetadataPermissionsError::DmValidation(
+                DmValidationError::InvalidPermissions
+            ))
+        ),
+        "unexpected validation result: {result:?}"
+    );
+}
+
+/// Every registry entry outside the application range must be byte-equal to
+/// the standard DM entry, and no entry may be missing or extra. Entries in
+/// the application range are the participants' to change.
+// verifies: DMS-021
+#[xmtp_common::test(unwrap_try = true)]
+async fn dm_admission_compares_every_protocol_registry_entry() {
+    use crate::groups::{DmValidationError, MetadataPermissionsError};
+    use prost::Message;
+    use xmtp_common::assert_err;
+    use xmtp_mls_common::app_data::component_id::ComponentId;
+    use xmtp_proto::xmtp::mls::message_contents::{
+        ComponentMetadata, ComponentPermissions, ComponentType, MetadataPolicy,
+        metadata_policy::{Kind, MetadataBasePolicy},
+    };
+
+    type Entries = Vec<(ComponentId, Vec<u8>)>;
+    type PolicySlot = fn(&mut ComponentPermissions) -> &mut Option<MetadataPolicy>;
+    let standard = standard_dm_registry_entries();
+    let metadata_of = |id: ComponentId| {
+        let (_, bytes) = standard.iter().find(|(entry, _)| *entry == id).unwrap();
+        ComponentMetadata::decode(bytes.as_slice()).unwrap()
+    };
+    // The standard entries with `id` replaced, added, or (for `None`) removed.
+    let with = |id: ComponentId, bytes: Option<Vec<u8>>| -> Entries {
+        let mut entries: Entries = standard
+            .iter()
+            .filter(|(entry, _)| *entry != id)
+            .cloned()
+            .collect();
+        entries.extend(bytes.map(|bytes| (id, bytes)));
+        entries
+    };
+    let base = |policy: MetadataBasePolicy| MetadataPolicy {
+        kind: Some(Kind::Base(policy as i32)),
+    };
+    let valid_entry = ComponentMetadata {
+        component_type: ComponentType::Bytes as i32,
+        permissions: Some(ComponentPermissions {
+            insert_policy: Some(base(MetadataBasePolicy::AllowIfSuperAdmin)),
+            update_policy: Some(base(MetadataBasePolicy::Deny)),
+            delete_policy: Some(base(MetadataBasePolicy::Deny)),
+        }),
+        external_committer_permissions: None,
+    }
+    .encode_to_vec();
+
+    let mut rejected: Vec<(String, Entries)> = Vec::new();
+    // Each policy of each entry, changed to a value the constrained
+    // ADMIN_LIST also accepts.
+    let slots: [(&str, PolicySlot); 3] = [
+        ("insert", |p| &mut p.insert_policy),
+        ("update", |p| &mut p.update_policy),
+        ("delete", |p| &mut p.delete_policy),
+    ];
+    for (id, _) in &standard {
+        for (slot, policy_of) in slots {
+            let mut metadata = metadata_of(*id);
+            let policy = policy_of(metadata.permissions.as_mut().unwrap());
+            *policy = Some(if *policy == Some(base(MetadataBasePolicy::Deny)) {
+                base(MetadataBasePolicy::AllowIfSuperAdmin)
+            } else {
+                base(MetadataBasePolicy::Deny)
+            });
+            rejected.push((
+                format!("{id} {slot} policy"),
+                with(*id, Some(metadata.encode_to_vec())),
+            ));
+        }
+    }
+    let group_image = ComponentMetadata {
+        component_type: ComponentType::Bytes as i32,
+        ..metadata_of(ComponentId::GROUP_IMAGE_URL)
+    };
+    let mut external_committer = metadata_of(ComponentId::GROUP_MEMBERSHIP);
+    external_committer.external_committer_permissions = external_committer.permissions.clone();
+    // Field 15 as a varint: prost skips it on decode, the stored bytes keep it.
+    let mut unknown_field = metadata_of(ComponentId::GROUP_MEMBERSHIP).encode_to_vec();
+    unknown_field.extend([15 << 3, 1]);
+    let unassigned = ComponentId::new(0x800E);
+    for (case, id, bytes) in [
+        (
+            "GROUP_IMAGE added",
+            ComponentId::GROUP_IMAGE,
+            Some(group_image.encode_to_vec()),
+        ),
+        (
+            "ONESHOT_MESSAGE added",
+            ComponentId::ONESHOT_MESSAGE,
+            Some(valid_entry.clone()),
+        ),
+        (
+            "USER_DISPLAY_NAME removed",
+            ComponentId::USER_DISPLAY_NAME,
+            None,
+        ),
+        (
+            "COMMIT_LOG_SIGNER removed",
+            ComponentId::COMMIT_LOG_SIGNER,
+            None,
+        ),
+        (
+            "external committer permissions",
+            ComponentId::GROUP_MEMBERSHIP,
+            Some(external_committer.encode_to_vec()),
+        ),
+        (
+            "unknown field",
+            ComponentId::GROUP_MEMBERSHIP,
+            Some(unknown_field),
+        ),
+        (
+            "valid entry at 0x800E",
+            unassigned,
+            Some(valid_entry.clone()),
+        ),
+        (
+            "undecodable entry at 0x800E",
+            unassigned,
+            Some(vec![0xFF; 3]),
+        ),
+    ] {
+        rejected.push((case.into(), with(id, bytes)));
+    }
+
+    tester!(alix);
+    let added_by = hex::encode([0x42; 32]);
+    let validate = |entries: Entries| {
+        let group =
+            dictionary_native_dm_with_registry(&alix.context, &added_by, raw_registry(entries));
+        crate::groups::validate_dm_group(&alix.context, &group, &added_by)
+    };
+    for (case, entries) in rejected {
+        let result = validate(entries);
+        assert_err!(
+            result,
+            MetadataPermissionsError::DmValidation(DmValidationError::InvalidPermissions),
+            "{case}: {result:?}"
+        );
+    }
+    validate(with(ComponentId::new(0xC000), Some(valid_entry)))?;
 }
