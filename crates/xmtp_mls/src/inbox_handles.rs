@@ -293,17 +293,6 @@ fn require_account_inboxes(
     Ok(inboxes.into_iter().flatten().collect())
 }
 
-/// The account identifiers of `targets`, when every target is an account.
-fn all_accounts(targets: &[IdentityTarget]) -> Option<Vec<Identifier>> {
-    targets
-        .iter()
-        .map(|target| match target {
-            IdentityTarget::Account(identifier) => Some(identifier.clone()),
-            IdentityTarget::Handle(_) => None,
-        })
-        .collect()
-}
-
 /// The handles to look up for `handle`: only itself when it has a code.
 /// Otherwise itself first, then its name with [`HANDLE_SEARCH_CODES`]
 /// distinct random codes.
@@ -454,21 +443,16 @@ impl<Context: XmtpSharedContext> Client<Context> {
         }
     }
 
-    /// Create a group with `targets` as its members, in one commit. A list of
-    /// accounts only keeps the account path and its errors. Any other list
-    /// resolves every target before the group exists, and an account with no
-    /// inbox fails as on the account path.
+    /// Create a group with `targets` as its members, in one commit. Every
+    /// target resolves before the group exists, so a target with no inbox
+    /// leaves no group: a handle fails with [`HandleError::NotFound`], an
+    /// account with [`GroupError::AddressNotFound`].
     pub async fn create_group_with_targets(
         &self,
         targets: &[IdentityTarget],
         permissions_policy_set: Option<PolicySet>,
         opts: Option<GroupMetadataOptions>,
     ) -> Result<MlsGroup<Context>, ClientError> {
-        if let Some(accounts) = all_accounts(targets) {
-            return self
-                .create_group_with_identifiers(&accounts, permissions_policy_set, opts)
-                .await;
-        }
         let inboxes = resolve_targets_in(&self.context, targets).await?;
         let inbox_ids = require_account_inboxes(targets, inboxes)?;
         self.create_group_with_members(&inbox_ids, permissions_policy_set, opts)

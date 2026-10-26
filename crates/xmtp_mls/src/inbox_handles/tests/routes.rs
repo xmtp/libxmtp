@@ -18,7 +18,7 @@ use std::{
     sync::Arc,
 };
 use xmtp_cryptography::utils::generate_local_wallet;
-use xmtp_db::{NotFound, StorageError, XmtpTestDb, prelude::*};
+use xmtp_db::{NotFound, StorageError, XmtpTestDb, group::GroupQueryArgs, prelude::*};
 use xmtp_id::associations::{
     Identifier,
     test_utils::{WalletTestExt, add_wallet_signature},
@@ -310,6 +310,8 @@ async fn every_account_route_rejects_an_unheld_answer() {
     alix.find_or_create_dm(bo.inbox_id(), None).await?;
     assert!(client.find_dm_by_target(&target).await?.is_none());
 
+    // A failed create leaves no group behind.
+    let groups = client.find_groups(GroupQueryArgs::default())?.len();
     assert!(create_found_no_account(
         client.create_group_with_targets(targets, None, None).await
     ));
@@ -318,6 +320,7 @@ async fn every_account_route_rejects_an_unheld_answer() {
             .create_group_with_identifiers(accounts, None, None)
             .await
     ));
+    assert_eq!(client.find_groups(GroupQueryArgs::default())?.len(), groups);
 
     // A route that trusted the answer would add bo.
     let group = client.create_group(None, None)?;

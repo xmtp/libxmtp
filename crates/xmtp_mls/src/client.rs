@@ -10,7 +10,7 @@ use crate::{
         IdentityUpdateError, IdentityUpdates, load_identity_updates,
         load_identity_updates_for_client,
     },
-    inbox_handles::{IdentityTarget, resolve_verified_in},
+    inbox_handles::{IdentityTarget, account_targets, resolve_verified_in},
     mls_store::{MlsStore, MlsStoreError},
     subscriptions::{
         LocalEventError,
@@ -781,18 +781,21 @@ where
         Ok(group)
     }
 
-    /// Create a group with an initial set of members added
+    /// Create a group with an initial set of members added. Every account
+    /// resolves before the group exists, so an account with no inbox fails
+    /// with [`GroupError::AddressNotFound`] and leaves no group.
     pub async fn create_group_with_identifiers(
         &self,
         account_identifiers: &[Identifier],
         permissions_policy_set: Option<PolicySet>,
         opts: Option<GroupMetadataOptions>,
     ) -> Result<MlsGroup<Context>, ClientError> {
-        let group = self.create_group(permissions_policy_set, opts)?;
-
-        group.add_members_by_identity(account_identifiers).await?;
-
-        Ok(group)
+        self.create_group_with_targets(
+            &account_targets(account_identifiers),
+            permissions_policy_set,
+            opts,
+        )
+        .await
     }
 
     #[tracing::instrument(level = "debug", skip_all, fields(size = inbox_ids.len()))]
