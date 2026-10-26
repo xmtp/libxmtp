@@ -439,7 +439,7 @@ Stable failure categories. Inner causes remain available to Rust callers.
 | `ClientError::ClientVersionTooOld` | Client version too old. The backend requires a newer libxmtp than this build. Not retryable — ship an updated client. |
 | `ClientError::AuthRequired` | Authentication required. The backend requires a credential and none was configured. Not retryable — supply an auth callback or handle before building. |
 | `ClientError::ChainNotAccepted` | Chain not accepted. The backend does not verify smart contract wallet signatures on this chain. Not retryable — use a chain the deployment accepts. |
-| `ClientError::InvalidListOptions` | Invalid list options. A conversation listing named a limit below 1 or above the maximum page size, or a before conversation id without the before time of its list order. Not retryable — fix the options. |
+| `ClientError::InvalidListOptions` | Invalid list options. A conversation listing named a limit below 1 or above the maximum page size, a before conversation id without the before time of its list order, or sync or one-shot groups. Not retryable — fix the options. |
 
 ### DeviceSyncError <sub>enum</sub>
 
