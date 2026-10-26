@@ -533,6 +533,104 @@ fn message_expiry_from_sent_time_is_persisted_once() {
     })
 }
 
+// verifies: ARCH-019
+#[xmtp_common::test(unwrap_try = true)]
+fn publication_establishes_known_expiry_for_imported_messages() {
+    use prost::Message as _;
+    use xmtp_proto::xmtp::{
+        device_sync::message_backup::{DeliveryStatusSave, GroupMessageKindSave, GroupMessageSave},
+        mls::message_contents::{ContentTypeId, EncodedContent},
+    };
+
+    const SENT_AT_NS: i64 = 1_793_000_000_000_000_000;
+    const DEADLINE_NS: i64 = 2_000_000_000_000_000_000;
+    with_connection(|conn| {
+        let group = generate_group(None);
+        group.store(conn)?;
+        let bytes = EncodedContent {
+            r#type: Some(ContentTypeId {
+                authority_id: "xmtp.org".into(),
+                type_id: "text".into(),
+                version_major: 1,
+                version_minor: 0,
+            }),
+            content: b"publication expiry".to_vec(),
+            ..Default::default()
+        }
+        .encode_to_vec();
+        let mut case_id = 1;
+        for status in [
+            DeliveryStatusSave::Unpublished,
+            DeliveryStatusSave::Failed,
+            DeliveryStatusSave::Published,
+        ] {
+            for deadline in [Some(DEADLINE_NS), None] {
+                let id = vec![case_id; 32];
+                case_id += 1;
+                let imported = StoredGroupMessage::try_from(GroupMessageSave {
+                    id: id.clone(),
+                    group_id: group.id.to_vec(),
+                    decrypted_message_bytes: bytes.clone(),
+                    sent_at_ns: SENT_AT_NS,
+                    sender_installation_id: vec![2; 32],
+                    sender_inbox_id: "03".repeat(32),
+                    kind: GroupMessageKindSave::Application as i32,
+                    delivery_status: status as i32,
+                    ..Default::default()
+                })?;
+                assert_eq!(
+                    (imported.expire_at_ns, imported.expiry_unknown),
+                    (None, true)
+                );
+                imported.store(conn)?;
+                if status == DeliveryStatusSave::Failed {
+                    assert_eq!(conn.set_failed_delivery_status_to_unpublished(&id)?, 1);
+                }
+                let expected = if status == DeliveryStatusSave::Published {
+                    (None, true)
+                } else {
+                    (deadline, false)
+                };
+                assert_eq!(
+                    conn.set_delivery_status_to_published(
+                        &id,
+                        SENT_AT_NS as u64,
+                        Cursor(7),
+                        deadline
+                    )?,
+                    1
+                );
+                let published = conn.get_group_message(&id)??;
+                assert_eq!(published.delivery_status, DeliveryStatus::Published);
+                assert_eq!(
+                    (published.expire_at_ns, published.expiry_unknown),
+                    expected,
+                    "first publication of {status:?} with {deadline:?}"
+                );
+                let exported = GroupMessageSave::from(published);
+                assert_eq!(
+                    (exported.expires_at_ns, exported.expiry_known),
+                    (expected.0, Some(!expected.1))
+                );
+                let restored = StoredGroupMessage::try_from(exported)?;
+                assert_eq!((restored.expire_at_ns, restored.expiry_unknown), expected);
+
+                // Later receipts cannot infer a historical deadline or replace a known absence.
+                for later in [Some(DEADLINE_NS + 1), None] {
+                    conn.set_delivery_status_to_published(
+                        &id,
+                        SENT_AT_NS as u64,
+                        Cursor(7),
+                        later,
+                    )?;
+                    let stored = conn.get_group_message(&id)??;
+                    assert_eq!((stored.expire_at_ns, stored.expiry_unknown), expected);
+                }
+            }
+        }
+    })
+}
+
 #[xmtp_common::test]
 fn it_gets_messages_by_content_type() {
     with_connection(|conn| {
