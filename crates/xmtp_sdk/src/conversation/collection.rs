@@ -500,13 +500,17 @@ impl Conversations {
 
     pub async fn delete_message(&self, id: MessageId) -> Result<MessageId, XmtpError> {
         let (stored, group) = self.message_group(&id).await?;
-        on_sdk_worker(self.client.context.clone(), async move {
-            let group = deletion_group(group, &stored)?;
-            let deletion_id = group
-                .delete_message(stored.id)
-                .map_err(XmtpError::from_core)?;
-            MessageId::from_bytes(&deletion_id)
-        })
+        on_sdk_worker(
+            self.client.context.clone(),
+            // Swift cooperative threads cannot hold the nested MLS future.
+            Box::pin(async move {
+                let group = deletion_group(group, &stored).await?;
+                let deletion_id = group
+                    .delete_message(stored.id)
+                    .map_err(XmtpError::from_core)?;
+                MessageId::from_bytes(&deletion_id)
+            }),
+        )
         .await
     }
 

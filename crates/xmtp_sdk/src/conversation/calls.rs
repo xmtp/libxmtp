@@ -97,7 +97,9 @@ where
     })
 }
 
-pub(super) fn deletion_group(
+/// The group that holds `stored`, ready to queue its deletion: a DM whose
+/// creation stopped before the peer was added gets the peer first.
+pub(super) async fn deletion_group(
     group: MlsGroup<MlsContext>,
     stored: &StoredGroupMessage,
 ) -> Result<MlsGroup<MlsContext>, XmtpError> {
@@ -108,20 +110,27 @@ pub(super) fn deletion_group(
             "not your message",
         ));
     }
-    if stored.group_id == group.group_id {
-        return Ok(group);
-    }
-    let stitched = group
-        .context
-        .db()
-        .fetch_stitched(&stored.group_id)
-        .map_err(XmtpError::from_core)?;
-    if stitched.is_none_or(|winner| winner.id != group.group_id) {
-        return Err(XmtpError::conversation_permission_denied(
-            "message belongs to another conversation",
-        ));
-    }
-    MlsStore::new(group.context.clone())
-        .group(&stored.group_id)
-        .map_err(XmtpError::from_core)
+    let group = if stored.group_id == group.group_id {
+        group
+    } else {
+        let stitched = group
+            .context
+            .db()
+            .fetch_stitched(&stored.group_id)
+            .map_err(XmtpError::from_core)?;
+        if stitched.is_none_or(|winner| winner.id != group.group_id) {
+            return Err(XmtpError::conversation_permission_denied(
+                "message belongs to another conversation",
+            ));
+        }
+        MlsStore::new(group.context.clone())
+            .group(&stored.group_id)
+            .map_err(XmtpError::from_core)?
+    };
+    // implements: DMS-020
+    group
+        .ensure_dm_peer()
+        .await
+        .map_err(XmtpError::from_group_write)?;
+    Ok(group)
 }

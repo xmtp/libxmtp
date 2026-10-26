@@ -202,6 +202,70 @@ async fn test_find_groups() {
     assert!(groups.iter().any(|g| g.group_id == group_2.group_id));
 }
 
+/// `peer` joins `group_id` from its Welcome and holds `message` there.
+async fn assert_peer_received(
+    peer: &crate::utils::FullXmtpClient,
+    group_id: &xmtp_proto::types::GroupId,
+    message: &[u8],
+) {
+    let joined = peer.sync_welcomes().await.unwrap();
+    assert!(joined.iter().any(|group| &group.group_id == group_id));
+    let group = peer.group(group_id).unwrap();
+    group.sync().await.unwrap();
+    let messages = group.find_messages(&MsgQueryArgs::default()).unwrap();
+    assert!(
+        messages
+            .iter()
+            .any(|stored| stored.decrypted_message_bytes == message)
+    );
+}
+
+/// A DM whose creation stopped between storing the group and adding the peer
+/// is completed when find-or-create returns it, so the peer joins it.
+// verifies: DMS-020
+#[xmtp_common::test(unwrap_try = true)]
+async fn interrupted_dm_creation_is_repaired_on_reuse() {
+    use crate::groups::MlsGroup;
+
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    let orphan = MlsGroup::create_dm_without_peer(&alix.context, bo.inbox_id().to_string())?;
+
+    let reused = alix.find_or_create_dm(bo.inbox_id(), None).await?;
+    assert_eq!(reused.group_id, orphan.group_id);
+    assert!(
+        reused
+            .members()
+            .await?
+            .iter()
+            .any(|member| member.inbox_id == bo.inbox_id())
+    );
+
+    let message = b"sent after the reuse";
+    reused
+        .send_message(message, SendMessageOpts::default())
+        .await?;
+    assert_peer_received(&bo, &orphan.group_id, message).await;
+}
+
+/// A send on a DM whose creation stopped before the peer was added, reached
+/// without find-or-create, adds the peer before it queues the message.
+// verifies: DMS-020
+#[xmtp_common::test(unwrap_try = true)]
+async fn interrupted_dm_creation_is_repaired_on_send() {
+    use crate::groups::MlsGroup;
+
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    let orphan = MlsGroup::create_dm_without_peer(&alix.context, bo.inbox_id().to_string())?;
+
+    let message = b"sent on the interrupted DM";
+    alix.group(&orphan.group_id)?
+        .send_message(message, SendMessageOpts::default())
+        .await?;
+    assert_peer_received(&bo, &orphan.group_id, message).await;
+}
+
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_double_dms() {
     tester!(alice);

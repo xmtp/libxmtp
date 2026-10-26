@@ -37,6 +37,8 @@ where
         Self::reject_reserved_transcript_content(message)?;
 
         self.ensure_not_paused().await?;
+        // implements: DMS-020
+        self.ensure_dm_peer().await?;
         let update_interval_ns = Some(SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS);
         unsent_welcomes_do_not_stop_a_send(
             self.maybe_update_installations(update_interval_ns).await,
@@ -119,6 +121,9 @@ where
     }
 
     /// Send a message, optimistically returning the ID of the message before the result of a message publish.
+    ///
+    /// In a DM, await [`Self::ensure_dm_peer`] first. This method does not
+    /// add a missing peer, so the peer could never read the message.
     pub fn send_message_optimistic(
         &self,
         message: &[u8],
@@ -140,6 +145,9 @@ where
     ///   derived from. Defaults to a random key when `None`.
     ///
     /// Returns the message ID.
+    ///
+    /// In a DM, await [`Self::ensure_dm_peer`] first. This method does not
+    /// add a missing peer, so the peer could never read the message.
     pub fn prepare_message_for_later_publish(
         &self,
         message: &[u8],
@@ -296,6 +304,9 @@ where
     /// Delete a message by its ID. Returns the ID of the deletion message.
     ///
     /// Only the original sender or a super admin can delete a message.
+    ///
+    /// In a DM, await [`Self::ensure_dm_peer`] first. This method does not
+    /// add a missing peer, so the peer could never read the deletion.
     ///
     /// # Wire Protocol
     /// The `DeleteMessage` protobuf encodes `message_id` as a hex-encoded string for wire

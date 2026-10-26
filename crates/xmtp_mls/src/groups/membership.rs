@@ -5,6 +5,7 @@ use prost::Message;
 use xmtp_mls_common::app_data::{
     components::tls_map_components::GroupMembershipComponent, typed_facade::MlsGroupAppData,
 };
+use xmtp_proto::ShortHex;
 use xmtp_proto::xmtp::mls::message_contents::{GroupMembershipEntry, group_membership_entry};
 
 impl<Context> MlsGroup<Context>
@@ -150,6 +151,52 @@ where
         );
 
         Ok(result)
+    }
+
+    /// Add the DM peer when this DM's `GROUP_MEMBERSHIP` lacks it.
+    ///
+    /// A creation that stops between storing the DM and adding the peer
+    /// leaves a DM that holds only its creator. A DM peer can never leave or
+    /// be removed, so a missing peer always means such an interruption.
+    /// Await this before queueing a message in a DM: intents publish in queue
+    /// order, so a message queued before the add is encrypted at an epoch
+    /// the peer never joins. Does nothing for a group that is not a DM, an
+    /// inactive DM (such as a restored placeholder), or a DM whose pair does
+    /// not include this inbox.
+    // implements: DMS-020
+    pub async fn ensure_dm_peer(&self) -> Result<(), GroupError> {
+        if self.conversation_type != ConversationType::Dm || !self.is_active()? {
+            return Ok(());
+        }
+        // Read the membership extension, not `members()`: that helper skips
+        // an inbox at sequence id zero, where a joiner sees the creator.
+        let missing_peer = self.with_group_snapshot(|group| {
+            let Some(pair) = extract_group_metadata(group.extensions())
+                .map_err(MetadataPermissionsError::from)?
+                .dm_members
+            else {
+                return Ok(None);
+            };
+            let own = self.context.inbox_id();
+            let peer = if pair.member_one_inbox_id == own {
+                pair.member_two_inbox_id
+            } else if pair.member_two_inbox_id == own {
+                pair.member_one_inbox_id
+            } else {
+                return Ok(None);
+            };
+            let membership =
+                xmtp_mls_validation::commit::extract_group_membership(group.extensions())?;
+            Ok::<_, GroupError>(membership.get(&peer).is_none().then_some(peer))
+        })?;
+        if let Some(peer) = missing_peer {
+            tracing::info!(
+                group_id = self.group_id.short_hex(),
+                "adding the missing peer of an interrupted DM creation"
+            );
+            self.add_members(&[peer]).await?;
+        }
+        Ok(())
     }
 
     /// Removes members from the group by their account addresses.
