@@ -6,6 +6,10 @@ use super::server::MAX_PUBLISHED_VALUE;
 
 /// Default maximum ciphertext size for one attachment upload, in bytes.
 pub const BACKEND_DEFAULT_MAX_UPLOAD_BYTES: u64 = 104_857_600;
+/// Longest ciphertext, tag included, accepted by in-memory decryption, in bytes.
+/// Equals the default download bound when attachment storage is not offered and
+/// [`BACKEND_DEFAULT_MAX_UPLOAD_BYTES`].
+pub const MAX_IN_MEMORY_DECRYPT_BYTES: u64 = 104_857_600;
 /// Largest attachment `contentLength` the content type can carry.
 pub const MAX_ATTACHMENT_UPLOAD_BYTES: u64 = u32::MAX as u64;
 /// Largest retention value an SDK integer can carry exactly.

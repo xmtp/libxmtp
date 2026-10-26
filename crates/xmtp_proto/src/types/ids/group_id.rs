@@ -262,8 +262,17 @@ pub enum GroupIdParseError {
 impl FromStr for GroupId {
     type Err = GroupIdParseError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let bytes = hex::decode(s)?;
-        Ok(GroupId::try_from(bytes)?)
+        if s.len() != 2 * GROUP_ID_BYTES && s.len() != 2 * LEGACY_GROUP_ID_BYTES {
+            return Err(GroupIdParseError::Length(ConversionError::InvalidValue {
+                item: "GroupId",
+                expected: "32 or 64 hexadecimal characters",
+                got: format!("{} characters", s.len()),
+            }));
+        }
+        let len = s.len() / 2;
+        let mut bytes = [0u8; GROUP_ID_BYTES];
+        hex::decode_to_slice(s, &mut bytes[..len])?;
+        Ok(GroupId::from_slice(&bytes[..len])?)
     }
 }
 
@@ -473,16 +482,20 @@ mod test {
 
     #[xmtp_common::test(unwrap_try = true)]
     fn test_fromstr_bad_hex() {
-        let err = "zz".parse::<GroupId>().unwrap_err();
+        let err = "zz".repeat(32).parse::<GroupId>().unwrap_err();
         assert!(matches!(err, GroupIdParseError::Hex(_)));
     }
 
     #[rstest]
-    #[case(8)]
+    #[case(0)]
+    #[case(16)]
+    #[case(31)]
     #[case(33)]
+    #[case(65)]
+    #[case(66)]
     #[xmtp_common::test(unwrap_try = true)]
     fn test_fromstr_wrong_length(#[case] len: usize) {
-        let err = hex::encode(vec![0xab; len]).parse::<GroupId>().unwrap_err();
+        let err = "a".repeat(len).parse::<GroupId>().unwrap_err();
         assert!(matches!(err, GroupIdParseError::Length(_)));
     }
 

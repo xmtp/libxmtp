@@ -426,10 +426,3 @@ kind = "gap"
 owner = "Nicholas Molnar"
 issue = "TBD-octane-tracking"
 reason = "A stored deletion that does not pass PROC-037, such as one from another group, makes the client refuse a delete as already deleted."
-
-[[waiver]]
-id = "CTYPE-032"
-kind = "gap"
-owner = "Nicholas Molnar"
-issue = "TBD-octane-tracking"
-reason = "In-memory decryption of a CTYPE-015 payload accepts a ciphertext of any length."

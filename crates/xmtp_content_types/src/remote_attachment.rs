@@ -143,7 +143,9 @@ pub fn decrypt_attachment(
         salt: remote_attachment.salt.clone(),
         nonce: remote_attachment.nonce.clone(),
         digest: remote_attachment.content_digest.clone(),
-        length: encrypted_bytes.len() as u64,
+        length: remote_attachment
+            .content_length
+            .map_or(encrypted_bytes.len() as u64, u64::from),
     };
     let encoded_content = encryption::decrypt_encoded_content(encrypted_bytes, &keys)?;
 
@@ -357,6 +359,45 @@ pub(crate) mod tests {
         assert_eq!(original_content.as_slice(), decrypted.content.as_slice());
         assert_eq!(decrypted.filename, filename);
         assert_eq!(decrypted.mime_type, mime_type);
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn remote_attachment_decryption_requires_advertised_length() {
+        const TEST_CONTENT_BYTES: usize = 2 * 1024 * 1024;
+        let content = vec![0x5a; TEST_CONTENT_BYTES];
+        let encrypted = encrypt_attachment(Attachment {
+            filename: None,
+            mime_type: "application/octet-stream".into(),
+            content: content.clone(),
+        })?;
+        assert!(encrypted.payload.len() > TEST_CONTENT_BYTES);
+
+        for advertised_length in [Some(1), None, Some(encrypted.content_length)] {
+            let metadata = RemoteAttachment {
+                filename: None,
+                url: "https://example.com/large-attachment".into(),
+                content_digest: encrypted.content_digest.clone(),
+                secret: encrypted.secret.clone(),
+                salt: encrypted.salt.clone(),
+                nonce: encrypted.nonce.clone(),
+                scheme: "https://".into(),
+                content_length: advertised_length,
+            };
+            let decoded = RemoteAttachmentCodec::decode(RemoteAttachmentCodec::encode(metadata)?)?;
+            assert_eq!(decoded.content_length, advertised_length);
+            if advertised_length == Some(1) {
+                assert!(matches!(
+                    decrypt_attachment(&encrypted.payload, &decoded),
+                    Err(CodecError::Decode(message))
+                        if message == "encrypted content length mismatch"
+                ));
+            } else {
+                assert_eq!(
+                    decrypt_attachment(&encrypted.payload, &decoded)?.content,
+                    content
+                );
+            }
+        }
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
