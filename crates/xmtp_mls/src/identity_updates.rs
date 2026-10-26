@@ -17,17 +17,17 @@ use xmtp_db::XmtpDb;
 use xmtp_db::prelude::*;
 use xmtp_db::{db_connection::DbConnection, identity_update::StoredIdentityUpdate};
 use xmtp_id::{
-    AsIdRef, InboxIdRef,
+    AsIdRef, BlockNumber, Bytes, InboxIdRef,
     associations::{
-        AssociationError, AssociationState, Handle, Identifier, IdentityAction,
-        InstallationKeyContext, MemberIdentifier,
+        AccountId, AssociationError, AssociationState, Handle, Identifier, IdentityAction,
+        InstallationKeyContext, MemberIdentifier, SignatureError,
         builder::{SignatureRequest, SignatureRequestBuilder, SignatureRequestError},
         unverified::{
             UnverifiedIdentityUpdate, UnverifiedInstallationKeySignature, UnverifiedSignature,
         },
         verify_updates,
     },
-    scw_verifier::SmartContractSignatureVerifier,
+    scw_verifier::{SmartContractSignatureVerifier, ValidationResponse, VerifierError},
 };
 use xmtp_macro::log_event;
 use xmtp_proto::{
@@ -186,6 +186,41 @@ pub async fn identifier_membership(
         Ok(state) => Ok(Some(state_holds_identifier(&state, identifier))),
         Err(ClientError::Association(AssociationError::MissingIdentityUpdate)) => Ok(None),
         Err(error) => Err(error),
+    }
+}
+
+/// [`identifier_membership`] for a caller that may make no request, such as an
+/// offline build. It reads only the database: the cached state, or one
+/// derived from the stored log. A state whose derivation needs a smart
+/// contract wallet verdict counts as not holding the identifier.
+pub async fn stored_identifier_membership(
+    conn: &impl DbQuery,
+    inbox_id: &str,
+    identifier: &Identifier,
+) -> Result<Option<bool>, ClientError> {
+    match identifier_membership(conn, inbox_id, identifier, &NoRequestVerifier).await {
+        Err(ClientError::SignatureValidation(SignatureError::VerifierError(_))) => Ok(Some(false)),
+        membership => membership,
+    }
+}
+
+/// A verifier that makes no request, so it fails every smart contract wallet
+/// check.
+struct NoRequestVerifier;
+
+#[xmtp_common::async_trait]
+impl SmartContractSignatureVerifier for NoRequestVerifier {
+    async fn is_valid_signature(
+        &self,
+        _account_id: AccountId,
+        _hash: [u8; 32],
+        _signature: Bytes,
+        _block_number: Option<BlockNumber>,
+    ) -> Result<ValidationResponse, VerifierError> {
+        Err(std::io::Error::other(
+            "a check that makes no request verifies no smart contract wallet",
+        )
+        .into())
     }
 }
 

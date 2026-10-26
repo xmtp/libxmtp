@@ -1,5 +1,5 @@
 use super::*;
-use xmtp_mls::identity_updates::{identifier_membership, identifier_opens_inbox};
+use xmtp_mls::identity_updates::{identifier_opens_inbox, stored_identifier_membership};
 
 /// Retain cleanup ownership while registration can be cancelled.
 struct RegisteringClient {
@@ -154,22 +154,9 @@ impl Client {
         if options.allow_offline
             && let Some((stored, opened)) = stored_inbox.as_ref().zip(opened.as_ref())
         {
-            use xmtp_id::associations::SignatureError;
-            use xmtp_mls::client::ClientError;
-            let membership = match identifier_membership(
-                &opened.store.db(),
-                stored,
-                &identifier,
-                &NoRequestVerifier,
-            )
-            .await
-            {
-                Ok(membership) => membership,
-                Err(ClientError::SignatureValidation(SignatureError::VerifierError(_))) => {
-                    return Err(XmtpError::identity_mismatch());
-                }
-                Err(error) => return Err(XmtpError::from_client(error)),
-            };
+            let membership = stored_identifier_membership(&opened.store.db(), stored, &identifier)
+                .await
+                .map_err(XmtpError::from_client)?;
             if !identifier_opens_inbox(membership, &identifier, nonce, stored) {
                 return Err(XmtpError::identity_mismatch());
             }
@@ -267,24 +254,6 @@ impl Client {
             call_gate: parking_lot::Mutex::new(None),
         };
         Ok(client)
-    }
-}
-
-/// Fails every smart contract wallet check, because an offline build sends no
-/// request.
-struct NoRequestVerifier;
-
-#[xmtp_common::async_trait]
-impl xmtp_id::scw_verifier::SmartContractSignatureVerifier for NoRequestVerifier {
-    async fn is_valid_signature(
-        &self,
-        _account_id: AccountId,
-        _hash: [u8; 32],
-        _signature: alloy::primitives::Bytes,
-        _block_number: Option<alloy::primitives::BlockNumber>,
-    ) -> Result<xmtp_id::scw_verifier::ValidationResponse, xmtp_id::scw_verifier::VerifierError>
-    {
-        Err(std::io::Error::other("an offline build checks no smart contract wallet").into())
     }
 }
 
