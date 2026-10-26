@@ -148,12 +148,11 @@ where
     /// * `version` - The libxmtp version to update the group min version to.
     ///   This is a semver-formatted string matching the Cargo.toml in the
     ///   libxmtp dependency, and does not match mobile or web release versions.
-    ///   Comparison is done via the [`semver`] crate's `Ord` impl, so
+    ///   Versions compare by SemVer precedence (SemVer 2.0.0 section 11), so
     ///   pre-release identifiers (e.g. `"1.0.0-rc.1"`) sort BEFORE the
-    ///   corresponding release (`"1.0.0"`) per semver 2.0 §11. Build
-    ///   metadata (`+...`) parses but is included in ordering by the
-    ///   semver crate — avoid passing it unless you understand the
-    ///   total-ordering implication.
+    ///   corresponding release (`"1.0.0"`), and build metadata (`+...`) has
+    ///   no precedence: `"1.0.0+a"` equals `"1.0.0"` and `"1.0.0+b"`. The
+    ///   group stores the string as given.
     ///
     /// # Returns
     /// A `Result` indicating success or failure of the operation.

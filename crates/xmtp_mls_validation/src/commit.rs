@@ -1842,6 +1842,14 @@ mod min_version_monotonicity_tests {
         );
     }
 
+    /// Build metadata has no precedence, so a floor that changes only its
+    /// `+...` suffix is not lower than the committed floor.
+    // verifies: GMOD-026
+    #[xmtp_common::test(unwrap_try = true)]
+    fn build_metadata_only_floor_change_is_not_a_downgrade() {
+        enforce_min_version_monotonicity(&update_op("1.11.0+a"), Some(b"1.11.0+b"))?;
+    }
+
     // verifies: GMOD-026
     #[xmtp_common::test(unwrap_try = true)]
     fn remove_with_prior_floor_is_rejected() {

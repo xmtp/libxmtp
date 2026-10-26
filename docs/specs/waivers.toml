@@ -414,13 +414,6 @@ issue = "TBD-octane-tracking"
 reason = "The client returns the inbox a GetInboxIds answer names without checking that the inbox's association state holds the identifier."
 
 [[waiver]]
-id = "GMOD-026"
-kind = "gap"
-owner = "Nicholas Molnar"
-issue = "TBD-octane-tracking"
-reason = "The floor comparison gives build metadata precedence, so a floor change that differs only in build metadata is rejected as a downgrade."
-
-[[waiver]]
 id = "GMOD-053"
 kind = "gap"
 owner = "Nicholas Molnar"
