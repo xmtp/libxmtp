@@ -8,7 +8,7 @@ use crate::{
 };
 use std::sync::Arc;
 use xmtp_common::{
-    StreamHandle,
+    RetryableError, StreamHandle,
     time::{Duration, timeout},
     wait_for_eq,
 };
@@ -719,6 +719,48 @@ async fn notification_disable_discards_an_in_flight_success() {
     assert_eq!(peer.calls(Call::Unregister), 1);
 }
 
+// verifies: PUSH-266
+#[xmtp_common::test(unwrap_try = true)]
+async fn notification_disable_during_a_reset_cannot_register_again() {
+    let (client, peer) = support::client().await;
+    client.enable_notifications(config()).await?;
+    peer.state.lock().next_error = Some(tonic::Code::Unavailable);
+    assert!(
+        client
+            .disable_notifications()
+            .await
+            .unwrap_err()
+            .is_retryable()
+    );
+
+    let before_enable = peer.state.lock().calls.len();
+    peer.state.lock().pause_next = true;
+    let other = client.clone();
+    let enable = xmtp_common::spawn(
+        None,
+        async move { other.enable_notifications(config()).await },
+    );
+    timeout(Duration::from_secs(5), peer.entered.notified()).await?;
+    let other = client.clone();
+    let disable = xmtp_common::spawn(None, async move { other.disable_notifications().await });
+    wait_for_eq(
+        || async { client.db().notification_record().unwrap().push_state },
+        0,
+    )
+    .await?;
+    peer.release.notify_one();
+    assert!(matches!(enable.join().await??, NotificationState::Disabled));
+    disable.join().await??;
+
+    assert_eq!(
+        &peer.state.lock().calls[before_enable..],
+        &[Call::Unregister, Call::Unregister]
+    );
+    assert!(!peer.state.lock().registered);
+    assert!(!client.db().notification_record()?.push_unregister_owed);
+    assert!(client.db().uploaded_topics()?.is_empty());
+}
+
 #[xmtp_common::test(unwrap_try = true)]
 async fn notification_queued_disable_cannot_unregister_a_newer_enable() {
     let (client, peer) = support::client().await;
@@ -752,7 +794,12 @@ async fn notification_queued_disable_cannot_unregister_a_newer_enable() {
     disable.join().await??;
     enable.join().await??;
 
-    assert_eq!(peer.calls(Call::Unregister), 0);
+    assert!(
+        peer.state
+            .lock()
+            .calls
+            .ends_with(&[Call::Unregister, Call::Register])
+    );
     assert!(peer.state.lock().registered);
     let record = client.db().notification_record()?;
     assert!(stored_config(&record)?.include_commits);
@@ -813,13 +860,20 @@ async fn notification_superseded_disable_reconciles_previously_uploaded_topics()
     disable.join().await??;
     enable.join().await??;
 
-    assert_eq!(peer.calls(Call::Unregister), 0);
+    assert_eq!(peer.calls(Call::Unregister), 1);
     assert_eq!(peer.calls(Call::Register), 3);
-    assert!(peer.state.lock().subscriptions.contains_key(&topic));
+    assert!(
+        peer.state
+            .lock()
+            .calls
+            .ends_with(&[Call::Unregister, Call::Register])
+    );
+    assert!(peer.state.lock().subscriptions.is_empty());
+    assert!(client.db().uploaded_topics()?.is_empty());
     run(&client.context).await?;
     assert!(peer.state.lock().subscriptions.is_empty());
     assert!(client.db().uploaded_topics()?.is_empty());
-    assert_eq!(peer.state.lock().batches, vec![(1, 0), (0, 1)]);
+    assert_eq!(peer.state.lock().batches, vec![(1, 0)]);
 }
 
 #[xmtp_common::test(unwrap_try = true)]
@@ -930,16 +984,14 @@ async fn notification_in_flight_deltas_survive_disable_enable_interleavings() {
                     second.await?;
                 }
                 enable.await?;
-                assert_eq!(peer.calls(Call::Unregister), 0);
-                assert_eq!(
-                    peer.state.lock().subscriptions.contains_key(&topic),
-                    !remove
-                );
+                assert_eq!(peer.calls(Call::Unregister), 1);
+                assert!(peer.state.lock().subscriptions.is_empty());
+                assert!(client.db().uploaded_topics()?.is_empty());
 
                 run(&client.context).await?;
                 assert_eq!(peer.state.lock().subscriptions.contains_key(&topic), remove);
                 assert_eq!(client.db().uploaded_topics()?.len(), usize::from(remove));
-                assert_eq!(peer.calls(Call::Update), if remove { 3 } else { 2 });
+                assert_eq!(peer.calls(Call::Update), if remove { 3 } else { 1 });
             }
         }
     }

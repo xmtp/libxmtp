@@ -100,14 +100,6 @@ impl NeedsDbReconnect for TaskWorkerError {
 pub struct TaskWorkerChannels {
     /// Serializes notification requests across inline calls and task turns.
     pub(crate) notification_request: Arc<tokio::sync::Mutex<()>>,
-    /// Confirmed backend topics retained while local notifications are disabled.
-    /// This memory state does not survive a client restart.
-    /// Lock before the database writer. Never hold across an await.
-    pub(crate) notification_pending_topics: Arc<
-        parking_lot::Mutex<
-            std::collections::BTreeMap<Vec<u8>, xmtp_db::notifications::UploadedTopic>,
-        >,
-    >,
     notification_revision: Arc<std::sync::atomic::AtomicUsize>,
 }
 
@@ -121,7 +113,6 @@ impl TaskWorkerChannels {
     pub fn new() -> Self {
         Self {
             notification_request: Default::default(),
-            notification_pending_topics: Default::default(),
             notification_revision: Default::default(),
         }
     }

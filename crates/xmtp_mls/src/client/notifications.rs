@@ -308,6 +308,7 @@ pub(crate) fn state(record: &StoredNotification) -> Result<NotificationState, St
 
 impl<Context: XmtpSharedContext> Client<Context> {
     /// Store configuration, then register inline. The task retries transient errors.
+    // implements: PUSH-266
     #[xmtp_common::rpc_span]
     pub async fn enable_notifications(
         &self,
@@ -329,54 +330,28 @@ impl<Context: XmtpSharedContext> Client<Context> {
         if !valid_channel {
             return Err(NotificationError::InvalidArgument);
         }
-        let generation = {
-            let mut pending = self
-                .context
-                .task_channels()
-                .notification_pending_topics
-                .lock();
-            let generation = crate::state_tx::state_write(self.context.mls_storage(), |tx| {
-                let storage = tx.storage();
-                let db = storage.db();
-                let mut record = db.notification_record()?;
-                if record.push_recipient_id.is_none() {
-                    record.push_recipient_id = Some(xmtp_common::rand_vec::<32>());
-                    record.push_recipient_secret =
-                        Some(xmtp_cryptography::rand::rand_secret::<32>().into());
-                }
-                record.push_generation = record
-                    .push_generation
-                    .checked_add(1)
-                    .ok_or(StorageError::DbSerialize)?;
-                record.push_config = Some(encode_config(&config)?);
-                record.push_state = 1;
-                record.push_failed_error = None;
-                record.push_deadlines = Some(encode(&worker::Deadlines::default())?);
-                record.push_suppressed = None;
-                // A disabled client keeps confirmed backend topics in memory.
-                // Restore them as stale so this configuration can reconcile them.
-                let present: std::collections::BTreeSet<_> = db
-                    .uploaded_topics()?
-                    .into_iter()
-                    .map(|row| row.topic)
-                    .collect();
-                let restore: Vec<_> = pending
-                    .values()
-                    .filter(|row| !present.contains(&row.topic))
-                    .cloned()
-                    .map(|mut row| {
-                        row.stale = true;
-                        row
-                    })
-                    .collect();
-                db.confirm_uploaded_topics(&restore, &[])?;
-                db.save_notification_record(&record)?;
-                Ok::<_, StorageError>(Continue(record.push_generation))
-            })?
-            .into_continued();
-            pending.clear();
-            generation
-        };
+        let generation = crate::state_tx::state_write(self.context.mls_storage(), |tx| {
+            let storage = tx.storage();
+            let db = storage.db();
+            let mut record = db.notification_record()?;
+            if record.push_recipient_id.is_none() {
+                record.push_recipient_id = Some(xmtp_common::rand_vec::<32>());
+                record.push_recipient_secret =
+                    Some(xmtp_cryptography::rand::rand_secret::<32>().into());
+            }
+            record.push_generation = record
+                .push_generation
+                .checked_add(1)
+                .ok_or(StorageError::DbSerialize)?;
+            record.push_config = Some(encode_config(&config)?);
+            record.push_state = 1;
+            record.push_failed_error = None;
+            record.push_deadlines = Some(encode(&worker::Deadlines::default())?);
+            record.push_suppressed = None;
+            db.save_notification_record(&record)?;
+            Ok::<_, StorageError>(Continue(record.push_generation))
+        })?
+        .into_continued();
         notification_settings_changed(&self.context);
         let _guard = self
             .context
@@ -398,23 +373,13 @@ impl<Context: XmtpSharedContext> Client<Context> {
     }
 
     /// Disable locally before unregistering. The recipient identity and overrides stay.
-    /// A failed unregister leaves the client disabled; the backend recipient expires.
+    /// A failed unregister leaves the client disabled with its recipient reset owed.
     #[xmtp_common::rpc_span]
     pub async fn disable_notifications(&self) -> Result<(), NotificationError> {
-        let record = {
-            let mut pending = self
-                .context
-                .task_channels()
-                .notification_pending_topics
-                .lock();
-            let (record, cleared) =
-                crate::state_tx::state_write(self.context.mls_storage(), |tx| {
-                    Ok::<_, StorageError>(Continue(tx.storage().db().disable_notifications()?))
-                })?
-                .into_continued();
-            pending.extend(cleared.into_iter().map(|row| (row.topic.clone(), row)));
-            record
-        };
+        let record = crate::state_tx::state_write(self.context.mls_storage(), |tx| {
+            Ok::<_, StorageError>(Continue(tx.storage().db().disable_notifications()?))
+        })?
+        .into_continued();
         notification_settings_changed(&self.context);
         if record.push_recipient_id.is_none() {
             return Ok(());
@@ -431,21 +396,7 @@ impl<Context: XmtpSharedContext> Client<Context> {
             notification_settings_changed(&self.context);
             return Ok(());
         }
-        let request = backend_v1::UnregisterRequest {
-            recipient_secret: recipient_secret(&record),
-            recipient_id: record.push_recipient_id.unwrap_or_default(),
-        };
-        match worker::bounded(self.context.api().unregister(request)).await {
-            Ok(_) | Err(NotificationError::NotFound) => {
-                self.context
-                    .task_channels()
-                    .notification_pending_topics
-                    .lock()
-                    .clear();
-                Ok(())
-            }
-            Err(error) => Err(error),
-        }
+        worker::unregister(&self.context, &record).await
     }
 
     /// Read the locally stored state without a backend call.

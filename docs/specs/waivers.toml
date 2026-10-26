@@ -433,17 +433,3 @@ kind = "gap"
 owner = "Nicholas Molnar"
 issue = "TBD-octane-tracking"
 reason = "In-memory decryption of a CTYPE-015 payload accepts a ciphertext of any length."
-
-[[waiver]]
-id = "PUSH-265"
-kind = "gap"
-owner = "Nicholas Molnar"
-issue = "TBD-octane-tracking"
-reason = "After a disable whose Unregister failed, the client can send Register or UpdateSubscriptions for that recipient before a later Unregister succeeds."
-
-[[waiver]]
-id = "PUSH-266"
-kind = "gap"
-owner = "Nicholas Molnar"
-issue = "TBD-octane-tracking"
-reason = "Enable and disable do not order the reset, the Unregister and the Register as this row states, so a failed disable can leave uploaded topics the client no longer tracks."

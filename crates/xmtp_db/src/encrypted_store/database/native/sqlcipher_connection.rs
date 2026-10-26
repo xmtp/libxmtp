@@ -920,4 +920,54 @@ mod tests {
         })?;
         assert_eq!(latest[0].to_string(), crate::MIGRATIONS.final_migration());
     }
+
+    #[rstest::rstest]
+    #[case::disabled_unconfirmed(0, Some(vec![1]), None, true)]
+    #[case::enabled_unconfirmed(1, Some(vec![1]), None, true)]
+    #[case::enabled_confirmed(1, Some(vec![1]), Some(vec![1]), false)]
+    #[case::no_recipient(0, None, None, false)]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn push_unregister_owed_backfill_marks_only_unconfirmed_recipients(
+        #[case] state: i32,
+        #[case] recipient: Option<Vec<u8>>,
+        #[case] last_state: Option<Vec<u8>>,
+        #[case] expected: bool,
+    ) {
+        use crate::{ConnectionExt, TestDb, XmtpDb};
+        use diesel::sql_types::{Binary, Bool, Integer, Nullable};
+
+        const RESET_MIGRATION: &str = "20261026000000";
+        let database = TestDb::create_database(None).await;
+        database.init().unwrap();
+        let connection = database.conn();
+        let owed = connection.raw_query(|conn| {
+            while conn
+                .applied_migrations()
+                .map_err(diesel::result::Error::QueryBuilderError)?
+                .iter()
+                .any(|version| version.to_string() == RESET_MIGRATION)
+            {
+                conn.revert_last_migration(crate::MIGRATIONS)
+                    .map_err(diesel::result::Error::QueryBuilderError)?;
+            }
+            diesel::sql_query(
+                "UPDATE user_preferences SET push_state = ?, push_recipient_id = ?, push_last_state = ?",
+            )
+            .bind::<Integer, _>(state)
+            .bind::<Nullable<Binary>, _>(recipient)
+            .bind::<Nullable<Binary>, _>(last_state)
+            .execute(conn)?;
+            conn.run_pending_migrations(crate::MIGRATIONS)
+                .map_err(diesel::result::Error::QueryBuilderError)?;
+            #[derive(diesel::QueryableByName)]
+            struct Reset {
+                #[diesel(sql_type = Bool)]
+                push_unregister_owed: bool,
+            }
+            diesel::sql_query("SELECT push_unregister_owed FROM user_preferences")
+                .get_result::<Reset>(conn)
+                .map(|row| row.push_unregister_owed)
+        }).unwrap();
+        assert_eq!(owed, expected);
+    }
 }

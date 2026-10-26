@@ -243,3 +243,25 @@ pub(crate) async fn client() -> (crate::Client<Context>, Arc<Peer>) {
     client.workers.shutdown().await;
     (client, peer)
 }
+
+/// Reopen a database snapshot with a fresh task runner and the same remote peer.
+pub(crate) async fn client_from_snapshot(
+    snapshot: Arc<Vec<u8>>,
+    peer: Arc<Peer>,
+) -> crate::Client<Context> {
+    tester!(base, snapshot: snapshot, disable_workers);
+    let api = ScriptedApi {
+        inner: base.context.api().api_client.raw_for_test().clone(),
+        peer,
+    };
+    let client = crate::builder::ClientBuilder::from_client(base.client.clone())
+        .api_client(api)
+        .with_disable_workers(false)
+        .worker_config(WorkerConfig::default())
+        .with_allow_offline(Some(true))
+        .build()
+        .await
+        .unwrap();
+    client.workers.shutdown().await;
+    client
+}
