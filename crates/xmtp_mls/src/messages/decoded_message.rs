@@ -210,7 +210,7 @@ pub struct DecodedMessage {
 pub mod decode_counter;
 
 /// Maximum number of reply envelopes inside one message.
-const MAX_REPLY_NESTING_DEPTH: usize = 8;
+pub(crate) const MAX_REPLY_NESTING_DEPTH: usize = 8;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Origin {
@@ -258,6 +258,7 @@ pub(crate) fn is_reserved_transcript_type(content_type: &ContentTypeId) -> bool 
 pub(crate) fn carries_reserved_transcript(raw: &[u8]) -> bool {
     let mut budget = compression::DecompressionBudget::new();
     let mut current = std::borrow::Cow::Borrowed(raw);
+    let mut reply_depth = 0;
     loop {
         let Ok(Some(kind)) = encoded_content_type(&current) else {
             return false;
@@ -274,6 +275,10 @@ pub(crate) fn carries_reserved_transcript(raw: &[u8]) -> bool {
         if !reply {
             return false;
         }
+        if reply_depth >= MAX_REPLY_NESTING_DEPTH {
+            return true;
+        }
+        reply_depth += 1;
         let Ok(envelope) = EncodedContent::decode(&*current) else {
             return false;
         };

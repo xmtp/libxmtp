@@ -201,15 +201,20 @@ async fn reply_wrapping_a_transcript_type_is_never_sent() {
     }
 }
 
-/// A valid reply that exceeds the cumulative scan budget is refused before
+/// A reply that exceeds either scan bound is refused before
 /// message creation, intent preparation, or publication.
 // verifies: GMOD-054
 #[xmtp_common::test(unwrap_try = true)]
 async fn over_budget_reply_is_refused_before_writes() {
-    use crate::messages::decoded_message::carries_reserved_transcript;
+    use crate::messages::decoded_message::{
+        MAX_REPLY_NESTING_DEPTH, MessageBody, carries_reserved_transcript,
+    };
     use crate::utils::test::nested_reply;
     use xmtp_content_types::{
-        ContentCodec, compression, group_updated::GroupUpdatedCodec, reply::ReplyCodec,
+        ContentCodec, compression,
+        group_updated::GroupUpdatedCodec,
+        reply::{Reply as EncodedReply, ReplyCodec},
+        text::TextCodec,
     };
     use xmtp_db::group_intent::QueryPreparedEnvelope;
     use xmtp_proto::xmtp::mls::message_contents::{Compression, GroupUpdated};
@@ -226,8 +231,33 @@ async fn over_budget_reply_is_refused_before_writes() {
         layer = ReplyCodec::decode(decoded)?.content;
     }
     assert_eq!(GroupUpdatedCodec::decode(layer)?, GroupUpdated::default());
-    let bytes = content.encode_to_vec();
-    assert!(bytes.len() < 16 * 1024);
+    let compressed_bytes = content.encode_to_vec();
+    assert!(compressed_bytes.len() < 16 * 1024);
+
+    let wrap_reply = |content| {
+        ReplyCodec::encode(EncodedReply {
+            reference: "0102".into(),
+            reference_inbox_id: None,
+            content,
+        })
+    };
+    let mut at_limit = TextCodec::encode("ordinary reply".into())?;
+    for _ in 0..MAX_REPLY_NESTING_DEPTH {
+        at_limit = wrap_reply(at_limit)?;
+    }
+    let at_limit_bytes = at_limit.encode_to_vec();
+    assert!(matches!(
+        MessageBody::from_received_bytes(&at_limit_bytes),
+        MessageBody::Reply(_)
+    ));
+    let beyond_limit_bytes = wrap_reply(at_limit)?.encode_to_vec();
+    assert!(beyond_limit_bytes.len() < 16 * 1024);
+    eprintln!(
+        "reply depth boundary: {} allowed, {} requires refusal; over-depth wire {} bytes",
+        MAX_REPLY_NESTING_DEPTH,
+        MAX_REPLY_NESTING_DEPTH + 1,
+        beyond_limit_bytes.len()
+    );
 
     // An invalid frame is still malformed, rather than a budget refusal.
     let mut malformed = content;
@@ -238,6 +268,8 @@ async fn over_budget_reply_is_refused_before_writes() {
     tester!(alix, disable_workers);
     let group = alix.create_group(None, None)?;
     group.key_update().await?;
+    // The supported boundary is accepted through the real preparation API.
+    group.prepare_message_for_later_publish(&at_limit_bytes, false, None)?;
     let publish_count = || {
         alix.context
             .api()
@@ -254,26 +286,28 @@ async fn over_budget_reply_is_refused_before_writes() {
             .map(|intent| (intent.id, db.prepared_envelopes(intent.id).unwrap()))
             .collect::<Vec<_>>()
     };
-    let messages = group.find_messages(&Default::default())?.len();
-    let queued_and_prepared = attempts();
-    let published = publish_count();
-    assert!(matches!(
-        group.send_message(&bytes, SendMessageOpts::default()).await,
-        Err(GroupError::ReservedTranscriptContentType)
-    ));
-    assert!(matches!(
-        group.send_message_optimistic(&bytes, SendMessageOpts::default()),
-        Err(GroupError::ReservedTranscriptContentType)
-    ));
-    assert!(matches!(
-        group.prepare_message_for_later_publish(&bytes, false, None),
-        Err(GroupError::ReservedTranscriptContentType)
-    ));
-    assert_eq!(group.find_messages(&Default::default())?.len(), messages);
-    assert_eq!(attempts(), queued_and_prepared);
-    assert_eq!(publish_count(), published);
+    for bytes in [compressed_bytes, beyond_limit_bytes] {
+        let messages = group.find_messages(&Default::default())?.len();
+        let queued_and_prepared = attempts();
+        let published = publish_count();
+        let sent = group.send_message(&bytes, SendMessageOpts::default()).await;
+        assert!(
+            matches!(sent, Err(GroupError::ReservedTranscriptContentType)),
+            "expected bounded scan refusal, got {sent:?}"
+        );
+        assert!(matches!(
+            group.send_message_optimistic(&bytes, SendMessageOpts::default()),
+            Err(GroupError::ReservedTranscriptContentType)
+        ));
+        assert!(matches!(
+            group.prepare_message_for_later_publish(&bytes, false, None),
+            Err(GroupError::ReservedTranscriptContentType)
+        ));
+        assert_eq!(group.find_messages(&Default::default())?.len(), messages);
+        assert_eq!(attempts(), queued_and_prepared);
+        assert_eq!(publish_count(), published);
+    }
 }
-
 /// A reserved row that an older build stored fails when it is published by
 /// ID. It is never queued or sent, and a second attempt changes nothing.
 // verifies: GMOD-054
