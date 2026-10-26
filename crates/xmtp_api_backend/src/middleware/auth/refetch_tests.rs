@@ -807,6 +807,151 @@ async fn rejected_manual_credential_is_replaced_after_pending_callback() {
     assert_eq!(callback.calls.load(Ordering::SeqCst), 2);
 }
 
+// verifies: AUTH-023
+#[rstest::rstest]
+#[case::partial_success(2, false)]
+#[case::partial_callback_error(2, true)]
+#[case::lockout_success(MAX_CONSECUTIVE_AUTH_FAILURES, false)]
+#[case::lockout_callback_error(MAX_CONSECUTIVE_AUTH_FAILURES, true)]
+#[xmtp_common::test(unwrap_try = true)]
+async fn concurrent_failures_during_refresh_preserve_auth_state(
+    #[case] concurrent: u32,
+    #[case] callback_fails: bool,
+) {
+    let (client, peer, callback) = fixture();
+    call(&client, Rpc::Bidi).await.expect("initial credential");
+    let generation = client.handle.inner.state.lock().await.generation;
+    let mut releases = Vec::new();
+    let mut requests = Vec::new();
+    for _ in 0..concurrent {
+        let (release, gate) = oneshot::channel();
+        releases.push(release);
+        peer.replies.lock().await.push_back(Reply {
+            code: tonic::Code::Unauthenticated,
+            gate: Some(gate),
+        });
+        let mut request = Box::pin(call(&client, Rpc::Bidi));
+        assert!(futures::poll!(&mut request).is_pending());
+        requests.push(request);
+    }
+    releases.remove(0).send(()).expect("first response");
+    assert!(requests.remove(0).await.is_err());
+
+    let (release_callback, gate) = oneshot::channel();
+    *callback.gate.lock().await = Some(gate);
+    *callback.fail.lock().await = callback_fails;
+    let mut refreshing = Box::pin(call(&client, Rpc::Unary));
+    assert!(futures::poll!(&mut refreshing).is_pending());
+    assert_eq!(callback.calls.load(Ordering::SeqCst), 2);
+    for release in releases {
+        release.send(()).expect("pending response");
+    }
+    for response in futures::future::join_all(requests).await {
+        assert!(response.is_err());
+    }
+    let locked_until = {
+        let state = client.handle.inner.state.lock().await;
+        assert_eq!(state.generation, generation);
+        assert_eq!(state.failures, concurrent);
+        state.locked_until
+    };
+    let (release_response, gate) = oneshot::channel();
+    if concurrent < MAX_CONSECUTIVE_AUTH_FAILURES && !callback_fails {
+        peer.replies.lock().await.push_back(Reply {
+            code: tonic::Code::Ok,
+            gate: Some(gate),
+        });
+    }
+    release_callback.send(()).expect("pending callback");
+    if concurrent == MAX_CONSECUTIVE_AUTH_FAILURES {
+        let result = timeout(WAIT, refreshing).await.expect("refresh completes");
+        assert!(matches!(
+            result,
+            Err(ApiClientError::Auth(AuthError::Exhausted))
+        ));
+        let state = client.handle.inner.state.lock().await;
+        assert_eq!(state.failures, MAX_CONSECUTIVE_AUTH_FAILURES);
+        assert_eq!(state.locked_until, locked_until);
+        assert_eq!(state.generation, generation);
+        assert_eq!(peer.sent.lock().await.len(), concurrent as usize + 1);
+    } else if callback_fails {
+        let result = timeout(WAIT, refreshing).await.expect("refresh completes");
+        assert!(matches!(
+            result,
+            Err(ApiClientError::Auth(AuthError::CallbackFailed {
+                retryable: true
+            }))
+        ));
+        let state = client.handle.inner.state.lock().await;
+        assert_eq!(state.failures, concurrent + 1);
+        assert!(state.locked_until.is_none());
+        assert_eq!(peer.sent.lock().await.len(), concurrent as usize + 1);
+    } else {
+        assert!(futures::poll!(&mut refreshing).is_pending());
+        {
+            let state = client.handle.inner.state.lock().await;
+            assert_eq!(state.failures, concurrent);
+            assert_eq!(state.generation, generation + 1);
+            assert!(state.locked_until.is_none());
+        }
+        assert_eq!(peer.sent.lock().await.len(), concurrent as usize + 2);
+        release_response
+            .send(())
+            .expect("pending successful response");
+        timeout(WAIT, refreshing)
+            .await
+            .expect("refresh completes")
+            .expect("successful request");
+        assert_eq!(client.handle.inner.state.lock().await.failures, 0);
+    }
+    assert_eq!(callback.calls.load(Ordering::SeqCst), 2);
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn callback_pushing_an_expired_credential_returns_an_error() {
+    const SENTINEL_CALLBACK_CALLS: usize = 3;
+    struct PushExpired {
+        handle: AuthHandle,
+        calls: AtomicUsize,
+    }
+    #[xmtp_common::async_trait]
+    impl AuthCallback for PushExpired {
+        async fn on_auth_required(&self) -> Result<Credential, BoxDynError> {
+            let calls = self.calls.fetch_add(1, Ordering::SeqCst) + 1;
+            // Stop the broken implementation's ready-future loop without
+            // depending on a timeout being polled during that loop.
+            if calls == SENTINEL_CALLBACK_CALLS {
+                return Err("bounded runaway sentinel".into());
+            }
+            self.handle
+                .set(Credential::new(
+                    None,
+                    "expired".parse().expect("test header"),
+                    now_secs(),
+                ))
+                .await;
+            Ok(credential("callback"))
+        }
+    }
+    let peer = Arc::new(Peer::default());
+    let handle = AuthHandle::new();
+    let callback = Arc::new(PushExpired {
+        handle: handle.clone(),
+        calls: AtomicUsize::new(0),
+    });
+    let client = AuthMiddleware::new(peer.clone(), Some(callback.clone()), Some(handle));
+    let result = timeout(WAIT, call(&client, Rpc::Unary)).await?;
+    assert!(matches!(
+        result,
+        Err(ApiClientError::Auth(AuthError::CallbackFailed {
+            retryable: true
+        }))
+    ));
+    assert_eq!(callback.calls.load(Ordering::SeqCst), 1);
+    assert!(peer.sent.lock().await.is_empty());
+    assert_eq!(client.handle.inner.state.lock().await.failures, 1);
+}
+
 // verifies: AUTH-022
 #[xmtp_common::test(unwrap_try = true)]
 async fn permission_denied_and_other_errors_pass_through() {

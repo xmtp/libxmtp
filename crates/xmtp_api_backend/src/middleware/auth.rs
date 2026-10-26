@@ -246,7 +246,10 @@ impl<C> AuthMiddleware<C> {
             }
         };
         loop {
-            let mut state = *inner.state.lock().await;
+            let mut guard = inner.state.lock().await;
+            let mut state = *guard;
+            let failures_before = state.failures;
+            let locked_until_before = state.locked_until;
             let now = Instant::now();
             let lockout_left = state.locked_until.is_some_and(|until| until <= now);
             if let Some(until) = state.locked_until {
@@ -264,13 +267,47 @@ impl<C> AuthMiddleware<C> {
                     .is_none_or(|credential| credential.expires_at_seconds <= now_secs());
             if needs_refresh && let Some(callback) = &self.callback {
                 let generation_before = state.generation;
+                drop(guard);
                 let result = callback.on_auth_required().await;
                 let mut guard = inner.state.lock().await;
-                // A credential set during the callback wins over its result. Other
-                // requests may have rejected it or entered lockout, so recheck the
-                // current state while keeping callbacks serialized.
-                if guard.generation != generation_before {
+                if guard
+                    .locked_until
+                    .is_some_and(|until| until > Instant::now())
+                {
+                    return Err(AuthError::Exhausted);
+                }
+                // A lockout that started and ended during the callback still
+                // requires its own serialized probe.
+                if guard.locked_until.is_some() && guard.locked_until != locked_until_before {
                     continue;
+                }
+                let generation_changed = guard.generation != generation_before;
+                let expired_replacement = generation_changed
+                    && inner
+                        .current
+                        .get()
+                        .is_some_and(|current| current.load().expires_at_seconds <= now_secs());
+                // A pushed credential wins over the callback's returned value.
+                // Fail unusable expired output instead of invoking a ready
+                // callback forever. A rejected replacement gets a fresh callback.
+                if generation_changed && !expired_replacement {
+                    continue;
+                }
+                let result = if expired_replacement {
+                    Err(())
+                } else {
+                    result.map_err(|_| ())
+                };
+                // In-flight responses can change failures without changing the
+                // credential generation. Keep their current state when committing.
+                state = *guard;
+                let lockout_left = lockout_left && !generation_changed;
+                if lockout_left {
+                    state.locked_until = None;
+                    if state.failures == failures_before {
+                        state.failures = MAX_CONSECUTIVE_AUTH_FAILURES - 1;
+                    }
+                    state.stale = true;
                 }
                 match result {
                     Ok(new) => {
@@ -302,7 +339,7 @@ impl<C> AuthMiddleware<C> {
                     inner.emit_lockout(LockoutChange::Left);
                 }
             } else {
-                *inner.state.lock().await = state;
+                *guard = state;
                 if lockout_left {
                     inner.emit_lockout(LockoutChange::Left);
                 }
