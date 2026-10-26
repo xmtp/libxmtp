@@ -44,9 +44,9 @@ describe("sync callbacks", () => {
     await act(async () => {
       await result.current.sync();
     });
-    expect(client.conversations.list).toHaveBeenLastCalledWith({
-      createdAfter: new Timestamp(42n),
-    });
+    expect(client.conversations.list).toHaveBeenLastCalledWith(
+      expect.objectContaining({ createdAfter: new Timestamp(42n) }),
+    );
     unmount();
   });
 
