@@ -183,6 +183,9 @@ impl XmtpBackendClient for ScriptedLookups {
     ) -> Result<wire::GetConfigurationResponse, Self::Error> {
         self.inner.get_configuration(request).await
     }
+    fn backend_url(&self) -> Option<&str> {
+        self.inner.backend_url()
+    }
     async fn verify_smart_contract_wallet_signatures(
         &self,
         request: wire::VerifySmartContractWalletSignaturesRequest,

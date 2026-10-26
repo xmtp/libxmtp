@@ -112,7 +112,8 @@ impl IdentityStrategy {
     /// with [`IdentityError::IdentifierNotInInbox`] unless the identifier
     /// belongs to it, as
     /// [`ClientBuilder::require_identifier_in_inbox`](crate::builder::ClientBuilder::require_identifier_in_inbox)
-    /// describes.
+    /// describes. An offline build checks the newest state the database
+    /// stores, which can predate a revocation.
     pub fn for_identifier(identifier: Identifier, nonce: u64) -> Self {
         Self::CreateForIdentifier { identifier, nonce }
     }

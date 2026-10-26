@@ -433,6 +433,14 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
         if storage_location_conflict {
             return Err(crate::storage_location::StorageLocationError::ConflictingStore.into());
         }
+        // A strategy for an identifier takes its inbox from the backend's
+        // answer, so the build always checks the identifier against that
+        // inbox, also after a data directory looks the inbox up first.
+        let require_identifier_in_inbox = require_identifier_in_inbox
+            || matches!(
+                identity_strategy,
+                IdentityStrategy::CreateForIdentifier { .. }
+            );
 
         let api_client = api_client
             .take()
@@ -632,15 +640,15 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             scw_verifier = Box::new(api_client.clone());
         }
 
-        // A strategy for an identifier takes its inbox from the backend's
-        // answer, so the build always checks the identifier against it.
         let identifier_check = match &identity_strategy {
-            IdentityStrategy::CreateForIdentifier { identifier, nonce } => {
-                Some((identifier.clone(), *nonce))
-            }
             IdentityStrategy::CreateIfNotFound {
                 identifier, nonce, ..
-            } if require_identifier_in_inbox => Some((identifier.clone(), *nonce)),
+            }
+            | IdentityStrategy::CreateForIdentifier { identifier, nonce }
+                if require_identifier_in_inbox =>
+            {
+                Some((identifier.clone(), *nonce))
+            }
             _ => None,
         };
         let mut identity = if let Some(identity) = identity {
@@ -1285,7 +1293,10 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
         }
     }
 
-    /// Skip network calls when building a client
+    /// Skip network calls when building a client. An offline build loads no
+    /// identity update, so the identifier check of
+    /// [`Self::require_identifier_in_inbox`] uses the newest state the
+    /// database stores, which can predate a revocation.
     pub fn with_allow_offline(
         self,
         allow_offline: Option<bool>,
@@ -1299,7 +1310,9 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
     /// Require the identity strategy's identifier to belong to the inbox of
     /// the identity the build loads, including a stored one. The build checks
     /// the association state after it loads the inbox's identity updates and
-    /// before it starts any worker. Before the inbox's first identity update,
+    /// before it starts any worker. An offline build loads none and checks the
+    /// newest state the database stores, which can predate a revocation.
+    /// Before the inbox's first identity update,
     /// only the identifier whose inbox at the strategy's nonce is that inbox
     /// belongs to it. A failure is
     /// [`IdentityError::IdentifierNotInInbox`](crate::identity::IdentityError::IdentifierNotInInbox).

@@ -517,6 +517,66 @@ async fn stored_identity_opens_only_for_an_identifier_of_its_inbox() {
         .await?;
 }
 
+// An offline build for an identifier reads no identity update, but it still
+// checks the identifier, on the newest state the database stores.
+#[xmtp_common::test(unwrap_try = true)]
+async fn offline_build_for_an_identifier_checks_the_stored_state() {
+    use xmtp_id::associations::test_utils::add_wallet_signature;
+    let tmpdb = tmp_path();
+    let owner = generate_local_wallet();
+    let builder = async |allow_offline: bool| {
+        Client::builder(IdentityStrategy::for_identifier(owner.identifier(), 0))
+            .api_client(DefaultTestClientCreator::create().build().unwrap())
+            .store(xmtp_db::TestDb::create_persistent_store(Some(tmpdb.clone())).await)
+            .default_mls_store()
+            .unwrap()
+            .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
+            .with_allow_offline(Some(allow_offline))
+            .with_disable_workers(true)
+    };
+    let client = builder(false).await.build().await?;
+    register_client(&client, &owner).await;
+    let inbox_id = client.inbox_id().to_owned();
+    drop(client);
+
+    // Another installation removes the owner from the inbox, so only the
+    // network holds the removal.
+    let other = Client::builder(IdentityStrategy::for_identifier(owner.identifier(), 0))
+        .api_client(DefaultTestClientCreator::create().build().unwrap())
+        .temp_store()
+        .await
+        .default_mls_store()?
+        .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
+        .with_disable_workers(true)
+        .build()
+        .await?;
+    register_client(&other, &owner).await;
+    let mut removal = other
+        .identity_updates()
+        .revoke_identities(vec![owner.identifier()])
+        .await?;
+    add_wallet_signature(&mut removal, &owner).await;
+    other
+        .identity_updates()
+        .apply_signature_request(removal)
+        .await?;
+
+    // An online build stores the removal and refuses the owner. An offline
+    // build refuses it too, from the stored log.
+    for allow_offline in [false, true] {
+        let reopened = builder(allow_offline).await.build().await;
+        assert!(
+            matches!(
+                &reopened,
+                Err(ClientBuilderError::Identity(IdentityError::IdentifierNotInInbox { inbox_id: found }))
+                    if *found == inbox_id
+            ),
+            "allow_offline {allow_offline}: {:?}",
+            reopened.err()
+        );
+    }
+}
+
 // verifies: PROC-036
 #[cfg(not(target_arch = "wasm32"))]
 #[xmtp_common::test(unwrap_try = true)]

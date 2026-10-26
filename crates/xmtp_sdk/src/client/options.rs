@@ -255,6 +255,9 @@ pub struct ClientOptions {
     #[uniffi(default = true)]
     pub device_sync: bool,
     /// Permit startup from stored state when the backend is unavailable.
+    /// Such a startup checks that the identity belongs to its inbox against
+    /// the newest identity state the database stores, which can predate a
+    /// revocation.
     #[uniffi(default = false)]
     pub allow_offline: bool,
     #[uniffi(default)]

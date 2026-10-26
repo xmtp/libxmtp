@@ -9846,6 +9846,9 @@ public struct ClientOptions {
     public var deviceSync: Bool
     /**
      * Permit startup from stored state when the backend is unavailable.
+     * Such a startup checks that the identity belongs to its inbox against
+     * the newest identity state the database stores, which can predate a
+     * revocation.
      */
     public var allowOffline: Bool
     public var registration: RegistrationOptions
@@ -9862,6 +9865,9 @@ public struct ClientOptions {
          */backend: BackendSource? = nil, storage: StorageOptions, deviceSync: Bool = true,
         /**
          * Permit startup from stored state when the backend is unavailable.
+         * Such a startup checks that the identity belongs to its inbox against
+         * the newest identity state the database stores, which can predate a
+         * revocation.
          */allowOffline: Bool = false, registration: RegistrationOptions = RegistrationOptions(), forkRecovery: ForkRecoveryOptions? = nil, workers: WorkerOptions? = nil, handlers: ClientHandlers? = nil, attachments: AttachmentOptions? = nil) {
         self.backend = backend
         self.storage = storage

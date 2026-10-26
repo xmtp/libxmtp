@@ -437,3 +437,54 @@ async fn an_identity_for_an_account_rejects_an_unheld_answer() {
     let client = build(HashMap::new()).await?;
     assert_eq!(client.inbox_id(), wallet.identifier().inbox_id(0)?);
 }
+
+// verifies: IDENT-096
+#[cfg(not(target_arch = "wasm32"))]
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_data_dir_identity_for_an_account_rejects_an_unheld_answer() {
+    use crate::{
+        storage_location::StorageLocation,
+        utils::{DefaultTestClientCreator, test::register_client},
+    };
+    use xmtp_proto::api_client::{ApiBuilder, XmtpTestClient};
+    let dir = tempfile::tempdir()?;
+    let location = StorageLocation::DataDir(dir.path().to_path_buf());
+    let build = async |identifier: Identifier, lies: HashMap<String, String>| {
+        let api = ScriptedLookups {
+            inner: Arc::new(DefaultTestClientCreator::create().build().unwrap()),
+            script: Arc::new(Mutex::new(LookupScript {
+                lies,
+                ..Default::default()
+            })),
+        };
+        crate::Client::builder(IdentityStrategy::for_identifier(identifier, 0))
+            .api_client(api)
+            .with_remote_verifier()?
+            .data_location(location.clone(), [0u8; 32].into())
+            .await?
+            .default_mls_store()?
+            .with_disable_workers(true)
+            .build()
+            .await
+    };
+    // The data directory holds the database of the owner's inbox.
+    let owner = generate_local_wallet();
+    let client = build(owner.identifier(), HashMap::new()).await?;
+    register_client(&client, &owner).await;
+    let inbox_id = client.inbox_id().to_owned();
+    drop(client);
+
+    // The backend names that inbox for a wallet its log never holds.
+    let wallet = generate_local_wallet();
+    let lie = HashMap::from([(wallet.identifier().to_string(), inbox_id.clone())]);
+    let lied = build(wallet.identifier(), lie).await;
+    assert!(
+        matches!(
+            &lied,
+            Err(ClientBuilderError::Identity(IdentityError::IdentifierNotInInbox { inbox_id: found }))
+                if *found == inbox_id
+        ),
+        "build: {:?}",
+        lied.err()
+    );
+}
