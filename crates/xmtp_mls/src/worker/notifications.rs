@@ -168,38 +168,54 @@ pub(crate) async fn unregister<Context: XmtpSharedContext>(
 }
 
 /// Register while the caller holds the notification request lock.
+/// The owed reset and registration share one waiting budget.
 /// Return true only when the current generation accepts the successful response.
 pub(crate) async fn register<Context: XmtpSharedContext>(
     context: &Context,
     record: &StoredNotification,
     config: &NotificationConfig,
 ) -> Result<bool, NotificationError> {
-    // implements: PUSH-265
-    // The owed flag implies push_last_state is None, so run() reaches registration.
-    if record.push_unregister_owed {
-        if let Err(error) = unregister(context, record).await {
-            return if record_error(context, record.push_generation, &error, None)? {
-                Err(error)
-            } else {
-                Ok(false)
-            };
+    // implements: PUSH-240
+    let result = time::timeout(NOTIFICATION_REQUEST_TIMEOUT, async {
+        // implements: PUSH-265
+        // The owed flag implies push_last_state is None, so run() reaches registration.
+        if record.push_unregister_owed {
+            if let Err(error) = unregister(context, record).await {
+                return if record_error(context, record.push_generation, &error, None)? {
+                    Err(error)
+                } else {
+                    Ok(false)
+                };
+            }
+            // Local settings can change while the reset waits on the backend.
+            let current = context.db().notification_record()?;
+            if current.push_generation != record.push_generation || current.push_state != 1 {
+                return Ok(false);
+            }
         }
-        // Local settings can change while the reset waits on the backend.
-        let current = context.db().notification_record()?;
-        if current.push_generation != record.push_generation || current.push_state != 1 {
-            return Ok(false);
+        match bounded(context.api().register(config.registration(record))).await {
+            Ok(response) => Ok(confirm(
+                context,
+                record.push_generation,
+                config,
+                &response,
+                &[],
+                &[],
+            )?),
+            Err(error) => {
+                if record_error(context, record.push_generation, &error, None)? {
+                    Err(error)
+                } else {
+                    Ok(false)
+                }
+            }
         }
-    }
-    match bounded(context.api().register(config.registration(record))).await {
-        Ok(response) => Ok(confirm(
-            context,
-            record.push_generation,
-            config,
-            &response,
-            &[],
-            &[],
-        )?),
-        Err(error) => {
+    })
+    .await;
+    match result {
+        Ok(result) => result,
+        Err(_) => {
+            let error = NotificationError::RequestTimeout;
             if record_error(context, record.push_generation, &error, None)? {
                 Err(error)
             } else {
@@ -499,7 +515,7 @@ fn prepare_batch<Context: XmtpSharedContext>(
     .map_err(NotificationError::from)
 }
 
-/// Execute at most one request. A busy inline request never blocks the task runner.
+/// Execute one bounded notification turn. A busy inline request never blocks the task runner.
 pub(crate) async fn run<Context: XmtpSharedContext>(
     context: &Context,
 ) -> Result<TaskOutcome, NotificationError> {

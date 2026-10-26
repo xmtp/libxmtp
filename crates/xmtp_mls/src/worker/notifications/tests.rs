@@ -1036,41 +1036,88 @@ async fn notification_request_keeps_the_root_key_snapshot() {
 }
 
 xmtp_common::if_native! {
+    // verifies: PUSH-240
     #[xmtp_common::test(unwrap_try = true)]
     async fn notification_stalled_request_bounds_runner_delay_and_keeps_messaging_live() {
         use crate::worker::{key_package_maintenance as kp, tasks::TaskWorker};
-        let (client, peer) = support::client().await;
-        tester!(bo, disable_workers);
-        let group = client.create_group(None, None)?;
-        client.enable_notifications(config()).await?;
-        client.db().queue_key_package_rotation()?;
-        let now = time::now_ns();
-        client.db().create_or_ignore_task(kp::kp_seed(kp::kp_rotation_proto(), now + 5 * NS_IN_SEC)?)?;
-        peer.state.lock().pause_next = true;
-        let mut task_worker = TaskWorker::new(client.context.clone());
-        let runner = xmtp_common::spawn(None, async move { task_worker.run().await });
-        timeout(Duration::from_secs(5), peer.entered.notified()).await?;
-        let entered_at = std::time::Instant::now();
-        // Network waits cannot hold the database writer or the group state lock.
-        timeout(Duration::from_secs(5), async {
-            group.update_consent_state(ConsentState::Denied)?;
-            group.send_message(b"notification wait does not block messages", Default::default()).await?;
-            let invited = bo.create_group(None, None)?;
-            invited.add_members(&[client.inbox_id()]).await?;
-            let welcomes = client.sync_welcomes().await?;
-            assert!(welcomes.iter().any(|item| item.group_id == invited.group_id));
-            Ok::<_, crate::groups::GroupError>(())
-        }).await??;
-        assert!(client.db().next_key_package_rotation_ns()?.unwrap() < now + NS_IN_HOUR);
-        timeout(Duration::from_secs(32), async {
-            loop {
-                if client.db().next_key_package_rotation_ns().unwrap().unwrap() > now + NS_IN_HOUR { break; }
-                time::sleep(Duration::from_millis(50)).await;
+        const PHASE_DELAY: Duration = Duration::from_secs(20);
+        const MAINTENANCE_WAIT: Duration = Duration::from_secs(42);
+
+        for reset in [false, true] {
+            let (client, peer) = support::client().await;
+            tester!(bo, disable_workers);
+            let group = client.create_group(None, None)?;
+            client.enable_notifications(config()).await?;
+            if reset {
+                peer.state.lock().next_error = Some(tonic::Code::Unavailable);
+                assert!(client.disable_notifications().await.unwrap_err().is_retryable());
+                peer.state.lock().next_error = Some(tonic::Code::Unavailable);
+                assert!(client.enable_notifications(config()).await.unwrap_err().is_retryable());
+                assert!(client.db().notification_record()?.push_unregister_owed);
+                assert!(matches!(client.notification_state()?, NotificationState::Enabled));
             }
-        }).await?;
-        assert!(entered_at.elapsed() < Duration::from_secs(35));
-        assert!(peer.calls(Call::Publish) > 0);
-        runner.abort_handle().end();
+            client.db().queue_key_package_rotation()?;
+            let now = time::now_ns();
+            client.db().create_or_ignore_task(kp::kp_seed(kp::kp_rotation_proto(), now + 5 * NS_IN_SEC)?)?;
+            peer.state.lock().pause_next = true;
+            let mut task_worker = TaskWorker::new(client.context.clone());
+            let runner = xmtp_common::spawn(None, async move { task_worker.run().await });
+            timeout(Duration::from_secs(5), peer.entered.notified()).await?;
+            let entered_at = time::Instant::now();
+            let phases = reset.then(|| {
+                let peer = peer.clone();
+                xmtp_common::spawn(None, async move {
+                    time::sleep(PHASE_DELAY).await;
+                    peer.state.lock().pause_next = true;
+                    peer.release.notify_one();
+                    timeout(Duration::from_secs(5), peer.entered.notified()).await.unwrap();
+                    time::sleep(PHASE_DELAY).await;
+                    peer.release.notify_one();
+                })
+            });
+            // Network waits cannot hold the database writer or the group state lock.
+            timeout(Duration::from_secs(5), async {
+                group.update_consent_state(ConsentState::Denied)?;
+                group.send_message(b"notification wait does not block messages", Default::default()).await?;
+                let invited = bo.create_group(None, None)?;
+                invited.add_members(&[client.inbox_id()]).await?;
+                let welcomes = client.sync_welcomes().await?;
+                assert!(welcomes.iter().any(|item| item.group_id == invited.group_id));
+                Ok::<_, crate::groups::GroupError>(())
+            }).await??;
+            assert!(client.db().next_key_package_rotation_ns()?.unwrap() < now + NS_IN_HOUR);
+            // Let both requests finish on the weaker code, then check the bound
+            // from maintenance becoming due five seconds after the turn starts.
+            timeout(MAINTENANCE_WAIT, async {
+                loop {
+                    if client.db().next_key_package_rotation_ns().unwrap().unwrap() > now + NS_IN_HOUR { break; }
+                    time::sleep(Duration::from_millis(50)).await;
+                }
+            }).await?;
+            let elapsed = entered_at.elapsed();
+            assert!(elapsed < Duration::from_secs(35), "reset={reset}: key package maintenance waited {elapsed:?} after the notification turn started");
+            assert!(peer.calls(Call::Publish) > 0);
+            if reset {
+                assert_eq!(peer.calls(Call::Unregister), 3);
+                assert_eq!(peer.calls(Call::Register), 2);
+                let record = client.db().notification_record()?;
+                assert!(!record.push_unregister_owed);
+                assert!(record.push_last_state.is_none());
+                assert!(matches!(client.notification_state()?, NotificationState::Enabled));
+                assert!(!peer.state.lock().registered);
+            }
+            if let Some(phases) = phases {
+                phases.abort_handle().end();
+            }
+            runner.abort_handle().end();
+            if reset {
+                run(&client.context).await?;
+                assert_eq!(peer.calls(Call::Unregister), 3);
+                assert_eq!(peer.calls(Call::Register), 3);
+                assert!(peer.state.lock().registered);
+                assert!(client.db().notification_record()?.push_last_state.is_some());
+            }
+        }
     }
 }
 
