@@ -73,6 +73,7 @@ register_key() {
   [[ $target =~ ^[A-Za-z0-9][A-Za-z0-9.-]*$ ]] || fail 'HOST must be a hostname, without a URL or port'
   [[ $placeholder =~ ^sbx-[A-Za-z0-9_-]+$ ]] || fail 'PLACEHOLDER must start with sbx- and contain letters, digits, underscores, or hyphens'
   [[ $state != absent ]] || fail 'Run start before registering a key'
+  check_vm
   secret_env="$(printf 'LIBXMTP_%s' "${placeholder//-/_}" | tr '[:lower:]' '[:upper:]')"
   sbx policy allow network --sandbox "$name" "$target"
   printf 'API key for %s [%s] (stored on host): ' "$target" "$placeholder" >&2
