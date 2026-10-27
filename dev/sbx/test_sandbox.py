@@ -192,7 +192,7 @@ class SandboxTests(unittest.TestCase):
             any(call["args"][:2] == ["env", "run"] for call in self.state()["calls"])
         )
 
-    def test_incompatible_same_name_vm_is_not_started_or_destroyed(self):
+    def test_incompatible_same_name_vm_is_not_used(self):
         for mismatch in (
             {"runtime_mounts": [{"source": "/host/private", "target": "/workspace"}]},
             {"workspace": "/host/private", "mounts": []},
@@ -200,8 +200,12 @@ class SandboxTests(unittest.TestCase):
             {"agent": "claude"},
             {"kits": ["docker.io/docker/sbx-kit-claude:older"]},
         ):
-            for action in ("start", "destroy"):
-                with self.subTest(mismatch=mismatch, action=action):
+            for args in (
+                ("start",),
+                ("destroy",),
+                ("key", "api.example.com", "sbx-test"),
+            ):
+                with self.subTest(mismatch=mismatch, command=args):
                     state = self.state()
                     state.update(
                         vms=[
@@ -216,9 +220,17 @@ class SandboxTests(unittest.TestCase):
                         calls=[],
                     )
                     self.save(state)
-                    result = self.command(action)
+                    result = self.command(*args, key=KEY + "\n")
                     self.assertNotEqual(result.returncode, 0)
                     self.assertNotIn("Ready:", result.stdout)
+                    self.assertNotIn("API key for ", result.stderr)
+                    self.assertFalse(
+                        any(
+                            call["args"][:2]
+                            in (["policy", "allow"], ["secret", "set-custom"])
+                            for call in self.state()["calls"]
+                        )
+                    )
                     self.assertEqual(
                         {k: v for k, v in self.state().items() if k != "calls"},
                         {k: v for k, v in state.items() if k != "calls"},
