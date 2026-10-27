@@ -242,10 +242,13 @@ def run_lane(run, lane_id):
             command += ["--cyber-access-program", lane["cyber_access"]]
     events = directory / "events.jsonl"
     errors = directory / "stderr.log"
+    environment = os.environ.copy()
+    if lane["cli"] == "claude":
+        environment.update(BASH_DEFAULT_TIMEOUT_MS="3600000", BASH_MAX_TIMEOUT_MS="3600000")
     with prompt.open("rb") as input_file, events.open("wb") as output_file, errors.open("wb") as error_file:
         completed = subprocess.run(
             command, cwd=worktree, stdin=input_file, stdout=output_file, stderr=error_file,
-            check=False,
+            env=environment, check=False,
         )
     final = None
     for line in events.read_text(errors="replace").splitlines():
