@@ -35,8 +35,8 @@ dev/sbx/sandbox destroy  # Delete VM disks and keys; retain Claude history.
 dev/sbx/sandbox key api.other-provider.example sbx-other-libxmtp
 ```
 
-Creating the VM also signs in to ChatGPT for Codex when the host has no global
-OpenAI secret; see [Codex session](#codex-session).
+Every VM has the Codex CLI. Add `--codex` to the start that creates the VM to
+also set up its login; see [Codex session](#codex-session).
 Repeat `--api-key HOST PLACEHOLDER` to register several keys at start. Each
 hidden prompt names the domain and placeholder. Custom keys stay on the host;
 use one placeholder per provider. Pause unlinks Orca to prevent automatic
@@ -108,13 +108,20 @@ Use `/status` to confirm the account. See [Claude authentication](https://code.c
 
 ## Codex session
 
-Codex uses your ChatGPT subscription through Docker's host-side OAuth. The
-tokens stay on the host. The VM holds only the `oai-oat01-proxy-managed`
-sentinel, and the proxy replaces it on requests to `chatgpt.com`.
+Codex login is opt-in. With it, Codex uses your ChatGPT subscription through
+Docker's host-side OAuth. The tokens stay on the host. The VM holds only the
+`oai-oat01-proxy-managed` sentinel, and the proxy replaces it on requests to
+`chatgpt.com`.
 
-When `start` creates the VM and the host has no global OpenAI secret, it first
-runs `sbx secret set openai --oauth`. Sign in to ChatGPT at the host prompt.
-Then, in a VM terminal:
+Create the VM with `--codex`:
+
+```bash
+dev/sbx/sandbox start --codex
+```
+
+If the host has no global OpenAI secret, `start` first runs
+`sbx secret set openai --oauth`. Sign in to ChatGPT at the host prompt. Then,
+in a VM terminal:
 
 ```bash
 cd ~/libxmtp
@@ -124,12 +131,14 @@ codex
 Do not run `codex login` in the VM; the kit pins Codex to the proxy login.
 
 The Codex kit writes `~/.codex/config.toml` and `auth.json` once, at VM
-creation, from the host secret that exists then. A VM created without one has
-no Codex login: copy out work, then `destroy` and `start` it again. The OAuth
-secret is global, so every local sandbox with the Codex kit can use the
-subscription. Remove it with `sbx secret rm openai`.
+creation, from the host secret that exists then. `--codex` on a later `start`
+does not change an existing VM. To add Codex login, copy out work, then
+`destroy` and `start --codex`. Without `--codex`, a VM still picks up an
+OpenAI secret that already exists on the host. The OAuth secret is global, so
+every local sandbox with the Codex kit can use the subscription. Remove it
+with `sbx secret rm openai`.
 
-To use an OpenAI API key instead, store it before the first `start`:
+To use an OpenAI API key instead, store it before `start --codex`:
 
 ```bash
 sbx secret set openai

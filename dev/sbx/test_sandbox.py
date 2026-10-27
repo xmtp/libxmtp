@@ -196,9 +196,25 @@ class SandboxTests(unittest.TestCase):
             if call["args"] == ["secret", "set", "openai", "--oauth"]
         ]
 
-    def test_new_vm_gets_openai_sign_in_before_creation(self):
+    def test_plain_start_leaves_codex_logged_out(self):
         result = self.command("start")
         self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.sign_ins(), [])
+        self.assertFalse(
+            any(call["args"][:2] == ["secret", "ls"] for call in self.state()["calls"])
+        )
+
+    def test_codex_option_signs_in_before_creating_a_vm(self):
+        result = self.command(
+            "start",
+            "--api-key",
+            "api.example.com",
+            "sbx-test",
+            "--codex",
+            key=KEY + "\n",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.state()["keys"], [KEY])
         calls = self.state()["calls"]
         lookup = next(call for call in calls if call["args"][:2] == ["secret", "ls"])
         self.assertIn("--global", lookup["args"])
@@ -213,7 +229,7 @@ class SandboxTests(unittest.TestCase):
         self.assertEqual(len(self.sign_ins()), 1)
         self.assertLess(self.sign_ins()[0], creation)
 
-    def test_existing_openai_secret_or_vm_skips_sign_in(self):
+    def test_codex_option_skips_sign_in_for_a_secret_or_existing_vm(self):
         for case in ("global secret", "existing VM"):
             with self.subTest(case=case):
                 state = self.state()
@@ -226,7 +242,7 @@ class SandboxTests(unittest.TestCase):
                         bootstrap_complete=True,
                     )
                 self.save(state)
-                result = self.command("start")
+                result = self.command("start", "--codex")
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(self.sign_ins(), [])
 
@@ -234,7 +250,7 @@ class SandboxTests(unittest.TestCase):
         state = self.state()
         state["fail_oauth"] = True
         self.save(state)
-        result = self.command("start")
+        result = self.command("start", "--codex")
         self.assertNotEqual(result.returncode, 0)
         self.assertNotIn("Ready:", result.stdout)
         self.assertEqual(self.state()["vms"], [])
