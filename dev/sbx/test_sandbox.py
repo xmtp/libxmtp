@@ -53,7 +53,10 @@ if kind == "sbx":
                 row["status"] = "running" if s["attached"] else "stopped"
     elif a[:2] == ["secret", "ls"]:
         secrets = [{"scope": "(global)", "service": "openai"}] if s["openai_secret"] else []
-        print(json.dumps({"secrets": secrets, "custom_secrets": []}))
+        print(s.get("secret_ls_output", json.dumps({"secrets": secrets, "custom_secrets": []})))
+        if s.get("secret_ls_exit"):
+            path.write_text(json.dumps(s))
+            sys.exit(s["secret_ls_exit"])
     elif a[:3] == ["secret", "set", "openai"]:
         if s.get("fail_oauth"):
             path.write_text(json.dumps(s))
@@ -257,6 +260,46 @@ class SandboxTests(unittest.TestCase):
         self.assertFalse(
             any(call["args"][:2] == ["env", "run"] for call in self.state()["calls"])
         )
+
+    def assert_nothing_created(self, result):
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn("Ready:", result.stdout)
+        state = self.state()
+        self.assertEqual(state["vms"], [])
+        self.assertEqual(state["keys"], [])
+        self.assertEqual(self.sign_ins(), [])
+        self.assertFalse(
+            any(call["args"][:2] == ["env", "run"] for call in state["calls"])
+        )
+
+    def test_unreadable_openai_secret_list_creates_nothing(self):
+        for output, exit_code in (
+            ("", 1),
+            ("not json", 0),
+            ("{}", 0),
+            ('{"secrets": null}', 0),
+        ):
+            with self.subTest(output=output, exit_code=exit_code):
+                state = self.state()
+                state.update(
+                    calls=[], secret_ls_output=output, secret_ls_exit=exit_code
+                )
+                self.save(state)
+                self.assert_nothing_created(self.command("start", "--codex"))
+
+    def test_malformed_key_values_are_rejected_before_creation(self):
+        for args in (
+            ("--api-key", "--codex", "api.example.com", "sbx-test"),
+            ("--api-key", "api.example.com", "--codex"),
+            ("--api-key", "https://api.example.com", "sbx-test"),
+        ):
+            with self.subTest(args=args):
+                state = self.state()
+                state["calls"] = []
+                self.save(state)
+                self.assert_nothing_created(
+                    self.command("start", *args, key=KEY + "\n")
+                )
 
     def test_host_mcp_registration_blocks_start_before_creation(self):
         state = self.state()

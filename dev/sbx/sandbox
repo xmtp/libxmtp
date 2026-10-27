@@ -19,6 +19,7 @@ parse_start_options() {
       --codex) codex=true; shift ;;
       --api-key)
         (($# >= 3)) || { usage >&2; exit 2; }
+        validate_key "$2" "$3"
         keys+=("$2" "$3")
         shift 3
         ;;
@@ -81,14 +82,20 @@ forget_orca() {
 # secret. Without one, Codex in the VM has no proxy-managed credential.
 # The OAuth secret is global, so only --codex creates it.
 ensure_openai_secret() {
-  sbx secret ls --global --service openai --json | jq -e '.secrets | length > 0' >/dev/null && return
+  local count
+  count="$(sbx secret ls --global --service openai --json | jq -er '.secrets | arrays | length')" \
+    || fail 'Could not read global OpenAI secrets; the VM was not created'
+  ((count == 0)) || return 0
   echo 'No global OpenAI secret: sign in to ChatGPT on the host for Codex.' >&2
   sbx secret set openai --oauth || fail 'OpenAI sign-in failed; the VM was not created'
 }
+validate_key() {
+  [[ $1 =~ ^[A-Za-z0-9][A-Za-z0-9.-]*$ ]] || fail 'HOST must be a hostname, without a URL or port'
+  [[ $2 =~ ^sbx-[A-Za-z0-9_-]+$ ]] || fail 'PLACEHOLDER must start with sbx- and contain letters, digits, underscores, or hyphens'
+}
 register_key() {
   local target=$1 placeholder=$2 api_key secret_env
-  [[ $target =~ ^[A-Za-z0-9][A-Za-z0-9.-]*$ ]] || fail 'HOST must be a hostname, without a URL or port'
-  [[ $placeholder =~ ^sbx-[A-Za-z0-9_-]+$ ]] || fail 'PLACEHOLDER must start with sbx- and contain letters, digits, underscores, or hyphens'
+  validate_key "$target" "$placeholder"
   [[ $state != absent ]] || fail 'Run start before registering a key'
   check_vm
   secret_env="$(printf 'LIBXMTP_%s' "${placeholder//-/_}" | tr '[:lower:]' '[:upper:]')"
