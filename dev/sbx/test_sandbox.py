@@ -51,6 +51,14 @@ if kind == "sbx":
         for row in s["vms"]:
             if row["name"] == a[-1]:
                 row["status"] = "running" if s["attached"] else "stopped"
+    elif a[:2] == ["secret", "ls"]:
+        secrets = [{"scope": "(global)", "service": "openai"}] if s["openai_secret"] else []
+        print(json.dumps({"secrets": secrets, "custom_secrets": []}))
+    elif a[:3] == ["secret", "set", "openai"]:
+        if s.get("fail_oauth"):
+            path.write_text(json.dumps(s))
+            sys.exit(1)
+        s["openai_secret"] = True
     elif a[:2] == ["secret", "set-custom"]:
         if not re.fullmatch("[A-Z_][A-Z0-9_]*", a[a.index("--env") + 1]):
             path.write_text(json.dumps(s))
@@ -101,6 +109,7 @@ class SandboxTests(unittest.TestCase):
                     "runtime_mounts": [],
                 },
                 "mcp_servers": [],
+                "openai_secret": False,
                 "bootstrap_complete": False,
                 "disk": None,
                 "keys": [],
@@ -179,6 +188,59 @@ class SandboxTests(unittest.TestCase):
         self.assertEqual(self.command("start").returncode, 0)
         self.assertEqual(self.state()["disk"], state["disk"])
         self.assertEqual(len(self.state()["vms"]), 1)
+
+    def sign_ins(self):
+        return [
+            index
+            for index, call in enumerate(self.state()["calls"])
+            if call["args"] == ["secret", "set", "openai", "--oauth"]
+        ]
+
+    def test_new_vm_gets_openai_sign_in_before_creation(self):
+        result = self.command("start")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        calls = self.state()["calls"]
+        lookup = next(call for call in calls if call["args"][:2] == ["secret", "ls"])
+        self.assertIn("--global", lookup["args"])
+        self.assertEqual(
+            lookup["args"][lookup["args"].index("--service") + 1], "openai"
+        )
+        creation = next(
+            index
+            for index, call in enumerate(calls)
+            if call["args"][:2] == ["env", "run"]
+        )
+        self.assertEqual(len(self.sign_ins()), 1)
+        self.assertLess(self.sign_ins()[0], creation)
+
+    def test_existing_openai_secret_or_vm_skips_sign_in(self):
+        for case in ("global secret", "existing VM"):
+            with self.subTest(case=case):
+                state = self.state()
+                state.update(calls=[], vms=[], openai_secret=False)
+                if case == "global secret":
+                    state["openai_secret"] = True
+                else:
+                    state.update(
+                        vms=[{"name": NAME, "status": "stopped", **state["details"]}],
+                        bootstrap_complete=True,
+                    )
+                self.save(state)
+                result = self.command("start")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(self.sign_ins(), [])
+
+    def test_failed_openai_sign_in_creates_nothing(self):
+        state = self.state()
+        state["fail_oauth"] = True
+        self.save(state)
+        result = self.command("start")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn("Ready:", result.stdout)
+        self.assertEqual(self.state()["vms"], [])
+        self.assertFalse(
+            any(call["args"][:2] == ["env", "run"] for call in self.state()["calls"])
+        )
 
     def test_host_mcp_registration_blocks_start_before_creation(self):
         state = self.state()

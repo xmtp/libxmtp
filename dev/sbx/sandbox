@@ -68,6 +68,13 @@ forget_orca() {
   fi
   orca_adapter remove >/dev/null
 }
+# The Codex kit seeds its login once, at VM creation, from the host's OpenAI
+# secret. Without one, Codex in the VM has no proxy-managed credential.
+ensure_openai_secret() {
+  sbx secret ls --global --service openai --json | jq -e '.secrets | length > 0' >/dev/null && return
+  echo 'No global OpenAI secret: sign in to ChatGPT on the host for Codex.' >&2
+  sbx secret set openai --oauth || fail 'OpenAI sign-in failed; the VM was not created'
+}
 register_key() {
   local target=$1 placeholder=$2 api_key secret_env
   [[ $target =~ ^[A-Za-z0-9][A-Za-z0-9.-]*$ ]] || fail 'HOST must be a hostname, without a URL or port'
@@ -97,6 +104,7 @@ case "$action" in
     if [[ $state != absent ]]; then check_vm; fi
     [[ $(sbx settings get ssh.agentForwardingEnabled) == false ]] \
       || fail 'Disable host SSH-agent forwarding first; see dev/sbx/README.md'
+    if [[ $state == absent ]]; then ensure_openai_secret; fi
     DOCKER_SANDBOXES_ROOT_SIZE=150g DOCKER_SANDBOXES_DOCKER_SIZE=80g \
       sbx env run --detach --force "$environment"
     state=running

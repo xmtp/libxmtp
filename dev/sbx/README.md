@@ -35,6 +35,8 @@ dev/sbx/sandbox destroy  # Delete VM disks and keys; retain Claude history.
 dev/sbx/sandbox key api.other-provider.example sbx-other-libxmtp
 ```
 
+Creating the VM also signs in to ChatGPT for Codex when the host has no global
+OpenAI secret; see [Codex session](#codex-session).
 Repeat `--api-key HOST PLACEHOLDER` to register several keys at start. Each
 hidden prompt names the domain and placeholder. Custom keys stay on the host;
 use one placeholder per provider. Pause unlinks Orca to prevent automatic
@@ -106,29 +108,37 @@ Use `/status` to confirm the account. See [Claude authentication](https://code.c
 
 ## Codex session
 
-On the host, enter your OpenAI API key using Docker's native service:
+Codex uses your ChatGPT subscription through Docker's host-side OAuth. The
+tokens stay on the host. The VM holds only the `oai-oat01-proxy-managed`
+sentinel, and the proxy replaces it on requests to `chatgpt.com`.
+
+When `start` creates the VM and the host has no global OpenAI secret, it first
+runs `sbx secret set openai --oauth`. Sign in to ChatGPT at the host prompt.
+Then, in a VM terminal:
 
 ```bash
-sbx secret set openai --sandbox libxmtp-claude
-```
-
-Then in a VM terminal, log in with the service sentinel and start Codex:
-
-```bash
-printf '%s\n' proxy-managed | codex login --with-api-key
 cd ~/libxmtp
 codex
 ```
 
-The login stores the sentinel; Docker supplies the API key on requests. The
-upstream kit can also expose a native API key through `OPENAI_API_KEY` during
-creation/startup, so API-key mode does not guarantee credential isolation.
-This uses [OpenAI API-key authentication](https://learn.chatgpt.com/docs/auth#sign-in-with-an-api-key).
+Do not run `codex login` in the VM; the kit pins Codex to the proxy login.
 
-For a ChatGPT subscription with host-managed OAuth, run
-`sbx secret set openai --oauth` on the host **before creating the VM**, then
-start the VM and run `codex`. This OAuth credential is global. A VM created
-logged out needs recreation to pick up the kit's OAuth configuration.
+The Codex kit writes `~/.codex/config.toml` and `auth.json` once, at VM
+creation, from the host secret that exists then. A VM created without one has
+no Codex login: copy out work, then `destroy` and `start` it again. The OAuth
+secret is global, so every local sandbox with the Codex kit can use the
+subscription. Remove it with `sbx secret rm openai`.
+
+To use an OpenAI API key instead, store it before the first `start`:
+
+```bash
+sbx secret set openai
+```
+
+An API key takes precedence over OAuth. The upstream kit can expose a native
+API key through `OPENAI_API_KEY` during creation/startup, so API-key mode does
+not guarantee credential isolation. This uses
+[OpenAI API-key authentication](https://learn.chatgpt.com/docs/auth#sign-in-with-an-api-key).
 
 ## Build and test
 
