@@ -12,6 +12,7 @@ Example `manifest.json` inside `~/security-hardening/<run-id>/`:
 {
   "repo": "/home/agent/libxmtp",
   "base": "<full-40-character-audit-commit>",
+  "phase": "discovery",
   "concurrency": 4,
   "lanes": [
     {
@@ -52,7 +53,9 @@ python3 guest_lanes.py start "$PWD"
 python3 guest_lanes.py status "$PWD"
 ```
 
-`init` creates detached worktrees at the manifest's base commit. `start`
+Set `phase` to `discovery`, `validation`, or `review`. `init` creates one shared
+detached checkout for discovery or review. For validation, it creates a pool
+with up to `concurrency` slots, never one checkout per finding. `start`
 launches a background supervisor in the VM, up to `concurrency` lanes at
 once. The supervisor survives the SSH connection; the host polls `status`
 over SSH and stays on the task until all lanes finish or need attention.
@@ -73,7 +76,14 @@ Each lane has `session.json`, `events.jsonl`, `stderr.log`, and then
 `result.json`. `done` requires a successful process exit and a successful
 Claude `result` or Codex `turn.completed` event. `failed` and `died` require
 inspection. Read the final event and the actual findings/repro files. The
-runner does not judge the report's quality or merge worktree changes.
+runner does not judge report quality or merge changes. For validation, each
+lane runs alone in a slot. Before another lane takes the slot, the runner
+saves tracked and untracked changes to the `snapshot_ref` in `result.json`,
+then resets the slot to the base commit. Inspect the ref and lane output
+before integrating its assigned finding and repro files. A lane that dies
+without a saved result keeps its slot reserved for inspection. Discovery
+lanes share a checkout; write reports only in each lane's output directory
+and check the checkout for unexpected changes after the phase.
 
 The runner uses Claude's headless write mode because the outer VM is the
 isolation boundary. Codex uses `workspace-write` with access to the run

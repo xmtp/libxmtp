@@ -14,7 +14,11 @@ RUNNER = Path(__file__).resolve().parents[2] / ".agents/skills/security-hardenin
 FAKE = """#!/usr/bin/env python3
 import json, pathlib, sys
 prompt = sys.stdin.read()
-pathlib.Path('received-prompt').write_text(prompt)
+args = sys.argv
+lane_dir = pathlib.Path(args[args.index('--add-dir') + 1])
+(lane_dir / 'received-prompt').write_text(prompt)
+if prompt.startswith('dirty'):
+    pathlib.Path('probe.txt').write_text(prompt)
 if pathlib.Path(sys.argv[0]).name == 'claude':
     print(json.dumps({'type': 'result', 'is_error': False, 'result': 'complete'}))
 else:
@@ -42,6 +46,7 @@ class GuestLaneTests(unittest.TestCase):
         (self.run_dir / "manifest.json").write_text(json.dumps({
             "repo": str(self.repo),
             "base": self.base,
+            "phase": "discovery",
             "concurrency": 2,
             "lanes": [
                 {"id": "claude-a", "cli": "claude", "model": "opus", "effort": "high", "prompt": "prompts/a.md"},
@@ -74,7 +79,7 @@ class GuestLaneTests(unittest.TestCase):
             text=True, capture_output=True, env=self.env,
         )
 
-    def test_parallel_lanes_have_isolated_worktrees_and_real_final_states(self):
+    def test_discovery_lanes_share_one_checkout_and_have_real_final_states(self):
         prepared = self.runner("init")
         self.assertEqual(prepared.returncode, 0, prepared.stderr)
         started = self.runner("start")
@@ -93,14 +98,18 @@ class GuestLaneTests(unittest.TestCase):
         self.assertEqual(json.loads(results[0].read_text())["state"], "done")
         self.assertEqual(json.loads(results[1].read_text())["state"], "failed")
         self.assertEqual(json.loads(results[1].read_text())["session_id"], "test-thread")
+        shared = self.run_dir / "worktrees" / "shared"
+        self.assertEqual(len(list((self.run_dir / "worktrees").iterdir())), 1)
         for lane, prompt in (("claude-a", "audit A\n"), ("codex-b", "audit B\n")):
-            worktree = self.run_dir / "worktrees" / lane
-            self.assertEqual((worktree / "received-prompt").read_text(), prompt)
+            self.assertEqual((self.run_dir / "lanes" / lane / "received-prompt").read_text(), prompt)
+            session = json.loads((self.run_dir / "lanes" / lane / "session.json").read_text())
+            self.assertEqual(session["worktree"], str(shared.resolve()))
             head = subprocess.run(
-                ["git", "-C", str(worktree), "rev-parse", "HEAD"],
+                ["git", "-C", str(shared), "rev-parse", "HEAD"],
                 text=True, capture_output=True, check=True,
             ).stdout.strip()
             self.assertEqual(head, self.base)
+        self.assertFalse((shared / "probe.txt").exists())
         status = self.runner("status")
         self.assertEqual(json.loads(status.stdout), {"claude-a": "done", "codex-b": "failed"})
         supervisor_pid = int((self.run_dir / "supervisor.pid").read_text())
@@ -110,6 +119,45 @@ class GuestLaneTests(unittest.TestCase):
             except ProcessLookupError:
                 break
             time.sleep(0.2)
+
+    def test_validation_reuses_one_pool_slot_after_preserving_edits(self):
+        (self.run_dir / "prompts" / "a.md").write_text("dirty A\n")
+        (self.run_dir / "prompts" / "b.md").write_text("dirty B\n")
+        (self.run_dir / "manifest.json").write_text(json.dumps({
+            "repo": str(self.repo),
+            "base": self.base,
+            "phase": "validation",
+            "concurrency": 1,
+            "lanes": [
+                {"id": "claude-a", "cli": "claude", "model": "opus", "effort": "high", "prompt": "prompts/a.md"},
+                {"id": "claude-b", "cli": "claude", "model": "opus", "effort": "high", "prompt": "prompts/b.md"},
+            ],
+        }))
+        prepared = self.runner("init")
+        self.assertEqual(prepared.returncode, 0, prepared.stderr)
+        started = self.runner("start")
+        self.assertEqual(started.returncode, 0, started.stderr)
+        deadline = time.monotonic() + 25
+        while time.monotonic() < deadline:
+            results = [self.run_dir / "lanes" / lane / "result.json" for lane in ("claude-a", "claude-b")]
+            if all(path.exists() for path in results):
+                break
+            time.sleep(0.2)
+        else:
+            self.fail("validation results did not arrive")
+        slot = self.run_dir / "worktrees" / "slot-01"
+        self.assertEqual(len(list((self.run_dir / "worktrees").iterdir())), 1)
+        head = subprocess.run(["git", "-C", str(slot), "rev-parse", "HEAD"],
+                              text=True, capture_output=True, check=True).stdout.strip()
+        self.assertEqual(head, self.base)
+        self.assertFalse((slot / "probe.txt").exists())
+        for lane, prompt in (("claude-a", "dirty A\n"), ("claude-b", "dirty B\n")):
+            result = json.loads((self.run_dir / "lanes" / lane / "result.json").read_text())
+            self.assertEqual(result["state"], "done")
+            self.assertEqual(result["worktree"], str(slot.resolve()))
+            self.assertTrue(result["snapshot_ref"].startswith("refs/security-hardening/"))
+            content = self.git("show", f'{result["snapshot_ref"]}:probe.txt').stdout
+            self.assertEqual(content, prompt)
 
 
 if __name__ == "__main__":

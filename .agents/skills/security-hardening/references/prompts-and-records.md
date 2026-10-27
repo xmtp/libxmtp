@@ -11,7 +11,8 @@ instructions.
 ```text
 I maintain this public repository and am auditing commit <SHA> to harden it.
 All code citations must refer to that commit. Follow repository AGENTS.md and
-approved specifications. Keep all changes local; do not push or contact live
+approved specifications. Treat the shared code checkout as read-only. Write
+reports only in your own lane output directory. Do not push or contact live
 services. You run headless and nobody answers questions. Run commands in the
 foreground, wait for their exit status, and stop child processes before exit.
 
@@ -52,6 +53,9 @@ Choose a useful mix rather than running every task on every model.
 
 ## Deduplication brief
 
+The host agent performs this work and checks its result with independent
+native subagents. Do not dispatch it as a guest model lane.
+
 ```text
 Combine all candidate reports into findings/F-001.md, etc. Merge findings
 with the same root cause, retaining all sources and scenarios. Do not drop or
@@ -59,13 +63,19 @@ rescore candidates. Write a source-to-finding map and list any input that
 could not be parsed. Keep citations at the audited commit.
 ```
 
+After merging, run an independent adversarial pass over the complete list.
+Check every source route, compare merged claims with their original reports,
+look for false merges and missed overlaps, and mark conflicting accounts
+explicitly. Fix material defects and rerun source-map checks before review.
+
 ## Validation brief
 
 ```text
-Review <FINDING_FILE> adversarially at commit <SHA>. Work only in your assigned
-worktree. Create a local test or minimal repro where feasible; do not contact
-live services. Run it through this repository's Nix commands. Edit only your
-finding file and repro files. End with exactly one status:
+Review <FINDING_FILES> adversarially at commit <SHA>. Work only in your assigned
+pool slot; another agent may use it after your lane finishes. Create a local
+test or minimal repro where feasible; do not contact live services. Run it
+through this repository's Nix commands. Edit only your assigned finding
+files and repro files. End with exactly one status per finding:
 
 CONFIRMED: a repro demonstrates the claimed issue.
 NARROWED: a repro confirms it only under narrower stated conditions.

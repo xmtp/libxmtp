@@ -18,6 +18,7 @@ import uuid
 LANE_ID = re.compile(r"[a-z0-9][a-z0-9-]*\Z")
 EFFORT = {"low", "medium", "high", "xhigh", "max", "ultra"}
 ACCESS = {"standard", "daybreak_blue", "daybreak_red"}
+PHASES = {"discovery", "validation", "review"}
 
 
 def now():
@@ -53,6 +54,8 @@ def manifest(run):
     concurrency = data.get("concurrency", 4)
     if type(concurrency) is not int or not 1 <= concurrency <= 32:
         raise ValueError("manifest concurrency must be 1..32")
+    if data.get("phase", "discovery") not in PHASES:
+        raise ValueError("manifest phase must be discovery, validation, or review")
     lanes = data["lanes"]
     if not isinstance(lanes, list) or not lanes:
         raise ValueError("manifest needs at least one lane")
@@ -91,6 +94,12 @@ def git(repo, *args):
     ).stdout.strip()
 
 
+def slot_names(data):
+    if data.get("phase", "discovery") == "validation":
+        return [f"slot-{number:02d}" for number in range(1, min(data.get("concurrency", 4), len(data["lanes"])) + 1)]
+    return ["shared"]
+
+
 def init(run):
     data, repo = manifest(run)
     actual = git(repo, "rev-parse", "--verify", f"{data['base']}^{{commit}}")
@@ -98,19 +107,20 @@ def init(run):
         raise ValueError("base SHA did not resolve to the requested commit")
     worktrees = run / "worktrees"
     worktrees.mkdir(exist_ok=True)
-    for lane in data["lanes"]:
-        lane_id = lane["id"]
-        destination = worktrees / lane_id
+    for name in slot_names(data):
+        destination = worktrees / name
         if destination.exists():
             if git(destination, "rev-parse", "HEAD") != actual:
-                raise ValueError(f"existing worktree has a different commit: {lane_id}")
+                raise ValueError(f"existing worktree has a different commit: {name}")
         else:
             subprocess.run(
                 ["git", "-C", str(repo), "worktree", "add", "--detach", str(destination), actual],
                 check=True,
             )
+    for lane in data["lanes"]:
+        lane_id = lane["id"]
         (run / "lanes" / lane_id).mkdir(parents=True, exist_ok=True)
-    print(f"Prepared {len(data['lanes'])} worktrees at {actual}")
+    print(f"Prepared {len(slot_names(data))} worktrees at {actual}")
 
 
 def process_alive(pid):
@@ -142,9 +152,10 @@ def status(run):
     return rows
 
 
-def launch(run, lane):
+def launch(run, lane, slot):
     lane_id = lane["id"]
     directory = run / "lanes" / lane_id
+    (directory / "slot").write_text(f"{slot}\n")
     with (directory / "supervisor.log").open("ab") as log:
         process = subprocess.Popen(
             [sys.executable, str(Path(__file__).resolve()), "_run", str(run), lane_id],
@@ -160,6 +171,7 @@ def launch(run, lane):
 def supervise(run):
     data, _ = manifest(run)
     limit = data.get("concurrency", 4)
+    validation = data.get("phase", "discovery") == "validation"
     while True:
         try:
             while os.waitpid(-1, os.WNOHANG)[0] != 0:
@@ -171,14 +183,28 @@ def supervise(run):
         running = sum(value == "running" for value in states.values())
         if not pending and not running:
             return
-        for lane in pending[: max(0, limit - running)]:
-            launch(run, lane)
-        time.sleep(10)
+        if validation:
+            occupied = {
+                (run / "lanes" / lane["id"] / "slot").read_text().strip()
+                for lane in data["lanes"]
+                if states[lane["id"]] in {"running", "died"}
+                and (run / "lanes" / lane["id"] / "slot").exists()
+            }
+            available = [name for name in slot_names(data) if name not in occupied]
+        else:
+            available = ["shared"] * max(0, limit - running)
+        launched = 0
+        for lane, slot in zip(pending, available[: max(0, limit - running)]):
+            launch(run, lane, slot)
+            launched += 1
+        if pending and not running and not launched:
+            return  # A died lane owns every remaining validation slot.
+        time.sleep(1)
 
 
 def start(run):
     data, _ = manifest(run)
-    if any(not (run / "worktrees" / lane["id"]).is_dir() for lane in data["lanes"]):
+    if any(not (run / "worktrees" / name).is_dir() for name in slot_names(data)):
         raise ValueError("run init before start")
     pid_file = run / "supervisor.pid"
     if pid_file.exists() and process_alive(int(pid_file.read_text())):
@@ -197,11 +223,44 @@ def start(run):
     print(f"Supervisor started: {process.pid}")
 
 
+def snapshot_and_reset(worktree, directory, run, lane_id, base):
+    """Save all tracked and untracked validation edits before reusing a slot."""
+    index = directory / "snapshot.index"
+    environment = os.environ.copy()
+    environment.update(
+        GIT_INDEX_FILE=str(index),
+        GIT_AUTHOR_NAME="Security hardening audit",
+        GIT_AUTHOR_EMAIL="audit@localhost",
+        GIT_COMMITTER_NAME="Security hardening audit",
+        GIT_COMMITTER_EMAIL="audit@localhost",
+    )
+
+    def capture(*args, env=environment):
+        return subprocess.run(
+            ["git", "-C", str(worktree), *args],
+            text=True, capture_output=True, check=True, env=env,
+        ).stdout.strip()
+
+    capture("read-tree", base)
+    capture("add", "-A")
+    tree = capture("write-tree")
+    commit = capture("commit-tree", tree, "-p", base, "-m", f"Audit validation {lane_id}")
+    run_key = hashlib.sha256(str(run).encode()).hexdigest()[:12]
+    ref = f"refs/security-hardening/{run_key}/{lane_id}"
+    capture("update-ref", ref, commit)
+    # The ref now keeps even untracked repro files. Restore the slot for its next lane.
+    capture("reset", "--hard", base, env=os.environ.copy())
+    capture("clean", "-fd", env=os.environ.copy())
+    index.unlink(missing_ok=True)
+    return ref
+
+
 def run_lane(run, lane_id):
     data, repo = manifest(run)
     lane = next(item for item in data["lanes"] if item["id"] == lane_id)
     directory = run / "lanes" / lane_id
-    worktree = run / "worktrees" / lane_id
+    slot = (directory / "slot").read_text().strip()
+    worktree = run / "worktrees" / slot
     prompt = inside(run, lane["prompt"])
     session_id = str(uuid.uuid4()) if lane["cli"] == "claude" else None
     record = {
@@ -211,6 +270,7 @@ def run_lane(run, lane_id):
         "prompt": str(prompt),
         "prompt_sha256": hashlib.sha256(prompt.read_bytes()).hexdigest(),
         "worktree": str(worktree),
+        "phase": data.get("phase", "discovery"),
         "cli": lane["cli"],
         "provider": lane.get("provider"),
         "model": lane["model"],
@@ -280,6 +340,8 @@ def run_lane(run, lane_id):
         exit_code=completed.returncode,
         final_event_type=final.get("type") if final else None,
     )
+    if data.get("phase", "discovery") == "validation":
+        record["snapshot_ref"] = snapshot_and_reset(worktree, directory, run, lane_id, data["base"])
     write_json(directory / "result.json", record)
 
 

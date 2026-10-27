@@ -55,9 +55,12 @@ subscription login may need a one-time user action inside the VM.
 
 Use SSH to work in `~/libxmtp` inside `libxmtp-claude.sbx`. Verify the requested
 commit exists there and record its full SHA. Keep run files under
-`~/security-hardening/<run-id>/`, with one detached Git worktree at that SHA
-per lane. Copy only prompts and public context into the VM; do not mount host
-folders or copy the host `.env`. Use the guest lane runner for the approved
+`~/security-hardening/<run-id>/`. Discovery lanes share one detached worktree
+at that SHA. The code checkout is for reading; each lane writes reports in its
+own run directory. Check the shared checkout for source changes after the lanes
+finish and retain any unexpected diff as evidence. Copy only prompts and public
+context into the VM; do not mount host folders or copy the host `.env`.
+Use the guest lane runner for the approved
 prompt matrix and bounded concurrency. Each lane writes its prompt,
 model, effort, access mode, start/end time, CLI session ID, output stream,
 errors, and findings to its own directory. Require no Git push or external
@@ -73,25 +76,34 @@ Apply repo rules in the guest, including Nix commands and approved specs.
 
 ## 2. Deduplicate
 
-In the VM, normalize lane and imported scanner reports into
+The **host agent** owns deduplication. Fetch the raw lane and selected scanner
+reports from the VM, verify their inventory and hashes, and normalize them into
 `findings/F-001.md`, etc. Merge by root cause, retain every source and
 scenario, and do not discard or rescore at this stage. Keep a source-to-finding
-map so every candidate is accounted for. Copy the raw reports into a dedicated
-deduplication worktree, then run the reviewed deduplication brief there. Commit
-the normalized findings on a local branch so validation lanes share one fixed
-base. Keep the raw reports and mapping outside that branch for later checks.
+map so every candidate is accounted for. Use native host subagents for
+independent coverage and semantic checks. Run an adversarial review of the
+complete merged list, fix material routing or fidelity errors, and recheck the
+source map before offering the list for user review. If the user requests a
+review before validation, publish the combined list and pause for feedback.
+Keep the raw reports and mapping outside the validation branch. Copy the
+reviewed normalized findings into the VM and commit them on a local branch at
+the audit SHA so validation lanes share one fixed base. Do not send imported
+scanner reports to another provider without the user's authorization.
 
 ## 3. Validate
 
-Create a fresh worktree per finding and cap active lanes at eight unless the
-user chooses another limit. Give each validation agent only its own finding
-file to edit and its own repro files. Preserve test output and the exact
-commit. Use the guest lane runner again, based on the local deduplication
-commit. Use the status definitions in the prompt reference: `CONFIRMED`,
-`NARROWED`, `REFUTED`, `UNPROVEN`, or `BLOCKED`. A failed exploit is not a
+Create a pool of detached worktrees, capped at eight active slots unless the
+user chooses another limit. Assign one validation agent per finding or small
+group with distinct file ownership. Give each agent only its own finding files
+to edit and its own repro files. Use the guest lane runner based on the local
+deduplication commit. It saves each agent's edits in a local Git ref, records
+test output, and resets the slot before assigning the next agent. Check saved
+refs and results before integrating any edits. Use the status definitions in
+the prompt reference: `CONFIRMED`, `NARROWED`, `REFUTED`, `UNPROVEN`, or
+`BLOCKED`. A failed exploit is not a
 refutation. Check each lane's result, then copy only its assigned finding and
-repro files into the integration worktree. Build `report.md` from the
-integrated finding files. Do not push.
+repro files from its saved ref into the integration worktree. Build `report.md`
+from the integrated finding files. Do not push.
 
 **Pause after validation.** Show the status summary and unresolved limits.
 Let the user choose another model to clean up the documents, adversarially
