@@ -51,6 +51,17 @@ if kind == "sbx":
         for row in s["vms"]:
             if row["name"] == a[-1]:
                 row["status"] = "running" if s["attached"] else "stopped"
+    elif a[:2] == ["secret", "ls"]:
+        secrets = [{"scope": "(global)", "service": "openai"}] if s["openai_secret"] else []
+        print(s.get("secret_ls_output", json.dumps({"secrets": secrets, "custom_secrets": []})))
+        if s.get("secret_ls_exit"):
+            path.write_text(json.dumps(s))
+            sys.exit(s["secret_ls_exit"])
+    elif a[:3] == ["secret", "set", "openai"]:
+        if s.get("fail_oauth"):
+            path.write_text(json.dumps(s))
+            sys.exit(1)
+        s["openai_secret"] = True
     elif a[:2] == ["secret", "set-custom"]:
         if not re.fullmatch("[A-Z_][A-Z0-9_]*", a[a.index("--env") + 1]):
             path.write_text(json.dumps(s))
@@ -101,6 +112,7 @@ class SandboxTests(unittest.TestCase):
                     "runtime_mounts": [],
                 },
                 "mcp_servers": [],
+                "openai_secret": False,
                 "bootstrap_complete": False,
                 "disk": None,
                 "keys": [],
@@ -179,6 +191,115 @@ class SandboxTests(unittest.TestCase):
         self.assertEqual(self.command("start").returncode, 0)
         self.assertEqual(self.state()["disk"], state["disk"])
         self.assertEqual(len(self.state()["vms"]), 1)
+
+    def sign_ins(self):
+        return [
+            index
+            for index, call in enumerate(self.state()["calls"])
+            if call["args"] == ["secret", "set", "openai", "--oauth"]
+        ]
+
+    def test_plain_start_leaves_codex_logged_out(self):
+        result = self.command("start")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.sign_ins(), [])
+        self.assertFalse(
+            any(call["args"][:2] == ["secret", "ls"] for call in self.state()["calls"])
+        )
+
+    def test_codex_option_signs_in_before_creating_a_vm(self):
+        result = self.command(
+            "start",
+            "--api-key",
+            "api.example.com",
+            "sbx-test",
+            "--codex",
+            key=KEY + "\n",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.state()["keys"], [KEY])
+        calls = self.state()["calls"]
+        lookup = next(call for call in calls if call["args"][:2] == ["secret", "ls"])
+        self.assertIn("--global", lookup["args"])
+        self.assertEqual(
+            lookup["args"][lookup["args"].index("--service") + 1], "openai"
+        )
+        creation = next(
+            index
+            for index, call in enumerate(calls)
+            if call["args"][:2] == ["env", "run"]
+        )
+        self.assertEqual(len(self.sign_ins()), 1)
+        self.assertLess(self.sign_ins()[0], creation)
+
+    def test_codex_option_skips_sign_in_for_a_secret_or_existing_vm(self):
+        for case in ("global secret", "existing VM"):
+            with self.subTest(case=case):
+                state = self.state()
+                state.update(calls=[], vms=[], openai_secret=False)
+                if case == "global secret":
+                    state["openai_secret"] = True
+                else:
+                    state.update(
+                        vms=[{"name": NAME, "status": "stopped", **state["details"]}],
+                        bootstrap_complete=True,
+                    )
+                self.save(state)
+                result = self.command("start", "--codex")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(self.sign_ins(), [])
+
+    def test_failed_openai_sign_in_creates_nothing(self):
+        state = self.state()
+        state["fail_oauth"] = True
+        self.save(state)
+        result = self.command("start", "--codex")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn("Ready:", result.stdout)
+        self.assertEqual(self.state()["vms"], [])
+        self.assertFalse(
+            any(call["args"][:2] == ["env", "run"] for call in self.state()["calls"])
+        )
+
+    def assert_nothing_created(self, result):
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn("Ready:", result.stdout)
+        state = self.state()
+        self.assertEqual(state["vms"], [])
+        self.assertEqual(state["keys"], [])
+        self.assertEqual(self.sign_ins(), [])
+        self.assertFalse(
+            any(call["args"][:2] == ["env", "run"] for call in state["calls"])
+        )
+
+    def test_unreadable_openai_secret_list_creates_nothing(self):
+        for output, exit_code in (
+            ("", 1),
+            ("not json", 0),
+            ("{}", 0),
+            ('{"secrets": null}', 0),
+        ):
+            with self.subTest(output=output, exit_code=exit_code):
+                state = self.state()
+                state.update(
+                    calls=[], secret_ls_output=output, secret_ls_exit=exit_code
+                )
+                self.save(state)
+                self.assert_nothing_created(self.command("start", "--codex"))
+
+    def test_malformed_key_values_are_rejected_before_creation(self):
+        for args in (
+            ("--api-key", "--codex", "api.example.com", "sbx-test"),
+            ("--api-key", "api.example.com", "--codex"),
+            ("--api-key", "https://api.example.com", "sbx-test"),
+        ):
+            with self.subTest(args=args):
+                state = self.state()
+                state["calls"] = []
+                self.save(state)
+                self.assert_nothing_created(
+                    self.command("start", *args, key=KEY + "\n")
+                )
 
     def test_host_mcp_registration_blocks_start_before_creation(self):
         state = self.state()

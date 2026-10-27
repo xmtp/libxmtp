@@ -9,12 +9,22 @@ host="$name.sbx"
 environment="$tools/sbxenv.yaml"
 
 usage() {
-  echo 'Usage: dev/sbx/sandbox start [--api-key HOST PLACEHOLDER]... | pause | destroy | key HOST PLACEHOLDER'
+  echo 'Usage: dev/sbx/sandbox start [--codex] [--api-key HOST PLACEHOLDER]... | pause | destroy | key HOST PLACEHOLDER'
 }
-validate_key_options() {
+codex=false
+keys=()
+parse_start_options() {
   while (($#)); do
-    [[ $# -ge 3 && $1 == --api-key ]] || { usage >&2; exit 2; }
-    shift 3
+    case $1 in
+      --codex) codex=true; shift ;;
+      --api-key)
+        (($# >= 3)) || { usage >&2; exit 2; }
+        validate_key "$2" "$3"
+        keys+=("$2" "$3")
+        shift 3
+        ;;
+      *) usage >&2; exit 2 ;;
+    esac
   done
 }
 fail() { echo "sandbox: $*" >&2; exit 1; }
@@ -68,10 +78,24 @@ forget_orca() {
   fi
   orca_adapter remove >/dev/null
 }
+# The Codex kit seeds its login once, at VM creation, from the host's OpenAI
+# secret. Without one, Codex in the VM has no proxy-managed credential.
+# The OAuth secret is global, so only --codex creates it.
+ensure_openai_secret() {
+  local count
+  count="$(sbx secret ls --global --service openai --json | jq -er '.secrets | arrays | length')" \
+    || fail 'Could not read global OpenAI secrets; the VM was not created'
+  ((count == 0)) || return 0
+  echo 'No global OpenAI secret: sign in to ChatGPT on the host for Codex.' >&2
+  sbx secret set openai --oauth || fail 'OpenAI sign-in failed; the VM was not created'
+}
+validate_key() {
+  [[ $1 =~ ^[A-Za-z0-9][A-Za-z0-9.-]*$ ]] || fail 'HOST must be a hostname, without a URL or port'
+  [[ $2 =~ ^sbx-[A-Za-z0-9_-]+$ ]] || fail 'PLACEHOLDER must start with sbx- and contain letters, digits, underscores, or hyphens'
+}
 register_key() {
   local target=$1 placeholder=$2 api_key secret_env
-  [[ $target =~ ^[A-Za-z0-9][A-Za-z0-9.-]*$ ]] || fail 'HOST must be a hostname, without a URL or port'
-  [[ $placeholder =~ ^sbx-[A-Za-z0-9_-]+$ ]] || fail 'PLACEHOLDER must start with sbx- and contain letters, digits, underscores, or hyphens'
+  validate_key "$target" "$placeholder"
   [[ $state != absent ]] || fail 'Run start before registering a key'
   check_vm
   secret_env="$(printf 'LIBXMTP_%s' "${placeholder//-/_}" | tr '[:lower:]' '[:upper:]')"
@@ -91,12 +115,17 @@ register_key() {
 
 case "$action" in
   start)
-    validate_key_options "$@"
+    parse_start_options "$@"
     sbx mcp ls --json | jq -e 'type == "array" and length == 0' >/dev/null \
       || fail 'Remove Docker Sandboxes MCP registrations before starting; keep the catalog empty while this VM runs'
     if [[ $state != absent ]]; then check_vm; fi
     [[ $(sbx settings get ssh.agentForwardingEnabled) == false ]] \
       || fail 'Disable host SSH-agent forwarding first; see dev/sbx/README.md'
+    if [[ $codex == true && $state == absent ]]; then
+      ensure_openai_secret
+    elif [[ $codex == true ]]; then
+      echo 'Codex login is set when the VM is created; this VM keeps its current login.' >&2
+    fi
     DOCKER_SANDBOXES_ROOT_SIZE=150g DOCKER_SANDBOXES_DOCKER_SIZE=80g \
       sbx env run --detach --force "$environment"
     state=running
@@ -106,9 +135,8 @@ case "$action" in
       SBX_SANDBOX_NAME="$name" "$tools/setup"
       guest_ready || fail 'Guest setup is incomplete'
     fi
-    while (($#)); do
-      register_key "$2" "$3"
-      shift 3
+    for ((i = 0; i < ${#keys[@]}; i += 2)); do
+      register_key "${keys[i]}" "${keys[i + 1]}"
     done
     sbx setup ssh
     local_orca
