@@ -2,7 +2,7 @@ use super::*;
 use crate::api;
 use futures::{StreamExt, stream};
 use prost::Message;
-use std::{convert::Infallible, sync::Arc};
+use std::{collections::HashMap, convert::Infallible, sync::Arc};
 use tower::{ServiceExt, service_fn};
 use xmtp_common::time::{Duration, timeout};
 use xmtp_proto::xmtp::identity::associations::{IdentityAction, IdentityUpdate};
@@ -324,10 +324,21 @@ async fn rest_reports_extra_bytes() {
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn encoded_request_is_passed_untouched() {
+    // No limit is its default, so a gate that ignores the configuration fails.
+    let limits = LimitsConfig {
+        max_request_bytes: 1 << 20,
+        max_query_topics: 3,
+        max_newest_metadata_topics: 2,
+        max_newest_full_topics: 4,
+        max_lookup_identifiers: 5,
+        max_scw_signatures: 6,
+        max_static_topics: 7,
+        ..LimitsConfig::default()
+    };
     let seen = Arc::new(parking_lot::Mutex::new(Vec::new()));
     let recorded = seen.clone();
     let gate = CountGateLayer {
-        max_request_bytes: 1 << 20,
+        limits: Arc::new(limits),
     }
     .layer(service_fn(move |request: Request<Body>| {
         let recorded = recorded.clone();
@@ -380,7 +391,7 @@ async fn encoded_request_is_passed_untouched() {
         ),
         // An ungated route and a compressed body are not read.
         (
-            "/xmtp.backend.v1.QueryService/Query",
+            "/xmtp.backend.v1.AttachmentService/CreateUpload",
             None,
             vec![data(&over), data(&over)],
             vec![
@@ -408,4 +419,115 @@ async fn encoded_request_is_passed_untouched() {
     assert_eq!(status.code(), tonic::Code::InvalidArgument);
     assert_eq!(status.message(), "publish request exceeds envelope limit");
     assert!(seen.lock().is_empty());
+    // Each read and lookup route admits its configured limit and refuses one
+    // more entry with the handler's status. Field 1 is the counted field.
+    for (rpc, limit, message) in [
+        ("QueryService/Query", 3, ITEM_LIMIT),
+        ("QueryService/QueryNewest", 4, ITEM_LIMIT),
+        ("IdentityService/GetInboxIds", 5, ITEM_LIMIT),
+        (
+            "IdentityService/VerifySmartContractWalletSignatures",
+            6,
+            ITEM_LIMIT,
+        ),
+        (
+            "SubscriptionService/SubscribeStatic",
+            7,
+            "invalid static topic count",
+        ),
+    ] {
+        let path = format!("/xmtp.backend.v1.{rpc}");
+        let within = prefixed(&entries(limit, &[]));
+        call(&path, None, vec![data(&within)]).await?;
+        let forwarded = seen.lock().pop()?;
+        assert_eq!(forwarded, vec![Seen::Data(within.into())], "{path}");
+        let over = prefixed(&entries(limit + 1, &[]));
+        let response = call(&path, None, vec![data(&over)]).await?;
+        let status = Status::from_header_map(response.headers())?;
+        assert_eq!(status.code(), tonic::Code::InvalidArgument, "{path}");
+        assert_eq!(status.message(), message, "{path}");
+    }
+    // QueryNewest admits the larger of its two limits, whichever it is.
+    let newest = ROUTES
+        .iter()
+        .find(|route| route.path.ends_with("/QueryNewest"))?;
+    let swapped = LimitsConfig {
+        max_newest_metadata_topics: 9,
+        max_newest_full_topics: 1,
+        ..LimitsConfig::default()
+    };
+    assert_eq!((newest.counts[0].limit)(&swapped), 9);
+}
+
+/// Repeated request fields the gate does not count, by route and field path.
+const UNCOUNTED: &[(&str, &[u32])] = &[
+    // SubscribeRequest.update, Update.adds and Update.removes: each frame is
+    // counted after decode, and the update bucket limits how often.
+    ("/xmtp.backend.v1.SubscriptionService/Subscribe", &[1, 2]),
+    ("/xmtp.backend.v1.SubscriptionService/Subscribe", &[1, 3]),
+];
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn every_repeated_request_field_has_a_bound() {
+    use prost_types::field_descriptor_proto::{Label, Type};
+    use prost_types::{DescriptorProto, FileDescriptorSet};
+    type Messages<'a> = HashMap<String, &'a DescriptorProto>;
+    fn index<'a>(scope: &str, types: &'a [DescriptorProto], messages: &mut Messages<'a>) {
+        for message in types {
+            let name = format!("{scope}.{}", message.name());
+            index(&name, &message.nested_type, messages);
+            messages.insert(name, message);
+        }
+    }
+    /// Every field path below `name` that ends at a repeated field.
+    fn repeated(messages: &Messages, name: &str, path: &mut Vec<u32>, found: &mut Vec<Vec<u32>>) {
+        for field in &messages[name].field {
+            path.push(field.number() as u32);
+            if field.label() == Label::Repeated {
+                found.push(path.clone());
+            }
+            if field.r#type() == Type::Message {
+                assert_ne!(field.type_name(), name, "a request message recurses");
+                repeated(messages, field.type_name(), path, found);
+            }
+            path.pop();
+        }
+    }
+
+    let descriptors = FileDescriptorSet::decode(xmtp_proto::FILE_DESCRIPTOR_SET)?;
+    let mut messages = Messages::new();
+    for file in &descriptors.file {
+        let scope = format!(".{}", file.package());
+        index(&scope, &file.message_type, &mut messages);
+    }
+    let mut uncounted = Vec::new();
+    let backend = descriptors
+        .file
+        .iter()
+        .filter(|file| file.package() == "xmtp.backend.v1");
+    for (service, method) in backend.flat_map(|file| {
+        file.service
+            .iter()
+            .flat_map(|service| service.method.iter().map(move |method| (service, method)))
+    }) {
+        let rpc = format!("/xmtp.backend.v1.{}/{}", service.name(), method.name());
+        let mut found = Vec::new();
+        repeated(&messages, method.input_type(), &mut Vec::new(), &mut found);
+        for path in found {
+            let counted = ROUTES
+                .iter()
+                .filter(|route| route.path == rpc)
+                .flat_map(|route| route.counts)
+                .any(|count| covers(count, &path));
+            if !counted && !UNCOUNTED.contains(&(rpc.as_str(), path.as_slice())) {
+                uncounted.push(format!("{rpc} {path:?}"));
+            }
+        }
+    }
+    assert!(uncounted.is_empty(), "uncounted: {uncounted:?}");
+}
+
+/// Whether `count` counts the repeated field at `path`.
+fn covers(count: &Count, path: &[u32]) -> bool {
+    count.path.len() == path.len() && count.path.iter().zip(path).all(|(set, n)| set.contains(n))
 }
