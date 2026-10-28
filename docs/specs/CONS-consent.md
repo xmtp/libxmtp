@@ -99,7 +99,7 @@ An app act is the user's decision on this installation now. It is stored with th
 
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
-| CONS-010 | The greater record wins | When the client receives a consent record for an entity from a peer installation or an archive, it MUST store the received state and `consented_at_ns` when the entity has no record, or when the received `consented_at_ns` is greater than the stored consent time, or when they are equal and the received state is greater under the `ConsentStateSave` order; otherwise it MUST leave the stored record unchanged. | A stored time that is not replaced with the winner's lets a third record, older than the winner, replace it later; a tie left to arrival order leaves two devices with two states. |
+| CONS-010 | The greater record wins | When the client receives a consent record for an entity from a peer installation or an archive, it MUST store the received state and `consented_at_ns` when the entity has no record, or when the received `consented_at_ns` is greater than the stored consent time, or when they are equal and the received state is greater under the `ConsentStateSave` order; otherwise it MUST leave the stored record unchanged. When the received `consented_at_ns` is greater than the client's current time plus one day, the client MUST NOT store it. | A stored time that is not replaced with the winner's lets a third record, older than the winner, replace it later; a tie left to arrival order leaves two devices with two states. A time far ahead of every clock wins every later merge, so no later decision can replace it. |
 | CONS-011 | An app act is now | When an app sets the consent of an entity, the client MUST store that state with the client's current time as the consent time, whatever record is stored for the entity and whether or not the state differs from the stored one. | A repeated decision that does not move the time loses to a decision made elsewhere in between. |
 
 ## 3. Defaults and inherited consent
@@ -152,6 +152,12 @@ An app reads consent to build its inbox and its request list, sets it when the u
 ## Known limitations
 
 The consent time is the setting installation's clock. An installation whose clock is behind loses every merge against one whose clock is ahead, including for a decision the user made later. The client does not correct for skew.
+
+A received consent time or cycle time more than one day ahead of the receiver's clock is not stored. A decision made on an installation whose clock runs more than a day ahead, or received by one whose clock is more than a day behind, is lost on that receiver. It is not re-applied when the clocks are corrected.
+
+A received record timed up to one day ahead still wins until the receiver's clock passes it. A decision made elsewhere in that window loses on the receivers and stays lost until the user decides again.
+
+A consent record or root key that an older build stored with a time more than one day ahead is kept. The bound applies only to what is received, so the stored record wins every merge until the clock passes its time.
 
 CONS-045 proves that an installation of the own inbox added this one to a group that names the own inbox as creator, not that the own inbox created it. A stranger's group that names the recipient as creator is unknown on the installation the stranger added, and allowed on a second installation that the first one adds under GMOD-029. The window closes when the user decides on either.
 
