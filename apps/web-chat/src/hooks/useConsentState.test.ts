@@ -91,4 +91,36 @@ describe("useConsentState", () => {
     rerender({ current: first });
     expect(result.current).toBeUndefined();
   });
+
+  it("forgets an allowed state when a later read fails", async () => {
+    const { client } = setup();
+    const id = "cd".repeat(16);
+    let state = async (): Promise<unknown> => ({ consentState: "allowed" });
+    const current = conversation(id, () => state());
+    const { result } = renderHook(() =>
+      useConsentState(client as unknown as Client, current),
+    );
+    await waitFor(() => {
+      expect(result.current).toBe("allowed");
+    });
+
+    state = async () => {
+      throw new Error("read failed");
+    };
+    const [, listener] = client.startListener.mock.calls[0];
+    // act keeps the state update even though the listener rejects
+    await act(async () => {
+      await expect(
+        listener({
+          kind: "consent.changed",
+          consent_changed: {
+            entity_kind: "conversation",
+            entity: id,
+            state: "denied",
+          },
+        }),
+      ).rejects.toThrow("read failed");
+    });
+    expect(result.current).toBeUndefined();
+  });
 });

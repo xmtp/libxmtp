@@ -23,7 +23,11 @@ export const useConsentState = (
     const load = async () => {
       // a slow older read must not replace a newer one
       const seq = ++latest;
-      const state = await conversation.state();
+      const state = await conversation.state().catch((error: unknown) => {
+        // fail closed: an unread consent means click to load
+        if (active && seq === latest) setRead(undefined);
+        throw error;
+      });
       if (active && seq === latest) {
         setRead({
           id: conversation.id,
