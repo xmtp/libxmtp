@@ -265,18 +265,40 @@ async fn restored_history_dm_creation_does_not_synthesize_allowed_consent() {
             (ConsentState::Denied, 30)
         );
     }
-    // A restored DM of the same pair without its own record inherits the pair's.
-    let save = saved_group(9, true);
-    apply(&alix.context, vec![group_element(save.clone())]).await?;
-    let record = alix
-        .db()
-        .get_consent_record(hex::encode(&save.id), ConsentType::ConversationId)??;
-    assert_eq!(
-        (record.state, record.consented_at_ns),
-        (ConsentState::Denied, 30)
-    );
-    let listed = alix.find_groups(GroupQueryArgs::default())?;
-    assert!(listed.iter().all(|group| group.dm_id != save.dm_id));
+    // A restored DM of the same pair without its own record inherits the
+    // pair's, whether it is stored already or follows in the same archive,
+    // which lists every group before any consent.
+    tester!(cara, disable_workers);
+    let sibling = saved_group(10, true);
+    let sibling_denied = BackupElement {
+        element: Some(Element::Consent(
+            StoredConsentRecord {
+                entity_type: ConsentType::ConversationId,
+                state: ConsentState::Denied,
+                entity: hex::encode(&sibling.id),
+                consented_at_ns: 30,
+            }
+            .into(),
+        )),
+    };
+    for (client, later) in [
+        (&alix, vec![]),
+        (&cara, vec![group_element(sibling), sibling_denied]),
+    ] {
+        let save = saved_group(9, true);
+        let mut elements = vec![group_element(save.clone())];
+        elements.extend(later);
+        apply(&client.context, elements).await?;
+        let record = client
+            .db()
+            .get_consent_record(hex::encode(&save.id), ConsentType::ConversationId)??;
+        assert_eq!(
+            (record.state, record.consented_at_ns),
+            (ConsentState::Denied, 30)
+        );
+        let listed = client.find_groups(GroupQueryArgs::default())?;
+        assert!(listed.iter().all(|group| group.dm_id != save.dm_id));
+    }
 }
 
 /// Opening a DM with a peer whose restored DM is denied creates a DM that
