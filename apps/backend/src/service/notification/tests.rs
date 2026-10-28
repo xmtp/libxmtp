@@ -9,6 +9,7 @@ use crate::{
 use sqlx::Row;
 use tonic::Code;
 
+mod charges;
 mod transport;
 
 #[xmtp_common::test(unwrap_try = true)]

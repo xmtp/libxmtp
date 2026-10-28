@@ -2,9 +2,11 @@ use super::error::publish_invalid;
 use crate::{
     Backend,
     api::{self, client_envelope::Payload, publish_error::Reason},
+    config::Category,
     db::{History, IdentityAdmission, PendingEnvelope},
     error::AdmissionError,
     handles,
+    server::rate_limit::Charger,
     validation::{PublishChainReads, projection},
 };
 use prost::Message;
@@ -50,6 +52,38 @@ impl SignatureChecks {
     }
 }
 
+/// What one publish costs, counted in the request as received, before
+/// duplicates are merged or any envelope is parsed (RATE section 2).
+struct PublishCosts {
+    /// Entries in `envelopes`, or 1 for a request with none.
+    envelopes: usize,
+    /// Entries whose payload is an identity update.
+    identity_updates: usize,
+    /// ERC-6492 signatures across those identity updates.
+    chain_signatures: usize,
+}
+
+impl PublishCosts {
+    fn of(request: &api::PublishRequest) -> Self {
+        let updates = || {
+            request
+                .envelopes
+                .iter()
+                .filter_map(|envelope| match &envelope.payload {
+                    Some(Payload::IdentityUpdate(update)) => Some(update),
+                    _ => None,
+                })
+        };
+        Self {
+            envelopes: request.envelopes.len().max(1),
+            identity_updates: updates().count(),
+            chain_signatures: updates()
+                .map(|update| erc6492_signatures(update).count())
+                .sum(),
+        }
+    }
+}
+
 struct PublishBatch {
     pending: Vec<PendingEnvelope>,
     parsed: Vec<ParsedEnvelope>,
@@ -70,9 +104,10 @@ impl api::publish_service_server::PublishService for Backend {
         &self,
         request: Request<api::PublishRequest>,
     ) -> Result<Response<api::PublishResponse>, Status> {
+        let charger = Charger::of(&request);
         let request = request.into_inner();
         let attempt = crate::telemetry::PublishAttempt::new(request.envelopes.len());
-        let result = self.publish_batch(request).await;
+        let result = self.publish_batch(request, &charger).await;
         if let Ok((response, stored, duplicate)) = &result
             && response.get_ref().encoded_len() <= self.config.limits.max_response_bytes
         {
@@ -85,17 +120,31 @@ impl api::publish_service_server::PublishService for Backend {
 
 impl Backend {
     /// Keep response origins until the whole request succeeds or fails.
-    // implements: API-221, API-290
+    ///
+    /// The request's charges are counted as it arrived and spent after the
+    /// request bounds, which read nothing stored, and before validation reads
+    /// the store: identity updates, then their chain signatures, then
+    /// envelopes. A denied spend stores nothing and keeps the spends before it.
+    // implements: API-221, API-290, RATE-010
     async fn publish_batch(
         &self,
         request: api::PublishRequest,
+        charger: &Charger,
     ) -> Result<(Response<api::PublishResponse>, usize, usize), Status> {
+        let costs = PublishCosts::of(&request);
         let PublishBatch {
             mut pending,
             parsed,
             positions,
             parse_error,
         } = self.parse_publish(request)?;
+        charger
+            .charge(Category::IdentityUpdate, costs.identity_updates)
+            .await?;
+        charger
+            .charge(Category::ChainVerify, costs.chain_signatures)
+            .await?;
+        charger.charge(Category::Publish, costs.envelopes).await?;
         let parsed = timeout(
             self.admission_deadline(),
             self.validate_publish(&mut pending, parsed),

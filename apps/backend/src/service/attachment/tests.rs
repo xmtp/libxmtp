@@ -252,6 +252,67 @@ async fn admission_table_order() -> TestResult {
     configured.stop().await
 }
 
+/// Counts the credentials the handler obtains.
+struct CountingTarget(Arc<std::sync::atomic::AtomicUsize>);
+
+#[tonic::async_trait]
+impl StorageTarget for CountingTarget {
+    async fn presign_put(
+        &self,
+        _content_digest: &[u8; 32],
+        content_length: u64,
+    ) -> Result<PresignedRequest, SignError> {
+        self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Ok(PresignedRequest {
+            method: "PUT".into(),
+            url: "https://storage.example/object".into(),
+            headers: vec![("content-length".into(), content_length.to_string())],
+            expires_in_seconds: 300,
+        })
+    }
+}
+
+/// The `upload` spend follows the rows that read no state and precedes the
+/// credential, so a malformed request spends no unit and a denied one
+/// obtains no credential.
+#[xmtp_common::test(unwrap_try = true)]
+// verifies: ATCH-021, RATE-010
+async fn the_upload_spend_follows_the_request_checks_and_precedes_the_credential() -> TestResult {
+    use crate::{
+        config::{CallerKey, Category},
+        server::rate_limit::Charger,
+        test_support::{rate_limit_delay, rate_limits},
+    };
+    let server = TestServer::new(|config| {
+        config.attachments = Some(attachment_config());
+        config.rate_limits = rate_limits(
+            "max_memory_mib = 1\n\
+             [categories.upload]\nip = [{ count = 1, window_seconds = 3600 }]",
+        );
+    })
+    .await?;
+    let credentials = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let mut backend = server.backend.clone();
+    backend.attachments = Some(Arc::new(CountingTarget(credentials.clone())));
+    // The handler as the layer leaves it: with the caller's charger.
+    let charger = Charger::for_test(
+        backend.rate_limiter.as_ref().ok_or("rate limits on")?,
+        CallerKey::from_ip([127, 0, 0, 1].into()),
+    );
+    let create = |digest: Vec<u8>| {
+        let mut upload = Request::new(request(digest, 42));
+        upload.extensions_mut().insert(charger.clone());
+        api::attachment_service_server::AttachmentService::create_upload(&backend, upload)
+    };
+    let malformed = create(vec![0; 31]).await.unwrap_err();
+    assert_eq!(malformed.code(), Code::InvalidArgument);
+    create(vec![0; 32]).await?;
+    assert_eq!(credentials.load(std::sync::atomic::Ordering::SeqCst), 1);
+    assert!(rate_limit_delay(&create(vec![0; 32]).await, Category::Upload).is_some());
+    assert_eq!(credentials.load(std::sync::atomic::Ordering::SeqCst), 1);
+    server.stop().await
+}
+
 #[xmtp_common::test(unwrap_try = true)]
 // verifies: ATCH-021
 async fn create_upload_requires_credential() -> TestResult {

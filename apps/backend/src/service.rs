@@ -25,6 +25,8 @@ pub struct Backend {
     pub(crate) attachments: Option<Arc<dyn xmtp_attachments_server::StorageTarget>>,
     pub(crate) streams: Option<Arc<crate::stream::StreamHub>>,
     pub(crate) push: Option<Arc<crate::push::PushHub>>,
+    /// The per-caller rate limiter, absent while rate limits are off.
+    pub(crate) rate_limiter: Option<Arc<crate::server::rate_limit::Limiter>>,
     /// The published deployment settings, built once from the validated
     /// configuration and returned unchanged for the life of the process.
     pub(crate) configuration: Arc<crate::api::GetConfigurationResponse>,
@@ -64,6 +66,7 @@ impl Backend {
             chains,
             streams: None,
             push: None,
+            rate_limiter: None,
             auth: None,
             attachments: None,
             configuration,

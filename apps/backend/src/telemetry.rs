@@ -58,6 +58,16 @@ pub const CATALOGUE: &[MetricSpec] = &[
         help: "Loaded JWT verification keys.",
     },
     MetricSpec {
+        name: "xmtp_rate_limit_rejections_total",
+        kind: MetricType::Counter,
+        help: "Denied rate-limit spends by category and auth type.",
+    },
+    MetricSpec {
+        name: "xmtp_rate_limit_evictions_total",
+        kind: MetricType::Counter,
+        help: "Rate-limit entries forgotten before they were earned back.",
+    },
+    MetricSpec {
         name: "xmtp_operation_duration_seconds",
         kind: MetricType::Histogram,
         help: "Operation span duration by operation and status.",
@@ -628,6 +638,19 @@ pub(crate) fn auth_jwks_refresh(success: bool) {
 }
 pub(crate) fn auth_keys(count: usize) {
     gauge!("xmtp_auth_keys").set(count as f64);
+}
+
+/// Record one denied spend. Both labels come from fixed vocabularies, never
+/// from the caller.
+pub(crate) fn rate_limit_rejection(
+    category: crate::config::Category,
+    auth_type: crate::config::AuthType,
+) {
+    counter!("xmtp_rate_limit_rejections_total", "category" => category.as_str(), "auth_type" => auth_type.as_str())
+        .increment(1);
+}
+pub(crate) fn rate_limit_evictions(count: u64) {
+    counter!("xmtp_rate_limit_evictions_total").increment(count);
 }
 
 pub(crate) fn push_registered() {

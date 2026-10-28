@@ -1,5 +1,6 @@
 use crate::test_support as support;
 
+mod charges;
 mod identity_history_cost;
 mod signatures;
 mod transport;

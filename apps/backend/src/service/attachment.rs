@@ -3,17 +3,20 @@
 #[cfg(test)]
 mod tests;
 
-use crate::{Backend, api, error::Error};
+use crate::{Backend, api, config::Category, error::Error, server::rate_limit::Charger};
 use tonic::{Request, Response, Status};
 
 #[tonic::async_trait]
 impl api::attachment_service_server::AttachmentService for Backend {
+    /// The rows of the admission table run in order: the storage target, the
+    /// request's fields, the caller's `upload` spend, then the credential.
     #[xmtp_common::rpc_span]
-    // implements: ATCH-020, ATCH-021, ATCH-028
+    // implements: ATCH-020, ATCH-021, ATCH-028, RATE-010
     async fn create_upload(
         &self,
         request: Request<api::CreateUploadRequest>,
     ) -> Result<Response<api::CreateUploadResponse>, Status> {
+        let charger = Charger::of(&request);
         let target = self
             .attachments
             .as_ref()
@@ -33,6 +36,7 @@ impl api::attachment_service_server::AttachmentService for Backend {
                 "content_length is outside the upload limit",
             ));
         }
+        charger.charge(Category::Upload, 1).await?;
         let signed = target
             .presign_put(&digest, request.content_length)
             .await

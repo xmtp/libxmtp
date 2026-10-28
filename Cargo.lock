@@ -12792,6 +12792,7 @@ dependencies = [
  "hyper",
  "hyper-rustls",
  "hyper-util",
+ "ipnet",
  "jsonwebtoken",
  "metrics",
  "metrics-exporter-prometheus",
@@ -12838,6 +12839,7 @@ dependencies = [
  "xmtp_mls_validation",
  "xmtp_proto",
  "xmtp_push_types",
+ "xmtp_rate_limit",
 ]
 
 [[package]]
