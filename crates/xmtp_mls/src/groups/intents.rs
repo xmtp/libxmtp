@@ -383,6 +383,8 @@ pub(crate) struct UpdateGroupMembershipIntentData {
     /// built and that the app did not ask to add. Empty on intents that
     /// earlier builds stored: each of their entries can insert its inbox.
     pub refreshed_members: Vec<String>,
+    /// Add no leaf; record each installation the raise would add as failed.
+    pub removal_only: bool,
 }
 
 impl UpdateGroupMembershipIntentData {
@@ -396,6 +398,7 @@ impl UpdateGroupMembershipIntentData {
             removed_members,
             failed_installations,
             refreshed_members: Vec::new(),
+            removal_only: false,
         }
     }
 
@@ -458,6 +461,7 @@ impl From<UpdateGroupMembershipIntentData> for Vec<u8> {
                 removed_members: intent.removed_members,
                 failed_installations: intent.failed_installations,
                 refreshed_members: intent.refreshed_members,
+                removal_only: intent.removal_only,
             })),
         }
         .encode(&mut buf)
@@ -480,6 +484,7 @@ impl TryFrom<Vec<u8>> for UpdateGroupMembershipIntentData {
                 removed_members: v1.removed_members,
                 failed_installations: v1.failed_installations,
                 refreshed_members: v1.refreshed_members,
+                removal_only: v1.removal_only,
             })
         } else {
             Err(IntentError::MissingPayload)
@@ -500,6 +505,7 @@ impl<'a> TryFrom<&'a [u8]> for UpdateGroupMembershipIntentData {
                 removed_members: v1.removed_members,
                 failed_installations: v1.failed_installations,
                 refreshed_members: v1.refreshed_members,
+                removal_only: v1.removal_only,
             })
         } else {
             Err(IntentError::MissingPayload)

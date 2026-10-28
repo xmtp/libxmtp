@@ -5,6 +5,7 @@ use crate::{
         GroupError, MlsGroup, PreconfiguredPolicies, send_message_opts, summary::SyncSummary,
     },
     identity::parse_credential,
+    identity_updates::IdentityUpdates,
     mls_store::{MlsStore, MlsStoreError},
     subscriptions::{SubscribeError, internal::InternalEvent},
     worker::{NeedsDbReconnect, metrics::WorkerMetrics},
@@ -319,6 +320,13 @@ where
         // encoding wipes it, so every later return drops wiped bytes.
         let content_bytes = sync_message_bytes(content);
         let sync_group = self.get_sync_group().await?;
+        // implements: SYNC-024
+        if self.has_revoked_leaf(&sync_group).await? {
+            sync_group.remove_revoked_installations().await?;
+            if self.has_revoked_leaf(&sync_group).await? {
+                return Err(GroupError::InvalidGroupMembership.into());
+            }
+        }
 
         let msg = format!(
             "Sending sync message to group {:?}",
@@ -343,6 +351,21 @@ where
         );
 
         Ok(message_id)
+    }
+
+    /// Whether a leaf other than this installation's names an installation
+    /// that the newest own association state held locally does not associate.
+    async fn has_revoked_leaf(&self, group: &MlsGroup<Context>) -> Result<bool, ClientError> {
+        let own = IdentityUpdates::new(&self.context)
+            .get_association_state(&self.db(), self.inbox_id(), None)
+            .await?
+            .installation_ids();
+        let me = self.installation_id();
+        Ok(group.with_group_snapshot(|mls_group| {
+            Ok(mls_group.members().any(|member| {
+                member.signature_key != me.as_slice() && !own.contains(&member.signature_key)
+            }))
+        })?)
     }
 
     /// The newest sync group that only the own inbox is in.

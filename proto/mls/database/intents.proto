@@ -83,6 +83,9 @@ message UpdateGroupMembershipData {
     // skipped. An intent stored without this field treats every entry as an
     // add, as earlier builds did.
     repeated string refreshed_members = 4;
+    // Raise entries and make removals, but add no leaf. Each installation
+    // the raise would add is recorded as failed. Used for sync groups.
+    bool removal_only = 5;
   }
 
   oneof version {

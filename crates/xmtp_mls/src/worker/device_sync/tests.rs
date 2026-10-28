@@ -981,22 +981,13 @@ async fn failing_sync_message_stays_pending() {
 #[cfg_attr(target_arch = "wasm32", ignore)]
 async fn sync_message_from_revoked_installation_is_not_applied() {
     use preference_sync::PreferenceUpdate;
-    use xmtp_id::associations::test_utils::add_wallet_signature;
     use xmtp_proto::xmtp::device_sync::content::PreferenceUpdates;
 
     tester!(alix1, disable_workers);
     tester!(alix2, from: alix1, disable_workers);
     let group = alix1.device_sync_client().get_sync_group().await?;
     alix2.sync_welcomes().await?;
-    let mut revoke = alix1
-        .identity_updates()
-        .revoke_installations(vec![alix2.context.installation_id().to_vec()])
-        .await?;
-    add_wallet_signature(&mut revoke, &alix1.builder.owner).await;
-    alix1
-        .identity_updates()
-        .apply_signature_request(revoke)
-        .await?;
+    revoke(&alix1, &alix2).await?;
 
     let update = PreferenceUpdate::Consent(StoredConsentRecord::new(
         ConsentType::InboxId,
@@ -1031,6 +1022,66 @@ async fn sync_message_from_revoked_installation_is_not_applied() {
         "a revoked installation's preference update was applied"
     );
     assert!(db.unprocessed_sync_group_messages()?.is_empty());
+}
+
+/// Revoke `revoked`'s installation with `owner`'s wallet signature.
+pub(super) async fn revoke(
+    owner: &crate::utils::Tester,
+    revoked: &crate::utils::Tester,
+) -> Result<(), ClientError> {
+    use xmtp_id::associations::test_utils::add_wallet_signature;
+
+    let identity = owner.identity_updates();
+    let mut request = identity
+        .revoke_installations(vec![revoked.context.installation_id().to_vec()])
+        .await?;
+    add_wallet_signature(&mut request, &owner.builder.owner).await;
+    identity.apply_signature_request(request).await
+}
+
+// verifies: SYNC-024
+#[xmtp_common::test(unwrap_try = true)]
+#[cfg_attr(target_arch = "wasm32", ignore)]
+async fn publish_removes_revoked_leaf_and_adds_no_newcomer() {
+    use xmtp_db::user_preferences::StoredUserPreferences;
+    use xmtp_mls_validation::commit::extract_group_membership;
+
+    tester!(alix1, disable_workers);
+    tester!(alix2, from: alix1, disable_workers);
+    tester!(alix3, from: alix1, disable_workers);
+    let group = alix1.device_sync_client().get_sync_group().await?;
+    // Registers after the group exists; with no worker it makes no group.
+    tester!(alix4, from: alix1, disable_workers);
+    alix2.sync_welcomes().await?;
+    alix3.sync_welcomes().await?;
+    revoke(&alix1, &alix2).await?;
+    alix1.device_sync_client().cycle_hmac().await?;
+
+    let (leaves, failed) = group.with_group_snapshot(|mls_group| {
+        let membership = extract_group_membership(mls_group.extensions())?;
+        let leaves: Vec<_> = mls_group.members().map(|m| m.signature_key).collect();
+        Ok((leaves, membership.failed_installations))
+    })?;
+    let alix4_key = alix4.context.installation_id().to_vec();
+    assert!(!leaves.contains(&alix2.context.installation_id().to_vec()));
+    assert!(
+        !leaves.contains(&alix4_key),
+        "a newer installation was added"
+    );
+    // A later joiner checks the skipped newcomer against this list.
+    assert!(failed.contains(&alix4_key));
+
+    // alix3 accepts the removal-only commit and reads the new key; alix2 cannot.
+    for (alix, reads_key) in [(&alix3, true), (&alix2, false)] {
+        alix.group(&group.group_id)?.sync().await?;
+        let client = alix.device_sync_client();
+        let pending = alix.context.db().unprocessed_sync_group_messages()?;
+        client
+            .process_sync_group_messages(&client.metrics, pending)
+            .await?;
+        let preferences = StoredUserPreferences::load(alix.context.db())?;
+        assert_eq!(preferences.hmac_key.is_some(), reads_key);
+    }
 }
 
 // A root HMAC key that another installation syncs is a `hmac_keys.updated`
