@@ -105,6 +105,17 @@ impl std::ops::DerefMut for TestServer {
     }
 }
 
+/// One spend a running server's rate limiter decided.
+#[derive(Clone, Debug)]
+pub struct SpendRecord {
+    pub category: crate::config::Category,
+    pub cost: u32,
+    /// The retry delay of a denied spend; `None` for an admitted one.
+    pub retry_after: Option<std::time::Duration>,
+    /// When the limiter decided it.
+    pub at: std::time::Instant,
+}
+
 pub struct RunningServer {
     pub backend: Backend,
     pub channel: Channel,
@@ -288,6 +299,17 @@ impl RunningServer {
             stop: Some(stop),
             task: Some(task),
         })
+    }
+
+    /// Every spend this server's rate limiter decided, in order: empty while
+    /// rate limits are off. A test reads which charged steps reached the
+    /// backend, at what cost, and when.
+    pub fn rate_limit_spends(&self) -> Vec<SpendRecord> {
+        self.backend
+            .rate_limiter
+            .as_ref()
+            .map(|limiter| limiter.spends())
+            .unwrap_or_default()
     }
 
     pub fn configuration(

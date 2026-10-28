@@ -72,6 +72,9 @@ pub(crate) struct BackendLimiter<L> {
     config: RateLimitConfig,
     /// The eviction count the metric holds.
     recorded_evictions: AtomicU64,
+    /// Every spend decided, in order, for tests of a running server.
+    #[cfg(any(test, feature = "test-utils"))]
+    spends: parking_lot::Mutex<Vec<crate::test_support::SpendRecord>>,
 }
 
 impl<L: RateLimiter + CountsEvictions> BackendLimiter<L> {
@@ -80,6 +83,8 @@ impl<L: RateLimiter + CountsEvictions> BackendLimiter<L> {
             limiter,
             config,
             recorded_evictions: AtomicU64::new(0),
+            #[cfg(any(test, feature = "test-utils"))]
+            spends: Default::default(),
         }
     }
 
@@ -116,7 +121,23 @@ impl<L: RateLimiter + CountsEvictions> BackendLimiter<L> {
             })
             .await;
         self.record_evictions();
+        #[cfg(any(test, feature = "test-utils"))]
+        self.spends.lock().push(crate::test_support::SpendRecord {
+            category,
+            cost,
+            retry_after: match decision {
+                Decision::Allowed => None,
+                Decision::Denied { retry_after } => Some(retry_after),
+            },
+            at: std::time::Instant::now(),
+        });
         decision
+    }
+
+    /// Every spend decided so far, in order.
+    #[cfg(any(test, feature = "test-utils"))]
+    pub(crate) fn spends(&self) -> Vec<crate::test_support::SpendRecord> {
+        self.spends.lock().clone()
     }
 
     /// Add the evictions since the last record to the metric, each once,

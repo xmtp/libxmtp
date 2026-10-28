@@ -28,6 +28,8 @@ mod test_proposals;
 mod test_proposals_app_data;
 mod test_proposals_pause;
 mod test_proposals_permissions;
+#[cfg(not(target_arch = "wasm32"))]
+mod test_rate_limits;
 mod test_self_removal;
 mod test_send_message_opts;
 mod test_send_receive;

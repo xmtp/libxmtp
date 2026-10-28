@@ -1,7 +1,7 @@
 //! A backend for native tests that need a specific configuration.
 use xmtp_backend::{
     config::ValidatedConfig,
-    test_support::{TestResult, TestServer},
+    test_support::{SpendRecord, TestResult, TestServer},
 };
 
 mod tests;
@@ -33,6 +33,12 @@ impl EphemeralBackend {
         by: std::time::Duration,
     ) -> TestResult {
         self.0.age_identity_history(inbox_id, by).await
+    }
+
+    /// Every spend the backend's rate limiter decided, in order: empty while
+    /// rate limits are off.
+    pub fn rate_limit_spends(&self) -> Vec<SpendRecord> {
+        self.0.rate_limit_spends()
     }
 
     /// Stop the server and remove its database. Return cleanup errors.
