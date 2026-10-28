@@ -119,6 +119,7 @@ pub(crate) fn group_secret_encodings(
 #[cfg(test)]
 pub(crate) fn key_package_with_extensions(
     context: &impl XmtpSharedContext,
+    ciphersuite: openmls::prelude::Ciphersuite,
     extensions: Vec<openmls::prelude::Extension>,
 ) -> Vec<u8> {
     use openmls::prelude::{
@@ -128,11 +129,10 @@ pub(crate) fn key_package_with_extensions(
     use xmtp_configuration::{
         WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID, WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID,
     };
-    use xmtp_cryptography::configuration::CIPHERSUITE;
     let identity = context.identity();
     let capabilities = Capabilities::new(
         None,
-        Some(&[CIPHERSUITE]),
+        Some(&[ciphersuite]),
         Some(&[
             ExtensionType::ApplicationId,
             ExtensionType::AppDataDictionary,
@@ -156,7 +156,7 @@ pub(crate) fn key_package_with_extensions(
         .key_package_extensions(Extensions::from_vec(extensions).unwrap())
         .mark_as_last_resort()
         .build(
-            CIPHERSUITE,
+            ciphersuite,
             &context.mls_provider(),
             &identity.installation_keys,
             CredentialWithKey {

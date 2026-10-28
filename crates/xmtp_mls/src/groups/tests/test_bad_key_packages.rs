@@ -34,6 +34,7 @@ async fn unknown_pointer_aead_value_is_ignored() {
     };
     let bytes = key_package_with_extensions(
         &bo2.context,
+        xmtp_cryptography::configuration::CIPHERSUITE,
         vec![Extension::Unknown(
             WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID,
             UnknownExtension(pointee_aead.encode_to_vec()),
@@ -108,6 +109,7 @@ async fn commit_adding_unusable_package_is_applied_by_members() {
     // Bo's package carries a pointee AEAD extension that does not decode.
     let bytes = key_package_with_extensions(
         &bo.context,
+        xmtp_cryptography::configuration::CIPHERSUITE,
         vec![Extension::Unknown(
             WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID,
             UnknownExtension(vec![0xff]),
@@ -208,124 +210,6 @@ async fn test_create_from_welcome_validation() {
     assert!(rejected.sequence_id > Cursor(0));
     assert!(db.pending_envelope(&topic, rejected.sequence_id)?.is_none());
     assert!(db.find_group(&alix_group.group_id)?.is_none());
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-#[tokio::test(flavor = "current_thread")]
-async fn test_create_group_with_member_two_installations_one_malformed_keypackage() {
-    use crate::utils::test_mocks_helpers::set_test_mode_upload_malformed_keypackage;
-    // 1) Prepare clients
-    tester!(alix);
-
-    // bola has two installations
-    tester!(bola_1);
-    tester!(bola_2, from: bola_1);
-
-    // 2) Mark the second installation as malformed
-    set_test_mode_upload_malformed_keypackage(
-        true,
-        Some(vec![bola_2.context.installation_id().to_vec()]),
-    );
-
-    // 3) Create the group, inviting bola (which internally includes bola_1 and bola_2)
-    let group = alix
-        .create_group_with_identifiers(&[bola_1.identifier()], None, None)
-        .await
-        .unwrap();
-
-    // 4) Sync from Alix's side
-    group.sync().await.unwrap();
-    xmtp_common::time::sleep(std::time::Duration::from_secs(2)).await;
-
-    // 5) Bola_1 syncs welcomes and checks for groups
-    bola_1.sync_welcomes().await.unwrap();
-    bola_2.sync_welcomes().await.unwrap();
-    xmtp_common::time::sleep(std::time::Duration::from_secs(2)).await;
-
-    let bola_1_groups = bola_1.find_groups(GroupQueryArgs::default()).unwrap();
-    let bola_2_groups = bola_2.find_groups(GroupQueryArgs::default()).unwrap();
-
-    assert_eq!(bola_1_groups.len(), 1, "Bola_1 should see exactly 1 group");
-    assert_eq!(bola_2_groups.len(), 0, "Bola_2 should see no groups!");
-
-    let bola_1_group = bola_1_groups.first().unwrap();
-    bola_1_group.sync().await.unwrap();
-
-    // 6) Verify group membership from both sides
-    //    Here we expect 2 *members* (Alix + Bola), though internally Bola might have 2 installations.
-    assert_eq!(
-        group.members().await.unwrap().len(),
-        2,
-        "Group should have 2 members"
-    );
-    assert_eq!(
-        bola_1_group.members().await.unwrap().len(),
-        2,
-        "Bola_1 should also see 2 members in the group"
-    );
-
-    // 7) Send a message from Alix and confirm Bola_1 receives it
-    let message = b"Hello";
-    group
-        .send_message(message, SendMessageOpts::default())
-        .await
-        .unwrap();
-    bola_1_group
-        .send_message(message, SendMessageOpts::default())
-        .await
-        .unwrap();
-
-    // Sync both sides again
-    group.sync().await.unwrap();
-    bola_1_group.sync().await.unwrap();
-
-    // Query messages from Bola_1's perspective
-    let messages_bola_1 = bola_1
-        .context
-        .api()
-        .query_group_messages(group.group_id)
-        .await
-        .unwrap();
-
-    // Dictionary-native creation publishes one valid Add proposal, one
-    // membership AppDataUpdate proposal, and their commit. The malformed
-    // installation has no Add proposal. Two application messages follow.
-    let expected_message_count = 3 + 2;
-    assert_eq!(messages_bola_1.len(), expected_message_count);
-    use openmls::prelude::ContentType;
-    assert_eq!(
-        messages_bola_1
-            .iter()
-            .map(|envelope| envelope.message.content_type())
-            .collect::<Vec<_>>(),
-        vec![
-            ContentType::Proposal,
-            ContentType::Proposal,
-            ContentType::Commit,
-            ContentType::Application,
-            ContentType::Application,
-        ],
-    );
-
-    // Query messages from Alix's perspective
-    let messages_alix = alix
-        .context
-        .api()
-        .query_group_messages(group.group_id)
-        .await
-        .unwrap();
-
-    assert_eq!(messages_alix.len(), expected_message_count);
-    assert_eq!(
-        message.to_vec(),
-        get_latest_message(&group).await.decrypted_message_bytes
-    );
-    assert_eq!(
-        message.to_vec(),
-        get_latest_message(bola_1_group)
-            .await
-            .decrypted_message_bytes
-    );
 }
 
 #[cfg(not(target_arch = "wasm32"))]

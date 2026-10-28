@@ -1,6 +1,7 @@
 //! Membership, key package, and commit-construction helpers.
 
 use super::*;
+use xmtp_cryptography::configuration::CIPHERSUITE;
 
 // Extracts the message sender, but does not do any validation to ensure that the
 // installation_id is actually part of the inbox.
@@ -113,6 +114,8 @@ pub(super) fn inject_test_key_packages(
 /// Each is either returned with its verified package or recorded as failed.
 /// A package whose credential names another inbox fails, because receivers
 /// reject a leaf whose key the credential's inbox does not own.
+/// A package under another suite fails every Add, and one whose leaf is
+/// another installation's key adds the wrong leaf, so both fail too.
 pub(super) async fn get_keypackages_for_installation_ids(
     context: impl XmtpSharedContext,
     requested_installations: HashMap<Vec<u8>, HashSet<String>>,
@@ -142,7 +145,9 @@ pub(super) async fn get_keypackages_for_installation_ids(
     for (installation_id, owner_inbox_ids) in requested {
         match key_packages.remove(&installation_id) {
             Some(Ok(verified_key_package))
-                if owner_inbox_ids.contains(&verified_key_package.credential.inbox_id) =>
+                if owner_inbox_ids.contains(&verified_key_package.credential.inbox_id)
+                    && verified_key_package.inner.ciphersuite() == CIPHERSUITE
+                    && verified_key_package.installation_public_key == installation_id =>
             {
                 fetched_installations.push(Installation::from_verified_key_package(
                     &verified_key_package,
