@@ -337,6 +337,7 @@ fn scopes_accept_strings_or_string_arrays_and_require_every_configured_scope() {
             context,
             AuthContext::Jwt {
                 sub: Some("caller".into()),
+                iss: None,
                 scopes: BTreeSet::from(["xmtp".into(), "publish".into()]),
             }
         );
@@ -362,6 +363,29 @@ fn scopes_accept_strings_or_string_arrays_and_require_every_configured_scope() {
         assert_eq!(
             verifier.verify(&headers(&mint(&claims, &key))),
             Err(Rejection::Malformed)
+        );
+    }
+}
+
+/// Two issuers can issue the same subject, so the context keeps the verified
+/// `iss` beside `sub` for the rate-limit caller key.
+#[xmtp_common::test(unwrap_try = true)]
+fn jwt_context_keeps_the_verified_issuer() {
+    let key = TestKey::es256();
+    let verifier = verifier(key.auth_config());
+    for issuer in [Some("https://issuer.example"), None] {
+        let mut claims = valid_claims();
+        claims["sub"] = json!("caller");
+        if let Some(issuer) = issuer {
+            claims["iss"] = json!(issuer);
+        }
+        assert_eq!(
+            verifier.verify(&headers(&mint(&claims, &key)))?,
+            AuthContext::Jwt {
+                sub: Some("caller".into()),
+                iss: issuer.map(str::to_owned),
+                scopes: BTreeSet::new(),
+            }
         );
     }
 }

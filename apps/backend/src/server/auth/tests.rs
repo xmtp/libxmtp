@@ -58,6 +58,7 @@ async fn success_preserves_request_body_headers_and_extensions() {
                     context,
                     &AuthContext::Jwt {
                         sub: Some("caller".into()),
+                        iss: None,
                         scopes: std::collections::BTreeSet::from(["xmtp".into(), "publish".into()]),
                     }
                 );
