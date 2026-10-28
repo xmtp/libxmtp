@@ -204,6 +204,8 @@ Pass either inbox IDs or public identities to `createGroup`, `createDm`, `addMem
 
 Conversation lists return at most 100 conversations when you pass no `limit`. A `limit` below 1 or above 1000 fails with `InvalidArgument`. To read every conversation, order by creation time and pass the last conversation's `createdAt` as `createdBefore` and its ID as `beforeId`. See [Paginate conversations](/sdk/read/#paginate-conversations).
 
+Message lists return the 100 newest matching messages, in the requested order, when you pass no `limit`. A `limit` below 1 or above 1000 fails with `InvalidArgument`. To read more, page with `messageHistoryPage`. See [Paginate messages](/sdk/read/#paginate-messages).
+
 The same required-position rule applies to `lastActivityAt(contentTypes)`,
 `userData(fields, inboxIds)`, and `catchUpToLive(timeoutMs)`. Pass `undefined`
 for a default value instead of omitting that argument.

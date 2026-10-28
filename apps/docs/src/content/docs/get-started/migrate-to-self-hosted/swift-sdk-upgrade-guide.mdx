@@ -349,6 +349,8 @@ func recentGroups(client: SDKClient, afterNs: Int64) async throws -> [Group] {
 Conversation lists sort by last activity when you pass no `orderBy`.
 Conversation lists return at most 100 conversations when you pass no `limit`. A `limit` below 1 or above 1000 fails with `InvalidArgument`. To read every conversation, order by creation time and pass the last conversation's `createdAt()` as `createdBefore` and its ID as `beforeId`. See [Paginate conversations](/sdk/read/#paginate-conversations).
 
+Message lists return the 100 newest matching messages, in the requested order, when you pass no `limit`. A `limit` below 1 or above 1000 fails with `InvalidArgument`. To read more, page with `messageHistoryPage`. See [Paginate messages](/sdk/read/#paginate-messages).
+
 Message lists now default to ascending order instead of descending order. Set
 `direction` explicitly when newest-first order is required.
 

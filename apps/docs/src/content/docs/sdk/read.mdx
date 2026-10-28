@@ -10,7 +10,7 @@ import { Tabs, TabItem } from "@astrojs/starlight/components";
 
 | Option                                | Default    | Description                       |
 | ------------------------------------- | ---------- | --------------------------------- |
-| `limit`                               | None       | Maximum result count              |
+| `limit`                               | 100 newest | Maximum result count, 1 to 1000   |
 | `sentBefore`, `sentAfter`             | None       | Filter by sent time               |
 | `insertedBefore`, `insertedAfter`     | None       | Filter by local insertion time    |
 | `sortBy`                              | Sent time  | Sort by sent or inserted time     |
@@ -19,6 +19,8 @@ import { Tabs, TabItem } from "@astrojs/starlight/components";
 | `kind`                                | All        | Application or membership change  |
 | `contentTypes`, `excludeContentTypes` | All / none | Include or exclude content types  |
 | `excludeSenderInboxIds`               | None       | Exclude sender inbox IDs          |
+
+With no `limit`, `messages()` returns the 100 newest matching messages by the sort field, in the requested order. An explicit `limit` returns the first `limit` messages in the requested order. A `limit` below 1 or above 1000 fails with `InvalidArgument`. To read more messages, page with `messageHistoryPage`.
 
 Time filters use `Timestamp` values. A `Timestamp` has an `ns` field for nanoseconds. Pass `direction` when order matters.
 

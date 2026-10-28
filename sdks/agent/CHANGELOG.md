@@ -9,6 +9,7 @@
 ### Behavior Changes
 
 - `conversations.list()`, `listGroups()` and `listDms()` on `agent.client` now return at most 100 conversations when you pass no `limit`, and fail with `XmtpError.InvalidArgument` for a `limit` below 1 or above 1000. Page with `createdBefore` and `beforeId`.
+- `conversation.messages()` now returns the 100 newest matching messages, in the requested order, when you pass no `limit`, and fails with `XmtpError.InvalidArgument` for a `limit` below 1 or above 1000. Read more with `conversation.messageHistoryPage()`.
 - `message.reactions` now holds at most the 50 latest reaction messages. `reactionMessageCount` counts all of them, and `messageReactions(messageId, before, limit)` reads older ones.
 - An `XmtpError.Storage` for a database written in an older, unsupported format now has the Rust cause code in `details.code`: `StorageError::PreTransitionDatabase`, `StorageError::OldStreamDatabase`, `StorageError::OldEncodingDatabase` (a database written before the CBOR storage format) or `StorageError::LegacyGroupDatabase` (a database that holds groups from before keyed group ids). Other storage errors keep the code `Storage`. Match the code, not the message.
 - `streamAllMessages` now excludes denied conversations when no consent list is set. Pass an explicit consent list to include them.
