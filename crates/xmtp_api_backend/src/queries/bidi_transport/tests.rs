@@ -218,6 +218,7 @@ fn ledger_task(
         conn: None,
         reconnect_delay: RECONNECT_INITIAL_DELAY,
         reconnect_at: tokio::time::Instant::now(),
+        rate_limited_until: None,
         wire_opened_at: None,
         wire_span: None,
         suspended: false,
@@ -248,4 +249,5 @@ mod incoming;
 mod limits;
 mod rate_limit;
 mod reconnect;
+mod retry_delay;
 mod suspend;

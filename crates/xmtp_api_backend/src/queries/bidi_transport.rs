@@ -147,6 +147,7 @@ pub struct OpenError {
     retryable: bool,
     locked_out: bool,
     attempted: bool,
+    rate_limit_delay: Option<std::time::Duration>,
     source: Box<dyn std::error::Error + Send + Sync + 'static>,
 }
 
@@ -159,6 +160,7 @@ impl OpenError {
             retryable: e.is_retryable(),
             locked_out: Self::locked_out_of(&e),
             attempted: !Self::cooldown_refusal(&e),
+            rate_limit_delay: xmtp_api_grpc::error::rate_limit_delay(&e),
             source: Box::new(e),
         }
     }
@@ -173,12 +175,18 @@ impl OpenError {
         self.attempted
     }
 
+    /// The delay of a rate-limit refusal, captured before the error is erased.
+    fn rate_limit_delay(&self) -> Option<std::time::Duration> {
+        self.rate_limit_delay
+    }
+
     #[cfg(test)]
     pub fn retryable(e: impl Into<Box<dyn std::error::Error + Send + Sync + 'static>>) -> Self {
         Self {
             retryable: true,
             locked_out: false,
             attempted: true,
+            rate_limit_delay: None,
             source: e.into(),
         }
     }
@@ -189,6 +197,7 @@ impl OpenError {
             retryable: false,
             locked_out: false,
             attempted: true,
+            rate_limit_delay: None,
             source: e.into(),
         }
     }
@@ -1419,6 +1428,7 @@ async fn run_ledger<B: TransportBinding>(
         conn: None,
         reconnect_delay: RECONNECT_INITIAL_DELAY,
         reconnect_at: tokio::time::Instant::now(),
+        rate_limited_until: None,
         wire_opened_at: None,
         wire_span: None,
         suspended: initially_suspended,
@@ -1449,6 +1459,8 @@ where
     conn: Option<Connection<B>>,
     reconnect_delay: std::time::Duration,
     reconnect_at: tokio::time::Instant,
+    /// No open before this instant: a rate-limit rejection's delay (RATE-041).
+    rate_limited_until: Option<tokio::time::Instant>,
     wire_opened_at: Option<tokio::time::Instant>,
     wire_span: Option<tracing::Span>,
     suspended: bool,
@@ -1659,6 +1671,7 @@ where
                     self.ledger.deref(id);
                     self.ledger.reset_wire();
                     self.outbox.clear();
+                    self.rate_limited(error.rate_limit_delay());
                     self.reconnect_delay = if error.is_locked_out() {
                         AUTH_LOCKOUT_COOLDOWN
                     } else {
@@ -1786,6 +1799,11 @@ where
         }
         if was_suspended {
             self.reconnect_delay = RECONNECT_INITIAL_DELAY;
+            if self.rate_limit_pending() {
+                // Wake for the scheduled open once the rate-limit delay ends.
+                self.arm_reconnect();
+                return Flow::Continue;
+            }
             self.reconnect().await
         } else {
             Flow::Continue
@@ -1866,10 +1884,28 @@ where
         Flow::Continue
     }
 
+    /// Schedule the next open, never before a rate-limit delay ends.
     fn arm_reconnect(&mut self) -> std::time::Duration {
+        let now = tokio::time::Instant::now();
         let delay = self.reconnect_delay + xmtp_common::time::rand_offset(self.reconnect_delay);
-        self.reconnect_at = tokio::time::Instant::now() + delay;
-        delay
+        self.reconnect_at = (now + delay).max(self.rate_limited_until.unwrap_or(now));
+        self.reconnect_at - now
+    }
+
+    /// Hold every open until a rate-limit rejection's delay has passed.
+    // implements: RATE-041
+    fn rate_limited(&mut self, delay: Option<std::time::Duration>) -> bool {
+        let Some(delay) = delay else {
+            return false;
+        };
+        let until = tokio::time::Instant::now() + delay;
+        self.rate_limited_until = Some(self.rate_limited_until.map_or(until, |at| at.max(until)));
+        true
+    }
+
+    fn rate_limit_pending(&self) -> bool {
+        self.rate_limited_until
+            .is_some_and(|until| tokio::time::Instant::now() < until)
     }
 
     fn wire_died(&mut self) -> Flow {
@@ -1908,10 +1944,15 @@ where
         self.drop_leases(dropped);
         self.ledger.reset_wire();
         self.close_wire_span("wire_end");
-        let stable = self
-            .wire_opened_at
-            .take()
-            .is_some_and(|opened| opened.elapsed() >= MIN_STABLE_UPTIME);
+        let rate_limited = self.rate_limited(
+            failure
+                .as_deref()
+                .and_then(|failure| xmtp_api_grpc::error::rate_limit_delay(failure)),
+        );
+        // A rate-limit end is a refusal, not proof the wire is healthy.
+        let opened_at = self.wire_opened_at.take();
+        let stable =
+            !rate_limited && opened_at.is_some_and(|opened| opened.elapsed() >= MIN_STABLE_UPTIME);
         self.reconnect_delay = if stable {
             RECONNECT_INITIAL_DELAY
         } else {
@@ -1972,6 +2013,7 @@ where
             OpenOutcome::Failed(error) => {
                 self.outbox.clear();
                 self.ledger.reset_wire();
+                self.rate_limited(error.rate_limit_delay());
                 // A lockout uses its full cooldown before the next attempt.
                 // Only the failure that started it spends a recovery cycle.
                 let locked_out = error.is_locked_out();
