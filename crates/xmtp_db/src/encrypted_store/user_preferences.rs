@@ -47,6 +47,9 @@ where
     }
 }
 
+/// Length in bytes of the HMAC root key.
+pub const HMAC_ROOT_KEY_LEN: usize = 42;
+
 /// A group's HMAC key for one epoch. The key is wiped on drop, and `Debug`
 /// shows only the epoch.
 #[derive(Zeroize, ZeroizeOnDrop)]
@@ -60,7 +63,7 @@ pub struct HmacKey {
 impl HmacKey {
     /// A new HMAC root key.
     pub fn random_key() -> Secret {
-        xmtp_cryptography::rand::rand_secret::<42>()
+        xmtp_cryptography::rand::rand_secret::<HMAC_ROOT_KEY_LEN>()
     }
 }
 
@@ -90,7 +93,7 @@ impl StoredUserPreferences {
         key: &[u8],
         cycled_at: Option<i64>,
     ) -> Result<(), StorageError> {
-        if key.len() != 42 {
+        if key.len() != HMAC_ROOT_KEY_LEN {
             return Err(StorageError::InvalidHmacLength);
         }
 

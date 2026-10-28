@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use xmtp_common::time::now_ns;
 use xmtp_cryptography::secret::Secret;
 use xmtp_db::consent_record::StoredConsentRecord;
-use xmtp_db::user_preferences::{HmacKey, StoredUserPreferences};
+use xmtp_db::user_preferences::{HMAC_ROOT_KEY_LEN, HmacKey, StoredUserPreferences};
 use xmtp_proto::ConversionError;
 use xmtp_proto::xmtp::device_sync::content::HmacKeyUpdate as HmacKeyUpdateProto;
 use xmtp_proto::xmtp::device_sync::content::{
@@ -86,7 +86,7 @@ pub(super) fn store_preference_updates(
                 Some((consent.entity_type, consent.entity.as_str()))
             }
             UpdateProto::Hmac(hmac) => {
-                if hmac.key.len() != 42 {
+                if hmac.key.len() != HMAC_ROOT_KEY_LEN {
                     tracing::warn!(
                         len = hmac.key.len(),
                         "skipping a synced root key that is not 42 bytes"
