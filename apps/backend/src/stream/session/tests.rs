@@ -336,9 +336,9 @@ async fn buffered_input_rejects_malformed_frames_before_half_close() {
 // verifies: API-257
 #[xmtp_common::test(unwrap_try = true)]
 async fn queued_ping_ends_the_stream_when_the_transport_never_takes_it() {
-    for taken_at_expiry in [false, true] {
+    for taken in ["never", "before expiry", "after expiry"] {
         let mut config = crate::config::Config::from_toml_str(CONFIG)?;
-        config.streams.max_pong_wait_ms = 20;
+        config.streams.max_pong_wait_ms = 200;
         let (mut session, _, mailbox, receiver, ..) = idle_session(config.validate()?);
         let mut input: BoxStream<'static, Result<api::SubscribeRequest, Status>> =
             Box::pin(stream::pending());
@@ -348,7 +348,7 @@ async fn queued_ping_ends_the_stream_when_the_transport_never_takes_it() {
                 .on_timer(&mut input, &mut VecDeque::new())?
                 .is_continue()
         );
-        assert!(session.challenge.as_ref().unwrap().stall >= before + Duration::from_millis(20));
+        assert!(session.challenge.as_ref().unwrap().stall >= before + Duration::from_millis(200));
         // The nonce is a counter: a Pong before handoff must not answer the Ping.
         session.input(api::SubscribeRequest {
             request: Some(api::subscribe_request::Request::Pong(api::Pong {
@@ -356,22 +356,23 @@ async fn queued_ping_ends_the_stream_when_the_transport_never_takes_it() {
             })),
         })?;
         assert!(session.challenge.is_some());
-        xmtp_common::time::timeout(Duration::from_secs(5), session.timer()).await?;
-        if taken_at_expiry {
-            let task = tokio::spawn(pending());
-            let mut output = SessionOutput::new(receiver, mailbox.terminal.clone(), task);
+        let task = tokio::spawn(pending());
+        let mut output = SessionOutput::new(receiver, mailbox.terminal.clone(), task);
+        if taken == "before expiry" {
             assert!(output.next().await.unwrap().is_ok());
-            assert!(
-                session
-                    .on_timer(&mut input, &mut VecDeque::new())?
-                    .is_continue()
-            );
+        }
+        xmtp_common::time::timeout(Duration::from_secs(5), session.timer()).await?;
+        if taken == "after expiry" {
+            assert!(output.next().await.unwrap().is_ok());
+        }
+        // A handoff the session has not processed yet counts only if it was in time.
+        let result = session.on_timer(&mut input, &mut VecDeque::new());
+        if taken == "before expiry" {
+            assert!(result?.is_continue());
             assert!(session.challenge.as_ref().unwrap().deadline.is_some());
         } else {
-            let error = session
-                .on_timer(&mut input, &mut VecDeque::new())
-                .unwrap_err();
-            assert_eq!(error.code(), tonic::Code::DeadlineExceeded);
+            let code = result.unwrap_err().code();
+            assert_eq!(code, tonic::Code::DeadlineExceeded, "{taken}");
         }
     }
 }

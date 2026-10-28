@@ -12,9 +12,13 @@ pub(super) struct Challenge {
 }
 
 impl Challenge {
-    /// Start the deadline at transport handoff. Reject an unrepresentable clock
-    /// value instead of panicking the session task on an extreme configuration.
+    /// Start the deadline at transport handoff. A handoff after `stall` fails
+    /// the stream. Reject an unrepresentable clock value instead of panicking
+    /// the session task on an extreme configuration.
     pub fn start_deadline(&mut self, sent: Instant, wait: Duration) -> Result<(), tonic::Status> {
+        if sent > self.stall {
+            return Err(tonic::Status::deadline_exceeded("ping not taken in time"));
+        }
         self.deadline = Some(checked_deadline(sent, wait)?);
         Ok(())
     }

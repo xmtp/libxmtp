@@ -348,7 +348,7 @@ impl Session {
             && challenge.deadline.is_none()
             && let Ok(sent) = challenge.handed.try_recv()
         {
-            // The transport took the Ping just now: give it the Pong wait.
+            // A handoff not yet processed: start the Pong wait, or fail if it was late.
             challenge.start_deadline(sent, wait)?;
             return Ok(ControlFlow::Continue(()));
         }
