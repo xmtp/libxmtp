@@ -244,19 +244,23 @@ jobs:
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           workspaces: .
+      # Matches the Nix protobuf of the Linux and macOS builds. The version and
+      # hash are part of this file, so a bump changes the pair's cache key.
       - name: Install protoc
         if: steps.restore.outputs.cache-hit != 'true'
-        uses: crazy-max/ghaction-chocolatey@dfdcf5bba9c0a16358a21c13a06ec5c89024b3ac # v4
-        with:
-          args: install protoc
-      - name: Verify protoc for Rust builds
-        if: steps.restore.outputs.cache-hit != 'true'
         shell: pwsh
+        env:
+          PROTOC_VERSION: "35.1"
+          PROTOC_SHA256: "5d3ff218d7d91eea95f7569bcb5a98f3030f8996d44151279d9772edcff76082"
         run: |
-          $protoc = Join-Path $env:ChocolateyInstall 'lib\protoc\tools\bin\protoc.exe'
-          if (-not (Test-Path -LiteralPath $protoc -PathType Leaf)) {
-            throw "Chocolatey protoc executable is missing: $protoc"
+          $zip = Join-Path $env:RUNNER_TEMP 'protoc.zip'
+          Invoke-WebRequest "https://github.com/protocolbuffers/protobuf/releases/download/v$env:PROTOC_VERSION/protoc-$env:PROTOC_VERSION-win64.zip" -OutFile $zip
+          if ((Get-FileHash $zip -Algorithm SHA256).Hash -ne $env:PROTOC_SHA256) {
+            throw "protoc $env:PROTOC_VERSION archive does not match its SHA-256"
           }
+          $dir = Join-Path $env:RUNNER_TEMP 'protoc'
+          Expand-Archive -LiteralPath $zip -DestinationPath $dir -Force
+          $protoc = Join-Path $dir 'bin\protoc.exe'
           & $protoc --version
           if ($LASTEXITCODE -ne 0) {
             throw "protoc --version failed with exit code $LASTEXITCODE"
