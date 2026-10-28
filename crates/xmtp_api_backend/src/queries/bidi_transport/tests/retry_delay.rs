@@ -216,3 +216,78 @@ async fn a_suspend_close_keeps_an_unread_rate_limit() {
         "resume must not dial early"
     );
 }
+
+/// A resume inside a short delay opens when the delay ends, not after the
+/// backoff that grew before it.
+// verifies: RATE-041
+#[xmtp_common::test(unwrap_try = true)]
+async fn resume_inside_a_short_delay_opens_when_it_ends() {
+    tokio::time::pause();
+    let (mut task, _dials, _commands) = refusing_task();
+    task.reconnect_delay = RECONNECT_MAX_DELAY;
+    assert!(matches!(task.reopen().await, AfterReopen::Proceed));
+    let refused = tokio::time::Instant::now();
+    let (reply, _suspended) = oneshot::channel();
+    assert!(matches!(task.suspend(reply), Flow::Continue));
+    let (reply, _resumed) = oneshot::channel();
+    assert!(matches!(task.resume(reply).await, Flow::Continue));
+    assert!(task.reconnect_at >= refused + DELAY);
+    assert!(task.reconnect_at <= refused + DELAY + Duration::from_millis(1));
+    assert!(task.reconnect_delay > RECONNECT_INITIAL_DELAY);
+}
+
+/// The error an ordered lease receives after a rate-limited wire end, and
+/// after a refused reopen, still carries the delay its consumer waits.
+// verifies: RATE-041
+#[xmtp_common::test(unwrap_try = true)]
+async fn ordered_leases_receive_the_rate_limit_delay() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let servers: Servers = Arc::default();
+    let dials = Arc::new(AtomicUsize::new(0));
+    let transport: BidiTransport<BackendBinding> = {
+        let sink = servers.clone();
+        BidiTransport::new(
+            move |initial| {
+                let n = dials.fetch_add(1, Ordering::SeqCst);
+                let sink = sink.clone();
+                async move {
+                    if n == 1 {
+                        return Err(OpenError::new(rate_limited()));
+                    }
+                    let (api, server) = mock_pair();
+                    sink.lock().unwrap().push(server);
+                    BidiConnection::open(&api, initial)
+                        .await
+                        .map_err(OpenError::new)
+                }
+            },
+            false,
+        )
+    };
+    let topic = group_topic(&[7; 32]);
+    let mut lease = transport
+        .lease_ordered(
+            vec![(topic.clone(), 0)],
+            8,
+            IncomingBatchLimits {
+                max_rows: 16,
+                max_bytes: 4096,
+            },
+        )
+        .await?;
+    let mut server = take_server(&servers);
+    let update = server.next_mutate().await;
+    server.ack(update.id, vec![(topic, 0)]);
+    let registered = xmtp_common::time::timeout(WAIT, lease.next_incoming()).await?;
+    assert!(matches!(
+        registered,
+        Some(Ok(IncomingEvent::Registered { .. }))
+    ));
+
+    server.to_client.send(Err(rate_limited()))?;
+    let ended = xmtp_common::time::timeout(WAIT, lease.next_incoming()).await??;
+    assert_eq!(ended.unwrap_err().rate_limit_delay(), Some(DELAY));
+    let refused =
+        xmtp_common::time::timeout(Duration::from_secs(10), lease.next_incoming()).await??;
+    assert_eq!(refused.unwrap_err().rate_limit_delay(), Some(DELAY));
+}

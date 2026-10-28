@@ -1803,9 +1803,13 @@ where
             return Flow::Continue;
         }
         if was_suspended {
-            if self.rate_limit_pending() {
-                // Keep the backoff and wake for the open once the delay ends.
-                self.arm_reconnect();
+            if let Some(until) = self
+                .rate_limited_until
+                .filter(|until| tokio::time::Instant::now() < *until)
+            {
+                // Keep the backoff for later failures, and open when the
+                // delay ends, not after the grown backoff.
+                self.reconnect_at = until;
                 return Flow::Continue;
             }
             self.reconnect_delay = RECONNECT_INITIAL_DELAY;
@@ -1924,11 +1928,6 @@ where
             );
             close_gracefully(wire);
         }
-    }
-
-    fn rate_limit_pending(&self) -> bool {
-        self.rate_limited_until
-            .is_some_and(|until| tokio::time::Instant::now() < until)
     }
 
     fn wire_died(&mut self) -> Flow {
