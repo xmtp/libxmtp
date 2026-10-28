@@ -53,6 +53,8 @@ export const useConsentState = (
       .catch(console.error);
     return () => {
       active = false;
+      // unwatched consent can change: a later return must read it again
+      setRead(undefined);
       if (listenerId !== undefined) {
         stop(listenerId);
       }

@@ -69,9 +69,10 @@ describe("useConsentState", () => {
 
   it("returns undefined, not the previous state, after switching", async () => {
     const { client } = setup();
-    const first = conversation("aa".repeat(16), async () => ({
+    let firstState = async (): Promise<unknown> => ({
       consentState: "allowed",
-    }));
+    });
+    const first = conversation("aa".repeat(16), () => firstState());
     const pending = Promise.withResolvers<unknown>();
     const second = conversation("bb".repeat(16), () => pending.promise);
     const { result, rerender } = renderHook(
@@ -83,6 +84,11 @@ describe("useConsentState", () => {
     });
 
     rerender({ current: second });
+    expect(result.current).toBeUndefined();
+
+    // the first conversation's consent may have changed while it was closed
+    firstState = () => new Promise(() => {});
+    rerender({ current: first });
     expect(result.current).toBeUndefined();
   });
 });
