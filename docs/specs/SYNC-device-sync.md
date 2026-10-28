@@ -153,6 +153,8 @@ A new installation holds only its own defaults and what DMS-010 carries until ea
 
 A consent decision stored before consent records had a time holds consent time 0: the 2025 migration that added `consented_at_ns` gave every existing record 0. Such a decision is not published under SYNC-021 or SYNC-025, so it does not reach a new installation until the user decides again on any device.
 
+SYNC-025 pages hold up to 1,000 records, about 100 KB, whatever envelope limit the deployment publishes. On a deployment whose envelope limit is below about 100 KB, a full page is rejected before it is sent, so the join replay cannot complete and fails again on every retry.
+
 An installation that needs a per-conversation key before it holds a root key generates one and does not publish it. Its keys differ from its peers' until the next cycle under SYNC-015.
 
 A sync group is never removed. An inbox with many installations holds one sync group per installation, and each installation reads all of them.
