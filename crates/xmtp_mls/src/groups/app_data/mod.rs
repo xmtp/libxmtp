@@ -262,9 +262,9 @@ impl<'a> Committable<'a> {
     /// judged without looking ahead: a later proposal that would repair it
     /// may itself be omitted, and the intent's own operations follow.
     ///
-    /// No client proposes a leaf Update, and receivers check only its
-    /// credential, so a commit never carries one: the commit builder would
-    /// refuse a leaf it cannot use.
+    /// No client proposes a leaf Update, and receivers check its credential
+    /// and that it keeps the replaced leaf's signature key, so a commit never
+    /// carries one: the commit builder would refuse a leaf it cannot use.
     ///
     /// The post-commit membership comes from the kept proposals, so the
     /// filter runs again over the kept ones until that membership stops
