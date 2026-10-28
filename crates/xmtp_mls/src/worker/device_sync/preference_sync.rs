@@ -307,11 +307,11 @@ mod tests {
         );
     }
 
-    // verifies: SYNC-015
+    // verifies: SYNC-015, SYNC-024
     #[rstest::rstest]
     #[xmtp_common::test(unwrap_try = true)]
     async fn test_hmac_sync() {
-        use xmtp_id::associations::test_utils::add_wallet_signature;
+        use crate::worker::device_sync::tests::revoke;
 
         tester!(amal_a, sync_worker);
         tester!(amal_b, from: amal_a);
@@ -356,20 +356,16 @@ mod tests {
 
         let sent_before_revoke = amal_a.worker().get(SyncMetric::HmacSent);
         let received_before_revoke = amal_a.worker().get(SyncMetric::HmacReceived);
-        let mut revoke = amal_a
-            .identity_updates()
-            .revoke_installations(vec![amal_b.context.installation_id().to_vec()])
-            .await?;
-        add_wallet_signature(&mut revoke, &amal_a.builder.owner).await;
-        amal_a
-            .identity_updates()
-            .apply_signature_request(revoke)
-            .await?;
+        revoke(&amal_a, &amal_b).await?;
         amal_a
             .worker()
             .register_interest(SyncMetric::HmacSent, sent_before_revoke + 1)
             .wait()
             .await?;
+        let sync_group = amal_a.device_sync_client().get_sync_group().await?;
+        let revoked = amal_b.context.installation_id().to_vec();
+        let leaves = sync_group.with_group_snapshot(|g| Ok(g.members().collect::<Vec<_>>()))?;
+        assert!(leaves.iter().all(|leaf| leaf.signature_key != revoked));
 
         amal_a.sync_all_welcomes_and_device_sync_groups().await?;
         amal_a

@@ -90,6 +90,21 @@ where
         Ok(())
     }
 
+    /// Refresh membership, removing revoked installations but adding none.
+    // implements: SYNC-024
+    pub(crate) async fn remove_revoked_installations(&self) -> Result<(), GroupError> {
+        let mut intent_data = self.get_membership_update_intent(&[], &[]).await?;
+        if intent_data.is_empty() {
+            return Ok(());
+        }
+        intent_data.removal_only = true;
+        let intent = QueueIntent::update_group_membership()
+            .data(intent_data)
+            .queue(self)?;
+        self.sync_until_intent_resolved(intent.id).await?;
+        Ok(())
+    }
+
     #[tracing::instrument(level = "trace", skip_all)]
     /**
      * get_membership_update_intent will query the network for any new [`IdentityUpdate`]s for any of the existing

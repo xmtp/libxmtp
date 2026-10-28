@@ -47,6 +47,7 @@ impl PublishRequirements {
             IntentKind::UpdateGroupMembership => {
                 let old = extract_group_membership(group.extensions())?;
                 let data = UpdateGroupMembershipIntentData::try_from(intent.data.as_slice())?;
+                requirements.fail_refresh_additions = data.removal_only;
                 requirements.new_membership = Some(data.apply_to_group_membership(&old));
                 requirements.membership_update = Some(data);
                 requirements.old_membership = Some(old);
