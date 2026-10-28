@@ -140,6 +140,7 @@ diesel::table! {
         error_code -> Nullable<Text>,
         retry_expires_at_ns -> Nullable<BigInt>,
         unreadable_expires_at_ns -> Nullable<BigInt>,
+        envelope_bytes -> BigInt,
     }
 }
 

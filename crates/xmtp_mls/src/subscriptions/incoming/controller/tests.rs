@@ -91,6 +91,21 @@ fn add_scope<C: XmtpSharedContext + 'static>(
         .insert(topic.clone());
 }
 
+/// Rebuild a tester's client with internal stream limits for one test.
+async fn client_with_policy(
+    tester: &crate::utils::Tester,
+    edit: impl FnOnce(&mut crate::subscriptions::policy::StreamPolicy),
+) -> Result<crate::utils::FullXmtpClient, crate::builder::ClientBuilderError> {
+    let mut settings = tester.context.incoming_runtime().policy().clone();
+    edit(&mut settings);
+    crate::builder::ClientBuilder::from_client(tester.client.clone())
+        .stream_policy(settings)
+        .with_disable_workers(true)
+        .with_allow_offline(Some(true))
+        .build()
+        .await
+}
+
 fn add_barrier_scope<C: XmtpSharedContext + 'static>(
     controller: &mut Controller<C>,
     id: u64,
@@ -1586,14 +1601,7 @@ async fn an_in_flight_pointer_does_not_starve_a_later_welcome() {
         xmtp_proto::types::WelcomeMessageType::WelcomePointer(_)
     ));
     pending_welcome_for_test(&bo.context, &welcomes[1]).await?;
-    let mut settings = bo.context.incoming_runtime().policy().clone();
-    settings.max_fetched_rows = 1;
-    let client = crate::builder::ClientBuilder::from_client(bo.client.clone())
-        .stream_policy(settings)
-        .with_disable_workers(true)
-        .with_allow_offline(Some(true))
-        .build()
-        .await?;
+    let client = client_with_policy(&bo, |settings| settings.max_fetched_rows = 1).await?;
     let mut controller = controller(client.context.clone());
     let topic = Topic::new_welcome_message(client.context.installation_id());
     let key = topic_key(&topic)?;
@@ -3422,19 +3430,15 @@ async fn each_kind_keeps_its_budget_and_only_committed_chunks_are_acknowledged()
     use xmtp_db::{TransactionOutcome, XmtpMlsStorageProvider};
 
     tester!(alix, disable_workers);
-    let mut settings = alix.context.incoming_runtime().policy().clone();
-    settings.max_fetched_rows = 8;
-    settings.max_fetched_bytes = 4096;
-    settings.max_admission_rows = 1;
-    settings.max_admission_bytes = 1024;
-    settings.group_pending.rows = 2;
-    settings.welcome_pending.bytes = 1;
-    let client = crate::builder::ClientBuilder::from_client(alix.client.clone())
-        .stream_policy(settings)
-        .with_disable_workers(true)
-        .with_allow_offline(Some(true))
-        .build()
-        .await?;
+    let client = client_with_policy(&alix, |settings| {
+        settings.max_fetched_rows = 8;
+        settings.max_fetched_bytes = 4096;
+        settings.max_admission_rows = 1;
+        settings.max_admission_bytes = 1024;
+        settings.group_pending.rows = 2;
+        settings.welcome_pending.bytes = 1;
+    })
+    .await?;
     let topic = Topic::new_group_message(GroupId::generate());
     let welcome = Topic::new_welcome_message(client.installation_public_key());
     let key = topic_key(&topic)?;
@@ -3519,18 +3523,14 @@ async fn each_kind_keeps_its_budget_and_only_committed_chunks_are_acknowledged()
 
     tester!(receiver, disable_workers);
     let group = receiver.create_group(None, None)?;
-    let mut settings = receiver.context.incoming_runtime().policy().clone();
-    settings.max_fetched_rows = 8;
-    settings.max_admission_rows = 8;
-    settings.max_pending_rows_per_topic = 8;
-    settings.active_database_poll_interval = Duration::from_millis(10);
-    settings.receiver_fallback_interval = Duration::from_millis(100);
-    let client = crate::builder::ClientBuilder::from_client(receiver.client.clone())
-        .stream_policy(settings)
-        .with_disable_workers(true)
-        .with_allow_offline(Some(true))
-        .build()
-        .await?;
+    let client = client_with_policy(&receiver, |settings| {
+        settings.max_fetched_rows = 8;
+        settings.max_admission_rows = 8;
+        settings.max_pending_rows_per_topic = 8;
+        settings.active_database_poll_interval = Duration::from_millis(10);
+        settings.receiver_fallback_interval = Duration::from_millis(100);
+    })
+    .await?;
     let topic = Topic::new_group_message(group.group_id);
     let key = topic_key(&topic)?;
     let before = client.context.db().topic_progress(&key)?;
@@ -3693,6 +3693,86 @@ async fn each_kind_keeps_its_budget_and_only_committed_chunks_are_acknowledged()
     task.join().await?;
 }
 
+/// Held group heads cannot drain, so they are charged to the held allowance
+/// and neither stop nor keep paused the receipt of unrelated groups.
+// verifies: PROC-020
+#[xmtp_common::test(unwrap_try = true)]
+async fn held_group_heads_do_not_pause_unrelated_groups() {
+    use xmtp_db::incoming_envelope::IncomingRetry;
+
+    tester!(alix, disable_workers);
+    let client = client_with_policy(&alix, |settings| settings.group_pending.rows = 2).await?;
+    let first = Topic::new_group_message(GroupId::generate());
+    let second = Topic::new_group_message(GroupId::generate());
+    let third = Topic::new_group_message(GroupId::generate());
+    let mut controller = controller(client.context.clone());
+    for (id, topic) in [&first, &second, &third].into_iter().enumerate() {
+        add_scope(&mut controller, id as u64 + 1, topic);
+    }
+    controller.transport.requested = [first.clone(), second.clone(), third.clone()].into();
+    controller.transport.state = TransportState::Streaming(IncomingSubscription::new(
+        Box::pin(futures::stream::pending()),
+        |_| {},
+    ));
+    let admit = |controller: &mut Controller<_>, topic: &Topic, sequence: u64| {
+        controller.incoming(Some(Ok(IncomingEvent::OrderedBatch(
+            OrderedEnvelopeBatch {
+                topic: topic.clone(),
+                after: Cursor(sequence - 10),
+                envelopes: vec![wire::ServerEnvelope {
+                    meta: Some(meta(topic, sequence)),
+                    envelope: Some(wire::ClientEnvelope::default()),
+                }],
+            },
+        ))));
+    };
+    admit(&mut controller, &first, 10);
+    admit(&mut controller, &second, 10);
+    admit(&mut controller, &third, 10);
+    assert!(
+        controller.receipt(&third).paused,
+        "ready work fills the budget"
+    );
+    // Both heads become held, like commits that cannot be processed.
+    for topic in [&first, &second] {
+        assert!(client.context.db().set_incoming_retry(
+            &topic_key(topic)?,
+            Cursor(10),
+            &IncomingRetry {
+                retry_at_ns: 0,
+                blocked: true,
+                error_code: Some("group_head_blocked".into()),
+                retry_expires_at_ns: None,
+            },
+        )?);
+    }
+    controller.reconcile()?;
+    assert!(
+        !controller.receipt(&third).paused,
+        "held heads do not keep an unrelated group paused"
+    );
+    admit(&mut controller, &third, 10);
+    assert!(!controller.receipt(&third).paused);
+    assert_eq!(
+        client
+            .context
+            .db()
+            .topic_progress(&topic_key(&third)?)?
+            .received,
+        Cursor(10)
+    );
+    admit(&mut controller, &first, 20);
+    assert!(
+        controller.receipt(&first).paused,
+        "a held topic pauses when the held allowance is full"
+    );
+    controller.reconcile()?;
+    assert!(
+        controller.receipt(&first).paused,
+        "a held topic stays paused while the held allowance is full"
+    );
+}
+
 // verifies: PROC-001
 #[xmtp_common::test(unwrap_try = true)]
 async fn byte_chunks_validate_the_complete_input_before_receipt() {
@@ -3702,15 +3782,11 @@ async fn byte_chunks_validate_the_complete_input_before_receipt() {
         meta: Some(meta(&topic, sequence)),
         envelope: Some(wire::ClientEnvelope::default()),
     };
-    let mut settings = alix.context.incoming_runtime().policy().clone();
-    settings.max_admission_rows = 8;
-    settings.max_admission_bytes = envelope(10).encoded_len() as u64;
-    let client = crate::builder::ClientBuilder::from_client(alix.client.clone())
-        .stream_policy(settings)
-        .with_disable_workers(true)
-        .with_allow_offline(Some(true))
-        .build()
-        .await?;
+    let client = client_with_policy(&alix, |settings| {
+        settings.max_admission_rows = 8;
+        settings.max_admission_bytes = envelope(10).encoded_len() as u64;
+    })
+    .await?;
     let mut controller = controller(client.context.clone());
     let key = topic_key(&topic)?;
     assert!(
