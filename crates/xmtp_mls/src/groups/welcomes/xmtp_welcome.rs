@@ -12,7 +12,9 @@ use crate::identity_updates::{
     IdentityDependencyError, IdentityRequirement, InstallationDiffError,
 };
 use crate::state_tx::{state_write, state_write_with_events};
-use crate::subscriptions::internal::{InternalEvent, PreferenceOrigin, emit_preference_updates};
+use crate::subscriptions::internal::{
+    InternalEvent, PreferenceOrigin, dm_event_context, emit_preference_updates,
+};
 use crate::worker::device_sync::is_own_sync_group;
 use crate::{
     context::XmtpSharedContext,
@@ -735,7 +737,7 @@ where
             &HashSet::from([context.installation_id().to_vec()]),
             cursor,
         )?;
-        event_buffer.emit(
+        event_buffer.emit_with_context(
             (!stored_group.conversation_type.is_virtual()).then(|| {
                 ClientEvent::ConversationJoined(ConversationJoined {
                     group_id: group.group_id.to_vec(),
@@ -753,6 +755,7 @@ where
                 is_sync: stored_group.conversation_type == ConversationType::Sync,
                 origin: crate::subscriptions::internal::GroupOrigin::Welcomed,
             }),
+            dm_event_context(group.dm_id.as_deref()),
         );
 
         tracing::debug!(

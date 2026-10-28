@@ -2,6 +2,7 @@ use crate::builder::ForkRecoveryPolicy;
 use crate::groups::MlsGroup;
 use crate::groups::oneshot::Oneshot;
 use crate::groups::summary::SyncSummary;
+use crate::subscriptions::internal::dm_event_context;
 use futures::StreamExt;
 use std::collections::HashSet;
 use std::{collections::HashMap, time::Duration};
@@ -796,11 +797,15 @@ where
                     // Persist the fork status to the database
                     db.set_group_commit_log_forked_status(&conversation_id, is_forked)?;
                     if was_forked != Some(true) && is_forked == Some(true) {
-                        events.emit(
+                        let dm_id = db
+                            .find_group(&conversation_id)?
+                            .and_then(|group| group.dm_id);
+                        events.emit_with_context(
                             Some(ClientEvent::ConversationForkDetected(GroupRef {
                                 group_id: conversation_id.to_vec(),
                             })),
                             None,
+                            dm_event_context(dm_id.as_deref()),
                         );
                     }
                     Ok::<_, CommitLogError>(Continue(()))

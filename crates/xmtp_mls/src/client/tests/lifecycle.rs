@@ -133,11 +133,12 @@ async fn created_and_welcomed_dms_emit_one_join_event() {
     assert!(matches!(
         created.drain().as_slice(),
         [xmtp_events::EventEnvelope {
-            client: Some(xmtp_events::ClientEvent::ConversationJoined(joined)), ..
+            client: Some(xmtp_events::ClientEvent::ConversationJoined(joined)), context, ..
         }] if joined.group_id == dm.group_id.to_vec()
             && joined.conversation_type == xmtp_events::ConversationType::Dm
             && joined.origin == xmtp_events::JoinOrigin::Created
             && joined.adder_inbox_id.is_none()
+            && context.dm_identifier == Some(dm.dm_id.clone().expect("DM ID").into_bytes())
     ));
 
     let bo_dm = bo.sync_welcomes().await?.pop()?;
