@@ -431,9 +431,14 @@ async fn capture_targets<C: XmtpSharedContext>(
     let results = stream::iter(chunks)
         .map(|topics| async move {
             let remaining = deadline.saturating_duration_since(Instant::now());
+            // A rate-limit wait that would pass the deadline returns the
+            // rejection, so the barrier reports its delay, not a timeout.
             let result = xmtp_common::time::timeout(
                 remaining,
-                context.api().newest_topic_cursors(topics.clone()),
+                xmtp_common::retry::with_retry_deadline(
+                    deadline,
+                    context.api().newest_topic_cursors(topics.clone()),
+                ),
             )
             .await;
             (topics, result)
@@ -588,8 +593,11 @@ async fn wait_for_targets_snapshot<C: XmtpSharedContext>(
                 .topics
                 .iter()
                 .find(|entry| entry.topic == topic.topic)
-                && incoming.processing == IncomingProcessing::Blocked
                 && let Some(error) = incoming.error.as_ref()
+                // A rate-limited read leaves the topic pending, not blocked;
+                // its error still names the delay the caller must wait.
+                && (incoming.processing == IncomingProcessing::Blocked
+                    || error.rate_limit_delay().is_some())
             {
                 topic.cause = Some(BarrierCause::Receiver(error.clone()));
             }

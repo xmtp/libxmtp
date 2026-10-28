@@ -154,7 +154,13 @@ where
         // react by publishing its merged value, which re-enters
         // `sync_with_conn` and would deadlock on a guard still held here.
         let mut app_data_changes = Vec::new();
-        let result = self.sync_with_conn_locked(&mut app_data_changes).await;
+        // The per-group mutex is held throughout, so no request waits out a
+        // rate limit inside it: a refused request returns with its delay.
+        let result = xmtp_common::retry::with_retry_deadline(
+            xmtp_common::time::Instant::now(),
+            self.sync_with_conn_locked(&mut app_data_changes),
+        )
+        .await;
         self.dispatch_app_data_changes(app_data_changes).await;
         result
     }
@@ -388,9 +394,14 @@ where
             // GroupSyncFinished event (in sync_until_intent_resolved) is the
             // single place the summary is logged — no per-attempt logging here.
             let mut round_succeeded = false;
+            // A rate-limit wait inside the round ends by the round's timeout,
+            // so the delay reaches this loop instead of being lost to it.
             let rate_limit_delay = match xmtp_common::time::timeout(
                 remaining,
-                self.sync_intent_round(intent_id, predecessor, remaining),
+                xmtp_common::retry::with_retry_deadline(
+                    xmtp_common::time::Instant::now() + remaining,
+                    self.sync_intent_round(intent_id, predecessor, remaining),
+                ),
             )
             .await
             {
@@ -582,6 +593,12 @@ where
             Ok(Ok(())) => {}
             Ok(Err(error)) => summary.add_publish_err(error),
             Err(_) => return Err(GroupError::SyncFailedToWait(Box::new(summary))),
+        }
+        // A rate-limited publish ends the round with its delay, which a later
+        // read error must not replace. The loop waits it out or returns it.
+        // implements: RATE-041
+        if summary.rate_limit_delay().is_some() {
+            return Ok(summary);
         }
         let receipt = self.request_read_target(intent_id)?;
         let blocker = match receipt {
