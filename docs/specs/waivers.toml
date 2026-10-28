@@ -39,7 +39,7 @@ id = "SYNC-021"
 kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "Only records the store reports as changed are published, so a repeated same-state decision is never published. When the client joins a new sync group, evt_new_sync_group_from_welcome publishes every stored consent record, including records stored under CONS-010, CONS-045, CONS-025 and DMS-010, because the store does not record why a record was stored."
+reason = "Only records the store reports as changed are published, so a repeated same-state decision is never published."
 
 [[waiver]]
 id = "PUSH-257"
