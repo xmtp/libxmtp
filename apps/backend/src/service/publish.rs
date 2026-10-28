@@ -22,6 +22,11 @@ use xmtp_proto::types::TopicKind;
 #[cfg(test)]
 mod tests;
 
+/// The longest admission may take, before the commit timer starts.
+const ADMISSION_DEADLINE: Duration = Duration::from_secs(60);
+/// Identity-log replays running at once, across all requests.
+pub(crate) const MAX_IDENTITY_REPLAYS: usize = 64;
+
 /// Counts publish-signature verification work, so tests can check where and
 /// how often it runs.
 #[cfg(test)]
@@ -91,7 +96,12 @@ impl Backend {
             positions,
             parse_error,
         } = self.parse_publish(request)?;
-        let parsed = self.validate_publish(&mut pending, parsed).await?;
+        let parsed = timeout(
+            self.admission_deadline(),
+            self.validate_publish(&mut pending, parsed),
+        )
+        .await
+        .map_err(|_| Status::deadline_exceeded("publish admission timed out"))??;
         for (item, parsed) in pending.iter_mut().zip(parsed) {
             item.payload = parsed.canonical.bytes;
         }
@@ -124,6 +134,15 @@ impl Backend {
 }
 
 impl Backend {
+    /// [`ADMISSION_DEADLINE`], unless a test replaced it.
+    fn admission_deadline(&self) -> Duration {
+        #[cfg(test)]
+        if let Some(deadline) = *self.admission_deadline.lock() {
+            return deadline;
+        }
+        ADMISSION_DEADLINE
+    }
+
     /// Parse request limits, derive routing, and retain original positions.
     ///
     /// This step performs no cryptographic or identity validation. It collapses
@@ -353,8 +372,9 @@ impl Backend {
     /// signature checks for each stored action, so it runs off the async
     /// runtime. A stored row that is not an identity envelope is an internal
     /// error; a stored update that fails validation rejects the new update,
-    /// as the inner error. A cancelled request leaves the task to finish; the
-    /// entry limit bounds it at one log.
+    /// as the inner error. It waits for one of [`MAX_IDENTITY_REPLAYS`]
+    /// permits. A cancelled request leaves the task to finish, holding its
+    /// permit; the entry limit bounds it at one log.
     // implements: IDENT-095
     async fn replay_history(
         &self,
@@ -370,8 +390,16 @@ impl Backend {
         }
         #[cfg(test)]
         let (replays, caller) = (self.identity_replays.clone(), std::thread::current().id());
+        let permit = self
+            .replays
+            .clone()
+            .acquire_owned()
+            .await
+            .map_err(|_| Status::internal("identity replay limit closed"))?;
         let span = tracing::Span::current();
         tokio::task::spawn_blocking(move || {
+            // Held until the replay ends, even after the request is dropped.
+            let _permit = permit;
             let _span = span.enter();
             #[cfg(test)]
             if std::thread::current().id() != caller {

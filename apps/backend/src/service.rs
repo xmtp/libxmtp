@@ -28,6 +28,8 @@ pub struct Backend {
     /// The published deployment settings, built once from the validated
     /// configuration and returned unchanged for the life of the process.
     pub(crate) configuration: Arc<crate::api::GetConfigurationResponse>,
+    /// Bounds identity-log replays across all requests.
+    pub(crate) replays: Arc<tokio::sync::Semaphore>,
     /// Counts publish-signature verification work for tests.
     #[cfg(test)]
     pub(crate) signature_checks: Arc<publish::SignatureChecks>,
@@ -36,6 +38,9 @@ pub struct Backend {
     /// counted.
     #[cfg(test)]
     pub(crate) identity_replays: Arc<std::sync::atomic::AtomicUsize>,
+    /// Replaces the publish admission deadline for tests.
+    #[cfg(test)]
+    pub(crate) admission_deadline: Arc<parking_lot::Mutex<Option<std::time::Duration>>>,
 }
 
 impl Backend {
@@ -62,10 +67,13 @@ impl Backend {
             auth: None,
             attachments: None,
             configuration,
+            replays: Arc::new(tokio::sync::Semaphore::new(publish::MAX_IDENTITY_REPLAYS)),
             #[cfg(test)]
             signature_checks: Arc::default(),
             #[cfg(test)]
             identity_replays: Arc::default(),
+            #[cfg(test)]
+            admission_deadline: Arc::default(),
         }
     }
 }
