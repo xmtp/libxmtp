@@ -861,13 +861,15 @@ pub(crate) mod tests {
     async fn malformed_delete_messages_store_no_deletion() {
         use crate::tester;
         use xmtp_content_types::{
-            ContentCodec, delete_message::DeleteMessageCodec, encoded_content_to_bytes,
+            ContentCodec, compression::compress, delete_message::DeleteMessageCodec,
+            encoded_content_to_bytes,
         };
         use xmtp_db::Store;
         use xmtp_db::group_message::{
             ContentType, DeliveryStatus, GroupMessageKind, StoredGroupMessage,
         };
         use xmtp_db::message_deletion::QueryMessageDeletion;
+        use xmtp_proto::xmtp::mls::message_contents::Compression;
         use xmtp_proto::xmtp::mls::message_contents::content_types::DeleteMessage;
 
         tester!(alix);
@@ -879,6 +881,7 @@ pub(crate) mod tests {
         };
         let mut malformed_inner = delete_of("")?;
         malformed_inner.content = vec![0xFF, 0xFE, 0xFD];
+        let oversized = compress(delete_of(&"ab".repeat(512 * 1024))?, Compression::Deflate)?;
 
         let rows = [
             ("malformed EncodedContent", vec![0xFF, 0xFE, 0xFD]),
@@ -889,6 +892,15 @@ pub(crate) mod tests {
             (
                 "non-hex id",
                 encoded_content_to_bytes(delete_of("not_valid_hex!!!")?),
+            ),
+            ("2-byte id", encoded_content_to_bytes(delete_of("0102")?)),
+            (
+                "33-byte id",
+                encoded_content_to_bytes(delete_of(&"ab".repeat(33))?),
+            ),
+            (
+                "compressed oversized id",
+                encoded_content_to_bytes(oversized),
             ),
         ];
         let storage = alix.context.mls_storage();

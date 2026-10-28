@@ -156,12 +156,14 @@ where
             }
         };
 
-        let target_message_id = match hex::decode(&delete_msg.message_id) {
-            Ok(id) => id,
-            Err(_) => {
-                tracing::warn!("Invalid delete message_id: {}", delete_msg.message_id);
-                return Ok(());
-            }
+        let Some(target_message_id) =
+            crate::utils::id::decode_message_reference(&delete_msg.message_id)
+        else {
+            tracing::warn!(
+                len = delete_msg.message_id.len(),
+                "Invalid delete message_id, skipping"
+            );
+            return Ok(());
         };
 
         let original_msg_opt = storage.db().get_group_message(&target_message_id)?;
