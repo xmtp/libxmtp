@@ -251,7 +251,7 @@ jobs:
         shell: pwsh
         env:
           PROTOC_VERSION: "35.1"
-          PROTOC_SHA256: "5d3ff218d7d91eea95f7569bcb5a98f3030f8996d44151279d9772edcff76083"
+          PROTOC_SHA256: "5d3ff218d7d91eea95f7569bcb5a98f3030f8996d44151279d9772edcff76082"
         run: |
           $zip = Join-Path $env:RUNNER_TEMP 'protoc.zip'
           Invoke-WebRequest "https://github.com/protocolbuffers/protobuf/releases/download/v$env:PROTOC_VERSION/protoc-$env:PROTOC_VERSION-win64.zip" -OutFile $zip
