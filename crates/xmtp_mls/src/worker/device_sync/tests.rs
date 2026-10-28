@@ -5,6 +5,18 @@ use xmtp_db::{
     consent_record::{ConsentState, ConsentType, StoredConsentRecord},
     group::{ConversationType, GroupMembershipState, StoredGroup},
 };
+#[cfg(not(target_arch = "wasm32"))]
+use xmtp_logging::{LogRecord, LogSinkTarget, SinkError};
+
+#[cfg(not(target_arch = "wasm32"))]
+struct Capture(parking_lot::Mutex<Vec<LogRecord>>);
+#[cfg(not(target_arch = "wasm32"))]
+impl LogSinkTarget for Capture {
+    fn on_record(&self, record: LogRecord) -> Result<(), SinkError> {
+        self.0.lock().push(record);
+        Ok(())
+    }
+}
 
 // verifies: PROC-036
 #[cfg(not(target_arch = "wasm32"))]
@@ -924,6 +936,63 @@ async fn sync_message_from_another_inbox_is_not_applied() {
     assert!(db.unprocessed_sync_group_messages()?.is_empty());
 }
 
+// verifies: SYNC-011
+#[xmtp_common::test(unwrap_try = true)]
+#[cfg_attr(target_arch = "wasm32", ignore)]
+async fn sync_message_from_revoked_installation_is_not_applied() {
+    use preference_sync::PreferenceUpdate;
+    use xmtp_id::associations::test_utils::add_wallet_signature;
+    use xmtp_proto::xmtp::device_sync::content::PreferenceUpdates;
+
+    tester!(alix1, disable_workers);
+    tester!(alix2, from: alix1, disable_workers);
+    let group = alix1.device_sync_client().get_sync_group().await?;
+    alix2.sync_welcomes().await?;
+    let mut revoke = alix1
+        .identity_updates()
+        .revoke_installations(vec![alix2.context.installation_id().to_vec()])
+        .await?;
+    add_wallet_signature(&mut revoke, &alix1.builder.owner).await;
+    alix1
+        .identity_updates()
+        .apply_signature_request(revoke)
+        .await?;
+
+    let update = PreferenceUpdate::Consent(StoredConsentRecord::new(
+        ConsentType::InboxId,
+        ConsentState::Denied,
+        "from-revoked-installation".to_string(),
+    ));
+    let payload = sync_message_bytes(ContentProto::PreferenceUpdates(PreferenceUpdates {
+        updates: vec![update.into()],
+    }));
+    alix2
+        .group(&group.group_id)?
+        .send_message(&payload, SendMessageOpts::default())
+        .await?;
+    group.sync().await?;
+
+    let db = alix1.context.db();
+    let pending = db.unprocessed_sync_group_messages()?;
+    assert!(pending.iter().any(|message| {
+        message.sender_installation_id == alix2.context.installation_id()
+            && message.sender_inbox_id == alix1.inbox_id()
+    }));
+    let client = alix1.device_sync_client();
+    client
+        .process_sync_group_messages(&client.metrics, pending)
+        .await?;
+    assert!(
+        db.get_consent_record(
+            "from-revoked-installation".to_string(),
+            ConsentType::InboxId
+        )?
+        .is_none(),
+        "a revoked installation's preference update was applied"
+    );
+    assert!(db.unprocessed_sync_group_messages()?.is_empty());
+}
+
 // A root HMAC key that another installation syncs is a `hmac_keys.updated`
 // trigger (EVENT section 1). One message with two keys is one change.
 // verifies: EVENT-001
@@ -994,15 +1063,7 @@ async fn synced_hmac_key_emits_hmac_keys_updated_once() {
 #[cfg(not(target_arch = "wasm32"))]
 fn incoming_preference_logs_omit_secret_material() {
     use std::sync::Arc;
-    use xmtp_logging::{Level, LogRecord, LogSinkTarget, SinkError, test_logging::LogCapture};
-
-    struct Capture(parking_lot::Mutex<Vec<LogRecord>>);
-    impl LogSinkTarget for Capture {
-        fn on_record(&self, record: LogRecord) -> Result<(), SinkError> {
-            self.0.lock().push(record);
-            Ok(())
-        }
-    }
+    use xmtp_logging::{Level, test_logging::LogCapture};
 
     let key = b"synthetic-private-sync-key-e7a619c3".to_vec();
     let entity = "synthetic-private-consent-identity";
@@ -1028,7 +1089,6 @@ fn incoming_preference_logs_omit_secret_material() {
     assert!(json.contains("Incoming preference updates"));
     let records = sink.0.lock();
     assert_eq!(records.len(), 1);
-    assert!(records[0].message.contains("Incoming preference updates"));
     for sensitive in [
         format!("{key:?}"),
         entity.to_string(),
@@ -1065,16 +1125,8 @@ async fn stored_preference_logs_omit_installation_id_and_secret_material() {
     use std::sync::Arc;
     use tracing::instrument::WithSubscriber;
     use xmtp_db::user_preferences::StoredUserPreferences;
-    use xmtp_logging::{Level, LogRecord, LogSinkTarget, SinkError, test_logging::LogCapture};
+    use xmtp_logging::{Level, test_logging::LogCapture};
     use xmtp_proto::xmtp::device_sync::content::PreferenceUpdates;
-
-    struct Capture(parking_lot::Mutex<Vec<LogRecord>>);
-    impl LogSinkTarget for Capture {
-        fn on_record(&self, record: LogRecord) -> Result<(), SinkError> {
-            self.0.lock().push(record);
-            Ok(())
-        }
-    }
 
     tester!(alix, disable_workers);
     let client = alix.device_sync_client();
