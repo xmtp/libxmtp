@@ -35,6 +35,9 @@ workspace-members = [
   # The backend configuration crate's dependencies, including its test-only
   # schema validator, must not enter client builds either.
   "xmtp_backend_config",
+  # The backend's rate limiter: its unconditional getrandom, without the
+  # wasm_js backend, and its test-only shuttle must not enter client builds.
+  "xmtp_rate_limit",
   "xmtp-db-tools",
   "xdbg",
   "error_glossary",
@@ -59,6 +62,7 @@ third-party = [
 workspace-members = [
   "xmtp_backend",
   "xmtp_backend_config",
+  "xmtp_rate_limit",
   "xmtp_common",
   "xmtp_events",
   "xmtp_cryptography",

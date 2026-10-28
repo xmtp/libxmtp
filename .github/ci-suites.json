@@ -374,6 +374,7 @@
         "crates/xmtp_mls_validation/**",
         "crates/xmtp_proto/**",
         "crates/xmtp_push_types/**",
+        "crates/xmtp_rate_limit/**",
         "crates/xmtp_sdk/**"
       ],
       "workflow_files": [
@@ -616,6 +617,7 @@
         "crates/xmtp_mls_validation/**",
         "crates/xmtp_proto/**",
         "crates/xmtp_push_types/**",
+        "crates/xmtp_rate_limit/**",
         "crates/xmtp_sdk/**"
       ],
       "workflow_files": [
@@ -795,6 +797,7 @@
         "crates/xmtp_mls_validation/**",
         "crates/xmtp_proto/**",
         "crates/xmtp_push_types/**",
+        "crates/xmtp_rate_limit/**",
         "crates/xmtp_sdk/**"
       ],
       "workflow_files": [

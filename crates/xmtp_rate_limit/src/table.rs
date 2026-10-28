@@ -1,0 +1,254 @@
+//! The fixed store: an 8-way set-associative table of caller states.
+//!
+//! A slot holds a keyed 64-bit hash of (category, caller key) and that key's
+//! TATs. Sets sit in contiguous groups, one group per shard lock, and the whole
+//! check and charge of a spend runs under one shard lock. The table is
+//! allocated once and never grows, rehashes, or sweeps: a slot whose TATs are
+//! all past is at full allowance, the same as no slot, so it is reused in
+//! place. When a set has no such slot, the slot with the smallest largest TAT,
+//! the caller that has spent least, is forgotten.
+
+use std::hash::Hasher;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+use siphasher::sip::SipHasher13;
+
+use crate::gcra::{self, FULL_ALLOWANCE, Tats};
+use crate::{Decision, Limit, MAX_LIMITS, Spend};
+
+/// Slots per set.
+const WAYS: usize = 8;
+
+/// The most shards a table has; fewer only when it has fewer sets.
+const MAX_SHARDS: usize = 1024;
+
+/// One caller key's state in one category.
+#[derive(Debug, Clone, Copy)]
+#[repr(C)]
+pub(crate) struct Slot {
+    /// The keyed hash of the category and caller key, or 0 for a free slot.
+    hash: u64,
+    tats: Tats,
+}
+
+const _: () = assert!(size_of::<Slot>() == 32);
+
+impl Slot {
+    const FREE: Self = Self {
+        hash: 0,
+        tats: FULL_ALLOWANCE,
+    };
+
+    /// When every spend recorded here is earned back; 0 for a free slot.
+    fn latest(&self) -> u64 {
+        self.tats.iter().copied().max().unwrap_or(0)
+    }
+}
+
+/// The slots one hash can occupy, aligned to whole cache lines.
+#[derive(Debug, Clone, Copy)]
+#[repr(C, align(64))]
+pub(crate) struct Set([Slot; WAYS]);
+
+const _: () = assert!(size_of::<Set>() == WAYS * size_of::<Slot>());
+
+impl Set {
+    const EMPTY: Self = Self([Slot::FREE; WAYS]);
+
+    /// Decides and charges one spend for the caller whose slot carries `hash`.
+    ///
+    /// Returns the decision, as [`gcra::decide`] gives it, and whether
+    /// recording the caller forgot a slot that was not at full allowance.
+    fn spend(
+        &mut self,
+        hash: u64,
+        now: u64,
+        limits: &[Limit],
+        cost: u32,
+    ) -> (Result<(), u64>, bool) {
+        if let Some(slot) = self.0.iter_mut().find(|slot| slot.hash == hash) {
+            let outcome = gcra::decide(&slot.tats, limits, cost, now).map(|tats| slot.tats = tats);
+            return (outcome, false);
+        }
+        // A caller with no slot is at full allowance.
+        let tats = match gcra::decide(&FULL_ALLOWANCE, limits, cost, now) {
+            Ok(tats) => tats,
+            Err(wait) => return (Err(wait), false),
+        };
+        if tats.iter().all(|&tat| tat <= now) {
+            // Still at full allowance: nothing to remember.
+            return (Ok(()), false);
+        }
+        // Free slots (0) and slots at full allowance (at most `now`) sort
+        // before every slot with spend left to earn back. Ties go to the
+        // first way.
+        let victim = (0..WAYS)
+            .min_by_key(|&way| self.0[way].latest())
+            .unwrap_or(0);
+        let slot = &mut self.0[victim];
+        let evicted = slot.hash != 0 && slot.latest() > now;
+        *slot = Slot { hash, tats };
+        (Ok(()), evicted)
+    }
+}
+
+/// A lock around one shard's sets. The table is generic over it so that the
+/// interleaving tests can run it under a model checker's mutex.
+pub(crate) trait ShardLock: Send + Sync {
+    fn new(sets: Box<[Set]>) -> Self;
+
+    /// Runs `f` on the shard's sets while holding the lock.
+    fn with<R>(&self, f: impl FnOnce(&mut [Set]) -> R) -> R;
+}
+
+impl ShardLock for parking_lot::Mutex<Box<[Set]>> {
+    fn new(sets: Box<[Set]>) -> Self {
+        parking_lot::Mutex::new(sets)
+    }
+
+    fn with<R>(&self, f: impl FnOnce(&mut [Set]) -> R) -> R {
+        f(&mut self.lock())
+    }
+}
+
+/// How many shards and sets a budget of `budget` bytes buys, when one shard
+/// costs `shard_bytes` besides its sets.
+///
+/// Every shard holds at least one set, and there are [`MAX_SHARDS`] shards once
+/// the budget buys that many sets. The set count need not be a power of two, so
+/// the slots fill all but less than one set and its shard of the budget, beyond
+/// the shards themselves. A budget too small for one set and its shard still
+/// gets one.
+pub(crate) fn layout(budget: usize, shard_bytes: usize) -> (usize, usize) {
+    let set_bytes = size_of::<Set>();
+    let shards = (budget / (set_bytes + shard_bytes)).clamp(1, MAX_SHARDS);
+    let sets = (budget.saturating_sub(shards * shard_bytes) / set_bytes).max(shards);
+    (shards, sets)
+}
+
+/// The fixed store.
+pub(crate) struct Table<L> {
+    /// The 128-bit SipHash key, drawn when the table is made.
+    keys: (u64, u64),
+    /// Contiguous groups of sets, one per lock. The locks are not padded to a
+    /// cache line: at the smallest budget, 1 MiB, padding 1024 of them would
+    /// take 6% of it from the slots.
+    shards: Box<[L]>,
+    slots: usize,
+    evictions: AtomicU64,
+}
+
+impl<L: ShardLock> Table<L> {
+    /// The bytes one shard costs besides its sets.
+    pub(crate) const SHARD_BYTES: usize = size_of::<L>();
+
+    /// Allocates a table that fits `budget` bytes. It never allocates again.
+    // implements: RATE-050
+    pub(crate) fn new(budget: usize) -> Self {
+        let (shards, sets) = layout(budget, Self::SHARD_BYTES);
+        Self::with_layout(shards, sets)
+    }
+
+    /// Allocates `sets` sets spread over `shards` contiguous shards.
+    pub(crate) fn with_layout(shards: usize, sets: usize) -> Self {
+        let shards = shards.max(1);
+        let sets = sets.max(shards);
+        let (per_shard, extra) = (sets / shards, sets % shards);
+        let shards: Box<[L]> = (0..shards)
+            .map(|shard| {
+                let len = per_shard + usize::from(shard < extra);
+                L::new(vec![Set::EMPTY; len].into_boxed_slice())
+            })
+            .collect();
+        Self {
+            keys: hash_keys(),
+            shards,
+            slots: sets * WAYS,
+            evictions: AtomicU64::new(0),
+        }
+    }
+
+    /// Decides one spend at `now`, nanoseconds since the limiter's start.
+    pub(crate) fn spend(&self, now: u64, spend: &Spend<'_>) -> Decision {
+        let limits = &spend.limits[..spend.limits.len().min(MAX_LIMITS)];
+        if spend.cost == 0 || limits.is_empty() {
+            return Decision::Allowed;
+        }
+        let hash = self.hash(spend.category, spend.key);
+        let (shard, rest) = self.locate(hash);
+        let (outcome, evicted) = self.shards[shard].with(|sets| {
+            let set = set_index(rest, sets.len());
+            sets[set].spend(hash, now, limits, spend.cost)
+        });
+        if evicted {
+            self.evictions.fetch_add(1, Ordering::Relaxed);
+        }
+        match outcome {
+            Ok(()) => Decision::Allowed,
+            Err(wait) => Decision::Denied {
+                retry_after: gcra::retry_after(wait),
+            },
+        }
+    }
+
+    pub(crate) fn slots(&self) -> usize {
+        self.slots
+    }
+
+    /// Slots forgotten while their caller was not at full allowance.
+    pub(crate) fn evictions(&self) -> u64 {
+        self.evictions.load(Ordering::Relaxed)
+    }
+
+    /// SipHash-1-3 of the category byte and the key bytes. The category has a
+    /// fixed width, so no two (category, key) pairs feed the same bytes. A hash
+    /// of 0 marks a free slot, so 0 becomes 1.
+    fn hash(&self, category: u8, key: &[u8]) -> u64 {
+        let mut hasher = SipHasher13::new_with_keys(self.keys.0, self.keys.1);
+        hasher.write_u8(category);
+        hasher.write(key);
+        hasher.finish().max(1)
+    }
+
+    /// The shard a hash falls in, by multiply-shift of its high bits, and the
+    /// remaining fraction that places it among the shard's sets.
+    fn locate(&self, hash: u64) -> (usize, u64) {
+        let wide = u128::from(hash) * self.shards.len() as u128;
+        ((wide >> 64) as usize, wide as u64)
+    }
+
+    /// The TATs the table holds for a caller key in a category.
+    #[cfg(test)]
+    pub(crate) fn tats(&self, category: u8, key: &[u8]) -> Option<Tats> {
+        let hash = self.hash(category, key);
+        let (shard, rest) = self.locate(hash);
+        self.shards[shard].with(|sets| {
+            let set = &sets[set_index(rest, sets.len())];
+            set.0
+                .iter()
+                .find(|slot| slot.hash == hash)
+                .map(|slot| slot.tats)
+        })
+    }
+}
+
+/// The set a fraction falls on among `sets` sets, by multiply-shift.
+fn set_index(fraction: u64, sets: usize) -> usize {
+    ((u128::from(fraction) * sets as u128) >> 64) as usize
+}
+
+/// A 128-bit SipHash key from the operating system's random source, so a
+/// caller cannot choose a key that shares a victim's slot or set.
+///
+/// # Panics
+///
+/// When the operating system has no random source, at construction.
+fn hash_keys() -> (u64, u64) {
+    let mut bytes = [0u8; 16];
+    getrandom::fill(&mut bytes).expect("the operating system's random source failed");
+    let key = u128::from_le_bytes(bytes);
+    (key as u64, (key >> 64) as u64)
+}
+
+#[cfg(test)]
+mod tests;
