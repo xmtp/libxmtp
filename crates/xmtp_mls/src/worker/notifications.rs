@@ -13,7 +13,7 @@ use crate::{
 use prost::Message;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-use xmtp_common::{NS_IN_HOUR, NS_IN_SEC, time};
+use xmtp_common::{NS_IN_HOUR, NS_IN_SEC, RetryableError, time};
 use xmtp_configuration::{
     NOTIFICATION_BATCH_TOPICS as REQUEST_TOPICS, NOTIFICATION_REQUEST_TIMEOUT,
 };
@@ -44,6 +44,9 @@ pub(crate) struct Deadlines {
     /// A successful inline registration asks the runner to reset old backoff.
     #[serde(default)]
     reset_retry: bool,
+    /// No notification request before this time: a rate-limit rejection's delay.
+    #[serde(default)]
+    rate_limited_until_ns: i64,
 }
 
 fn deadlines(record: &StoredNotification) -> Result<Deadlines, StorageError> {
@@ -271,6 +274,7 @@ pub(crate) fn confirm<Context: XmtpSharedContext>(
             renewal_ns: now.saturating_add(response.expires_at_ns.saturating_sub(now) / 4),
             registration_owed: false,
             reset_retry: false,
+            rate_limited_until_ns: 0,
         };
         record.push_deadlines = Some(encode(&next)?);
         record.push_last_state = Some(response.encode_to_vec());
@@ -298,6 +302,11 @@ pub(crate) fn record_error<Context: XmtpSharedContext>(
         // runner has not consumed an earlier inline registration hint yet.
         let mut deadlines = deadlines(&record)?;
         deadlines.reset_retry = false;
+        // implements: PUSH-267, RATE-041
+        if let Some(delay) = error.rate_limit_delay() {
+            let delay = i64::try_from(delay.as_nanos()).unwrap_or(i64::MAX);
+            deadlines.rate_limited_until_ns = time::now_ns().saturating_add(delay);
+        }
         record.push_deadlines = Some(encode(&deadlines)?);
         if let Some(failure) = error.failure() {
             record.push_state = 2;
@@ -525,6 +534,10 @@ pub(crate) async fn run<Context: XmtpSharedContext>(
     }
     let config = stored_config(&record)?;
     let deadlines = deadlines(&record)?;
+    // A wake or an inline request cannot pull a request inside a rate-limit delay.
+    if deadlines.rate_limited_until_ns > time::now_ns() {
+        return Ok(TaskOutcome::RescheduleAt(deadlines.rate_limited_until_ns));
+    }
     if record.push_last_state.is_none()
         || deadlines.registration_owed
         || deadlines.renewal_ns <= time::now_ns()

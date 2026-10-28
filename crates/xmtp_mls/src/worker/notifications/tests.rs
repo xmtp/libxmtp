@@ -535,6 +535,63 @@ async fn notification_task_is_durable_coalesced_and_retries_after_sixty_seconds(
     assert_eq!(peer.calls(Call::Update), calls + 1);
 }
 
+/// A rate-limited add is not the topic limit: the state stays enabled, adds
+/// are not suppressed, and no request is sent before the delay ends.
+// verifies: PUSH-267, RATE-041
+#[xmtp_common::test(unwrap_try = true)]
+async fn notification_rate_limit_keeps_state_enabled_and_waits_the_delay() {
+    use crate::worker::tasks::TaskWorker;
+    let delay = Duration::from_secs(120);
+    let mapped = NotificationError::from(xmtp_api::dyn_err(
+        xmtp_proto::api::ApiClientError::client(xmtp_api_grpc::error::GrpcError::Status(
+            xmtp_api_grpc::error::rate_limited_status("push", delay),
+        )),
+    ));
+    assert!(matches!(mapped, NotificationError::Api(_)));
+    assert!(mapped.is_retryable());
+
+    let (client, peer) = support::client().await;
+    let mut config = config();
+    config.include_welcomes = false;
+    client.enable_notifications(config).await?;
+    run(&client.context).await?;
+    client.create_group(None, None)?;
+    wake(&client.context)?;
+    let task = || {
+        client
+            .db()
+            .get_tasks()
+            .unwrap()
+            .into_iter()
+            .find(|row| row.data_hash == task_hash().as_ref())
+            .unwrap()
+    };
+    let mut due = task();
+    due.next_attempt_at_ns = 0;
+    peer.state.lock().next_rate_limit = Some(delay);
+    let calls = peer.calls(Call::Update);
+    let before = time::now_ns();
+    TaskWorker::run_and_reschedule_task(due, &client.context).await?;
+    assert_eq!(peer.calls(Call::Update), calls + 1);
+    let row = task();
+    assert_eq!(row.attempts, 1);
+    assert!(row.next_attempt_at_ns >= before + delay.as_nanos() as i64);
+    assert!(matches!(
+        client.notification_state()?,
+        NotificationState::Enabled
+    ));
+    let record = client.db().notification_record()?;
+    assert!(record.push_suppressed.is_none());
+    assert!(record.push_failed_error.is_none());
+
+    // A wake that makes the task run early still sends nothing inside the delay.
+    let TaskOutcome::RescheduleAt(next) = run(&client.context).await? else {
+        panic!("enabled task must remain");
+    };
+    assert_eq!(peer.calls(Call::Update), calls + 1);
+    assert!(next >= before + delay.as_nanos() as i64);
+}
+
 #[xmtp_common::test(unwrap_try = true)]
 async fn notification_successful_reenable_resets_old_retry_backoff() {
     use crate::worker::tasks::TaskWorker;

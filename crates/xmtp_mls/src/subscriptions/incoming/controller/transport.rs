@@ -30,6 +30,8 @@ pub(super) struct Transport {
     pub(super) permanent_failures: u32,
     pub(super) recovery: crate::subscriptions::recovery::RecoverySnapshot,
     pub(super) attempted_open: Option<RequestKey>,
+    /// No open before this instant: a rate-limit rejection's delay (RATE-041).
+    rate_limited_until: Option<Instant>,
     has_connected: std::sync::atomic::AtomicBool,
     shared_recovery: Arc<parking_lot::Mutex<crate::subscriptions::recovery::RecoverySnapshot>>,
 }
@@ -61,6 +63,7 @@ impl Transport {
             permanent_failures: 0,
             recovery: Default::default(),
             attempted_open: None,
+            rate_limited_until: None,
             has_connected: std::sync::atomic::AtomicBool::new(false),
             shared_recovery,
         }
@@ -129,10 +132,12 @@ impl Transport {
     }
 
     /// A wake advances a pending retry, including one scheduled after a
-    /// permanent error. No failure is terminal.
+    /// permanent error, but never before a rate-limit delay ends. No failure
+    /// is terminal.
     pub(super) fn wake(&mut self) {
         if let TransportState::Waiting(at) = &mut self.state {
-            *at = Instant::now();
+            let now = Instant::now();
+            *at = self.rate_limited_until.map_or(now, |until| until.max(now));
         }
     }
 
@@ -178,6 +183,14 @@ impl Transport {
         } else {
             self.permanent_failures = self.permanent_failures.saturating_add(1);
             backoff.delay(self.permanent_failures)
+        };
+        // implements: RATE-041
+        let delay = match xmtp_api_grpc::error::rate_limit_delay(&error) {
+            Some(floor) => {
+                self.rate_limited_until = Some(Instant::now() + floor);
+                delay.max(floor)
+            }
+            None => delay,
         };
         tracing::warn!(
             error = %error,
@@ -254,6 +267,50 @@ impl Transport {
             TransportState::Waiting(_) if self.generation == 0 => IncomingConnection::Connecting,
             _ => IncomingConnection::Reconnecting,
         }
+    }
+}
+
+#[cfg(test)]
+mod rate_limit_tests {
+    use super::*;
+    use xmtp_api_grpc::error::{GrpcError, rate_limited_status};
+
+    /// A rate-limited open or stream end holds the next open for the delay,
+    /// and a wake cannot advance it.
+    // verifies: RATE-041
+    #[xmtp_common::test(unwrap_try = true)]
+    fn rate_limited_failure_holds_the_next_open_through_a_wake() {
+        let delay = Duration::from_secs(5);
+        let mut transport = Transport::new(None, Default::default());
+        transport.requested = HashSet::from([Topic::new_group_message([1; 32])]);
+        let failed = Instant::now();
+        transport.fail(
+            NetworkError::new(xmtp_proto::api::ApiClientError::client(GrpcError::Status(
+                rate_limited_status("stream_rent", delay),
+            ))),
+            Duration::from_millis(100),
+            RetryBackoff {
+                initial: Duration::from_secs(1),
+                max: Duration::from_secs(60),
+            },
+        );
+        assert!(transport.retry_at()? >= failed + delay);
+        transport.wake();
+        assert!(transport.retry_at()? >= failed + delay);
+        assert!(!transport.can_open());
+    }
+    /// The bidi transport hands a refused open over wrapped in its own errors.
+    // verifies: RATE-041
+    #[cfg(not(target_arch = "wasm32"))]
+    #[xmtp_common::test(unwrap_try = true)]
+    fn rate_limit_delay_survives_the_bidi_transport_wrapping() {
+        let delay = Duration::from_secs(5);
+        let error = NetworkError::new(xmtp_api_backend::TransportError::Open(
+            xmtp_api_backend::OpenError::new(xmtp_proto::api::ApiClientError::client(
+                GrpcError::Status(rate_limited_status("stream_rent", delay)),
+            )),
+        ));
+        assert_eq!(xmtp_api_grpc::error::rate_limit_delay(&error), Some(delay));
     }
 }
 

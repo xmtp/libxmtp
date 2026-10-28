@@ -183,11 +183,24 @@ impl RetryableError for NotificationError {
             _ => self.failure().is_none(),
         }
     }
+
+    fn rate_limit_delay(&self) -> Option<xmtp_common::time::Duration> {
+        match self {
+            Self::Api(e) => e.rate_limit_delay(),
+            _ => None,
+        }
+    }
 }
 
 impl From<xmtp_api::ApiError> for NotificationError {
     fn from(error: xmtp_api::ApiError) -> Self {
         use tonic::Code;
+        // A rate limit is not the recipient topic limit: the request succeeds
+        // after its delay, so the state stays enabled and adds keep going.
+        // implements: PUSH-267
+        if error.rate_limit_delay().is_some() {
+            return Self::Api(error);
+        }
         let mut source: Option<&(dyn std::error::Error + 'static)> = Some(&error);
         while let Some(current) = source {
             if matches!(

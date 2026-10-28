@@ -61,6 +61,8 @@ pub(crate) struct Server {
     pub(crate) calls: Vec<Call>,
     pub(crate) pause_next: bool,
     pub(crate) next_error: Option<tonic::Code>,
+    /// Refuse the next request with a rate limit of this delay.
+    pub(crate) next_rate_limit: Option<xmtp_common::time::Duration>,
 }
 
 #[derive(Default)]
@@ -79,15 +81,22 @@ fn status(code: tonic::Code) -> ApiClientError {
 
 impl Peer {
     async fn gate(&self, call: Call) -> Result<(), ApiClientError> {
-        let (pause, error) = {
+        let (pause, error, rate_limit) = {
             let mut state = self.state.lock();
             state.calls.push(call);
             let pause = std::mem::take(&mut state.pause_next);
-            (pause, state.next_error.take())
+            (pause, state.next_error.take(), state.next_rate_limit.take())
         };
         if pause {
             self.entered.notify_one();
             self.release.notified().await;
+        }
+        if let Some(delay) = rate_limit {
+            return Err(ApiClientError::client(
+                xmtp_api_grpc::error::GrpcError::Status(xmtp_api_grpc::error::rate_limited_status(
+                    "push", delay,
+                )),
+            ));
         }
         error.map(status).map_or(Ok(()), Err)
     }

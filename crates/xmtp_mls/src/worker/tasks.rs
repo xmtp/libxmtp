@@ -69,6 +69,17 @@ pub enum TaskWorkerError {
     Notification(#[from] crate::client::notifications::NotificationError),
 }
 
+impl TaskWorkerError {
+    /// The delay of a rate-limit rejection that failed this task turn.
+    fn rate_limit_delay(&self) -> Option<xmtp_common::time::Duration> {
+        use xmtp_common::RetryableError;
+        match self {
+            Self::Notification(e) => e.rate_limit_delay(),
+            _ => None,
+        }
+    }
+}
+
 impl NeedsDbReconnect for TaskWorkerError {
     fn needs_db_reconnect(&self) -> bool {
         match self {
@@ -338,9 +349,14 @@ where
             Err(error) => {
                 let attempts = task.attempts + 1;
                 let attempt_scaling_factor = (task.backoff_scaling_factor as f64).powi(attempts);
+                // A rate-limited request waits at least the delay the backend gave.
+                // implements: RATE-041
                 let next_attempt_duration = (((task.initial_backoff_duration_ns as f64)
                     * attempt_scaling_factor) as i64)
-                    .min(task.max_backoff_duration_ns);
+                    .min(task.max_backoff_duration_ns)
+                    .max(error.rate_limit_delay().map_or(0, |delay| {
+                        i64::try_from(delay.as_nanos()).unwrap_or(i64::MAX)
+                    }));
                 let retry_from =
                     if task.data_hash == crate::worker::notifications::task_hash().as_ref() {
                         xmtp_common::time::now_ns()
