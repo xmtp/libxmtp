@@ -507,23 +507,13 @@ where
                 Ok(stream) => break stream,
                 Err(e) => {
                     tracing::warn!(stream = label, "failed to recreate stream, will retry: {e}");
-                    // A rate-limited re-subscribe waits out its delay first.
-                    // implements: RATE-041
-                    let rate_limit =
-                        xmtp_common::RetryableError::rate_limit_delay(&e).unwrap_or_default();
                     tokio::select! {
                         // A connection block that lands mid-reconnect
                         // closes this stream with the reason too, not silently.
                         _ = cancel.cancelled() => {
                             break 'reconnect close_reason(&cancel, true, &mut callback);
                         }
-                        _ = async {
-                            WATCHDOG.reconnect_delay_since(attempt_started).await;
-                            xmtp_common::time::sleep(
-                                rate_limit.saturating_sub(attempt_started.elapsed()),
-                            )
-                            .await;
-                        } => {}
+                        _ = WATCHDOG.reconnect_delay_since(attempt_started) => {}
                     }
                 }
             }
@@ -786,58 +776,6 @@ mod tests {
                 "the callback must see the blocked connection cause, got {reported:?}"
             );
         }
-    }
-
-    /// A re-subscribe refused with a rate limit waits out the delay before it
-    /// tries again, instead of retrying on the one-second throttle.
-    // verifies: RATE-041
-    #[cfg(not(target_arch = "wasm32"))]
-    #[xmtp_common::test(unwrap_try = true)]
-    async fn a_rate_limited_resubscribe_waits_the_delay() {
-        use std::sync::atomic::AtomicUsize;
-        tokio::time::pause();
-        let token = CancellationToken::new();
-        let calls = Arc::new(AtomicUsize::new(0));
-        let subscribe = {
-            let calls = calls.clone();
-            move || {
-                let first = calls.fetch_add(1, Ordering::SeqCst) == 0;
-                async move {
-                    if first {
-                        return Ok(stream::iter(vec![Err(SubscribeError::StreamStale)])
-                            .chain(stream::pending()));
-                    }
-                    Err(SubscribeError::ApiClient(xmtp_api::ApiError::Api(
-                        xmtp_proto::api::NetworkError::new(
-                            xmtp_api_grpc::error::GrpcError::Status(
-                                xmtp_api_grpc::error::rate_limited_status(
-                                    "stream_rent",
-                                    Duration::from_secs(60),
-                                ),
-                            ),
-                        ),
-                    )))
-                }
-            }
-        };
-        let running = tokio::spawn(run_watchdog_stream(
-            StreamCancel::from(token.clone()),
-            "test",
-            subscribe,
-            || {},
-            |_: Result<u8, SubscribeError>| {},
-            || {},
-        ));
-        tokio::time::sleep(Duration::from_secs(30)).await;
-        assert_eq!(
-            calls.load(Ordering::SeqCst),
-            2,
-            "no re-subscribe inside the delay"
-        );
-        tokio::time::sleep(Duration::from_secs(35)).await;
-        assert_eq!(calls.load(Ordering::SeqCst), 3);
-        token.cancel();
-        let _ = running.await?;
     }
 
     /// Env parsing: present + valid values win, an explicit `0` is honored, and

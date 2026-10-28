@@ -293,20 +293,27 @@ async fn check_identity_requirement(
 }
 
 /// A failed proof takes precedence over an absent one, so a parent that
-/// needs unresolved identity history stays blocked, not rejected.
+/// needs unresolved identity history stays blocked, not rejected. A
+/// rate-limited proof takes precedence over other failures, so the parent's
+/// retry waits out its delay instead of resending the refused verification.
 // implements: PROC-012
 fn parent_result(
     results: impl IntoIterator<Item = Result<(), IdentityDependencyError>>,
 ) -> Result<(), IdentityDependencyError> {
     let mut absent = None;
+    let mut failed = None;
     for result in results {
         match result {
             Ok(()) => {}
             Err(error @ IdentityDependencyError::MissingReference(_)) => absent = Some(error),
-            Err(error) => return Err(error),
+            // implements: RATE-041
+            Err(error) if error.rate_limit_delay().is_some() => return Err(error),
+            Err(error) => {
+                failed.get_or_insert(error);
+            }
         }
     }
-    absent.map_or(Ok(()), Err)
+    failed.or(absent).map_or(Ok(()), Err)
 }
 
 #[cfg(test)]

@@ -54,15 +54,13 @@ pub(crate) trait SubscriptionFactory: MaybeSend + MaybeSync {
     }
 }
 
-/// When this client's incoming controllers may next send after a rate-limit
-/// rejection (RATE-041). Every network request of a controller costs the
-/// layer's `request` unit, so a refused read also holds stream opens; a
-/// refused open or stream holds only opens.
+/// When this client's incoming controllers may next open a stream after a
+/// refused open or a rate-limited stream end (RATE-041). The runtime keeps it,
+/// so a replacement controller cannot reopen inside the delay. Refused reads
+/// wait on their own request's floor instead.
 #[derive(Debug, Default)]
 pub(crate) struct RateLimitHold {
     opens: Option<Instant>,
-    reads: Option<Instant>,
-    dependencies: Option<Instant>,
 }
 
 pub(crate) type SharedRateLimitHold = Arc<Mutex<RateLimitHold>>;
@@ -78,31 +76,9 @@ impl RateLimitHold {
         self.opens = Some(self.opens.map_or(until, |at| at.max(until)));
     }
 
-    /// No read and no stream open until `delay` has passed.
-    pub(crate) fn hold_reads(&mut self, delay: xmtp_common::time::Duration) {
-        self.hold_opens(delay);
-        let until = Self::until(delay);
-        self.reads = Some(self.reads.map_or(until, |at| at.max(until)));
-    }
-
     /// The end of a pending open hold.
     pub(crate) fn opens_until(&self) -> Option<Instant> {
         self.opens.filter(|until| Instant::now() < *until)
-    }
-
-    pub(crate) fn reads_held(&self) -> bool {
-        self.reads.is_some_and(|until| Instant::now() < until)
-    }
-
-    /// No identity or Welcome dependency fetch until `delay` has passed.
-    pub(crate) fn hold_dependencies(&mut self, delay: xmtp_common::time::Duration) {
-        let until = Self::until(delay);
-        self.dependencies = Some(self.dependencies.map_or(until, |at| at.max(until)));
-    }
-
-    pub(crate) fn dependencies_held(&self) -> bool {
-        self.dependencies
-            .is_some_and(|until| Instant::now() < until)
     }
 }
 

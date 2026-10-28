@@ -119,6 +119,8 @@ struct ReceiptSchedule {
     blocked_failures: u32,
     /// A rejected Query must not repeat from this unchanged durable cursor.
     rejected_at: Option<Cursor>,
+    /// A rate-limited Query is not sent again before this instant (RATE-041).
+    rate_limited_until: Option<Instant>,
     last_read: Option<Instant>,
 }
 
@@ -894,17 +896,18 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                 }
             }
             Err(error) => {
-                self.hold_reads_for(&error);
                 let rejected = crate::subscriptions::recovery::rejected_request(&error);
                 if !rejected {
-                    self.targets_retry_at = Some(
-                        Instant::now()
-                            + self
-                                .context
-                                .incoming_runtime()
-                                .policy()
-                                .receiver_fallback_interval,
-                    );
+                    // A rate-limited target read waits its delay.
+                    // implements: RATE-041
+                    let wait = self
+                        .context
+                        .incoming_runtime()
+                        .policy()
+                        .receiver_fallback_interval
+                        .max(error.rate_limit_delay().unwrap_or_default());
+                    self.targets_retry_at =
+                        Some(xmtp_common::time::saturating_after(Instant::now(), wait));
                 }
                 let cause = Arc::new(IncomingError::Transport(error));
                 if let Some(request) = request {
@@ -1133,7 +1136,7 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
     /// backing-off stream must not stop bounded Query recovery.
     // implements: API-284
     fn start_read(&mut self) {
-        if self.read.is_some() || self.reads_held() {
+        if self.read.is_some() {
             return;
         }
         let now = Instant::now();
@@ -1146,6 +1149,10 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                 || self.is_retired(&topic)
                 || (self.storage_error.is_some() && !self.transport.requested.contains(&topic))
                 || (self.receipt(&topic).blocked() && self.receipt(&topic).rejected_at.is_none())
+                || self
+                    .receipt(&topic)
+                    .rate_limited_until
+                    .is_some_and(|until| now < until)
             {
                 continue;
             }
@@ -1422,10 +1429,18 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             IncomingError::Store(crate::mls_store::MlsStoreError::Api(_))
         );
         // A refused read leaves the stream untouched: only a request was denied,
-        // and the stream still delivers. Every read waits out the delay.
+        // and the stream still delivers. The topic's read waits out the delay.
         // implements: RATE-041
-        let rate_limited = self.hold_reads_for(error.as_ref());
-        if !rate_limited {
+        let rate_limit = error.rate_limit_delay();
+        let rate_limited = rate_limit.is_some();
+        if let Some(delay) = rate_limit {
+            self.topics
+                .entry(topic.clone())
+                .or_default()
+                .receipt
+                .rate_limited_until =
+                Some(xmtp_common::time::saturating_after(Instant::now(), delay));
+        } else {
             // The transport can advance its read cursor before storage commits. Drop
             // that registration even when reconciliation immediately clears a pause.
             self.transport.disconnect(
@@ -1512,29 +1527,6 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             state.receipt.blocked_until = None;
             state.receipt.blocked_failures = 0;
         }
-    }
-
-    /// True while a rate-limit delay holds every unary read of this client.
-    fn reads_held(&self) -> bool {
-        self.context
-            .incoming_runtime()
-            .rate_limit_hold
-            .lock()
-            .reads_held()
-    }
-
-    /// Hold reads and opens when `error` is a rate-limit rejection.
-    // implements: RATE-041
-    fn hold_reads_for(&self, error: &impl RetryableError) -> bool {
-        let Some(delay) = error.rate_limit_delay() else {
-            return false;
-        };
-        self.context
-            .incoming_runtime()
-            .rate_limit_hold
-            .lock()
-            .hold_reads(delay);
-        true
     }
 
     fn clear_read_times(&mut self) {

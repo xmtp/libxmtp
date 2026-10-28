@@ -391,15 +391,6 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
     }
 
     pub(super) fn start_dependencies(&mut self) {
-        if self
-            .context
-            .incoming_runtime()
-            .rate_limit_hold
-            .lock()
-            .dependencies_held()
-        {
-            return;
-        }
         let available = self
             .context
             .incoming_runtime()
@@ -467,9 +458,11 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
     pub(super) fn dependency_finished(&mut self, result: DependencyResult<C>) {
         match result {
             DependencyResult::PrefixTarget(cursor, topic, result) => {
-                if let Err(error) = &result {
-                    self.hold_reads_for(error);
-                }
+                let fallback = self
+                    .context
+                    .incoming_runtime()
+                    .policy()
+                    .receiver_fallback_interval;
                 let Some(hold) = self.prefix_holds.get_mut(&cursor) else {
                     return;
                 };
@@ -477,15 +470,13 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                     Ok(target) => hold.target = PrefixTarget::Known(target),
                     Err(error) => {
                         tracing::warn!(sequence_id = cursor.0, %error, "group prefix target read failed");
+                        // A rate-limited read waits its delay (RATE-041).
+                        let wait = fallback.max(error.rate_limit_delay().unwrap_or_default());
                         hold.target = PrefixTarget::Unrequested {
-                            retry_at: Some(
-                                Instant::now()
-                                    + self
-                                        .context
-                                        .incoming_runtime()
-                                        .policy()
-                                        .receiver_fallback_interval,
-                            ),
+                            retry_at: Some(xmtp_common::time::saturating_after(
+                                Instant::now(),
+                                wait,
+                            )),
                         };
                         // implements: API-284
                         if crate::subscriptions::recovery::rejected_request(&error) {
@@ -536,16 +527,9 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                 let error = result
                     .err()
                     .map(|error| Arc::new(IncomingError::Identity(error)));
-                // A refused proof fetch holds every identity fetch for its delay.
+                // The head that needed a refused proof retries after its delay.
                 // implements: RATE-041
                 let floor = error.as_ref().and_then(|error| error.rate_limit_delay());
-                if let Some(delay) = floor {
-                    self.context
-                        .incoming_runtime()
-                        .rate_limit_hold
-                        .lock()
-                        .hold_dependencies(delay);
-                }
                 for parent in parents {
                     if !self.parent_is_pending(&parent) {
                         continue;

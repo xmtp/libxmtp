@@ -4575,62 +4575,58 @@ async fn a_replacement_controller_waits_out_a_rate_limited_open() {
     );
 }
 
-/// A rate-limited read leaves the live stream open and holds every read,
-/// target read included, until the delay ends.
+/// A rate-limited read leaves the live stream open, and only that topic's
+/// read waits out the delay: another topic still reads.
 // verifies: RATE-041
 #[xmtp_common::test(unwrap_try = true)]
-async fn a_rate_limited_read_keeps_the_stream_and_holds_every_read() {
+async fn a_rate_limited_read_keeps_the_stream_and_waits_only_its_topic() {
     tester!(alix, disable_workers);
     let (coordinator, mut controller) = coordinated_controller(alix.context.clone());
-    let topic = Topic::new_group_message(GroupId::generate());
-    let stream = coordinator.acquire_stream(IncomingScope::Topics(vec![topic.clone()]));
+    let refused = Topic::new_group_message(GroupId::generate());
+    let other = Topic::new_group_message(GroupId::generate());
+    let stream =
+        coordinator.acquire_stream(IncomingScope::Topics(vec![refused.clone(), other.clone()]));
     while let Ok(command) = controller.commands.try_recv() {
         controller.command(command);
     }
-    controller
-        .scopes
-        .get_mut(&stream.id)
-        .unwrap()
-        .topics
-        .insert(topic.clone());
-    controller.transport.requested.insert(topic.clone());
+    let scope = controller.scopes.get_mut(&stream.id).unwrap();
+    for topic in [&refused, &other] {
+        scope.topics.insert(topic.clone());
+        scope.targets.insert(topic.clone(), Cursor(5));
+    }
+    controller.transport.requested.insert(refused.clone());
     controller.transport.state = TransportState::Streaming(IncomingSubscription::new(
         Box::pin(futures::stream::pending()),
         |_| {},
     ));
-    controller.read_queue.push_back(topic.clone());
-    let error = crate::mls_store::MlsStoreError::Api(xmtp_api::ApiError::Api(NetworkError::new(
-        xmtp_api_grpc::error::GrpcError::Status(xmtp_api_grpc::error::rate_limited_status(
+    controller.read_queue.push_back(refused.clone());
+    controller.read_queue.push_back(other.clone());
+    controller.read_finished((
+        refused.clone(),
+        Some(Cursor(0)),
+        ReadOutcome::Fetched(Err(crate::mls_store::MlsStoreError::Api(rate_limited_api(
             "request",
             Duration::from_secs(300),
-        )),
-    )));
-    controller.read_finished((
-        topic.clone(),
-        Some(Cursor(0)),
-        ReadOutcome::Fetched(Err(error)),
+        )))),
     ));
     assert!(
         matches!(controller.transport.state, TransportState::Streaming(_)),
         "a refused read must not end the stream"
     );
-
-    let fresh = coordinator.acquire_stream(IncomingScope::Topics(vec![topic.clone()]));
-    while let Ok(command) = controller.commands.try_recv() {
-        controller.command(command);
-    }
-    let scope = controller.scopes.get_mut(&fresh.id).unwrap();
-    scope.topics.insert(topic.clone());
-    scope.targets.insert(topic.clone(), Cursor(5));
+    // Due again by the poll interval; only the delay holds it now.
+    controller
+        .topics
+        .get_mut(&refused)
+        .unwrap()
+        .receipt
+        .last_read = None;
     controller.start_read();
-    assert!(controller.read.is_none(), "no read inside the delay");
-    // The first scope has no target yet for this registered topic.
-    controller.transport.registered.insert(topic.clone());
-    controller.start_targets();
+    assert!(controller.read.is_some(), "another topic still reads");
     assert!(
-        controller.targets.is_none(),
-        "no target read inside the delay"
+        controller.receipt(&refused).last_read.is_none(),
+        "no read of the refused topic inside the delay"
     );
+    assert!(controller.receipt(&other).last_read.is_some());
 }
 
 /// A stream that ends with a rate limit, as the bidi transport reports it,
@@ -4669,75 +4665,111 @@ fn rate_limited_api(category: &str, delay: Duration) -> xmtp_api::ApiError {
     )))
 }
 
-/// A refused identity proof holds every identity fetch, and the head that
-/// needed it retries after the delay, not after the fallback interval.
+/// The head that needed a refused identity proof retries after the delay,
+/// and other dependency fetches still start: the hold is per request.
 // verifies: RATE-041
 #[xmtp_common::test(unwrap_try = true)]
-async fn a_rate_limited_identity_proof_holds_dependency_fetches() {
+async fn a_rate_limited_identity_proof_floors_only_its_head() {
+    use xmtp_db::incoming_envelope::{NetworkEntityKind, NewIncomingEnvelope};
     tester!(alix, disable_workers);
     let mut controller = controller(alix.context.clone());
+    let topic = Topic::new_group_message(GroupId::generate());
+    let key = topic_key(&topic)?;
+    alix.context.db().admit_ordered_batch(
+        &key,
+        Cursor(0),
+        &[NewIncomingEnvelope {
+            sequence_id: Cursor(1),
+            envelope: vec![1],
+        }],
+        alix.context
+            .incoming_runtime()
+            .policy()
+            .incoming_limits(NetworkEntityKind::Group),
+    )?;
     let requirement = IdentityRequirement {
         inbox_id: alix.inbox_id().to_string(),
         sequence_id: 1,
     };
-    let key = identity_key(&requirement);
-    let queued = IdentityRequirement {
+    let refused = identity_key(&requirement);
+    controller.dependency_registry.attach(
+        DependencyParent::GroupHead(topic, Cursor(1)),
+        refused.clone(),
+    );
+    let other = IdentityRequirement {
         inbox_id: "other".into(),
         sequence_id: 1,
     };
     controller.dependency_registry.attach(
         DependencyParent::IdentityHead(Topic::new_group_message(GroupId::generate()), Cursor(1)),
-        identity_key(&queued),
+        identity_key(&other),
     );
-    let DependencyKey::Identity(requirements) = key else {
+    let DependencyKey::Identity(requirements) = refused else {
         unreachable!()
     };
+    let delay = Duration::from_secs(300);
+    let before = xmtp_common::time::now_ns();
     controller.dependency_finished(DependencyResult::Identity(
         requirements,
         Err(crate::identity_updates::IdentityDependencyError::Client(
             Box::new(crate::client::ClientError::Api(rate_limited_api(
-                "request",
-                Duration::from_secs(300),
+                "request", delay,
             ))),
         )),
     ));
+    let head = alix.context.db().first_pending_envelope(&key)?.unwrap();
+    assert!(head.retry_at_ns >= before + delay.as_nanos() as i64);
     controller.start_dependencies();
-    assert!(
-        controller.dependencies.is_empty(),
-        "no identity fetch inside the delay"
+    assert_eq!(
+        controller.dependencies.len(),
+        1,
+        "other fetches still start"
     );
 }
 
-/// A refused target read holds reads, so no target read follows inside it.
+/// A refused target read is not sent again before its delay.
 // verifies: RATE-041
 #[xmtp_common::test(unwrap_try = true)]
-async fn a_rate_limited_target_read_holds_reads() {
+async fn a_rate_limited_target_read_waits_its_delay() {
     tester!(alix, disable_workers);
     let mut controller = controller(alix.context.clone());
+    let delay = Duration::from_secs(300);
+    let before = Instant::now();
     controller.targets_finished((
         vec![(1, 1)],
-        Err(NetworkError::new(rate_limited_api(
-            "request",
-            Duration::from_secs(300),
-        ))),
+        Err(NetworkError::new(rate_limited_api("request", delay))),
     ));
-    assert!(controller.reads_held());
-    assert!(controller.transport.backing_off());
+    assert!(controller.targets_retry_at? >= before + delay);
 }
 
-/// A refused prefix target read holds reads too.
+/// A refused prefix target read is not sent again before its delay.
 // verifies: RATE-041
 #[xmtp_common::test(unwrap_try = true)]
-async fn a_rate_limited_prefix_target_read_holds_reads() {
+async fn a_rate_limited_prefix_target_read_waits_its_delay() {
+    use super::processing::PrefixTarget;
     tester!(alix, disable_workers);
     let mut controller = controller(alix.context.clone());
+    controller.prefix_holds.insert(
+        Cursor(1),
+        PrefixHold {
+            deadline_ns: 0,
+            target: PrefixTarget::Requested,
+        },
+    );
+    let delay = Duration::from_secs(300);
+    let before = Instant::now();
     controller.dependency_finished(DependencyResult::PrefixTarget(
         Cursor(1),
         Topic::new_group_message(GroupId::generate()),
-        Err(rate_limited_api("request", Duration::from_secs(300))),
+        Err(rate_limited_api("request", delay)),
     ));
-    assert!(controller.reads_held());
-    assert!(controller.transport.backing_off());
+    let PrefixTarget::Unrequested {
+        retry_at: Some(retry_at),
+    } = controller.prefix_holds[&Cursor(1)].target
+    else {
+        panic!("the read retries later");
+    };
+    assert!(retry_at >= before + delay);
 }
 
 /// A rate limit says nothing about a topic, so it keeps the topic's

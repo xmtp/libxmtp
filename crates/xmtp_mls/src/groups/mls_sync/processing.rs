@@ -124,16 +124,12 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
             Err(error) => {
                 let blocked = !error.is_retryable();
                 let code = error.processing_code();
-                // A rate-limited request made while processing waits its delay.
-                // implements: RATE-041
                 let delay = self
                     .context
                     .incoming_runtime()
                     .policy()
-                    .active_database_poll_interval
-                    .max(error.rate_limit_delay().unwrap_or_default());
-                let retry_at_ns =
-                    now_ns().saturating_add(i64::try_from(delay.as_nanos()).unwrap_or(i64::MAX));
+                    .active_database_poll_interval;
+                let retry_at_ns = now_ns().saturating_add(delay.as_nanos() as i64);
                 self.context.db().set_incoming_retry(
                     &topic,
                     cursor,
