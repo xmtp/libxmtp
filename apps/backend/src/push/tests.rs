@@ -53,6 +53,13 @@ impl Fixture {
         Ok(())
     }
 
+    /// Unkeyed recipients with ids 1 to `count`, each subscribed to `topic`.
+    async fn subscribers(&self, count: i64, topic: &[u8]) -> TestResult {
+        sqlx::query("WITH r AS (INSERT INTO push_recipient (recipient_id, secret_hash, channel, delivery, signing_key, topic_count, renewed_ns) SELECT decode(lpad(to_hex(id), 64, '0'), 'hex'), decode(repeat('01', 32), 'hex'), 3, 'https://push.invalid', decode(repeat('07', 32), 'hex'), 1, (extract(epoch FROM clock_timestamp()) * 1000000000)::bigint FROM generate_series(1, $1) id RETURNING recipient_id) INSERT INTO push_subscription (recipient_id, topic, since_sequence_id, include_commits) SELECT recipient_id, $2, 0, false FROM r")
+            .bind(count).bind(topic).execute(&self.store.primary).await?;
+        Ok(())
+    }
+
     async fn recipient(
         &self,
         id: u64,
