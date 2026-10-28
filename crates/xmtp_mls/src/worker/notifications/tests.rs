@@ -656,6 +656,47 @@ async fn notification_a_failed_hold_write_keeps_the_rate_limit() {
     assert_eq!(error.rate_limit_delay(), Some(delay));
 }
 
+/// A registration hold does not stop subscription updates while an existing
+/// registration's renewal waits for the hold to end, and the turn after does
+/// not spin.
+// verifies: RATE-041
+#[xmtp_common::test(unwrap_try = true)]
+async fn notification_a_held_renewal_leaves_updates_running() {
+    let (client, peer) = support::client().await;
+    let mut config = config();
+    config.include_welcomes = false;
+    client.enable_notifications(config).await?;
+    run(&client.context).await?;
+    let hold = time::now_ns() + 600 * xmtp_common::NS_IN_SEC;
+    let mut record = client.db().notification_record()?;
+    let mut held = deadlines(&record)?;
+    held.renewal_ns = time::now_ns() - 1;
+    held.registration_rate_limited_until_ns = hold;
+    record.push_deadlines = Some(encode(&held)?);
+    client.db().save_notification_record(&record)?;
+    client.create_group(None, None)?;
+    let (registers, updates) = (peer.calls(Call::Register), peer.calls(Call::Update));
+    run(&client.context).await?;
+    assert_eq!(peer.calls(Call::Update), updates + 1, "updates go on");
+    assert_eq!(
+        peer.calls(Call::Register),
+        registers,
+        "no renewal inside the hold"
+    );
+    // With nothing left to send and the renewal still held, the task waits
+    // for the hold instead of running again at once.
+    let mut record = client.db().notification_record()?;
+    let mut held = deadlines(&record)?;
+    held.renewal_ns = time::now_ns() - 1;
+    record.push_deadlines = Some(encode(&held)?);
+    client.db().save_notification_record(&record)?;
+    let TaskOutcome::RescheduleAt(at) = run(&client.context).await? else {
+        panic!("the task waits");
+    };
+    assert!(at > time::now_ns(), "the next turn is not due at once");
+    assert!(at <= hold, "the renewal runs when the hold ends");
+}
+
 /// A Register hold that cannot be stored does not replace the refusal: the
 /// app still sees the rate limit and its delay.
 // verifies: RATE-041

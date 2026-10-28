@@ -636,11 +636,16 @@ pub(crate) async fn run<Context: XmtpSharedContext>(
     }
     let config = stored_config(&record)?;
     let deadlines = deadlines(&record)?;
-    if record.push_last_state.is_none()
-        || deadlines.registration_owed
-        || deadlines.renewal_ns <= time::now_ns()
-    {
-        // A wake cannot send a refused registration inside its delay.
+    // A registration is due at `renewal_ns`, but never inside a refused
+    // registration's delay.
+    let next_registration = deadlines
+        .renewal_ns
+        .max(deadlines.registration_rate_limited_until_ns);
+    let must_register = record.push_last_state.is_none() || deadlines.registration_owed;
+    if must_register || next_registration <= time::now_ns() {
+        // A wake cannot send a refused registration inside its delay. Only a
+        // renewal of an existing registration waits while updates go on.
+        // implements: RATE-041
         if deadlines.registration_rate_limited_until_ns > time::now_ns() {
             return Ok(TaskOutcome::RescheduleAt(
                 deadlines.registration_rate_limited_until_ns,
@@ -662,7 +667,7 @@ pub(crate) async fn run<Context: XmtpSharedContext>(
     // A registration renewal due earlier still wakes the task.
     if deadlines.rate_limited_until_ns > time::now_ns() {
         return Ok(TaskOutcome::RescheduleAt(
-            deadlines.rate_limited_until_ns.min(deadlines.renewal_ns),
+            deadlines.rate_limited_until_ns.min(next_registration),
         ));
     }
     let revision = context.task_channels().notification_revision();
@@ -676,7 +681,7 @@ pub(crate) async fn run<Context: XmtpSharedContext>(
     if batch.request.adds.is_empty() && batch.request.removes.is_empty() {
         let next = time::now_ns()
             .saturating_add(NS_IN_HOUR)
-            .min(deadlines.renewal_ns);
+            .min(next_registration);
         state_write(context.mls_storage(), |tx| {
             let storage = tx.storage();
             let db = storage.db();
