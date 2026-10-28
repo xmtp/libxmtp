@@ -147,7 +147,8 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
             }
             data.refreshed_members
                 .retain(|inbox| data.membership_updates.contains_key(inbox));
-            (true, false)
+            // A removal-only refresh stays removal-only in every part.
+            (true, requirements.fail_refresh_additions)
         } else if refreshed.len() == 1 && !requirements.fail_refresh_additions {
             (requirements.partial_membership_update, true)
         } else {

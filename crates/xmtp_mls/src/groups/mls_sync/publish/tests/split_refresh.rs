@@ -719,3 +719,41 @@ async fn an_applied_split_child_does_not_hide_an_ambiguous_parent_echo() {
     assert_eq!(child.state, IntentState::Committed);
     assert!(parent.sequence_id.unwrap() > child.sequence_id.unwrap());
 }
+
+/// Each part split from a removal-only refresh, at every depth, adds no leaf.
+// verifies: SYNC-024
+#[xmtp_common::test(unwrap_try = true)]
+async fn every_split_part_of_a_removal_only_refresh_adds_no_leaf() {
+    tester!(alix, disable_workers);
+    let mut members = Vec::new();
+    let mut new_devices = Vec::new();
+    // Four refreshed inboxes split into two, then one.
+    for _ in 0..4 {
+        tester!(member, disable_workers);
+        members.push(member);
+    }
+    let inboxes: Vec<_> = members.iter().map(|member| member.inbox_id()).collect();
+    let group = alix.create_group_with_members(&inboxes, None, None).await?;
+    for member in &members {
+        tester!(device, from: member, disable_workers);
+        new_devices.push(device);
+    }
+    let mut data = group.get_membership_update_intent(&[], &[]).await?;
+    data.removal_only = true;
+    let intent = QueueIntent::update_group_membership()
+        .data(data)
+        .queue(&group)?;
+    let mut requirements =
+        group.with_group_snapshot(|mls| PublishRequirements::capture(mls, &intent))?;
+    let mut parts = 0;
+    while let Some(part) = group.smaller_membership_refresh(&requirements)? {
+        let dependencies = group.resolve_publish_dependencies(&part).await?;
+        assert!(
+            dependencies.changes?.new_key_packages.is_empty(),
+            "split part {parts} of a removal-only refresh adds a leaf"
+        );
+        parts += 1;
+        requirements = part;
+    }
+    assert_eq!(parts, 2);
+}
