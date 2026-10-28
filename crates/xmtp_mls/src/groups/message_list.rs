@@ -545,4 +545,57 @@ mod tests {
         assert_eq!(looked_up.metadata.id, malformed_id);
         assert!(is_kept(&looked_up), "lookup: {:?}", looked_up.content);
     }
+
+    /// A read with no limit enriches every row, past SQLite's bound-value limit.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn unlimited_history_read_spans_the_bind_limit() {
+        use xmtp_db::ConnectionExt;
+        use xmtp_db::diesel::RunQueryDsl;
+        use xmtp_db::diesel::sql_types::{BigInt, Binary, Integer};
+        const ROWS: i64 = 33_000;
+
+        let (group, context) = setup_test_group().await;
+        let conn = context.db();
+        let text =
+            xmtp_content_types::encoded_content_to_bytes(TestContentGenerator::text_content("row"));
+        conn.raw_query(|sqlite| {
+            xmtp_db::diesel::sql_query(
+                "WITH RECURSIVE n(x) AS (VALUES(1) UNION ALL SELECT x+1 FROM n WHERE x<?) \
+                 INSERT INTO group_messages (id,group_id,decrypted_message_bytes,sent_at_ns,kind,\
+                 sender_installation_id,sender_inbox_id,delivery_status,content_type,version_major,\
+                 version_minor,authority_id,sequence_id,idempotency_key) \
+                 SELECT CAST(printf('%032d',x) AS BLOB),?,?,x,?,x'01','sender',?,?,1,0,\
+                 'xmtp.org',0,CAST(x AS TEXT) FROM n",
+            )
+            .bind::<BigInt, _>(ROWS)
+            .bind::<Binary, _>(group.group_id.as_ref())
+            .bind::<Binary, _>(&text)
+            .bind::<Integer, _>(GroupMessageKind::Application as i32)
+            .bind::<Integer, _>(DeliveryStatus::Published as i32)
+            .bind::<Integer, _>(DbContentType::Text as i32)
+            .execute(sqlite)
+        })?;
+        let newest = format!("{ROWS:032}").into_bytes();
+        create_test_message(
+            &group.group_id,
+            vec![0xee; 32],
+            TestContentGenerator::reaction_content(
+                &newest.encode_hex(),
+                "👍",
+                ReactionAction::Added,
+            ),
+            ROWS + 1,
+        )
+        .store(&conn)?;
+
+        let ascending: Vec<i64> = (1..=ROWS).collect();
+        let stored = group.find_messages_v2_with_stored(&MsgQueryArgs::default())?;
+        let sent_at: Vec<_> = stored.iter().map(|m| m.stored.sent_at_ns).collect();
+        assert_eq!(sent_at, ascending);
+        assert_eq!(emojis(&stored.last()?.decoded), ["👍"]);
+        let decoded = group.find_messages_v2(&MsgQueryArgs::default())?;
+        let sent_at: Vec<_> = decoded.iter().map(|m| m.metadata.sent_at_ns).collect();
+        assert_eq!(sent_at, ascending);
+        assert_eq!(emojis(decoded.last()?), ["👍"]);
+    }
 }
