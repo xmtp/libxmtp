@@ -34,8 +34,8 @@ dev/nix-shell 'just lint'
 ```
 
 Default members are `apps/backend`, `apps/db_tools`, and `crates/*`; other apps need explicit checks.
-Start `just backend up db replica` through Nix before workspace tests; tests needing
-other services say so locally. Backend database tests use `just backend test`.
+Start `just backend up` through Nix before workspace tests; client tests need its
+node, not only the databases. Backend database tests use `just backend test`.
 Use `just backend status` for worktree addresses, never assume main-checkout ports.
 Read `.agents/skills/working-with-worktrees` when creating or using another worktree.
 
