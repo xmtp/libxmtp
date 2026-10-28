@@ -191,6 +191,8 @@ Shutdown reports `NOT_SERVING`, closes admission, and ends streams as one step, 
 
 The backend exposes no sampled gauges: no pool size, queue depth, replica replay delay, or process resource usage. Those belong to infrastructure monitoring. In particular, a lagged copy that has stopped receiving changes is not visible in any backend metric.
 
+The backend trusts its configured chain providers for smart contract wallet verdicts and for the size of their responses. It does not check a provider's answer against another source or bound the size of a response body, so an operator configures only providers it trusts.
+
 `xmtp_operation_duration_seconds` derives its `status` from whether the span recorded an error. A cancellation that recorded none is `ok`, so the label is not an exact success rate.
 
 Client-side trace metrics derived by a collector from exported spans scale with the configured sample ratio and with export loss. They are estimates, unlike the in-process families above.
