@@ -1,4 +1,5 @@
 use super::*;
+use crate::utils::test::crafted_welcome::assert_welcome_rejected;
 use crate::{groups::send_message_opts::SendMessageOpts, tester};
 use xmtp_db::{
     ConnectionExt,
@@ -759,19 +760,7 @@ async fn sync_welcome_naming_another_inbox_is_rejected(#[case] own_adder: bool) 
 
     alix2.sync_welcomes().await.unwrap();
 
-    let db = alix2.context.db();
-    assert!(db.find_group(&foreign_id).unwrap().is_none());
-    let topic = xmtp_db::incoming_envelope::StreamTopic {
-        entity_id: alix2.context.installation_id().to_vec(),
-        kind: xmtp_db::incoming_envelope::NetworkEntityKind::Welcome,
-    };
-    let rejected = db.read_last_rejection(&topic).unwrap().unwrap();
-    assert_eq!(rejected.code, "invalid_welcome");
-    assert!(
-        db.pending_envelope(&topic, rejected.sequence_id)
-            .unwrap()
-            .is_none()
-    );
+    assert_welcome_rejected(&alix2, &foreign_id);
     let target = alix2.device_sync_client().get_sync_group().await.unwrap();
     assert_ne!(target.group_id, foreign_id);
 }
