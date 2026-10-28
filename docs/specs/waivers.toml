@@ -456,6 +456,13 @@ issue = "https://github.com/xmtp/libxmtp/issues/4696"
 reason = "A stream's catch-up reads spend no `request` unit, so none is denied or delayed."
 
 [[waiver]]
+id = "RATE-034"
+kind = "gap"
+owner = "backend"
+issue = "https://github.com/xmtp/libxmtp/issues/4696"
+reason = "An `Update` reads its catch-up target without spending a `request` unit, so no denial of that spend ends the stream or reports a delay."
+
+[[waiver]]
 id = "RATE-040"
 kind = "gap"
 owner = "backend"
