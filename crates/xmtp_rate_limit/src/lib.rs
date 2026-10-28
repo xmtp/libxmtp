@@ -36,7 +36,10 @@ pub const SLOT_BYTES: usize = size_of::<table::Slot>();
 
 /// A sustained rate of `count` units per `window`, with a burst of up to `count`.
 ///
-/// `count` is at least 1; a `count` of 0 is treated as 1.
+/// `count` is at least 1; a `count` of 0 is treated as 1. `window` is at least
+/// 1 ns. A zero window earns back any cost at once, so release builds admit
+/// every spend under it, and debug builds panic on it. The backend
+/// configuration refuses both.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Limit {
     pub count: u32,

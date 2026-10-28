@@ -193,6 +193,10 @@ impl<L: ShardLock> Table<L> {
             "a category carries at most {MAX_LIMITS} limits"
         );
         let limits = &spend.limits[..spend.limits.len().min(MAX_LIMITS)];
+        debug_assert!(
+            limits.iter().all(|limit| !limit.window.is_zero()),
+            "a limit's window is at least 1 ns"
+        );
         if spend.cost == 0 || limits.is_empty() {
             return Decision::Allowed;
         }

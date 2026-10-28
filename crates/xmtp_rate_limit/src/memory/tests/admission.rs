@@ -230,6 +230,26 @@ fn extreme_values_saturate() {
     );
 }
 
+/// A zero window would earn back any cost at once. Debug builds stop on it;
+/// release builds admit every spend under it, as an unbounded rate would.
+#[xmtp_common::test]
+fn a_zero_window_panics_in_debug_and_admits_in_release() {
+    let (limiter, _clock) = limiter();
+    let limits = [Limit {
+        count: 1,
+        window: Duration::ZERO,
+    }];
+    let first =
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| spend(&limiter, &limits, 5)));
+    if cfg!(debug_assertions) {
+        assert!(first.is_err());
+        assert_eq!(tats(&limiter), None);
+    } else {
+        assert_eq!(first.ok(), Some(Decision::Allowed));
+        assert_eq!(spend(&limiter, &limits, 5), Decision::Allowed);
+    }
+}
+
 /// A count of 0 behaves as a count of 1 instead of dividing by zero.
 #[xmtp_common::test]
 fn a_zero_count_counts_as_one() {
