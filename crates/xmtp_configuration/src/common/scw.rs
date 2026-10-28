@@ -16,6 +16,12 @@ pub const MAX_SCW_SIGNATURE_BYTES: usize = 47_232;
 /// flight, so a batch never starts every check before the first completes.
 pub const MAX_CHAIN_CALLS_IN_FLIGHT: usize = 8;
 
+/// The longest one chain RPC call may take, its permit wait included.
+pub const CHAIN_CALL_TIMEOUT_MS: u64 = 10_000;
+
+/// The most calls one chain provider has in flight, across all requests.
+pub const MAX_CHAIN_CALLS_PER_PROVIDER: usize = 64;
+
 /// The most ERC-6492 signatures one verify request carries: two for each
 /// action of the largest identity update, so no update needs more. The
 /// backend refuses a larger `max_scw_signatures`, and a client sizes its

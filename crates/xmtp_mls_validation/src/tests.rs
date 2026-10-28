@@ -584,39 +584,16 @@ fn with_second_signature(
     update
 }
 
-/// Counts the reads it forwards to a [`TestChain`].
-#[derive(Default)]
-struct CountingChain {
-    heads: std::sync::atomic::AtomicUsize,
-    timestamps: std::sync::atomic::AtomicUsize,
-}
-
-#[xmtp_common::async_trait]
-impl ChainBlocks for CountingChain {
-    async fn head(&self, chain_id: &str) -> Result<BlockStamp, VerifierError> {
-        self.heads
-            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        TestChain::at(10).head(chain_id).await
-    }
-
-    async fn timestamp(&self, chain_id: &str, number: u64) -> Result<u64, VerifierError> {
-        self.timestamps
-            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        TestChain::at(10).timestamp(chain_id, number).await
-    }
-}
-
 /// An update may carry up to the configured signature limit, so admission
 /// reads each chain's head once and each distinct block's timestamp once
 /// rather than once per signature.
 #[xmtp_common::test(unwrap_try = true)]
 // verifies: IDENT-062
 async fn freshness_reads_each_head_and_block_once() {
-    let chain = CountingChain::default();
+    let chain = CountingChain::at(10);
     check_freshness(&with_second_signature(|_| {}), &chain).await?;
     check_freshness(&with_second_signature(|scw| scw.block_number = 2), &chain).await?;
-    assert_eq!(chain.heads.into_inner(), 2);
-    assert_eq!(chain.timestamps.into_inner(), 3);
+    assert_eq!(chain.reads(), (2, 3));
 }
 
 /// The chains of [`freshness_block_reads_keep_eight_in_flight`].

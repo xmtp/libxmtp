@@ -10,10 +10,11 @@ use support::TestServer;
 use tonic::Code;
 use xmtp_mls_common::group_keys::sign_group_message;
 use xmtp_mls_validation::test_utils::{
-    GroupMessageKind, TestChain, expired_key_package_envelope, group_keys, identity_envelope,
-    identity_history_with_passkey, inline_welcome_envelope, keyed_group_message_envelope,
-    malformed_signature_create_inbox_update, scw_change_recovery_update_at,
-    scw_create_inbox_update_at, sealed_commit_log_envelope,
+    CountingChain, GroupMessageKind, TestChain, expired_key_package_envelope, group_keys,
+    identity_envelope, identity_history_with_passkey, inline_welcome_envelope,
+    keyed_group_message_envelope, malformed_signature_create_inbox_update,
+    scw_change_recovery_update_at, scw_create_inbox_update_at, scw_create_nonce_inbox_update_at,
+    sealed_commit_log_envelope,
 };
 
 #[xmtp_common::test(unwrap_try = true)]
@@ -527,14 +528,16 @@ impl xmtp_id::scw_verifier::SmartContractSignatureVerifier for ChainVerifier {
 /// at a block it has not produced. The rule binds admission alone: a stored update
 /// whose block has since aged stays valid when its log is replayed to admit
 /// the next update, and a chain outage stays retryable rather than reading as
-/// a bad signature.
+/// a bad signature. One publish reads each chain's head and each block once
+/// for all its updates, and the next publish reads them again.
 #[xmtp_common::test(unwrap_try = true)]
 // verifies: IDENT-062
 async fn scw_admission_freshness() {
     const HEAD: u64 = 10_000;
     let chain = TestChain::at(HEAD);
+    let counting = CountingChain::new(chain.clone());
     let server =
-        TestServer::with_verifier(|_| {}, ChainVerifier(chain.clone()), chain.clone()).await?;
+        TestServer::with_verifier(|_| {}, ChainVerifier(chain.clone()), counting.clone()).await?;
     let stale = Err((Code::InvalidArgument, Some(Reason::InvalidSignature)));
 
     let future = publish_identity(&server, scw_create_inbox_update_at(HEAD + 1)).await?;
@@ -559,6 +562,22 @@ async fn scw_admission_freshness() {
         replayed,
         (Ok(()), 2),
         "an update after an aged stored block"
+    );
+
+    let (heads, timestamps) = counting.reads();
+    server
+        .publish(vec![
+            identity_envelope(scw_create_nonce_inbox_update_at(1, later)),
+            identity_envelope(scw_create_nonce_inbox_update_at(2, later)),
+        ])
+        .await?;
+    assert_eq!(counting.reads(), (heads + 1, timestamps + 1), "one publish");
+    let next = publish_identity(&server, scw_create_nonce_inbox_update_at(3, later)).await?;
+    assert_eq!(next, (Ok(()), 5));
+    assert_eq!(
+        counting.reads(),
+        (heads + 2, timestamps + 2),
+        "the next publish"
     );
     server.stop().await?;
 }

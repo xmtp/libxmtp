@@ -88,6 +88,38 @@ impl ChainBlocks for TestChain {
     }
 }
 
+/// Counts the heads and timestamps it reads from a [`TestChain`]. Clones
+/// share the counts.
+#[derive(Clone)]
+pub struct CountingChain(TestChain, Arc<Mutex<(usize, usize)>>);
+
+impl CountingChain {
+    pub fn at(head: u64) -> Self {
+        Self::new(TestChain::at(head))
+    }
+
+    pub fn new(chain: TestChain) -> Self {
+        Self(chain, Arc::default())
+    }
+
+    pub fn reads(&self) -> (usize, usize) {
+        *self.1.lock().expect("counting chain lock")
+    }
+}
+
+#[xmtp_common::async_trait]
+impl ChainBlocks for CountingChain {
+    async fn head(&self, chain_id: &str) -> Result<BlockStamp, VerifierError> {
+        self.1.lock().expect("counting chain lock").0 += 1;
+        self.0.head(chain_id).await
+    }
+
+    async fn timestamp(&self, chain_id: &str, number: u64) -> Result<u64, VerifierError> {
+        self.1.lock().expect("counting chain lock").1 += 1;
+        self.0.timestamp(chain_id, number).await
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GroupMessageKind {
     Application,
@@ -517,13 +549,21 @@ pub fn scw_create_inbox_update() -> IdentityUpdate {
 
 /// Create the fixture wallet's inbox with an ERC-6492 signature at `block_number`.
 pub fn scw_create_inbox_update_at(block_number: u64) -> IdentityUpdate {
+    scw_create_nonce_inbox_update_at(0, block_number)
+}
+
+/// Create the fixture wallet's inbox of `nonce`, signed at `block_number`.
+pub fn scw_create_nonce_inbox_update_at(nonce: u64, block_number: u64) -> IdentityUpdate {
+    let identifier = Identifier::eth(SCW_ACCOUNT).expect("fixture account is valid");
     UnverifiedIdentityUpdate::new(
-        scw_inbox_id(),
+        identifier
+            .inbox_id(nonce)
+            .expect("fixture account derives an inbox"),
         1,
         vec![UnverifiedAction::CreateInbox(UnverifiedCreateInbox::new(
             UnsignedCreateInbox {
-                account_identifier: Identifier::eth(SCW_ACCOUNT).expect("fixture account is valid"),
-                nonce: 0,
+                account_identifier: identifier,
+                nonce,
             },
             scw_signature(0x55, block_number),
         ))],
