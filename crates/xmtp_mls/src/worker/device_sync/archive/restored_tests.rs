@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use xmtp_db::{
     ConnectionExt, Store,
     consent_record::{ConsentState, ConsentType},
-    group::GroupMembershipState,
+    group::{GroupMembershipState, GroupQueryArgs},
 };
 use xmtp_mls_common::group_metadata::DmMembers;
 use xmtp_proto::{
@@ -129,6 +129,15 @@ async fn restored_group_update_failure_rolls_back_row_stub_and_consent() {
         })
     };
     let before = count()?;
+    // A denied sibling of the DM gives it a record to inherit and roll back.
+    let sibling = saved_group(10, true);
+    apply(&alix.context, vec![group_element(sibling.clone())]).await?;
+    db.insert_newer_consent_record(StoredConsentRecord {
+        entity_type: ConsentType::ConversationId,
+        state: ConsentState::Denied,
+        entity: hex::encode(&sibling.id),
+        consented_at_ns: 30,
+    })?;
     db.raw_query(|conn| conn.batch_execute("CREATE TRIGGER fail_group BEFORE UPDATE OF created_at_ns ON groups BEGIN SELECT RAISE(ABORT, 'group update failure'); END;"))?;
     for (index, dm) in [false, true].into_iter().enumerate() {
         let save = saved_group(index as u8 + 3, dm);
@@ -151,6 +160,11 @@ async fn restored_group_update_failure_rolls_back_row_stub_and_consent() {
         let id = GroupId::try_from(save.id.as_slice())?;
         apply(&alix.context, vec![group_element(save)]).await?;
         assert!(db.find_group(&id)?.is_some());
+        let record = db.get_consent_record(hex::encode(id), ConsentType::ConversationId)?;
+        assert_eq!(
+            record.map(|r| (r.state, r.consented_at_ns)),
+            dm.then_some((ConsentState::Denied, 30))
+        );
     }
 }
 
@@ -205,7 +219,7 @@ async fn restored_import_does_not_rewrite_an_existing_group() {
     assert_eq!(after.added_by_inbox_id, before.added_by_inbox_id);
 }
 
-// verifies: ARCH-014, CONS-010
+// verifies: ARCH-014, CONS-010, DMS-010
 #[xmtp_common::test(unwrap_try = true)]
 async fn restored_history_dm_creation_does_not_synthesize_allowed_consent() {
     tester!(alix, disable_workers);
@@ -251,6 +265,77 @@ async fn restored_history_dm_creation_does_not_synthesize_allowed_consent() {
             (ConsentState::Denied, 30)
         );
     }
+    // A restored DM of the same pair without its own record inherits the pair's.
+    let save = saved_group(9, true);
+    apply(&alix.context, vec![group_element(save.clone())]).await?;
+    let record = alix
+        .db()
+        .get_consent_record(hex::encode(&save.id), ConsentType::ConversationId)??;
+    assert_eq!(
+        (record.state, record.consented_at_ns),
+        (ConsentState::Denied, 30)
+    );
+    let listed = alix.find_groups(GroupQueryArgs::default())?;
+    assert!(listed.iter().all(|group| group.dm_id != save.dm_id));
+}
+
+/// Opening a DM with a peer whose restored DM is denied creates a DM that
+/// keeps the archived decision and its time, and is not a local decision.
+// verifies: DMS-010, CONS-020, SYNC-021
+#[xmtp_common::test(unwrap_try = true)]
+async fn restored_dm_find_or_create_keeps_the_archived_denial() {
+    use crate::subscriptions::internal::{InternalEvent, PreferenceOrigin};
+    tester!(alix1, disable_workers);
+    tester!(bo, disable_workers);
+    let archived = alix1.find_or_create_dm(bo.inbox_id(), None).await?;
+    alix1
+        .db()
+        .insert_or_replace_consent_records(&[StoredConsentRecord {
+            entity_type: ConsentType::ConversationId,
+            state: ConsentState::Denied,
+            entity: hex::encode(archived.group_id),
+            consented_at_ns: 30,
+        }])?;
+    tester!(alix2, from: alix1, disable_workers);
+    let elements = exported_elements(alix1.db()).await?;
+    apply(
+        &alix2.context,
+        elements
+            .into_iter()
+            .map(|element| BackupElement {
+                element: Some(element),
+            })
+            .collect(),
+    )
+    .await?;
+    let events = alix2.context.events().subscribe(
+        xmtp_events::EventFilter::new([]).with_internal(|event| {
+            matches!(
+                event,
+                InternalEvent::PreferencesChanged {
+                    origin: PreferenceOrigin::Local,
+                    ..
+                }
+            )
+        }),
+        None,
+    );
+
+    let dm = alix2.find_or_create_dm(bo.inbox_id(), None).await?;
+    assert_ne!(dm.group_id, archived.group_id);
+    let record = alix2
+        .db()
+        .get_consent_record(hex::encode(dm.group_id), ConsentType::ConversationId)??;
+    assert_eq!(
+        (record.state, record.consented_at_ns),
+        (ConsentState::Denied, 30)
+    );
+    let listed = alix2.find_groups(GroupQueryArgs::default())?;
+    assert!(listed.iter().all(|group| group.group_id != dm.group_id));
+    assert!(
+        events.drain().is_empty(),
+        "creation emitted a local decision"
+    );
 }
 
 /// Every group element the exporter wrote, keyed by physical id.
