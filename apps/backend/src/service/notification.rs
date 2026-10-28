@@ -4,6 +4,8 @@
 mod tests;
 pub(crate) mod webhook_url;
 
+use webhook_url::WebhookUrlError;
+
 use std::collections::HashSet;
 use subtle::ConstantTimeEq;
 use tonic::{Request, Response, Status};
@@ -143,7 +145,10 @@ impl Backend {
                 let config = self.config.push.http.as_ref().ok_or_else(unconfigured)?;
                 webhook_url::validate(&http.url, config)
                     .await
-                    .map_err(|_| Status::invalid_argument("webhook url is not allowed"))?;
+                    .map_err(|e| match e {
+                        WebhookUrlError::NotAllowed => Status::invalid_argument(e.to_string()),
+                        WebhookUrlError::Unavailable => Status::unavailable(e.to_string()),
+                    })?;
                 if !(MIN_SIGNING_KEY_BYTES..=MAX_SIGNING_KEY_BYTES).contains(&signing_key.len()) {
                     return Err(Status::invalid_argument(
                         "webhook signing key length is not allowed",

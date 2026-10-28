@@ -306,73 +306,59 @@ async fn every_subscription_shape_failure_leaves_the_recipient_unchanged() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
-async fn webhook_absent_domain_list_allows_public_hosts_and_blocks_private_addresses() {
-    let server = TestServer::new(|config| config.push.http = Some(HttpConfig::default())).await?;
-    let mut client = server.notifications();
-    for url in [
-        "https://localhost/hook",
-        "https://127.0.0.1",
-        "https://10.0.0.1",
-        "https://100.64.0.0",
-        "https://100.100.100.100",
-        "https://100.127.255.255",
-        "https://[::ffff:100.100.100.100]",
-        "https://172.16.0.1",
-        "https://192.168.0.1",
-        "https://169.254.169.254",
-        "https://0.0.0.0",
-        "https://[::1]",
-        "https://[::]",
-        "https://[fc00::1]",
-        "https://[fe80::1]",
-        "https://[fec0::1]",
-        "https://[::ffff:127.0.0.1]",
-    ] {
-        status(
-            client
-                .register(webhook(url, vec![1; 32]))
-                .await
-                .unwrap_err(),
-            Code::InvalidArgument,
-            "webhook url is not allowed",
-        );
-    }
-    client
-        .register(webhook("https://8.8.8.8/hook", vec![1; 32]))
-        .await?;
-    server.stop().await?;
-}
-
-#[xmtp_common::test(unwrap_try = true)]
-async fn webhook_empty_domain_list_allows_public_hosts_and_preserves_url_safety_checks() {
-    let server = TestServer::new(|config| {
-        config.push.http = Some(HttpConfig {
-            allowed_domains: Some(vec![]),
-            ..HttpConfig::default()
+async fn webhook_absent_or_empty_domain_list_allows_public_hosts_and_blocks_unsafe_urls() {
+    for allowed_domains in [None, Some(vec![])] {
+        let server = TestServer::new(|config| {
+            config.push.http = Some(HttpConfig {
+                allowed_domains,
+                ..HttpConfig::default()
+            })
         })
-    })
-    .await?;
-    let mut client = server.notifications();
-    client
-        .register(webhook("https://8.8.8.8/hook", vec![1; 32]))
         .await?;
-    for url in [
-        "https://127.0.0.1/hook",
-        "https://10.0.0.1/hook",
-        "https://[::1]/hook",
-        "http://8.8.8.8/hook",
-        "https://user:password@8.8.8.8/hook",
-    ] {
+        let mut client = server.notifications();
+        for url in [
+            "https://localhost/hook",
+            "https://127.0.0.1",
+            "https://10.0.0.1",
+            "https://100.64.0.0",
+            "https://100.100.100.100",
+            "https://100.127.255.255",
+            "https://[::ffff:100.100.100.100]",
+            "https://172.16.0.1",
+            "https://192.168.0.1",
+            "https://169.254.169.254",
+            "https://0.0.0.0",
+            "https://[::1]",
+            "https://[::]",
+            "https://[fc00::1]",
+            "https://[fe80::1]",
+            "https://[fec0::1]",
+            "https://[::ffff:127.0.0.1]",
+            "http://8.8.8.8/hook",
+            "https://user:password@8.8.8.8/hook",
+        ] {
+            status(
+                client
+                    .register(webhook(url, vec![1; 32]))
+                    .await
+                    .unwrap_err(),
+                Code::InvalidArgument,
+                "webhook url is not allowed",
+            );
+        }
         status(
             client
-                .register(webhook(url, vec![1; 32]))
+                .register(webhook("https://lookup-fails.invalid/hook", vec![1; 32]))
                 .await
                 .unwrap_err(),
-            Code::InvalidArgument,
-            "webhook url is not allowed",
+            Code::Unavailable,
+            "webhook host lookup failed",
         );
+        client
+            .register(webhook("https://8.8.8.8/hook", vec![1; 32]))
+            .await?;
+        server.stop().await?;
     }
-    server.stop().await?;
 }
 
 #[xmtp_common::test(unwrap_try = true)]

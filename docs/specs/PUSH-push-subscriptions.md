@@ -157,7 +157,7 @@ A webhook is an HTTPS request from inside the deployment's network to a URL any 
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
 | PUSH-210 | Channel must be configured | When `Register` names a channel whose configuration table is absent, the backend MUST fail the request with `FAILED_PRECONDITION`. | |
-| PUSH-256 | Webhook destination safety | When an `HttpDelivery` has a `url` whose scheme is not `https` or that carries a username or password, a `signing_key` shorter than 16 or longer than 64 bytes, or a host that matches no entry of a non-empty `allowed_domains`, resolves to no address, or, while `allow_private_addresses` is `false`, resolves to an address in the blocked address table above, the backend MUST fail `Register` with `INVALID_ARGUMENT`. Before each webhook attempt the backend MUST resolve the host again, MUST NOT send when the host no longer matches a non-empty `allowed_domains` or, while `allow_private_addresses` is `false`, any resolved address is in the table, MUST connect only to an address it resolved then, and MUST NOT follow a redirect. | A redirect, a rebinding host, or a widened list moves a signed request to an address that was never checked. |
+| PUSH-256 | Webhook destination safety | When an `HttpDelivery` has a `url` whose scheme is not `https` or that carries a username or password, a `signing_key` shorter than 16 or longer than 64 bytes, or a host that matches no entry of a non-empty `allowed_domains`, whose lookup answers with no address, or, while `allow_private_addresses` is `false`, resolves to an address in the blocked address table above, the backend MUST fail `Register` with `INVALID_ARGUMENT`. When the lookup of the host fails, including for a name that does not exist, or does not finish, the backend MUST fail `Register` with `UNAVAILABLE`. Before each webhook attempt the backend MUST resolve the host again, MUST NOT send when the host no longer matches a non-empty `allowed_domains` or, while `allow_private_addresses` is `false`, any resolved address is in the table, MUST connect only to an address it resolved then, and MUST NOT follow a redirect. | A redirect, a rebinding host, or a widened list moves a signed request to an address that was never checked. The backend cannot tell a missing name from a resolver outage, and `INVALID_ARGUMENT` stops push for good (PUSH-262). |
 
 ## 3. Subscriptions
 
@@ -307,3 +307,5 @@ The client cannot learn which topics the backend holds, only how many. A differe
 The browser SDK and the wasm binding expose no notification surface, so a browser app cannot receive pushes.
 
 There is no rate limit on the notification RPCs.
+
+A webhook host that does not exist answers `UNAVAILABLE`, so the client keeps retrying `Register` with backoff (at most hourly) until the app changes the URL or disables push; `enable` still returns the failure to the app.
