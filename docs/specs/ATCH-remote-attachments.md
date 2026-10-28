@@ -141,6 +141,7 @@ The admission table adds the conditions of `CreateUpload` to the status table of
 | --- | --- |
 | No storage target is configured | `UNIMPLEMENTED` |
 | `content_digest` is not 32 bytes, or `content_length` is 0 or greater than the enforced `max_upload_bytes` | `INVALID_ARGUMENT` |
+| The caller's `upload` spend is denied (RATE-010) | `RESOURCE_EXHAUSTED`, with the details RATE-040 gives |
 | The credential source that ATCH-073 names reports that its own configuration is invalid | `FAILED_PRECONDITION` |
 | The backend cannot obtain a credential from that source, or obtains one whose remaining lifetime is shorter than the least lifetime ATCH-028 allows | `UNAVAILABLE` |
 | The backend cannot build or sign the request for a reason other than its credential | `INTERNAL` |
@@ -354,7 +355,7 @@ The upload contract is only as strong as the storage target. ATCH-023 depends on
 
 The client sends the upload PUT to whatever `https` URL, or loopback `http` URL, the backend it is bound to (CONF-030) signs, including a private address, so an on-premises storage target works. A backend that the operator does not control could direct a client's PUT at an internal host; the body is ciphertext and carries no credential (ATCH-027), and ATCH-071 stops redirects. The client already trusts that backend with its messages.
 
-When auth is disabled (AUTH-003), anyone who can reach the backend can store objects up to `max_upload_bytes`. When auth is enabled, any holder of a credential can. The backend cannot tell a ciphertext from any other bytes, so a deployment's storage can be used to host arbitrary files. There is no per-caller quota.
+When auth is disabled (AUTH-003), anyone who can reach the backend can store objects up to `max_upload_bytes`. When auth is enabled, any holder of a credential can. The backend cannot tell a ciphertext from any other bytes, so a deployment's storage can be used to host arbitrary files. RATE limits how many uploads a caller may create (`upload`), not how many bytes it stores.
 
 An object is public to anyone who has its URL. Its confidentiality rests on the encryption of CTYPE-015 alone. The storage target and every download host learn the size of the object, the time of each fetch, and the network address of the downloader.
 

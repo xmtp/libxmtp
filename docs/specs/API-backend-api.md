@@ -20,7 +20,7 @@ flowchart LR
 
 In scope: sequence ids, ordering, and visibility; the envelope wire format and the metadata the backend assigns; publish atomicity, idempotency, and admission, including what admission establishes and what it does not, and the checks of a handle claim that only the backend applies; query and paging; the subscribe frame contracts; identity lookups, by identifier and by handle; connection statistics; request bounds; the status codes; and the transport.
 
-Out of scope: credentials and which requests need one ([AUTH section 1](AUTH-backend-auth.md#1-admission)); the values of the published limits and how a client sizes its requests to them (`CONF`); the topic layout (`TOPIC`); push registration and delivery ([PUSH](PUSH-push-subscriptions.md)); retention enforcement, readiness, and health ([OPS](OPS-backend-operations.md)); the association log an identity update is checked against (IDENT-004, IDENT-095); the handle grammar, how a claim changes the association state, and the client's check of a handle lookup ([IDENT section 10](IDENT-identity-updates.md#10-handles), IDENT-085); the MLS objects a key package and a Welcome carry (`JOIN`); the commit-log entry ([FORK section 2](FORK-fork-recovery.md#2-keys-and-signatures)); and what a client does with a frame once received, including its positions on a topic ([PROC](PROC-message-processing.md)).
+Out of scope: credentials and which requests need one ([AUTH section 1](AUTH-backend-auth.md#1-admission)); the values of the published limits and how a client sizes its requests to them (`CONF`); the topic layout (`TOPIC`); push registration and delivery ([PUSH](PUSH-push-subscriptions.md)); retention enforcement, readiness, and health ([OPS](OPS-backend-operations.md)); the association log an identity update is checked against (IDENT-004, IDENT-095); the handle grammar, how a claim changes the association state, and the client's check of a handle lookup ([IDENT section 10](IDENT-identity-updates.md#10-handles), IDENT-085); the MLS objects a key package and a Welcome carry (`JOIN`); the commit-log entry ([FORK section 2](FORK-fork-recovery.md#2-keys-and-signatures)); and what a client does with a frame once received, including its positions on a topic ([PROC](PROC-message-processing.md)); per-caller rate limits and their charges ([RATE](RATE-backend-rate-limits.md)).
 
 | Related | Relation |
 | --- | --- |
@@ -402,7 +402,7 @@ message SubscribeStaticResponse {
 }
 ```
 
-A frame of `Messages` can carry envelopes of more than one topic, and the order across topics inside a frame carries no meaning. A client that stops reading is closed rather than throttled: the backend holds a bounded amount of output for each stream and, when live traffic cannot be queued, fails the stream with `RESOURCE_EXHAUSTED` so that one slow client cannot hold up every other. The stream's closing status tells the client what to do next: reconnect after `UNAVAILABLE`, `RESOURCE_EXHAUSTED`, or `DEADLINE_EXCEEDED`, and fix the request after `INVALID_ARGUMENT`.
+A frame of `Messages` can carry envelopes of more than one topic, and the order across topics inside a frame carries no meaning. A client that stops reading is closed rather than throttled: the backend holds a bounded amount of output for each stream and, when live traffic cannot be queued, fails the stream with `RESOURCE_EXHAUSTED` so that one slow client cannot hold up every other. The stream's closing status tells the client what to do next: reconnect after `UNAVAILABLE`, `RESOURCE_EXHAUSTED`, or `DEADLINE_EXCEEDED`, no sooner than the delay a rate-limit rejection carries (RATE-041), and fix the request after `INVALID_ARGUMENT`.
 
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
@@ -492,7 +492,7 @@ The bounds table names each request's limits and the field of `LimitsConfigurati
 | `Subscribe` `Update` | `adds` not more than `max_update_adds`; `removes` not more than `max_update_removes`; topics registered after the update not more than `max_stream_topics` |
 | Any request | Every `Cursor.sequence_id` not greater than 9223372036854775807 |
 
-The status table maps each failure a client can meet to the code it receives. A client classifies by code, never by message text, because the text is free to change. `INVALID_ARGUMENT` is never retried unchanged: the same request fails the same way. `ABORTED` on a publish means the identity history moved (API-303); the client re-reads the inbox's identity topic, rebuilds the update against it, and sends that. `UNAVAILABLE` and `DEADLINE_EXCEEDED` are retried with backoff; on a publish, a retry is safe under API-222 whether or not the first attempt committed. `OUT_OF_RANGE` on a publish does not prove the publish was not stored: a response can exceed the ceiling after the request committed.
+The status table maps each failure a client can meet to the code it receives. A client classifies by code, never by message text, because the text is free to change. `INVALID_ARGUMENT` is never retried unchanged: the same request fails the same way. `ABORTED` on a publish means the identity history moved (API-303); the client re-reads the inbox's identity topic, rebuilds the update against it, and sends that. `UNAVAILABLE` and `DEADLINE_EXCEEDED` are retried with backoff; on a publish, a retry is safe under API-222 whether or not the first attempt committed. `RESOURCE_EXHAUSTED` with a rate-limit detail is retried no sooner than its delay, and never split (RATE-041). `OUT_OF_RANGE` on a publish does not prove the publish was not stored: a response can exceed the ceiling after the request committed.
 
 | Condition | Code |
 | --- | --- |
@@ -503,6 +503,7 @@ The status table maps each failure a client can meet to the code it receives. A 
 | A chain RPC or verifier failure (API-231); the store is unreachable; a stream is opened or running while the backend is recovering its stream state; the backend is shutting down | `UNAVAILABLE` |
 | A publish or a store operation exceeds the backend's own time limit; a `Pong` did not arrive, or the transport did not take a queued `Ping` (API-257) | `DEADLINE_EXCEEDED` |
 | A stream's frame bucket is exhausted (API-258); a stream's output cannot be queued because the client is not reading; a stored envelope cannot fit a frame; a `Started`, `Applied`, `Ping`, or `Pong` frame would be longer than `max_response_bytes` | `RESOURCE_EXHAUSTED` |
+| A spend for the request's caller is denied (RATE-010), including a stream's rent (RATE-032) | `RESOURCE_EXHAUSTED`, with the details RATE-040 gives |
 | A stored value violates an invariant the backend maintains | `INTERNAL` |
 
 | ID | Title | Requirement | Why |
@@ -539,11 +540,11 @@ Bytes after the MLS message in `GroupMessage.data` are accepted and stored. No c
 
 The backend does not read a client's version on a request, and it does not enforce the advisory group shapes it publishes; both are the client's to apply (CONF-049, CONF-043).
 
-A `Subscribe` stream with no registered topic stays open and costs the deployment a connection. There is no quota on concurrent streams per caller beyond the connection's HTTP/2 stream limit, which the operator configures.
+A `Subscribe` stream with no registered topic stays open and costs the deployment a connection. Concurrent streams are bounded per caller only through the rent they pay (RATE section 4), per instance.
 
 A client that cannot take the queued output (up to 16 MiB) within about 2 min of catch-up (~1.1 Mbps) is closed and reconnects from its cursors.
 
-The backend reads and replays an inbox's whole stored log for each identity update that passes the checks of API-302, whether it then stores the update or rejects it. With the default limits, one small update can cost a read of up to 256 envelopes of up to 1 MiB each and up to 51,200 signature checks without chain access (IDENT-095). A publish can carry one such update for each of up to 5 inboxes, and publishing has no per-caller rate limit.
+The backend reads and replays an inbox's whole stored log for each identity update that passes the checks of API-302, whether it then stores the update or rejects it. With the default limits, one small update can cost a read of up to 256 envelopes of up to 1 MiB each and up to 51,200 signature checks without chain access (IDENT-095). A publish can carry one such update for each of up to 5 inboxes; RATE charges one `identity_update` unit for each, whatever the length of the log it replays.
 
 A `Subscribe` `Update` frame is counted after the backend decodes it. Within the default `max_request_bytes` it can carry up to 13107200 empty `adds` or `removes` entries, and the backend decodes all of them before it fails the stream; only the stream's update bucket (API-258) limits how often a stream can do this. On a unary RPC whose request has no repeated field, the backend decodes every further message in the body as well, so the number of messages in one such request is not limited, although each is limited by `max_request_bytes`. The number of requests in flight is limited only by each connection's HTTP/2 stream limit.
 
