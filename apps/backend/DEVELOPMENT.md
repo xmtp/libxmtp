@@ -119,6 +119,50 @@ See [observability](../../docs/backend-observability.md).
 architecture spec and observability guide; the catalogue test checks both.
 Backend metrics do not depend on trace sampling. Client span metrics do.
 
+## Rate limits
+
+RATE in `docs/specs/` owns the behaviour; this is how the backend provides it.
+
+- **Layer.** `src/server/rate_limit.rs` runs after auth and drain admission and
+  before the count gate. It looks the path up in `rate_limit/charges.rs`, which
+  lists every served RPC (a test walks the proto descriptors), spends 1
+  `request` unit, and inserts a `Charger` into the request's extensions.
+  Handlers and streams spend every other category through `Charger::charge`,
+  the only code that calls the limiter, so every denial gets the same
+  `RESOURCE_EXHAUSTED` details, metric, and debug log line. A path missing from
+  the table is never charged.
+- **Callers.** `rate_limit/caller.rs` forms the `CallerKey` of
+  `xmtp_backend_config`, the type overrides are keyed by, from the auth context,
+  the connection's peer, and `X-Forwarded-For` behind `trusted_proxies`.
+- **GCRA.** `crates/xmtp_rate_limit` keeps one theoretical arrival time (TAT)
+  per limit: when the caller's admitted spends under it are earned back. A
+  spend is checked against every limit of its category and charged to all of
+  them or none, so a denial costs nothing and its retry delay is exact. A
+  caller whose TATs are all past is at full allowance and needs no state.
+- **Set-associative table.** One 8-way table, allocated at startup from
+  `rate_limits.max_memory_mib` and never grown, rehashed, or swept. A 32-byte
+  slot holds a keyed SipHash-1-3 hash of the category and caller key and three
+  TATs. A slot at full allowance is reused in place.
+- **Eviction order.** When a caller's set has no free slot and no slot at full
+  allowance, the slot whose largest TAT is smallest, the caller that has spent
+  least, is forgotten. `xmtp_rate_limit_evictions_total` counts these; a rising
+  count means the budget is too small. Being forgotten gives a caller a fresh
+  allowance; a new caller is never refused for lack of room.
+- **Per-instance state.** Each instance keeps its own table. N instances admit
+  up to N times a caller's limits when its requests spread across them. A
+  shared-store limiter can implement the async `RateLimiter` trait later
+  without changing the charge sites.
+- **Loss on restart.** The table lives only in memory: a restart forgets every
+  caller's spending.
+- **Off.** `rate_limits.enabled = false` builds no table and installs no layer.
+  Test harnesses turn limits off, because every local client shares one
+  address. A test that exercises limits sets `[rate_limits]` and, for exact
+  delays, starts with `TestServer::with_rate_limit_clock`.
+  `RunningServer::rate_limit_spends` lists each spend a test server decided.
+
+The [crate README](../../crates/xmtp_rate_limit/README.md) covers the
+arithmetic, locking, and benchmark.
+
 See `dev/fly/README.md` for development image publication and deployment.
 
 `dev/nix-shell 'just backend ci COMMAND'` runs one command with fresh test

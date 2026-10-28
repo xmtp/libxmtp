@@ -76,6 +76,11 @@ config: |
 
   [database]
   url = "env:XMTP_DATABASE_URL"
+
+  # Envoy connects from the pod network and appends each client's address
+  # to X-Forwarded-For. Replace with your cluster's pod CIDR.
+  [rate_limits]
+  trusted_proxies = ["10.244.0.0/16"]
 resources:
   requests:
     cpu: 250m
@@ -347,6 +352,38 @@ subscriptions, including quiet periods. Apply the shared
 [security controls](/deploy/overview/#security) because idle streams can retain
 resources. No body buffering, gRPC conversion, CORS rewrite, or retry policy is
 added. All [ingress checks](/deploy/overview/#ingress-contract) still need a client test.
+
+### Client addresses
+
+Backend images newer than `8.0.0-rc4` [limit each caller](/deploy/overview/#rate-limits),
+and charge a caller without a credential to its address. The backend's peer is
+an Envoy pod, so it finds the client in `X-Forwarded-For`, which Envoy Gateway
+appends the downstream address to: the
+[v1.7 client traffic task](https://gateway.envoyproxy.io/v1.7/tasks/traffic/client-traffic-policy/)
+shows a request sent with `X-Forwarded-For: 1.1.1.1,2.2.2.2` arriving with
+`1.1.1.1,2.2.2.2,10.244.0.9`. The backend reads the list from the right and
+takes the first address outside `trusted_proxies`, so a value a client wrote
+itself is never chosen.
+
+Set `trusted_proxies` to your cluster's pod CIDR, for example from the
+`--cluster-cidr` of your control plane or your CNI's configuration.
+`10.244.0.0/16` is only the common default. If the list misses the Envoy pods,
+the backend ignores the header, and every caller without a credential shares
+one allowance. Any pod in a listed network can choose the address it is
+charged to, so if the cluster runs workloads you do not trust, list a narrower
+network that holds only the Envoy pods.
+
+Envoy sees the client's own address only if nothing in front of it replaces
+the source address. Envoy Gateway's Envoy Service uses
+`externalTrafficPolicy: Local` by default
+([API reference](https://gateway.envoyproxy.io/v1.7/api/extension_types/#kubernetesservicespec)),
+so the cluster does not replace the client's source address. Kubernetes
+[notes](https://kubernetes.io/docs/tutorials/services/source-ip/#cross-platform-support)
+that this keeps the client's address only behind a cloud load balancer that
+forwards packets; one that terminates the connection replaces it with its own,
+and every caller without a credential then shares one allowance. Check your
+provider's load balancer. This guide has not verified the client address on a
+live cluster.
 
 Create the certificate Secret separately from Helm. The required manifest has
 this shape. Replace both placeholders with PEM data from your certificate

@@ -234,11 +234,86 @@ Check your ingress against both client kinds before you rely on it. A path that
 serves unary calls correctly can still drop long-lived subscriptions or strip
 the trailers that carry error details.
 
+## Rate limits
+
+Backend images newer than `8.0.0-rc4` limit the work each caller can make an
+instance do. Limits are on by default, with values sized well above one
+client's normal use; `rate_limits.enabled = false` turns them off. See
+[`[rate_limits]`](/get-started/run-the-backend/#rate_limits) for every key, and
+[RATE](/specs/rate-backend-rate-limits/) for the exact rules.
+
+Each request is charged before the backend does the work, in these categories:
+
+| Category          | What one unit is                                                                             | Default limits                   |
+| ----------------- | -------------------------------------------------------------------------------------------- | -------------------------------- |
+| `request`         | One RPC, except health checks and `GetConfiguration`, or one store read a subscription makes | 6000 per minute, 200000 per hour |
+| `publish`         | One published envelope                                                                       | 1000 per minute, 20000 per hour  |
+| `identity_update` | One published identity update                                                                | 10 per minute, 100 per hour      |
+| `chain_verify`    | One smart contract wallet signature to verify                                                | 200 per minute, 2000 per hour    |
+| `push`            | One topic added to a push subscription                                                       | 2000 per minute, 20000 per hour  |
+| `upload`          | One attachment upload request                                                                | 120 per minute, 2000 per hour    |
+| `stream_rent`     | One minute of an open subscription, plus one more for each 1000 topics it holds              | 120 per minute                   |
+
+A limit admits a burst of its count, then its count per window. A refused
+request gets `RESOURCE_EXHAUSTED` with the category and the delay after which
+the same request succeeds. SDK clients wait that delay before they send it
+again and never split it into smaller requests. The refused charge is not
+counted; charges the request already passed, such as its `request` unit, are.
+
+**Callers.** The backend charges a request to the most specific identity it
+has: the API key's name, else a JWT's issuer and subject, else the client
+address. A JWT without `sub` is charged to its address. An IPv6 address is
+charged by its /64, because one subscriber holds the whole /64.
+
+**Client address.** By default the client address is the peer of the
+connection. Behind a proxy or load balancer, that peer is the proxy, and every
+caller without a credential shares the proxy's allowance. To charge each client
+to its own address, make the proxy append the address it received the request
+from to `X-Forwarded-For`, and list the proxy's network in
+`rate_limits.trusted_proxies`. When the peer is a listed proxy, the backend
+reads `X-Forwarded-For` from the right, skips listed proxies, and takes the
+first address it does not trust. Never list a proxy that passes a client's
+`X-Forwarded-For` through unchanged: a client could then choose the address it
+is charged to. A load balancer that keeps the client's address on the
+connection needs no list.
+
+**Shared addresses.** Callers without a credential behind one address, such as
+an office, a campus, or a carrier-grade NAT, share one allowance. If your users
+share addresses, give them credentials, or raise the `ip` tier's limits:
+
+```toml
+[rate_limits.categories.request]
+ip = [{ count = 30000, window_seconds = 60 }, { count = 1000000, window_seconds = 3600 }]
+```
+
+An override raises or lowers the limits of one API key, one JWT subject, or one
+address. An empty list of limits makes that category unlimited.
+
+**Per instance.** Each instance keeps its own counts in memory. A deployment
+of N instances admits up to N times a caller's limits when its requests spread
+across them. A restart forgets every caller's spending. The counts take
+`rate_limits.max_memory_mib` of memory, 100 MiB by default, allocated at
+startup; include it when you size the instance. When the table is full, the
+backend forgets the callers that have spent least rather than refuse anyone.
+A rising `xmtp_rate_limit_evictions_total` means it is too small.
+`xmtp_rate_limit_rejections_total` counts refusals by category and auth type.
+
+How each guide's ingress reaches the backend:
+
+| Platform                                                                  | Client address the backend sees                                                             |
+| ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| [Local Linux or Mac with Tailscale](/deploy/local-tailscale/#rate-limits) | None: callers without a credential share one allowance                                      |
+| [Fly.io](/deploy/fly/#charge-callers-by-address)                          | Fly Proxy appends it to `X-Forwarded-For`; list Fly's proxy network and the app's addresses |
+| [Railway](/deploy/railway/#rate-limits)                                   | None: callers without a credential share one allowance                                      |
+| [AWS ECS (Fargate)](/deploy/aws-ecs/#client-addresses)                    | The connection carries it, with client IP preservation on the target group                  |
+| [Kubernetes](/deploy/kubernetes/#client-addresses)                        | Envoy appends it to `X-Forwarded-For`; list the pod network                                 |
+
 ## Security
 
 Optional API key and JWT authentication is available. Configure
 [`[auth]`](/get-started/run-the-backend/#auth) to require valid bearer tokens.
-Caller quotas are not implemented. A valid token does not prove group membership.
+[Rate limits](#rate-limits) bound the work each caller can make an instance do.
+A valid token does not prove group membership.
 
 Without `[auth]`, the service is unauthenticated. Do not expose an unauthenticated
 service to untrusted traffic. Use a private network or restrict access at a

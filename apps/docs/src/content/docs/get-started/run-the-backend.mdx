@@ -234,7 +234,8 @@ worker = "env:XMTP_WORKER_API_KEY"
 The backend checks API keys before JWTs. An API key match uses the key name as
 the principal. Scope, audience, and issuer checks apply only to JWTs.
 
-Caller quotas are not implemented. A valid token does not prove group membership.
+Credentials also name the caller that [`[rate_limits]`](#rate_limits) charges.
+A valid token does not prove group membership.
 
 ### `[chains]`
 
@@ -264,6 +265,55 @@ request and response byte limits, and
 `max_update_adds` at most `max_stream_topics`. `max_request_bytes` and
 `max_response_bytes` must each stay at or below the fixed 25 MiB transport
 ceiling.
+
+### `[rate_limits]`
+
+Per-caller rate limits. They are on by default, in backend images newer than
+`8.0.0-rc4`; an older image refuses this table. See
+[Rate limits](/deploy/overview/#rate-limits) for what each category charges,
+how callers are named, and how proxies affect the client address.
+
+| Key               | Type                 | Default | Purpose                                                                                                                            |
+| ----------------- | -------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `enabled`         | boolean              | `true`  | `false` admits every request and allocates no limiter.                                                                             |
+| `max_memory_mib`  | integer, 1 to 65536  | `100`   | Memory for the per-caller counts, allocated at startup. When it is full, the least-spent callers are forgotten.                    |
+| `trusted_proxies` | array of IP networks | `[]`    | Proxies whose `X-Forwarded-For` entries name the client. List only proxies that append the address they received the request from. |
+| `categories`      | table of categories  | `{}`    | Limits by category and tier. A category left out gets the defaults in the deployment overview.                                     |
+| `overrides`       | array of tables      | `[]`    | Limits for one caller, which replace every other limit of the categories they name.                                                |
+
+Under `categories.<category>`, set a list of limits for the tier `default`, or
+for one auth type: `ip`, `jwt`, or `api_key`. An auth type without its own list
+uses `default`, and a category without `default` uses the built-in defaults.
+Each limit is `{ count = N, window_seconds = S }`: a burst of N, then N per S
+seconds. A list holds at most three limits, each with its own window, and a
+request must fit all of them. An empty list admits every request in that
+category.
+
+Each override names exactly one caller: `api_key` (an API key name),
+`jwt_subject` with an optional `jwt_issuer` (no `jwt_issuer` names a token
+without `iss`), or `ip` (an IPv6 address names its /64). Its `limits` table
+holds lists by category name.
+
+```toml
+[rate_limits]
+# The network your proxy connects from. It must append the client's address
+# to X-Forwarded-For.
+trusted_proxies = ["10.0.0.0/8"]
+
+# Callers without credentials get a tighter publish limit.
+[rate_limits.categories.publish]
+ip = [{ count = 600, window_seconds = 60 }, { count = 10000, window_seconds = 3600 }]
+
+# One bot publishes without a limit.
+[[rate_limits.overrides]]
+api_key = "bridge-bot"
+[rate_limits.overrides.limits]
+publish = []
+```
+
+Startup refuses a list of more than three limits or with two equal windows,
+an override that names no caller or more than one, and two overrides for the
+same caller.
 
 ### `[mls]`
 
@@ -460,8 +510,9 @@ calls keep working and only subscriptions break.
 ## Security
 
 Optional API key and JWT authentication is available. Configure [`[auth]`](#auth)
-to require valid bearer credentials. Caller quotas are not implemented. A valid token does not
-prove group membership.
+to require valid bearer credentials. [Rate limits](#rate_limits) bound the work
+each caller can make an instance do. A valid token does not prove group
+membership.
 
 Without `[auth]`, the service is unauthenticated. Do not expose an unauthenticated
 service to untrusted traffic. Put it on a private network, or behind a trusted
