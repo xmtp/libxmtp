@@ -448,7 +448,8 @@
         "crates/xmtp_mls_common/**",
         "crates/xmtp_mls_validation/**",
         "crates/xmtp_proto/**",
-        "crates/xmtp_push_types/**"
+        "crates/xmtp_push_types/**",
+        "crates/xmtp_rate_limit/**"
       ],
       "workflow_files": [
         ".github/actions/setup-nix/**",
@@ -535,7 +536,8 @@
         "crates/xmtp_mls_common/**",
         "crates/xmtp_mls_validation/**",
         "crates/xmtp_proto/**",
-        "crates/xmtp_push_types/**"
+        "crates/xmtp_push_types/**",
+        "crates/xmtp_rate_limit/**"
       ],
       "workflow_files": [
         ".github/actions/setup-nix/**",
@@ -711,6 +713,7 @@
         "crates/xmtp_mls_validation/**",
         "crates/xmtp_proto/**",
         "crates/xmtp_push_types/**",
+        "crates/xmtp_rate_limit/**",
         "crates/xmtp_sdk/**"
       ],
       "workflow_files": [
