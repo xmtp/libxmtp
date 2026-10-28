@@ -451,25 +451,19 @@ where
             Some(xmtp_proto::xmtp::mls::database::task::Task::AddMissingInstallations(add)) => {
                 Self::run_add_missing_installations(task, add, context).await?;
             }
-            Some(xmtp_proto::xmtp::mls::database::task::Task::KpLiveness(_)) => {
-                // The variant exists in the regenerated protos but nothing in
-                // this crate schedules it yet, so a row can only appear from a
-                // newer client sharing this database. Leave it for that client
-                // rather than deleting it: falling through to `Done` would drop
-                // work this build simply cannot see, and the owning feature will
-                // add real handling. `expires_at_ns` still bounds how long an
-                // unclaimed row can sit here, so deferring cannot leak rows.
+            // A kind this build cannot run: `KpLiveness` has no handler yet,
+            // and `None` is a newer build's kind (prost drops an unknown
+            // `oneof task` field). Deleting would drop work a newer client
+            // sharing this database still owes. `expires_at_ns` bounds an
+            // unclaimed row.
+            Some(xmtp_proto::xmtp::mls::database::task::Task::KpLiveness(_)) | None => {
                 tracing::warn!(
-                    "Task {} is a KpLiveness task, which this version does not handle. Deferring.",
+                    "Task {} has a kind this version does not handle. Deferring.",
                     task.id
                 );
                 return Ok(TaskOutcome::RescheduleAt(
                     xmtp_common::time::now_ns() + UNKNOWN_TASK_DEFER_NS,
                 ));
-            }
-            None => {
-                tracing::error!("Task {} has no data. Deleting.", task.id);
-                context.db().delete_task(task.id)?;
             }
         }
         Ok(TaskOutcome::Done)
@@ -614,6 +608,56 @@ mod tests {
             .unwrap()
     }
 
+    fn seed_raw(db: &impl QueryTasks, data: Vec<u8>, expires: i64) -> xmtp_db::tasks::Task {
+        let mut task = NewTask::builder()
+            .originating_message_sequence_id(0)
+            .next_attempt_at_ns(xmtp_common::time::now_ns() - 1)
+            .expires_at_ns(expires)
+            .build(unique_proto())
+            .unwrap();
+        task.data_hash = xmtp_common::sha256_bytes(&data);
+        task.data = data;
+        let hash = task.data_hash.clone();
+        db.create_or_ignore_task(task).unwrap();
+        db.get_tasks()
+            .unwrap()
+            .into_iter()
+            .find(|t| t.data_hash == hash)
+            .unwrap()
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn undecodable_and_unhandled_kinds_are_deferred() {
+        tester!(alix, worker_config: no_runner_cfg());
+        let db = alix.context.db();
+        let now = xmtp_common::time::now_ns();
+        let liveness = TaskProto {
+            task: Some(TaskKind::KpLiveness(Default::default())),
+        };
+        for (data, expires) in [
+            (vec![0x52, 0x00], i64::MAX), // Unknown kind: field 10, empty message.
+            (liveness.encode_to_vec(), i64::MAX),
+            (vec![0x52, 0x00], now - 1),
+        ] {
+            let row = seed_raw(&db, data, expires);
+            let id = row.id;
+            let before = xmtp_common::time::now_ns();
+            TaskWorker::run_and_reschedule_task(row, &alix.context).await?;
+            let after = db.get_tasks()?.into_iter().find(|t| t.id == id);
+            if expires < now {
+                assert!(after.is_none(), "expired unknown kind must be reaped");
+            } else {
+                let after = after.expect("unhandled kind must survive");
+                assert_eq!(after.attempts, 0, "deferral must not count as a failure");
+                assert!(
+                    after.next_attempt_at_ns >= before + UNKNOWN_TASK_DEFER_NS,
+                    "deferral must push the deadline out"
+                );
+                db.delete_task(id)?;
+            }
+        }
+    }
+
     #[xmtp_common::test(unwrap_try = true)]
     async fn done_deletes() {
         tester!(alix, worker_config: no_runner_cfg());
@@ -650,7 +694,9 @@ mod tests {
         let db = alix.context.db();
         let now = xmtp_common::time::now_ns();
         let proto = unique_proto();
-        let row = seed(&db, proto.clone(), now - 1, i64::MAX, 5, i32::MAX);
+        // High attempts + past-due: only the i64::MAX/i32::MAX seed keeps the
+        // reaper (expires < now || attempts >= max) from deleting it.
+        let row = seed(&db, proto.clone(), now - 1, i64::MAX, 1_000_000, i32::MAX);
         let target = now + xmtp_common::NS_IN_DAY;
         *test_hooks::RESCHEDULE_OVERRIDE.lock().unwrap() =
             Some((data_hash_for(&proto).to_vec(), target));
@@ -664,30 +710,6 @@ mod tests {
             "deadline must ADVANCE, not stay past-due"
         );
         assert_eq!(after.attempts, 0, "success resets the backoff counter");
-    }
-
-    #[xmtp_common::test(unwrap_try = true)]
-    async fn never_expire_seed_survives_reaper() {
-        tester!(alix, worker_config: no_runner_cfg());
-        let db = alix.context.db();
-        let now = xmtp_common::time::now_ns();
-        let proto = unique_proto();
-        // High attempts + past-due: only the i64::MAX/i32::MAX seed keeps the
-        // reaper (expires < now || attempts >= max) from deleting it.
-        let row = seed(&db, proto.clone(), now - 1, i64::MAX, 1_000_000, i32::MAX);
-        *test_hooks::RESCHEDULE_OVERRIDE.lock().unwrap() =
-            Some((data_hash_for(&proto).to_vec(), now + xmtp_common::NS_IN_DAY));
-
-        TaskWorker::run_and_reschedule_task(row, &alix.context).await?;
-
-        *test_hooks::RESCHEDULE_OVERRIDE.lock().unwrap() = None;
-        let after = db.get_tasks()?;
-        assert_eq!(after.len(), 1, "never-expire seed must not be reaped");
-        assert_eq!(
-            after[0].next_attempt_at_ns,
-            now + xmtp_common::NS_IN_DAY,
-            "seed must have been rescheduled to the target deadline"
-        );
     }
 
     #[xmtp_common::test(unwrap_try = true)]
