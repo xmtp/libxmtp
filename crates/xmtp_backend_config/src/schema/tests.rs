@@ -57,6 +57,7 @@ fn published_schema_accepts_the_example_and_rejects_unknown_keys() {
         "push",
         "validation",
         "limits",
+        "rate_limits",
         "mls",
     ] {
         let mut instance = example.clone();
@@ -233,6 +234,7 @@ fn published_schema_enforces_every_numeric_scalar_range() {
                 }
                 ("mls", _) => super::super::MAX_MLS_LIMIT as u64,
                 ("handles", "min_name_length") => 27,
+                ("rate_limits", "max_memory_mib") => 65_536,
                 _ => u64::MAX,
             };
             let minimum = if section == "push" && field == "recipient_ttl_seconds" {
@@ -439,6 +441,92 @@ fn published_schema_checks_socket_addresses_with_the_runtime_parser() {
             address.parse::<std::net::SocketAddr>().is_ok(),
             "{address:?}"
         );
+    }
+}
+
+/// The published `ip address` and `ip network` patterns accept exactly what
+/// startup accepts, except a network with a bit set after its prefix, which
+/// only startup refuses.
+#[xmtp_common::test(unwrap_try = true)]
+fn published_schema_checks_ip_addresses_and_networks_with_the_runtime_parser() {
+    let validator = validator();
+    let addresses = [
+        "0.0.0.0",
+        "255.255.255.255",
+        "192.0.2.1",
+        "::",
+        "::1",
+        "1:2:3:4:5:6:7:8",
+        "1:2:3:4:5:6:192.0.2.1",
+        "::ffff:192.0.2.1",
+        "2001:DB8::1",
+        "",
+        "01.2.3.4",
+        "256.0.0.1",
+        "1.2.3",
+        "[::1]",
+        "fe80::1%1",
+        "1::2::3",
+        "::gg",
+        "1:2:3:4:5:6:7:8:9",
+        "localhost",
+        " 192.0.2.1",
+        "192.0.2.1\n",
+    ];
+    for address in addresses {
+        let instance = json!({
+            "database": {"url": "postgres://localhost/xmtp"},
+            "rate_limits": {"overrides": [{"ip": address, "limits": {}}]}
+        });
+        assert_eq!(
+            validator.is_valid(&instance),
+            crate::ip_address(address).is_some(),
+            "{address:?}"
+        );
+    }
+    let mut networks = vec![
+        "0.0.0.0/0".to_owned(),
+        "10.0.0.0/8".into(),
+        "192.0.2.7/32".into(),
+        "192.0.2.0/024".into(),
+        "::/0".into(),
+        "fd00::/8".into(),
+        "2001:db8::1/128".into(),
+        "::ffff:192.0.2.0/120".into(),
+        "10.0.0.0/33".into(),
+        "10.0.0.0/+8".into(),
+        "10.0.0.0/-8".into(),
+        "10.0.0.0/".into(),
+        "10.0.0.0".into(),
+        "/8".into(),
+        "fd00::/129".into(),
+        "fd00::%1/8".into(),
+        "[fd00::]/8".into(),
+        "10.0.0.0/8/8".into(),
+    ];
+    // A full-length prefix sets no bit after it.
+    networks.extend(addresses.iter().map(|address| {
+        let length = if address.contains(':') { 128 } else { 32 };
+        format!("{address}/{length}")
+    }));
+    for network in &networks {
+        let instance = json!({
+            "database": {"url": "postgres://localhost/xmtp"},
+            "rate_limits": {"trusted_proxies": [network]}
+        });
+        assert_eq!(
+            validator.is_valid(&instance),
+            crate::ip_network(network).is_some(),
+            "{network:?}"
+        );
+    }
+    for network in ["10.0.0.1/8", "fd00::1/8", "192.0.2.1/31"] {
+        let instance = json!({
+            "database": {"url": "postgres://localhost/xmtp"},
+            "rate_limits": {"trusted_proxies": [network]}
+        });
+        assert!(validator.is_valid(&instance), "{network:?}");
+        assert!(crate::ip_network(network).is_none(), "{network:?}");
     }
 }
 

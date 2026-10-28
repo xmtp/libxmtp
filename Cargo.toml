@@ -123,6 +123,7 @@ http-body = "1"
 hyper = { version = "1.11", default-features = false }
 hyper-util = "0.1"
 indicatif = "0.18"
+ipnet = "2.12"
 itertools = "0.15"
 js-sys = "0.3"
 libc = "0.2"

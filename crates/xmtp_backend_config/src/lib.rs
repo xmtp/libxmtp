@@ -1,6 +1,12 @@
 //! Backend configuration loaded from a TOML file.
 
-use std::{collections::BTreeMap, fs, net::SocketAddr, num::NonZeroUsize, path::Path};
+use std::{
+    collections::BTreeMap,
+    fs,
+    net::{IpAddr, SocketAddr},
+    num::NonZeroUsize,
+    path::Path,
+};
 
 use schemars::{JsonSchema, Schema};
 use serde::{Deserialize, Serialize};
@@ -27,9 +33,11 @@ pub mod attachments;
 pub mod auth;
 pub mod handles;
 pub mod push;
+pub mod rate_limits;
 mod schema;
 mod telemetry;
 mod validated;
+pub use rate_limits::{AuthType, CallerKey, Category, LimitConfig, RateLimitConfig};
 pub use telemetry::{IDENTIFIER_ATTRIBUTE, TelemetryConfig};
 pub use validated::{Validated, ValidatedConfig};
 
@@ -250,6 +258,8 @@ pub struct Config {
     #[serde(default)]
     pub limits: LimitsConfig,
     #[serde(default)]
+    pub rate_limits: rate_limits::RateLimitsSection,
+    #[serde(default)]
     pub mls: MlsConfig,
     #[serde(default)]
     pub handles: handles::HandlesConfig,
@@ -280,13 +290,13 @@ impl Config {
     /// values and the relationships between values. A `ValidatedConfig`
     /// comes only from here.
     pub fn validate(self) -> Result<ValidatedConfig, ConfigError> {
-        let scw_cache_entries = self.check()?;
-        Ok(ValidatedConfig::new(self, scw_cache_entries))
+        let (scw_cache_entries, rate_limits) = self.check()?;
+        Ok(ValidatedConfig::new(self, scw_cache_entries, rate_limits))
     }
 
     /// Every document check. Returns the checked values `ValidatedConfig`
     /// keeps.
-    fn check(&self) -> Result<NonZeroUsize, ConfigError> {
+    fn check(&self) -> Result<(NonZeroUsize, RateLimitConfig), ConfigError> {
         if let Some(attachments) = &self.attachments {
             attachments.validate()?;
         }
@@ -324,10 +334,11 @@ impl Config {
         let scw_cache_entries = self.validation.validate()?;
         self.validate_chains()?;
         self.limits.validate()?;
+        let rate_limits = self.rate_limits.validate()?;
         self.mls.validate()?;
         self.handles.validate()?;
         application_components::validate(&self.application_components)?;
-        Ok(scw_cache_entries)
+        Ok((scw_cache_entries, rate_limits))
     }
 
     /// Require chain keys that the SCW verifier can route and HTTP(S) RPC URLs.
@@ -371,6 +382,7 @@ impl std::fmt::Debug for Config {
             )
             .field("validation", &self.validation)
             .field("limits", &self.limits)
+            .field("rate_limits", &self.rate_limits)
             .field("mls", &self.mls)
             .field("handles", &self.handles)
             .field("application_components", &self.application_components)
@@ -452,6 +464,25 @@ where
     } else {
         Ok(())
     }
+}
+
+/// The `ip address` standard check: an IPv4 address in dotted decimal with no
+/// leading zero, or an IPv6 address without brackets or a zone index.
+fn ip_address(value: &str) -> Option<IpAddr> {
+    value.parse().ok()
+}
+
+/// The `ip network` standard check: an `ip address`, `/`, and a decimal
+/// prefix length that fits the address, with every bit after the prefix 0.
+fn ip_network(value: &str) -> Option<ipnet::IpNet> {
+    let (address, prefix) = value.split_once('/')?;
+    // `u8::from_str` also takes a leading `+`.
+    if prefix.is_empty() || !prefix.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+    let address = ip_address(address)?;
+    let network = ipnet::IpNet::new(address, prefix.parse().ok()?).ok()?;
+    (network.network() == address).then_some(network)
 }
 
 #[derive(Clone, Copy)]
