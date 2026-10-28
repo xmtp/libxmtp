@@ -135,7 +135,7 @@ message HttpHeader {
 }
 ```
 
-The admission table adds the conditions of `CreateUpload` to the status table of API section 7. The backend checks the rows in order, after admission under AUTH-001; the first row that matches decides the code. `UNAVAILABLE` reports a credential failure that a later request can outlive, such as a credential source that does not answer or a credential that has expired and is not yet renewed. `FAILED_PRECONDITION` and `INTERNAL` report a failure that stays until the operator corrects the configuration or the backend.
+The admission table adds the conditions of `CreateUpload` to the status table of API section 7. The backend checks the rows in order, after admission under AUTH-001 and the `request` charge of RATE section 2; the first row that matches decides the code. `UNAVAILABLE` reports a credential failure that a later request can outlive, such as a credential source that does not answer or a credential that has expired and is not yet renewed. `FAILED_PRECONDITION` and `INTERNAL` report a failure that stays until the operator corrects the configuration or the backend.
 
 | Condition | Code |
 | --- | --- |
