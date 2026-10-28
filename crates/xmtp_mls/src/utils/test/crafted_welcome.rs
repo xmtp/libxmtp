@@ -17,6 +17,7 @@ use openmls::prelude::CredentialWithKey;
 use openmls::treesync::LeafNodeParameters;
 use prost::Message;
 use tls_codec::Serialize;
+use xmtp_db::incoming_envelope::{NetworkEntityKind, StreamTopic};
 use xmtp_db::prelude::*;
 use xmtp_mls_common::{
     app_data::{
@@ -35,7 +36,7 @@ use xmtp_proto::{
         WelcomeMessage as WelcomeMessageInput,
         welcome_message::{V1 as WelcomeMessageInputV1, Version as WelcomeMessageInputVersion},
     },
-    types::ConversationType,
+    types::{ConversationType, Cursor, GroupId},
     xmtp::mls::message_contents::{
         GroupMembershipEntry, WelcomeMetadata,
         group_membership_entry::{V1 as MembershipV1, Version as MembershipVersion},
@@ -164,8 +165,9 @@ pub(crate) async fn send_crafted_welcome_with(
             registry.to_bytes().unwrap(),
         );
     }
-    // Name each member's identity state, as an add commit would.
-    let membership = [creator, joiner]
+    // Name each member's identity state, as an add commit would. When both
+    // are one inbox, the creator's state wins, as it would in its own commit.
+    let membership = [joiner, creator]
         .into_iter()
         .map(|client| {
             let sequence_id = client
@@ -257,4 +259,26 @@ pub(crate) async fn send_crafted_welcome_with(
         }])
         .await
         .unwrap();
+}
+
+/// Assert that `client` rejected a Welcome for `group_id` for good: no group
+/// row, a last rejection coded `invalid_welcome`, and no pending row left at
+/// its cursor. Returns that cursor.
+#[track_caller]
+pub(crate) fn assert_welcome_rejected(client: &FullXmtpClient, group_id: &GroupId) -> Cursor {
+    let db = client.context.db();
+    assert!(db.find_group(group_id).unwrap().is_none());
+    let topic = StreamTopic {
+        entity_id: client.context.installation_id().to_vec(),
+        kind: NetworkEntityKind::Welcome,
+    };
+    let rejected = db.read_last_rejection(&topic).unwrap().unwrap();
+    assert_eq!(rejected.code, "invalid_welcome");
+    assert!(
+        db.pending_envelope(&topic, rejected.sequence_id)
+            .unwrap()
+            .is_none(),
+        "the rejected Welcome must not stay pending"
+    );
+    rejected.sequence_id
 }

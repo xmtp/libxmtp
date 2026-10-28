@@ -9,7 +9,7 @@ use crate::groups::mls_ext::ResolvedWelcome;
 use crate::groups::oneshot::Oneshot;
 use crate::groups::welcomes::WelcomeMembership;
 use crate::identity_updates::{
-    IdentityDependencyError, IdentityRequirement, InstallationDiffError,
+    IdentityDependencyError, IdentityRequirement, InstallationDiffError, require_association_state,
 };
 use crate::state_tx::{state_write, state_write_with_events};
 use crate::subscriptions::internal::{
@@ -43,6 +43,7 @@ use xmtp_events::{
     ClientEvent, ConversationJoined, ConversationType as EventConversationType, EventBuffer,
     EventWriter, JoinOrigin,
 };
+use xmtp_id::associations::MemberIdentifier;
 use xmtp_mls_common::app_data::group_root::check_group_root;
 use xmtp_mls_common::group_metadata::extract_group_metadata;
 use xmtp_mls_common::libxmtp_version::LibXMTPVersion;
@@ -396,6 +397,24 @@ where
             return Err(GroupError::InvalidGroupMembership);
         }
         self.validator.check_verified_membership(&membership, &db)?;
+        // The membership check proved the adder at the named own state, so the
+        // client holds every own update through it; a newer one can only have
+        // revoked it.
+        // implements: JOIN-095
+        if added_by_inbox_id == context.inbox_id() {
+            let newest = IdentityRequirement {
+                inbox_id: added_by_inbox_id.clone(),
+                sequence_id: db.get_latest_sequence_id_for_inbox(&added_by_inbox_id)? as u64,
+            };
+            // Not cached yet: `Need` holds the Welcome and the resolver computes it.
+            let own =
+                require_association_state(&db, &newest).map_err(InstallationDiffError::from)?;
+            let adder = MemberIdentifier::installation(added_by_installation_id.clone());
+            if own.get(&adder).is_none() {
+                tracing::warn!("rejecting a Welcome from a revoked own installation");
+                return Err(GroupError::InvalidGroupMembership);
+            }
+        }
         // implements: JOIN-089
         // A held row's conversation type and dm id never change through a
         // Welcome, for a Restored placeholder and a live group alike. This runs
@@ -985,7 +1004,7 @@ mod tests {
     #[xmtp_common::test(unwrap_try = true)]
     async fn a_welcome_joins_only_when_its_root_names_the_group() {
         use crate::utils::test::crafted_welcome::{
-            send_crafted_welcome, send_crafted_welcome_of_type,
+            assert_welcome_rejected, send_crafted_welcome, send_crafted_welcome_of_type,
         };
         use xmtp_mls_common::app_data::group_root::GroupRootError;
         use xmtp_mls_common::group_keys::{GroupKeys, GroupRoot};
@@ -996,10 +1015,6 @@ mod tests {
         let root = GroupRoot::generate();
         let other_root = GroupRoot::generate();
         let legacy_id = xmtp_common::rand_vec::<{ xmtp_configuration::LEGACY_GROUP_ID_BYTES }>();
-        let topic = StreamTopic {
-            entity_id: bo.context.installation_id().to_vec(),
-            kind: NetworkEntityKind::Welcome,
-        };
 
         for (case, group_id, welcome_root, conversation_type, expected) in [
             (
@@ -1048,16 +1063,10 @@ mod tests {
                 "{case}: {result:?}"
             );
             let group_id = GroupId::try_from(group_id.as_slice())?;
-            assert!(bo.context.db().find_group(&group_id)?.is_none(), "{case}");
-            let rejected = bo.context.db().read_last_rejection(&topic)?.expect(case);
             assert_eq!(
-                rejected.sequence_id, cursor,
+                assert_welcome_rejected(&bo, &group_id),
+                cursor,
                 "{case}: the rejection is this Welcome's"
-            );
-            assert_eq!(rejected.code, "invalid_welcome", "{case}");
-            assert!(
-                bo.context.db().pending_envelope(&topic, cursor)?.is_none(),
-                "{case}: the rejected Welcome must not stay pending"
             );
         }
 
@@ -1065,6 +1074,74 @@ mod tests {
         send_crafted_welcome(&alix, &bo, &joined_id, Some(&root)).await;
         let joined = process_newest_welcome(&bo).await?.expect("a group");
         assert_eq!(joined.group_id.as_slice(), joined_id.as_slice());
+    }
+
+    /// An own installation that has not loaded its revocation offers a sync
+    /// group or a group. The joiner holds the revocation, so it rejects the
+    /// Welcome for good and stores neither the group nor a consent record. A
+    /// current own adder still joins while the newest own state is uncached.
+    // verifies: JOIN-095
+    #[rstest::rstest]
+    #[case::revoked_sync(ConversationType::Sync, true)]
+    #[case::revoked_group(ConversationType::Group, true)]
+    #[case::current_uncached(ConversationType::Group, false)]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn own_adder_must_be_current(#[case] kind: ConversationType, #[case] revoked: bool) {
+        use crate::utils::test::crafted_welcome::{
+            assert_welcome_rejected, send_crafted_welcome_of_type,
+        };
+        use diesel::prelude::*;
+        use xmtp_db::{ConnectionExt, schema::association_state::dsl};
+        use xmtp_id::associations::test_utils::add_wallet_signature;
+        use xmtp_mls_common::group_keys::{GroupKeys, GroupRoot};
+
+        tester!(alix1, disable_workers);
+        tester!(alix2, from: alix1, disable_workers);
+        let identity = alix1.identity_updates();
+        let db = alix1.context.db();
+        if revoked {
+            let revoked = vec![alix2.context.installation_id().to_vec()];
+            let mut revoke = identity.revoke_installations(revoked).await.unwrap();
+            add_wallet_signature(&mut revoke, &alix1.builder.owner).await;
+            identity.apply_signature_request(revoke).await.unwrap();
+        } else {
+            // A newer own update is stored, but its state is not cached.
+            tester!(_alix3, from: alix1, disable_workers);
+            let inbox_id = alix1.inbox_id();
+            identity
+                .get_latest_association_state(&db, inbox_id)
+                .await
+                .unwrap();
+            let newest = db.get_latest_sequence_id_for_inbox(inbox_id).unwrap();
+            let cached = dsl::association_state.filter(dsl::sequence_id.eq(newest));
+            db.raw_query(|conn| diesel::delete(cached).execute(conn))
+                .unwrap();
+        }
+
+        let root = GroupRoot::generate();
+        let group_id = GroupKeys::derive(&root).group_id().to_vec();
+        send_crafted_welcome_of_type(&alix2, &alix1, &group_id, Some(&root), kind).await;
+        let group_id = GroupId::try_from(group_id.as_slice()).unwrap();
+        if !revoked {
+            // The Welcome can take a moment to become readable.
+            let joined = xmtp_common::wait_for_some(|| async {
+                alix1.sync_welcomes().await.unwrap();
+                db.find_group(&group_id).unwrap()
+            });
+            assert!(joined.await.is_some());
+            return;
+        }
+
+        let result = process_newest_welcome(&alix1).await;
+        assert!(
+            matches!(result, Err(GroupError::InvalidGroupMembership)),
+            "{result:?}"
+        );
+        assert_welcome_rejected(&alix1, &group_id);
+        let consent = db
+            .get_consent_record(hex::encode(group_id), ConsentType::ConversationId)
+            .unwrap();
+        assert!(consent.is_none(), "{consent:?}");
     }
 
     /// A former member can offer a second MLS branch under the group's root,
