@@ -6,10 +6,11 @@
 # fresh CI VM, CoreSimulator starts and mounts the simulator runtimes on first
 # use. When no device is listed within that wait, xcodebuild fails with "Unable
 # to find a device matching the provided destination specifier". This script
-# gives CoreSimulator up to 5 minutes to list a device and up to 5 minutes to
-# boot it, so the device is ready before xcodebuild starts. Choosing the device
-# here also keeps a runner image update or a developer's simulator set from
-# breaking a fixed device name.
+# starts `simctl list` calls for 5 minutes until one lists a device, then gives
+# the boot up to 5 minutes, so the device is ready before xcodebuild starts. A
+# device that the last call lists is used even if the call ends after the
+# 5 minutes. Choosing the device here also keeps a runner image update or a
+# developer's simulator set from breaking a fixed device name.
 set -euo pipefail
 
 # The Nix shell puts xcbuild's xcrun first on PATH; simctl needs Apple's.
