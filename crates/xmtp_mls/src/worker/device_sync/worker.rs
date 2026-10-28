@@ -42,7 +42,6 @@ pub(super) fn log_incoming_preference_updates(
     tracing::info!(update_count = updates.len(), "Incoming preference updates");
 }
 
-const MAX_ATTEMPTS: i32 = 3;
 type PendingEvent = Arc<Mutex<Option<(u64, xmtp_events::EventEnvelope<InternalEvent>)>>>;
 
 #[cfg(test)]
@@ -641,8 +640,8 @@ where
             );
 
             if let Err(err) = self.process_message(handle, &msg, content).await {
-                // A failed message is non-fatal (log + bump attempt), but a
-                // dropped pool must stop the worker; bubble it.
+                // implements: SYNC-016 (a storage error leaves the row Pending for the next tick)
+                // A failed message is non-fatal, but a dropped pool must stop the worker.
                 if err.needs_db_reconnect() {
                     return Err(err);
                 }
@@ -652,9 +651,6 @@ where
                     error = %err,
                     message_id = #msg.id
                 );
-                self.context
-                    .db()
-                    .increment_device_sync_msg_attempt(&msg.id, MAX_ATTEMPTS)?;
             } else {
                 self.context
                     .db()
@@ -718,10 +714,7 @@ where
                         test_hooks::PreferenceStage::Received,
                         &observed_updates
                             .into_iter()
-                            .map(|update| {
-                                PreferenceUpdate::try_from(update)
-                                    .expect("valid observed preference update")
-                            })
+                            .filter_map(|update| PreferenceUpdate::try_from(update).ok())
                             .collect::<Vec<_>>(),
                     );
                 }

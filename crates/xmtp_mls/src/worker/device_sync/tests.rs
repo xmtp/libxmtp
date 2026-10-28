@@ -897,8 +897,15 @@ async fn sync_message_from_another_inbox_is_not_applied() {
                 cycled_at_ns,
             },
         ];
+        let mut updates: Vec<xmtp_proto::xmtp::device_sync::content::PreferenceUpdate> =
+            updates.into_iter().map(Into::into).collect();
+        let mut bad = updates[0].clone();
+        if let Some(PreferenceUpdateProto::Consent(record)) = &mut bad.update {
+            record.entity_type = 3; // Retired ADDRESS record.
+        }
+        updates.insert(0, bad);
         sync_message_bytes(ContentProto::PreferenceUpdates(PreferenceUpdates {
-            updates: updates.into_iter().map(Into::into).collect(),
+            updates,
         }))
     };
     let now = now_ns();
@@ -921,6 +928,8 @@ async fn sync_message_from_another_inbox_is_not_applied() {
             .iter()
             .any(|message| message.sender_inbox_id == eve.inbox_id())
     );
+    let _capture =
+        worker::test_hooks::PreferenceCapture::new(vec![alix1.context.installation_id()], &[]);
     let client = alix1.device_sync_client();
     client
         .process_sync_group_messages(&client.metrics, pending)
@@ -932,6 +941,48 @@ async fn sync_message_from_another_inbox_is_not_applied() {
     assert_eq!(
         StoredUserPreferences::load(&db)?.hmac_key,
         Some(vec![2; 42].into())
+    );
+    assert!(db.unprocessed_sync_group_messages()?.is_empty());
+}
+
+// verifies: SYNC-016
+#[xmtp_common::test(unwrap_try = true)]
+#[cfg_attr(target_arch = "wasm32", ignore)]
+async fn failing_sync_message_stays_pending() {
+    use diesel::RunQueryDsl;
+    use preference_sync::PreferenceUpdate;
+    tester!(alix, disable_workers);
+    let client = alix.device_sync_client();
+    let db = alix.context.db();
+    let record =
+        StoredConsentRecord::new(ConsentType::InboxId, ConsentState::Denied, "retry".into());
+    client
+        .sync_preferences(vec![PreferenceUpdate::Consent(record.clone())])
+        .await?;
+    db.raw_query(|conn| {
+        diesel::sql_query(
+            "CREATE TRIGGER fail_sync_consent BEFORE INSERT ON consent_records \
+         WHEN NEW.entity = 'retry' BEGIN SELECT RAISE(ABORT, 'injected sync failure'); END",
+        )
+        .execute(conn)
+    })?;
+    for _ in 0..4 {
+        client
+            .process_sync_group_messages(&client.metrics, db.unprocessed_sync_group_messages()?)
+            .await?;
+    }
+    assert_eq!(db.unprocessed_sync_group_messages()?.len(), 1);
+    assert!(
+        db.get_consent_record(record.entity.clone(), record.entity_type)?
+            .is_none()
+    );
+    db.raw_query(|conn| diesel::sql_query("DROP TRIGGER fail_sync_consent").execute(conn))?;
+    client
+        .process_sync_group_messages(&client.metrics, db.unprocessed_sync_group_messages()?)
+        .await?;
+    assert_eq!(
+        db.get_consent_record(record.entity.clone(), record.entity_type)?,
+        Some(record)
     );
     assert!(db.unprocessed_sync_group_messages()?.is_empty());
 }
