@@ -44,6 +44,15 @@ database role must be able to apply schema migrations and read and write
 application data. Replace the example identifier with a name you control.
 Keep it unchanged after clients connect, including when moving the deployment.
 
+Add `sslmode=verify-full` to the connection string so the backend checks the
+database's certificate and host name. If the provider's CA is not a public
+root, also set `sslrootcert` to its CA file. `require` accepts any certificate,
+and `verify-ca` checks the certificate chain but not the host name; only
+`verify-full` checks both. Unless the log level is `error` or `off`, the
+backend logs a warning at startup for a remote store in any other mode, for
+disabled auth on a listener that is not loopback, and for a plain `http://`
+chain URL to a host that is not loopback.
+
 Supply exactly one configuration source: `--config-file`, inline `--config`,
 or inline TOML in `XMTP_CONFIG`. Environment references resolve at startup.
 Missing variables and invalid configuration stop startup. Restart instances to
