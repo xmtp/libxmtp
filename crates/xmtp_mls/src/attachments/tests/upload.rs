@@ -1027,29 +1027,6 @@ async fn blocked_connection_upload_fails() {
     );
 }
 
-/// A rate limit is a transient backend condition whatever its status code.
-// verifies: RATE-041
-#[xmtp_common::test(unwrap_try = true)]
-fn a_rate_limit_maps_to_a_transient_cause() {
-    use xmtp_proto::api::ApiClientError;
-    let limited = xmtp_api_grpc::error::rate_limited_status(
-        "upload",
-        xmtp_common::time::Duration::from_secs(5),
-    );
-    for code in [
-        tonic::Code::ResourceExhausted,
-        tonic::Code::PermissionDenied,
-        tonic::Code::InvalidArgument,
-    ] {
-        let status =
-            tonic::Status::with_details(code, "rate limited", limited.details().to_vec().into());
-        let error = ApiClientError::client(xmtp_api_grpc::error::GrpcError::Status(status));
-        let mapped = api_error(xmtp_api::dyn_err(error));
-        assert_eq!(mapped.cause, Cause::BackendUnavailable, "{code:?}");
-        assert!(!mapped.missing_scope);
-    }
-}
-
 // verifies: ATCH-060, ATCH-061
 #[xmtp_common::test(unwrap_try = true)]
 fn causes_map() {

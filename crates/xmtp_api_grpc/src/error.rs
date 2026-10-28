@@ -6,11 +6,11 @@ const ERROR_INFO_TYPE_URL: &str = "type.googleapis.com/google.rpc.ErrorInfo";
 const RETRY_INFO_TYPE_URL: &str = "type.googleapis.com/google.rpc.RetryInfo";
 
 /// The `RetryInfo` delay of a rate-limit rejection (RATE-040) found anywhere in
-/// the error's sources, or `None` when the error is not one. Only an
-/// `ErrorInfo` of the rate-limit reason and domain marks a rejection, whatever
-/// the status code; any other status, `RESOURCE_EXHAUSTED` included, is not
-/// one. A missing or negative delay counts as zero. The status message is
-/// never read.
+/// the error's sources, or `None` when the error is not one. A rejection is a
+/// `RESOURCE_EXHAUSTED` status with an `ErrorInfo` of the rate-limit reason and
+/// domain. Any other status, `RESOURCE_EXHAUSTED` without that detail and any
+/// other code with it included, keeps its own handling. A missing or negative
+/// delay counts as zero. The status message is never read.
 // implements: RATE-041
 pub fn rate_limit_delay(error: &(dyn std::error::Error + 'static)) -> Option<Duration> {
     status_rate_limit_delay(xmtp_proto::api::grpc_status(error)?)
@@ -67,6 +67,9 @@ pub fn rate_limited_status(category: &str, delay: Duration) -> tonic::Status {
 fn status_rate_limit_delay(status: &tonic::Status) -> Option<Duration> {
     use prost::Message;
     use tonic_types::pb;
+    if status.code() != tonic::Code::ResourceExhausted {
+        return None;
+    }
     let details = pb::Status::decode(status.details()).ok()?.details;
     let rate_limited = details
         .iter()
@@ -507,31 +510,24 @@ pub(crate) mod rate_limit_tests {
         "RATE_LIMITED",
         "xmtp.org",
         Some(Duration::from_secs(5)),
-        Some(Duration::from_secs(5))
+        None
     )]
     #[case::permission_denied(
         Code::PermissionDenied,
         "RATE_LIMITED",
         "xmtp.org",
         Some(Duration::from_secs(5)),
-        Some(Duration::from_secs(5))
+        None
     )]
     #[case::out_of_range(
         Code::OutOfRange,
         "RATE_LIMITED",
         "xmtp.org",
         Some(Duration::from_secs(5)),
-        Some(Duration::from_secs(5))
-    )]
-    #[case::other_detail_out_of_range(
-        Code::OutOfRange,
-        "TOO_LARGE",
-        "xmtp.org",
-        Some(Duration::from_secs(5)),
         None
     )]
     #[xmtp_common::test(unwrap_try = true)]
-    fn rate_limit_is_marked_by_the_detail_whatever_the_code(
+    fn rate_limit_is_resource_exhausted_with_the_detail(
         #[case] code: Code,
         #[case] reason: &str,
         #[case] domain: &str,

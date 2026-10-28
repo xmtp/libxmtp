@@ -149,10 +149,11 @@ fn a_preflight_failure_keeps_the_rate_limit_delay() {
     assert_eq!(error.rate_limit_delay(), Some(delay));
 }
 
-/// The rate-limit detail is never split, whatever the status code.
-// verifies: RATE-041
+/// Only RESOURCE_EXHAUSTED with the detail is a rate limit: OUT_OF_RANGE that
+/// carries the detail keeps its size handling (P20).
+// verifies: CONF-073
 #[xmtp_common::test(unwrap_try = true)]
-fn a_rate_limit_on_out_of_range_is_not_a_size_error() {
+fn out_of_range_with_the_rate_limit_detail_is_still_a_size_error() {
     let status = <tonic::Status as tonic_types::StatusExt>::with_error_details(
         tonic::Code::OutOfRange,
         "rate limited",
@@ -163,5 +164,5 @@ fn a_rate_limit_on_out_of_range_is_not_a_size_error() {
         ),
     );
     let error = ApiClientError::client(GrpcError::Status(status));
-    assert!(!crate::chunk::size_error(&error));
+    assert!(crate::chunk::size_error(&error));
 }

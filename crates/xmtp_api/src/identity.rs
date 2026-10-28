@@ -268,12 +268,9 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
 /// A refusal of a whole verify request that a smaller request can pass: the
 /// count limit (`INVALID_ARGUMENT`) or the byte limit (`OUT_OF_RANGE`). The
 /// backend also answers `INVALID_ARGUMENT` for one signature it refuses, so
-/// splitting ends at that signature with its own refusal. A rate-limit
-/// rejection is never split, whatever its status code.
-// implements: RATE-041
+/// splitting ends at that signature with its own refusal.
 fn refused_as_too_large(error: &(dyn std::error::Error + 'static)) -> bool {
     crate::preflight::failure(error).is_none()
-        && xmtp_api_grpc::error::rate_limit_delay(error).is_none()
         && grpc_status(error).is_some_and(|status| {
             matches!(
                 status.code(),

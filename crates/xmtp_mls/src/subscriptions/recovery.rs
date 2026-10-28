@@ -15,11 +15,8 @@ pub(crate) const RECOVERY_POLL: Duration = Duration::from_secs(1);
 // implements: PROC-021, AUTH-022, AUTH-025, CONF-075, API-284
 fn terminal_source(error: &(dyn std::error::Error + 'static)) -> bool {
     // Admission failures end the scopes present at the attempt, not a later
-    // reader that copies the shared transport's old failure counters. A rate
-    // limit passes with its delay, whatever its status code.
-    if xmtp_api::preflight::failure(error).is_some()
-        || xmtp_api_grpc::error::rate_limit_delay(error).is_some()
-    {
+    // reader that copies the shared transport's old failure counters.
+    if xmtp_api::preflight::failure(error).is_some() {
         return false;
     }
 
@@ -80,10 +77,7 @@ fn terminal_source(error: &(dyn std::error::Error + 'static)) -> bool {
 
 /// These replies prohibit an unchanged request.
 pub(crate) fn rejected_request(error: &(dyn std::error::Error + 'static)) -> bool {
-    // A rate limit passes with its delay, whatever its status code.
-    if xmtp_api::preflight::failure(error).is_some()
-        || xmtp_api_grpc::error::rate_limit_delay(error).is_some()
-    {
+    if xmtp_api::preflight::failure(error).is_some() {
         return false;
     }
 
@@ -313,33 +307,6 @@ mod tests {
         };
         assert_eq!(attempts, MAX_FAILURES as u32);
         assert!(Arc::ptr_eq(&source.unwrap(), &error));
-    }
-
-    /// A rate limit is neither a terminal refusal nor a rejected request,
-    /// whatever its status code: it passes with its delay.
-    // verifies: RATE-041
-    #[xmtp_common::test(unwrap_try = true)]
-    fn a_rate_limit_is_never_terminal_or_rejected() {
-        let limited = xmtp_api_grpc::error::rate_limited_status(
-            "request",
-            xmtp_common::time::Duration::from_secs(5),
-        );
-        for code in [
-            tonic::Code::PermissionDenied,
-            tonic::Code::InvalidArgument,
-            tonic::Code::OutOfRange,
-            tonic::Code::Unimplemented,
-        ] {
-            let status =
-                tonic::Status::with_details(code, "refused", limited.details().to_vec().into());
-            let error = IncomingError::Store(crate::mls_store::MlsStoreError::Api(
-                xmtp_api::ApiError::Api(xmtp_proto::api::NetworkError::new(
-                    xmtp_api_grpc::error::GrpcError::Status(status),
-                )),
-            ));
-            assert!(!terminal_source(&error), "{code:?}");
-            assert!(!rejected_request(&error), "{code:?}");
-        }
     }
 
     // verifies: PROC-021, AUTH-022
