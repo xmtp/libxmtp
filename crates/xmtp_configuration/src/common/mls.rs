@@ -45,9 +45,14 @@ pub const SENDER_RATCHET_OUT_OF_ORDER_TOLERANCE: u32 = 5;
 /// This exceeds the backend's default statement timeout.
 pub const IDENTITY_REFERENCE_WAIT: std::time::Duration = std::time::Duration::from_secs(30);
 
-/// Minimum interval between primary reads for an absent identity update.
+/// First interval between primary reads for absent identity updates. Each
+/// later interval doubles up to `IDENTITY_REFERENCE_MAX_RETRY_INTERVAL`.
 pub const IDENTITY_REFERENCE_RETRY_INTERVAL: std::time::Duration =
     std::time::Duration::from_millis(250);
+
+/// Longest interval between primary reads for absent identity updates.
+pub const IDENTITY_REFERENCE_MAX_RETRY_INTERVAL: std::time::Duration =
+    std::time::Duration::from_secs(2);
 
 /// Maximum concurrent identity proof requests in one resolver batch, and the
 /// most association states one batch read derives at once.

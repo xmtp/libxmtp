@@ -50,7 +50,7 @@ transparent_wrappers! {
     xmtp_mls::identity::IdentityError => [StorageError, ApiClient, IdentityUpdate, Db],
     xmtp_mls::identity_updates::IdentityUpdateError => [Api, Load(boxed)],
     xmtp_mls::identity_updates::InstallationDiffError => [IdentityDependency, Client, Db, Storage],
-    xmtp_mls::identity_updates::IdentityDependencyError => [Client(boxed), Storage, Shared(boxed)],
+    xmtp_mls::identity_updates::IdentityDependencyError => [Client(boxed), Storage],
     xmtp_mls::groups::validated_commit::CommitValidationError => [
         IdentityDependency, InstallationDiff, StorageError,
     ],
