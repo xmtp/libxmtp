@@ -60,7 +60,7 @@ impl<C: Clock> RateLimiter for MemoryLimiter<C> {
     // decision without polling.
     #[allow(refining_impl_trait)]
     fn try_spend(&self, spend: Spend<'_>) -> Ready<Decision> {
-        ready(self.table.spend(self.clock.now_ns(), &spend))
+        ready(self.table.spend(|| self.clock.now_ns(), &spend))
     }
 }
 

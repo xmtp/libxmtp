@@ -186,8 +186,15 @@ impl<L: ShardLock> Table<L> {
         }
     }
 
-    /// Decides one spend at `now`, nanoseconds since the limiter's start.
-    pub(crate) fn spend(&self, now: u64, spend: &Spend<'_>) -> Decision {
+    /// Decides one spend at the time `now` gives, in nanoseconds since the
+    /// limiter's start.
+    ///
+    /// `now` is read under the shard lock, so each decision in a shard sees a
+    /// time no earlier than the one before it, and a retry delay counts from
+    /// its own decision. A time read before the lock could predate a spend
+    /// another thread commits while this one waits, and the delay would be
+    /// too long by the wait.
+    pub(crate) fn spend(&self, now: impl FnOnce() -> u64, spend: &Spend<'_>) -> Decision {
         debug_assert!(
             spend.limits.len() <= MAX_LIMITS,
             "a category carries at most {MAX_LIMITS} limits"
@@ -203,7 +210,7 @@ impl<L: ShardLock> Table<L> {
         let hash = self.hash(spend.category, spend.key);
         let (shard, set) = self.locate(hash);
         let (outcome, evicted) =
-            self.shards[shard].with(|sets| sets[set].spend(hash, now, limits, spend.cost));
+            self.shards[shard].with(|sets| sets[set].spend(hash, now(), limits, spend.cost));
         if evicted {
             self.evictions.fetch_add(1, Ordering::Relaxed);
         }

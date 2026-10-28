@@ -53,7 +53,7 @@ fn spend_once<L: ShardLock>(table: &Table<L>, limits: &[Limit]) -> bool {
         limits,
         cost: 1,
     };
-    table.spend(NOW, &spend) == Decision::Allowed
+    table.spend(|| NOW, &spend) == Decision::Allowed
 }
 
 /// What one thread spending `THREADS` times admits and leaves recorded.
@@ -96,4 +96,68 @@ fn concurrent_spends_admit_what_a_serial_run_admits() {
             None,
         );
     }
+}
+
+/// A spend's retry delay counts from its decision. One thread advances the
+/// clock to 10 s and spends; the other spends at whatever time it reads. In
+/// every schedule the spend denied is decided at 10 s, after the other was
+/// admitted, so it must be denied 1 ms before its delay from 10 s and
+/// admitted at it.
+#[xmtp_common::test]
+fn a_retry_delay_counts_from_the_decision() {
+    use shuttle::sync::atomic::{AtomicU64, Ordering};
+    const LATER: u64 = 10 * SECOND;
+    const MILLI: u64 = 1_000_000;
+    const ONE_PER_MINUTE: [Limit; 1] = [Limit {
+        count: 1,
+        window: Duration::from_secs(60),
+    }];
+    const SPEND: Spend<'static> = Spend {
+        key: CALLER,
+        category: CATEGORY,
+        limits: &ONE_PER_MINUTE,
+        cost: 1,
+    };
+    shuttle::check_dfs(
+        || {
+            let table = Arc::new(ShuttleTable::with_layout(1, 1));
+            let clock = Arc::new(AtomicU64::new(0));
+            let spend_at_clock = |table: Arc<ShuttleTable>, clock: Arc<AtomicU64>| {
+                table.spend(|| clock.load(Ordering::SeqCst), &SPEND)
+            };
+            let first = {
+                let (table, clock) = (Arc::clone(&table), Arc::clone(&clock));
+                shuttle::thread::spawn(move || spend_at_clock(table, clock))
+            };
+            let second = {
+                let (table, clock) = (Arc::clone(&table), Arc::clone(&clock));
+                shuttle::thread::spawn(move || {
+                    clock.store(LATER, Ordering::SeqCst);
+                    spend_at_clock(table, clock)
+                })
+            };
+            let decisions = [first, second].map(|thread| thread.join().expect("no spend panics"));
+            assert_eq!(
+                decisions
+                    .iter()
+                    .filter(|d| **d == Decision::Allowed)
+                    .count(),
+                1
+            );
+            let retry_after = decisions
+                .iter()
+                .find_map(|decision| match decision {
+                    Decision::Denied { retry_after } => Some(retry_after.as_nanos() as u64),
+                    Decision::Allowed => None,
+                })
+                .expect("one spend is denied");
+            let due = LATER + retry_after;
+            assert!(matches!(
+                table.spend(|| due - MILLI, &SPEND),
+                Decision::Denied { .. }
+            ));
+            assert_eq!(table.spend(|| due, &SPEND), Decision::Allowed);
+        },
+        None,
+    );
 }

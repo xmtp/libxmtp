@@ -50,8 +50,9 @@ match limiter.try_spend(spend).await {
 - **Locks.** Contiguous ranges of sets sit behind 1024 `parking_lot` mutexes.
   A budget below about 485 KiB, under the configuration's 1 MiB minimum, gets
   fewer, so the locks never take the slots below 95% of the budget. The whole
-  check and charge of a spend runs under one lock. The table is generic over
-  its lock so the shuttle tests can check every interleaving.
+  check and charge of a spend, and its reading of the clock, run under one
+  lock, so a retry delay counts from the decision that reports it. The table
+  is generic over its lock so the shuttle tests can check every interleaving.
 - **No allocation after construction.** A spend hashes on the stack and writes
   in place. The one exception is `parking_lot`'s own: the first time a thread
   waits for a contended lock, it allocates that thread's wait state, and its
@@ -80,10 +81,10 @@ per core), 15 GiB RAM, Linux 6.8, release profile:
 slot size:                32 bytes
 slots for 100 MiB:        3276032
 allocated for 100 MiB:    104857600 bytes, 32.008 bytes per slot
-1 thread, 1 caller           22.1 M spends/s (0.0% admitted)
+1 thread, 1 caller           18.4 M spends/s (0.0% admitted)
 1 thread, 100k callers        6.7 M spends/s (100.0% admitted)
-8 threads, 100k callers      41.5 M spends/s (100.0% admitted)
-8 threads, 1 caller           7.3 M spends/s (0.0% admitted)
+8 threads, 100k callers      48.8 M spends/s (100.0% admitted)
+8 threads, 1 caller           6.3 M spends/s (0.0% admitted)
 ```
 
 ## Tests

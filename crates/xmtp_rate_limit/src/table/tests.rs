@@ -29,7 +29,7 @@ fn spend(
     cost: u32,
 ) -> Decision {
     table.spend(
-        now,
+        || now,
         &Spend {
             key,
             category,
