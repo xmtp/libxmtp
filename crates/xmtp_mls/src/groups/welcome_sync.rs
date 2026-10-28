@@ -402,7 +402,7 @@ where
             Err(GroupError::InstallationDiff(InstallationDiffError::IdentityDependency(
                 IdentityDependencyError::Need(requirements),
             ))) => {
-                self.defer_pending(pending, "identity_dependency", false, None)?;
+                self.defer_pending(pending, "identity_dependency", false, None, None)?;
                 Ok(WelcomeHeadOutcome::Need {
                     cursor,
                     requirement: WelcomeRequirement::Identity(requirements),
@@ -417,7 +417,7 @@ where
                     Some(deadline) => deadline,
                     None => welcome_timestamp_ns(pending)?.saturating_add(WELCOME_RETENTION_NS),
                 };
-                self.defer_pending(pending, "group_prefix", false, Some(deadline_ns))?;
+                self.defer_pending(pending, "group_prefix", false, Some(deadline_ns), None)?;
                 Ok(WelcomeHeadOutcome::Need {
                     cursor,
                     requirement: WelcomeRequirement::GroupPrefix {
@@ -462,7 +462,7 @@ where
                 } else {
                     "welcome_retry"
                 };
-                self.defer_pending(pending, code, blocked, None)?;
+                self.defer_pending(pending, code, blocked, None, error.rate_limit_delay())?;
                 tracing::warn!(sequence_id = cursor.0, code, error = %error, "Welcome remains pending");
                 Ok(WelcomeHeadOutcome::Waiting {
                     cursor,
@@ -498,7 +498,7 @@ where
                 result: Err(error),
             });
         }
-        self.defer_pending(pending, code, true, None)?;
+        self.defer_pending(pending, code, true, None, None)?;
         Ok(WelcomeHeadOutcome::Waiting {
             cursor,
             code: code.into(),
@@ -506,21 +506,27 @@ where
         })
     }
 
-    /// Keep retry state without extending the original expiry deadline.
+    /// Keep retry state without extending the original expiry deadline. A
+    /// rate-limited request is not retried before `floor`, its delay.
+    // implements: RATE-041
     fn defer_pending(
         &self,
         pending: &StoredIncomingEnvelope,
         code: &'static str,
         blocked: bool,
         deadline: Option<i64>,
+        floor: Option<xmtp_common::time::Duration>,
     ) -> Result<(), GroupError> {
         let policy = self.context.incoming_runtime().policy();
-        let delay = policy.active_database_poll_interval;
+        let delay = policy
+            .active_database_poll_interval
+            .max(floor.unwrap_or_default());
         self.context.db().set_incoming_retry(
             &self.topic(),
             Cursor(pending.sequence_id as u64),
             &IncomingRetry {
-                retry_at_ns: xmtp_common::time::now_ns().saturating_add(delay.as_nanos() as i64),
+                retry_at_ns: xmtp_common::time::now_ns()
+                    .saturating_add(i64::try_from(delay.as_nanos()).unwrap_or(i64::MAX)),
                 blocked,
                 error_code: Some(code.into()),
                 retry_expires_at_ns: deadline,
@@ -682,7 +688,13 @@ where
                 } else {
                     "welcome_pointee"
                 };
-                self.defer_pending(&pending, code, blocked, Some(deadline))?;
+                self.defer_pending(
+                    &pending,
+                    code,
+                    blocked,
+                    Some(deadline),
+                    error.rate_limit_delay(),
+                )?;
                 return Ok(WelcomeHeadOutcome::Waiting {
                     cursor,
                     code: code.into(),
@@ -1748,6 +1760,42 @@ mod tests {
                     .blocked
             );
         }
+    }
+
+    /// A Welcome refused by a rate limit is not retried before the delay.
+    // verifies: RATE-041
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn a_rate_limited_welcome_retries_after_the_delay() {
+        use xmtp_db::incoming_envelope::NewIncomingEnvelope;
+        tester!(bo, disable_workers);
+        let service = WelcomeService::new(bo.context.clone());
+        let db = bo.context.db();
+        db.admit_ordered_batch(
+            &service.topic(),
+            Cursor(0),
+            &[NewIncomingEnvelope {
+                sequence_id: Cursor(1),
+                envelope: vec![1],
+            }],
+            bo.context
+                .incoming_runtime()
+                .policy()
+                .incoming_limits(NetworkEntityKind::Welcome),
+        )?;
+        let pending = db.pending_envelope(&service.topic(), Cursor(1))?.unwrap();
+        let delay = xmtp_common::time::Duration::from_secs(300);
+        let refused = GroupError::WrappedApi(xmtp_api::ApiError::Api(
+            xmtp_proto::api::NetworkError::new(xmtp_api_grpc::error::GrpcError::Status(
+                xmtp_api_grpc::error::rate_limited_status("request", delay),
+            )),
+        ));
+        let before = xmtp_common::time::now_ns();
+        assert!(matches!(
+            service.classify_pending_result(&pending, Err(refused))?,
+            WelcomeHeadOutcome::Waiting { blocked: false, .. }
+        ));
+        let pending = db.pending_envelope(&service.topic(), Cursor(1))?.unwrap();
+        assert!(pending.retry_at_ns >= before + delay.as_nanos() as i64);
     }
 
     /// Gaining format support or restoring a missing key package must permit

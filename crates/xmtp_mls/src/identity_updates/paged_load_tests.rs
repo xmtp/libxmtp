@@ -147,6 +147,10 @@ struct IdentityScript {
     /// Wake this and hold the stopped read until the caller drops it, instead
     /// of failing the read.
     hold: Option<Arc<Notify>>,
+    /// Refuse every identity read with a rate limit of this delay.
+    rate_limit: Option<xmtp_common::time::Duration>,
+    /// Identity reads received.
+    reads: usize,
 }
 
 /// Forwards every call to the test backend, changing identity publishes and
@@ -237,6 +241,18 @@ impl XmtpBackendClient for ScriptedIdentity {
     async fn query(&self, request: wire::QueryRequest) -> Result<wire::QueryResponse, Self::Error> {
         if !is_identity_read(&request) {
             return self.inner.query(request).await;
+        }
+        let rate_limit = {
+            let mut script = self.script.lock();
+            script.reads += 1;
+            script.rate_limit
+        };
+        if let Some(delay) = rate_limit {
+            return Err(ApiClientError::client(
+                xmtp_api_grpc::error::GrpcError::Status(xmtp_api_grpc::error::rate_limited_status(
+                    "request", delay,
+                )),
+            ));
         }
         let (stop, hold, one_per_read) = {
             let mut script = self.script.lock();
@@ -483,4 +499,36 @@ async fn an_update_stored_before_the_first_own_load_is_reported() {
 
     client.inbox_state(true).await?;
     assert_eq!(drained(&events), vec![added(&alix2)]);
+}
+
+/// A rate-limited batched proof fetch returns its rejection: the inboxes are
+/// not then fetched one request each.
+// verifies: RATE-041
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_rate_limited_batched_proof_fetch_is_not_split() {
+    use crate::identity_updates::dependencies::{
+        IdentityRequirement, resolve_identity_requirements,
+    };
+    tester!(alix, disable_workers);
+    tester!(bo);
+    tester!(caro);
+    let (client, script) = scripted_client(&alix, 100).await;
+    let delay = xmtp_common::time::Duration::from_secs(300);
+    script.lock().rate_limit = Some(delay);
+    let requirements = [&bo, &caro]
+        .into_iter()
+        .map(|tester| IdentityRequirement {
+            inbox_id: tester.inbox_id().to_string(),
+            sequence_id: 1,
+        })
+        .collect();
+    let error = resolve_identity_requirements(&client.context, &requirements)
+        .await
+        .unwrap_err();
+    assert_eq!(error.rate_limit_delay(), Some(delay));
+    assert_eq!(
+        script.lock().reads,
+        1,
+        "one batched read, no per-inbox reads"
+    );
 }

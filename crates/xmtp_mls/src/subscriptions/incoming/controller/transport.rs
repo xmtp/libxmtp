@@ -168,7 +168,8 @@ impl Transport {
     pub(super) fn disconnect(&mut self, delay: Duration) {
         self.recovery.healthy_since = None;
         self.registered.clear();
-        let at = Instant::now() + delay;
+        // The delay can come from a backend's RetryInfo, so the add saturates.
+        let at = xmtp_common::time::saturating_after(Instant::now(), delay);
         self.state = match self.state {
             TransportState::Waiting(pending) if pending > at => TransportState::Waiting(pending),
             _ => TransportState::Waiting(at),
@@ -316,6 +317,46 @@ mod rate_limit_tests {
         assert!(transport.retry_at()? >= failed + delay);
         assert!(!transport.can_open());
     }
+    /// A delay no clock can hold saturates instead of panicking the client.
+    // verifies: RATE-041
+    #[xmtp_common::test(unwrap_try = true)]
+    fn a_huge_rate_limit_delay_holds_without_panicking() {
+        let mut transport = Transport::new(None, Default::default(), Default::default());
+        transport.requested = HashSet::from([Topic::new_group_message([1; 32])]);
+        transport.fail(
+            NetworkError::new(xmtp_proto::api::ApiClientError::client(GrpcError::Status(
+                xmtp_api_grpc::error::rate_limited_status_raw(i64::MAX, 0),
+            ))),
+            Duration::from_millis(100),
+            RetryBackoff {
+                initial: Duration::from_secs(1),
+                max: Duration::from_secs(60),
+            },
+        );
+        assert!(!transport.can_open());
+    }
+
+    /// A hold ends with its delay: the transport opens again after it.
+    // verifies: RATE-041
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn a_rate_limit_hold_ends_with_its_delay() {
+        let mut transport = Transport::new(None, Default::default(), Default::default());
+        transport.requested = HashSet::from([Topic::new_group_message([1; 32])]);
+        transport.fail(
+            NetworkError::new(xmtp_proto::api::ApiClientError::client(GrpcError::Status(
+                rate_limited_status("stream_rent", Duration::from_millis(50)),
+            ))),
+            Duration::ZERO,
+            RetryBackoff {
+                initial: Duration::from_secs(1),
+                max: Duration::from_secs(60),
+            },
+        );
+        assert!(!transport.can_open());
+        xmtp_common::time::sleep(Duration::from_millis(60)).await;
+        assert!(transport.can_open());
+    }
+
     /// A rate limit leaves the permanent-failure backoff where it was.
     // verifies: RATE-041
     #[xmtp_common::test(unwrap_try = true)]

@@ -1458,7 +1458,9 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             let receipt = &mut self.topics.entry(topic.clone()).or_default().receipt;
             receipt.blocked_failures = receipt.blocked_failures.saturating_add(1);
             receipt.blocked_until = Some(now + backoff.delay(receipt.blocked_failures));
-        } else {
+        } else if !rate_limited {
+            // A rate limit says nothing about the topic, so its permanent-error
+            // backoff stays.
             self.clear_receipt_failure(&topic);
         }
         self.topics.entry(topic.clone()).or_default().error = Some(error);

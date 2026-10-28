@@ -62,6 +62,7 @@ pub(crate) trait SubscriptionFactory: MaybeSend + MaybeSync {
 pub(crate) struct RateLimitHold {
     opens: Option<Instant>,
     reads: Option<Instant>,
+    dependencies: Option<Instant>,
 }
 
 pub(crate) type SharedRateLimitHold = Arc<Mutex<RateLimitHold>>;
@@ -91,6 +92,17 @@ impl RateLimitHold {
 
     pub(crate) fn reads_held(&self) -> bool {
         self.reads.is_some_and(|until| Instant::now() < until)
+    }
+
+    /// No identity or Welcome dependency fetch until `delay` has passed.
+    pub(crate) fn hold_dependencies(&mut self, delay: xmtp_common::time::Duration) {
+        let until = Self::until(delay);
+        self.dependencies = Some(self.dependencies.map_or(until, |at| at.max(until)));
+    }
+
+    pub(crate) fn dependencies_held(&self) -> bool {
+        self.dependencies
+            .is_some_and(|until| Instant::now() < until)
     }
 }
 

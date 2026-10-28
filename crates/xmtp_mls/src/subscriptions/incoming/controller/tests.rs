@@ -4662,3 +4662,106 @@ async fn a_rate_limited_stream_end_holds_the_next_open() {
         "no reopen inside the delay"
     );
 }
+
+fn rate_limited_api(category: &str, delay: Duration) -> xmtp_api::ApiError {
+    xmtp_api::ApiError::Api(NetworkError::new(xmtp_api_grpc::error::GrpcError::Status(
+        xmtp_api_grpc::error::rate_limited_status(category, delay),
+    )))
+}
+
+/// A refused identity proof holds every identity fetch, and the head that
+/// needed it retries after the delay, not after the fallback interval.
+// verifies: RATE-041
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_rate_limited_identity_proof_holds_dependency_fetches() {
+    tester!(alix, disable_workers);
+    let mut controller = controller(alix.context.clone());
+    let requirement = IdentityRequirement {
+        inbox_id: alix.inbox_id().to_string(),
+        sequence_id: 1,
+    };
+    let key = identity_key(&requirement);
+    let queued = IdentityRequirement {
+        inbox_id: "other".into(),
+        sequence_id: 1,
+    };
+    controller.dependency_registry.attach(
+        DependencyParent::IdentityHead(Topic::new_group_message(GroupId::generate()), Cursor(1)),
+        identity_key(&queued),
+    );
+    let DependencyKey::Identity(requirements) = key else {
+        unreachable!()
+    };
+    controller.dependency_finished(DependencyResult::Identity(
+        requirements,
+        Err(crate::identity_updates::IdentityDependencyError::Client(
+            Box::new(crate::client::ClientError::Api(rate_limited_api(
+                "request",
+                Duration::from_secs(300),
+            ))),
+        )),
+    ));
+    controller.start_dependencies();
+    assert!(
+        controller.dependencies.is_empty(),
+        "no identity fetch inside the delay"
+    );
+}
+
+/// A refused target read holds reads, so no target read follows inside it.
+// verifies: RATE-041
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_rate_limited_target_read_holds_reads() {
+    tester!(alix, disable_workers);
+    let mut controller = controller(alix.context.clone());
+    controller.targets_finished((
+        vec![(1, 1)],
+        Err(NetworkError::new(rate_limited_api(
+            "request",
+            Duration::from_secs(300),
+        ))),
+    ));
+    assert!(controller.reads_held());
+    assert!(controller.transport.backing_off());
+}
+
+/// A refused prefix target read holds reads too.
+// verifies: RATE-041
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_rate_limited_prefix_target_read_holds_reads() {
+    tester!(alix, disable_workers);
+    let mut controller = controller(alix.context.clone());
+    controller.dependency_finished(DependencyResult::PrefixTarget(
+        Cursor(1),
+        Topic::new_group_message(GroupId::generate()),
+        Err(rate_limited_api("request", Duration::from_secs(300))),
+    ));
+    assert!(controller.reads_held());
+    assert!(controller.transport.backing_off());
+}
+
+/// A rate limit says nothing about a topic, so it keeps the topic's
+/// permanent-error backoff.
+// verifies: RATE-041
+#[xmtp_common::test(unwrap_try = true)]
+fn a_rate_limited_read_keeps_the_topic_failure_backoff() {
+    let mut controller = controller(context());
+    let topic = Topic::new_group_message(GroupId::generate());
+    for _ in 0..3 {
+        controller.receive_error(
+            topic.clone(),
+            IncomingError::Store(crate::mls_store::MlsStoreError::Api(
+                xmtp_api::ApiError::InvalidResponse("cursor order"),
+            )),
+        );
+    }
+    assert_eq!(controller.receipt(&topic).blocked_failures, 3);
+    controller.receive_error(
+        topic.clone(),
+        IncomingError::Store(crate::mls_store::MlsStoreError::Api(rate_limited_api(
+            "request",
+            Duration::from_secs(1),
+        ))),
+    );
+    assert_eq!(controller.receipt(&topic).blocked_failures, 3);
+}
