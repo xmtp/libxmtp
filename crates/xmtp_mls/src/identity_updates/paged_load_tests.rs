@@ -565,8 +565,9 @@ async fn a_rate_limited_batched_proof_fetch_is_not_split() {
 }
 
 /// Refuses every smart contract wallet check with a rate limit, and counts
-/// the checks. The first refusal's delay is 300 s; each later one is 300 s
-/// longer when `growing` is set.
+/// the checks. Each refusal's delay is 300 s; with `growing`, the n-th check's
+/// is n × 300 s. It answers without waiting, so refusals finish in call order
+/// and the first to finish has the shortest delay.
 #[derive(Default)]
 struct RateLimitedVerifier {
     calls: std::sync::atomic::AtomicUsize,

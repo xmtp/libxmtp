@@ -366,8 +366,9 @@ impl Deadlines {
 }
 
 /// Persist only typed terminal failures and repair/suppression state for this generation.
-/// A rate limit whose hold cannot be stored is still returned to the caller,
-/// so its delay reaches the task runner instead of a storage error.
+/// A rate limit whose hold cannot be stored is still returned to the caller
+/// with its delay, instead of a storage error. The hold itself is lost, as
+/// any hold is when the database cannot be written.
 pub(crate) fn record_error<Context: XmtpSharedContext>(
     context: &Context,
     generation: i64,
