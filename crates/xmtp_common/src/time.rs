@@ -95,10 +95,18 @@ const MAX_TIMER: Duration = Duration::from_millis(i32::MAX as u64);
 /// past `u32::MAX` milliseconds and a timer fires at once past `i32::MAX`.
 #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
 fn timer_pieces(duration: Duration) -> impl Iterator<Item = Duration> {
-    let full = duration.as_nanos() / MAX_TIMER.as_nanos();
-    let rest = duration.saturating_sub(MAX_TIMER * u32::try_from(full).unwrap_or(u32::MAX));
-    std::iter::repeat_n(MAX_TIMER, usize::try_from(full).unwrap_or(usize::MAX))
+    let (full, rest) = timer_split(duration);
+    (0..full)
+        .map(|_| MAX_TIMER)
         .chain((!rest.is_zero() || full == 0).then_some(rest))
+}
+
+/// The number of full browser timers in `duration`, and the remainder.
+#[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+fn timer_split(duration: Duration) -> (u128, Duration) {
+    let timer = MAX_TIMER.as_nanos();
+    let rest = u64::try_from(duration.as_nanos() % timer).expect("a remainder fits one timer");
+    (duration.as_nanos() / timer, Duration::from_nanos(rest))
 }
 
 #[doc(hidden)]
@@ -209,6 +217,20 @@ mod tests {
             assert!(pieces.iter().all(|piece| *piece <= MAX_TIMER));
             assert_eq!(pieces.iter().sum::<Duration>(), duration);
         }
+    }
+
+    /// A wait of more than `u32::MAX` timers still splits into pieces that each
+    /// fit one timer.
+    #[xmtp_macro::test]
+    fn a_wait_past_u32_max_timers_keeps_every_piece_bounded() {
+        let extra = Duration::from_millis(5);
+        let duration = MAX_TIMER * u32::MAX + MAX_TIMER * 2 + extra;
+        assert_eq!(timer_split(duration), (u128::from(u32::MAX) + 2, extra));
+        assert!(
+            timer_pieces(Duration::MAX)
+                .take(3)
+                .all(|piece| piece == MAX_TIMER)
+        );
     }
 
     /// A delay no clock can hold saturates instead of panicking.
