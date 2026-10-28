@@ -39,6 +39,33 @@ pub fn arc_retryable_to_error(retryable: Arc<dyn RetryableError>) -> Arc<dyn Err
 
 pub type BoxedRetry = Retry<Box<dyn Strategy>>;
 
+tokio::task_local! {
+    static RETRY_DEADLINE: crate::time::Instant;
+}
+
+/// Run `future` so that every rate-limit wait of [`retry_async!`] inside it
+/// ends by `deadline`. A wait that would pass it returns the rejection at once,
+/// so a caller that times out at `deadline` still sees the delay. A nested
+/// scope keeps the earlier deadline.
+pub async fn with_retry_deadline<F: std::future::Future>(
+    deadline: crate::time::Instant,
+    future: F,
+) -> F::Output {
+    let deadline = RETRY_DEADLINE
+        .try_with(|outer| (*outer).min(deadline))
+        .unwrap_or(deadline);
+    RETRY_DEADLINE.scope(deadline, future).await
+}
+
+/// True when a rate-limit wait of `wait` ends before the scoped deadline of
+/// [`with_retry_deadline`], or when no deadline is scoped.
+#[doc(hidden)]
+pub fn fits_retry_deadline(wait: Duration) -> bool {
+    RETRY_DEADLINE
+        .try_with(|deadline| deadline.saturating_duration_since(crate::time::Instant::now()) > wait)
+        .unwrap_or(true)
+}
+
 pub struct NotSpecialized;
 
 /// Specifies which errors are retryable.
@@ -409,7 +436,9 @@ macro_rules! retry_async {
                             e.to_string()
                         );
                         let wait = match (&e).rate_limit_delay() {
-                            Some(floor) => $retry.backoff_at_least(attempts, time_spent, floor),
+                            Some(floor) => $retry
+                                .backoff_at_least(attempts, time_spent, floor)
+                                .filter(|wait| $crate::retry::fits_retry_deadline(*wait)),
                             None => $retry.backoff(attempts, time_spent),
                         };
                         if let Some(d) = wait {
@@ -658,6 +687,29 @@ pub(crate) mod tests {
             })
         );
         assert!(result.is_err());
+        assert_eq!(attempts, 1);
+    }
+
+    /// A rate-limit wait that would pass a scoped deadline returns at once,
+    /// even though it fits the retry budget.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[xmtp_macro::test]
+    async fn a_rate_limit_wait_past_a_scoped_deadline_returns_at_once() {
+        let mut attempts = 0;
+        let result: Result<(), RateLimited> = with_retry_deadline(
+            crate::time::Instant::now() + Duration::from_secs(1),
+            async {
+                retry_async!(
+                    Retry::default(),
+                    (async {
+                        attempts += 1;
+                        Err(RateLimited(Duration::from_secs(5)))
+                    })
+                )
+            },
+        )
+        .await;
+        assert_eq!(result.unwrap_err().0, Duration::from_secs(5));
         assert_eq!(attempts, 1);
     }
 

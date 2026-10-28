@@ -88,20 +88,27 @@ pub fn saturating_after(now: Instant, duration: Duration) -> Instant {
         .unwrap_or_else(|| now + FAR_FUTURE)
 }
 
+/// The longest wait one browser timer holds: a longer one fires at once.
+const MAX_TIMER: Duration = Duration::from_millis(i32::MAX as u64);
+
+/// Split a wait into pieces one browser timer can hold, in order. gloo panics
+/// past `u32::MAX` milliseconds and a timer fires at once past `i32::MAX`.
+#[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+fn timer_pieces(duration: Duration) -> impl Iterator<Item = Duration> {
+    let full = duration.as_nanos() / MAX_TIMER.as_nanos();
+    let rest = duration.saturating_sub(MAX_TIMER * u32::try_from(full).unwrap_or(u32::MAX));
+    std::iter::repeat_n(MAX_TIMER, usize::try_from(full).unwrap_or(usize::MAX))
+        .chain((!rest.is_zero() || full == 0).then_some(rest))
+}
+
 #[doc(hidden)]
 pub async fn sleep(duration: Duration) {
     wasm_or_native! {
         native => {tokio::time::sleep(duration).await},
         wasm => {
-            // A browser timer fires at once past i32::MAX milliseconds, and
-            // gloo panics past u32::MAX. Wait in pieces it can hold.
-            const MAX_TIMER: Duration = Duration::from_millis(i32::MAX as u64);
-            let mut left = duration;
-            while left > MAX_TIMER {
-                gloo_timers::future::sleep(MAX_TIMER).await;
-                left -= MAX_TIMER;
+            for piece in timer_pieces(duration) {
+                gloo_timers::future::sleep(piece).await;
             }
-            gloo_timers::future::sleep(left).await
         },
     }
 }
@@ -188,8 +195,24 @@ mod tests {
     use super::*;
     use crate::ErrorCode;
 
+    /// Every piece fits one browser timer, and the pieces sum to the wait.
+    #[xmtp_macro::test]
+    fn a_long_wait_splits_into_timer_pieces() {
+        for duration in [
+            Duration::ZERO,
+            MAX_TIMER,
+            MAX_TIMER + Duration::from_millis(1),
+            Duration::from_secs(60 * 24 * 60 * 60),
+        ] {
+            let pieces: Vec<_> = timer_pieces(duration).collect();
+            assert!(!pieces.is_empty());
+            assert!(pieces.iter().all(|piece| *piece <= MAX_TIMER));
+            assert_eq!(pieces.iter().sum::<Duration>(), duration);
+        }
+    }
+
     /// A delay no clock can hold saturates instead of panicking.
-    #[test]
+    #[xmtp_macro::test]
     fn an_unrepresentable_delay_saturates() {
         let now = Instant::now();
         let until = saturating_after(now, Duration::MAX);

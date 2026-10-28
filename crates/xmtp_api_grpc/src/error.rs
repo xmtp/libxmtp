@@ -6,13 +6,43 @@ const ERROR_INFO_TYPE_URL: &str = "type.googleapis.com/google.rpc.ErrorInfo";
 const RETRY_INFO_TYPE_URL: &str = "type.googleapis.com/google.rpc.RetryInfo";
 
 /// The `RetryInfo` delay of a rate-limit rejection (RATE-040) found anywhere in
-/// the error's sources, or `None` when the error is not one. A rejection is a
-/// `RESOURCE_EXHAUSTED` status with an `ErrorInfo` of the rate-limit reason and
-/// domain; any other status, `RESOURCE_EXHAUSTED` included, is not one. A
-/// missing or negative delay counts as zero. The status message is never read.
+/// the error's sources, or `None` when the error is not one. Only an
+/// `ErrorInfo` of the rate-limit reason and domain marks a rejection, whatever
+/// the status code; any other status, `RESOURCE_EXHAUSTED` included, is not
+/// one. A missing or negative delay counts as zero. The status message is
+/// never read.
 // implements: RATE-041
 pub fn rate_limit_delay(error: &(dyn std::error::Error + 'static)) -> Option<Duration> {
     status_rate_limit_delay(xmtp_proto::api::grpc_status(error)?)
+}
+
+/// A rate-limit rejection whose `RetryInfo` delay is these raw protobuf
+/// fields, which may be out of range, for tests.
+#[cfg(any(test, feature = "test-utils"))]
+pub fn rate_limited_status_raw(seconds: i64, nanos: i32) -> tonic::Status {
+    use prost::Message;
+    use tonic_types::pb;
+    let code = tonic::Code::ResourceExhausted;
+    let mut info = pb::RetryInfo::default();
+    let mut delay = info.retry_delay.take().unwrap_or_default();
+    delay.seconds = seconds;
+    delay.nanos = nanos;
+    info.retry_delay = Some(delay);
+    let mut status = pb::Status {
+        code: code as i32,
+        message: "rate limit exceeded".into(),
+        details: vec![Default::default(), Default::default()],
+    };
+    let error_info = pb::ErrorInfo {
+        reason: xmtp_configuration::RATE_LIMITED_REASON.into(),
+        domain: xmtp_configuration::RATE_LIMITED_DOMAIN.into(),
+        metadata: Default::default(),
+    };
+    status.details[0].type_url = ERROR_INFO_TYPE_URL.into();
+    status.details[0].value = error_info.encode_to_vec();
+    status.details[1].type_url = RETRY_INFO_TYPE_URL.into();
+    status.details[1].value = info.encode_to_vec();
+    tonic::Status::with_details(code, "rate limit exceeded", status.encode_to_vec().into())
 }
 
 /// A rate-limit rejection as the backend sends it (RATE-040), for tests.
@@ -37,9 +67,6 @@ pub fn rate_limited_status(category: &str, delay: Duration) -> tonic::Status {
 fn status_rate_limit_delay(status: &tonic::Status) -> Option<Duration> {
     use prost::Message;
     use tonic_types::pb;
-    if status.code() != tonic::Code::ResourceExhausted {
-        return None;
-    }
     let details = pb::Status::decode(status.details()).ok()?.details;
     let rate_limited = details
         .iter()
@@ -475,22 +502,36 @@ pub(crate) mod rate_limit_tests {
         Some(Duration::from_secs(5)),
         None
     )]
+    #[case::unavailable(
+        Code::Unavailable,
+        "RATE_LIMITED",
+        "xmtp.org",
+        Some(Duration::from_secs(5)),
+        Some(Duration::from_secs(5))
+    )]
     #[case::permission_denied(
         Code::PermissionDenied,
         "RATE_LIMITED",
         "xmtp.org",
         Some(Duration::from_secs(5)),
-        None
+        Some(Duration::from_secs(5))
     )]
     #[case::out_of_range(
         Code::OutOfRange,
         "RATE_LIMITED",
         "xmtp.org",
         Some(Duration::from_secs(5)),
+        Some(Duration::from_secs(5))
+    )]
+    #[case::other_detail_out_of_range(
+        Code::OutOfRange,
+        "TOO_LARGE",
+        "xmtp.org",
+        Some(Duration::from_secs(5)),
         None
     )]
     #[xmtp_common::test(unwrap_try = true)]
-    fn rate_limit_is_a_resource_exhausted_status_with_the_detail(
+    fn rate_limit_is_marked_by_the_detail_whatever_the_code(
         #[case] code: Code,
         #[case] reason: &str,
         #[case] domain: &str,
