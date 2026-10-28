@@ -29,7 +29,9 @@ mod limiter;
 #[cfg(test)]
 mod tests;
 
-pub(crate) use limiter::{Limiter, LimiterClock, limiter, limiter_on};
+pub(crate) use limiter::{Limiter, limiter};
+#[cfg(any(test, feature = "test-utils"))]
+pub(crate) use limiter::{LimiterClock, limiter_on};
 
 /// Spends one request's charges for its caller. The rate-limit layer puts one
 /// in the extensions of every request it admits on a charged path; handlers
