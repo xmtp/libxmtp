@@ -4,6 +4,7 @@ use super::{
 };
 use crate::{
     context::XmtpSharedContext,
+    identity_updates::IdentityUpdates,
     subscriptions::{
         incoming::{IncomingCoordinator, IncomingScope},
         internal::{GroupOrigin, InternalEvent, PreferenceOrigin},
@@ -585,18 +586,28 @@ where
         Context::Db: 'static,
     {
         let installation_id = self.installation_id();
+        if messages.is_empty() {
+            return Ok(());
+        }
+        let own_installations = IdentityUpdates::new(&self.context)
+            .get_association_state(&self.context.db(), self.context.inbox_id(), None)
+            .await?
+            .installation_ids();
 
         for mut msg in messages {
             // The plaintext and its inner encoding can hold an HMAC root key.
             // Both are wiped on every path, including skipped messages.
             let plaintext = Zeroizing::new(std::mem::take(&mut msg.decrypted_message_bytes));
             // Older builds stored sync groups from other inboxes.
+            // Only current installations of the own inbox may send updates.
             // implements: SYNC-011
-            if msg.sender_inbox_id != self.context.inbox_id() {
+            if msg.sender_inbox_id != self.context.inbox_id()
+                || !own_installations.contains(&msg.sender_installation_id)
+            {
                 tracing::warn!(
                     group_id = %msg.group_id,
                     sender_inbox_id = %msg.sender_inbox_id,
-                    "dropping a sync message from another inbox"
+                    "dropping a sync message from a sender that is not an installation of the own inbox"
                 );
                 self.context
                     .db()
