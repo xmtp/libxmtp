@@ -294,6 +294,11 @@ let
         assert "[telemetry]" not in text, "expected no [telemetry] table"
         metrics = f'127.0.0.1:{os.environ["XMTP_BACKEND_METRICS_PORT"]}'
         text += f'\n[telemetry]\nmetrics_listen = "{metrics}"\n'
+        # Every local client shares one address, so per-caller rate limits
+        # stay off.
+        if "[rate_limits]" not in text:
+            text += "\n[rate_limits]\nenabled = false\n"
+        assert re.search(r"(?m)^\[rate_limits\]\nenabled = false$", text), "expected rate limits off"
         open(sys.argv[2], "w").write(text)
         PY
         # A Linux build has no system trust store; the Docker image ships cacert.

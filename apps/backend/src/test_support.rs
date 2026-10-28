@@ -35,13 +35,59 @@ pub type TestResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>
 pub const DEFAULT_TEST_IDENTIFIER: &str = "org.xmtp.test";
 
 /// The file layer of a configuration that names `database_url` and the
-/// default test identifier, and sets nothing else.
+/// default test identifier, turns rate limits off, and sets nothing else.
+/// Every test client shares one address, so the default per-caller limits
+/// would fail unrelated tests.
 pub fn config_for(database_url: &str) -> Config {
     Config::from_toml_str(&format!(
-        "[database]\nurl = {database_url:?}\n[server]\nidentifier = {DEFAULT_TEST_IDENTIFIER:?}"
+        "[database]\nurl = {database_url:?}\n[server]\nidentifier = {DEFAULT_TEST_IDENTIFIER:?}\n\
+         [rate_limits]\nenabled = false"
     ))
     .expect("the test configuration parses")
 }
+
+/// The file layer `TestServer::from_toml` starts: the partial TOML with a
+/// placeholder database URL, the default identifier, and rate limits off
+/// unless it has a `[rate_limits]` table, validated. The caller sets the
+/// real database URL.
+pub(crate) fn partial_config(toml: &str) -> TestResult<Config> {
+    let mut value: toml::Table =
+        toml::from_str(toml).map_err(|_| crate::config::ConfigError::Parse)?;
+    let database = value
+        .entry("database")
+        .or_insert_with(|| toml::Value::Table(Default::default()));
+    let database = database.as_table_mut().ok_or("database must be a table")?;
+    // Reject rather than overwrite. A silently dropped URL would give the
+    // caller a backend that does not match the configuration it supplied.
+    for field in ["url", "replica_url"] {
+        if database.contains_key(field) {
+            return Err(format!("database.{field} is owned by the fixture").into());
+        }
+    }
+    database.insert("url".into(), "postgres://localhost/ephemeral".into());
+    let server = value
+        .entry("server")
+        .or_insert_with(|| toml::Value::Table(Default::default()));
+    let server = server.as_table_mut().ok_or("server must be a table")?;
+    server
+        .entry("identifier")
+        .or_insert_with(|| DEFAULT_TEST_IDENTIFIER.into());
+    // Every test client shares one address. A test that exercises limits
+    // writes its own `[rate_limits]` table.
+    if !value.contains_key("rate_limits") {
+        let mut rate_limits = toml::Table::new();
+        rate_limits.insert("enabled".into(), false.into());
+        value.insert("rate_limits".into(), rate_limits.into());
+    }
+    // Refuse an invalid file before creating a database. The real URL is
+    // set on the file layer, and `start` validates it again.
+    Ok(Config::from_toml_str(&toml::to_string(&value)?)?
+        .validate()?
+        .into_config())
+}
+
+#[cfg(test)]
+mod tests;
 
 pub struct TestServer {
     running: RunningServer,
@@ -79,34 +125,11 @@ impl TestServer {
     /// Validate before creating a database. Bind a loopback port chosen by the OS.
     ///
     /// `server.listen` is accepted and validated but has no effect: the fixture
-    /// always binds a loopback port chosen by the OS.
+    /// always binds a loopback port chosen by the OS. Rate limits are off
+    /// unless the TOML has a `[rate_limits]` table, which then applies as
+    /// written, with the file's defaults for the keys it omits.
     pub async fn from_toml(toml: &str) -> TestResult<Self> {
-        let mut value: toml::Table =
-            toml::from_str(toml).map_err(|_| crate::config::ConfigError::Parse)?;
-        let database = value
-            .entry("database")
-            .or_insert_with(|| toml::Value::Table(Default::default()));
-        let database = database.as_table_mut().ok_or("database must be a table")?;
-        // Reject rather than overwrite. A silently dropped URL would give the
-        // caller a backend that does not match the configuration it supplied.
-        for field in ["url", "replica_url"] {
-            if database.contains_key(field) {
-                return Err(format!("database.{field} is owned by the fixture").into());
-            }
-        }
-        database.insert("url".into(), "postgres://localhost/ephemeral".into());
-        let server = value
-            .entry("server")
-            .or_insert_with(|| toml::Value::Table(Default::default()));
-        let server = server.as_table_mut().ok_or("server must be a table")?;
-        server
-            .entry("identifier")
-            .or_insert_with(|| DEFAULT_TEST_IDENTIFIER.into());
-        // Refuse an invalid file before creating a database. The real URL is
-        // set on the file layer, and `start` validates it again.
-        let config = Config::from_toml_str(&toml::to_string(&value)?)?
-            .validate()?
-            .into_config();
+        let config = partial_config(toml)?;
         Self::start(
             move |defaults| {
                 let url = std::mem::take(&mut defaults.database.url);
