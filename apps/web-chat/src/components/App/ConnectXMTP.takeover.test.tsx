@@ -16,7 +16,7 @@ const mocks = vi.hoisted(() => ({
   lockState: "active",
   initialize: vi.fn(async () => undefined),
   signer: {},
-  credentialSource: {},
+  backendUrl: "https://example.com",
   setAutoConnect: vi.fn(),
   navigate: vi.fn(),
 }));
@@ -34,7 +34,7 @@ vi.mock("wagmi", () => ({
 }));
 vi.mock("@/contexts/AuthTokenContext", () => ({
   useAuthToken: () => ({
-    createCredentialSource: () => mocks.credentialSource,
+    createCredentialSource: (url: string) => ({ url }),
   }),
 }));
 vi.mock("@/hooks/useWallet", () => ({
@@ -45,7 +45,7 @@ vi.mock("@/hooks/useEphemeralSigner", () => ({
 }));
 vi.mock("@/hooks/useSettings", () => ({
   useSettings: () => ({
-    backendUrl: "https://example.com",
+    backendUrl: mocks.backendUrl,
     ephemeralAccountEnabled: true,
     setEphemeralAccountEnabled: vi.fn(),
     autoConnect: false,
@@ -75,6 +75,7 @@ vi.mock("./LocalDatabases", () => ({ LocalDatabases: () => null }));
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  mocks.backendUrl = "https://example.com";
 });
 
 it.each(["available", "active"])(
@@ -90,7 +91,7 @@ it.each(["available", "active"])(
     fireEvent.click(screen.getByRole("button", { name: "Connect" }));
 
     expect(mocks.initialize).toHaveBeenCalledExactlyOnceWith({
-      authCallback: mocks.credentialSource,
+      authCallback: { url: "https://example.com" },
       backendUrl: "https://example.com",
       loggingLevel: undefined,
       signer: mocks.signer,
@@ -103,4 +104,15 @@ it("does not initialize when another tab owns the lock", () => {
   const { result } = renderHook(useConnectXmtp);
   result.current.connect();
   expect(mocks.initialize).not.toHaveBeenCalled();
+});
+
+it("binds the credential source to the backend it connects to", () => {
+  mocks.lockState = "available";
+  const { result, rerender } = renderHook(useConnectXmtp);
+  mocks.backendUrl = "https://two.example";
+  rerender();
+  result.current.connect();
+  expect(mocks.initialize).toHaveBeenCalledExactlyOnceWith(
+    expect.objectContaining({ authCallback: { url: "https://two.example" } }),
+  );
 });

@@ -1,8 +1,9 @@
 import { useLocalStorage } from "@mantine/hooks";
 import { type LogLevel } from "@xmtp/browser-sdk";
-import { useEffect } from "react";
+import { useCallback, useEffect } from "react";
 import type { Hex } from "viem";
 
+import { backendOrigin } from "@/helpers/backend";
 import type { ConnectorString } from "@/hooks/useWallet";
 
 const legacyLoggingLevel = (value: string) => {
@@ -34,11 +35,22 @@ export const useSettings = () => {
       defaultValue: null,
       getInitialValueInEffect: false,
     });
-  const [authToken, setAuthToken] = useLocalStorage({
-    key: "XMTP_AUTH_TOKEN",
-    defaultValue: "",
+  // Keyed by backend origin. The token fields read the current backend's.
+  const [authTokens, setAuthTokens] = useLocalStorage<Record<string, string>>({
+    key: "XMTP_AUTH_TOKENS",
+    defaultValue: {},
     getInitialValueInEffect: false,
   });
+  const authToken = authTokens[backendOrigin(backendUrl)] ?? "";
+  const setAuthToken = useCallback(
+    (token: string) => {
+      setAuthTokens((tokens) => ({
+        ...tokens,
+        [backendOrigin(backendUrl)]: token,
+      }));
+    },
+    [backendUrl, setAuthTokens],
+  );
   const [ephemeralAccountEnabled, setEphemeralAccountEnabled] = useLocalStorage(
     {
       key: "XMTP_USE_EPHEMERAL_ACCOUNT",
@@ -90,6 +102,7 @@ export const useSettings = () => {
 
   return {
     authToken,
+    authTokens,
     autoConnect,
     backendUrl,
     blockchain,
@@ -101,6 +114,7 @@ export const useSettings = () => {
     useSCW,
     showDisclaimer,
     setAuthToken,
+    setAuthTokens,
     setAutoConnect,
     setBlockchain,
     setConnector,

@@ -1,5 +1,4 @@
-import type { CredentialSource } from "@xmtp/browser-sdk";
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router";
 import { useAccount, useSignMessage } from "wagmi";
 
@@ -15,11 +14,6 @@ export const useConnectXmtp = () => {
   const { signer: ephemeralSigner } = useEphemeralSigner();
   const { initializing, client, initialize, lockState } = useXMTP();
   const { createCredentialSource } = useAuthToken();
-  // One callback for this app's client, kept for the hook's lifetime so its
-  // memo of offered tokens matches that client's credential cache.
-  const authCallbackRef = useRef<CredentialSource | null>(null);
-  authCallbackRef.current ??= createCredentialSource();
-  const authCallback = authCallbackRef.current;
   const account = useAccount();
   const { signMessageAsync } = useSignMessage();
   const {
@@ -31,6 +25,12 @@ export const useConnectXmtp = () => {
     autoConnect,
     setAutoConnect,
   } = useSettings();
+  // One callback for this app's client, kept while the backend is unchanged so
+  // its memo of offered tokens matches that client's credential cache.
+  const authCallback = useMemo(
+    () => createCredentialSource(backendUrl),
+    [createCredentialSource, backendUrl],
+  );
 
   const connect = useCallback(() => {
     // A tab can connect after it takes ownership of the app lock.
