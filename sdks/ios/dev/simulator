@@ -38,5 +38,9 @@ until device="$(iphone)" && [[ -n "$device" ]]; do
   sleep 10
 done
 echo "Booting simulator $device." >&2
-"$xcrun" simctl bootstatus "$device" -b >&2
+# bootstatus prints a status line every second; show them only on failure.
+if ! status="$("$xcrun" simctl bootstatus "$device" -b 2>&1)"; then
+  printf '%s\n' "$status" >&2
+  exit 1
+fi
 echo "platform=iOS Simulator,id=$device"
