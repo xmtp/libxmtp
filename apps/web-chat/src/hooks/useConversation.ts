@@ -1,6 +1,7 @@
 import { Dm, Timestamp, type Intent } from "@xmtp/browser-sdk";
 import type {
   EncodedContent,
+  Message as XmtpMessage,
   RemoteAttachment,
   SendOptions,
   ReplyContent,
@@ -17,6 +18,9 @@ import {
   usePermissions,
 } from "@/stores/inbox/hooks";
 import { inboxStore } from "@/stores/inbox/store";
+
+/** The largest page the SDK returns. */
+const MESSAGE_PAGE_LIMIT = 1000;
 
 export const useConversation = (conversationId: string) => {
   const { addMessages } = useActions();
@@ -64,14 +68,34 @@ export const useConversation = (conversationId: string) => {
       setLoading(true);
 
       try {
-        const msgs = await conversation.messages({
-          sentAfter:
-            inboxStore.getState().lastSentAt.get(conversationId) === undefined
-              ? undefined
-              : new Timestamp(
-                  inboxStore.getState().lastSentAt.get(conversationId)!,
-                ),
-        });
+        // One messages call returns one page. Read ascending pages after the
+        // last seen message until a page is short.
+        const msgs: XmtpMessage[] = [];
+        const seen = new Set<string>();
+        let sentAfter = inboxStore.getState().lastSentAt.get(conversationId);
+        for (;;) {
+          const page = await conversation.messages({
+            sentAfter:
+              sentAfter === undefined ? undefined : new Timestamp(sentAfter),
+            direction: "ascending",
+            limit: MESSAGE_PAGE_LIMIT,
+          });
+          for (const message of page) {
+            if (!seen.has(message.id)) {
+              seen.add(message.id);
+              msgs.push(message);
+            }
+          }
+          const last = page.at(-1);
+          if (page.length < MESSAGE_PAGE_LIMIT || last === undefined) break;
+          // Read the last page's final time again, so messages that share it
+          // are not skipped. A page that holds only that time moves past it.
+          const retry = last.sentAt.ns - 1n;
+          sentAfter =
+            sentAfter === undefined || retry > sentAfter
+              ? retry
+              : last.sentAt.ns;
+        }
         await addMessages(conversation.id, msgs);
         return msgs;
       } finally {

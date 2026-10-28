@@ -1,5 +1,10 @@
 import { act, renderHook } from "@testing-library/react";
-import { Timestamp, type Conversation } from "@xmtp/browser-sdk";
+import {
+  Timestamp,
+  type Conversation,
+  type ListMessagesOptions,
+  type Message as XmtpMessage,
+} from "@xmtp/browser-sdk";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { inboxStore } from "@/stores/inbox/store";
@@ -81,7 +86,61 @@ describe("sync callbacks", () => {
     });
     expect(conversation.messages).toHaveBeenLastCalledWith({
       sentAfter: new Timestamp(84n),
+      direction: "ascending",
+      limit: 1000,
     });
+    unmount();
+  });
+
+  it("reads every message after the cursor in pages", async () => {
+    // Message 1200 shares a sent time with message 1199, the last one on the
+    // first page after the cursor.
+    const history = Array.from({ length: 2500 }, (_, index) => ({
+      id: `m${index}`,
+      conversationId: "conversation",
+      sentAt: { ns: BigInt(index === 1200 ? 1200 : index + 1) },
+      content: { kind: "text" },
+    })) as unknown as XmtpMessage[];
+    // The SDK page rules: the first `limit` (1 to 1000) in the requested
+    // order, or the newest 100 when no limit is named.
+    const messages = vi.fn(async (options: ListMessagesOptions = {}) => {
+      const { direction, limit, sentAfter } = options;
+      if (limit !== undefined && (limit < 1 || limit > 1000)) {
+        throw new Error("InvalidArgument");
+      }
+      const matching = history.filter(
+        (message) =>
+          sentAfter === undefined || message.sentAt.ns > sentAfter.ns,
+      );
+      const ordered =
+        direction === "descending" ? [...matching].reverse() : matching;
+      if (limit !== undefined) return ordered.slice(0, limit);
+      const newest = matching.slice(-100);
+      return direction === "descending" ? newest.reverse() : newest;
+    });
+    const conversation = { id: "conversation", messages };
+    inboxStore.setState({
+      conversations: new Map([
+        [conversation.id, conversation as unknown as Conversation],
+      ]),
+      lastSentAt: new Map([[conversation.id, 200n]]),
+    });
+    const { result, unmount } = renderHook(() =>
+      useConversation(conversation.id),
+    );
+
+    await act(async () => {
+      await result.current.sync();
+    });
+
+    const stored = inboxStore.getState().messages.get(conversation.id);
+    expect([...(stored?.keys() ?? [])].sort()).toEqual(
+      history
+        .slice(200)
+        .map((message) => message.id)
+        .sort(),
+    );
+    expect(inboxStore.getState().lastSentAt.get(conversation.id)).toBe(2500n);
     unmount();
   });
 });
