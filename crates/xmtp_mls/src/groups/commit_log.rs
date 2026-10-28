@@ -203,8 +203,9 @@ pub struct CommitLogWorker<Context> {
     context: Context,
     /// The conversations whose commit-log publish failed in the last turn.
     failed_publishes: Vec<GroupId>,
-    /// No commit-log publish before this instant: a rate-limit delay.
-    publish_held_until: Option<xmtp_common::time::Instant>,
+    /// Conversations whose commit-log publish was refused with a rate limit,
+    /// and when that delay ends. Other conversations still publish.
+    publish_held_until: std::collections::HashMap<GroupId, xmtp_common::time::Instant>,
     #[cfg(test)]
     seal_fault: Option<SealFault>,
 }
@@ -228,7 +229,7 @@ where
         Self {
             context,
             failed_publishes: Vec::new(),
-            publish_held_until: None,
+            publish_held_until: std::collections::HashMap::new(),
             #[cfg(test)]
             seal_fault: None,
         }
@@ -342,20 +343,20 @@ where
         &mut self,
     ) -> Result<Vec<ConversationCursorInfo>, CommitLogError> {
         self.failed_publishes.clear();
-        // A rate-limited publish is not retried at a later tick inside its delay.
-        // implements: RATE-041
-        if self
-            .publish_held_until
-            .is_some_and(|until| xmtp_common::time::Instant::now() < until)
-        {
-            return Ok(Vec::new());
-        }
+        let now = xmtp_common::time::Instant::now();
+        self.publish_held_until.retain(|_, until| now < *until);
         let conn = &self.context.db();
         // DMs, and groups where we are a super admin
         let conversations = conn.get_conversation_ids_for_remote_log_publish()?;
         let api = self.context.api();
         let mut published = Vec::new();
         for conversation in &conversations {
+            // A rate-limited publish is not retried at a later tick inside its
+            // delay; other conversations still publish.
+            // implements: RATE-041
+            if self.publish_held_until.contains_key(&conversation.id) {
+                continue;
+            }
             let Some(PendingPublish {
                 cursor_info,
                 entries,
@@ -401,8 +402,11 @@ where
                             delay,
                         );
                         // A shorter later delay never ends a pending one.
-                        self.publish_held_until =
-                            Some(self.publish_held_until.map_or(until, |at| at.max(until)));
+                        let held = self
+                            .publish_held_until
+                            .entry(conversation.id)
+                            .or_insert(until);
+                        *held = (*held).max(until);
                     }
                     if error.is_retryable() {
                         break;

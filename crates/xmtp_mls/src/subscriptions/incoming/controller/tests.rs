@@ -4769,19 +4769,50 @@ async fn a_rate_limited_identity_proof_floors_only_its_head() {
     );
 }
 
-/// A refused target read is not sent again before its delay.
+/// A refused target read is not sent again before its delay, and the delay
+/// holds only its own topics: once the fallback interval has passed, a
+/// capture for another topic still starts.
 // verifies: RATE-041
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_rate_limited_target_read_waits_its_delay() {
     tester!(alix, disable_workers);
-    let mut controller = controller(alix.context.clone());
+    let (coordinator, mut controller) = coordinated_controller(alix.context.clone());
+    let refused = Topic::new_group_message(GroupId::generate());
+    let other = Topic::new_group_message(GroupId::generate());
+    let stream =
+        coordinator.acquire_stream(IncomingScope::Topics(vec![refused.clone(), other.clone()]));
+    while let Ok(command) = controller.commands.try_recv() {
+        controller.command(command);
+    }
+    let scope = controller.scopes.get_mut(&stream.id).unwrap();
+    scope.topics.extend([refused.clone(), other.clone()]);
+    let generation = scope.generation;
+    controller.transport.state = TransportState::Streaming(IncomingSubscription::new(
+        Box::pin(futures::stream::pending()),
+        |_| {},
+    ));
     let delay = Duration::from_secs(300);
     let before = Instant::now();
+    controller.targets_request = Some(std::collections::HashSet::from([refused.clone()]));
     controller.targets_finished((
-        vec![(1, 1)],
+        vec![(stream.id, generation)],
         Err(NetworkError::new(rate_limited_api("request", delay))),
     ));
-    assert!(controller.targets_retry_at? >= before + delay);
+    assert!(
+        controller.targets_retry_at? < before + delay,
+        "the delay holds only the refused topics"
+    );
+    // The fallback interval has passed; only the delay holds the refused topic.
+    controller.targets_retry_at = None;
+    controller
+        .transport
+        .registered
+        .extend([refused.clone(), other.clone()]);
+    controller.start_targets();
+    assert_eq!(
+        controller.targets_request,
+        Some(std::collections::HashSet::from([other.clone()]))
+    );
 }
 
 /// A refused prefix target read is not sent again before its delay.

@@ -383,6 +383,42 @@ async fn a_rate_limited_publish_waits_out_its_delay() {
     );
 }
 
+/// A rate-limited conversation holds only its own commit-log publish: another
+/// conversation still publishes inside the delay.
+// verifies: RATE-041
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_rate_limited_publish_holds_only_its_conversation() {
+    tester!(alix, disable_workers);
+    let first = alix.create_group(None, None)?;
+    first.update_group_name("one".into()).await?;
+    let second = alix.create_group(None, None)?;
+    second.update_group_name("two".into()).await?;
+    let ids = [
+        keys_of(&first).commit_log_id().to_vec(),
+        keys_of(&second).commit_log_id().to_vec(),
+    ];
+    let (client, script) = scripted::scripted(&alix.client).await;
+    script.lock().rate_limit = Some(xmtp_common::time::Duration::from_secs(300));
+    let mut worker = CommitLogWorker::new(client.context.clone());
+    assert!(publish_turn(&mut worker).await.is_empty());
+    let refused = ids
+        .iter()
+        .find(|id| script.lock().publishes_for(id) == 1)?
+        .clone();
+    let other = ids.iter().find(|id| **id != refused)?.clone();
+    script.lock().rate_limit = None;
+    publish_turn(&mut worker).await;
+    assert_eq!(
+        script.lock().publishes_for(&refused),
+        1,
+        "no publish of the refused conversation inside its delay"
+    );
+    assert!(
+        script.lock().publishes_for(&other) >= 1,
+        "the other conversation still publishes"
+    );
+}
+
 /// Publication resumes once a rate-limit hold has ended.
 // verifies: RATE-041
 #[xmtp_common::test(unwrap_try = true)]

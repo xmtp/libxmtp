@@ -162,6 +162,9 @@ pub(super) struct Controller<C: XmtpSharedContext> {
     #[cfg(test)]
     receipt_progress_reads: std::sync::atomic::AtomicUsize,
     targets_retry_at: Option<Instant>,
+    /// Topics whose target capture was refused with a rate limit, and when
+    /// that delay ends. Other topics' captures are not held (RATE-041).
+    target_floors: HashMap<Topic, Instant>,
     read_queue: VecDeque<Topic>,
     dependencies: FuturesUnordered<BoxDynFuture<'static, DependencyResult<C>>>,
     dependency_registry: DependencyRegistry,
@@ -219,6 +222,7 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             #[cfg(test)]
             receipt_progress_reads: std::sync::atomic::AtomicUsize::new(0),
             targets_retry_at: None,
+            target_floors: HashMap::new(),
             read_queue: VecDeque::new(),
             dependencies: FuturesUnordered::new(),
             dependency_registry: DependencyRegistry::default(),
@@ -818,6 +822,8 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
         if self.targets.is_some() {
             return;
         }
+        let now = Instant::now();
+        self.target_floors.retain(|_, until| now < *until);
         let mut scopes = Vec::new();
         let mut topics = HashSet::new();
         for (id, scope) in &self.scopes {
@@ -827,6 +833,7 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                 .filter(|topic| {
                     self.transport.registered.contains(*topic)
                         && !scope.targets.contains_key(*topic)
+                        && !self.target_floors.contains_key(*topic)
                 })
                 .cloned()
                 .collect();
@@ -898,16 +905,25 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             Err(error) => {
                 let rejected = crate::subscriptions::recovery::rejected_request(&error);
                 if !rejected {
-                    // A rate-limited target read waits its delay.
-                    // implements: RATE-041
-                    let wait = self
+                    let fallback = self
                         .context
                         .incoming_runtime()
                         .policy()
-                        .receiver_fallback_interval
-                        .max(error.rate_limit_delay().unwrap_or_default());
-                    self.targets_retry_at =
-                        Some(xmtp_common::time::saturating_after(Instant::now(), wait));
+                        .receiver_fallback_interval;
+                    self.targets_retry_at = Some(xmtp_common::time::saturating_after(
+                        Instant::now(),
+                        fallback,
+                    ));
+                    // A rate-limited target read waits its delay; other
+                    // topics' captures do not.
+                    // implements: RATE-041
+                    if let (Some(delay), Some(request)) = (error.rate_limit_delay(), &request) {
+                        let until = xmtp_common::time::saturating_after(Instant::now(), delay);
+                        for topic in request {
+                            let floor = self.target_floors.entry(topic.clone()).or_insert(until);
+                            *floor = (*floor).max(until);
+                        }
+                    }
                 }
                 let cause = Arc::new(IncomingError::Transport(error));
                 if let Some(request) = request {
