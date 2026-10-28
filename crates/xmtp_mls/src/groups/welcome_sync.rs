@@ -1575,24 +1575,32 @@ mod tests {
         assert!(retired.is_none(), "key is retired once the hold ends");
     }
 
+    enum WelcomeRetention {
+        Unreadable,
+        Held,
+        Terminal,
+    }
+
     /// Only unreadable MLS formats and missing Welcome key material get this
     /// deadline; local failures and required group versions keep their policy.
-    // verifies: JOIN-087, JOIN-084, JOIN-085
+    // verifies: JOIN-087, JOIN-084, JOIN-085, JOIN-048, JOIN-027, JOIN-043
     #[rstest]
-    #[case::mls_version(|| openmls::prelude::WelcomeError::UnsupportedMlsVersion.into(), true)]
-    #[case::extensions(|| openmls::prelude::WelcomeError::UnsupportedExtensions.into(), true)]
-    #[case::capability(|| openmls::prelude::WelcomeError::UnsupportedCapability.into(), true)]
-    #[case::ciphersuite(|| openmls::prelude::WelcomeError::UnsupportedCiphersuite(openmls::prelude::Ciphersuite::MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519).into(), true)]
-    #[case::key_reference(|| xmtp_db::NotFound::KeyPackageReference(vec![]).into(), true)]
-    #[case::key_package(|| xmtp_db::NotFound::KeyPackage(vec![]).into(), true)]
-    #[case::post_quantum_key(|| xmtp_db::NotFound::PostQuantumPrivateKey.into(), true)]
-    #[case::group_version(|| GroupError::UnsupportedWelcomeVersion("999.0.0".into()), false)]
-    #[case::local_failure(|| GroupError::LockUnavailable, false)]
-    #[case::unrelated_missing_state(|| xmtp_db::NotFound::MlsGroup(GroupId::from([1; 16])).into(), false)]
+    #[case::mls_version(|| openmls::prelude::WelcomeError::UnsupportedMlsVersion.into(), WelcomeRetention::Unreadable)]
+    #[case::extensions(|| openmls::prelude::WelcomeError::UnsupportedExtensions.into(), WelcomeRetention::Unreadable)]
+    #[case::capability(|| openmls::prelude::WelcomeError::UnsupportedCapability.into(), WelcomeRetention::Unreadable)]
+    #[case::ciphersuite(|| openmls::prelude::WelcomeError::UnsupportedCiphersuite(openmls::prelude::Ciphersuite::MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519).into(), WelcomeRetention::Unreadable)]
+    #[case::key_reference(|| xmtp_db::NotFound::KeyPackageReference(vec![]).into(), WelcomeRetention::Unreadable)]
+    #[case::key_package(|| xmtp_db::NotFound::KeyPackage(vec![]).into(), WelcomeRetention::Unreadable)]
+    #[case::post_quantum_key(|| xmtp_db::NotFound::PostQuantumPrivateKey.into(), WelcomeRetention::Unreadable)]
+    #[case::group_version(|| GroupError::UnsupportedWelcomeVersion("999.0.0".into()), WelcomeRetention::Held)]
+    #[case::local_failure(|| GroupError::LockUnavailable, WelcomeRetention::Held)]
+    #[case::unrelated_missing_state(|| xmtp_db::NotFound::MlsGroup(GroupId::from([1; 16])).into(), WelcomeRetention::Held)]
+    #[case::psk(|| openmls::prelude::WelcomeError::Psk(openmls::schedule::errors::PskError::KeyNotFound).into(), WelcomeRetention::Terminal)]
+    #[case::stale_join_anchor(|| xmtp_db::StorageError::Stream(xmtp_db::stream_storage::StreamStorageError::StaleJoinAnchor).into(), WelcomeRetention::Terminal)]
     #[xmtp_common::test(unwrap_try = true)]
     async fn welcome_retention_is_limited_to_unreadable_input(
         #[case] error: fn() -> GroupError,
-        #[case] bounded: bool,
+        #[case] expectation: WelcomeRetention,
         #[values(false, true)] prior_pointer_hold: bool,
     ) {
         use xmtp_db::ConnectionExt;
@@ -1631,16 +1639,30 @@ mod tests {
             .pending_envelope(&service.topic(), Cursor(1))
             .unwrap()
             .unwrap();
-        assert!(matches!(
-            service
-                .classify_pending_result(&pending, Err(error()))
-                .unwrap(),
-            WelcomeHeadOutcome::Waiting { .. }
-        ));
+        let outcome = service
+            .classify_pending_result(&pending, Err(error()))
+            .unwrap();
+        if matches!(expectation, WelcomeRetention::Terminal) {
+            assert!(matches!(
+                outcome,
+                WelcomeHeadOutcome::Progress { result: Err(_), .. }
+            ));
+            let rejection = db.read_last_rejection(&service.topic()).unwrap();
+            assert_eq!(rejection.unwrap().code, "invalid_welcome");
+            assert!(
+                db.pending_envelope(&service.topic(), Cursor(1))
+                    .unwrap()
+                    .is_none()
+            );
+            assert!(!db.has_pending_welcomes().unwrap());
+            return;
+        }
+        assert!(matches!(outcome, WelcomeHeadOutcome::Waiting { .. }));
         let pending = db
             .pending_envelope(&service.topic(), Cursor(1))
             .unwrap()
             .unwrap();
+        let bounded = matches!(expectation, WelcomeRetention::Unreadable);
         assert_eq!(pending.unreadable_expires_at_ns.is_some(), bounded);
         if bounded {
             assert!(pending.blocked);

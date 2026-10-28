@@ -88,11 +88,16 @@ enum CommitResult<C> {
 }
 
 /// Only invalid input can complete a rejected Welcome. Local failures remain pending.
+// implements: JOIN-048, JOIN-027, JOIN-043
 pub(crate) fn terminal_welcome_error(error: &GroupError) -> bool {
     use openmls::prelude::WelcomeError;
     matches!(
         error,
         GroupError::InvalidWelcomeMetadata
+            // Processed progress never rewinds, so a stale anchor stays stale.
+            | GroupError::Storage(xmtp_db::StorageError::Stream(
+                xmtp_db::stream_storage::StreamStorageError::StaleJoinAnchor
+            ))
             | GroupError::WelcomeGroupRoot(_)
             | GroupError::InvalidGroupMembership
             | GroupError::MetadataPermissionsError(_)
@@ -112,6 +117,8 @@ pub(crate) fn terminal_welcome_error(error: &GroupError) -> bool {
             ))
             | GroupError::WelcomeError(
                 WelcomeError::GroupSecrets(_)
+                    // openmls loads PSKs before the NoPSKSupport check.
+                    | WelcomeError::Psk(_)
                     | WelcomeError::CiphersuiteMismatch
                     | WelcomeError::GroupInfo(_)
                     | WelcomeError::JoinerSecretNotFound
