@@ -10,100 +10,6 @@ use xmtp_proto::{
     xmtp::mls::message_contents::{OneshotMessage, ReaddRequest, oneshot_message::MessageType},
 };
 
-#[xmtp_common::test]
-async fn test_request_readd() {
-    tester!(alix, enable_fork_recovery_requests);
-    tester!(bo);
-    tester!(caro);
-    let group = alix
-        .create_group_with_members(&[bo.inbox_id(), caro.inbox_id()], None, None)
-        .await
-        .unwrap();
-    group
-        .update_admin_list(UpdateAdminListType::AddSuper, bo.inbox_id().to_string())
-        .await
-        .unwrap();
-    group
-        .update_admin_list(UpdateAdminListType::Add, caro.inbox_id().to_string())
-        .await
-        .unwrap();
-    bo.sync_all_welcomes_and_groups(None).await.unwrap();
-    caro.sync_all_welcomes_and_groups(None).await.unwrap();
-    let b_group = bo.group(&group.group_id).unwrap();
-    b_group.update_consent_state(ConsentState::Allowed).unwrap();
-    let c_group = caro.group(&group.group_id).unwrap();
-    c_group.update_consent_state(ConsentState::Allowed).unwrap();
-
-    let mut a_worker = CommitLogWorker::new(alix.context.clone());
-    a_worker._tick().await.unwrap();
-
-    let a_conn = alix.context.db();
-    let b_conn = bo.context.db();
-    let c_conn = caro.context.db();
-    // Simulate a fork
-    a_conn
-        .set_group_commit_log_forked_status(&group.group_id, Some(true))
-        .unwrap();
-
-    // No readd requests yet
-    assert!(
-        !a_conn
-            .is_awaiting_readd(&group.group_id, alix.context.installation_id().as_slice(),)
-            .unwrap()
-    );
-    assert!(
-        !b_conn
-            .is_awaiting_readd(&group.group_id, alix.context.installation_id().as_slice(),)
-            .unwrap()
-    );
-    assert!(
-        !c_conn
-            .is_awaiting_readd(&group.group_id, alix.context.installation_id().as_slice(),)
-            .unwrap()
-    );
-
-    // Should trigger readd requests to be sent
-    a_worker._tick().await.unwrap();
-    // Should no-op
-    a_worker._tick().await.unwrap();
-    // Receive any oneshot messages
-    alix.sync_welcomes().await.unwrap();
-    bo.sync_welcomes().await.unwrap();
-    caro.sync_welcomes().await.unwrap();
-
-    // Only Alix and Bo are superadmins, so only they should have recorded a readd request
-    assert!(
-        a_conn
-            .is_awaiting_readd(&group.group_id, alix.context.installation_id().as_slice(),)
-            .unwrap()
-    );
-    assert!(
-        b_conn
-            .is_awaiting_readd(&group.group_id, alix.context.installation_id().as_slice(),)
-            .unwrap()
-    );
-    assert!(
-        !c_conn
-            .is_awaiting_readd(&group.group_id, alix.context.installation_id().as_slice(),)
-            .unwrap()
-    );
-    assert!(
-        !a_conn
-            .is_awaiting_readd(&group.group_id, bo.context.installation_id().as_slice(),)
-            .unwrap()
-    );
-    assert!(
-        !b_conn
-            .is_awaiting_readd(&group.group_id, bo.context.installation_id().as_slice(),)
-            .unwrap()
-    );
-    assert!(
-        !c_conn
-            .is_awaiting_readd(&group.group_id, bo.context.installation_id().as_slice(),)
-            .unwrap()
-    );
-}
-
 // verifies: FORK-041
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_readd_installation_succeeds() {
@@ -237,6 +143,11 @@ async fn test_readd_bookkeeping() {
         .update_admin_list(UpdateAdminListType::AddSuper, caro.inbox_id().to_string())
         .await
         .unwrap();
+    // An admin is not a permitted readder.
+    group
+        .update_admin_list(UpdateAdminListType::Add, devon.inbox_id().to_string())
+        .await
+        .unwrap();
     bo.sync_all_welcomes_and_groups(None).await.unwrap();
     caro.sync_all_welcomes_and_groups(None).await.unwrap();
     devon.sync_all_welcomes_and_groups(None).await.unwrap();
@@ -260,24 +171,28 @@ async fn test_readd_bookkeeping() {
         .set_group_commit_log_forked_status(&group.group_id, Some(true))
         .unwrap();
 
+    let alix_installation = alix.context.installation_id();
+    let bo_installation = bo.context.installation_id();
+    let assert_awaiting = |expected: &[(&dyn QueryReaddStatus, &[u8], bool)]| {
+        for (i, (conn, installation, awaiting)) in expected.iter().enumerate() {
+            assert_eq!(
+                conn.is_awaiting_readd(&group.group_id, installation)
+                    .unwrap(),
+                *awaiting,
+                "row {i}"
+            );
+        }
+    };
     // No readd requests yet
-    assert!(
-        !a_conn
-            .is_awaiting_readd(&group.group_id, alix.context.installation_id().as_slice(),)
-            .unwrap()
-    );
-    assert!(
-        !b_conn
-            .is_awaiting_readd(&group.group_id, alix.context.installation_id().as_slice(),)
-            .unwrap()
-    );
-    assert!(
-        !c_conn
-            .is_awaiting_readd(&group.group_id, alix.context.installation_id().as_slice(),)
-            .unwrap()
-    );
+    assert_awaiting(&[
+        (&a_conn, &alix_installation[..], false),
+        (&b_conn, &alix_installation[..], false),
+        (&c_conn, &alix_installation[..], false),
+    ]);
 
     // Should trigger readd requests to be sent
+    a_worker._tick().await.unwrap();
+    // Should no-op
     a_worker._tick().await.unwrap();
     // Receive any oneshot messages
     alix.sync_welcomes().await.unwrap();
@@ -285,27 +200,16 @@ async fn test_readd_bookkeeping() {
     caro.sync_welcomes().await.unwrap();
     devon.sync_welcomes().await.unwrap();
 
-    // Everyone except Devon (non-superadmin) sees Alix as awaiting readd
-    assert!(
-        a_conn
-            .is_awaiting_readd(&group.group_id, alix.context.installation_id().as_slice(),)
-            .unwrap()
-    );
-    assert!(
-        b_conn
-            .is_awaiting_readd(&group.group_id, alix.context.installation_id().as_slice(),)
-            .unwrap()
-    );
-    assert!(
-        c_conn
-            .is_awaiting_readd(&group.group_id, alix.context.installation_id().as_slice(),)
-            .unwrap()
-    );
-    assert!(
-        !d_conn
-            .is_awaiting_readd(&group.group_id, alix.context.installation_id().as_slice(),)
-            .unwrap()
-    );
+    // Only the requester and super admins record Alix's request; nobody records Bo
+    assert_awaiting(&[
+        (&a_conn, &alix_installation[..], true),
+        (&b_conn, &alix_installation[..], true),
+        (&c_conn, &alix_installation[..], true),
+        (&d_conn, &alix_installation[..], false),
+        (&a_conn, &bo_installation[..], false),
+        (&b_conn, &bo_installation[..], false),
+        (&c_conn, &bo_installation[..], false),
+    ]);
 
     // Let's say Bo's worker processes it first
     let mut b_worker = CommitLogWorker::new(bo.context.clone());
@@ -313,30 +217,15 @@ async fn test_readd_bookkeeping() {
 
     caro.sync_all_welcomes_and_groups(None).await.unwrap();
     devon.sync_all_welcomes_and_groups(None).await.unwrap();
+    alix.sync_welcomes().await.unwrap();
 
     // Everyone should see that Alix is no longer awaiting readd
-    assert!(
-        !b_conn
-            .is_awaiting_readd(&group.group_id, alix.context.installation_id().as_slice(),)
-            .unwrap()
-    );
-    assert!(
-        !c_conn
-            .is_awaiting_readd(&group.group_id, alix.context.installation_id().as_slice(),)
-            .unwrap()
-    );
-    assert!(
-        !d_conn
-            .is_awaiting_readd(&group.group_id, alix.context.installation_id().as_slice(),)
-            .unwrap()
-    );
-
-    alix.sync_welcomes().await.unwrap();
-    assert!(
-        !a_conn
-            .is_awaiting_readd(&group.group_id, alix.context.installation_id().as_slice(),)
-            .unwrap()
-    );
+    assert_awaiting(&[
+        (&a_conn, &alix_installation[..], false),
+        (&b_conn, &alix_installation[..], false),
+        (&c_conn, &alix_installation[..], false),
+        (&d_conn, &alix_installation[..], false),
+    ]);
 }
 
 #[xmtp_common::test]
@@ -728,6 +617,74 @@ async fn a_dm_peer_answers_a_readd_request() {
     bo_worker._tick().await?;
     assert_eq!(dm.epoch().await?, repaired_epoch);
     assert_eq!(bo_dm.epoch().await?, repaired_epoch);
+}
+
+enum ReversibleFailure {
+    Paused,
+    Forked,
+    ForkedThenMatchingCommit,
+}
+
+// verifies: FORK-041, FORK-080
+#[rstest::rstest]
+#[case::paused(ReversibleFailure::Paused)]
+#[case::forked(ReversibleFailure::Forked)]
+#[case::forked_then_matching_commit(ReversibleFailure::ForkedThenMatchingCommit)]
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_reversible_failure_keeps_the_readd_request(
+    #[case] failure: ReversibleFailure,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use xmtp_db::prelude::QueryGroupVersion;
+
+    tester!(alix, disable_workers, enable_fork_recovery_requests);
+    tester!(bo, disable_workers);
+    let dm = alix
+        .find_or_create_dm(bo.inbox_id().to_string(), None)
+        .await?;
+    bo.sync_all_welcomes_and_groups(None).await?;
+    let bo_dm = bo.group(&dm.group_id)?;
+    bo_dm.update_consent_state(ConsentState::Allowed)?;
+    dm.key_update().await?;
+    bo_dm.sync().await?;
+    let mut alix_worker = CommitLogWorker::new(alix.context.clone());
+    let mut bo_worker = CommitLogWorker::new(bo.context.clone());
+    alix_worker._tick().await?;
+    bo_worker._tick().await?;
+    let bo_db = bo.context.db();
+    let installation = alix.context.installation_id();
+    alix.context
+        .db()
+        .set_group_commit_log_forked_status(&dm.group_id, Some(true))?;
+    alix_worker._tick().await?;
+    bo.sync_welcomes().await?;
+    assert!(bo_db.is_awaiting_readd(&dm.group_id, installation.as_slice())?);
+
+    match failure {
+        ReversibleFailure::Paused => bo_db.set_group_paused(&dm.group_id, "999.0.0")?,
+        ReversibleFailure::Forked => {
+            bo_db.set_group_commit_log_forked_status(&dm.group_id, Some(true))?
+        }
+        ReversibleFailure::ForkedThenMatchingCommit => {
+            bo_db.set_group_commit_log_forked_status(&dm.group_id, Some(true))?;
+            dm.key_update().await?;
+            alix_worker._tick().await?;
+            bo_dm.sync().await?;
+        }
+    }
+    let epoch_before = bo_dm.epoch().await?;
+    bo_worker._tick().await?;
+    assert_eq!(bo_dm.epoch().await?, epoch_before);
+    assert!(bo_db.is_awaiting_readd(&dm.group_id, installation.as_slice())?);
+
+    match failure {
+        ReversibleFailure::Paused => bo_db.unpause_group(&dm.group_id)?,
+        // Stands in for the reset a Welcome applies.
+        _ => bo_db.set_group_commit_log_forked_status(&dm.group_id, Some(false))?,
+    }
+    bo_worker._tick().await?;
+    assert_eq!(bo_dm.epoch().await?, epoch_before + 1);
+    assert!(!bo_db.is_awaiting_readd(&dm.group_id, installation.as_slice())?);
+    Ok(())
 }
 
 // verifies: FORK-050, FORK-080, FORK-064, GMOD-052
