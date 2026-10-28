@@ -150,6 +150,7 @@ pub enum CallerKey {
 }
 
 impl CallerKey {
+    // implements: RATE-003
     pub fn from_ip(ip: IpAddr) -> Self {
         match ip {
             IpAddr::V4(ip) => Self::Ipv4(ip.octets()),
@@ -332,6 +333,7 @@ impl RateLimitConfig {
     /// the category's `default`, else the default limits table. Each holds
     /// at most three limits with different windows, and an empty slice
     /// admits every spend.
+    // implements: RATE-025
     pub fn limits(&self, category: Category, caller: &CallerKey) -> &[LimitConfig] {
         self.overrides
             .get(caller)

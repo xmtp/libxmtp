@@ -163,6 +163,7 @@ fn required_keys_are_refused_when_absent() {
 
 /// Addresses in one IPv6 /64 are one caller, and an IPv4-mapped IPv6
 /// address is the IPv4 caller. An IPv4-compatible address is not mapped.
+// verifies: RATE-003
 #[xmtp_common::test(unwrap_try = true)]
 fn caller_keys_from_addresses_follow_the_ipv6_prefix_and_ipv4_mapping() {
     assert_eq!(
@@ -194,28 +195,49 @@ fn caller_keys_from_addresses_follow_the_ipv6_prefix_and_ipv4_mapping() {
     }
 }
 
-/// The default limits are the table of RATE section 3, written out here so a
-/// changed or swapped constant fails.
+const RATE: &str = include_str!("../../../../docs/specs/RATE-backend-rate-limits.md");
+
+/// The default limits table of RATE section 3, by category name, each limit
+/// as written: `6000 per 60 s`.
+fn rate_default_limits() -> Vec<(String, Vec<LimitConfig>)> {
+    let section = &RATE[RATE.find("## 3. Limits").expect("RATE has section 3")..];
+    let table = &section[section
+        .find("| Category | Default limits |")
+        .expect("section 3 has the default limits table")..];
+    table
+        .lines()
+        .skip(2)
+        .take_while(|line| line.starts_with('|'))
+        .map(|line| {
+            let cells: Vec<&str> = line.split('|').map(str::trim).collect();
+            let name = cells[1].trim_matches('`').to_owned();
+            let limits = cells[2]
+                .split("; ")
+                .map(|limit| {
+                    let (count, window) = limit
+                        .strip_suffix(" s")
+                        .and_then(|limit| limit.split_once(" per "))
+                        .unwrap_or_else(|| panic!("{name}: {limit} is not `C per W s`"));
+                    LimitConfig {
+                        count: count.parse().expect("a count"),
+                        window_seconds: window.parse().expect("a window"),
+                    }
+                })
+                .collect();
+            (name, limits)
+        })
+        .collect()
+}
+
+/// The default limits are the table of RATE section 3, row for row in
+/// `Category::ALL` order, so a changed or swapped constant fails.
+// verifies: RATE-025
 #[xmtp_common::test(unwrap_try = true)]
 fn the_default_limits_are_the_rate_table() {
-    let table: [(&str, &[(u32, u32)]); 7] = [
-        ("request", &[(6000, 60), (200_000, 3600)]),
-        ("publish", &[(1000, 60), (20_000, 3600)]),
-        ("identity_update", &[(10, 60), (100, 3600)]),
-        ("chain_verify", &[(200, 60), (2000, 3600)]),
-        ("push", &[(2000, 60), (20_000, 3600)]),
-        ("upload", &[(120, 60), (2000, 3600)]),
-        ("stream_rent", &[(120, 60)]),
-    ];
+    let table = rate_default_limits();
+    assert_eq!(table.len(), Category::ALL.len());
     for (category, (name, limits)) in Category::ALL.into_iter().zip(table) {
         assert_eq!(category.as_str(), name);
-        let limits: Vec<LimitConfig> = limits
-            .iter()
-            .map(|&(count, window_seconds)| LimitConfig {
-                count,
-                window_seconds,
-            })
-            .collect();
         assert_eq!(category.default_limits(), limits, "{name}");
     }
 }
@@ -272,6 +294,7 @@ fn caller_key_bytes_differ_for_different_keys() {
 /// The override for the caller key, then its auth type's limits, then the
 /// category's `default`, then the default limits table, for each category
 /// on its own. An empty list stays empty.
+// verifies: RATE-025
 #[xmtp_common::test(unwrap_try = true)]
 fn the_most_specific_limits_apply() {
     let config = load(

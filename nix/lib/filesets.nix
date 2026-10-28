@@ -343,6 +343,7 @@ let
     "crates/xmtp_backend_config" = [
       (src + /docs/schemas/backend-v1.json)
       (src + /docs/specs/CONF-backend-configuration.md)
+      (src + /docs/specs/RATE-backend-rate-limits.md)
       (src + /dev/backend/local.toml)
       (src + /dev/backend/local-s3.toml)
     ];
