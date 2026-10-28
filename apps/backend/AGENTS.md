@@ -20,6 +20,8 @@ dev/nix-shell 'just backend sql-check'
   tests when services are unavailable. Export fixtures through `test-utils`.
   Replica tests must wait for replay before connecting; read
   [test setup](DEVELOPMENT.md) before adding replica/auth fixtures.
+- For manual database benchmarks, read the [benchmark guide](benchmarks/README.md).
+  Use a dedicated test database; experimental schemas and query hooks stay test-only.
 - Use `parking_lot::Mutex` for short synchronous locks; never hold guards across
   await. Stream termination tests need one total deadline.
 - Document important functions' invariants, errors, and cancellation with RustDoc.

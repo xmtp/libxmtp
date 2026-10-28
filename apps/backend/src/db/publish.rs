@@ -1,3 +1,7 @@
+//! Atomic admitted publishing and duplicate resolution for `Store`.
+//! Topic/identity locks protect validation rechecks, sequence allocation, watermark
+//! advancement, and projections. Test-only partition retries reuse this transaction.
+
 use super::{PendingEnvelope, Store, StoredMeta, identity::apply_projection};
 use crate::error::{AdmissionError, Error};
 use crate::handles::HandleRejection;
@@ -23,7 +27,8 @@ impl Store {
         if pending.is_empty() {
             return Ok(());
         }
-        duplicates(&mut *self.primary.acquire().await?, pending).await
+        self.lookup_duplicates(&mut *self.primary.acquire().await?, pending)
+            .await
     }
 
     /// Atomically finish a publish after parsing and validation.
@@ -39,6 +44,22 @@ impl Store {
     #[xmtp_common::db_span]
     // implements: API-220, API-222
     pub(crate) async fn commit_publish(
+        &self,
+        pending: &mut [PendingEnvelope],
+        parse_error: Option<(usize, AdmissionError)>,
+        max_duration_ms: u64,
+    ) -> Result<Vec<StoredMeta>, Error> {
+        #[cfg(test)]
+        if let Some(partitions) = &self.partitions {
+            return partitions
+                .publish(self, pending, parse_error, max_duration_ms)
+                .await;
+        }
+        self.commit_publish_once(pending, parse_error, max_duration_ms)
+            .await
+    }
+
+    pub(super) async fn commit_publish_once(
         &self,
         pending: &mut [PendingEnvelope],
         parse_error: Option<(usize, AdmissionError)>,
@@ -60,7 +81,7 @@ impl Store {
         let mut tx = locks(&self.primary, pending, max_duration_ms).await?;
         // A committed copy overrides an earlier validation failure. Retain its
         // original metadata before checking admission for the remaining inputs.
-        duplicates(&mut tx, pending).await?;
+        self.lookup_duplicates(&mut tx, pending).await?;
         check_heads(&mut tx, pending).await?;
         check_handles(&mut tx, pending).await?;
         let validation_error = pending
@@ -83,6 +104,21 @@ impl Store {
             .iter()
             .filter(|item| item.duplicate.is_none())
             .collect();
+        #[cfg(test)]
+        let inserted = if new.is_empty() {
+            Vec::new()
+        } else if let Some(partitions) = &self.partitions {
+            let ids = allocate(&mut tx, new.len()).await?;
+            let missing = partitions.missing(&mut tx, &ids).await?;
+            if !missing.is_empty() {
+                tx.rollback().await?;
+                return Err(Error::MissingEnvelopePartitions(missing));
+            }
+            insert_rows(&mut tx, &new, &ids).await?
+        } else {
+            insert(&mut tx, &new).await?
+        };
+        #[cfg(not(test))]
         let inserted = insert(&mut tx, &new).await?;
         for (item, meta) in new.iter().zip(&inserted) {
             if let Ok(Some(changes)) = &item.validation {
@@ -110,6 +146,18 @@ impl Store {
                     .ok_or(Error::Invariant("publish metadata missing"))
             })
             .collect()
+    }
+
+    async fn lookup_duplicates(
+        &self,
+        connection: &mut PgConnection,
+        pending: &mut [PendingEnvelope],
+    ) -> Result<(), Error> {
+        #[cfg(test)]
+        if self.partitions.is_some() {
+            return super::benchmarks::partition::duplicates(connection, pending).await;
+        }
+        duplicates(connection, pending).await
     }
 }
 
@@ -348,11 +396,26 @@ async fn insert(
     if new.is_empty() {
         return Ok(Vec::new());
     }
+    let ids = allocate(tx, new.len()).await?;
+    insert_rows(tx, new, &ids).await
+}
+
+async fn allocate(tx: &mut Transaction<'_, Postgres>, count: usize) -> Result<Vec<i64>, Error> {
     let count =
-        i64::try_from(new.len()).map_err(|_| Error::Invariant("publish input count overflow"))?;
-    let ids = sqlx::query!(
+        i64::try_from(count).map_err(|_| Error::Invariant("publish input count overflow"))?;
+    Ok(sqlx::query!(
         r#"SELECT nextval('envelope_sequence') AS "id!" FROM generate_series(1, $1::bigint) ordinal ORDER BY ordinal"#, count
-    ).fetch_all(&mut **tx).await?.into_iter().map(|row| row.id).collect::<Vec<_>>();
+    ).fetch_all(&mut **tx).await?.into_iter().map(|row| row.id).collect())
+}
+
+async fn insert_rows(
+    tx: &mut Transaction<'_, Postgres>,
+    new: &[&PendingEnvelope],
+    ids: &[i64],
+) -> Result<Vec<StoredMeta>, Error> {
+    if new.is_empty() {
+        return Ok(Vec::new());
+    }
     let topics: Vec<_> = new.iter().map(|item| item.topic.clone()).collect();
     let hashes: Vec<_> = new.iter().map(|item| item.message_hash.to_vec()).collect();
     let flags: Vec<_> = new.iter().map(|item| item.is_commit_or_proposal).collect();
@@ -384,7 +447,7 @@ async fn insert(
             inserted.message_hash AS "message_hash!", inserted.is_commit_or_proposal AS "is_commit_or_proposal!",
             (SELECT count(*) FROM advanced) = (SELECT count(*) FROM new_heads) AS "advanced!"
         FROM input JOIN inserted USING (sequence_id) ORDER BY input.ordinal"#,
-        &ids, &topics, &hashes, &flags, &payloads, &retention as &[Option<i64>],
+        ids, &topics, &hashes, &flags, &payloads, &retention as &[Option<i64>],
         &push_eligible, &sender_hmac as &[Option<Vec<u8>>]
     ).fetch_all(&mut **tx).await?;
     if rows.len() != new.len() || rows.iter().any(|row| !row.advanced) {

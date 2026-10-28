@@ -3,6 +3,7 @@ use sqlx::{Connection, PgConnection};
 use std::time::Duration;
 
 const DATABASE_COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
+const DATABASE_COPY_TIMEOUT: Duration = Duration::from_secs(600);
 const REPLICA_REPLAY_TIMEOUT: Duration = Duration::from_secs(30);
 const REPLICA_POLL_INTERVAL: Duration = Duration::from_millis(50);
 const RUNTIME_SHUTDOWN_TIMEOUT: Duration = Duration::from_millis(100);
@@ -11,7 +12,8 @@ mod tests;
 
 /// Own a unique disposable database. Synchronous, bounded cleanup uses a separate
 /// runtime so assertion failures and test-runtime teardown cannot cancel it.
-/// Each database operation and its runtime shutdown share a 5 s budget.
+/// Each database operation and its runtime shutdown share a 5 s budget,
+/// except copying a large benchmark template, which has a 600 s budget.
 /// Drop logs a failed cleanup with the database name. It does not raise the error.
 pub struct TestDatabase {
     name: Option<String>,
@@ -22,6 +24,21 @@ pub struct TestDatabase {
 impl TestDatabase {
     /// Create an isolated database before returning its cleanup guard.
     pub fn new() -> TestResult<Self> {
+        Self::create(None)
+    }
+
+    /// Copy a disconnected fixture so benchmark trials start with identical rows and indexes.
+    /// PostgreSQL rejects a template with active connections; no existing database is replaced.
+    #[cfg(test)]
+    pub(crate) fn copy(&self) -> TestResult<Self> {
+        Self::create(Some(
+            self.name
+                .as_deref()
+                .ok_or("cannot copy a removed test database")?,
+        ))
+    }
+
+    fn create(template: Option<&str>) -> TestResult<Self> {
         let admin_url = std::env::var("DATABASE_URL")?;
         let name = format!("backend_test_{}", xmtp_common::rand_hexstring());
         let mut url = url::Url::parse(&admin_url)?;
@@ -32,9 +49,19 @@ impl TestDatabase {
             url: url.to_string(),
         };
         // The identifier contains only a fixed prefix and generated hexadecimal digits.
-        if let Err(error) =
-            database_command(&database.admin_url, format!("CREATE DATABASE \"{name}\""))
-        {
+        let timeout = if template.is_some() {
+            DATABASE_COPY_TIMEOUT
+        } else {
+            DATABASE_COMMAND_TIMEOUT
+        };
+        let template = template.map_or(String::new(), |name| {
+            format!(" TEMPLATE \"{name}\" STRATEGY FILE_COPY")
+        });
+        if let Err(error) = database_command_with_timeout(
+            &database.admin_url,
+            format!("CREATE DATABASE \"{name}\"{template}"),
+            timeout,
+        ) {
             if matches!(error.downcast_ref::<sqlx::Error>(), Some(sqlx::Error::Database(error)) if error.code().as_deref() == Some("42P04"))
             {
                 database.name = None;
@@ -119,6 +146,14 @@ impl Drop for TestDatabase {
 /// Complete CREATE before exposing the fixture, and DROP before returning from
 /// cleanup. Neither operation depends on the lifetime of the calling test runtime.
 fn database_command(admin_url: &str, command: String) -> TestResult {
+    database_command_with_timeout(admin_url, command, DATABASE_COMMAND_TIMEOUT)
+}
+
+fn database_command_with_timeout(
+    admin_url: &str,
+    command: String,
+    timeout: Duration,
+) -> TestResult {
     let admin_url = admin_url.to_owned();
     std::thread::spawn(move || -> TestResult {
         let started = xmtp_common::time::Instant::now();
@@ -126,7 +161,7 @@ fn database_command(admin_url: &str, command: String) -> TestResult {
             .enable_all()
             .build()?;
         let result = runtime.block_on(xmtp_common::time::timeout(
-            DATABASE_COMMAND_TIMEOUT.saturating_sub(started.elapsed()),
+            timeout.saturating_sub(started.elapsed()),
             async {
                 let mut admin = PgConnection::connect(&admin_url).await?;
                 sqlx::raw_sql(sqlx::AssertSqlSafe(command))
@@ -136,8 +171,7 @@ fn database_command(admin_url: &str, command: String) -> TestResult {
             },
         ));
         runtime.shutdown_timeout(
-            RUNTIME_SHUTDOWN_TIMEOUT
-                .min(DATABASE_COMMAND_TIMEOUT.saturating_sub(started.elapsed())),
+            RUNTIME_SHUTDOWN_TIMEOUT.min(timeout.saturating_sub(started.elapsed())),
         );
         result??;
         Ok(())

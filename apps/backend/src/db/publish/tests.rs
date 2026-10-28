@@ -18,6 +18,25 @@ use xmtp_id::{
 };
 use xmtp_mls_validation::test_utils::{TestChain, identity_envelope, scw_create_inbox_update};
 
+/// Empty inserts must issue no SQL, avoiding a round trip while publish locks are held.
+/// An aborted transaction makes any allocation or insertion query fail.
+#[xmtp_common::test(unwrap_try = true)]
+async fn empty_insert_does_not_query_the_database() {
+    let server = TestServer::new(|_| {}).await?;
+    let mut tx = server.backend.store.primary.begin().await?;
+    let error = sqlx::query("SELECT 1 / 0")
+        .execute(&mut *tx)
+        .await
+        .unwrap_err();
+    assert_eq!(
+        error.as_database_error().unwrap().code().as_deref(),
+        Some("22012")
+    );
+    assert!(super::insert(&mut tx, &[]).await?.is_empty());
+    tx.rollback().await?;
+    server.stop().await?;
+}
+
 #[xmtp_common::test(unwrap_try = true)]
 // verifies: API-212
 async fn new_envelopes_use_transaction_start_time_even_after_a_wait() {
