@@ -154,13 +154,7 @@ where
         // react by publishing its merged value, which re-enters
         // `sync_with_conn` and would deadlock on a guard still held here.
         let mut app_data_changes = Vec::new();
-        // The per-group mutex is held throughout, so no request waits out a
-        // rate limit inside it: a refused request returns with its delay.
-        let result = xmtp_common::retry::with_retry_deadline(
-            xmtp_common::time::Instant::now(),
-            self.sync_with_conn_locked(&mut app_data_changes),
-        )
-        .await;
+        let result = self.sync_with_conn_locked(&mut app_data_changes).await;
         self.dispatch_app_data_changes(app_data_changes).await;
         result
     }
@@ -572,6 +566,7 @@ where
             return Err(GroupError::PublishedButUnconfirmed {
                 intent_id,
                 cause: None,
+                rate_limit_delay: summary.rate_limit_delay(),
             });
         }
         Err(GroupError::SyncFailedToWait(Box::new(summary)))
@@ -594,12 +589,10 @@ where
             Ok(Err(error)) => summary.add_publish_err(error),
             Err(_) => return Err(GroupError::SyncFailedToWait(Box::new(summary))),
         }
-        // A rate-limited publish ends the round with its delay, which a later
-        // read error must not replace. The loop waits it out or returns it.
+        // A later error in this round must not hide a rate-limited publish's
+        // delay, so the round ends with the summary that holds it.
         // implements: RATE-041
-        if summary.rate_limit_delay().is_some() {
-            return Ok(summary);
-        }
+        let publish_delay = summary.rate_limit_delay();
         let receipt = self.request_read_target(intent_id)?;
         let blocker = match receipt {
             Some(_) => None,
@@ -608,7 +601,14 @@ where
         let topic = Topic::new_group_message(self.group_id);
         let targets = match receipt.or(blocker) {
             Some(target) => [(topic, target)].into(),
-            None => self.context.api().newest_topic_cursors(vec![topic]).await?,
+            None => match self.context.api().newest_topic_cursors(vec![topic]).await {
+                Ok(targets) => targets,
+                Err(error) if publish_delay.is_some() => {
+                    summary.add_other(error.into());
+                    return Ok(summary);
+                }
+                Err(error) => return Err(error.into()),
+            },
         };
         if let Err(cause) = crate::subscriptions::barrier::wait_through(
             &self.context,
@@ -617,14 +617,18 @@ where
         )
         .await
         {
-            return Err(if self.published_request_target(intent_id)?.is_some() {
-                GroupError::PublishedButUnconfirmed {
+            if self.published_request_target(intent_id)?.is_some() {
+                return Err(GroupError::PublishedButUnconfirmed {
                     intent_id,
                     cause: Some(Box::new(cause)),
-                }
-            } else {
-                cause.into()
-            });
+                    rate_limit_delay: publish_delay,
+                });
+            }
+            if publish_delay.is_some() {
+                summary.add_other(cause.into());
+                return Ok(summary);
+            }
+            return Err(cause.into());
         }
         if let Err(error) = self.post_commit().await {
             summary.add_post_commit_err(error);

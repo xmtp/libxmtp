@@ -507,7 +507,9 @@ where
     }
 
     /// Keep retry state without extending the original expiry deadline. A
-    /// rate-limited request is not retried before `floor`, its delay.
+    /// rate-limited request is not retried before `floor`, its delay, but never
+    /// later than `deadline`: an expired pointer is then rejected without a
+    /// fetch, so a delay longer than its retention cannot stall it.
     // implements: RATE-041
     fn defer_pending(
         &self,
@@ -526,7 +528,8 @@ where
             Cursor(pending.sequence_id as u64),
             &IncomingRetry {
                 retry_at_ns: xmtp_common::time::now_ns()
-                    .saturating_add(i64::try_from(delay.as_nanos()).unwrap_or(i64::MAX)),
+                    .saturating_add(i64::try_from(delay.as_nanos()).unwrap_or(i64::MAX))
+                    .min(deadline.unwrap_or(i64::MAX)),
                 blocked,
                 error_code: Some(code.into()),
                 retry_expires_at_ns: deadline,
@@ -1021,7 +1024,9 @@ async fn run_group_sync_work<Context: XmtpSharedContext>(
             if remaining.is_zero() {
                 return Err(timed_out());
             }
-            match timeout(remaining, async {
+            // A rate-limit wait past the deadline returns the rejection, so
+            // its delay is reported instead of being lost to the timeout.
+            let work = xmtp_common::retry::with_retry_deadline(deadline, async {
                 match work {
                     GroupSyncWork::Publish => {
                         let active = group.is_active()?;
@@ -1042,9 +1047,8 @@ async fn run_group_sync_work<Context: XmtpSharedContext>(
                         group.is_active()
                     }
                 }
-            })
-            .await
-            {
+            });
+            match timeout(remaining, work).await {
                 Ok(result) => result,
                 Err(_) => Err(timed_out()),
             }
@@ -1796,6 +1800,40 @@ mod tests {
         ));
         let pending = db.pending_envelope(&service.topic(), Cursor(1))?.unwrap();
         assert!(pending.retry_at_ns >= before + delay.as_nanos() as i64);
+    }
+
+    /// A rate limit longer than a pointer's retention retries at the deadline,
+    /// where the pointer expires without a fetch, instead of never.
+    // verifies: RATE-041
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn a_pointee_rate_limit_never_outlasts_its_retention() {
+        use xmtp_db::incoming_envelope::NewIncomingEnvelope;
+        tester!(bo, disable_workers);
+        let service = WelcomeService::new(bo.context.clone());
+        let db = bo.context.db();
+        db.admit_ordered_batch(
+            &service.topic(),
+            Cursor(0),
+            &[NewIncomingEnvelope {
+                sequence_id: Cursor(1),
+                envelope: vec![1],
+            }],
+            bo.context
+                .incoming_runtime()
+                .policy()
+                .incoming_limits(NetworkEntityKind::Welcome),
+        )?;
+        let pending = db.pending_envelope(&service.topic(), Cursor(1))?.unwrap();
+        let deadline = xmtp_common::time::now_ns() + xmtp_common::NS_IN_SEC;
+        service.defer_pending(
+            &pending,
+            "welcome_pointee",
+            false,
+            Some(deadline),
+            Some(xmtp_common::time::Duration::MAX),
+        )?;
+        let pending = db.pending_envelope(&service.topic(), Cursor(1))?.unwrap();
+        assert!(pending.retry_at_ns <= deadline);
     }
 
     /// Gaining format support or restoring a missing key package must permit

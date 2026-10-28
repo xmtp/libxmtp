@@ -28,6 +28,8 @@ pub(super) enum Fault {
     StoreThenUnavailable,
     /// Refuse with a rate-limit rejection of this delay, storing nothing.
     RateLimit(xmtp_common::time::Duration),
+    /// Pass the request to the backend.
+    Pass,
 }
 
 /// Passes every request to the test backend, except that each publish carrying
@@ -141,7 +143,7 @@ impl XmtpBackendClient for FaultyApi {
             .lock()
             .push(xmtp_common::time::Instant::now());
         let publish_error = match fault {
-            None => return self.inner.publish(request).await,
+            None | Some(Fault::Pass) => return self.inner.publish(request).await,
             Some(Fault::Refuse(code)) if code != tonic::Code::OutOfRange => {
                 return Err(status(code));
             }

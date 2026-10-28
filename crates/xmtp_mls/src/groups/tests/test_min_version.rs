@@ -628,6 +628,7 @@ async fn test_send_message_after_min_version_update_gets_expected_error() {
     let Err(GroupError::PublishedButUnconfirmed {
         intent_id,
         cause: Some(error),
+        ..
     }) = result
     else {
         panic!("expected an accepted send with a blocked processing obligation, got {result:?}");

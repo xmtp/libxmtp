@@ -1,6 +1,6 @@
 //! A rate-limited publish is not sent again inside its delay.
 
-use super::faults::{Fault, FaultyApi, faulty_group, group_message};
+use super::faults::{Fault, FaultyApi, faulty_group, group_message, welcome};
 use super::send_state_transitions::{UNRESOLVED, intents_in};
 use super::*;
 use crate::groups::send_message_opts::SendMessageOpts;
@@ -104,21 +104,25 @@ async fn a_read_error_after_a_rate_limited_publish_keeps_the_delay() {
     assert_eq!(error.rate_limit_delay(), Some(delay));
 }
 
-/// A sync holds the group's lock, so it does not wait out a rate limit: it
-/// returns at once with the delay instead of blocking other syncs.
+/// A sync whose target capture is refused for a short delay waits it out
+/// inside its retry budget and succeeds, instead of failing its barrier.
 // verifies: RATE-041
 #[xmtp_common::test(unwrap_try = true)]
-async fn a_locked_sync_does_not_wait_out_a_rate_limit() {
+async fn a_sync_waits_out_a_short_rate_limit_on_its_capture() {
     tester!(alix, disable_workers);
     let group = alix.create_group(None, None)?;
-    let delay = Duration::from_secs(5);
-    let api = FaultyApi::new(&alix, group_message, [Fault::RateLimit(delay)]);
-    let limited = faulty_group(&alix, &group.group_id, api.clone()).await;
-    limited.send_message_optimistic(b"hello", SendMessageOpts::default())?;
+    let api = FaultyApi::new(&alix, group_message, []);
+    let limited = limited_group(&alix, &group.group_id, api.clone(), Duration::from_secs(10)).await;
+    *api.rate_limit_newest.lock() = Some(Duration::from_secs(1));
+    let clear = api.rate_limit_newest.clone();
+    let _cleared = xmtp_common::spawn(None, async move {
+        xmtp_common::time::sleep(Duration::from_secs(1)).await;
+        *clear.lock() = None;
+    });
     let started = xmtp_common::time::Instant::now();
-    let _ = limited.sync_with_conn().await;
-    assert!(started.elapsed() < Duration::from_secs(2));
-    assert_eq!(api.requests.lock().len(), 1);
+    let result = limited.sync_with_conn().await;
+    assert!(result.is_ok(), "{:?}", result.err().map(|s| s.to_string()));
+    assert!(started.elapsed() < Duration::from_secs(3));
 }
 
 /// When the delay ends within the call, the loop waits it out and sends the
@@ -172,4 +176,67 @@ async fn a_rate_limited_target_capture_reports_its_delay() {
     .unwrap_err();
     assert_eq!(error.rate_limit_delay(), Some(delay));
     assert!(started.elapsed() < Duration::from_secs(10));
+}
+
+/// A target published before a later intent is refused is still confirmed:
+/// the refusal does not end the round before the target's receipt.
+// verifies: RATE-041
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_refused_later_intent_does_not_stop_confirming_the_target() {
+    tester!(alix, disable_workers);
+    let group = alix.create_group(None, None)?;
+    group.key_update().await?;
+    let api = FaultyApi::new(
+        &alix,
+        group_message,
+        [Fault::Pass, Fault::RateLimit(Duration::from_secs(300))],
+    );
+    let limited = faulty_group(&alix, &group.group_id, api.clone()).await;
+    limited.send_message_optimistic(b"first", SendMessageOpts::default())?;
+    limited.send_message_optimistic(b"second", SendMessageOpts::default())?;
+    let first = intents_in(&group, &UNRESOLVED, IntentKind::SendMessage)
+        .into_iter()
+        .min_by_key(|intent| intent.id)?;
+    limited.sync_until_intent_resolved(first.id).await?;
+    assert_eq!(api.requests.lock().len(), 2);
+}
+
+/// A commit whose Welcomes are refused for longer than the call reports it is
+/// published but unconfirmed, with the Welcomes' delay.
+// verifies: RATE-041
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_published_commit_keeps_its_welcomes_rate_limit_delay() {
+    tester!(alix, disable_workers);
+    tester!(bo);
+    let group = alix.create_group(None, None)?;
+    let delay = Duration::from_secs(300);
+    let api = FaultyApi::new(&alix, welcome, [Fault::RateLimit(delay)]);
+    let limited = faulty_group(&alix, &group.group_id, api.clone()).await;
+    let error = limited
+        .add_members(&[bo.inbox_id().to_string()])
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(error, GroupError::PublishedButUnconfirmed { .. }),
+        "{error:?}"
+    );
+    assert_eq!(error.rate_limit_delay(), Some(delay));
+}
+
+/// Syncing every group keeps a publish's delay past the deadline, as one
+/// group's sync does, instead of reporting only a timeout.
+// verifies: RATE-041
+#[xmtp_common::test(unwrap_try = true)]
+async fn syncing_all_groups_keeps_a_rate_limit_delay() {
+    tester!(alix, disable_workers);
+    let group = alix.create_group(None, None)?;
+    let delay = Duration::from_secs(3);
+    let api = FaultyApi::new(&alix, group_message, [Fault::RateLimit(delay)]);
+    let limited = limited_group(&alix, &group.group_id, api.clone(), Duration::from_secs(1)).await;
+    limited.send_message_optimistic(b"hello", SendMessageOpts::default())?;
+    let error = crate::groups::welcome_sync::WelcomeService::new(limited.context.clone())
+        .sync_all_groups(vec![limited])
+        .await
+        .unwrap_err();
+    assert_eq!(error.rate_limit_delay(), Some(delay));
 }

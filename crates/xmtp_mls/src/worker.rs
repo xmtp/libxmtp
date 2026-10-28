@@ -655,6 +655,7 @@ mod disconnect_propagation_tests {
                         ),
                     ),
                 ))))),
+                rate_limit_delay: None,
             }
             .needs_db_reconnect()
         );
