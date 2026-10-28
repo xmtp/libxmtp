@@ -124,7 +124,7 @@ Pending work consumes storage and memory. Separate capacity for groups, Welcomes
 
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
-| PROC-020 | Capacity never loses work | When capacity prevents receipt, the client MUST preserve pending work and `F`, return a typed capacity error if no legal admission fits, and resume ready topics without starvation as capacity is released. It MUST reserve separate pending capacity for group, Welcome, and identity work so one kind cannot consume another kind's capacity, and MUST NOT discard pending input or advance `F` to make room. | Dropping a pending commit loses the state needed for later messages. |
+| PROC-020 | Capacity never loses work | When capacity prevents receipt, the client MUST preserve pending work and `F`, return a typed capacity error if no legal admission fits, and resume ready topics without starvation as capacity is released. It MUST reserve separate pending capacity for group, Welcome, and identity work so one kind cannot consume another kind's capacity. Within each kind it MUST charge held work, meaning every pending envelope of a topic whose head is held under PROC-012 and every Welcome kept under JOIN-057, JOIN-084, JOIN-087, JOIN-092, or JOIN-094, to a separate held allowance no larger than that kind's capacity, so held work cannot consume the capacity of ready work. It MUST NOT discard pending input or advance `F` to make room, except that when held Welcomes exceed the held allowance it MUST record a terminal rejection for the held Welcome with the lowest sequence id, before any JOIN deadline. | Dropping a pending commit loses the state needed for later messages. Held work never drains, so charging it to shared capacity lets one sender or conversation stop receipt for every other one. Welcomes are independent, so evicting one loses only that join. |
 
 ## 6. Streams and recovery
 
@@ -203,6 +203,8 @@ Push-envelope entry points accept a backend `ServerEnvelope` and use its metadat
 A commit that names a proposal missing from local state is rejected only when the client durably recorded every proposal the prefix delivered in that epoch and still holds each one. Once a delivered proposal is lost, the client holds any commit in that epoch that fails for a missing proposal, even one whose missing reference the prefix never carried, because the failure does not name the reference.
 
 A held group or identity prefix has no retention deadline. Unsupported input can require a client upgrade; invalid identity history can require repair. Retrying a local failure does not make invalid history valid.
+
+Envelopes already pending when a topic's head becomes held move to the held allowance without an admission check, so held work can exceed that allowance. Each held topic still stops at its topic capacity, so held storage grows with the number of conversations a sender can hold, as stored messages do.
 
 A member can hold another installation's group head with a commit or proposal whose sender data names a leaf outside the ratchet tree or a generation beyond the forward window of PROC-055. The client holds such a message under PROC-012: a far-forward commit can be one its committer already merged, and this version does not separate an out-of-tree handshake sender from a local secret-tree failure.
 

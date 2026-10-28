@@ -352,6 +352,8 @@ The window in JOIN-094 makes a welcome pointer that never resolves indistinguish
 
 A Welcome held for a later attempt under JOIN-087, JOIN-084, or JOIN-057 delays the destruction of every superseded key package under JOIN-074 until the held Welcome is completed or rejected.
 
+A flood of held Welcomes makes PROC-020 reject the oldest held Welcome before its JOIN deadline. A valid Welcome held under JOIN-057, JOIN-084, JOIN-087, JOIN-092, or JOIN-094 can be lost this way, and the installation needs a new Welcome to join.
+
 JOIN-092 trusts the newest sequence id that a read returns 3 days after the Welcome. A lagging copy of the store can answer that read (API-201 permits one). If that copy has not replayed the re-add commit, the client rejects a valid re-add and needs a new Welcome to rejoin.
 
 The deadline in JOIN-092 does not bound a Welcome whose group topic holds `message_cursor` but whose processing stops below it. That Welcome, and the key material it retains, stays held until that processing resumes or the group ends.
