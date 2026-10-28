@@ -71,7 +71,7 @@ The same rule applies to what is read. A sync message is applied only when its s
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
 | SYNC-010 | Only the own inbox invites | When a Welcome carries a group whose `CONVERSATION_TYPE` is `CONVERSATION_TYPE_SYNC`, the client MUST record a terminal rejection for it unless the adder under JOIN-025 is the own inbox and every leaf node in the ratchet tree names the own inbox. | Anyone can create a group and name it a sync group. Accepting one makes it the group this client publishes to under SYNC-002, and its members read every consent decision and the HMAC root key. |
-| SYNC-011 | Only the own inbox is applied | When a sync message's sender, read from the credential of the sender's leaf node, is not an installation of the own inbox, the client MUST NOT apply its preference updates. | An accepted update sets consent and replaces the HMAC root key. From a stranger it hides conversations or breaks push suppression on every device. |
+| SYNC-011 | Only the own inbox is applied | When a sync message's sender, according to the local state of the recipient, is not an installation of the own inbox, the client MUST NOT apply its preference updates. | An accepted update sets consent and replaces the HMAC root key. From a stranger it hides conversations or breaks push suppression on every device. |
 
 ## 3. Preference updates
 
