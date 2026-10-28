@@ -237,7 +237,8 @@ async fn test_real_divergence_detected_through_signed_commit_logs() {
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_commit_log_fork_detection_forked() -> Result<(), Box<dyn std::error::Error>> {
     tester!(alix);
-    let group = alix.create_group(None, None).unwrap();
+    tester!(bo);
+    let group = alix.find_or_create_dm(bo.inbox_id(), None).await?;
     let group_id = group.group_id;
 
     // Insert local commit log entries
@@ -318,12 +319,17 @@ async fn test_commit_log_fork_detection_forked() -> Result<(), Box<dyn std::erro
     worker
         .run_test(CommitLogTestFunction::CheckForkedState, None)
         .await?;
+    let envelopes = events.drain();
     assert!(matches!(
-        events.drain().as_slice(),
+        envelopes.as_slice(),
         [xmtp_events::EventEnvelope {
             client: Some(xmtp_events::ClientEvent::ConversationForkDetected(fork)), ..
         }] if fork.group_id == group_id.to_vec()
     ));
+    assert_eq!(
+        envelopes[0].context.dm_identifier,
+        Some(group.dm_id.clone().expect("DM ID").into_bytes())
+    );
 
     Ok(())
 }

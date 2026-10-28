@@ -151,6 +151,13 @@ pub(crate) fn emit_preference_updates_with_public(
     Ok(())
 }
 
+pub(crate) fn dm_event_context(dm_id: Option<&str>) -> EventContext {
+    EventContext {
+        dm_identifier: dm_id.map(|id| id.as_bytes().to_vec()),
+        ..Default::default()
+    }
+}
+
 /// Emit the deletion of `messages` by the inbox `deleted_by_inbox_id`, or by
 /// no inbox (`None`) for a local removal of the rows.
 pub(crate) fn emit_deleted_messages(
@@ -164,8 +171,9 @@ pub(crate) fn emit_deleted_messages(
         return Ok(());
     }
     for message in &messages {
-        if db
-            .find_group(&message.group_id)?
+        let group = db.find_group(&message.group_id)?;
+        if group
+            .as_ref()
             .is_some_and(|group| group.conversation_type.is_virtual())
         {
             continue;
@@ -179,7 +187,8 @@ pub(crate) fn emit_deleted_messages(
             message_id: reference.message_id,
             cause,
         });
-        writer.emit(Some(event), None);
+        let context = dm_event_context(group.as_ref().and_then(|group| group.dm_id.as_deref()));
+        writer.emit_with_context(Some(event), None, context);
     }
     // A delete of an already expired message must not deliver its body.
     // implements: META-051
@@ -224,18 +233,21 @@ pub(crate) fn emit_expired_messages(
         return Ok(());
     }
     for message in &messages {
-        if db
-            .find_group(&message.group_id)?
+        let group = db.find_group(&message.group_id)?;
+        if group
+            .as_ref()
             .is_some_and(|group| group.conversation_type.is_virtual())
         {
             continue;
         }
-        writer.emit(
+        let context = dm_event_context(group.as_ref().and_then(|group| group.dm_id.as_deref()));
+        writer.emit_with_context(
             Some(ClientEvent::MessageExpired(MessageRef {
                 group_id: message.group_id.to_vec(),
                 message_id: message.id.clone(),
             })),
             None,
+            context,
         );
     }
     writer.emit(
@@ -259,6 +271,55 @@ mod tests {
     };
     use xmtp_events::{EventBus, EventFilter, EventKind};
     use xmtp_proto::types::ConversationType;
+
+    // verifies: EVENT-020
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn stitched_dm_delete_and_expiry_reach_group_filter() {
+        use crate::test::mock::generate_stored_msg;
+        use xmtp_proto::types::Cursor;
+
+        tester!(alix, disable_workers);
+        let db = alix.context.db();
+        let [ga, gb, gc] = [71, 72, 73].map(|id| GroupId::from([id; 16]));
+        for (id, dm_id) in [(ga, "stitched"), (gb, "stitched"), (gc, "other")] {
+            StoredGroup::builder()
+                .id(id)
+                .created_at_ns(xmtp_common::time::now_ns())
+                .membership_state(GroupMembershipState::Allowed)
+                .added_by_inbox_id(alix.inbox_id())
+                .conversation_type(ConversationType::Dm)
+                .dm_id(Some(dm_id.to_string()))
+                .build()?
+                .store(&db)?;
+        }
+        let messages = [
+            generate_stored_msg(Cursor(1), gb),
+            generate_stored_msg(Cursor(2), gc),
+        ];
+        let bus = EventBus::<InternalEvent>::new();
+        let mut filter = EventFilter::new([EventKind::MessageDeleted, EventKind::MessageExpired]);
+        filter.group_ids = Some(vec![ga.to_vec()]);
+        filter.dm_identifiers = vec![db.find_group(&ga)?.unwrap().dm_id.unwrap().into_bytes()];
+        let public = bus.subscribe(filter, Some(10));
+        emit_deleted_messages(
+            &bus,
+            messages.to_vec(),
+            DeletionCause::DeletedLocally,
+            None,
+            &db,
+        )?;
+        emit_expired_messages(&bus, messages.to_vec(), &db)?;
+        let events: Vec<_> = public
+            .drain()
+            .into_iter()
+            .filter_map(|e| e.client)
+            .collect();
+        assert_eq!(events.len(), 2);
+        assert!(matches!(&events[0], ClientEvent::MessageDeleted(deleted)
+            if deleted.group_id == gb.to_vec()));
+        assert!(matches!(&events[1], ClientEvent::MessageExpired(expired)
+            if expired.group_id == gb.to_vec()));
+    }
 
     // verifies: EVENT-003, EVENT-001
     #[xmtp_common::test(unwrap_try = true)]

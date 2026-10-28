@@ -1,6 +1,7 @@
 //! Construction, loading, proposal capability, and insertion.
 
 use super::*;
+use crate::subscriptions::internal::dm_event_context;
 
 mod restored;
 use xmtp_db::TransactionalKeyStore;
@@ -675,7 +676,7 @@ where
                         )?;
                         if existing_group_id.is_none() {
                             context.task_channels().mark_notification_changed();
-                            events.emit(
+                            events.emit_with_context(
                                 Some(xmtp_events::ClientEvent::ConversationJoined(
                                     xmtp_events::ConversationJoined {
                                         group_id: stored_group.id.to_vec(),
@@ -689,6 +690,7 @@ where
                                     is_sync: false,
                                     origin: crate::subscriptions::internal::GroupOrigin::Created,
                                 }),
+                                dm_event_context(stored_group.dm_id.as_deref()),
                             );
                         }
                     }
