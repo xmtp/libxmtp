@@ -1,6 +1,61 @@
 use thiserror::Error;
-use xmtp_common::ErrorCode;
+use xmtp_common::{ErrorCode, time::Duration};
 use xmtp_proto::ConversionError;
+
+/// The longest rate-limit delay the client honours. A larger `RetryInfo`
+/// delay is cut to this, so a timer never overflows or panics on remote input.
+pub const MAX_RATE_LIMIT_DELAY: Duration = Duration::from_secs(7 * 24 * 60 * 60);
+
+/// The `RetryInfo` delay of a rate-limit rejection (RATE-040) found anywhere in
+/// the error's sources, or `None` when the error is not one. Only an
+/// `ErrorInfo` with the rate-limit reason and domain marks a rejection; any
+/// other status, `RESOURCE_EXHAUSTED` included, is not one. A rejection
+/// without a `RetryInfo` delay waits zero. The status message is never read.
+// implements: RATE-041
+pub fn rate_limit_delay(error: &(dyn std::error::Error + 'static)) -> Option<Duration> {
+    status_rate_limit_delay(xmtp_proto::api::grpc_status(error)?)
+}
+
+/// A rate-limit rejection as the backend sends it (RATE-040), for tests.
+#[cfg(any(test, feature = "test-utils"))]
+pub fn rate_limited_status(category: &str, delay: Duration) -> tonic::Status {
+    use tonic_types::{ErrorDetails, StatusExt};
+    let mut details = ErrorDetails::with_error_info(
+        xmtp_configuration::RATE_LIMITED_REASON,
+        xmtp_configuration::RATE_LIMITED_DOMAIN,
+        [("category".to_string(), category.to_string())],
+    );
+    details.set_retry_info(Some(delay));
+    tonic::Status::with_error_details(
+        tonic::Code::ResourceExhausted,
+        "rate limit exceeded",
+        details,
+    )
+}
+
+fn status_rate_limit_delay(status: &tonic::Status) -> Option<Duration> {
+    use tonic_types::{ErrorDetail, StatusExt};
+    let details = status.get_error_details_vec();
+    let rate_limited = details.iter().any(|detail| {
+        matches!(
+            detail,
+            ErrorDetail::ErrorInfo(info)
+                if info.reason == xmtp_configuration::RATE_LIMITED_REASON
+                    && info.domain == xmtp_configuration::RATE_LIMITED_DOMAIN
+        )
+    });
+    if !rate_limited {
+        return None;
+    }
+    let delay = details
+        .iter()
+        .find_map(|detail| match detail {
+            ErrorDetail::RetryInfo(info) => info.retry_delay,
+            _ => None,
+        })
+        .unwrap_or_default();
+    Some(delay.min(MAX_RATE_LIMIT_DELAY))
+}
 
 #[derive(Debug, Error, ErrorCode)]
 pub enum GrpcBuilderError {
@@ -142,6 +197,13 @@ impl xmtp_common::retry::RetryableError for GrpcError {
             | Self::MissingPayload
             | Self::Decode(_)
             | Self::Unreachable => false,
+        }
+    }
+
+    fn rate_limit_delay(&self) -> Option<Duration> {
+        match self {
+            Self::Status(status) => status_rate_limit_delay(status),
+            _ => None,
         }
     }
 }
@@ -308,6 +370,85 @@ mod tests {
             assert_eq!(grpc_status(&error)?.code(), Code::Cancelled);
             assert!(error.is_retryable());
         }
+    }
+}
+
+#[cfg(test)]
+pub(crate) mod rate_limit_tests {
+    use super::{GrpcError, MAX_RATE_LIMIT_DELAY, rate_limit_delay};
+    use tonic::{Code, Status};
+    use tonic_types::{ErrorDetails, StatusExt};
+    use xmtp_common::{RetryableError, time::Duration};
+    use xmtp_proto::api::ApiClientError;
+
+    fn status(code: Code, reason: &str, domain: &str, delay: Option<Duration>) -> Status {
+        let mut details = ErrorDetails::with_error_info(
+            reason,
+            domain,
+            [("category".to_string(), "publish".to_string())],
+        );
+        if let Some(delay) = delay {
+            details.set_retry_info(Some(delay));
+        }
+        Status::with_error_details(code, "rate limited", details)
+    }
+
+    // verifies: RATE-041
+    #[rstest::rstest]
+    #[case(
+        Code::ResourceExhausted,
+        "RATE_LIMITED",
+        "xmtp.org",
+        Some(Duration::from_secs(5)),
+        Some(Duration::from_secs(5))
+    )]
+    #[case(
+        Code::ResourceExhausted,
+        "RATE_LIMITED",
+        "xmtp.org",
+        None,
+        Some(Duration::ZERO)
+    )]
+    #[case(Code::ResourceExhausted, "RATE_LIMITED", "xmtp.org", Some(MAX_RATE_LIMIT_DELAY * 2), Some(MAX_RATE_LIMIT_DELAY))]
+    #[case(
+        Code::ResourceExhausted,
+        "RATE_LIMITED",
+        "example.com",
+        Some(Duration::from_secs(5)),
+        None
+    )]
+    #[case(
+        Code::ResourceExhausted,
+        "TOO_MANY_TOPICS",
+        "xmtp.org",
+        Some(Duration::from_secs(5)),
+        None
+    )]
+    #[xmtp_common::test(unwrap_try = true)]
+    fn rate_limit_is_recognised_by_reason_and_domain_only(
+        #[case] code: Code,
+        #[case] reason: &str,
+        #[case] domain: &str,
+        #[case] delay: Option<Duration>,
+        #[case] expected: Option<Duration>,
+    ) {
+        let error = GrpcError::Status(status(code, reason, domain, delay));
+        assert_eq!(error.rate_limit_delay(), expected);
+        assert!(error.is_retryable());
+        for wrapped in [
+            ApiClientError::client(GrpcError::Status(status(code, reason, domain, delay))),
+            ApiClientError::other(GrpcError::Status(status(code, reason, domain, delay))),
+        ] {
+            assert_eq!(wrapped.rate_limit_delay(), expected);
+            assert_eq!(rate_limit_delay(&wrapped), expected);
+        }
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn a_plain_resource_exhausted_status_is_not_a_rate_limit() {
+        let error = GrpcError::Status(Status::resource_exhausted("RATE_LIMITED xmtp.org"));
+        assert_eq!(error.rate_limit_delay(), None);
+        assert_eq!(rate_limit_delay(&error), None);
     }
 }
 

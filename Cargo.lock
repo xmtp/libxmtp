@@ -12658,6 +12658,7 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "tonic",
+ "tonic-types",
  "tonic-web-wasm-client",
  "tower",
  "tracing",

@@ -1,5 +1,5 @@
 use crate::{ApiClientWrapper, Result, dyn_err};
-use xmtp_common::time::timeout;
+use xmtp_common::time::{Instant, timeout};
 use xmtp_configuration::NOTIFICATION_REQUEST_TIMEOUT;
 use xmtp_proto::{
     api_client::XmtpBackendClient,
@@ -9,13 +9,20 @@ use xmtp_proto::{
     },
 };
 
+/// Each request ends within [`NOTIFICATION_REQUEST_TIMEOUT`]. A rate-limit
+/// wait that would pass it returns the rejection at once, so the notification
+/// worker schedules the next attempt from its delay.
 impl<C: XmtpBackendClient> ApiClientWrapper<C> {
     /// Create or renew a notification recipient.
     #[xmtp_common::rpc_span]
     pub async fn register(&self, request: RegisterRequest) -> Result<RecipientState> {
         timeout(
             NOTIFICATION_REQUEST_TIMEOUT,
-            self.retry_call(|| self.api_client.register(request.clone()), false),
+            self.retry_call_until(
+                || self.api_client.register(request.clone()),
+                false,
+                Some(Instant::now() + NOTIFICATION_REQUEST_TIMEOUT),
+            ),
         )
         .await
         .map_err(xmtp_proto::api::ApiClientError::from)
@@ -28,7 +35,11 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
     pub async fn unregister(&self, request: UnregisterRequest) -> Result<UnregisterResponse> {
         timeout(
             NOTIFICATION_REQUEST_TIMEOUT,
-            self.retry_call(|| self.api_client.unregister(request.clone()), false),
+            self.retry_call_until(
+                || self.api_client.unregister(request.clone()),
+                false,
+                Some(Instant::now() + NOTIFICATION_REQUEST_TIMEOUT),
+            ),
         )
         .await
         .map_err(xmtp_proto::api::ApiClientError::from)
@@ -44,9 +55,10 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
     ) -> Result<RecipientState> {
         timeout(
             NOTIFICATION_REQUEST_TIMEOUT,
-            self.retry_call(
+            self.retry_call_until(
                 || self.api_client.update_subscriptions(request.clone()),
                 false,
+                Some(Instant::now() + NOTIFICATION_REQUEST_TIMEOUT),
             ),
         )
         .await

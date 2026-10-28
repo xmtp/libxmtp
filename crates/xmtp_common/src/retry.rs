@@ -45,6 +45,12 @@ pub struct NotSpecialized;
 /// All Errors are not retryable by-default.
 pub trait RetryableError<SP = NotSpecialized>: std::error::Error + MaybeSend + MaybeSync {
     fn is_retryable(&self) -> bool;
+
+    /// The least time to wait before a retry, when the error says so. A
+    /// rate-limit rejection carries one; [`retry_async!`] never retries sooner.
+    fn rate_limit_delay(&self) -> Option<Duration> {
+        None
+    }
 }
 
 impl<T> RetryableError for &'_ T
@@ -54,11 +60,19 @@ where
     fn is_retryable(&self) -> bool {
         (**self).is_retryable()
     }
+
+    fn rate_limit_delay(&self) -> Option<Duration> {
+        (**self).rate_limit_delay()
+    }
 }
 
 impl<E: RetryableError> RetryableError for Box<E> {
     fn is_retryable(&self) -> bool {
         (**self).is_retryable()
+    }
+
+    fn rate_limit_delay(&self) -> Option<Duration> {
+        (**self).rate_limit_delay()
     }
 }
 
@@ -90,8 +104,23 @@ impl<S: Strategy> Retry<S> {
         self.retries
     }
 
+    /// The backoff strategy this retry uses.
+    pub fn strategy(&self) -> &S {
+        &self.strategy
+    }
+
     pub fn backoff(&self, attempts: usize, time_spent: crate::time::Instant) -> Option<Duration> {
         self.strategy.backoff(attempts, time_spent)
+    }
+
+    /// The backoff, but at least `floor`. `None` gives up.
+    pub fn backoff_at_least(
+        &self,
+        attempts: usize,
+        time_spent: crate::time::Instant,
+        floor: Duration,
+    ) -> Option<Duration> {
+        self.strategy.backoff_at_least(attempts, time_spent, floor)
     }
 }
 
@@ -110,6 +139,18 @@ pub trait Strategy: MaybeSend + MaybeSync {
     /// Returns None when we should no longer backoff,
     /// despite possibly being below attempts
     fn backoff(&self, attempts: usize, time_spent: crate::time::Instant) -> Option<Duration>;
+
+    /// The wait before the next attempt when the error asks for at least
+    /// `floor`. Returns None when the strategy gives up instead of waiting.
+    fn backoff_at_least(
+        &self,
+        attempts: usize,
+        time_spent: crate::time::Instant,
+        floor: Duration,
+    ) -> Option<Duration> {
+        self.backoff(attempts, time_spent)
+            .map(|wait| wait.max(floor))
+    }
 }
 
 impl Strategy for () {
@@ -121,6 +162,15 @@ impl Strategy for () {
 impl<S: ?Sized + Strategy> Strategy for Box<S> {
     fn backoff(&self, attempts: usize, time_spent: crate::time::Instant) -> Option<Duration> {
         (**self).backoff(attempts, time_spent)
+    }
+
+    fn backoff_at_least(
+        &self,
+        attempts: usize,
+        time_spent: crate::time::Instant,
+        floor: Duration,
+    ) -> Option<Duration> {
+        (**self).backoff_at_least(attempts, time_spent, floor)
     }
 }
 
@@ -213,6 +263,19 @@ impl Strategy for ExponentialBackoff {
         let jitter = rand::rng().sample(distr);
         let wait = duration + jitter;
         Some(wait)
+    }
+
+    /// Wait `max(floor, backoff)` only when the wait ends within the total
+    /// budget. A longer wait gives up at once, so the caller still sees the
+    /// error and its delay.
+    fn backoff_at_least(
+        &self,
+        attempts: usize,
+        time_spent: crate::time::Instant,
+        floor: Duration,
+    ) -> Option<Duration> {
+        let wait = self.backoff(attempts, time_spent)?.max(floor);
+        (time_spent.elapsed().saturating_add(wait) <= self.total_wait_max).then_some(wait)
     }
 }
 
@@ -345,7 +408,11 @@ macro_rules! retry_async {
                             "retrying function that failed with error={}",
                             e.to_string()
                         );
-                        if let Some(d) = $retry.backoff(attempts, time_spent) {
+                        let wait = match (&e).rate_limit_delay() {
+                            Some(floor) => $retry.backoff_at_least(attempts, time_spent, floor),
+                            None => $retry.backoff(attempts, time_spent),
+                        };
+                        if let Some(d) = wait {
                             attempts += 1;
                             $crate::time::sleep(d).await;
                         } else {
@@ -507,6 +574,73 @@ pub(crate) mod tests {
             (async { retryable_async_fn(&mut data).await })
         )
         .unwrap();
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[derive(Debug, Error)]
+    #[error("rate limited")]
+    struct RateLimited(Duration);
+
+    #[cfg(not(target_arch = "wasm32"))]
+    impl RetryableError for RateLimited {
+        fn is_retryable(&self) -> bool {
+            true
+        }
+
+        fn rate_limit_delay(&self) -> Option<Duration> {
+            Some(self.0)
+        }
+    }
+
+    /// Run until the second attempt or until the loop gives up, on tokio's
+    /// paused clock. Returns the start of each attempt.
+    #[cfg(not(target_arch = "wasm32"))]
+    async fn attempt_starts(
+        delay: Duration,
+    ) -> (Vec<tokio::time::Instant>, Result<(), RateLimited>) {
+        tokio::time::pause();
+        let mut starts = Vec::new();
+        let result = retry_async!(
+            Retry::default(),
+            (async {
+                starts.push(tokio::time::Instant::now());
+                if starts.len() == 1 {
+                    Err(RateLimited(delay))
+                } else {
+                    Ok(())
+                }
+            })
+        );
+        (starts, result)
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[xmtp_macro::test]
+    async fn rate_limited_retry_waits_the_delay() {
+        let delay = Duration::from_secs(5);
+        let (starts, result) = attempt_starts(delay).await;
+        assert!(result.is_ok());
+        assert_eq!(starts.len(), 2);
+        assert!(starts[1] - starts[0] >= delay);
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[xmtp_macro::test]
+    async fn rate_limit_delay_beyond_the_budget_returns_at_once() {
+        let (starts, result) = attempt_starts(Duration::from_secs(200)).await;
+        assert_eq!(result.unwrap_err().0, Duration::from_secs(200));
+        assert_eq!(starts.len(), 1);
+        assert_eq!(starts[0], tokio::time::Instant::now());
+    }
+
+    #[xmtp_macro::test]
+    fn backoff_at_least_keeps_the_longer_backoff() {
+        let retry = Retry::default();
+        let time_spent = crate::time::Instant::now();
+        let wait = retry
+            .backoff_at_least(3, time_spent, Duration::from_millis(1))
+            .unwrap();
+        assert!(wait >= Duration::from_millis(450));
     }
 
     #[xmtp_macro::test]

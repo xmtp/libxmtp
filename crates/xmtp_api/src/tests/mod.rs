@@ -28,6 +28,7 @@ mod integration;
 mod limits;
 mod ordered_fold;
 mod ordered_publish;
+mod rate_limits;
 mod scw_batches;
 
 #[rstest]

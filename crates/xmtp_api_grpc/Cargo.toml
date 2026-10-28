@@ -16,6 +16,7 @@ http-body-util.workspace = true
 pin-project.workspace = true
 prost = { workspace = true, features = ["derive"] }
 thiserror.workspace = true
+tonic-types.workspace = true
 tracing.workspace = true
 url.workspace = true
 xmtp-workspace-hack.workspace = true
