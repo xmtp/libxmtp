@@ -592,29 +592,31 @@ async fn notification_rate_limit_keeps_state_enabled_and_waits_the_delay() {
     assert!(next >= before + delay.as_nanos() as i64);
 }
 
-/// A rate limit maps to the retryable `Api` error through the preflight
-/// wrapper and on any status code, never to the topic limit or a failure.
+/// A rate limit maps to the retryable `Api` error, also through the preflight
+/// wrapper. The detail on another code keeps that code's PUSH-267 row.
 // verifies: PUSH-267, RATE-041
 #[xmtp_common::test(unwrap_try = true)]
-fn notification_rate_limits_map_to_api_on_every_path() {
+fn notification_rate_limits_map_to_api() {
     use xmtp_api_grpc::error::{GrpcError, rate_limited_status};
     use xmtp_proto::api::ApiClientError;
     let delay = Duration::from_secs(5);
     let preflight = xmtp_api::ApiError::Preflight(xmtp_api::preflight::PreflightError::new(
         ApiClientError::client(GrpcError::Status(rate_limited_status("request", delay))),
     ));
-    let mut denied = rate_limited_status("request", delay);
-    denied = tonic::Status::with_details(
+    let mapped = NotificationError::from(preflight);
+    assert!(matches!(mapped, NotificationError::Api(_)));
+    assert_eq!(mapped.rate_limit_delay(), Some(delay));
+
+    let limited = rate_limited_status("request", delay);
+    let denied = tonic::Status::with_details(
         tonic::Code::PermissionDenied,
-        denied.message(),
-        denied.details().to_vec().into(),
+        limited.message(),
+        limited.details().to_vec().into(),
     );
-    let permission = xmtp_api::dyn_err(ApiClientError::client(GrpcError::Status(denied)));
-    for error in [preflight, permission] {
-        let mapped = NotificationError::from(error);
-        assert!(matches!(mapped, NotificationError::Api(_)));
-        assert_eq!(mapped.rate_limit_delay(), Some(delay));
-    }
+    let mapped = NotificationError::from(xmtp_api::dyn_err(ApiClientError::client(
+        GrpcError::Status(denied),
+    )));
+    assert!(matches!(mapped, NotificationError::PermissionDenied));
 }
 
 /// A refused Unregister records its delay even though the client is now
@@ -627,7 +629,77 @@ async fn notification_a_refused_unregister_records_its_delay() {
     peer.state.lock().rate_limit = Some((Call::Unregister, Duration::from_secs(600)));
     assert!(client.disable_notifications().await.is_err());
     let record = client.db().notification_record()?;
-    assert!(deadlines(&record)?.rate_limited_until_ns > time::now_ns());
+    assert!(deadlines(&record)?.registration_rate_limited_until_ns > time::now_ns());
+}
+
+/// A hold that cannot be stored does not replace the refusal: the caller
+/// still sees the rate limit and its delay.
+// verifies: RATE-041
+#[xmtp_common::test(unwrap_try = true)]
+async fn notification_a_failed_hold_write_keeps_the_rate_limit() {
+    let (client, peer) = support::client().await;
+    client.enable_notifications(config()).await?;
+    let delay = Duration::from_secs(600);
+    {
+        let mut state = peer.state.lock();
+        state.rate_limit = Some((Call::Unregister, delay));
+        state.pause_next = true;
+    }
+    let disabling = client.clone();
+    let disable = xmtp_common::spawn(None, async move { disabling.disable_notifications().await });
+    timeout(Duration::from_secs(5), peer.entered.notified()).await?;
+    let mut record = client.db().notification_record()?;
+    record.push_deadlines = Some(vec![0xff]);
+    client.db().save_notification_record(&record)?;
+    peer.release.notify_one();
+    let error = disable.join().await?.unwrap_err();
+    assert_eq!(error.rate_limit_delay(), Some(delay));
+}
+
+/// A refused owed Unregister holds registration only: once an enable has
+/// registered, the task still sends subscription updates.
+// verifies: RATE-041
+#[xmtp_common::test(unwrap_try = true)]
+async fn notification_a_registration_hold_leaves_updates_running() {
+    let (client, peer) = support::client().await;
+    client.enable_notifications(config()).await?;
+    run(&client.context).await?;
+    peer.state.lock().rate_limit = Some((Call::Unregister, Duration::from_secs(600)));
+    assert!(client.disable_notifications().await.is_err());
+    client.enable_notifications(config()).await?;
+    client.create_group(None, None)?;
+    wake(&client.context)?;
+    let updates = peer.calls(Call::Update);
+    run(&client.context).await?;
+    assert_eq!(peer.calls(Call::Update), updates + 1);
+}
+
+/// An update hold ends with its delay: the next turn after it sends.
+// verifies: RATE-041
+#[xmtp_common::test(unwrap_try = true)]
+async fn notification_an_update_hold_ends_with_its_delay() {
+    let (client, peer) = support::client().await;
+    let mut config = config();
+    config.include_welcomes = false;
+    client.enable_notifications(config).await?;
+    run(&client.context).await?;
+    client.create_group(None, None)?;
+    peer.state.lock().rate_limit = Some((Call::Update, Duration::from_secs(600)));
+    assert!(run(&client.context).await.is_err());
+    let updates = peer.calls(Call::Update);
+    assert!(matches!(
+        run(&client.context).await?,
+        TaskOutcome::RescheduleAt(_)
+    ));
+    assert_eq!(peer.calls(Call::Update), updates, "held");
+    // The delay ends.
+    let mut record = client.db().notification_record()?;
+    let mut held = deadlines(&record)?;
+    held.rate_limited_until_ns = time::now_ns() - 1;
+    record.push_deadlines = Some(encode(&held)?);
+    client.db().save_notification_record(&record)?;
+    run(&client.context).await?;
+    assert_eq!(peer.calls(Call::Update), updates + 1);
 }
 
 /// Enabling again, or disabling and enabling, does not end a pending delay:
@@ -688,7 +760,7 @@ async fn notification_registration_after_a_slow_reset_keeps_its_rate_limit() {
     assert!(matches!(error, NotificationError::Api(_)));
     assert_eq!(error.rate_limit_delay(), Some(delay));
     let record = client.db().notification_record()?;
-    assert!(deadlines(&record)?.rate_limited_until_ns > time::now_ns());
+    assert!(deadlines(&record)?.registration_rate_limited_until_ns > time::now_ns());
 }
 
 #[xmtp_common::test(unwrap_try = true)]

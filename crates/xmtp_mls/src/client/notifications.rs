@@ -399,7 +399,7 @@ impl<Context: XmtpSharedContext> Client<Context> {
             // The task must not send inside a pending rate-limit delay after a
             // later enable. App calls themselves are not held (RATE-041 binds
             // the client's own retries).
-            if hold.rate_limited_until_ns > xmtp_common::time::now_ns() {
+            if hold.rate_limited(xmtp_common::time::now_ns()) {
                 record.push_deadlines = Some(encode(&hold)?);
                 db.save_notification_record(&record)?;
             }
