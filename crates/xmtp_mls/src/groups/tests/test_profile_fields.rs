@@ -829,10 +829,11 @@ async fn test_membership_delta_stored_twice_does_not_block_the_group() -> Result
 }
 
 /// Receivers check only that the leaf in a standalone Update proposal
-/// names its proposer's inbox, and a commit checks that the leaf's key is
-/// an installation of that inbox. Every commit of pending proposals carried
-/// one with an unregistered key and was refused, so no member could send
-/// again. No client proposes a leaf Update, so a commit never carries one.
+/// names its proposer's inbox. A commit checks that the leaf keeps the key
+/// of the leaf it replaces and that the key is an installation of that
+/// inbox. Every commit of pending proposals carried one with a new key and
+/// was refused, so no member could send again. No client proposes a leaf
+/// Update, so a commit never carries one.
 // verifies: GMOD-047
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_pending_leaf_update_does_not_block_the_group() -> Result<(), GroupError> {

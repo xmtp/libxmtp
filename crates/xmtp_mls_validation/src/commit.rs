@@ -447,11 +447,17 @@ pub fn get_proposal_changes(
             // For update proposals, we need to validate that the credential and installation key
             // are valid for the inbox_id in the current group membership state
             Proposal::Update(update_proposal) => {
-                credentials_to_verify.push(CommitParticipant::from_leaf_node(
+                let leaf = CommitParticipant::from_leaf_node(
                     update_proposal.leaf_node(),
                     immutable_metadata,
                     mutable_metadata,
-                )?);
+                )?;
+                // implements: GMOD-003
+                // `proposer` is the sender's current leaf in the pre-commit tree.
+                if leaf.installation_id != proposer.installation_id {
+                    return Err(CommitRuleError::InboxValidationFailed(leaf.inbox_id));
+                }
+                credentials_to_verify.push(leaf);
             }
             // For Add proposals, the installation_id must be in the expected diff, and the
             // credential must name the inbox that owns that installation. The expected diff

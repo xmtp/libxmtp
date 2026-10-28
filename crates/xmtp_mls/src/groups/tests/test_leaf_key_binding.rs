@@ -29,6 +29,7 @@ use openmls_traits::OpenMlsProvider;
 use xmtp_cryptography::{CredentialSign, XmtpInstallationCredential, utils::generate_local_wallet};
 use xmtp_db::{
     TransactionOutcome::Continue,
+    XmtpOpenMlsProviderRef,
     identity_update::QueryIdentityUpdates,
     incoming_envelope::{QueryIncomingEnvelope, StreamTopic},
 };
@@ -320,21 +321,6 @@ async fn add_leaf_must_belong_to_credential_inbox() {
     assert_rejected(&bo.client, &bo_group, &forged_key_id, &bo_inbox_id).await;
 }
 
-/// Alix commits an update path whose leaf keeps Alix's key but names Bo's
-/// inbox. OpenMLS accepts any credential in the update path leaf.
-// verifies: GMOD-012
-#[xmtp_common::test(unwrap_try = true)]
-async fn update_path_leaf_must_not_claim_another_inbox() {
-    let alix = member().await;
-    let bo = member().await;
-    let (alix_group, bo_group) = group(&alix.client, &bo.client).await;
-    let bo_inbox_id = bo.client.inbox_id().to_string();
-    publish_path_credential(&alix.client, &alix_group, &bo_inbox_id, None).await;
-
-    let alix_key = alix.client.installation_public_key().to_vec();
-    assert_rejected(&bo.client, &bo_group, &alix_key, &bo_inbox_id).await;
-}
-
 /// Bo's identity also associates Alix's installation key, so the key belongs
 /// to both inboxes. An update path that moves Alix's leaf to Bo's inbox, in a
 /// commit that raises Bo's entry to that identity state, must still be
@@ -394,6 +380,94 @@ async fn update_path_leaf_key_must_be_registered() {
     });
 
     assert_rejected(&bo.client, &bo_group, &unregistered_id, alix.inbox_id()).await;
+}
+
+/// Bo proposes an Update that moves Bo's leaf to another key of Bo's inbox,
+/// and Alix commits it by reference. The key is either that of Bo's second
+/// installation, which already has a leaf, or one with no leaf. Both keys
+/// belong to Bo's inbox, but an Update must keep its leaf's key.
+// verifies: GMOD-003
+#[rstest::rstest]
+#[case::sibling_key(true)]
+#[case::unused_key(false)]
+#[xmtp_common::test(unwrap_try = true)]
+async fn update_proposal_must_keep_its_leaf_key(
+    #[case] sibling: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let alix = member().await;
+    let bo = member().await;
+    let new_key = if sibling {
+        let bo2 = ClientBuilder::new_test_client(&bo.wallet).await;
+        bo2.context.identity().installation_keys.clone()
+    } else {
+        let key = XmtpInstallationCredential::new();
+        associate(&bo, &key).await;
+        key
+    };
+    let new_key_id = new_key.public_slice().to_vec();
+    let (alix_group, bo_group) = group(&alix.client, &bo.client).await;
+
+    let identity = bo_group.context.identity();
+    let proposal = state_write(bo_group.context.mls_storage(), |tx| {
+        tx.with_group(bo_group.group_id, |mls, storage| {
+            let new_signer = NewSignerBundle {
+                signer: &new_key,
+                credential_with_key: CredentialWithKey {
+                    credential: identity.credential(),
+                    signature_key: new_key_id.clone().into(),
+                },
+            };
+            let (message, _) = mls
+                .propose_self_update_with_new_signer(
+                    &XmtpOpenMlsProviderRef::new(storage),
+                    &identity.installation_keys,
+                    new_signer,
+                    LeafNodeParameters::default(),
+                )
+                .unwrap();
+            Ok::<_, GroupError>(Continue(message.tls_serialize_detached()?))
+        })
+    })?
+    .into_continued();
+    let messages = bo_group.prepare_group_messages(vec![(proposal.as_slice(), false)])?;
+    bo_group.context.api().send_group_messages(messages).await?;
+    alix_group.sync().await?;
+
+    let alix = &alix.client;
+    let signer = alix.context.identity().installation_keys.clone();
+    publish_raw!(alix, alix_group, |mls, provider| {
+        let (upkeep, updates) = membership_upkeep(mls, &[]).unwrap();
+        let mut stage = commit_without_group_info(mls, provider.storage(), |builder| {
+            builder.consume_proposal_store(true).add_proposals(upkeep)
+        })
+        .unwrap();
+        stage.with_app_data_dictionary_updates(updates);
+        let bundle = stage
+            .build(provider.rand(), provider.crypto(), &signer, |_| true)
+            .unwrap()
+            .stage_commit(provider)
+            .unwrap();
+        vec![bundle.into_messages().0]
+    });
+
+    if !sibling {
+        assert_rejected(&bo.client, &bo_group, &new_key_id, bo.client.inbox_id()).await;
+        return Ok(());
+    }
+    let _ = bo_group.sync().await;
+    let leaves = bo_group.with_group_snapshot(|mls| {
+        Ok(mls
+            .members()
+            .filter(|m| m.signature_key == new_key_id)
+            .count())
+    })?;
+    assert_eq!(leaves, 1, "the sibling key must keep a single leaf");
+    let rejection = bo_group
+        .context
+        .db()
+        .read_last_rejection(&StreamTopic::group(bo_group.group_id))?;
+    assert_eq!(rejection.unwrap().code, "commit_validation_failure");
+    Ok(())
 }
 
 /// Bo registers a new installation on Bo's inbox and publishes its key
