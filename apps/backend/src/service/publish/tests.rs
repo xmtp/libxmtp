@@ -528,8 +528,9 @@ impl xmtp_id::scw_verifier::SmartContractSignatureVerifier for ChainVerifier {
 /// at a block it has not produced. The rule binds admission alone: a stored update
 /// whose block has since aged stays valid when its log is replayed to admit
 /// the next update, and a chain outage stays retryable rather than reading as
-/// a bad signature. One publish reads each chain's head and each block once
-/// for all its updates, and the next publish reads them again.
+/// a bad signature. Each update reads its chain's head, while one publish
+/// reads each block's timestamp once for all its updates and the next
+/// publish reads it again.
 #[xmtp_common::test(unwrap_try = true)]
 // verifies: IDENT-062
 async fn scw_admission_freshness() {
@@ -571,12 +572,12 @@ async fn scw_admission_freshness() {
             identity_envelope(scw_create_nonce_inbox_update_at(2, later)),
         ])
         .await?;
-    assert_eq!(counting.reads(), (heads + 1, timestamps + 1), "one publish");
+    assert_eq!(counting.reads(), (heads + 2, timestamps + 1), "one publish");
     let next = publish_identity(&server, scw_create_nonce_inbox_update_at(3, later)).await?;
     assert_eq!(next, (Ok(()), 5));
     assert_eq!(
         counting.reads(),
-        (heads + 2, timestamps + 2),
+        (heads + 3, timestamps + 2),
         "the next publish"
     );
     server.stop().await?;
