@@ -194,6 +194,32 @@ fn caller_keys_from_addresses_follow_the_ipv6_prefix_and_ipv4_mapping() {
     }
 }
 
+/// The default limits are the table of RATE section 3, written out here so a
+/// changed or swapped constant fails.
+#[xmtp_common::test(unwrap_try = true)]
+fn the_default_limits_are_the_rate_table() {
+    let table: [(&str, &[(u32, u32)]); 7] = [
+        ("request", &[(6000, 60), (200_000, 3600)]),
+        ("publish", &[(1000, 60), (20_000, 3600)]),
+        ("identity_update", &[(10, 60), (100, 3600)]),
+        ("chain_verify", &[(200, 60), (2000, 3600)]),
+        ("push", &[(2000, 60), (20_000, 3600)]),
+        ("upload", &[(120, 60), (2000, 3600)]),
+        ("stream_rent", &[(120, 60)]),
+    ];
+    for (category, (name, limits)) in Category::ALL.into_iter().zip(table) {
+        assert_eq!(category.as_str(), name);
+        let limits: Vec<LimitConfig> = limits
+            .iter()
+            .map(|&(count, window_seconds)| LimitConfig {
+                count,
+                window_seconds,
+            })
+            .collect();
+        assert_eq!(category.default_limits(), limits, "{name}");
+    }
+}
+
 /// Different caller keys hash different bytes, including keys whose payload
 /// bytes would collide without the auth type tag or the issuer's length.
 #[xmtp_common::test(unwrap_try = true)]
@@ -206,11 +232,16 @@ fn caller_key_bytes_differ_for_different_keys() {
         CallerKey::ApiKey(String::new()),
         CallerKey::ApiKey("\u{0}\u{0}\u{0}\u{0}".into()),
         CallerKey::ApiKey("ab".into()),
+        // Without its tag, the address 3.97.98.99 is the bytes of this key.
+        CallerKey::ApiKey("abc".into()),
+        // With one tag for both, this key is the bytes of `jwt("", "")`.
+        CallerKey::ApiKey("\u{0}".repeat(8)),
         jwt("", ""),
         jwt("", "ab"),
         jwt("a", "b"),
         jwt("ab", ""),
         ip("0.0.0.0"),
+        ip("3.97.98.99"),
         ip("::"),
         ip("2001:db8::"),
     ];
@@ -365,6 +396,29 @@ fn trusted_proxies_resolve_to_networks() {
         .map(ToString::to_string)
         .collect();
     assert_eq!(networks, ["10.0.0.0/8", "fd00::/8", "192.0.2.7/32"]);
+}
+
+/// A peer with an IPv4-mapped address is compared as its IPv4 address, so an
+/// IPv4-mapped network resolves to the IPv4 network it maps. A network wider
+/// than the mapped range stays IPv6.
+#[xmtp_common::test(unwrap_try = true)]
+fn ipv4_mapped_trusted_proxies_resolve_to_ipv4_networks() {
+    let config = load(
+        "[rate_limits]\ntrusted_proxies = ['::ffff:10.0.0.0/104', '::ffff:192.0.2.7/128', \
+         '::ffff:0.0.0.0/96', '::/0']\n",
+    )?;
+    let networks: Vec<String> = config
+        .rate_limits()
+        .trusted_proxies
+        .iter()
+        .map(ToString::to_string)
+        .collect();
+    assert_eq!(
+        networks,
+        ["10.0.0.0/8", "192.0.2.7/32", "0.0.0.0/0", "::/0"]
+    );
+    let peer = "::ffff:10.1.2.3".parse::<IpAddr>()?.to_canonical();
+    assert!(config.rate_limits().trusted_proxies[0].contains(&peer));
 }
 
 /// Debug output names an API key, a principal, and no other caller value.

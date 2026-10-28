@@ -193,9 +193,8 @@ async fn startup_refuses_the_first_inline_key_that_does_not_parse() {
     // Nothing listens on the database port. A refusal before storage returns
     // at once; one after it would wait on the connection.
     let closed = std::net::TcpListener::bind("127.0.0.1:0")?.local_addr()?;
-    let mut config: crate::config::Config = toml::from_str(&format!(
-        "[database]\nurl = 'postgres://xmtp:xmtp@{closed}/xmtp'\n[server]\nidentifier = 'org.xmtp.test'"
-    ))?;
+    let mut config =
+        crate::test_support::config_for(&format!("postgres://xmtp:xmtp@{closed}/xmtp"));
     config.auth = Some(auth);
     let error = xmtp_common::time::timeout(
         std::time::Duration::from_secs(10),

@@ -530,6 +530,61 @@ fn published_schema_checks_ip_addresses_and_networks_with_the_runtime_parser() {
     }
 }
 
+/// The published schema accepts the `[rate_limits]` table of the CONF example
+/// and refuses each name, bound, and shape startup refuses.
+#[xmtp_common::test(unwrap_try = true)]
+fn published_schema_checks_the_rate_limits_table() {
+    let validator = validator();
+    let example: toml::Table = toml::from_str(crate::tests::example::example())?;
+    let rate_limits = serde_json::to_value(&example["rate_limits"])?;
+    assert!(rate_limits["categories"]["publish"]["ip"][0].is_object());
+    assert!(rate_limits["overrides"][0]["limits"].is_object());
+    let instance = |rate_limits: &Value| json!({"database": {"url": "postgres://localhost/xmtp"}, "rate_limits": rate_limits});
+    assert!(validator.is_valid(&instance(&rate_limits)));
+    type Change = fn(&mut Value);
+    let changes: [(&str, Change); 10] = [
+        ("category query", |table| {
+            table["categories"]["query"] = json!({})
+        }),
+        ("tier anon", |table| {
+            table["categories"]["publish"]["anon"] = json!([])
+        }),
+        ("window_seconds 2592001", |table| {
+            table["categories"]["publish"]["ip"][0]["window_seconds"] = json!(2_592_001)
+        }),
+        ("window_seconds 0", |table| {
+            table["categories"]["publish"]["ip"][0]["window_seconds"] = json!(0)
+        }),
+        ("count 0", |table| {
+            table["categories"]["publish"]["ip"][0]["count"] = json!(0)
+        }),
+        ("a limit without count", |table| {
+            table["categories"]["publish"]["ip"][0] = json!({"window_seconds": 60})
+        }),
+        ("an unknown key in a limit", |table| {
+            table["overrides"][0]["limits"]["publish"] =
+                json!([{"count": 1, "window_seconds": 1, "unknown": 1}])
+        }),
+        ("an override without limits", |table| {
+            table["overrides"][0]
+                .as_object_mut()
+                .unwrap()
+                .remove("limits");
+        }),
+        ("an unknown key in an override", |table| {
+            table["overrides"][0]["unknown"] = json!(1)
+        }),
+        ("override category query", |table| {
+            table["overrides"][0]["limits"]["query"] = json!([])
+        }),
+    ];
+    for (label, change) in changes {
+        let mut changed = rate_limits.clone();
+        change(&mut changed);
+        assert!(!validator.is_valid(&instance(&changed)), "{label}");
+    }
+}
+
 #[xmtp_common::test(unwrap_try = true)]
 fn published_schema_checks_urls_chain_keys_and_environment_references() {
     let validator = validator();

@@ -9,7 +9,7 @@ use std::{
     net::IpAddr,
 };
 
-use ipnet::IpNet;
+use ipnet::{IpNet, Ipv4Net};
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::{Deserialize, Serialize};
 
@@ -229,11 +229,13 @@ pub struct RateLimitsSection {
     #[schemars(range(min = 1, max = MAX_MEMORY_MIB))]
     pub max_memory_mib: u32,
     /// Networks of proxies whose `X-Forwarded-For` entries name the client.
-    /// Startup also refuses a network with a bit set after its prefix.
+    /// Startup also refuses a network with a bit set after its prefix. An
+    /// IPv4-mapped network matches the IPv4 addresses it maps.
     #[schemars(schema_with = "trusted_proxies_schema")]
     pub trusted_proxies: Vec<String>,
     /// Limits for each category, by tier: `default`, `ip`, `jwt`, or
-    /// `api_key`. A category or tier left out keeps the default limits.
+    /// `api_key`. A tier left out gets the category's `default`, and a
+    /// category without `default` gets the default limits of RATE section 3.
     /// Names are checked at validation, so a refusal can name the key.
     #[schemars(schema_with = "categories_schema")]
     pub categories: BTreeMap<String, BTreeMap<String, Vec<LimitConfig>>>,
@@ -297,11 +299,26 @@ impl std::fmt::Debug for RateLimitOverride {
 /// The limits of each category one override names, by `Category` index.
 type OverrideLimits = [Option<Vec<LimitConfig>>; 7];
 
+/// `network` as the IPv4 network it maps when it lies within the IPv4-mapped
+/// range. A peer with an IPv4-mapped address is compared as its IPv4
+/// address, which an IPv6 network never contains.
+fn ipv4_network(network: IpNet) -> IpNet {
+    match network {
+        IpNet::V6(v6) if v6.prefix_len() >= 96 => v6
+            .addr()
+            .to_ipv4_mapped()
+            .and_then(|address| Ipv4Net::new(address, v6.prefix_len() - 96).ok())
+            .map_or(network, IpNet::V4),
+        network => network,
+    }
+}
+
 /// The rate-limit settings a validated configuration resolves to.
 #[derive(Clone, Debug)]
 pub struct RateLimitConfig {
     pub enabled: bool,
     pub max_memory_mib: u32,
+    /// An IPv4-mapped network is resolved to the IPv4 network it maps.
     pub trusted_proxies: Vec<IpNet>,
     /// The limits of each category for each auth type, with the category's
     /// `default` and the default limits table applied.
@@ -337,7 +354,7 @@ impl RateLimitsSection {
             .iter()
             .enumerate()
             .map(|(index, network)| {
-                super::ip_network(network).ok_or_else(|| {
+                super::ip_network(network).map(ipv4_network).ok_or_else(|| {
                     invalid(
                         key_path("rate_limits.trusted_proxies", Step::Entry(index)),
                         "must be an IP network with no bit set after its prefix",

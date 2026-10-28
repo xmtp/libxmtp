@@ -11,6 +11,17 @@ const CHILD_TEST: &str = "startup_preserves_metrics_export_and_shutdown_across_l
 const CHILD_ARGS: &str = "XMTP_BACKEND_STARTUP_TEST_ARGS";
 const SECRET: &str = "private-config-sentinel";
 const DRAIN_MS: u64 = 1_000;
+/// Every client of a test backend shares one address, so the default
+/// per-caller limits would fail unrelated tests. Each configuration the child
+/// is given ends with this table; `Process` refuses one that turns limits on.
+const RATE_LIMITS_OFF: &str = "[rate_limits]\nenabled = false\n";
+
+/// Whether `contents` is a configuration that leaves rate limits on. A
+/// document that is not a configuration is refused at startup, so it has no
+/// limits to turn off.
+fn limits_on(contents: &str) -> bool {
+    toml::from_str::<Config>(contents).is_ok_and(|config| config.rate_limits.enabled)
+}
 
 /// The libtest filter for the test that the child process runs.
 fn child_test_name() -> String {
@@ -36,6 +47,20 @@ impl Process {
         args: Option<&[&str]>,
         inline_env: Option<&str>,
     ) -> Self {
+        let inline = args
+            .into_iter()
+            .flatten()
+            .skip_while(|arg| **arg != "--config")
+            .nth(1);
+        for contents in [Some(config), inline.copied(), inline_env]
+            .into_iter()
+            .flatten()
+        {
+            assert!(
+                !limits_on(contents),
+                "a test backend configuration must turn rate limits off with RATE_LIMITS_OFF"
+            );
+        }
         let directory = std::env::temp_dir().join(format!("xmtp-startup-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir(&directory).unwrap();
         let path = directory.join("backend.toml");
@@ -155,6 +180,7 @@ async fn startup_preserves_metrics_export_and_shutdown_across_log_settings() {
         };
         let args = Args::parse_from(std::iter::once("xmtp-backend".to_string()).chain(arguments));
         let config = args.config()?;
+        assert!(!config.rate_limits().enabled);
         if config.telemetry.metrics_listen.is_empty() {
             // Occupy the default metrics port, so an exporter that binds it
             // anyway fails. When another process already holds the port, it
@@ -176,7 +202,7 @@ async fn startup_preserves_metrics_export_and_shutdown_across_log_settings() {
     }
     let database = database_url();
     let disabled = format!(
-        "[database]\nurl = {database:?}\n[server]\nidentifier = 'org.xmtp.test'\n[telemetry]\nmetrics_listen = ''\n"
+        "[database]\nurl = {database:?}\n[server]\nidentifier = 'org.xmtp.test'\n[telemetry]\nmetrics_listen = ''\n{RATE_LIMITS_OFF}"
     );
     let mut process = Process::start(&disabled, None);
     assert!(process.child.wait()?.success(), "{}", process.output());
@@ -209,6 +235,7 @@ async fn startup_preserves_metrics_export_and_shutdown_across_log_settings() {
         if level == "unsampled" {
             config.push_str("sample_ratio = 0.0\n");
         }
+        config.push_str(RATE_LIMITS_OFF);
         let endpoint = if level == "unreachable" {
             format!("http://{}", address())
         } else {
@@ -271,7 +298,7 @@ async fn startup_preserves_metrics_export_and_shutdown_across_log_settings() {
     let blocked_database = TcpListener::bind("127.0.0.1:0")?;
     let metrics = address();
     let config = format!(
-        "[database]\nurl = 'postgres://xmtp:xmtp@{}/xmtp_backend'\n[server]\nidentifier = 'org.xmtp.test'\n[telemetry]\nmetrics_listen = {metrics:?}\n",
+        "[database]\nurl = 'postgres://xmtp:xmtp@{}/xmtp_backend'\n[server]\nidentifier = 'org.xmtp.test'\n[telemetry]\nmetrics_listen = {metrics:?}\n{RATE_LIMITS_OFF}",
         blocked_database.local_addr()?
     );
     let process = Process::start(&config, None);
@@ -284,7 +311,7 @@ async fn startup_preserves_metrics_export_and_shutdown_across_log_settings() {
 
     let occupied = TcpListener::bind("127.0.0.1:0")?;
     let config = format!(
-        "[database]\nurl = {database:?}\n[server]\nidentifier = 'org.xmtp.test'\n[telemetry]\nmetrics_listen = '{}'\n",
+        "[database]\nurl = {database:?}\n[server]\nidentifier = 'org.xmtp.test'\n[telemetry]\nmetrics_listen = '{}'\n{RATE_LIMITS_OFF}",
         occupied.local_addr()?
     );
     let mut process = Process::start(&config, None);
@@ -303,7 +330,7 @@ async fn failed_jwks_startup_exits_before_binding_the_rpc_listener() {
     let metrics = address();
     let jwks = address();
     let config = format!(
-        "[database]\nurl = {database:?}\n[server]\nidentifier = 'org.xmtp.test'\nlisten = {grpc:?}\n[telemetry]\nmetrics_listen = {metrics:?}\n[auth]\nenabled = true\njwks_url = 'http://{jwks}/private-url-sentinel'\n"
+        "[database]\nurl = {database:?}\n[server]\nidentifier = 'org.xmtp.test'\nlisten = {grpc:?}\n[telemetry]\nmetrics_listen = {metrics:?}\n[auth]\nenabled = true\njwks_url = 'http://{jwks}/private-url-sentinel'\n{RATE_LIMITS_OFF}"
     );
     let mut process = Process::start(&config, None);
     assert!(!process.child.wait()?.success());
@@ -332,7 +359,7 @@ async fn an_unparsable_inline_key_stops_startup_before_binding() {
         "[database]\nurl = {database:?}\n[server]\nidentifier = 'org.xmtp.test'\nlisten = {grpc:?}\n[telemetry]\nmetrics_listen = {metrics:?}\n[auth]\nenabled = true\n\
          [[auth.keys]]\nkid = 'first'\nalg = 'ES256'\npublic_key = '''{es256}'''\n\
          [[auth.keys]]\nkid = 'second'\nalg = 'ES256'\npublic_key = '''{ed25519}'''\n\
-         [[auth.keys]]\nkid = 'third'\nalg = 'EdDSA'\npublic_key = '''{ed25519}'''\n"
+         [[auth.keys]]\nkid = 'third'\nalg = 'EdDSA'\npublic_key = '''{ed25519}'''\n{RATE_LIMITS_OFF}"
     );
     let mut process = Process::start(&config, None);
     assert!(!process.child.wait()?.success());
@@ -356,7 +383,7 @@ async fn the_log_level_flag_overrides_the_configured_level() {
         let grpc = address();
         let metrics = address();
         let config = format!(
-            "[database]\nurl = {database:?}\n[server]\nidentifier = 'org.xmtp.test'\nlisten = {grpc:?}\nlog_level = 'info'\n[telemetry]\nmetrics_listen = {metrics:?}\n[auth]\nenabled = true\n[auth.api_keys]\nbot = '0123456789abcdef0123456789abcdef'\n"
+            "[database]\nurl = {database:?}\n[server]\nidentifier = 'org.xmtp.test'\nlisten = {grpc:?}\nlog_level = 'info'\n[telemetry]\nmetrics_listen = {metrics:?}\n[auth]\nenabled = true\n[auth.api_keys]\nbot = '0123456789abcdef0123456789abcdef'\n{RATE_LIMITS_OFF}"
         );
         let mut args = vec!["--config", config.as_str()];
         if flag {
@@ -380,6 +407,27 @@ async fn the_log_level_flag_overrides_the_configured_level() {
         let output = process.output();
         assert_eq!(output.contains("authentication rejected"), flag, "{output}");
     }
+}
+
+/// `Process` refuses a configuration that leaves rate limits on, whether it
+/// omits the table or keeps the default `enabled`. A document that is not a
+/// configuration passes to the child, which refuses it.
+#[xmtp_common::test(unwrap_try = true)]
+fn the_harness_refuses_a_configuration_with_rate_limits_on() {
+    const MINIMAL: &str =
+        "[database]\nurl = 'postgres://localhost/xmtp'\n[server]\nidentifier = 'org.xmtp.test'\n";
+    assert!(limits_on(MINIMAL));
+    assert!(limits_on(&format!(
+        "{MINIMAL}[rate_limits]\nmax_memory_mib = 1\n"
+    )));
+    assert!(!limits_on(&format!("{MINIMAL}{RATE_LIMITS_OFF}")));
+    for document in ["", SECRET, "Cargo.toml"] {
+        assert!(!limits_on(document), "{document}");
+    }
+    let refused = std::panic::catch_unwind(|| {
+        Process::start_with_args("", None, Some(&["--config", MINIMAL]), None)
+    });
+    assert!(refused.is_err());
 }
 
 /// Each configured level maps to the shared level of the same name.
@@ -483,7 +531,7 @@ async fn inline_sources_start_and_serve() {
         let grpc = address();
         let metrics = address();
         let config = format!(
-            "[database]\nurl = {database:?}\n[server]\nidentifier = 'org.xmtp.test'\nlisten = {grpc:?}\n[telemetry]\nmetrics_listen = {metrics:?}\nresource_attributes = {{ secret = 'env:XMTP_STARTUP_TEST_SECRET' }}\n"
+            "[database]\nurl = {database:?}\n[server]\nidentifier = 'org.xmtp.test'\nlisten = {grpc:?}\n[telemetry]\nmetrics_listen = {metrics:?}\nresource_attributes = {{ secret = 'env:XMTP_STARTUP_TEST_SECRET' }}\n{RATE_LIMITS_OFF}"
         );
         let mut process = if from_env {
             Process::start_with_args("", None, Some(&[]), Some(&config))
@@ -553,16 +601,22 @@ fn secret_values(push: PushSecrets) -> String {
             config.push_str(&format!("[push.fcm]\nservice_account = '{account}'\n"));
         }
     }
+    config.push_str(RATE_LIMITS_OFF);
     config
 }
 
 // verifies: CONF-082, CONF-085
 #[xmtp_common::test(unwrap_try = true, disable_logging = true)]
 fn configuration_source_errors_and_help_omit_secrets() {
-    let invalid_value = "[database]\nurl = 'env:XMTP_STARTUP_TEST_SECRET'\n";
+    let invalid_value =
+        format!("[database]\nurl = 'env:XMTP_STARTUP_TEST_SECRET'\n{RATE_LIMITS_OFF}");
+    let invalid_value = invalid_value.as_str();
     // TOML v1.1.0 lets an inline table span lines. The document parses, so
     // the refusal comes from a check, not from the parser.
-    let multiline_table = "[database]\nurl = 'env:XMTP_STARTUP_TEST_SECRET'\n[telemetry]\nresource_attributes = {\n  name = 'value',\n}\n";
+    let multiline_table = format!(
+        "[database]\nurl = 'env:XMTP_STARTUP_TEST_SECRET'\n[telemetry]\nresource_attributes = {{\n  name = 'value',\n}}\n{RATE_LIMITS_OFF}"
+    );
+    let multiline_table = multiline_table.as_str();
     let unreadable = std::env::temp_dir()
         .join(format!("xmtp-missing-{}", uuid::Uuid::new_v4()))
         .join("backend.toml");

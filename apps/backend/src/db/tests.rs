@@ -1,5 +1,4 @@
 use crate::{
-    config::{Config, ValidatedConfig},
     db::Store,
     test_support::{TestDatabase, TestServer, config_for},
 };
@@ -133,11 +132,7 @@ async fn aborted_transaction_is_replaced_before_pool_reuse() {
 // verifies: OPS-020
 async fn startup_rejects_retention_that_overflows_the_database_clock() {
     let database = TestDatabase::new()?;
-    let mut config: Config = toml::from_str(&format!(
-        "[database]\nurl = {:?}\n[server]\nidentifier = {:?}",
-        database.url(),
-        crate::test_support::DEFAULT_TEST_IDENTIFIER
-    ))?;
+    let mut config = config_for(database.url());
     config.retention.welcome_seconds = (i64::MAX / xmtp_common::NS_IN_SEC) as u64;
     let error = crate::server::initialize(config.validate()?)
         .await
@@ -157,12 +152,9 @@ async fn startup_rejects_retention_that_overflows_the_database_clock() {
 // verifies: CONF-091
 async fn startup_rejects_push_expiry_that_overflows_the_database_clock() {
     let database = TestDatabase::new()?;
-    let config = ValidatedConfig::load_str(&format!(
-        "[database]\nurl = {:?}\n[server]\nidentifier = {:?}\n[push]\nrecipient_ttl_seconds = 9223372036\n",
-        database.url(),
-        crate::test_support::DEFAULT_TEST_IDENTIFIER
-    ))?;
-    let error = crate::server::initialize(config)
+    let mut config = config_for(database.url());
+    config.push.recipient_ttl_seconds = 9_223_372_036;
+    let error = crate::server::initialize(config.validate()?)
         .await
         .err()
         .expect("startup push expiry must fit");

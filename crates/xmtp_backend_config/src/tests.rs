@@ -1,7 +1,7 @@
 use super::*;
 use std::collections::BTreeSet;
 
-mod example;
+pub(crate) mod example;
 
 /// A command that runs one test of this test binary in a child process. The
 /// test is named by `module_path!()` where it is defined and its function name.
@@ -309,25 +309,63 @@ fn listed_keys(rows: &[example::FieldRow], key: &str) -> String {
     while let Some(open) = rest.find('<') {
         let close = open + rest[open..].find('>').expect("an unclosed <");
         let segment = &key[..key.len() - rest.len() + close + 1];
-        let row = rows
-            .iter()
-            .find(|row| row.key == segment)
-            .unwrap_or_else(|| panic!("{segment} has no row"));
-        let name = standard_checks(&row.checks)
-            .iter()
-            .find_map(|check| {
-                check
-                    .strip_prefix("key one of: ")
-                    .and_then(|names| names.split(", ").next())
-                    .map(str::to_owned)
-            })
-            .unwrap_or_else(|| panic!("{segment} lists no key names"));
         listed.push_str(&rest[..open]);
-        listed.push_str(&name);
+        listed.push_str(&listed_names(rows, segment)[0]);
         rest = &rest[close + 1..];
     }
     listed.push_str(rest);
     listed
+}
+
+/// The names the `key one of:` check of the row for `key` lists.
+fn listed_names(rows: &[example::FieldRow], key: &str) -> Vec<String> {
+    let row = rows
+        .iter()
+        .find(|row| row.key == key)
+        .unwrap_or_else(|| panic!("{key} has no row"));
+    standard_checks(&row.checks)
+        .iter()
+        .find_map(|check| check.strip_prefix("key one of: "))
+        .unwrap_or_else(|| panic!("{key} lists no key names"))
+        .split(", ")
+        .map(str::to_owned)
+        .collect()
+}
+
+/// Every category and tier name the field table lists loads, under
+/// `rate_limits.categories` and in an override, and names its own limits.
+#[xmtp_common::test(unwrap_try = true)]
+fn every_listed_rate_limit_name_is_accepted() {
+    const MINIMAL: &str =
+        "[server]\nidentifier = 'org.xmtp.test'\n[database]\nurl = 'postgres://localhost/xmtp'\n";
+    let rows = example::field_table();
+    let tiers = listed_names(&rows, "rate_limits.categories.<category>.<tier>");
+    let caller = CallerKey::ApiKey("bot".into());
+    for (key, override_limits) in [
+        ("rate_limits.categories.<category>", false),
+        ("rate_limits.overrides[].limits.<category>", true),
+    ] {
+        for name in listed_names(&rows, key) {
+            let document = if override_limits {
+                format!(
+                    "{MINIMAL}[[rate_limits.overrides]]\napi_key = 'bot'\n\
+                     [rate_limits.overrides.limits]\n{name} = []\n"
+                )
+            } else {
+                let lists: String = tiers.iter().map(|tier| format!("{tier} = []\n")).collect();
+                format!("{MINIMAL}[rate_limits.categories.{name}]\n{lists}")
+            };
+            let config = ValidatedConfig::load_str(&document)
+                .unwrap_or_else(|error| panic!("{key} {name}: {error}"));
+            // Only the named category's limits are the empty list.
+            let emptied: Vec<&str> = Category::ALL
+                .into_iter()
+                .filter(|category| config.rate_limits().limits(*category, &caller).is_empty())
+                .map(Category::as_str)
+                .collect();
+            assert_eq!(emptied, [name.as_str()], "{key}");
+        }
+    }
 }
 
 /// A credential kind refuses every key it does not take: any key next to a

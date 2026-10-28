@@ -1,4 +1,4 @@
-use super::{config_for, partial_config};
+use super::{RunningServer, TestServer, config_for, partial_config};
 use crate::config::{CallerKey, Category, LimitConfig};
 
 /// Fixture configurations turn rate limits off, because every test client
@@ -40,4 +40,18 @@ fn fixtures_turn_rate_limits_off_unless_a_test_sets_them() {
             .rate_limits()
             .enabled
     );
+}
+
+/// A started fixture server runs with rate limits off. `RunningServer::new`,
+/// which takes a configuration a test built itself, refuses one with limits
+/// on, so a new harness cannot leave them on by omitting the table.
+#[xmtp_common::test(unwrap_try = true)]
+async fn started_test_servers_run_with_rate_limits_off() {
+    let server = TestServer::new(|_| {}).await?;
+    assert!(!server.backend.config.rate_limits().enabled);
+    let mut config = (*server.backend.config).clone().into_config();
+    config.rate_limits.enabled = true;
+    let refused = RunningServer::new(config.validate()?).await.err()?;
+    assert!(refused.to_string().contains("rate limits"), "{refused}");
+    server.stop().await?;
 }

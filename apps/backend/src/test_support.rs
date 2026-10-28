@@ -205,7 +205,13 @@ pub fn topic(kind: xmtp_proto::types::TopicKind, identifier: &[u8]) -> api::Topi
 
 impl RunningServer {
     /// Start an independent backend instance against an existing test database.
+    /// Refuses a configuration with rate limits on: every test client shares
+    /// one address. Build it from `config_for`. A test that exercises limits
+    /// starts through `TestServer::from_toml` or `restart_with`.
     pub async fn new(config: ValidatedConfig) -> TestResult<Self> {
+        if config.rate_limits().enabled {
+            return Err("a test backend configuration must turn rate limits off".into());
+        }
         Self::from_backend(server::initialize(config).await?).await
     }
 
@@ -215,7 +221,7 @@ impl RunningServer {
     pub async fn restart_with(&self, change: impl FnOnce(&mut Config)) -> TestResult<Self> {
         let mut config = (*self.backend.config).clone().into_config();
         change(&mut config);
-        Self::new(config.validate()?).await
+        Self::from_backend(server::initialize(config.validate()?).await?).await
     }
 
     async fn from_backend(backend: Backend) -> TestResult<Self> {

@@ -1321,7 +1321,7 @@
           "default": 100
         },
         "trusted_proxies": {
-          "description": "Networks of proxies whose `X-Forwarded-For` entries name the client.\nStartup also refuses a network with a bit set after its prefix.",
+          "description": "Networks of proxies whose `X-Forwarded-For` entries name the client.\nStartup also refuses a network with a bit set after its prefix. An\nIPv4-mapped network matches the IPv4 addresses it maps.",
           "type": "array",
           "items": {
             "anyOf": [
@@ -1338,7 +1338,7 @@
           "default": []
         },
         "categories": {
-          "description": "Limits for each category, by tier: `default`, `ip`, `jwt`, or\n`api_key`. A category or tier left out keeps the default limits.\nNames are checked at validation, so a refusal can name the key.",
+          "description": "Limits for each category, by tier: `default`, `ip`, `jwt`, or\n`api_key`. A tier left out gets the category's `default`, and a\ncategory without `default` gets the default limits of RATE section 3.\nNames are checked at validation, so a refusal can name the key.",
           "type": "object",
           "propertyNames": {
             "enum": [
