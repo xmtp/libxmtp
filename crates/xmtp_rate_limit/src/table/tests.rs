@@ -180,6 +180,8 @@ fn sets_spread_over_contiguous_shards() {
 
 /// A set full of callers forgets the one whose largest TAT is smallest, so
 /// every caller at full allowance goes before any caller with spend left.
+/// Until the set is full, no caller is forgotten.
+// verifies: RATE-052
 #[xmtp_common::test]
 fn a_full_set_forgets_the_caller_that_spent_least() {
     let limits = [
@@ -240,7 +242,8 @@ fn a_full_set_forgets_the_caller_that_spent_least() {
 }
 
 /// The caller at full allowance is forgotten even when it was recorded last
-/// and spent the most units.
+/// and spent the most units, and every caller with spend left is kept.
+// verifies: RATE-052
 #[xmtp_common::test]
 fn a_full_set_reuses_a_slot_at_full_allowance_first() {
     let slow = [Limit {

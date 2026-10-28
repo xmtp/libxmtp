@@ -147,8 +147,10 @@ fn decisions_match_an_unbounded_model() {
 }
 
 /// A table of one set: callers reuse slots at full allowance in place, which
-/// changes no decision. The model never forgets, so every state the table
-/// holds is kept until it is earned back or forgotten for a fresh caller.
+/// changes no decision. The model never forgets, so the table keeps every
+/// state until it is earned back. Comparison stops at the first caller with
+/// spend left that the table forgets; the `a_full_set_*` tests in
+/// `table/tests.rs` show that happens only when the set is full.
 // verifies: RATE-052
 #[xmtp_common::test]
 fn decisions_match_an_unbounded_model_in_one_set() {
