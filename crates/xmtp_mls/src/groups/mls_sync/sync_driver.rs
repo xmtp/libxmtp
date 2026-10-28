@@ -544,10 +544,10 @@ where
                 // rejection when the delay does not end within this call.
                 // implements: RATE-041
                 if let Some(delay) = rate_limit_delay {
-                    if delay >= remaining {
+                    let Some(wait) = rate_limited_wait(wait_for, delay, remaining) else {
                         break;
-                    }
-                    xmtp_common::time::sleep(wait_for.max(delay)).await;
+                    };
+                    xmtp_common::time::sleep(wait).await;
                     continue;
                 }
                 xmtp_common::time::sleep(wait_for.min(remaining)).await;
@@ -710,5 +710,28 @@ where
             ));
         }
         Ok(())
+    }
+}
+
+/// The wait before the next round of a rate-limited sync: at least the delay
+/// and the backoff, never past the call's remaining time. None when the delay
+/// does not end inside the call.
+// implements: RATE-041
+fn rate_limited_wait(backoff: Duration, delay: Duration, remaining: Duration) -> Option<Duration> {
+    (delay < remaining).then(|| backoff.max(delay).min(remaining))
+}
+
+#[cfg(test)]
+mod rate_limited_wait_tests {
+    use super::*;
+
+    /// The wait is at least the delay, and never outlasts the call.
+    // verifies: RATE-041
+    #[xmtp_common::test]
+    fn a_rate_limited_wait_stays_inside_the_call() {
+        let ms = Duration::from_millis;
+        assert_eq!(rate_limited_wait(ms(500), ms(100), ms(200)), Some(ms(200)));
+        assert_eq!(rate_limited_wait(ms(50), ms(100), ms(200)), Some(ms(100)));
+        assert_eq!(rate_limited_wait(ms(50), ms(200), ms(200)), None);
     }
 }

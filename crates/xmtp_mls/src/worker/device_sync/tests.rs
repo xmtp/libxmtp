@@ -1335,7 +1335,8 @@ async fn a_rate_limited_add_arms_its_reconcile_after_the_delay() {
     tester!(alix, disable_workers);
     let sync = alix.context.device_sync_client();
     let group = alix.create_group(None, None)?;
-    let delay = xmtp_common::time::Duration::from_secs(300);
+    // Longer than a task's default three-day expiry.
+    let delay = xmtp_common::time::Duration::from_secs(4 * 24 * 60 * 60);
     let before = xmtp_common::time::now_ns();
     sync.schedule_add_missing_installations_task(group.group_id, Some(delay))?;
     let task = alix
@@ -1353,4 +1354,8 @@ async fn a_rate_limited_add_arms_its_reconcile_after_the_delay() {
         })
         .expect("the reconcile task");
     assert!(task.next_attempt_at_ns >= before + delay.as_nanos() as i64);
+    assert!(
+        task.expires_at_ns > task.next_attempt_at_ns,
+        "the task does not expire before it is due"
+    );
 }

@@ -508,9 +508,11 @@ where
         let due = xmtp_common::time::now_ns().saturating_add(delay.map_or(0, |delay| {
             i64::try_from(delay.as_nanos()).unwrap_or(i64::MAX)
         }));
+        // The usual three days to succeed count from when the task is due.
         let task = NewTask::builder()
             .originating_message_sequence_id(0)
             .next_attempt_at_ns(due)
+            .expires_at_ns(due.saturating_add(xmtp_common::NS_IN_DAY * 3))
             .build(TaskProto {
                 task: Some(TaskKindProto::AddMissingInstallations(
                     AddMissingInstallationsProto {
