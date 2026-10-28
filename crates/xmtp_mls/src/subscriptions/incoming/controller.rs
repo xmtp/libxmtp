@@ -200,12 +200,13 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
     ) -> Self {
         let factory = context.incoming_runtime().factory.clone();
         let rejected_requests = context.incoming_runtime().rejected_requests.clone();
+        let rate_limit_hold = context.incoming_runtime().rate_limit_hold.clone();
         Self {
             context,
             commands,
             state: state.clone(),
             scopes: HashMap::new(),
-            transport: Transport::new(factory, state.recovery.clone()),
+            transport: Transport::new(factory, state.recovery.clone(), rate_limit_hold),
             read: None,
             targets: None,
             targets_request: None,
@@ -893,6 +894,7 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                 }
             }
             Err(error) => {
+                self.hold_reads_for(&error);
                 let rejected = crate::subscriptions::recovery::rejected_request(&error);
                 if !rejected {
                     self.targets_retry_at = Some(
@@ -1131,7 +1133,7 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
     /// backing-off stream must not stop bounded Query recovery.
     // implements: API-284
     fn start_read(&mut self) {
-        if self.read.is_some() {
+        if self.read.is_some() || self.reads_held() {
             return;
         }
         let now = Instant::now();
@@ -1419,14 +1421,20 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             error.as_ref(),
             IncomingError::Store(crate::mls_store::MlsStoreError::Api(_))
         );
-        // The transport can advance its read cursor before storage commits. Drop
-        // that registration even when reconciliation immediately clears a pause.
-        self.transport.disconnect(
-            self.context
-                .incoming_runtime()
-                .policy()
-                .receiver_fallback_interval,
-        );
+        // A refused read leaves the stream untouched: only a request was denied,
+        // and the stream still delivers. Every read waits out the delay.
+        // implements: RATE-041
+        let rate_limited = self.hold_reads_for(error.as_ref());
+        if !rate_limited {
+            // The transport can advance its read cursor before storage commits. Drop
+            // that registration even when reconciliation immediately clears a pause.
+            self.transport.disconnect(
+                self.context
+                    .incoming_runtime()
+                    .policy()
+                    .receiver_fallback_interval,
+            );
+        }
         let now = Instant::now();
         self.topics
             .entry(topic.clone())
@@ -1502,6 +1510,29 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             state.receipt.blocked_until = None;
             state.receipt.blocked_failures = 0;
         }
+    }
+
+    /// True while a rate-limit delay holds every unary read of this client.
+    fn reads_held(&self) -> bool {
+        self.context
+            .incoming_runtime()
+            .rate_limit_hold
+            .lock()
+            .reads_held()
+    }
+
+    /// Hold reads and opens when `error` is a rate-limit rejection.
+    // implements: RATE-041
+    fn hold_reads_for(&self, error: &impl RetryableError) -> bool {
+        let Some(delay) = error.rate_limit_delay() else {
+            return false;
+        };
+        self.context
+            .incoming_runtime()
+            .rate_limit_hold
+            .lock()
+            .hold_reads(delay);
+        true
     }
 
     fn clear_read_times(&mut self) {

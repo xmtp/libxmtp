@@ -4541,3 +4541,124 @@ async fn a_failed_reconcile_opens_no_new_network_interest() {
     assert!(controller.storage_error.is_none());
     assert!(controller.transport.requested.contains(&added));
 }
+
+fn rate_limited(category: &str, delay: Duration) -> NetworkError {
+    NetworkError::new(xmtp_api::ApiError::Api(NetworkError::new(
+        xmtp_api_grpc::error::GrpcError::Status(xmtp_api_grpc::error::rate_limited_status(
+            category, delay,
+        )),
+    )))
+}
+
+/// A replacement controller cannot open inside the delay an earlier one was given.
+// verifies: RATE-041
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_replacement_controller_waits_out_a_rate_limited_open() {
+    tester!(alix, disable_workers);
+    let topic = Topic::new_group_message(GroupId::generate());
+    let mut original = controller(alix.context.clone());
+    original.transport.factory = Some(Arc::new(PendingFactory));
+    add_scope(&mut original, 1, &topic);
+    original.start_open();
+    assert_eq!(original.transport.generation, 1);
+    original.opened(Err(rate_limited("stream_rent", Duration::from_secs(30))));
+    drop(original);
+
+    let mut recreated = controller(alix.context.clone());
+    recreated.transport.factory = Some(Arc::new(PendingFactory));
+    add_scope(&mut recreated, 1, &topic);
+    recreated.transport.wake();
+    recreated.start_open();
+    assert_eq!(
+        recreated.transport.generation, 0,
+        "no open inside the delay"
+    );
+}
+
+/// A rate-limited read leaves the live stream open and holds every read,
+/// target read included, until the delay ends.
+// verifies: RATE-041
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_rate_limited_read_keeps_the_stream_and_holds_every_read() {
+    tester!(alix, disable_workers);
+    let (coordinator, mut controller) = coordinated_controller(alix.context.clone());
+    let topic = Topic::new_group_message(GroupId::generate());
+    let stream = coordinator.acquire_stream(IncomingScope::Topics(vec![topic.clone()]));
+    while let Ok(command) = controller.commands.try_recv() {
+        controller.command(command);
+    }
+    controller
+        .scopes
+        .get_mut(&stream.id)
+        .unwrap()
+        .topics
+        .insert(topic.clone());
+    controller.transport.requested.insert(topic.clone());
+    controller.transport.state = TransportState::Streaming(IncomingSubscription::new(
+        Box::pin(futures::stream::pending()),
+        |_| {},
+    ));
+    controller.read_queue.push_back(topic.clone());
+    let error = crate::mls_store::MlsStoreError::Api(xmtp_api::ApiError::Api(NetworkError::new(
+        xmtp_api_grpc::error::GrpcError::Status(xmtp_api_grpc::error::rate_limited_status(
+            "request",
+            Duration::from_secs(300),
+        )),
+    )));
+    controller.read_finished((
+        topic.clone(),
+        Some(Cursor(0)),
+        ReadOutcome::Fetched(Err(error)),
+    ));
+    assert!(
+        matches!(controller.transport.state, TransportState::Streaming(_)),
+        "a refused read must not end the stream"
+    );
+
+    let fresh = coordinator.acquire_stream(IncomingScope::Topics(vec![topic.clone()]));
+    while let Ok(command) = controller.commands.try_recv() {
+        controller.command(command);
+    }
+    let scope = controller.scopes.get_mut(&fresh.id).unwrap();
+    scope.topics.insert(topic.clone());
+    scope.targets.insert(topic.clone(), Cursor(5));
+    controller.start_read();
+    assert!(controller.read.is_none(), "no read inside the delay");
+    // The first scope has no target yet for this registered topic.
+    controller.transport.registered.insert(topic.clone());
+    controller.start_targets();
+    assert!(
+        controller.targets.is_none(),
+        "no target read inside the delay"
+    );
+}
+
+/// A stream that ends with a rate limit, as the bidi transport reports it,
+/// holds the next open.
+// verifies: RATE-041
+#[cfg(not(target_arch = "wasm32"))]
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_rate_limited_stream_end_holds_the_next_open() {
+    use xmtp_api_backend::{ConnectionFailure, TransportError};
+    tester!(alix, disable_workers);
+    let topic = Topic::new_group_message(GroupId::generate());
+    let mut controller = controller(alix.context.clone());
+    controller.transport.factory = Some(Arc::new(PendingFactory));
+    add_scope(&mut controller, 1, &topic);
+    controller.start_open();
+    assert_eq!(controller.transport.generation, 1);
+    controller.transport.state = TransportState::Streaming(IncomingSubscription::new(
+        Box::pin(futures::stream::pending()),
+        |_| {},
+    ));
+    let end = NetworkError::new(TransportError::Wire(std::sync::Arc::new(
+        ConnectionFailure::Wire(rate_limited("stream_rent", Duration::from_secs(30))),
+    )));
+    controller.incoming(Some(Err(end)));
+    controller.transport.wake();
+    controller.start_open();
+    assert_eq!(
+        controller.transport.generation, 1,
+        "no reopen inside the delay"
+    );
+}

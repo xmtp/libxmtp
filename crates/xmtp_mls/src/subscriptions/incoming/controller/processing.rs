@@ -453,6 +453,9 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
     pub(super) fn dependency_finished(&mut self, result: DependencyResult<C>) {
         match result {
             DependencyResult::PrefixTarget(cursor, topic, result) => {
+                if let Err(error) = &result {
+                    self.hold_reads_for(error);
+                }
                 let Some(hold) = self.prefix_holds.get_mut(&cursor) else {
                     return;
                 };
