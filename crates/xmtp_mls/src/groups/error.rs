@@ -669,8 +669,7 @@ impl RetryableError for GroupError {
                 cause,
                 rate_limit_delay,
                 ..
-            } => rate_limit_delay
-                .or_else(|| cause.as_ref().and_then(|cause| cause.rate_limit_delay())),
+            } => (*rate_limit_delay).max(cause.as_ref().and_then(|cause| cause.rate_limit_delay())),
             Self::MlsStore(e) => e.rate_limit_delay(),
             Self::DeviceSync(e) => e.rate_limit_delay(),
             _ => None,

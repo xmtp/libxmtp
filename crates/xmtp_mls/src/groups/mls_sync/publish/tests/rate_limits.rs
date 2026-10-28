@@ -240,3 +240,42 @@ async fn syncing_all_groups_keeps_a_rate_limit_delay() {
         .unwrap_err();
     assert_eq!(error.rate_limit_delay(), Some(delay));
 }
+
+/// A published-but-unconfirmed result reports the longer of its own delay and
+/// the delay of the rate limit that stopped its confirmation.
+// verifies: RATE-041
+#[xmtp_common::test]
+fn published_but_unconfirmed_reports_the_longer_delay() {
+    use crate::subscriptions::barrier::{BarrierCause, BarrierError, BarrierFailure, BarrierTopic};
+    use crate::subscriptions::incoming::IncomingError;
+    use xmtp_common::Generate;
+    let refused = xmtp_api::ApiError::Api(xmtp_proto::api::NetworkError::new(
+        xmtp_api_grpc::error::GrpcError::Status(xmtp_api_grpc::error::rate_limited_status(
+            "request",
+            Duration::from_secs(60),
+        )),
+    ));
+    let cause = BarrierError::Incomplete {
+        reason: BarrierFailure::Deadline,
+        unfinished: vec![BarrierTopic {
+            topic: xmtp_proto::types::Topic::new_group_message(
+                xmtp_proto::types::GroupId::generate(),
+            ),
+            scope_generation: None,
+            target: None,
+            received: xmtp_proto::types::Cursor(0),
+            processed: xmtp_proto::types::Cursor(0),
+            unresolved_welcomes: Vec::new(),
+            inactive: false,
+            cause: Some(BarrierCause::Receiver(std::sync::Arc::new(
+                IncomingError::Store(crate::mls_store::MlsStoreError::Api(refused)),
+            ))),
+        }],
+    };
+    let error = GroupError::PublishedButUnconfirmed {
+        intent_id: 1,
+        cause: Some(Box::new(cause)),
+        rate_limit_delay: Some(Duration::from_secs(5)),
+    };
+    assert_eq!(error.rate_limit_delay(), Some(Duration::from_secs(60)));
+}

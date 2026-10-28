@@ -565,9 +565,13 @@ async fn a_rate_limited_batched_proof_fetch_is_not_split() {
 }
 
 /// Refuses every smart contract wallet check with a rate limit, and counts
-/// the checks.
+/// the checks. The first refusal's delay is 300 s; each later one is 300 s
+/// longer when `growing` is set.
 #[derive(Default)]
-struct RateLimitedVerifier(std::sync::atomic::AtomicUsize);
+struct RateLimitedVerifier {
+    calls: std::sync::atomic::AtomicUsize,
+    growing: bool,
+}
 
 #[xmtp_common::async_trait]
 impl xmtp_id::scw_verifier::SmartContractSignatureVerifier for RateLimitedVerifier {
@@ -579,12 +583,13 @@ impl xmtp_id::scw_verifier::SmartContractSignatureVerifier for RateLimitedVerifi
         _: Option<alloy::primitives::BlockNumber>,
     ) -> Result<xmtp_id::scw_verifier::ValidationResponse, xmtp_id::scw_verifier::VerifierError>
     {
-        self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let call = self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst) as u64;
+        let steps = if self.growing { call + 1 } else { 1 };
         Err(xmtp_id::scw_verifier::VerifierError::Other(Box::new(
             ApiClientError::client(xmtp_api_grpc::error::GrpcError::Status(
                 xmtp_api_grpc::error::rate_limited_status(
                     "chain_verify",
-                    xmtp_common::time::Duration::from_secs(300),
+                    xmtp_common::time::Duration::from_secs(300 * steps),
                 ),
             )),
         )))
@@ -646,9 +651,42 @@ async fn a_rate_limited_prefetched_verification_is_not_sent_again() {
         Some(xmtp_common::time::Duration::from_secs(300))
     );
     assert_eq!(
-        verifier.0.load(std::sync::atomic::Ordering::SeqCst),
+        verifier.calls.load(std::sync::atomic::Ordering::SeqCst),
         2,
         "each refused check is sent once"
     );
     assert_eq!(script.lock().reads, 1, "no per-inbox reads");
+}
+
+/// Of several refused verifications in one batched fetch, the longest delay is
+/// returned, so the caller does not retry a proof inside its own delay.
+// verifies: RATE-041
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_batched_fetch_returns_its_longest_refused_delay() {
+    use crate::identity_updates::dependencies::{
+        IdentityRequirement, resolve_identity_requirements,
+    };
+    tester!(alix, disable_workers);
+    let verifier = Arc::new(RateLimitedVerifier {
+        growing: true,
+        ..Default::default()
+    });
+    let (client, script) = scripted_client_verifying(&alix, 100, Some(verifier.clone())).await;
+    let (x, x_envelope) = scw_inbox(1);
+    let (y, y_envelope) = scw_inbox(2);
+    script.lock().served = Some(vec![x_envelope, y_envelope]);
+    let requirements = [(x, 1), (y, 2)]
+        .into_iter()
+        .map(|(inbox_id, sequence_id)| IdentityRequirement {
+            inbox_id,
+            sequence_id,
+        })
+        .collect();
+    let error = resolve_identity_requirements(&client.context, &requirements)
+        .await
+        .unwrap_err();
+    assert_eq!(
+        error.rate_limit_delay(),
+        Some(xmtp_common::time::Duration::from_secs(600))
+    );
 }
