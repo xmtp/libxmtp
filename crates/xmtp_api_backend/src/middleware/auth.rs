@@ -354,11 +354,12 @@ impl<C> AuthMiddleware<C> {
         generation: u64,
         result: Result<T, ApiClientError>,
     ) -> (Result<T, ApiClientError>, bool) {
-        let rejected = result
-            .as_ref()
-            .err()
-            .and_then(|error| grpc_status(error))
-            .is_some_and(|status| status.code() == tonic::Code::Unauthenticated);
+        // A rate-limit rejection is never replayed, whatever its status code.
+        let rejected = result.as_ref().err().is_some_and(|error| {
+            xmtp_api_grpc::error::rate_limit_delay(error).is_none()
+                && grpc_status(error)
+                    .is_some_and(|status| status.code() == tonic::Code::Unauthenticated)
+        });
         let mut state = self.handle.inner.state.lock().await;
         let current = generation == state.generation;
         if current {

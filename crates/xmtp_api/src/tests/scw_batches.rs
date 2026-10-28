@@ -67,6 +67,8 @@ const HOLD: u64 = 1_000;
 struct VerifyBackend {
     max_signatures: usize,
     refusal: tonic::Code,
+    /// The refusal carries the rate-limit detail.
+    rate_limited: bool,
     requests: Arc<Mutex<Vec<(usize, usize)>>>,
     now: Arc<AtomicUsize>,
     most: Arc<AtomicUsize>,
@@ -77,6 +79,7 @@ impl VerifyBackend {
         Self {
             max_signatures,
             refusal,
+            rate_limited: false,
             requests: Arc::default(),
             now: Arc::default(),
             most: Arc::default(),
@@ -116,6 +119,19 @@ impl XmtpBackendClient for VerifyBackend {
             .unwrap()
             .push((request.signatures.len(), request.encoded_len()));
         if request.signatures.len() > self.max_signatures {
+            if self.rate_limited {
+                let limited = xmtp_api_grpc::error::rate_limited_status(
+                    "chain_verify",
+                    xmtp_common::time::Duration::from_secs(300),
+                );
+                return Err(ApiClientError::client(
+                    xmtp_api_grpc::error::GrpcError::Status(tonic::Status::with_details(
+                        self.refusal,
+                        "refused",
+                        limited.details().to_vec().into(),
+                    )),
+                ));
+            }
             return Err(status(self.refusal));
         }
         let now = self.now.fetch_add(1, SeqCst) + 1;
@@ -298,6 +314,23 @@ async fn scw_batch_refused_as_too_large_is_split(#[case] refusal: tonic::Code) {
     };
     assert!(!error.is_retryable(), "{error}");
     assert_eq!(backend.counts(), vec![3, 1]);
+}
+
+/// A rate-limit rejection is never split, whatever its status code.
+// verifies: RATE-041
+#[rstest]
+#[case::count(tonic::Code::InvalidArgument)]
+#[case::bytes(tonic::Code::OutOfRange)]
+#[xmtp_common::test(unwrap_try = true)]
+async fn scw_batch_rate_limited_is_not_split(#[case] refusal: tonic::Code) {
+    let mut backend = VerifyBackend::refusing_over(10, refusal);
+    backend.rate_limited = true;
+    let api = backend.client(LimitsConfiguration::default());
+    let Err(error) = api.verify_many(&inputs(20, 65)).await else {
+        panic!("a rate-limited request must fail");
+    };
+    assert!(error.rate_limit_delay().is_some(), "{error}");
+    assert_eq!(backend.counts(), vec![20]);
 }
 
 /// A response with a verdict missing is a retryable `VerdictCount`, also

@@ -16,6 +16,8 @@ struct Marker(u32);
 struct Reply {
     code: tonic::Code,
     gate: Option<oneshot::Receiver<()>>,
+    /// Carry the rate-limit detail on this status.
+    rate_limited: bool,
 }
 
 #[derive(Default)]
@@ -26,10 +28,19 @@ struct Peer {
 
 impl Peer {
     async fn enqueue(&self, code: tonic::Code) {
-        self.replies
-            .lock()
-            .await
-            .push_back(Reply { code, gate: None });
+        self.replies.lock().await.push_back(Reply {
+            code,
+            gate: None,
+            rate_limited: false,
+        });
+    }
+
+    async fn enqueue_rate_limited(&self, code: tonic::Code) {
+        self.replies.lock().await.push_back(Reply {
+            code,
+            gate: None,
+            rate_limited: true,
+        });
     }
 
     async fn receive(
@@ -46,9 +57,20 @@ impl Peer {
                 let _ = gate.await;
             }
             if reply.code != tonic::Code::Ok {
-                return Err(ApiClientError::client(GrpcError::Status(
-                    tonic::Status::new(reply.code, "peer error"),
-                )));
+                let status = if reply.rate_limited {
+                    let limited = xmtp_api_grpc::error::rate_limited_status(
+                        "request",
+                        Duration::from_secs(5),
+                    );
+                    tonic::Status::with_details(
+                        reply.code,
+                        "peer error",
+                        limited.details().to_vec().into(),
+                    )
+                } else {
+                    tonic::Status::new(reply.code, "peer error")
+                };
+                return Err(ApiClientError::client(GrpcError::Status(status)));
             }
         }
         Ok(body)
@@ -167,6 +189,21 @@ async fn call(client: &impl Client, rpc: Rpc) -> Result<Bytes, ApiClientError> {
     }
 }
 
+/// A rate-limit rejection is never replayed, whatever its status code.
+// verifies: RATE-041
+#[rstest::rstest]
+#[case(Rpc::Unary)]
+#[case(Rpc::Stream)]
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_rate_limited_rejection_is_not_replayed(#[case] rpc: Rpc) {
+    let (client, peer, _callback) = fixture();
+    peer.enqueue_rate_limited(tonic::Code::Unauthenticated)
+        .await;
+    let error = call(&client, rpc).await.unwrap_err();
+    assert_eq!(error.rate_limit_delay(), Some(Duration::from_secs(5)));
+    assert_eq!(peer.sent.lock().await.len(), 1);
+}
+
 // verifies: AUTH-020, AUTH-022
 #[rstest::rstest]
 #[case(Rpc::Unary)]
@@ -252,6 +289,7 @@ async fn old_response_cannot_change_new_generation(#[case] code: tonic::Code) {
     peer.replies.lock().await.push_back(Reply {
         code,
         gate: Some(gate),
+        rate_limited: false,
     });
     let pending = call(&client, Rpc::Unary);
     futures::pin_mut!(pending);
@@ -476,6 +514,7 @@ async fn old_success_during_cooldown_probe_preserves_one_attempt(#[case] callbac
     peer.replies.lock().await.push_back(Reply {
         code: tonic::Code::Ok,
         gate: Some(gate),
+        rate_limited: false,
     });
     let mut old_success = Box::pin(call(&client, Rpc::Bidi));
     assert!(futures::poll!(&mut old_success).is_pending());
@@ -487,6 +526,7 @@ async fn old_success_during_cooldown_probe_preserves_one_attempt(#[case] callbac
         peer.replies.lock().await.push_back(Reply {
             code: tonic::Code::Unauthenticated,
             gate: Some(gate),
+            rate_limited: false,
         });
     }
     let requests: Vec<_> = (0..MAX_CONSECUTIVE_AUTH_FAILURES)
@@ -552,6 +592,7 @@ async fn concurrent_failures_are_capped() {
         peer.replies.lock().await.push_back(Reply {
             code: tonic::Code::Unauthenticated,
             gate: Some(gate),
+            rate_limited: false,
         });
     }
     let calls: Vec<_> = (0..concurrent)
@@ -814,6 +855,7 @@ async fn lockout_during_a_pending_refresh_fails_requests_as_exhausted() {
         peer.replies.lock().await.push_back(Reply {
             code: tonic::Code::Unauthenticated,
             gate: Some(gate),
+            rate_limited: false,
         });
         let mut failure = Box::pin(call(&client, Rpc::Bidi));
         assert!(futures::poll!(&mut failure).is_pending());
@@ -904,6 +946,7 @@ async fn concurrent_failures_during_refresh_preserve_auth_state(
         peer.replies.lock().await.push_back(Reply {
             code: tonic::Code::Unauthenticated,
             gate: Some(gate),
+            rate_limited: false,
         });
         let mut request = Box::pin(call(&client, Rpc::Bidi));
         assert!(futures::poll!(&mut request).is_pending());
@@ -935,6 +978,7 @@ async fn concurrent_failures_during_refresh_preserve_auth_state(
         peer.replies.lock().await.push_back(Reply {
             code: tonic::Code::Ok,
             gate: Some(gate),
+            rate_limited: false,
         });
     }
     release_callback.send(()).expect("pending callback");

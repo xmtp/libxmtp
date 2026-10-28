@@ -138,3 +138,30 @@ async fn a_rate_limit_wait_past_the_remaining_deadline_returns_at_once() {
     );
     assert_eq!(attempts.load(Ordering::SeqCst), 1);
 }
+
+/// A rate-limited configuration fetch inside a request keeps its delay
+/// through the preflight wrapper.
+// verifies: RATE-041
+#[xmtp_common::test(unwrap_try = true)]
+fn a_preflight_failure_keeps_the_rate_limit_delay() {
+    let delay = Duration::from_secs(5);
+    let error = ApiError::Preflight(crate::preflight::PreflightError::new(rate_limited(delay)));
+    assert_eq!(error.rate_limit_delay(), Some(delay));
+}
+
+/// The rate-limit detail is never split, whatever the status code.
+// verifies: RATE-041
+#[xmtp_common::test(unwrap_try = true)]
+fn a_rate_limit_on_out_of_range_is_not_a_size_error() {
+    let status = <tonic::Status as tonic_types::StatusExt>::with_error_details(
+        tonic::Code::OutOfRange,
+        "rate limited",
+        tonic_types::ErrorDetails::with_error_info(
+            RATE_LIMITED_REASON,
+            RATE_LIMITED_DOMAIN,
+            std::collections::HashMap::<String, String>::new(),
+        ),
+    );
+    let error = ApiClientError::client(GrpcError::Status(status));
+    assert!(!crate::chunk::size_error(&error));
+}
