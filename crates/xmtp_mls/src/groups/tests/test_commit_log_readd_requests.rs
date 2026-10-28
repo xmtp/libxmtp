@@ -623,6 +623,7 @@ enum ReversibleFailure {
     Paused,
     Forked,
     ForkedThenMatchingCommit,
+    ReaddFails,
 }
 
 // verifies: FORK-041, FORK-080
@@ -630,11 +631,12 @@ enum ReversibleFailure {
 #[case::paused(ReversibleFailure::Paused)]
 #[case::forked(ReversibleFailure::Forked)]
 #[case::forked_then_matching_commit(ReversibleFailure::ForkedThenMatchingCommit)]
+#[case::readd_fails(ReversibleFailure::ReaddFails)]
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_reversible_failure_keeps_the_readd_request(
     #[case] failure: ReversibleFailure,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    use xmtp_db::prelude::QueryGroupVersion;
+    use xmtp_db::{ConnectionExt, diesel::RunQueryDsl, prelude::QueryGroupVersion};
 
     tester!(alix, disable_workers, enable_fork_recovery_requests);
     tester!(bo, disable_workers);
@@ -670,6 +672,16 @@ async fn a_reversible_failure_keeps_the_readd_request(
             alix_worker._tick().await?;
             bo_dm.sync().await?;
         }
+        // Validation queues no intent, so only the readd hits this.
+        ReversibleFailure::ReaddFails => bo_db
+            .raw_query(|conn| {
+                diesel::sql_query(
+                    "CREATE TRIGGER fail_intent BEFORE INSERT ON group_intents \
+                 BEGIN SELECT RAISE(ABORT, 'injected intent failure'); END",
+                )
+                .execute(conn)
+            })
+            .map(drop)?,
     }
     let epoch_before = bo_dm.epoch().await?;
     bo_worker._tick().await?;
@@ -678,6 +690,9 @@ async fn a_reversible_failure_keeps_the_readd_request(
 
     match failure {
         ReversibleFailure::Paused => bo_db.unpause_group(&dm.group_id)?,
+        ReversibleFailure::ReaddFails => {
+            bo_db.raw_query(|conn| diesel::sql_query("DROP TRIGGER fail_intent").execute(conn))?;
+        }
         // Stands in for the reset a Welcome applies.
         _ => bo_db.set_group_commit_log_forked_status(&dm.group_id, Some(false))?,
     }
@@ -685,6 +700,40 @@ async fn a_reversible_failure_keeps_the_readd_request(
     assert_eq!(bo_dm.epoch().await?, epoch_before + 1);
     assert!(!bo_db.is_awaiting_readd(&dm.group_id, installation.as_slice())?);
     Ok(())
+}
+
+// verifies: FORK-080
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_moot_readd_request_drops_while_paused() {
+    use xmtp_db::prelude::QueryGroupVersion;
+
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    let dm = alix
+        .find_or_create_dm(bo.inbox_id().to_string(), None)
+        .await?;
+    bo.sync_all_welcomes_and_groups(None).await?;
+    let bo_dm = bo.group(&dm.group_id)?;
+    bo_dm.update_consent_state(ConsentState::Allowed)?;
+    Oneshot::send_message(
+        alix.context.clone(),
+        vec![bo.inbox_id()],
+        OneshotMessage {
+            message_type: Some(MessageType::ReaddRequest(ReaddRequest {
+                group_id: dm.group_id.to_vec(),
+                latest_commit_sequence_id: 0,
+            })),
+        },
+    )
+    .await?;
+    bo.sync_welcomes().await?;
+    let db = bo.context.db();
+    let installation = alix.context.installation_id();
+    assert!(db.is_awaiting_readd(&dm.group_id, installation.as_slice())?);
+    db.set_group_paused(&dm.group_id, "999.0.0")?;
+    bo_dm.update_consent_state(ConsentState::Denied)?;
+    CommitLogWorker::new(bo.context.clone())._tick().await?;
+    assert!(!db.is_awaiting_readd(&dm.group_id, installation.as_slice())?);
 }
 
 // verifies: FORK-050, FORK-080, FORK-064, GMOD-052
