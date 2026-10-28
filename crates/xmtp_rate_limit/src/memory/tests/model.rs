@@ -147,7 +147,9 @@ fn decisions_match_an_unbounded_model() {
 }
 
 /// A table of one set: callers reuse slots at full allowance in place, which
-/// changes no decision.
+/// changes no decision. The model never forgets, so every state the table
+/// holds is kept until it is earned back or forgotten for a fresh caller.
+// verifies: RATE-052
 #[xmtp_common::test]
 fn decisions_match_an_unbounded_model_in_one_set() {
     type ParkingTable = crate::table::Table<parking_lot::Mutex<Box<[crate::table::Set]>>>;
