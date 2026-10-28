@@ -220,7 +220,7 @@ pub async fn serve(
         .layer(auth_layer)
         .layer(lifecycle::AdmissionLayer(lifecycle.clone()))
         .layer(count_gate::CountGateLayer {
-            max_request_bytes: receive,
+            limits: Arc::new(limits.clone()),
         })
         .add_service(health)
         .add_service(configuration)

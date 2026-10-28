@@ -9,14 +9,17 @@
 //! reaches tonic with the same bytes, trailers, and body error, so tonic keeps
 //! the status it gives without the gate.
 
-use crate::{api::publish_error::Reason, service::publish_invalid};
+use crate::{api::publish_error::Reason, config::LimitsConfig, service::publish_invalid};
 use bytes::Bytes;
 use futures::future::BoxFuture;
 use http::{HeaderMap, Request, Response};
 use http_body::Frame;
 use http_body_util::{BodyExt, StreamBody};
 use prost::encoding::{DecodeContext, WireType, decode_key, decode_varint, skip_field};
-use std::task::{Context, Poll};
+use std::{
+    sync::Arc,
+    task::{Context, Poll},
+};
 use tonic::{Status, body::Body};
 use tower::{Layer, Service};
 use xmtp_configuration::{
@@ -36,7 +39,7 @@ struct Count {
     /// Field numbers at each depth. Entries of a field at the last depth are
     /// counted; entries of a field at an earlier depth are walked into.
     path: &'static [&'static [u32]],
-    limit: usize,
+    limit: fn(&LimitsConfig) -> usize,
     /// The rejection message. It names no topic, recipient, or index.
     message: &'static str,
 }
@@ -47,9 +50,10 @@ struct GatedRoute {
     reject: fn(&'static str) -> Status,
 }
 
-/// Each limit is the product of the per-item bounds the handler applies, so
-/// the gate never rejects a request those bounds admit. A repeated field
-/// added under one of these messages needs its own count here.
+/// Each limit is the handler's own bound: the product of its per-item bounds,
+/// or for `QueryNewest` the larger of its two topic limits, so the gate never
+/// rejects a request those bounds admit. A repeated field added under one of
+/// these messages needs its own count here.
 // implements: API-304, PUSH-264
 const ROUTES: &[GatedRoute] = &[
     GatedRoute {
@@ -59,60 +63,119 @@ const ROUTES: &[GatedRoute] = &[
             // PublishRequest.envelopes
             Count {
                 path: &[&[1]],
-                limit: MAX_PUBLISH_ENVELOPES,
+                limit: |_| MAX_PUBLISH_ENVELOPES,
                 message: "publish request exceeds envelope limit",
             },
             // PublishRequest.envelopes, ClientEnvelope.identity_update,
             // IdentityUpdate.actions
             Count {
                 path: &[&[1], &[4], &[1]],
-                limit: MAX_PUBLISH_IDENTITY_ACTIONS,
+                limit: |_| MAX_PUBLISH_IDENTITY_ACTIONS,
                 message: "publish request exceeds identity action limit",
             },
         ],
     },
     GatedRoute {
         path: "/xmtp.backend.v1.NotificationService/UpdateSubscriptions",
-        reject: subscriptions_invalid,
+        reject: invalid_argument,
         counts: &[
             // UpdateSubscriptionsRequest.adds and UpdateSubscriptionsRequest.removes
             Count {
                 path: &[&[3, 4]],
-                limit: NOTIFICATION_BATCH_TOPICS,
+                limit: |_| NOTIFICATION_BATCH_TOPICS,
                 message: "request exceeds the subscription batch limit",
             },
             // UpdateSubscriptionsRequest.adds, Subscription.hmac_keys
             Count {
                 path: &[&[3], &[3]],
-                limit: NOTIFICATION_BATCH_HMAC_KEYS,
+                limit: |_| NOTIFICATION_BATCH_HMAC_KEYS,
                 message: "request exceeds the subscription key limit",
             },
         ],
     },
+    GatedRoute {
+        path: "/xmtp.backend.v1.QueryService/Query",
+        reject: invalid_argument,
+        // QueryRequest.queries
+        counts: &[Count {
+            path: &[&[1]],
+            limit: |limits| limits.max_query_topics,
+            message: ITEM_LIMIT,
+        }],
+    },
+    GatedRoute {
+        path: "/xmtp.backend.v1.QueryService/QueryNewest",
+        reject: invalid_argument,
+        // QueryNewestRequest.topics. The handler applies the smaller limit of
+        // a full-envelope request after decoding.
+        counts: &[Count {
+            path: &[&[1]],
+            limit: |limits| {
+                limits
+                    .max_newest_metadata_topics
+                    .max(limits.max_newest_full_topics)
+            },
+            message: ITEM_LIMIT,
+        }],
+    },
+    GatedRoute {
+        path: "/xmtp.backend.v1.IdentityService/GetInboxIds",
+        reject: invalid_argument,
+        // GetInboxIdsRequest.requests
+        counts: &[Count {
+            path: &[&[1]],
+            limit: |limits| limits.max_lookup_identifiers,
+            message: ITEM_LIMIT,
+        }],
+    },
+    GatedRoute {
+        path: "/xmtp.backend.v1.IdentityService/VerifySmartContractWalletSignatures",
+        reject: invalid_argument,
+        // VerifySmartContractWalletSignaturesRequest.signatures
+        counts: &[Count {
+            path: &[&[1]],
+            limit: |limits| limits.max_scw_signatures,
+            message: ITEM_LIMIT,
+        }],
+    },
+    GatedRoute {
+        path: "/xmtp.backend.v1.SubscriptionService/SubscribeStatic",
+        reject: invalid_argument,
+        // SubscribeStaticRequest.topics
+        counts: &[Count {
+            path: &[&[1]],
+            limit: |limits| limits.max_static_topics,
+            message: "invalid static topic count",
+        }],
+    },
 ];
+
+/// The rejection the read and lookup handlers give for too many entries.
+const ITEM_LIMIT: &str = "request exceeds item limit";
 
 /// The whole-request publish rejection: too large, with no envelope index.
 fn publish_too_large(message: &'static str) -> Status {
     publish_invalid(None, Reason::TooLarge, message)
 }
 
-fn subscriptions_invalid(message: &'static str) -> Status {
+fn invalid_argument(message: &'static str) -> Status {
     Status::invalid_argument(message)
 }
 
 /// Install innermost, inside gRPC-Web conversion, auth, and admission, so it
 /// sees native frames of admitted requests only.
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub(super) struct CountGateLayer {
-    /// The decoding limit tonic applies on every gated route.
-    pub max_request_bytes: usize,
+    /// The configured count limits, and the decoding limit
+    /// (`max_request_bytes`) tonic applies on every gated route.
+    pub limits: Arc<LimitsConfig>,
 }
 impl<S> Layer<S> for CountGateLayer {
     type Service = CountGate<S>;
     fn layer(&self, inner: S) -> Self::Service {
         CountGate {
             inner,
-            max_request_bytes: self.max_request_bytes,
+            limits: self.limits.clone(),
         }
     }
 }
@@ -120,7 +183,7 @@ impl<S> Layer<S> for CountGateLayer {
 #[derive(Clone)]
 pub(super) struct CountGate<S> {
     inner: S,
-    max_request_bytes: usize,
+    limits: Arc<LimitsConfig>,
 }
 impl<S> Service<Request<Body>> for CountGate<S>
 where
@@ -147,10 +210,10 @@ where
         // The readied service takes this request; the clone takes the next.
         let ready = self.inner.clone();
         let mut inner = std::mem::replace(&mut self.inner, ready);
-        let max_request_bytes = self.max_request_bytes;
+        let limits = self.limits.clone();
         Box::pin(async move {
             let (parts, mut body) = request.into_parts();
-            match admit(route, &mut body, max_request_bytes).await {
+            match admit(route, &mut body, &limits).await {
                 Ok(body) => inner.call(Request::from_parts(parts, body)).await,
                 Err(status) => Ok(status.into_http()),
             }
@@ -174,20 +237,14 @@ fn gated(request: &Request<Body>) -> Option<&'static GatedRoute> {
 
 /// Decide whether tonic may decode a gated body. Returns a body with the same
 /// bytes and the same end, or the route's rejection.
-async fn admit(
-    route: &GatedRoute,
-    body: &mut Body,
-    max_request_bytes: usize,
-) -> Result<Body, Status> {
-    let (message, overflow) = match first_message(body, max_request_bytes).await {
+async fn admit(route: &GatedRoute, body: &mut Body, limits: &LimitsConfig) -> Result<Body, Status> {
+    let (message, overflow) = match first_message(body, limits.max_request_bytes).await {
         First::Forward { bytes, end } => return Ok(replay(bytes, end)),
         First::Message { bytes, overflow } => (bytes, overflow),
     };
-    if let Some(count) = route
-        .counts
-        .iter()
-        .find(|count| exceeds(&message[PREFIX_BYTES..], count.path, count.limit) == Some(true))
-    {
+    if let Some(count) = route.counts.iter().find(|count| {
+        exceeds(&message[PREFIX_BYTES..], count.path, (count.limit)(limits)) == Some(true)
+    }) {
         return Err((route.reject)(count.message));
     }
     let rest = if overflow {
