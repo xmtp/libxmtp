@@ -695,6 +695,17 @@ async fn notification_a_held_renewal_leaves_updates_running() {
     };
     assert!(at > time::now_ns(), "the next turn is not due at once");
     assert!(at <= hold, "the renewal runs when the hold ends");
+    // The same holds inside an update hold.
+    let mut record = client.db().notification_record()?;
+    let mut held = deadlines(&record)?;
+    held.rate_limited_until_ns = time::now_ns() + 300 * xmtp_common::NS_IN_SEC;
+    record.push_deadlines = Some(encode(&held)?);
+    client.db().save_notification_record(&record)?;
+    let TaskOutcome::RescheduleAt(at) = run(&client.context).await? else {
+        panic!("the task waits");
+    };
+    assert!(at > time::now_ns(), "the next turn is not due at once");
+    assert!(at <= held.rate_limited_until_ns);
 }
 
 /// A Register hold that cannot be stored does not replace the refusal: the
