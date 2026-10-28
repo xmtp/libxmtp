@@ -295,3 +295,5 @@ A membership refresh is triggered by client activity. Its interval is an impleme
 Clients that predate GMOD-043, and the coverage of `add` and update path leaves in GMOD-012, apply a commit with an unbound leaf that newer clients reject. Without a version floor (PERM-023), the group forks between them. A forged commit causes this, and so can an older client's own refresh, because it adds a key package whose credential names another inbox, which JOIN-093 excludes.
 
 Receivers check only that a readd adds back the installation it removes, not that the added key package is the newest one that installation published. A super admin, or either member of a DM (GMOD-052), can readd an installation with a key package whose private keys it destroyed under JOIN-074; that installation processes the removal, cannot open the Welcome, and keeps a leaf it cannot use, so it is out of the conversation until it is readded again. A super admin can already remove any member; for a DM member this is a new power.
+
+A member can hold a conversation's head for about 30 seconds per commit that names an identity sequence with no update; K such commits hold it about K x 30 seconds.

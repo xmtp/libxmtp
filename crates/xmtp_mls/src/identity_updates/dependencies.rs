@@ -6,16 +6,18 @@ use super::{get_association_state_for_client, load_identity_updates_for_client};
 use crate::{client::ClientError, context::XmtpSharedContext};
 use futures::{StreamExt, stream};
 use std::{
-    collections::{BTreeSet, HashMap, HashSet},
-    sync::{Arc, OnceLock, Weak},
+    collections::{BTreeSet, HashSet},
+    sync::{Arc, OnceLock},
 };
 use thiserror::Error;
 use xmtp_common::{
     RetryableError, retryable,
-    time::{Duration, Instant, sleep},
+    time::{Instant, sleep},
 };
-use xmtp_configuration::IDENTITY_REFERENCE_RETRY_INTERVAL;
-use xmtp_db::{DbQuery, StorageError, prelude::*};
+use xmtp_configuration::{
+    IDENTITY_REFERENCE_MAX_RETRY_INTERVAL, IDENTITY_REFERENCE_RETRY_INTERVAL,
+};
+use xmtp_db::{DbQuery, StorageError};
 use xmtp_id::associations::{AssociationError, AssociationState};
 
 /// A proof at one exact identity sequence. Zero is not an identity sequence.
@@ -46,9 +48,6 @@ pub enum IdentityDependencyError {
     /// A local proof could not be read. Retryability follows the storage error.
     #[error(transparent)]
     Storage(#[from] StorageError),
-    /// Concurrent callers observe the same failed proof attempt.
-    #[error(transparent)]
-    Shared(Arc<IdentityDependencyError>),
 }
 
 impl From<ClientError> for IdentityDependencyError {
@@ -63,31 +62,25 @@ impl RetryableError for IdentityDependencyError {
             Self::Need(_) => true,
             Self::Client(error) => retryable!(error),
             Self::Storage(error) => retryable!(error),
-            Self::Shared(error) => error.is_retryable(),
             Self::InvalidSequence(_) | Self::MissingReference(_) => false,
         }
     }
 }
-
-type Resolution = tokio::sync::Mutex<Option<Result<(), Arc<IdentityDependencyError>>>>;
 
 impl crate::worker::NeedsDbReconnect for IdentityDependencyError {
     fn needs_db_reconnect(&self) -> bool {
         match self {
             Self::Client(error) => error.db_needs_connection(),
             Self::Storage(error) => error.db_needs_connection(),
-            Self::Shared(error) => error.needs_db_reconnect(),
             Self::Need(_) | Self::InvalidSequence(_) | Self::MissingReference(_) => false,
         }
     }
 }
 
-/// Share concurrent proof attempts for one client and bound network requests.
+/// Bound identity proof requests for one client.
 #[derive(Default)]
 pub struct IdentityResolutionRegistry {
-    /// Weak entries disappear after all callers release an attempt.
-    active: parking_lot::Mutex<HashMap<IdentityRequirement, Weak<Resolution>>>,
-    /// One request limit shared by single-proof and batch callers.
+    /// One request limit shared by every resolution round.
     permits: OnceLock<Arc<tokio::sync::Semaphore>>,
     /// Serializes own-inbox loads and their event emission for one client.
     own_inbox_refresh: tokio::sync::Mutex<OwnInstallationEvents>,
@@ -120,18 +113,6 @@ impl IdentityResolutionRegistry {
         self.permits
             .get_or_init(|| Arc::new(tokio::sync::Semaphore::new(limit)))
             .clone()
-    }
-
-    /// Reuse the current exact-proof attempt without caching its failure forever.
-    fn acquire(&self, requirement: &IdentityRequirement) -> Arc<Resolution> {
-        let mut active = self.active.lock();
-        active.retain(|_, gate| gate.strong_count() != 0);
-        if let Some(gate) = active.get(requirement).and_then(Weak::upgrade) {
-            return gate;
-        }
-        let gate = Arc::new(Resolution::default());
-        active.insert(requirement.clone(), Arc::downgrade(&gate));
-        gate
     }
 }
 
@@ -197,128 +178,111 @@ impl MissingProofs {
     }
 }
 
-/// Fetch and verify an exact identity proof without a state transaction.
-/// Successful primary reads must cover the full absence interval. A transport
-/// or verification error stops the interval and leaves dependent work pending.
-/// Concurrent callers share one attempt; cancellation permits a later retry.
-async fn resolve_identity_requirement(
-    context: &impl XmtpSharedContext,
-    requirement: &IdentityRequirement,
-) -> Result<(), IdentityDependencyError> {
-    match require_association_state(&context.db(), requirement) {
-        Ok(_) => return Ok(()),
-        Err(IdentityDependencyError::Need(_)) => {}
-        Err(error) => return Err(error),
-    }
-    let gate = context.identity_resolution_registry().acquire(requirement);
-    let mut resolution = gate.lock().await;
-    if resolution.is_none() {
-        let permits = context
-            .identity_resolution_registry()
-            .permits(context.incoming_runtime().policy().max_dependency_requests);
-        let _permit = permits
-            .acquire()
-            .await
-            .expect("identity request semaphore stays open");
-        *resolution = Some(
-            resolve_identity_requirement_with_wait(
-                context,
-                requirement,
-                context.incoming_runtime().policy().identity_reference_wait,
-            )
-            .await
-            .map_err(Arc::new),
-        );
-    }
-    match resolution.as_ref().expect("resolution is assigned") {
-        Ok(()) => Ok(()),
-        Err(error) => Err(match error.as_ref() {
-            IdentityDependencyError::MissingReference(requirement) => {
-                IdentityDependencyError::MissingReference(requirement.clone())
-            }
-            IdentityDependencyError::InvalidSequence(sequence) => {
-                IdentityDependencyError::InvalidSequence(*sequence)
-            }
-            _ => IdentityDependencyError::Shared(error.clone()),
-        }),
-    }
-}
-
-/// Declare absence only after healthy primary reads span the configured wait.
-/// Verify the available prefix first; invalid history is not an absent reference.
-async fn resolve_identity_requirement_with_wait(
-    context: &impl XmtpSharedContext,
-    requirement: &IdentityRequirement,
-    absence_wait: Duration,
-) -> Result<(), IdentityDependencyError> {
-    let sequence = requirement.checked_sequence()?;
-    let mut healthy_since = None;
-    loop {
-        let conn = context.db();
-        match require_association_state(&conn, requirement) {
-            Ok(_) => return Ok(()),
-            Err(IdentityDependencyError::Need(_)) => {}
-            Err(error) => return Err(error),
-        }
-        // Query uses the primary and returns the complete retained prefix.
-        load_identity_updates_for_client(&context, &conn, &[requirement.inbox_id.as_str()]).await?;
-        match get_association_state_for_client(
-            context,
-            &conn,
-            &requirement.inbox_id,
-            Some(sequence),
-        )
-        .await
-        {
-            Ok(_) => return Ok(()),
-            Err(ClientError::Association(AssociationError::MissingIdentityUpdate)) => {
-                // An invalid earlier update blocks this dependency. Absence
-                // alone must not bypass verification of the available prefix.
-                let last = conn
-                    .get_identity_updates(&requirement.inbox_id, None, Some(sequence))
-                    .map_err(ClientError::from)?
-                    .last()
-                    .map(|update| update.sequence_id);
-                if let Some(last) = last {
-                    get_association_state_for_client(
-                        context,
-                        &conn,
-                        &requirement.inbox_id,
-                        Some(last),
-                    )
-                    .await?;
-                }
-            }
-            Err(error) => return Err(error.into()),
-        }
-        let start = healthy_since.get_or_insert_with(Instant::now);
-        if start.elapsed() >= absence_wait {
-            return Err(IdentityDependencyError::MissingReference(
-                requirement.clone(),
-            ));
-        }
-        drop(conn);
-        sleep(IDENTITY_REFERENCE_RETRY_INTERVAL).await;
-    }
-}
-
 /// Resolve every requirement of one parent and return one result for it.
-/// One failed proof does not cancel other fetches or remove their verified
+/// Each round loads the logs of every still-missing inbox in one request and
+/// checks each proof once, so absent references share one window. Successful
+/// primary reads must cover the full absence interval. A transport or
+/// verification error stops the interval and leaves dependent work pending.
+/// One failed proof does not cancel other checks or remove their verified
 /// cache entries.
 // implements: PROC-013
 pub(crate) async fn resolve_identity_requirements(
     context: &impl XmtpSharedContext,
     requirements: &BTreeSet<IdentityRequirement>,
 ) -> Result<(), IdentityDependencyError> {
-    prefetch_identity_requirements(context, requirements).await;
-    let results: Vec<_> =
-        stream::iter(requirements.iter().cloned().map(|requirement| async move {
-            resolve_identity_requirement(context, &requirement).await
-        }))
-        .buffer_unordered(context.incoming_runtime().policy().max_dependency_requests)
-        .collect()
-        .await;
-    parent_result(results)
+    let policy = context.incoming_runtime().policy();
+    let limit = policy.max_dependency_requests;
+    let permits = context.identity_resolution_registry().permits(limit);
+    let mut missing = requirements.clone();
+    let mut healthy_since = None;
+    let mut interval = IDENTITY_REFERENCE_RETRY_INTERVAL;
+    loop {
+        let conn = context.db();
+        let mut results = Vec::new();
+        let mut needed = Vec::new();
+        for requirement in &missing {
+            match require_association_state(&conn, requirement) {
+                Err(IdentityDependencyError::Need(_)) => needed.push(requirement.clone()),
+                result => results.push(result.map(drop)),
+            }
+        }
+        if !needed.is_empty() {
+            // The permit covers one load and its checks, never a sleep.
+            let _permit = permits
+                .acquire()
+                .await
+                .expect("identity request semaphore stays open");
+            let inbox_ids: Vec<_> = needed
+                .iter()
+                .map(|requirement| requirement.inbox_id.as_str())
+                .collect::<HashSet<_>>()
+                .into_iter()
+                .collect();
+            // Query uses the primary and returns the complete retained prefix.
+            load_identity_updates_for_client(context, &conn, &inbox_ids).await?;
+            let conn = &conn;
+            let checked: Vec<_> = stream::iter(needed.into_iter().map(|requirement| async move {
+                check_identity_requirement(context, conn, &requirement).await
+            }))
+            .buffer_unordered(limit)
+            .collect()
+            .await;
+            results.extend(checked);
+        }
+        missing = results
+            .iter()
+            .filter_map(|result| match result {
+                Err(IdentityDependencyError::MissingReference(requirement)) => {
+                    Some(requirement.clone())
+                }
+                _ => None,
+            })
+            .collect();
+        match parent_result(results) {
+            Err(IdentityDependencyError::MissingReference(requirement)) => {
+                let start = healthy_since.get_or_insert_with(Instant::now);
+                if start.elapsed() >= policy.identity_reference_wait {
+                    return Err(IdentityDependencyError::MissingReference(requirement));
+                }
+            }
+            result => return result,
+        }
+        drop(conn);
+        sleep(interval).await;
+        interval = (interval * 2).min(IDENTITY_REFERENCE_MAX_RETRY_INTERVAL);
+    }
+}
+
+/// Verify one exact proof after a primary load. Verify the available prefix
+/// first; invalid history is not an absent reference.
+async fn check_identity_requirement(
+    context: &impl XmtpSharedContext,
+    conn: &impl DbQuery,
+    requirement: &IdentityRequirement,
+) -> Result<(), IdentityDependencyError> {
+    let sequence = requirement.checked_sequence()?;
+    match get_association_state_for_client(context, conn, &requirement.inbox_id, Some(sequence))
+        .await
+    {
+        Ok(_) => Ok(()),
+        Err(ClientError::Association(AssociationError::MissingIdentityUpdate)) => {
+            // An invalid earlier update blocks this dependency. Absence
+            // alone must not bypass verification of the available prefix.
+            let last = conn
+                .get_identity_updates(&requirement.inbox_id, None, Some(sequence))
+                .map_err(ClientError::from)?
+                .last()
+                .map(|update| update.sequence_id);
+            if let Some(last) = last {
+                get_association_state_for_client(context, conn, &requirement.inbox_id, Some(last))
+                    .await?;
+            }
+            Err(IdentityDependencyError::MissingReference(
+                requirement.clone(),
+            ))
+        }
+        Err(error) => Err(error.into()),
+    }
 }
 
 /// A failed proof takes precedence over an absent one, so a parent that
@@ -338,69 +302,12 @@ fn parent_result(
     absent.map_or(Ok(()), Err)
 }
 
-/// Load the logs of every inbox without a cached proof in one request, then
-/// verify the proofs the load supplies. A proof that is still missing uses the
-/// single-proof path, which owns absence waits and error reporting.
-async fn prefetch_identity_requirements(
-    context: &impl XmtpSharedContext,
-    requirements: &BTreeSet<IdentityRequirement>,
-) {
-    let conn = context.db();
-    let needed: Vec<_> = requirements
-        .iter()
-        .filter(|requirement| {
-            matches!(
-                require_association_state(&conn, requirement),
-                Err(IdentityDependencyError::Need(_))
-            )
-        })
-        .cloned()
-        .collect();
-    // One proof gains nothing. The single-proof path shares concurrent attempts.
-    if needed.len() < 2 {
-        return;
-    }
-    let inbox_ids: Vec<_> = needed
-        .iter()
-        .map(|requirement| requirement.inbox_id.as_str())
-        .collect::<HashSet<_>>()
-        .into_iter()
-        .collect();
-    let limit = context.incoming_runtime().policy().max_dependency_requests;
-    let permits = context.identity_resolution_registry().permits(limit);
-    let loaded = {
-        let _permit = permits
-            .acquire()
-            .await
-            .expect("identity request semaphore stays open");
-        load_identity_updates_for_client(context, &conn, &inbox_ids).await
-    };
-    if let Err(error) = loaded {
-        tracing::warn!(%error, "batched identity fetch failed; fetching each inbox");
-        return;
-    }
-    let conn = &conn;
-    stream::iter(needed.into_iter().map(|requirement| async move {
-        let Ok(sequence) = requirement.checked_sequence() else {
-            return;
-        };
-        // The single-proof path reports a proof this load did not settle.
-        if let Err(error) =
-            get_association_state_for_client(context, conn, &requirement.inbox_id, Some(sequence))
-                .await
-        {
-            tracing::debug!(%error, inbox_id = requirement.inbox_id, "prefetched proof is unresolved");
-        }
-    }))
-    .buffer_unordered(limit)
-    .collect::<()>()
-    .await;
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::tester;
+    use xmtp_common::time::Duration;
+    use xmtp_db::prelude::*;
 
     #[cfg(not(target_arch = "wasm32"))]
     #[xmtp_common::test(unwrap_try = true)]
@@ -411,7 +318,6 @@ mod tests {
             inbox_id: "inbox".into(),
             sequence_id: 1,
         };
-        assert_send(resolve_identity_requirement(&context, &requirement));
         assert_send(resolve_identity_requirements(
             &context,
             &BTreeSet::from([requirement.clone()]),
@@ -453,32 +359,6 @@ mod tests {
         assert!(second.try_acquire().is_ok());
     }
 
-    #[xmtp_common::test(unwrap_try = true)]
-    async fn concurrent_requirements_share_one_attempt_but_later_calls_retry() {
-        let registry = IdentityResolutionRegistry::default();
-        let requirement = IdentityRequirement {
-            inbox_id: "inbox".into(),
-            sequence_id: 5,
-        };
-        let first = registry.acquire(&requirement);
-        let second = registry.acquire(&requirement);
-        assert!(Arc::ptr_eq(&first, &second));
-
-        let mut resolution = first.lock().await;
-        assert!(second.try_lock().is_err());
-        *resolution = Some(Err(Arc::new(IdentityDependencyError::InvalidSequence(5))));
-        drop(resolution);
-        assert!(matches!(second.lock().await.as_ref(), Some(Err(_))));
-
-        let completed = Arc::downgrade(&first);
-        drop(first);
-        drop(second);
-        let next = registry.acquire(&requirement);
-        assert!(completed.upgrade().is_none());
-        assert!(next.lock().await.is_none());
-        assert_eq!(registry.active.lock().len(), 1);
-    }
-
     // verifies: IDENT-070
     #[xmtp_common::test(unwrap_try = true)]
     async fn historical_proof_does_not_use_a_newer_cached_snapshot() {
@@ -499,7 +379,7 @@ mod tests {
             inbox_id: alix.inbox_id().to_owned(),
             sequence_id: last_sequence,
         };
-        resolve_identity_requirement(&bo.context, &latest).await?;
+        resolve_identity_requirements(&bo.context, &BTreeSet::from([latest.clone()])).await?;
         let historical = IdentityRequirement {
             sequence_id: first_sequence,
             ..latest
@@ -508,7 +388,7 @@ mod tests {
             require_association_state(&bo.context.db(), &historical),
             Err(IdentityDependencyError::Need(_))
         ));
-        resolve_identity_requirement(&bo.context, &historical).await?;
+        resolve_identity_requirements(&bo.context, &BTreeSet::from([historical.clone()])).await?;
         let state = require_association_state(&bo.context.db(), &historical)?;
         assert!(
             state
@@ -578,18 +458,61 @@ mod tests {
         }
     }
 
+    // Absent references share one window that ends in a named absence after
+    // successful queries, and another parent's reference does not queue behind it.
     #[xmtp_common::test(unwrap_try = true)]
-    async fn primary_absence_is_terminal_only_after_successful_query() {
+    async fn absent_references_share_one_window() {
         tester!(alix, disable_workers);
-        let requirement = IdentityRequirement {
-            inbox_id: hex::encode(xmtp_common::rand_vec::<32>()),
-            sequence_id: 1,
-        };
-        let result =
-            resolve_identity_requirement_with_wait(&alix.context, &requirement, Duration::ZERO)
-                .await;
+        tester!(bo, disable_workers);
+        let wait = Duration::from_secs(3);
+        let mut settings = alix.context.incoming_runtime().policy().clone();
+        settings.identity_reference_wait = wait;
+        settings.max_dependency_requests = 1;
+        let client = crate::builder::ClientBuilder::from_client(alix.client.clone())
+            .with_disable_workers(true)
+            .stream_policy(settings)
+            .build()
+            .await?;
+        let absent: BTreeSet<_> = (0..16)
+            .map(|_| IdentityRequirement {
+                inbox_id: hex::encode(xmtp_common::rand_vec::<32>()),
+                sequence_id: 1,
+            })
+            .collect();
+        let latest = bo.context.db().get_latest_sequence_id(&[bo.inbox_id()])?[bo.inbox_id()];
+        let present = BTreeSet::from([IdentityRequirement {
+            inbox_id: bo.inbox_id().to_owned(),
+            sequence_id: latest as u64,
+        }]);
+        let queries = client.api_stats().query.get_count();
+        let ((absent_result, absent_elapsed), (present_result, present_elapsed)) =
+            futures::future::join(
+                async {
+                    let start = Instant::now();
+                    let result = resolve_identity_requirements(&client.context, &absent).await;
+                    (result, start.elapsed())
+                },
+                async {
+                    sleep(Duration::from_millis(400)).await;
+                    let start = Instant::now();
+                    let result = resolve_identity_requirements(&client.context, &present).await;
+                    (result, start.elapsed())
+                },
+            )
+            .await;
         assert!(
-            matches!(result, Err(IdentityDependencyError::MissingReference(found)) if found == requirement)
+            matches!(absent_result, Err(IdentityDependencyError::MissingReference(found)) if absent.contains(&found))
+        );
+        // Every round reloads the absent inboxes from the primary.
+        assert!(client.api_stats().query.get_count() >= queries + 4);
+        assert!(
+            absent_elapsed >= wait && absent_elapsed < wait * 2,
+            "absent references should share one window, took {absent_elapsed:?}"
+        );
+        assert!(present_result.is_ok());
+        assert!(
+            present_elapsed < wait / 2,
+            "a present reference should not wait for a permit, took {present_elapsed:?}"
         );
     }
 }
