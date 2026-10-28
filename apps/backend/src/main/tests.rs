@@ -109,6 +109,12 @@ impl Drop for Process {
     }
 }
 
+/// The store every startup test connects to.
+fn database_url() -> String {
+    std::env::var("DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://xmtp:xmtp@localhost:55432/xmtp_backend".into())
+}
+
 fn address() -> String {
     TcpListener::bind("127.0.0.1:0")
         .unwrap()
@@ -168,8 +174,7 @@ async fn startup_preserves_metrics_export_and_shutdown_across_log_settings() {
         }
         return;
     }
-    let database = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgres://xmtp:xmtp@localhost:55432/xmtp_backend".into());
+    let database = database_url();
     let disabled = format!(
         "[database]\nurl = {database:?}\n[server]\nidentifier = 'org.xmtp.test'\n[telemetry]\nmetrics_listen = ''\n"
     );
@@ -293,8 +298,7 @@ async fn startup_preserves_metrics_export_and_shutdown_across_log_settings() {
 
 #[xmtp_common::test(unwrap_try = true, disable_logging = true)]
 async fn failed_jwks_startup_exits_before_binding_the_rpc_listener() {
-    let database = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgres://xmtp:xmtp@localhost:55432/xmtp_backend".into());
+    let database = database_url();
     let grpc = address();
     let metrics = address();
     let jwks = address();
@@ -318,8 +322,7 @@ async fn failed_jwks_startup_exits_before_binding_the_rpc_listener() {
 // verifies: AUTH-017
 #[xmtp_common::test(unwrap_try = true, disable_logging = true)]
 async fn an_unparsable_inline_key_stops_startup_before_binding() {
-    let database = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgres://xmtp:xmtp@localhost:55432/xmtp_backend".into());
+    let database = database_url();
     let grpc = address();
     let metrics = address();
     let es256 = rcgen::KeyPair::generate_for(&rcgen::PKCS_ECDSA_P256_SHA256)?.public_key_pem();
@@ -348,8 +351,7 @@ async fn an_unparsable_inline_key_stops_startup_before_binding() {
 /// request without a credential logs its rejection at DEBUG.
 #[xmtp_common::test(unwrap_try = true, disable_logging = true)]
 async fn the_log_level_flag_overrides_the_configured_level() {
-    let database = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgres://xmtp:xmtp@localhost:55432/xmtp_backend".into());
+    let database = database_url();
     for flag in [true, false] {
         let grpc = address();
         let metrics = address();
@@ -421,10 +423,62 @@ fn otlp_export_carries_the_telemetry_settings_and_the_identifier() {
     );
 }
 
+/// Each setting that admits any caller, or leaves the store or a chain link
+/// unverified beyond this host, is named by its key, and no part of a URL
+/// reaches the entry.
+// verifies: CONF-095
+#[xmtp_common::test(unwrap_try = true)]
+fn unsafe_settings_name_each_key_and_no_value() {
+    const PATH: &str = "private-path-sentinel";
+    let auth =
+        "[auth]\nenabled = true\n[auth.api_keys]\nbot = '0123456789abcdef0123456789abcdef'\n";
+    let store =
+        |host: &str, query: &str| format!("'postgres://xmtp:{SECRET}@{host}/{PATH}{query}'");
+    let remote = |query: &str| store("db.example.org", query);
+    let tls = |mode: &str| remote(&format!("?sslmode={mode}"));
+    let full = || tls("verify-full");
+    let replica = |url: String| format!("{}\nreplica_url = {url}", full());
+    let chain = |id: &str, url: &str| format!("\"eip155:{id}\" = 'http://{url}/{SECRET}'\n");
+    let safe = format!(
+        "{auth}[chains]\n\"eip155:1\" = 'https://rpc.example.org'\n{}{}{}",
+        chain("10", "127.0.0.1:8545"),
+        chain("137", "localhost:8545"),
+        chain("8453", "[::1]:8545"),
+    );
+    let plain = format!("{auth}[chains]\n{}", chain("1", "rpc.example.org"));
+    let (open, local) = ("0.0.0.0:5556", "127.0.0.1:5556");
+    let disabled = "[auth]\nenabled = false\n";
+    let ca_replica = replica(tls("verify-ca"));
+    for (listen, database, rest, expected) in [
+        (open, replica(store("[::1]", "")), safe.as_str(), None),
+        (open, full(), "", Some("auth")),
+        (open, full(), disabled, Some("auth")),
+        (local, full(), "", None),
+        (local, full(), disabled, None),
+        (open, remote(""), auth, Some("database.url")),
+        (open, tls("disable"), auth, Some("database.url")),
+        (open, tls("prefer"), auth, Some("database.url")),
+        (open, tls("require"), auth, Some("database.url")),
+        (open, tls("verify-ca"), auth, Some("database.url")),
+        (open, ca_replica, auth, Some("database.replica_url")),
+        (open, store("%2Fvar%2Frun%2Fpostgresql", ""), auth, None),
+        (open, full(), plain.as_str(), Some("chains.\"eip155:1\"")),
+    ] {
+        let document = format!(
+            "[server]\nidentifier = 'org.xmtp.test'\nlisten = '{listen}'\n[database]\nurl = {database}\n{rest}"
+        );
+        let found = unsafe_settings(&ValidatedConfig::load_str(&document)?);
+        let keys: Vec<_> = found.iter().map(|(key, _)| key.as_str()).collect();
+        assert_eq!(keys, Vec::from_iter(expected), "{document}");
+        for text in found.iter().flat_map(|(key, reason)| [key, reason]) {
+            assert!(!text.contains(SECRET) && !text.contains(PATH), "{text}");
+        }
+    }
+}
+
 #[xmtp_common::test(unwrap_try = true, disable_logging = true)]
 async fn inline_sources_start_and_serve() {
-    let database = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgres://xmtp:xmtp@localhost:55432/xmtp_backend".into());
+    let database = database_url();
     for from_env in [false, true] {
         let grpc = address();
         let metrics = address();
@@ -466,11 +520,7 @@ enum PushSecrets {
 /// names a database that does not exist, so the connection fails. With push
 /// credentials, startup stops at them instead.
 fn secret_values(push: PushSecrets) -> String {
-    let mut store = url::Url::parse(
-        &std::env::var("DATABASE_URL")
-            .unwrap_or_else(|_| "postgres://xmtp:xmtp@localhost:55432/xmtp_backend".into()),
-    )
-    .expect("DATABASE_URL is a URL");
+    let mut store = url::Url::parse(&database_url()).expect("DATABASE_URL is a URL");
     store
         .set_password(Some(SECRET))
         .expect("a store URL takes a password");
@@ -479,7 +529,7 @@ fn secret_values(push: PushSecrets) -> String {
         "[server]\nidentifier = 'org.xmtp.test'\nlisten = {grpc:?}\n\
          [telemetry]\nmetrics_listen = {metrics:?}\notlp_endpoint = 'http://127.0.0.1:9/{SECRET}'\n\
          [database]\nurl = '{store}'\nreplica_url = '{store}'\n\
-         [chains]\n\"eip155:1\" = 'https://127.0.0.1:9/{SECRET}'\n\
+         [chains]\n\"eip155:1\" = 'http://chain.invalid:9/{SECRET}'\n\
          [attachments]\nbase_url = 'https://files.example.org'\n\
          [attachments.target.S3]\nendpoint = 'https://127.0.0.1:9/{SECRET}'\nregion = 'us-east-1'\nbucket = 'attachments'\n\
          [attachments.target.S3.credentials]\nkind = 'static'\naccess_key_id = '{SECRET}-id'\nsecret_access_key = 'env:XMTP_STARTUP_TEST_SECRET'\nsession_token = '{SECRET}-token'\n",
@@ -531,7 +581,7 @@ fn configuration_source_errors_and_help_omit_secrets() {
         (
             vec!["--config", secrets.as_str()],
             None,
-            vec!["Database"],
+            vec!["Database", "plain HTTP"],
             false,
         ),
         (
