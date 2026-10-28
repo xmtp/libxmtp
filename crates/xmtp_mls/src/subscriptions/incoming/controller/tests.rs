@@ -4629,6 +4629,48 @@ async fn a_rate_limited_read_keeps_the_stream_and_waits_only_its_topic() {
     assert!(controller.receipt(&other).last_read.is_some());
 }
 
+/// A topic refused with a rate limit reads again once its delay ends.
+// verifies: RATE-041
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_rate_limited_topic_reads_again_after_its_delay() {
+    tester!(alix, disable_workers);
+    let (coordinator, mut controller) = coordinated_controller(alix.context.clone());
+    let refused = Topic::new_group_message(GroupId::generate());
+    let stream = coordinator.acquire_stream(IncomingScope::Topics(vec![refused.clone()]));
+    while let Ok(command) = controller.commands.try_recv() {
+        controller.command(command);
+    }
+    let scope = controller.scopes.get_mut(&stream.id).unwrap();
+    scope.topics.insert(refused.clone());
+    scope.targets.insert(refused.clone(), Cursor(5));
+    controller.transport.requested.insert(refused.clone());
+    controller.transport.state = TransportState::Streaming(IncomingSubscription::new(
+        Box::pin(futures::stream::pending()),
+        |_| {},
+    ));
+    controller.read_queue.push_back(refused.clone());
+    controller.read_finished((
+        refused.clone(),
+        Some(Cursor(0)),
+        ReadOutcome::Fetched(Err(crate::mls_store::MlsStoreError::Api(rate_limited_api(
+            "request",
+            Duration::from_millis(50),
+        )))),
+    ));
+    xmtp_common::time::sleep(Duration::from_millis(60)).await;
+    controller
+        .topics
+        .get_mut(&refused)
+        .unwrap()
+        .receipt
+        .last_read = None;
+    controller.start_read();
+    assert!(
+        controller.receipt(&refused).last_read.is_some(),
+        "the topic reads again after the delay"
+    );
+}
+
 /// A stream that ends with a rate limit, as the bidi transport reports it,
 /// holds the next open.
 // verifies: RATE-041
