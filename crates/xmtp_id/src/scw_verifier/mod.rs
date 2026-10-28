@@ -7,6 +7,7 @@ use crate::associations::{AccountId, AccountIdError};
 use alloy::{
     primitives::{BlockNumber, Bytes},
     providers::DynProvider,
+    transports::{RpcError, TransportErrorKind},
 };
 pub use chain_rpc_verifier::*;
 use futures::{StreamExt, TryStreamExt, stream};
@@ -34,8 +35,9 @@ pub enum VerifierError {
     /// Provider error.
     ///
     /// Ethereum RPC provider error. Retryable.
+    /// Built through `From`, which drops the request URL.
     #[error(transparent)]
-    Provider(#[from] alloy::transports::RpcError<alloy::transports::TransportErrorKind>),
+    Provider(RpcError<TransportErrorKind>),
     /// URL parse error.
     ///
     /// Verifier URL is malformed. Not retryable.
@@ -99,6 +101,22 @@ impl RetryableError for VerifierError {
             Other(o) => o.is_retryable(),
             _ => false,
         }
+    }
+}
+
+/// A chain RPC URL can carry the operator's key, and reqwest prints the
+/// URL in both `Display` and `Debug`. Keep the error kind, drop the URL.
+impl From<RpcError<TransportErrorKind>> for VerifierError {
+    fn from(error: RpcError<TransportErrorKind>) -> Self {
+        Self::Provider(match error {
+            RpcError::Transport(TransportErrorKind::Custom(inner)) => {
+                match inner.downcast::<alloy::transports::http::reqwest::Error>() {
+                    Ok(error) => TransportErrorKind::custom(error.without_url()),
+                    Err(inner) => RpcError::Transport(TransportErrorKind::Custom(inner)),
+                }
+            }
+            other => other,
+        })
     }
 }
 

@@ -86,11 +86,7 @@ impl SmartContractSignatureVerifier for RpcSmartContractWalletVerifier {
         )?;
         let block_number = match input.block_number() {
             Some(bn) => bn,
-            None => self
-                .provider
-                .get_block_number()
-                .await
-                .map_err(VerifierError::Provider)?,
+            None => self.provider.get_block_number().await?,
         };
         let mut tx = self.provider.transaction_request();
         tx.set_input(data);
@@ -210,6 +206,37 @@ pub(crate) mod tests {
         let control = check(format!("0x{}1", "0".repeat(39))).await;
         assert!(matches!(control, Err(VerifierError::Provider(_))));
         assert!(asserter.read_q().is_empty(), "the provider was not called");
+    }
+
+    /// A chain RPC URL can carry the operator's key, so a provider failure
+    /// keeps its retryable error but never prints the URL.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn provider_errors_omit_the_rpc_url() {
+        let sentinel = "private-url-sentinel";
+        let verifier =
+            RpcSmartContractWalletVerifier::new(format!("http://127.0.0.1:1/v2/{sentinel}"))?;
+        let mut signature = vec![0; 65];
+        signature[64] = 27;
+        for block_number in [None, Some(1)] {
+            let Err(error) = verifier
+                .is_valid_signature(
+                    AccountId::new_evm(1, format!("0x{}", "1".repeat(40))),
+                    [0; 32],
+                    signature.clone().into(),
+                    block_number,
+                )
+                .await
+            else {
+                panic!("an unreachable provider must not verify");
+            };
+            assert!(matches!(error, VerifierError::Provider(_)), "{error}");
+            assert!(error.is_retryable());
+            let printed = format!("{error} {error:?}");
+            assert!(!printed.contains(sentinel), "{block_number:?}: {printed}");
+        }
+        let error = verifier.head("eip155:1").await.unwrap_err();
+        let printed = format!("{error} {error:?}");
+        assert!(!printed.contains(sentinel), "head: {printed}");
     }
 
     /// The cap is the verifier's ceiling: the longest signature it admits
