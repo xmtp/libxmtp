@@ -1,13 +1,16 @@
 //! Construction, loading, proposal capability, and insertion.
 
 use super::*;
-use crate::subscriptions::internal::dm_event_context;
+use crate::subscriptions::internal::{PreferenceOrigin, dm_event_context};
 
 mod restored;
 use xmtp_db::TransactionalKeyStore;
 use xmtp_events::EventWriter;
 use xmtp_mls_common::app_data::creation::{InitialGroupKind, initial_dictionary};
 use xmtp_mls_common::group_keys::{GroupKeys, GroupRoot};
+
+/// The consent record a new DM row stored, with the origin of its event.
+type DmRowConsent = (StoredConsentRecord, PreferenceOrigin);
 
 /// The MLS group id of a group being inserted.
 #[derive(Clone, Copy)]
@@ -651,7 +654,7 @@ where
                 context.mls_storage(),
                 context.events(),
                 |tx, events| {
-                    let (stored_group, created, consent_changes) = Self::insert_dm_row(
+                    let (stored_group, created, consent) = Self::insert_dm_row(
                         context,
                         tx,
                         membership_state,
@@ -662,18 +665,15 @@ where
                         commit_log_enabled,
                     )?;
                     if created {
-                        let storage = tx.storage();
-                        let db = storage.db();
-                        crate::subscriptions::internal::emit_preference_updates(
-                            events,
-                            consent_changes
-                                .iter()
-                                .cloned()
-                                .map(PreferenceUpdate::Consent)
-                                .collect(),
-                            crate::subscriptions::internal::PreferenceOrigin::Local,
-                            &db,
-                        )?;
+                        if let Some((record, origin)) = consent.clone() {
+                            let storage = tx.storage();
+                            crate::subscriptions::internal::emit_preference_updates(
+                                events,
+                                vec![PreferenceUpdate::Consent(record)],
+                                origin,
+                                &storage.db(),
+                            )?;
+                        }
                         if existing_group_id.is_none() {
                             context.task_channels().mark_notification_changed();
                             events.emit_with_context(
@@ -694,7 +694,7 @@ where
                             );
                         }
                     }
-                    Ok::<_, GroupError>(Continue((stored_group, created, consent_changes)))
+                    Ok::<_, GroupError>(Continue((stored_group, created, consent)))
                 },
             )?
             .into_continued()
@@ -723,13 +723,13 @@ where
         id: NewGroupId,
         group_config: &MlsGroupCreateConfig,
         commit_log_enabled: bool,
-    ) -> Result<(StoredGroup, bool, Vec<StoredConsentRecord>), GroupError> {
+    ) -> Result<(StoredGroup, bool, Option<DmRowConsent>), GroupError> {
         let storage = tx.storage();
         let db = storage.db();
         if let NewGroupId::Placeholder(group_id) = id
             && let Some(existing) = db.find_group(&group_id)?
         {
-            return Ok((existing, false, Vec::new()));
+            return Ok((existing, false, None));
         }
         let mls_group =
             Self::create_mls_group(context, &storage, id, group_config, commit_log_enabled)?;
@@ -749,16 +749,24 @@ where
             .commit_log_public_key(id.commit_log_id())
             .build()?;
         stored_group.store(&db)?;
+        // implements: DMS-010
+        let inherited = StoredConsentRecord::stitch_dm_consent(&db, &stored_group)?;
         if membership_state == GroupMembershipState::Restored {
-            return Ok((stored_group, true, Vec::new()));
+            return Ok((stored_group, true, None));
+        }
+        // The pair's decision stands; creating is not a new one.
+        if let Some(record) = inherited {
+            let consent = (record, PreferenceOrigin::Derived);
+            return Ok((stored_group, true, Some(consent)));
         }
         let record = StoredConsentRecord::new(
             xmtp_db::consent_record::ConsentType::ConversationId,
             ConsentState::Allowed,
             hex::encode(group_id),
         );
-        let consent_changes = db.insert_or_replace_consent_records(&[record])?;
-        Ok((stored_group, true, consent_changes))
+        let changed = db.insert_or_replace_consent_records(&[record])?.pop();
+        let consent = changed.map(|r| (r, PreferenceOrigin::Local));
+        Ok((stored_group, true, consent))
     }
 
     /// Create the MLS group a new row names. A restored group starts with a

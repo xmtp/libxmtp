@@ -2,13 +2,19 @@ use super::DeviceSyncError;
 use crate::{context::XmtpSharedContext, groups::MlsGroup};
 use futures::{Stream, StreamExt};
 pub use xmtp_archive::*;
-use xmtp_db::{consent_record::StoredConsentRecord, group_message::StoredGroupMessage, prelude::*};
+use xmtp_db::{
+    consent_record::StoredConsentRecord, group::GroupMembershipState,
+    group_message::StoredGroupMessage, prelude::*,
+};
+use xmtp_proto::types::GroupId;
 use xmtp_proto::xmtp::device_sync::{BackupElement, backup_element::Element};
 
 use xmtp_events::{ArchiveRestored, ClientEvent, EventWriter};
 #[derive(Default)]
 struct ImportContext {
     changed: bool,
+    /// The archive's DMs, to inherit their pair's consent after the import.
+    dms: Vec<GroupId>,
 }
 
 pub async fn insert_importer(
@@ -36,6 +42,10 @@ where
         Ok(())
     }
     .await;
+    // An archive lists consent after every group, so a DM restored before
+    // its pair's record inherits it here, even after a failed element.
+    let stitched = stitch_restored_dms(context, &mut import_ctx);
+    let result = result.and(stitched);
     if import_ctx.changed {
         context.events().emit(
             Some(ClientEvent::ArchiveRestored(ArchiveRestored {
@@ -64,6 +74,11 @@ fn insert(
         }
         Element::Group(save) => {
             import_context.changed |= MlsGroup::restore_from_archive(context, &save)?;
+            if save.dm_id.is_some() {
+                import_context
+                    .dms
+                    .push(GroupId::try_from(save.id.as_slice())?);
+            }
         }
         Element::GroupMessage(message) => {
             let message: StoredGroupMessage = message.try_into()?;
@@ -72,6 +87,25 @@ fn insert(
         _ => {}
     }
 
+    Ok(())
+}
+
+/// Give each of the archive's DMs still restored the greatest consent record
+/// of its pair. Only the restored DM is written.
+// implements: DMS-010
+fn stitch_restored_dms(
+    context: &impl XmtpSharedContext,
+    import_context: &mut ImportContext,
+) -> Result<(), DeviceSyncError> {
+    let db = context.db();
+    for id in &import_context.dms {
+        if let Some(group) = db.find_group(id)?
+            && group.membership_state == GroupMembershipState::Restored
+        {
+            let stitched = StoredConsentRecord::stitch_dm_consent(&db, &group)?;
+            import_context.changed |= stitched.is_some();
+        }
+    }
     Ok(())
 }
 

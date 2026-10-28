@@ -70,22 +70,26 @@ impl StoredConsentRecord {
     /// Give a group with a dm id the greatest consent record held for any
     /// group with that dm id, with that record's own time. The copy is a
     /// merge, so a record already stored for the group only loses to a
-    /// greater one.
+    /// greater one. Returns the copy when it was written.
     // implements: DMS-010
-    pub fn stitch_dm_consent(conn: &impl DbQuery, group: &StoredGroup) -> Result<(), StorageError> {
+    pub fn stitch_dm_consent(
+        conn: &impl DbQuery,
+        group: &StoredGroup,
+    ) -> Result<Option<Self>, StorageError> {
         let Some(dm_id) = &group.dm_id else {
-            return Ok(());
+            return Ok(None);
         };
         let Some(greatest) = conn.find_consent_by_dm_id(dm_id)?.into_iter().next() else {
-            return Ok(());
+            return Ok(None);
         };
-        conn.insert_newer_consent_record(Self {
+        let record = Self {
             entity_type: ConsentType::ConversationId,
             state: greatest.state,
             entity: hex::encode(group.id),
             consented_at_ns: greatest.consented_at_ns,
-        })?;
-        Ok(())
+        };
+        let merge = conn.insert_newer_consent_record(record.clone())?;
+        Ok(merge.applied.then_some(record))
     }
 }
 
@@ -739,37 +743,19 @@ mod tests {
         }
     }
 
-    #[xmtp_common::test(unwrap_try = true)]
-    fn find_consent_by_dm_id() {
-        with_connection(|conn| {
-            let mut g = generate_group(None);
-            g.dm_id = Some("dm:alpha:beta".to_string());
-            g.store(conn)?;
-
-            let cr = generate_consent_record(
-                ConsentType::ConversationId,
-                ConsentState::Allowed,
-                hex::encode(g.id),
-            );
-            cr.store(conn)?;
-
-            let mut records = conn.find_consent_by_dm_id("dm:alpha:beta")?;
-
-            assert_eq!(records.len(), 1);
-            assert_eq!(records.pop()?, cr);
-        })
-    }
-
     /// A new DM copies the greatest record of its pair, newest time first and
     /// then greatest state, with that record's own time. The tie at `t`
     /// resolves by state, whichever group id sorts first and whichever row
-    /// came first.
+    /// came first. The second pair's records are older, so a lookup that
+    /// returns the first pair's records fails.
     // verifies: DMS-010
     #[xmtp_common::test(unwrap_try = true)]
     fn stitch_dm_consent_copies_greatest_record_and_time() {
         with_connection(|conn| {
-            let t = 1_000;
-            for (dm_id, denied_first) in [("dm:alpha:beta", true), ("dm:alpha:gamma", false)] {
+            for (dm_id, denied_first, t) in [
+                ("dm:alpha:beta", true, 1_000),
+                ("dm:alpha:gamma", false, 990),
+            ] {
                 let mut groups: Vec<_> = (0..4)
                     .map(|_| {
                         let mut group = generate_group(None);
@@ -807,7 +793,10 @@ mod tests {
                 }
                 new_dm.store(conn)?;
 
-                StoredConsentRecord::stitch_dm_consent(conn, &new_dm)?;
+                let copied = StoredConsentRecord::stitch_dm_consent(conn, &new_dm)?;
+                let copied = copied.map(|r| (r.state, r.consented_at_ns));
+                assert_eq!(copied, Some((ConsentState::Denied, t)), "{dm_id}");
+                assert!(StoredConsentRecord::stitch_dm_consent(conn, &new_dm)?.is_none());
                 let inherited = conn
                     .get_consent_record(hex::encode(new_dm.id), ConsentType::ConversationId)?
                     .unwrap();

@@ -116,7 +116,7 @@ CONS-001 owns the unknown state when no record exists. CONS-030 and CONS-031 own
 
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
-| DMS-010 | Consent carries across the set | When the client installs a group with a dm id and holds a consent record for another group with that dm id, it MUST inherit the state and original `consented_at_ns` of the record with the greatest consent time, using the state tie-break of CONS-010, before the app sees the group. It MUST apply the precedence rules of CONS-024 to that inherited record. | Giving an older decision a new time can override a newer block. |
+| DMS-010 | Consent carries across the set | When the client installs a group with a dm id, by creating it at an app's request, restoring it from an archive, or joining it from a Welcome, and holds a consent record for another group with that dm id, it MUST inherit the state and original `consented_at_ns` of the record with the greatest consent time, using the state tie-break of CONS-010, before the app sees the group. It MUST apply the precedence rules of CONS-024 to that inherited record. | Giving an older decision a new time can override a newer block. A created or restored group without the pair's record lists and streams a blocked DM again. |
 | DMS-011 | Repeated adds are shown once | When membership-change messages in a stitched DM have non-empty `added_inboxes` and equal decoded `GroupUpdated` payloads, the client MUST show at most one of them in app queries and streams. It MUST compare `initiated_by_inbox_id`, every repeated field in its listed order, and both presence and value of each optional field. It MUST NOT suppress a message as a duplicate under this rule unless one complete earlier payload equals it. | Combining fields from different records can hide a change that has never been shown. |
 
 ## 5. What an app can read
@@ -132,6 +132,8 @@ An app addresses a DM by the peer, not by group id, and needs to know which grou
 The winner can change when another group's activity timestamp becomes greater, including through an archive import. A late message with an older timestamp need not change it. An app that keeps state by group id can see the conversation's identifier change.
 
 A Restored DM can contain history for two inboxes other than the importing inbox. It has no peer relative to that inbox under DMS-017. It stays inactive until a validated Welcome joins the exact stored pair and kind. Import preserves that pair, but current placeholder metadata can still replace other archived values such as creator and adder; ARCH-020 remains open for those values.
+
+An archive lists consent after every group, so a restored DM inherits its pair's consent under DMS-010 only when the import finishes. During an archive import, a restored DM can be listed with no consent until the import finishes. An import that is abandoned part-way can leave such a DM without its sibling's consent until it is imported again.
 
 A DM has no super admin, so its well-known registry entries cannot be changed through the fixed policies. Only application registry entries can change, under PERM-026. A DM therefore keeps the profile it was created with for its life, and a component that a later profile adds is absent from older DMs. A client rejects a DM whose profile it does not know (DMS-021), so a creator that writes a new profile before every client accepts it makes those clients reject the DM.
 
