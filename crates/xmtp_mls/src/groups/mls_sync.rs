@@ -494,6 +494,8 @@ impl RetryableError for GroupMessageProcessingError {
         match self {
             Self::PreparedAttempt(error) => error.rate_limit_delay(),
             Self::Identity(err) => err.rate_limit_delay(),
+            Self::Client(err) => err.rate_limit_delay(),
+            Self::CommitValidation(err) => err.rate_limit_delay(),
             _ => None,
         }
     }

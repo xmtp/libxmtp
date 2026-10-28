@@ -328,6 +328,7 @@ impl RetryableError for SubscribeError {
             Group(e) => e.rate_limit_delay(),
             ReceiveGroup(e) => e.rate_limit_delay(),
             ApiClient(e) => e.rate_limit_delay(),
+            LocalDelivery(e) => e.rate_limit_delay(),
             BoxError(e) => e.rate_limit_delay(),
             _ => None,
         }

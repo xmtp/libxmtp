@@ -149,6 +149,10 @@ impl RetryableError for CommitLogError {
 }
 
 impl NeedsDbReconnect for CommitLogError {
+    fn restart_delay(&self) -> Option<Duration> {
+        RetryableError::rate_limit_delay(self)
+    }
+
     fn needs_db_reconnect(&self) -> bool {
         match self {
             Self::Storage(s) => s.db_needs_connection(),
@@ -199,6 +203,8 @@ pub struct CommitLogWorker<Context> {
     context: Context,
     /// The conversations whose commit-log publish failed in the last turn.
     failed_publishes: Vec<GroupId>,
+    /// No commit-log publish before this instant: a rate-limit delay.
+    publish_held_until: Option<xmtp_common::time::Instant>,
     #[cfg(test)]
     seal_fault: Option<SealFault>,
 }
@@ -222,6 +228,7 @@ where
         Self {
             context,
             failed_publishes: Vec::new(),
+            publish_held_until: None,
             #[cfg(test)]
             seal_fault: None,
         }
@@ -335,6 +342,14 @@ where
         &mut self,
     ) -> Result<Vec<ConversationCursorInfo>, CommitLogError> {
         self.failed_publishes.clear();
+        // A rate-limited publish is not retried at a later tick inside its delay.
+        // implements: RATE-041
+        if self
+            .publish_held_until
+            .is_some_and(|until| xmtp_common::time::Instant::now() < until)
+        {
+            return Ok(Vec::new());
+        }
         let conn = &self.context.db();
         // DMs, and groups where we are a super admin
         let conversations = conn.get_conversation_ids_for_remote_log_publish()?;
@@ -380,6 +395,12 @@ where
                         "Commit log publish failed; the conversation retries at the next turn"
                     );
                     self.failed_publishes.push(conversation.id);
+                    if let Some(delay) = error.rate_limit_delay() {
+                        self.publish_held_until = Some(xmtp_common::time::saturating_after(
+                            xmtp_common::time::Instant::now(),
+                            delay,
+                        ));
+                    }
                     if error.is_retryable() {
                         break;
                     }

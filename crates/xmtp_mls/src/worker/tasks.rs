@@ -34,6 +34,15 @@ pub(crate) mod test_hooks {
     /// `(target_data_hash, deadline)` → `run_task` returns `RescheduleAt(deadline)`
     /// for the matching task. Reset at test end; assumes process-per-test isolation.
     pub(crate) static RESCHEDULE_OVERRIDE: Mutex<Option<(Vec<u8>, i64)>> = Mutex::new(None);
+    /// `(target_data_hash, work, delay)` → `run_task` works for `work`, then
+    /// fails with a rate limit of `delay`, for the matching task.
+    pub(crate) static RATE_LIMIT_OVERRIDE: Mutex<
+        Option<(
+            Vec<u8>,
+            xmtp_common::time::Duration,
+            xmtp_common::time::Duration,
+        )>,
+    > = Mutex::new(None);
     pub(crate) static TASK_SCHEDULED_CONSUMED: Mutex<
         Option<(Vec<u8>, tokio::sync::oneshot::Sender<()>)>,
     > = Mutex::new(None);
@@ -89,6 +98,10 @@ impl TaskWorkerError {
 }
 
 impl NeedsDbReconnect for TaskWorkerError {
+    fn restart_delay(&self) -> Option<xmtp_common::time::Duration> {
+        self.rate_limit_delay()
+    }
+
     fn needs_db_reconnect(&self) -> bool {
         match self {
             TaskWorkerError::Storage(s)
@@ -120,6 +133,9 @@ pub struct TaskWorkerChannels {
     /// Serializes notification requests across inline calls and task turns.
     pub(crate) notification_request: Arc<tokio::sync::Mutex<()>>,
     notification_revision: Arc<std::sync::atomic::AtomicUsize>,
+    /// The end of each task's pending rate-limit delay, by task data hash.
+    /// A pull-in can move a task's deadline earlier; this keeps it unrun.
+    rate_limit_holds: Arc<parking_lot::Mutex<std::collections::HashMap<Vec<u8>, i64>>>,
 }
 
 impl Default for TaskWorkerChannels {
@@ -133,7 +149,21 @@ impl TaskWorkerChannels {
         Self {
             notification_request: Default::default(),
             notification_revision: Default::default(),
+            rate_limit_holds: Default::default(),
         }
+    }
+
+    /// The end of a pending rate-limit delay of the task with `data_hash`.
+    fn rate_limit_hold(&self, data_hash: &[u8], now_ns: i64) -> Option<i64> {
+        let mut holds = self.rate_limit_holds.lock();
+        holds.retain(|_, until| *until > now_ns);
+        holds.get(data_hash).copied()
+    }
+
+    fn hold_task(&self, data_hash: &[u8], until_ns: i64) {
+        let mut holds = self.rate_limit_holds.lock();
+        let until = holds.entry(data_hash.to_vec()).or_insert(until_ns);
+        *until = (*until).max(until_ns);
     }
     /// Invalidate a prepared notification batch after a local change.
     pub fn mark_notification_changed(&self) {
@@ -339,6 +369,22 @@ where
             );
             return Ok(());
         }
+        // A pull-in can make a rate-limited task due early. It still waits
+        // for the delay, keeping its attempts and backoff.
+        // implements: RATE-041
+        if let Some(until) = context
+            .task_channels()
+            .rate_limit_hold(&task.data_hash, now)
+        {
+            match context
+                .db()
+                .update_task(task.id, task.attempts, task.last_attempted_at_ns, until)
+            {
+                Ok(_) | Err(StorageError::DieselResult(diesel::result::Error::NotFound)) => {}
+                Err(e) => return Err(e.into()),
+            }
+            return Ok(());
+        }
         match Self::run_task(&task, context).await {
             Ok(TaskOutcome::Done) => {
                 context.db().delete_task(task.id)?;
@@ -357,21 +403,26 @@ where
             Err(error) => {
                 let attempts = task.attempts + 1;
                 let attempt_scaling_factor = (task.backoff_scaling_factor as f64).powi(attempts);
-                // A rate-limited request waits at least the delay the backend gave.
-                // implements: RATE-041
                 let next_attempt_duration = (((task.initial_backoff_duration_ns as f64)
                     * attempt_scaling_factor) as i64)
-                    .min(task.max_backoff_duration_ns)
-                    .max(error.rate_limit_delay().map_or(0, |delay| {
-                        i64::try_from(delay.as_nanos()).unwrap_or(i64::MAX)
-                    }));
+                    .min(task.max_backoff_duration_ns);
                 let retry_from =
                     if task.data_hash == crate::worker::notifications::task_hash().as_ref() {
                         xmtp_common::time::now_ns()
                     } else {
                         now
                     };
-                let next_attempt_at_ns = retry_from.saturating_add(next_attempt_duration);
+                let mut next_attempt_at_ns = retry_from.saturating_add(next_attempt_duration);
+                // A rate-limited request waits at least the delay, counted from
+                // when the rejection arrived, not from when the turn started.
+                // implements: RATE-041
+                if let Some(delay) = error.rate_limit_delay() {
+                    let until = xmtp_common::time::now_ns()
+                        .saturating_add(i64::try_from(delay.as_nanos()).unwrap_or(i64::MAX));
+                    context.task_channels().hold_task(&task.data_hash, until);
+                    next_attempt_at_ns = next_attempt_at_ns.max(until);
+                }
+                let next_attempt_duration = next_attempt_at_ns.saturating_sub(retry_from);
                 tracing::warn!(%error, "Task {} retry failed. Retrying in {next_attempt_duration}ns", task.id);
                 match context
                     .db()
@@ -396,6 +447,21 @@ where
             && task.data_hash == hash
         {
             return Ok(TaskOutcome::RescheduleAt(t));
+        }
+        #[cfg(test)]
+        let hook = test_hooks::RATE_LIMIT_OVERRIDE.lock().unwrap().clone();
+        #[cfg(test)]
+        if let Some((hash, work, delay)) = hook
+            && task.data_hash == hash
+        {
+            xmtp_common::time::sleep(work).await;
+            return Err(TaskWorkerError::Identity(
+                crate::identity::IdentityError::ApiClient(xmtp_api::ApiError::Api(
+                    xmtp_proto::api::NetworkError::new(xmtp_api_grpc::error::GrpcError::Status(
+                        xmtp_api_grpc::error::rate_limited_status("publish", delay),
+                    )),
+                )),
+            ));
         }
         let data_hash = xmtp_common::sha256_bytes(&task.data);
         if task.data_hash != data_hash {
@@ -617,6 +683,7 @@ mod tests {
             client::ClientError, groups::GroupError, identity::IdentityError,
             worker::key_package_maintenance::KeyPackageMaintenanceError,
         };
+        use xmtp_common::RetryableError;
         use xmtp_id::{associations::SignatureError, scw_verifier::VerifierError};
         let delay = xmtp_common::time::Duration::from_secs(300);
         let scw = || {
@@ -641,6 +708,29 @@ mod tests {
         for error in errors {
             assert_eq!(error.rate_limit_delay(), Some(delay), "{error}");
         }
+        let mut summary = crate::groups::summary::SyncSummary::default();
+        summary.add_publish_err(GroupError::WrappedApi(rate_limited(delay)));
+        let nested = [
+            DeviceSyncError::Sync(Box::new(summary)).rate_limit_delay(),
+            DeviceSyncError::MlsStore(crate::mls_store::MlsStoreError::Api(rate_limited(delay)))
+                .rate_limit_delay(),
+            crate::groups::mls_sync::GroupMessageProcessingError::Client(ClientError::Api(
+                rate_limited(delay),
+            ))
+            .rate_limit_delay(),
+            crate::subscriptions::SubscribeError::LocalDelivery(
+                crate::subscriptions::local_delivery::LocalDeliveryError::NetworkFailure(Arc::new(
+                    crate::subscriptions::incoming::IncomingError::Store(
+                        crate::mls_store::MlsStoreError::Api(rate_limited(delay)),
+                    ),
+                )),
+            )
+            .rate_limit_delay(),
+        ];
+        assert!(
+            nested.iter().all(|found| *found == Some(delay)),
+            "{nested:?}"
+        );
         assert_eq!(
             xmtp_common::RetryableError::rate_limit_delay(&scw()),
             Some(delay)
@@ -757,6 +847,43 @@ mod tests {
             db.get_tasks()?.is_empty(),
             "task for a nonexistent group must be deleted, not retried"
         );
+    }
+
+    /// The delay counts from when the rejection arrived, not from when the
+    /// turn started, and a pull-in cannot run the task inside it.
+    // verifies: RATE-041
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn a_rate_limited_task_waits_the_delay_from_the_rejection() {
+        use xmtp_common::time::Duration;
+        tester!(alix, worker_config: no_runner_cfg());
+        let db = alix.context.db();
+        let now = xmtp_common::time::now_ns();
+        let proto = unique_proto();
+        let hash = data_hash_for(&proto);
+        let row = seed(&db, proto, now - 1, i64::MAX, 0, i32::MAX);
+        let delay = Duration::from_secs(1);
+        *test_hooks::RATE_LIMIT_OVERRIDE.lock().unwrap() =
+            Some((hash.to_vec(), Duration::from_millis(300), delay));
+        TaskWorker::run_and_reschedule_task(row, &alix.context).await?;
+        *test_hooks::RATE_LIMIT_OVERRIDE.lock().unwrap() = None;
+        let refused = xmtp_common::time::now_ns();
+        let task = || {
+            db.get_tasks()
+                .unwrap()
+                .into_iter()
+                .find(|t| t.data_hash == hash.as_ref())
+        };
+        let held = task().expect("the task is kept");
+        let hold = refused - 10_000_000 + delay.as_nanos() as i64;
+        assert_eq!(held.attempts, 1);
+        assert!(held.next_attempt_at_ns >= hold);
+
+        // A pull-in makes it due; it still does not run inside the delay.
+        db.pull_in_task_deadline(&hash, xmtp_common::time::now_ns())?;
+        TaskWorker::run_and_reschedule_task(task()?, &alix.context).await?;
+        let after = task().expect("a held task does not run");
+        assert_eq!(after.attempts, 1);
+        assert!(after.next_attempt_at_ns >= hold);
     }
 
     #[xmtp_common::test(unwrap_try = true)]

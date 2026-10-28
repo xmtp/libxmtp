@@ -188,7 +188,7 @@ xmtp_backend = { path = "../../apps/backend", features = ["test-utils"] }
 ctor.workspace = true
 mockito = "1.7.2"
 tempfile = "3.27.0"
-tokio = { workspace = true, features = ["rt-multi-thread"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "test-util"] }
 
 [target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dev-dependencies]
 tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }

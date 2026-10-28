@@ -362,6 +362,27 @@ async fn test_publish_commit_log_to_remote() {
     assert_eq!(again.len(), 1);
 }
 
+/// A rate-limited publish is not retried at the next turn inside its delay.
+// verifies: RATE-041
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_rate_limited_publish_waits_out_its_delay() {
+    tester!(alix, disable_workers);
+    let group = alix.create_group(None, None)?;
+    group.update_group_name("limited".into()).await?;
+    let (client, script) = scripted::scripted(&alix.client).await;
+    script.lock().rate_limit = Some(xmtp_common::time::Duration::from_secs(300));
+    let id = keys_of(&group).commit_log_id().to_vec();
+    let mut worker = CommitLogWorker::new(client.context.clone());
+    assert!(publish_turn(&mut worker).await.is_empty());
+    assert_eq!(script.lock().publishes_for(&id), 1);
+    assert!(publish_turn(&mut worker).await.is_empty());
+    assert_eq!(
+        script.lock().publishes_for(&id),
+        1,
+        "no publish inside the delay"
+    );
+}
+
 /// The backend refuses one conversation's entries. Another conversation's
 /// entries still publish in that turn and in the next, the refused
 /// conversation keeps its entries pending, and once it is accepted it

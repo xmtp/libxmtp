@@ -239,6 +239,10 @@ impl From<SyncSummary> for DeviceSyncError {
 }
 
 impl NeedsDbReconnect for DeviceSyncError {
+    fn restart_delay(&self) -> Option<xmtp_common::time::Duration> {
+        RetryableError::rate_limit_delay(self)
+    }
+
     fn needs_db_reconnect(&self) -> bool {
         match self {
             Self::Client(s) => s.db_needs_connection(),
@@ -267,6 +271,8 @@ impl RetryableError for DeviceSyncError {
             Self::Client(e) => e.rate_limit_delay(),
             Self::Group(e) => e.rate_limit_delay(),
             Self::Subscribe(e) => e.rate_limit_delay(),
+            Self::Sync(e) => e.rate_limit_delay(),
+            Self::MlsStore(e) => e.rate_limit_delay(),
             _ => None,
         }
     }

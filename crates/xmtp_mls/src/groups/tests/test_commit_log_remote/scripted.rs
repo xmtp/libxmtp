@@ -29,6 +29,8 @@ pub(super) struct Script {
     pub(super) refuse: HashSet<Vec<u8>>,
     /// Every commit-log publish fails as a transport failure would.
     pub(super) unavailable: bool,
+    /// Every commit-log publish is refused with a rate limit of this delay.
+    pub(super) rate_limit: Option<xmtp_common::time::Duration>,
     /// Commit-log ids whose next publish request is refused as too large,
     /// so the client splits it. Each id is refused this way once.
     pub(super) too_large_once: HashSet<Vec<u8>>,
@@ -136,6 +138,13 @@ impl XmtpBackendClient for ScriptedApi {
                 }
             }
             script.published.push(ids);
+            if let Some(delay) = script.rate_limit {
+                return Err(ApiClientError::client(
+                    xmtp_api_grpc::error::GrpcError::Status(
+                        xmtp_api_grpc::error::rate_limited_status("publish", delay),
+                    ),
+                ));
+            }
             if refuse {
                 return Err(refused());
             }

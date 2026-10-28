@@ -120,4 +120,15 @@ impl RetryableError for LocalDeliveryError {
             _ => false,
         }
     }
+
+    fn rate_limit_delay(&self) -> Option<xmtp_common::time::Duration> {
+        match self {
+            Self::NetworkRecoveryExhausted {
+                source: Some(error),
+                ..
+            }
+            | Self::NetworkFailure(error) => error.rate_limit_delay(),
+            _ => None,
+        }
+    }
 }
