@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT e.sequence_id, e.topic, e.server_ns, e.expiry_ns,\n                e.message_hash, e.is_commit_or_proposal, e.payload\n            FROM topic_watermark w JOIN envelopes e\n                ON e.sequence_id = w.last_sequence_id AND e.topic = w.topic\n            WHERE w.topic = ANY($1::bytea[])",
+  "query": "WITH newest AS MATERIALIZED (\n                SELECT e.sequence_id, octet_length(e.payload) AS bytes\n                FROM topic_watermark w JOIN envelopes e\n                    ON e.sequence_id = w.last_sequence_id AND e.topic = w.topic\n                WHERE w.topic = ANY($1::bytea[])\n            )\n            SELECT e.sequence_id, e.topic, e.server_ns, e.expiry_ns,\n                e.message_hash, e.is_commit_or_proposal,\n                CASE WHEN (SELECT COALESCE(sum(bytes), 0) FROM newest) <= $2::bigint\n                    THEN e.payload END AS \"payload?\",\n                (SELECT COALESCE(sum(bytes), 0) FROM newest) <= $2::bigint AS \"fits!\"\n            FROM newest JOIN envelopes AS e USING (sequence_id)",
   "describe": {
     "columns": [
       {
@@ -71,19 +71,21 @@
       },
       {
         "ordinal": 6,
-        "name": "payload",
+        "name": "payload?",
         "type_info": "Bytea",
-        "origin": {
-          "Table": {
-            "table": "envelopes",
-            "name": "payload"
-          }
-        }
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 7,
+        "name": "fits!",
+        "type_info": "Bool",
+        "origin": "Expression"
       }
     ],
     "parameters": {
       "Left": [
-        "ByteaArray"
+        "ByteaArray",
+        "Int8"
       ]
     },
     "nullable": [
@@ -93,8 +95,9 @@
       true,
       false,
       false,
-      false
+      null,
+      null
     ]
   },
-  "hash": "574240f23f03f25e269e31017e8330d3bb94e08022dfc01e48e2e11b4a0ccbb5"
+  "hash": "e7952f6d1e997e137a19e1b05711524a7be8ab98efedf8d66456f122bf98330b"
 }
