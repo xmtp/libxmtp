@@ -103,6 +103,7 @@ mod tests {
     use hex::ToHexExt;
     use xmtp_common::time::now_ns;
     use xmtp_content_types::ContentCodec;
+    use xmtp_content_types::reaction::ReactionCodec;
     use xmtp_content_types::test_utils::TestContentGenerator;
     use xmtp_content_types::text::TextCodec;
     use xmtp_cryptography::utils::generate_local_wallet;
@@ -126,7 +127,6 @@ mod tests {
         message_id: Vec<u8>,
         encoded_content: EncodedContent,
         sent_at_ns: i64,
-        sender_inbox_id: String,
     ) -> StoredGroupMessage {
         let content_bytes = xmtp_content_types::encoded_content_to_bytes(encoded_content.clone());
         let queryable_fields =
@@ -139,7 +139,7 @@ mod tests {
             sent_at_ns,
             kind: GroupMessageKind::Application,
             sender_installation_id: vec![1, 2, 3],
-            sender_inbox_id,
+            sender_inbox_id: "sender".into(),
             delivery_status: DeliveryStatus::Published,
             content_type: queryable_fields.content_type,
             version_major: queryable_fields.version_major,
@@ -163,7 +163,6 @@ mod tests {
         message_id: Vec<u8>,
         content: Vec<u8>,
         sent_at_ns: i64,
-        sender_inbox_id: String,
         content_type_id: Option<ContentTypeId>,
         reference_id: Option<Vec<u8>>,
     ) -> StoredGroupMessage {
@@ -186,7 +185,7 @@ mod tests {
             sent_at_ns,
             kind: GroupMessageKind::Application,
             sender_installation_id: vec![1, 2, 3],
-            sender_inbox_id,
+            sender_inbox_id: "sender".into(),
             delivery_status: DeliveryStatus::Published,
             content_type: queryable_fields.0,
             version_major: queryable_fields.1,
@@ -204,234 +203,119 @@ mod tests {
         }
     }
 
-    // ===== Assertion Helpers =====
-
-    fn assert_message_count(messages: &[DecodedMessage], expected: usize) {
-        assert_eq!(
-            messages.len(),
-            expected,
-            "Expected {} messages, got {}",
-            expected,
-            messages.len()
-        );
-    }
-
-    fn assert_text_content(message: &DecodedMessage, expected: &str) {
-        match &message.content {
-            MessageBody::Text(text) => assert_eq!(text.content, expected),
-            _ => panic!("Expected text message, got {:?}", message.content),
-        }
-    }
-
-    fn assert_reaction_count(message: &DecodedMessage, expected: usize) {
-        assert_eq!(
-            message.reactions.len(),
-            expected,
-            "Expected {} reactions, got {}",
-            expected,
-            message.reactions.len()
-        );
-    }
-
-    fn assert_has_reaction(message: &DecodedMessage, emoji: &str) {
-        assert!(
-            message.reactions.iter().any(|r| {
-                if let MessageBody::Reaction(reaction) = &r.content {
-                    reaction.content == emoji
-                } else {
-                    false
-                }
-            }),
-            "Expected reaction '{}' not found",
-            emoji
-        );
-    }
-
-    fn assert_reply_references(reply: &DecodedMessage, expected_ref_id: &[u8]) {
-        match &reply.content {
-            MessageBody::Reply(reply_body) => {
-                assert!(
-                    reply_body.in_reply_to.is_some(),
-                    "Reply should have in_reply_to populated"
-                );
-                let referenced = reply_body.in_reply_to.as_ref().unwrap();
-                assert_eq!(referenced.metadata.id, expected_ref_id);
-            }
-            _ => panic!("Expected reply message, got {:?}", reply.content),
-        }
-    }
-
-    fn assert_reply_has_no_reference(reply: &DecodedMessage) {
-        match &reply.content {
-            MessageBody::Reply(reply_body) => {
-                assert!(
-                    reply_body.in_reply_to.is_none(),
-                    "Reply should not have in_reply_to populated"
-                );
-            }
-            _ => panic!("Expected reply message, got {:?}", reply.content),
-        }
-    }
-
-    fn find_message_by_id<'a>(messages: &'a [DecodedMessage], id: &[u8]) -> &'a DecodedMessage {
-        messages
-            .iter()
-            .find(|m| m.metadata.id == id)
-            .unwrap_or_else(|| panic!("Message with id {:?} not found", id))
-    }
-
-    fn create_and_store_message<S>(
-        conn: &S,
-        group_id: &GroupId,
-        message_id: Vec<u8>,
-        content: EncodedContent,
-        timestamp_offset: i64,
-        sender: &str,
-    ) -> Vec<u8>
+    /// Stores message `n` with id `[n; 32]`, sent `n` microseconds from now.
+    fn create_and_store_message<S>(conn: &S, group_id: &GroupId, n: u8, content: EncodedContent)
     where
         StoredGroupMessage: Store<S>,
     {
-        let msg = create_test_message(
-            group_id,
-            message_id.clone(),
-            content,
-            now_ns() + timestamp_offset,
-            sender.to_string(),
-        );
-        msg.store(conn).unwrap();
-        message_id
+        let sent_at_ns = now_ns() + i64::from(n) * 1000;
+        create_test_message(group_id, vec![n; 32], content, sent_at_ns)
+            .store(conn)
+            .unwrap();
+    }
+
+    /// The hex reference to message `n`.
+    fn ref_to(n: u8) -> String {
+        hex::encode([n; 32])
+    }
+
+    /// The `n` of each message stored with id `[n; 32]`.
+    fn ids(messages: &[DecodedMessage]) -> Vec<u8> {
+        messages
+            .iter()
+            .map(|message| message.metadata.id[0])
+            .collect()
+    }
+
+    fn emojis(message: &DecodedMessage) -> Vec<&str> {
+        message
+            .reactions
+            .iter()
+            .filter_map(|reaction| match &reaction.content {
+                MessageBody::Reaction(reaction) => Some(reaction.content.as_str()),
+                _ => None,
+            })
+            .collect()
     }
 
     // ===== Tests =====
 
-    #[xmtp_common::test]
+    #[xmtp_common::test(unwrap_try = true)]
     async fn test_exclude_content_types_with_custom_exclusions() {
         let (group, context) = setup_test_group().await;
         let conn = context.db();
-
-        // Store a text message
         create_and_store_message(
             &conn,
             &group.group_id,
-            vec![1],
+            1,
             TestContentGenerator::text_content("Hello World"),
-            0,
-            "sender1",
         );
 
         // Store a locally generated GroupUpdated transcript.
         let mut transcript = create_test_message(
             &group.group_id,
-            vec![2],
+            vec![2; 32],
             TestContentGenerator::group_updated_content(vec!["inbox1".to_string()]),
-            now_ns() + 1000,
-            "sender2".to_string(),
+            now_ns() + 2000,
         );
         transcript.kind = GroupMessageKind::MembershipChange;
-        transcript.store(&conn).unwrap();
+        transcript.store(&conn)?;
 
-        // Query with default args - should return both messages
-        let messages = group.find_messages_v2(&MsgQueryArgs::default()).unwrap();
-        assert_message_count(&messages, 2);
+        let messages = group.find_messages_v2(&MsgQueryArgs::default())?;
+        assert_eq!(ids(&messages), [1, 2]);
 
-        // Query excluding Text messages - should only return the GroupUpdated message
+        // Excluding Text returns only the GroupUpdated message
         let query = MsgQueryArgs {
             exclude_content_types: Some(vec![DbContentType::Text]),
             ..Default::default()
         };
-        let messages = group.find_messages_v2(&query).unwrap();
-
-        assert_message_count(&messages, 1);
-        if let MessageBody::GroupUpdated(_) = &messages[0].content {
-            // Expected
-        } else {
-            panic!(
-                "Expected GroupUpdated message, got {:?}",
-                messages[0].content
-            );
-        }
+        let messages = group.find_messages_v2(&query)?;
+        assert_eq!(ids(&messages), [2]);
+        assert!(
+            matches!(messages[0].content, MessageBody::GroupUpdated(_)),
+            "{:?}",
+            messages[0].content
+        );
     }
 
-    #[xmtp_common::test]
-    async fn test_find_messages_no_reactions_or_replies() {
+    /// Reactions attach to their target and are hidden from the list, as are
+    /// read receipts and deletions. A malformed reaction row is not attached.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn reactions_attach_to_their_target_and_hidden_types_are_filtered() {
         let (group, context) = setup_test_group().await;
         let conn = context.db();
+        let put = |n, content| create_and_store_message(&conn, &group.group_id, n, content);
 
-        // Store two simple text messages
-        create_and_store_message(
-            &conn,
+        put(1, TestContentGenerator::text_content("Hello World"));
+        let reaction = |emoji| {
+            TestContentGenerator::reaction_content(&ref_to(1), emoji, ReactionAction::Added)
+        };
+        put(2, reaction("👍"));
+        put(3, reaction("❤️"));
+        create_test_message_raw(
             &group.group_id,
-            vec![1],
-            TestContentGenerator::text_content("Hello World"),
-            0,
-            "sender1",
+            vec![4; 32],
+            b"invalid reaction bytes".to_vec(),
+            now_ns() + 4000,
+            Some(ReactionCodec::content_type()),
+            Some(vec![1; 32]),
+        )
+        .store(&conn)?;
+        put(5, TestContentGenerator::read_receipt_content());
+        put(6, TestContentGenerator::delete_message_content(&ref_to(1)));
+        put(7, TestContentGenerator::text_content("Second message"));
+
+        let messages = group.find_messages_v2(&MsgQueryArgs::default())?;
+        assert_eq!(ids(&messages), [1, 7], "hidden types are filtered");
+        assert!(
+            matches!(&messages[0].content, MessageBody::Text(text) if text.content == "Hello World")
         );
-
-        create_and_store_message(
-            &conn,
-            &group.group_id,
-            vec![2],
-            TestContentGenerator::text_content("Another message"),
-            1000,
-            "sender2",
+        assert!(
+            matches!(&messages[1].content, MessageBody::Text(text) if text.content == "Second message")
         );
-
-        // Query and verify
-        let messages = group.find_messages_v2(&MsgQueryArgs::default()).unwrap();
-        assert_message_count(&messages, 2);
-        assert_text_content(&messages[0], "Hello World");
-        assert_text_content(&messages[1], "Another message");
-        assert_reaction_count(&messages[0], 0);
-        assert_reaction_count(&messages[1], 0);
-    }
-
-    #[xmtp_common::test]
-    async fn test_find_messages_v2_with_reactions() {
-        let (group, context) = setup_test_group().await;
-        let conn = context.db();
-
-        // Store a text message
-        let msg_id = vec![1, 2, 3];
-        let msg_id_hex = msg_id.encode_hex();
-        create_and_store_message(
-            &conn,
-            &group.group_id,
-            msg_id.clone(),
-            TestContentGenerator::text_content("Hello World"),
-            0,
-            "sender1",
-        );
-
-        // Store reactions to the message
-        create_and_store_message(
-            &conn,
-            &group.group_id,
-            vec![4],
-            TestContentGenerator::reaction_content(&msg_id_hex, "👍", ReactionAction::Added),
-            1000,
-            "reactor1",
-        );
-
-        create_and_store_message(
-            &conn,
-            &group.group_id,
-            vec![5],
-            TestContentGenerator::reaction_content(&msg_id_hex, "❤️", ReactionAction::Added),
-            2000,
-            "reactor2",
-        );
-
-        // Query messages
-        let messages = group.find_messages_v2(&MsgQueryArgs::default()).unwrap();
-
-        // Should have 1 message (reactions are attached to the message, not returned separately)
-        assert_message_count(&messages, 1);
-
-        // Find the original message (should be first based on timestamp)
-        let original_msg = find_message_by_id(&messages, &msg_id);
-        assert_reaction_count(original_msg, 2);
-        assert_has_reaction(original_msg, "👍");
-        assert_has_reaction(original_msg, "❤️");
+        assert_eq!(emojis(&messages[0]), ["👍", "❤️"]);
+        assert_eq!(messages[0].reactions.len(), 2, "malformed reaction");
+        assert!(messages[1].reactions.is_empty());
     }
 
     /// Each message carries its 50 latest reaction messages, and a count of
@@ -455,7 +339,6 @@ mod tests {
                 parent.clone(),
                 TestContentGenerator::text_content("target"),
                 base,
-                "victim".to_string(),
             )
             .store(&conn)?;
         }
@@ -469,7 +352,6 @@ mod tests {
                     ReactionAction::Added,
                 ),
                 base + offset,
-                "participant".to_string(),
             )
         };
         // Each row is a distinct, accepted reaction from a participant.
@@ -514,158 +396,79 @@ mod tests {
             .for_each(|message| assert_summary(&message.decoded));
     }
 
-    #[xmtp_common::test]
-    async fn test_find_messages_with_replies() {
+    /// A reply carries its parent one level deep. A reference to a missing
+    /// message, or one that is not a message id, leaves the reply without one.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn replies_resolve_one_level_of_parent() {
         let (group, context) = setup_test_group().await;
         let conn = context.db();
+        let put = |n, content| create_and_store_message(&conn, &group.group_id, n, content);
+        let reply_to = |reference: &str| {
+            let content = b"reply".to_vec();
+            TestContentGenerator::reply_content(reference, TextCodec::content_type(), content)
+        };
 
-        // Store original message
-        let msg_id = vec![1, 2, 3];
-        let msg_id_hex = msg_id.encode_hex();
-        create_and_store_message(
-            &conn,
-            &group.group_id,
-            msg_id.clone(),
-            TestContentGenerator::text_content("Original message"),
-            0,
-            "sender1",
-        );
+        put(1, TestContentGenerator::text_content("Original"));
+        put(2, reply_to(&ref_to(1)));
+        put(3, reply_to(&ref_to(2)));
+        put(4, reply_to(&ref_to(99)));
+        put(5, reply_to("not-valid-hex!@#"));
 
-        // Store a reply to the message
-        let reply_id = create_and_store_message(
-            &conn,
-            &group.group_id,
-            vec![4, 5, 6],
-            TestContentGenerator::reply_content(
-                &msg_id_hex,
-                TextCodec::content_type(),
-                b"This is a reply".to_vec(),
-            ),
-            1000,
-            "replier1",
-        );
-
-        // Query messages
-        let messages = group.find_messages_v2(&MsgQueryArgs::default()).unwrap();
-
-        assert_message_count(&messages, 2);
-
-        // Find the reply message and verify it references the original
-        let reply_msg = find_message_by_id(&messages, &reply_id);
-        assert_reply_references(reply_msg, &msg_id);
-
-        // Verify the referenced message content
-        if let MessageBody::Reply(reply) = &reply_msg.content {
-            let referenced_msg = reply.in_reply_to.as_ref().unwrap();
-            assert_text_content(referenced_msg, "Original message");
+        let messages = group.find_messages_v2(&MsgQueryArgs::default())?;
+        assert_eq!(ids(&messages), [1, 2, 3, 4, 5]);
+        let reply = |n: usize| match &messages[n - 1].content {
+            MessageBody::Reply(reply) => reply,
+            other => panic!("message {n}: expected reply, got {other:?}"),
+        };
+        for (n, reference, parent) in [
+            (2, ref_to(1), Some(1)),
+            (3, ref_to(2), Some(2)),
+            (4, ref_to(99), None),
+            (5, "not-valid-hex!@#".into(), None),
+        ] {
+            let in_reply_to = reply(n).in_reply_to.as_ref();
+            assert_eq!(reply(n).reference_id, reference, "reply {n}");
+            assert_eq!(in_reply_to.map(|p| p.metadata.id[0]), parent, "reply {n}");
         }
-    }
-
-    #[xmtp_common::test]
-    async fn test_find_messages_invalid_reply_reference() {
-        let (group, context) = setup_test_group().await;
-        let conn = context.db();
-
-        // Store a reply with invalid reference ID (not valid hex)
-        create_and_store_message(
-            &conn,
-            &group.group_id,
-            vec![1],
-            TestContentGenerator::reply_content(
-                "not-valid-hex!@#",
-                TextCodec::content_type(),
-                b"This is a reply".to_vec(),
-            ),
-            0,
-            "replier1",
+        let parent = |n| reply(n).in_reply_to.as_deref().expect("parent");
+        assert!(
+            matches!(&parent(2).content, MessageBody::Text(text) if text.content == "Original")
         );
-
-        // A sender-controlled reference that is not a message id resolves to
-        // no parent; the reply is still valid content.
-        let messages = group.find_messages_v2(&MsgQueryArgs::default()).unwrap();
-        assert_message_count(&messages, 1);
-        assert_reply_has_no_reference(&messages[0]);
-        if let MessageBody::Reply(reply) = &messages[0].content {
-            assert_eq!(reply.reference_id, "not-valid-hex!@#");
-        }
-    }
-
-    #[xmtp_common::test]
-    async fn test_find_messages_missing_reply_reference() {
-        let (group, context) = setup_test_group().await;
-        let conn = context.db();
-
-        // Store a reply with valid hex reference but non-existent message
-        let non_existent_id = vec![99, 99, 99];
-        create_and_store_message(
-            &conn,
-            &group.group_id,
-            vec![1],
-            TestContentGenerator::reply_content(
-                &non_existent_id.encode_hex(),
-                TextCodec::content_type(),
-                b"This is a reply".to_vec(),
-            ),
-            0,
-            "replier1",
+        assert!(
+            matches!(&parent(3).content, MessageBody::Reply(inner) if inner.in_reply_to.is_none()),
+            "parents are not resolved recursively"
         );
-
-        // Query messages - should still return the reply but with None in_reply_to
-        let messages = group.find_messages_v2(&MsgQueryArgs::default()).unwrap();
-        assert_message_count(&messages, 1);
-        assert_reply_has_no_reference(&messages[0]);
-
-        if let MessageBody::Reply(reply) = &messages[0].content {
-            assert_eq!(reply.reference_id, non_existent_id.encode_hex());
-        }
     }
 
     // verifies: CTYPE-008, CTYPE-009
-    #[xmtp_common::test]
+    #[xmtp_common::test(unwrap_try = true)]
     async fn test_find_messages_undecodable_messages() {
         let (group, context) = setup_test_group().await;
         let conn = context.db();
+        let put = |n, content| create_and_store_message(&conn, &group.group_id, n, content);
 
-        // Store a valid text message
-        create_and_store_message(
-            &conn,
-            &group.group_id,
-            vec![1],
-            TestContentGenerator::text_content("Valid message"),
-            0,
-            "sender1",
-        );
-
+        put(1, TestContentGenerator::text_content("Valid message"));
         // An old row: bytes that are not an EncodedContent, cached as Text
         // the way a client stored it before classification was checked.
         let malformed = vec![0xff, 0x00, 0x80];
         create_test_message_raw(
             &group.group_id,
-            vec![2],
+            vec![2; 32],
             malformed.clone(),
-            now_ns() + 1000,
-            "sender2".into(),
+            now_ns() + 2000,
             None,
             None,
         )
-        .store(&conn)
-        .unwrap();
-
+        .store(&conn)?;
         // A complete typed envelope with no core codec
-        create_and_store_message(
-            &conn,
-            &group.group_id,
-            vec![3],
-            TestContentGenerator::invalid_content(),
-            2000,
-            "sender3",
+        put(3, TestContentGenerator::invalid_content());
+
+        let messages = group.find_messages_v2(&MsgQueryArgs::default())?;
+        assert_eq!(ids(&messages), [1, 2, 3]);
+        assert!(
+            matches!(&messages[0].content, MessageBody::Text(text) if text.content == "Valid message")
         );
 
-        let messages = group.find_messages_v2(&MsgQueryArgs::default()).unwrap();
-        assert_message_count(&messages, 3);
-        assert_text_content(&messages[0], "Valid message");
-
-        assert_eq!(messages[1].metadata.id, vec![2]);
         assert_eq!(messages[1].metadata.content_type, None);
         let MessageBody::Undecodable(undecodable) = &messages[1].content else {
             panic!(
@@ -700,55 +503,36 @@ mod tests {
         let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let group = client.create_group(None, Default::default())?;
         let conn = client.context.db();
+        let put = |n, content| create_and_store_message(&conn, &group.group_id, n, content);
 
         let malformed = vec![0xff, 0x00, 0x80];
-        let malformed_id = vec![7, 7, 7];
+        let malformed_id = vec![7; 32];
         create_test_message_raw(
             &group.group_id,
             malformed_id.clone(),
             malformed.clone(),
             now_ns(),
-            "sender1".into(),
             None,
             None,
         )
         .store(&conn)?;
-        let reply_id = create_and_store_message(
-            &conn,
-            &group.group_id,
-            vec![8, 8, 8],
-            TestContentGenerator::reply_content(
-                &malformed_id.encode_hex(),
-                TextCodec::content_type(),
-                b"replying to bytes".to_vec(),
-            ),
-            1000,
-            "sender2",
+        let reply = TestContentGenerator::reply_content(
+            &ref_to(7),
+            TextCodec::content_type(),
+            b"replying to bytes".to_vec(),
         );
-        create_and_store_message(
-            &conn,
-            &group.group_id,
-            vec![9, 9, 9],
-            TestContentGenerator::text_content("later"),
-            2000,
-            "sender3",
-        );
+        put(8, reply);
+        put(9, TestContentGenerator::text_content("later"));
 
         let messages = group.find_messages_v2(&MsgQueryArgs::default())?;
-        assert_eq!(
-            messages
-                .iter()
-                .map(|message| message.metadata.id.clone())
-                .collect::<Vec<_>>(),
-            vec![malformed_id.clone(), reply_id.clone(), vec![9, 9, 9]]
-        );
+        assert_eq!(ids(&messages), [7, 8, 9]);
         let is_kept = |message: &DecodedMessage| {
             matches!(&message.content, MessageBody::Undecodable(undecodable)
                 if undecodable.raw_bytes == malformed
                     && undecodable.failure.kind == ContentDecodeFailureKind::MalformedEnvelope)
         };
         assert!(is_kept(&messages[0]), "history: {:?}", messages[0].content);
-        assert_text_content(&messages[2], "later");
+        assert!(matches!(&messages[2].content, MessageBody::Text(text) if text.content == "later"));
 
         let MessageBody::Reply(reply) = &messages[1].content else {
             panic!("expected reply, got {:?}", messages[1].content);
@@ -760,296 +544,5 @@ mod tests {
         let looked_up = client.message_v2(malformed_id.clone())?;
         assert_eq!(looked_up.metadata.id, malformed_id);
         assert!(is_kept(&looked_up), "lookup: {:?}", looked_up.content);
-    }
-
-    #[xmtp_common::test]
-    async fn test_find_messages_invalid_reactions() {
-        let (group, context) = setup_test_group().await;
-        let conn = context.db();
-
-        // Store a text message
-        let msg_id = vec![1, 2, 3];
-        let msg_id_hex = msg_id.encode_hex();
-        create_and_store_message(
-            &conn,
-            &group.group_id,
-            msg_id.clone(),
-            TestContentGenerator::text_content("Hello World"),
-            0,
-            "sender1",
-        );
-
-        // Store a valid reaction
-        create_and_store_message(
-            &conn,
-            &group.group_id,
-            vec![4],
-            TestContentGenerator::reaction_content(&msg_id_hex, "👍", ReactionAction::Added),
-            1000,
-            "reactor1",
-        );
-
-        // Store an invalid reaction (malformed content)
-        let reaction_type = xmtp_content_types::reaction::ReactionCodec::content_type();
-        let invalid_reaction = create_test_message_raw(
-            &group.group_id,
-            vec![5],
-            b"invalid reaction bytes".to_vec(),
-            now_ns() + 2000,
-            "reactor2".to_string(),
-            Some(reaction_type),
-            Some(msg_id.clone()),
-        );
-        invalid_reaction.store(&conn).unwrap();
-
-        // Query messages
-        let messages = group.find_messages_v2(&MsgQueryArgs::default()).unwrap();
-
-        // Should have 1 message total
-        assert_message_count(&messages, 1);
-
-        // Find the original message
-        let original_msg = find_message_by_id(&messages, &msg_id);
-
-        // Should only have the valid reaction, invalid one should be filtered out
-        assert_reaction_count(original_msg, 1);
-        assert_has_reaction(original_msg, "👍");
-    }
-
-    #[xmtp_common::test]
-    async fn test_hidden_message_types_are_filtered() {
-        let (group, context) = setup_test_group().await;
-        let conn = context.db();
-
-        // Store a regular text message
-        create_and_store_message(
-            &conn,
-            &group.group_id,
-            vec![1],
-            TestContentGenerator::text_content("Hello World"),
-            0,
-            "sender1",
-        );
-
-        // Store a reaction (should be hidden)
-        let msg_id_hex = vec![1].encode_hex();
-        create_and_store_message(
-            &conn,
-            &group.group_id,
-            vec![2],
-            TestContentGenerator::reaction_content(&msg_id_hex, "👍", ReactionAction::Added),
-            1000,
-            "reactor1",
-        );
-
-        // Store a read receipt (should be hidden)
-        create_and_store_message(
-            &conn,
-            &group.group_id,
-            vec![3],
-            TestContentGenerator::read_receipt_content(),
-            2000,
-            "reader1",
-        );
-
-        // Store a delete message (should be hidden)
-        create_and_store_message(
-            &conn,
-            &group.group_id,
-            vec![4],
-            TestContentGenerator::delete_message_content(&msg_id_hex),
-            3000,
-            "deleter1",
-        );
-
-        // Store another text message
-        create_and_store_message(
-            &conn,
-            &group.group_id,
-            vec![5],
-            TestContentGenerator::text_content("Second message"),
-            4000,
-            "sender2",
-        );
-
-        // Query messages - should only return the 2 text messages
-        // Reactions, ReadReceipt, and DeleteMessage should be filtered out
-        let messages = group.find_messages_v2(&MsgQueryArgs::default()).unwrap();
-
-        // We expect only 2 messages (the text messages)
-        // Reaction is attached to message 1, ReadReceipt and DeleteMessage are filtered
-        assert_message_count(&messages, 2);
-        assert_text_content(&messages[0], "Hello World");
-        assert_text_content(&messages[1], "Second message");
-
-        // The reaction should be attached to the first message
-        assert_reaction_count(&messages[0], 1);
-        assert_has_reaction(&messages[0], "👍");
-    }
-
-    #[xmtp_common::test]
-    async fn test_find_messages_chain_of_replies() {
-        let (group, context) = setup_test_group().await;
-        let conn = context.db();
-
-        // Store original message
-        let msg1_id = vec![1];
-        let msg1_id_hex = msg1_id.encode_hex();
-        create_and_store_message(
-            &conn,
-            &group.group_id,
-            msg1_id.clone(),
-            TestContentGenerator::text_content("Original message"),
-            0,
-            "sender1",
-        );
-
-        // Store first reply (reply to original)
-        let msg2_id = vec![2];
-        let msg2_id_hex = msg2_id.encode_hex();
-        create_and_store_message(
-            &conn,
-            &group.group_id,
-            msg2_id.clone(),
-            TestContentGenerator::reply_content(
-                &msg1_id_hex,
-                TextCodec::content_type(),
-                b"First reply".to_vec(),
-            ),
-            1000,
-            "replier1",
-        );
-
-        // Store second reply (reply to first reply)
-        let msg3_id = vec![3];
-        create_and_store_message(
-            &conn,
-            &group.group_id,
-            msg3_id.clone(),
-            TestContentGenerator::reply_content(
-                &msg2_id_hex,
-                TextCodec::content_type(),
-                b"Second reply - reply to reply".to_vec(),
-            ),
-            2000,
-            "replier2",
-        );
-
-        // Query messages
-        let messages = group.find_messages_v2(&MsgQueryArgs::default()).unwrap();
-
-        assert_message_count(&messages, 3);
-
-        // Find the first reply
-        let first_reply = find_message_by_id(&messages, &msg2_id);
-        if let MessageBody::Reply(reply) = &first_reply.content {
-            // Should have reference to original message
-            assert!(reply.in_reply_to.is_some());
-            let referenced = reply.in_reply_to.as_ref().unwrap();
-            assert_eq!(referenced.metadata.id, msg1_id);
-
-            // The referenced message should NOT have its own in_reply_to (no recursive resolution)
-            if let MessageBody::Text(_) = &referenced.content {
-                // Expected: original message is just text
-            } else {
-                panic!("Expected text in first layer reference");
-            }
-        } else {
-            panic!("Expected reply message");
-        }
-
-        // Find the second reply (reply to reply)
-        let second_reply = find_message_by_id(&messages, &msg3_id);
-        if let MessageBody::Reply(reply) = &second_reply.content {
-            // Should have reference to first reply
-            assert!(reply.in_reply_to.is_some());
-            let referenced = reply.in_reply_to.as_ref().unwrap();
-            assert_eq!(referenced.metadata.id, msg2_id);
-
-            // The referenced message should be a Reply but its in_reply_to should be None (not resolved recursively)
-            if let MessageBody::Reply(inner_reply) = &referenced.content {
-                // We don't recursively resolve, so the inner reply's in_reply_to should be None
-                assert!(
-                    inner_reply.in_reply_to.is_none(),
-                    "Should not recursively resolve replies - got {:?}",
-                    inner_reply.in_reply_to
-                );
-            } else {
-                panic!("Expected reply in second layer reference");
-            }
-        } else {
-            panic!("Expected reply message");
-        }
-    }
-
-    #[xmtp_common::test]
-    async fn test_reply_with_custom_inner_content() {
-        let (group, context) = setup_test_group().await;
-        let conn = context.db();
-
-        // Store original message
-        let msg_id = vec![1, 2, 3];
-        let msg_id_hex = msg_id.encode_hex();
-        create_and_store_message(
-            &conn,
-            &group.group_id,
-            msg_id.clone(),
-            TestContentGenerator::text_content("Original message"),
-            0,
-            "sender1",
-        );
-
-        // Create a custom/unknown content type
-        let custom_content_type = ContentTypeId {
-            authority_id: "custom.org".to_string(),
-            type_id: "custom/payload".to_string(),
-            version_major: 1,
-            version_minor: 0,
-        };
-
-        // Store a reply with custom inner content
-        let reply_id = create_and_store_message(
-            &conn,
-            &group.group_id,
-            vec![4, 5, 6],
-            TestContentGenerator::reply_content(
-                &msg_id_hex,
-                custom_content_type,
-                b"custom payload data".to_vec(),
-            ),
-            1000,
-            "replier1",
-        );
-
-        // Query messages
-        let messages = group.find_messages_v2(&MsgQueryArgs::default()).unwrap();
-        assert_message_count(&messages, 2);
-
-        // Find the reply message
-        let reply_msg = find_message_by_id(&messages, &reply_id);
-
-        // Verify the message is decoded as Reply (not Custom)
-        if let MessageBody::Reply(reply) = &reply_msg.content {
-            // The reply should reference the original message
-            assert!(reply.in_reply_to.is_some());
-            let referenced = reply.in_reply_to.as_ref().unwrap();
-            assert_eq!(referenced.metadata.id, msg_id);
-
-            // The inner content should be Custom (since we used an unknown content type)
-            if let MessageBody::Custom(custom) = reply.content.as_ref() {
-                assert_eq!(
-                    custom.encoded.r#type.as_ref().unwrap().type_id,
-                    "custom/payload"
-                );
-                assert_eq!(custom.encoded.content, b"custom payload data");
-            } else {
-                panic!(
-                    "Expected Custom inner content in Reply, got {:?}",
-                    reply.content
-                );
-            }
-        } else {
-            panic!("Expected Reply message, got {:?}", reply_msg.content);
-        }
     }
 }

@@ -567,8 +567,6 @@ mod tests {
             content: inner,
         })?;
         let outer = compress(outer, Compression::Deflate)?;
-        let fields = crate::groups::QueryableContentFields::try_from(outer.clone())?;
-        assert_eq!(fields.reference_id, Some(vec![1, 2]));
         let MessageBody::Reply(reply) = MessageBody::try_from(outer)? else {
             panic!("expected reply");
         };

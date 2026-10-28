@@ -46,7 +46,10 @@ use crate::groups::{
     mls_ext::CommitLogStorer,
 };
 use crate::state_tx::state_write;
-use crate::{client::ClientError, utils::id::calculate_message_id};
+use crate::{
+    client::ClientError,
+    utils::id::{calculate_message_id, decode_message_reference},
+};
 use crate::{
     groups::send_message_opts::SendMessageOpts,
     worker::device_sync::preference_sync::PreferenceUpdate,
@@ -331,18 +334,21 @@ impl TryFrom<EncodedContent> for QueryableContentFields {
             match (type_id_str.as_str(), content_type_id.version_major) {
                 (ReplyCodec::TYPE_ID, 1) => ReplyCodec::decode(content.clone())
                     .ok()
-                    .and_then(|reply| hex::decode(reply.reference).ok()),
+                    .and_then(|reply| decode_message_reference(&reply.reference)),
                 (ReactionCodec::TYPE_ID, ReactionCodec::MAJOR_VERSION) => {
                     ReactionV2::decode(content.content.as_slice())
                         .ok()
-                        .and_then(|reaction| hex::decode(reaction.reference).ok())
+                        .and_then(|reaction| decode_message_reference(&reaction.reference))
                 }
-                (ReactionCodec::TYPE_ID, 1) => LegacyReaction::decode(&content.content)
-                    .and_then(|legacy_reaction| hex::decode(legacy_reaction.reference).ok()),
+                (ReactionCodec::TYPE_ID, 1) => {
+                    LegacyReaction::decode(&content.content).and_then(|legacy_reaction| {
+                        decode_message_reference(&legacy_reaction.reference)
+                    })
+                }
                 (DeleteMessageCodec::TYPE_ID, DeleteMessageCodec::MAJOR_VERSION) => {
                     DeleteMessage::decode(content.content.as_slice())
                         .ok()
-                        .and_then(|delete_msg| hex::decode(delete_msg.message_id).ok())
+                        .and_then(|delete_msg| decode_message_reference(&delete_msg.message_id))
                 }
                 _ => None,
             }

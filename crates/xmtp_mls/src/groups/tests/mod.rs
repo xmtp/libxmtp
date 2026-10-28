@@ -938,23 +938,90 @@ async fn test_membership_state() {
     assert_eq!(bola_state, GroupMembershipState::Pending);
 }
 
+/// Each referencing type stores its reference only when it is a 32-byte
+/// message id in hexadecimal, in either case. A custom authority or an
+/// unknown major version stores none.
 // verifies: CTYPE-001, CTYPE-018
 #[xmtp_common::test(unwrap_try = true)]
-fn queryable_fields_do_not_classify_custom_reply() {
+fn reference_ids_are_canonical_message_ids() {
     use xmtp_content_types::{
+        CodecError,
+        compression::compress,
+        delete_message::DeleteMessageCodec,
+        reaction::{LegacyReaction, LegacyReactionCodec, ReactionCodec},
         reply::{Reply, ReplyCodec},
         text::TextCodec,
     };
     use xmtp_db::group_message::ContentType;
+    use xmtp_proto::xmtp::mls::message_contents::content_types::{DeleteMessage, ReactionV2};
+    use xmtp_proto::xmtp::mls::message_contents::{Compression, EncodedContent};
 
-    let standard = ReplyCodec::encode(Reply {
-        reference: "0102".into(),
-        reference_inbox_id: None,
-        content: TextCodec::encode("reply".into())?,
-    })?;
+    type Encode = fn(&str) -> Result<EncodedContent, CodecError>;
+    let reply: Encode = |reference| {
+        ReplyCodec::encode(Reply {
+            reference: reference.into(),
+            reference_inbox_id: None,
+            content: TextCodec::encode("reply".into())?,
+        })
+    };
+    let reaction: Encode = |reference| {
+        ReactionCodec::encode(ReactionV2 {
+            reference: reference.into(),
+            ..Default::default()
+        })
+    };
+    let legacy_reaction: Encode = |reference| {
+        LegacyReactionCodec::encode(LegacyReaction {
+            action: "added".into(),
+            reference: reference.into(),
+            reference_inbox_id: None,
+            schema: "unicode".into(),
+            content: "👍".into(),
+        })
+    };
+    let delete: Encode = |reference| {
+        DeleteMessageCodec::encode(DeleteMessage {
+            message_id: reference.into(),
+        })
+    };
+    let reference_id =
+        |content| super::QueryableContentFields::try_from(content).map(|f| f.reference_id);
+
+    let id = "ab".repeat(32);
+    let arms = [
+        ("reply", reply),
+        ("reaction", reaction),
+        ("legacy reaction", legacy_reaction),
+        ("delete", delete),
+    ];
+    for (arm, encode) in arms {
+        for (reference, expected) in [
+            (id.clone(), Some(vec![0xab; 32])),
+            (id.to_uppercase(), Some(vec![0xab; 32])),
+            ("0102".into(), None),
+            ("ab".repeat(33), None),
+            ("zz".repeat(32), None),
+            (format!("0x{}", "ab".repeat(31)), None),
+        ] {
+            assert_eq!(
+                reference_id(encode(&reference)?)?,
+                expected,
+                "{arm} {reference}"
+            );
+        }
+    }
+    let compressed_reply = compress(reply(&id)?, Compression::Deflate)?;
+    assert_eq!(reference_id(compressed_reply)?, Some(vec![0xab; 32]));
+    let oversized = compress(reaction(&"ab".repeat(512 * 1024))?, Compression::Deflate)?;
+    assert_eq!(
+        reference_id(oversized)?,
+        None,
+        "compressed oversized reaction"
+    );
+
+    let standard = reply(&id)?;
     let fields = super::QueryableContentFields::try_from(standard.clone())?;
     assert_eq!(fields.content_type, ContentType::Reply);
-    assert_eq!(fields.reference_id, Some(vec![1, 2]));
 
     let mut custom = standard.clone();
     custom.r#type.as_mut().unwrap().authority_id = "custom.example".into();

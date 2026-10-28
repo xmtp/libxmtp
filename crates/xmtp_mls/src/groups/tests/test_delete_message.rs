@@ -99,9 +99,9 @@ async fn received_deletion_rejects_old_cached_text_target() {
     let db = bo.context.db();
 
     for (id, sender, raw_authority) in [
-        (vec![0xC7, 0x11], alix.inbox_id(), "custom.example"),
-        (vec![0xC7, 0x12], bo.inbox_id(), "custom.example"),
-        (vec![0xC7, 0x13], alix.inbox_id(), "xmtp.org"),
+        (vec![0x11; 32], alix.inbox_id(), "custom.example"),
+        (vec![0x12; 32], bo.inbox_id(), "custom.example"),
+        (vec![0x13; 32], alix.inbox_id(), "xmtp.org"),
     ] {
         cached_text_row(bo_group.group_id, id.clone(), sender, raw_authority)?.store(&db)?;
         let deletion = DeleteMessageCodec::encode(DeleteMessage {
@@ -115,11 +115,11 @@ async fn received_deletion_rejects_old_cached_text_target() {
             .await?;
     }
     bo_group.sync().await?;
-    for id in [vec![0xC7, 0x11], vec![0xC7, 0x12]] {
+    for id in [vec![0x11; 32], vec![0x12; 32]] {
         assert!(db.get_deletion_by_deleted_message_id(&id)?.is_none());
     }
     assert!(
-        db.get_deletion_by_deleted_message_id(&[0xC7, 0x13])?
+        db.get_deletion_by_deleted_message_id(&[0x13; 32])?
             .is_some()
     );
 }
