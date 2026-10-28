@@ -102,6 +102,13 @@ impl RetryableError for VerifierError {
             _ => false,
         }
     }
+
+    fn rate_limit_delay(&self) -> Option<xmtp_common::time::Duration> {
+        match self {
+            VerifierError::Other(o) => o.rate_limit_delay(),
+            _ => None,
+        }
+    }
 }
 
 /// A chain RPC URL can carry the operator's key, and reqwest prints the

@@ -187,6 +187,7 @@ impl RetryableError for NotificationError {
     fn rate_limit_delay(&self) -> Option<xmtp_common::time::Duration> {
         match self {
             Self::Api(e) => e.rate_limit_delay(),
+            Self::Group(e) => e.rate_limit_delay(),
             _ => None,
         }
     }
@@ -359,7 +360,8 @@ impl<Context: XmtpSharedContext> Client<Context> {
             record.push_config = Some(encode_config(&config)?);
             record.push_state = 1;
             record.push_failed_error = None;
-            record.push_deadlines = Some(encode(&worker::Deadlines::default())?);
+            // A new configuration does not end a pending rate-limit delay.
+            record.push_deadlines = Some(encode(&worker::rate_limit_hold(&record)?)?);
             record.push_suppressed = None;
             db.save_notification_record(&record)?;
             Ok::<_, StorageError>(Continue(record.push_generation))
@@ -390,7 +392,16 @@ impl<Context: XmtpSharedContext> Client<Context> {
     #[xmtp_common::rpc_span]
     pub async fn disable_notifications(&self) -> Result<(), NotificationError> {
         let record = crate::state_tx::state_write(self.context.mls_storage(), |tx| {
-            Ok::<_, StorageError>(Continue(tx.storage().db().disable_notifications()?))
+            let storage = tx.storage();
+            let db = storage.db();
+            let hold = worker::rate_limit_hold(&db.notification_record()?)?;
+            let mut record = db.disable_notifications()?;
+            // A later enable must not send inside a pending rate-limit delay.
+            if hold.rate_limited_until_ns > xmtp_common::time::now_ns() {
+                record.push_deadlines = Some(encode(&hold)?);
+                db.save_notification_record(&record)?;
+            }
+            Ok::<_, StorageError>(Continue(record))
         })?
         .into_continued();
         notification_settings_changed(&self.context);
@@ -409,7 +420,7 @@ impl<Context: XmtpSharedContext> Client<Context> {
             notification_settings_changed(&self.context);
             return Ok(());
         }
-        worker::unregister(&self.context, &record).await
+        worker::unregister(&self.context, &record, worker::request_deadline()).await
     }
 
     /// Read the locally stored state without a backend call.

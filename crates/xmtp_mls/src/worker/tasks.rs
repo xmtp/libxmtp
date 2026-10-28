@@ -71,11 +71,19 @@ pub enum TaskWorkerError {
 
 impl TaskWorkerError {
     /// The delay of a rate-limit rejection that failed this task turn.
-    fn rate_limit_delay(&self) -> Option<xmtp_common::time::Duration> {
+    pub(crate) fn rate_limit_delay(&self) -> Option<xmtp_common::time::Duration> {
         use xmtp_common::RetryableError;
         match self {
+            Self::Group(e) => e.rate_limit_delay(),
+            Self::DeviceSync(e) => e.rate_limit_delay(),
+            Self::LoadGroup(e) => e.rate_limit_delay(),
+            Self::Identity(e) => e.rate_limit_delay(),
+            Self::KeyPackageMaintenance(e) => e.rate_limit_delay(),
             Self::Notification(e) => e.rate_limit_delay(),
-            _ => None,
+            Self::Storage(_)
+            | Self::Conversion(_)
+            | Self::InvalidTaskData { .. }
+            | Self::InvalidHash { .. } => None,
         }
     }
 }
@@ -590,6 +598,53 @@ mod tests {
                 },
             )),
         }
+    }
+
+    fn rate_limited(delay: xmtp_common::time::Duration) -> xmtp_api::ApiError {
+        xmtp_api::dyn_err(xmtp_proto::api::ApiClientError::client(
+            xmtp_api_grpc::error::GrpcError::Status(xmtp_api_grpc::error::rate_limited_status(
+                "publish", delay,
+            )),
+        ))
+    }
+
+    /// Every task error that wraps a rate-limited request carries its delay
+    /// to the runner, which schedules no earlier than it.
+    // verifies: RATE-041
+    #[xmtp_common::test(unwrap_try = true)]
+    fn rate_limit_delays_reach_the_task_runner_through_each_wrapper() {
+        use crate::{
+            client::ClientError, groups::GroupError, identity::IdentityError,
+            worker::key_package_maintenance::KeyPackageMaintenanceError,
+        };
+        use xmtp_id::{associations::SignatureError, scw_verifier::VerifierError};
+        let delay = xmtp_common::time::Duration::from_secs(300);
+        let scw = || {
+            ClientError::from(SignatureError::from(VerifierError::Other(Box::new(
+                rate_limited(delay),
+            ))))
+        };
+        let mut summary = crate::groups::summary::SyncSummary::default();
+        summary.add_publish_err(GroupError::WrappedApi(rate_limited(delay)));
+        let errors = [
+            TaskWorkerError::KeyPackageMaintenance(KeyPackageMaintenanceError::Rotation(
+                IdentityError::ApiClient(rate_limited(delay)),
+            )),
+            TaskWorkerError::Identity(IdentityError::ApiClient(rate_limited(delay))),
+            TaskWorkerError::Group(GroupError::Client(scw())),
+            TaskWorkerError::Group(GroupError::SyncFailedToWait(Box::new(summary))),
+            TaskWorkerError::DeviceSync(DeviceSyncError::Client(ClientError::Api(rate_limited(
+                delay,
+            )))),
+            TaskWorkerError::LoadGroup(crate::mls_store::MlsStoreError::Api(rate_limited(delay))),
+        ];
+        for error in errors {
+            assert_eq!(error.rate_limit_delay(), Some(delay), "{error}");
+        }
+        assert_eq!(
+            xmtp_common::RetryableError::rate_limit_delay(&scw()),
+            Some(delay)
+        );
     }
 
     fn no_runner_cfg() -> WorkerConfig {

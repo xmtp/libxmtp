@@ -131,6 +131,14 @@ impl RetryableError for InstallationDiffError {
             InstallationDiffError::Db(e) => retryable!(e),
         }
     }
+
+    fn rate_limit_delay(&self) -> Option<xmtp_common::time::Duration> {
+        match self {
+            InstallationDiffError::IdentityDependency(error) => error.rate_limit_delay(),
+            InstallationDiffError::Client(client_error) => client_error.rate_limit_delay(),
+            _ => None,
+        }
+    }
 }
 
 pub struct IdentityUpdates<Context> {

@@ -46,7 +46,7 @@ pub(crate) struct Deadlines {
     reset_retry: bool,
     /// No notification request before this time: a rate-limit rejection's delay.
     #[serde(default)]
-    rate_limited_until_ns: i64,
+    pub(crate) rate_limited_until_ns: i64,
 }
 
 fn deadlines(record: &StoredNotification) -> Result<Deadlines, StorageError> {
@@ -133,14 +133,24 @@ pub(crate) fn resume_after_registration<Context: XmtpSharedContext>(
     .map(|outcome| outcome.into_continued())
 }
 
+/// The end of one notification turn's waiting budget. Every request of the
+/// turn, and every rate-limit wait inside it, ends by this time.
+pub(crate) fn request_deadline() -> time::Instant {
+    time::Instant::now() + NOTIFICATION_REQUEST_TIMEOUT
+}
+
 /// Bound auth, retries, and transport together. No database writer is held here.
 pub(crate) async fn bounded<T>(
+    deadline: time::Instant,
     future: impl std::future::Future<Output = Result<T, xmtp_api::ApiError>>,
 ) -> Result<T, NotificationError> {
-    time::timeout(NOTIFICATION_REQUEST_TIMEOUT, future)
-        .await
-        .map_err(|_| NotificationError::RequestTimeout)?
-        .map_err(NotificationError::from)
+    time::timeout(
+        deadline.saturating_duration_since(time::Instant::now()),
+        future,
+    )
+    .await
+    .map_err(|_| NotificationError::RequestTimeout)?
+    .map_err(NotificationError::from)
 }
 
 /// Send Unregister while the caller holds the notification request lock.
@@ -148,12 +158,13 @@ pub(crate) async fn bounded<T>(
 pub(crate) async fn unregister<Context: XmtpSharedContext>(
     context: &Context,
     record: &StoredNotification,
+    deadline: time::Instant,
 ) -> Result<(), NotificationError> {
     let request = UnregisterRequest {
         recipient_id: record.push_recipient_id.clone().unwrap_or_default(),
         recipient_secret: recipient_secret(record),
     };
-    match bounded(context.api().unregister(request)).await {
+    match bounded(deadline, context.api().unregister(request, deadline)).await {
         Ok(_) | Err(NotificationError::NotFound) => {
             state_write(context.mls_storage(), |tx| {
                 let storage = tx.storage();
@@ -179,11 +190,14 @@ pub(crate) async fn register<Context: XmtpSharedContext>(
     config: &NotificationConfig,
 ) -> Result<bool, NotificationError> {
     // implements: PUSH-240
+    // The owed reset and the registration share one deadline, so a rate-limit
+    // wait never outlasts the turn and the delay is never lost to a timeout.
+    let deadline = request_deadline();
     let result = time::timeout(NOTIFICATION_REQUEST_TIMEOUT, async {
         // implements: PUSH-265
         // The owed flag implies push_last_state is None, so run() reaches registration.
         if record.push_unregister_owed {
-            if let Err(error) = unregister(context, record).await {
+            if let Err(error) = unregister(context, record, deadline).await {
                 return if record_error(context, record.push_generation, &error, None)? {
                     Err(error)
                 } else {
@@ -196,7 +210,14 @@ pub(crate) async fn register<Context: XmtpSharedContext>(
                 return Ok(false);
             }
         }
-        match bounded(context.api().register(config.registration(record))).await {
+        match bounded(
+            deadline,
+            context
+                .api()
+                .register(config.registration(record), deadline),
+        )
+        .await
+        {
             Ok(response) => Ok(confirm(
                 context,
                 record.push_generation,
@@ -274,7 +295,8 @@ pub(crate) fn confirm<Context: XmtpSharedContext>(
             renewal_ns: now.saturating_add(response.expires_at_ns.saturating_sub(now) / 4),
             registration_owed: false,
             reset_retry: false,
-            rate_limited_until_ns: 0,
+            // A success does not end a rate-limit delay another request was given.
+            rate_limited_until_ns: deadlines(&record)?.rate_limited_until_ns,
         };
         record.push_deadlines = Some(encode(&next)?);
         record.push_last_state = Some(response.encode_to_vec());
@@ -282,6 +304,28 @@ pub(crate) fn confirm<Context: XmtpSharedContext>(
         Ok::<_, StorageError>(Continue(true))
     })
     .map(|outcome| outcome.into_continued())
+}
+
+/// Hold the task's requests until a rate-limit delay ends. A later, shorter
+/// delay never shortens a pending one.
+fn hold_for_rate_limit(
+    record: &mut StoredNotification,
+    delay: xmtp_common::time::Duration,
+) -> Result<(), StorageError> {
+    let mut deadlines = deadlines(record)?;
+    let until = time::now_ns().saturating_add(i64::try_from(delay.as_nanos()).unwrap_or(i64::MAX));
+    deadlines.rate_limited_until_ns = deadlines.rate_limited_until_ns.max(until);
+    record.push_deadlines = Some(encode(&deadlines)?);
+    Ok(())
+}
+
+/// The end of a pending rate-limit delay, kept when a new configuration
+/// resets the other deadlines.
+pub(crate) fn rate_limit_hold(record: &StoredNotification) -> Result<Deadlines, StorageError> {
+    Ok(Deadlines {
+        rate_limited_until_ns: deadlines(record)?.rate_limited_until_ns,
+        ..Default::default()
+    })
 }
 
 /// Persist only typed terminal failures and repair/suppression state for this generation.
@@ -295,6 +339,12 @@ pub(crate) fn record_error<Context: XmtpSharedContext>(
         let storage = tx.storage();
         let db = storage.db();
         let mut record = db.notification_record()?;
+        // The delay binds this recipient's requests whatever the configuration.
+        // implements: PUSH-267, RATE-041
+        if let Some(delay) = error.rate_limit_delay() {
+            hold_for_rate_limit(&mut record, delay)?;
+            db.save_notification_record(&record)?;
+        }
         if record.push_generation != generation || record.push_state != 1 {
             return Ok(Continue(false));
         }
@@ -302,11 +352,6 @@ pub(crate) fn record_error<Context: XmtpSharedContext>(
         // runner has not consumed an earlier inline registration hint yet.
         let mut deadlines = deadlines(&record)?;
         deadlines.reset_retry = false;
-        // implements: PUSH-267, RATE-041
-        if let Some(delay) = error.rate_limit_delay() {
-            let delay = i64::try_from(delay.as_nanos()).unwrap_or(i64::MAX);
-            deadlines.rate_limited_until_ns = time::now_ns().saturating_add(delay);
-        }
         record.push_deadlines = Some(encode(&deadlines)?);
         if let Some(failure) = error.failure() {
             record.push_state = 2;
@@ -322,7 +367,7 @@ pub(crate) fn record_error<Context: XmtpSharedContext>(
             record.push_repairing = true;
             record.push_deadlines = Some(encode(&Deadlines {
                 registration_owed: true,
-                ..Default::default()
+                ..rate_limit_hold(&record)?
             })?);
         } else if matches!(error, NotificationError::ResourceExhausted) {
             record.push_suppressed = desired_fingerprint.map(<[u8]>::to_vec);
@@ -595,7 +640,13 @@ pub(crate) async fn run<Context: XmtpSharedContext>(
     // secrets. A retry builds a new batch from the stored state.
     let request = std::mem::take(&mut batch.request);
     let removes = request.removes.clone();
-    let result = match bounded(context.api().update_subscriptions(request)).await {
+    let deadline = request_deadline();
+    let result = match bounded(
+        deadline,
+        context.api().update_subscriptions(request, deadline),
+    )
+    .await
+    {
         Ok(response) => {
             confirm(
                 context,

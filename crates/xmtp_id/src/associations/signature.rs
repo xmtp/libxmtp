@@ -86,6 +86,13 @@ impl RetryableError for SignatureError {
             _ => false,
         }
     }
+
+    fn rate_limit_delay(&self) -> Option<xmtp_common::time::Duration> {
+        match self {
+            SignatureError::VerifierError(e) => e.rate_limit_delay(),
+            _ => None,
+        }
+    }
 }
 
 /// Xmtp Installation Credential for Specialized for XMTP Identity

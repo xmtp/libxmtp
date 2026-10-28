@@ -56,6 +56,13 @@ impl xmtp_common::RetryableError for ConfigurationFetchError {
             Self::StorageLocation(_) => false,
         }
     }
+
+    fn rate_limit_delay(&self) -> Option<xmtp_common::time::Duration> {
+        match self {
+            Self::Api(e) => e.rate_limit_delay(),
+            _ => None,
+        }
+    }
 }
 
 /// A condition that, once observed, fails later network work for the life of

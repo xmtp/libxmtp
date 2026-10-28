@@ -651,6 +651,25 @@ impl RetryableError for GroupError {
             | Self::UninitializedResult => false,
         }
     }
+
+    fn rate_limit_delay(&self) -> Option<xmtp_common::time::Duration> {
+        match self {
+            Self::Client(client_error) => client_error.rate_limit_delay(),
+            Self::ReceiveError(msg) => msg.rate_limit_delay(),
+            Self::Identity(identity) => identity.rate_limit_delay(),
+            Self::InstallationDiff(diff) => diff.rate_limit_delay(),
+            Self::CommitValidation(err) => err.rate_limit_delay(),
+            Self::WrappedApi(err) => err.rate_limit_delay(),
+            Self::StreamBarrier(error) => error.rate_limit_delay(),
+            Self::SyncFailedToWait(summary) | Self::Sync(summary) => summary.rate_limit_delay(),
+            Self::PublishedButUnconfirmed { cause, .. } => {
+                cause.as_ref().and_then(|cause| cause.rate_limit_delay())
+            }
+            Self::MlsStore(e) => e.rate_limit_delay(),
+            Self::DeviceSync(e) => e.rate_limit_delay(),
+            _ => None,
+        }
+    }
 }
 
 impl crate::worker::NeedsDbReconnect for GroupError {

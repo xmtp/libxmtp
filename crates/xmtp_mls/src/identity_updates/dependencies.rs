@@ -65,6 +65,13 @@ impl RetryableError for IdentityDependencyError {
             Self::InvalidSequence(_) | Self::MissingReference(_) => false,
         }
     }
+
+    fn rate_limit_delay(&self) -> Option<xmtp_common::time::Duration> {
+        match self {
+            Self::Client(error) => error.rate_limit_delay(),
+            _ => None,
+        }
+    }
 }
 
 impl crate::worker::NeedsDbReconnect for IdentityDependencyError {

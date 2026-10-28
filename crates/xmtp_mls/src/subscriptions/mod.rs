@@ -319,6 +319,19 @@ impl RetryableError for SubscribeError {
             StreamStale => true,
         }
     }
+
+    fn rate_limit_delay(&self) -> Option<xmtp_common::time::Duration> {
+        use SubscribeError::*;
+        match self {
+            #[cfg(not(target_arch = "wasm32"))]
+            Transport(error) => error.rate_limit_delay(),
+            Group(e) => e.rate_limit_delay(),
+            ReceiveGroup(e) => e.rate_limit_delay(),
+            ApiClient(e) => e.rate_limit_delay(),
+            BoxError(e) => e.rate_limit_delay(),
+            _ => None,
+        }
+    }
 }
 
 impl crate::worker::NeedsDbReconnect for SubscribeError {

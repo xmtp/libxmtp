@@ -90,6 +90,14 @@ impl RetryableError for CommitValidationError {
             _ => false,
         }
     }
+
+    fn rate_limit_delay(&self) -> Option<xmtp_common::time::Duration> {
+        match self {
+            CommitValidationError::IdentityDependency(error) => error.rate_limit_delay(),
+            CommitValidationError::InstallationDiff(diff_error) => diff_error.rate_limit_delay(),
+            _ => None,
+        }
+    }
 }
 
 impl CommitValidationError {

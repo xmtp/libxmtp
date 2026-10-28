@@ -154,6 +154,7 @@ impl RetryableError for ApiError {
     fn rate_limit_delay(&self) -> Option<xmtp_common::time::Duration> {
         match self {
             Self::Api(e) => xmtp_api_grpc::error::rate_limit_delay(e),
+            Self::Preflight(e) => e.rate_limit_delay(),
             _ => None,
         }
     }

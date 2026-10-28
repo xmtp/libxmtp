@@ -28,6 +28,16 @@ impl RetryableError for SyncSummary {
                 .map(|s| s.is_retryable())
                 .unwrap_or(false)
     }
+
+    /// The longest delay any rate-limited request of the sync asked for.
+    fn rate_limit_delay(&self) -> Option<xmtp_common::time::Duration> {
+        self.publish_errors
+            .iter()
+            .chain(self.post_commit_errors.iter())
+            .chain(self.other.as_deref())
+            .filter_map(RetryableError::rate_limit_delay)
+            .max()
+    }
 }
 
 impl crate::worker::NeedsDbReconnect for SyncSummary {

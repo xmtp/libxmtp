@@ -568,7 +568,7 @@ async fn notification_rate_limit_keeps_state_enabled_and_waits_the_delay() {
     };
     let mut due = task();
     due.next_attempt_at_ns = 0;
-    peer.state.lock().next_rate_limit = Some(delay);
+    peer.state.lock().rate_limit = Some((Call::Update, delay));
     let calls = peer.calls(Call::Update);
     let before = time::now_ns();
     TaskWorker::run_and_reschedule_task(due, &client.context).await?;
@@ -590,6 +590,67 @@ async fn notification_rate_limit_keeps_state_enabled_and_waits_the_delay() {
     };
     assert_eq!(peer.calls(Call::Update), calls + 1);
     assert!(next >= before + delay.as_nanos() as i64);
+}
+
+/// Enabling again, or disabling and enabling, does not end a pending delay:
+/// the task still sends no subscription update inside it.
+// verifies: RATE-041
+#[xmtp_common::test(unwrap_try = true)]
+async fn notification_reenable_keeps_a_pending_rate_limit_delay() {
+    let delay = Duration::from_secs(600);
+    let (client, peer) = support::client().await;
+    let mut config = config();
+    config.include_welcomes = false;
+    client.enable_notifications(config.clone()).await?;
+    run(&client.context).await?;
+    client.create_group(None, None)?;
+    peer.state.lock().rate_limit = Some((Call::Update, delay));
+    let before = time::now_ns();
+    assert!(run(&client.context).await.is_err());
+    let updates = peer.calls(Call::Update);
+
+    client.enable_notifications(config.clone()).await?;
+    wake(&client.context)?;
+    let TaskOutcome::RescheduleAt(next) = run(&client.context).await? else {
+        panic!("enabled task must remain");
+    };
+    assert_eq!(peer.calls(Call::Update), updates);
+    assert!(next >= before + delay.as_nanos() as i64);
+
+    client.disable_notifications().await?;
+    client.enable_notifications(config).await?;
+    wake(&client.context)?;
+    let TaskOutcome::RescheduleAt(next) = run(&client.context).await? else {
+        panic!("enabled task must remain");
+    };
+    assert_eq!(peer.calls(Call::Update), updates);
+    assert!(next >= before + delay.as_nanos() as i64);
+}
+
+/// The owed reset and the registration share one 30-second deadline. A
+/// registration refused with a delay that ends past it returns the rate limit
+/// at once, instead of waiting until the turn times out and losing the delay.
+// verifies: RATE-041, PUSH-267
+#[xmtp_common::test(unwrap_try = true)]
+async fn notification_registration_after_a_slow_reset_keeps_its_rate_limit() {
+    let delay = Duration::from_secs(28);
+    let (client, peer) = support::client().await;
+    client.enable_notifications(config()).await?;
+    peer.state.lock().next_error = Some(tonic::Code::Unavailable);
+    assert!(client.disable_notifications().await.is_err());
+    assert!(client.db().notification_record()?.push_unregister_owed);
+    {
+        let mut state = peer.state.lock();
+        state.slow = Some((Call::Unregister, Duration::from_secs(3)));
+        state.rate_limit = Some((Call::Register, delay));
+    }
+    let started = xmtp_common::time::Instant::now();
+    let error = client.enable_notifications(config()).await.unwrap_err();
+    assert!(started.elapsed() < Duration::from_secs(20));
+    assert!(matches!(error, NotificationError::Api(_)));
+    assert_eq!(error.rate_limit_delay(), Some(delay));
+    let record = client.db().notification_record()?;
+    assert!(deadlines(&record)?.rate_limited_until_ns > time::now_ns());
 }
 
 #[xmtp_common::test(unwrap_try = true)]

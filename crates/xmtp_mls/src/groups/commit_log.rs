@@ -132,6 +132,20 @@ impl RetryableError for CommitLogError {
             Self::MissingLatestCommitSequenceId { .. } => false,
         }
     }
+
+    fn rate_limit_delay(&self) -> Option<xmtp_common::time::Duration> {
+        match self {
+            Self::Api(api_error) => api_error.rate_limit_delay(),
+            Self::GroupError(group_error) => group_error.rate_limit_delay(),
+            Self::SyncError(sync_error) => sync_error.rate_limit_delay(),
+            Self::FailedToSendReadd { source, .. } => source.rate_limit_delay(),
+            Self::FailedReadds { errors } => errors
+                .iter()
+                .filter_map(RetryableError::rate_limit_delay)
+                .max(),
+            _ => None,
+        }
+    }
 }
 
 impl NeedsDbReconnect for CommitLogError {

@@ -127,6 +127,17 @@ impl RetryableError for BarrierError {
             }
         )
     }
+
+    fn rate_limit_delay(&self) -> Option<xmtp_common::time::Duration> {
+        let Self::Incomplete { unfinished, .. } = self;
+        unfinished
+            .iter()
+            .filter_map(|topic| match &topic.cause {
+                Some(BarrierCause::Receiver(error)) => error.rate_limit_delay(),
+                _ => None,
+            })
+            .max()
+    }
 }
 
 impl crate::worker::NeedsDbReconnect for BarrierError {

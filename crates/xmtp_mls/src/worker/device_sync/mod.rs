@@ -261,6 +261,15 @@ impl RetryableError for DeviceSyncError {
             Self::MissingSyncGroup | Self::UnspecifiedDeviceSyncKind
         )
     }
+
+    fn rate_limit_delay(&self) -> Option<xmtp_common::time::Duration> {
+        match self {
+            Self::Client(e) => e.rate_limit_delay(),
+            Self::Group(e) => e.rate_limit_delay(),
+            Self::Subscribe(e) => e.rate_limit_delay(),
+            _ => None,
+        }
+    }
 }
 
 impl From<NotFound> for DeviceSyncError {

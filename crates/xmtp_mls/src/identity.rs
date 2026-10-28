@@ -386,6 +386,13 @@ impl RetryableError for IdentityError {
             _ => false,
         }
     }
+
+    fn rate_limit_delay(&self) -> Option<xmtp_common::time::Duration> {
+        match self {
+            Self::ApiClient(err) => err.rate_limit_delay(),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug)]

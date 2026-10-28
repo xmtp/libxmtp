@@ -72,6 +72,17 @@ impl RetryableError for IncomingError {
             Self::ReceiverEnded => true,
         }
     }
+
+    fn rate_limit_delay(&self) -> Option<xmtp_common::time::Duration> {
+        match self {
+            Self::Store(error) => error.rate_limit_delay(),
+            Self::Transport(error) => error.rate_limit_delay(),
+            Self::Group(error) => error.rate_limit_delay(),
+            Self::Processing(error) => error.rate_limit_delay(),
+            Self::Identity(error) => error.rate_limit_delay(),
+            _ => None,
+        }
+    }
 }
 
 impl crate::worker::NeedsDbReconnect for IncomingError {

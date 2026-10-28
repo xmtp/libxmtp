@@ -26,6 +26,8 @@ pub(super) enum Fault {
     LoseResponse,
     /// Store the request, then return an ambiguous UNAVAILABLE error.
     StoreThenUnavailable,
+    /// Refuse with a rate-limit rejection of this delay, storing nothing.
+    RateLimit(xmtp_common::time::Duration),
 }
 
 /// Passes every request to the test backend, except that each publish carrying
@@ -132,6 +134,13 @@ impl XmtpBackendClient for FaultyApi {
                 return Err(status(code));
             }
             Some(Fault::Refuse(_)) => status(tonic::Code::OutOfRange),
+            Some(Fault::RateLimit(delay)) => {
+                return Err(ApiClientError::client(
+                    xmtp_api_grpc::error::GrpcError::Status(
+                        xmtp_api_grpc::error::rate_limited_status("publish", delay),
+                    ),
+                ));
+            }
             Some(Fault::LoseResponse | Fault::StoreThenUnavailable) => {
                 let response = self.inner.publish(request).await?;
                 self.lost.lock().extend(response.envelope_metas);

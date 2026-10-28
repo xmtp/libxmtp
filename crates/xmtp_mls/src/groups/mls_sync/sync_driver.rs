@@ -388,7 +388,7 @@ where
             // GroupSyncFinished event (in sync_until_intent_resolved) is the
             // single place the summary is logged — no per-attempt logging here.
             let mut round_succeeded = false;
-            match xmtp_common::time::timeout(
+            let rate_limit_delay = match xmtp_common::time::timeout(
                 remaining,
                 self.sync_intent_round(intent_id, predecessor, remaining),
             )
@@ -396,12 +396,18 @@ where
             {
                 Ok(Ok(s)) => {
                     round_succeeded = !s.is_errored();
+                    let delay = s.rate_limit_delay();
                     summary.extend(s);
+                    delay
                 }
                 Ok(Err(error @ GroupError::PublishedButUnconfirmed { .. })) => return Err(error),
-                Ok(Err(error)) => summary.add_other(error),
+                Ok(Err(error)) => {
+                    let delay = error.rate_limit_delay();
+                    summary.add_other(error);
+                    delay
+                }
                 Err(_) => break,
-            }
+            };
             let current = Fetch::<StoredGroupIntent>::fetch(&db, &intent_id);
             let waiting_to_publish = matches!(
                 &current,
@@ -529,6 +535,16 @@ where
                     .policy()
                     .barrier_timeout
                     .saturating_sub(time_spent.elapsed());
+                // A rate-limited round waits out its delay, or returns the
+                // rejection when the delay does not end within this call.
+                // implements: RATE-041
+                if let Some(delay) = rate_limit_delay {
+                    if delay >= remaining {
+                        break;
+                    }
+                    xmtp_common::time::sleep(wait_for.max(delay)).await;
+                    continue;
+                }
                 xmtp_common::time::sleep(wait_for.min(remaining)).await;
             }
         }

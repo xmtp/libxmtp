@@ -99,9 +99,42 @@ async fn notification_rate_limit_beyond_its_timeout_returns_at_once() {
     let client = ApiClientWrapper::new(mock, crate::strategies::exponential_cooldown());
     let started = tokio::time::Instant::now();
     let error = client
-        .update_subscriptions(wire::UpdateSubscriptionsRequest::default())
+        .update_subscriptions(
+            wire::UpdateSubscriptionsRequest::default(),
+            xmtp_common::time::Instant::now() + NOTIFICATION_REQUEST_TIMEOUT,
+        )
         .await
         .unwrap_err();
     assert_eq!(error.rate_limit_delay(), Some(delay));
     assert_eq!(tokio::time::Instant::now(), started);
+}
+
+/// On the real clock, a wait that fits a fresh deadline but not what is left
+/// of the caller's returns at once.
+// verifies: RATE-041
+#[cfg(not(target_arch = "wasm32"))]
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_rate_limit_wait_past_the_remaining_deadline_returns_at_once() {
+    let client = ApiClientWrapper::new(
+        MockBackendClient::new(),
+        crate::strategies::exponential_cooldown(),
+    );
+    let deadline = xmtp_common::time::Instant::now() + Duration::from_millis(300);
+    let attempts = AtomicUsize::new(0);
+    let result: std::result::Result<(), ApiClientError> = client
+        .retry_call_until(
+            || async {
+                attempts.fetch_add(1, Ordering::SeqCst);
+                xmtp_common::time::sleep(Duration::from_millis(200)).await;
+                Err(rate_limited(Duration::from_millis(150)))
+            },
+            false,
+            Some(deadline),
+        )
+        .await;
+    assert_eq!(
+        result.unwrap_err().rate_limit_delay(),
+        Some(Duration::from_millis(150))
+    );
+    assert_eq!(attempts.load(Ordering::SeqCst), 1);
 }
