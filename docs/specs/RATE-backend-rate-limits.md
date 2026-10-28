@@ -17,7 +17,7 @@ Out of scope: credentials and admission (AUTH); the configuration keys, their ty
 | [AUTH](AUTH-backend-auth.md) | Admits the request and names the API key or JWT claims this spec forms a caller key from. A request auth rejects is never charged. |
 | [API section 7](API-backend-api.md#7-bounds-errors-and-transport) | Owns the status code of a rate-limit rejection. This spec owns its details and what a client does with them. |
 | [CONF section 1.2](CONF-backend-configuration.md#12-keys-and-checks) | Owns the `rate_limits` keys and their checks. This spec owns what the keys mean and the default limits. |
-| [OPS section 5](OPS-backend-operations.md#5-telemetry) | Owns the rate-limit metric families. OPS-014 keeps request header values out of telemetry, and AUTH-027 keeps JWT claim values out. |
+| [OPS section 5](OPS-backend-operations.md#5-telemetry) | Owns the rate-limit metric families. OPS-014 keeps `X-Forwarded-For` values and any client address computed from them out of telemetry, and AUTH-027 keeps JWT claim values out. |
 | [PUSH section 8](PUSH-push-subscriptions.md#8-the-client) | PUSH-267 keeps notifications enabled after a rate-limit rejection. |
 
 ## Terms
@@ -52,7 +52,7 @@ A backend runs behind a proxy, which terminates TLS and connects from its own ad
 
 The category table is the whole list of charges. A request charges only the categories whose rows name it; a health request, a `GetConfiguration` request, and a request to a path no service implements charge nothing. A cost is counted in the request as the backend received it, before duplicates or repeated topics are merged. A step is charged before it runs, so a denied step does no work, and a step an earlier denial prevented is never charged.
 
-Every charged RPC spends 1 `request` unit, and a denial of that spend decides the request's status before any other check (RATE-014). Every other charge is spent by the step that does the work it pays for, before that work (RATE-010). Each category's cost for one step is spent whole, in one spend. A request refused after a spend keeps that spend and is charged nothing more.
+Every charged RPC spends 1 `request` unit, and a denial of that spend decides the request's status over every condition of API section 7, PUSH-264, and the PUSH and ATCH admission tables (RATE-014). Every other charge is spent by the step that does the work it pays for, before that work (RATE-010). Each category's cost for one step is spent whole, in one spend. A request refused after a spend keeps that spend and is charged nothing more.
 
 A `request` unit pays for one RPC, for one read of the store a stream makes to catch up, or for the read of the catch-up target of an `Update` that adds topics. Reading one topic and reading the most topics the request bounds of API section 7 allow cost the same unit, because both are one read of the store and those bounds cap the work of one read.
 
@@ -149,4 +149,4 @@ A request that auth rejects is not charged, so a flood of requests with bad cred
 
 A step that is denied after an earlier step of the same request was admitted keeps the earlier charge.
 
-RATE-041 holds the client's own retries of a refused request, not a request an app's next action sends: a sync resends a publish that failed, an upload the app retries begins with `CreateUpload` (ATCH section 4), and an enable sends `Register` (PUSH-266), any of them before the retry delay has passed. Such a request is denied again and costs its caller one `request` unit, and the charge of each earlier step of it that is admitted again.
+RATE-041 holds the client's own retries of a refused request, not a request an app's next action sends: a sync resends a publish that failed, an upload the app retries begins with `CreateUpload` (ATCH section 4), and an enable sends `Register` (PUSH-266), any of them before the retry delay has passed. Such a request is denied again, and keeps the charge of each of its steps admitted before the denied one, its `request` unit included when that spend was not the one denied.
