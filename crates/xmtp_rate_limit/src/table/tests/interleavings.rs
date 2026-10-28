@@ -65,9 +65,17 @@ fn serial(limits: &'static [Limit]) -> (usize, Option<Tats>) {
 
 #[xmtp_common::test]
 fn concurrent_spends_admit_what_a_serial_run_admits() {
-    for limits in [&MINUTE_DENIES, &HOUR_DENIES] {
+    // Two spends of 1 at 0: the minute limit is 2 × 30 s on, the hour 2 × 360 s;
+    // or 2 × 20 s and 2 × 1800 s.
+    let charged = [
+        Some([60 * SECOND, 720 * SECOND, 0]),
+        Some([40 * SECOND, 3600 * SECOND, 0]),
+    ];
+    for (limits, charged) in [&MINUTE_DENIES, &HOUR_DENIES].into_iter().zip(charged) {
         let (admitted, recorded) = serial(limits);
         assert_eq!(admitted, 2);
+        // The denied third spend charged neither limit.
+        assert_eq!(recorded, charged);
         shuttle::check_dfs(
             move || {
                 let table = Arc::new(ShuttleTable::with_layout(1, 1));
@@ -83,7 +91,6 @@ fn concurrent_spends_admit_what_a_serial_run_admits() {
                     .filter(|&allowed| allowed)
                     .count();
                 assert_eq!(concurrent, admitted);
-                // No denied spend left a partial charge on either limit.
                 assert_eq!(table.tats(CATEGORY, CALLER), recorded);
             },
             None,

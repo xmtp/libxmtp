@@ -13,8 +13,13 @@ pub struct MemoryLimiter<C: Clock = SystemClock> {
 }
 
 impl MemoryLimiter {
-    /// Allocates a table of at most `max_memory_bytes`; `try_spend` never
-    /// allocates again. A budget too small for one set of slots still gets one.
+    /// Allocates a table of at most `max_memory_bytes`, with slots for at
+    /// least 95% of it from a budget of about 5.6 KB up. A budget too small
+    /// for one set of slots still gets one.
+    ///
+    /// A spend allocates nothing of its own. `parking_lot` allocates a
+    /// thread's wait state the first time that thread waits for a contended
+    /// shard lock, and grows its wait table as the number of threads grows.
     ///
     /// # Panics
     ///

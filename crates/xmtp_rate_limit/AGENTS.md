@@ -9,7 +9,10 @@ benchmark.
 - Normal dependencies stay free of `apps/backend`, `xmtp_backend_config`,
   `tonic`, and `http`, so another server can reuse the crate. Check with
   `dev/nix-shell 'dev/agent-run cargo tree -p xmtp_rate_limit -e normal'`.
-- `try_spend` never allocates; `tests/memory_bound.rs` counts allocations.
+- `try_spend` allocates nothing of its own; `tests/memory_bound.rs` counts
+  allocations. `parking_lot` allocates a thread's wait state the first time the
+  thread waits for a contended shard lock.
+- The `test-utils` feature exports `ManualClock` for other crates' tests.
 - The table is generic over its shard lock so the shuttle tests in
   `src/table/tests/interleavings.rs` run in every default test build. Keep
   them free of features and `cfg` gates.

@@ -35,30 +35,35 @@ impl Clock for SystemClock {
     }
 }
 
-#[cfg(test)]
-pub(crate) use manual::ManualClock;
+#[cfg(any(test, feature = "test-utils"))]
+pub use manual::ManualClock;
 
-// `xmtp_common` is only a dev-dependency, so its `if_only_test!` is not
-// available to library code.
-#[cfg(test)]
+#[cfg(any(test, feature = "test-utils"))]
 mod manual {
     use std::sync::Arc;
     use std::sync::atomic::{AtomicU64, Ordering};
 
-    /// A clock tests set by hand. Clones share one time.
+    /// A clock tests set by hand, starting at 0. Clones share one time.
     #[derive(Debug, Clone, Default)]
-    pub(crate) struct ManualClock(Arc<AtomicU64>);
+    pub struct ManualClock(Arc<AtomicU64>);
 
     impl ManualClock {
-        pub(crate) fn set(&self, now_ns: u64) {
+        pub fn new() -> Self {
+            Self::default()
+        }
+
+        /// Sets the time, in nanoseconds since the clock's start.
+        pub fn set(&self, now_ns: u64) {
             self.0.store(now_ns, Ordering::Relaxed);
         }
 
-        pub(crate) fn advance(&self, ns: u64) {
+        /// Moves the time forward, saturating at `u64::MAX`.
+        pub fn advance(&self, ns: u64) {
             self.set(self.now().saturating_add(ns));
         }
 
-        pub(crate) fn now(&self) -> u64 {
+        /// The time, in nanoseconds since the clock's start.
+        pub fn now(&self) -> u64 {
             self.0.load(Ordering::Relaxed)
         }
     }

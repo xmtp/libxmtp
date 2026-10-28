@@ -30,25 +30,34 @@ match limiter.try_spend(spend).await {
   implement it later; `MemoryLimiter` returns `std::future::Ready`.
 - **GCRA.** Each limit keeps one theoretical arrival time (TAT): when the
   caller's admitted spends under it are earned back. A spend of cost n against
-  a limit of count C and window W adds n × W / C, rounded down to a whole
-  nanosecond, and is admitted when the TAT ends up at most W past now. A spend
-  larger than C is admitted only at full allowance and then charged in full.
-  The arithmetic is exact in `u128` nanoseconds; TATs saturate at `u64::MAX`.
-  The retry delay is the exact wait, rounded up to a whole millisecond.
+  a limit of count C and window W is admitted when the TAT plus n × W / C,
+  compared exactly, ends up at most W past now; the TAT then advances by
+  n × W / C rounded down to a whole nanosecond. A spend larger than C is
+  admitted only at full allowance and then charged in full. The arithmetic is
+  in `u128` nanoseconds; TATs saturate at `u64::MAX`. The retry delay is the
+  exact wait, rounded up to a whole millisecond. TATs are matched to limits by
+  position, so a caller key is always spent in a category with the same limits
+  in the same order.
 - **A fixed table.** One 8-way set-associative table, allocated once from the
   memory budget. A slot is 32 bytes: a SipHash-1-3 hash of (category, caller
   key) under a 128-bit key drawn from the operating system at construction, and
-  three TATs. The set count need not be a power of two: a hash picks its shard
-  and set by multiply-shift. A slot whose TATs are all past is at full
+  three TATs. The set count need not be a power of two: one multiply-shift of
+  the hash picks its set among all sets, so every set takes an equal share. A
+  slot whose TATs are all past is at full
   allowance, the same as no slot, so it is reused in place and the table never
   sweeps. When a set has no such slot, the slot with the smallest largest TAT,
   the caller that has spent least, is forgotten, and `evictions()` counts it.
-- **Locks.** Contiguous groups of sets sit behind 1024 `parking_lot` mutexes
-  (fewer only for a table with fewer sets). The whole check and charge of a
-  spend runs under one of them. The table is generic over its lock so the
-  shuttle tests can check every interleaving.
+- **Locks.** Contiguous ranges of sets sit behind 1024 `parking_lot` mutexes.
+  A budget below about 485 KiB, under the configuration's 1 MiB minimum, gets
+  fewer, so the locks never take the slots below 95% of the budget. The whole
+  check and charge of a spend runs under one lock. The table is generic over
+  its lock so the shuttle tests can check every interleaving.
 - **No allocation after construction.** A spend hashes on the stack and writes
-  in place.
+  in place. The one exception is `parking_lot`'s own: the first time a thread
+  waits for a contended lock, it allocates that thread's wait state, and its
+  wait table grows with the number of threads.
+- **Test clock.** The `test-utils` feature exports `ManualClock`, a clock tests
+  set by hand, for `MemoryLimiter::with_clock`.
 
 ## Benchmark
 
@@ -71,9 +80,9 @@ per core), 15 GiB RAM, Linux 6.8, release profile:
 slot size:                32 bytes
 slots for 100 MiB:        3276032
 allocated for 100 MiB:    104857600 bytes, 32.008 bytes per slot
-1 thread, 1 caller           21.3 M spends/s (0.0% admitted)
+1 thread, 1 caller           22.1 M spends/s (0.0% admitted)
 1 thread, 100k callers        6.7 M spends/s (100.0% admitted)
-8 threads, 100k callers      42.5 M spends/s (100.0% admitted)
+8 threads, 100k callers      41.5 M spends/s (100.0% admitted)
 8 threads, 1 caller           7.3 M spends/s (0.0% admitted)
 ```
 
@@ -84,8 +93,9 @@ allocated for 100 MiB:    104857600 bytes, 32.008 bytes per slot
 - `src/memory/tests/admission.rs` and `denial.rs` check the admission rule from
   its definitions, that a denial charges nothing, and that the retry delay is
   exact to the millisecond.
-- `src/table/tests.rs` checks the layout and the eviction order;
+- `src/table/tests.rs` checks the layout, that keys spread over every set, the
+  eviction order, and three threads through the real shard lock;
   `src/table/tests/interleavings.rs` runs three threads under shuttle's
   exhaustive scheduler.
 - `tests/memory_bound.rs` counts allocations with a global allocator: the
-  table fits its budget, and spending never allocates.
+  table fits its budget, and spending on one thread allocates nothing.

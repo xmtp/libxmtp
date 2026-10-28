@@ -22,13 +22,18 @@ pub(crate) const FULL_ALLOWANCE: Tats = [0; MAX_LIMITS];
 /// stores nothing on a denial, so a denial charges no limit.
 ///
 /// For each limit with count C and window W, `excess` is how far the TAT lies
-/// past now and `add` is `cost × W / C` rounded down to a whole nanosecond, so
-/// `count` single units always fit one window. A cost of at most C is admitted
-/// when `excess + add` is at most W. A cost above C is admitted only at full
-/// allowance and then charged in full, so the caller waits until the rate has
-/// earned back the whole cost. Every product is formed in `u128`: a `u32` cost
-/// times the largest `Duration` in nanoseconds fits, so no per-unit interval
-/// is truncated first. Stored TATs saturate at `u64::MAX`.
+/// past now. A cost of at most C is admitted when `excess + cost × W / C` is at
+/// most W, compared exactly: TATs and W are whole nanoseconds, so comparing the
+/// added time rounded up gives the exact answer. The TAT then advances
+/// by the added time rounded down, so `count` single units always fit one
+/// window. A cost above C is admitted only at full allowance and then charged
+/// in full, so the caller waits until the rate has earned back the whole cost.
+/// Every product is formed in `u128`: a `u32` cost times the largest `Duration`
+/// in nanoseconds fits, so no per-unit interval is truncated first. Stored TATs
+/// saturate at `u64::MAX`.
+///
+/// The TATs are matched to `limits` by position, so a caller key and category
+/// must always be decided against the same limits in the same order.
 ///
 /// The caller handles a cost of 0 and an empty `limits` first, and passes at
 /// most [`MAX_LIMITS`] limits; a count of 0 is treated as 1.
@@ -42,13 +47,14 @@ pub(crate) fn decide(tats: &Tats, limits: &[Limit], cost: u32, now: u64) -> Resu
         let window = limit.window.as_nanos();
         let count = u128::from(limit.count.max(1));
         let excess = u128::from(tat).saturating_sub(now);
-        let add = cost * window / count;
+        // `cost × W / C`, rounded up for the exact check and down for the TAT.
+        let (checked, charged) = ((cost * window).div_ceil(count), cost * window / count);
         if cost > count {
             wait = wait.max(excess);
-        } else if excess + add > window {
-            wait = wait.max(excess + add - window);
+        } else if excess + checked > window {
+            wait = wait.max(excess + checked - window);
         }
-        *next = saturate(now + excess + add);
+        *next = saturate(now + excess + charged);
     }
     if wait > 0 {
         // At most the largest excess, which is below `u64::MAX`.

@@ -43,24 +43,127 @@ fn latest(tats: Tats) -> u64 {
     tats.into_iter().max().unwrap_or(0)
 }
 
+/// Every budget from about 5.6 KB up fits and fills at least 95% with slots.
+/// From about 485 KiB up, which covers every budget the configuration
+/// accepts, the table has 1024 shards.
 #[xmtp_common::test]
 fn the_layout_fills_the_budget() {
+    const FULL_SHARDS_FROM: usize = 496_640;
     let set_bytes = size_of::<Set>();
-    for budget in [MIB, 3 * MIB + 17, 100 * MIB, 1024 * MIB, 65536 * MIB] {
-        let (shards, sets) = layout(budget, ParkingTable::SHARD_BYTES);
+    let shard_bytes = ParkingTable::SHARD_BYTES;
+    let fits = |budget: usize| {
+        let (shards, sets) = layout(budget, shard_bytes);
+        assert!(shards >= 1 && sets >= shards, "{budget}");
         assert!(
-            shards * ParkingTable::SHARD_BYTES + sets * set_bytes <= budget,
+            shards * shard_bytes + sets * set_bytes <= budget,
             "{budget}"
         );
         assert!(
             sets * WAYS * 100 >= budget / size_of::<Slot>() * 95,
             "{budget}"
         );
-        assert_eq!(shards, MAX_SHARDS, "{budget}");
+        shards
+    };
+    let swept = (5600..2 * MIB).step_by(997);
+    for budget in swept.chain([5600, FULL_SHARDS_FROM - 1, 286_700, 400 << 10]) {
+        let shards = fits(budget);
+        assert_eq!(shards == MAX_SHARDS, budget >= FULL_SHARDS_FROM, "{budget}");
     }
-    // Small budgets spread what they buy one set per shard.
-    assert_eq!(layout(10 * (set_bytes + 24), 24), (10, 10));
-    assert_eq!(layout(0, 24), (1, 1));
+    for budget in [FULL_SHARDS_FROM, MIB, 3 * MIB + 17, 100 * MIB, 65536 * MIB] {
+        assert_eq!(fits(budget), MAX_SHARDS, "{budget}");
+    }
+    // A budget too small for one set and its shard still gets one.
+    assert_eq!(layout(0, shard_bytes), (1, 1));
+}
+
+/// One index over all sets: when shards differ in length, a set in a short
+/// shard takes no more hashes than one in a long shard.
+#[xmtp_common::test]
+fn every_set_takes_an_equal_share_of_hashes() {
+    const KEYS: usize = 30_000;
+    let table = ParkingTable::with_layout(2, 3);
+    let lens: Vec<usize> = table
+        .shards
+        .iter()
+        .map(|shard| shard.with(|sets| sets.len()))
+        .collect();
+    let mut counts = std::collections::BTreeMap::new();
+    for caller in 0..KEYS {
+        let (shard, set) = table.locate(table.hash(0, &key(caller)));
+        assert!(set < lens[shard]);
+        *counts.entry((shard, set)).or_insert(0usize) += 1;
+    }
+    assert_eq!(counts.len(), 3);
+    // 10,000 each, give or take 82.
+    for count in counts.values() {
+        assert!((9_000..=11_000).contains(count), "{counts:?}");
+    }
+}
+
+/// Keys spread over every set: a 1 MiB table half full of callers with spend
+/// left forgets about 1% of them, not most.
+#[xmtp_common::test]
+fn a_half_full_table_rarely_forgets_a_caller() {
+    let table = ParkingTable::new(MIB);
+    let limits = [Limit {
+        count: 1,
+        window: Duration::from_secs(3600),
+    }];
+    let keys = table.slots() / 2;
+    for caller in 0..keys {
+        assert_eq!(
+            spend(&table, 0, &key(caller), 0, &limits, 1),
+            Decision::Allowed
+        );
+    }
+    assert!(
+        table.evictions() * 50 < keys as u64,
+        "{} of {keys} forgotten",
+        table.evictions()
+    );
+}
+
+/// Three threads spending at once through the `parking_lot` shard lock admit
+/// what a serial run admits and leave no partial charge: the hour limit denies
+/// the third spend after the minute limit admitted it.
+#[xmtp_common::test]
+fn concurrent_spends_through_the_shard_lock_admit_exactly() {
+    use std::sync::atomic::AtomicUsize;
+    const ROUNDS: usize = 10_000;
+    const THREADS: usize = 3;
+    let limits = [
+        Limit {
+            count: 3,
+            window: Duration::from_secs(60),
+        },
+        Limit {
+            count: 2,
+            window: Duration::from_secs(3600),
+        },
+    ];
+    let tables: Vec<ParkingTable> = (0..ROUNDS).map(|_| one_set()).collect();
+    let arrived = AtomicUsize::new(0);
+    std::thread::scope(|scope| {
+        for _ in 0..THREADS {
+            scope.spawn(|| {
+                for (round, table) in tables.iter().enumerate() {
+                    // A spinning start line, so the threads spend within
+                    // moments of one another.
+                    arrived.fetch_add(1, Ordering::SeqCst);
+                    while arrived.load(Ordering::SeqCst) < THREADS * (round + 1) {
+                        std::hint::spin_loop();
+                    }
+                    spend(table, 0, b"caller", 0, &limits, 1);
+                }
+            });
+        }
+    });
+    for table in &tables {
+        assert_eq!(
+            table.tats(0, b"caller"),
+            Some([40 * SECOND, 3600 * SECOND, 0])
+        );
+    }
 }
 
 #[xmtp_common::test]

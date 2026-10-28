@@ -8,7 +8,8 @@ const CALLERS: [&[u8]; 6] = [b"", b"a", b"b", b"api_key:bridge-bot", &[0; 9], &[
 const CATEGORIES: [u8; 3] = [0, 1, 255];
 
 /// One TAT per limit for every (caller, category) ever charged, with no
-/// capacity bound, applying the admission arithmetic directly.
+/// capacity bound, applying the admission arithmetic directly: an exact
+/// comparison, and TATs advanced by the added time rounded down.
 #[derive(Default)]
 struct Model {
     tats: BTreeMap<(usize, usize), [u64; MAX_LIMITS]>,
@@ -28,14 +29,16 @@ impl Model {
             let tat = u128::from(tats[i]);
             let excess = tat.saturating_sub(now);
             let (count, window) = (u128::from(limit.count), limit.window.as_nanos());
-            let add = cost * window / count;
             if cost > count {
                 if excess > 0 {
                     deny = deny.max(excess);
                 }
-            } else if excess + add > window {
-                deny = deny.max(excess + add - window);
+            } else if excess * count + cost * window > window * count {
+                // excess + cost × W / C > W in exact rationals; the wait is the
+                // excess over W, rounded up to a whole nanosecond.
+                deny = deny.max((excess * count + cost * window - window * count).div_ceil(count));
             }
+            let add = cost * window / count;
             next[i] = u64::try_from(now + excess + add).unwrap_or(u64::MAX);
         }
         if deny > 0 {

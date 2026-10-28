@@ -16,6 +16,10 @@ getrandom.workspace = true
 parking_lot.workspace = true
 siphasher.workspace = true
 
+[features]
+# `ManualClock`, for tests in crates that use the limiter.
+test-utils = []
+
 [dev-dependencies]
 proptest.workspace = true
 shuttle.workspace = true

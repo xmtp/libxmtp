@@ -81,10 +81,22 @@ impl Clock for TestClock {
     }
 }
 
+/// From small budgets the configuration does not accept to large ones.
 // verifies: RATE-050
 #[xmtp_common::test]
 fn the_table_fits_its_budget() {
-    for budget in [MIB, 3 * MIB + 17, 100 * MIB] {
+    let budgets = [
+        8 << 10,
+        64 << 10,
+        256 << 10,
+        286_700,
+        400 << 10,
+        484 << 10,
+        MIB,
+        3 * MIB + 17,
+        100 * MIB,
+    ];
+    for budget in budgets {
         let (limiter, bytes, _) = measure(|| MemoryLimiter::new(budget));
         assert!(bytes <= budget, "{bytes} bytes for a budget of {budget}");
         assert!(
@@ -96,7 +108,9 @@ fn the_table_fits_its_budget() {
 }
 
 /// A flood of fresh callers in a full table, with denials, oversized costs,
-/// and every limit count, allocates nothing once the limiter exists.
+/// and every limit count, allocates nothing once the limiter exists. One
+/// thread spends, so no shard lock is contended: a thread that waits for one
+/// lets `parking_lot` allocate that thread's wait state once.
 // verifies: RATE-050
 #[xmtp_common::test]
 fn spending_never_allocates() {

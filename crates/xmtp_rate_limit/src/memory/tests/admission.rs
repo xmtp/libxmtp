@@ -65,6 +65,40 @@ fn admits_exactly_what_the_admission_rule_admits() {
         .unwrap();
 }
 
+/// The comparison is exact when C does not divide n × W: a spend the added
+/// time rounded down would fit, but the exact added time does not, is denied
+/// until the nanosecond the exact time fits.
+#[xmtp_common::test]
+fn the_admission_check_is_exact_below_a_nanosecond() {
+    // 3 per 10 ns: three units at 0 leave a TAT of 9 ns, and at 2 ns a fourth
+    // needs 7 + 10/3 ns.
+    let tiny = [Limit {
+        count: 3,
+        window: Duration::from_nanos(10),
+    }];
+    // 7 per minute, after a burst of 7, 1 ns before the eighth fits.
+    let minute = [limit(7, 60)];
+    for (limits, burst, denied_at) in [(&tiny, 3, 2), (&minute, 7, 8_571_428_568)] {
+        let (limiter, clock) = limiter();
+        let mut rule = Rule::default();
+        for _ in 0..burst {
+            assert_eq!(spend(&limiter, limits, 1), Decision::Allowed);
+            rule.charge(limits, 1, 0);
+        }
+        clock.set(denied_at);
+        assert!(!rule.admits(limits, 1, denied_at));
+        assert_eq!(
+            spend(&limiter, limits, 1),
+            Decision::Denied {
+                retry_after: Duration::from_millis(1)
+            }
+        );
+        clock.set(denied_at + 1);
+        assert!(rule.admits(limits, 1, denied_at + 1));
+        assert_eq!(spend(&limiter, limits, 1), Decision::Allowed);
+    }
+}
+
 /// A spend of 2C waits until an earlier spend is earned back, is then
 /// admitted, and is charged in full: the next single unit waits W + W/C.
 #[xmtp_common::test]
@@ -210,11 +244,19 @@ fn a_zero_count_counts_as_one() {
     );
 }
 
-/// Limits after the third have no slot to be recorded in, so they are ignored.
+/// Limits after the third have no slot to be recorded in. Debug builds stop on
+/// such a list; release builds ignore the extra limits.
 #[xmtp_common::test]
-fn limits_after_the_third_are_ignored() {
+fn more_than_three_limits_panic_in_debug_and_are_cut_in_release() {
     let (limiter, _clock) = limiter();
     let limits = [limit(5, 60), limit(5, 120), limit(5, 180), limit(1, 240)];
-    assert_eq!(spend(&limiter, &limits, 1), Decision::Allowed);
-    assert_eq!(spend(&limiter, &limits, 1), Decision::Allowed);
+    let first =
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| spend(&limiter, &limits, 1)));
+    if cfg!(debug_assertions) {
+        assert!(first.is_err());
+        assert_eq!(tats(&limiter), None);
+    } else {
+        assert_eq!(first.ok(), Some(Decision::Allowed));
+        assert_eq!(spend(&limiter, &limits, 1), Decision::Allowed);
+    }
 }

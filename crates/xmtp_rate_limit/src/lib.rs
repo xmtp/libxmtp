@@ -23,6 +23,8 @@ mod table;
 use std::future::Future;
 use std::time::Duration;
 
+#[cfg(any(test, feature = "test-utils"))]
+pub use clock::ManualClock;
 pub use clock::{Clock, SystemClock};
 pub use memory::MemoryLimiter;
 
@@ -49,8 +51,14 @@ pub struct Spend<'a> {
     /// The caller key bytes; the server forms them.
     pub key: &'a [u8],
     pub category: u8,
-    /// At most [`MAX_LIMITS`] limits, each on a different window; entries after
-    /// the last of those are ignored. An empty slice admits every spend.
+    /// At most [`MAX_LIMITS`] limits, each on a different window. An empty
+    /// slice admits every spend.
+    ///
+    /// The limiter matches its stored state to these limits by position, so a
+    /// caller key must always be spent in a category with the same limits in
+    /// the same order. A different list reads state recorded for another limit.
+    /// Debug builds panic on a longer list; release builds ignore the limits
+    /// after the last that fits.
     pub limits: &'a [Limit],
     /// A cost of 0 is admitted without a charge.
     pub cost: u32,

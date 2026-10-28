@@ -8,7 +8,7 @@ use proptest::test_runner::{Config, TestRunner};
 
 use super::*;
 use crate::Limit;
-use crate::clock::ManualClock;
+use crate::ManualClock;
 use crate::gcra::Tats;
 
 mod admission;
@@ -61,8 +61,11 @@ fn tats<C: Clock>(limiter: &MemoryLimiter<C>) -> Option<Tats> {
 
 /// Small counts, so sequences hit denials and oversized costs, with windows in
 /// whole nanoseconds that do not divide evenly into units or milliseconds.
+/// Windows of a few nanoseconds, with the advances to match, put spends on the
+/// nanosecond where a rounded comparison and an exact one differ.
 fn limits_strategy(lengths: std::ops::RangeInclusive<usize>) -> impl Strategy<Value = Vec<Limit>> {
-    proptest::collection::vec((1u32..=40, 1..=3600 * SECOND), lengths).prop_map(|limits| {
+    let window = prop_oneof![1..=100u64, 1..=3600 * SECOND];
+    proptest::collection::vec((1u32..=40, window), lengths).prop_map(|limits| {
         limits
             .into_iter()
             .map(|(count, window)| Limit {
@@ -75,7 +78,13 @@ fn limits_strategy(lengths: std::ops::RangeInclusive<usize>) -> impl Strategy<Va
 
 /// Clock advances from none to well past every window.
 fn advance_strategy() -> impl Strategy<Value = u64> {
-    prop_oneof![Just(0), 0..MILLI, 0..10 * SECOND, 0..7200 * SECOND]
+    prop_oneof![
+        Just(0),
+        0..20u64,
+        0..MILLI,
+        0..10 * SECOND,
+        0..7200 * SECOND
+    ]
 }
 
 fn runner() -> TestRunner {
@@ -97,7 +106,7 @@ fn memory_limiter_answers_with_a_ready_future() {
     }
     fn assert_send<T: Send>(_: &T) {}
 
-    let limiter = MemoryLimiter::new(BUDGET);
+    let (limiter, _clock) = limiter();
     let limits = [limit(1, 60)];
     let spend = Spend {
         key: KEY,
