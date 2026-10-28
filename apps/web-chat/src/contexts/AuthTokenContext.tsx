@@ -9,6 +9,7 @@ import {
   useState,
 } from "react";
 
+import { backendOrigin } from "@/helpers/backend";
 import { useSettings } from "@/hooks/useSettings";
 
 /**
@@ -41,6 +42,8 @@ const EMPTY_TOKEN_PROBE = "";
 export type AuthTokenRequest = {
   /** Identifies one prompt, including updates to its rejection notice. */
   id: string;
+  /** The backend origin the entered token is saved for and sent to. */
+  origin: string;
   /** Set when the backend rejected a token we already supplied. */
   rejected: boolean;
   /** Resolves every callback waiting on this prompt. */
@@ -52,9 +55,10 @@ export type AuthTokenContextValue = {
    * Builds a callback for one consumer. Each SDK client keeps its own
    * credential cache, so each gets its own memo of what it has offered:
    * a memo shared across clients would read a fresh client's first ask as a
-   * rejection of a token that client never sent.
+   * rejection of a token that client never sent. A callback offers only the
+   * token stored for the backend it was built for.
    */
-  createCredentialSource: () => CredentialSource;
+  createCredentialSource: (backendUrl: string) => CredentialSource;
   /** Non-null while the modal should be open. */
   request: AuthTokenRequest | null;
   /** Open the prompt from the settings panel, outside a backend request. */
@@ -73,18 +77,25 @@ export const AuthTokenContext = createContext<AuthTokenContextValue>({
 export const AuthTokenProvider: React.FC<React.PropsWithChildren> = ({
   children,
 }) => {
-  const { authToken, setAuthToken } = useSettings();
+  const { authTokens, backendUrl, setAuthTokens } = useSettings();
   const [request, setRequest] = useState<AuthTokenRequest | null>(null);
   // Read inside the callback so a token saved after the client was built is
   // picked up without rebuilding the callback identity.
-  const authTokenRef = useRef(authToken);
+  const authTokensRef = useRef(authTokens);
   useEffect(() => {
-    authTokenRef.current = authToken;
-  }, [authToken]);
+    authTokensRef.current = authTokens;
+  }, [authTokens]);
+  // The token stored before tokens were kept per backend has no known
+  // destination, so it is dropped rather than migrated.
+  useEffect(() => {
+    localStorage.removeItem("XMTP_AUTH_TOKEN");
+  }, []);
   // Every callback waiting on the open prompt. Concurrent asks — a reconnect
   // and an inbox tools query, say — must all be answered by one submission;
   // keeping a single resolver would strand every ask but the newest.
-  const waitingRef = useRef<((token: string) => void)[]>([]);
+  const waitingRef = useRef<
+    { origin: string; resolve: (token: string) => void }[]
+  >([]);
   // Bumped whenever the user submits a token. A consumer's memo is discarded
   // when it is stale, so a token entered after a rejection is offered to every
   // client rather than being treated as already refused.
@@ -101,23 +112,31 @@ export const AuthTokenProvider: React.FC<React.PropsWithChildren> = ({
   );
 
   const openPrompt = useCallback(
-    (rejected: boolean) => {
+    (rejected: boolean, origin: string) => {
       const id = crypto.randomUUID();
       setRequest(
         (current) =>
           current ?? {
             id,
+            origin,
             rejected,
             resolve: (token: string) => {
               const trimmed = token.trim();
               // Callbacks can run before React commits the saved token.
-              authTokenRef.current = trimmed;
+              authTokensRef.current = {
+                ...authTokensRef.current,
+                [origin]: trimmed,
+              };
               generationRef.current += 1;
-              setAuthToken(trimmed);
+              setAuthTokens((tokens) => ({ ...tokens, [origin]: trimmed }));
               setRequest(null);
               const waiting = waitingRef.current;
               waitingRef.current = [];
-              for (const resolve of waiting) resolve(trimmed);
+              // A waiter for another backend gets the empty credential, which
+              // that backend refuses; a later ask prompts for its own backend.
+              for (const w of waiting) {
+                w.resolve(w.origin === origin ? trimmed : "");
+              }
             },
           },
       );
@@ -125,62 +144,69 @@ export const AuthTokenProvider: React.FC<React.PropsWithChildren> = ({
       // later ask proves the supplied credential was refused.
       if (rejected) {
         setRequest((current) =>
-          current && !current.rejected
+          current && !current.rejected && current.origin === origin
             ? { ...current, rejected: true }
             : current,
         );
       }
     },
-    [setAuthToken],
+    [setAuthTokens],
   );
 
-  const createCredentialSource = useCallback<() => CredentialSource>(() => {
-    // Per consumer, matching one SDK credential cache.
-    let supplied = new Set<string>();
-    let generation = generationRef.current;
+  const createCredentialSource = useCallback(
+    (url: string): CredentialSource => {
+      const origin = backendOrigin(url);
+      // Per consumer, matching one SDK credential cache.
+      let supplied = new Set<string>();
+      let generation = generationRef.current;
 
-    return {
-      credential: () => {
-        if (generation !== generationRef.current) {
-          // A newer token exists than anything this consumer has offered.
-          supplied = new Set<string>();
-          generation = generationRef.current;
-        }
-        const stored = authTokenRef.current.trim();
+      return {
+        credential: () => {
+          if (generation !== generationRef.current) {
+            // A newer token exists than anything this consumer has offered.
+            supplied = new Set<string>();
+            generation = generationRef.current;
+          }
+          const stored = (authTokensRef.current[origin] ?? "").trim();
 
-        // A token this consumer has not yet offered: hand it over and wait to
-        // see whether the backend accepts it.
-        if (stored !== "" && !supplied.has(stored)) {
-          supplied.add(stored);
-          return Promise.resolve(credentialFor(stored));
-        }
+          // A token this consumer has not yet offered: hand it over and wait to
+          // see whether the backend accepts it.
+          if (stored !== "" && !supplied.has(stored)) {
+            supplied.add(stored);
+            return Promise.resolve(credentialFor(stored));
+          }
 
-        // No token stored, and this consumer has not probed yet. The deployment
-        // may not want one at all, so answer with an empty credential rather
-        // than interrupting the user. A deployment that needs auth rejects this
-        // and asks again.
-        if (stored === "" && !supplied.has(EMPTY_TOKEN_PROBE)) {
-          supplied.add(EMPTY_TOKEN_PROBE);
-          return Promise.resolve(credentialFor(EMPTY_TOKEN_PROBE));
-        }
+          // No token stored, and this consumer has not probed yet. The deployment
+          // may not want one at all, so answer with an empty credential rather
+          // than interrupting the user. A deployment that needs auth rejects this
+          // and asks again.
+          if (stored === "" && !supplied.has(EMPTY_TOKEN_PROBE)) {
+            supplied.add(EMPTY_TOKEN_PROBE);
+            return Promise.resolve(credentialFor(EMPTY_TOKEN_PROBE));
+          }
 
-        // Everything this consumer has has been offered and refused. Hold the
-        // promise until the user submits: rejecting would fail the request that
-        // triggered this and, repeated, reach the backend's consecutive-failure
-        // lockout.
-        return new Promise<Credential>((resolve) => {
-          waitingRef.current.push((token: string) => {
-            resolve(credentialFor(token));
+          // Everything this consumer has has been offered and refused. Hold the
+          // promise until the user submits: rejecting would fail the request that
+          // triggered this and, repeated, reach the backend's consecutive-failure
+          // lockout.
+          return new Promise<Credential>((resolve) => {
+            waitingRef.current.push({
+              origin,
+              resolve: (token: string) => {
+                resolve(credentialFor(token));
+              },
+            });
+            openPrompt(stored !== "", origin);
           });
-          openPrompt(stored !== "");
-        });
-      },
-    };
-  }, [credentialFor, openPrompt]);
+        },
+      };
+    },
+    [credentialFor, openPrompt],
+  );
 
   const promptForToken = useCallback(() => {
-    openPrompt(false);
-  }, [openPrompt]);
+    openPrompt(false, backendOrigin(backendUrl));
+  }, [backendUrl, openPrompt]);
 
   const value = useMemo(
     () => ({ createCredentialSource, request, promptForToken }),

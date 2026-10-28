@@ -26,6 +26,10 @@ export const isValidBackendUrl = (value: string): boolean => {
 export const backendHost = (value: string): string =>
   parseBackendUrl(value).host;
 
+/** Auth tokens are stored by this, so each goes only to its own backend. */
+export const backendOrigin = (value: string): string =>
+  isValidBackendUrl(value) ? parseBackendUrl(value).origin : "";
+
 export const backendLabel = async (value: string): Promise<string> => {
   const url = parseBackendUrl(value);
   const port = url.port || (url.protocol === "https:" ? "443" : "80");

@@ -88,7 +88,7 @@ export const useMemberId = () => {
         // credential source: with auth on, identity lookups need a credential
         const backend = {
           url: backendUrl,
-          credentials: createCredentialSource(),
+          credentials: createCredentialSource(backendUrl),
         };
         void lookUp(memberId, backend).then((result) => {
           if (current) setLookup({ memberId, backendUrl, ...result });

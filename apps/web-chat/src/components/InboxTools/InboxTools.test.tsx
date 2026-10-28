@@ -17,7 +17,7 @@ import { InboxTools } from "./InboxTools";
 const mocks = vi.hoisted(() => ({
   inboxId: "a".repeat(64),
   backendUrl: "https://one.example",
-  authCallback: vi.fn(),
+  createCredentialSource: (url: string) => ({ url }),
   signMessageAsync: vi.fn(),
   latestInboxUpdatesCount: vi.fn(),
   setMemberId: vi.fn(),
@@ -46,7 +46,9 @@ vi.mock("@/hooks/useSettings", () => ({
   useSettings: () => ({ backendUrl: mocks.backendUrl }),
 }));
 vi.mock("@/contexts/AuthTokenContext", () => ({
-  useAuthToken: () => ({ createCredentialSource: () => mocks.authCallback }),
+  useAuthToken: () => ({
+    createCredentialSource: mocks.createCredentialSource,
+  }),
 }));
 vi.mock("@/helpers/backend", () => ({
   backendLabel: () => Promise.resolve("local"),
@@ -148,6 +150,10 @@ describe("InboxTools query state", () => {
       screen.getByRole("button", { name: "Check updates count" }),
     );
     await screen.findByText("456");
+    expect(fetch).toHaveBeenLastCalledWith(
+      [mocks.inboxId],
+      expect.objectContaining({ credentials: { url: "https://two.example" } }),
+    );
     await act(async () => {
       pending.resolve(new Map([[mocks.inboxId, 123n]]));
       await pending.promise;
