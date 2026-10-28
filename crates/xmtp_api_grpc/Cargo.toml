@@ -59,6 +59,7 @@ tower.workspace = true
 
 [dev-dependencies]
 futures-test.workspace = true
+prost-types.workspace = true
 rstest.workspace = true
 xmtp_logging = { workspace = true, features = ["test-utils"] }
 xmtp_proto = { workspace = true, features = ["test-utils-network"] }

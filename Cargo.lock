@@ -12653,6 +12653,7 @@ dependencies = [
  "pbjson-types",
  "pin-project",
  "prost",
+ "prost-types",
  "rstest",
  "thiserror 2.0.19",
  "tokio",

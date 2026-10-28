@@ -633,6 +633,34 @@ pub(crate) mod tests {
         assert_eq!(starts[0], tokio::time::Instant::now());
     }
 
+    /// On the real clock, a wait that fits the whole budget but not what is
+    /// left of it returns at once.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[xmtp_macro::test]
+    async fn a_rate_limit_wait_past_the_remaining_budget_returns_at_once() {
+        let retry = Retry::builder()
+            .retries(5)
+            .with_strategy(
+                ExponentialBackoff::builder()
+                    .duration(Duration::ZERO)
+                    .max_jitter(Duration::ZERO)
+                    .total_wait_max(Duration::from_millis(300))
+                    .build(),
+            )
+            .build();
+        let mut attempts = 0;
+        let result: Result<(), RateLimited> = retry_async!(
+            retry,
+            (async {
+                attempts += 1;
+                crate::time::sleep(Duration::from_millis(200)).await;
+                Err(RateLimited(Duration::from_millis(150)))
+            })
+        );
+        assert!(result.is_err());
+        assert_eq!(attempts, 1);
+    }
+
     #[xmtp_macro::test]
     fn backoff_at_least_keeps_the_longer_backoff() {
         let retry = Retry::default();

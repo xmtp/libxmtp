@@ -78,11 +78,31 @@ where
     }
 }
 
+/// A wait longer than any process lives. An instant or deadline that would
+/// overflow saturates to this far ahead instead of panicking.
+pub const FAR_FUTURE: Duration = Duration::from_secs(100 * 365 * 24 * 60 * 60);
+
+/// The instant `duration` after `now`, saturating at [`FAR_FUTURE`].
+pub fn saturating_after(now: Instant, duration: Duration) -> Instant {
+    now.checked_add(duration)
+        .unwrap_or_else(|| now + FAR_FUTURE)
+}
+
 #[doc(hidden)]
 pub async fn sleep(duration: Duration) {
     wasm_or_native! {
         native => {tokio::time::sleep(duration).await},
-        wasm => {gloo_timers::future::sleep(duration).await},
+        wasm => {
+            // A browser timer fires at once past i32::MAX milliseconds, and
+            // gloo panics past u32::MAX. Wait in pieces it can hold.
+            const MAX_TIMER: Duration = Duration::from_millis(i32::MAX as u64);
+            let mut left = duration;
+            while left > MAX_TIMER {
+                gloo_timers::future::sleep(MAX_TIMER).await;
+                left -= MAX_TIMER;
+            }
+            gloo_timers::future::sleep(left).await
+        },
     }
 }
 
@@ -167,6 +187,18 @@ pub fn jittered_interval_stream(
 mod tests {
     use super::*;
     use crate::ErrorCode;
+
+    /// A delay no clock can hold saturates instead of panicking.
+    #[test]
+    fn an_unrepresentable_delay_saturates() {
+        let now = Instant::now();
+        let until = saturating_after(now, Duration::MAX);
+        assert!(until >= now + FAR_FUTURE);
+        assert_eq!(
+            saturating_after(now, Duration::from_secs(5)),
+            now + Duration::from_secs(5)
+        );
+    }
 
     #[test]
     fn test_expired_error_code() {
