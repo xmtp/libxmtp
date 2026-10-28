@@ -267,23 +267,31 @@ async fn restored_history_dm_creation_does_not_synthesize_allowed_consent() {
     }
     // A restored DM of the same pair without its own record inherits the
     // pair's, whether it is stored already or follows in the same archive,
-    // which lists every group before any consent.
+    // which lists every group before any consent. A live DM keeps its own.
     tester!(cara, disable_workers);
+    let denied_at = |id: &[u8], consented_at_ns| StoredConsentRecord {
+        entity_type: ConsentType::ConversationId,
+        state: ConsentState::Denied,
+        entity: hex::encode(id),
+        consented_at_ns,
+    };
+    let live = saved_group(11, true);
+    let live_id = GroupId::try_from(live.id.as_slice())?;
+    apply(&cara.context, vec![group_element(live.clone())]).await?;
+    cara.db()
+        .update_group_membership(live_id, GroupMembershipState::Allowed)?;
+    cara.db()
+        .insert_newer_consent_record(denied_at(&live.id, 20))?;
     let sibling = saved_group(10, true);
     let sibling_denied = BackupElement {
-        element: Some(Element::Consent(
-            StoredConsentRecord {
-                entity_type: ConsentType::ConversationId,
-                state: ConsentState::Denied,
-                entity: hex::encode(&sibling.id),
-                consented_at_ns: 30,
-            }
-            .into(),
-        )),
+        element: Some(Element::Consent(denied_at(&sibling.id, 30).into())),
     };
     for (client, later) in [
         (&alix, vec![]),
-        (&cara, vec![group_element(sibling), sibling_denied]),
+        (
+            &cara,
+            vec![group_element(live), group_element(sibling), sibling_denied],
+        ),
     ] {
         let save = saved_group(9, true);
         let mut elements = vec![group_element(save.clone())];
@@ -299,6 +307,10 @@ async fn restored_history_dm_creation_does_not_synthesize_allowed_consent() {
         let listed = client.find_groups(GroupQueryArgs::default())?;
         assert!(listed.iter().all(|group| group.dm_id != save.dm_id));
     }
+    let live = cara
+        .db()
+        .get_consent_record(hex::encode(live_id), ConsentType::ConversationId)??;
+    assert_eq!(live.consented_at_ns, 20, "the restore wrote a live DM");
 }
 
 /// Opening a DM with a peer whose restored DM is denied creates a DM that
