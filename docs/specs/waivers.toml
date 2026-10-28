@@ -393,6 +393,13 @@ issue = "https://github.com/xmtp/libxmtp/issues/4696"
 reason = "The backend has no `rate_limits.enabled` setting and no limiter to disable."
 
 [[waiver]]
+id = "RATE-014"
+kind = "gap"
+owner = "backend"
+issue = "https://github.com/xmtp/libxmtp/issues/4696"
+reason = "The backend has no `request` charge, so no denied `request` spend decides a request's status before the API status table, a bound, or an admission table of PUSH or ATCH."
+
+[[waiver]]
 id = "RATE-020"
 kind = "gap"
 owner = "backend"
@@ -475,6 +482,13 @@ kind = "gap"
 owner = "backend"
 issue = "https://github.com/xmtp/libxmtp/issues/4696"
 reason = "The backend holds no rate-limit state, so it never forgets a caller key's state to admit another."
+
+[[waiver]]
+id = "RATE-052"
+kind = "gap"
+owner = "backend"
+issue = "https://github.com/xmtp/libxmtp/issues/4696"
+reason = "The backend holds no rate-limit state, so it keeps no caller key's state until its spends are earned back."
 
 [[waiver]]
 id = "PUSH-267"

@@ -52,13 +52,13 @@ A backend runs behind a proxy, which terminates TLS and connects from its own ad
 
 The category table is the whole list of charges. A request charges only the categories whose rows name it; a health request, a `GetConfiguration` request, and a request to a path no service implements charge nothing. A cost is counted in the request as the backend received it, before duplicates or repeated topics are merged. A step is charged before it runs, so a denied step does no work, and a step an earlier denial prevented is never charged.
 
-Every charged RPC spends 1 `request` unit. Every other charge is spent by the step that does the work it pays for, before that work (RATE-010). Each category's cost for one step is spent whole, in one spend. A request refused after a spend keeps that spend and is charged nothing more.
+Every charged RPC spends 1 `request` unit, and a denial of that spend decides the request's status before any other check (RATE-014). Every other charge is spent by the step that does the work it pays for, before that work (RATE-010). Each category's cost for one step is spent whole, in one spend. A request refused after a spend keeps that spend and is charged nothing more.
 
-A `request` unit pays for one RPC or for one read of the store a stream makes to catch up. Reading one topic and reading the most topics the request bounds of API section 7 allow cost the same unit, because both are one read of the store and those bounds cap the work of one read.
+A `request` unit pays for one RPC, for one read of the store a stream makes to catch up, or for the read of the catch-up target of an `Update` that adds topics. Reading one topic and reading the most topics the request bounds of API section 7 allow cost the same unit, because both are one read of the store and those bounds cap the work of one read.
 
 | Category | Unit | Charged by | Cost |
 | --- | --- | --- | --- |
-| `request` | request or store read | every charged RPC; each read of the store a stream makes to catch up its registrations | 1 |
+| `request` | request or store read | every charged RPC; each read of the store a stream makes to catch up its registrations; each `Update` that adds a topic, for the read of its catch-up target | 1 |
 | `publish` | envelope | `Publish` | The number of entries in `envelopes`, or 1 when there are none |
 | `identity_update` | identity update | `Publish` | The number of entries in `envelopes` whose payload is an `IdentityUpdate` |
 | `chain_verify` | signature | `Publish`; `VerifySmartContractWalletSignatures` | For a publish, the number of ERC-6492 signatures across its identity updates; for a verify request, the number of request entries, or 1 when there are none |
@@ -71,6 +71,7 @@ A `request` unit pays for one RPC or for one read of the store a stream makes to
 | RATE-010 | Charge before work | When a request reaches a step the category table charges, the backend MUST spend that step's cost for the request's caller key before it reads the store, calls a chain, stores an envelope, registers a topic, stores a subscription, or obtains a storage credential for that step, and when the spend is denied MUST NOT perform the step. | A charge after the work lets a caller over its limit still make the backend do the work. |
 | RATE-011 | Only the category table charges | The backend MUST NOT charge a request a category the category table does not give it, or more units of a category than the table gives it, and MUST NOT charge a health request, a `GetConfiguration` request, a request to a path no service implements, or a request that auth rejects. | An operator sizes a limit from the table; a charge it does not list denies callers for work they did not do, and a charged `GetConfiguration` locks a client out of learning the deployment's requirements. |
 | RATE-012 | Exempt while disabled | While `rate_limits.enabled` is `false`, the backend MUST NOT deny any request or stream under this spec. | |
+| RATE-014 | Request charge first | When the `request` spend of a charged RPC is denied, the backend MUST fail the request with the rejection RATE-040 gives, whatever condition of the API status table, a bound of API section 7 or PUSH-264, or an admission table of PUSH or ATCH the request also meets. | A rule that let a later check decide the code would make the backend decode and validate a request it refuses for its caller's allowance. |
 
 ## 3. Limits
 
@@ -97,7 +98,7 @@ The limits that apply come from the most specific configuration that names the c
 
 ## 4. Streams
 
-A stream costs the backend memory for every topic it holds, for as long as it stays open, and a read of the store for every batch of history it catches up on. Delivering a live envelope costs almost nothing: the backend reads each new envelope once and hands it to every stream that holds its topic. A stream therefore pays rent for what it holds and a `request` unit for each catch-up read, and live delivery is free.
+A stream costs the backend memory for every topic it holds, for as long as it stays open, and a read of the store for every batch of history it catches up on. Delivering a live envelope costs almost nothing: the backend reads each new envelope once and hands it to every stream that holds its topic. A stream therefore pays rent for what it holds, a `request` unit for each catch-up read, and a `request` unit for the catch-up target of each `Update` that adds a topic, and live delivery is free.
 
 Rent is prepaid for each 60-second period, starting at open, so it also bounds how many streams a caller can open and keep open. An `Update` that raises the rent within a period pays the difference before its topics are registered; one that lowers it is not refunded. When any rent spend is denied, the backend ends the stream, because ending it is the only way to release what it holds; the client reconnects from its cursors, so nothing is skipped (API-254), and the rejection's retry delay covers the whole rent the replacement stream pays for those topics, its open included (RATE-032). When a catch-up read is denied, the backend reads nothing for those registrations until the retry delay has passed, and keeps the stream open.
 
@@ -122,7 +123,7 @@ A rate-limit rejection says that the request was refused for its caller's allowa
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
 | RATE-040 | Rejection details | When the backend fails a request or a stream because a spend was denied, it MUST attach to the status the `google.rpc.ErrorInfo` and `google.rpc.RetryInfo` details the rejection table gives, and MUST NOT put the caller key, the client address, or any credential value in the status message. | A client that cannot tell a rate limit from an oversized request splits the request and multiplies the load (CONF-073). |
-| RATE-041 | Client waits the retry delay | When a request or a stream fails with an `ErrorInfo` whose `reason` is `RATE_LIMITED` and whose `domain` is `xmtp.org`, the client MUST NOT retry that request, or open a stream to replace that stream, before the `RetryInfo` delay has passed, and MUST NOT split that request into smaller requests because of the rejection. | A retry or a reopened stream inside the delay is denied again and spends the caller's allowance on nothing. |
+| RATE-041 | Client waits the retry delay | When a request or a stream fails with an `ErrorInfo` whose `reason` is `RATE_LIMITED` and whose `domain` is `xmtp.org`, the client MUST NOT resend that request through its own retry of the refused call, or open a stream to replace that stream, before the `RetryInfo` delay has passed, and MUST NOT split that request into smaller requests because of the rejection. When such a rejection carries no `RetryInfo`, or a negative `retry_delay`, the client MUST treat the delay as 0. | A retry or a reopened stream inside the delay is denied again and spends the caller's allowance on nothing. |
 
 ## 6. Memory
 
@@ -132,6 +133,7 @@ The limiter's memory is fixed by `rate_limits.max_memory_mib` and does not grow 
 | --- | --- | --- | --- |
 | RATE-050 | Memory bound | The backend MUST NOT hold more than `rate_limits.max_memory_mib` MiB of rate-limit state, whatever the number of caller keys. | A flood of fresh addresses would otherwise grow the state until the instance is killed. |
 | RATE-051 | Full state never denies | When the rate-limit state is full, the backend MUST NOT deny a spend because its caller key has no state recorded and none can be, and MUST forget another caller key's state instead. | Refusing new callers when full lets a flood of fresh keys deny service to every caller it did not already know. |
+| RATE-052 | State is kept until earned back | The backend MUST keep a caller key's state for a limit until every spend the instance admitted under that limit for that key is earned back, unless it forgets that state under RATE-051 or the instance restarts. | A limiter that forgets state early admits more than the limit, and no other row refuses it. |
 
 ## Known limitations
 

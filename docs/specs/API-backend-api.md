@@ -503,7 +503,7 @@ The status table maps each failure a client can meet to the code it receives. A 
 | A chain RPC or verifier failure (API-231); the store is unreachable; a stream is opened or running while the backend is recovering its stream state; the backend is shutting down | `UNAVAILABLE` |
 | A publish or a store operation exceeds the backend's own time limit; a `Pong` did not arrive, or the transport did not take a queued `Ping` (API-257) | `DEADLINE_EXCEEDED` |
 | A stream's frame bucket is exhausted (API-258); a stream's output cannot be queued because the client is not reading; a stored envelope cannot fit a frame; a `Started`, `Applied`, `Ping`, or `Pong` frame would be longer than `max_response_bytes` | `RESOURCE_EXHAUSTED` |
-| A spend for the request's caller is denied (RATE-010), including a stream's rent (RATE-032) | `RESOURCE_EXHAUSTED`, with the details RATE-040 gives |
+| A spend for the request's caller is denied (RATE-010), including a stream's rent (RATE-032), other than the `request` spend of a stream's catch-up read, which pauses that read (RATE-033) | `RESOURCE_EXHAUSTED`, with the details RATE-040 gives |
 | A stored value violates an invariant the backend maintains | `INTERNAL` |
 
 | ID | Title | Requirement | Why |
