@@ -654,12 +654,6 @@ mock! {
             &self,
             message_id: &[u8],
         ) -> Result<(), StorageError>;
-
-        fn increment_device_sync_msg_attempt(
-            &self,
-            message_id: &[u8],
-            max_attempts: i32,
-        ) -> Result<i32, StorageError>;
     }
 
     impl QueryRefreshState for DbQuery {
