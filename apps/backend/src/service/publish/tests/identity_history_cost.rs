@@ -6,9 +6,13 @@ use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering::SeqCst},
 };
-use xmtp_configuration::{MAX_IDENTITY_UPDATE_ACTIONS, MAX_SCW_SIGNATURE_BYTES};
+use xmtp_configuration::{
+    MAX_IDENTITY_UPDATE_ACTIONS, MAX_PUBLISH_IDENTITY_UPDATES, MAX_SCW_SIGNATURE_BYTES,
+};
 use xmtp_id::associations::{
     AccountId, MemberIdentifier,
+    builder::SignatureRequestBuilder,
+    test_utils::{WalletTestExt, add_wallet_signature},
     unsigned_actions::{UnsignedClaimHandle, UnsignedRevokeAssociation},
     unverified::{
         UnverifiedAction, UnverifiedClaimHandle, UnverifiedIdentityUpdate,
@@ -106,6 +110,30 @@ async fn scw_history() -> support::TestResult<(TestServer, Arc<AtomicUsize>, Str
     Ok((server, calls, inbox_id))
 }
 
+/// Create the inbox of a new wallet and return an update for it, signed by
+/// the wallet, that revokes an identifier the inbox does not hold.
+async fn wallet_inbox_update(server: &TestServer) -> support::TestResult<api::ClientEnvelope> {
+    let wallet = xmtp_cryptography::utils::generate_local_wallet();
+    let inbox_id = wallet.get_inbox_id(0);
+    let mut create = SignatureRequestBuilder::new(&inbox_id)
+        .create_inbox(wallet.identifier(), 0)
+        .build();
+    add_wallet_signature(&mut create, &wallet).await;
+    server
+        .publish(vec![identity_envelope(
+            create.build_identity_update()?.into(),
+        )])
+        .await?;
+    let mut update = SignatureRequestBuilder::new(&inbox_id)
+        .revoke_association(
+            wallet.member_identifier(),
+            MemberIdentifier::eth("0x2222222222222222222222222222222222222222")?,
+        )
+        .build();
+    add_wallet_signature(&mut update, &wallet).await;
+    Ok(identity_envelope(update.build_identity_update()?.into()))
+}
+
 /// Set every stored row's payload to NULL, which a history read cannot
 /// decode, so any read of a log fails as `UNAVAILABLE`.
 async fn make_logs_unreadable(server: &TestServer) -> support::TestResult {
@@ -176,6 +204,45 @@ async fn admission_past_its_deadline_stores_nothing() {
         (Err((Code::DeadlineExceeded, None)), 3)
     );
     assert_eq!(publish_identity(&server, next()).await?, (Ok(()), 4));
+    server.stop().await?;
+}
+
+/// A publish carries at most [`MAX_PUBLISH_IDENTITY_UPDATES`] identity
+/// updates, each for its own inbox. One more fails the whole request as too
+/// large before any inbox's log is replayed, and stores nothing.
+#[xmtp_common::test(unwrap_try = true)]
+async fn publish_identity_update_limit_accepts_exact_count_and_rejects_one_past() {
+    let server = TestServer::new(|_| {}).await?;
+    let mut updates = Vec::new();
+    for _ in 0..=MAX_PUBLISH_IDENTITY_UPDATES {
+        updates.push(wallet_inbox_update(&server).await?);
+    }
+    let error = server
+        .publisher()
+        .publish(api::PublishRequest {
+            envelopes: updates.clone(),
+        })
+        .await
+        .unwrap_err();
+    assert_eq!(error.code(), Code::InvalidArgument);
+    let status = tonic_types::pb::Status::decode(error.details())?;
+    let detail = api::PublishError::decode(status.details[0].value.as_slice())?;
+    assert_eq!((detail.index, detail.reason()), (None, Reason::TooLarge));
+    assert_eq!(server.backend.identity_replays.load(SeqCst), 0);
+    let rows: i64 = sqlx::query_scalar("SELECT count(*) FROM envelopes")
+        .fetch_one(&server.backend.store.primary)
+        .await?;
+    assert_eq!(rows, updates.len() as i64);
+
+    updates.pop();
+    assert_eq!(
+        server.publish(updates).await?.len(),
+        MAX_PUBLISH_IDENTITY_UPDATES
+    );
+    assert_eq!(
+        server.backend.identity_replays.load(SeqCst),
+        MAX_PUBLISH_IDENTITY_UPDATES
+    );
     server.stop().await?;
 }
 

@@ -11,7 +11,7 @@ use prost::Message;
 use std::collections::{HashMap, HashSet};
 use tonic::{Request, Response, Status};
 use xmtp_common::time::{Duration, timeout};
-use xmtp_configuration::MAX_PUBLISH_ENVELOPES;
+use xmtp_configuration::{MAX_PUBLISH_ENVELOPES, MAX_PUBLISH_IDENTITY_UPDATES};
 use xmtp_id::associations::check_update_shape;
 use xmtp_mls_validation::{
     AdmittedState, ParsedEnvelope, ValidationError, admitted_state, erc6492_signatures,
@@ -150,7 +150,8 @@ impl Backend {
     /// enough metadata for the database layer to restore response order. The
     /// envelope bound counts the input, duplicates included, before any
     /// envelope is parsed, so it also caps the signatures a request can make
-    /// the backend verify.
+    /// the backend verify. The identity update bound caps the stored logs one
+    /// request replays.
     #[xmtp_common::span(prefix = "publish")]
     // implements: API-233, API-223
     fn parse_publish(&self, request: api::PublishRequest) -> Result<PublishBatch, Status> {
@@ -167,6 +168,18 @@ impl Backend {
                 None,
                 Reason::TooLarge,
                 "publish request exceeds envelope limit",
+            ));
+        }
+        let identity_updates = request
+            .envelopes
+            .iter()
+            .filter(|envelope| matches!(envelope.payload, Some(Payload::IdentityUpdate(_))))
+            .count();
+        if identity_updates > MAX_PUBLISH_IDENTITY_UPDATES {
+            return Err(publish_invalid(
+                None,
+                Reason::TooLarge,
+                "publish request exceeds identity update limit",
             ));
         }
         let mut unique = HashMap::new();
