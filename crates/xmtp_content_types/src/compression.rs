@@ -73,13 +73,19 @@ fn read_bounded(
             .map_err(DecompressFailure::Invalid)?;
         if read == 0 {
             budget.remaining -= output.len();
+            output.shrink_to_fit();
             return Ok(output);
         }
         if read > remaining {
             budget.limit_exceeded = true;
             return Err(DecompressFailure::Limit);
         }
-        output.reserve_exact(read);
+        let needed = output.len() + read;
+        if needed > output.capacity() {
+            // Double, but never past the budget.
+            let target = needed.max(2 * output.capacity()).min(budget.remaining);
+            output.reserve_exact(target - output.len());
+        }
         output.extend_from_slice(&chunk[..read]);
         budget.peak_capacity = budget.peak_capacity.max(output.capacity());
     }
@@ -177,13 +183,30 @@ mod tests {
     use super::*;
     use crate::{ContentCodec, text::TextCodec};
 
+    fn deflate_text(bytes: Vec<u8>) -> EncodedContent {
+        let mut content = TextCodec::encode(String::new()).unwrap();
+        content.content = bytes;
+        content.compression = Some(Compression::Deflate as i32);
+        content
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn decompression_grows_geometrically_and_shrinks_on_return() {
+        let source = vec![0; 5 * COMPRESSION_CHUNK_BYTES];
+        let mut budget = DecompressionBudget::new();
+        let output = read_bounded(&mut source.as_slice(), &mut budget)?;
+        assert_eq!(output, source);
+        assert_eq!(budget.peak_capacity(), 8 * COMPRESSION_CHUNK_BYTES);
+        assert_eq!(output.capacity(), output.len());
+    }
+
     // Generated with Python zlib.compressobj(wbits=-15) for "hello compressed XMTP".
     // verifies: CTYPE-024
     #[xmtp_common::test(unwrap_try = true)]
     async fn decompress_ios_raw_deflate_vector() {
-        let mut content = TextCodec::encode(String::new())?;
-        content.content = hex::decode("cb48cdc9c95748cecf2d284a2d2e4e4d5188f00d090000")?;
-        content.compression = Some(Compression::Deflate as i32);
+        let content = deflate_text(hex::decode(
+            "cb48cdc9c95748cecf2d284a2d2e4e4d5188f00d090000",
+        )?);
         assert_eq!(
             TextCodec::decode(decompress(content)?)?,
             "hello compressed XMTP"
@@ -194,10 +217,9 @@ mod tests {
     // verifies: CTYPE-024
     #[xmtp_common::test(unwrap_try = true)]
     async fn decompress_kotlin_zlib_vector() {
-        let mut content = TextCodec::encode(String::new())?;
-        content.content =
-            hex::decode("789ccb48cdc9c95748cecf2d284a2d2e4e4d5188f00d090000599907d3")?;
-        content.compression = Some(Compression::Deflate as i32);
+        let content = deflate_text(hex::decode(
+            "789ccb48cdc9c95748cecf2d284a2d2e4e4d5188f00d090000599907d3",
+        )?);
         assert_eq!(
             TextCodec::decode(decompress(content)?)?,
             "hello compressed XMTP"
@@ -254,10 +276,8 @@ mod tests {
         assert!(budget.limit_exceeded());
         // One extra byte detects the limit without reading the rest of the source.
         assert_eq!(reader.bytes_read, MAX_DECOMPRESSED_BYTES + 1);
-        assert!(budget.peak_capacity() <= MAX_DECOMPRESSED_BYTES + COMPRESSION_CHUNK_BYTES);
-        let mut content = TextCodec::encode(String::new())?;
-        content.content = compressed;
-        content.compression = Some(Compression::Deflate as i32);
+        assert!(budget.peak_capacity() <= MAX_DECOMPRESSED_BYTES);
+        let content = deflate_text(compressed);
         assert!(matches!(decompress(content), Err(CodecError::Decode(_))));
     }
 
@@ -290,10 +310,8 @@ mod tests {
         let mut budget = DecompressionBudget::new();
         let result = read_bounded(&mut ZlibDecoder::new(compressed.as_slice()), &mut budget);
         assert!(matches!(result, Err(DecompressFailure::Limit)));
-        assert!(budget.peak_capacity() <= MAX_DECOMPRESSED_BYTES + COMPRESSION_CHUNK_BYTES);
-        let mut content = TextCodec::encode(String::new())?;
-        content.content = compressed;
-        content.compression = Some(Compression::Deflate as i32);
+        assert!(budget.peak_capacity() <= MAX_DECOMPRESSED_BYTES);
+        let content = deflate_text(compressed);
         assert!(matches!(decompress(content), Err(CodecError::Decode(_))));
     }
 
