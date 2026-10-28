@@ -131,6 +131,10 @@ async fn resume_inside_a_rate_limit_delay_waits_for_it() {
         "resume must not dial early"
     );
     assert!(task.reconnect_at >= refused + DELAY);
+    assert!(
+        task.reconnect_delay > RECONNECT_INITIAL_DELAY,
+        "resume must not reset the backoff inside the delay"
+    );
 }
 
 /// A first open refused with a rate limit holds the replacement lease's open.
@@ -147,4 +151,68 @@ async fn rate_limited_first_open_holds_the_next_open() {
     assert!(matches!(denied.await?, Err(TransportError::Open(_))));
     assert_eq!(dials.load(std::sync::atomic::Ordering::SeqCst), 1);
     assert!(task.reconnect_at >= refused + DELAY);
+}
+
+/// A task whose live wire has just recorded a rate-limited end that the
+/// ledger has not read yet.
+async fn task_with_an_unread_rate_limited_end() -> (
+    LedgerTask<BackendBinding>,
+    LeaseId,
+    Arc<std::sync::atomic::AtomicUsize>,
+    mpsc::UnboundedSender<Cmd<BackendBinding>>,
+) {
+    let (mut task, dials, commands) = refusing_task();
+    task.ledger = Ledger::default();
+    let topic = group_topic(b"g2");
+    let (events, _receiver) = mpsc::channel(8);
+    let id = task.ledger.register(&[(topic.clone(), 0)], events);
+    let (_, initial) = task.ledger.prepare_adds(vec![(topic, 0)]).remove(0);
+    let (api, mut server) = mock_pair();
+    task.conn = Some(BidiConnection::open(&api, initial).await.unwrap());
+    task.open_wire_span();
+    server.next_mutate().await;
+    server.to_client.send(Err(rate_limited())).unwrap();
+    xmtp_common::time::timeout(WAIT, async {
+        while task.conn.as_ref().unwrap().failure().is_none() {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    (task, id, dials, commands)
+}
+
+/// Dropping the last lease closes a wire whose rate-limited end was not read
+/// yet. The next lease still waits for the delay.
+// verifies: RATE-041
+#[xmtp_common::test(unwrap_try = true)]
+async fn an_idle_close_keeps_an_unread_rate_limit() {
+    use std::sync::atomic::Ordering;
+    let (mut task, id, dials, _commands) = task_with_an_unread_rate_limited_end().await;
+    let closed = tokio::time::Instant::now();
+    assert!(matches!(task.deref(id), Flow::Continue));
+    assert!(task.conn.is_none());
+    let (reply, _lease) = oneshot::channel();
+    task.lease(vec![(group_topic(b"g3"), 0)], 2, None, reply)
+        .await;
+    assert_eq!(dials.load(Ordering::SeqCst), 0, "no open inside the delay");
+    assert!(task.reconnect_at >= closed + DELAY);
+}
+
+/// Suspending closes a wire whose rate-limited end was not read yet. A
+/// resume inside the delay still waits for it.
+// verifies: RATE-041
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_suspend_close_keeps_an_unread_rate_limit() {
+    use std::sync::atomic::Ordering;
+    let (mut task, _id, dials, _commands) = task_with_an_unread_rate_limited_end().await;
+    let (reply, _suspended) = oneshot::channel();
+    assert!(matches!(task.suspend(reply), Flow::Continue));
+    let (reply, _resumed) = oneshot::channel();
+    assert!(matches!(task.resume(reply).await, Flow::Continue));
+    assert_eq!(
+        dials.load(Ordering::SeqCst),
+        0,
+        "resume must not dial early"
+    );
 }

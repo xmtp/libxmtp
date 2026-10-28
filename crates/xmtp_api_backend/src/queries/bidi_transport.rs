@@ -175,11 +175,6 @@ impl OpenError {
         self.attempted
     }
 
-    /// The delay of a rate-limit refusal, captured before the error is erased.
-    fn rate_limit_delay(&self) -> Option<std::time::Duration> {
-        self.rate_limit_delay
-    }
-
     #[cfg(test)]
     pub fn retryable(e: impl Into<Box<dyn std::error::Error + Send + Sync + 'static>>) -> Self {
         Self {
@@ -238,6 +233,11 @@ impl std::error::Error for OpenError {
 impl xmtp_common::RetryableError for OpenError {
     fn is_retryable(&self) -> bool {
         self.retryable
+    }
+
+    /// The delay of a rate-limit refusal, captured before the error is erased.
+    fn rate_limit_delay(&self) -> Option<std::time::Duration> {
+        self.rate_limit_delay
     }
 }
 
@@ -312,6 +312,14 @@ impl xmtp_common::RetryableError for TransportError {
             Self::Open(e) => e.is_retryable(),
             Self::Wire(e) => e.is_retryable(),
             Self::Closed | Self::Empty | Self::TooManyTopics | Self::Protocol(_) => false,
+        }
+    }
+
+    fn rate_limit_delay(&self) -> Option<xmtp_common::time::Duration> {
+        match self {
+            Self::Open(e) => e.rate_limit_delay(),
+            Self::Wire(e) => e.rate_limit_delay(),
+            _ => None,
         }
     }
 }
@@ -1768,10 +1776,7 @@ where
         self.suspended = true;
         self.outbox.clear();
         self.ledger.reset_wire();
-        self.close_wire_span("suspend");
-        if let Some(wire) = self.conn.take() {
-            close_gracefully(wire);
-        }
+        self.close_wire("suspend");
         for waiter in self.resume_notify.drain(..) {
             let _ = waiter.send(());
         }
@@ -1798,12 +1803,12 @@ where
             return Flow::Continue;
         }
         if was_suspended {
-            self.reconnect_delay = RECONNECT_INITIAL_DELAY;
             if self.rate_limit_pending() {
-                // Wake for the scheduled open once the rate-limit delay ends.
+                // Keep the backoff and wake for the open once the delay ends.
                 self.arm_reconnect();
                 return Flow::Continue;
             }
+            self.reconnect_delay = RECONNECT_INITIAL_DELAY;
             self.reconnect().await
         } else {
             Flow::Continue
@@ -1898,9 +1903,27 @@ where
         let Some(delay) = delay else {
             return false;
         };
-        let until = tokio::time::Instant::now() + delay;
+        let now = tokio::time::Instant::now();
+        // Saturate far beyond any process lifetime instead of overflowing.
+        let until = now
+            .checked_add(delay)
+            .unwrap_or_else(|| now + xmtp_common::time::FAR_FUTURE);
         self.rate_limited_until = Some(self.rate_limited_until.map_or(until, |at| at.max(until)));
+        // Every scheduled or cold open waits for `reconnect_at`.
+        self.reconnect_at = self.reconnect_at.max(until);
         true
+    }
+
+    /// Close the wire, keeping any rate-limit delay its end already recorded.
+    fn close_wire(&mut self, reason: &'static str) {
+        self.close_wire_span(reason);
+        if let Some(wire) = self.conn.take() {
+            self.rate_limited(
+                wire.failure()
+                    .and_then(|failure| xmtp_api_grpc::error::rate_limit_delay(&*failure)),
+            );
+            close_gracefully(wire);
+        }
     }
 
     fn rate_limit_pending(&self) -> bool {
@@ -2129,10 +2152,7 @@ where
         if self.ledger.leases.is_empty() {
             self.outbox.clear();
             self.ledger.reset_wire();
-            self.close_wire_span("idle");
-            if let Some(wire) = self.conn.take() {
-                close_gracefully(wire);
-            }
+            self.close_wire("idle");
             return;
         }
         if self.conn.is_none() {
