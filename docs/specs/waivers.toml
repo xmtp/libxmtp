@@ -470,13 +470,6 @@ issue = "https://github.com/xmtp/libxmtp/issues/4696"
 reason = "The backend sends no rate-limit rejection, so no status carries the `RATE_LIMITED` `ErrorInfo` or a `RetryInfo`."
 
 [[waiver]]
-id = "RATE-041"
-kind = "gap"
-owner = "client"
-issue = "https://github.com/xmtp/libxmtp/issues/4696"
-reason = "The client reads no `RetryInfo`: it retries a `RESOURCE_EXHAUSTED` request with its normal backoff, and `size_error` in crates/xmtp_api/src/chunk.rs treats every `RESOURCE_EXHAUSTED` as an oversized request and splits it."
-
-[[waiver]]
 id = "RATE-050"
 kind = "gap"
 owner = "backend"
@@ -496,10 +489,3 @@ kind = "gap"
 owner = "backend"
 issue = "https://github.com/xmtp/libxmtp/issues/4696"
 reason = "The backend holds no rate-limit state, so it keeps no caller key's state until its spends are earned back."
-
-[[waiver]]
-id = "PUSH-267"
-kind = "gap"
-owner = "client"
-issue = "https://github.com/xmtp/libxmtp/issues/4696"
-reason = "The client treats every `RESOURCE_EXHAUSTED` on a notification request, including a rate-limit rejection, which it should retry after its delay, as a topic limit. The worker suppresses adds until the desired set changes (crates/xmtp_mls/src/worker/notifications.rs). An enable whose `Register` is refused returns `NotificationError::ResourceExhausted`, which is not retryable (crates/xmtp_mls/src/client/notifications.rs), and the SDK reports it to the app as the topic-limit kind (crates/xmtp_sdk/src/error.rs)."
