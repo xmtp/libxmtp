@@ -651,11 +651,18 @@ pub(crate) async fn run<Context: XmtpSharedContext>(
                 deadlines.registration_rate_limited_until_ns,
             ));
         }
+        #[cfg(test)]
+        tests::support::before_request();
         let Ok(_guard) = context.task_channels().notification_request.try_lock() else {
             return Ok(TaskOutcome::RescheduleAt(time::now_ns() + RETRY_NS));
         };
         let current = context.db().notification_record()?;
-        if current.push_generation != record.push_generation || current.push_state != 1 {
+        // An inline call can record a registration hold before this turn
+        // takes the lock; the next turn reads it.
+        if current.push_generation != record.push_generation
+            || current.push_state != 1
+            || self::deadlines(&current)?.registration_rate_limited_until_ns > time::now_ns()
+        {
             return finish_turn(context, Ok(()));
         }
         return finish_turn(

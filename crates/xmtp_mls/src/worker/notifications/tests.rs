@@ -708,6 +708,37 @@ async fn notification_a_held_renewal_leaves_updates_running() {
     assert!(at <= held.rate_limited_until_ns);
 }
 
+/// A registration hold recorded after the task read its record, as an inline
+/// enable records one, still holds the task's Register.
+// verifies: RATE-041
+#[xmtp_common::test(unwrap_try = true)]
+async fn notification_a_hold_recorded_before_the_lock_holds_the_register() {
+    let (client, peer) = support::client().await;
+    client.enable_notifications(config()).await?;
+    let mut record = client.db().notification_record()?;
+    let mut due = deadlines(&record)?;
+    due.renewal_ns = time::now_ns() - 1;
+    record.push_deadlines = Some(encode(&due)?);
+    client.db().save_notification_record(&record)?;
+    let hold = time::now_ns() + 600 * xmtp_common::NS_IN_SEC;
+    let holding = client.clone();
+    let _hook = support::on_before_request(move || {
+        let mut record = holding.db().notification_record().unwrap();
+        let mut held = deadlines(&record).unwrap();
+        held.registration_rate_limited_until_ns = hold;
+        record.push_deadlines = Some(encode(&held).unwrap());
+        holding.db().save_notification_record(&record).unwrap();
+    });
+    let registers = peer.calls(Call::Register);
+    run(&client.context).await?;
+    run(&client.context).await?;
+    assert_eq!(
+        peer.calls(Call::Register),
+        registers,
+        "no Register inside the hold"
+    );
+}
+
 /// A Register hold that cannot be stored does not replace the refusal: the
 /// app still sees the rate limit and its delay.
 // verifies: RATE-041

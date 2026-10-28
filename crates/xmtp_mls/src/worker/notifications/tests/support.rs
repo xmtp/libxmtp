@@ -18,7 +18,8 @@ impl Drop for BeforeRequestGuard {
     }
 }
 
-/// Run one local change after batch preparation and before request validation.
+/// Run one local change before a request is sent: after an update batch is
+/// prepared, or before a registration takes the request lock.
 pub(crate) fn on_before_request(change: impl FnOnce() + 'static) -> BeforeRequestGuard {
     BEFORE_REQUEST.with(|hook| {
         assert!(hook.borrow_mut().replace(Box::new(change)).is_none());
