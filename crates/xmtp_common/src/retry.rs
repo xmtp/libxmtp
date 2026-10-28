@@ -605,12 +605,10 @@ pub(crate) mod tests {
         .unwrap();
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
     #[derive(Debug, Error)]
     #[error("rate limited")]
     struct RateLimited(Duration);
 
-    #[cfg(not(target_arch = "wasm32"))]
     impl RetryableError for RateLimited {
         fn is_retryable(&self) -> bool {
             true
@@ -711,6 +709,64 @@ pub(crate) mod tests {
         .await;
         assert_eq!(result.unwrap_err().0, Duration::from_secs(5));
         assert_eq!(attempts, 1);
+    }
+
+    /// Fail with `RateLimited(delay)` once, then succeed; count the attempts.
+    async fn retry_once_under(deadline: crate::time::Instant, delay: Duration) -> usize {
+        let mut attempts = 0;
+        let result: Result<(), RateLimited> = with_retry_deadline(deadline, async {
+            retry_async!(
+                Retry::default(),
+                (async {
+                    attempts += 1;
+                    if attempts == 1 {
+                        Err(RateLimited(delay))
+                    } else {
+                        Ok(())
+                    }
+                })
+            )
+        })
+        .await;
+        let _ = result;
+        attempts
+    }
+
+    /// A nested scope keeps the earlier deadline.
+    #[xmtp_macro::test]
+    async fn a_nested_retry_deadline_keeps_the_earlier_one() {
+        let now = crate::time::Instant::now();
+        let mut attempts = 0;
+        let result: Result<(), RateLimited> =
+            with_retry_deadline(now + Duration::from_secs(10), async {
+                with_retry_deadline(now + Duration::from_secs(60), async {
+                    retry_async!(
+                        Retry::default(),
+                        (async {
+                            attempts += 1;
+                            if attempts == 1 {
+                                Err(RateLimited(Duration::from_secs(20)))
+                            } else {
+                                Ok(())
+                            }
+                        })
+                    )
+                })
+                .await
+            })
+            .await;
+        assert!(result.is_err());
+        assert_eq!(attempts, 1);
+    }
+
+    /// A wait that ends before the scoped deadline is still taken.
+    #[xmtp_macro::test]
+    async fn a_rate_limit_wait_inside_a_scoped_deadline_is_taken() {
+        let deadline = crate::time::Instant::now() + Duration::from_secs(10);
+        assert_eq!(
+            retry_once_under(deadline, Duration::from_millis(50)).await,
+            2
+        );
     }
 
     #[xmtp_macro::test]
