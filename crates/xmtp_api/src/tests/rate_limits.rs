@@ -6,16 +6,17 @@ fn rate_limited(delay: Duration) -> ApiClientError {
     ApiClientError::client(GrpcError::Status(rate_limited_status("publish", delay)))
 }
 
+// Each case builds its error, which is not `Send` on wasm, inside the test.
 // verifies: RATE-041, CONF-073
 #[rstest]
-#[case::rate_limited(rate_limited(Duration::from_secs(5)), false)]
-#[case::plain_resource_exhausted(status(tonic::Code::ResourceExhausted), true)]
-#[case::out_of_range(status(tonic::Code::OutOfRange), true)]
-#[case::too_large(publish_refusal(wire::publish_error::Reason::TooLarge), true)]
-#[case::other_invalid_argument(status(tonic::Code::InvalidArgument), false)]
+#[case::rate_limited(|| rate_limited(Duration::from_secs(5)), false)]
+#[case::plain_resource_exhausted(|| status(tonic::Code::ResourceExhausted), true)]
+#[case::out_of_range(|| status(tonic::Code::OutOfRange), true)]
+#[case::too_large(|| publish_refusal(wire::publish_error::Reason::TooLarge), true)]
+#[case::other_invalid_argument(|| status(tonic::Code::InvalidArgument), false)]
 #[xmtp_common::test(unwrap_try = true)]
-fn size_error_excludes_rate_limits(#[case] error: ApiClientError, #[case] size: bool) {
-    assert_eq!(crate::chunk::size_error(&error), size);
+fn size_error_excludes_rate_limits(#[case] error: fn() -> ApiClientError, #[case] size: bool) {
+    assert_eq!(crate::chunk::size_error(&error()), size);
 }
 
 /// The client's default budget, on tokio's paused clock. Each attempt
