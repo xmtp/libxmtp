@@ -531,7 +531,9 @@ fn published_schema_checks_ip_addresses_and_networks_with_the_runtime_parser() {
 }
 
 /// The published schema accepts the `[rate_limits]` table of the CONF example
-/// and refuses each name, bound, and shape startup refuses.
+/// and refuses an unlisted category or tier name, a `count` or
+/// `window_seconds` out of range, a limit without `count`, an override without
+/// `limits`, and an unknown key. CONF-094 is checked only at startup.
 #[xmtp_common::test(unwrap_try = true)]
 fn published_schema_checks_the_rate_limits_table() {
     let validator = validator();

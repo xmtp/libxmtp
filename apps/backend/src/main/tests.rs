@@ -16,11 +16,18 @@ const DRAIN_MS: u64 = 1_000;
 /// is given ends with this table; `Process` refuses one that turns limits on.
 const RATE_LIMITS_OFF: &str = "[rate_limits]\nenabled = false\n";
 
-/// Whether `contents` is a configuration that leaves rate limits on. A
-/// document that is not a configuration is refused at startup, so it has no
-/// limits to turn off.
+/// Whether `contents` is a configuration that does not set
+/// `rate_limits.enabled = false`. Startup refuses a document that is not TOML
+/// or has no `[database]` table, so it has no limits to turn off. The check
+/// reads the document as written, before environment references resolve.
 fn limits_on(contents: &str) -> bool {
-    toml::from_str::<Config>(contents).is_ok_and(|config| config.rate_limits.enabled)
+    toml::from_str::<toml::Table>(contents).is_ok_and(|document| {
+        document.contains_key("database")
+            && document
+                .get("rate_limits")
+                .and_then(|rate_limits| rate_limits.get("enabled"))
+                != Some(&toml::Value::Boolean(false))
+    })
 }
 
 /// The libtest filter for the test that the child process runs.
@@ -421,6 +428,10 @@ fn the_harness_refuses_a_configuration_with_rate_limits_on() {
         "{MINIMAL}[rate_limits]\nmax_memory_mib = 1\n"
     )));
     assert!(!limits_on(&format!("{MINIMAL}{RATE_LIMITS_OFF}")));
+    // A value that only resolves at startup still needs the table.
+    assert!(limits_on(&format!(
+        "{MINIMAL}log_level = 'env:XMTP_LOG_LEVEL'\n"
+    )));
     for document in ["", SECRET, "Cargo.toml"] {
         assert!(!limits_on(document), "{document}");
     }
