@@ -133,9 +133,6 @@ pub struct TaskWorkerChannels {
     /// Serializes notification requests across inline calls and task turns.
     pub(crate) notification_request: Arc<tokio::sync::Mutex<()>>,
     notification_revision: Arc<std::sync::atomic::AtomicUsize>,
-    /// The end of each task's pending rate-limit delay, by task data hash.
-    /// A pull-in can move a task's deadline earlier; this keeps it unrun.
-    rate_limit_holds: Arc<parking_lot::Mutex<std::collections::HashMap<Vec<u8>, i64>>>,
 }
 
 impl Default for TaskWorkerChannels {
@@ -149,22 +146,9 @@ impl TaskWorkerChannels {
         Self {
             notification_request: Default::default(),
             notification_revision: Default::default(),
-            rate_limit_holds: Default::default(),
         }
     }
 
-    /// The end of a pending rate-limit delay of the task with `data_hash`.
-    fn rate_limit_hold(&self, data_hash: &[u8], now_ns: i64) -> Option<i64> {
-        let mut holds = self.rate_limit_holds.lock();
-        holds.retain(|_, until| *until > now_ns);
-        holds.get(data_hash).copied()
-    }
-
-    fn hold_task(&self, data_hash: &[u8], until_ns: i64) {
-        let mut holds = self.rate_limit_holds.lock();
-        let until = holds.entry(data_hash.to_vec()).or_insert(until_ns);
-        *until = (*until).max(until_ns);
-    }
     /// Invalidate a prepared notification batch after a local change.
     pub fn mark_notification_changed(&self) {
         use std::sync::atomic::Ordering;
@@ -369,22 +353,6 @@ where
             );
             return Ok(());
         }
-        // A pull-in can make a rate-limited task due early. It still waits
-        // for the delay, keeping its attempts and backoff.
-        // implements: RATE-041
-        if let Some(until) = context
-            .task_channels()
-            .rate_limit_hold(&task.data_hash, now)
-        {
-            match context
-                .db()
-                .update_task(task.id, task.attempts, task.last_attempted_at_ns, until)
-            {
-                Ok(_) | Err(StorageError::DieselResult(diesel::result::Error::NotFound)) => {}
-                Err(e) => return Err(e.into()),
-            }
-            return Ok(());
-        }
         match Self::run_task(&task, context).await {
             Ok(TaskOutcome::Done) => {
                 context.db().delete_task(task.id)?;
@@ -419,7 +387,6 @@ where
                 if let Some(delay) = error.rate_limit_delay() {
                     let until = xmtp_common::time::now_ns()
                         .saturating_add(i64::try_from(delay.as_nanos()).unwrap_or(i64::MAX));
-                    context.task_channels().hold_task(&task.data_hash, until);
                     next_attempt_at_ns = next_attempt_at_ns.max(until);
                 }
                 let next_attempt_duration = next_attempt_at_ns.saturating_sub(retry_from);
@@ -494,9 +461,19 @@ where
                 // rows' `next_attempt_at_ns` — so no transaction is needed
                 // (inserts happen off-thread; only deadline mutation is guarded).
                 let matched = match TaskDataHash::try_from(p.target_data_hash.as_slice()) {
-                    Ok(h) => context
-                        .db()
-                        .pull_in_task_deadline(&h, p.not_later_than_ns)?,
+                    Ok(h) => {
+                        // A target in failure backoff keeps its stored schedule,
+                        // which holds any rate-limit delay, across restarts too.
+                        // implements: RATE-041
+                        let backing_off =
+                            context.db().get_tasks()?.iter().any(|target| {
+                                target.data_hash == h.as_ref() && target.attempts > 0
+                            });
+                        backing_off
+                            || context
+                                .db()
+                                .pull_in_task_deadline(&h, p.not_later_than_ns)?
+                    }
                     Err(_) => false, // malformed length: fall through to the miss log
                 };
                 if !matched {
@@ -731,6 +708,20 @@ mod tests {
             nested.iter().all(|found| *found == Some(delay)),
             "{nested:?}"
         );
+        // The worker restart loop reads the same delay.
+        use crate::worker::NeedsDbReconnect;
+        assert_eq!(
+            NeedsDbReconnect::restart_delay(&TaskWorkerError::Identity(IdentityError::ApiClient(
+                rate_limited(delay)
+            ))),
+            Some(delay)
+        );
+        assert_eq!(
+            NeedsDbReconnect::restart_delay(&DeviceSyncError::Client(ClientError::Api(
+                rate_limited(delay)
+            ))),
+            Some(delay)
+        );
         assert_eq!(
             xmtp_common::RetryableError::rate_limit_delay(&scw()),
             Some(delay)
@@ -861,7 +852,9 @@ mod tests {
         let proto = unique_proto();
         let hash = data_hash_for(&proto);
         let row = seed(&db, proto, now - 1, i64::MAX, 0, i32::MAX);
-        let delay = Duration::from_secs(1);
+        // Longer than the default 3 s first backoff, so only the rejection
+        // instant, not the turn's start, gives the bound below.
+        let delay = Duration::from_secs(5);
         *test_hooks::RATE_LIMIT_OVERRIDE.lock().unwrap() =
             Some((hash.to_vec(), Duration::from_millis(300), delay));
         TaskWorker::run_and_reschedule_task(row, &alix.context).await?;
@@ -878,12 +871,18 @@ mod tests {
         assert_eq!(held.attempts, 1);
         assert!(held.next_attempt_at_ns >= hold);
 
-        // A pull-in makes it due; it still does not run inside the delay.
-        db.pull_in_task_deadline(&hash, xmtp_common::time::now_ns())?;
-        TaskWorker::run_and_reschedule_task(task()?, &alix.context).await?;
+        // A pull-in, such as a startup or Welcome nudge, leaves a task in
+        // failure backoff on its stored schedule.
+        enqueue_pull_in(&alix.context, hash, xmtp_common::time::now_ns(), i64::MAX)?;
+        let pull_in = db
+            .get_tasks()?
+            .into_iter()
+            .find(|t| t.data_hash != hash.as_ref())
+            .expect("the pull-in task");
+        TaskWorker::run_and_reschedule_task(pull_in, &alix.context).await?;
         let after = task().expect("a held task does not run");
         assert_eq!(after.attempts, 1);
-        assert!(after.next_attempt_at_ns >= hold);
+        assert_eq!(after.next_attempt_at_ns, held.next_attempt_at_ns);
     }
 
     #[xmtp_common::test(unwrap_try = true)]

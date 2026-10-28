@@ -396,10 +396,13 @@ where
                     );
                     self.failed_publishes.push(conversation.id);
                     if let Some(delay) = error.rate_limit_delay() {
-                        self.publish_held_until = Some(xmtp_common::time::saturating_after(
+                        let until = xmtp_common::time::saturating_after(
                             xmtp_common::time::Instant::now(),
                             delay,
-                        ));
+                        );
+                        // A shorter later delay never ends a pending one.
+                        self.publish_held_until =
+                            Some(self.publish_held_until.map_or(until, |at| at.max(until)));
                     }
                     if error.is_retryable() {
                         break;

@@ -383,6 +383,25 @@ async fn a_rate_limited_publish_waits_out_its_delay() {
     );
 }
 
+/// Publication resumes once a rate-limit hold has ended.
+// verifies: RATE-041
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_commit_log_publish_resumes_after_its_hold() {
+    tester!(alix, disable_workers);
+    let group = alix.create_group(None, None)?;
+    group.update_group_name("limited".into()).await?;
+    let (client, script) = scripted::scripted(&alix.client).await;
+    script.lock().rate_limit = Some(xmtp_common::time::Duration::from_millis(50));
+    let mut worker = CommitLogWorker::new(client.context.clone());
+    assert!(publish_turn(&mut worker).await.is_empty());
+    script.lock().rate_limit = None;
+    xmtp_common::time::sleep(xmtp_common::time::Duration::from_millis(60)).await;
+    assert_eq!(
+        publish_turn(&mut worker).await,
+        vec![group.group_id.to_vec()]
+    );
+}
+
 /// The backend refuses one conversation's entries. Another conversation's
 /// entries still publish in that turn and in the next, the refused
 /// conversation keeps its entries pending, and once it is accepted it

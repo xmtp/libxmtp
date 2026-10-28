@@ -442,8 +442,13 @@ where
                     // then surface the original error. Armed only on failure:
                     // enqueue-first duplicated the reconcile (and its identity
                     // fetch) on every sync-group creation.
-                    self.schedule_add_missing_installations_task(sync_group.group_id)
-                        .map_err(Box::new)?;
+                    // A rate-limited add is not resent before its delay.
+                    // implements: RATE-041
+                    self.schedule_add_missing_installations_task(
+                        sync_group.group_id,
+                        inline_err.rate_limit_delay(),
+                    )
+                    .map_err(Box::new)?;
                     return Err(inline_err);
                 }
                 sync_group.sync_with_conn().await?;
@@ -486,7 +491,7 @@ where
         })?;
 
         for group in &groups {
-            self.schedule_add_missing_installations_task(group.group_id)?;
+            self.schedule_add_missing_installations_task(group.group_id, None)?;
         }
         Ok(groups.len())
     }
@@ -494,12 +499,18 @@ where
     /// Durably enqueue one AddMissingInstallations task for `group_id`
     /// (deduped by payload hash against any pending row for the same group)
     /// and wake the TaskRunner.
+    /// Arm the reconcile task, due once `delay`, a rate-limit delay, has passed.
     pub(crate) fn schedule_add_missing_installations_task(
         &self,
         group_id: GroupId,
+        delay: Option<xmtp_common::time::Duration>,
     ) -> Result<(), DeviceSyncError> {
+        let due = xmtp_common::time::now_ns().saturating_add(delay.map_or(0, |delay| {
+            i64::try_from(delay.as_nanos()).unwrap_or(i64::MAX)
+        }));
         let task = NewTask::builder()
             .originating_message_sequence_id(0)
+            .next_attempt_at_ns(due)
             .build(TaskProto {
                 task: Some(TaskKindProto::AddMissingInstallations(
                     AddMissingInstallationsProto {
