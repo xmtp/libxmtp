@@ -177,7 +177,22 @@ pub(crate) async fn unregister<Context: XmtpSharedContext>(
             })?;
             Ok(())
         }
-        Err(error) => Err(error),
+        Err(error) => {
+            // A disabled client records the delay too, so the task waits it
+            // out after a later enable instead of resending the reset.
+            // implements: RATE-041
+            if let Some(delay) = error.rate_limit_delay() {
+                state_write(context.mls_storage(), |tx| {
+                    let storage = tx.storage();
+                    let db = storage.db();
+                    let mut current = db.notification_record()?;
+                    hold_for_rate_limit(&mut current, delay)?;
+                    db.save_notification_record(&current)?;
+                    Ok::<_, StorageError>(Continue(()))
+                })?;
+            }
+            Err(error)
+        }
     }
 }
 

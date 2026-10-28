@@ -247,6 +247,10 @@ fn api_error(error: xmtp_api::ApiError) -> AttachmentClientError {
             http_status: None,
         };
     }
+    // A rate limit is transient whatever its status code (RATE-041).
+    if xmtp_common::RetryableError::rate_limit_delay(&error).is_some() {
+        return AttachmentClientError::new(Cause::BackendUnavailable);
+    }
     if grpc_status(&error).is_some_and(|status| status.code() == tonic::Code::PermissionDenied) {
         return AttachmentClientError {
             missing_scope: true,

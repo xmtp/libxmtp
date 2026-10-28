@@ -396,7 +396,9 @@ impl<Context: XmtpSharedContext> Client<Context> {
             let db = storage.db();
             let hold = worker::rate_limit_hold(&db.notification_record()?)?;
             let mut record = db.disable_notifications()?;
-            // A later enable must not send inside a pending rate-limit delay.
+            // The task must not send inside a pending rate-limit delay after a
+            // later enable. App calls themselves are not held (RATE-041 binds
+            // the client's own retries).
             if hold.rate_limited_until_ns > xmtp_common::time::now_ns() {
                 record.push_deadlines = Some(encode(&hold)?);
                 db.save_notification_record(&record)?;

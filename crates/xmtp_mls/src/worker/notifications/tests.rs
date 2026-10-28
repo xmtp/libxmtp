@@ -592,6 +592,44 @@ async fn notification_rate_limit_keeps_state_enabled_and_waits_the_delay() {
     assert!(next >= before + delay.as_nanos() as i64);
 }
 
+/// A rate limit maps to the retryable `Api` error through the preflight
+/// wrapper and on any status code, never to the topic limit or a failure.
+// verifies: PUSH-267, RATE-041
+#[xmtp_common::test(unwrap_try = true)]
+fn notification_rate_limits_map_to_api_on_every_path() {
+    use xmtp_api_grpc::error::{GrpcError, rate_limited_status};
+    use xmtp_proto::api::ApiClientError;
+    let delay = Duration::from_secs(5);
+    let preflight = xmtp_api::ApiError::Preflight(xmtp_api::preflight::PreflightError::new(
+        ApiClientError::client(GrpcError::Status(rate_limited_status("request", delay))),
+    ));
+    let mut denied = rate_limited_status("request", delay);
+    denied = tonic::Status::with_details(
+        tonic::Code::PermissionDenied,
+        denied.message(),
+        denied.details().to_vec().into(),
+    );
+    let permission = xmtp_api::dyn_err(ApiClientError::client(GrpcError::Status(denied)));
+    for error in [preflight, permission] {
+        let mapped = NotificationError::from(error);
+        assert!(matches!(mapped, NotificationError::Api(_)));
+        assert_eq!(mapped.rate_limit_delay(), Some(delay));
+    }
+}
+
+/// A refused Unregister records its delay even though the client is now
+/// disabled, so the task waits it out after a later enable.
+// verifies: RATE-041
+#[xmtp_common::test(unwrap_try = true)]
+async fn notification_a_refused_unregister_records_its_delay() {
+    let (client, peer) = support::client().await;
+    client.enable_notifications(config()).await?;
+    peer.state.lock().rate_limit = Some((Call::Unregister, Duration::from_secs(600)));
+    assert!(client.disable_notifications().await.is_err());
+    let record = client.db().notification_record()?;
+    assert!(deadlines(&record)?.rate_limited_until_ns > time::now_ns());
+}
+
 /// Enabling again, or disabling and enabling, does not end a pending delay:
 /// the task still sends no subscription update inside it.
 // verifies: RATE-041
