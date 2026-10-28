@@ -780,9 +780,9 @@ pub(super) fn commits_proposals(kind: IntentKind) -> bool {
     )
 }
 
-/// Drop each pending proposal no commit can carry (see
-/// [`Committable::pending`]), and return whether any was dropped. It
-/// expires with the epoch.
+/// Drop each pending proposal no commit can carry, and each `AppDataUpdate`
+/// past the cap (see [`Committable::pending`]), and return whether any was
+/// dropped. It expires with the epoch.
 // implements: GMOD-047
 pub(super) fn omit_uncommittable_proposals(
     group: &mut OpenMlsGroup,

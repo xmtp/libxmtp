@@ -232,6 +232,10 @@ impl<'a> AppDataBatch<'a> {
     }
 }
 
+/// Most pending non-membership `AppDataUpdate`s one commit references:
+/// about 34 KiB of references.
+const MAX_APP_DATA_PROPOSALS: usize = 1_000;
+
 /// The pending proposals one commit can carry, in store order, and the
 /// batch they produce.
 pub(crate) struct Committable<'a> {
@@ -268,9 +272,23 @@ impl<'a> Committable<'a> {
     // implements: GMOD-047
     pub(crate) fn pending(group: &'a OpenMlsGroup) -> Result<Self, GroupError> {
         let mut seen = HashSet::new();
+        let mut budget = MAX_APP_DATA_PROPOSALS;
         let mut proposals: Vec<_> = group
             .pending_proposals()
             .filter(|queued| seen.insert(queued.proposal_reference_ref()))
+            // implements: GMOD-047
+            // Membership proposals depend on each other; keep them all.
+            // Keep the oldest other AppDataUpdates; the rest expire with the epoch.
+            .filter(|queued| match queued.proposal() {
+                Proposal::AppDataUpdate(update)
+                    if update.component_id() != ComponentId::GROUP_MEMBERSHIP.as_u16() =>
+                {
+                    let keep = budget > 0;
+                    budget = budget.saturating_sub(1);
+                    keep
+                }
+                _ => true,
+            })
             .collect();
         let mut membership = membership_inbox_ids(read_from_app_data_dict(
             ComponentId::GROUP_MEMBERSHIP,
