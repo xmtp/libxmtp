@@ -46,8 +46,9 @@ Keep it unchanged after clients connect, including when moving the deployment.
 
 Add `sslmode=verify-full` to the connection string so the backend checks the
 database's certificate and host name. If the provider's CA is not a public
-root, also set `sslrootcert` to its CA file. Other modes, including `require`,
-accept any certificate. The backend logs a warning at startup for any other
+root, also set `sslrootcert` to its CA file. `require` accepts any certificate,
+and `verify-ca` checks the certificate chain but not the host name; only
+`verify-full` checks both. The backend logs a warning at startup for any other
 mode, for disabled auth, and for a plain `http://` chain URL.
 
 Supply exactly one configuration source: `--config-file`, inline `--config`,

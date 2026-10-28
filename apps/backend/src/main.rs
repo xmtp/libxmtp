@@ -165,7 +165,9 @@ fn unsafe_settings(config: &ValidatedConfig) -> Vec<(String, String)> {
             continue;
         };
         let mode = options.get_ssl_mode();
-        if options.get_socket().is_none()
+        // sqlx connects over a Unix socket when the host is a directory.
+        let socket = options.get_socket().is_some() || options.get_host().starts_with('/');
+        if !socket
             && !is_loopback_host(options.get_host())
             && !matches!(mode, PgSslMode::VerifyFull)
         {

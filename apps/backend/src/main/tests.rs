@@ -461,7 +461,7 @@ fn unsafe_settings_name_each_key_and_no_value() {
         (open, tls("require"), auth, Some("database.url")),
         (open, tls("verify-ca"), auth, Some("database.url")),
         (open, ca_replica, auth, Some("database.replica_url")),
-        (open, store("%2Fvar%2Frun%2Fpostgresql", ""), auth, None),
+        (open, remote("?host=/var/run/postgresql"), auth, None),
         (open, full(), plain.as_str(), Some("chains.\"eip155:1\"")),
     ] {
         let document = format!(
