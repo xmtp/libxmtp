@@ -366,7 +366,25 @@ impl Deadlines {
 }
 
 /// Persist only typed terminal failures and repair/suppression state for this generation.
+/// A rate limit whose hold cannot be stored is still returned to the caller,
+/// so its delay reaches the task runner instead of a storage error.
 pub(crate) fn record_error<Context: XmtpSharedContext>(
+    context: &Context,
+    generation: i64,
+    error: &NotificationError,
+    desired_fingerprint: Option<&[u8]>,
+) -> Result<bool, StorageError> {
+    match store_error(context, generation, error, desired_fingerprint) {
+        // implements: RATE-041
+        Err(storage) if error.rate_limit_delay().is_some() => {
+            tracing::warn!(%storage, "could not store a notification rate-limit hold");
+            Ok(true)
+        }
+        recorded => recorded,
+    }
+}
+
+fn store_error<Context: XmtpSharedContext>(
     context: &Context,
     generation: i64,
     error: &NotificationError,
@@ -640,8 +658,11 @@ pub(crate) async fn run<Context: XmtpSharedContext>(
         );
     }
     // A wake cannot send a subscription update inside a refused update's delay.
+    // A registration renewal due earlier still wakes the task.
     if deadlines.rate_limited_until_ns > time::now_ns() {
-        return Ok(TaskOutcome::RescheduleAt(deadlines.rate_limited_until_ns));
+        return Ok(TaskOutcome::RescheduleAt(
+            deadlines.rate_limited_until_ns.min(deadlines.renewal_ns),
+        ));
     }
     let revision = context.task_channels().notification_revision();
     let desired = desired(context, &config)?;

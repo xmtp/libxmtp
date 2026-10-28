@@ -656,6 +656,59 @@ async fn notification_a_failed_hold_write_keeps_the_rate_limit() {
     assert_eq!(error.rate_limit_delay(), Some(delay));
 }
 
+/// A Register hold that cannot be stored does not replace the refusal: the
+/// app still sees the rate limit and its delay.
+// verifies: RATE-041
+#[xmtp_common::test(unwrap_try = true)]
+async fn notification_a_failed_registration_hold_write_keeps_the_rate_limit() {
+    let (client, peer) = support::client().await;
+    let delay = Duration::from_secs(600);
+    {
+        let mut state = peer.state.lock();
+        state.rate_limit = Some((Call::Register, delay));
+        state.pause_next = true;
+    }
+    let enabling = client.clone();
+    let enable = xmtp_common::spawn(None, async move {
+        enabling.enable_notifications(config()).await
+    });
+    timeout(Duration::from_secs(5), peer.entered.notified()).await?;
+    let mut record = client.db().notification_record()?;
+    record.push_deadlines = Some(vec![0xff]);
+    client.db().save_notification_record(&record)?;
+    peer.release.notify_one();
+    let error = enable.join().await?.unwrap_err();
+    assert_eq!(error.rate_limit_delay(), Some(delay));
+}
+
+/// An update hold does not postpone a registration renewal that falls due
+/// inside it: the task wakes for the renewal.
+// verifies: RATE-041
+#[xmtp_common::test(unwrap_try = true)]
+async fn notification_an_update_hold_keeps_the_renewal_due() {
+    let (client, peer) = support::client().await;
+    let mut config = config();
+    config.include_welcomes = false;
+    client.enable_notifications(config).await?;
+    run(&client.context).await?;
+    client.create_group(None, None)?;
+    peer.state.lock().rate_limit = Some((Call::Update, Duration::from_secs(600)));
+    assert!(run(&client.context).await.is_err());
+    let renewal = time::now_ns() + 10 * xmtp_common::NS_IN_SEC;
+    let mut record = client.db().notification_record()?;
+    let mut held = deadlines(&record)?;
+    held.renewal_ns = renewal;
+    record.push_deadlines = Some(encode(&held)?);
+    client.db().save_notification_record(&record)?;
+    let TaskOutcome::RescheduleAt(at) = run(&client.context).await? else {
+        panic!("the task waits");
+    };
+    assert!(
+        at <= renewal,
+        "the renewal is not postponed by the update hold"
+    );
+}
+
 /// A refused owed Unregister holds registration only: once an enable has
 /// registered, the task still sends subscription updates.
 // verifies: RATE-041
