@@ -132,8 +132,8 @@ export const AuthTokenProvider: React.FC<React.PropsWithChildren> = ({
               setRequest(null);
               const waiting = waitingRef.current;
               waitingRef.current = [];
-              // A waiter for another backend is answered empty; once that is
-              // refused it prompts for its own backend.
+              // A waiter for another backend gets the empty credential, which
+              // that backend refuses; a later ask prompts for its own backend.
               for (const w of waiting) {
                 w.resolve(w.origin === origin ? trimmed : "");
               }
@@ -144,7 +144,7 @@ export const AuthTokenProvider: React.FC<React.PropsWithChildren> = ({
       // later ask proves the supplied credential was refused.
       if (rejected) {
         setRequest((current) =>
-          current && !current.rejected
+          current && !current.rejected && current.origin === origin
             ? { ...current, rejected: true }
             : current,
         );

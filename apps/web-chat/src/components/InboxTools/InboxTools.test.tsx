@@ -17,6 +17,7 @@ import { InboxTools } from "./InboxTools";
 const mocks = vi.hoisted(() => ({
   inboxId: "a".repeat(64),
   backendUrl: "https://one.example",
+  createCredentialSource: (url: string) => ({ url }),
   signMessageAsync: vi.fn(),
   latestInboxUpdatesCount: vi.fn(),
   setMemberId: vi.fn(),
@@ -46,7 +47,7 @@ vi.mock("@/hooks/useSettings", () => ({
 }));
 vi.mock("@/contexts/AuthTokenContext", () => ({
   useAuthToken: () => ({
-    createCredentialSource: (url: string) => ({ url }),
+    createCredentialSource: mocks.createCredentialSource,
   }),
 }));
 vi.mock("@/helpers/backend", () => ({

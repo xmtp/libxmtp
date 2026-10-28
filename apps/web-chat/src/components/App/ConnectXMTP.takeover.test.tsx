@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
   initialize: vi.fn(async () => undefined),
   signer: {},
   backendUrl: "https://example.com",
+  createCredentialSource: (url: string) => ({ url }),
   setAutoConnect: vi.fn(),
   navigate: vi.fn(),
 }));
@@ -34,7 +35,7 @@ vi.mock("wagmi", () => ({
 }));
 vi.mock("@/contexts/AuthTokenContext", () => ({
   useAuthToken: () => ({
-    createCredentialSource: (url: string) => ({ url }),
+    createCredentialSource: mocks.createCredentialSource,
   }),
 }));
 vi.mock("@/hooks/useWallet", () => ({
