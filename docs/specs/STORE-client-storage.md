@@ -52,6 +52,7 @@ The storage interface reports the file in use and controls its connection and re
 | STORE-011 | In-memory storage cannot be deleted | When an app asks to delete in-memory client storage, the SDK MUST fail with a typed invalid-input error. | In-memory storage has no database file to remove. |
 | STORE-017 | Close before file removal | When an app asks to delete file-backed client storage, the SDK MUST close the client before it removes the database file. | A live connection could otherwise write to a file after its name is removed. |
 | STORE-018 | Database file is gone after deletion | When deletion of file-backed client storage completes, the SDK MUST have removed the database file. | An app that deletes a client's storage expects that database file to be gone. |
+| STORE-026 | Synced before it leaves the device | Before a client returns a queued message's id, or sends a request that publishes a prepared envelope or a key package, it MUST have completed a sync to stable storage of the file-backed database write that recorded that work. | An operating system crash or power loss can otherwise erase the local record of work other devices already hold: the installation forks its group, loses the send, or cannot read Welcomes to the package. |
 
 ## 3. Database encryption choice
 
