@@ -54,6 +54,10 @@ const RETRY_MAX: Duration = Duration::from_secs(10 * 60);
 /// 2 s doubling to 10 min: the 20th failure comes about two hours after the first.
 const MAX_EVENT_FAILURES: u32 = 20;
 
+fn backoff(n: u32) -> Duration {
+    RETRY_FIRST.saturating_mul(1 << n.min(10)).min(RETRY_MAX)
+}
+
 /// Events not yet handled. Shared by the factory so a DB reconnect keeps them.
 type PendingEvent = Arc<Mutex<Vec<Owed>>>;
 
@@ -62,6 +66,7 @@ struct Owed {
     id: u64,
     event: xmtp_events::EventEnvelope<InternalEvent>,
     failures: u32,
+    waits: u32,
     retry_at: Instant,
     cycled: bool,
 }
@@ -72,6 +77,7 @@ impl Owed {
             id,
             event,
             failures: 0,
+            waits: 0,
             retry_at: Instant::now(),
             cycled: false,
         }
@@ -455,6 +461,13 @@ where
                     pending.push(owed);
                     return Err(e);
                 }
+                // implements: SYNC-024. Waiting for the own state is not a failure.
+                Err(e @ DeviceSyncError::OwnStateUnavailable(_)) => {
+                    owed.waits += 1;
+                    owed.retry_at = Instant::now() + backoff(owed.failures + owed.waits);
+                    tracing::info!(error = %e, "device sync event waits for the own identity state");
+                    pending.push(owed);
+                }
                 Err(e) => {
                     owed.failures += 1;
                     if owed.failures >= MAX_EVENT_FAILURES {
@@ -462,10 +475,7 @@ where
                         self.metrics.increment_metric(SyncMetric::EventDropped);
                         continue;
                     }
-                    owed.retry_at = Instant::now()
-                        + RETRY_FIRST
-                            .saturating_mul(1 << owed.failures.min(10))
-                            .min(RETRY_MAX);
+                    owed.retry_at = Instant::now() + backoff(owed.failures + owed.waits);
                     tracing::warn!(error = %e, failures = owed.failures, "device sync event failed");
                     pending.push(owed);
                 }
@@ -577,13 +587,13 @@ where
         let mut first_error = None;
         for page in replay_pages(records) {
             if let Err(e) = self.client.sync_preferences(page).await {
-                if e.db_needs_connection() {
-                    return Err(e.into());
+                if e.needs_db_reconnect() {
+                    return Err(e);
                 }
                 first_error.get_or_insert(e);
             }
         }
-        first_error.map_or(Ok(()), |e| Err(e.into()))
+        first_error.map_or(Ok(()), Err)
     }
 
     async fn evt_new_sync_group_msg(&self, is_tick: bool) -> Result<(), DeviceSyncError> {
@@ -1092,13 +1102,16 @@ mod startup_tests {
         alix.close().await?;
     }
 
+    // verifies: SYNC-024
     #[xmtp_common::test(unwrap_try = true)]
     async fn event_is_dropped_after_twenty_failures() {
+        use super::super::tests::hide_own_identity_updates;
         use xmtp_db::consent_record::{ConsentState, ConsentType, StoredConsentRecord};
         tester!(alix, disable_workers);
         let record =
             StoredConsentRecord::new(ConsentType::InboxId, ConsentState::Allowed, "drop".into());
-        for (failures, dropped) in [(18, false), (19, true)] {
+        for (failures, wait) in [(18, false), (19, false), (19, true)] {
+            let dropped = failures == 19 && !wait;
             let mut worker = idle_worker(alix.context.clone());
             let changed = InternalEvent::PreferencesChanged {
                 updates: vec![PreferenceUpdate::Consent(record.clone())],
@@ -1111,8 +1124,14 @@ mod startup_tests {
                 retry_at: now,
                 ..Owed::new(1, event)
             });
-            *test_hooks::FAIL_NEXT_PREFERENCE_PUBLISH.lock() =
-                Some((alix.context.installation_id().to_vec(), Default::default()));
+            let restore = if wait {
+                worker.client.get_sync_group().await?;
+                hide_own_identity_updates(alix.context.db(), alix.inbox_id()).map(Some)?
+            } else {
+                *test_hooks::FAIL_NEXT_PREFERENCE_PUBLISH.lock() =
+                    Some((alix.context.installation_id().to_vec(), Default::default()));
+                None
+            };
             worker.run_due().await?;
             let pending = worker.pending.lock().clone();
             let dropped_count = worker.metrics.get(SyncMetric::EventDropped);
@@ -1122,10 +1141,19 @@ mod startup_tests {
             } else {
                 assert_eq!(pending.len(), 1, "the 19th failure keeps the event");
                 assert_eq!(pending[0].failures, 19);
-                assert!(pending[0].retry_at > now);
+                assert_eq!(pending[0].waits, u32::from(wait));
+                assert!(pending[0].retry_at >= now + RETRY_MAX);
                 assert_eq!(dropped_count, 0);
             }
             assert_eq!(worker.metrics.get(SyncMetric::ConsentSent), 0);
+            if let Some(restore) = restore {
+                restore()?;
+                worker.pending.lock()[0].retry_at = Instant::now();
+                worker.run_due().await?;
+                assert!(worker.pending.lock().is_empty(), "sent once readable");
+                assert_eq!(worker.metrics.get(SyncMetric::ConsentSent), 1);
+                assert_eq!(worker.metrics.get(SyncMetric::EventDropped), 0);
+            }
         }
         alix.close().await?;
     }
