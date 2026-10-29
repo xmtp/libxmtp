@@ -1,7 +1,45 @@
 //! Membership, key package, and commit-construction helpers.
 
 use super::*;
+use parking_lot::Mutex;
+use std::sync::LazyLock;
+use xmtp_configuration::INSTALLATION_RETRY_MIN_PROTOCOL_VERSION;
 use xmtp_cryptography::configuration::CIPHERSUITE;
+use xmtp_mls_common::app_data::protocol_floor::committed_floor_at_least;
+
+/// When each own-inbox key's last retry fetch failed. A restart forgets it.
+static FAILED_RETRIES: LazyLock<Mutex<HashMap<Vec<u8>, i64>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// Whether `key` may be fetched again for a retry at `now_ns`.
+fn retry_due(key: &[u8], now_ns: i64) -> bool {
+    FAILED_RETRIES.lock().get(key).is_none_or(|failed_at| {
+        now_ns.saturating_sub(*failed_at) >= SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS
+    })
+}
+
+/// Record which retried keys failed at `now_ns`; a fetched key is cleared.
+fn note_retries(retried: &HashSet<Vec<u8>>, failed: &[Vec<u8>], now_ns: i64) {
+    let mut failed_retries = FAILED_RETRIES.lock();
+    for key in retried {
+        if failed.contains(key) {
+            failed_retries.insert(key.clone(), now_ns);
+        } else {
+            failed_retries.remove(key);
+        }
+    }
+}
+
+/// Every leaf key, when the group's floor admits own-inbox retries.
+/// `None` keeps a refresh to the identity diff.
+pub(in crate::groups) fn retry_leaves(
+    extensions: &Extensions<GroupContext>,
+    members: impl Iterator<Item = openmls::group::Member>,
+) -> Option<Vec<Vec<u8>>> {
+    let gate = LibXMTPVersion::parse(INSTALLATION_RETRY_MIN_PROTOCOL_VERSION).ok()?;
+    committed_floor_at_least(extensions, &gate)
+        .then(|| members.map(|member| member.signature_key).collect())
+}
 
 // Extracts the message sender, but does not do any validation to ensure that the
 // installation_id is actually part of the inbox.
@@ -31,11 +69,12 @@ pub(in crate::groups) async fn calculate_membership_changes_with_keypackages<'a>
     group_id: &GroupId,
     new_group_membership: &'a GroupMembership,
     old_group_membership: &'a GroupMembership,
+    retry_leaves: Option<&[Vec<u8>]>,
 ) -> Result<MembershipDiffWithKeyPackages, GroupError> {
     let membership_diff = old_group_membership.diff(new_group_membership);
 
     let identity = IdentityUpdates::new(&context);
-    let installation_diff = identity
+    let mut installation_diff = identity
         .get_installation_diff(
             &context.db(),
             group_id,
@@ -44,6 +83,31 @@ pub(in crate::groups) async fn calculate_membership_changes_with_keypackages<'a>
             &membership_diff,
         )
         .await?;
+
+    // implements: GMOD-055
+    // Retry each key of the own inbox's entry that holds no leaf. No identity
+    // change makes such a key an expected addition again.
+    let own = context.inbox_id();
+    let now = now_ns();
+    let mut retried = HashSet::new();
+    if let (Some(leaves), Some(&sequence_id)) = (retry_leaves, new_group_membership.get(own))
+        && sequence_id != 0
+    {
+        let state = identity
+            .get_association_state(&context.db(), own, Some(sequence_id as i64))
+            .await?;
+        for key in state.installation_ids() {
+            if !leaves.contains(&key)
+                && !installation_diff.added_installations.contains_key(&key)
+                && retry_due(&key, now)
+            {
+                retried.insert(key.clone());
+                installation_diff
+                    .added_installations
+                    .insert(key, HashSet::from([own.to_string()]));
+            }
+        }
+    }
 
     let mut new_installations = Vec::new();
     let mut new_key_packages = Vec::new();
@@ -59,6 +123,7 @@ pub(in crate::groups) async fn calculate_membership_changes_with_keypackages<'a>
         )
         .await?;
     }
+    note_retries(&retried, &new_failed_installations, now);
 
     let mut failed_installations: HashSet<Vec<u8>> = old_group_membership
         .failed_installations
@@ -250,4 +315,54 @@ pub(crate) fn decode_staged_commit(
     data: &[u8],
 ) -> Result<StagedCommit, GroupMessageProcessingError> {
     Ok(xmtp_db::db_deserialize(data)?)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use openmls::extensions::{AppDataDictionary, AppDataDictionaryExtension, Extension};
+
+    // verifies: GMOD-055
+    #[xmtp_common::test(unwrap_try = true)]
+    fn retry_due_backs_off_after_a_failed_fetch() {
+        let key = xmtp_common::rand_u64().to_be_bytes().to_vec();
+        let now = now_ns();
+        let interval = SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS;
+        assert!(retry_due(&key, now), "never failed");
+        let retried = HashSet::from([key.clone()]);
+        note_retries(&retried, std::slice::from_ref(&key), now);
+        assert!(!retry_due(&key, now), "just failed");
+        assert!(
+            !retry_due(&key, now + interval - 1),
+            "failed under an interval ago"
+        );
+        assert!(retry_due(&key, now + interval), "failed one interval ago");
+        note_retries(&retried, &[], now);
+        assert!(retry_due(&key, now), "a fetched key is cleared");
+    }
+
+    /// Below the floor that admits own-inbox re-adds, a refresh keeps to the
+    /// identity diff.
+    // verifies: GMOD-055, PERM-023
+    #[xmtp_common::test(unwrap_try = true)]
+    fn retry_waits_for_the_floor() {
+        for (floor, open) in [
+            ("1.12.0-dev", false),
+            (INSTALLATION_RETRY_MIN_PROTOCOL_VERSION, true),
+        ] {
+            let mut dict = AppDataDictionary::new();
+            let _ = dict.insert(
+                ComponentId::MIN_SUPPORTED_PROTOCOL_VERSION.as_u16(),
+                floor.as_bytes().to_vec(),
+            );
+            let extensions = Extensions::from_vec(vec![Extension::AppDataDictionary(
+                AppDataDictionaryExtension::new(dict),
+            )])?;
+            assert_eq!(
+                retry_leaves(&extensions, std::iter::empty()).is_some(),
+                open,
+                "floor {floor}"
+            );
+        }
+    }
 }

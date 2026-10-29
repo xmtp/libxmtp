@@ -401,6 +401,8 @@ impl AppDataUpdateList {
 
 pub struct ProposalChanges {
     pub added_installations: HashSet<Vec<u8>>,
+    /// Added keys proposed by a member of the inbox the leaf's credential names.
+    pub self_added_installations: HashSet<Vec<u8>>,
     pub removed_installations: HashSet<Vec<u8>>,
     pub credentials_to_verify: Vec<CommitParticipant>,
     /// Maps inbox_id to the proposer who proposed adding it
@@ -424,6 +426,7 @@ pub fn get_proposal_changes(
 ) -> Result<ProposalChanges, CommitRuleError> {
     // The actual installations added and removed via proposals in the commit
     let mut added_installations: HashSet<Vec<u8>> = HashSet::new();
+    let mut self_added_installations: HashSet<Vec<u8>> = HashSet::new();
     let mut removed_installations: HashSet<Vec<u8>> = HashSet::new();
     let mut credentials_to_verify: Vec<CommitParticipant> = vec![];
     let mut added_inbox_proposers: HashMap<String, CommitParticipant> = HashMap::new();
@@ -470,6 +473,9 @@ pub fn get_proposal_changes(
                     mutable_metadata,
                 )?;
                 added_installations.insert(participant.installation_id.clone());
+                if proposer.inbox_id == participant.inbox_id {
+                    self_added_installations.insert(participant.installation_id.clone());
+                }
                 added_inbox_proposers.insert(participant.inbox_id.clone(), proposer);
                 credentials_to_verify.push(participant);
             }
@@ -515,6 +521,7 @@ pub fn get_proposal_changes(
 
     Ok(ProposalChanges {
         added_installations,
+        self_added_installations,
         removed_installations,
         credentials_to_verify,
         added_inbox_proposers,

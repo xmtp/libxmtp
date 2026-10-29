@@ -117,8 +117,11 @@ where
         inbox_ids_to_add: &[InboxIdRef<'_>],
         inbox_ids_to_remove: &[InboxIdRef<'_>],
     ) -> Result<UpdateGroupMembershipIntentData, GroupError> {
-        let existing_group_membership = self.with_group_snapshot(|group| {
-            extract_group_membership(group.extensions()).map_err(Into::into)
+        let (existing_group_membership, retry_leaves) = self.with_group_snapshot(|group| {
+            Ok::<_, GroupError>((
+                extract_group_membership(group.extensions())?,
+                retry_leaves(group.extensions(), group.members()),
+            ))
         })?;
         {
             // TODO:nm prevent querying for updates on members who are being removed
@@ -131,7 +134,7 @@ where
             let latest_sequence_id_map = conn.get_latest_sequence_id(&inbox_ids as &[&str])?;
 
             // Get a list of all inbox IDs that have increased sequence_id for the group
-            let changed_inbox_ids =
+            let mut changed_inbox_ids =
                 inbox_ids
                     .iter()
                     .try_fold(HashMap::new(), |mut updates, inbox_id| {
@@ -176,8 +179,18 @@ where
                 &self.group_id,
                 &new_membership,
                 &old_group_membership,
+                retry_leaves.as_deref(),
             )
             .await?;
+
+            // A retry alone changes no entry: refresh the own entry at its current
+            // sequence so the intent is not empty. Apply keeps the higher sequence.
+            if changed_inbox_ids.is_empty()
+                && !changes_with_kps.new_installations.is_empty()
+                && let Some(&sequence_id) = existing_group_membership.get(self.context.inbox_id())
+            {
+                changed_inbox_ids.insert(self.context.inbox_id().to_string(), sequence_id);
+            }
 
             // If we fail to fetch or verify all the added members' KeyPackage, return an error.
             // skip if the inbox ids is 0 from the beginning

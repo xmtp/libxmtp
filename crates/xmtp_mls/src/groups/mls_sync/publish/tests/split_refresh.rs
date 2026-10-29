@@ -268,7 +268,8 @@ async fn an_inbox_over_the_envelope_limit_keeps_its_removes(
     assert_eq!(limited_group.epoch().await?, before + 1);
     assert!(last_refresh_attempt(&limited_group).max_envelope_size() <= limit);
     let caro_group = caro.group(&group.group_id)?;
-    caro_group.sync().await?;
+    // Receive without the refresh that `sync` runs: it would add Caro2 back.
+    caro_group.receive().await?;
     assert_eq!(
         limited_group.epoch_authenticator().await?,
         caro_group.epoch_authenticator().await?

@@ -21,6 +21,8 @@ pub(super) struct PublishRequirements {
     /// Installation keys to readd, mapped to the inbox their current leaf names.
     /// A leaf whose credential does not parse has no owner, so its package fails.
     readd_installations: Option<HashMap<Vec<u8>, HashSet<String>>>,
+    /// Every leaf key, when a membership refresh may retry own-inbox keys.
+    retry_leaves: Option<Vec<Vec<u8>>>,
     selection: Option<Box<super::selection::SelectionRequirements>>,
 }
 
@@ -40,6 +42,7 @@ impl PublishRequirements {
             new_membership: None,
             add_inboxes: Vec::new(),
             readd_installations: None,
+            retry_leaves: None,
             selection: super::selection::SelectionRequirements::capture(group, intent)?
                 .map(Box::new),
         };
@@ -48,6 +51,7 @@ impl PublishRequirements {
                 let old = extract_group_membership(group.extensions())?;
                 let data = UpdateGroupMembershipIntentData::try_from(intent.data.as_slice())?;
                 requirements.fail_refresh_additions = data.removal_only;
+                requirements.retry_leaves = retry_leaves(group.extensions(), group.members());
                 requirements.new_membership = Some(data.apply_to_group_membership(&old));
                 requirements.membership_update = Some(data);
                 requirements.old_membership = Some(old);
@@ -207,6 +211,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                         &self.group_id,
                         &new,
                         old,
+                        requirements.retry_leaves.as_deref(),
                     )
                     .await?,
                 );

@@ -77,7 +77,11 @@ pub const MIN_RECOVERY_REQUEST_VERSION: &str = "1.6.0";
 ///
 /// Follow the floor-bump convention in the component registry when changing
 /// the wire format. Raise this constant with the workspace version.
-pub const PROPOSALS_MIN_PROTOCOL_VERSION: &str = "1.12.0-dev";
+pub const PROPOSALS_MIN_PROTOCOL_VERSION: &str = "1.12.0-dev.1";
+
+/// First version whose receivers accept an inbox adding back its own leafless
+/// installation. Senders retry only in groups whose floor is at least this.
+pub const INSTALLATION_RETRY_MIN_PROTOCOL_VERSION: &str = "1.12.0-dev.1";
 
 // Welcome pointers are mostly the hpke public key and less than 100 bytes for the welcome pointer
 // so as long as we have 2 installations that need a single welcome it will result in less data being
