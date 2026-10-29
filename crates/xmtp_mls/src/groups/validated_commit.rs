@@ -41,6 +41,7 @@ use xmtp_mls_validation::{
         metadata_changes_between, read_committed_metadata, read_post_commit_mutable_metadata,
         validate_app_data_update_proposals_in_commit, validate_committed_proposals,
         validate_identity_sequence_order, validate_membership_diff, validate_one_app_data_update,
+        validate_sync_membership,
     },
     group_membership::{FailedInstallations, GroupMembership},
     group_permissions::{GroupMutablePermissionsError, MembershipPolicy, PolicySet},
@@ -644,6 +645,7 @@ impl ExpectedDiff {
             &new_group_membership,
             &membership_diff,
         )?;
+        validate_sync_membership(immutable_metadata, &new_group_membership)?;
 
         let added_inboxes = membership_diff
             .added_inboxes

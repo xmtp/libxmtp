@@ -26,10 +26,13 @@ use xmtp_mls_common::{
     group_mutable_metadata::{GroupMutableMetadata, GroupMutableMetadataError, MetadataField},
     libxmtp_version::{InvalidVersionFormat, LibXMTPVersion},
 };
-use xmtp_proto::xmtp::{
-    identity::MlsCredential,
-    mls::message_contents::group_updated::{
-        Inbox as InboxProto, MetadataFieldChange as MetadataFieldChangeProto,
+use xmtp_proto::{
+    types::ConversationType,
+    xmtp::{
+        identity::MlsCredential,
+        mls::message_contents::group_updated::{
+            Inbox as InboxProto, MetadataFieldChange as MetadataFieldChangeProto,
+        },
     },
 };
 
@@ -686,6 +689,23 @@ pub fn validate_membership_diff(
         }
     }
 
+    Ok(())
+}
+
+/// A sync group's membership names only its creator's inbox.
+// implements: SYNC-010
+pub fn validate_sync_membership(
+    metadata: &GroupMetadata,
+    membership: &GroupMembership,
+) -> Result<(), CommitRuleError> {
+    if metadata.conversation_type == ConversationType::Sync
+        && membership
+            .members
+            .keys()
+            .any(|inbox_id| *inbox_id != metadata.creator_inbox_id)
+    {
+        return Err(CommitRuleError::InsufficientPermissions);
+    }
     Ok(())
 }
 
@@ -1729,6 +1749,28 @@ mod permission_on_receive_tests {
                 &creator.to_hex(),
                 None
             ));
+        }
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn sync_membership_names_only_the_creator() {
+        let creator = "creator".to_string();
+        let outsider = "outsider".to_string();
+        for (conversation_type, inbox_ids, allowed) in [
+            (ConversationType::Sync, vec![&creator], true),
+            (ConversationType::Sync, vec![&creator, &outsider], false),
+            (ConversationType::Sync, vec![&outsider], false),
+            (ConversationType::Group, vec![&creator, &outsider], true),
+        ] {
+            let metadata = GroupMetadata::new(conversation_type, creator.clone(), None, None);
+            let mut membership = GroupMembership::new();
+            for inbox_id in inbox_ids {
+                membership.add(inbox_id.clone(), 1);
+            }
+            match validate_sync_membership(&metadata, &membership) {
+                Ok(()) => assert!(allowed),
+                Err(error) => assert!(!allowed && error.is_safe_rejection()),
+            }
         }
     }
 
