@@ -94,6 +94,7 @@ async fn ordinary_welcome_rejects_peer_admin_combinator() {
         &group.group_id,
         &new_membership,
         &old_membership,
+        None,
     )
     .await?;
     let action = crate::state_tx::state_write(group.context.mls_storage(), |tx| {
@@ -349,6 +350,7 @@ async fn test_spoofed_inbox_id() {
         &group.group_id,
         &new_membership,
         &old_membership,
+        None,
     )
     .await?;
     let send_welcome_action = crate::state_tx::state_write(context.mls_storage(), |tx| {

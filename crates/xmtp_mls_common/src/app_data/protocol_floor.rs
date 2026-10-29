@@ -46,6 +46,20 @@ pub fn committed_floor_exceeding_in_extensions(
     (floor_version > *own).then_some(floor)
 }
 
+/// True when the committed floor parses and is at least `min`. Missing or
+/// malformed floors read as below.
+pub fn committed_floor_at_least(
+    extensions: &openmls::extensions::Extensions<openmls::group::GroupContext>,
+    min: &LibXMTPVersion,
+) -> bool {
+    let id = ComponentId::MIN_SUPPORTED_PROTOCOL_VERSION.as_u16();
+    extensions
+        .app_data_dictionary()
+        .and_then(|dict| std::str::from_utf8(dict.dictionary().get(&id)?).ok())
+        .and_then(|floor| LibXMTPVersion::parse(floor).ok())
+        .is_some_and(|floor| floor >= *min)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -172,5 +186,31 @@ mod tests {
         // The client's own version can no longer be unparseable here: it is
         // parsed once and asserted valid when `VersionInfo` is built, so this
         // guard only ever compares against a valid `LibXMTPVersion`.
+    }
+
+    /// A missing or malformed floor reads as below, so a sender never
+    /// publishes what the group's members may reject.
+    #[xmtp_common::test(unwrap_try = true)]
+    fn committed_floor_at_least_rows() {
+        let min = ver("1.12.0-dev.1");
+        assert!(!committed_floor_at_least(&empty_extensions(), &min));
+        assert!(!committed_floor_at_least(&extensions_with_dict(&[]), &min));
+        for (floor, expected) in [
+            (&[0xFF, 0xFE][..], false),
+            (b"not-a-version", false),
+            (b"1.12.0-dev", false),
+            (b"1.12.0-dev.1", true),
+            (b"1.12.0", true),
+        ] {
+            let exts = extensions_with_dict(&[(
+                ComponentId::MIN_SUPPORTED_PROTOCOL_VERSION.as_u16(),
+                floor.to_vec(),
+            )]);
+            assert_eq!(
+                committed_floor_at_least(&exts, &min),
+                expected,
+                "floor {floor:?}"
+            );
+        }
     }
 }

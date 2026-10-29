@@ -930,6 +930,7 @@ async fn publish_commit_without_welcome(group: &TestMlsGroup, inbox_id: &str) ->
         &group.group_id,
         &new_membership,
         &old_membership,
+        None,
     )
     .await
     .unwrap();

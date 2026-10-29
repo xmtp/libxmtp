@@ -303,6 +303,7 @@ impl ValidatedCommit {
         // Get the installations actually added and removed in the commit
         let ProposalChanges {
             mut added_installations,
+            self_added_installations,
             mut removed_installations,
             mut credentials_to_verify,
             added_inbox_proposers,
@@ -383,6 +384,7 @@ impl ValidatedCommit {
         expected_diff_matches_commit(
             &expected_installation_diff,
             added_installations,
+            &self_added_installations,
             removed_installations,
             &required_removals,
             &current_group_members,
@@ -745,6 +747,7 @@ fn validate_new_failed_installations(
 fn expected_diff_matches_commit(
     expected_diff: &InstallationDiff,
     added_installations: HashSet<Vec<u8>>,
+    self_added_installations: &HashSet<Vec<u8>>,
     removed_installations: HashSet<Vec<u8>>,
     required_removals: &HashSet<Vec<u8>>,
     existing_installation_ids: &HashSet<Vec<u8>>,
@@ -752,6 +755,7 @@ fn expected_diff_matches_commit(
     // Check and make sure that any added installations are either:
     // 1. In the expected diff
     // 2. Already a member of the group (for example, the group creator is already a member on the first commit)
+    // 3. Proposed by a member of the inbox the leaf's credential names
 
     let unknown_adds = added_installations
         .into_iter()
@@ -760,6 +764,8 @@ fn expected_diff_matches_commit(
                 .added_installations
                 .contains_key(installation_id)
                 && !existing_installation_ids.contains(installation_id)
+                // The identity check below still needs the key in its inbox's state.
+                && !self_added_installations.contains(installation_id)
         })
         .collect::<Vec<Vec<u8>>>();
     if !unknown_adds.is_empty() {

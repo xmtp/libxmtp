@@ -636,6 +636,7 @@ mod tests {
             &group.group_id,
             &new,
             &old,
+            None,
         )
         .await?;
         let outcome: TransactionOutcome<()> =
