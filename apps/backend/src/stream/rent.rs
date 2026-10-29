@@ -118,7 +118,7 @@ mod tests {
     #[xmtp_common::test(unwrap_try = true)]
     fn each_period_from_the_open_pays_for_the_topics_held_then() {
         let (mut rent, _) = Rent::open(OPEN, 0);
-        assert_eq!(rent.renews_at(), OPEN + PERIOD);
+        assert_eq!(rent.renews_at(), OPEN + Duration::from_secs(60));
         assert_eq!(
             rent.renew(OPEN + PERIOD - Duration::from_nanos(1), 2500),
             None

@@ -20,8 +20,20 @@ const LOCALHOST: CallerKey = CallerKey::Ipv4([127, 0, 0, 1]);
 
 /// A server with `limits` under `[rate_limits]`, its limiter on `clock`.
 async fn server(limits: &str, clock: &ManualClock) -> TestResult<TestServer> {
+    server_with(limits, clock, |_| {}).await
+}
+
+/// `server`, with `change` applied to the rest of its configuration.
+async fn server_with(
+    limits: &str,
+    clock: &ManualClock,
+    change: impl FnOnce(&mut crate::config::Config),
+) -> TestResult<TestServer> {
     TestServer::with_rate_limit_clock(
-        |config| config.rate_limits = rate_limits(&format!("max_memory_mib = 1\n{limits}")),
+        |config| {
+            config.rate_limits = rate_limits(&format!("max_memory_mib = 1\n{limits}"));
+            change(config);
+        },
         clock.clone(),
     )
     .await
@@ -87,6 +99,27 @@ async fn ping(stream: &mut Native, nonce: u64) -> TestResult {
         Frame::Pong(pong) if pong.nonce == nonce => Ok(()),
         frame => Err(format!("expected Pong {nonce}, got {frame:?}").into()),
     }
+}
+
+/// Ping the session and collect the next `count` envelopes, whichever comes
+/// first: a session that resumes catch-up on its own timer can send them
+/// before the `Pong`.
+async fn ping_for_messages(
+    stream: &mut Native,
+    nonce: u64,
+    count: usize,
+) -> TestResult<Vec<api::ServerEnvelope>> {
+    stream.send(Input::Ping(api::Ping { nonce })).await?;
+    let mut ponged = false;
+    let mut rows = Vec::new();
+    while !ponged || rows.len() < count {
+        match stream.next().await? {
+            Frame::Pong(pong) if pong.nonce == nonce && !ponged => ponged = true,
+            Frame::Messages(messages) => rows.extend(messages.envelopes),
+            frame => return Err(format!("unexpected frame: {frame:?}").into()),
+        }
+    }
+    Ok(rows)
 }
 
 /// The status the stream ends with, which must come before any other frame.
@@ -195,15 +228,18 @@ async fn a_denied_renewal_ends_the_stream_with_the_rate_limit_rejection() {
     applied(&mut stream, 1, queries(0..1), vec![]).await?;
     clock.advance(secs(60));
     stream.send(Input::Ping(api::Ping { nonce: 1 })).await?;
-    let status = loop {
-        match stream.output.message().await {
-            Ok(Some(api::SubscribeResponse {
-                response: Some(Frame::Pong(_)),
-            })) => continue,
-            Ok(frame) => panic!("unexpected frame {frame:?}"),
-            Err(status) => break status,
+    let status = xmtp_common::time::timeout(Duration::from_secs(5), async {
+        loop {
+            match stream.output.message().await {
+                Ok(Some(api::SubscribeResponse {
+                    response: Some(Frame::Pong(_)),
+                })) => continue,
+                Ok(frame) => panic!("unexpected frame {frame:?}"),
+                Err(status) => break status,
+            }
         }
-    };
+    })
+    .await?;
     // Both units of the hour were spent at 0, so the next two fit at 3600 s.
     assert_eq!(
         rate_limit_delay(&Err::<(), _>(status.clone()), Category::StreamRent),
@@ -236,8 +272,9 @@ async fn a_denied_top_up_ends_the_stream_before_its_applied() {
     let mut stream = Native::open(&server).await?;
     stream.update(1, queries(0..1), vec![]).await?;
     let status = ended(&mut stream).await?;
-    // Two units exceed the count, so they fit once the open's unit is earned
-    // back.
+    // The whole rent of 2 is more than the count of 1, so the delay runs to
+    // full allowance, when one spend of 2 is admitted. A replacement that
+    // opens for 1 unit and then tops up can never pay it.
     assert_eq!(
         rate_limit_delay(&Err::<(), _>(status), Category::StreamRent),
         Some(Duration::from_secs(60))
@@ -283,7 +320,7 @@ async fn a_replacement_stream_that_waits_the_rent_delay_is_admitted() {
     server.stop().await?;
 }
 
-// verifies: RATE-010, RATE-033
+// verifies: RATE-010, RATE-011
 #[xmtp_common::test(unwrap_try = true)]
 async fn each_catch_up_read_spends_one_request_unit() {
     let clock = ManualClock::new();
@@ -353,8 +390,7 @@ async fn a_denied_catch_up_read_waits_its_delay_and_skips_nothing() {
         [(1, true), (1, true), (1, false)]
     );
     clock.advance(1_000_000);
-    ping(&mut stream, 3).await?;
-    let rows = stream.messages(3).await?;
+    let rows = ping_for_messages(&mut stream, 3, 3).await?;
     let cursors: Vec<_> = rows
         .iter()
         .map(|row| row.meta.as_ref().and_then(|meta| meta.cursor))
@@ -387,7 +423,9 @@ async fn an_update_that_newly_registers_a_topic_pays_for_its_catch_up_target() {
     applied(&mut stream, 2, queries(0..1), vec![]).await?;
     applied(&mut stream, 3, vec![], vec![topic(0)]).await?;
     assert_eq!(spends(&server, 0, Category::Request), [(1, true); 2]);
-    applied(&mut stream, 4, queries(1..2), vec![]).await?;
+    // Adding the removed topic again reads its target again.
+    applied(&mut stream, 4, queries(0..1), vec![]).await?;
+    assert_eq!(spends(&server, 0, Category::Request), [(1, true); 3]);
     stream.update(5, queries(2..3), vec![]).await?;
     let status = ended(&mut stream).await?;
     // The 20 s one unit needs would let the replacement's `Subscribe` in and
@@ -402,7 +440,7 @@ async fn an_update_that_newly_registers_a_topic_pays_for_its_catch_up_target() {
     server.stop().await?;
 }
 
-// verifies: RATE-010
+// verifies: RATE-011
 #[xmtp_common::test(unwrap_try = true)]
 async fn live_envelopes_arrive_while_the_caller_has_no_requests_left() {
     let clock = ManualClock::new();
@@ -571,5 +609,189 @@ async fn each_refused_stream_step_counts_once() {
     .await?;
     assert_eq!(metric("xmtp_stream_sessions", &[("kind", "static")]), 1.0);
     drop(first);
+    server.stop().await?;
+}
+
+/// A paused read resumes on the session's own timer, with no frame from the
+/// client, no keepalive, and no notice from the tailer to wake it.
+// verifies: RATE-033
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_paused_read_resumes_on_its_own_timer() {
+    let clock = ManualClock::new();
+    let server = server_with(
+        "[categories.request]\ndefault = [{ count = 2, window_seconds = 1 }]",
+        &clock,
+        |config| {
+            config.streams.keepalive_interval_ms = 60_000;
+            config.streams.poll_interval_ms = 10;
+        },
+    )
+    .await?;
+    // A live delivery shows the tailer has passed the envelope, so it sends
+    // the paused stream no notice of it later.
+    let mut watcher = Native::open(&server).await?;
+    applied(&mut watcher, 1, queries(8..9), vec![]).await?;
+    clock.advance(secs(1));
+    server
+        .publish(vec![
+            xmtp_mls_validation::test_utils::inline_welcome_envelope(identifier(8)),
+        ])
+        .await?;
+    assert_eq!(watcher.messages(1).await?.len(), 1);
+    // Every unit spent so far is earned back.
+    clock.advance(secs(1));
+    let mut stream = Native::open(&server).await?;
+    applied(&mut stream, 1, queries(8..9), vec![]).await?;
+    xmtp_common::wait_for_ge(|| async { denials(&server, Category::Request).len() }, 1).await?;
+    assert_eq!(
+        denials(&server, Category::Request),
+        [Duration::from_millis(500)]
+    );
+    clock.advance(500_000_000);
+    let frame = xmtp_common::time::timeout(Duration::from_secs(2), stream.next()).await??;
+    assert!(matches!(frame, Frame::Messages(messages) if messages.envelopes.len() == 1));
+    drop((watcher, stream));
+    server.stop().await?;
+}
+
+/// A read paused for topics that are then removed reads nothing, and spends
+/// nothing, when it would resume.
+// verifies: RATE-033, API-253
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_paused_read_for_removed_topics_spends_nothing_after_its_delay() {
+    let clock = ManualClock::new();
+    let server = server(
+        "[categories.request]\ndefault = [{ count = 2, window_seconds = 60 }]",
+        &clock,
+    )
+    .await?;
+    let metas = server.publish(vec![envelope(9, 0)]).await?;
+    clock.advance(secs(60));
+    let from = server.rate_limit_spends().len();
+    let topic = metas[0].topic.clone().ok_or("topic")?;
+    let mut stream = Native::open(&server).await?;
+    applied(
+        &mut stream,
+        1,
+        vec![support::query_topic(topic.clone(), 0)],
+        vec![],
+    )
+    .await?;
+    xmtp_common::wait_for_ge(|| async { denials(&server, Category::Request).len() }, 1).await?;
+    applied(&mut stream, 2, vec![], vec![topic]).await?;
+    clock.advance(secs(30));
+    ping(&mut stream, 1).await?;
+    ping(&mut stream, 2).await?;
+    assert_eq!(
+        spends(&server, from, Category::Request),
+        [(1, true), (1, true), (1, false)]
+    );
+    drop(stream);
+    server.stop().await?;
+}
+
+/// A read denied in the middle of a catch-up resumes after its delay with
+/// the registrations it covered, less one removed during the pause, and
+/// delivers each envelope once.
+// verifies: RATE-033, API-253, API-254
+#[xmtp_common::test(unwrap_try = true, flavor = "multi_thread", worker_threads = 2)]
+async fn a_read_denied_mid_catch_up_resumes_without_a_topic_removed_meanwhile() {
+    let clock = ManualClock::new();
+    let server = server(
+        "[categories.request]\ndefault = [{ count = 4, window_seconds = 60 }]",
+        &clock,
+    )
+    .await?;
+    server
+        .publish(
+            (0..600)
+                .map(|index| {
+                    xmtp_mls_validation::test_utils::inline_welcome_envelope(identifier(index))
+                })
+                .collect(),
+        )
+        .await?;
+    clock.advance(secs(60));
+    let from = server.rate_limit_spends().len();
+    let mut stream = Native::open(&server).await?;
+    applied(&mut stream, 1, queries(0..600), vec![]).await?;
+    // The `Subscribe`, the target, and two reads of 256 spend all four units.
+    let mut rows = stream.messages(512).await?;
+    xmtp_common::wait_for_ge(|| async { denials(&server, Category::Request).len() }, 1).await?;
+    applied(&mut stream, 2, vec![], vec![topic(599)]).await?;
+    clock.advance(secs(15));
+    rows.extend(ping_for_messages(&mut stream, 1, 87).await?);
+    let delivered: std::collections::HashSet<_> = rows
+        .iter()
+        .filter_map(|row| row.meta.as_ref()?.topic.clone())
+        .collect();
+    assert_eq!(rows.len(), 599);
+    assert_eq!(delivered.len(), 599);
+    assert!(!delivered.contains(&topic(599)));
+    assert_eq!(
+        spends(&server, from, Category::Request),
+        [
+            (1, true),
+            (1, true),
+            (1, true),
+            (1, true),
+            (1, false),
+            (1, true)
+        ]
+    );
+    drop(stream);
+    server.stop().await?;
+}
+
+/// A static stream renews its rent each period and ends when a renewal is
+/// refused.
+// verifies: RATE-030, RATE-032
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_static_stream_renews_its_rent_and_ends_when_refused() {
+    use api::subscribe_static_response::Response as Static;
+    let clock = ManualClock::new();
+    // Each period pays 2 units of 3 per 120 s: the third renewal does not fit.
+    let server = server_with(
+        "[categories.stream_rent]\ndefault = [{ count = 3, window_seconds = 120 }]",
+        &clock,
+        |config| config.streams.keepalive_interval_ms = 100,
+    )
+    .await?;
+    let mut stream =
+        api::subscription_service_client::SubscriptionServiceClient::new(server.channel.clone())
+            .subscribe_static(api::SubscribeStaticRequest {
+                topics: queries(0..1),
+            })
+            .await?
+            .into_inner();
+    assert!(matches!(
+        stream.message().await?.and_then(|frame| frame.response),
+        Some(Static::Started(_))
+    ));
+    for periods in 1..=2 {
+        clock.advance(secs(60));
+        xmtp_common::wait_for_eq(
+            || async { spends(&server, 0, Category::StreamRent) },
+            vec![(2, true); 1 + periods],
+        )
+        .await?;
+    }
+    clock.advance(secs(60));
+    let status = xmtp_common::time::timeout(Duration::from_secs(5), async {
+        loop {
+            match stream.message().await {
+                Ok(Some(api::SubscribeStaticResponse {
+                    response: Some(Static::Keepalive(_)),
+                })) => continue,
+                Ok(frame) => panic!("unexpected frame {frame:?}"),
+                Err(status) => break status,
+            }
+        }
+    })
+    .await?;
+    assert_eq!(
+        rate_limit_delay(&Err::<(), _>(status), Category::StreamRent),
+        Some(Duration::from_secs(20))
+    );
     server.stop().await?;
 }

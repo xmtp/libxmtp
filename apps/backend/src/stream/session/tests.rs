@@ -463,24 +463,26 @@ fn session_with(
     Ok((session, registry, receiver))
 }
 
-// verifies: RATE-031, RATE-032
-#[xmtp_common::test(unwrap_try = true)]
-async fn a_denied_top_up_registers_no_topic_and_queues_no_applied() {
-    let config = Arc::new(ValidatedConfig::load_str(
+/// A native session whose spends go to a fresh limiter with `limits` under
+/// `[rate_limits]`, and its charger, to spend for the same caller.
+fn limited_session(limits: &str) -> TestResult<(Session, Arc<Registry>, Queue, Charger)> {
+    let config = Arc::new(ValidatedConfig::load_str(&format!(
         "[database]\nurl = 'postgres://localhost/test'\n[server]\nidentifier = 'org.xmtp.test'\n\
-         [rate_limits]\nmax_memory_mib = 1\n\
-         [rate_limits.categories.stream_rent]\ndefault = [{ count = 2, window_seconds = 60 }]",
-    )?);
+         [rate_limits]\nmax_memory_mib = 1\n{limits}"
+    ))?);
     let limiter = crate::server::rate_limit::limiter_on(
         config.rate_limits(),
         crate::server::rate_limit::LimiterClock::Manual(xmtp_rate_limit::ManualClock::new()),
     )
     .ok_or("rate limits are on")?;
     let charger = Charger::for_test(&limiter, crate::config::CallerKey::Ipv4([127, 0, 0, 1]));
-    let (mut session, registry, receiver) = session_with(config, charger)?;
-    session.open(None).await?;
-    // 1001 topics need 3 units, and the open left 1 in the minute.
-    let adds = (0_u64..1001)
+    let (session, registry, output) = session_with(config, charger.clone())?;
+    Ok((session, registry, output, charger))
+}
+
+/// An update adding `count` new welcome topics.
+fn adding(count: u64) -> api::subscribe_request::Update {
+    let adds = (0..count)
         .map(|index| {
             let mut identifier = [0; 32];
             identifier[..8].copy_from_slice(&index.to_be_bytes());
@@ -494,22 +496,51 @@ async fn a_denied_top_up_registers_no_topic_and_queues_no_applied() {
             }
         })
         .collect();
-    let denied = session
-        .update(api::subscribe_request::Update {
-            id: 1,
-            adds,
-            removes: vec![],
-        })
-        .await;
-    // Three units exceed the count, so they fit once the open's unit is
-    // earned back.
-    assert_eq!(
-        crate::test_support::rate_limit_delay(&denied, Category::StreamRent),
-        Some(Duration::from_secs(30))
-    );
+    api::subscribe_request::Update {
+        id: 1,
+        adds,
+        removes: vec![],
+    }
+}
+
+/// A refused update registers nothing and leaves no update pending, so no
+/// `Applied` follows it.
+fn assert_nothing_registered(session: &Session, registry: &Registry) {
     assert_eq!(session.mailbox.terminal.reason(), StreamEnd::RateLimited);
     assert!(session.topics.is_empty());
     assert_eq!(registry.registered(session.id), 0);
     assert!(session.pending_update.is_none());
-    assert!(receiver.lock().try_recv().is_err());
+}
+
+// verifies: RATE-031, RATE-032
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_denied_top_up_registers_no_topic_and_leaves_no_applied_pending() {
+    let (mut session, registry, _output, _) = limited_session(
+        "[rate_limits.categories.stream_rent]\ndefault = [{ count = 2, window_seconds = 60 }]",
+    )?;
+    session.open(None).await?;
+    // 1001 topics need 3 units, and the open left 1 in the minute.
+    let denied = session.update(adding(1001)).await;
+    // The whole rent of 3 is more than the count of 2, so the delay runs to
+    // full allowance, when one spend of 3 is admitted. A replacement that
+    // opens for 1 unit and then tops up can never pay it.
+    assert_eq!(
+        crate::test_support::rate_limit_delay(&denied, Category::StreamRent),
+        Some(Duration::from_secs(30))
+    );
+    assert_nothing_registered(&session, &registry);
+}
+
+// verifies: RATE-034
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_denied_catch_up_target_registers_no_topic_and_leaves_no_applied_pending() {
+    let (mut session, registry, _output, charger) = limited_session(
+        "[rate_limits.categories.request]\ndefault = [{ count = 1, window_seconds = 60 }]",
+    )?;
+    session.open(None).await?;
+    // The `Subscribe` spent the caller's one unit.
+    charger.charge(Category::Request, 1).await?;
+    let denied = session.update(adding(1)).await;
+    assert!(crate::test_support::rate_limit_delay(&denied, Category::Request).is_some());
+    assert_nothing_registered(&session, &registry);
 }

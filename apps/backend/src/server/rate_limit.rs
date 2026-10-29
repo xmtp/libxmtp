@@ -167,7 +167,10 @@ impl Charger {
     /// and a denied spend charges nothing (RATE-022). The second spend is
     /// admitted only when the caller's state changed in between, as when
     /// the clock passed the first denial's delay; the step then goes ahead,
-    /// having paid `covered` units.
+    /// having paid `covered` units. When `covered` is more than a limit's
+    /// count, the delay runs to full allowance, when one spend of `covered`
+    /// is admitted (RATE-020), which a replacement stream that opens before
+    /// it tops up never makes.
     // implements: RATE-010
     pub(crate) async fn charge_covering(
         &self,
