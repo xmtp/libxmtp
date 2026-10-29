@@ -42,6 +42,10 @@ pub(super) fn log_incoming_preference_updates(
     tracing::info!(update_count = updates.len(), "Incoming preference updates");
 }
 
+/// Records per sync message when a newcomer is sent the consent table
+/// (about 100 KB, far below the 1 MiB envelope).
+const CONSENT_REPLAY_PAGE: usize = 1_000;
+
 type PendingEvent = Arc<Mutex<Option<(u64, xmtp_events::EventEnvelope<InternalEvent>)>>>;
 
 #[cfg(test)]
@@ -488,16 +492,19 @@ where
         // Cycle the HMAC
         self.client.cycle_hmac().await?;
 
-        // Consent can be stored before this primary group is adopted.
-        let updates = self
+        // implements: SYNC-025, SYNC-021
+        // Every record with a time travels at its stored time; a default at
+        // time 0 stays local.
+        let records: Vec<_> = self
             .client
             .db()
             .consent_records()?
             .into_iter()
+            .filter(|r| r.consented_at_ns > 0)
             .map(PreferenceUpdate::Consent)
-            .collect::<Vec<_>>();
-        if !updates.is_empty() {
-            self.client.sync_preferences(updates).await?;
+            .collect();
+        for page in records.chunks(CONSENT_REPLAY_PAGE) {
+            self.client.sync_preferences(page.to_vec()).await?;
         }
 
         Ok(())
@@ -752,6 +759,15 @@ mod startup_tests {
     use futures::FutureExt;
     use xmtp_events::EventWriter;
 
+    fn idle_worker<C: XmtpSharedContext + 'static>(context: C) -> SyncWorker<C> {
+        SyncWorker::new(
+            context,
+            None,
+            Arc::new(Mutex::new(None)),
+            Arc::new(AtomicU64::new(0)),
+        )
+    }
+
     #[cfg(not(target_arch = "wasm32"))]
     #[xmtp_common::test(unwrap_try = true)]
     async fn consent_published_before_primary_adoption_reaches_new_installation() {
@@ -808,20 +824,10 @@ mod startup_tests {
         );
 
         // Run the actual welcome handler, then consume its primary-group messages.
-        let source_worker = SyncWorker::new(
-            source.context.clone(),
-            None,
-            Arc::new(Mutex::new(None)),
-            Arc::new(AtomicU64::new(0)),
-        );
+        let source_worker = idle_worker(source.context.clone());
         source_worker.evt_new_sync_group_from_welcome().await?;
         new_primary.sync().await?;
-        let copy_worker = SyncWorker::new(
-            copy.context.clone(),
-            None,
-            Arc::new(Mutex::new(None)),
-            Arc::new(AtomicU64::new(0)),
-        );
+        let copy_worker = idle_worker(copy.context.clone());
         copy_worker.evt_new_sync_group_msg(false).await?;
         let received = copy
             .context
@@ -837,16 +843,85 @@ mod startup_tests {
         copy.close().await?;
     }
 
+    // verifies: SYNC-021, SYNC-025
+    #[cfg(not(target_arch = "wasm32"))]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn join_sends_every_timed_record_at_its_time() {
+        use xmtp_db::consent_record::{ConsentState, ConsentType, StoredConsentRecord};
+        use xmtp_proto::xmtp::device_sync::content::preference_update::Update;
+        let record = |entity: &str, state, consented_at_ns| StoredConsentRecord {
+            entity_type: ConsentType::InboxId,
+            state,
+            entity: entity.into(),
+            consented_at_ns,
+        };
+
+        tester!(alix1, disable_workers);
+        tester!(alix2, from: alix1, disable_workers);
+        // With x and y, alix1 holds 1,001 records with a time, one page more.
+        let fillers: Vec<_> = (0..999)
+            .map(|i| record(&format!("filler-{i}"), ConsentState::Allowed, 5))
+            .collect();
+        // Stored as an archive import stores them, not as decisions.
+        for stored in fillers.iter().cloned().chain([
+            record("x", ConsentState::Unknown, 1),
+            record("y", ConsentState::Allowed, 3),
+            record("z", ConsentState::Allowed, 0),
+        ]) {
+            alix1.context.db().insert_newer_consent_record(stored)?;
+        }
+        for held in [
+            record("x", ConsentState::Denied, 2),
+            record("y", ConsentState::Denied, 2),
+        ] {
+            alix2.context.db().insert_newer_consent_record(held)?;
+        }
+        let new_primary = alix2.device_sync_client().get_sync_group().await?;
+        alix1.sync_welcomes().await?;
+        let alix1_primary = alix1.device_sync_client().primary_sync_group()?;
+        assert_eq!(alix1_primary.unwrap().group_id, new_primary.group_id);
+
+        idle_worker(alix1.context.clone())
+            .evt_new_sync_group_from_welcome()
+            .await?;
+        new_primary.sync().await?;
+        let consent_messages = alix2
+            .context
+            .db()
+            .unprocessed_sync_group_messages()?
+            .iter()
+            .filter_map(|msg| decode_sync_message(&msg.decrypted_message_bytes))
+            .filter(|content| {
+                matches!(&content.0, ContentProto::PreferenceUpdates(p)
+                    if p.updates.iter().any(|u| matches!(u.update, Some(Update::Consent(_)))))
+            })
+            .count();
+        assert_eq!(consent_messages, 2, "1,001 records travel in two pages");
+        idle_worker(alix2.context.clone())
+            .evt_new_sync_group_msg(false)
+            .await?;
+
+        let db = alix2.context.db();
+        let held = |entity: &str| db.get_consent_record(entity.into(), ConsentType::InboxId);
+        assert_eq!(
+            held("x")?,
+            Some(record("x", ConsentState::Denied, 2)),
+            "an older forwarded record must not replace a newer one"
+        );
+        assert_eq!(held("y")?, Some(record("y", ConsentState::Allowed, 3)));
+        assert_eq!(held("z")?, None, "a default at time 0 must stay local");
+        for filler in &fillers {
+            assert_eq!(held(&filler.entity)?.as_ref(), Some(filler));
+        }
+        alix1.close().await?;
+        alix2.close().await?;
+    }
+
     #[cfg(not(target_arch = "wasm32"))]
     #[xmtp_common::test(unwrap_try = true)]
     async fn worker_turn_span_omits_hmac_key() {
         tester!(alix, disable_workers);
-        let mut worker = SyncWorker::new(
-            alix.context.clone(),
-            None,
-            Arc::new(Mutex::new(None)),
-            Arc::new(AtomicU64::new(0)),
-        );
+        let mut worker = idle_worker(alix.context.clone());
         let key = (1_u8..=42).collect::<Vec<_>>();
         let key_debug = format!("{key:?}");
         let event = xmtp_events::EventEnvelope::new(
@@ -894,12 +969,7 @@ mod startup_tests {
         };
         tester!(alix, disable_workers, worker_config: config);
         let turns = Arc::new([AtomicU64::new(0), AtomicU64::new(0)]);
-        let mut worker = SyncWorker::new(
-            alix.context.clone(),
-            None,
-            Arc::new(Mutex::new(None)),
-            Arc::new(AtomicU64::new(0)),
-        );
+        let mut worker = idle_worker(alix.context.clone());
         worker.completed_turns = Some(turns.clone());
         let (filter, depth) = crate::worker::worker_event_filter(WorkerKind::DeviceSync).unwrap();
         let subscription = Arc::new(alix.context.events().subscribe(filter, depth));
@@ -982,12 +1052,7 @@ mod startup_tests {
         tester!(alix, disable_workers, worker_config: jitter_config());
         let turns = Arc::new([AtomicU64::new(0), AtomicU64::new(0)]);
         let ticks = Arc::new(AtomicU64::new(0));
-        let mut worker = SyncWorker::new(
-            alix.context.clone(),
-            None,
-            Arc::new(Mutex::new(None)),
-            Arc::new(AtomicU64::new(0)),
-        );
+        let mut worker = idle_worker(alix.context.clone());
         worker.completed_turns = Some(turns.clone());
         worker.received_ticks = Some(ticks.clone());
         let first = TickControl::new();
@@ -1053,12 +1118,7 @@ mod startup_tests {
     async fn closing_subscription_stops_worker_with_initial_tick_pending() {
         const WAIT: Duration = Duration::from_secs(1);
         tester!(alix, disable_workers, worker_config: jitter_config());
-        let mut worker = SyncWorker::new(
-            alix.context.clone(),
-            None,
-            Arc::new(Mutex::new(None)),
-            Arc::new(AtomicU64::new(0)),
-        );
+        let mut worker = idle_worker(alix.context.clone());
         let first = TickControl::new();
         worker.tick_gates.push_back(first.gate);
         let (filter, depth) = crate::worker::worker_event_filter(WorkerKind::DeviceSync).unwrap();
