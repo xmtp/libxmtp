@@ -1,7 +1,7 @@
 //! The limiter the backend charges requests against: the in-memory table,
 //! with the deployment's limits resolved for each caller.
 
-use crate::config::{CallerKey, Category, RateLimitConfig};
+use crate::config::{CallerKey, CallerLimits, Category, LimitConfig, RateLimitConfig};
 use std::{
     sync::{
         Arc,
@@ -9,7 +9,9 @@ use std::{
     },
     time::Duration,
 };
-use xmtp_rate_limit::{Clock, Decision, Limit, MAX_LIMITS, MemoryLimiter, RateLimiter, Spend};
+use xmtp_rate_limit::{
+    Clock, Decision, Limit, Limits, LimitsError, MemoryLimiter, RateLimiter, Spend,
+};
 
 /// The limiter the backend charges requests against.
 pub(crate) type Limiter = BackendLimiter<MemoryLimiter<LimiterClock>>;
@@ -35,6 +37,18 @@ pub(crate) fn limiter_on(config: &RateLimitConfig, clock: LimiterClock) -> Optio
 
 fn budget_bytes(max_memory_mib: u32) -> usize {
     (max_memory_mib as usize).saturating_mul(1024 * 1024)
+}
+
+/// A configured limit list in the limiter's form, in the file's order.
+fn limits_of(list: &[LimitConfig]) -> Result<Limits, LimitsError> {
+    let list: Vec<Limit> = list
+        .iter()
+        .map(|limit| Limit {
+            count: limit.count,
+            window: Duration::from_secs(limit.window_seconds.into()),
+        })
+        .collect();
+    Limits::new(&list)
 }
 
 /// The limiter's time source. Tests set it by hand.
@@ -70,6 +84,8 @@ impl<C: Clock> CountsEvictions for MemoryLimiter<C> {
 pub(crate) struct BackendLimiter<L> {
     pub(super) limiter: L,
     config: RateLimitConfig,
+    /// The configuration's limit lists in the limiter's form, built once.
+    limits: CallerLimits<Limits>,
     /// The eviction count the metric holds.
     recorded_evictions: AtomicU64,
     /// The spends chargers made, in order, once a test turns recording on.
@@ -78,10 +94,20 @@ pub(crate) struct BackendLimiter<L> {
 }
 
 impl<L: RateLimiter + CountsEvictions> BackendLimiter<L> {
+    /// # Panics
+    ///
+    /// When a limit list does not fit the limiter. Configuration validation
+    /// refuses such a list, so a panic here means the two disagree
+    /// and the backend stops at startup rather than apply other limits.
     pub(crate) fn new(limiter: L, config: RateLimitConfig) -> Self {
+        let limits = config
+            .caller_limits()
+            .try_map(|list| limits_of(list))
+            .expect("a validated configuration's limit lists fit the limiter");
         Self {
             limiter,
             config,
+            limits,
             recorded_evictions: AtomicU64::new(0),
             #[cfg(any(test, feature = "test-utils"))]
             spends: Default::default(),
@@ -97,26 +123,14 @@ impl<L: RateLimiter + CountsEvictions> BackendLimiter<L> {
         category: Category,
         cost: u32,
     ) -> Decision {
-        let configured = self.config.limits(category, caller);
-        // Configuration holds at most three limits per list; the limiter
-        // matches state to limits by position, so the order is the file's.
-        let mut limits = [Limit {
-            count: 1,
-            window: Duration::ZERO,
-        }; MAX_LIMITS];
-        let len = configured.len().min(MAX_LIMITS);
-        for (limit, configured) in limits.iter_mut().zip(configured) {
-            *limit = Limit {
-                count: configured.count,
-                window: Duration::from_secs(configured.window_seconds.into()),
-            };
-        }
+        // The limiter matches state to limits by position, so the order is
+        // the file's.
         let decision = self
             .limiter
             .try_spend(Spend {
                 key,
                 category: category as u8,
-                limits: &limits[..len],
+                limits: self.limits.get(category, caller),
                 cost,
             })
             .await;
