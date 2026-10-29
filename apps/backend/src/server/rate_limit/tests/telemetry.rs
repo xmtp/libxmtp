@@ -158,13 +158,24 @@ async fn a_denial_logs_its_request_and_category_and_no_caller() {
         .filter(|event| event["message"] == "rate limit exceeded")
         .collect();
     assert_eq!(denials.len(), cases.len(), "one event per denial");
-    for (denial, (_, auth_type)) in denials.iter().zip(cases) {
+    // Each denial names the request its completion log names.
+    let refused: Vec<&Value> = events
+        .iter()
+        .filter(|event| {
+            event["message"] == "gRPC request completed"
+                && event["grpc_code"] == "ResourceExhausted"
+        })
+        .map(|event| &event["request_id"])
+        .collect();
+    assert_eq!(refused.len(), cases.len());
+    for ((denial, (_, auth_type)), request_id) in denials.iter().zip(cases).zip(refused) {
         assert_eq!(denial["level"], "DEBUG");
         assert!(
             denial["request_id"]
                 .as_str()
                 .is_some_and(|id| uuid::Uuid::parse_str(id).is_ok())
         );
+        assert_eq!(&denial["request_id"], request_id);
         assert_eq!(denial["identifier"], "org.xmtp.test");
         assert_eq!(denial["category"], "request");
         assert_eq!(denial["auth_type"], auth_type);

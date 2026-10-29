@@ -4,37 +4,40 @@ use super::*;
 use prost::Message;
 use std::collections::BTreeSet;
 
-/// The path of every method of every service the backend serves, from the
-/// descriptors its services are generated from.
+/// The path of every method of every service of the backend's package and of
+/// health, from the descriptors the services are generated from. The
+/// backend's services are every service of `xmtp.backend.v1`, whatever
+/// `SERVICES` lists, so a service added to the package is walked before it
+/// is served.
 fn served_methods() -> TestResult<BTreeSet<String>> {
-    let served: BTreeSet<&str> = crate::server::SERVICES
-        .into_iter()
-        .chain(["grpc.health.v1.Health"])
-        .collect();
-    let mut found = BTreeSet::new();
+    let mut services = BTreeSet::new();
     let mut methods = BTreeSet::new();
     for set in [
         xmtp_proto::FILE_DESCRIPTOR_SET,
         tonic_health::pb::FILE_DESCRIPTOR_SET,
     ] {
         for file in prost_types::FileDescriptorSet::decode(set)?.file {
+            if !["xmtp.backend.v1", "grpc.health.v1"].contains(&file.package()) {
+                continue;
+            }
             for service in &file.service {
                 let name = format!("{}.{}", file.package(), service.name());
-                if !served.contains(name.as_str()) {
-                    continue;
-                }
-                found.insert(name.clone());
                 for method in &service.method {
                     methods.insert(format!("/{name}/{}", method.name()));
                 }
+                services.insert(name);
             }
         }
     }
-    // A served service missing from the descriptors would pass vacuously.
+    // `serve` adds and reports health for the services `SERVICES` lists.
+    let listed: BTreeSet<String> = crate::server::SERVICES
+        .into_iter()
+        .chain(["grpc.health.v1.Health"])
+        .map(str::to_owned)
+        .collect();
     assert_eq!(
-        found,
-        served.iter().map(|name| name.to_string()).collect(),
-        "every served service has a descriptor"
+        services, listed,
+        "SERVICES lists every service of the package"
     );
     Ok(methods)
 }
