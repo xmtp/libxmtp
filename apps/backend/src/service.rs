@@ -51,6 +51,8 @@ impl Backend {
     /// The configuration, verifier, and chains are shared immutably. The store is cheap
     /// to clone because its pools are reference counted by SQLx. `configuration` is
     /// the published response that `server::initialize` built and size-checked.
+    /// The rate limiter's table is allocated here, only while rate limits are on,
+    /// so `server::serve` enforces them however the backend was built.
     pub fn new(
         store: Store,
         config: ValidatedConfig,
@@ -59,6 +61,7 @@ impl Backend {
         configuration: crate::api::GetConfigurationResponse,
     ) -> Self {
         let configuration = Arc::new(configuration);
+        let rate_limiter = crate::server::rate_limit::limiter(config.rate_limits());
         Self {
             store: Arc::new(store),
             config: Arc::new(config),
@@ -66,7 +69,7 @@ impl Backend {
             chains,
             streams: None,
             push: None,
-            rate_limiter: None,
+            rate_limiter,
             auth: None,
             attachments: None,
             configuration,

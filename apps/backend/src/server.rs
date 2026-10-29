@@ -61,8 +61,7 @@ pub(crate) const SERVICES: [&str; 7] = [
 /// an inline key that does not parse returns `ConfigError::Auth` naming its
 /// key under `auth.keys[N]`, and an exhausted JWKS startup fetch returns a host-only error. The
 /// published configuration is then built and its size checked, also before
-/// storage, so every refusal comes before the caller binds a listener. The
-/// rate limiter's table is allocated here, only while rate limits are on.
+/// storage, so every refusal comes before the caller binds a listener.
 pub async fn initialize(
     config: ValidatedConfig,
 ) -> Result<Backend, Box<dyn std::error::Error + Send + Sync>> {
@@ -120,7 +119,6 @@ pub async fn initialize(
     }
     backend.streams = Some(streams);
     backend.auth = auth;
-    backend.rate_limiter = rate_limit::limiter(backend.config.rate_limits());
     Ok(backend)
 }
 

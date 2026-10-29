@@ -386,3 +386,54 @@ async fn reads_spend_only_their_request_unit() {
     }
     server.stop().await?;
 }
+
+/// A backend built with `Backend::new` and passed straight to `serve`, not
+/// through `initialize`, enforces the limits its configuration turns on.
+// verifies: RATE-010
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_backend_served_without_initialize_still_limits() {
+    use xmtp_id::scw_verifier::{
+        CachedSmartContractSignatureVerifier, MultiSmartContractSignatureVerifier,
+    };
+    let server = TestServer::new(|config| {
+        config.rate_limits = rate_limits(
+            "max_memory_mib = 1\n\
+             [categories.request]\ndefault = [{ count = 1, window_seconds = 3600 }]",
+        )
+    })
+    .await?;
+    let chains = Arc::new(MultiSmartContractSignatureVerifier::new(Default::default())?);
+    let backend = crate::Backend::new(
+        (*server.backend.store).clone(),
+        (*server.backend.config).clone(),
+        CachedSmartContractSignatureVerifier::new(
+            chains.clone(),
+            server.backend.config.scw_cache_entries(),
+        )?,
+        chains,
+        (*server.backend.configuration).clone(),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+    let url = format!("http://{}", listener.local_addr()?);
+    let (stop, stopped) = tokio::sync::oneshot::channel::<()>();
+    let serving = tokio::spawn(crate::server::serve(backend, listener, async {
+        let _ = stopped.await;
+    }));
+    let channel = tonic::transport::Endpoint::from_shared(url)?
+        .connect()
+        .await?;
+    let mut identity = api::identity_service_client::IdentityServiceClient::new(channel);
+    identity
+        .get_inbox_ids(api::GetInboxIdsRequest::default())
+        .await?;
+    let denied = identity
+        .get_inbox_ids(api::GetInboxIdsRequest::default())
+        .await;
+    assert!(
+        rate_limit_delay(&denied, Category::Request).is_some(),
+        "{denied:?}"
+    );
+    let _ = stop.send(());
+    serving.await??;
+    server.stop().await?;
+}
