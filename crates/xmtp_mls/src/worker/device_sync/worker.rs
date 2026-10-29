@@ -26,14 +26,15 @@ use std::{
 use tokio::sync::OnceCell;
 use tracing::instrument;
 use xmtp_common::Event;
+use xmtp_common::time::Instant;
 use xmtp_cryptography::secret::Zeroizing;
 use xmtp_db::group_message::StoredGroupMessage;
 use xmtp_db::prelude::*;
 use xmtp_events::{ClientEvent, Subscription};
 use xmtp_macro::log_event;
 use xmtp_proto::xmtp::device_sync::content::{
-    DeviceSyncAcknowledge, PreferenceUpdates as PreferenceUpdatesProto,
-    device_sync_content::Content as ContentProto,
+    DeviceSyncAcknowledge, PreferenceUpdate as PreferenceUpdateProto,
+    PreferenceUpdates as PreferenceUpdatesProto, device_sync_content::Content as ContentProto,
 };
 
 pub(super) fn log_incoming_preference_updates(
@@ -45,8 +46,46 @@ pub(super) fn log_incoming_preference_updates(
 /// Records per sync message when a newcomer is sent the consent table
 /// (about 100 KB, far below the 1 MiB envelope).
 const CONSENT_REPLAY_PAGE: usize = 1_000;
+/// A quarter of the 1 MiB envelope, so MLS and envelope framing always fit.
+/// Honest pages (64-char ids) reach the 1,000-record bound first.
+const CONSENT_REPLAY_PAGE_BYTES: usize = 256 * 1024;
+const RETRY_FIRST: Duration = Duration::from_secs(1); // today's restart delay
+const RETRY_MAX: Duration = Duration::from_secs(10 * 60);
+/// 2 s doubling to 10 min: the 20th failure comes about two hours after the first.
+const MAX_EVENT_FAILURES: u32 = 20;
 
-type PendingEvent = Arc<Mutex<Option<(u64, xmtp_events::EventEnvelope<InternalEvent>)>>>;
+/// Events not yet handled. Shared by the factory so a DB reconnect keeps them.
+type PendingEvent = Arc<Mutex<Vec<Owed>>>;
+
+#[derive(Clone)]
+struct Owed {
+    id: u64,
+    event: xmtp_events::EventEnvelope<InternalEvent>,
+    failures: u32,
+    retry_at: Instant,
+    cycled: bool,
+}
+
+impl Owed {
+    fn new(id: u64, event: xmtp_events::EventEnvelope<InternalEvent>) -> Self {
+        Self {
+            id,
+            event,
+            failures: 0,
+            retry_at: Instant::now(),
+            cycled: false,
+        }
+    }
+
+    fn kind(&self) -> &'static str {
+        match (&self.event.client, &self.event.internal) {
+            (Some(ClientEvent::IdentityOwnInstallationRevoked(_)), _) => "revocation",
+            (_, Some(InternalEvent::GroupJoined { .. })) => "sync_welcome",
+            (_, Some(InternalEvent::PreferencesChanged { .. })) => "preferences",
+            _ => "sync_messages",
+        }
+    }
+}
 
 #[cfg(test)]
 pub(crate) mod test_hooks {
@@ -217,7 +256,7 @@ impl<Context> SyncWorker<Context>
 where
     Context: XmtpSharedContext + 'static,
 {
-    pub fn new(
+    fn new(
         context: Context,
         metrics: Option<DynMetrics>,
         pending: PendingEvent,
@@ -355,18 +394,15 @@ where
             .expect("runner installs subscription")
             .clone();
         loop {
-            let pending_event = { self.pending.lock().clone() };
-            if let Some((id, event)) = pending_event {
-                self.handle_pending_event(id, event).await?;
-                continue;
-            }
+            self.run_due().await?;
+            let wait = self.next_retry_in();
             tokio::select! {
                 event = subscription.next() => {
                     let Some(event) = event else { break; };
                     let id = self.next_event_id.fetch_add(1, Ordering::Relaxed);
-                    *self.pending.lock() = Some((id, event.clone()));
-                    self.handle_pending_event(id, event).await?;
+                    self.pending.lock().push(Owed::new(id, event));
                 }
+                _ = xmtp_common::time::sleep(wait.unwrap_or_default()), if wait.is_some() => {}
                 _ = intervals.next() => {
                     #[cfg(test)]
                     if let Some(ticks) = &self.received_ticks {
@@ -383,52 +419,80 @@ where
         Ok(())
     }
 
-    async fn handle_pending_event(
-        &mut self,
-        id: u64,
-        event: xmtp_events::EventEnvelope<InternalEvent>,
-    ) -> Result<(), DeviceSyncError> {
-        // Pending state stays owned here until the event succeeds.
-        Box::pin(self.handle_event(event.clone())).await?;
-        #[cfg(test)]
-        if let Some(InternalEvent::PreferencesChanged {
-            updates,
-            origin: PreferenceOrigin::Local,
-        }) = &event.internal
-        {
-            test_hooks::observe_preferences(
-                self.client.context.installation_id(),
-                test_hooks::PreferenceStage::Completed,
-                updates,
-            );
-        }
-        let mut pending = self.pending.lock();
-        if pending
-            .as_ref()
-            .is_some_and(|(pending_id, _)| *pending_id == id)
-        {
-            *pending = None;
+    /// Handles each event whose retry time has come. A failed event waits
+    /// under backoff while later events run; one that fails
+    /// `MAX_EVENT_FAILURES` times is dropped.
+    async fn run_due(&mut self) -> Result<(), DeviceSyncError> {
+        let now = Instant::now();
+        let mut due: Vec<_> = self
+            .pending
+            .lock()
+            .iter()
+            .filter(|owed| owed.retry_at <= now)
+            .cloned()
+            .collect();
+        due.sort_by_key(|owed| owed.id);
+        for mut owed in due {
+            let result = Box::pin(self.handle_event(&mut owed)).await;
+            let mut pending = self.pending.lock();
+            pending.retain(|o| o.id != owed.id);
+            match result {
+                Ok(()) => {
+                    #[cfg(test)]
+                    if let Some(InternalEvent::PreferencesChanged {
+                        updates,
+                        origin: PreferenceOrigin::Local,
+                    }) = &owed.event.internal
+                    {
+                        test_hooks::observe_preferences(
+                            self.client.context.installation_id(),
+                            test_hooks::PreferenceStage::Completed,
+                            updates,
+                        );
+                    }
+                }
+                Err(e) if e.needs_db_reconnect() => {
+                    pending.push(owed);
+                    return Err(e);
+                }
+                Err(e) => {
+                    owed.failures += 1;
+                    if owed.failures >= MAX_EVENT_FAILURES {
+                        tracing::warn!(error = %e, kind = owed.kind(), "dropping a device sync event after 20 failures");
+                        self.metrics.increment_metric(SyncMetric::EventDropped);
+                        continue;
+                    }
+                    owed.retry_at = Instant::now()
+                        + RETRY_FIRST
+                            .saturating_mul(1 << owed.failures.min(10))
+                            .min(RETRY_MAX);
+                    tracing::warn!(error = %e, failures = owed.failures, "device sync event failed");
+                    pending.push(owed);
+                }
+            }
         }
         Ok(())
     }
 
+    fn next_retry_in(&self) -> Option<Duration> {
+        let next = self.pending.lock().iter().map(|owed| owed.retry_at).min()?;
+        Some(next.saturating_duration_since(Instant::now()))
+    }
+
     #[tracing::instrument(skip_all, fields(worker = ?self.kind(), operation = "worker_turn"))]
-    async fn handle_event(
-        &mut self,
-        event: xmtp_events::EventEnvelope<InternalEvent>,
-    ) -> Result<(), DeviceSyncError> {
+    async fn handle_event(&mut self, owed: &mut Owed) -> Result<(), DeviceSyncError> {
         if matches!(
-            event.client,
+            owed.event.client,
             Some(ClientEvent::IdentityOwnInstallationRevoked(_))
         ) {
             self.evt_cycle_hmac().await?;
         }
-        match event.internal {
+        match owed.event.internal.clone() {
             Some(InternalEvent::GroupJoined {
                 is_sync: true,
                 origin: GroupOrigin::Welcomed,
                 ..
-            }) => self.evt_new_sync_group_from_welcome().await,
+            }) => self.evt_new_sync_group_from_welcome(owed).await,
             Some(
                 InternalEvent::MessageStored { is_sync: true, .. }
                 | InternalEvent::SyncMessagePublished,
@@ -478,7 +542,10 @@ where
         .copied()
     }
 
-    async fn evt_new_sync_group_from_welcome(&self) -> Result<(), DeviceSyncError> {
+    async fn evt_new_sync_group_from_welcome(
+        &self,
+        owed: &mut Owed,
+    ) -> Result<(), DeviceSyncError> {
         tracing::info!("New sync group from welcome detected.");
 
         // A new sync group from a welcome indicates a new installation.
@@ -489,8 +556,11 @@ where
         self.metrics
             .increment_metric(SyncMetric::SyncGroupWelcomesProcessed);
 
-        // Cycle the HMAC
-        self.client.cycle_hmac().await?;
+        // implements: SYNC-015. One root key per Welcome, however often the replay is retried.
+        if !owed.cycled {
+            self.client.cycle_hmac().await?;
+            owed.cycled = true;
+        }
 
         // implements: SYNC-025, SYNC-021
         // Every record with a time travels at its stored time; a default at
@@ -503,11 +573,17 @@ where
             .filter(|r| r.consented_at_ns > 0)
             .map(PreferenceUpdate::Consent)
             .collect();
-        for page in records.chunks(CONSENT_REPLAY_PAGE) {
-            self.client.sync_preferences(page.to_vec()).await?;
+        // implements: SYNC-025. One page that fails does not stop the others.
+        let mut first_error = None;
+        for page in replay_pages(records) {
+            if let Err(e) = self.client.sync_preferences(page).await {
+                if e.db_needs_connection() {
+                    return Err(e.into());
+                }
+                first_error.get_or_insert(e);
+            }
         }
-
-        Ok(())
+        first_error.map_or(Ok(()), |e| Err(e.into()))
     }
 
     async fn evt_new_sync_group_msg(&self, is_tick: bool) -> Result<(), DeviceSyncError> {
@@ -577,6 +653,28 @@ where
         self.client.cycle_hmac().await?;
         Ok(())
     }
+}
+
+/// Pages of at most 1,000 records and 256 KiB of encoded updates. A record
+/// larger than the byte bound goes in a page of its own.
+fn replay_pages(updates: Vec<PreferenceUpdate>) -> Vec<Vec<PreferenceUpdate>> {
+    let (mut pages, mut bytes): (Vec<Vec<_>>, usize) = (vec![], 0);
+    for update in updates {
+        let len = prost::Message::encoded_len(&PreferenceUpdateProto::from(update.clone()));
+        match pages.last_mut() {
+            Some(page)
+                if page.len() < CONSENT_REPLAY_PAGE && bytes + len <= CONSENT_REPLAY_PAGE_BYTES =>
+            {
+                bytes += len;
+                page.push(update);
+            }
+            _ => {
+                bytes = len;
+                pages.push(vec![update]);
+            }
+        }
+    }
+    pages
 }
 
 impl<Context> DeviceSyncClient<Context>
@@ -754,6 +852,7 @@ pub enum SyncMetric {
     HmacReceived,
     ConsentSent,
     ConsentReceived,
+    EventDropped,
 }
 
 impl WorkerMetrics<SyncMetric> {
@@ -769,13 +868,21 @@ mod startup_tests {
     use futures::FutureExt;
     use xmtp_events::EventWriter;
 
-    fn idle_worker<C: XmtpSharedContext + 'static>(context: C) -> SyncWorker<C> {
-        SyncWorker::new(
-            context,
-            None,
-            Arc::new(Mutex::new(None)),
-            Arc::new(AtomicU64::new(0)),
+    #[cfg(not(target_arch = "wasm32"))]
+    fn welcome() -> Owed {
+        let joined = InternalEvent::GroupJoined {
+            group_id: Default::default(),
+            is_sync: true,
+            origin: GroupOrigin::Welcomed,
+        };
+        Owed::new(
+            0,
+            xmtp_events::EventEnvelope::new(None, Some(joined), Default::default()),
         )
+    }
+
+    fn idle_worker<C: XmtpSharedContext + 'static>(context: C) -> SyncWorker<C> {
+        SyncWorker::new(context, None, Arc::default(), Arc::new(AtomicU64::new(0)))
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -835,7 +942,9 @@ mod startup_tests {
 
         // Run the actual welcome handler, then consume its primary-group messages.
         let source_worker = idle_worker(source.context.clone());
-        source_worker.evt_new_sync_group_from_welcome().await?;
+        source_worker
+            .evt_new_sync_group_from_welcome(&mut welcome())
+            .await?;
         new_primary.sync().await?;
         let copy_worker = idle_worker(copy.context.clone());
         copy_worker.evt_new_sync_group_msg(false).await?;
@@ -868,12 +977,26 @@ mod startup_tests {
 
         tester!(alix1, disable_workers);
         tester!(alix2, from: alix1, disable_workers);
-        // With x and y, alix1 holds 1,001 records with a time, one page more.
+        // b alone exceeds the envelope; c, d and e each fill a byte-bounded page.
+        // Inserted in name order, so rowid and key scans agree.
+        let sized: Vec<_> = [("a-small", 1), ("b-huge", 1_100_000)]
+            .into_iter()
+            .chain(["c-big", "d-big", "e-big"].map(|name| (name, 400_000)))
+            .chain([("f-small", 1)])
+            .map(|(name, len)| {
+                record(
+                    &format!("{name}{}", "-".repeat(len)),
+                    ConsentState::Allowed,
+                    4,
+                )
+            })
+            .collect();
+        // With f and x, y, the fillers fill a 1,000-record page and start another.
         let fillers: Vec<_> = (0..999)
             .map(|i| record(&format!("filler-{i}"), ConsentState::Allowed, 5))
             .collect();
         // Stored as an archive import stores them, not as decisions.
-        for stored in fillers.iter().cloned().chain([
+        for stored in sized.iter().chain(&fillers).cloned().chain([
             record("x", ConsentState::Unknown, 1),
             record("y", ConsentState::Allowed, 3),
             record("z", ConsentState::Allowed, 0),
@@ -891,9 +1014,10 @@ mod startup_tests {
         let alix1_primary = alix1.device_sync_client().primary_sync_group()?;
         assert_eq!(alix1_primary.unwrap().group_id, new_primary.group_id);
 
-        idle_worker(alix1.context.clone())
-            .evt_new_sync_group_from_welcome()
-            .await?;
+        let replay = idle_worker(alix1.context.clone())
+            .evt_new_sync_group_from_welcome(&mut welcome())
+            .await;
+        assert!(replay.is_err(), "the page that holds b fails");
         new_primary.sync().await?;
         let consent_messages = alix2
             .context
@@ -906,7 +1030,10 @@ mod startup_tests {
                     if p.updates.iter().any(|u| matches!(u.update, Some(Update::Consent(_)))))
             })
             .count();
-        assert_eq!(consent_messages, 2, "1,001 records travel in two pages");
+        assert_eq!(
+            consent_messages, 6,
+            "a, c, d, e, f with 999 fillers, then x and y; b fails alone"
+        );
         idle_worker(alix2.context.clone())
             .evt_new_sync_group_msg(false)
             .await?;
@@ -923,8 +1050,84 @@ mod startup_tests {
         for filler in &fillers {
             assert_eq!(held(&filler.entity)?.as_ref(), Some(filler));
         }
+        for (i, sized) in sized.iter().enumerate() {
+            let expected = (i != 1).then_some(sized);
+            assert_eq!(
+                held(&sized.entity)?.as_ref(),
+                expected,
+                "{}",
+                &sized.entity[..6]
+            );
+        }
         alix1.close().await?;
         alix2.close().await?;
+    }
+
+    // verifies: SYNC-015
+    #[cfg(not(target_arch = "wasm32"))]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn welcome_retry_cycles_the_root_key_once() {
+        use xmtp_db::consent_record::{ConsentState, ConsentType, StoredConsentRecord};
+        tester!(alix, configured: |c| c.limits.max_envelope_bytes = 65_536, disable_workers);
+        alix.device_sync_client().get_sync_group().await?;
+        // 1,000 records of 64 characters exceed the lowered envelope.
+        let records: Vec<_> = (0..1_001)
+            .map(|i| StoredConsentRecord {
+                entity_type: ConsentType::InboxId,
+                state: ConsentState::Allowed,
+                entity: format!("{i:064}"),
+                consented_at_ns: 1,
+            })
+            .collect();
+        for chunk in records.chunks(200) {
+            alix.context.db().insert_or_replace_consent_records(chunk)?;
+        }
+        let worker = idle_worker(alix.context.clone());
+        let mut owed = welcome();
+        for _ in 0..2 {
+            let replay = worker.evt_new_sync_group_from_welcome(&mut owed).await;
+            assert!(replay.is_err(), "the full page exceeds the envelope");
+        }
+        assert_eq!(worker.metrics.get(SyncMetric::HmacSent), 1);
+        alix.close().await?;
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn event_is_dropped_after_twenty_failures() {
+        use xmtp_db::consent_record::{ConsentState, ConsentType, StoredConsentRecord};
+        tester!(alix, disable_workers);
+        let record =
+            StoredConsentRecord::new(ConsentType::InboxId, ConsentState::Allowed, "drop".into());
+        for (failures, dropped) in [(18, false), (19, true)] {
+            let mut worker = idle_worker(alix.context.clone());
+            let changed = InternalEvent::PreferencesChanged {
+                updates: vec![PreferenceUpdate::Consent(record.clone())],
+                origin: PreferenceOrigin::Local,
+            };
+            let event = xmtp_events::EventEnvelope::new(None, Some(changed), Default::default());
+            let now = Instant::now();
+            worker.pending.lock().push(Owed {
+                failures,
+                retry_at: now,
+                ..Owed::new(1, event)
+            });
+            *test_hooks::FAIL_NEXT_PREFERENCE_PUBLISH.lock() =
+                Some((alix.context.installation_id().to_vec(), Default::default()));
+            worker.run_due().await?;
+            let pending = worker.pending.lock().clone();
+            let dropped_count = worker.metrics.get(SyncMetric::EventDropped);
+            if dropped {
+                assert!(pending.is_empty(), "the 20th failure drops the event");
+                assert_eq!(dropped_count, 1);
+            } else {
+                assert_eq!(pending.len(), 1, "the 19th failure keeps the event");
+                assert_eq!(pending[0].failures, 19);
+                assert!(pending[0].retry_at > now);
+                assert_eq!(dropped_count, 0);
+            }
+            assert_eq!(worker.metrics.get(SyncMetric::ConsentSent), 0);
+        }
+        alix.close().await?;
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -947,7 +1150,7 @@ mod startup_tests {
         );
         let (result, spans) = xmtp_logging::test_logging::with_trace_layer(true, || {
             worker
-                .handle_event(event)
+                .handle_event(&mut Owed::new(0, event))
                 .now_or_never()
                 .expect("the Sync-origin handler must finish without IO")
         });
@@ -1112,6 +1315,73 @@ mod startup_tests {
                 .await
                 .expect("periodic reconciliation must complete after the second tick")
                 .expect("periodic reconciliation wait must complete");
+            }
+            .fuse();
+            futures::pin_mut!(run, observe);
+            futures::select! {
+                () = observe => {},
+                result = run => panic!("worker ended before observed turns: {result:?}"),
+            }
+        }
+        subscription.close();
+        alix.close().await?;
+    }
+
+    // verifies: SYNC-021
+    #[cfg(not(target_arch = "wasm32"))]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn failed_event_does_not_block_later_events() {
+        use test_hooks::{PreferenceCapture, PreferenceStage};
+        use xmtp_db::consent_record::{ConsentState, ConsentType, StoredConsentRecord};
+        const WAIT: Duration = Duration::from_secs(10);
+        tester!(alix, disable_workers, worker_config: jitter_config());
+        alix.device_sync_client().get_sync_group().await?;
+        let record = |entity: &str| {
+            StoredConsentRecord::new(ConsentType::InboxId, ConsentState::Allowed, entity.into())
+        };
+        let (a, b) = (record("failing-a"), record("later-b"));
+        let installation = alix.context.installation_id();
+        let capture = PreferenceCapture::new(vec![installation], &[a.clone(), b.clone()]);
+        let completed = |entity: &str| {
+            capture
+                .snapshot()
+                .iter()
+                .any(|o| matches!(o.stage, PreferenceStage::Completed) && o.record.entity == entity)
+        };
+        let failed = Arc::new(tokio::sync::Notify::new());
+        *test_hooks::FAIL_NEXT_PREFERENCE_PUBLISH.lock() =
+            Some((installation.to_vec(), failed.clone()));
+        let turns = Arc::new([AtomicU64::new(0), AtomicU64::new(0)]);
+        let mut worker = idle_worker(alix.context.clone());
+        worker.completed_turns = Some(turns.clone());
+        let (filter, depth) = crate::worker::worker_event_filter(WorkerKind::DeviceSync).unwrap();
+        let subscription = Arc::new(alix.context.events().subscribe(filter, depth));
+        worker.set_subscription(subscription.clone());
+        let started = xmtp_common::time::Instant::now();
+        alix.set_consent_states(std::slice::from_ref(&a)).await?;
+        alix.set_consent_states(std::slice::from_ref(&b)).await?;
+        {
+            let run = worker.run_internal().fuse();
+            let observe = async {
+                async fn until(done: impl Fn() -> bool) -> Result<(), xmtp_common::time::Expired> {
+                    xmtp_common::time::timeout(WAIT, async {
+                        while !done() {
+                            xmtp_common::time::sleep(Duration::from_millis(10)).await;
+                        }
+                    })
+                    .await
+                }
+                until(|| completed("later-b")).await.expect("B completes");
+                assert!(!completed("failing-a"), "B must complete before A");
+                let ticks = turns[1].load(Ordering::SeqCst);
+                until(|| turns[1].load(Ordering::SeqCst) > ticks)
+                    .await
+                    .expect("periodic turns run while A waits");
+                assert!(!completed("failing-a"), "A must wait for its backoff");
+                until(|| completed("failing-a"))
+                    .await
+                    .expect("A is retried");
+                assert!(started.elapsed() >= Duration::from_secs(1));
             }
             .fuse();
             futures::pin_mut!(run, observe);
