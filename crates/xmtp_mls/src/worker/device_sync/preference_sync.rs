@@ -13,7 +13,7 @@ use xmtp_proto::xmtp::device_sync::content::{
 };
 
 /// `Debug` shows the HMAC root key only as its length: `Secret` redacts it.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug)]
 pub enum PreferenceUpdate {
     Consent(StoredConsentRecord),
     Hmac { key: Secret, cycled_at_ns: i64 },
@@ -259,6 +259,19 @@ mod tests {
     use xmtp_db::consent_record::{ConsentState, ConsentType};
     use xmtp_db::user_preferences::StoredUserPreferences;
 
+    /// The fields a test compares: the consent state or the HMAC key, and the time.
+    fn fields<'a>(
+        updates: impl IntoIterator<Item = &'a PreferenceUpdate>,
+    ) -> Vec<(Option<ConsentState>, Option<Secret>, i64)> {
+        let fields = |update: &PreferenceUpdate| match update {
+            PreferenceUpdate::Consent(r) => (Some(r.state), None, r.consented_at_ns),
+            PreferenceUpdate::Hmac { key, cycled_at_ns } => {
+                (None, Some(key.clone()), *cycled_at_ns)
+            }
+        };
+        updates.into_iter().map(fields).collect()
+    }
+
     /// `Debug` of an HMAC update, and of the update decoded from its proto,
     /// shows no root key bytes.
     #[xmtp_common::test(unwrap_try = true)]
@@ -272,7 +285,7 @@ mod tests {
             key: key.clone().into(),
             cycled_at_ns: 5,
         };
-        assert_eq!(decoded, built);
+        assert_eq!(fields([&decoded]), fields([&built]));
         let forms = [
             hex::encode(&key),
             hex::encode_upper(&key),
@@ -428,7 +441,12 @@ mod tests {
         let metrics = WorkerMetrics::new(alix.context.installation_id());
         let result = store_preference_updates(&updates, &db, &metrics);
         assert!(result.is_ok(), "{:?}", result.err());
-        assert_eq!(db.consent_records().unwrap(), vec![good]);
+        let stored = db.consent_records().unwrap();
+        let stored: Vec<_> = stored
+            .iter()
+            .map(|r| (r.state, r.consented_at_ns))
+            .collect();
+        assert_eq!(stored, vec![(good.state, good.consented_at_ns)]);
         let prefs = StoredUserPreferences::load(&db).unwrap();
         assert_eq!(prefs.hmac_key, Some(vec![2; 42].into()));
     }
@@ -454,8 +472,8 @@ mod tests {
             StoredUserPreferences::load(&db)?.hmac_key,
             Some(vec![2; 42].into())
         );
-        assert_eq!(first.legacy, vec![hmac(2, soon)]);
-        assert_eq!(first.public, vec![hmac(2, soon)]);
+        assert_eq!(fields(&first.legacy), fields(&[hmac(2, soon)]));
+        assert_eq!(fields(&first.public), fields(&[hmac(2, soon)]));
         let no_change: Vec<_> = [hmac(2, soon), hmac(3, soon - 2)]
             .into_iter()
             .map(Into::into)
@@ -482,12 +500,10 @@ mod tests {
         ];
         let changed = store_preference_updates(&updates, &db, &metrics)?;
         let stored = db.get_consent_record(denied.entity.clone(), denied.entity_type)?;
-        assert_eq!(stored, Some(denied.clone()));
-        assert_eq!(
-            changed.legacy,
-            vec![PreferenceUpdate::Consent(denied.clone())]
-        );
-        assert_eq!(changed.public, vec![PreferenceUpdate::Consent(denied)]);
+        let denied = (denied.state, denied.consented_at_ns);
+        assert_eq!(stored.map(|r| (r.state, r.consented_at_ns)), Some(denied));
+        assert_eq!(fields(&changed.legacy), [(Some(denied.0), None, denied.1)]);
+        assert_eq!(fields(&changed.public), [(Some(denied.0), None, denied.1)]);
 
         let mut denied_again = StoredConsentRecord::new(
             ConsentType::InboxId,
@@ -530,8 +546,12 @@ mod tests {
             &metrics,
         )?;
         let stored = db.get_consent_record(unknown.entity.clone(), unknown.entity_type)?;
-        assert_eq!(stored, Some(unknown.clone()));
-        assert_eq!(inserted.public, vec![PreferenceUpdate::Consent(unknown)]);
+        let unknown = (unknown.state, unknown.consented_at_ns);
+        assert_eq!(stored.map(|r| (r.state, r.consented_at_ns)), Some(unknown));
+        assert_eq!(
+            fields(&inserted.public),
+            [(Some(unknown.0), None, unknown.1)]
+        );
     }
 
     // verifies: CONS-010

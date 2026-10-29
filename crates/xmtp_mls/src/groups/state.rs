@@ -188,14 +188,14 @@ where
         &self,
         state: ConsentState,
         db: &impl DbQuery,
-    ) -> Result<Vec<StoredConsentRecord>, GroupError> {
+    ) -> Result<Vec<(StoredConsentRecord, bool)>, GroupError> {
         let consent_record = StoredConsentRecord::new(
             ConsentType::ConversationId,
             state,
             hex::encode(self.group_id),
         );
 
-        Ok(db.insert_or_replace_consent_records(std::slice::from_ref(&consent_record))?)
+        Ok(db.record_app_act(std::slice::from_ref(&consent_record))?)
     }
 
     #[tracing::instrument(skip_all, level = "trace")]
@@ -206,18 +206,11 @@ where
             |tx, events| {
                 let storage = tx.storage();
                 let db = storage.db();
-                let updates = self
-                    .quietly_update_consent_state(state, &db)?
-                    .into_iter()
-                    .map(PreferenceUpdate::Consent)
-                    .collect::<Vec<_>>();
-                if !updates.is_empty() {
-                    self.context.task_channels().mark_notification_changed();
-                }
-                crate::subscriptions::internal::emit_preference_updates(
+                let written = self.quietly_update_consent_state(state, &db)?;
+                crate::subscriptions::internal::emit_consent_acts(
+                    &self.context,
                     events,
-                    updates,
-                    crate::subscriptions::internal::PreferenceOrigin::Local,
+                    written,
                     &db,
                 )?;
                 Ok::<_, GroupError>(Continue(()))

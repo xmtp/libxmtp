@@ -332,19 +332,13 @@ async fn restored_dm_find_or_create_keeps_the_archived_denial(#[case] stored_ahe
         entity: hex::encode(archived.group_id),
         consented_at_ns,
     };
-    alix1
-        .db()
-        .insert_or_replace_consent_records(&[denied(30)])
-        .unwrap();
+    alix1.db().record_app_act(&[denied(30)]).unwrap();
     tester!(alix2, from: alix1, disable_workers);
     let mut denied_at = 30;
     if stored_ahead {
         // As an older build stored it; the archived record at 30 loses to it.
         denied_at = xmtp_common::time::now_ns() + 2 * xmtp_common::NS_IN_DAY;
-        alix2
-            .db()
-            .insert_or_replace_consent_records(&[denied(denied_at)])
-            .unwrap();
+        alix2.db().record_app_act(&[denied(denied_at)]).unwrap();
     }
     let elements = exported_elements(alix1.db()).await.unwrap();
     apply(

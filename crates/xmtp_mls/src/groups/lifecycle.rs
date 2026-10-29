@@ -483,13 +483,12 @@ where
                     ConsentState::Allowed,
                     hex::encode(stored_group.id),
                 );
-                let consent_changes = db.insert_or_replace_consent_records(&[record])?;
+                let consent_changes = db.record_app_act(&[record])?;
                 crate::subscriptions::internal::emit_preference_updates(
                     events,
                     consent_changes
-                        .iter()
-                        .cloned()
-                        .map(PreferenceUpdate::Consent)
+                        .into_iter()
+                        .map(|(record, _)| PreferenceUpdate::Consent(record))
                         .collect(),
                     crate::subscriptions::internal::PreferenceOrigin::Local,
                     &db,
@@ -764,7 +763,7 @@ where
             ConsentState::Allowed,
             hex::encode(group_id),
         );
-        let changed = db.insert_or_replace_consent_records(&[record])?.pop();
+        let changed = db.record_app_act(&[record])?.pop().map(|(r, _)| r);
         let consent = changed.map(|r| (r, PreferenceOrigin::Local));
         Ok((stored_group, true, consent))
     }

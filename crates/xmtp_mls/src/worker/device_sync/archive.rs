@@ -368,7 +368,7 @@ mod tests {
             StoredConsentRecord::new(ConsentType::InboxId, state, entity.to_string())
         };
         alix.db()
-            .insert_or_replace_consent_records(&[consent("carol", ConsentState::Allowed)])?;
+            .record_app_act(&[consent("carol", ConsentState::Allowed)])?;
 
         let opts = ArchiveOptions {
             elements: vec![
@@ -384,7 +384,7 @@ mod tests {
         let mut sink = WriteDuringExport {
             archive: vec![],
             on_first: Some(|| {
-                let written = writer.insert_or_replace_consent_records(&[
+                let written = writer.record_app_act(&[
                     consent("carol", ConsentState::Denied),
                     consent("dave", ConsentState::Allowed),
                 ]);
@@ -493,12 +493,11 @@ mod tests {
         tester!(bo, disable_workers);
         let group = alix.create_group(None, None)?;
         let message_id = group.send_message_optimistic(b"archive message", Default::default())?;
-        alix.db()
-            .insert_or_replace_consent_records(&[StoredConsentRecord::new(
-                xmtp_db::consent_record::ConsentType::InboxId,
-                xmtp_db::consent_record::ConsentState::Denied,
-                bo.inbox_id().into(),
-            )])?;
+        alix.db().record_app_act(&[StoredConsentRecord::new(
+            xmtp_db::consent_record::ConsentType::InboxId,
+            xmtp_db::consent_record::ConsentState::Denied,
+            bo.inbox_id().into(),
+        )])?;
         let key = vec![9; 32];
         let mut archive = vec![];
         exporter::export(
@@ -944,7 +943,7 @@ mod tests {
         assert!(!restored.is_active()?);
         let db = charlie.db();
         // Even an allowed archived DM has no authority for remote recovery.
-        db.insert_or_replace_consent_records(&[StoredConsentRecord::new(
+        db.record_app_act(&[StoredConsentRecord::new(
             ConsentType::ConversationId,
             ConsentState::Allowed,
             hex::encode(source.group_id),
@@ -1473,7 +1472,10 @@ mod tests {
             .raw_query(|conn| consent_records::table.load(conn))?;
         assert_eq!(consent_records.len(), 1);
         // It's the same consent record.
-        assert_eq!(consent_records[0], old_consent_record);
+        assert_eq!(
+            (consent_records[0].state, consent_records[0].consented_at_ns),
+            (old_consent_record.state, old_consent_record.consented_at_ns)
+        );
 
         let groups: Vec<StoredGroup> = alix2.context.db().raw_query(|conn| {
             groups::table

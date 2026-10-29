@@ -2835,11 +2835,7 @@ pub(crate) mod tests {
             assert_eq!(changed_by()?, 0, "message insert");
 
             let consent = |entity_type, state, entity: String| {
-                conn.insert_or_replace_consent_records(&[generate_consent_record(
-                    entity_type,
-                    state,
-                    entity,
-                )])
+                conn.record_app_act(&[generate_consent_record(entity_type, state, entity)])
             };
             let entity = hex::encode(group.id);
             consent(

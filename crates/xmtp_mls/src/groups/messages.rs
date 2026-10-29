@@ -54,9 +54,6 @@ where
 
         self.sync_until_last_intent_resolved().await?;
 
-        // implicitly set group consent state to allowed
-        self.update_consent_state(ConsentState::Allowed)?;
-
         Ok(message_id)
     }
 
@@ -105,9 +102,6 @@ where
             self.maybe_update_installations(update_interval_ns).await,
         )?;
         self.sync_until_last_intent_resolved().await?;
-
-        // implicitly set group consent state to allowed
-        self.update_consent_state(ConsentState::Allowed)?;
 
         Ok(())
     }
@@ -277,9 +271,6 @@ where
                 .await,
         )?;
         self.sync_until_intent_resolved(intent_id).await?;
-
-        // Implicitly set group consent state to allowed
-        self.update_consent_state(ConsentState::Allowed)?;
 
         Ok(())
     }
@@ -565,10 +556,14 @@ where
         }
         let envelope =
             Self::encode_envelope(&message.decrypted_message_bytes, &message.idempotency_key);
-        let intent = QueueIntent::send_message()
+        let (intent, reused) = QueueIntent::send_message()
             .data(Vec::<u8>::from(SendMessageIntentData::new(envelope)))
             .should_push(message.should_push)
-            .queue_in(db, self)?;
+            .queue_in_reporting_reuse(db, self)?;
+        // A retry that reuses the queued intent sends nothing new.
+        if !reused {
+            self.allow_after_send(db, events, message)?;
+        }
         if db.set_failed_delivery_status_to_unpublished(&message.id)? > 0 {
             self.emit_message_status_changed(
                 message.id.clone(),
@@ -578,6 +573,35 @@ where
             );
         }
         Ok(Some(intent.id))
+    }
+
+    /// Store allowed for a conversation that is not allowed when the app
+    /// queues a message other than a deletion.
+    // implements: CONS-021
+    fn allow_after_send(
+        &self,
+        db: &impl DbQuery,
+        events: &impl xmtp_events::EventWriter<crate::subscriptions::internal::InternalEvent>,
+        message: &StoredGroupMessage,
+    ) -> Result<(), GroupError> {
+        if self.conversation_type.is_virtual() || message.content_type == ContentType::DeleteMessage
+        {
+            return Ok(());
+        }
+        let entity = hex::encode(self.group_id);
+        if db
+            .get_consent_record(entity.clone(), ConsentType::ConversationId)?
+            .is_some_and(|record| record.state == ConsentState::Allowed)
+        {
+            return Ok(());
+        }
+        let written = db.record_app_act(&[StoredConsentRecord::new(
+            ConsentType::ConversationId,
+            ConsentState::Allowed,
+            entity,
+        )])?;
+        crate::subscriptions::internal::emit_consent_acts(&self.context, events, written, db)?;
+        Ok(())
     }
 
     /// Check membership while holding the same writer as the new message or intent.

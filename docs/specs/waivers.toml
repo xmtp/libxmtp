@@ -21,20 +21,6 @@ issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "A group whose members do not all advertise a capability silently drops that capability for the whole group rather than the non-advertising installation being excluded, and a key package that fails verification is treated as one that does not advertise the capability."
 
 [[waiver]]
-id = "CONS-011"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "insert_or_replace_consent_records writes only a record whose state differs from the stored one, so a repeated same-state act by an app keeps the stored time and is reported unchanged."
-
-[[waiver]]
-id = "SYNC-021"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "Only records the store reports as changed are published, so a repeated same-state decision is never published."
-
-[[waiver]]
 id = "PUSH-257"
 kind = "gap"
 owner = "backend"

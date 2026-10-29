@@ -963,11 +963,10 @@ mod startup_tests {
             .db()
             .get_consent_record(record.entity.clone(), record.entity_type)?;
         assert_eq!(
-            received.as_ref(),
-            Some(&record),
+            received.map(|r| (r.state, r.consented_at_ns)),
+            Some((record.state, record.consented_at_ns)),
             "a consent published before primary adoption must reach the new installation"
         );
-        assert_eq!(received.unwrap().consented_at_ns, record.consented_at_ns);
         source.close().await?;
         copy.close().await?;
     }
@@ -1049,25 +1048,26 @@ mod startup_tests {
             .await?;
 
         let db = alix2.context.db();
-        let held = |entity: &str| db.get_consent_record(entity.into(), ConsentType::InboxId);
+        let held = |entity: &str| {
+            let held = db.get_consent_record(entity.into(), ConsentType::InboxId)?;
+            Ok::<_, xmtp_db::ConnectionError>(held.map(|r| (r.state, r.consented_at_ns)))
+        };
         assert_eq!(
             held("x")?,
-            Some(record("x", ConsentState::Denied, 2)),
+            Some((ConsentState::Denied, 2)),
             "an older forwarded record must not replace a newer one"
         );
-        assert_eq!(held("y")?, Some(record("y", ConsentState::Allowed, 3)));
+        assert_eq!(held("y")?, Some((ConsentState::Allowed, 3)));
         assert_eq!(held("z")?, None, "a default at time 0 must stay local");
         for filler in &fillers {
-            assert_eq!(held(&filler.entity)?.as_ref(), Some(filler));
+            assert_eq!(
+                held(&filler.entity)?,
+                Some((filler.state, filler.consented_at_ns))
+            );
         }
         for (i, sized) in sized.iter().enumerate() {
-            let expected = (i != 1).then_some(sized);
-            assert_eq!(
-                held(&sized.entity)?.as_ref(),
-                expected,
-                "{}",
-                &sized.entity[..6]
-            );
+            let expected = (i != 1).then_some((sized.state, sized.consented_at_ns));
+            assert_eq!(held(&sized.entity)?, expected, "{}", &sized.entity[..6]);
         }
         alix1.close().await?;
         alix2.close().await?;
@@ -1090,7 +1090,7 @@ mod startup_tests {
             })
             .collect();
         for chunk in records.chunks(200) {
-            alix.context.db().insert_or_replace_consent_records(chunk)?;
+            alix.context.db().record_app_act(chunk)?;
         }
         let worker = idle_worker(alix.context.clone());
         let mut owed = welcome();

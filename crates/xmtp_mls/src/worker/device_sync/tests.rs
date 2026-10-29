@@ -968,8 +968,9 @@ async fn failing_sync_message_stays_pending() {
         .process_sync_group_messages(&client.metrics, db.unprocessed_sync_group_messages()?)
         .await?;
     assert_eq!(
-        db.get_consent_record(record.entity.clone(), record.entity_type)?,
-        Some(record)
+        db.get_consent_record(record.entity.clone(), record.entity_type)?
+            .map(|r| (r.state, r.consented_at_ns)),
+        Some((record.state, record.consented_at_ns))
     );
     assert!(db.unprocessed_sync_group_messages()?.is_empty());
 }

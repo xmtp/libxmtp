@@ -112,10 +112,10 @@ mock! {
             record: crate::consent_record::StoredConsentRecord,
         ) -> Result<crate::consent_record::ConsentMerge, crate::ConnectionError>;
 
-        fn insert_or_replace_consent_records(
+        fn record_app_act(
             &self,
             records: &[crate::consent_record::StoredConsentRecord],
-        ) -> Result<Vec<crate::consent_record::StoredConsentRecord>, crate::ConnectionError>;
+        ) -> Result<Vec<(crate::consent_record::StoredConsentRecord, bool)>, crate::ConnectionError>;
 
         fn maybe_insert_consent_record_return_existing(
             &self,
