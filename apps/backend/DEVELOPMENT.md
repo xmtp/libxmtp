@@ -127,10 +127,20 @@ RATE in `docs/specs/` owns the behaviour; this is how the backend provides it.
   before the count gate. It looks the path up in `rate_limit/charges.rs`, which
   lists every served RPC (a test walks the proto descriptors), spends 1
   `request` unit, and inserts a `Charger` into the request's extensions.
-  Handlers spend every other category through `Charger::charge`,
-  the only code that calls the limiter, so every denial gets the same
+  Handlers spend every other category through `Charger::charge`, and the
+  stream session through `Charger::charge_covering`, which `charge` wraps.
+  Only that code calls the limiter, so every denial gets the same
   `RESOURCE_EXHAUSTED` details, metric, and debug log line. A path missing from
   the table is never charged.
+- **Streams.** `src/stream/rent.rs` owns a stream's rent: what it paid for the
+  current 60-second period and when the next begins, on the limiter's clock.
+  The session awaits each spend in its run loop before the step it pays for:
+  rent at open, at each period, and for an `Update` that raises it; 1
+  `request` unit for an `Update`'s catch-up target and for each catch-up read.
+  A refused rent or target spend ends the stream before the update registers
+  anything. Its delay comes from a second, larger spend that is also refused
+  and charges nothing, so it covers what the replacement stream pays again. A
+  refused read pauses catch-up until its delay; live delivery is free.
 - **Callers.** `rate_limit/caller.rs` forms the `CallerKey` of
   `xmtp_backend_config`, the type overrides are keyed by, from the auth context,
   the connection's peer, and `X-Forwarded-For` behind `trusted_proxies`.
