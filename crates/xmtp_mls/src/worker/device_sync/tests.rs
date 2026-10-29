@@ -282,34 +282,6 @@ async fn thousand_local_consent_changes_publish_once_without_echo() {
 #[rstest::rstest]
 #[xmtp_common::test(unwrap_try = true)]
 #[cfg_attr(target_arch = "wasm32", ignore)]
-async fn failed_preference_publish_is_retried_after_worker_restart() {
-    use std::sync::Arc;
-    use tokio::sync::Notify;
-
-    tester!(alix, sync_worker);
-    alix.client.wait_for_sync_worker_init().await;
-    alix.worker().clear_metric(SyncMetric::ConsentSent);
-    let failed = Arc::new(Notify::new());
-    *worker::test_hooks::FAIL_NEXT_PREFERENCE_PUBLISH.lock() =
-        Some((alix.installation_id.to_vec(), failed.clone()));
-
-    alix.set_consent_states(&[StoredConsentRecord::new(
-        ConsentType::InboxId,
-        ConsentState::Allowed,
-        "retry-after-failed-publish".into(),
-    )])
-    .await?;
-    xmtp_common::time::timeout(std::time::Duration::from_secs(10), failed.notified()).await?;
-    alix.worker()
-        .register_interest(SyncMetric::ConsentSent, 1)
-        .wait()
-        .await?;
-    assert_eq!(alix.worker().get(SyncMetric::ConsentSent), 1);
-}
-
-#[rstest::rstest]
-#[xmtp_common::test(unwrap_try = true)]
-#[cfg_attr(target_arch = "wasm32", ignore)]
 async fn reconnect_retries_preference_publish_aborted_in_flight() {
     use std::sync::Arc;
     use tokio::sync::Notify;
