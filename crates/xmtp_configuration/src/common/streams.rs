@@ -45,7 +45,9 @@ pub const STREAM_PERMANENT_RETRY_INITIAL: Duration = Duration::from_secs(5);
 pub const STREAM_PERMANENT_RETRY_MAX: Duration = Duration::from_secs(300);
 /// Conversations returned by one app conversation listing that names no limit.
 pub const CONVERSATION_LIST_DEFAULT_LIMIT: u32 = 100;
-/// Largest limit an app may name for one conversation-list or reaction page.
+/// Messages returned by one `messages()` call that names no limit.
+pub const MESSAGE_LIST_DEFAULT_LIMIT: u32 = 100;
+/// Largest limit an app may name for one conversation list, message list or reaction page.
 pub const LOCAL_PAGE_MAX_LIMIT: u32 = 1000;
 /// Reaction messages in a message's reaction summary, and in one reaction page
 /// that names no limit.

@@ -386,3 +386,61 @@ async fn history_page_sdk_enriches_each_stitched_source_and_redacts_its_deletion
     b.end().await?;
     a.end().await?;
 }
+
+/// With no limit, `messages()` returns the 100 newest in the requested order.
+/// An explicit limit keeps the first `limit` in that order.
+// verifies: PROC-057
+#[xmtp_common::test(unwrap_try = true)]
+async fn message_list_default_and_range() {
+    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    let group = client.conversations().create_group(vec![], None).await?;
+    let mut ids = Vec::new();
+    for index in 0..101 {
+        let optimistic = Some(SendOptions {
+            optimistic: true,
+            ..Default::default()
+        });
+        ids.push(group.send_text(format!("list {index}"), optimistic).await?);
+    }
+    let bytes = ids
+        .iter()
+        .map(MessageId::to_bytes)
+        .collect::<Result<Vec<_>, _>>()?;
+    client.inner.context.db().raw_query(|conn| {
+        (1_i64..).zip(&bytes).try_for_each(|(sent_at, id)| {
+            xmtp_db::diesel::update(dsl::group_messages.filter(dsl::id.eq(id)))
+                .set(dsl::sent_at_ns.eq(sent_at))
+                .execute(conn)
+                .map(drop)
+        })
+    })?;
+    let list = |limit, direction| {
+        group.messages(Some(ListMessagesOptions {
+            limit,
+            direction,
+            kind: Some(MessageKind::Application),
+            ..Default::default()
+        }))
+    };
+    let listed = |messages: Vec<crate::Message>| {
+        messages
+            .into_iter()
+            .map(|message| message.0.id)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(listed(list(None, None).await?), ids[1..]);
+    let newest_first: Vec<_> = ids[1..].iter().rev().cloned().collect();
+    assert_eq!(
+        listed(list(None, Some(MessageOrder::Descending)).await?),
+        newest_first
+    );
+    assert_eq!(listed(list(Some(3), None).await?), ids[..3]);
+    assert_eq!(listed(list(Some(1000), None).await?), ids);
+    for limit in [0, 1001] {
+        assert!(matches!(
+            list(Some(limit), None).await,
+            Err(XmtpError::InvalidArgument(_))
+        ));
+    }
+    client.end().await?;
+}

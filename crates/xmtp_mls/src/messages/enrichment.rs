@@ -154,10 +154,29 @@ fn apply_deletion(
     message.num_reaction_messages = 0;
 }
 
+// A row adds its id and at most one parent id to the deletion query.
+// Leave room under SQLite's bound-value limit for the other binds.
+const ENRICHMENT_BATCH: usize = 250;
+
 /// Enrich every stored row. Content that fails to decode stays in the list
 /// as an undecodable body; only a database failure is an error.
 // implements: CTYPE-008
 pub fn enrich_messages_with_stored(
+    conn: impl DbQuery,
+    group_id: &GroupId,
+    messages: Vec<StoredGroupMessage>,
+) -> Result<Vec<EnrichedStoredMessage>, EnrichMessageError> {
+    let mut enriched = Vec::with_capacity(messages.len());
+    let mut messages = messages.into_iter();
+    while messages.len() > ENRICHMENT_BATCH {
+        let batch = messages.by_ref().take(ENRICHMENT_BATCH).collect();
+        enriched.extend(enrich_batch(&conn, group_id, batch)?);
+    }
+    enriched.extend(enrich_batch(&conn, group_id, messages.collect())?);
+    Ok(enriched)
+}
+
+fn enrich_batch(
     conn: impl DbQuery,
     group_id: &GroupId,
     messages: Vec<StoredGroupMessage>,

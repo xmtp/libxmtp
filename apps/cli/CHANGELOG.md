@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- `conversation messages` returns at most the 100 newest matching messages unless you pass `--limit` (1 to 1000); a `--limit` below 1 or above 1000 fails.
 - `conversations list` returns at most 100 conversations unless you pass `--limit` (at most 1000). New `--before-id` resumes after a conversation, and each row now has `createdAtNs` to pass as `--created-before`.
 
 ## 0.2.0

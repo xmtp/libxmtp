@@ -3770,6 +3770,11 @@ public protocol DmProtocol: AnyObject, Sendable {
      */
     func messageRecoveryPage(options: ListMessagesOptions?, before: MessageRecoveryPosition?, after: MessageRecoveryPosition?) async throws  -> MessageRecoveryPage
 
+    /**
+     * At most `limit` messages (1 to 1000). With no `limit`, the 100
+     * newest by the sort field, in the requested order. To read more,
+     * page with `message_history_page`.
+     */
     func messages(options: ListMessagesOptions?) async throws  -> [Message]
 
     /**
@@ -4265,6 +4270,11 @@ open func messageRecoveryPage(options: ListMessagesOptions? = nil, before: Messa
         )
 }
 
+    /**
+     * At most `limit` messages (1 to 1000). With no `limit`, the 100
+     * newest by the sort field, in the requested order. To read more,
+     * page with `message_history_page`.
+     */
 open func messages(options: ListMessagesOptions? = nil)async throws  -> [Message]  {
     return
         try  await uniffiRustCallAsync(
@@ -5358,6 +5368,11 @@ public protocol GroupProtocol: AnyObject, Sendable {
      */
     func messageRecoveryPage(options: ListMessagesOptions?, before: MessageRecoveryPosition?, after: MessageRecoveryPosition?) async throws  -> MessageRecoveryPage
 
+    /**
+     * At most `limit` messages (1 to 1000). With no `limit`, the 100
+     * newest by the sort field, in the requested order. To read more,
+     * page with `message_history_page`.
+     */
     func messages(options: ListMessagesOptions?) async throws  -> [Message]
 
     /**
@@ -6020,6 +6035,11 @@ open func messageRecoveryPage(options: ListMessagesOptions? = nil, before: Messa
         )
 }
 
+    /**
+     * At most `limit` messages (1 to 1000). With no `limit`, the 100
+     * newest by the sort field, in the requested order. To read more,
+     * page with `message_history_page`.
+     */
 open func messages(options: ListMessagesOptions? = nil)async throws  -> [Message]  {
     return
         try  await uniffiRustCallAsync(
@@ -30426,7 +30446,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtp_sdk_checksum_method_dm_message_recovery_page() != 28719) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_method_dm_messages() != 55325) {
+    if (uniffi_xmtp_sdk_checksum_method_dm_messages() != 13267) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_method_dm_metadata_field() != 18425) {
@@ -30609,7 +30629,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtp_sdk_checksum_method_group_message_recovery_page() != 12885) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_method_group_messages() != 9628) {
+    if (uniffi_xmtp_sdk_checksum_method_group_messages() != 33446) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_method_group_metadata_field() != 51491) {
