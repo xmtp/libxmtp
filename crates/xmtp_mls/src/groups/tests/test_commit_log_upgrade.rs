@@ -757,6 +757,11 @@ async fn legacy_readers_admit_returned_publishers_after_upgrade(#[case] state: L
             .publish_commit_log(vec![sealed], &mut Vec::new())
             .await
             .unwrap();
+        // This test covers the epoch floor, not consent.
+        caro.group(&group_id)
+            .unwrap()
+            .update_consent_state(ConsentState::Allowed)
+            .unwrap();
         CommitLogWorker::new(caro.context.clone())
             .run_test(CommitLogTestFunction::SaveRemoteCommitLog, None)
             .await

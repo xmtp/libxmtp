@@ -127,6 +127,7 @@ async fn test_readd_installation_succeeds() {
     caro.sync_all_welcomes_and_groups(None).await.unwrap();
     let b_group = bo.group(&a_group.group_id).unwrap();
     let c_group = caro.group(&a_group.group_id).unwrap();
+    b_group.update_consent_state(ConsentState::Allowed)?;
 
     let bo_installation_id = bo.context.installation_id();
     let prev_authenticator = a_group.epoch_authenticator().await.unwrap();
@@ -191,6 +192,7 @@ async fn test_readd_installation_succeeds() {
         new_authenticator
     );
     assert!(b_group.is_active()?);
+    assert_eq!(b_group.consent_state()?, ConsentState::Allowed);
     assert_eq!(
         bo.context
             .db()

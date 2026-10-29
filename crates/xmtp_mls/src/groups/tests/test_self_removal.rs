@@ -1202,12 +1202,16 @@ enum PriorDecision {
 /// without the allowed record that sending the leave request stores.
 // verifies: CONS-025, CONS-022
 #[rstest]
-#[case::no_record(PriorDecision::None)]
-#[case::older_allowed(PriorDecision::Older)]
-#[case::allowed_at_readd(PriorDecision::AtReadd)]
-#[case::newer_denied(PriorDecision::Newer)]
+#[case::no_record(PriorDecision::None, false)]
+#[case::older_allowed(PriorDecision::Older, false)]
+#[case::allowed_at_readd(PriorDecision::AtReadd, false)]
+#[case::newer_denied(PriorDecision::Newer, false)]
+#[case::removed_older_allowed(PriorDecision::Older, true)]
 #[xmtp_common::test(unwrap_try = true)]
-async fn readd_after_leave_resets_only_an_older_decision(#[case] prior: PriorDecision) {
+async fn readd_after_leave_resets_only_an_older_decision(
+    #[case] prior: PriorDecision,
+    #[case] removed: bool,
+) {
     use xmtp_db::consent_record::{ConsentType, StoredConsentRecord};
 
     tester!(amal, disable_workers);
@@ -1239,14 +1243,22 @@ async fn readd_after_leave_resets_only_an_older_decision(#[case] prior: PriorDec
             .unwrap();
     }
 
-    leaver.leave_group().await.unwrap();
-    amal_group.sync().await.unwrap();
-    amal_group.process_pending_self_removals().await.unwrap();
+    if removed {
+        amal_group.remove_members(&[bola.inbox_id()]).await.unwrap();
+    } else {
+        leaver.leave_group().await.unwrap();
+        amal_group.sync().await.unwrap();
+        amal_group.process_pending_self_removals().await.unwrap();
+    }
     bola_group.sync().await.unwrap();
     assert!(!bola_group.is_active().unwrap());
     assert_eq!(
         bola_group.membership_state().unwrap(),
-        GroupMembershipState::PendingRemove
+        if removed {
+            GroupMembershipState::Pending
+        } else {
+            GroupMembershipState::PendingRemove
+        }
     );
 
     amal_group.add_members(&[bola.inbox_id()]).await.unwrap();
