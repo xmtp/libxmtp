@@ -208,5 +208,27 @@ class ActionPinTests(unittest.TestCase):
         self.assertEqual(unpinned, [])
 
 
+TOOL_FETCH = re.compile(
+    r"\bnpx\b|\bpnpm\s+dlx\b|\bnpm\s+(?:install|i)\b[^\n]*\s(?:-g|--global)\b"
+    r"|\bchoco\s+install\b|\|\s*(?:ba)?sh\b"
+)
+
+
+class ToolFetchTests(unittest.TestCase):
+    def test_no_step_fetches_a_tool_outside_a_lockfile(self):
+        """A step gets its tools from Nix, the pnpm lockfile, or a pinned hash.
+
+        `npx`, `pnpm dlx`, global npm installs, Chocolatey, and piping a
+        download into a shell resolve a version at run time.
+        """
+        fetches = []
+        for path in tracked(".github/*.yml", ".github/**/*.yml", ".github/**/*.yaml"):
+            for step in steps(yaml.safe_load(path.read_text())):
+                uses, run = str(step.get("uses", "")), str(step.get("run", ""))
+                if "ghaction-chocolatey" in uses or TOOL_FETCH.search(run):
+                    fetches.append(f"{path.relative_to(ROOT)}: {step.get('name')}")
+        self.assertEqual(fetches, [])
+
+
 if __name__ == "__main__":
     unittest.main()
