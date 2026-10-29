@@ -24,6 +24,7 @@ use tokio_stream::wrappers::TcpListenerStream;
 use tonic::{server::NamedService, transport::Server};
 use tonic_web::GrpcWebLayer;
 use tower_http::cors::{AllowHeaders, Any, CorsLayer};
+use xmtp_common::time::Duration;
 use xmtp_id::scw_verifier::{
     CachedSmartContractSignatureVerifier, MultiSmartContractSignatureVerifier,
 };
@@ -34,6 +35,11 @@ mod lifecycle;
 pub(crate) mod telemetry;
 #[cfg(test)]
 mod tests;
+
+/// HTTP/2 PING interval; a peer that does not answer within the timeout is
+/// disconnected, which drops every stream and its queued output.
+const HTTP2_KEEPALIVE_INTERVAL: Duration = Duration::from_secs(60);
+const HTTP2_KEEPALIVE_TIMEOUT: Duration = Duration::from_secs(20);
 
 /// Construct storage and signature services from a validated configuration.
 ///
@@ -210,6 +216,8 @@ pub async fn serve(
     let serving = Server::builder()
         .accept_http1(true)
         .max_concurrent_streams(limits.max_http2_streams as u32)
+        .http2_keepalive_interval(Some(HTTP2_KEEPALIVE_INTERVAL))
+        .http2_keepalive_timeout(Some(HTTP2_KEEPALIVE_TIMEOUT))
         .layer(cors)
         .layer(telemetry::GrpcTelemetryLayer {
             enabled: backend.config.server.request_logger,

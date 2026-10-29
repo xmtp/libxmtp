@@ -1,6 +1,6 @@
 use super::{
     ENVELOPE_OVERHEAD, FETCH_TOPICS, OUTBOUND_FRAMES, StreamHub, fetch,
-    keepalive::Challenge,
+    keepalive::{Challenge, checked_deadline},
     output::{Frame, Reservation, SessionOutput, WireResponse},
     registry::{LiveBatch, Mailbox},
 };
@@ -17,6 +17,7 @@ use futures::{
     future::{BoxFuture, pending},
     stream::BoxStream,
 };
+use parking_lot::Mutex;
 use prost::Message;
 use std::{
     collections::{HashMap, HashSet, VecDeque},
@@ -56,6 +57,7 @@ struct Session {
     config: Arc<ValidatedConfig>,
     mailbox: Arc<Mailbox>,
     output: mpsc::Sender<Frame>,
+    queue: Arc<Mutex<mpsc::Receiver<Frame>>>,
     topics: HashMap<Vec<u8>, Registration>,
     ready: VecDeque<(Vec<u8>, u64)>,
     fetching: Option<PendingFetch>,
@@ -74,6 +76,12 @@ struct Session {
 impl Drop for Session {
     fn drop(&mut self) {
         self.finish_outbound_wait();
+        // Transport polling never delivers frames queued before an error.
+        if self.mailbox.terminal.error().is_some() {
+            let mut queue = self.queue.lock();
+            queue.close();
+            while queue.try_recv().is_ok() {}
+        }
         telemetry::stream_ended(self.mailbox.terminal.reason());
         self.hub.registry.disconnect(self.id);
     }
@@ -144,6 +152,7 @@ fn start(
         },
     )?;
     let (output, receiver) = mpsc::channel(OUTBOUND_FRAMES);
+    let queue = Arc::new(Mutex::new(receiver));
     let mut session = Session {
         static_subscription: initial.is_some(),
         hub,
@@ -152,6 +161,7 @@ fn start(
         config: config.clone(),
         mailbox: mailbox.clone(),
         output,
+        queue: queue.clone(),
         topics: HashMap::new(),
         ready: VecDeque::new(),
         fetching: None,
@@ -198,7 +208,7 @@ fn start(
         .instrument(span)
         .with_subscriber(dispatch),
     );
-    Ok(SessionOutput::new(receiver, terminal, task))
+    Ok(SessionOutput::new(queue, terminal, task))
 }
 
 impl Session {
@@ -307,15 +317,12 @@ impl Session {
             return pending().boxed();
         }
         let deadline = match &self.challenge {
-            Some(challenge) => challenge.deadline,
-            None => Some(
-                self.send_idle + Duration::from_millis(self.config.streams.keepalive_interval_ms),
-            ),
+            Some(challenge) => challenge.deadline.unwrap_or(challenge.stall),
+            None => {
+                self.send_idle + Duration::from_millis(self.config.streams.keepalive_interval_ms)
+            }
         };
-        match deadline {
-            Some(deadline) => sleep(deadline.saturating_duration_since(Instant::now())).boxed(),
-            None => pending().boxed(),
-        }
+        sleep(deadline.saturating_duration_since(Instant::now())).boxed()
     }
 
     /// Inspect already buffered input before failing an expired challenge.
@@ -335,6 +342,15 @@ impl Session {
                     )),
                 }))
                 .map(|_| ControlFlow::Continue(()));
+        }
+        let wait = Duration::from_millis(self.config.streams.max_pong_wait_ms);
+        if let Some(challenge) = &mut self.challenge
+            && challenge.deadline.is_none()
+            && let Ok(sent) = challenge.handed.try_recv()
+        {
+            // A handoff not yet processed: start the Pong wait, or fail if it was late.
+            challenge.start_deadline(sent, wait)?;
+            return Ok(ControlFlow::Continue(()));
         }
         if self.challenge.is_some() {
             let mut bytes = 0;
@@ -377,6 +393,7 @@ impl Session {
             }
             return Err(Status::deadline_exceeded("matching pong not received"));
         }
+        let stall = checked_deadline(Instant::now(), wait)?;
         self.nonce = self.nonce.wrapping_add(1);
         let (sent, handed) = tokio::sync::oneshot::channel();
         let frame = api::SubscribeResponse {
@@ -394,6 +411,7 @@ impl Session {
             nonce: self.nonce,
             handed,
             deadline: None,
+            stall,
         });
         Ok(ControlFlow::Continue(()))
     }
