@@ -62,6 +62,9 @@ pub(crate) struct CraftedWelcome<'a> {
     pub(crate) dm_peer: Option<&'a str>,
     /// The `COMPONENT_REGISTRY` value. `None` keeps the creator's registry.
     pub(crate) registry: Option<&'a ComponentRegistry>,
+    /// Another client the commit adds beside the joiner, as a leaf and in
+    /// `GROUP_MEMBERSHIP`. Only the joiner receives the Welcome.
+    pub(crate) other_member: Option<&'a FullXmtpClient>,
 }
 
 impl Default for CraftedWelcome<'_> {
@@ -73,6 +76,7 @@ impl Default for CraftedWelcome<'_> {
             claimed_creator: None,
             dm_peer: None,
             registry: None,
+            other_member: None,
         }
     }
 }
@@ -125,6 +129,7 @@ pub(crate) async fn send_crafted_welcome_with(
         claimed_creator,
         dm_peer,
         registry,
+        other_member,
     } = options;
     let (kind, policies) = match conversation_type {
         ConversationType::Dm => (
@@ -169,6 +174,7 @@ pub(crate) async fn send_crafted_welcome_with(
     // are one inbox, the creator's state wins, as it would in its own commit.
     let membership = [joiner, creator]
         .into_iter()
+        .chain(other_member)
         .map(|client| {
             let sequence_id = client
                 .context
@@ -192,14 +198,18 @@ pub(crate) async fn send_crafted_welcome_with(
     );
     let config = build_group_config(dictionary).unwrap();
 
-    let installation_id = joiner.context.installation_id().to_vec();
-    let key_package = creator
-        .get_key_packages_for_installation_ids(vec![installation_id.clone()])
-        .await
-        .unwrap()
-        .remove(&installation_id)
-        .expect("the joiner published a key package")
-        .unwrap();
+    let mut key_packages = vec![];
+    for client in [joiner].into_iter().chain(other_member) {
+        let installation_id = client.context.installation_id().to_vec();
+        let key_package = creator
+            .get_key_packages_for_installation_ids(vec![installation_id.clone()])
+            .await
+            .unwrap()
+            .remove(&installation_id)
+            .expect("each added client published a key package")
+            .unwrap();
+        key_packages.push(key_package);
+    }
     let identity = creator.context.identity();
     // The crafted group lives in a throwaway store, so the creator's own
     // groups stay as they are and one id can be crafted more than once.
@@ -229,11 +239,14 @@ pub(crate) async fn send_crafted_welcome_with(
         .add_members(
             &provider,
             &identity.installation_keys,
-            std::slice::from_ref(&key_package.inner),
+            &key_packages
+                .iter()
+                .map(|key_package| key_package.inner.clone())
+                .collect::<Vec<_>>(),
         )
         .unwrap();
 
-    let installation = Installation::from_verified_key_package(&key_package);
+    let installation = Installation::from_verified_key_package(&key_packages[0]);
     let (data, welcome_metadata) = wrap_payload_hpke(
         &welcome.tls_serialize_detached().unwrap(),
         &WelcomeMetadata {

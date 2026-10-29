@@ -699,41 +699,39 @@ async fn test_welcome_schedules_add_installation_tasks() {
 #[xmtp_common::test(unwrap_try = true)]
 #[cfg_attr(target_arch = "wasm32", ignore)]
 async fn sync_welcome_naming_another_inbox_is_rejected(#[case] own_adder: bool) {
-    tester!(alix1);
-    tester!(eve);
-    let sync_group = |context| {
-        MlsGroup::create_and_insert(
-            context,
-            ConversationType::Sync,
-            PreconfiguredPolicies::default().to_policy_set(),
-            GroupMetadataOptions::default(),
-            None,
-        )
-    };
-    // The adder is always a leaf, so no Welcome names only a foreign adder.
-    // alix1 creates its group before alix2 registers, so one commit adds
-    // alix2 and eve together and alix2's Welcome names eve as a leaf.
-    let alix1_group = own_adder
-        .then(|| sync_group(alix1.context.clone()))
-        .transpose()
-        .unwrap();
-    tester!(alix2, from: alix1);
-    let foreign_id = match alix1_group {
-        Some(group) => {
-            group.add_members(&[eve.inbox_id()]).await.unwrap();
-            group.group_id
-        }
-        None => {
-            let group = sync_group(eve.context.clone()).unwrap();
-            group.add_members(&[alix1.inbox_id()]).await.unwrap();
-            group.group_id
-        }
-    };
+    use crate::utils::test::crafted_welcome::{CraftedWelcome, send_crafted_welcome_with};
+    use xmtp_mls_common::group_keys::{GroupKeys, GroupRoot};
+    use xmtp_proto::types::Cursor;
 
-    alix2.sync_welcomes().await.unwrap();
+    tester!(alix1, disable_workers);
+    tester!(eve, disable_workers);
+    let alix2 = if own_adder {
+        tester!(alix2, from: alix1, disable_workers);
+        Some(alix2)
+    } else {
+        None
+    };
+    let root = GroupRoot::generate();
+    let group_id = GroupKeys::derive(&root).group_id();
+    // A current client rejects its own commit that adds eve to a sync group,
+    // so the Welcome is crafted. The adder is always a leaf, so no Welcome
+    // names only a foreign adder.
+    let (adder, other_member) = match &alix2 {
+        Some(alix2) => (alix2, Some(&*eve)),
+        None => (&eve, None),
+    };
+    let options = CraftedWelcome {
+        conversation_type: ConversationType::Sync,
+        other_member,
+        ..Default::default()
+    };
+    send_crafted_welcome_with(adder, &alix1, &group_id, Some(&root), options).await;
 
-    assert_welcome_rejected(&alix2, &foreign_id);
-    let target = alix2.device_sync_client().get_sync_group().await.unwrap();
+    alix1.wait_for_newest_welcome_rejected(Cursor(0)).await;
+
+    let foreign_id = GroupId::from(group_id);
+    assert_welcome_rejected(&alix1, &foreign_id);
+    let target = alix1.device_sync_client().get_sync_group().await.unwrap();
     assert_ne!(target.group_id, foreign_id);
 }
 
@@ -752,6 +750,35 @@ async fn sync_welcome_from_own_installation_is_joined() {
     assert_eq!(stored.added_by_inbox_id, alix1.inbox_id());
     let target = alix1.device_sync_client().get_sync_group().await?;
     assert_eq!(target.group_id, alix2_group.group_id);
+}
+
+// verifies: SYNC-010
+#[xmtp_common::test(unwrap_try = true)]
+#[cfg_attr(target_arch = "wasm32", ignore)]
+async fn sync_group_commit_adding_another_inbox_is_rejected() {
+    tester!(alix1, disable_workers);
+    tester!(alix2, from: alix1, disable_workers);
+    tester!(eve);
+    let group = alix1.device_sync_client().get_sync_group().await?;
+    alix2.sync_welcomes().await?;
+    let alix2_group = alix2.group(&group.group_id)?;
+    let epoch = alix2_group.epoch().await?;
+
+    // alix1's own check rejects the commit after it is published.
+    assert!(group.add_members(&[eve.inbox_id()]).await.is_err());
+    let topic = xmtp_db::incoming_envelope::StreamTopic::group(group.group_id);
+    let db = alix2.context.db();
+    let rejection = xmtp_common::wait_for_some(|| async {
+        let _ = alix2_group.sync().await;
+        db.read_last_rejection(&topic).unwrap()
+    })
+    .await
+    .expect("alix2 did not reject the commit");
+    assert_eq!(rejection.code, "commit_validation_failure");
+
+    let members = alix2_group.members().await?;
+    assert!(members.iter().all(|m| m.inbox_id != eve.inbox_id()));
+    assert_eq!(alix2_group.epoch().await?, epoch);
 }
 
 /// The part of a stored sync group that names another inbox.

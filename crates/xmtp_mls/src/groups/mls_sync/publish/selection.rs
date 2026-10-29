@@ -22,6 +22,7 @@ use xmtp_mls_validation::{
     commit::{CommitRuleError, extract_group_membership_with_failures, membership_entries},
     group_membership::FailedInstallations,
 };
+use xmtp_proto::xmtp::mls::message_contents::ConversationType as ConversationTypeProto;
 
 /// A read-only snapshot. Dependency resolution never retains a mutable MLS group.
 pub(super) struct SelectionRequirements {
@@ -33,6 +34,8 @@ pub(super) struct SelectionRequirements {
     readds: HashSet<Vec<u8>>,
     can_replace: HashSet<Vec<u8>>,
     is_super_admin: bool,
+    /// The creator's inbox, the only one a sync group may hold.
+    sync_creator: Option<String>,
     /// Each leaf's installation and inbox.
     leaves: HashMap<LeafNodeIndex, (Vec<u8>, String)>,
 }
@@ -159,6 +162,8 @@ impl SelectionRequirements {
             },
             can_replace,
             is_super_admin: actor.is_super_admin,
+            sync_creator: (seed.conversation_type == ConversationTypeProto::Sync as i32)
+                .then_some(seed.creator_inbox_id),
             leaves: group
                 .members()
                 .map(|member| {
@@ -228,7 +233,8 @@ impl SelectionRequirements {
 
     /// Whether a membership delta writes an entry this client cannot decode,
     /// writes a committed inbox below its entry, adds an inbox at sequence 0,
-    /// or names a sequence id no identity update can have. Proposal admission
+    /// names a sequence id no identity update can have, or writes an inbox
+    /// other than the creator's in a sync group. Proposal admission
     /// checks authority and the map codec, not entry contents, so a stale
     /// refresh can be accepted. No commit that keeps such a write can be
     /// validated.
@@ -249,6 +255,10 @@ impl SelectionRequirements {
             else {
                 continue;
             };
+            // implements: SYNC-010
+            if matches!(&self.sync_creator, Some(creator) if *creator != key.to_hex()) {
+                return Ok(true);
+            }
             // An error here would block every commit of pending proposals.
             // Omitting the whole delta is always a valid selection.
             let Ok(GroupMembershipEntry {
