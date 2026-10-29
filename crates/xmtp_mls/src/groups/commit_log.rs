@@ -206,8 +206,27 @@ pub struct CommitLogWorker<Context> {
     /// Conversations whose commit-log publish was refused with a rate limit,
     /// and when that delay ends. Other conversations still publish.
     publish_held_until: std::collections::HashMap<GroupId, xmtp_common::time::Instant>,
+    /// Conversations whose readd answer was refused with a rate limit, and
+    /// when that delay ends. Other conversations still answer.
+    readd_held_until: std::collections::HashMap<GroupId, xmtp_common::time::Instant>,
     #[cfg(test)]
     seal_fault: Option<SealFault>,
+}
+
+/// Hold `id` in `held` until `delay`, a rate-limit delay, has passed. A
+/// shorter later delay never ends a pending one.
+// implements: RATE-041
+fn hold(
+    held: &mut std::collections::HashMap<GroupId, xmtp_common::time::Instant>,
+    id: GroupId,
+    delay: Option<Duration>,
+) {
+    let Some(delay) = delay else {
+        return;
+    };
+    let until = xmtp_common::time::saturating_after(xmtp_common::time::Instant::now(), delay);
+    let held = held.entry(id).or_insert(until);
+    *held = (*held).max(until);
 }
 
 /// A test-only fault at the result of each seal, by conversation.
@@ -230,6 +249,7 @@ where
             context,
             failed_publishes: Vec::new(),
             publish_held_until: std::collections::HashMap::new(),
+            readd_held_until: std::collections::HashMap::new(),
             #[cfg(test)]
             seal_fault: None,
         }
@@ -396,18 +416,11 @@ where
                         "Commit log publish failed; the conversation retries at the next turn"
                     );
                     self.failed_publishes.push(conversation.id);
-                    if let Some(delay) = error.rate_limit_delay() {
-                        let until = xmtp_common::time::saturating_after(
-                            xmtp_common::time::Instant::now(),
-                            delay,
-                        );
-                        // A shorter later delay never ends a pending one.
-                        let held = self
-                            .publish_held_until
-                            .entry(conversation.id)
-                            .or_insert(until);
-                        *held = (*held).max(until);
-                    }
+                    hold(
+                        &mut self.publish_held_until,
+                        conversation.id,
+                        error.rate_limit_delay(),
+                    );
                     if error.is_retryable() {
                         break;
                     }
@@ -992,10 +1005,12 @@ where
         Ok(())
     }
 
-    async fn handle_incoming_pending_readds(&self) -> Result<(), CommitLogError> {
+    async fn handle_incoming_pending_readds(&mut self) -> Result<(), CommitLogError> {
         if self.context.fork_recovery_opts().disable_recovery_responses {
             return Ok(());
         }
+        let now = xmtp_common::time::Instant::now();
+        self.readd_held_until.retain(|_, until| now < *until);
         let conn = self.context.db();
         let groups_for_readd = conn.get_conversation_ids_for_responding_readds()?;
 
@@ -1009,6 +1024,12 @@ where
         );
 
         for group in groups_for_readd {
+            // A rate-limited readd is not answered again at a later tick
+            // inside its delay; other conversations still answer.
+            // implements: RATE-041
+            if self.readd_held_until.contains_key(&group.group_id) {
+                continue;
+            }
             match self.validate_pending_readds(&conn, &group).await {
                 Ok(validated_installations) => {
                     if validated_installations.is_empty() {
@@ -1031,6 +1052,11 @@ where
                         if e.needs_db_reconnect() {
                             return Err(e);
                         }
+                        hold(
+                            &mut self.readd_held_until,
+                            group.group_id,
+                            e.rate_limit_delay(),
+                        );
                         tracing::warn!(
                             group_id = group.group_id.short_hex(),
                             "Keeping readd requests for group after a failed readd: {}",
@@ -1054,6 +1080,11 @@ where
                 }
                 // Reversible (e.g. a version pause): keep and retry next tick.
                 Err(e) => {
+                    hold(
+                        &mut self.readd_held_until,
+                        group.group_id,
+                        e.rate_limit_delay(),
+                    );
                     tracing::warn!(
                         group_id = group.group_id.short_hex(),
                         "Keeping readd requests for group after a failed validation: {}",

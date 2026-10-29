@@ -383,6 +383,51 @@ async fn a_rate_limited_publish_waits_out_its_delay() {
     );
 }
 
+/// A readd answer refused with a rate limit keeps the request and is not
+/// answered again at a later turn inside the delay.
+// verifies: RATE-041
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_rate_limited_readd_waits_out_its_delay() {
+    tester!(alix, disable_workers, enable_fork_recovery_requests);
+    tester!(bo, disable_workers);
+    let dm = alix
+        .find_or_create_dm(bo.inbox_id().to_string(), None)
+        .await?;
+    bo.sync_all_welcomes_and_groups(None).await?;
+    let bo_dm = bo.group(&dm.group_id)?;
+    bo_dm.update_consent_state(ConsentState::Allowed)?;
+    dm.key_update().await?;
+    bo_dm.sync().await?;
+    let mut alix_worker = CommitLogWorker::new(alix.context.clone());
+    let (bo_client, script) = scripted::scripted(&bo.client).await;
+    let mut bo_worker = CommitLogWorker::new(bo_client.context.clone());
+    alix_worker._tick().await?;
+    bo_worker._tick().await?;
+    alix.context
+        .db()
+        .set_group_commit_log_forked_status(&dm.group_id, Some(true))?;
+    alix_worker._tick().await?;
+    bo.sync_welcomes().await?;
+    let installation = alix.context.installation_id();
+    let bo_db = bo.context.db();
+    assert!(bo_db.is_awaiting_readd(&dm.group_id, installation.as_slice())?);
+
+    script.lock().group_message_rate_limit = Some(Duration::from_secs(300));
+    let epoch = bo_dm.epoch().await?;
+    bo_worker._tick().await?;
+    let attempts = script.lock().group_message_publishes;
+    assert!(attempts > 0, "the readd is sent");
+    assert_eq!(bo_dm.epoch().await?, epoch);
+    assert!(bo_db.is_awaiting_readd(&dm.group_id, installation.as_slice())?);
+    bo_worker._tick().await?;
+    assert_eq!(
+        script.lock().group_message_publishes,
+        attempts,
+        "no readd inside the delay"
+    );
+    assert!(bo_db.is_awaiting_readd(&dm.group_id, installation.as_slice())?);
+}
+
 /// A rate-limited conversation holds only its own commit-log publish: another
 /// conversation still publishes inside the delay.
 // verifies: RATE-041
