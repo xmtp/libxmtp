@@ -554,13 +554,16 @@ where
         if message.delivery_status == DeliveryStatus::Published {
             return Ok(None);
         }
-        self.allow_after_send(db, events, message)?;
         let envelope =
             Self::encode_envelope(&message.decrypted_message_bytes, &message.idempotency_key);
-        let intent = QueueIntent::send_message()
+        let (intent, reused) = QueueIntent::send_message()
             .data(Vec::<u8>::from(SendMessageIntentData::new(envelope)))
             .should_push(message.should_push)
-            .queue_in(db, self)?;
+            .queue_in_reporting_reuse(db, self)?;
+        // A retry that reuses the queued intent sends nothing new.
+        if !reused {
+            self.allow_after_send(db, events, message)?;
+        }
         if db.set_failed_delivery_status_to_unpublished(&message.id)? > 0 {
             self.emit_message_status_changed(
                 message.id.clone(),

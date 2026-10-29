@@ -486,10 +486,16 @@ async fn test_get_and_set_consent(
     // Queueing the message allows, before it is published.
     assert_eq!(caro_group.consent_state().unwrap(), ConsentState::Allowed);
 
-    // A deny made before the publish completes stands.
+    // A deny made before the publish completes stands, and a retry that
+    // reuses the queued intent does not replace it.
     caro_group
         .update_consent_state(ConsentState::Denied)
         .unwrap();
+    caro_group
+        .publish_stored_message(&message_id)
+        .await
+        .unwrap();
+    assert_eq!(caro_group.consent_state().unwrap(), ConsentState::Denied);
     caro_group.publish_messages().await.unwrap();
     assert_eq!(caro_group.consent_state().unwrap(), ConsentState::Denied);
 
