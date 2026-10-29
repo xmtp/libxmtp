@@ -299,7 +299,10 @@ an office, a campus, or a carrier-grade NAT, share one allowance in every
 category. If your users share addresses, give them credentials, or raise the
 `ip` tier of each category they reach. Each new installation publishes an
 identity update, so `identity_update` caps how many installations one address
-can register: 10 a minute and 100 an hour by default.
+can register: 10 a minute and 100 an hour by default. Each open subscription
+with topics pays 2 `stream_rent` units a minute, so about 60 subscribed clients
+use up one address's default of 120; past that, their subscriptions end and
+reopen after each refusal.
 
 ```toml
 [rate_limits.categories.request]
@@ -316,6 +319,9 @@ ip = [{ count = 10000, window_seconds = 60 }, { count = 100000, window_seconds =
 
 [rate_limits.categories.upload]
 ip = [{ count = 600, window_seconds = 60 }, { count = 10000, window_seconds = 3600 }]
+
+[rate_limits.categories.stream_rent]
+ip = [{ count = 600, window_seconds = 60 }]
 ```
 
 An override raises or lowers the limits of one API key, one JWT subject, or one
