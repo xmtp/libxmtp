@@ -122,8 +122,10 @@ pub struct SpendRecord {
     /// When the limiter decided it.
     pub at: std::time::Instant,
     /// A SHA-256 digest of the encoded request message the spend was for,
-    /// for a handler's spends; `None` for the rate-limit layer's `request`
-    /// unit, which precedes decoding.
+    /// for a handler's spends and a `SubscribeStatic` stream's. `None` for
+    /// the rate-limit layer's `request` unit, which precedes decoding, and
+    /// for every spend of a `Subscribe` stream, whose messages arrive after
+    /// its call.
     pub request: Option<[u8; 32]>,
 }
 
