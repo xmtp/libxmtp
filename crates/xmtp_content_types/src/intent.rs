@@ -56,6 +56,7 @@ impl ContentCodec<Intent> for IntentCodec {
     }
 
     fn decode(intent: EncodedContent) -> Result<Intent, CodecError> {
+        crate::decode_limits::check_json_values(&intent.content)?;
         let intent = serde_json::from_slice(&intent.content)
             .map_err(|e| CodecError::Decode(format!("Unable to deserialize intent. {e:?}")))?;
 

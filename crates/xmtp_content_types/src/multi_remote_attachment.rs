@@ -53,6 +53,7 @@ impl ContentCodec<MultiRemoteAttachment> for MultiRemoteAttachmentCodec {
     }
 
     fn decode(content: EncodedContent) -> Result<MultiRemoteAttachment, CodecError> {
+        crate::decode_limits::check_protobuf_fields(&content.content)?;
         let mut decoded = MultiRemoteAttachment::decode(content.content.as_slice())
             .map_err(|e| CodecError::Decode(e.to_string()))?;
 
@@ -120,5 +121,28 @@ pub(crate) mod tests {
         assert_eq!(decoded.attachments[1].filename, filename_2);
         assert_eq!(decoded.attachments[0].content_length, Some(1000));
         assert_eq!(decoded.attachments[1].content_length, Some(1000));
+    }
+
+    // verifies: CTYPE-033
+    #[xmtp_common::test(unwrap_try = true)]
+    fn attachment_count_is_limited_before_decoding() {
+        let attachment = RemoteAttachmentInfo {
+            content_digest: "ab".repeat(32),
+            secret: vec![0; 32],
+            nonce: vec![0; 12],
+            salt: vec![0; 32],
+            scheme: "https://".to_string(),
+            url: "https://example.com/attachment".to_string(),
+            content_length: None,
+            filename: None,
+        };
+        let limit = crate::decode_limits::MAX_PROTOBUF_FIELDS;
+        for (count, ok) in [(limit, true), (limit + 1, false)] {
+            let encoded = MultiRemoteAttachmentCodec::encode(MultiRemoteAttachment {
+                attachments: vec![attachment.clone(); count],
+            })?;
+            let decoded = MultiRemoteAttachmentCodec::decode(encoded);
+            assert_eq!(decoded.is_ok(), ok, "{count} attachments");
+        }
     }
 }

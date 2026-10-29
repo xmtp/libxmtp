@@ -240,6 +240,7 @@ fn remote_attachment_requires_each_catalogue_parameter() {
 #[cfg(test)]
 // verifies: CTYPE-011
 // verifies: CTYPE-024
+// verifies: CTYPE-029
 #[xmtp_common::test(unwrap_try = true)]
 fn malformed_nested_reply_content_is_rejected() {
     use prost::Message as _;
@@ -265,28 +266,16 @@ fn malformed_nested_reply_content_is_rejected() {
             content: b"compressed text".to_vec(),
             ..Default::default()
         },
+        ProtoEncodedContent {
+            r#type: Some(xmtp_content_types::text::TextCodec::content_type()),
+            content: vec![0xff, 0xfe],
+            ..Default::default()
+        },
     ] {
         let mut outer = xmtp_content_types::reply::ReplyCodec::encode(reply.clone())?;
         outer.content = nested.encode_to_vec();
         assert!(decode_standard(outer.try_into()?).is_err());
     }
-}
-
-#[cfg(test)]
-// verifies: CTYPE-029
-#[xmtp_common::test(unwrap_try = true)]
-fn malformed_nested_standard_reply_content_is_rejected() {
-    let nested = ProtoEncodedContent {
-        r#type: Some(xmtp_content_types::text::TextCodec::content_type()),
-        content: vec![0xff, 0xfe],
-        ..Default::default()
-    };
-    let outer = xmtp_content_types::reply::ReplyCodec::encode(xmtp_content_types::reply::Reply {
-        reference: "a".repeat(64),
-        reference_inbox_id: None,
-        content: nested,
-    })?;
-    assert!(decode_standard(outer.try_into()?).is_err());
 }
 
 #[cfg(test)]

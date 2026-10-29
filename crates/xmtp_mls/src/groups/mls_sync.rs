@@ -102,6 +102,7 @@ use xmtp_mls_common::mls_ext::payload_encryption::{
 use xmtp_mls_validation::commit::{
     CommitRuleError, Inbox, MetadataChanges, extract_group_membership,
 };
+use xmtp_proto::ShortHex;
 use xmtp_proto::backend_v1::{
     ClientEnvelope, GroupMessage as BackendGroupMessage, WelcomeMessage as WelcomeMessageInput,
     client_envelope::Payload,
@@ -111,7 +112,6 @@ use xmtp_proto::backend_v1::{
     },
 };
 use xmtp_proto::types::GroupId;
-use xmtp_proto::xmtp::mls::message_contents::content_types::DeleteMessage;
 use xmtp_proto::xmtp::mls::{
     database::{ProcessPendingSelfRemove, Task as TaskProto, task::Task as TaskKind},
     message_contents::{
@@ -124,7 +124,6 @@ use xmtp_proto::{
     GroupUpdateDeduper,
     types::{Cursor, GroupMessage},
 };
-use xmtp_proto::{ShortHex, xmtp::mls::message_contents::EncodedContent};
 use zeroize::Zeroizing;
 
 mod envelope_and_app_data;
@@ -905,6 +904,8 @@ pub(crate) mod tests {
         ];
         let storage = alix.context.mls_storage();
         for (n, (case, decrypted_message_bytes)) in (1..).zip(rows) {
+            // The receive path stores the reference it decodes from the bytes.
+            let fields = TestMlsGroup::extract_queryable_content_fields(&decrypted_message_bytes);
             let message = StoredGroupMessage {
                 id: vec![n; 32],
                 group_id: alix_group.group_id,
@@ -918,7 +919,7 @@ pub(crate) mod tests {
                 version_major: 1,
                 version_minor: 0,
                 authority_id: "xmtp.org".to_string(),
-                reference_id: None,
+                reference_id: fields.reference_id,
                 expiry_unknown: false,
                 expire_at_ns: None,
                 sequence_id: n.into(),
