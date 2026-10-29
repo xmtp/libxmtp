@@ -15,7 +15,6 @@ where
         Ok(crate::messages::enrichment::find_valid_deletion(
             &storage.db(),
             message,
-            &self.group_id,
         )?)
     }
 

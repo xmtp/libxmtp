@@ -440,6 +440,76 @@ mod tests {
         );
     }
 
+    /// In a stitched DM, a deletion applies to its target, and to a reply's
+    /// parent, only when it is stored in the target's group.
+    // verifies: PROC-037
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn stitched_deletions_apply_in_their_own_group() {
+        use xmtp_common::Generate;
+        use xmtp_db::ConnectionExt;
+        use xmtp_db::diesel::{ExpressionMethods, QueryDsl, RunQueryDsl};
+        use xmtp_db::group::{ConversationType, QueryGroup};
+        use xmtp_db::message_deletion::StoredMessageDeletion;
+        use xmtp_db::schema::groups::dsl;
+
+        let (group, context) = setup_test_group().await;
+        let conn = context.db();
+        let home = group.group_id;
+        conn.raw_query(|sqlite| {
+            xmtp_db::diesel::update(dsl::groups.find(home))
+                .set((
+                    dsl::conversation_type.eq(ConversationType::Dm),
+                    dsl::dm_id.eq("dm:sender:peer"),
+                ))
+                .execute(sqlite)
+        })?;
+        let mut sibling = conn.find_group(&home)??;
+        sibling.id = GroupId::generate();
+        sibling.store(&conn)?;
+        let sibling = sibling.id;
+        let put = |group_id, n, content| create_and_store_message(&conn, &group_id, n, content);
+        let reply_to = |n| {
+            let content = b"reply".to_vec();
+            TestContentGenerator::reply_content(&ref_to(n), TextCodec::content_type(), content)
+        };
+        put(sibling, 1, TestContentGenerator::text_content("deleted"));
+        put(sibling, 2, TestContentGenerator::text_content("kept"));
+        put(home, 3, reply_to(1));
+        put(home, 4, reply_to(2));
+        // Message 1 is deleted in its own group, message 2 from the other one.
+        for (group_id, n, target) in [(sibling, 5, 1), (home, 6, 2)] {
+            let deletion = TestContentGenerator::delete_message_content(&ref_to(target));
+            put(group_id, n, deletion);
+            StoredMessageDeletion {
+                id: vec![n; 32],
+                group_id,
+                deleted_message_id: vec![target; 32],
+                deleted_by_inbox_id: "sender".into(),
+                is_super_admin_deletion: false,
+                deleted_at_ns: now_ns(),
+            }
+            .store(&conn)?;
+        }
+
+        let messages = group.find_messages_v2_with_stored(&MsgQueryArgs::default())?;
+        let messages: Vec<_> = messages.into_iter().map(|m| m.decoded).collect();
+        assert_eq!(ids(&messages), [1, 2, 3, 4]);
+        let parent = |n: usize| match &messages[n - 1].content {
+            MessageBody::Reply(reply) => reply.in_reply_to.as_deref().expect("parent"),
+            other => panic!("message {n}: expected reply, got {other:?}"),
+        };
+        // The text shown, or None for a deletion placeholder.
+        let text = |message: &DecodedMessage| match &message.content {
+            MessageBody::Text(text) => Some(text.content.clone()),
+            MessageBody::DeletedMessage { .. } => None,
+            other => panic!("expected text or a deletion, got {other:?}"),
+        };
+        assert_eq!(text(&messages[0]), None, "target 1");
+        assert_eq!(text(parent(3)), None, "parent of 3");
+        assert_eq!(text(&messages[1]), Some("kept".into()), "target 2");
+        assert_eq!(text(parent(4)), Some("kept".into()), "parent of 4");
+    }
+
     // verifies: CTYPE-008, CTYPE-009
     #[xmtp_common::test(unwrap_try = true)]
     async fn test_find_messages_undecodable_messages() {

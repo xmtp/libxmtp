@@ -81,18 +81,18 @@ pub(crate) fn is_deletable_stored_message(message: &StoredGroupMessage) -> bool 
     .is_deletable()
 }
 
-/// Validates if a deletion should be applied. Checks group membership and authorization.
+/// Whether a deletion applies: it is in its target's group, and it is authorized.
 // implements: PROC-037
 pub(crate) fn is_deletion_valid(
     deletion: &StoredMessageDeletion,
     message: &StoredGroupMessage,
-    group_id: &GroupId,
 ) -> bool {
     if deletion.deleted_message_id != message.id {
         return false;
     }
 
-    if deletion.group_id != *group_id || message.group_id != *group_id {
+    // A stitched DM reads rows and reply parents from every group of the set.
+    if deletion.group_id != message.group_id {
         return false;
     }
 
@@ -108,12 +108,11 @@ pub(crate) fn is_deletion_valid(
 pub(crate) fn find_valid_deletion(
     db: &impl QueryMessageDeletion,
     message: &StoredGroupMessage,
-    group_id: &GroupId,
 ) -> Result<Option<StoredMessageDeletion>, xmtp_db::ConnectionError> {
     Ok(db
         .get_deletions_for_messages(vec![message.id.clone()])?
         .into_iter()
-        .find(|deletion| is_deletion_valid(deletion, message, group_id)))
+        .find(|deletion| is_deletion_valid(deletion, message)))
 }
 
 /// Whether a valid deletion replaces `message`, as enrichment applies one.
@@ -121,7 +120,7 @@ pub fn is_deleted(
     conn: impl DbQuery,
     message: &StoredGroupMessage,
 ) -> Result<bool, EnrichMessageError> {
-    Ok(find_valid_deletion(&conn, message, &message.group_id)?.is_some())
+    Ok(find_valid_deletion(&conn, message)?.is_some())
 }
 
 #[xmtp_common::mls_span]
@@ -203,7 +202,7 @@ fn enrich_batch(
                     .and_then(|deletions| {
                         deletions
                             .iter()
-                            .find(|deletion| is_deletion_valid(deletion, &stored_message, group_id))
+                            .find(|deletion| is_deletion_valid(deletion, &stored_message))
                     });
 
             if let Some(deletion) = valid_deletion {
@@ -244,7 +243,7 @@ fn enrich_batch(
                             && let Some((stored_msg, _)) = relations.referenced_messages.get(&id)
                             && let Some(deletion) = deletions
                                 .iter()
-                                .find(|deletion| is_deletion_valid(deletion, stored_msg, group_id))
+                                .find(|deletion| is_deletion_valid(deletion, stored_msg))
                         {
                             apply_deletion(msg, deletion, stored_msg);
                         }

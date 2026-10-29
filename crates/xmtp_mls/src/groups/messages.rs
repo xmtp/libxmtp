@@ -355,7 +355,7 @@ where
         }
 
         // implements: PROC-056
-        if find_valid_deletion(&conn, &original_msg, &self.group_id)?.is_some() {
+        if find_valid_deletion(&conn, &original_msg)?.is_some() {
             return Err(DeleteMessageError::MessageAlreadyDeleted.into());
         }
 
@@ -398,8 +398,7 @@ where
             |tx, events| {
                 let storage = tx.storage();
                 let db = storage.db();
-                let already_deleted =
-                    find_valid_deletion(&db, &original_msg, &self.group_id)?.is_some();
+                let already_deleted = find_valid_deletion(&db, &original_msg)?.is_some();
                 deletion.store(&db)?;
                 if !already_deleted {
                     crate::subscriptions::internal::emit_deleted_messages(
