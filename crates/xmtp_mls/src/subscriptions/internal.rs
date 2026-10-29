@@ -5,7 +5,9 @@ use xmtp_db::{ConnectionError, DbQuery, group_message::StoredGroupMessage};
 use xmtp_proto::types::GroupId;
 
 use crate::worker::device_sync::preference_sync::PreferenceUpdate;
-use xmtp_db::consent_record::{ConsentState as StoredConsentState, ConsentType};
+use xmtp_db::consent_record::{
+    ConsentState as StoredConsentState, ConsentType, StoredConsentRecord,
+};
 use xmtp_events::{
     ClientEvent, ConsentChanged, ConsentEntityKind, ConsentState, DeletionCause, EventContext,
     EventWriter, HmacKeysUpdated, MessageDeleted, MessageRef,
@@ -80,6 +82,29 @@ pub(crate) fn emit_preference_updates(
     db: &impl DbQuery,
 ) -> Result<(), ConnectionError> {
     emit_preference_updates_with_public(writer, updates.clone(), updates, origin, db)
+}
+
+/// Publish every app act; report it and wake notifications only when it
+/// changes the stored state.
+pub(crate) fn emit_consent_acts(
+    ctx: &impl crate::context::XmtpSharedContext,
+    writer: &impl EventWriter<InternalEvent>,
+    written: Vec<(StoredConsentRecord, bool)>,
+    db: &impl DbQuery,
+) -> Result<(), ConnectionError> {
+    let public: Vec<_> = written
+        .iter()
+        .filter(|(_, changed)| *changed)
+        .map(|(record, _)| PreferenceUpdate::Consent(record.clone()))
+        .collect();
+    if !public.is_empty() {
+        ctx.task_channels().mark_notification_changed();
+    }
+    let all = written
+        .into_iter()
+        .map(|(record, _)| PreferenceUpdate::Consent(record))
+        .collect();
+    emit_preference_updates_with_public(writer, public, all, PreferenceOrigin::Local, db)
 }
 
 pub(crate) fn emit_preference_updates_with_public(

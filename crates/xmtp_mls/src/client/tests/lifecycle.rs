@@ -214,64 +214,63 @@ async fn one_consent_batch_emits_only_the_final_state_for_an_entity() {
     ));
 }
 
-// verifies: EVENT-001, EVENT-009
+// verifies: EVENT-001, EVENT-009, CONS-011
 #[xmtp_common::test(unwrap_try = true)]
-async fn app_consent_change_emits_once_and_duplicate_emits_none() {
-    tester!(alix, disable_workers);
-    let events = alix
-        .context
-        .events()
-        .subscribe_app(xmtp_events::EventFilter::new([
-            xmtp_events::EventKind::ConsentChanged,
-        ]))?;
-    let record = StoredConsentRecord::new(
-        ConsentType::InboxId,
-        ConsentState::Allowed,
-        "one-consent-change".into(),
-    );
-    alix.set_consent_states(std::slice::from_ref(&record))
-        .await?;
-    assert!(matches!(
-        events.drain().as_slice(),
-        [xmtp_events::EventEnvelope {
-            client: Some(xmtp_events::ClientEvent::ConsentChanged(change)), ..
-        }] if change.entity_kind == xmtp_events::ConsentEntityKind::Inbox
-            && change.entity == record.entity
-            && change.state == xmtp_events::ConsentState::Allowed
-    ));
-
-    let mut same_state = record;
-    same_state.consented_at_ns += 1;
-    alix.set_consent_states(&[same_state]).await?;
-    assert!(events.drain().is_empty());
-}
-
-// verifies: EVENT-001, EVENT-009
-#[xmtp_common::test(unwrap_try = true)]
-async fn conversation_consent_events_report_entity_and_states() {
+async fn app_consent_acts_emit_once_per_change_and_store_every_repeat() {
+    use crate::subscriptions::internal::{InternalEvent, PreferenceOrigin};
+    use crate::worker::device_sync::preference_sync::PreferenceUpdate;
+    use xmtp_db::consent_record::{ConsentState::*, ConsentType::*};
+    use xmtp_events::{ConsentEntityKind::*, ConsentState as Event, EventEnvelope};
     tester!(alix, disable_workers);
     let group = alix.create_group(None, None)?;
-    let entity = hex::encode(group.group_id);
+    let id = hex::encode(group.group_id);
+    let id = id.as_str();
     let events = alix
         .context
         .events()
         .subscribe_app(xmtp_events::EventFilter::new([
             xmtp_events::EventKind::ConsentChanged,
         ]))?;
+    let preferences = alix.context.events().subscribe(
+        xmtp_events::EventFilter::default()
+            .with_internal(|event| matches!(event, InternalEvent::PreferencesChanged { .. })),
+        Some(16),
+    );
 
-    for (stored, expected) in [
-        (ConsentState::Denied, xmtp_events::ConsentState::Denied),
-        (ConsentState::Unknown, xmtp_events::ConsentState::Unknown),
+    for (entity_type, entity, state, kind, expected) in [
+        (InboxId, "inbox", Allowed, Inbox, Event::Allowed),
+        (ConversationId, id, Denied, Conversation, Event::Denied),
+        (ConversationId, id, Unknown, Conversation, Event::Unknown),
     ] {
-        let record = StoredConsentRecord::new(ConsentType::ConversationId, stored, entity.clone());
-        alix.set_consent_states(&[record]).await?;
+        let record = StoredConsentRecord::new(entity_type, state, entity.into());
+        alix.set_consent_states(std::slice::from_ref(&record))
+            .await?;
         assert!(matches!(
             events.drain().as_slice(),
-            [xmtp_events::EventEnvelope {
-                client: Some(xmtp_events::ClientEvent::ConsentChanged(change)), ..
-            }] if change.entity_kind == xmtp_events::ConsentEntityKind::Conversation
-                && change.entity == entity
-                && change.state == expected
+            [EventEnvelope { client: Some(xmtp_events::ClientEvent::ConsentChanged(change)), .. }]
+                if change.entity_kind == kind && change.entity == entity && change.state == expected
+        ));
+        preferences.drain();
+
+        // A same-state repeat emits no app event but is stored and published.
+        let mut repeat = record;
+        repeat.consented_at_ns += 1;
+        alix.set_consent_states(std::slice::from_ref(&repeat))
+            .await?;
+        assert!(events.drain().is_empty());
+        let stored = alix
+            .context
+            .db()
+            .get_consent_record(entity.into(), entity_type)?;
+        let stored = stored.map(|r| (r.state, r.consented_at_ns));
+        assert_eq!(stored, Some((state, repeat.consented_at_ns)));
+        assert!(matches!(
+            preferences.drain().as_slice(),
+            [EventEnvelope { internal: Some(InternalEvent::PreferencesChanged {
+                updates,
+                origin: PreferenceOrigin::Local,
+            }), .. }] if matches!(updates.as_slice(), [PreferenceUpdate::Consent(published)]
+                if published.consented_at_ns == repeat.consented_at_ns)
         ));
     }
 }

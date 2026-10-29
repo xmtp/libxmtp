@@ -321,7 +321,7 @@ mod event_tests {
         state_write_with_events(alix.context.mls_storage(), bus, |tx, events| {
             let storage = tx.storage();
             let db = storage.db();
-            db.insert_or_replace_consent_records(std::slice::from_ref(&committed))?;
+            db.record_app_act(std::slice::from_ref(&committed))?;
             emit_preference_updates(
                 events,
                 vec![PreferenceUpdate::Consent(committed.clone())],
@@ -354,7 +354,7 @@ mod event_tests {
             |tx, events| {
                 let storage = tx.storage();
                 let db = storage.db();
-                db.insert_or_replace_consent_records(std::slice::from_ref(&rolled_back))?;
+                db.record_app_act(std::slice::from_ref(&rolled_back))?;
                 emit_preference_updates(
                     events,
                     vec![PreferenceUpdate::Consent(rolled_back.clone())],

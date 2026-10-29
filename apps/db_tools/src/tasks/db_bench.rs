@@ -356,10 +356,7 @@ where
         bench!(self, consent_records())?;
         bench!(self, consent_records_paged(100, 0))?;
         bench!(self, insert_newer_consent_record(new_consent.clone()))?;
-        bench!(
-            self,
-            insert_or_replace_consent_records(std::slice::from_ref(&new_consent))
-        )?;
+        bench!(self, record_app_act(std::slice::from_ref(&new_consent)))?;
         bench!(
             self,
             maybe_insert_consent_record_return_existing(&new_consent.clone())

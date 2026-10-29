@@ -420,6 +420,7 @@ pub(super) async fn create_membership_update_no_sync(group: &TestMlsGroup) {
  * intents that do the same thing, leading to conflicts
  */
 
+// verifies: CONS-021
 #[cfg_attr(target_arch = "wasm32", ignore)]
 #[rstest]
 #[xmtp_common::test]
@@ -455,20 +456,46 @@ async fn test_get_and_set_consent(
     // group consent state should be allowed if user sends a message to the group
     assert_eq!(bola_group.consent_state().unwrap(), ConsentState::Allowed);
 
+    // A send in an allowed conversation stores no record.
+    use crate::subscriptions::internal::InternalEvent::PreferencesChanged;
+    let preferences = bola.context.events().subscribe(
+        xmtp_events::EventFilter::default()
+            .with_internal(|e| matches!(e, PreferencesChanged { .. })),
+        Some(16),
+    );
+    bola_group
+        .send_message("again from bola".as_bytes(), SendMessageOpts::default())
+        .await
+        .unwrap();
+    assert!(preferences.drain().is_empty());
+
     alix_group.add_members(&[caro.inbox_id()]).await.unwrap();
 
     caro.sync_welcomes().await.unwrap();
     let caro_groups = caro.find_groups(GroupQueryArgs::default()).unwrap();
     let caro_group = caro_groups.first().unwrap();
 
-    caro_group
-        .send_message_optimistic("hi from caro".as_bytes(), SendMessageOpts::default())
+    let text = xmtp_content_types::text::TextCodec::encode("hi from caro".into()).unwrap();
+    let message_id = caro_group
+        .send_message_optimistic(
+            &xmtp_content_types::encoded_content_to_bytes(text),
+            SendMessageOpts::default(),
+        )
         .unwrap();
 
-    caro_group.publish_messages().await.unwrap();
-
-    // group consent state should be allowed if user publishes a message to the group
+    // Queueing the message allows, before it is published.
     assert_eq!(caro_group.consent_state().unwrap(), ConsentState::Allowed);
+
+    // A deny made before the publish completes stands.
+    caro_group
+        .update_consent_state(ConsentState::Denied)
+        .unwrap();
+    caro_group.publish_messages().await.unwrap();
+    assert_eq!(caro_group.consent_state().unwrap(), ConsentState::Denied);
+
+    // Deleting a message does not allow.
+    caro_group.delete_message(message_id).unwrap();
+    assert_eq!(caro_group.consent_state().unwrap(), ConsentState::Denied);
 }
 
 #[xmtp_common::test]

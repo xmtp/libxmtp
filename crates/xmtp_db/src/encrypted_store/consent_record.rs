@@ -35,7 +35,7 @@ pub struct ConsentMerge {
 }
 
 /// StoredConsentRecord holds a serialized ConsentRecord
-#[derive(Insertable, Queryable, Debug, Clone, Eq, Deserialize, Serialize)]
+#[derive(Insertable, Queryable, Debug, Clone, Deserialize, Serialize)]
 #[diesel(table_name = consent_records)]
 #[diesel(primary_key(entity_type, entity))]
 pub struct StoredConsentRecord {
@@ -47,14 +47,6 @@ pub struct StoredConsentRecord {
     pub entity: String,
 
     pub consented_at_ns: i64,
-}
-
-impl PartialEq for StoredConsentRecord {
-    fn eq(&self, other: &Self) -> bool {
-        self.entity == other.entity
-            && self.entity_type == other.entity_type
-            && self.state == other.state
-    }
 }
 
 impl StoredConsentRecord {
@@ -120,13 +112,12 @@ pub trait QueryConsentRecord {
         record: StoredConsentRecord,
     ) -> Result<ConsentMerge, crate::ConnectionError>;
 
-    /// Store app decisions. A record that is new or changes the stored state
-    /// is written with its time and returned; a record with the stored state
-    /// is skipped and keeps the stored time.
-    fn insert_or_replace_consent_records(
+    /// Store app acts: every record is written with its own time, whatever is
+    /// stored. Returns each record and whether the stored state changed.
+    fn record_app_act(
         &self,
         records: &[StoredConsentRecord],
-    ) -> Result<Vec<StoredConsentRecord>, crate::ConnectionError>;
+    ) -> Result<Vec<(StoredConsentRecord, bool)>, crate::ConnectionError>;
 
     fn maybe_insert_consent_record_return_existing(
         &self,
@@ -216,12 +207,11 @@ impl<C: ConnectionExt> QueryConsentRecord for DbConnection<C> {
         })
     }
 
-    /// Write only the records that are new or change the stored state, each
-    /// with its own time. A same-state record keeps the stored time.
-    fn insert_or_replace_consent_records(
+    // implements: CONS-011
+    fn record_app_act(
         &self,
         records: &[StoredConsentRecord],
-    ) -> Result<Vec<StoredConsentRecord>, crate::ConnectionError> {
+    ) -> Result<Vec<(StoredConsentRecord, bool)>, crate::ConnectionError> {
         let mut query = consent_records::table
             .into_boxed()
             .filter(false.into_sql::<diesel::sql_types::Bool>());
@@ -237,16 +227,20 @@ impl<C: ConnectionExt> QueryConsentRecord for DbConnection<C> {
             );
         }
 
-        let changed = self.raw_query(|conn| {
+        let written = self.raw_query(|conn| {
             let existing: Vec<StoredConsentRecord> = query.load(conn)?;
-            let changed: Vec<_> = records
+            let written: Vec<_> = records
                 .iter()
-                .filter(|r| !existing.contains(r))
-                .cloned()
+                .map(|r| {
+                    let stored = existing
+                        .iter()
+                        .find(|e| e.entity_type == r.entity_type && e.entity == r.entity);
+                    (r.clone(), stored.map(|e| e.state) != Some(r.state))
+                })
                 .collect();
 
             conn.transaction::<_, diesel::result::Error, _>(|conn| {
-                for record in &changed {
+                for (record, _) in &written {
                     diesel::insert_into(dsl::consent_records)
                         .values(record)
                         .on_conflict((dsl::entity_type, dsl::entity))
@@ -260,10 +254,10 @@ impl<C: ConnectionExt> QueryConsentRecord for DbConnection<C> {
                 Ok(())
             })?;
 
-            Ok(changed)
+            Ok(written)
         })?;
 
-        Ok(changed)
+        Ok(written)
     }
 
     fn maybe_insert_consent_record_return_existing(
@@ -344,11 +338,11 @@ impl<T: QueryConsentRecord + ?Sized> QueryConsentRecord for &T {
         (**self).insert_newer_consent_record(record)
     }
 
-    fn insert_or_replace_consent_records(
+    fn record_app_act(
         &self,
         records: &[StoredConsentRecord],
-    ) -> Result<Vec<StoredConsentRecord>, crate::ConnectionError> {
-        (**self).insert_or_replace_consent_records(records)
+    ) -> Result<Vec<(StoredConsentRecord, bool)>, crate::ConnectionError> {
+        (**self).record_app_act(records)
     }
 
     fn maybe_insert_consent_record_return_existing(
@@ -530,12 +524,7 @@ mod tests {
                     .state_changed
                 );
                 // The local act changes the state, so it stores its time.
-                conn.insert_or_replace_consent_records(&[record(
-                    entity_type,
-                    entity,
-                    ConsentState::Denied,
-                    20,
-                )])?;
+                conn.record_app_act(&[record(entity_type, entity, ConsentState::Denied, 20)])?;
                 let stored = conn
                     .get_consent_record(entity.into(), entity_type)?
                     .unwrap();
@@ -578,21 +567,21 @@ mod tests {
         })?;
     }
 
-    /// Installation A repeats a local Denied before B's newer Allowed arrives;
-    /// both installations end on B's record because a local repeat does not
-    /// move the stored time.
-    // verifies: CONS-010
+    /// Installation A repeats a local Denied before B's Allowed@15 arrives;
+    /// both installations end on A's repeat because a local repeat stores its
+    /// time.
+    // verifies: CONS-010, CONS-011
     #[xmtp_common::test(unwrap_try = true)]
     fn installations_converge_when_a_local_repeat_precedes_a_newer_remote_record() {
         with_connection(|conn| {
             let kind = ConsentType::ConversationId;
-            // Installation A. The local repeat keeps the stored time: the waived
-            // gap in docs/specs/waivers.toml for the local same-state act time.
-            // Update this test when that waiver closes.
-            conn.insert_or_replace_consent_records(&[record(kind, "a", ConsentState::Denied, 10)])?;
-            conn.insert_or_replace_consent_records(&[record(kind, "a", ConsentState::Denied, 20)])?;
+            // Installation A.
+            conn.record_app_act(&[record(kind, "a", ConsentState::Denied, 10)])?;
+            let repeat = conn.record_app_act(&[record(kind, "a", ConsentState::Denied, 20)])?;
+            assert!(matches!(repeat.as_slice(), [(r, false)] if r.consented_at_ns == 20));
             assert!(
-                conn.insert_newer_consent_record(record(kind, "a", ConsentState::Allowed, 15))?
+                !conn
+                    .insert_newer_consent_record(record(kind, "a", ConsentState::Allowed, 15))?
                     .state_changed
             );
             // Installation B.
@@ -605,11 +594,15 @@ mod tests {
                     .insert_newer_consent_record(record(kind, "b", ConsentState::Denied, 10))?
                     .state_changed
             );
+            assert!(
+                conn.insert_newer_consent_record(record(kind, "b", ConsentState::Denied, 20))?
+                    .state_changed
+            );
             for entity in ["a", "b"] {
                 let stored = conn.get_consent_record(entity.into(), kind)?.unwrap();
                 assert_eq!(
                     (stored.state, stored.consented_at_ns),
-                    (ConsentState::Allowed, 15),
+                    (ConsentState::Denied, 20),
                     "{entity}"
                 );
             }
@@ -760,45 +753,15 @@ mod tests {
     }
 
     #[xmtp_common::test]
-    fn insert_and_read() {
+    fn maybe_insert_returns_the_stored_record() {
         with_connection(|conn| {
             let inbox_id = "inbox_1";
-            let consent_record = generate_consent_record(
+            conn.record_app_act(&[generate_consent_record(
                 ConsentType::InboxId,
-                ConsentState::Allowed,
+                ConsentState::Denied,
                 inbox_id.to_string(),
-            );
-            let consent_record_entity = consent_record.entity.clone();
-
-            // Insert the record
-            let result = conn
-                .insert_or_replace_consent_records(std::slice::from_ref(&consent_record))
-                .expect("should store without error");
-            // One record was inserted
-            assert_eq!(result.len(), 1);
-
-            // Insert it again
-            let result = conn
-                .insert_or_replace_consent_records(std::slice::from_ref(&consent_record))
-                .expect("should store without error");
-            // Nothing should change
-            assert_eq!(result.len(), 0);
-
-            // Insert it again, this time with a Denied state
-            let result = conn
-                .insert_or_replace_consent_records(&[StoredConsentRecord {
-                    state: ConsentState::Denied,
-                    ..consent_record
-                }])
-                .expect("should store without error");
-            // Should change
-            assert_eq!(result.len(), 1);
-
-            let consent_record = conn
-                .get_consent_record(inbox_id.to_owned(), ConsentType::InboxId)
-                .expect("query should work");
-
-            assert_eq!(consent_record.unwrap().entity, consent_record_entity);
+            )])
+            .expect("should store without error");
 
             let conflict = generate_consent_record(
                 ConsentType::InboxId,

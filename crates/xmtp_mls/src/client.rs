@@ -14,12 +14,10 @@ use crate::{
     mls_store::{MlsStore, MlsStoreError},
     subscriptions::{
         LocalEventError,
-        internal::{PreferenceOrigin, emit_deleted_messages, emit_preference_updates},
+        internal::{emit_consent_acts, emit_deleted_messages},
     },
     utils::VersionInfo,
-    worker::device_sync::{
-        DeviceSyncClient, preference_sync::PreferenceUpdate, worker::SyncMetric,
-    },
+    worker::device_sync::{DeviceSyncClient, worker::SyncMetric},
     worker::{WorkerRunner, metrics::WorkerMetrics},
 };
 pub mod notifications;
@@ -695,12 +693,8 @@ where
             |tx, events| {
                 let storage = tx.storage();
                 let db = storage.db();
-                let changed = db.insert_or_replace_consent_records(&final_records)?;
-                let updates: Vec<_> = changed.into_iter().map(PreferenceUpdate::Consent).collect();
-                if !updates.is_empty() {
-                    self.context.task_channels().mark_notification_changed();
-                }
-                emit_preference_updates(events, updates, PreferenceOrigin::Local, &db)?;
+                let written = db.record_app_act(&final_records)?;
+                emit_consent_acts(&self.context, events, written, &db)?;
                 Ok::<_, StorageError>(Continue(()))
             },
         )?
