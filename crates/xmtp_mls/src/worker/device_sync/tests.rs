@@ -906,6 +906,22 @@ async fn sync_message_from_another_inbox_is_not_applied() {
     assert!(db.unprocessed_sync_group_messages()?.is_empty());
 }
 
+/// Fails the own-state read like an unreachable verifier until the returned fn runs.
+pub(super) fn hide_own_identity_updates<'a>(
+    db: impl ConnectionExt + 'a,
+    inbox_id: &'a str,
+) -> Result<impl FnOnce() -> Result<usize, xmtp_db::ConnectionError> + 'a, xmtp_db::ConnectionError>
+{
+    use diesel::RunQueryDsl;
+    let set = move |from: &str, to: &str| {
+        let sql =
+            format!("UPDATE identity_updates SET inbox_id = '{to}' WHERE inbox_id = '{from}'");
+        db.raw_query(|conn| diesel::sql_query(sql).execute(conn))
+    };
+    set(inbox_id, &format!("{inbox_id}-hidden"))?;
+    Ok(move || set(&format!("{inbox_id}-hidden"), inbox_id))
+}
+
 // verifies: SYNC-016
 #[xmtp_common::test(unwrap_try = true)]
 #[cfg_attr(target_arch = "wasm32", ignore)]
@@ -920,14 +936,7 @@ async fn failing_sync_message_stays_pending() {
     client
         .sync_preferences(vec![PreferenceUpdate::Consent(record.clone())])
         .await?;
-    // A missing own update fails the own-state read like an unreachable verifier.
-    let hide = |from: &str, to: &str| {
-        let sql =
-            format!("UPDATE identity_updates SET inbox_id = '{to}' WHERE inbox_id = '{from}'");
-        db.raw_query(|conn| diesel::sql_query(sql).execute(conn))
-    };
-    let hidden = format!("{}-hidden", alix.inbox_id());
-    hide(alix.inbox_id(), &hidden)?;
+    let restore = hide_own_identity_updates(alix.context.db(), alix.inbox_id())?;
     client
         .process_sync_group_messages(&client.metrics, db.unprocessed_sync_group_messages()?)
         .await?;
@@ -936,7 +945,7 @@ async fn failing_sync_message_stays_pending() {
         db.get_consent_record(record.entity.clone(), record.entity_type)?
             .is_none()
     );
-    hide(&hidden, alix.inbox_id())?;
+    restore()?;
     db.raw_query(|conn| {
         diesel::sql_query(
             "CREATE TRIGGER fail_sync_consent BEFORE INSERT ON consent_records \

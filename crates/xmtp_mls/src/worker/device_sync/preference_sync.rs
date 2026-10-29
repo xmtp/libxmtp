@@ -26,7 +26,7 @@ where
     pub(crate) async fn sync_preferences(
         &self,
         updates: Vec<PreferenceUpdate>,
-    ) -> Result<Vec<PreferenceUpdate>, ClientError> {
+    ) -> Result<Vec<PreferenceUpdate>, DeviceSyncError> {
         self.send_device_sync_message(ContentProto::PreferenceUpdates(PreferenceUpdates {
             updates: updates.clone().into_iter().map(From::from).collect(),
         }))
@@ -47,7 +47,7 @@ where
     }
 
     // implements: SYNC-015
-    pub(crate) async fn cycle_hmac(&self) -> Result<(), ClientError> {
+    pub(crate) async fn cycle_hmac(&self) -> Result<(), DeviceSyncError> {
         tracing::info!("Sending new HMAC key to sync group.");
 
         self.sync_preferences(vec![PreferenceUpdate::Hmac {

@@ -217,6 +217,10 @@ pub enum DeviceSyncError {
     /// Required field not present. Retryable.
     #[error("Missing Field: {0:?} {1}")]
     MissingField(MissingField, String),
+    // The own identity state could not be read; a sync publish waits for it.
+    #[error("own identity state unavailable: {0}")]
+    #[error_code(inherit)]
+    OwnStateUnavailable(ClientError),
 }
 
 #[derive(Debug)]
@@ -315,7 +319,7 @@ where
     async fn send_device_sync_message(
         &self,
         content: ContentProto,
-    ) -> Result<Vec<u8>, ClientError> {
+    ) -> Result<Vec<u8>, DeviceSyncError> {
         // Encode first: the content can hold an HMAC root key, and only the
         // encoding wipes it, so every later return drops wiped bytes.
         let content_bytes = sync_message_bytes(content);
@@ -355,11 +359,17 @@ where
 
     /// Whether a leaf other than this installation's names an installation
     /// that the newest own association state held locally does not associate.
-    async fn has_revoked_leaf(&self, group: &MlsGroup<Context>) -> Result<bool, ClientError> {
-        let own = IdentityUpdates::new(&self.context)
+    async fn has_revoked_leaf(&self, group: &MlsGroup<Context>) -> Result<bool, DeviceSyncError> {
+        // implements: SYNC-024. An unreadable own state, such as a smart-wallet
+        // signature that needs the verifier, means not yet (as the receive path does).
+        let own = match IdentityUpdates::new(&self.context)
             .get_association_state(&self.db(), self.inbox_id(), None)
-            .await?
-            .installation_ids();
+            .await
+        {
+            Ok(state) => state.installation_ids(),
+            Err(e) if e.db_needs_connection() => return Err(e.into()),
+            Err(e) => return Err(DeviceSyncError::OwnStateUnavailable(e)),
+        };
         let me = self.installation_id();
         Ok(group.with_group_snapshot(|mls_group| {
             Ok(mls_group.members().any(|member| {
