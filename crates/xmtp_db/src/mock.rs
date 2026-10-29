@@ -625,6 +625,8 @@ mock! {
             id: i32,
         ) -> Result<Vec<crate::key_package_history::StoredKeyPackageHistoryEntry>, StorageError>;
 
+        fn settle_key_packages(&self, served_hash_ref: Vec<u8>, served: Cursor) -> Result<(), StorageError>;
+
         fn get_expired_key_packages(
             &self,
         ) -> Result<Vec<crate::key_package_history::StoredKeyPackageHistoryEntry>, StorageError>;

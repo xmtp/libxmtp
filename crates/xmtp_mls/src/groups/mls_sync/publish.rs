@@ -29,7 +29,7 @@ fn backend_status(error: &xmtp_api::ApiError) -> Option<tonic::Code> {
 
 /// Only `INVALID_ARGUMENT` proves that an atomic publish stored nothing.
 /// Every other failure, including `OUT_OF_RANGE`, can follow a commit.
-fn definite_refusal(error: &xmtp_api::ApiError) -> bool {
+pub(crate) fn definite_refusal(error: &xmtp_api::ApiError) -> bool {
     backend_status(error) == Some(tonic::Code::InvalidArgument)
 }
 

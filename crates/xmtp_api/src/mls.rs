@@ -156,6 +156,25 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
         }
         Ok(found)
     }
+    /// The newest package on the key package topic of `id`, with its sequence id.
+    // implements: JOIN-074
+    #[xmtp_common::rpc_span]
+    pub async fn newest_key_package(
+        &self,
+        id: &InstallationId,
+    ) -> Result<Option<(wire::KeyPackage, Cursor)>> {
+        let newest = self.newest(vec![Topic::new_key_package(id)], true).await?;
+        let Some(result) = newest.into_iter().next() else {
+            return Ok(None);
+        };
+        let cursor = result.meta.as_ref().and_then(|meta| meta.cursor.as_ref());
+        let cursor = Cursor(cursor.map_or(0, |cursor| cursor.sequence_id));
+        let package = decode_key_package(wire::ServerEnvelope {
+            meta: result.meta,
+            envelope: result.envelope,
+        })?;
+        Ok(Some((package, cursor)))
+    }
     #[xmtp_common::rpc_span]
     pub async fn send_welcome_messages(
         &self,

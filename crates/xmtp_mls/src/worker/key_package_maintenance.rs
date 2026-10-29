@@ -149,6 +149,27 @@ fn delete_key_package_material(
     Ok(())
 }
 
+/// Delete a refused key package's material and history in one transaction.
+// implements: JOIN-020
+pub(crate) fn discard_key_package(
+    mls_storage: &impl XmtpMlsStorageProvider,
+    history_id: i32,
+) -> Result<(), IdentityError> {
+    state_write(mls_storage, |tx| {
+        let storage = tx.storage();
+        let history = storage
+            .db()
+            .find_key_package_history_entries_before_id(i32::MAX)?;
+        for kp in history.iter().filter(|kp| kp.id == history_id) {
+            let pq_pub_key = kp.post_quantum_public_key.as_deref();
+            delete_key_package_material(&storage, &kp.key_package_hash_ref, pq_pub_key)?;
+            storage.db().delete_key_package_entry_with_id(kp.id)?;
+        }
+        Ok::<_, IdentityError>(Continue(()))
+    })?;
+    Ok(())
+}
+
 /// Keep expired keys while any durable Welcome remains pending.
 /// Otherwise, delete each expired key's material and history in one transaction.
 pub(crate) fn sweep_expired<Context: XmtpSharedContext>(
