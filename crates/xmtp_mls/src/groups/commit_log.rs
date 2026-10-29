@@ -28,6 +28,7 @@ use xmtp_mls_common::app_data::group_root::group_keys_from_extensions;
 use xmtp_mls_common::commit_log::{open_entry, seal_entry, sign_entry_author};
 use xmtp_mls_common::group_keys::{GroupKeys, SealError};
 use xmtp_mls_validation::ForkActors;
+use xmtp_proto::ShortHex;
 use xmtp_proto::backend_v1::SealedCommitLogEntry;
 use xmtp_proto::types::Cursor;
 use xmtp_proto::types::{CommitLogEntry as DecodedCommitLogEntry, Topic, TopicCursor};
@@ -142,6 +143,7 @@ impl NeedsDbReconnect for CommitLogError {
             // A readd send failure wraps an inner CommitLogError; forward.
             Self::FailedToSendReadd { source, .. } => source.needs_db_reconnect(),
             Self::FailedReadds { errors } => errors.iter().any(|e| e.needs_db_reconnect()),
+            Self::SyncError(summary) => summary.needs_db_reconnect(),
             // Remaining variants can't carry a dropped-pool signal.
             Self::Diesel(_)
             | Self::Api(_)
@@ -151,7 +153,6 @@ impl NeedsDbReconnect for CommitLogError {
             | Self::TryFromSliceError(_)
             | Self::Conversion(_)
             | Self::GroupReaddValidationError(_)
-            | Self::SyncError(_)
             | Self::MissingLatestCommitSequenceId { .. } => false,
         }
     }
@@ -785,37 +786,47 @@ where
             self.context.db().get_conversation_ids_for_fork_check()?;
 
         for conversation_id in conversation_ids_for_forked_state_check {
-            let conversation_id = GroupId::try_from(conversation_id)?;
-            crate::state_tx::state_write_with_events(
-                self.context.mls_storage(),
-                self.context.events(),
-                |tx, events| {
-                    let storage = tx.storage();
-                    let db = storage.db();
-                    let was_forked = db.get_group_commit_log_forked_status(&conversation_id)?;
-                    let is_forked = self.check_conversation_fork_state(&db, &conversation_id)?;
-                    // Persist the fork status to the database
-                    db.set_group_commit_log_forked_status(&conversation_id, is_forked)?;
-                    if was_forked != Some(true) && is_forked == Some(true) {
-                        let dm_id = db
-                            .find_group(&conversation_id)?
-                            .and_then(|group| group.dm_id);
-                        events.emit_with_context(
-                            Some(ClientEvent::ConversationForkDetected(GroupRef {
-                                group_id: conversation_id.to_vec(),
-                            })),
-                            None,
-                            dm_event_context(dm_id.as_deref()),
-                        );
-                    }
-                    Ok::<_, CommitLogError>(Continue(()))
-                },
-            )
-            .map(TransactionOutcome::into_continued)?;
+            self.refresh_fork_state(&GroupId::try_from(conversation_id)?)?;
             tokio::task::yield_now().await;
         }
 
         Ok(())
+    }
+
+    /// Recompute and persist a conversation's fork status. A stored `forked`
+    /// is sticky and returned without recomputing.
+    // implements: FORK-041, FORK-082
+    fn refresh_fork_state(
+        &self,
+        conversation_id: &GroupId,
+    ) -> Result<Option<bool>, CommitLogError> {
+        crate::state_tx::state_write_with_events(
+            self.context.mls_storage(),
+            self.context.events(),
+            |tx, events| {
+                let storage = tx.storage();
+                let db = storage.db();
+                if db.get_group_commit_log_forked_status(conversation_id)? == Some(true) {
+                    return Ok::<_, CommitLogError>(Continue(Some(true)));
+                }
+                let is_forked = self.check_conversation_fork_state(&db, conversation_id)?;
+                db.set_group_commit_log_forked_status(conversation_id, is_forked)?;
+                if is_forked == Some(true) {
+                    let dm_id = db
+                        .find_group(conversation_id)?
+                        .and_then(|group| group.dm_id);
+                    events.emit_with_context(
+                        Some(ClientEvent::ConversationForkDetected(GroupRef {
+                            group_id: conversation_id.to_vec(),
+                        })),
+                        None,
+                        dm_event_context(dm_id.as_deref()),
+                    );
+                }
+                Ok(Continue(is_forked))
+            },
+        )
+        .map(TransactionOutcome::into_continued)
     }
 
     /// Explicit request recipients; the one-shot sender also includes its own inbox.
@@ -966,18 +977,27 @@ where
                         group.conversation_type,
                         group.created_at_ns,
                     );
-                    mls_group
+                    if let Err(e) = mls_group
                         .readd_installations(
                             validated_installations.into_iter().collect::<Vec<_>>(),
                         )
-                        .await?;
-                }
-                Err(e) => {
-                    // Permanently-bad group: drop its readd statuses and move on.
-                    // Retryable failures (incl. a dropped pool) propagate instead.
-                    if e.is_retryable() {
-                        return Err(e);
+                        .await
+                    {
+                        let e = CommitLogError::from(e);
+                        if e.needs_db_reconnect() {
+                            return Err(e);
+                        }
+                        tracing::warn!(
+                            group_id = group.group_id.short_hex(),
+                            "Keeping readd requests for group after a failed readd: {}",
+                            e
+                        );
                     }
+                }
+                Err(e) if e.needs_db_reconnect() => return Err(e),
+                // The responder no longer consents to, is active in, or may
+                // readd in the group: the requests are moot.
+                Err(e @ CommitLogError::GroupReaddValidationError(_)) => {
                     tracing::warn!(
                         group_id = %group.group_id,
                         "Deleting readd statuses for group because it failed validation: {}",
@@ -987,7 +1007,14 @@ where
                         &group.group_id,
                         self.context.installation_id().as_slice(),
                     )?;
-                    continue;
+                }
+                // Reversible (e.g. a version pause): keep and retry next tick.
+                Err(e) => {
+                    tracing::warn!(
+                        group_id = group.group_id.short_hex(),
+                        "Keeping readd requests for group after a failed validation: {}",
+                        e
+                    );
                 }
             }
         }
@@ -1007,8 +1034,9 @@ where
             "Processing readd requests for group"
         );
 
-        mls_group.sync_with_conn().await?;
-
+        let synced = mls_group.sync_with_conn().await;
+        // A sync never changes consent or activity, so these drop moot
+        // requests even when it fails (e.g. a paused group).
         if mls_group.consent_state()? != ConsentState::Allowed {
             return Err(CommitLogError::GroupReaddValidationError(
                 "Group is not consented".to_string(),
@@ -1019,6 +1047,8 @@ where
                 "Group is not active".to_string(),
             ));
         }
+        // An unsynced commit may have made this member a readder.
+        synced?;
         let actors =
             mls_group.with_group_snapshot(|g| Ok::<_, GroupError>(ForkActors::from_group(g)?))?;
         if !actors.permits(self.context.inbox_id()) {
@@ -1027,11 +1057,14 @@ where
             ));
         }
 
-        let fork_state = self.check_conversation_fork_state(conn, &mls_group.group_id)?;
-        if let Some(true) = fork_state {
-            return Err(CommitLogError::GroupReaddValidationError(
-                "Group is forked".to_string(),
-            ));
+        // A forked responder keeps the requests; a Welcome clears the fork.
+        let fork_state = self.refresh_fork_state(&mls_group.group_id)?;
+        if fork_state == Some(true) {
+            tracing::info!(
+                group_id = mls_group.group_id.short_hex(),
+                "Responder is forked, keeping readd requests"
+            );
+            return Ok(HashSet::new());
         } else if fork_state.is_none() {
             tracing::info!(
                 group_id = %mls_group.group_id,

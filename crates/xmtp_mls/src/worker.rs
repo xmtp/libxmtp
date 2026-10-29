@@ -696,6 +696,12 @@ mod disconnect_propagation_tests {
             CommitLogError::GroupError(GroupError::Storage(disconnect_storage()))
                 .needs_db_reconnect()
         );
+        assert!(
+            CommitLogError::SyncError(crate::groups::summary::SyncSummary::other(
+                GroupError::Storage(disconnect_storage()),
+            ))
+            .needs_db_reconnect()
+        );
         // A transient (non-disconnect) connection error must not stop the worker.
         assert!(
             !CommitLogError::Connection(ConnectionError::DisconnectInTransaction)
