@@ -443,7 +443,11 @@ macro_rules! retry_async {
                         };
                         if let Some(d) = wait {
                             attempts += 1;
-                            $crate::time::sleep(d).await;
+                            // A delay too large for the clock saturates
+                            // instead of overflowing the timer's deadline.
+                            let now = $crate::time::Instant::now();
+                            let until = $crate::time::saturating_after(now, d);
+                            $crate::time::sleep(until.saturating_duration_since(now)).await;
                         } else {
                             tracing::warn!(
                                 attempts,
@@ -649,6 +653,32 @@ pub(crate) mod tests {
         assert!(result.is_ok());
         assert_eq!(starts.len(), 2);
         assert!(starts[1] - starts[0] >= delay);
+    }
+
+    /// A strategy with no budget takes any rate-limit delay; one too large
+    /// for the clock waits without a panic, which a release build would turn
+    /// into an abort.
+    // verifies: RATE-041
+    #[cfg(not(target_arch = "wasm32"))]
+    #[xmtp_macro::test]
+    async fn an_out_of_range_delay_waits_without_panicking() {
+        tokio::time::pause();
+        let attempts = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counted = attempts.clone();
+        let retry = tokio::spawn(async move {
+            retry_async!(
+                Retry::builder().with_strategy(()).retries(1).build(),
+                (async {
+                    counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    Err::<(), _>(RateLimited(Duration::from_secs(u64::MAX)))
+                })
+            )
+        });
+        tokio::time::sleep(Duration::from_secs(365 * 24 * 60 * 60)).await;
+        assert_eq!(attempts.load(std::sync::atomic::Ordering::SeqCst), 1);
+        assert!(!retry.is_finished(), "the retry waits out the delay");
+        retry.abort();
+        assert!(retry.await.unwrap_err().is_cancelled(), "it did not panic");
     }
 
     #[cfg(not(target_arch = "wasm32"))]
