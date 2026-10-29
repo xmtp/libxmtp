@@ -42,6 +42,9 @@ pub mod stream_messages;
 // `bidi_tests` above).
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod delivery_integration_tests;
+// A message stream against a backend that charges stream rent.
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod rate_limit_tests;
 // Native callback adapters over the shared backend transport.
 #[cfg(not(target_arch = "wasm32"))]
 pub mod router_callbacks;
