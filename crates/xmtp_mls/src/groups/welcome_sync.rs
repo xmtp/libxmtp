@@ -514,11 +514,8 @@ where
         blocked: bool,
         deadline: Option<i64>,
     ) -> Result<(), GroupError> {
-        let delay = self
-            .context
-            .incoming_runtime()
-            .policy()
-            .active_database_poll_interval;
+        let policy = self.context.incoming_runtime().policy();
+        let delay = policy.active_database_poll_interval;
         self.context.db().set_incoming_retry(
             &self.topic(),
             Cursor(pending.sequence_id as u64),
@@ -529,6 +526,18 @@ where
                 retry_expires_at_ns: deadline,
             },
         )?;
+        if blocked || deadline.is_some() || pending.unreadable_expires_at_ns.is_some() {
+            // implements: PROC-020
+            // A full held allowance gives up the oldest held Welcome.
+            let allowance = policy.incoming_limits(NetworkEntityKind::Welcome).kind;
+            while let Some(oldest) = self
+                .context
+                .db()
+                .oldest_held_welcome_over(&self.topic(), allowance)?
+            {
+                self.complete_rejected_pending(&oldest, "held_capacity")?;
+            }
+        }
         #[cfg(any(test, feature = "test-utils"))]
         crate::diagnostics::record_welcome_retry(code);
         Ok(())
@@ -1199,7 +1208,8 @@ mod tests {
     }
 
     /// Unreadable input must expire without extending its deadline, including
-    /// legacy blocked rows. Expiry releases admission and key retirement.
+    /// legacy blocked rows. A held Welcome does not stop admission of the next
+    /// one; expiry releases the Welcome barrier and key retirement.
     // verifies: JOIN-087, JOIN-084, JOIN-063
     #[rstest]
     #[case::wrapper(UnreadableWelcome::Wrapper)]
@@ -1274,10 +1284,12 @@ mod tests {
                 cursor.0 as i64,
             ))
         };
+        let envelope = wire.encode_to_vec();
         db.raw_query(|conn| {
             diesel::update(row())
                 .set((
-                    incoming_envelopes::envelope.eq(wire.encode_to_vec()),
+                    incoming_envelopes::envelope_bytes.eq(envelope.len() as i64),
+                    incoming_envelopes::envelope.eq(&envelope),
                     incoming_envelopes::blocked.eq(previously_blocked),
                     incoming_envelopes::error_code
                         .eq(previously_blocked.then_some("welcome_blocked")),
@@ -1319,26 +1331,6 @@ mod tests {
             "a retry must not extend the first deadline"
         );
 
-        // One row is enough to exercise both admission budgets deterministically.
-        let next_group = alix.create_group(None, None).unwrap();
-        next_group.invite(&bo).await.unwrap();
-        let budget = PendingBudget {
-            rows: 1,
-            bytes: u64::MAX,
-        };
-        let limits = IncomingLimits {
-            batch: budget,
-            topic: budget,
-            kind: budget,
-        };
-        let store = MlsStore::new(bo.context.clone());
-        let topics = [Topic::new_welcome_message(bo.context.installation_id())];
-        assert!(store.receive_topics_once(&topics, limits).await.is_err());
-        assert_eq!(
-            db.topic_progress(&service.topic()).unwrap().received,
-            cursor
-        );
-
         let history = db
             .find_key_package_history_entries_before_id(i32::MAX)
             .unwrap()
@@ -1357,8 +1349,26 @@ mod tests {
             bo.context.mls_storage().key_package(&hash).unwrap();
         assert!(retained.is_some());
 
+        // A held Welcome uses the held allowance, so one row of ready
+        // capacity still admits the next Welcome.
+        let next_group = alix.create_group(None, None).unwrap();
+        next_group.invite(&bo).await.unwrap();
+        let budget = PendingBudget {
+            rows: 1,
+            bytes: u64::MAX,
+        };
+        let limits = IncomingLimits {
+            batch: budget,
+            topic: budget,
+            kind: budget,
+        };
+        let store = MlsStore::new(bo.context.clone());
+        let topics = [Topic::new_welcome_message(bo.context.installation_id())];
+        store.receive_topics_once(&topics, limits).await.unwrap();
+        assert!(db.topic_progress(&service.topic()).unwrap().received > cursor);
+
         // At the deadline the final attempt runs and the row is removed, so the
-        // Welcome barrier, the Welcome budget, and key retirement are released.
+        // Welcome barrier and key retirement are released.
         db.raw_query(|conn| {
             diesel::update(row())
                 .set(incoming_envelopes::unreadable_expires_at_ns.eq(Some(1i64)))
@@ -1397,13 +1407,12 @@ mod tests {
                 .unwrap()
                 .is_none()
         );
-        assert_eq!(
-            db.topic_progress(&service.topic()).unwrap().processed,
-            cursor
+        assert!(db.topic_progress(&service.topic()).unwrap().processed >= cursor);
+        assert!(
+            db.welcome_barrier_complete(&service.topic(), cursor)
+                .unwrap()
         );
-        assert!(!db.has_pending_welcomes().unwrap());
 
-        store.receive_topics_once(&topics, limits).await.unwrap();
         let next = db
             .first_pending_envelope(&service.topic())
             .unwrap()
@@ -1687,6 +1696,57 @@ mod tests {
                 WelcomeHeadOutcome::Progress { result: Err(_), .. }
             ));
             assert!(!db.has_pending_welcomes().unwrap());
+        }
+    }
+
+    /// A full held allowance gives up the oldest held Welcome, so new holds
+    /// cannot grow held storage without bound.
+    // verifies: PROC-020, JOIN-057
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn a_full_held_allowance_rejects_the_oldest_held_welcome() {
+        use xmtp_db::incoming_envelope::NewIncomingEnvelope;
+
+        tester!(bo, disable_workers);
+        let mut settings = bo.context.incoming_runtime().policy().clone();
+        settings.welcome_pending.rows = 2;
+        let client = crate::builder::ClientBuilder::from_client(bo.client.clone())
+            .stream_policy(settings)
+            .with_disable_workers(true)
+            .with_allow_offline(Some(true))
+            .build()
+            .await?;
+        let service = WelcomeService::new(client.context.clone());
+        let db = client.context.db();
+        let limits = client
+            .context
+            .incoming_runtime()
+            .policy()
+            .incoming_limits(NetworkEntityKind::Welcome);
+        // Three Welcomes for groups that require a later client version.
+        for sequence in 1..=3 {
+            let envelope = NewIncomingEnvelope {
+                sequence_id: Cursor(sequence),
+                envelope: vec![1],
+            };
+            db.admit_ordered_batch(&service.topic(), Cursor(sequence - 1), &[envelope], limits)?;
+            let pending = db
+                .pending_envelope(&service.topic(), Cursor(sequence))?
+                .unwrap();
+            let floor = GroupError::UnsupportedWelcomeVersion("999.0.0".into());
+            service.classify_pending_result(&pending, Err(floor))?;
+        }
+        assert!(db.pending_envelope(&service.topic(), Cursor(1))?.is_none());
+        let rejection = db.read_last_rejection(&service.topic())?.unwrap();
+        assert_eq!(
+            (rejection.sequence_id, rejection.code.as_str()),
+            (Cursor(1), "held_capacity")
+        );
+        for kept in [2, 3] {
+            assert!(
+                db.pending_envelope(&service.topic(), Cursor(kept))?
+                    .unwrap()
+                    .blocked
+            );
         }
     }
 
@@ -2199,13 +2259,17 @@ mod tests {
             Version::V1(message) => message.wrapper_algorithm = i32::MAX,
             Version::WelcomePointer(message) => message.wrapper_algorithm = i32::MAX,
         }
+        let envelope = wire.encode_to_vec();
         db.raw_query(|conn| {
             diesel::update(incoming_envelopes::table.find((
                 bo.context.installation_id().to_vec(),
                 EntityKind::Welcome,
                 first.0 as i64,
             )))
-            .set(incoming_envelopes::envelope.eq(wire.encode_to_vec()))
+            .set((
+                incoming_envelopes::envelope_bytes.eq(envelope.len() as i64),
+                incoming_envelopes::envelope.eq(&envelope),
+            ))
             .execute(conn)
         })?;
 

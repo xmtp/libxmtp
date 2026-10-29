@@ -14,7 +14,7 @@ use std::{
 use xmtp_common::{RetryableError, time::Instant};
 use xmtp_db::{
     group::{GroupMembershipState, GroupScope},
-    incoming_envelope::{NetworkEntityKind, StreamTopic},
+    incoming_envelope::{NetworkEntityKind, StreamTopic, kind_pool_usage},
     prelude::*,
 };
 use xmtp_proto::types::{Cursor, IncomingEvent, OrderedEnvelopeBatch, TopicKind};
@@ -607,8 +607,8 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                 .incoming_runtime()
                 .policy()
                 .incoming_limits(kind);
-            let kind_rows: u64 = usage.iter().map(|usage| usage.rows.max(0) as u64).sum();
-            let kind_bytes: u64 = usage.iter().map(|usage| usage.bytes.max(0) as u64).sum();
+            let ready_pool = kind_pool_usage(&usage, false);
+            let held_pool = kind_pool_usage(&usage, true);
             for (topic, state) in &mut self.topics {
                 if !state.receipt.paused {
                     continue;
@@ -622,12 +622,15 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                 let own = usage
                     .iter()
                     .find(|usage| usage.entity_id == stream_topic.entity_id);
+                // A topic waits on the pool its admission is charged to.
+                let held = own.is_some_and(|usage| usage.charges_held(kind));
+                let (kind_rows, kind_bytes) = if held { held_pool } else { ready_pool };
                 // Leave room for the next bounded batch before reception resumes.
                 state.receipt.paused = kind_rows > limits.kind.rows / 2
                     || kind_bytes > limits.kind.bytes / 2
                     || own.is_some_and(|usage| {
-                        usage.rows.max(0) as u64 > limits.topic.rows / 2
-                            || usage.bytes.max(0) as u64 > limits.topic.bytes / 2
+                        let (rows, bytes) = usage.pool(held);
+                        rows > limits.topic.rows / 2 || bytes > limits.topic.bytes / 2
                     });
             }
         }

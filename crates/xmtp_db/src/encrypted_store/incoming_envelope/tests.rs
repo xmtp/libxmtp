@@ -21,6 +21,24 @@ fn batch(ids: &[u64]) -> Vec<NewIncomingEnvelope> {
         .collect()
 }
 
+/// Block a pending row so only a new coordinator generation rechecks it.
+fn hold(
+    db: &impl QueryIncomingEnvelope,
+    topic: &StreamTopic,
+    sequence: u64,
+) -> Result<bool, StorageError> {
+    db.set_incoming_retry(
+        topic,
+        Cursor(sequence),
+        &IncomingRetry {
+            retry_at_ns: 200,
+            blocked: true,
+            error_code: Some("TEST_BLOCKED".into()),
+            retry_expires_at_ns: None,
+        },
+    )
+}
+
 fn limits() -> IncomingLimits {
     IncomingLimits {
         batch: PendingBudget { rows: 8, bytes: 32 },
@@ -141,16 +159,7 @@ async fn overlaps_and_sparse_ids_preserve_the_pending_head() {
             StreamStorageError::MissingPrefix { .. }
         ))
     ));
-    db.set_incoming_retry(
-        &group,
-        Cursor(10),
-        &IncomingRetry {
-            retry_at_ns: 500,
-            blocked: true,
-            error_code: Some("unsupported".into()),
-            retry_expires_at_ns: None,
-        },
-    )?;
+    hold(&db, &group, 10)?;
     assert!(matches!(
         db.complete_pending_envelope(&group, Cursor(30)),
         Err(StorageError::Stream(StreamStorageError::HeadChanged))
@@ -218,6 +227,101 @@ async fn bounds_leave_progress_unchanged_and_reserve_dependency_capacity() {
             scope: BudgetScope::Batch
         }))
     ));
+}
+
+/// Held work never drains, so it is charged to its own allowance and cannot
+/// stop admission of ready work.
+// verifies: PROC-020
+#[xmtp_common::test(unwrap_try = true)]
+async fn held_work_uses_a_separate_allowance() {
+    enum Hold {
+        Blocked,
+        Pointer,
+        Unreadable,
+    }
+    let deadline = xmtp_common::time::now_ns().saturating_add(xmtp_common::NS_IN_DAY);
+    // One Welcome topic per installation: its topic budget equals the kind budget.
+    let mut limits = limits();
+    limits.topic = limits.kind;
+    let ids = |round: u64| (1..=8).map(|i| round * 80 + i * 10).collect::<Vec<_>>();
+    for (kind, shape) in [
+        (NetworkEntityKind::Group, Hold::Blocked),
+        (NetworkEntityKind::Welcome, Hold::Blocked),
+        (NetworkEntityKind::Welcome, Hold::Pointer),
+        (NetworkEntityKind::Welcome, Hold::Unreadable),
+    ] {
+        let store = TestDb::create_persistent_store(None).await;
+        let db = store.db();
+        let group = kind == NetworkEntityKind::Group;
+        let apply = |held: &StreamTopic, id: u64| match shape {
+            Hold::Blocked => hold(&db, held, id),
+            Hold::Pointer => db.set_incoming_retry(
+                held,
+                Cursor(id),
+                &IncomingRetry {
+                    retry_at_ns: 0,
+                    blocked: false,
+                    error_code: Some("welcome_pointee".into()),
+                    retry_expires_at_ns: Some(deadline),
+                },
+            ),
+            Hold::Unreadable => db
+                .set_unreadable_welcome_deadline(&held.entity_id, Cursor(id), deadline)
+                .map(|deadline| deadline.is_some()),
+        };
+        // Fill the kind budget with held rows: two blocked group heads with 7
+        // tails each, or 16 held Welcomes on one topic.
+        for round in 0..2 {
+            let held = topic(if group { round as u8 + 1 } else { 1 }, kind);
+            let after = db.topic_progress(&held)?.received;
+            db.admit_ordered_batch(&held, after, &batch(&ids(round)), limits)?;
+            for id in &ids(round)[..if group { 1 } else { 8 }] {
+                assert!(apply(&held, *id)?);
+            }
+        }
+        let ready = topic(if group { 3 } else { 1 }, kind);
+        let after = db.topic_progress(&ready)?.received;
+        db.admit_ordered_batch(&ready, after, &batch(&ids(2)), limits)?;
+        if group {
+            let first = topic(1, kind);
+            assert!(matches!(
+                db.admit_ordered_batch(&first, Cursor(80), &batch(&[90]), limits),
+                Err(StorageError::Stream(StreamStorageError::Capacity {
+                    scope: BudgetScope::Kind
+                }))
+            ));
+            db.admit_ordered_batch(&topic(4, kind), Cursor(0), &batch(&[10]), limits)?;
+            // A released head moves its rows to the ready pool.
+            assert!(db.set_incoming_retry(
+                &first,
+                Cursor(10),
+                &IncomingRetry {
+                    retry_at_ns: 0,
+                    blocked: false,
+                    error_code: None,
+                    retry_expires_at_ns: None,
+                },
+            )?);
+            assert!(matches!(
+                db.admit_ordered_batch(&topic(5, kind), Cursor(0), &batch(&[10]), limits),
+                Err(StorageError::Stream(StreamStorageError::Capacity {
+                    scope: BudgetScope::Kind
+                }))
+            ));
+        } else {
+            assert!(db.oldest_held_welcome_over(&ready, limits.kind)?.is_none());
+            // A held Welcome on another topic fills the kind's held bytes.
+            let other = topic(2, kind);
+            db.admit_ordered_batch(&other, Cursor(0), &batch(&[10]), limits)?;
+            assert!(apply(&other, 10)?);
+            let bytes_only = PendingBudget {
+                rows: u64::MAX,
+                ..limits.kind
+            };
+            let oldest = db.oldest_held_welcome_over(&ready, bytes_only)?;
+            assert_eq!(oldest.map(|row| row.sequence_id), Some(10));
+        }
+    }
 }
 
 #[xmtp_common::test(unwrap_try = true)]
@@ -379,16 +483,7 @@ async fn pending_states_include_only_actual_topic_ids_through_the_target() {
         &batch(&[30]),
         limits(),
     )?;
-    db.set_incoming_retry(
-        &welcome,
-        Cursor(40),
-        &IncomingRetry {
-            retry_at_ns: 200,
-            blocked: true,
-            error_code: Some("TEST_BLOCKED".into()),
-            retry_expires_at_ns: None,
-        },
-    )?;
+    hold(&db, &welcome, 40)?;
     assert_eq!(
         db.pending_states_through(&welcome, Cursor(40))?,
         vec![

@@ -888,6 +888,7 @@ mod tests {
         assert_eq!(has_index("group_messages_sent_at_sort")?, 1);
         assert_eq!(has_index("group_messages_sent_at_id_sort")?, 0);
         assert_eq!(has_index("group_messages_group_reference")?, 0);
+        assert_eq!(has_index("incoming_held_envelopes")?, 0);
 
         EncryptedMessageStore::new(database)?;
         connection.raw_query(|conn| {
@@ -897,6 +898,7 @@ mod tests {
         assert_eq!(has_index("group_messages_sent_at_id_sort")?, 1);
         assert_eq!(has_index("group_messages_pending_history_position")?, 1);
         assert_eq!(has_index("group_messages_group_reference")?, 1);
+        assert_eq!(has_index("incoming_held_envelopes")?, 1);
         #[derive(diesel::QueryableByName)]
         struct Deadline {
             #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::BigInt>)]
@@ -918,6 +920,11 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![(None, Some(100)), (Some(200), None), (None, None)]
         );
+        let envelope_bytes = connection.raw_query(|conn| {
+            diesel::sql_query("SELECT SUM(envelope_bytes) AS count FROM incoming_envelopes")
+                .get_result::<Count>(conn)
+        })?;
+        assert_eq!(envelope_bytes.count, 3);
         let generation = connection.raw_query(|conn| {
             diesel::sql_query("SELECT generation AS count FROM group_set_generation WHERE id = 1")
                 .get_result::<Count>(conn)
