@@ -273,6 +273,7 @@ impl RetryableError for DeviceSyncError {
             Self::Subscribe(e) => e.rate_limit_delay(),
             Self::Sync(e) => e.rate_limit_delay(),
             Self::MlsStore(e) => e.rate_limit_delay(),
+            Self::OwnStateUnavailable(e) => e.rate_limit_delay(),
             _ => None,
         }
     }

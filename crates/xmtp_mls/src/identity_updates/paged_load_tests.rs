@@ -624,7 +624,7 @@ fn scw_inbox(sequence_id: u64) -> (String, wire::ServerEnvelope) {
 }
 
 /// A verification refused with a rate limit while the batched fetch verifies
-/// its proofs is returned, not verified again by the single-proof path.
+/// its proofs is returned at once, not verified again in a later round.
 // verifies: RATE-041
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_rate_limited_prefetched_verification_is_not_sent_again() {

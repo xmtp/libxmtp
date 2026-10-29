@@ -59,6 +59,16 @@ fn backoff(n: u32) -> Duration {
     RETRY_FIRST.saturating_mul(1 << n.min(10)).min(RETRY_MAX)
 }
 
+/// Set when a failed or waiting event runs again: after its backoff, and never
+/// before the delay of a rate limit that refused it, because the retry resends
+/// the refused request.
+// implements: RATE-041
+fn schedule_retry(owed: &mut Owed, error: &DeviceSyncError) {
+    let delay = xmtp_common::RetryableError::rate_limit_delay(error).unwrap_or_default();
+    let wait = backoff(owed.failures + owed.waits).max(delay);
+    owed.retry_at = xmtp_common::time::saturating_after(Instant::now(), wait);
+}
+
 /// Events not yet handled. Shared by the factory so a DB reconnect keeps them.
 type PendingEvent = Arc<Mutex<Vec<Owed>>>;
 
@@ -465,7 +475,7 @@ where
                 // implements: SYNC-024. Waiting for the own state is not a failure.
                 Err(e @ DeviceSyncError::OwnStateUnavailable(_)) => {
                     owed.waits += 1;
-                    owed.retry_at = Instant::now() + backoff(owed.failures + owed.waits);
+                    schedule_retry(&mut owed, &e);
                     tracing::info!(error = %e, "device sync event waits for the own identity state");
                     pending.push(owed);
                 }
@@ -476,7 +486,7 @@ where
                         self.metrics.increment_metric(SyncMetric::EventDropped);
                         continue;
                     }
-                    owed.retry_at = Instant::now() + backoff(owed.failures + owed.waits);
+                    schedule_retry(&mut owed, &e);
                     tracing::warn!(error = %e, failures = owed.failures, "device sync event failed");
                     pending.push(owed);
                 }
@@ -1160,6 +1170,45 @@ mod startup_tests {
             }
         }
         alix.close().await?;
+    }
+
+    /// A sync event refused by a rate limit runs again only after the delay,
+    /// even while its backoff is shorter, whether it failed or waits for the
+    /// own identity state. A delay too large for the clock does not panic.
+    // verifies: RATE-041
+    #[xmtp_common::test(unwrap_try = true)]
+    fn a_rate_limited_event_retries_after_the_delay() {
+        let refused = |status| {
+            xmtp_api::ApiError::Api(xmtp_proto::api::NetworkError::new(
+                xmtp_api_grpc::error::GrpcError::Status(status),
+            ))
+        };
+        let limited = |delay| xmtp_api_grpc::error::rate_limited_status("request", delay);
+        let failed =
+            |status| DeviceSyncError::Group(crate::groups::GroupError::WrappedApi(refused(status)));
+        let waiting = |status| {
+            DeviceSyncError::OwnStateUnavailable(crate::client::ClientError::Api(refused(status)))
+        };
+        let owed = || {
+            let event = xmtp_events::EventEnvelope::new(None, None, Default::default());
+            Owed {
+                failures: 1,
+                waits: 1,
+                ..Owed::new(0, event)
+            }
+        };
+        let delay = Duration::from_secs(300);
+        assert!(backoff(2) < delay);
+        for error in [failed(limited(delay)), waiting(limited(delay))] {
+            let mut owed = owed();
+            let before = Instant::now();
+            schedule_retry(&mut owed, &error);
+            assert!(owed.retry_at >= before + delay, "{error}");
+        }
+        let huge = xmtp_api_grpc::error::rate_limited_status_raw(i64::MAX, 0);
+        let mut owed = owed();
+        schedule_retry(&mut owed, &failed(huge));
+        assert!(owed.retry_at > Instant::now() + RETRY_MAX);
     }
 
     #[cfg(not(target_arch = "wasm32"))]
