@@ -114,12 +114,46 @@ async fn the_push_spend_follows_checks_0_and_1_and_precedes_the_recipient_lookup
         .await?;
     let mut unknown = update(vec![subscription(2, 0)], vec![]);
     unknown.recipient_id = vec![33; 32];
-    for request in [unknown, update(vec![subscription(2, 0)], vec![topic(1)])] {
+    // An add-only request for the registered recipient would raise its count
+    // if it were applied.
+    for request in [unknown, update(vec![subscription(2, 0)], vec![])] {
         let denied = client
             .update_subscriptions(from("203.0.113.3", request))
             .await;
         assert!(rate_limit_delay(&denied, Category::Push).is_some());
     }
     assert_count(&server, 1).await;
+    let stored: Vec<Vec<u8>> =
+        sqlx::query_scalar("SELECT topic FROM push_subscription WHERE recipient_id = $1")
+            .bind(registration().recipient_id.clone())
+            .fetch_all(&server.backend.store.primary)
+            .await?;
+    assert_eq!(stored, vec![topic(1)]);
+    server.stop().await?;
+}
+
+/// `Register` and `Unregister` spend only the layer's `request` unit.
+// verifies: RATE-011
+#[xmtp_common::test(unwrap_try = true)]
+async fn registration_spends_only_its_request_unit() {
+    let server = TestServer::new(|config| {
+        configured(config);
+        config.rate_limits = rate_limits(
+            "max_memory_mib = 1\ntrusted_proxies = [\"127.0.0.1/32\"]\n\
+             [categories.request]\nip = [{ count = 2, window_seconds = 3600 }]\n\
+             [categories.push]\nip = [{ count = 2, window_seconds = 3600 }]",
+        );
+    })
+    .await?;
+    let mut client = server.notifications();
+    client.register(from("203.0.113.1", registration())).await?;
+    client.unregister(from("203.0.113.2", unregister())).await?;
+    for address in ["203.0.113.1", "203.0.113.2"] {
+        let caller = caller(&server, address);
+        for (category, left) in [(Category::Request, 1), (Category::Push, 2)] {
+            caller.charge(category, left).await?;
+            assert!(caller.charge(category, 1).await.is_err(), "{address}");
+        }
+    }
     server.stop().await?;
 }

@@ -327,3 +327,62 @@ async fn spends_are_recorded_only_when_a_test_asks() {
     charger.charge(Category::Request, 1).await?;
     assert_eq!(limiter.spends().len(), 1);
 }
+
+/// `Query`, `QueryNewest`, and `GetInboxIds` spend only the layer's
+/// `request` unit: one store read costs one request.
+// verifies: RATE-011
+#[xmtp_common::test(unwrap_try = true)]
+async fn reads_spend_only_their_request_unit() {
+    let every_category = Category::ALL
+        .iter()
+        .map(|category| {
+            format!(
+                "[categories.{}]\nip = [{{ count = 2, window_seconds = 3600 }}]\n",
+                category.as_str()
+            )
+        })
+        .collect::<String>();
+    let server = TestServer::new(|config| {
+        config.rate_limits = rate_limits(&format!(
+            "max_memory_mib = 1\ntrusted_proxies = [\"127.0.0.1/32\"]\n{every_category}"
+        ))
+    })
+    .await?;
+    let from = |address: &str| {
+        let mut metadata = tonic::metadata::MetadataMap::new();
+        metadata.insert("x-forwarded-for", address.parse().unwrap());
+        metadata
+    };
+    let query = tonic::Request::from_parts(
+        from("203.0.113.1"),
+        Default::default(),
+        api::QueryRequest::default(),
+    );
+    server.query().query(query).await?;
+    let newest = tonic::Request::from_parts(
+        from("203.0.113.2"),
+        Default::default(),
+        api::QueryNewestRequest::default(),
+    );
+    server.query().query_newest(newest).await?;
+    let lookup = tonic::Request::from_parts(
+        from("203.0.113.3"),
+        Default::default(),
+        api::GetInboxIdsRequest::default(),
+    );
+    server.identity().get_inbox_ids(lookup).await?;
+    let limiter = server.backend.rate_limiter.clone().ok_or("limiter")?;
+    for address in ["203.0.113.1", "203.0.113.2", "203.0.113.3"] {
+        let caller = probe(&limiter, CallerKey::from_ip(address.parse()?));
+        for category in Category::ALL {
+            let left = if category == Category::Request { 1 } else { 2 };
+            caller.charge(category, left).await?;
+            assert!(
+                caller.charge(category, 1).await.is_err(),
+                "{address} spent more {} than it should",
+                category.as_str()
+            );
+        }
+    }
+    server.stop().await?;
+}

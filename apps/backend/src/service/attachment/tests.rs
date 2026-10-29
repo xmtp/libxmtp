@@ -313,6 +313,60 @@ async fn the_upload_spend_follows_the_request_checks_and_precedes_the_credential
     server.stop().await
 }
 
+/// Over the wire, through the layer: an admitted `CreateUpload` spends one
+/// `upload` unit and a second is refused for it, while a request the rows
+/// before the spend refuse, with no storage target or a zero length, spends
+/// none.
+#[xmtp_common::test(unwrap_try = true)]
+// verifies: ATCH-021, RATE-010
+async fn an_upload_spends_its_unit_after_the_rows_that_read_no_state() -> TestResult {
+    use crate::{
+        config::{CallerKey, Category},
+        server::rate_limit::Charger,
+        test_support::{rate_limit_delay, rate_limits},
+    };
+    let limits = "max_memory_mib = 1\ntrusted_proxies = [\"127.0.0.1/32\"]\n\
+                  [categories.upload]\nip = [{ count = 1, window_seconds = 3600 }]";
+    let configured = TestServer::new(|config| {
+        config.attachments = Some(attachment_config());
+        config.rate_limits = rate_limits(limits);
+    })
+    .await?;
+    let absent = TestServer::new(|config| config.rate_limits = rate_limits(limits)).await?;
+    let create = |server: &TestServer, address: &str, length: u64| {
+        let mut upload = Request::new(request(vec![0; 32], length));
+        upload
+            .metadata_mut()
+            .insert("x-forwarded-for", address.parse().unwrap());
+        let mut client = server.attachments();
+        async move { client.create_upload(upload).await }
+    };
+    let left = |server: &TestServer, address: &str| {
+        Charger::for_test(
+            server.backend.rate_limiter.as_ref().unwrap(),
+            CallerKey::from_ip(address.parse().unwrap()),
+        )
+    };
+    create(&configured, "203.0.113.1", 42).await?;
+    let refused = create(&configured, "203.0.113.1", 42).await;
+    assert!(
+        rate_limit_delay(&refused, Category::Upload).is_some(),
+        "{refused:?}"
+    );
+    let status = create(&configured, "203.0.113.2", 0).await.unwrap_err();
+    assert_eq!(status.code(), Code::InvalidArgument);
+    left(&configured, "203.0.113.2")
+        .charge(Category::Upload, 1)
+        .await?;
+    let status = create(&absent, "203.0.113.3", 42).await.unwrap_err();
+    assert_eq!(status.code(), Code::Unimplemented);
+    left(&absent, "203.0.113.3")
+        .charge(Category::Upload, 1)
+        .await?;
+    configured.stop().await?;
+    absent.stop().await
+}
+
 #[xmtp_common::test(unwrap_try = true)]
 // verifies: ATCH-021
 async fn create_upload_requires_credential() -> TestResult {

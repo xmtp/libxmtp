@@ -72,14 +72,16 @@ async fn a_publish_is_charged_by_the_request_as_received() {
     )
     .await?;
     const ADDRESS: &str = "203.0.113.1";
-    // One identity update with one ERC-6492 signature, and three welcomes of
-    // which two are the same. No chain is configured, so the update fails
+    // The same identity update with two ERC-6492 signatures twice, and three
+    // welcomes of which two are the same: every copy counts, and every
+    // signature of every copy. No chain is configured, so the update fails
     // validation after it is charged.
     let _ = publish_from(
         &server,
         ADDRESS,
         vec![
-            identity_envelope(scw_create_inbox_update()),
+            identity_envelope(two_signature_update()),
+            identity_envelope(two_signature_update()),
             envelope(1, 1),
             envelope(1, 1),
             envelope(2, 1),
@@ -89,9 +91,9 @@ async fn a_publish_is_charged_by_the_request_as_received() {
     // A publish with no envelopes costs one.
     publish_from(&server, ADDRESS, vec![]).await?;
     let caller = caller(&server, ADDRESS);
-    assert_left(&caller, Category::IdentityUpdate, 9).await;
-    assert_left(&caller, Category::ChainVerify, 9).await;
-    assert_left(&caller, Category::Publish, 5).await;
+    assert_left(&caller, Category::IdentityUpdate, 8).await;
+    assert_left(&caller, Category::ChainVerify, 6).await;
+    assert_left(&caller, Category::Publish, 4).await;
     server.stop().await?;
 }
 
@@ -336,5 +338,53 @@ async fn a_bound_failure_reports_the_lowest_envelope_found_failing() {
         assert_eq!((detail.index, detail.reason()), (Some(0), reason));
         assert_left(&caller(&server, address), Category::Publish, 2).await;
     }
+    server.stop().await?;
+}
+
+/// A denied charge reads nothing stored and leaves the later charges
+/// unspent: each denied publish answers while the envelopes table is locked
+/// against every read, and the categories after the denied one keep their
+/// whole allowance.
+// verifies: RATE-010
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_denied_charge_reads_nothing_stored_and_spends_nothing_after_it() {
+    let server = server(
+        "[categories.identity_update]\nip = [{ count = 2, window_seconds = 3600 }]\n\
+         [categories.chain_verify]\nip = [{ count = 2, window_seconds = 3600 }]\n\
+         [categories.publish]\nip = [{ count = 2, window_seconds = 3600 }]",
+        10,
+    )
+    .await?;
+    let update = || vec![identity_envelope(scw_create_inbox_update())];
+    // Each caller has used up one category; its next charge is denied.
+    let cases = [
+        ("203.0.113.1", Category::IdentityUpdate, update()),
+        ("203.0.113.2", Category::ChainVerify, update()),
+        ("203.0.113.3", Category::Publish, vec![envelope(1, 1)]),
+    ];
+    for (address, category, _) in &cases {
+        caller(&server, address).charge(*category, 2).await?;
+    }
+    let mut lock = server.backend.store.primary.begin().await?;
+    sqlx::query("LOCK TABLE envelopes IN ACCESS EXCLUSIVE MODE")
+        .execute(&mut *lock)
+        .await?;
+    for (address, category, envelopes) in &cases {
+        let denied = xmtp_common::time::timeout(
+            std::time::Duration::from_secs(10),
+            publish_from(&server, address, envelopes.clone()),
+        )
+        .await
+        .map_err(|_| format!("the {} denial waited for the store", category.as_str()))?;
+        assert!(rate_limit_delay(&denied, *category).is_some(), "{denied:?}");
+    }
+    lock.rollback().await?;
+    // The identity update was charged up to its denied step and no further.
+    let identity = caller(&server, "203.0.113.1");
+    assert_left(&identity, Category::ChainVerify, 2).await;
+    assert_left(&identity, Category::Publish, 2).await;
+    let chain = caller(&server, "203.0.113.2");
+    assert_left(&chain, Category::IdentityUpdate, 1).await;
+    assert_left(&chain, Category::Publish, 2).await;
     server.stop().await?;
 }
