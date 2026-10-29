@@ -29,7 +29,7 @@ use openmls_traits::OpenMlsProvider;
 use xmtp_cryptography::{CredentialSign, XmtpInstallationCredential, utils::generate_local_wallet};
 use xmtp_db::{
     TransactionOutcome::Continue,
-    XmtpOpenMlsProviderRef,
+    XmtpMlsStorageProvider as _, XmtpOpenMlsProviderRef,
     identity_update::QueryIdentityUpdates,
     incoming_envelope::{QueryIncomingEnvelope, StreamTopic},
 };
@@ -338,8 +338,9 @@ async fn add_outside_identity_diff(
     )?
     .unwrap();
     let signer = sender.context.identity().installation_keys.clone();
-    let db = sender.context.db();
     let raw = publish_raw!(sender, sender_group, |mls, provider| {
+        // On WASM the raw commit's transaction holds the only connection.
+        let db = provider.storage().db();
         let old = extract_group_membership(mls.extensions()).unwrap();
         let mut new = old.clone();
         if let Some(sequence_id) = raise {
@@ -441,9 +442,9 @@ async fn own_inbox_retries_leafless_key(
             .db()
             .get_latest_sequence_id_for_inbox(&bo_inbox_id)? as u64;
         let signer = caro.context.identity().installation_keys.clone();
-        let db = caro.context.db();
         let caro_client = &caro.client;
         publish_raw!(caro_client, caro_group, |mls, provider| {
+            let db = provider.storage().db();
             let old = extract_group_membership(mls.extensions()).unwrap();
             let mut new = old.clone();
             new.add(bo_inbox_id.clone(), bo_sequence);
