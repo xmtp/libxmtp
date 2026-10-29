@@ -408,6 +408,8 @@ async fn bound_and_parse_failures_precede_every_other_check() {
             );
         } else {
             assert_left(&left, Category::Publish, 2).await;
+            assert_left(&left, Category::IdentityUpdate, 2).await;
+            assert_left(&left, Category::ChainVerify, 2).await;
         }
     }
     assert_eq!(stored_rows(&server).await?, 0);

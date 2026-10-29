@@ -276,8 +276,9 @@ async fn publish_errors_keep_the_original_index_for_each_validation_reason() {
     ];
     for (bad, reason) in cases {
         let good = inline_welcome_envelope([70; 32]);
-        // An envelope after the bad one fails validation too; the lower index
-        // is reported.
+        // The envelope after the bad one fails validation. The bad one is
+        // reported either way: as a parse failure, which is found first, or
+        // as the lower of two validation failures.
         let error = server
             .publisher()
             .publish(api::PublishRequest {
