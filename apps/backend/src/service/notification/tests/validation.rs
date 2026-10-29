@@ -429,7 +429,7 @@ fn webhook_blocked_address_classes() {
         ("64:ff9b::808:808", false),
     ] {
         assert_eq!(
-            webhook_url::blocked(address.parse()?),
+            webhook_url::blocked(address.parse()?, &[]),
             expected,
             "{address}"
         );
