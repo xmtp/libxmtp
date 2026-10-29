@@ -11,9 +11,9 @@ pub const MAX_PUBLISH_ENVELOPES: usize = 1_000;
 /// (API section 7). Admission replays one stored log for each, one at a time.
 pub const MAX_PUBLISH_IDENTITY_UPDATES: usize = 5;
 /// Most identity actions one publish request may carry across all its
-/// identity updates: every envelope an identity update at the action limit.
+/// identity updates: every identity update at the action limit.
 pub const MAX_PUBLISH_IDENTITY_ACTIONS: usize =
-    MAX_PUBLISH_ENVELOPES * super::MAX_IDENTITY_UPDATE_ACTIONS;
+    MAX_PUBLISH_IDENTITY_UPDATES * super::MAX_IDENTITY_UPDATE_ACTIONS;
 /// Welcome, key-package, and identity topic identifier length, in bytes.
 pub const BACKEND_INSTALLATION_ID_BYTES: usize = 32;
 

@@ -175,7 +175,7 @@ async fn identity_history_replay_runs_off_the_request_thread() {
 
 /// Admission that outlasts its deadline fails as `DEADLINE_EXCEEDED` and
 /// stores nothing, whether it waits for a replay permit or for a verifier.
-/// Only identity replays take a permit, so a group message still publishes
+/// Only identity updates take a permit, so a group message still publishes
 /// while every permit is held, and the update stores once they are free.
 #[xmtp_common::timeout(std::time::Duration::from_secs(60))]
 #[xmtp_common::test(unwrap_try = true)]
@@ -204,6 +204,30 @@ async fn admission_past_its_deadline_stores_nothing() {
         (Err((Code::DeadlineExceeded, None)), 3)
     );
     assert_eq!(publish_identity(&server, next()).await?, (Ok(()), 4));
+    server.stop().await?;
+}
+
+/// An update waits for a replay permit before it reads its inbox's log, so
+/// while every permit is held it times out without a read. The log is
+/// unreadable, so a read would fail as `UNAVAILABLE` instead.
+// verifies: IDENT-095
+#[xmtp_common::timeout(std::time::Duration::from_secs(60))]
+#[xmtp_common::test(unwrap_try = true)]
+async fn replay_slot_is_taken_before_the_log_is_read() {
+    let (server, _, inbox_id) = scw_history().await?;
+    let backend = &server.backend;
+    *backend.admission_deadline.lock() = Some(std::time::Duration::from_secs(2));
+    let _held = backend
+        .replays
+        .clone()
+        .acquire_many_owned(MAX_IDENTITY_REPLAYS as u32)
+        .await?;
+    make_logs_unreadable(&server).await?;
+    let next = update(&inbox_id, 3, vec![revoke(scw(vec![0xfe, 0]))]);
+    assert_eq!(
+        publish_identity(&server, next).await?,
+        (Err((Code::DeadlineExceeded, None)), 2)
+    );
     server.stop().await?;
 }
 

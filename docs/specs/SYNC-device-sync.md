@@ -173,3 +173,5 @@ A root key received with a cycle time up to one day ahead wins against the key S
 A consent record or root key that an older build stored with a time more than one day ahead is kept. The bound applies only to what is received, so the stored record wins every merge until the clock passes its time.
 
 A member added to a sync group by a later commit is not checked against SYNC-010, which runs at join. Only the own inbox is a member at join, and only members can commit, so the addition would have to come from an installation of the own inbox.
+
+A new installation does not hold the group of a denied conversation (section 4), so a record forwarded under SYNC-025 for a denied DM names a group the newcomer cannot link to the DM's pair. When a new group of that DM reaches the newcomer by a Welcome before the newcomer holds any other group of the pair, the newcomer does not inherit the denial under DMS-010, and the new group stays unknown there until the user decides again on any device.

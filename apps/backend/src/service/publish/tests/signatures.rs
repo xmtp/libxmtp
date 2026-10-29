@@ -3,6 +3,7 @@
 use super::transport::{PUBLISH, empty_envelopes};
 use super::*;
 use support::native::{framed, raw_unary};
+use xmtp_configuration::MAX_PUBLISH_IDENTITY_ACTIONS;
 use xmtp_mls_validation::test_utils::{
     group_keys, keyed_group_message_envelope, sealed_commit_log_envelope,
 };
@@ -87,7 +88,7 @@ async fn publish_count_is_rejected_before_decode() {
     server.stop().await?;
 }
 
-/// The action bound is 100,000 across the request, ahead of the bound on one
+/// The action bound is 500 across the request, ahead of the bound on one
 /// update. Behind a truncated tail, an update at the bound reaches the
 /// decoder, which fails on the tail, and one more action is refused before
 /// decode.
@@ -112,9 +113,11 @@ async fn publish_identity_actions_are_rejected_before_decode() {
         framed(&message)
     };
     let server = TestServer::new(|_| {}).await?;
-    let at_bound = raw_unary(&server, PUBLISH, &[], body(100_000), true).await?;
+    let limit = MAX_PUBLISH_IDENTITY_ACTIONS;
+    assert_eq!(limit, 500);
+    let at_bound = raw_unary(&server, PUBLISH, &[], body(limit), true).await?;
     assert_eq!(at_bound.code(), Code::Internal, "{at_bound:?}");
-    let error = raw_unary(&server, PUBLISH, &[], body(100_001), true).await?;
+    let error = raw_unary(&server, PUBLISH, &[], body(limit + 1), true).await?;
     assert_eq!(
         error.message(),
         "publish request exceeds identity action limit"
