@@ -1527,3 +1527,19 @@ fn diff_keeps_adds_and_removes_within_the_batch_bound() {
         assert!(removes.iter().all(|topic| !desired.contains_key(topic)));
     }
 }
+
+/// Stored deadlines that cannot be decoded do not stop an app from turning
+/// notifications off or back on: they hold nothing.
+#[xmtp_common::test(unwrap_try = true)]
+async fn notification_undecodable_deadlines_do_not_block_enable_or_disable() {
+    let (client, _peer) = support::client().await;
+    client.enable_notifications(config()).await?;
+    let mut record = client.db().notification_record()?;
+    record.push_deadlines = Some(vec![0xff]);
+    client.db().save_notification_record(&record)?;
+    client.disable_notifications().await?;
+    let mut record = client.db().notification_record()?;
+    record.push_deadlines = Some(vec![0xff]);
+    client.db().save_notification_record(&record)?;
+    client.enable_notifications(config()).await?;
+}

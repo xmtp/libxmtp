@@ -369,7 +369,7 @@ where
                 }
             }
             Err(error) => {
-                let attempts = task.attempts + 1;
+                let mut attempts = task.attempts + 1;
                 let attempt_scaling_factor = (task.backoff_scaling_factor as f64).powi(attempts);
                 let next_attempt_duration = (((task.initial_backoff_duration_ns as f64)
                     * attempt_scaling_factor) as i64)
@@ -385,10 +385,14 @@ where
                 let mut expires_at_ns = task.expires_at_ns;
                 // A rate-limited request waits at least the delay, counted from
                 // when the rejection arrived, not from when the turn started.
-                // The wait it adds past the backoff does not count against the
-                // task's lifetime, so a delay never expires the refused work.
+                // Neither the wait it adds past the backoff nor the refused turn
+                // counts against the task's lifetime or its attempts, so a rate
+                // limit never expires or deletes the refused work. At least one
+                // attempt is recorded, which marks the task as backing off, so
+                // a pull-in keeps it on its schedule.
                 // implements: RATE-041
                 if let Some(delay) = error.rate_limit_delay() {
+                    attempts = task.attempts.max(1);
                     let until = xmtp_common::time::now_ns()
                         .saturating_add(i64::try_from(delay.as_nanos()).unwrap_or(i64::MAX));
                     next_attempt_at_ns = next_attempt_at_ns.max(until);
@@ -923,6 +927,36 @@ mod tests {
             held.expires_at_ns > held.next_attempt_at_ns,
             "the task does not expire before it is due"
         );
+    }
+
+    /// A rate-limited turn does not use up the task's attempts, so a task
+    /// refused at its last attempt stays and runs after the delay.
+    // verifies: RATE-041
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn a_rate_limited_turn_keeps_the_tasks_attempts() {
+        use xmtp_common::time::Duration;
+        tester!(alix, worker_config: no_runner_cfg());
+        let db = alix.context.db();
+        let now = xmtp_common::time::now_ns();
+        let proto = unique_proto();
+        let hash = data_hash_for(&proto);
+        let row = seed(&db, proto, now - 1, i64::MAX, 19, 20);
+        *test_hooks::RATE_LIMIT_OVERRIDE.lock().unwrap() =
+            Some((hash.to_vec(), Duration::ZERO, Duration::from_millis(1)));
+        TaskWorker::run_and_reschedule_task(row, &alix.context).await?;
+        let task = || {
+            db.get_tasks()
+                .unwrap()
+                .into_iter()
+                .find(|t| t.data_hash == hash.as_ref())
+        };
+        let mut held = task().expect("the refused task is kept");
+        assert_eq!(held.attempts, 19);
+        held.next_attempt_at_ns = xmtp_common::time::now_ns() - 1;
+        TaskWorker::run_and_reschedule_task(held, &alix.context).await?;
+        *test_hooks::RATE_LIMIT_OVERRIDE.lock().unwrap() = None;
+        let held = task().expect("a second refusal keeps it too");
+        assert_eq!(held.attempts, 19);
     }
 
     #[xmtp_common::test(unwrap_try = true)]

@@ -244,9 +244,11 @@ pub(crate) mod test_hooks {
     }
 
     type BlockHook = (Vec<u8>, Arc<Notify>, Arc<Notify>);
-    pub(crate) static FAIL_NEXT_PREFERENCE_PUBLISH: parking_lot::Mutex<
-        Option<(Vec<u8>, Arc<Notify>)>,
-    > = parking_lot::Mutex::new(None);
+    /// `(installation, observed, rate_limit)`: the next preference publish on
+    /// that installation fails, with a rate limit of that delay when one is set.
+    pub(crate) static FAIL_NEXT_PREFERENCE_PUBLISH: parking_lot::Mutex<Option<FailHook>> =
+        parking_lot::Mutex::new(None);
+    type FailHook = (Vec<u8>, Arc<Notify>, Option<xmtp_common::time::Duration>);
     pub(crate) static BLOCK_NEXT_PREFERENCE_PUBLISH: parking_lot::Mutex<Option<BlockHook>> =
         parking_lot::Mutex::new(None);
     /// `(installation, delay, reads)`: every own-state read of sync-message
@@ -476,7 +478,8 @@ where
 
     /// Handles each event whose retry time has come. A failed event waits
     /// under backoff while later events run; one that fails
-    /// `MAX_EVENT_FAILURES` times is dropped.
+    /// `MAX_EVENT_FAILURES` times is dropped. Waiting for the own identity
+    /// state or out a rate limit is not a failure.
     async fn run_due(&mut self) -> Result<(), DeviceSyncError> {
         let now = Instant::now();
         let mut due: Vec<_> = self
@@ -515,6 +518,14 @@ where
                     owed.waits += 1;
                     schedule_retry(&mut owed, &e);
                     tracing::info!(error = %e, "device sync event waits for the own identity state");
+                    pending.push(owed);
+                }
+                // A rate limit is not a failure either: the event runs again
+                // after the delay and is never dropped for it.
+                Err(e) if xmtp_common::RetryableError::rate_limit_delay(&e).is_some() => {
+                    owed.waits += 1;
+                    schedule_retry(&mut owed, &e);
+                    tracing::info!(error = %e, "device sync event waits out a rate limit");
                     pending.push(owed);
                 }
                 Err(e) => {
@@ -699,7 +710,7 @@ where
             }
             let failed = {
                 let mut hook = test_hooks::FAIL_NEXT_PREFERENCE_PUBLISH.lock();
-                if hook.as_ref().is_some_and(|(installation, _)| {
+                if hook.as_ref().is_some_and(|(installation, _, _)| {
                     installation.as_slice()
                         == self.client.context.installation_id().to_vec().as_slice()
                 }) {
@@ -708,8 +719,19 @@ where
                     None
                 }
             };
-            if let Some((_, observed)) = failed {
+            if let Some((_, observed, rate_limit)) = failed {
                 observed.notify_one();
+                if let Some(delay) = rate_limit {
+                    return Err(DeviceSyncError::Group(
+                        crate::groups::GroupError::WrappedApi(xmtp_api::ApiError::Api(
+                            xmtp_proto::api::NetworkError::new(
+                                xmtp_api_grpc::error::GrpcError::Status(
+                                    xmtp_api_grpc::error::rate_limited_status("publish", delay),
+                                ),
+                            ),
+                        )),
+                    ));
+                }
                 return Err(DeviceSyncError::IO(std::io::Error::other(
                     "test preference publication failure",
                 )));
@@ -1198,8 +1220,10 @@ mod startup_tests {
         tester!(alix, disable_workers);
         let record =
             StoredConsentRecord::new(ConsentType::InboxId, ConsentState::Allowed, "drop".into());
-        for (failures, wait) in [(18, false), (19, false), (19, true)] {
-            let dropped = failures == 19 && !wait;
+        // `wait` is 0 for a failure, 1 for an unreadable own state, and 2 for
+        // a rate limit; only the 20th failure drops the event.
+        for (failures, wait) in [(18, 0), (19, 0), (19, 1), (19, 2)] {
+            let dropped = failures == 19 && wait == 0;
             let mut worker = idle_worker(alix.context.clone());
             let changed = InternalEvent::PreferencesChanged {
                 updates: vec![PreferenceUpdate::Consent(record.clone())],
@@ -1212,12 +1236,16 @@ mod startup_tests {
                 retry_at: now,
                 ..Owed::new(1, event)
             });
-            let restore = if wait {
+            let restore = if wait == 1 {
                 worker.client.get_sync_group().await?;
                 hide_own_identity_updates(alix.context.db(), alix.inbox_id()).map(Some)?
             } else {
-                *test_hooks::FAIL_NEXT_PREFERENCE_PUBLISH.lock() =
-                    Some((alix.context.installation_id().to_vec(), Default::default()));
+                let rate_limit = (wait == 2).then_some(Duration::from_millis(1));
+                *test_hooks::FAIL_NEXT_PREFERENCE_PUBLISH.lock() = Some((
+                    alix.context.installation_id().to_vec(),
+                    Default::default(),
+                    rate_limit,
+                ));
                 None
             };
             worker.run_due().await?;
@@ -1229,7 +1257,7 @@ mod startup_tests {
             } else {
                 assert_eq!(pending.len(), 1, "the 19th failure keeps the event");
                 assert_eq!(pending[0].failures, 19);
-                assert_eq!(pending[0].waits, u32::from(wait));
+                assert_eq!(pending[0].waits, u32::from(wait > 0));
                 assert!(pending[0].retry_at >= now + RETRY_MAX);
                 assert_eq!(dropped_count, 0);
             }
@@ -1558,7 +1586,7 @@ mod startup_tests {
         };
         let failed = Arc::new(tokio::sync::Notify::new());
         *test_hooks::FAIL_NEXT_PREFERENCE_PUBLISH.lock() =
-            Some((installation.to_vec(), failed.clone()));
+            Some((installation.to_vec(), failed.clone(), None));
         let turns = Arc::new([AtomicU64::new(0), AtomicU64::new(0)]);
         let mut worker = idle_worker(alix.context.clone());
         worker.completed_turns = Some(turns.clone());

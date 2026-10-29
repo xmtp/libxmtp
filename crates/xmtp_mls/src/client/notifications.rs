@@ -361,7 +361,10 @@ impl<Context: XmtpSharedContext> Client<Context> {
             record.push_state = 1;
             record.push_failed_error = None;
             // A new configuration does not end a pending rate-limit delay.
-            record.push_deadlines = Some(encode(&worker::rate_limit_hold(&record)?)?);
+            // Deadlines that cannot be decoded hold nothing, so they never
+            // stop an app from enabling.
+            let hold = worker::rate_limit_hold(&record).unwrap_or_default();
+            record.push_deadlines = Some(encode(&hold)?);
             record.push_suppressed = None;
             db.save_notification_record(&record)?;
             Ok::<_, StorageError>(Continue(record.push_generation))
@@ -394,7 +397,9 @@ impl<Context: XmtpSharedContext> Client<Context> {
         let record = crate::state_tx::state_write(self.context.mls_storage(), |tx| {
             let storage = tx.storage();
             let db = storage.db();
-            let hold = worker::rate_limit_hold(&db.notification_record()?)?;
+            // Deadlines that cannot be decoded hold nothing, so they never
+            // stop an app from disabling.
+            let hold = worker::rate_limit_hold(&db.notification_record()?).unwrap_or_default();
             let mut record = db.disable_notifications()?;
             // The task must not send inside a pending rate-limit delay after a
             // later enable. App calls themselves are not held (RATE-041 binds
