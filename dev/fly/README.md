@@ -4,14 +4,14 @@ This environment is separate from the disposable iOS test apps. All Fly apps
 and the Managed Postgres cluster use organization `xmtp-labs` and region `sjc`.
 Never include these names in the iOS cleanup scripts.
 
-| Service       | App or cluster                  | Access                              |
-| ------------- | ------------------------------- | ----------------------------------- |
-| Backend       | `xmtp-backend-dev`              | `https://backend-dev.xmtp.to`       |
-| PostgreSQL 17 | `xmtp-backend-dev-db`           | Private direct connection           |
-| Tempo         | `xmtp-backend-dev-tempo`        | Private OTLP and query listeners    |
-| Trace metrics | `xmtp-backend-dev-prometheus`   | Private Tempo remote-write receiver |
-| Grafana       | `xmtp-backend-dev-grafana`      | Local Fly proxy and Grafana login   |
-| Docs          | GitHub Pages for `xmtp/libxmtp` | `https://xmtp.org`                  |
+| Service | App or cluster | Access |
+| --- | --- | --- |
+| Backend | `xmtp-backend-dev` | `https://backend-dev.xmtp.to` |
+| PostgreSQL 17 | `xmtp-backend-dev-db` | Private direct connection |
+| Tempo | `xmtp-backend-dev-tempo` | Private OTLP and query listeners |
+| Trace metrics | `xmtp-backend-dev-prometheus` | Private Tempo remote-write receiver |
+| Grafana | `xmtp-backend-dev-grafana` | Local Fly proxy and Grafana login |
+| Docs | GitHub Pages for `xmtp/libxmtp` | `https://xmtp.org` |
 
 The backend identifier is `org.xmtp.backend.dev`. Do not change it after clients
 connect. The database and observability volumes persist across deployments.
