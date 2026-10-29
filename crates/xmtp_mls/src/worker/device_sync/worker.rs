@@ -595,10 +595,20 @@ where
         if messages.is_empty() {
             return Ok(());
         }
-        let own_installations = IdentityUpdates::new(&self.context)
+        // implements: SYNC-016 (a failed own-state read, such as a smart-wallet
+        // signature that needs the verifier, leaves every row Pending for the next tick)
+        let own_state = IdentityUpdates::new(&self.context)
             .get_association_state(&self.context.db(), self.context.inbox_id(), None)
-            .await?
-            .installation_ids();
+            .await
+            .map_err(DeviceSyncError::from);
+        let own_installations = match own_state {
+            Ok(state) => state.installation_ids(),
+            Err(err) if err.needs_db_reconnect() => return Err(err),
+            Err(err) => {
+                tracing::warn!(error = %err, "own identity state unavailable; sync messages stay pending");
+                return Ok(());
+            }
+        };
 
         for mut msg in messages {
             // The plaintext and its inner encoding can hold an HMAC root key.
