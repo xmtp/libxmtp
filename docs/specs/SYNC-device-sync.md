@@ -70,7 +70,7 @@ The same rule applies to what is read. A sync message is applied only when its s
 
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
-| SYNC-010 | Only the own inbox invites | When a Welcome carries a group whose `CONVERSATION_TYPE` is `CONVERSATION_TYPE_SYNC`, the client MUST record a terminal rejection for it unless the adder under JOIN-025 is the own inbox and every leaf node in the ratchet tree names the own inbox. | Anyone can create a group and name it a sync group. Accepting one makes it the group this client publishes to under SYNC-002, and its members read every consent decision and the HMAC root key. |
+| SYNC-010 | Only the own inbox is a member | When a Welcome carries a group whose `CONVERSATION_TYPE` is `CONVERSATION_TYPE_SYNC`, the client MUST record a terminal rejection for it unless the adder under JOIN-025 is the own inbox and every leaf node in the ratchet tree names the own inbox. When the client validates a commit to such a group, it MUST record a terminal rejection for the commit if `GROUP_MEMBERSHIP` after the commit names an inbox other than `CREATOR_INBOX_ID`. | Anyone can create a group and name it a sync group. Accepting one makes it the group this client publishes to under SYNC-002, and its members read every consent decision and the HMAC root key. An installation of the own inbox can still commit another inbox into a group it already holds, and that inbox stays after the installation is revoked. GMOD-012 binds every new leaf to an inbox in `GROUP_MEMBERSHIP`, so the one entry keeps every leaf in the creator's inbox. |
 | SYNC-011 | Only the own inbox is applied | When a sync message's sender, according to the local state of the recipient, is not an installation of the own inbox, the client MUST NOT apply its preference updates. | An accepted update sets consent and replaces the HMAC root key. From a stranger it hides conversations or breaks push suppression on every device. |
 
 ## 3. Preference updates
@@ -172,6 +172,8 @@ A root key received with a cycle time up to one day ahead wins against the key S
 
 A consent record or root key that an older build stored with a time more than one day ahead is kept. The bound applies only to what is received, so the stored record wins every merge until the clock passes its time.
 
-A member added to a sync group by a later commit is not checked against SYNC-010, which runs at join. Only the own inbox is a member at join, and only members can commit, so the addition would have to come from an installation of the own inbox.
+A client that predates the commit check in SYNC-010 merges a commit that puts another inbox in a sync group, and a current client rejects it, so installations on different builds hold that group at different epochs. Only a modified or compromised installation of the own inbox makes that commit. A sync group that held another inbox before the check is kept and still read under SYNC-003: no current installation publishes to it, SYNC-011 drops what the other inbox sends, and a current client rejects every later commit to it that leaves the other inbox in place.
+
+Older builds merge a foreign add that current builds reject (epoch split in that group only); groups that already hold another inbox are kept, read, and frozen.
 
 A new installation does not hold the group of a denied conversation (section 4), so a record forwarded under SYNC-025 for a denied DM names a group the newcomer cannot link to the DM's pair. When a new group of that DM reaches the newcomer by a Welcome before the newcomer holds any other group of the pair, the newcomer does not inherit the denial under DMS-010, and the new group stays unknown there until the user decides again on any device.
