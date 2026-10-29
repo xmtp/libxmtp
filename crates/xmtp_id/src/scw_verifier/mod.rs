@@ -35,7 +35,7 @@ pub enum VerifierError {
     /// Provider error.
     ///
     /// Ethereum RPC provider error. Retryable.
-    /// Built through `From`, which drops the request URL.
+    // Built through `From`, which drops the request URL.
     #[error(transparent)]
     Provider(RpcError<TransportErrorKind>),
     /// URL parse error.

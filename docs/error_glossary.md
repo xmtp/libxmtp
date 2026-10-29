@@ -345,7 +345,7 @@ The string is not a handle under the handle grammar. Not retryable.
 | Error Code | Description |
 |:-----------|:------------|
 | `VerifierError::UnexpectedERC6492Result` | Unexpected ERC-6492 result. Smart contract wallet signature verification returned unexpected result. Not retryable. |
-| `VerifierError::Provider` | Provider error. Ethereum RPC provider error. Retryable. Built through `From`, which drops the request URL. |
+| `VerifierError::Provider` | Provider error. Ethereum RPC provider error. Retryable. |
 | `VerifierError::Url` | URL parse error. Verifier URL is malformed. Not retryable. |
 | `VerifierError::Io` | I/O error. I/O operation failed. May be retryable. |
 | `VerifierError::Serde` | Serialization error. JSON serialization/deserialization failed. Not retryable. |

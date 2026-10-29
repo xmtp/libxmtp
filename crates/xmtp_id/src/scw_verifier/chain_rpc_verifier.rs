@@ -198,6 +198,7 @@ pub(crate) mod tests {
 
     /// A chain RPC URL can carry the operator's key, so a provider failure
     /// keeps its retryable error but never prints the URL.
+    // verifies: CONF-085
     #[xmtp_common::test(unwrap_try = true)]
     async fn provider_errors_omit_the_rpc_url() {
         let sentinel = "private-url-sentinel";

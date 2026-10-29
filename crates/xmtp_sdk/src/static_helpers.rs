@@ -4,12 +4,12 @@ use xmtp_id::associations::{
     Identifier, MemberIdentifier,
     unverified::{NewUnverifiedSmartContractWalletSignature, UnverifiedSignature},
 };
-use xmtp_id::key_package::VerifiedKeyPackageV2;
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_mls::identity_updates::{
     identifier_membership, identifier_opens_inbox, load_identity_updates,
 };
 use xmtp_mls::inbox_handles::{IdentityTarget, resolve_verified_with_verifier};
+use xmtp_mls::mls_store::verify_served_key_package;
 use xmtp_proto::types::{ApiIdentifier, GroupId, InstallationId as CoreInstallationId};
 use xmtp_proto::xmtp::identity::associations::IdentifierKind;
 
@@ -217,22 +217,21 @@ pub async fn key_package_statuses_with_backend(
     Ok(installations
         .into_iter()
         .map(|key| {
-            let status = match found.get(&key).and_then(Option::as_ref) {
-                Some(package) => match VerifiedKeyPackageV2::from_bytes(
-                    &crypto,
-                    &package.key_package_tls_serialized,
-                ) {
-                    Ok(package) => KeyPackageStatus {
-                        lifetime: package.life_time().map(|value| KeyPackageLifetime {
-                            not_before: value.not_before,
-                            not_after: value.not_after,
-                        }),
-                        validation_error: None,
-                    },
-                    Err(error) => KeyPackageStatus {
-                        lifetime: None,
-                        validation_error: Some(error.to_string()),
-                    },
+            let status = match found
+                .get(&key)
+                .and_then(Option::as_ref)
+                .and_then(|package| verify_served_key_package(&crypto, &key, package))
+            {
+                Some(Ok(package)) => KeyPackageStatus {
+                    lifetime: package.life_time().map(|value| KeyPackageLifetime {
+                        not_before: value.not_before,
+                        not_after: value.not_after,
+                    }),
+                    validation_error: None,
+                },
+                Some(Err(error)) => KeyPackageStatus {
+                    lifetime: None,
+                    validation_error: Some(error.to_string()),
                 },
                 None => KeyPackageStatus {
                     lifetime: None,
