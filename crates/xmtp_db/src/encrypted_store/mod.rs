@@ -73,6 +73,15 @@ pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("./migrations/");
 /// Only a database created by a build that stores CBOR values has it.
 pub(crate) const CBOR_STORAGE_MIGRATION: &str = "20261020000000";
 
+/// A received consent or root-key time more than this past the local clock
+/// is refused, not clamped.
+pub const MAX_RECEIVED_FUTURE_NS: i64 = xmtp_common::NS_IN_DAY;
+
+/// Whether a received consent or root-key time is beyond `MAX_RECEIVED_FUTURE_NS`.
+pub fn beyond_received_bound(ns: i64) -> bool {
+    ns > xmtp_common::time::now_ns().saturating_add(MAX_RECEIVED_FUTURE_NS)
+}
+
 /// Whether the database holds an identity or a key store row: the data a
 /// database written before the CBOR marker holds as bincode.
 pub(crate) fn holds_client_data(conn: &mut SqliteConnection) -> QueryResult<bool> {

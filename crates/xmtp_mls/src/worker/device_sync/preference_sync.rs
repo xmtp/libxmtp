@@ -2,6 +2,7 @@ use super::*;
 use std::collections::{HashMap, HashSet};
 use xmtp_common::time::now_ns;
 use xmtp_cryptography::secret::Secret;
+use xmtp_db::beyond_received_bound;
 use xmtp_db::consent_record::StoredConsentRecord;
 use xmtp_db::user_preferences::{HMAC_ROOT_KEY_LEN, HmacKey, StoredUserPreferences};
 use xmtp_proto::ConversionError;
@@ -68,7 +69,7 @@ pub(super) struct StoredPreferenceUpdates {
 
 /// Store synced preference updates. `updates` is borrowed, so a transaction
 /// retry copies no HMAC root key; the caller wipes the keys.
-// implements: SYNC-017, CONS-003, SYNC-022
+// implements: SYNC-017, CONS-003, SYNC-022, CONS-010
 pub(super) fn store_preference_updates(
     updates: &[PreferenceUpdateProto],
     conn: &impl DbQuery,
@@ -83,6 +84,10 @@ pub(super) fn store_preference_updates(
                     tracing::warn!(%error, "skipping an unusable synced consent record");
                     continue;
                 }
+                if beyond_received_bound(consent.consented_at_ns) {
+                    tracing::warn!("skipping a synced consent record timed more than a day ahead");
+                    continue;
+                }
                 Some((consent.entity_type, consent.entity.as_str()))
             }
             UpdateProto::Hmac(hmac) => {
@@ -91,6 +96,10 @@ pub(super) fn store_preference_updates(
                         len = hmac.key.len(),
                         "skipping a synced root key that is not 42 bytes"
                     );
+                    continue;
+                }
+                if beyond_received_bound(hmac.cycled_at_ns) {
+                    tracing::warn!("skipping a synced root key timed more than a day ahead");
                     continue;
                 }
                 None
@@ -391,17 +400,18 @@ mod tests {
         use xmtp_proto::xmtp::device_sync::consent_backup::ConsentSave;
         tester!(alix, disable_workers);
         let db = alix.context.db();
+        let soon = now_ns() + xmtp_common::NS_IN_HOUR;
         let bad = if (entity_type, state) == (2, 2) {
             UpdateProto::Hmac(HmacKeyUpdateProto {
                 key: vec![1; 41],
-                cycled_at_ns: i64::MAX,
+                cycled_at_ns: soon + 1,
             })
         } else {
             UpdateProto::Consent(ConsentSave {
                 entity_type,
                 state,
                 entity: "bad".into(),
-                consented_at_ns: i64::MAX,
+                consented_at_ns: soon + 1,
             })
         };
         let good =
@@ -411,7 +421,7 @@ mod tests {
             PreferenceUpdate::Consent(good.clone()).into(),
             PreferenceUpdate::Hmac {
                 key: vec![2; 42].into(),
-                cycled_at_ns: i64::MAX - 1,
+                cycled_at_ns: soon,
             }
             .into(),
         ];
@@ -430,11 +440,12 @@ mod tests {
         tester!(alix, disable_workers);
         let metrics = WorkerMetrics::new(alix.context.installation_id());
         let db = alix.context.db();
+        let soon = now_ns() + xmtp_common::NS_IN_HOUR;
         let hmac = |key: u8, cycled_at_ns| PreferenceUpdate::Hmac {
             key: vec![key; 42].into(),
             cycled_at_ns,
         };
-        let first: Vec<_> = [hmac(1, i64::MAX - 1), hmac(2, i64::MAX - 1)]
+        let first: Vec<_> = [hmac(1, soon), hmac(2, soon), hmac(9, i64::MAX)]
             .into_iter()
             .map(Into::into)
             .collect();
@@ -443,9 +454,9 @@ mod tests {
             StoredUserPreferences::load(&db)?.hmac_key,
             Some(vec![2; 42].into())
         );
-        assert_eq!(first.legacy, vec![hmac(2, i64::MAX - 1)]);
-        assert_eq!(first.public, vec![hmac(2, i64::MAX - 1)]);
-        let no_change: Vec<_> = [hmac(2, i64::MAX - 1), hmac(3, i64::MAX - 3)]
+        assert_eq!(first.legacy, vec![hmac(2, soon)]);
+        assert_eq!(first.public, vec![hmac(2, soon)]);
+        let no_change: Vec<_> = [hmac(2, soon), hmac(3, soon - 2)]
             .into_iter()
             .map(Into::into)
             .collect();
@@ -533,6 +544,7 @@ mod tests {
             (ConsentState::Allowed, 10),
             (ConsentState::Allowed, 30),
             (ConsentState::Denied, 20),
+            (ConsentState::Denied, i64::MAX),
         ]
         .map(|(state, consented_at_ns)| {
             PreferenceUpdate::Consent(StoredConsentRecord {

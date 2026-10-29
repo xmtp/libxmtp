@@ -1217,7 +1217,7 @@ async fn stored_preference_logs_omit_installation_id_and_secret_material() {
     let updates = vec![
         preference_sync::PreferenceUpdate::Hmac {
             key: key.clone().into(),
-            cycled_at_ns: i64::MAX - 1,
+            cycled_at_ns: now_ns() + xmtp_common::NS_IN_HOUR,
         }
         .into(),
         preference_sync::PreferenceUpdate::Consent(StoredConsentRecord::new(
