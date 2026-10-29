@@ -9,7 +9,9 @@ use crate::groups::GroupError;
 use crate::groups::intents::QueueIntent;
 use crate::tester;
 use crate::utils::TestMlsGroup;
-use crate::utils::test_mocks_helpers::set_test_mode_upload_malformed_keypackage;
+use crate::utils::test_mocks_helpers::{
+    RestoreKeyPackages, set_test_mode_upload_malformed_keypackage,
+};
 use xmtp_cryptography::{CredentialSign, XmtpInstallationCredential};
 use xmtp_db::group::GroupQueryArgs;
 use xmtp_id::associations::builder::SignatureRequestBuilder;
@@ -17,13 +19,6 @@ use xmtp_id::associations::test_utils::{WalletTestExt, add_wallet_signature};
 use xmtp_id::associations::unverified::UnverifiedSignature;
 use xmtp_id::associations::{InstallationKeyContext, MemberIdentifier};
 use xmtp_mls_validation::commit::extract_group_membership;
-
-struct RestoreKeyPackages;
-impl Drop for RestoreKeyPackages {
-    fn drop(&mut self) {
-        set_test_mode_upload_malformed_keypackage(false, None);
-    }
-}
 
 /// Requirement: when the backend serves no key package for one of an inbox's
 /// installations, the sender adds the inbox with its other installations and

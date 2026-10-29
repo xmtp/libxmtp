@@ -230,6 +230,9 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                 &mut failed_installations,
             )
             .await?;
+            // implements: FORK-062
+            let requested = installations.keys().cloned().collect();
+            note_retries(&requested, &failed_installations, now_ns());
             dependencies.changes = Some(MembershipDiffWithKeyPackages::new(
                 new_installations,
                 new_key_packages,
