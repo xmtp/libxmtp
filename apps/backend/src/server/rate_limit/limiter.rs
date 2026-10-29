@@ -79,6 +79,18 @@ impl<C: Clock> CountsEvictions for MemoryLimiter<C> {
     }
 }
 
+/// A limiter that tells the time it decides on, so a stream times its rent
+/// periods and paused reads on the clock its retry delays count on.
+pub(crate) trait TellsTime {
+    /// Nanoseconds since the clock's start.
+    fn now_ns(&self) -> u64;
+}
+impl<C: Clock> TellsTime for MemoryLimiter<C> {
+    fn now_ns(&self) -> u64 {
+        self.clock().now_ns()
+    }
+}
+
 /// A limiter with the deployment's limits: it resolves the limits that apply
 /// to a caller in a category and records evictions in the metric.
 pub(crate) struct BackendLimiter<L> {
@@ -184,5 +196,12 @@ impl<L> BackendLimiter<L> {
             .get()
             .map(|spends| spends.lock().clone())
             .unwrap_or_default()
+    }
+}
+
+impl<L: TellsTime> BackendLimiter<L> {
+    /// The time on the limiter's clock.
+    pub(super) fn now(&self) -> Duration {
+        Duration::from_nanos(self.limiter.now_ns())
     }
 }

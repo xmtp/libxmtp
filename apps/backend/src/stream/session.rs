@@ -3,11 +3,13 @@ use super::{
     keepalive::{Challenge, checked_deadline},
     output::{Frame, Reservation, SessionOutput, WireResponse},
     registry::{LiveBatch, Mailbox},
+    rent::{Due, Rent},
 };
 use crate::{
     api,
-    config::{DELIVERY_FRAME_BYTES, ValidatedConfig},
+    config::{Category, DELIVERY_FRAME_BYTES, ValidatedConfig},
     db,
+    server::rate_limit::{Charger, Denied},
     stream::StreamEnd,
     stream::fetch::Request,
     telemetry::{self, DeliveryPhase, Frame as MetricFrame, StreamKind, UpdateOutcome},
@@ -45,6 +47,8 @@ struct PendingUpdate {
     topics: Vec<Vec<u8>>,
     heads: BoxFuture<'static, Result<Vec<i64>, Status>>,
 }
+/// An update's new topics, each with the cursor its delivery starts above.
+type Adds = Vec<(Vec<u8>, i64)>;
 struct PendingFetch {
     requests: Vec<Request>,
     page: BoxFuture<'static, Result<fetch::ResultPage, Status>>,
@@ -71,6 +75,12 @@ struct Session {
     challenge: Option<Challenge>,
     nonce: u64,
     outbound_wait: Option<Instant>,
+    /// Spends the stream's rent and reads for its caller.
+    charger: Charger,
+    /// `None` while rate limits are off.
+    rent: Option<Rent>,
+    /// No catch-up read starts before this time on the limiter's clock.
+    reads_resume_at: Option<Duration>,
 }
 
 impl Drop for Session {
@@ -89,29 +99,33 @@ impl Drop for Session {
 
 /// Open one native ingestion session. Dropping its output wakes the owner,
 /// cancels pending fetches, and removes every shared registration.
-pub(crate) fn native(
+pub(crate) async fn native(
     hub: Arc<StreamHub>,
     config: Arc<ValidatedConfig>,
     input: Streaming<api::SubscribeRequest>,
     request_id: uuid::Uuid,
+    charger: Charger,
 ) -> Result<impl futures::Stream<Item = Result<api::SubscribeResponse, Status>> + Send, Status> {
     Ok(
-        start(hub, config, Box::pin(input), request_id, None)?.map(|result| {
-            result.and_then(|value| match value {
-                WireResponse::Native(value) => Ok(value),
-                _ => Err(Status::internal("native response mismatch")),
-            })
-        }),
+        start(hub, config, Box::pin(input), request_id, charger, None)
+            .await?
+            .map(|result| {
+                result.and_then(|value| match value {
+                    WireResponse::Native(value) => Ok(value),
+                    _ => Err(Status::internal("native response mismatch")),
+                })
+            }),
     )
 }
 
 /// Use the same ordered delivery owner with a fixed interest set. The unary
 /// request's end is not connected to the native half-close signal.
-pub(crate) fn static_subscription(
+pub(crate) async fn static_subscription(
     hub: Arc<StreamHub>,
     config: Arc<ValidatedConfig>,
     topics: Vec<api::TopicQuery>,
     request_id: uuid::Uuid,
+    charger: Charger,
 ) -> Result<impl futures::Stream<Item = Result<api::SubscribeStaticResponse, Status>> + Send, Status>
 {
     if topics.is_empty() || topics.len() > config.limits.max_static_topics {
@@ -122,8 +136,10 @@ pub(crate) fn static_subscription(
         config,
         Box::pin(futures::stream::pending()),
         request_id,
+        charger,
         Some(topics),
-    )?
+    )
+    .await?
     .map(|result| {
         result.and_then(|value| match value {
             WireResponse::Static(value) => Ok(value),
@@ -132,11 +148,12 @@ pub(crate) fn static_subscription(
     }))
 }
 
-fn start(
+async fn start(
     hub: Arc<StreamHub>,
     config: Arc<ValidatedConfig>,
     input: BoxStream<'static, Result<api::SubscribeRequest, Status>>,
     request_id: uuid::Uuid,
+    charger: Charger,
     initial: Option<Vec<api::TopicQuery>>,
 ) -> Result<SessionOutput, Status> {
     let mailbox = Arc::new(Mailbox {
@@ -181,14 +198,11 @@ fn start(
         challenge: None,
         nonce: 0,
         outbound_wait: None,
+        charger,
+        rent: None,
+        reads_resume_at: None,
     };
-    if let Some(topics) = initial {
-        session.update(api::subscribe_request::Update {
-            id: 1,
-            adds: topics,
-            removes: Vec::new(),
-        })?;
-    }
+    session.open(initial).await?;
     let terminal = mailbox.terminal.clone();
     let span = tracing::Span::current();
     let dispatch = tracing::dispatcher::get_default(Clone::clone);
@@ -246,26 +260,27 @@ impl Session {
             }
             self.mail()?;
             if let Some(frame) = pending_input.pop_front() {
-                self.input(frame)?;
+                self.input(frame).await?;
                 continue;
             }
             if self.pending_update.is_none()
                 && let Some(update) = self.deferred_updates.pop_front()
             {
                 self.deferred_bytes -= update.encoded_len();
-                self.update(update)?;
+                self.update(update).await?;
             }
             if self.fetching.is_none() {
-                self.fetching = self.start_fetch();
+                self.fetching = self.next_fetch().await;
             }
             let timer = self.timer();
+            let charges = self.charge_timer();
             let mailbox = self.mailbox.clone();
             tokio::select! {
                 // Recheck cancellation and terminal errors on the next turn.
                 _ = mailbox.terminal.wake.notified() => {},
                 // Process the next client request, or close on end of stream.
                 frame = input.next() => match frame {
-                    Some(frame) => self.input(frame?)?,
+                    Some(frame) => self.input(frame?).await?,
                     None => return Ok(()),
                 },
                 // Queue the update acknowledgement before scheduling its history.
@@ -308,6 +323,9 @@ impl Session {
                         return Ok(());
                     }
                 },
+                // Pay the rent of a period that began; paused reads resume
+                // on the next turn.
+                _ = charges => self.renew().await?,
             }
         }
     }
@@ -323,6 +341,81 @@ impl Session {
             }
         };
         sleep(deadline.saturating_duration_since(Instant::now())).boxed()
+    }
+
+    /// Wake when the next rent period begins or paused catch-up reads may
+    /// resume. Both are times on the limiter's clock.
+    fn charge_timer(&self) -> BoxFuture<'static, ()> {
+        let Some(now) = self.charger.now() else {
+            return pending().boxed();
+        };
+        let deadline = self
+            .rent
+            .as_ref()
+            .map(Rent::renews_at)
+            .into_iter()
+            .chain(self.reads_resume_at)
+            .min();
+        match deadline {
+            Some(deadline) => sleep(deadline.saturating_sub(now)).boxed(),
+            None => pending().boxed(),
+        }
+    }
+
+    /// Pay the first period's rent before registering anything: no topics
+    /// for a native stream, every topic of the request for a static one,
+    /// whose checks that read no stored state come first.
+    // implements: RATE-030
+    async fn open(&mut self, initial: Option<Vec<api::TopicQuery>>) -> Result<(), Status> {
+        let Some(adds) = initial else {
+            return self.pay_open_rent(0).await;
+        };
+        let update = api::subscribe_request::Update {
+            id: 1,
+            adds,
+            removes: Vec::new(),
+        };
+        let (adds, _) = self.validate_update(&update).map_err(|error| {
+            telemetry::stream_updated(UpdateOutcome::Invalid);
+            self.fail(error, StreamEnd::Invalid)
+        })?;
+        self.pay_open_rent(update.adds.len()).await?;
+        self.register(update, adds)
+    }
+
+    async fn pay_open_rent(&mut self, topics: usize) -> Result<(), Status> {
+        let Some(now) = self.charger.now() else {
+            return Ok(());
+        };
+        let (rent, due) = Rent::open(now, topics);
+        self.rent = Some(rent);
+        self.pay_rent(due).await
+    }
+
+    /// Pay the rent of a period that has begun, for the topics registered
+    /// now. A stream that fell behind pays each period on its own turn.
+    // implements: RATE-030
+    async fn renew(&mut self) -> Result<(), Status> {
+        let topics = self.topics.len();
+        let due = match (&mut self.rent, self.charger.now()) {
+            (Some(rent), Some(now)) => rent.renew(now, topics),
+            _ => None,
+        };
+        match due {
+            Some(due) => self.pay_rent(due).await,
+            None => Ok(()),
+        }
+    }
+
+    /// A denied rent payment ends the stream: only ending it releases what it
+    /// holds. The rejection's delay covers the whole rent a replacement
+    /// stream pays for the same topics.
+    // implements: RATE-032
+    async fn pay_rent(&mut self, due: Due) -> Result<(), Status> {
+        self.charger
+            .charge_covering(Category::StreamRent, due.cost, due.whole)
+            .await
+            .map_err(|denied| self.fail(denied.status, StreamEnd::RateLimited))
     }
 
     /// Inspect already buffered input before failing an expired challenge.
@@ -381,11 +474,8 @@ impl Session {
                             telemetry::stream_updated(UpdateOutcome::Invalid);
                         }
                     })?;
-                    if matches!(
-                        &frame.request,
-                        Some(api::subscribe_request::Request::Ping(_))
-                    ) {
-                        self.input(frame)?;
+                    if let Some(api::subscribe_request::Request::Ping(ping)) = frame.request {
+                        self.ping(ping)?;
                     } else {
                         pending_input.push_back(frame);
                     }
@@ -417,7 +507,7 @@ impl Session {
     }
 
     // implements: API-258
-    fn input(&mut self, frame: api::SubscribeRequest) -> Result<(), Status> {
+    async fn input(&mut self, frame: api::SubscribeRequest) -> Result<(), Status> {
         match frame
             .request
             .ok_or_else(|| Status::invalid_argument("request is absent"))?
@@ -446,26 +536,29 @@ impl Session {
                     self.deferred_updates.push_back(update);
                     Ok(())
                 } else {
-                    self.update(update)
+                    self.update(update).await
                 }
             }
-            api::subscribe_request::Request::Ping(ping) => {
-                telemetry::stream_frame_received(MetricFrame::Ping);
-                if !self.pings.take() {
-                    return Err(self.fail(
-                        Status::resource_exhausted("ping rate exceeded"),
-                        StreamEnd::RateLimited,
-                    ));
-                }
-                self.control(api::subscribe_response::Response::Pong(api::Pong {
-                    nonce: ping.nonce,
-                }))
-            }
+            api::subscribe_request::Request::Ping(ping) => self.ping(ping),
             api::subscribe_request::Request::Pong(pong) => {
                 telemetry::stream_frame_received(MetricFrame::Pong);
                 self.pong(pong.nonce)
             }
         }
+    }
+
+    // implements: API-258
+    fn ping(&mut self, ping: api::Ping) -> Result<(), Status> {
+        telemetry::stream_frame_received(MetricFrame::Ping);
+        if !self.pings.take() {
+            return Err(self.fail(
+                Status::resource_exhausted("ping rate exceeded"),
+                StreamEnd::RateLimited,
+            ));
+        }
+        self.control(api::subscribe_response::Response::Pong(api::Pong {
+            nonce: ping.nonce,
+        }))
     }
 
     /// Complete only the matching challenge after its Ping reached transport.
@@ -487,15 +580,61 @@ impl Session {
         Ok(())
     }
 
-    /// Validate the complete update before changing interests. Register all new
-    /// topics before starting their head read; no history may precede Applied.
+    /// Validate the complete update, then pay for it, before changing
+    /// interests.
     #[xmtp_common::span(prefix = "stream")]
     // implements: API-253
-    fn update(&mut self, update: api::subscribe_request::Update) -> Result<(), Status> {
-        let adds = self.validate_update(&update).map_err(|error| {
+    async fn update(&mut self, update: api::subscribe_request::Update) -> Result<(), Status> {
+        let (adds, topics) = self.validate_update(&update).map_err(|error| {
             telemetry::stream_updated(UpdateOutcome::Invalid);
             self.fail(error, StreamEnd::Invalid)
         })?;
+        self.pay_for_update(&adds, topics).await?;
+        self.register(update, adds)
+    }
+
+    /// Pay the rent an update raises, then the read of its catch-up target
+    /// when it newly registers a topic. A denial of either ends the stream
+    /// before any topic of the update is registered or its `Applied` sent;
+    /// a denied rent spend leaves the target read unspent.
+    // implements: RATE-031, RATE-034
+    async fn pay_for_update(
+        &mut self,
+        adds: &[(Vec<u8>, i64)],
+        topics: usize,
+    ) -> Result<(), Status> {
+        let rent = self.rent.as_mut().and_then(|rent| rent.top_up(topics));
+        let new = adds
+            .iter()
+            .any(|(topic, _)| !self.topics.contains_key(topic));
+        let paid = async {
+            if let Some(due) = rent {
+                self.charger
+                    .charge_covering(Category::StreamRent, due.cost, due.whole)
+                    .await?;
+            }
+            if new {
+                // A replacement stream pays its `Subscribe` and this read again.
+                self.charger
+                    .charge_covering(Category::Request, 1, 2)
+                    .await?;
+            }
+            Ok::<_, Denied>(())
+        }
+        .await;
+        paid.map_err(|denied| {
+            telemetry::stream_updated(UpdateOutcome::RateLimited);
+            self.fail(denied.status, StreamEnd::RateLimited)
+        })
+    }
+
+    /// Register all new topics before starting their head read; no history
+    /// may precede Applied.
+    fn register(
+        &mut self,
+        update: api::subscribe_request::Update,
+        adds: Adds,
+    ) -> Result<(), Status> {
         self.update_id = update.id;
         let mut removed_topics = 0;
         for topic in update.removes {
@@ -599,10 +738,11 @@ impl Session {
         }
     }
 
+    /// The update's adds, and the number of topics it leaves registered.
     fn validate_update(
         &self,
         update: &api::subscribe_request::Update,
-    ) -> Result<Vec<(Vec<u8>, i64)>, Status> {
+    ) -> Result<(Adds, usize), Status> {
         let adds = self.validate_update_fields(update)?;
         let mut total = self.topics.len();
         for (topic, _) in &adds {
@@ -620,7 +760,7 @@ impl Session {
         {
             return Err(Status::invalid_argument("stream topic limit exceeded"));
         }
-        Ok(adds)
+        Ok((adds, total))
     }
 
     fn validate_update_fields(
@@ -686,8 +826,42 @@ impl Session {
         }
     }
 
-    /// Reserve one bounded data frame before scheduling at most one fair turn.
-    fn start_fetch(&mut self) -> Option<PendingFetch> {
+    /// Pay 1 `request` unit for the next fair turn's read before it starts.
+    /// A denial pauses every catch-up read until its delay has passed and
+    /// keeps the stream open. Floors do not move, so the turn reads the same
+    /// envelopes when it runs.
+    // implements: RATE-033
+    async fn next_fetch(&mut self) -> Option<PendingFetch> {
+        if let Some(resume_at) = self.reads_resume_at {
+            if self.charger.now().is_some_and(|now| now < resume_at) {
+                return None;
+            }
+            self.reads_resume_at = None;
+        }
+        let (reservation, budget) = self.reserve_turn()?;
+        match self.charger.charge_covering(Category::Request, 1, 1).await {
+            Ok(()) => self.start_fetch(reservation, budget),
+            Err(denied) => {
+                self.reads_resume_at = self
+                    .charger
+                    .now()
+                    .map(|now| now.saturating_add(denied.retry_after));
+                None
+            }
+        }
+    }
+
+    /// Reserve one bounded data frame for the next fair turn. Entries that a
+    /// removal or an earlier turn made stale are dropped first, so a reserved
+    /// turn always reads at least one registration.
+    fn reserve_turn(&mut self) -> Option<(Reservation, usize)> {
+        while let Some((topic, generation)) = self.ready.front()
+            && !self.topics.get(topic).is_some_and(|registration| {
+                registration.queued && registration.generation == *generation
+            })
+        {
+            self.ready.pop_front();
+        }
         if self.ready.is_empty() {
             self.finish_outbound_wait();
             return None;
@@ -706,6 +880,11 @@ impl Session {
             return None;
         };
         self.finish_outbound_wait();
+        Some((reservation, budget))
+    }
+
+    /// Schedule at most one fair turn into a reserved data frame.
+    fn start_fetch(&mut self, reservation: Reservation, budget: usize) -> Option<PendingFetch> {
         let mut requests = Vec::new();
         while requests.len() < FETCH_TOPICS {
             let Some((topic, generation)) = self.ready.pop_front() else {

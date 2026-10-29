@@ -113,7 +113,9 @@ pub use xmtp_rate_limit::ManualClock;
 pub struct SpendRecord {
     pub category: crate::config::Category,
     pub cost: u32,
-    /// The retry delay of a denied spend; `None` for an admitted one.
+    /// The retry delay a denial reported; `None` for an admitted spend. A
+    /// stream step's denial reports the delay of the larger spend a
+    /// replacement stream makes.
     pub retry_after: Option<std::time::Duration>,
     /// When the limiter decided it.
     pub at: std::time::Instant,

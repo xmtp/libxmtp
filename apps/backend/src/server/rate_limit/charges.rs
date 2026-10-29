@@ -39,11 +39,11 @@ pub(crate) static CHARGES: &[(&str, Charges)] = &[
     ),
     (
         "/xmtp.backend.v1.SubscriptionService/Subscribe",
-        Charges::Charged(&[Request]),
+        Charges::Charged(&[Request, StreamRent]),
     ),
     (
         "/xmtp.backend.v1.SubscriptionService/SubscribeStatic",
-        Charges::Charged(&[Request]),
+        Charges::Charged(&[Request, StreamRent]),
     ),
     (
         "/xmtp.backend.v1.IdentityService/GetInboxIds",
