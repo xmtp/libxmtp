@@ -5,7 +5,7 @@
 
 use super::BACKUP_VERSION;
 use crate::archive_options::ArchiveOptions;
-use crate::{ArchiveError, NONCE_SIZE, snapshot, util::GenericArrayExt};
+use crate::{ArchiveError, MAX_FRAME_BYTES, NONCE_SIZE, snapshot, util::GenericArrayExt};
 use aes_gcm::aead::Aead;
 use async_compression::futures::write::ZstdEncoder;
 use futures::{FutureExt, io::AllowStdIo};
@@ -70,6 +70,11 @@ impl<W: io::Write> ElementWriter<W> {
         .encode_to_vec();
         let ciphertext = self.cipher.encrypt(&self.nonce, &*plaintext)?;
         self.nonce.increment();
+        if ciphertext.len() > MAX_FRAME_BYTES {
+            return Err(ArchiveError::InvalidFrame(
+                "frame longer than the archive frame limit",
+            ));
+        }
         let length = u32::try_from(ciphertext.len())
             .map_err(|_| io::Error::other("archive frame exceeds u32 length"))?;
         ready(self.zstd.write_all(&length.to_le_bytes()))?;
