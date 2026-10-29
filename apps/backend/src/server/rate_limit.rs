@@ -193,6 +193,7 @@ impl Charger {
         }
         #[cfg(any(test, feature = "test-utils"))]
         caller.limiter.record(crate::test_support::SpendRecord {
+            caller: caller.key.clone(),
             category,
             cost: u32::try_from(cost).unwrap_or(u32::MAX),
             retry_after: match decision {

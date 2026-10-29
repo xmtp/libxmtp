@@ -111,6 +111,8 @@ pub use xmtp_rate_limit::ManualClock;
 /// One spend a running server's rate limiter decided.
 #[derive(Clone, Debug)]
 pub struct SpendRecord {
+    /// The caller it was charged to.
+    pub caller: crate::config::CallerKey,
     pub category: crate::config::Category,
     pub cost: u32,
     /// The retry delay a denial reported; `None` for an admitted spend. A
