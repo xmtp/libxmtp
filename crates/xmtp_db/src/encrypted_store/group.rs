@@ -920,7 +920,17 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
         };
 
         let includes_unknown = effective_consent_states.contains(&ConsentState::Unknown);
-        let includes_all = effective_consent_states.len() == 3;
+        // "All states requested" means the request covers every distinct
+        // ConsentState, not merely that it has three elements — a caller passing
+        // duplicates (e.g. `[Allowed, Allowed, Allowed]`) must not be treated as
+        // an unfiltered query and leak Denied/Unknown conversations.
+        let includes_all = [
+            ConsentState::Allowed,
+            ConsentState::Denied,
+            ConsentState::Unknown,
+        ]
+        .iter()
+        .all(|state| effective_consent_states.contains(state));
 
         if let Some(should_publish_commit_log) = should_publish_commit_log {
             query = query.filter(dsl::should_publish_commit_log.eq(should_publish_commit_log));
@@ -1947,7 +1957,7 @@ pub(crate) mod tests {
     }
 
     // verifies: CONS-030, SYNC-005
-    #[xmtp_common::test]
+    #[xmtp_common::test(unwrap_try = true)]
     fn test_find_groups_by_consent_state() {
         with_connection(|conn| {
             let test_group_1 = generate_group(Some(GroupMembershipState::Allowed));
@@ -1978,62 +1988,43 @@ pub(crate) mod tests {
             );
             test_group_3_consent.store(conn).unwrap();
 
-            let all_results = conn
-                .find_groups(GroupQueryArgs {
-                    consent_states: Some(vec![
-                        ConsentState::Allowed,
-                        ConsentState::Unknown,
-                        ConsentState::Denied,
-                    ]),
-                    ..Default::default()
-                })
-                .unwrap();
-            assert_eq!(all_results.len(), 4);
-
-            let default_results = conn.find_groups(GroupQueryArgs::default()).unwrap();
-            assert_eq!(default_results.len(), 3);
-
-            let allowed_results = conn
-                .find_groups(GroupQueryArgs {
-                    consent_states: Some(vec![ConsentState::Allowed]),
-                    ..Default::default()
-                })
-                .unwrap();
-            assert_eq!(allowed_results.len(), 2);
-
-            let allowed_unknown_results = conn
-                .find_groups(GroupQueryArgs {
-                    consent_states: Some(vec![ConsentState::Allowed, ConsentState::Unknown]),
-                    ..Default::default()
-                })
-                .unwrap();
-            assert_eq!(allowed_unknown_results.len(), 3);
-
-            let denied_results = conn
-                .find_groups(GroupQueryArgs {
-                    consent_states: Some(vec![ConsentState::Denied]),
-                    ..Default::default()
-                })
-                .unwrap();
-            assert_eq!(denied_results.len(), 1);
-            assert_eq!(denied_results[0].id, test_group_2.id);
-
-            let unknown_results = conn
-                .find_groups(GroupQueryArgs {
-                    consent_states: Some(vec![ConsentState::Unknown]),
-                    ..Default::default()
-                })
-                .unwrap();
-            assert_eq!(unknown_results.len(), 1);
-            assert_eq!(unknown_results[0].id, test_group_4.id);
-
-            let empty_array_results = conn
-                .find_groups(GroupQueryArgs {
-                    consent_states: Some(vec![]),
-                    ..Default::default()
-                })
-                .unwrap();
-            assert!(empty_array_results.is_empty());
+            use ConsentState::{Allowed, Denied, Unknown};
+            let (g1, g2, g3, g4) = (
+                &test_group_1.id,
+                &test_group_2.id,
+                &test_group_3.id,
+                &test_group_4.id,
+            );
+            // Repeats do not count toward naming every state.
+            let cases = [
+                (Some(vec![Allowed, Unknown, Denied]), vec![g1, g2, g3, g4]),
+                (None, vec![g1, g3, g4]),
+                (Some(vec![Allowed]), vec![g1, g3]),
+                (Some(vec![Allowed, Unknown]), vec![g1, g3, g4]),
+                (Some(vec![Denied]), vec![g2]),
+                (Some(vec![Unknown]), vec![g4]),
+                (Some(vec![]), vec![]),
+                (Some(vec![Allowed, Allowed, Allowed]), vec![g1, g3]),
+                (Some(vec![Allowed, Denied, Denied]), vec![g1, g2, g3]),
+                (Some(vec![Unknown, Unknown, Allowed]), vec![g1, g3, g4]),
+            ];
+            for (consent_states, mut expected) in cases {
+                let mut ids: Vec<_> = conn
+                    .find_groups(GroupQueryArgs {
+                        consent_states: consent_states.clone(),
+                        ..Default::default()
+                    })?
+                    .into_iter()
+                    .map(|group| group.id)
+                    .collect();
+                ids.sort();
+                expected.sort();
+                assert_eq!(
+                    ids.iter().collect::<Vec<_>>(),
+                    expected,
+                    "{consent_states:?}"
+                );
+            }
 
             let mut sync_group = generate_group(Some(GroupMembershipState::Allowed));
             sync_group.conversation_type = ConversationType::Sync;
