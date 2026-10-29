@@ -768,12 +768,13 @@ async fn sync_group_commit_adding_another_inbox_is_rejected() {
     assert!(group.add_members(&[eve.inbox_id()]).await.is_err());
     let topic = xmtp_db::incoming_envelope::StreamTopic::group(group.group_id);
     let db = alix2.context.db();
-    xmtp_common::wait_for_some(|| async {
+    let rejection = xmtp_common::wait_for_some(|| async {
         let _ = alix2_group.sync().await;
         db.read_last_rejection(&topic).unwrap()
     })
     .await
     .expect("alix2 did not reject the commit");
+    assert_eq!(rejection.code, "commit_validation_failure");
 
     let members = alix2_group.members().await?;
     assert!(members.iter().all(|m| m.inbox_id != eve.inbox_id()));

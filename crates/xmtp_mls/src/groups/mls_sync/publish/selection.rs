@@ -34,7 +34,7 @@ pub(super) struct SelectionRequirements {
     readds: HashSet<Vec<u8>>,
     can_replace: HashSet<Vec<u8>>,
     is_super_admin: bool,
-    /// The creator's inbox, the only one a sync group may hold (SYNC-010).
+    /// The creator's inbox, the only one a sync group may hold.
     sync_creator: Option<String>,
     /// Each leaf's installation and inbox.
     leaves: HashMap<LeafNodeIndex, (Vec<u8>, String)>,
@@ -256,11 +256,7 @@ impl SelectionRequirements {
                 continue;
             };
             // implements: SYNC-010
-            if self
-                .sync_creator
-                .as_ref()
-                .is_some_and(|creator| key.to_hex() != *creator)
-            {
+            if matches!(&self.sync_creator, Some(creator) if *creator != key.to_hex()) {
                 return Ok(true);
             }
             // An error here would block every commit of pending proposals.

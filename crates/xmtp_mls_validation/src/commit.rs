@@ -26,13 +26,11 @@ use xmtp_mls_common::{
     group_mutable_metadata::{GroupMutableMetadata, GroupMutableMetadataError, MetadataField},
     libxmtp_version::{InvalidVersionFormat, LibXMTPVersion},
 };
-use xmtp_proto::{
-    types::ConversationType,
-    xmtp::{
-        identity::MlsCredential,
-        mls::message_contents::group_updated::{
-            Inbox as InboxProto, MetadataFieldChange as MetadataFieldChangeProto,
-        },
+use xmtp_proto::types::ConversationType;
+use xmtp_proto::xmtp::{
+    identity::MlsCredential,
+    mls::message_contents::group_updated::{
+        Inbox as InboxProto, MetadataFieldChange as MetadataFieldChangeProto,
     },
 };
 
