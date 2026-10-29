@@ -452,7 +452,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
         requirements: &PublishRequirements,
         dependencies: &mut PublishDependencies,
     ) -> Result<Option<PreparedAttempt>, GroupError> {
-        crate::state_tx::state_write(self.context.mls_storage(), |tx| {
+        crate::state_tx::state_write_durable(self.context.mls_storage(), |tx| {
             let mut no_op = None;
             let result = tx.savepoint(|tx| {
                 tx.with_group(self.group_id, |group, storage| {
