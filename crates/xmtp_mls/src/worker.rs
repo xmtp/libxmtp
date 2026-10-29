@@ -451,12 +451,15 @@ pub trait Worker: MaybeSend + MaybeSync + 'static {
                         } else {
                             tracing::error!(worker = %worker, "{:?} worker error: {}", kind, err);
                             // A restart resends the refused work, so it waits
-                            // out a rate-limit delay first.
+                            // out a rate-limit delay first. A delay too large
+                            // for the clock saturates instead of overflowing.
                             // implements: RATE-041
                             let delay = err.restart_delay().map_or(WORKER_RESTART_DELAY, |delay| {
                                 delay.max(WORKER_RESTART_DELAY)
                             });
-                            xmtp_common::time::sleep(delay).await;
+                            let now = xmtp_common::time::Instant::now();
+                            let until = xmtp_common::time::saturating_after(now, delay);
+                            xmtp_common::time::sleep(until.saturating_duration_since(now)).await;
                             tracing::info!(worker = %worker, "Restarting {:?} worker...", kind);
                         }
                     }
@@ -856,6 +859,8 @@ mod restart_tests {
     /// A worker whose every turn is refused by a rate limit.
     struct RateLimited {
         runs: Arc<AtomicUsize>,
+        /// The rejection each turn fails with.
+        status: tonic::Status,
     }
 
     struct NoFactory;
@@ -879,10 +884,7 @@ mod restart_tests {
         async fn run_tasks(&mut self) -> Result<(), Box<dyn NeedsDbReconnect>> {
             self.runs.fetch_add(1, Ordering::SeqCst);
             let refused = xmtp_api::ApiError::Api(xmtp_proto::api::NetworkError::new(
-                xmtp_api_grpc::error::GrpcError::Status(xmtp_api_grpc::error::rate_limited_status(
-                    "request",
-                    Duration::from_secs(300),
-                )),
+                xmtp_api_grpc::error::GrpcError::Status(self.status.clone()),
             ));
             Err(Box::new(crate::groups::commit_log::CommitLogError::Api(
                 refused,
@@ -905,12 +907,34 @@ mod restart_tests {
         tokio::time::pause();
         let runs = Arc::new(AtomicUsize::new(0));
         let cancel = CancellationToken::new();
-        let worker = Box::new(RateLimited { runs: runs.clone() });
+        let worker = Box::new(RateLimited {
+            runs: runs.clone(),
+            status: xmtp_api_grpc::error::rate_limited_status("request", Duration::from_secs(300)),
+        });
         let handle = tokio::spawn(worker.spawn(cancel.clone()));
         tokio::time::sleep(Duration::from_secs(10)).await;
         assert_eq!(runs.load(Ordering::SeqCst), 1);
         tokio::time::sleep(Duration::from_secs(300)).await;
         assert_eq!(runs.load(Ordering::SeqCst), 2);
+        cancel.cancel();
+        handle.await?;
+    }
+
+    /// A delay too large for the clock holds the restart without a panic,
+    /// which a release build would turn into an abort.
+    // verifies: RATE-041
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn an_out_of_range_delay_holds_the_restart_without_panicking() {
+        tokio::time::pause();
+        let runs = Arc::new(AtomicUsize::new(0));
+        let cancel = CancellationToken::new();
+        let worker = Box::new(RateLimited {
+            runs: runs.clone(),
+            status: xmtp_api_grpc::error::rate_limited_status_raw(i64::MAX, 0),
+        });
+        let handle = tokio::spawn(worker.spawn(cancel.clone()));
+        tokio::time::sleep(Duration::from_secs(365 * 24 * 60 * 60)).await;
+        assert_eq!(runs.load(Ordering::SeqCst), 1);
         cancel.cancel();
         handle.await?;
     }
