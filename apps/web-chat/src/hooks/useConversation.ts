@@ -69,7 +69,8 @@ export const useConversation = (conversationId: string) => {
 
       try {
         // One messages call returns one page. Read ascending pages after the
-        // last seen message until a page is short.
+        // last seen message until a page is empty: a page can be short while
+        // more messages follow, when the SDK drops a row it cannot convert.
         const msgs: XmtpMessage[] = [];
         const seen = new Set<string>();
         let sentAfter = inboxStore.getState().lastSentAt.get(conversationId);
@@ -80,19 +81,21 @@ export const useConversation = (conversationId: string) => {
             direction: "ascending",
             limit: MESSAGE_PAGE_LIMIT,
           });
+          const last = page.at(-1);
+          if (last === undefined) break;
+          let added = false;
           for (const message of page) {
             if (!seen.has(message.id)) {
               seen.add(message.id);
               msgs.push(message);
+              added = true;
             }
           }
-          const last = page.at(-1);
-          if (page.length < MESSAGE_PAGE_LIMIT || last === undefined) break;
-          // Read the last page's final time again, so messages that share it
-          // are not skipped. A page that holds only that time moves past it.
+          // Read the page's final send time again, so messages that share it
+          // are not skipped. A page with nothing new moves past that time.
           const retry = last.sentAt.ns - 1n;
           sentAfter =
-            sentAfter === undefined || retry > sentAfter
+            added && (sentAfter === undefined || retry > sentAfter)
               ? retry
               : last.sentAt.ns;
         }
