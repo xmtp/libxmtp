@@ -333,7 +333,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
         let limits = self.context.api().limits();
         // An ended intent is committed with the writer; its error is returned
         // after it.
-        crate::state_tx::state_write(self.context.mls_storage(), |tx| {
+        crate::state_tx::state_write_durable(self.context.mls_storage(), |tx| {
             let storage = tx.storage();
             let db = storage.db();
             let Some(intent) = Fetch::<StoredGroupIntent>::fetch(&db, &id)? else {

@@ -90,6 +90,29 @@ where
     })
 }
 
+/// Sync the write before returning queued work or publishing it.
+pub(crate) fn state_write_durable<S, R, E>(
+    storage: &S,
+    operation: impl FnOnce(&mut StateTx<'_, S::TxQuery>) -> Result<TransactionOutcome<R>, E>,
+) -> Result<TransactionOutcome<R>, E>
+where
+    S: XmtpMlsStorageProvider,
+    E: From<xmtp_db::diesel::result::Error> + From<xmtp_db::ConnectionError> + std::error::Error,
+{
+    storage.durable_transaction(|query| {
+        let outcome = operation(&mut StateTx { query })?;
+        #[cfg(all(test, not(target_arch = "wasm32")))]
+        if matches!(outcome, TransactionOutcome::Continue(_)) && precommit_test_hook::is_set() {
+            use xmtp_db::ConnectionExt;
+            query.key_store().db().raw_query(|conn| {
+                precommit_test_hook::run(conn);
+                Ok(())
+            })?;
+        }
+        Ok(outcome)
+    })
+}
+
 /// Flush this write's events only after its database transaction commits.
 pub(crate) fn state_write_with_events<S, R, E>(
     storage: &S,
@@ -113,6 +136,27 @@ where
         }
     });
     result.expect("state write produced a result")
+}
+
+pub(crate) fn state_write_with_events_durable<S, R, E>(
+    storage: &S,
+    bus: &EventBus<InternalEvent>,
+    operation: impl FnOnce(
+        &mut StateTx<'_, S::TxQuery>,
+        &EventBuffer<'_, InternalEvent>,
+    ) -> Result<TransactionOutcome<R>, E>,
+) -> Result<TransactionOutcome<R>, E>
+where
+    S: XmtpMlsStorageProvider,
+    E: From<xmtp_db::diesel::result::Error> + From<xmtp_db::ConnectionError> + std::error::Error,
+{
+    bus.with_buffer(
+        |events| match state_write_durable(storage, |tx| operation(tx, events)) {
+            result @ Ok(TransactionOutcome::Continue(_)) => Ok(result),
+            result => Err(result),
+        },
+    )
+    .unwrap_or_else(|result| result)
 }
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
@@ -174,6 +218,88 @@ mod event_tests {
         prelude::*,
     };
     use xmtp_events::{ClientEvent, EventFilter, EventKind};
+
+    #[cfg(not(target_arch = "wasm32"))]
+    // verifies: STORE-026, SEND-001, SEND-006
+    #[rstest::rstest]
+    #[case::queue("queue")]
+    #[case::attempt("attempt")]
+    #[case::welcomes("welcomes")]
+    #[case::key_package("key_package")]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn publication_prepare_points_are_durable(
+        #[case] site: &'static str,
+    ) -> Result<(), crate::groups::GroupError> {
+        use crate::groups::mls_sync::publish::PreparedAttempt;
+        use std::{cell::Cell, rc::Rc};
+        use xmtp_db::{
+            ConnectionExt,
+            diesel::{self, prelude::*},
+            schema::group_intents,
+        };
+        #[derive(QueryableByName)]
+        struct Scalar {
+            #[diesel(sql_type = diesel::sql_types::Integer)]
+            value: i32,
+        }
+        tester!(alix, persistent_db, disable_workers);
+        tester!(bo, persistent_db, disable_workers);
+        let group = alix.create_group(None, None)?;
+        let count = match site {
+            "key_package" => "SELECT COUNT(*) AS value FROM key_package_history",
+            _ => "SELECT COUNT(*) AS value FROM group_messages",
+        };
+        let scalar = |conn: &mut diesel::SqliteConnection, sql: &str| {
+            let Scalar { value } = diesel::sql_query(sql).get_result(conn).unwrap();
+            value
+        };
+        let db = alix.context.db();
+        let before = db.raw_query(|conn| Ok(scalar(conn, count)))?;
+        let observed = Rc::new(Cell::new(None));
+        let record = observed.clone();
+        let _hook = precommit_test_hook::install(move |conn| {
+            if record.get().is_some() {
+                return;
+            }
+            let appeared = match site {
+                "queue" | "key_package" => scalar(conn, count) > before,
+                _ => group_intents::table
+                    .select(group_intents::prepared_envelopes)
+                    .load::<Option<Vec<u8>>>(conn)
+                    .unwrap()
+                    .into_iter()
+                    .flatten()
+                    .any(|bytes| {
+                        site == "attempt"
+                            || PreparedAttempt::decode(&bytes).unwrap().welcomes.is_some()
+                    }),
+            };
+            if appeared {
+                record.set(Some(scalar(
+                    conn,
+                    "SELECT synchronous AS value FROM pragma_synchronous",
+                )));
+            }
+        });
+        match site {
+            "queue" => {
+                group.send_message_optimistic(b"durable", Default::default())?;
+            }
+            "attempt" => {
+                group.send_message(b"durable", Default::default()).await?;
+            }
+            "welcomes" => {
+                group.add_members(&[bo.inbox_id()]).await?;
+            }
+            _ => {
+                alix.context
+                    .identity()
+                    .generate_and_store_key_package(alix.context.mls_storage(), false)?;
+            }
+        }
+        assert_eq!(observed.get(), Some(2), "{site}");
+        Ok(())
+    }
 
     // verifies: EVENT-010, EVENT-012
     #[xmtp_common::test(unwrap_try = true)]

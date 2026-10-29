@@ -725,7 +725,7 @@ impl Identity {
         mls_storage: &S,
         include_post_quantum: bool,
     ) -> Result<(Vec<u8>, i32), IdentityError> {
-        crate::state_tx::state_write(mls_storage, |tx| {
+        crate::state_tx::state_write_durable(mls_storage, |tx| {
             let storage = tx.storage();
             let provider = XmtpOpenMlsProviderRef::new(&storage);
             let NewKeyPackageResult {

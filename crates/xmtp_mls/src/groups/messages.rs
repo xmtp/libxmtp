@@ -524,7 +524,7 @@ where
         message: &[u8],
         opts: send_message_opts::SendMessageOpts,
     ) -> Result<Vec<u8>, GroupError> {
-        crate::state_tx::state_write_with_events(
+        crate::state_tx::state_write_with_events_durable(
             self.context.mls_storage(),
             self.context.events(),
             |tx, events| {
