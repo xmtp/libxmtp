@@ -14,13 +14,6 @@
 # The issue links below are placeholders. Each needs a real issue before its
 # spec is approved.
 [[waiver]]
-id = "JOIN-060"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "A conversation naming the kind used between an inbox's own installations is installed with no validation at all."
-
-[[waiver]]
 id = "JOIN-002"
 kind = "gap"
 owner = "protocol"
@@ -350,7 +343,7 @@ id = "CONF-085"
 kind = "gap"
 owner = "backend"
 issue = "https://github.com/xmtp/libxmtp/issues/4589"
-reason = "The backend's own errors and Debug output omit secret values, and a store connection failure with a password in the URL omits it (configuration_source_errors_and_help_omit_secrets). Errors from third-party crates, such as the database driver, the HTTP and gRPC clients, and the AWS SDK, are not audited on every path."
+reason = "The backend's own errors and Debug output omit secret values, and a store connection failure with a password in the URL omits it (configuration_source_errors_and_help_omit_secrets), and a chain RPC provider error omits the RPC URL (provider_errors_omit_the_rpc_url). Errors from other third-party crates, such as the database driver, the HTTP and gRPC clients, and the AWS SDK, are not audited on every path."
 
 [[waiver]]
 id = "CONF-086"
