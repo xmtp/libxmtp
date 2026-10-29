@@ -5,7 +5,7 @@
 
 use super::BACKUP_VERSION;
 use crate::archive_options::ArchiveOptions;
-use crate::{ArchiveError, MAX_FRAME_BYTES, NONCE_SIZE, snapshot, util::GenericArrayExt};
+use crate::{ArchiveError, MAX_FRAME_BYTES, NONCE_SIZE, TAG_SIZE, snapshot, util::GenericArrayExt};
 use aes_gcm::aead::Aead;
 use async_compression::futures::write::ZstdEncoder;
 use futures::{FutureExt, io::AllowStdIo};
@@ -64,17 +64,19 @@ impl<W: io::Write> ElementWriter<W> {
     /// Writes one encrypted frame and advances its nonce.
     // implements: ARCH-001
     pub fn write(&mut self, element: Element) -> Result<(), ArchiveError> {
-        let plaintext = BackupElement {
+        let element = BackupElement {
             element: Some(element),
-        }
-        .encode_to_vec();
-        let ciphertext = self.cipher.encrypt(&self.nonce, &*plaintext)?;
-        self.nonce.increment();
-        if ciphertext.len() > MAX_FRAME_BYTES {
+        };
+        // The ciphertext is the plaintext plus the tag, so check before encoding.
+        if element.encoded_len() + TAG_SIZE > MAX_FRAME_BYTES {
             return Err(ArchiveError::InvalidFrame(
                 "frame longer than the archive frame limit",
             ));
         }
+        let ciphertext = self
+            .cipher
+            .encrypt(&self.nonce, &*element.encode_to_vec())?;
+        self.nonce.increment();
         let length = u32::try_from(ciphertext.len())
             .map_err(|_| io::Error::other("archive frame exceeds u32 length"))?;
         ready(self.zstd.write_all(&length.to_le_bytes()))?;

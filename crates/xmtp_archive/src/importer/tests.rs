@@ -168,13 +168,21 @@ async fn frame_ceiling_bounds_reader_and_writer() {
     assert_eq!(importer.next().await??, largest);
     assert!(importer.next().await.is_none());
 
+    // The oversized element is refused before encryption, so it uses no nonce and a later
+    // frame still imports.
     let oversized = consent(&"a".repeat(target - overhead + 1)).element?;
-    let mut writer = ElementWriter::new(&KEY, std::io::sink())?;
+    let mut bytes = Vec::new();
+    let mut writer = ElementWriter::new(&KEY, &mut bytes)?;
+    writer.write(metadata().element?)?;
     let result = writer.write(oversized);
     assert!(
         matches!(result, Err(ArchiveError::InvalidFrame(_))),
         "{result:?}"
     );
+    writer.write(consent("after").element?)?;
+    writer.finish()?;
+    let mut importer = ArchiveImporter::load(reader(bytes), &KEY).await?;
+    assert_eq!(importer.next().await??, consent("after"));
 
     // The length is refused before the declared ciphertext is buffered.
     let mut frame = (MAX_FRAME_BYTES as u32 + 1).to_le_bytes().to_vec();
