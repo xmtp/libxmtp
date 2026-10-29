@@ -312,7 +312,7 @@ message QueryNewestResponse {
 | API-242 | Repeated topics read from the lowest cursor | When `QueryRequest.queries` names one topic more than once, the backend MUST read that topic from the lowest cursor supplied for it. | Reading from a higher one skips the range another entry asked for. |
 | API-243 | No paging on key package topics | When a `Query` names a topic whose kind is key package under TOPIC-001, the backend MUST fail the request with `INVALID_ARGUMENT`. | |
 | API-244 | The newest envelope per topic | The backend MUST answer `QueryNewest` with one `Result` for each distinct requested topic that has a visible envelope, carrying the `EnvelopeMeta` of the envelope with the highest sequence id on that topic, and the `envelope` only when `include_full_envelope` is true; a topic with no visible envelope MUST be absent from `results`. | A sender picks an installation's key package by this read. A result for an older package addresses a Welcome to keys the installation may have destroyed (JOIN-074). |
-| API-245 | Results match by topic | When the client reads a `QueryNewestResponse`, it MUST take each `Result` for the topic its `topic` field names and MUST NOT pair results with requested topics by position. | A topic left out of `results` shifts every later position, so a client pairing by position reads one installation's key package as another's and addresses a Welcome to the wrong installation. |
+| API-245 | Results match by topic | When the client reads a `QueryNewestResponse`, it MUST take each `Result` for the topic its `topic` field names and MUST NOT pair results with requested topics by position. When a `KeyPackage` result's leaf node `signature_key` is not the installation key its topic names, the client MUST treat that installation as having no key package. | A topic left out of `results` shifts every later position, so a client pairing by position reads one installation's key package as another's and addresses a Welcome to the wrong installation. The topic is the backend's claim; the leaf key is signed, so only the leaf proves which installation a package belongs to. |
 
 ## 5. Subscribe
 
@@ -484,11 +484,11 @@ The bounds table names each request's limits and the field of `LimitsConfigurati
 | Request | Bound |
 | --- | --- |
 | `Publish` | Re-encoded request not longer than `max_request_bytes`; each envelope's re-encoded length not longer than `max_envelope_bytes`; distinct topics not more than `max_publish_topics`; ERC-6492 signatures in one identity update not more than `max_scw_signatures`; envelopes not more than 1000, duplicates included; identity updates not more than 5, duplicates included; `IdentityAction` entries across all identity updates not more than 100000 (1000 updates at the limit of IDENT-094); gRPC messages in the request body not more than 1 |
-| `Query` | Entries in `queries` not more than `max_query_topics` |
-| `QueryNewest` | Topics not more than `max_newest_full_topics` with `include_full_envelope` true and `max_newest_metadata_topics` with it false |
-| `GetInboxIds` | Entries not more than `max_lookup_identifiers` |
-| `VerifySmartContractWalletSignatures` | Entries not more than `max_scw_signatures` |
-| `SubscribeStatic` | Topics not more than `max_static_topics` |
+| `Query` | Entries in `queries` not more than `max_query_topics`; gRPC messages in the request body not more than 1 |
+| `QueryNewest` | Topics not more than `max_newest_full_topics` with `include_full_envelope` true and `max_newest_metadata_topics` with it false; gRPC messages in the request body not more than 1 |
+| `GetInboxIds` | Entries not more than `max_lookup_identifiers`; gRPC messages in the request body not more than 1 |
+| `VerifySmartContractWalletSignatures` | Entries not more than `max_scw_signatures`; gRPC messages in the request body not more than 1 |
+| `SubscribeStatic` | Topics not more than `max_static_topics`; gRPC messages in the request body not more than 1 |
 | `Subscribe` `Update` | `adds` not more than `max_update_adds`; `removes` not more than `max_update_removes`; topics registered after the update not more than `max_stream_topics` |
 | Any request | Every `Cursor.sequence_id` not greater than 9223372036854775807 |
 
@@ -545,4 +545,4 @@ A client that cannot take the queued output (up to 16 MiB) within about 2 min of
 
 The backend reads and replays an inbox's whole stored log for each identity update that passes the checks of API-302, whether it then stores the update or rejects it. With the default limits, one small update can cost a read of up to 256 envelopes of up to 1 MiB each and up to 51,200 signature checks without chain access (IDENT-095). A publish can carry one such update for each of up to 5 inboxes, and publishing has no per-caller rate limit.
 
-Except on `Publish` and `UpdateSubscriptions`, count bounds are checked after the backend decodes the request. A `Query`, `QueryNewest`, `GetInboxIds`, `VerifySmartContractWalletSignatures`, or `SubscribeStatic` request, or a `Subscribe` `Update`, within the default `max_request_bytes` can carry up to 13107200 empty entries, and the backend decodes all of them before it rejects the request. Each message of such a request is limited by `max_request_bytes`, but the backend decodes every further message in the body as well, so the number of messages in one request on these RPCs is not limited. The number of requests in flight is limited only by each connection's HTTP/2 stream limit.
+A `Subscribe` `Update` frame is counted after the backend decodes it. Within the default `max_request_bytes` it can carry up to 13107200 empty `adds` or `removes` entries, and the backend decodes all of them before it fails the stream; only the stream's update bucket (API-258) limits how often a stream can do this. On a unary RPC whose request has no repeated field, the backend decodes every further message in the body as well, so the number of messages in one such request is not limited, although each is limited by `max_request_bytes`. The number of requests in flight is limited only by each connection's HTTP/2 stream limit.

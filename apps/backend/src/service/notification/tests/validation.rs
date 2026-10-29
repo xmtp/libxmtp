@@ -102,9 +102,9 @@ async fn ownership_checks_precede_payload_checks_on_each_method() {
     server.stop().await?;
 }
 
-// verifies: PUSH-210
+// verifies: PUSH-210, PUSH-256
 #[xmtp_common::test(unwrap_try = true)]
-async fn delivery_checks_follow_channel_url_and_key_order() {
+async fn delivery_checks_follow_channel_key_shape_and_url_order() {
     let server = TestServer::new(|_| {}).await?;
     let mut client = server.notifications();
     for delivery in [
@@ -142,9 +142,36 @@ async fn delivery_checks_follow_channel_url_and_key_order() {
         "https://user:secret@127.0.0.1",
     ] {
         status(
-            client.register(webhook(url, vec![])).await.unwrap_err(),
+            client
+                .register(webhook(url, vec![1; 32]))
+                .await
+                .unwrap_err(),
             Code::InvalidArgument,
             "webhook url is not allowed",
+        );
+    }
+    // A request that fails a check needing no lookup is never UNAVAILABLE.
+    let lookup_fails = "https://lookup-fails.invalid/";
+    for (request, message) in [
+        (
+            webhook(lookup_fails, vec![1; 15]),
+            "webhook signing key length is not allowed",
+        ),
+        (
+            webhook(
+                &format!(
+                    "{lookup_fails}{}",
+                    "a".repeat(MAX_DELIVERY_CHARACTERS + 1 - lookup_fails.len())
+                ),
+                vec![1; 32],
+            ),
+            MALFORMED_REQUEST,
+        ),
+    ] {
+        status(
+            client.register(request).await.unwrap_err(),
+            Code::InvalidArgument,
+            message,
         );
     }
     for length in [0, 15, 65] {

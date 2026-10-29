@@ -122,8 +122,8 @@ impl Backend {
         })
     }
 
-    /// Check channel availability, URL, and signing key in wire order. The
-    /// signing key moves out of the request.
+    /// Check channel availability, signing key, and delivery shape, then the
+    /// webhook URL. The signing key moves out of the request.
     // implements: PUSH-210, PUSH-256
     async fn validate_delivery(
         &self,
@@ -142,13 +142,7 @@ impl Backend {
             }
             Some(Delivery::Http(http)) => {
                 let signing_key = Zeroizing::new(std::mem::take(&mut http.signing_key));
-                let config = self.config.push.http.as_ref().ok_or_else(unconfigured)?;
-                webhook_url::validate(&http.url, config)
-                    .await
-                    .map_err(|e| match e {
-                        WebhookUrlError::NotAllowed => Status::invalid_argument(e.to_string()),
-                        WebhookUrlError::Unavailable => Status::unavailable(e.to_string()),
-                    })?;
+                self.config.push.http.as_ref().ok_or_else(unconfigured)?;
                 if !(MIN_SIGNING_KEY_BYTES..=MAX_SIGNING_KEY_BYTES).contains(&signing_key.len()) {
                     return Err(Status::invalid_argument(
                         "webhook signing key length is not allowed",
@@ -163,6 +157,16 @@ impl Backend {
             || delivery.contains('\0')
         {
             return Err(Status::invalid_argument(MALFORMED_REQUEST));
+        }
+        // The lookup runs last, so a request that fails a check needing no
+        // lookup is never answered UNAVAILABLE.
+        if let (PushChannel::Http, Some(config)) = (channel, self.config.push.http.as_ref()) {
+            webhook_url::validate(&delivery, config)
+                .await
+                .map_err(|e| match e {
+                    WebhookUrlError::NotAllowed => Status::invalid_argument(e.to_string()),
+                    WebhookUrlError::Unavailable => Status::unavailable(e.to_string()),
+                })?;
         }
         Ok((channel, delivery, signing_key))
     }

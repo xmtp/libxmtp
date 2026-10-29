@@ -140,3 +140,34 @@ async fn refresh_skips_unusable_package_and_send_succeeds() {
         .await
         .expect("sending must succeed after the refresh");
 }
+
+/// A backend serves Bo's package under Bo's second installation's topic. Bo's
+/// second installation has no key package and Bo's own package is unchanged.
+// verifies: API-245
+#[xmtp_common::test(unwrap_try = true)]
+async fn served_package_of_another_installation_is_absent() {
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    tester!(bo2, from: bo, disable_workers);
+    let api = FaultyApi::new(&alix, |_| false, []);
+    api.served_key_packages.lock().insert(
+        bo2.context.installation_id().to_vec(),
+        key_package_with_extensions(&bo.context, CIPHERSUITE, vec![]),
+    );
+    let group_id = alix.create_group(None, None)?.group_id;
+    let group = faulty_group(&alix, &group_id, api).await;
+
+    let packages = crate::mls_store::MlsStore::new(group.context.clone())
+        .get_key_packages_for_installation_ids(vec![
+            bo2.context.installation_id().to_vec(),
+            bo.context.installation_id().to_vec(),
+        ])
+        .await?;
+
+    assert!(!packages.contains_key(bo2.context.installation_id().as_slice()));
+    let bo_package = packages[bo.context.installation_id().as_slice()].as_ref()?;
+    assert_eq!(
+        bo_package.installation_public_key,
+        bo.context.installation_id().to_vec()
+    );
+}
