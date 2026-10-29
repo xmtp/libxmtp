@@ -71,6 +71,9 @@ fn schedule_retry(owed: &mut Owed, error: &DeviceSyncError) {
 
 /// Events not yet handled. Shared by the factory so a DB reconnect keeps them.
 type PendingEvent = Arc<Mutex<Vec<Owed>>>;
+/// When the own identity state may be read again for sync messages, after a
+/// rate limit refused that read. Shared by the factory like [`PendingEvent`].
+type OwnStateHold = Arc<Mutex<Option<Instant>>>;
 
 #[derive(Clone)]
 struct Owed {
@@ -246,6 +249,35 @@ pub(crate) mod test_hooks {
     > = parking_lot::Mutex::new(None);
     pub(crate) static BLOCK_NEXT_PREFERENCE_PUBLISH: parking_lot::Mutex<Option<BlockHook>> =
         parking_lot::Mutex::new(None);
+    /// `(installation, delay, reads)`: every own-state read of sync-message
+    /// processing on that installation counts in `reads` and is refused with
+    /// a rate limit of `delay`.
+    pub(crate) static RATE_LIMIT_OWN_STATE: parking_lot::Mutex<Option<OwnStateRefusal>> =
+        parking_lot::Mutex::new(None);
+    pub(crate) type OwnStateRefusal = (
+        Vec<u8>,
+        xmtp_common::time::Duration,
+        Arc<std::sync::atomic::AtomicUsize>,
+    );
+
+    /// `result`, unless [`RATE_LIMIT_OWN_STATE`] refuses this installation's read.
+    pub(crate) fn refused_own_state<T>(
+        installation: &[u8],
+        result: Result<T, crate::client::ClientError>,
+    ) -> Result<T, crate::client::ClientError> {
+        let hook = RATE_LIMIT_OWN_STATE.lock().clone();
+        match hook {
+            Some((id, delay, reads)) if id == installation => {
+                reads.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                Err(crate::client::ClientError::Api(xmtp_api::ApiError::Api(
+                    xmtp_proto::api::NetworkError::new(xmtp_api_grpc::error::GrpcError::Status(
+                        xmtp_api_grpc::error::rate_limited_status("chain_verify", delay),
+                    )),
+                )))
+            }
+            _ => result,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -259,6 +291,7 @@ pub struct SyncWorker<Context> {
     subscription: Option<Arc<Subscription<InternalEvent>>>,
     pending: PendingEvent,
     next_event_id: Arc<AtomicU64>,
+    own_state_hold: OwnStateHold,
     init: OnceCell<()>,
     metrics: Arc<WorkerMetrics<SyncMetric>>,
     #[cfg(test)]
@@ -278,6 +311,7 @@ where
         metrics: Option<DynMetrics>,
         pending: PendingEvent,
         next_event_id: Arc<AtomicU64>,
+        own_state_hold: OwnStateHold,
     ) -> Self {
         let metrics = metrics
             .and_then(|m| m.as_sync_metrics())
@@ -289,6 +323,7 @@ where
             subscription: None,
             pending,
             next_event_id,
+            own_state_hold,
             init: OnceCell::new(),
             metrics,
             #[cfg(test)]
@@ -305,6 +340,7 @@ struct Factory<Context> {
     context: Context,
     pending: PendingEvent,
     next_event_id: Arc<AtomicU64>,
+    own_state_hold: OwnStateHold,
 }
 
 impl<Context> WorkerFactory for Factory<Context>
@@ -317,6 +353,7 @@ where
             metrics,
             self.pending.clone(),
             self.next_event_id.clone(),
+            self.own_state_hold.clone(),
         );
         let metrics = worker.metrics.clone();
 
@@ -353,6 +390,7 @@ where
             context,
             pending: Arc::default(),
             next_event_id: Arc::new(AtomicU64::new(1)),
+            own_state_hold: Arc::default(),
         }
     }
 
@@ -607,9 +645,28 @@ where
         first_error.map_or(Ok(()), Err)
     }
 
+    /// Process the stored sync messages. When a rate limit refuses the own
+    /// identity state they need, the messages stay pending and no turn, at a
+    /// tick or for a new message, reads that state again inside the delay.
+    // implements: RATE-041
     async fn evt_new_sync_group_msg(&self, is_tick: bool) -> Result<(), DeviceSyncError> {
+        if self
+            .own_state_hold
+            .lock()
+            .is_some_and(|until| Instant::now() < until)
+        {
+            return Ok(());
+        }
         tracing::debug!(is_tick, "processing sync group messages");
-        let result = self.client.process_sync_group_messages(&self.metrics).await;
+        let mut result = self.client.process_sync_group_messages(&self.metrics).await;
+        if let Err(DeviceSyncError::OwnStateUnavailable(error)) = &result
+            && let Some(delay) = xmtp_common::RetryableError::rate_limit_delay(error)
+        {
+            tracing::warn!(%error, "own identity state rate limited; sync messages stay pending");
+            *self.own_state_hold.lock() =
+                Some(xmtp_common::time::saturating_after(Instant::now(), delay));
+            result = Ok(());
+        }
         #[cfg(test)]
         if result.is_ok()
             && let Some(turns) = &self.completed_turns
@@ -720,11 +777,22 @@ where
                     // signature that needs the verifier, leaves every row Pending for the next tick)
                     let own_state = IdentityUpdates::new(&self.context)
                         .get_association_state(&self.context.db(), self.context.inbox_id(), None)
-                        .await
-                        .map_err(DeviceSyncError::from);
-                    match own_state {
+                        .await;
+                    #[cfg(test)]
+                    let own_state = test_hooks::refused_own_state(
+                        &self.context.installation_id().to_vec(),
+                        own_state,
+                    );
+                    match own_state.map_err(DeviceSyncError::from) {
                         Ok(state) => own.insert(state.installation_ids()),
                         Err(err) if err.needs_db_reconnect() => return Err(err),
+                        // A rate-limited read is returned, so the worker holds it for the
+                        // delay (RATE-041).
+                        Err(DeviceSyncError::Client(err))
+                            if xmtp_common::RetryableError::rate_limit_delay(&err).is_some() =>
+                        {
+                            return Err(DeviceSyncError::OwnStateUnavailable(err));
+                        }
                         Err(err) => {
                             tracing::warn!(error = %err, "own identity state unavailable; sync messages stay pending");
                             return Ok(());
@@ -906,7 +974,13 @@ mod startup_tests {
     }
 
     fn idle_worker<C: XmtpSharedContext + 'static>(context: C) -> SyncWorker<C> {
-        SyncWorker::new(context, None, Arc::default(), Arc::new(AtomicU64::new(0)))
+        SyncWorker::new(
+            context,
+            None,
+            Arc::default(),
+            Arc::new(AtomicU64::new(0)),
+            Arc::default(),
+        )
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -1170,6 +1244,59 @@ mod startup_tests {
             }
         }
         alix.close().await?;
+    }
+
+    /// A sync-message turn whose own-state read is refused by a rate limit
+    /// leaves the messages pending, and no turn reads that state again inside
+    /// the delay: not at a tick, not for a new message, and not in a worker
+    /// rebuilt after a storage reconnect. After the delay the messages apply.
+    // verifies: RATE-041
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn a_rate_limited_own_state_read_waits_out_its_delay() {
+        use std::sync::atomic::AtomicUsize;
+        use xmtp_db::consent_record::{ConsentState, ConsentType, StoredConsentRecord};
+        tester!(alix, disable_workers);
+        let record =
+            StoredConsentRecord::new(ConsentType::InboxId, ConsentState::Denied, "held".into());
+        alix.device_sync_client()
+            .sync_preferences(vec![PreferenceUpdate::Consent(record.clone())])
+            .await?;
+        let db = alix.context.db();
+        assert_eq!(db.unprocessed_sync_group_messages(None)?.len(), 1);
+        let reads = Arc::new(AtomicUsize::new(0));
+        *test_hooks::RATE_LIMIT_OWN_STATE.lock() = Some((
+            alix.context.installation_id().to_vec(),
+            Duration::from_secs(300),
+            reads.clone(),
+        ));
+        let hold = OwnStateHold::default();
+        let worker = || {
+            SyncWorker::new(
+                alix.context.clone(),
+                None,
+                Arc::default(),
+                Arc::new(AtomicU64::new(0)),
+                hold.clone(),
+            )
+        };
+        let first = worker();
+        first.evt_new_sync_group_msg(true).await?;
+        assert_eq!(reads.load(Ordering::SeqCst), 1);
+        first.evt_new_sync_group_msg(true).await?;
+        first.evt_new_sync_group_msg(false).await?;
+        worker().evt_new_sync_group_msg(true).await?;
+        assert_eq!(reads.load(Ordering::SeqCst), 1, "no read inside the delay");
+        assert_eq!(db.unprocessed_sync_group_messages(None)?.len(), 1);
+
+        *test_hooks::RATE_LIMIT_OWN_STATE.lock() = None;
+        *hold.lock() = Some(Instant::now());
+        first.evt_new_sync_group_msg(true).await?;
+        assert!(db.unprocessed_sync_group_messages(None)?.is_empty());
+        assert_eq!(
+            db.get_consent_record(record.entity.clone(), record.entity_type)?
+                .map(|r| (r.state, r.consented_at_ns)),
+            Some((record.state, record.consented_at_ns))
+        );
     }
 
     /// A sync event refused by a rate limit runs again only after the delay,
