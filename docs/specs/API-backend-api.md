@@ -483,7 +483,7 @@ The bounds table names each request's limits and the field of `LimitsConfigurati
 
 | Request | Bound |
 | --- | --- |
-| `Publish` | Re-encoded request not longer than `max_request_bytes`; each envelope's re-encoded length not longer than `max_envelope_bytes`; distinct topics not more than `max_publish_topics`; ERC-6492 signatures in one identity update not more than `max_scw_signatures`; envelopes not more than 1000, duplicates included; `IdentityAction` entries across all identity updates not more than 100000 (1000 updates at the limit of IDENT-094); gRPC messages in the request body not more than 1 |
+| `Publish` | Re-encoded request not longer than `max_request_bytes`; each envelope's re-encoded length not longer than `max_envelope_bytes`; distinct topics not more than `max_publish_topics`; ERC-6492 signatures in one identity update not more than `max_scw_signatures`; envelopes not more than 1000, duplicates included; identity updates not more than 5, duplicates included; `IdentityAction` entries across all identity updates not more than 100000 (1000 updates at the limit of IDENT-094); gRPC messages in the request body not more than 1 |
 | `Query` | Entries in `queries` not more than `max_query_topics` |
 | `QueryNewest` | Topics not more than `max_newest_full_topics` with `include_full_envelope` true and `max_newest_metadata_topics` with it false |
 | `GetInboxIds` | Entries not more than `max_lookup_identifiers` |
@@ -541,6 +541,6 @@ The backend does not read a client's version on a request, and it does not enfor
 
 A `Subscribe` stream with no registered topic stays open and costs the deployment a connection. There is no quota on concurrent streams per caller beyond the connection's HTTP/2 stream limit, which the operator configures.
 
-The backend reads and replays an inbox's whole stored log for each identity update that passes the checks of API-302, whether it then stores the update or rejects it. With the default limits, one small update can cost a read of up to 256 envelopes of up to 1 MiB each and up to 51,200 signature checks without chain access (IDENT-095). A publish can carry one such update for each of up to 1000 inboxes, and publishing has no per-caller rate limit.
+The backend reads and replays an inbox's whole stored log for each identity update that passes the checks of API-302, whether it then stores the update or rejects it. With the default limits, one small update can cost a read of up to 256 envelopes of up to 1 MiB each and up to 51,200 signature checks without chain access (IDENT-095). A publish can carry one such update for each of up to 5 inboxes, and publishing has no per-caller rate limit.
 
 Except on `Publish` and `UpdateSubscriptions`, count bounds are checked after the backend decodes the request. A `Query`, `QueryNewest`, `GetInboxIds`, `VerifySmartContractWalletSignatures`, or `SubscribeStatic` request, or a `Subscribe` `Update`, within the default `max_request_bytes` can carry up to 13107200 empty entries, and the backend decodes all of them before it rejects the request. Each message of such a request is limited by `max_request_bytes`, but the backend decodes every further message in the body as well, so the number of messages in one request on these RPCs is not limited. The number of requests in flight is limited only by each connection's HTTP/2 stream limit.

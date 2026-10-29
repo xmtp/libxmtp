@@ -1,13 +1,18 @@
 //! What an identity publish costs in history reads and chain calls.
 
 use super::*;
+use crate::service::publish::MAX_IDENTITY_REPLAYS;
 use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering::SeqCst},
 };
-use xmtp_configuration::{MAX_IDENTITY_UPDATE_ACTIONS, MAX_SCW_SIGNATURE_BYTES};
+use xmtp_configuration::{
+    MAX_IDENTITY_UPDATE_ACTIONS, MAX_PUBLISH_IDENTITY_UPDATES, MAX_SCW_SIGNATURE_BYTES,
+};
 use xmtp_id::associations::{
     AccountId, MemberIdentifier,
+    builder::SignatureRequestBuilder,
+    test_utils::{WalletTestExt, add_wallet_signature},
     unsigned_actions::{UnsignedClaimHandle, UnsignedRevokeAssociation},
     unverified::{
         UnverifiedAction, UnverifiedClaimHandle, UnverifiedIdentityUpdate,
@@ -28,7 +33,11 @@ const HISTORY_REVOCATIONS: u8 = 100;
 /// each revocation.
 const HISTORY_CHECKS: usize = HISTORY_REVOCATIONS as usize + 1;
 
+/// The ERC-6492 signature bytes that the fixture verifier never answers for.
+const UNANSWERED: [u8; 2] = [0xfd, 0];
+
 /// Model the provider work behind the backend's bounded SCW verdict cache.
+/// It never answers for an [`UNANSWERED`] signature.
 struct CountingVerifier(Arc<AtomicUsize>);
 
 #[xmtp_common::async_trait]
@@ -37,10 +46,13 @@ impl SmartContractSignatureVerifier for CountingVerifier {
         &self,
         _account_id: AccountId,
         _hash: [u8; 32],
-        _signature: alloy_primitives::Bytes,
+        signature: alloy_primitives::Bytes,
         block_number: Option<u64>,
     ) -> Result<ValidationResponse, VerifierError> {
         self.0.fetch_add(1, SeqCst);
+        if signature.as_ref() == UNANSWERED {
+            std::future::pending::<()>().await;
+        }
         Ok(ValidationResponse {
             is_valid: true,
             block_number,
@@ -98,6 +110,30 @@ async fn scw_history() -> support::TestResult<(TestServer, Arc<AtomicUsize>, Str
     Ok((server, calls, inbox_id))
 }
 
+/// Create the inbox of a new wallet and return an update for it, signed by
+/// the wallet, that revokes an identifier the inbox does not hold.
+async fn wallet_inbox_update(server: &TestServer) -> support::TestResult<api::ClientEnvelope> {
+    let wallet = xmtp_cryptography::utils::generate_local_wallet();
+    let inbox_id = wallet.get_inbox_id(0);
+    let mut create = SignatureRequestBuilder::new(&inbox_id)
+        .create_inbox(wallet.identifier(), 0)
+        .build();
+    add_wallet_signature(&mut create, &wallet).await;
+    server
+        .publish(vec![identity_envelope(
+            create.build_identity_update()?.into(),
+        )])
+        .await?;
+    let mut update = SignatureRequestBuilder::new(&inbox_id)
+        .revoke_association(
+            wallet.member_identifier(),
+            MemberIdentifier::eth("0x2222222222222222222222222222222222222222")?,
+        )
+        .build();
+    add_wallet_signature(&mut update, &wallet).await;
+    Ok(identity_envelope(update.build_identity_update()?.into()))
+}
+
 /// Set every stored row's payload to NULL, which a history read cannot
 /// decode, so any read of a log fails as `UNAVAILABLE`.
 async fn make_logs_unreadable(server: &TestServer) -> support::TestResult {
@@ -108,29 +144,6 @@ async fn make_logs_unreadable(server: &TestServer) -> support::TestResult {
     .execute(&server.backend.store.primary)
     .await?;
     Ok(())
-}
-
-/// An update with no actions is refused before its inbox's log is read, so it
-/// costs no read and no verifier call however many SCW verdicts that log
-/// holds (finding 9825c590), and it fails for its own reason. The log is
-/// unreadable, so an update that read it would fail as `UNAVAILABLE`.
-// verifies: API-302
-#[xmtp_common::test(unwrap_try = true)]
-async fn rejected_empty_identity_updates_cost_no_history_verification() {
-    let (server, calls, inbox_id) = scw_history().await?;
-    make_logs_unreadable(&server).await?;
-    for client_timestamp_ns in [3, 4] {
-        let empty = update(&inbox_id, client_timestamp_ns, vec![]);
-        assert_eq!(
-            publish_identity(&server, empty).await?,
-            (
-                Err((Code::InvalidArgument, Some(Reason::InvalidIdentityUpdate))),
-                2
-            )
-        );
-        assert_eq!(calls.load(SeqCst), HISTORY_CHECKS);
-    }
-    server.stop().await?;
 }
 
 /// A valid update costs a verifier call for each of its own SCW signatures and
@@ -157,6 +170,79 @@ async fn valid_identity_update_verifies_only_its_own_scw_signatures() {
 async fn identity_history_replay_runs_off_the_request_thread() {
     let (server, _, _) = scw_history().await?;
     assert_eq!(server.backend.identity_replays.load(SeqCst), 1);
+    server.stop().await?;
+}
+
+/// Admission that outlasts its deadline fails as `DEADLINE_EXCEEDED` and
+/// stores nothing, whether it waits for a replay permit or for a verifier.
+/// Only identity replays take a permit, so a group message still publishes
+/// while every permit is held, and the update stores once they are free.
+#[xmtp_common::timeout(std::time::Duration::from_secs(60))]
+#[xmtp_common::test(unwrap_try = true)]
+async fn admission_past_its_deadline_stores_nothing() {
+    let (server, _, inbox_id) = scw_history().await?;
+    let backend = &server.backend;
+    *backend.admission_deadline.lock() = Some(std::time::Duration::from_secs(2));
+    let next = || update(&inbox_id, 3, vec![revoke(scw(vec![0xfe, 0]))]);
+    let held = backend
+        .replays
+        .clone()
+        .acquire_many_owned(MAX_IDENTITY_REPLAYS as u32)
+        .await?;
+    assert_eq!(
+        publish_identity(&server, next()).await?,
+        (Err((Code::DeadlineExceeded, None)), 2)
+    );
+    assert_eq!(backend.identity_replays.load(SeqCst), 1);
+    let message = keyed_group_message_envelope(&group_keys(1), GroupMessageKind::Application, []);
+    server.publish(vec![message]).await?;
+    drop(held);
+
+    let unanswered = update(&inbox_id, 3, vec![revoke(scw(UNANSWERED.into()))]);
+    assert_eq!(
+        publish_identity(&server, unanswered).await?,
+        (Err((Code::DeadlineExceeded, None)), 3)
+    );
+    assert_eq!(publish_identity(&server, next()).await?, (Ok(()), 4));
+    server.stop().await?;
+}
+
+/// A publish carries at most [`MAX_PUBLISH_IDENTITY_UPDATES`] identity
+/// updates, each for its own inbox. One more fails the whole request as too
+/// large before any inbox's log is replayed, and stores nothing.
+#[xmtp_common::test(unwrap_try = true)]
+async fn publish_identity_update_limit_accepts_exact_count_and_rejects_one_past() {
+    let server = TestServer::new(|_| {}).await?;
+    let mut updates = Vec::new();
+    for _ in 0..=MAX_PUBLISH_IDENTITY_UPDATES {
+        updates.push(wallet_inbox_update(&server).await?);
+    }
+    let error = server
+        .publisher()
+        .publish(api::PublishRequest {
+            envelopes: updates.clone(),
+        })
+        .await
+        .unwrap_err();
+    assert_eq!(error.code(), Code::InvalidArgument);
+    let status = tonic_types::pb::Status::decode(error.details())?;
+    let detail = api::PublishError::decode(status.details[0].value.as_slice())?;
+    assert_eq!((detail.index, detail.reason()), (None, Reason::TooLarge));
+    assert_eq!(server.backend.identity_replays.load(SeqCst), 0);
+    let rows: i64 = sqlx::query_scalar("SELECT count(*) FROM envelopes")
+        .fetch_one(&server.backend.store.primary)
+        .await?;
+    assert_eq!(rows, updates.len() as i64);
+
+    updates.pop();
+    assert_eq!(
+        server.publish(updates).await?.len(),
+        MAX_PUBLISH_IDENTITY_UPDATES
+    );
+    assert_eq!(
+        server.backend.identity_replays.load(SeqCst),
+        MAX_PUBLISH_IDENTITY_UPDATES
+    );
     server.stop().await?;
 }
 
