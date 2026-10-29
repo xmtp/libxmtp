@@ -30,6 +30,7 @@ use xmtp_common::time::Instant;
 use xmtp_cryptography::secret::Zeroizing;
 use xmtp_db::group_message::StoredGroupMessage;
 use xmtp_db::prelude::*;
+use xmtp_db::processed_device_sync_messages::SyncMessageKey;
 use xmtp_events::{ClientEvent, Subscription};
 use xmtp_macro::log_event;
 use xmtp_proto::xmtp::device_sync::content::{
@@ -597,16 +598,8 @@ where
     }
 
     async fn evt_new_sync_group_msg(&self, is_tick: bool) -> Result<(), DeviceSyncError> {
-        let unprocessed_messages = self.client.context.db().unprocessed_sync_group_messages()?;
-
-        if !is_tick || !unprocessed_messages.is_empty() {
-            tracing::info!("Processing {} messages.", unprocessed_messages.len());
-        }
-
-        let result = self
-            .client
-            .process_sync_group_messages(&self.metrics, unprocessed_messages)
-            .await;
+        tracing::debug!(is_tick, "processing sync group messages");
+        let result = self.client.process_sync_group_messages(&self.metrics).await;
         #[cfg(test)]
         if result.is_ok()
             && let Some(turns) = &self.completed_turns
@@ -694,96 +687,107 @@ where
     pub(super) async fn process_sync_group_messages(
         &self,
         handle: &WorkerMetrics<SyncMetric>,
-        messages: Vec<StoredGroupMessage>,
     ) -> Result<(), DeviceSyncError>
     where
         Context::Db: 'static,
     {
         let installation_id = self.installation_id();
-        if messages.is_empty() {
-            return Ok(());
-        }
-        // implements: SYNC-016 (a failed own-state read, such as a smart-wallet
-        // signature that needs the verifier, leaves every row Pending for the next tick)
-        let own_state = IdentityUpdates::new(&self.context)
-            .get_association_state(&self.context.db(), self.context.inbox_id(), None)
-            .await
-            .map_err(DeviceSyncError::from);
-        let own_installations = match own_state {
-            Ok(state) => state.installation_ids(),
-            Err(err) if err.needs_db_reconnect() => return Err(err),
-            Err(err) => {
-                tracing::warn!(error = %err, "own identity state unavailable; sync messages stay pending");
+        let (mut after, mut own) = (None, None);
+        loop {
+            let page = self
+                .context
+                .db()
+                .unprocessed_sync_group_messages(after.as_ref())?;
+            let Some(last) = page.last() else {
                 return Ok(());
-            }
-        };
-
-        for mut msg in messages {
-            // The plaintext and its inner encoding can hold an HMAC root key.
-            // Both are wiped on every path, including skipped messages.
-            let plaintext = Zeroizing::new(std::mem::take(&mut msg.decrypted_message_bytes));
-            // Older builds stored sync groups from other inboxes.
-            // Only current installations of the own inbox may send updates.
-            // implements: SYNC-011
-            if msg.sender_inbox_id != self.context.inbox_id()
-                || !own_installations.contains(&msg.sender_installation_id)
-            {
-                tracing::warn!(
-                    group_id = %msg.group_id,
-                    sender_inbox_id = %msg.sender_inbox_id,
-                    "dropping a sync message from a sender that is not an installation of the own inbox"
-                );
-                self.context
-                    .db()
-                    .mark_device_sync_msg_as_processed(&msg.id)?;
-                continue;
-            }
-            let content = decode_sync_message(plaintext.as_slice());
-            let Some(content) = content else {
-                // Older installations can send archive transfer content. Its
-                // reserved oneof fields decode as unsupported content here.
-                // Mark it complete so the worker does not retry it forever.
-                self.context
-                    .db()
-                    .mark_device_sync_msg_as_processed(&msg.id)?;
-                continue;
             };
-            let is_external = msg.sender_installation_id != installation_id;
-
-            let msg_type = match &content.0 {
-                ContentProto::PreferenceUpdates(_) => "PreferenceUpdates",
-                ContentProto::Acknowledge(_) => "Acknowledge",
-            };
-
-            log_event!(
-                Event::DeviceSyncProcessingMessages,
-                self.context.installation_id(),
-                msg_type,
-                external = is_external,
-                message_id = #msg.id,
-                group_id = msg.group_id
-            );
-
-            if let Err(err) = self.process_message(handle, &msg, content).await {
-                // implements: SYNC-016 (a storage error leaves the row Pending for the next tick)
-                // A failed message is non-fatal, but a dropped pool must stop the worker.
-                if err.needs_db_reconnect() {
-                    return Err(err);
+            after = Some(SyncMessageKey::of(last));
+            tracing::info!("Processing {} messages.", page.len());
+            let own_installations = match &own {
+                Some(own) => own,
+                None => {
+                    // implements: SYNC-016 (a failed own-state read, such as a smart-wallet
+                    // signature that needs the verifier, leaves every row Pending for the next tick)
+                    let own_state = IdentityUpdates::new(&self.context)
+                        .get_association_state(&self.context.db(), self.context.inbox_id(), None)
+                        .await
+                        .map_err(DeviceSyncError::from);
+                    match own_state {
+                        Ok(state) => own.insert(state.installation_ids()),
+                        Err(err) if err.needs_db_reconnect() => return Err(err),
+                        Err(err) => {
+                            tracing::warn!(error = %err, "own identity state unavailable; sync messages stay pending");
+                            return Ok(());
+                        }
+                    }
                 }
+            };
+
+            for mut msg in page {
+                // The plaintext and its inner encoding can hold an HMAC root key.
+                // Both are wiped on every path, including skipped messages.
+                let plaintext = Zeroizing::new(std::mem::take(&mut msg.decrypted_message_bytes));
+                // Older builds stored sync groups from other inboxes.
+                // Only current installations of the own inbox may send updates.
+                // implements: SYNC-011
+                if msg.sender_inbox_id != self.context.inbox_id()
+                    || !own_installations.contains(&msg.sender_installation_id)
+                {
+                    tracing::warn!(
+                        group_id = %msg.group_id,
+                        sender_inbox_id = %msg.sender_inbox_id,
+                        "dropping a sync message from a sender that is not an installation of the own inbox"
+                    );
+                    self.context
+                        .db()
+                        .mark_device_sync_msg_as_processed(&msg.id)?;
+                    continue;
+                }
+                let content = decode_sync_message(plaintext.as_slice());
+                let Some(content) = content else {
+                    // Older installations can send archive transfer content. Its
+                    // reserved oneof fields decode as unsupported content here.
+                    // Mark it complete so the worker does not retry it forever.
+                    self.context
+                        .db()
+                        .mark_device_sync_msg_as_processed(&msg.id)?;
+                    continue;
+                };
+                let is_external = msg.sender_installation_id != installation_id;
+
+                let msg_type = match &content.0 {
+                    ContentProto::PreferenceUpdates(_) => "PreferenceUpdates",
+                    ContentProto::Acknowledge(_) => "Acknowledge",
+                };
+
                 log_event!(
-                    Event::DeviceSyncMessageProcessingError,
+                    Event::DeviceSyncProcessingMessages,
                     self.context.installation_id(),
-                    error = %err,
-                    message_id = #msg.id
+                    msg_type,
+                    external = is_external,
+                    message_id = #msg.id,
+                    group_id = msg.group_id
                 );
-            } else {
-                self.context
-                    .db()
-                    .mark_device_sync_msg_as_processed(&msg.id)?;
+
+                if let Err(err) = self.process_message(handle, &msg, content).await {
+                    // implements: SYNC-016 (a storage error leaves the row Pending for the next tick)
+                    // A failed message is non-fatal, but a dropped pool must stop the worker.
+                    if err.needs_db_reconnect() {
+                        return Err(err);
+                    }
+                    log_event!(
+                        Event::DeviceSyncMessageProcessingError,
+                        self.context.installation_id(),
+                        error = %err,
+                        message_id = #msg.id
+                    );
+                } else {
+                    self.context
+                        .db()
+                        .mark_device_sync_msg_as_processed(&msg.id)?;
+                }
             }
         }
-
-        Ok(())
     }
 
     async fn process_message(
@@ -1031,7 +1035,7 @@ mod startup_tests {
         let consent_messages = alix2
             .context
             .db()
-            .unprocessed_sync_group_messages()?
+            .unprocessed_sync_group_messages(None)?
             .iter()
             .filter_map(|msg| decode_sync_message(&msg.decrypted_message_bytes))
             .filter(|content| {

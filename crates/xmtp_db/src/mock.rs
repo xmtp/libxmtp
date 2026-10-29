@@ -640,8 +640,9 @@ mock! {
     }
 
     impl QueryDeviceSyncMessages for DbQuery {
-        fn unprocessed_sync_group_messages(
+        fn unprocessed_sync_group_messages<'a>(
             &self,
+            after: Option<&'a crate::processed_device_sync_messages::SyncMessageKey>,
         ) -> Result<Vec<crate::group_message::StoredGroupMessage>, StorageError>;
 
         fn sync_group_messages_paged(
