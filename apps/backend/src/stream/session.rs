@@ -362,48 +362,50 @@ impl Session {
         }
     }
 
-    /// Pay the first period's rent before registering anything: no topics
-    /// for a native stream, every topic of the request for a static one,
-    /// whose checks that read no stored state come first.
+    /// Pay a native stream's first period, for no topics, before anything is
+    /// registered. A static stream sends its topics as its only update,
+    /// which pays its first period.
     // implements: RATE-030
     async fn open(&mut self, initial: Option<Vec<api::TopicQuery>>) -> Result<(), Status> {
-        let Some(adds) = initial else {
-            return self.pay_open_rent(0).await;
-        };
-        let update = api::subscribe_request::Update {
-            id: 1,
-            adds,
-            removes: Vec::new(),
-        };
-        let (adds, _) = self.validate_update(&update).map_err(|error| {
-            telemetry::stream_updated(UpdateOutcome::Invalid);
-            self.fail(error, StreamEnd::Invalid)
-        })?;
-        self.pay_open_rent(update.adds.len()).await?;
-        self.register(update, adds)
+        match initial {
+            None => {
+                let due = self.start_rent(0);
+                self.pay_rent(due).await
+            }
+            Some(adds) => {
+                self.update(api::subscribe_request::Update {
+                    id: 1,
+                    adds,
+                    removes: Vec::new(),
+                })
+                .await
+            }
+        }
     }
 
-    async fn pay_open_rent(&mut self, topics: usize) -> Result<(), Status> {
-        let Some(now) = self.charger.now() else {
-            return Ok(());
-        };
+    /// Start the stream's rent periods now, holding `topics`, and return the
+    /// first period's rent; `None` while rate limits are off.
+    fn start_rent(&mut self, topics: usize) -> Option<Due> {
+        let now = self.charger.now()?;
         let (rent, due) = Rent::open(now, topics);
         self.rent = Some(rent);
-        self.pay_rent(due).await
+        Some(due)
     }
 
-    /// Pay the rent of a period that has begun, for the topics registered
-    /// now. A stream that fell behind pays each period on its own turn.
+    /// Pay the rent of every period that has begun, each for the topics
+    /// registered now.
     // implements: RATE-030
     async fn renew(&mut self) -> Result<(), Status> {
-        let topics = self.topics.len();
-        let due = match (&mut self.rent, self.charger.now()) {
-            (Some(rent), Some(now)) => rent.renew(now, topics),
-            _ => None,
-        };
-        match due {
-            Some(due) => self.pay_rent(due).await,
-            None => Ok(()),
+        loop {
+            let topics = self.topics.len();
+            let due = match (&mut self.rent, self.charger.now()) {
+                (Some(rent), Some(now)) => rent.renew(now, topics),
+                _ => None,
+            };
+            if due.is_none() {
+                return Ok(());
+            }
+            self.pay_rent(due).await?;
         }
     }
 
@@ -411,7 +413,10 @@ impl Session {
     /// holds. The rejection's delay covers the whole rent a replacement
     /// stream pays for the same topics.
     // implements: RATE-032
-    async fn pay_rent(&mut self, due: Due) -> Result<(), Status> {
+    async fn pay_rent(&mut self, due: Option<Due>) -> Result<(), Status> {
+        let Some(due) = due else {
+            return Ok(());
+        };
         self.charger
             .charge_covering(Category::StreamRent, due.cost, due.whole)
             .await
@@ -580,11 +585,13 @@ impl Session {
         Ok(())
     }
 
-    /// Validate the complete update, then pay for it, before changing
-    /// interests.
+    /// Pay every period that began before the update, so it never tops up
+    /// from a period that has ended. Then validate the complete update and
+    /// pay for it, before changing interests.
     #[xmtp_common::span(prefix = "stream")]
     // implements: API-253
     async fn update(&mut self, update: api::subscribe_request::Update) -> Result<(), Status> {
+        self.renew().await?;
         let (adds, topics) = self.validate_update(&update).map_err(|error| {
             telemetry::stream_updated(UpdateOutcome::Invalid);
             self.fail(error, StreamEnd::Invalid)
@@ -593,20 +600,28 @@ impl Session {
         self.register(update, adds)
     }
 
-    /// Pay the rent an update raises, then the read of its catch-up target
+    /// Pay for an update before it changes interests. A static stream's only
+    /// update opens it and pays its first period for every topic; the
+    /// request's own `request` unit pays for its targets. Any other update
+    /// pays the rent its topics raise, then the read of its catch-up target
     /// when it newly registers a topic. A denial of either ends the stream
     /// before any topic of the update is registered or its `Applied` sent;
     /// a denied rent spend leaves the target read unspent.
-    // implements: RATE-031, RATE-034
+    // implements: RATE-030, RATE-031, RATE-032, RATE-034
     async fn pay_for_update(
         &mut self,
         adds: &[(Vec<u8>, i64)],
         topics: usize,
     ) -> Result<(), Status> {
-        let rent = self.rent.as_mut().and_then(|rent| rent.top_up(topics));
-        let new = adds
-            .iter()
-            .any(|(topic, _)| !self.topics.contains_key(topic));
+        let (rent, new) = if self.static_subscription {
+            (self.start_rent(topics), false)
+        } else {
+            let rent = self.rent.as_mut().and_then(|rent| rent.top_up(topics));
+            let new = adds
+                .iter()
+                .any(|(topic, _)| !self.topics.contains_key(topic));
+            (rent, new)
+        };
         let paid = async {
             if let Some(due) = rent {
                 self.charger

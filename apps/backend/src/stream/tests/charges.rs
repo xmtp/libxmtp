@@ -153,6 +153,30 @@ async fn an_update_pays_only_the_rent_it_raises_before_its_applied() {
     server.stop().await?;
 }
 
+/// An update the session handles after a period began pays that period's
+/// rent first, for the topics the stream held when it began, and tops up
+/// from it.
+// verifies: RATE-030, RATE-031
+#[xmtp_common::test(unwrap_try = true)]
+async fn an_update_after_a_period_began_tops_up_from_its_renewal() {
+    let clock = ManualClock::new();
+    let server = server("", &clock).await?;
+    let mut stream = Native::open(&server).await?;
+    applied(&mut stream, 1, queries(0..900), vec![]).await?;
+    // Nothing wakes the session until the update arrives.
+    clock.advance(secs(60));
+    applied(&mut stream, 2, queries(900..1100), vec![]).await?;
+    ping(&mut stream, 1).await?;
+    ping(&mut stream, 2).await?;
+    // The second period pays 2 units for 900 topics, then 1 for 1100.
+    assert_eq!(
+        spends(&server, 0, Category::StreamRent),
+        [(1, true), (1, true), (2, true), (1, true)]
+    );
+    drop(stream);
+    server.stop().await?;
+}
+
 // verifies: RATE-030, RATE-032, RATE-040
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_denied_renewal_ends_the_stream_with_the_rate_limit_rejection() {
@@ -466,6 +490,86 @@ async fn a_static_stream_pays_its_whole_rent_at_open() {
         rate_limit_delay(&refused, Category::StreamRent),
         Some(Duration::from_secs(60))
     );
+    drop(first);
+    server.stop().await?;
+}
+
+/// A refused stream step counts one rejection, even when its delay comes
+/// from a second, larger spend, and a refused update counts as one
+/// rate-limited update, a static open's included.
+// verifies: RATE-032
+#[xmtp_common::test(unwrap_try = true, disable_logging = true)]
+async fn each_refused_stream_step_counts_once() {
+    let Some(metrics) =
+        support::metrics::isolated("stream::tests::charges::each_refused_stream_step_counts_once")
+    else {
+        return;
+    };
+    // Operation spans reach the metrics through the backend's logging.
+    let _logging = xmtp_logging::XmtpLogging::builder()
+        .level(xmtp_logging::Level::Info)
+        .install()?;
+    let metric =
+        |name: &str, labels: &[(&str, &str)]| support::metrics::value(&metrics, name, labels);
+    let rejections = || {
+        metric(
+            "xmtp_rate_limit_rejections_total",
+            &[("category", "stream_rent")],
+        )
+    };
+    let refused_updates = || metric("xmtp_stream_updates_total", &[("outcome", "rate_limited")]);
+    let update_spans = || {
+        metric(
+            "xmtp_operation_duration_seconds_count",
+            &[("operation", "stream.update")],
+        )
+    };
+    let clock = ManualClock::new();
+    let server = server(
+        "[categories.stream_rent]\ndefault = [{ count = 2, window_seconds = 60 }]",
+        &clock,
+    )
+    .await?;
+    let mut stream = Native::open(&server).await?;
+    applied(&mut stream, 1, queries(0..1), vec![]).await?;
+    // 1001 topics need 1 more unit, and its delay is read from a spend of 3.
+    stream.update(2, queries(0..1001), vec![]).await?;
+    ended(&mut stream).await?;
+    assert_eq!(rejections(), 1.0);
+    assert_eq!(refused_updates(), 1.0);
+    drop(stream);
+    clock.advance(secs(60));
+    let mut client =
+        api::subscription_service_client::SubscriptionServiceClient::new(server.channel.clone());
+    let open = || {
+        let mut client = client.clone();
+        async move {
+            client
+                .subscribe_static(api::SubscribeStaticRequest {
+                    topics: queries(0..1),
+                })
+                .await
+        }
+    };
+    let spans = update_spans();
+    let first = open().await?;
+    assert_eq!(update_spans(), spans + 1.0);
+    assert!(rate_limit_delay(&open().await.map(drop), Category::StreamRent).is_some());
+    assert_eq!(rejections(), 2.0);
+    assert_eq!(refused_updates(), 2.0);
+    // A refused open leaves no session behind.
+    let refused = client
+        .subscribe(futures::stream::pending::<api::SubscribeRequest>())
+        .await
+        .map(drop);
+    assert!(rate_limit_delay(&refused, Category::StreamRent).is_some());
+    assert_eq!(rejections(), 3.0);
+    xmtp_common::wait_for_eq(
+        || async { metric("xmtp_stream_sessions", &[("kind", "bidi")]) },
+        0.0,
+    )
+    .await?;
+    assert_eq!(metric("xmtp_stream_sessions", &[("kind", "static")]), 1.0);
     drop(first);
     server.stop().await?;
 }
