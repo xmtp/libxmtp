@@ -28,6 +28,7 @@ use xmtp_mls_common::app_data::group_root::group_keys_from_extensions;
 use xmtp_mls_common::commit_log::{open_entry, seal_entry, sign_entry_author};
 use xmtp_mls_common::group_keys::{GroupKeys, SealError};
 use xmtp_mls_validation::ForkActors;
+use xmtp_proto::ShortHex;
 use xmtp_proto::backend_v1::SealedCommitLogEntry;
 use xmtp_proto::types::Cursor;
 use xmtp_proto::types::{CommitLogEntry as DecodedCommitLogEntry, Topic, TopicCursor};
@@ -987,7 +988,7 @@ where
                             return Err(e);
                         }
                         tracing::warn!(
-                            group_id = %group.group_id,
+                            group_id = group.group_id.short_hex(),
                             "Keeping readd requests for group after a failed readd: {}",
                             e
                         );
@@ -1010,7 +1011,7 @@ where
                 // Reversible (e.g. a version pause): keep and retry next tick.
                 Err(e) => {
                     tracing::warn!(
-                        group_id = %group.group_id,
+                        group_id = group.group_id.short_hex(),
                         "Keeping readd requests for group after a failed validation: {}",
                         e
                     );
@@ -1033,16 +1034,17 @@ where
             "Processing readd requests for group"
         );
 
-        // Moot requests drop even when the sync fails (e.g. a paused group).
+        // Check after the sync, but drop moot requests even when the sync
+        // fails (e.g. a paused group).
+        let synced = mls_group.sync_with_conn().await;
         self.check_readder(&mls_group)?;
-        mls_group.sync_with_conn().await?;
-        self.check_readder(&mls_group)?;
+        synced?;
 
         // A forked responder keeps the requests; a Welcome clears the fork.
         let fork_state = self.refresh_fork_state(&mls_group.group_id)?;
         if fork_state == Some(true) {
             tracing::info!(
-                group_id = %mls_group.group_id,
+                group_id = mls_group.group_id.short_hex(),
                 "Responder is forked, keeping readd requests"
             );
             return Ok(HashSet::new());

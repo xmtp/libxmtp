@@ -736,6 +736,56 @@ async fn a_moot_readd_request_drops_while_paused() {
     assert!(!db.is_awaiting_readd(&dm.group_id, installation.as_slice())?);
 }
 
+// verifies: FORK-080
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_readder_promoted_in_an_unsynced_commit_answers() {
+    use xmtp_db::{prelude::QueryRefreshState, refresh_state::EntityKind};
+
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    tester!(caro, disable_workers);
+    let group = alix
+        .create_group_with_members(&[bo.inbox_id(), caro.inbox_id()], None, None)
+        .await?;
+    bo.sync_all_welcomes_and_groups(None).await?;
+    let bo_group = bo.group(&group.group_id)?;
+    bo_group.update_consent_state(ConsentState::Allowed)?;
+    // Bo has not processed its promotion when the request arrives.
+    group
+        .update_admin_list(UpdateAdminListType::AddSuper, bo.inbox_id().to_string())
+        .await?;
+    let cursor = alix
+        .context
+        .db()
+        .latest_cursor_for_id(group.group_id, &[EntityKind::ApplicationMessage])?
+        .0;
+    Oneshot::send_message(
+        caro.context.clone(),
+        vec![bo.inbox_id()],
+        OneshotMessage {
+            message_type: Some(MessageType::ReaddRequest(ReaddRequest {
+                group_id: group.group_id.to_vec(),
+                latest_commit_sequence_id: cursor,
+            })),
+        },
+    )
+    .await?;
+    bo.sync_welcomes().await?;
+    let db = bo.context.db();
+    let installation = caro.context.installation_id();
+    assert!(db.is_awaiting_readd(&group.group_id, installation.as_slice())?);
+    let epoch_before = group.epoch().await?;
+    let mut worker = CommitLogWorker::new(bo.context.clone());
+    for _ in 0..3 {
+        worker._tick().await?;
+        if !db.is_awaiting_readd(&group.group_id, installation.as_slice())? {
+            break;
+        }
+    }
+    assert_eq!(bo_group.epoch().await?, epoch_before + 1);
+    assert!(!db.is_awaiting_readd(&group.group_id, installation.as_slice())?);
+}
+
 // verifies: FORK-050, FORK-080, FORK-064, GMOD-052
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_dm_readd_is_answered_once_by_peer_or_sibling() {
