@@ -7,7 +7,10 @@ use alloy::primitives::{Address, BlockNumber, Bytes, FixedBytes};
 use alloy::providers::{DynProvider, Provider, ProviderBuilder};
 use alloy::{sol, sol_types::SolConstructor};
 use hex::FromHexError;
-use std::sync::Arc;
+use std::{io, sync::Arc};
+use tokio::sync::Semaphore;
+use xmtp_common::time::{Duration, timeout};
+use xmtp_configuration::{CHAIN_CALL_TIMEOUT_MS, MAX_CHAIN_CALLS_PER_PROVIDER};
 
 use super::{ValidationResponse, VerifierError};
 
@@ -30,6 +33,7 @@ sol!(
 #[derive(Debug, Clone)]
 pub struct RpcSmartContractWalletVerifier {
     provider: Arc<DynProvider>,
+    permits: Arc<Semaphore>,
 }
 
 impl RpcSmartContractWalletVerifier {
@@ -40,13 +44,30 @@ impl RpcSmartContractWalletVerifier {
                     .connect_http(provider_url.parse()?)
                     .erased(),
             ),
+            permits: Arc::new(Semaphore::new(MAX_CHAIN_CALLS_PER_PROVIDER)),
         })
     }
 
     pub fn new_from_provider(provider: impl Provider + 'static) -> Self {
         Self {
             provider: Arc::new(DynProvider::new(provider)),
+            permits: Arc::new(Semaphore::new(MAX_CHAIN_CALLS_PER_PROVIDER)),
         }
+    }
+
+    /// Run one provider call holding a permit, both within
+    /// [`CHAIN_CALL_TIMEOUT_MS`]. Expiry is a retryable I/O error, never a
+    /// verdict.
+    async fn bounded<T>(
+        &self,
+        call: impl Future<Output = Result<T, VerifierError>>,
+    ) -> Result<T, VerifierError> {
+        timeout(Duration::from_millis(CHAIN_CALL_TIMEOUT_MS), async {
+            let _permit = self.permits.acquire().await;
+            call.await
+        })
+        .await
+        .map_err(|_| io::Error::from(io::ErrorKind::TimedOut))?
     }
 }
 
@@ -86,11 +107,16 @@ impl SmartContractSignatureVerifier for RpcSmartContractWalletVerifier {
         )?;
         let block_number = match input.block_number() {
             Some(bn) => bn,
-            None => self.provider.get_block_number().await?,
+            None => {
+                self.bounded(async { Ok(self.provider.get_block_number().await?) })
+                    .await?
+            }
         };
         let mut tx = self.provider.transaction_request();
         tx.set_input(data);
-        let result = self.provider.call(tx).block(block_number.into()).await?;
+        let result = self
+            .bounded(async { Ok(self.provider.call(tx).block(block_number.into()).await?) })
+            .await?;
 
         // Check if result indicates valid signature (0x01)
         let expected_valid = Bytes::from_static(&[0x01]);
@@ -107,13 +133,12 @@ impl SmartContractSignatureVerifier for RpcSmartContractWalletVerifier {
 impl RpcSmartContractWalletVerifier {
     /// The block at `number`, or a retryable error when the chain has none.
     async fn block(&self, number: BlockNumberOrTag) -> Result<BlockStamp, VerifierError> {
-        let block =
-            self.provider
-                .get_block_by_number(number)
-                .await?
-                .ok_or(VerifierError::MissingBlock(
-                    number.as_number().unwrap_or_default(),
-                ))?;
+        let block = self
+            .bounded(async { Ok(self.provider.get_block_by_number(number).await?) })
+            .await?
+            .ok_or(VerifierError::MissingBlock(
+                number.as_number().unwrap_or_default(),
+            ))?;
         Ok(BlockStamp {
             number: block.header.number,
             timestamp: block.header.timestamp,
@@ -171,43 +196,6 @@ pub(crate) mod tests {
         )
     }
 
-    /// Universal signature validation reports any signature valid for the
-    /// zero address, so a zero account is refused for good before the
-    /// verifier builds code or calls the provider. The same input for a
-    /// non-zero account reaches the provider.
-    // verifies: IDENT-093
-    #[xmtp_common::test(unwrap_try = true)]
-    async fn zero_address_scw_signature_is_rejected_before_chain_access() {
-        let (verifier, asserter) = mocked_verifier();
-        let mut signature = vec![0; 65];
-        signature[64] = 27;
-        let check = |address: String| {
-            verifier.is_valid_signature(
-                AccountId::new_evm(1, address),
-                [0; 32],
-                signature.clone().into(),
-                Some(1),
-            )
-        };
-
-        let Err(error) = check(format!("0x{}", "0".repeat(40))).await else {
-            panic!("a zero account must not verify");
-        };
-        assert!(
-            matches!(
-                error,
-                VerifierError::InvalidAccountId(AccountIdError::InvalidAddress)
-            ),
-            "{error}"
-        );
-        assert!(!error.is_retryable());
-        assert_eq!(asserter.read_q().len(), 1, "the provider was called");
-
-        let control = check(format!("0x{}1", "0".repeat(39))).await;
-        assert!(matches!(control, Err(VerifierError::Provider(_))));
-        assert!(asserter.read_q().is_empty(), "the provider was not called");
-    }
-
     /// A chain RPC URL can carry the operator's key, so a provider failure
     /// keeps its retryable error but never prints the URL.
     #[xmtp_common::test(unwrap_try = true)]
@@ -241,11 +229,10 @@ pub(crate) mod tests {
 
     /// The cap is the verifier's ceiling: the longest signature it admits
     /// builds initcode a chain still executes, and one byte more would build
-    /// initcode no chain executes. A signature over the cap is refused for
-    /// good before the verifier builds code from it.
+    /// initcode no chain executes.
     // verifies: IDENT-093
     #[xmtp_common::test(unwrap_try = true)]
-    async fn oversized_scw_signature_is_rejected_before_provider() {
+    fn scw_signature_cap_is_the_initcode_limit() {
         let address = format!("0x{}", "1".repeat(40));
         let initcode_bytes = |length| {
             initcode(&address, [0; 32], vec![0; length].into()).map(|initcode| initcode.len())
@@ -254,33 +241,111 @@ pub(crate) mod tests {
         assert!(at_cap <= EIP3860_MAX_INITCODE_BYTES, "{at_cap} bytes");
         let over_cap = initcode_bytes(MAX_SCW_SIGNATURE_BYTES + 1)?;
         assert!(over_cap > EIP3860_MAX_INITCODE_BYTES, "{over_cap} bytes");
+    }
 
-        let (verifier, asserter) = mocked_verifier();
-        let account = AccountId::new_evm(1, address.clone());
-        let length = MAX_SCW_SIGNATURE_BYTES + 1;
-        let Err(error) = verifier
-            .is_valid_signature(account.clone(), [0; 32], vec![0; length].into(), Some(1))
-            .await
-        else {
-            panic!("a {length}-byte signature must not verify");
+    /// Universal signature validation reports any signature valid for the
+    /// zero address, and a signature over the cap builds initcode no chain
+    /// executes, so both are refused for good before the verifier builds code
+    /// or calls the provider. The same input for a non-zero account, or at
+    /// the cap, reaches the provider.
+    // verifies: IDENT-093
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn unverifiable_inputs_never_reach_the_provider() {
+        let zero = format!("0x{}", "0".repeat(40));
+        let account = format!("0x{}1", "0".repeat(39));
+        let ecdsa = vec![0; 65];
+        type IsRefusal = fn(&VerifierError) -> bool;
+        let cases: [(_, _, IsRefusal); 2] = [
+            ((zero, ecdsa.clone()), (account.clone(), ecdsa), |error| {
+                matches!(
+                    error,
+                    VerifierError::InvalidAccountId(AccountIdError::InvalidAddress)
+                )
+            }),
+            (
+                (account.clone(), vec![0; MAX_SCW_SIGNATURE_BYTES + 1]),
+                (account, vec![0; MAX_SCW_SIGNATURE_BYTES]),
+                |error| {
+                    matches!(error, VerifierError::SignatureTooLong(got)
+                        if *got == MAX_SCW_SIGNATURE_BYTES + 1)
+                },
+            ),
+        ];
+        for (refused, control, is_refusal) in cases {
+            let (verifier, asserter) = mocked_verifier();
+            let check = |(address, signature): (String, Vec<u8>)| {
+                verifier.is_valid_signature(
+                    AccountId::new_evm(1, address),
+                    [0; 32],
+                    signature.into(),
+                    Some(1),
+                )
+            };
+            let Err(error) = check(refused).await else {
+                panic!("an unverifiable input must not verify");
+            };
+            assert!(is_refusal(&error), "{error}");
+            assert!(!error.is_retryable());
+            assert_eq!(asserter.read_q().len(), 1, "the provider was called");
+
+            let control = check(control).await;
+            assert!(matches!(control, Err(VerifierError::Provider(_))));
+            assert!(asserter.read_q().is_empty(), "the provider was not called");
+        }
+    }
+
+    /// Await `call` with time paused and check it fails retryably at the
+    /// call timeout, neither before it nor later.
+    async fn times_out<T>(call: impl Future<Output = Result<T, VerifierError>>) {
+        let bound = Duration::from_millis(CHAIN_CALL_TIMEOUT_MS);
+        let started = tokio::time::Instant::now();
+        let result = tokio::time::timeout(2 * bound, call).await;
+        let Err(error) = result.expect("outlasted the timeout") else {
+            panic!("a stalled call must not give a verdict");
         };
+        // The timer rounds its deadline up to the next millisecond.
+        assert!((bound..=bound + Duration::from_millis(1)).contains(&started.elapsed()));
         assert!(
-            matches!(error, VerifierError::SignatureTooLong(got) if got == length),
+            matches!(&error, VerifierError::Io(io) if io.kind() == std::io::ErrorKind::TimedOut),
             "{error}"
         );
-        assert!(!error.is_retryable());
-        assert_eq!(asserter.read_q().len(), 1, "the provider was called");
+        assert!(error.is_retryable());
+    }
 
-        let reached = verifier
-            .is_valid_signature(
-                account,
+    /// A provider that never answers holds no caller past the call timeout:
+    /// every chain read then fails retryably, never with a verdict.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn stalled_provider_calls_fail_retryably_at_the_timeout() {
+        tokio::time::pause();
+        // The listener never accepts, so each request is sent, never answered.
+        let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
+        let verifier =
+            RpcSmartContractWalletVerifier::new(format!("http://{}", listener.local_addr()?))?;
+        let check = |block_number| {
+            verifier.is_valid_signature(
+                AccountId::new_evm(1, format!("0x{}", "1".repeat(40))),
                 [0; 32],
-                vec![0; MAX_SCW_SIGNATURE_BYTES].into(),
-                Some(1),
+                vec![0; 65].into(),
+                block_number,
             )
-            .await;
-        assert!(matches!(reached, Err(VerifierError::Provider(_))));
-        assert!(asserter.read_q().is_empty(), "the provider was not called");
+        };
+        times_out(verifier.head("eip155:1")).await;
+        times_out(verifier.timestamp("eip155:1", 1)).await;
+        times_out(check(None)).await;
+        times_out(check(Some(1))).await;
+    }
+
+    /// A call waits for its provider's permit within its timeout, so a
+    /// saturated provider fails a caller retryably rather than queuing it, and
+    /// a call that never gets a permit never reaches the provider.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn held_permits_keep_calls_off_the_provider() {
+        tokio::time::pause();
+        let (verifier, asserter) = mocked_verifier();
+        let permits = u32::try_from(MAX_CHAIN_CALLS_PER_PROVIDER)?;
+        let _held = verifier.permits.acquire_many(permits).await?;
+        times_out(verifier.head("eip155:1")).await;
+        assert_eq!(asserter.read_q().len(), 1, "the provider was called");
     }
 
     alloy::sol! {

@@ -5,7 +5,7 @@ use crate::{
     db::{History, IdentityAdmission, PendingEnvelope},
     error::AdmissionError,
     handles,
-    validation::projection,
+    validation::{PublishChainReads, projection},
 };
 use prost::Message;
 use std::collections::{HashMap, HashSet};
@@ -266,6 +266,7 @@ impl Backend {
         parsed: Vec<ParsedEnvelope>,
     ) -> Result<Vec<ParsedEnvelope>, Status> {
         self.store.find_duplicates(pending).await?;
+        let chain = PublishChainReads::new(&*self.chains);
         for (item, parsed) in pending.iter_mut().zip(&parsed) {
             if item.duplicate.is_some() {
                 continue;
@@ -308,7 +309,7 @@ impl Backend {
                 parsed,
                 &prior,
                 crate::validation::ObservedVerifier(&self.verifier),
-                &*self.chains,
+                &chain,
             )
             .await
             {

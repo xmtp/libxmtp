@@ -1,7 +1,9 @@
 use crate::db::Projection;
-use std::collections::HashSet;
+use parking_lot::Mutex;
+use std::collections::{HashMap, HashSet};
 use tonic::Status;
 use xmtp_id::associations::{Handle, Identifier, MemberIdentifier};
+use xmtp_id::scw_verifier::{BlockStamp, ChainBlocks, VerifierError};
 use xmtp_mls_validation::AssociationValidation;
 use xmtp_proto::xmtp::identity::associations::IdentifierKind;
 
@@ -104,6 +106,42 @@ pub(crate) fn projection(validation: &AssociationValidation) -> Projection {
     }
 }
 
+/// Chain block reads for one publish: each block's timestamp is read once and
+/// reused by every update in the request. Only a successful read is kept. The
+/// head is read for each update, so each is judged against a current head.
+/// Built per request, so nothing outlives it.
+pub(crate) struct PublishChainReads<'a> {
+    chain: &'a dyn ChainBlocks,
+    timestamps: Mutex<HashMap<(String, u64), u64>>,
+}
+
+impl<'a> PublishChainReads<'a> {
+    pub(crate) fn new(chain: &'a dyn ChainBlocks) -> Self {
+        Self {
+            chain,
+            timestamps: Mutex::default(),
+        }
+    }
+}
+
+#[xmtp_common::async_trait]
+impl ChainBlocks for PublishChainReads<'_> {
+    async fn head(&self, chain_id: &str) -> Result<BlockStamp, VerifierError> {
+        self.chain.head(chain_id).await
+    }
+
+    async fn timestamp(&self, chain_id: &str, number: u64) -> Result<u64, VerifierError> {
+        let key = (chain_id.to_owned(), number);
+        let kept = self.timestamps.lock().get(&key).copied();
+        if let Some(timestamp) = kept {
+            return Ok(timestamp);
+        }
+        let timestamp = self.chain.timestamp(chain_id, number).await?;
+        self.timestamps.lock().insert(key, timestamp);
+        Ok(timestamp)
+    }
+}
+
 /// Add backend telemetry at the verifier boundary, including identity validation.
 pub(crate) struct ObservedVerifier<'a>(
     pub &'a xmtp_id::scw_verifier::CachedSmartContractSignatureVerifier,
@@ -147,5 +185,26 @@ impl ObservedVerifier<'_> {
             Err(_) => VerificationResult::Invalid,
         });
         result
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::PublishChainReads;
+    use xmtp_id::scw_verifier::ChainBlocks;
+    use xmtp_mls_validation::test_utils::{CountingChain, TestChain};
+
+    /// A failed timestamp read is not kept, so a later update in the same
+    /// publish reads the chain again rather than failing on the first error.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn publish_chain_reads_keep_only_successful_reads() {
+        let chain = TestChain::at(10);
+        let counting = CountingChain::new(chain.clone());
+        let reads = PublishChainReads::new(&counting);
+        chain.set(None);
+        assert!(reads.timestamp("eip155:1", 5).await.is_err());
+        chain.set(Some(10));
+        assert_eq!(reads.timestamp("eip155:1", 5).await?, 5);
+        assert_eq!(counting.reads(), (0, 2));
     }
 }
