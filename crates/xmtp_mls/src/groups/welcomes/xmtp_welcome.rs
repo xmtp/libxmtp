@@ -831,13 +831,9 @@ fn resolve_join_consent(
         entity: entity.clone(),
         consented_at_ns,
     };
-    // A re-add resets only a decision older than its Welcome. With no record
-    // there is nothing to reset, and a join stores no record at a later time.
-    if readd_after_leaving
-        && db
-            .get_consent_record(entity.clone(), ConsentType::ConversationId)?
-            .is_some()
-    {
+    // A re-add stores unknown at its Welcome's time even with no record, so a
+    // decision older than the re-add that syncs in later cannot replace it.
+    if readd_after_leaving {
         db.insert_newer_consent_record(record(ConsentState::Unknown, welcome_ns))?;
     }
     // The creator field is the sender's claim, so the adder must be this inbox too.

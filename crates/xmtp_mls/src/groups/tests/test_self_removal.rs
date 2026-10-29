@@ -1196,8 +1196,9 @@ enum PriorDecision {
 }
 
 /// A re-add after leaving resets consent to unknown at the re-add Welcome's
-/// backend time, but only a decision older than that Welcome. With no record
-/// the join stores none, and an equal or newer decision stays as it is.
+/// backend time, with or without a record, but only a decision older than that
+/// Welcome. An equal or newer decision stays as it is, and an older decision
+/// synced in after the join does not replace the result.
 /// Another installation of the inbox leaves, so this one holds the leave
 /// without the allowed record that sending the leave request stores.
 // verifies: CONS-025, CONS-022
@@ -1206,6 +1207,7 @@ enum PriorDecision {
 #[case::older_allowed(PriorDecision::Older, false)]
 #[case::allowed_at_readd(PriorDecision::AtReadd, false)]
 #[case::newer_denied(PriorDecision::Newer, false)]
+#[case::removed_no_record(PriorDecision::None, true)]
 #[case::removed_older_allowed(PriorDecision::Older, true)]
 #[xmtp_common::test(unwrap_try = true)]
 async fn readd_after_leave_resets_only_an_older_decision(
@@ -1303,8 +1305,18 @@ async fn readd_after_leave_resets_only_an_older_decision(
             .unwrap()
     );
     let expected = match prior {
-        PriorDecision::Older => Some((ConsentState::Unknown, readd_ns)),
-        PriorDecision::None | PriorDecision::AtReadd | PriorDecision::Newer => before,
+        PriorDecision::None | PriorDecision::Older => Some((ConsentState::Unknown, readd_ns)),
+        PriorDecision::AtReadd | PriorDecision::Newer => before,
     };
+    assert_eq!(decision().unwrap(), expected);
+    // A decision made before the re-add that syncs in after the join.
+    bola.db()
+        .insert_newer_consent_record(StoredConsentRecord {
+            entity_type: ConsentType::ConversationId,
+            state: ConsentState::Denied,
+            entity: entity.clone(),
+            consented_at_ns: readd_ns - 1,
+        })
+        .unwrap();
     assert_eq!(decision().unwrap(), expected);
 }
