@@ -327,6 +327,21 @@ impl MessageRow {
                 return Ok(None);
             }
         }
+        // The archive also carries the type fields copied from the content, so they
+        // count toward the same budget as the SQL check.
+        let copied = encoded_type
+            .as_ref()
+            .map_or(0, |id| id.type_id.len() + id.authority_id.len());
+        let retained = self.id.len()
+            + self.group_id.len()
+            + self.decrypted_message_bytes.len()
+            + self.sender_installation_id.len()
+            + self.sender_inbox_id.len()
+            + self.authority_id.len()
+            + self.reference_id.as_ref().map_or(0, Vec::len);
+        if retained + copied > MAX_ROW_BYTES as usize {
+            return Err(invalid("stored message row exceeds the 64 MiB byte limit"));
+        }
         let mut save = GroupMessageSave {
             id: self.id,
             group_id: self.group_id,

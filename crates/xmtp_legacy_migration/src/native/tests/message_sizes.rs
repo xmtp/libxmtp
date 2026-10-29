@@ -84,3 +84,40 @@ async fn exact_message_row_byte_limit_remains_supported() {
     assert_eq!(source_bytes(&args), before);
     assert_eq!(entries(directory.path()), expected_entries);
 }
+
+// verifies: MIG-007
+#[xmtp_common::test(unwrap_try = true)]
+async fn copied_content_type_counts_toward_message_row_limit() {
+    use prost::Message;
+    use xmtp_proto::xmtp::message_contents::{ContentTypeId, EncodedContent};
+    let large = "t".repeat(9 * 1024 * 1024);
+    for (name, type_id, authority_id) in [
+        ("copied type id", large.clone(), String::new()),
+        ("copied authority id", String::new(), large),
+    ] {
+        let (directory, args) = fixture("stable.db3");
+        sized_message(&args, 0, 1, "é");
+        // The SQL-counted fields total LIMIT; the archive also carries the copied id.
+        let mut content = EncodedContent {
+            r#type: Some(ContentTypeId {
+                type_id,
+                authority_id,
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let target = LIMIT - 53;
+        content.content = vec![0; target - content.encoded_len() - 5];
+        assert_eq!(content.encoded_len(), target);
+        let mut conn = SqliteConnection::establish(&args.database_path)?;
+        diesel::sql_query("UPDATE group_messages SET decrypted_message_bytes = ? WHERE id = ?")
+            .bind::<diesel::sql_types::Binary, _>(content.encode_to_vec())
+            .bind::<diesel::sql_types::Binary, _>(vec![1u8; 32])
+            .execute(&mut conn)?;
+        drop(conn);
+        let failures =
+            rejects_without_publishing(&args, directory.path(), name, ExpectedError::RecordRead)
+                .await;
+        assert!(failures.is_empty(), "{failures:?}");
+    }
+}
