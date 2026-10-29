@@ -450,6 +450,7 @@ where
         }
 
         let mut anchor_mode = JoinAnchorMode::Advance;
+        let mut replaced_after_removal = false;
 
         if let Some(existing) = &existing_group
             && existing.membership_state != GroupMembershipState::Restored
@@ -459,10 +460,16 @@ where
             let processed = db.latest_cursor_for_id(group_id, &[EntityKind::ApplicationMessage])?;
             let incoming_epoch = staged_welcome.group_context().epoch();
             let active = current.is_active();
-            // A remove-and-re-add commit can retire this installation at the join anchor.
-            // Removal can advance its public epoch without installing that epoch's secrets.
-            // Welcome publication order does not establish MLS epoch order.
-            if processed == anchor && !current.is_active() && current.epoch() <= incoming_epoch {
+            // implements: JOIN-042
+            // Only the commit that removed this installation re-adds it here. Its
+            // GroupInfo signer is a leaf of the tree that commit left us. Self-removal
+            // keeps that epoch and tree hash, not the confirmed transcript hash.
+            if processed == anchor
+                && !active
+                && current.epoch() == incoming_epoch
+                && current.public_group().group_context().tree_hash()
+                    == staged_welcome.group_context().tree_hash()
+            {
                 anchor_mode = JoinAnchorMode::InactiveReadd;
             }
             // implements: JOIN-042
@@ -481,6 +488,10 @@ where
                     anchor: anchor.0,
                 });
             }
+            // implements: CONS-025
+            // A later anchor cannot be tied to the branch this installation left.
+            replaced_after_removal = anchor_mode == JoinAnchorMode::Advance
+                && metadata.conversation_type == ConversationType::Group;
             // A replacement Welcome starts a new membership generation.
             // Clear the old proposals in memory and storage before installing
             // it. OpenMLS stores proposal references by group ID, not epoch.
@@ -647,7 +658,7 @@ where
             context.inbox_id(),
             &metadata.creator_inbox_id,
             &added_by_inbox_id,
-            is_readd_after_leaving,
+            is_readd_after_leaving || replaced_after_removal,
             welcome.timestamp(),
         )?;
 
@@ -1212,6 +1223,25 @@ mod tests {
             ),
             "{result:?}"
         );
+        bo.assert_newest_welcome_rejected().await;
+        send_crafted_welcome_with(
+            &alix,
+            &bo,
+            alix_group.group_id.as_slice(),
+            Some(&root),
+            CraftedWelcome {
+                anchor: before.processed.0,
+                prior_epoch: old_epoch - 1,
+                ..Default::default()
+            },
+        )
+        .await;
+        assert!(matches!(
+            process_newest_welcome(&bo).await,
+            Err(GroupError::ProcessIntent(
+                ProcessIntentError::WelcomeAlreadyProcessed(_)
+            ))
+        ));
         bo.assert_newest_welcome_rejected().await;
         assert!(!bo_group.is_active()?);
         assert_eq!(bo_group.epoch().await?, old_epoch);
