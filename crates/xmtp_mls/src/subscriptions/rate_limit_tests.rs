@@ -12,15 +12,12 @@ use std::sync::{
     Arc,
     atomic::{AtomicBool, Ordering},
 };
-use xmtp_api_backend::{AuthCallback, Credential};
+use xmtp_api_backend::{AuthCallback, Credential, MIN_STABLE_UPTIME, RECONNECT_INITIAL_DELAY};
 use xmtp_backend::{
     config::{CallerKey, Category},
     test_support::{ManualClock, SpendRecord},
 };
-use xmtp_common::{
-    BoxDynError,
-    time::{Duration, Instant},
-};
+use xmtp_common::{BoxDynError, time::Duration};
 use xmtp_db::group_message::{GroupMessageKind, StoredGroupMessage};
 
 const SECOND: u64 = 1_000_000_000;
@@ -206,22 +203,20 @@ async fn a_stream_ended_for_its_rent_reopens_after_the_delay_and_loses_nothing()
         assert_eq!(next_text(&mut stream).await, text);
     }
 
-    // The client counts a stream up for 10 s as healthy and would reset its
-    // backoff to 100 ms, but not after a rate-limit end. The next renewal is
-    // refused 50 ms short of fitting, so the doubled backoff decides when the
-    // replacement opens.
-    let healthy = Instant::now();
-    xmtp_common::time::sleep(Duration::from_secs(11)).await;
-    assert!(healthy.elapsed() >= Duration::from_secs(10));
+    // After `MIN_STABLE_UPTIME` the client counts the stream as healthy and
+    // would reset its backoff to the minimum, but not after a rate-limit end.
+    // The next renewal is refused 50 ms short of fitting, so the doubled
+    // backoff decides when the replacement opens.
+    xmtp_common::time::sleep(MIN_STABLE_UPTIME + Duration::from_secs(1)).await;
     clock.set(start + 130 * SECOND - 50_000_000);
     let denied = denial(&backend, from, 1).await;
     assert_eq!(denied.retry_after, Some(Duration::from_millis(50)));
     clock.set(start + 130 * SECOND);
     let reopened = reopen(&backend, from, &denied).await;
-    // Two rate-limit ends doubled the 100 ms backoff twice, to at least
-    // 400 ms. One reset to its minimum would open within 200 ms.
+    // Two rate-limit ends doubled the backoff twice. A reset to its minimum
+    // would open within twice the minimum.
     assert!(
-        reopened.at.duration_since(denied.at) >= Duration::from_millis(400),
+        reopened.at.duration_since(denied.at) >= RECONNECT_INITIAL_DELAY * 4,
         "the stream reopened {:?} after its end",
         reopened.at.duration_since(denied.at)
     );
