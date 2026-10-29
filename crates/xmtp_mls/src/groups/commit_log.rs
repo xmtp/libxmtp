@@ -1034,11 +1034,28 @@ where
             "Processing readd requests for group"
         );
 
-        // Check after the sync, but drop moot requests even when the sync
-        // fails (e.g. a paused group).
         let synced = mls_group.sync_with_conn().await;
-        self.check_readder(&mls_group)?;
+        // A sync never changes consent or activity, so these drop moot
+        // requests even when it fails (e.g. a paused group).
+        if mls_group.consent_state()? != ConsentState::Allowed {
+            return Err(CommitLogError::GroupReaddValidationError(
+                "Group is not consented".to_string(),
+            ));
+        }
+        if !mls_group.is_active()? {
+            return Err(CommitLogError::GroupReaddValidationError(
+                "Group is not active".to_string(),
+            ));
+        }
+        // An unsynced commit may have made this member a readder.
         synced?;
+        let actors =
+            mls_group.with_group_snapshot(|g| Ok::<_, GroupError>(ForkActors::from_group(g)?))?;
+        if !actors.permits(self.context.inbox_id()) {
+            return Err(CommitLogError::GroupReaddValidationError(
+                "No longer a permitted readder of group".to_string(),
+            ));
+        }
 
         // A forked responder keeps the requests; a Welcome clears the fork.
         let fork_state = self.refresh_fork_state(&mls_group.group_id)?;
@@ -1101,29 +1118,6 @@ where
             })
             .map(|status| status.installation_id)
             .collect())
-    }
-
-    /// FORK section 7: requests are moot once the responder no longer
-    /// consents to, is active in, or may readd in the group.
-    fn check_readder(&self, mls_group: &MlsGroup<Context>) -> Result<(), CommitLogError> {
-        if mls_group.consent_state()? != ConsentState::Allowed {
-            return Err(CommitLogError::GroupReaddValidationError(
-                "Group is not consented".to_string(),
-            ));
-        }
-        if !mls_group.is_active()? {
-            return Err(CommitLogError::GroupReaddValidationError(
-                "Group is not active".to_string(),
-            ));
-        }
-        let actors =
-            mls_group.with_group_snapshot(|g| Ok::<_, GroupError>(ForkActors::from_group(g)?))?;
-        if !actors.permits(self.context.inbox_id()) {
-            return Err(CommitLogError::GroupReaddValidationError(
-                "No longer a permitted readder of group".to_string(),
-            ));
-        }
-        Ok(())
     }
 
     fn check_conversation_fork_state(

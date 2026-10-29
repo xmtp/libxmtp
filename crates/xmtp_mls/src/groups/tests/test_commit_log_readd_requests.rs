@@ -739,7 +739,10 @@ async fn a_moot_readd_request_drops_while_paused() {
 // verifies: FORK-080
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_readder_promoted_in_an_unsynced_commit_answers() {
-    use xmtp_db::{prelude::QueryRefreshState, refresh_state::EntityKind};
+    use xmtp_db::{
+        prelude::{QueryGroupVersion, QueryRefreshState},
+        refresh_state::EntityKind,
+    };
 
     tester!(alix, disable_workers);
     tester!(bo, disable_workers);
@@ -774,8 +777,13 @@ async fn a_readder_promoted_in_an_unsynced_commit_answers() {
     let db = bo.context.db();
     let installation = caro.context.installation_id();
     assert!(db.is_awaiting_readd(&group.group_id, installation.as_slice())?);
-    let epoch_before = group.epoch().await?;
     let mut worker = CommitLogWorker::new(bo.context.clone());
+    // A failed sync must not judge permission from the unsynced state.
+    db.set_group_paused(&group.group_id, "999.0.0")?;
+    worker._tick().await?;
+    assert!(db.is_awaiting_readd(&group.group_id, installation.as_slice())?);
+    db.unpause_group(&group.group_id)?;
+    let epoch_before = group.epoch().await?;
     for _ in 0..3 {
         worker._tick().await?;
         if !db.is_awaiting_readd(&group.group_id, installation.as_slice())? {
