@@ -1,5 +1,6 @@
 //! What a publish is charged, and that a denied step stores nothing.
 
+use super::signatures::stored_rows;
 use super::transport::{PUBLISH, empty_envelopes};
 use super::*;
 use crate::{
@@ -302,42 +303,114 @@ async fn every_publish_bound_is_decided_before_the_charges() {
     small_counts.stop().await?;
 }
 
-/// A request with an envelope over a bound is refused before its charges
-/// with the lowest index of an envelope over a bound or one that does not
-/// parse, and spends nothing but its `request` unit.
+/// The precedence of the index a failed publish reports. An envelope over a
+/// bound, one that does not parse, and a second update for one inbox are
+/// found before any charge and before any other check: the lowest of them is
+/// reported even when an envelope at a lower index would fail a later check,
+/// and the request spends nothing but its `request` unit. Without one, the
+/// envelopes are charged and validated, and the lowest failing envelope is
+/// reported.
 // verifies: API-223, RATE-010
 #[xmtp_common::test(unwrap_try = true)]
-async fn a_bound_failure_reports_the_lowest_envelope_found_failing() {
-    let oversized = envelope(1, 1);
+async fn bound_and_parse_failures_precede_every_other_check() {
+    let fixture = identity_history_with_passkey().await;
+    let mut bad_signature =
+        keyed_group_message_envelope(&group_keys(1), GroupMessageKind::Application, []);
+    if let Some(api::client_envelope::Payload::GroupMessage(message)) = &mut bad_signature.payload {
+        message.should_push = !message.should_push;
+    }
+    let expired = expired_key_package_envelope().envelope;
+    let malformed = api::ClientEnvelope::default();
+    let first = identity_envelope(fixture.history[0].clone());
+    let second = identity_envelope(fixture.update.clone());
+    // The byte bound admits every envelope here but one.
+    let max_envelope_bytes = [&bad_signature, &expired, &first, &second]
+        .iter()
+        .map(|envelope| envelope.encoded_len())
+        .max()
+        .unwrap_or_default();
+    let mut oversized = envelope(1, 1);
+    if let Some(api::client_envelope::Payload::WelcomeMessage(welcome)) = &mut oversized.payload
+        && let Some(api::welcome_message::Version::V1(welcome)) = &mut welcome.version
+    {
+        welcome.data.extend(vec![0; max_envelope_bytes]);
+    }
     let server = TestServer::new(|config| {
-        config.limits.max_envelope_bytes = oversized.encoded_len() - 1;
+        config.limits.max_envelope_bytes = max_envelope_bytes;
         config.rate_limits = rate_limits(&format!(
             "max_memory_mib = 1\ntrusted_proxies = [\"127.0.0.1/32\"]\n{BOUND_LIMITS}"
         ));
     })
     .await?;
-    let malformed = api::ClientEnvelope::default();
-    for (address, envelopes, reason) in [
+    let found_first = [
         (
-            "203.0.113.1",
-            vec![malformed.clone(), oversized.clone()],
+            vec![bad_signature.clone(), oversized.clone()],
+            1,
+            Reason::TooLarge,
+        ),
+        (
+            vec![bad_signature.clone(), malformed.clone()],
+            1,
             Reason::MalformedPayload,
         ),
         (
-            "203.0.113.2",
+            vec![bad_signature.clone(), first.clone(), second.clone()],
+            2,
+            Reason::InvalidIdentityUpdate,
+        ),
+        (
+            vec![malformed.clone(), oversized.clone()],
+            0,
+            Reason::MalformedPayload,
+        ),
+        (
             vec![oversized.clone(), malformed.clone()],
+            0,
             Reason::TooLarge,
         ),
-    ] {
-        let status = publish_from(&server, address, envelopes).await.unwrap_err();
+    ];
+    let validated = [
+        (
+            vec![bad_signature.clone(), expired.clone()],
+            0,
+            Reason::InvalidSignature,
+        ),
+        (
+            vec![expired.clone(), bad_signature.clone()],
+            0,
+            Reason::InvalidKeyPackage,
+        ),
+    ];
+    let cases = found_first
+        .into_iter()
+        .map(|case| (case, false))
+        .chain(validated.into_iter().map(|case| (case, true)));
+    for (number, ((envelopes, index, reason), charged)) in cases.enumerate() {
+        let address = format!("203.0.113.{}", number + 1);
+        let status = publish_from(&server, &address, envelopes)
+            .await
+            .unwrap_err();
         let detail = api::PublishError::decode(
             tonic_types::pb::Status::decode(status.details())?.details[0]
                 .value
                 .as_slice(),
         )?;
-        assert_eq!((detail.index, detail.reason()), (Some(0), reason));
-        assert_left(&caller(&server, address), Category::Publish, 2).await;
+        assert_eq!(
+            (detail.index, detail.reason()),
+            (Some(index), reason),
+            "case {number}"
+        );
+        let left = caller(&server, &address);
+        if charged {
+            assert!(
+                left.charge(Category::Publish, 1).await.is_err(),
+                "case {number}"
+            );
+        } else {
+            assert_left(&left, Category::Publish, 2).await;
+        }
     }
+    assert_eq!(stored_rows(&server).await?, 0);
     server.stop().await?;
 }
 

@@ -88,7 +88,6 @@ struct PublishBatch {
     pending: Vec<PendingEnvelope>,
     parsed: Vec<ParsedEnvelope>,
     positions: Vec<usize>,
-    parse_error: Option<(usize, AdmissionError)>,
 }
 
 #[tonic::async_trait]
@@ -138,7 +137,6 @@ impl Backend {
             mut pending,
             parsed,
             positions,
-            parse_error,
         } = self.parse_publish(request)?;
         charger
             .charge(Category::IdentityUpdate, costs.identity_updates)
@@ -159,11 +157,8 @@ impl Backend {
         let duration = Duration::from_millis(self.config.publishing.max_publish_duration_ms);
         let metas = timeout(
             duration,
-            self.store.commit_publish(
-                &mut pending,
-                parse_error,
-                self.config.publishing.max_publish_duration_ms,
-            ),
+            self.store
+                .commit_publish(&mut pending, self.config.publishing.max_publish_duration_ms),
         )
         .await
         .map_err(|_| Status::deadline_exceeded("publish timed out"))??;
@@ -199,17 +194,15 @@ impl Backend {
     ///
     /// This step reads nothing stored and performs no cryptographic or
     /// identity validation, so the request's charges follow it. It collapses
-    /// identical canonical envelopes, records the first parse error, and
-    /// keeps enough metadata for the database layer to restore response
-    /// order. A whole-request bound fails the request at once. An envelope
-    /// over a bound fails it once every envelope is checked, with the lowest
-    /// index of an envelope over a bound or one that does not parse. No
-    /// envelope of such a request is validated: an envelope at a lower index
-    /// that would fail any later check, such as its signature, a key
-    /// package, the shape of an identity update, or a check that reads the
-    /// store, is never examined, so its index is not the one reported.
-    /// Without a bound failure, the first parse error is reported at commit,
-    /// with the validation errors. The envelope bound counts the input,
+    /// identical canonical envelopes and keeps enough metadata for the
+    /// database layer to restore response order. A whole-request bound fails
+    /// the request at once. An envelope over a bound, one that does not
+    /// parse, or a second update for one inbox fails it once every envelope
+    /// is checked, with the lowest such index. No envelope of such a request
+    /// is validated: an envelope at a lower index that would fail a later
+    /// check, such as its signature, a key package, the shape of an identity
+    /// update, or a check that reads the store, is never examined, so its
+    /// index is not the one reported. The envelope bound counts the input,
     /// duplicates included, before any envelope is parsed, so it also caps
     /// the signatures a request can make the backend verify. The ERC-6492
     /// signature bound applies to every identity update, a duplicate of a
@@ -340,17 +333,17 @@ impl Backend {
             });
             parsed_envelopes.push(parsed);
         }
-        if let Some(bound) = over_bound {
-            let (index, error) = parse_error
-                .filter(|(index, _)| *index < bound.0)
-                .unwrap_or(bound);
+        if let Some((index, error)) = over_bound
+            .into_iter()
+            .chain(parse_error)
+            .min_by_key(|(index, _)| *index)
+        {
             return Err(Error::Admission { index, error }.into());
         }
         Ok(PublishBatch {
             pending,
             parsed: parsed_envelopes,
             positions,
-            parse_error,
         })
     }
 

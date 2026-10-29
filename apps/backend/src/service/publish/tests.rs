@@ -204,11 +204,12 @@ async fn failed_batch_leaves_new_topics_empty_and_reports_first_original_error()
     let server = TestServer::new(|_| {}).await?;
     let retained = inline_welcome_envelope([3; 32]);
     server.publish(vec![retained.clone()]).await?;
+    // Two envelopes fail validation; the lower one is reported.
     let request = api::PublishRequest {
         envelopes: vec![
             retained,
             expired_key_package_envelope().envelope,
-            api::ClientEnvelope::default(),
+            expired_key_package_envelope().envelope,
             inline_welcome_envelope([4; 32]),
         ],
     };
@@ -275,10 +276,17 @@ async fn publish_errors_keep_the_original_index_for_each_validation_reason() {
     ];
     for (bad, reason) in cases {
         let good = inline_welcome_envelope([70; 32]);
+        // An envelope after the bad one fails validation too; the lower index
+        // is reported.
         let error = server
             .publisher()
             .publish(api::PublishRequest {
-                envelopes: vec![good.clone(), good, bad, api::ClientEnvelope::default()],
+                envelopes: vec![
+                    good.clone(),
+                    good,
+                    bad,
+                    expired_key_package_envelope().envelope,
+                ],
             })
             .await
             .unwrap_err();
