@@ -125,9 +125,14 @@ impl<L: RateLimiter + CountsEvictions> BackendLimiter<L> {
     }
 
     /// Add the evictions since the last record to the metric, each once,
-    /// whichever spend observes them first.
+    /// whichever spend observes them first. Without a new eviction, a spend
+    /// only reads the shared count, so spends on different shards do not
+    /// contend for it.
     fn record_evictions(&self) {
         let evictions = self.limiter.evictions();
+        if evictions <= self.recorded_evictions.load(Ordering::Relaxed) {
+            return;
+        }
         let recorded = self
             .recorded_evictions
             .fetch_max(evictions, Ordering::Relaxed);
