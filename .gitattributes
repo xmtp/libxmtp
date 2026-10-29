@@ -21,7 +21,7 @@ flake.lock text=auto eol=lf
 rust-toolchain.toml text=auto eol=lf
 .cargo/config.toml text=auto eol=lf
 crates/xmtp_sdk/uniffi.toml text=auto eol=lf
-crates/xmtp_attachments/src/address-registry.txt text=auto eol=lf
+crates/xmtp_common/src/address-registry.txt text=auto eol=lf
 crates/xmtp_id/src/scw_verifier/chain_urls_default.json text=auto eol=lf
 crates/xmtp_id/src/scw_verifier/signature_validation.hex text=auto eol=lf
 apps/xmtp_sdk_bindgen/** text=auto eol=lf

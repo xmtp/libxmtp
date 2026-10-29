@@ -1,4 +1,4 @@
-//! Download address checks.
+//! Private address checks for attachment downloads and webhook hosts.
 //!
 //! `address-registry.txt` is a snapshot of the IANA IPv4 and IPv6 registries:
 //! <https://www.iana.org/assignments/iana-ipv4-special-registry/iana-ipv4-special-registry.xhtml>
@@ -53,7 +53,7 @@ fn parse_row(line: &str) -> Option<(IpAddr, u32, bool)> {
 }
 
 /// Return true for an address that must not be reached by a default client.
-pub(crate) fn is_private(address: IpAddr) -> bool {
+pub fn is_private(address: IpAddr) -> bool {
     match address {
         IpAddr::V4(ip) if ip.is_multicast() => return true,
         IpAddr::V6(ip) if ip.is_multicast() => return true,

@@ -34,6 +34,7 @@ pub use wasm::*;
 pub mod stream_handles;
 pub use stream_handles::*;
 
+pub mod address;
 pub mod fmt;
 pub mod hex;
 pub mod http;

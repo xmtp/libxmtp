@@ -1,6 +1,5 @@
 //! Streaming remote attachment primitives.
 
-mod address;
 mod crypto;
 mod derive;
 mod encoding;
