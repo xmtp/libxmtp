@@ -548,7 +548,10 @@ mock! {
             msg_id: &MessageId,
         ) -> Result<usize, crate::ConnectionError>;
 
-        fn delete_expired_messages(&self) -> Result<Vec<StoredGroupMessage>, crate::ConnectionError>;
+        fn delete_expired_messages(
+            &self,
+            pass_start_ns: i64,
+        ) -> Result<Vec<StoredGroupMessage>, crate::ConnectionError>;
 
         fn min_expire_at_ns(&self) -> Result<Option<i64>, crate::ConnectionError>;
 

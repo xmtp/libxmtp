@@ -285,7 +285,7 @@ where
         bench!(self, get_latest_message_times_by_sender(&group.id, &[]))?;
 
         // Cleanup operations
-        bench!(self, delete_expired_messages())?;
+        bench!(self, delete_expired_messages(xmtp_common::time::now_ns()))?;
 
         // Messages newer than (with empty hashmap for baseline)
         let empty_cursors: HashMap<Vec<u8>, Cursor> = HashMap::new();

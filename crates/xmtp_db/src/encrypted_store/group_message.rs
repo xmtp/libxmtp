@@ -100,6 +100,65 @@ pub struct StoredGroupMessage {
     pub idempotency_key: String,
 }
 
+/// One expiry-cleanup transaction deletes at most this many rows.
+pub const EXPIRED_MESSAGE_BATCH: i64 = 1_000;
+
+/// The `group_messages` columns a `StoredGroupMessage` needs, minus the body,
+/// so an expiry delete never loads or returns it.
+#[derive(Queryable, Selectable)]
+#[diesel(table_name = group_messages)]
+#[diesel(check_for_backend(Sqlite))]
+struct ExpiredMessageRow {
+    id: Vec<u8>,
+    group_id: GroupId,
+    sent_at_ns: i64,
+    kind: GroupMessageKind,
+    sender_installation_id: Vec<u8>,
+    sender_inbox_id: String,
+    delivery_status: DeliveryStatus,
+    content_type: ContentType,
+    version_major: i32,
+    version_minor: i32,
+    authority_id: String,
+    reference_id: Option<Vec<u8>>,
+    sequence_id: i64,
+    envelope_hash: Option<Vec<u8>>,
+    expiry_ns: Option<i64>,
+    inserted_at_ns: i64,
+    expire_at_ns: Option<i64>,
+    expiry_unknown: bool,
+    should_push: bool,
+    idempotency_key: String,
+}
+
+impl From<ExpiredMessageRow> for StoredGroupMessage {
+    fn from(row: ExpiredMessageRow) -> Self {
+        StoredGroupMessage {
+            id: row.id,
+            group_id: row.group_id,
+            decrypted_message_bytes: Vec::new(),
+            sent_at_ns: row.sent_at_ns,
+            kind: row.kind,
+            sender_installation_id: row.sender_installation_id,
+            sender_inbox_id: row.sender_inbox_id,
+            delivery_status: row.delivery_status,
+            content_type: row.content_type,
+            version_major: row.version_major,
+            version_minor: row.version_minor,
+            authority_id: row.authority_id,
+            reference_id: row.reference_id,
+            sequence_id: row.sequence_id,
+            envelope_hash: row.envelope_hash,
+            expiry_ns: row.expiry_ns,
+            inserted_at_ns: row.inserted_at_ns,
+            expire_at_ns: row.expire_at_ns,
+            expiry_unknown: row.expiry_unknown,
+            should_push: row.should_push,
+            idempotency_key: row.idempotency_key,
+        }
+    }
+}
+
 impl StoredGroupMessage {
     /// Store the message and report whether this call inserted it.
     pub fn store_or_ignore_changed<C: ConnectionExt>(
@@ -693,18 +752,21 @@ pub trait QueryGroupMessage {
         msg_id: &MessageId,
     ) -> Result<usize, crate::ConnectionError>;
 
-    /// Delete published application messages whose `expire_at_ns` has passed.
-    /// The returned rows keep identity and metadata, but their
-    /// `decrypted_message_bytes` are empty: a deletion event must not deliver
-    /// the body of an expired message.
-    fn delete_expired_messages(&self) -> Result<Vec<StoredGroupMessage>, crate::ConnectionError>;
+    /// Delete up to [`EXPIRED_MESSAGE_BATCH`] published application messages
+    /// whose `expire_at_ns` is not later than `pass_start_ns`. The returned rows
+    /// keep identity and metadata, but their `decrypted_message_bytes` are
+    /// empty: the body is never loaded, and a deletion event must not deliver it.
+    fn delete_expired_messages(
+        &self,
+        pass_start_ns: i64,
+    ) -> Result<Vec<StoredGroupMessage>, crate::ConnectionError>;
 
     /// The soonest `expire_at_ns` among published Application messages that have
     /// an expiry set, or `None` if no disappearing messages exist. Note this can
     /// return a timestamp already in the past (an expiry that elapsed while the
     /// worker was asleep) — the caller clamps the resulting sleep to `>= 0` and
     /// deletes on the next wake. Same filters as `delete_expired_messages`
-    /// without its `expire_at_ns <= now` bound.
+    /// without its `expire_at_ns <= pass_start_ns` bound.
     fn min_expire_at_ns(&self) -> Result<Option<i64>, crate::ConnectionError>;
 
     fn delete_message_by_id<MessageId: AsRef<[u8]>>(
@@ -881,8 +943,11 @@ where
         (**self).set_failed_delivery_status_to_unpublished(msg_id)
     }
 
-    fn delete_expired_messages(&self) -> Result<Vec<StoredGroupMessage>, crate::ConnectionError> {
-        (**self).delete_expired_messages()
+    fn delete_expired_messages(
+        &self,
+        pass_start_ns: i64,
+    ) -> Result<Vec<StoredGroupMessage>, crate::ConnectionError> {
+        (**self).delete_expired_messages(pass_start_ns)
     }
 
     fn min_expire_at_ns(&self) -> Result<Option<i64>, crate::ConnectionError> {
@@ -1552,32 +1617,33 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
     }
 
     #[xmtp_common::db_span]
-    fn delete_expired_messages(&self) -> Result<Vec<StoredGroupMessage>, crate::ConnectionError> {
+    fn delete_expired_messages(
+        &self,
+        pass_start_ns: i64,
+    ) -> Result<Vec<StoredGroupMessage>, crate::ConnectionError> {
         self.raw_query(|conn| {
             use diesel::prelude::*;
-            let now = now_ns();
+            // Diesel needs an alias for a subselect on the table being deleted from.
+            let expired = diesel::alias!(group_messages as expired);
+            let batch = expired
+                .select(expired.field(dsl::id))
+                .filter(
+                    expired
+                        .field(dsl::delivery_status)
+                        .eq(DeliveryStatus::Published),
+                )
+                .filter(expired.field(dsl::kind).eq(GroupMessageKind::Application))
+                .filter(expired.field(dsl::expire_at_ns).is_not_null())
+                .filter(expired.field(dsl::expire_at_ns).le(pass_start_ns))
+                .limit(EXPIRED_MESSAGE_BATCH);
 
-            diesel::delete(
-                dsl::group_messages
-                    .filter(dsl::delivery_status.eq(DeliveryStatus::Published))
-                    .filter(dsl::kind.eq(GroupMessageKind::Application))
-                    .filter(dsl::expire_at_ns.is_not_null())
-                    .filter(dsl::expire_at_ns.le(now)),
-            )
-            .returning(StoredGroupMessage::as_returning())
-            .load::<StoredGroupMessage>(conn)
+            diesel::delete(dsl::group_messages.filter(dsl::id.eq_any(batch)))
+                .returning(ExpiredMessageRow::as_returning())
+                .load::<ExpiredMessageRow>(conn)
         })
-        .map(|deleted| {
-            deleted
-                .into_iter()
-                // An expired body, content or fallback, must not outlive its row.
-                // implements: META-051
-                .map(|message| StoredGroupMessage {
-                    decrypted_message_bytes: Vec::new(),
-                    ..message
-                })
-                .collect()
-        })
+        // An expired body, content or fallback, must not outlive its row.
+        // implements: META-051
+        .map(|deleted| deleted.into_iter().map(StoredGroupMessage::from).collect())
     }
 
     #[xmtp_common::db_span]

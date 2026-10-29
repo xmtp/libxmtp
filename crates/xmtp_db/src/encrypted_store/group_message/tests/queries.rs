@@ -254,64 +254,67 @@ fn it_gets_messages_by_time() {
     })
 }
 
+/// Expiry cleanup deletes at most `EXPIRED_MESSAGE_BATCH` rows per call and
+/// leaves rows that are unexpired, unpublished, or not application messages.
 #[xmtp_common::test]
-fn it_deletes_middle_message_by_expiration_time() {
+fn it_deletes_expired_messages_in_batches() {
     with_connection(|conn| {
-        let mut group = generate_group(None);
-
-        let disappear_from_ns = Some(1_000_500_000); // After Message 1
-        let disappear_in_ns = Some(500_000); // Before Message 3
-        group.message_disappear_from_ns = disappear_from_ns;
-        group.message_disappear_in_ns = disappear_in_ns;
-
+        let group = generate_group(None);
         group.store(conn).unwrap();
-
-        let messages = vec![
-            generate_message(None, Some(&group.id), Some(1_000_000_000), None, None, None),
+        let pass_start = 1_000_000_000;
+        let expired = |kind| {
             generate_message(
-                None,
+                Some(kind),
                 Some(&group.id),
-                Some(1_001_000_000),
-                None,
-                Some(1_001_000_000),
-                None,
-            ),
-            generate_message(
-                None,
-                Some(&group.id),
-                Some(2_000_000_000_000_000_000),
                 None,
                 None,
+                Some(pass_start),
                 None,
-            ),
-        ];
-        assert_ok!(messages.store(conn));
-
-        let deleted_messages = conn.delete_expired_messages().unwrap();
-        assert_eq!(deleted_messages.len(), 1); // Ensure exactly 1 message is deleted
-        assert_eq!(deleted_messages[0].id, messages[1].id); // Verify the correct message (middle one with expiration) was deleted
-
-        let remaining_messages = conn
-            .get_group_messages(
-                &group.id,
-                &MsgQueryArgs {
-                    ..Default::default()
-                },
             )
-            .unwrap();
+        };
+        for _ in 0..2_001 {
+            let message = StoredGroupMessage {
+                decrypted_message_bytes: vec![7; 1024],
+                ..expired(GroupMessageKind::Application)
+            };
+            assert_ok!(message.store(conn));
+        }
+        let survivors = vec![
+            generate_message(
+                None,
+                Some(&group.id),
+                None,
+                None,
+                Some(pass_start + 1),
+                None,
+            ),
+            generate_message(None, Some(&group.id), None, None, None, None),
+            expired(GroupMessageKind::MembershipChange),
+            StoredGroupMessage {
+                delivery_status: DeliveryStatus::Unpublished,
+                ..expired(GroupMessageKind::Application)
+            },
+        ];
+        assert_ok!(survivors.store(conn));
 
-        // Verify the count and content of the remaining messages
-        assert_eq!(remaining_messages.len(), 2);
-        assert!(
-            remaining_messages
-                .iter()
-                .any(|msg| msg.sent_at_ns == 1_000_000_000)
-        ); // Message 1
-        assert!(
-            remaining_messages
-                .iter()
-                .any(|msg| msg.sent_at_ns == 2_000_000_000_000_000_000)
-        ); // Message 3
+        let mut batches = vec![];
+        loop {
+            let deleted = conn.delete_expired_messages(pass_start).unwrap();
+            assert!(deleted.iter().all(|m| m.decrypted_message_bytes.is_empty()));
+            batches.push(deleted.len());
+            if deleted.len() < EXPIRED_MESSAGE_BATCH as usize {
+                break;
+            }
+        }
+        assert_eq!(batches, [1_000, 1_000, 1]);
+
+        let mut remaining: Vec<Vec<u8>> = conn
+            .raw_query(|raw_conn| dsl::group_messages.select(dsl::id).load(raw_conn))
+            .unwrap();
+        let mut expected: Vec<_> = survivors.into_iter().map(|m| m.id).collect();
+        remaining.sort();
+        expected.sort();
+        assert_eq!(remaining, expected);
     })
 }
 
