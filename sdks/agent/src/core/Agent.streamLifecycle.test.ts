@@ -13,7 +13,7 @@ import {
 } from "@xmtp/node-sdk";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { Agent } from "./Agent";
+import { Agent, type AgentMiddleware } from "./Agent";
 import { AgentStreamingError } from "./AgentError";
 
 function deferred<T>() {
@@ -233,6 +233,39 @@ describe("Agent stream lifecycle", () => {
     expect(received).not.toHaveBeenCalled();
     await h.agent.stop();
   });
+  it.each([
+    ["returns without next", 0, 0],
+    ["throws before next", 1, 1],
+    ["throws after next", 1, 1],
+    ["calls next twice", 1, 0],
+  ] as const)(
+    "runs the chain at most once when middleware %s",
+    async (mode, calls, errors) => {
+      const h = harness();
+      const onError = vi.fn((_error, _ctx, next: () => void) => next());
+      const downstream = vi.fn<AgentMiddleware>(async (_ctx, next) => next());
+      const text = vi.fn();
+      const received = vi.fn();
+      h.agent.errors.use(onError);
+      h.agent.use(async (_ctx, next) => {
+        if (mode === "returns without next") return;
+        if (mode === "throws before next") throw new Error("before next");
+        await next();
+        if (mode === "throws after next") throw new Error("after next");
+        await next();
+      });
+      h.agent.use(downstream);
+      h.agent.on("text", text);
+      h.agent.on("message", received);
+      await h.agent.start();
+      await h.messages[0]!.value(message);
+      await h.agent.stop();
+      expect(downstream).toHaveBeenCalledTimes(calls);
+      expect(text).toHaveBeenCalledTimes(calls);
+      expect(received).toHaveBeenCalledTimes(calls);
+      expect(onError).toHaveBeenCalledTimes(errors);
+    },
+  );
   it("does not emit a generic message after the topic handler stops the agent", async () => {
     const h = harness();
     const received = vi.fn();

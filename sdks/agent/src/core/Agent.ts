@@ -809,14 +809,17 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
       (next, mw) => {
         return async () => {
           if (!isCurrent()) return;
+          // The rest of the chain runs at most once per message.
+          let downstream: Promise<void> | undefined;
+          const once = () => (downstream ??= Promise.resolve(next()));
           try {
-            await mw(context, next);
+            await mw(context, once);
           } catch (error) {
             if (error instanceof UnacceptedValueError) throw error;
             if (!isCurrent()) return;
             const disposition = await this.#runErrorChain(error, context);
             if (disposition === "resume" && isCurrent()) {
-              await next();
+              await once();
             }
             if (disposition !== "resume") throw new UnacceptedValueError(error);
           }
