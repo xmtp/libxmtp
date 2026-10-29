@@ -128,10 +128,10 @@ Deleting a private key is the only thing that makes a Welcome already sent to it
 
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
-| JOIN-074 | Destroy superseded key material | When 1 day has passed since the backend's publish response for a later key package carried a sequence id greater than 0, and the client holds no Welcome it has received and not yet completed or rejected, the installation MUST destroy every private key of each superseded key package. | The only value those keys still hold is to whoever takes the device. |
+| JOIN-074 | Destroy superseded key material | When 1 day has passed since the backend's publish response for a later key package carried a sequence id greater than 0, and the client holds no Welcome it has received and not yet completed or rejected, the installation MUST destroy every private key of each superseded key package. For a package whose publish returned no sequence id, the day starts when a read of the installation's key package topic serves another package whose sequence id is at least the highest one in a publish response the installation holds. | The only value those keys still hold is to whoever takes the device. A publish whose response was lost may be the package senders use, so only that read shows it is not, and without it the keys are kept for ever. |
 | JOIN-018 | Retain while work is pending | While an installation holds a received Welcome it has not completed or rejected, the installation MUST NOT destroy the private keys of any key package. | Destroying them turns a retriable join into a permanent loss of the conversation, and the client cannot ask for the Welcome again. |
 | JOIN-019 | Destroy every part together | When an installation destroys a key package's private key material, it MUST destroy the private key of its `init_key`, of its leaf node `encryption_key`, and of the wrapper public key its `WelcomeWrapperEncryption` extension advertised. | Leaving any one of them behind leaves the Welcome readable and defeats the deletion. |
-| JOIN-020 | Confirmation precedes destruction | An installation MUST NOT destroy a key package's private key material before the backend's publish response for a later key package has carried a sequence id greater than 0. | Destroying first and failing to publish leaves the installation with no package anyone can use, and no member can add it back. |
+| JOIN-020 | Confirmation precedes destruction | An installation MUST NOT destroy a key package's private key material before the backend's publish response for a later key package has carried a sequence id greater than 0, except that it MAY destroy at once the material of a package whose own publish the backend failed with `INVALID_ARGUMENT`. | Destroying first and failing to publish leaves the installation with no package anyone can use, and no member can add it back. A refused package was never stored (API-224), so no sender can address it. |
 
 ## 4. Unwrapping a Welcome
 
@@ -345,6 +345,8 @@ DMS-021 owns the checks for a two-party conversation under JOIN-060, including a
 A client that has read a group's messages past a Welcome's anchor cannot distinguish a re-add it has already applied from a re-add whose commit it read but whose Welcome arrived late. It rejects both under JOIN-043. The cost is a missed rejoin in a rare ordering; accepting instead would let a stale Welcome displace a live group, which is worse.
 
 A sender cannot tell whether an installation has destroyed a key package's private keys under JOIN-074, only that a replacement was published. A Welcome addressed to a superseded package more than 1 day after the replacement is wrapped for keys that may be gone, and the recipient sees only an unwrap failure.
+
+A publish that lands after the settlement read, because another process sharing the database rotates at the same moment or the backend commits a request after its client gave up, can be the served package while its keys are destroyed 1 day later. Adds to the installation fail until the next rotation.
 
 The client does not validate the `Lifetime` of the leaf nodes in the ratchet tree of a group it joins. RFC 9420 §7.3 makes that check RECOMMENDED for a received tree, and XMTP omits it, so an expired leaf that a sender would reject under JOIN-008 is accepted inside a Welcome. No change is planned.
 
