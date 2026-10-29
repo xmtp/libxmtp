@@ -6,6 +6,7 @@ use crate::groups::summary::SyncSummary;
 use crate::subscriptions::internal::dm_event_context;
 use futures::StreamExt;
 use std::collections::HashSet;
+use std::sync::Arc;
 use std::{collections::HashMap, time::Duration};
 use thiserror::Error;
 use xmtp_api::ApiError;
@@ -54,6 +55,26 @@ pub const DEFAULT_INTERVAL_DURATION: Duration = Duration::from_secs(60 * 5); // 
 #[derive(Clone)]
 pub struct Factory<Context> {
     context: Context,
+    /// Kept by the factory, so a storage reconnect, which builds a new
+    /// worker, keeps every rate-limit hold.
+    holds: Arc<parking_lot::Mutex<Holds>>,
+}
+
+impl<Context> Factory<Context>
+where
+    Context: XmtpSharedContext + 'static,
+{
+    pub(crate) fn new(context: Context) -> Self {
+        Self {
+            context,
+            holds: Arc::default(),
+        }
+    }
+
+    /// A worker that shares this factory's rate-limit holds.
+    pub(crate) fn worker(&self) -> CommitLogWorker<Context> {
+        CommitLogWorker::with_holds(self.context.clone(), self.holds.clone())
+    }
 }
 
 impl<Context> WorkerFactory for Factory<Context>
@@ -68,10 +89,7 @@ where
         &self,
         metrics: Option<crate::worker::DynMetrics>,
     ) -> (BoxedWorker, Option<crate::worker::DynMetrics>) {
-        (
-            Box::new(CommitLogWorker::new(self.context.clone())) as Box<_>,
-            metrics,
-        )
+        (Box::new(self.worker()) as Box<_>, metrics)
     }
 }
 
@@ -195,20 +213,27 @@ where
     where
         C: XmtpSharedContext + 'static,
     {
-        Factory { context }
+        Factory::new(context)
     }
+}
+
+/// Conversations held by a rate limit, and when each delay ends (RATE-041).
+#[derive(Default)]
+pub(crate) struct Holds {
+    /// Conversations whose commit-log publish was refused. Other
+    /// conversations still publish.
+    publish: HashMap<GroupId, xmtp_common::time::Instant>,
+    /// Conversations whose readd answer was refused. Other conversations
+    /// still answer.
+    readd: HashMap<GroupId, xmtp_common::time::Instant>,
 }
 
 pub struct CommitLogWorker<Context> {
     context: Context,
     /// The conversations whose commit-log publish failed in the last turn.
     failed_publishes: Vec<GroupId>,
-    /// Conversations whose commit-log publish was refused with a rate limit,
-    /// and when that delay ends. Other conversations still publish.
-    publish_held_until: std::collections::HashMap<GroupId, xmtp_common::time::Instant>,
-    /// Conversations whose readd answer was refused with a rate limit, and
-    /// when that delay ends. Other conversations still answer.
-    readd_held_until: std::collections::HashMap<GroupId, xmtp_common::time::Instant>,
+    /// Rate-limit holds, shared with the factory that built this worker.
+    holds: Arc<parking_lot::Mutex<Holds>>,
     #[cfg(test)]
     seal_fault: Option<SealFault>,
 }
@@ -217,7 +242,7 @@ pub struct CommitLogWorker<Context> {
 /// shorter later delay never ends a pending one.
 // implements: RATE-041
 fn hold(
-    held: &mut std::collections::HashMap<GroupId, xmtp_common::time::Instant>,
+    held: &mut HashMap<GroupId, xmtp_common::time::Instant>,
     id: GroupId,
     delay: Option<Duration>,
 ) {
@@ -245,11 +270,14 @@ where
     Context: XmtpSharedContext + 'static,
 {
     pub fn new(context: Context) -> Self {
+        Self::with_holds(context, Arc::default())
+    }
+
+    fn with_holds(context: Context, holds: Arc<parking_lot::Mutex<Holds>>) -> Self {
         Self {
             context,
             failed_publishes: Vec::new(),
-            publish_held_until: std::collections::HashMap::new(),
-            readd_held_until: std::collections::HashMap::new(),
+            holds,
             #[cfg(test)]
             seal_fault: None,
         }
@@ -364,7 +392,7 @@ where
     ) -> Result<Vec<ConversationCursorInfo>, CommitLogError> {
         self.failed_publishes.clear();
         let now = xmtp_common::time::Instant::now();
-        self.publish_held_until.retain(|_, until| now < *until);
+        self.holds.lock().publish.retain(|_, until| now < *until);
         let conn = &self.context.db();
         // DMs, and groups where we are a super admin
         let conversations = conn.get_conversation_ids_for_remote_log_publish()?;
@@ -374,7 +402,7 @@ where
             // A rate-limited publish is not retried at a later tick inside its
             // delay; other conversations still publish.
             // implements: RATE-041
-            if self.publish_held_until.contains_key(&conversation.id) {
+            if self.holds.lock().publish.contains_key(&conversation.id) {
                 continue;
             }
             let Some(PendingPublish {
@@ -417,7 +445,7 @@ where
                     );
                     self.failed_publishes.push(conversation.id);
                     hold(
-                        &mut self.publish_held_until,
+                        &mut self.holds.lock().publish,
                         conversation.id,
                         error.rate_limit_delay(),
                     );
@@ -1010,7 +1038,7 @@ where
             return Ok(());
         }
         let now = xmtp_common::time::Instant::now();
-        self.readd_held_until.retain(|_, until| now < *until);
+        self.holds.lock().readd.retain(|_, until| now < *until);
         let conn = self.context.db();
         let groups_for_readd = conn.get_conversation_ids_for_responding_readds()?;
 
@@ -1027,7 +1055,7 @@ where
             // A rate-limited readd is not answered again at a later tick
             // inside its delay; other conversations still answer.
             // implements: RATE-041
-            if self.readd_held_until.contains_key(&group.group_id) {
+            if self.holds.lock().readd.contains_key(&group.group_id) {
                 continue;
             }
             match self.validate_pending_readds(&conn, &group).await {
@@ -1053,7 +1081,7 @@ where
                             return Err(e);
                         }
                         hold(
-                            &mut self.readd_held_until,
+                            &mut self.holds.lock().readd,
                             group.group_id,
                             e.rate_limit_delay(),
                         );
@@ -1081,7 +1109,7 @@ where
                 // Reversible (e.g. a version pause): keep and retry next tick.
                 Err(e) => {
                     hold(
-                        &mut self.readd_held_until,
+                        &mut self.holds.lock().readd,
                         group.group_id,
                         e.rate_limit_delay(),
                     );

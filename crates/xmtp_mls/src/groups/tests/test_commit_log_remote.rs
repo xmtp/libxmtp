@@ -1,7 +1,7 @@
 use crate::groups::MlsGroup;
 use crate::groups::PolicySet;
 use crate::groups::commit_log::{
-    CommitLogTestFunction, CommitLogWorker, should_skip_remote_commit_log_entry,
+    CommitLogTestFunction, CommitLogWorker, Factory, should_skip_remote_commit_log_entry,
 };
 use crate::groups::send_message_opts::SendMessageOpts;
 use crate::{context::XmtpSharedContext, tester};
@@ -383,8 +383,31 @@ async fn a_rate_limited_publish_waits_out_its_delay() {
     );
 }
 
+/// A storage reconnect builds a new worker from the same factory, which keeps
+/// the publish hold: the new worker does not publish inside the delay.
+// verifies: RATE-041
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_publish_hold_survives_a_new_worker() {
+    tester!(alix, disable_workers);
+    let group = alix.create_group(None, None)?;
+    group.update_group_name("limited".into()).await?;
+    let (client, script) = scripted::scripted(&alix.client).await;
+    script.lock().rate_limit = Some(Duration::from_secs(300));
+    let id = keys_of(&group).commit_log_id().to_vec();
+    let factory = Factory::new(client.context.clone());
+    assert!(publish_turn(&mut factory.worker()).await.is_empty());
+    assert_eq!(script.lock().publishes_for(&id), 1);
+    assert!(publish_turn(&mut factory.worker()).await.is_empty());
+    assert_eq!(
+        script.lock().publishes_for(&id),
+        1,
+        "no publish inside the delay"
+    );
+}
+
 /// A readd answer refused with a rate limit keeps the request and is not
-/// answered again at a later turn inside the delay.
+/// answered again inside the delay, also by a worker a storage reconnect
+/// builds from the same factory.
 // verifies: RATE-041
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_rate_limited_readd_waits_out_its_delay() {
@@ -400,7 +423,8 @@ async fn a_rate_limited_readd_waits_out_its_delay() {
     bo_dm.sync().await?;
     let mut alix_worker = CommitLogWorker::new(alix.context.clone());
     let (bo_client, script) = scripted::scripted(&bo.client).await;
-    let mut bo_worker = CommitLogWorker::new(bo_client.context.clone());
+    let factory = Factory::new(bo_client.context.clone());
+    let mut bo_worker = factory.worker();
     alix_worker._tick().await?;
     bo_worker._tick().await?;
     alix.context
@@ -420,6 +444,7 @@ async fn a_rate_limited_readd_waits_out_its_delay() {
     assert_eq!(bo_dm.epoch().await?, epoch);
     assert!(bo_db.is_awaiting_readd(&dm.group_id, installation.as_slice())?);
     bo_worker._tick().await?;
+    factory.worker()._tick().await?;
     assert_eq!(
         script.lock().group_message_publishes,
         attempts,
