@@ -3,8 +3,11 @@ mod identity_ext;
 pub use identity_ext::*;
 
 use crate::XmtpApi;
+use crate::groups::mls_sync::publish::definite_refusal;
 use crate::identity_updates::{get_association_state_with_verifier, load_identity_updates};
+use crate::mls_store::verify_served_key_package;
 use crate::worker::NeedsDbReconnect;
+use crate::worker::key_package_maintenance::discard_key_package;
 use derive_builder::Builder;
 use openmls::prelude::HpkeKeyPair;
 use openmls::prelude::hash_ref::HashReference;
@@ -674,7 +677,7 @@ impl Identity {
     }
 
     /// Store fresh key material before upload, then record its publication receipt.
-    /// Receipt order controls retirement. Unknown publications stay available.
+    /// Receipt order controls retirement. A read settles unknown publications first.
     /// Receipt bookkeeping and the next rotation deadline commit together.
     #[tracing::instrument(level = "trace", skip_all)]
     pub(crate) async fn rotate_and_upload_key_package<
@@ -687,6 +690,14 @@ impl Identity {
         include_post_quantum: bool,
     ) -> Result<(), IdentityError> {
         tracing::info!("Start rotating keys and uploading the new key package");
+
+        // implements: JOIN-074
+        if let Err(error) = self
+            .settle_unconfirmed_key_packages(api_client, mls_storage)
+            .await
+        {
+            tracing::warn!(%error, "key package settlement deferred");
+        }
 
         // Generate and store key package locally
         let (kp_bytes, history_id) =
@@ -713,8 +724,39 @@ impl Identity {
                 .map(TransactionOutcome::into_continued)?;
                 Ok(())
             }
+            // INVALID_ARGUMENT stored nothing, so no sender can address the package.
+            Err(err) if definite_refusal(&err) => {
+                discard_key_package(mls_storage, history_id)?;
+                Err(IdentityError::ApiClient(err))
+            }
             Err(err) => Err(IdentityError::ApiClient(err)),
         }
+    }
+
+    /// Settle receipt-less keys against the package the backend serves, before a new one exists.
+    async fn settle_unconfirmed_key_packages<ApiClient: XmtpApi, S: XmtpMlsStorageProvider>(
+        &self,
+        api_client: &ApiClientWrapper<ApiClient>,
+        mls_storage: &S,
+    ) -> Result<(), IdentityError> {
+        let mut history = mls_storage
+            .db()
+            .find_key_package_history_entries_before_id(i32::MAX)?
+            .into_iter();
+        if !history.any(|kp| kp.published_sequence_id.is_none() && kp.delete_at_ns.is_none()) {
+            return Ok(());
+        }
+        let id = self.installation_id();
+        let Some((package, served)) = api_client.newest_key_package(&id).await? else {
+            return Ok(());
+        };
+        let crypto = xmtp_db::XmtpOpenMlsProvider::<()>::new_crypto();
+        let Some(Ok(verified)) = verify_served_key_package(&crypto, &id, &package) else {
+            return Ok(());
+        };
+        let provider = XmtpOpenMlsProviderRef::new(mls_storage);
+        let hash_ref = serialize_key_package_hash_ref(&verified.inner, &provider)?;
+        Ok(mls_storage.db().settle_key_packages(hash_ref, served)?)
     }
 
     /// Store key material and its history row in one state transaction.

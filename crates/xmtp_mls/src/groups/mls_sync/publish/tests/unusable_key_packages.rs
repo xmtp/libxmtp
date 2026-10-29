@@ -171,3 +171,92 @@ async fn served_package_of_another_installation_is_absent() {
         bo.context.installation_id().to_vec()
     );
 }
+
+/// Alix rotates three times, each behind a fresh client. A is refused with
+/// UNAVAILABLE, B is stored and its response lost, and C is refused with
+/// INVALID_ARGUMENT. The read before B settles A, the read before C finds B
+/// served and records it, and C is discarded at once. A lagged read settles
+/// nothing.
+// verifies: JOIN-074, JOIN-020
+#[rstest::rstest]
+#[case::served(false)]
+#[case::lagged(true)]
+#[xmtp_common::test]
+async fn rotation_settles_unconfirmed_packages_and_discards_refused_ones(#[case] lag: bool) {
+    use super::faults::Fault;
+    use openmls_traits::storage::StorageProvider;
+    use xmtp_id::key_package::VerifiedKeyPackageV2;
+    tester!(alix, disable_workers);
+    let group_id = alix.create_group(None, None).unwrap().group_id;
+    let key_package = |payload: &Payload| matches!(payload, Payload::KeyPackage(_));
+    let unavailable = || std::iter::repeat_n(Fault::Refuse(tonic::Code::Unavailable), 10);
+    let rotations = [
+        unavailable().collect::<Vec<_>>(),
+        std::iter::once(Fault::StoreThenUnavailable)
+            .chain(unavailable())
+            .collect(),
+        vec![Fault::Refuse(tonic::Code::InvalidArgument)],
+    ];
+    let mut hash_refs = Vec::new();
+    let mut lost = Vec::new();
+    for faults in rotations {
+        let api = FaultyApi::new(&alix, key_package, faults);
+        api.lag_newest
+            .store(lag, std::sync::atomic::Ordering::SeqCst);
+        let context = faulty_group(&alix, &group_id, api.clone()).await.context;
+        let rotated = context
+            .identity()
+            .rotate_and_upload_key_package(context.api(), context.mls_storage(), true)
+            .await;
+        assert!(rotated.is_err());
+        let Some(Payload::KeyPackage(package)) = &api.requests.lock()[0].envelopes[0].payload
+        else {
+            panic!("an intercepted key package");
+        };
+        let crypto = xmtp_db::XmtpOpenMlsProvider::<()>::new_crypto();
+        let verified =
+            VerifiedKeyPackageV2::from_bytes(&crypto, &package.key_package_tls_serialized).unwrap();
+        let provider = xmtp_db::XmtpOpenMlsProviderRef::new(context.mls_storage());
+        hash_refs.push(
+            crate::identity::serialize_key_package_hash_ref(&verified.inner, &provider).unwrap(),
+        );
+        lost.extend(
+            api.lost
+                .lock()
+                .iter()
+                .map(|meta| meta.cursor.unwrap().sequence_id),
+        );
+    }
+    let db = alix.context.db();
+    let bundle = |hash_ref: &Vec<u8>| -> Option<openmls::prelude::KeyPackageBundle> {
+        let hash_ref = crate::identity::deserialize_key_package_hash_ref(hash_ref).unwrap();
+        alix.context.mls_storage().key_package(&hash_ref).unwrap()
+    };
+    let [a, b, c] = &hash_refs[..] else {
+        panic!("three rotations")
+    };
+    assert!(
+        db.find_key_package_history_entry_by_hash_ref(c.clone())
+            .is_err()
+    );
+    assert!(bundle(c).is_none());
+    let wrapper_key = |hash_ref| alix.context.mls_storage().wrapper_private_key(hash_ref);
+    assert!(wrapper_key(c).unwrap().is_none());
+    assert!(wrapper_key(b).unwrap().is_some());
+    let a = db
+        .find_key_package_history_entry_by_hash_ref(a.clone())
+        .unwrap();
+    let b_row = db
+        .find_key_package_history_entry_by_hash_ref(b.clone())
+        .unwrap();
+    assert!(bundle(b).is_some());
+    assert!(b_row.delete_at_ns.is_none());
+    if lag {
+        assert_eq!(a.published_sequence_id, None);
+        assert!(a.delete_at_ns.is_none());
+        assert_eq!(b_row.published_sequence_id, None);
+    } else {
+        assert!(a.delete_at_ns.is_some());
+        assert_eq!(b_row.published_sequence_id, Some(lost[0] as i64));
+    }
+}
