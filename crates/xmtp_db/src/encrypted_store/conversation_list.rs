@@ -860,8 +860,8 @@ pub(crate) mod tests {
         })
     }
 
-    // verifies: CONS-030
-    #[xmtp_common::test]
+    // verifies: CONS-030, CONS-031
+    #[xmtp_common::test(unwrap_try = true)]
     fn test_find_conversations_by_consent_state() {
         with_connection(|conn| {
             let test_group_1 = generate_group(Some(GroupMembershipState::Allowed));
@@ -892,64 +892,43 @@ pub(crate) mod tests {
             );
             test_group_3_consent.store(conn).unwrap();
 
-            let all_results = conn
-                .fetch_conversation_list(GroupQueryArgs {
-                    consent_states: Some(vec![
-                        ConsentState::Allowed,
-                        ConsentState::Unknown,
-                        ConsentState::Denied,
-                    ]),
-                    ..Default::default()
-                })
-                .unwrap();
-            assert_eq!(all_results.len(), 4);
-
-            let default_results = conn
-                .fetch_conversation_list(GroupQueryArgs::default())
-                .unwrap();
-            assert_eq!(default_results.len(), 3);
-
-            let allowed_results = conn
-                .fetch_conversation_list(GroupQueryArgs {
-                    consent_states: Some(vec![ConsentState::Allowed]),
-                    ..Default::default()
-                })
-                .unwrap();
-            assert_eq!(allowed_results.len(), 2);
-
-            let allowed_unknown_results = conn
-                .fetch_conversation_list(GroupQueryArgs {
-                    consent_states: Some(vec![ConsentState::Allowed, ConsentState::Unknown]),
-                    ..Default::default()
-                })
-                .unwrap();
-            assert_eq!(allowed_unknown_results.len(), 3);
-
-            let denied_results = conn
-                .fetch_conversation_list(GroupQueryArgs {
-                    consent_states: Some(vec![ConsentState::Denied]),
-                    ..Default::default()
-                })
-                .unwrap();
-            assert_eq!(denied_results.len(), 1);
-            assert_eq!(denied_results[0].id, test_group_2.id);
-
-            let unknown_results = conn
-                .fetch_conversation_list(GroupQueryArgs {
-                    consent_states: Some(vec![ConsentState::Unknown]),
-                    ..Default::default()
-                })
-                .unwrap();
-            assert_eq!(unknown_results.len(), 1);
-            assert_eq!(unknown_results[0].id, test_group_4.id);
-
-            let empty_array_results = conn
-                .fetch_conversation_list(GroupQueryArgs {
-                    consent_states: Some(vec![]),
-                    ..Default::default()
-                })
-                .unwrap();
-            assert!(empty_array_results.is_empty());
+            use ConsentState::{Allowed, Denied, Unknown};
+            let (g1, g2, g3, g4) = (
+                &test_group_1.id,
+                &test_group_2.id,
+                &test_group_3.id,
+                &test_group_4.id,
+            );
+            // Repeats do not count toward naming every state.
+            let cases = [
+                (Some(vec![Allowed, Unknown, Denied]), vec![g1, g2, g3, g4]),
+                (None, vec![g1, g3, g4]),
+                (Some(vec![Allowed]), vec![g1, g3]),
+                (Some(vec![Allowed, Unknown]), vec![g1, g3, g4]),
+                (Some(vec![Denied]), vec![g2]),
+                (Some(vec![Unknown]), vec![g4]),
+                (Some(vec![]), vec![]),
+                (Some(vec![Allowed, Allowed, Allowed]), vec![g1, g3]),
+                (Some(vec![Allowed, Denied, Denied]), vec![g1, g2, g3]),
+                (Some(vec![Unknown, Unknown, Allowed]), vec![g1, g3, g4]),
+            ];
+            for (consent_states, mut expected) in cases {
+                let mut ids: Vec<_> = conn
+                    .fetch_conversation_list(GroupQueryArgs {
+                        consent_states: consent_states.clone(),
+                        ..Default::default()
+                    })?
+                    .into_iter()
+                    .map(|group| group.id)
+                    .collect();
+                ids.sort();
+                expected.sort();
+                assert_eq!(
+                    ids.iter().collect::<Vec<_>>(),
+                    expected,
+                    "{consent_states:?}"
+                );
+            }
 
             let mut sync_group = generate_group(Some(GroupMembershipState::Allowed));
             sync_group.conversation_type = ConversationType::Sync;
@@ -1067,103 +1046,6 @@ pub(crate) mod tests {
                 .collect();
             assert_eq!(dm_rows.len(), 1);
             assert_eq!(dm_rows[0].id, active.id);
-        })
-    }
-
-    // A consent_states list with duplicates that does not cover all three
-    // distinct states must still filter. Previously `includes_all` was
-    // `len() == 3`, so `[Allowed, Allowed, Allowed]` was mistaken for "all
-    // states" and returned Denied/Unknown conversations the caller did not ask
-    // for.
-    #[xmtp_common::test]
-    fn test_find_conversations_consent_duplicates_do_not_disable_filter() {
-        with_connection(|conn| {
-            let allowed = generate_group(Some(GroupMembershipState::Allowed));
-            allowed.store(conn).unwrap();
-            let denied = generate_group(Some(GroupMembershipState::Allowed));
-            denied.store(conn).unwrap();
-            let unknown = generate_group(Some(GroupMembershipState::Allowed));
-            unknown.store(conn).unwrap();
-
-            generate_consent_record(
-                ConsentType::ConversationId,
-                ConsentState::Allowed,
-                hex::encode(allowed.id),
-            )
-            .store(conn)
-            .unwrap();
-            generate_consent_record(
-                ConsentType::ConversationId,
-                ConsentState::Denied,
-                hex::encode(denied.id),
-            )
-            .store(conn)
-            .unwrap();
-            // `unknown` intentionally has no consent record.
-
-            // Three elements, but only the Allowed state is covered.
-            let results = conn
-                .fetch_conversation_list(GroupQueryArgs {
-                    consent_states: Some(vec![
-                        ConsentState::Allowed,
-                        ConsentState::Allowed,
-                        ConsentState::Allowed,
-                    ]),
-                    ..Default::default()
-                })
-                .unwrap();
-
-            let ids: Vec<_> = results.iter().map(|g| g.id).collect();
-            assert_eq!(
-                results.len(),
-                1,
-                "duplicate Allowed states must not disable consent filtering"
-            );
-            assert!(ids.contains(&allowed.id));
-            assert!(!ids.contains(&denied.id));
-            assert!(!ids.contains(&unknown.id));
-        })
-    }
-
-    #[xmtp_common::test]
-    fn test_find_conversations_default_excludes_denied() {
-        with_connection(|conn| {
-            // Create three groups: one allowed, one denied, one unknown (no consent)
-            let allowed_group = generate_group(Some(GroupMembershipState::Allowed));
-            allowed_group.store(conn).unwrap();
-
-            let denied_group = generate_group(Some(GroupMembershipState::Allowed));
-            denied_group.store(conn).unwrap();
-
-            let unknown_group = generate_group(Some(GroupMembershipState::Allowed));
-            unknown_group.store(conn).unwrap();
-
-            // Create consent records for allowed and denied; leave unknown_group without one
-            let allowed_consent = generate_consent_record(
-                ConsentType::ConversationId,
-                ConsentState::Allowed,
-                hex::encode(allowed_group.id),
-            );
-            allowed_consent.store(conn).unwrap();
-
-            let denied_consent = generate_consent_record(
-                ConsentType::ConversationId,
-                ConsentState::Denied,
-                hex::encode(denied_group.id),
-            );
-            denied_consent.store(conn).unwrap();
-
-            // Query using default args (no consent_states specified)
-            let default_results = conn
-                .fetch_conversation_list(GroupQueryArgs::default())
-                .unwrap();
-
-            // Expect to include only: allowed_group and unknown_group (2 total)
-            assert_eq!(default_results.len(), 2);
-            let returned_ids: Vec<_> = default_results.iter().map(|g| &g.id).collect();
-            assert!(returned_ids.contains(&&allowed_group.id));
-            assert!(returned_ids.contains(&&unknown_group.id));
-            assert!(!returned_ids.contains(&&denied_group.id));
         })
     }
 
