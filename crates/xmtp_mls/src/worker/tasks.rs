@@ -380,21 +380,30 @@ where
                     } else {
                         now
                     };
-                let mut next_attempt_at_ns = retry_from.saturating_add(next_attempt_duration);
+                let backoff_at_ns = retry_from.saturating_add(next_attempt_duration);
+                let mut next_attempt_at_ns = backoff_at_ns;
+                let mut expires_at_ns = task.expires_at_ns;
                 // A rate-limited request waits at least the delay, counted from
                 // when the rejection arrived, not from when the turn started.
+                // The wait it adds past the backoff does not count against the
+                // task's lifetime, so a delay never expires the refused work.
                 // implements: RATE-041
                 if let Some(delay) = error.rate_limit_delay() {
                     let until = xmtp_common::time::now_ns()
                         .saturating_add(i64::try_from(delay.as_nanos()).unwrap_or(i64::MAX));
                     next_attempt_at_ns = next_attempt_at_ns.max(until);
+                    expires_at_ns = expires_at_ns
+                        .saturating_add(next_attempt_at_ns.saturating_sub(backoff_at_ns));
                 }
                 let next_attempt_duration = next_attempt_at_ns.saturating_sub(retry_from);
                 tracing::warn!(%error, "Task {} retry failed. Retrying in {next_attempt_duration}ns", task.id);
-                match context
-                    .db()
-                    .update_task(task.id, attempts, now, next_attempt_at_ns)
-                {
+                match context.db().update_task_and_expiry(
+                    task.id,
+                    attempts,
+                    now,
+                    next_attempt_at_ns,
+                    expires_at_ns,
+                ) {
                     Ok(_) => {}
                     // The row was concurrently deleted (e.g. a dead-row cleanup in
                     // upsert_pending_self_remove_task crossed this retry). Nothing
@@ -883,6 +892,37 @@ mod tests {
         let after = task().expect("a held task does not run");
         assert_eq!(after.attempts, 1);
         assert_eq!(after.next_attempt_at_ns, held.next_attempt_at_ns);
+    }
+
+    /// A rate-limit delay longer than a task's remaining lifetime does not
+    /// expire it: the wait the delay adds past the backoff is added to the
+    /// task's expiry, so the task runs once the delay has passed.
+    // verifies: RATE-041
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn a_rate_limit_delay_does_not_expire_the_task() {
+        use xmtp_common::time::Duration;
+        tester!(alix, worker_config: no_runner_cfg());
+        let db = alix.context.db();
+        let now = xmtp_common::time::now_ns();
+        let proto = unique_proto();
+        let hash = data_hash_for(&proto);
+        let expires = now + xmtp_common::NS_IN_HOUR;
+        let row = seed(&db, proto, now - 1, expires, 0, i32::MAX);
+        let delay = Duration::from_secs(2 * 60 * 60);
+        *test_hooks::RATE_LIMIT_OVERRIDE.lock().unwrap() =
+            Some((hash.to_vec(), Duration::ZERO, delay));
+        TaskWorker::run_and_reschedule_task(row, &alix.context).await?;
+        *test_hooks::RATE_LIMIT_OVERRIDE.lock().unwrap() = None;
+        let held = db
+            .get_tasks()?
+            .into_iter()
+            .find(|t| t.data_hash == hash.as_ref())
+            .expect("the task is kept");
+        assert!(held.next_attempt_at_ns >= now + delay.as_nanos() as i64);
+        assert!(
+            held.expires_at_ns > held.next_attempt_at_ns,
+            "the task does not expire before it is due"
+        );
     }
 
     #[xmtp_common::test(unwrap_try = true)]
