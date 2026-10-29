@@ -108,7 +108,7 @@ impl Drop for DbPool {
 mod tests {
     use crate::{
         ConnectionExt, EncryptedConnection, StorageOption, UnencryptedConnection,
-        ValidatedConnection,
+        ValidatedConnection, prelude::*,
     };
 
     use super::*;
@@ -287,6 +287,7 @@ mod tests {
                 .get_result::<Autocheckpoint>(conn)?;
             assert_eq!(checkpoint.wal_autocheckpoint, 1_000, "wrong autocheckpoint");
         }
+        assert_eq!(crate::DbConnection::new(pool).busy_timeout()?, BUSY_TIMEOUT);
         Ok(())
     }
 }
