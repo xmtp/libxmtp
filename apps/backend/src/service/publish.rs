@@ -255,15 +255,11 @@ impl Backend {
                 continue;
             }
             // implements: API-302
-            if let Some(Payload::IdentityUpdate(update)) = &envelope.payload
-                && erc6492_signatures(update).count() > limits.max_scw_signatures
-            {
-                over_bound.get_or_insert((
-                    index,
-                    AdmissionError::TooLarge("identity update exceeds signature limit"),
-                ));
-                continue;
-            }
+            let over_signatures = matches!(
+                &envelope.payload,
+                Some(Payload::IdentityUpdate(update))
+                    if erc6492_signatures(update).count() > limits.max_scw_signatures
+            );
             let parsed = match parse_envelope(envelope) {
                 Ok(parsed) => parsed,
                 Err(error) => {
@@ -292,6 +288,15 @@ impl Backend {
                     Reason::TooLarge,
                     "publish exceeds topic limit",
                 ));
+            }
+            // Counted toward the topic bound first: a request over that bound
+            // is refused as a whole, with no index.
+            if over_signatures {
+                over_bound.get_or_insert((
+                    index,
+                    AdmissionError::TooLarge("identity update exceeds signature limit"),
+                ));
+                continue;
             }
             unique.insert(key, pending.len());
             positions.push(pending.len());

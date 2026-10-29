@@ -242,6 +242,15 @@ async fn every_publish_bound_is_decided_before_the_charges() {
             Some(0),
         ),
         (
+            "topics, with an envelope over the signature bound",
+            &small_counts,
+            OverBound::Envelopes(vec![
+                identity_envelope(two_signature_update()),
+                envelope(2, 1),
+            ]),
+            None,
+        ),
+        (
             "topics",
             &small_counts,
             OverBound::Envelopes(vec![envelope(1, 1), envelope(2, 1)]),
