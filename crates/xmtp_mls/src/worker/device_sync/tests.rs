@@ -701,11 +701,12 @@ async fn test_welcome_schedules_add_installation_tasks() {
 async fn sync_welcome_naming_another_inbox_is_rejected(#[case] own_adder: bool) {
     use crate::utils::test::crafted_welcome::{CraftedWelcome, send_crafted_welcome_with};
     use xmtp_mls_common::group_keys::{GroupKeys, GroupRoot};
+    use xmtp_proto::types::Cursor;
 
-    tester!(alix1);
-    tester!(eve);
+    tester!(alix1, disable_workers);
+    tester!(eve, disable_workers);
     let alix2 = if own_adder {
-        tester!(alix2, from: alix1);
+        tester!(alix2, from: alix1, disable_workers);
         Some(alix2)
     } else {
         None
@@ -726,7 +727,7 @@ async fn sync_welcome_naming_another_inbox_is_rejected(#[case] own_adder: bool) 
     };
     send_crafted_welcome_with(adder, &alix1, &group_id, Some(&root), options).await;
 
-    alix1.sync_welcomes().await.unwrap();
+    alix1.wait_for_newest_welcome_rejected(Cursor(0)).await;
 
     let foreign_id = GroupId::from(group_id);
     assert_welcome_rejected(&alix1, &foreign_id);
@@ -765,7 +766,14 @@ async fn sync_group_commit_adding_another_inbox_is_rejected() {
 
     // alix1's own check rejects the commit after it is published.
     assert!(group.add_members(&[eve.inbox_id()]).await.is_err());
-    alix2_group.sync().await?;
+    let topic = xmtp_db::incoming_envelope::StreamTopic::group(group.group_id);
+    let db = alix2.context.db();
+    xmtp_common::wait_for_some(|| async {
+        let _ = alix2_group.sync().await;
+        db.read_last_rejection(&topic).unwrap()
+    })
+    .await
+    .expect("alix2 did not reject the commit");
 
     let members = alix2_group.members().await?;
     assert!(members.iter().all(|m| m.inbox_id != eve.inbox_id()));
