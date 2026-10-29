@@ -4,7 +4,7 @@ use crate::{
     api::{self, client_envelope::Payload, publish_error::Reason},
     config::Category,
     db::{History, IdentityAdmission, PendingEnvelope},
-    error::AdmissionError,
+    error::{AdmissionError, Error},
     handles,
     server::rate_limit::Charger,
     validation::{PublishChainReads, projection},
@@ -121,10 +121,12 @@ impl api::publish_service_server::PublishService for Backend {
 impl Backend {
     /// Keep response origins until the whole request succeeds or fails.
     ///
-    /// The request's charges are counted as it arrived and spent after the
-    /// request bounds, which read nothing stored, and before validation reads
-    /// the store: identity updates, then their chain signatures, then
-    /// envelopes. A denied spend stores nothing and keeps the spends before it.
+    /// The request's charges are counted as it arrived and spent after every
+    /// check that reads nothing stored, the bounds of API section 7 included,
+    /// and before validation reads the store: identity updates, then their
+    /// chain signatures, then envelopes. A request those checks refuse spends
+    /// none of them. A denied spend stores nothing and keeps the spends
+    /// before it.
     // implements: API-221, API-290, RATE-010
     async fn publish_batch(
         &self,
@@ -192,15 +194,24 @@ impl Backend {
         ADMISSION_DEADLINE
     }
 
-    /// Parse request limits, derive routing, and retain original positions.
+    /// Check every bound and parse every envelope, derive routing, and retain
+    /// original positions.
     ///
-    /// This step performs no cryptographic or identity validation. It collapses
-    /// identical canonical envelopes, records the first parse error, and keeps
-    /// enough metadata for the database layer to restore response order. The
-    /// envelope bound counts the input, duplicates included, before any
-    /// envelope is parsed, so it also caps the signatures a request can make
-    /// the backend verify. The identity update bound caps the stored logs one
-    /// request replays.
+    /// This step reads nothing stored and performs no cryptographic or
+    /// identity validation, so the request's charges follow it. It collapses
+    /// identical canonical envelopes, records the first parse error, and
+    /// keeps enough metadata for the database layer to restore response
+    /// order. A whole-request bound fails the request at once. An envelope
+    /// over a bound fails it once every envelope is checked, with the lowest
+    /// index of an envelope over a bound or one that does not parse: an
+    /// envelope that would fail only a check that reads the store is never
+    /// examined. Without one, the first parse error is reported at commit,
+    /// with the validation errors. The envelope bound counts the input,
+    /// duplicates included, before any envelope is parsed, so it also caps
+    /// the signatures a request can make the backend verify. The ERC-6492
+    /// signature bound applies to every identity update, a duplicate of a
+    /// stored one included, because duplicates are known only from the store.
+    /// The identity update bound caps the stored logs one request replays.
     #[xmtp_common::span(prefix = "publish")]
     // implements: API-233, API-223
     fn parse_publish(&self, request: api::PublishRequest) -> Result<PublishBatch, Status> {
@@ -238,11 +249,22 @@ impl Backend {
         let mut parsed_envelopes = Vec::new();
         let mut positions = Vec::with_capacity(request.envelopes.len());
         let mut parse_error = None;
+        let mut over_bound = None;
         for (index, envelope) in request.envelopes.into_iter().enumerate() {
             if envelope.encoded_len() > limits.max_envelope_bytes {
-                parse_error.get_or_insert((
+                over_bound.get_or_insert((
                     index,
                     AdmissionError::TooLarge("envelope exceeds byte limit"),
+                ));
+                continue;
+            }
+            // implements: API-302
+            if let Some(Payload::IdentityUpdate(update)) = &envelope.payload
+                && erc6492_signatures(update).count() > limits.max_scw_signatures
+            {
+                over_bound.get_or_insert((
+                    index,
+                    AdmissionError::TooLarge("identity update exceeds signature limit"),
                 ));
                 continue;
             }
@@ -315,6 +337,12 @@ impl Backend {
             });
             parsed_envelopes.push(parsed);
         }
+        if let Some(bound) = over_bound {
+            let (index, error) = parse_error
+                .filter(|(index, _)| *index < bound.0)
+                .unwrap_or(bound);
+            return Err(Error::Admission { index, error }.into());
+        }
         Ok(PublishBatch {
             pending,
             parsed: parsed_envelopes,
@@ -325,9 +353,8 @@ impl Backend {
 
     /// Validate only pending envelopes that are not known duplicates.
     ///
-    /// An identity update first passes the checks that need no history, its
-    /// ERC-6492 signature count and [`check_update_shape`]; one that fails
-    /// them is rejected without reading its inbox's history and keeps no
+    /// An identity update first passes [`check_update_shape`], which needs no
+    /// history; one that fails it is rejected without reading its inbox's history and keeps no
     /// head, so the commit reports its own rejection and never a stale
     /// history. Every other identity update uses one complete primary history
     /// snapshot, replayed without chain access by [`Self::replay_history`],
@@ -356,12 +383,6 @@ impl Backend {
             let mut prior = AdmittedState::default();
             if let Some(Payload::IdentityUpdate(update)) = &parsed.envelope.payload {
                 // implements: API-302
-                if erc6492_signatures(update).count() > self.config.limits.max_scw_signatures {
-                    item.validation = Err(AdmissionError::TooLarge(
-                        "identity update exceeds signature limit",
-                    ));
-                    continue;
-                }
                 if let Err(error) = check_update_shape(update) {
                     item.validation = Err(ValidationError::from(error).into());
                     continue;

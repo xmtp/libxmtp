@@ -1,6 +1,5 @@
 //! What a publish is charged, and that a denied step stores nothing.
 
-use super::signatures::rejection;
 use super::transport::{PUBLISH, empty_envelopes};
 use super::*;
 use crate::{
@@ -8,7 +7,7 @@ use crate::{
     server::rate_limit::Charger,
     test_support::{native::envelope, rate_limit_delay, rate_limits},
 };
-use support::native::raw_unary;
+use support::native::{framed, raw_unary};
 use xmtp_mls_validation::test_utils::scw_create_inbox_update;
 
 /// A server that charges each forwarded address as its own caller and
@@ -146,32 +145,196 @@ async fn a_publish_denied_by_a_charge_stores_nothing() {
     server.stop().await?;
 }
 
-// verifies: RATE-010, RATE-014
+/// An identity update with two ERC-6492 signatures.
+fn two_signature_update() -> xmtp_proto::xmtp::identity::associations::IdentityUpdate {
+    let mut update = scw_create_inbox_update_at(1);
+    update
+        .actions
+        .extend(scw_change_recovery_update_at(1).actions);
+    update
+}
+
+/// A publish over one bound of API section 7, as sent.
+enum OverBound {
+    /// A raw gRPC body, for the bounds checked before decode.
+    Body(Vec<u8>),
+    Envelopes(Vec<api::ClientEnvelope>),
+}
+
+impl OverBound {
+    async fn send(&self, server: &TestServer, address: &str) -> support::TestResult<tonic::Status> {
+        Ok(match self {
+            Self::Body(body) => {
+                raw_unary(
+                    server,
+                    PUBLISH,
+                    &[("x-forwarded-for", address)],
+                    body.clone(),
+                    true,
+                )
+                .await?
+            }
+            Self::Envelopes(envelopes) => publish_from(server, address, envelopes.clone())
+                .await
+                .expect_err("the publish is over a bound"),
+        })
+    }
+}
+
+const BOUND_LIMITS: &str = "[categories.request]\nip = [{ count = 2, window_seconds = 3600 }]\n\
+     [categories.publish]\nip = [{ count = 2, window_seconds = 3600 }]\n\
+     [categories.identity_update]\nip = [{ count = 2, window_seconds = 3600 }]\n\
+     [categories.chain_verify]\nip = [{ count = 2, window_seconds = 3600 }]";
+
+/// Each bound of a publish is decided before the handler's charges. With
+/// allowance left, the publish fails with `REASON_TOO_LARGE` having spent
+/// its `request` unit and nothing else; with no `publish`,
+/// `identity_update` or `chain_verify` allowance left, it still gets the
+/// bound's status, not a rate limit.
+// verifies: RATE-010, RATE-014, API-223, API-302
 #[xmtp_common::test(unwrap_try = true)]
-async fn a_publish_over_its_bounds_spends_only_its_request_unit() {
-    let server = server(
-        "[categories.request]\nip = [{ count = 3, window_seconds = 3600 }]\n\
-         [categories.publish]\nip = [{ count = 1, window_seconds = 3600 }]",
-        1,
-    )
+async fn every_publish_bound_is_decided_before_the_charges() {
+    let oversized = envelope(1, 1);
+    let actions = api::ClientEnvelope {
+        payload: Some(api::client_envelope::Payload::IdentityUpdate(
+            xmtp_proto::xmtp::identity::associations::IdentityUpdate {
+                actions: vec![
+                    Default::default();
+                    xmtp_configuration::MAX_PUBLISH_IDENTITY_ACTIONS + 1
+                ],
+                ..Default::default()
+            },
+        )),
+    };
+    let message = api::PublishRequest {
+        envelopes: vec![envelope(1, 1)],
+    }
+    .encode_to_vec();
+    let small_envelopes = TestServer::new(|config| {
+        config.limits.max_envelope_bytes = oversized.encoded_len() - 1;
+        config.rate_limits = rate_limits(&format!(
+            "max_memory_mib = 1\ntrusted_proxies = [\"127.0.0.1/32\"]\n{BOUND_LIMITS}"
+        ));
+    })
     .await?;
-    // More envelopes than the count gate admits.
-    let status = raw_unary(
-        &server,
-        PUBLISH,
-        &[("x-forwarded-for", "203.0.113.1")],
-        empty_envelopes(xmtp_configuration::MAX_PUBLISH_ENVELOPES + 1, &[]),
-        true,
-    )
+    let small_counts = TestServer::new(|config| {
+        config.limits.max_publish_topics = 1;
+        config.limits.max_scw_signatures = 1;
+        config.rate_limits = rate_limits(&format!(
+            "max_memory_mib = 1\ntrusted_proxies = [\"127.0.0.1/32\"]\n{BOUND_LIMITS}"
+        ));
+    })
     .await?;
-    assert_eq!(status.code(), Code::InvalidArgument);
-    // More topics than `limits.max_publish_topics`, checked by the handler.
-    let status = publish_from(&server, "203.0.113.1", vec![envelope(1, 1), envelope(2, 1)])
-        .await
-        .unwrap_err();
-    assert_eq!(rejection(status)?, (None, Reason::TooLarge));
-    let caller = caller(&server, "203.0.113.1");
-    assert_left(&caller, Category::Request, 1).await;
-    assert_left(&caller, Category::Publish, 1).await;
+    let cases = [
+        (
+            "envelope bytes",
+            &small_envelopes,
+            OverBound::Envelopes(vec![oversized]),
+            Some(0),
+        ),
+        (
+            "ERC-6492 signatures",
+            &small_counts,
+            OverBound::Envelopes(vec![identity_envelope(two_signature_update())]),
+            Some(0),
+        ),
+        (
+            "topics",
+            &small_counts,
+            OverBound::Envelopes(vec![envelope(1, 1), envelope(2, 1)]),
+            None,
+        ),
+        (
+            "envelope count",
+            &small_counts,
+            OverBound::Body(empty_envelopes(
+                xmtp_configuration::MAX_PUBLISH_ENVELOPES + 1,
+                &[],
+            )),
+            None,
+        ),
+        (
+            "identity actions",
+            &small_counts,
+            OverBound::Envelopes(vec![actions]),
+            None,
+        ),
+        (
+            "messages",
+            &small_counts,
+            OverBound::Body([framed(&message), framed(&message)].concat()),
+            None,
+        ),
+    ];
+    for (number, (bound, server, request, index)) in cases.iter().enumerate() {
+        let with_allowance = format!("203.0.113.{}", 2 * number + 1);
+        let status = request.send(server, &with_allowance).await?;
+        assert_eq!(status.code(), Code::InvalidArgument, "{bound}: {status:?}");
+        let reason = tonic_types::pb::Status::decode(status.details())?
+            .details
+            .first()
+            .map(|detail| api::PublishError::decode(detail.value.as_slice()))
+            .transpose()?
+            .ok_or(*bound)?;
+        assert_eq!(reason.reason(), Reason::TooLarge, "{bound}");
+        assert_eq!(reason.index, *index, "{bound}");
+        let spent = caller(server, &with_allowance);
+        assert_left(&spent, Category::Request, 1).await;
+        assert_left(&spent, Category::Publish, 2).await;
+        assert_left(&spent, Category::IdentityUpdate, 2).await;
+        assert_left(&spent, Category::ChainVerify, 2).await;
+
+        let exhausted = format!("203.0.113.{}", 2 * number + 2);
+        let empty = caller(server, &exhausted);
+        for category in [
+            Category::Publish,
+            Category::IdentityUpdate,
+            Category::ChainVerify,
+        ] {
+            empty.charge(category, 2).await?;
+        }
+        let status = request.send(server, &exhausted).await?;
+        assert_eq!(status.code(), Code::InvalidArgument, "{bound}: {status:?}");
+    }
+    small_envelopes.stop().await?;
+    small_counts.stop().await?;
+}
+
+/// A request with an envelope over a bound is refused before its charges
+/// with the lowest index of an envelope over a bound or one that does not
+/// parse, and spends nothing but its `request` unit.
+// verifies: API-223, RATE-010
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_bound_failure_reports_the_lowest_envelope_found_failing() {
+    let oversized = envelope(1, 1);
+    let server = TestServer::new(|config| {
+        config.limits.max_envelope_bytes = oversized.encoded_len() - 1;
+        config.rate_limits = rate_limits(&format!(
+            "max_memory_mib = 1\ntrusted_proxies = [\"127.0.0.1/32\"]\n{BOUND_LIMITS}"
+        ));
+    })
+    .await?;
+    let malformed = api::ClientEnvelope::default();
+    for (address, envelopes, reason) in [
+        (
+            "203.0.113.1",
+            vec![malformed.clone(), oversized.clone()],
+            Reason::MalformedPayload,
+        ),
+        (
+            "203.0.113.2",
+            vec![oversized.clone(), malformed.clone()],
+            Reason::TooLarge,
+        ),
+    ] {
+        let status = publish_from(&server, address, envelopes).await.unwrap_err();
+        let detail = api::PublishError::decode(
+            tonic_types::pb::Status::decode(status.details())?.details[0]
+                .value
+                .as_slice(),
+        )?;
+        assert_eq!((detail.index, detail.reason()), (Some(0), reason));
+        assert_left(&caller(&server, address), Category::Publish, 2).await;
+    }
     server.stop().await?;
 }
