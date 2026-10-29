@@ -127,7 +127,7 @@ RATE in `docs/specs/` owns the behaviour; this is how the backend provides it.
   before the count gate. It looks the path up in `rate_limit/charges.rs`, which
   lists every served RPC (a test walks the proto descriptors), spends 1
   `request` unit, and inserts a `Charger` into the request's extensions.
-  Handlers and streams spend every other category through `Charger::charge`,
+  Handlers spend every other category through `Charger::charge`,
   the only code that calls the limiter, so every denial gets the same
   `RESOURCE_EXHAUSTED` details, metric, and debug log line. A path missing from
   the table is never charged.

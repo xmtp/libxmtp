@@ -197,7 +197,7 @@ Complete the [SDK quickstart](/get-started/quickstart/) with two clients that us
 
 ## Rate limits
 
-Backend images newer than `8.0.0-rc4` [limit each caller](/deploy/overview/#rate-limits),
+Backend images with [rate limits](/deploy/overview/#rate-limits) limit each caller,
 and charge a caller without a credential to its address. Behind Serve, every
 request reaches the backend from the host's local Serve connection, so all
 callers without a credential share one allowance. Leave

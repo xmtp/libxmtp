@@ -9,8 +9,10 @@ terminates TLS and sends h2c to the backend Service. Read the
 shutdown, the ingress contract, and security requirements.
 
 **Image requirement:** use an image that contains the configuration flag
-change. Every `:self-hosted` image published after 2026-09-14 has it. Pin an
-exact build with `ghcr.io/xmtp/backend:sha-<commit>`.
+change and [rate limits](/deploy/overview/#rate-limits). The values below set
+`[rate_limits]`, which an image without rate limits refuses at startup; with
+such an image, remove that table from `config`. Pin an exact build with
+`ghcr.io/xmtp/backend:sha-<commit>`.
 
 ## Prerequisites
 
@@ -78,7 +80,8 @@ config: |
   url = "env:XMTP_DATABASE_URL"
 
   # Envoy connects from the pod network and appends each client's address
-  # to X-Forwarded-For. Replace with your cluster's pod CIDR.
+  # to X-Forwarded-For. Replace with your cluster's pod CIDR. The limiter
+  # takes max_memory_mib (100 MiB by default) at startup.
   [rate_limits]
   trusted_proxies = ["10.244.0.0/16"]
 resources:
@@ -355,7 +358,7 @@ added. All [ingress checks](/deploy/overview/#ingress-contract) still need a cli
 
 ### Client addresses
 
-Backend images newer than `8.0.0-rc4` [limit each caller](/deploy/overview/#rate-limits),
+Backend images with [rate limits](/deploy/overview/#rate-limits) limit each caller,
 and charge a caller without a credential to its address. The backend's peer is
 an Envoy pod, so it finds the client in `X-Forwarded-For`, which Envoy Gateway
 appends the downstream address to: the
@@ -384,6 +387,11 @@ forwards packets; one that terminates the connection replaces it with its own,
 and every caller without a credential then shares one allowance. Check your
 provider's load balancer. This guide has not verified the client address on a
 live cluster.
+
+The limiter allocates `rate_limits.max_memory_mib`, 100 MiB by default, at
+startup: the image measured about 115 MiB resident at startup with the
+defaults. The chart's 256Mi memory request and 1Gi limit leave room; keep the
+request above `max_memory_mib` plus your working set.
 
 Create the certificate Secret separately from Helm. The required manifest has
 this shape. Replace both placeholders with PEM data from your certificate

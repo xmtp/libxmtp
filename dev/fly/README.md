@@ -4,14 +4,14 @@ This environment is separate from the disposable iOS test apps. All Fly apps
 and the Managed Postgres cluster use organization `xmtp-labs` and region `sjc`.
 Never include these names in the iOS cleanup scripts.
 
-| Service | App or cluster | Access |
-| --- | --- | --- |
-| Backend | `xmtp-backend-dev` | `https://backend-dev.xmtp.to` |
-| PostgreSQL 17 | `xmtp-backend-dev-db` | Private direct connection |
-| Tempo | `xmtp-backend-dev-tempo` | Private OTLP and query listeners |
-| Trace metrics | `xmtp-backend-dev-prometheus` | Private Tempo remote-write receiver |
-| Grafana | `xmtp-backend-dev-grafana` | Local Fly proxy and Grafana login |
-| Docs | GitHub Pages for `xmtp/libxmtp` | `https://xmtp.org` |
+| Service       | App or cluster                  | Access                              |
+| ------------- | ------------------------------- | ----------------------------------- |
+| Backend       | `xmtp-backend-dev`              | `https://backend-dev.xmtp.to`       |
+| PostgreSQL 17 | `xmtp-backend-dev-db`           | Private direct connection           |
+| Tempo         | `xmtp-backend-dev-tempo`        | Private OTLP and query listeners    |
+| Trace metrics | `xmtp-backend-dev-prometheus`   | Private Tempo remote-write receiver |
+| Grafana       | `xmtp-backend-dev-grafana`      | Local Fly proxy and Grafana login   |
+| Docs          | GitHub Pages for `xmtp/libxmtp` | `https://xmtp.org`                  |
 
 The backend identifier is `org.xmtp.backend.dev`. Do not change it after clients
 connect. The database and observability volumes persist across deployments.
@@ -148,7 +148,10 @@ for metrics and traces after traffic.
 
 Redeploy a previous immutable image to recover from a binary regression only
 when its database schema is compatible. Do not assume binary rollback reverses
-migrations. Use Managed Postgres backups to recover database state. Restore
+migrations. An image built before rate limits refuses the `[rate_limits]` table
+in `backend/config.toml`, so it never becomes healthy with the current file:
+deploy it from a checkout of that image's commit, whose `config.toml` matches
+it. Use Managed Postgres backups to recover database state. Restore
 into a separate cluster and validate it before changing `XMTP_DATABASE_URL`.
 
 The current backend development rules allow edits to an existing migration.

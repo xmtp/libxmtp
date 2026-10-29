@@ -292,7 +292,7 @@ preservation enabled.
 
 ### Client addresses
 
-Backend images newer than `8.0.0-rc4` [limit each caller](/deploy/overview/#rate-limits),
+Backend images with [rate limits](/deploy/overview/#rate-limits) limit each caller,
 and charge a caller without a credential to its address. An NLB adds no
 `X-Forwarded-For` header. Instead, the target group above preserves the
 client's address on the connection. AWS documents that an IP target group with

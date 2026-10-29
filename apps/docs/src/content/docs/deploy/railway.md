@@ -377,7 +377,7 @@ unreachable from outside Railway.
 
 ## Rate limits
 
-Backend images newer than `8.0.0-rc4` [limit each caller](/deploy/overview/#rate-limits).
+Backend images with [rate limits](/deploy/overview/#rate-limits) limit each caller.
 On Railway the backend cannot tell clients without a credential apart, so they
 share one allowance. Railway's TCP proxy forwards raw TCP and keeps no client
 address: Railway staff [state](https://station.railway.com/questions/restrict-tcp-proxy-to-specific-ip-addres-c296cf01)

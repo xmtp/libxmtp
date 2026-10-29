@@ -144,7 +144,7 @@ and disaster recovery.
 
 ## Charge callers by address
 
-Backend images newer than `8.0.0-rc4` [limit each caller](/deploy/overview/#rate-limits),
+Backend images with [rate limits](/deploy/overview/#rate-limits) limit each caller,
 and charge a caller without a credential to its address. The backend's peer is
 Fly Proxy, so it must find the client in `X-Forwarded-For`. Fly
 [documents](https://fly.io/docs/networking/request-headers/) that this header
@@ -164,6 +164,12 @@ Add both to `config.toml` with the network Fly Proxy connects from, then run
 # Fly Proxy's private network, then this app's public IPv4 and IPv6.
 trusted_proxies = ["172.16.0.0/12", "66.241.125.1/32", "2a09:8280:1::1:0/128"]
 ```
+
+An image without rate limits refuses this table, so deploy it only with an
+image that has them. The limiter's table takes `rate_limits.max_memory_mib` of
+memory, 100 MiB by default, allocated at startup: the image measured about
+115 MiB resident at startup with the defaults. The 512 MB VM above leaves room;
+on a smaller VM, lower `max_memory_mib`.
 
 The backend reads the list from the right, skips these addresses, and charges
 the first address it does not trust: the client as Fly Proxy saw it. An entry

@@ -268,8 +268,9 @@ ceiling.
 
 ### `[rate_limits]`
 
-Per-caller rate limits. They are on by default, in backend images newer than
-`8.0.0-rc4`; an older image refuses this table. See
+Per-caller rate limits, on by default. They are in releases after `8.0.0-rc4`
+and in `:self-hosted` and `sha-` images built from a commit that includes
+them; an older image refuses this table at startup. See
 [Rate limits](/deploy/overview/#rate-limits) for what each category charges,
 how callers are named, and how proxies affect the client address.
 
@@ -510,9 +511,8 @@ calls keep working and only subscriptions break.
 ## Security
 
 Optional API key and JWT authentication is available. Configure [`[auth]`](#auth)
-to require valid bearer credentials. [Rate limits](#rate_limits) bound the work
-each caller can make an instance do. A valid token does not prove group
-membership.
+to require valid bearer credentials. [Rate limits](#rate_limits) bound the
+requests each caller can make. A valid token does not prove group membership.
 
 Without `[auth]`, the service is unauthenticated. Do not expose an unauthenticated
 service to untrusted traffic. Put it on a private network, or behind a trusted
