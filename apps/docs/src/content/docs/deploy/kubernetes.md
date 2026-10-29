@@ -9,9 +9,11 @@ terminates TLS and sends h2c to the backend Service. Read the
 shutdown, the ingress contract, and security requirements.
 
 **Image requirement:** use an image that contains the configuration flag
-change and [rate limits](/deploy/overview/#rate-limits). The values below set
-`[rate_limits]`, which an image without rate limits refuses at startup; with
-such an image, remove that table from `config`. Pin an exact build with
+change and [rate limits](/deploy/overview/#rate-limits). Every `:self-hosted`
+image published after 2026-09-14 has the configuration flag change; an older
+image exits at startup. The values below set `[rate_limits]`, which an image
+without rate limits refuses at startup; with an image that has the flag change
+but not rate limits, remove that table from `config`. Pin an exact build with
 `ghcr.io/xmtp/backend:sha-<commit>`.
 
 ## Prerequisites
