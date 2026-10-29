@@ -117,18 +117,8 @@ async fn a_request_refused_while_draining_spends_nothing() {
             })
             .await
     });
-    xmtp_common::wait_for_eq(
-        || async {
-            sqlx::query_scalar::<_, bool>(
-                "SELECT EXISTS (SELECT 1 FROM pg_locks WHERE locktype = 'relation' AND NOT granted)",
-            )
-            .fetch_one(&server.backend.store.primary)
-            .await
-            .unwrap()
-        },
-        true,
-    )
-    .await?;
+    // A waiting lock in this test's database, not any other on the server.
+    crate::test_support::locks::wait_for_lock(&server.backend.store.primary, "relation").await?;
     server.shutdown();
     // Once admission refuses a stream, HTTP/2 can refuse the next before it
     // reaches any layer, so one refusal by admission is what this can see.
