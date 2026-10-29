@@ -22,6 +22,7 @@ test-utils = [
   "xmtp_logging/test-utils",
   "xmtp_mls_validation/test-utils",
   "xmtp_proto/grpc_client_impls",
+  "xmtp_rate_limit/test-utils",
 ]
 
 [dependencies]

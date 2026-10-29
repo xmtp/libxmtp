@@ -41,14 +41,14 @@ fn budget_bytes(max_memory_mib: u32) -> usize {
 #[derive(Clone)]
 pub(crate) enum LimiterClock {
     System(xmtp_rate_limit::SystemClock),
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-utils"))]
     Manual(xmtp_rate_limit::ManualClock),
 }
 impl Clock for LimiterClock {
     fn now_ns(&self) -> u64 {
         match self {
             Self::System(clock) => clock.now_ns(),
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-utils"))]
             Self::Manual(clock) => clock.now_ns(),
         }
     }
@@ -72,9 +72,9 @@ pub(crate) struct BackendLimiter<L> {
     config: RateLimitConfig,
     /// The eviction count the metric holds.
     recorded_evictions: AtomicU64,
-    /// Every spend decided, in order, for tests of a running server.
+    /// The spends chargers made, in order, once a test turns recording on.
     #[cfg(any(test, feature = "test-utils"))]
-    spends: parking_lot::Mutex<Vec<crate::test_support::SpendRecord>>,
+    spends: std::sync::OnceLock<parking_lot::Mutex<Vec<crate::test_support::SpendRecord>>>,
 }
 
 impl<L: RateLimiter + CountsEvictions> BackendLimiter<L> {
@@ -121,23 +121,7 @@ impl<L: RateLimiter + CountsEvictions> BackendLimiter<L> {
             })
             .await;
         self.record_evictions();
-        #[cfg(any(test, feature = "test-utils"))]
-        self.spends.lock().push(crate::test_support::SpendRecord {
-            category,
-            cost,
-            retry_after: match decision {
-                Decision::Allowed => None,
-                Decision::Denied { retry_after } => Some(retry_after),
-            },
-            at: std::time::Instant::now(),
-        });
         decision
-    }
-
-    /// Every spend decided so far, in order.
-    #[cfg(any(test, feature = "test-utils"))]
-    pub(crate) fn spends(&self) -> Vec<crate::test_support::SpendRecord> {
-        self.spends.lock().clone()
     }
 
     /// Add the evictions since the last record to the metric, each once,
@@ -154,5 +138,32 @@ impl<L: RateLimiter + CountsEvictions> BackendLimiter<L> {
 
     pub(super) fn trusted_proxies(&self) -> &[ipnet::IpNet] {
         &self.config.trusted_proxies
+    }
+}
+
+/// The spend record a test reads to see what reached a running server.
+#[cfg(any(test, feature = "test-utils"))]
+impl<L> BackendLimiter<L> {
+    /// Record every spend a charger makes from now on.
+    pub(crate) fn record_spends(&self) {
+        self.spends.get_or_init(Default::default);
+    }
+
+    pub(super) fn recording(&self) -> bool {
+        self.spends.get().is_some()
+    }
+
+    pub(super) fn record(&self, spend: crate::test_support::SpendRecord) {
+        if let Some(spends) = self.spends.get() {
+            spends.lock().push(spend);
+        }
+    }
+
+    /// The spends recorded so far, in order; empty unless recording is on.
+    pub(crate) fn spends(&self) -> Vec<crate::test_support::SpendRecord> {
+        self.spends
+            .get()
+            .map(|spends| spends.lock().clone())
+            .unwrap_or_default()
     }
 }

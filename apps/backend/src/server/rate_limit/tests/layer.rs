@@ -314,3 +314,16 @@ async fn a_denied_request_spend_decides_the_status_over_every_later_check() {
     }
     server.stop().await?;
 }
+
+/// Only a limiter a test asked to record keeps its spends, so the record
+/// costs nothing, and grows by nothing, in any other test build.
+#[xmtp_common::test(unwrap_try = true)]
+async fn spends_are_recorded_only_when_a_test_asks() {
+    let limiter = limiter("max_memory_mib = 1", &ManualClock::new());
+    let charger = probe(&limiter, LOCALHOST);
+    charger.charge(Category::Request, 1).await?;
+    assert!(limiter.spends().is_empty());
+    limiter.record_spends();
+    charger.charge(Category::Request, 1).await?;
+    assert_eq!(limiter.spends().len(), 1);
+}

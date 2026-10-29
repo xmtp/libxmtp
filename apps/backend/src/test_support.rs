@@ -105,6 +105,9 @@ impl std::ops::DerefMut for TestServer {
     }
 }
 
+/// The rate limiter's clock in tests that set the time each spend sees.
+pub use xmtp_rate_limit::ManualClock;
+
 /// One spend a running server's rate limiter decided.
 #[derive(Clone, Debug)]
 pub struct SpendRecord {
@@ -114,6 +117,10 @@ pub struct SpendRecord {
     pub retry_after: Option<std::time::Duration>,
     /// When the limiter decided it.
     pub at: std::time::Instant,
+    /// A SHA-256 digest of the encoded request message the spend was for,
+    /// for a handler's spends; `None` for the rate-limit layer's `request`
+    /// unit, which precedes decoding.
+    pub request: Option<[u8; 32]>,
 }
 
 pub struct RunningServer {
@@ -132,11 +139,11 @@ impl TestServer {
     }
 
     /// `new`, with the rate limiter on `clock`, so a test sets the time each
-    /// spend sees. `change` must turn rate limits on.
-    #[cfg(test)]
-    pub(crate) async fn with_rate_limit_clock(
+    /// spend sees, and every spend recorded. `change` must turn rate limits
+    /// on.
+    pub async fn with_rate_limit_clock(
         change: impl FnOnce(&mut Config),
-        clock: xmtp_rate_limit::ManualClock,
+        clock: ManualClock,
     ) -> TestResult<Self> {
         Self::start(
             change,
@@ -164,6 +171,24 @@ impl TestServer {
             },
             None,
             None,
+        )
+        .await
+    }
+
+    /// `from_toml`, with the rate limiter on `clock` and every spend
+    /// recorded. The TOML must turn rate limits on.
+    pub async fn from_toml_with_rate_limit_clock(
+        toml: &str,
+        clock: ManualClock,
+    ) -> TestResult<Self> {
+        let config = partial_config(toml)?;
+        Self::with_rate_limit_clock(
+            move |defaults| {
+                let url = std::mem::take(&mut defaults.database.url);
+                *defaults = config;
+                defaults.database.url = url;
+            },
+            clock,
         )
         .await
     }
@@ -208,6 +233,7 @@ impl TestServer {
         if let Some(clock) = limiter_clock {
             let limiter = server::rate_limit::limiter_on(backend.config.rate_limits(), clock)
                 .ok_or("a rate-limit clock needs rate limits on")?;
+            limiter.record_spends();
             backend.rate_limiter = Some(limiter);
         }
         let running = RunningServer::from_backend(backend).await?;
@@ -301,9 +327,10 @@ impl RunningServer {
         })
     }
 
-    /// Every spend this server's rate limiter decided, in order: empty while
+    /// Every spend this server's rate limiter decided, in order. Spends are
+    /// recorded only for a server started on a test clock, and none while
     /// rate limits are off. A test reads which charged steps reached the
-    /// backend, at what cost, and when.
+    /// backend, at what cost, for which request, and when.
     pub fn rate_limit_spends(&self) -> Vec<SpendRecord> {
         self.backend
             .rate_limiter

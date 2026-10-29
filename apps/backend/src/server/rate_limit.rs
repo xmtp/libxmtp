@@ -38,7 +38,14 @@ pub(crate) use limiter::{LimiterClock, limiter_on};
 /// and the stream session spend through it and nothing else, so every denial
 /// gets the same rejection, metric, and log line.
 #[derive(Clone)]
-pub(crate) struct Charger(Option<Arc<Caller>>);
+pub(crate) struct Charger {
+    /// `None` while rate limits are off.
+    caller: Option<Arc<Caller>>,
+    /// A digest of the request message a handler charges for, kept while a
+    /// test records spends.
+    #[cfg(any(test, feature = "test-utils"))]
+    request: Option<[u8; 32]>,
+}
 
 struct Caller {
     limiter: Arc<Limiter>,
@@ -61,14 +68,28 @@ impl Charger {
     ) -> Self {
         let mut bytes = Vec::new();
         key.to_bytes(&mut bytes);
-        Self(Some(Arc::new(Caller {
-            limiter,
-            key,
-            bytes: bytes.into_boxed_slice(),
-            categories,
-            request_id,
-            identifier,
-        })))
+        Self {
+            caller: Some(Arc::new(Caller {
+                limiter,
+                key,
+                bytes: bytes.into_boxed_slice(),
+                categories,
+                request_id,
+                identifier,
+            })),
+            #[cfg(any(test, feature = "test-utils"))]
+            request: None,
+        }
+    }
+
+    /// A charger that admits every spend, for a request rate limits do not
+    /// cover.
+    fn off() -> Self {
+        Self {
+            caller: None,
+            #[cfg(any(test, feature = "test-utils"))]
+            request: None,
+        }
     }
 
     /// A charger for `key` that may spend every category, for tests that
@@ -87,12 +108,24 @@ impl Charger {
     /// The charger the layer gave `request`. A request without one was not
     /// charged by the layer, because rate limits are off, so it admits every
     /// spend.
-    pub(crate) fn of<T>(request: &tonic::Request<T>) -> Self {
-        request
+    pub(crate) fn of<T: prost::Message>(request: &tonic::Request<T>) -> Self {
+        #[allow(unused_mut)]
+        let mut charger = request
             .extensions()
             .get::<Self>()
             .cloned()
-            .unwrap_or(Self(None))
+            .unwrap_or_else(Self::off);
+        #[cfg(any(test, feature = "test-utils"))]
+        if charger
+            .caller
+            .as_ref()
+            .is_some_and(|caller| caller.limiter.recording())
+        {
+            charger.request = Some(xmtp_common::sha256_array(
+                &request.get_ref().encode_to_vec(),
+            ));
+        }
+        charger
     }
 
     /// Spend `cost` units of `category` for the request's caller. A cost of 0
@@ -101,7 +134,7 @@ impl Charger {
     /// no caller, and returns the rejection to send.
     // implements: RATE-010
     pub(crate) async fn charge(&self, category: Category, cost: usize) -> Result<(), Status> {
-        let Some(caller) = &self.0 else {
+        let Some(caller) = &self.caller else {
             return Ok(());
         };
         if cost == 0 {
@@ -113,11 +146,22 @@ impl Charger {
             category.as_str()
         );
         let cost = u32::try_from(cost).unwrap_or(u32::MAX);
-        match caller
+        let decision = caller
             .limiter
             .spend(&caller.key, &caller.bytes, category, cost)
-            .await
-        {
+            .await;
+        #[cfg(any(test, feature = "test-utils"))]
+        caller.limiter.record(crate::test_support::SpendRecord {
+            category,
+            cost,
+            retry_after: match decision {
+                Decision::Allowed => None,
+                Decision::Denied { retry_after } => Some(retry_after),
+            },
+            at: std::time::Instant::now(),
+            request: self.request,
+        });
+        match decision {
             Decision::Allowed => Ok(()),
             Decision::Denied { retry_after } => {
                 let auth_type = caller.key.auth_type();
