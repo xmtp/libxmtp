@@ -1066,13 +1066,8 @@ mod startup_tests {
             );
         }
         for (i, sized) in sized.iter().enumerate() {
-            let expected = (i != 1).then_some(sized);
-            assert_eq!(
-                held(&sized.entity)?.as_ref(),
-                expected,
-                "{}",
-                &sized.entity[..6]
-            );
+            let expected = (i != 1).then_some((sized.state, sized.consented_at_ns));
+            assert_eq!(held(&sized.entity)?, expected, "{}", &sized.entity[..6]);
         }
         alix1.close().await?;
         alix2.close().await?;
@@ -1095,7 +1090,7 @@ mod startup_tests {
             })
             .collect();
         for chunk in records.chunks(200) {
-            alix.context.db().insert_or_replace_consent_records(chunk)?;
+            alix.context.db().record_app_act(chunk)?;
         }
         let worker = idle_worker(alix.context.clone());
         let mut owed = welcome();
