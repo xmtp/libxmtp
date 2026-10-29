@@ -138,9 +138,16 @@ RATE in `docs/specs/` owns the behaviour; this is how the backend provides it.
   rent at open, at each period, and for an `Update` that raises it; 1
   `request` unit for an `Update`'s catch-up target and for each catch-up read.
   A refused rent or target spend ends the stream before the update registers
-  anything. Its delay comes from a second, larger spend that is also refused
-  and charges nothing, so it covers what the replacement stream pays again. A
-  refused read pauses catch-up until its delay; live delivery is free.
+  anything. A top-up and a target read cost less than the replacement stream
+  pays again for that step (the whole rent; 2 `request` units with its
+  `Subscribe`), so their delay comes from a second spend of that cost, which
+  is also refused and charges nothing. An open, a renewal, and a static open
+  spend the whole rent once and report their own delay. The delay can still
+  fall short: a whole rent above a limit's count can never be paid, because a
+  native replacement opens before it tops up; a top-up admitted before a
+  refused target read stays spent; and updates queued behind the refused one
+  add rent the delay does not count. A refused read pauses catch-up until its
+  delay; live delivery is free.
 - **Callers.** `rate_limit/caller.rs` forms the `CallerKey` of
   `xmtp_backend_config`, the type overrides are keyed by, from the auth context,
   the connection's peer, and `X-Forwarded-For` behind `trusted_proxies`.
