@@ -32,6 +32,9 @@ pub(super) struct Script {
     pub(super) unavailable: bool,
     /// Every commit-log publish is refused with a rate limit of this delay.
     pub(super) rate_limit: Option<xmtp_common::time::Duration>,
+    /// Only the next commit-log publish is refused with `rate_limit`, which
+    /// then clears.
+    pub(super) rate_limit_once: bool,
     /// Every publish that carries a group message is refused with a rate
     /// limit of this delay.
     pub(super) group_message_rate_limit: Option<xmtp_common::time::Duration>,
@@ -160,6 +163,9 @@ impl XmtpBackendClient for ScriptedApi {
             }
             script.published.push(ids);
             if let Some(delay) = script.rate_limit {
+                if script.rate_limit_once {
+                    script.rate_limit = None;
+                }
                 return Err(ApiClientError::client(
                     xmtp_api_grpc::error::GrpcError::Status(
                         xmtp_api_grpc::error::rate_limited_status("publish", delay),

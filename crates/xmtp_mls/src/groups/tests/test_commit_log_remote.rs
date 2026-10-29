@@ -489,6 +489,42 @@ async fn a_rate_limited_publish_holds_only_its_conversation() {
     );
 }
 
+/// A rate limit on one conversation's publish does not end the turn: the
+/// next conversation still publishes in the same turn.
+// verifies: RATE-041
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_rate_limited_publish_does_not_end_the_turn() {
+    tester!(alix, disable_workers);
+    let first = alix.create_group(None, None)?;
+    first.update_group_name("one".into()).await?;
+    let second = alix.create_group(None, None)?;
+    second.update_group_name("two".into()).await?;
+    let ids = [
+        keys_of(&first).commit_log_id().to_vec(),
+        keys_of(&second).commit_log_id().to_vec(),
+    ];
+    let (client, script) = scripted::scripted(&alix.client).await;
+    {
+        let mut script = script.lock();
+        script.rate_limit = Some(xmtp_common::time::Duration::from_secs(300));
+        script.rate_limit_once = true;
+    }
+    let mut worker = CommitLogWorker::new(client.context.clone());
+    let published = publish_turn(&mut worker).await;
+    for id in &ids {
+        assert_eq!(
+            script.lock().publishes_for(id),
+            1,
+            "each conversation is sent once"
+        );
+    }
+    assert_eq!(
+        published.len(),
+        1,
+        "the conversation after the refused one publishes"
+    );
+}
+
 /// Publication resumes once a rate-limit hold has ended.
 // verifies: RATE-041
 #[xmtp_common::test(unwrap_try = true)]

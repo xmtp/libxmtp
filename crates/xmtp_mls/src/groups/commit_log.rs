@@ -382,10 +382,10 @@ where
     /// only its own conversation. A failed publish is logged, recorded in
     /// [`Self::failed_publishes`], and moves the conversation's cursor past
     /// the stored prefix only; the conversation is tried again at the next
-    /// tick. A refusal or a local parse failure holds back only its own
-    /// conversation. A transport failure ends the publishing part of the
-    /// turn, since every later conversation would wait through the same
-    /// retries. No publish failure stops the worker.
+    /// tick. A refusal, a rate limit, or a local parse failure holds back
+    /// only its own conversation. A transport failure ends the publishing
+    /// part of the turn, since every later conversation would wait through
+    /// the same retries. No publish failure stops the worker.
     // implements: FORK-021
     async fn publish_commit_logs_to_remote(
         &mut self,
@@ -449,7 +449,9 @@ where
                         conversation.id,
                         error.rate_limit_delay(),
                     );
-                    if error.is_retryable() {
+                    // A rate limit is retryable but holds only its own
+                    // conversation (RATE-041); the others still publish.
+                    if error.is_retryable() && error.rate_limit_delay().is_none() {
                         break;
                     }
                 }
