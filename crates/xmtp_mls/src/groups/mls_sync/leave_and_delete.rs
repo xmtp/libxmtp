@@ -128,41 +128,9 @@ where
         message: &StoredGroupMessage,
         event_writer: &impl xmtp_events::EventWriter<crate::subscriptions::internal::InternalEvent>,
     ) -> Result<(), GroupMessageProcessingError> {
-        let encoded_content =
-            match EncodedContent::decode(message.decrypted_message_bytes.as_slice()) {
-                Ok(content) => content,
-                Err(err) => {
-                    tracing::warn!(
-                        error = ?err,
-                        "Failed to decode EncodedContent for delete message, skipping"
-                    );
-                    return Ok(());
-                }
-            };
-
-        let encoded_content = match xmtp_content_types::compression::decompress(encoded_content) {
-            Ok(content) => content,
-            Err(err) => {
-                tracing::warn!(error = ?err, "Failed to decompress delete message, skipping");
-                return Ok(());
-            }
-        };
-
-        let delete_msg = match DeleteMessage::decode(encoded_content.content.as_slice()) {
-            Ok(msg) => msg,
-            Err(err) => {
-                tracing::warn!(error = ?err, "Failed to decode DeleteMessage, skipping");
-                return Ok(());
-            }
-        };
-
-        let Some(target_message_id) =
-            crate::utils::id::decode_message_reference(&delete_msg.message_id)
-        else {
-            tracing::warn!(
-                len = delete_msg.message_id.len(),
-                "Invalid delete message_id, skipping"
-            );
+        // Store time already decoded the DeleteMessage and checked its target id.
+        let Some(target_message_id) = message.reference_id.clone() else {
+            tracing::warn!("Delete message names no valid message id, skipping");
             return Ok(());
         };
 
@@ -178,7 +146,7 @@ where
             if original_msg.group_id.as_slice() != self.group_id.as_slice() {
                 tracing::warn!(
                     "Cross-group deletion attempt: message {} from group {}",
-                    delete_msg.message_id,
+                    hex::encode(&target_message_id),
                     hex::encode(original_msg.group_id)
                 );
                 return Ok(());
@@ -187,7 +155,7 @@ where
             if !crate::messages::enrichment::is_deletable_stored_message(original_msg) {
                 tracing::warn!(
                     "Non-deletable message {} (kind: {:?}, content_type: {:?})",
-                    delete_msg.message_id,
+                    hex::encode(&target_message_id),
                     original_msg.kind,
                     original_msg.content_type
                 );
@@ -207,7 +175,7 @@ where
                 tracing::warn!(
                     "Unauthorized deletion by {} for message {}",
                     message.sender_inbox_id,
-                    delete_msg.message_id
+                    hex::encode(&target_message_id)
                 );
                 return Ok(());
             }
@@ -246,7 +214,7 @@ where
 
         tracing::info!(
             "Message {} deleted by {} (super_admin: {}, out_of_order: {})",
-            delete_msg.message_id,
+            hex::encode(&target_message_id),
             message.sender_inbox_id,
             is_super_admin_deletion,
             out_of_order

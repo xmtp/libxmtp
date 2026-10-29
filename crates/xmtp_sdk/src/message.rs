@@ -129,12 +129,12 @@ impl MessageContent {
                 XmtpError::CodecDecodeFailed(details)
             });
         }
-        Self::from_core(body, Some(content), raw_bytes)
+        Self::from_core(body, received_encoded(Some(content)).as_ref(), raw_bytes)
     }
 
     fn from_core(
         body: xmtp_mls::messages::decoded_message::MessageBody,
-        content: Option<EncodedContent>,
+        content: Option<&SdkEncodedContent>,
         raw_bytes: &[u8],
     ) -> Result<Self, XmtpError> {
         use xmtp_mls::messages::decoded_message::MessageBody as CoreBody;
@@ -154,9 +154,8 @@ impl MessageContent {
                 })
             }
             CoreBody::Reply(value) => {
-                let outer: SdkEncodedContent = content
-                    .ok_or_else(|| XmtpError::malformed_envelope("reply has no envelope"))?
-                    .try_into()?;
+                let outer = content
+                    .ok_or_else(|| XmtpError::malformed_envelope("reply has no envelope"))?;
                 let nested = EncodedContent::decode(outer.content.as_slice()).ok();
                 Ok(Self::Reply {
                     reference_id: MessageId::try_from(value.reference_id)?,
@@ -188,12 +187,12 @@ impl MessageContent {
                 raw_bytes: value.raw_bytes,
             }),
             CoreBody::Undecodable(value) => Ok(Self::Unknown {
-                encoded: received_encoded(value.encoded),
+                encoded: content.cloned(),
                 raw_bytes: value.raw_bytes,
                 error: failure_details(value.failure),
             }),
             _ => Ok(Self::Unknown {
-                encoded: received_encoded(content),
+                encoded: content.cloned(),
                 raw_bytes: raw_bytes.to_vec(),
                 error: XmtpError::codec_not_found("content type has no SDK decoder")
                     .content_details(),
@@ -388,9 +387,11 @@ impl Message {
                 value.kind,
             )
         });
-        let content = MessageContent::from_core(body, encoded.clone(), message_bytes)
+        // Decompress the outer envelope once for the content and the message.
+        let encoded = received_encoded(encoded);
+        let content = MessageContent::from_core(body, encoded.as_ref(), message_bytes)
             .unwrap_or_else(|error| MessageContent::Unknown {
-                encoded: received_encoded(encoded.clone()),
+                encoded: encoded.clone(),
                 raw_bytes: message_bytes.to_vec(),
                 error: error.content_details(),
             });
@@ -419,7 +420,7 @@ impl Message {
             raw_bytes: message_bytes.to_vec(),
             content_type,
             fallback,
-            encoded: received_encoded(encoded),
+            encoded,
             content,
             reply_count: 0,
             reactions: Vec::new(),

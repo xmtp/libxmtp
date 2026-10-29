@@ -329,6 +329,9 @@ impl MessageBody {
         depth: usize,
         origin: Origin,
     ) -> Result<Self, ContentDecodeFailure> {
+        // implements: CTYPE-033
+        xmtp_content_types::decode_limits::check_protobuf_fields(raw)
+            .map_err(ContentDecodeFailure::codec)?;
         let envelope = EncodedContent::decode(raw).map_err(|error| {
             ContentDecodeFailure::malformed(format!(
                 "bytes are not a serialized EncodedContent: {error}"
@@ -896,11 +899,7 @@ mod tests {
         assert_eq!(failure.kind, ContentDecodeFailureKind::CodecDecodeFailed);
         assert!(failure.message.contains("decompressed content exceeds"));
         assert!(budget.used() > 0);
-        assert!(budget.peak_capacity() <= compression::MAX_DECOMPRESSED_BYTES + 65_536);
-        eprintln!(
-            "attack peak decompressed capacity: {} bytes",
-            budget.peak_capacity()
-        );
+        assert!(budget.peak_capacity() <= compression::MAX_DECOMPRESSED_BYTES);
 
         let expected = EncodedContent::decode(bytes.as_slice())?;
         // Decode from the exact bytes: re-encoding a parameter map can
@@ -915,6 +914,26 @@ mod tests {
             original.failure.kind,
             ContentDecodeFailureKind::CodecDecodeFailed
         );
+    }
+
+    // verifies: CTYPE-008, CTYPE-033
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn nested_reply_field_count_is_limited() {
+        let mut inner = TextCodec::encode("inner".into())?;
+        let fields = xmtp_content_types::decode_limits::MAX_PROTOBUF_FIELDS + 1;
+        inner
+            .parameters
+            .extend((0..fields).map(|i| (i.to_string(), String::new())));
+        let outer = ReplyCodec::encode(EncodedReply {
+            reference: "0102".into(),
+            reference_inbox_id: None,
+            content: inner,
+        })?;
+        let body = MessageBody::from_received_bytes(&outer.encode_to_vec());
+        let MessageBody::Undecodable(undecodable) = body else {
+            panic!("expected undecodable content");
+        };
+        assert!(undecodable.failure.message.contains("protobuf fields"));
     }
 
     // verifies: CTYPE-008
