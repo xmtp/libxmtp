@@ -345,20 +345,8 @@ async fn webhook_absent_or_empty_domain_list_allows_public_hosts_and_blocks_unsa
         let mut client = server.notifications();
         for url in [
             "https://localhost/hook",
-            "https://127.0.0.1",
             "https://10.0.0.1",
-            "https://100.64.0.0",
-            "https://100.100.100.100",
-            "https://100.127.255.255",
-            "https://[::ffff:100.100.100.100]",
-            "https://172.16.0.1",
-            "https://192.168.0.1",
-            "https://169.254.169.254",
-            "https://0.0.0.0",
             "https://[::1]",
-            "https://[::]",
-            "https://[fc00::1]",
-            "https://[fe80::1]",
             "https://[fec0::1]",
             "https://[::ffff:127.0.0.1]",
             "http://8.8.8.8/hook",
@@ -413,37 +401,35 @@ async fn webhook_populated_domain_list_restricts_hosts() {
     server.stop().await?;
 }
 
+// verifies: PUSH-256
 #[xmtp_common::test(unwrap_try = true)]
-fn webhook_shared_address_filter_blocks_the_exact_range_and_mapped_ipv4() {
+fn webhook_blocked_address_classes() {
     for (address, expected) in [
+        ("8.8.8.8", false),
+        ("127.0.0.1", true),
+        ("172.16.0.1", true),
+        ("192.168.0.1", true),
+        ("169.254.169.254", true),
+        ("0.0.0.0", true),
+        ("::", true),
+        ("fc00::1", true),
+        ("fe80::1", true),
         ("100.63.255.255", false),
         ("100.64.0.0", true),
         ("100.100.100.100", true),
         ("100.127.255.255", true),
         ("100.128.0.0", false),
-        ("::ffff:100.63.255.255", false),
         ("::ffff:100.64.0.0", true),
         ("::ffff:100.127.255.255", true),
-        ("::ffff:100.128.0.0", false),
+        ("::ffff:8.8.8.8", true),
+        ("fec0::1", true),
+        ("feff:ffff:ffff:ffff:ffff:ffff:ffff:ffff", true),
+        ("64:ff9b::a00:1", true),
+        ("64:ff9b:1::a00:1", true),
+        ("64:ff9b::808:808", false),
     ] {
         assert_eq!(
             webhook_url::blocked(address.parse()?),
-            expected,
-            "{address}"
-        );
-    }
-}
-
-#[xmtp_common::test(unwrap_try = true)]
-fn webhook_deprecated_site_local_filter_matches_exact_range() {
-    for (address, expected) in [
-        ("febf:ffff:ffff:ffff:ffff:ffff:ffff:ffff", false),
-        ("fec0::", true),
-        ("feff:ffff:ffff:ffff:ffff:ffff:ffff:ffff", true),
-        ("ff00::", false),
-    ] {
-        assert_eq!(
-            webhook_url::deprecated_site_local(address.parse()?),
             expected,
             "{address}"
         );

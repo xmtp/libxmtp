@@ -24,9 +24,9 @@ use super::{
 };
 use crate::{
     AttachmentError, AttachmentFailureCause as Cause,
-    address::is_private,
     store::{AttachmentOptions, CHUNK_SIZE, DownloadSink, StagedFile},
 };
+use xmtp_common::address::is_private;
 
 mod upload;
 
@@ -46,7 +46,7 @@ struct BlockedDns;
 
 impl std::fmt::Display for BlockedDns {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("all DNS answers are blocked attachment addresses")
+        f.write_str("a DNS answer is a blocked attachment address")
     }
 }
 
@@ -82,11 +82,11 @@ impl Resolve for GuardedResolver {
         };
         let allow_private = self.allow_private;
         Box::pin(async move {
-            let addrs: Vec<SocketAddr> = answer
-                .await?
-                .filter(|addr| allow_private || !is_private(addr.ip()))
-                .collect();
-            if addrs.is_empty() {
+            let addrs: Vec<SocketAddr> = answer.await?.collect();
+            // A DNS64 answer can hide a private host behind an unknown prefix.
+            if addrs.is_empty()
+                || (!allow_private && addrs.iter().any(|addr| is_private(addr.ip())))
+            {
                 return Err(Box::new(BlockedDns) as Box<dyn Error + Send + Sync>);
             }
             Ok(Box::new(addrs.into_iter()) as Addrs)
@@ -1503,9 +1503,17 @@ mod tests {
     // verifies: ATCH-054
     #[xmtp_common::test(unwrap_try = true)]
     async fn blocks_private_after_dns() {
-        for address in ["10.0.0.1", "::ffff:10.0.0.1", "64:ff9b::a00:1"] {
-            let address: IpAddr = address.parse()?;
-            let resolver = Arc::new(FakeResolver(vec![SocketAddr::new(address, 443)]));
+        for answer in [
+            &["10.0.0.1"][..],
+            &["::ffff:10.0.0.1"],
+            &["64:ff9b::a00:1"],
+            &["2a00:1450:4001:64::a00:1", "10.0.0.1"],
+        ] {
+            let mut addrs = vec![];
+            for address in answer {
+                addrs.push(SocketAddr::new(address.parse()?, 443));
+            }
+            let resolver = Arc::new(FakeResolver(addrs));
             let guarded = GuardedResolver {
                 upstream: resolver.clone(),
                 allow_private: false,

@@ -1,12 +1,10 @@
 //! Webhook host checks shared by registration and delivery.
 
 use crate::config::push::HttpConfig;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr, ToSocketAddrs};
+use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
 use tokio::sync::Semaphore;
 
 const DNS_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
-const SHARED_ADDRESS_NETWORK: u32 = u32::from_be_bytes([100, 64, 0, 0]);
-const SHARED_ADDRESS_MASK: u32 = u32::from_be_bytes([255, 192, 0, 0]);
 const SITE_LOCAL_NETWORK: u16 = 0xfec0;
 const SITE_LOCAL_MASK: u16 = 0xffc0;
 const MAX_LOOKUPS: usize = 32;
@@ -98,34 +96,15 @@ pub(crate) fn matches_domain(host: &str, domain: &str) -> bool {
     }
 }
 
-fn blocked_v4(ip: Ipv4Addr) -> bool {
-    ip.is_private()
-        || (u32::from(ip) & SHARED_ADDRESS_MASK) == SHARED_ADDRESS_NETWORK
-        || ip.is_loopback()
-        || ip.is_link_local()
-        || ip.is_unspecified()
-        || ip.is_broadcast()
-        || ip.is_multicast()
-}
-
-pub(crate) fn deprecated_site_local(ip: std::net::Ipv6Addr) -> bool {
+fn deprecated_site_local(ip: std::net::Ipv6Addr) -> bool {
     (ip.segments()[0] & SITE_LOCAL_MASK) == SITE_LOCAL_NETWORK
 }
 
-/// Include mapped IPv4 and all non-public IPv6 address ranges.
+/// PUSH blocked classes: ATCH private addresses plus deprecated site-local.
+// implements: PUSH-256
 pub(crate) fn blocked(ip: IpAddr) -> bool {
-    match ip {
-        IpAddr::V4(ip) => blocked_v4(ip),
-        IpAddr::V6(ip) => {
-            ip.to_ipv4_mapped().is_some_and(blocked_v4)
-                || ip.is_loopback()
-                || ip.is_unspecified()
-                || ip.is_unique_local()
-                || ip.is_unicast_link_local()
-                || deprecated_site_local(ip)
-                || ip.is_multicast()
-        }
-    }
+    xmtp_common::address::is_private(ip)
+        || matches!(ip, IpAddr::V6(ip) if deprecated_site_local(ip))
 }
 
 #[cfg(test)]

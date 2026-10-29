@@ -145,19 +145,12 @@ A recipient has exactly one channel, and a channel exists on a deployment only w
 
 A webhook is an HTTPS request from inside the deployment's network to a URL any registrant chooses, so the destination is checked at registration and again before every attempt, because a host can resolve to a different address later. The address classes below are never connected to unless the operator sets `allow_private_addresses`, which is for development and test only (CONF section 1.2 gives its default). When `allowed_domains` is set and not empty, a host must equal an entry, or, for an entry that starts with `*.`, end with the entry's text after the star with at least one label before it; the match is case-insensitive on the host name alone. The list binds at send time as well, so narrowing it stops deliveries to recipients registered before the change.
 
-| Blocked address class | IPv4 | IPv6 |
-| --- | --- | --- |
-| Private | 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16 | fc00::/7 |
-| Shared and site-local | 100.64.0.0/10 | fec0::/10 |
-| Loopback | 127.0.0.0/8 | ::1 |
-| Link-local | 169.254.0.0/16 | fe80::/10 |
-| Unspecified, broadcast, multicast | 0.0.0.0, 255.255.255.255, 224.0.0.0/4 | ::, ff00::/8 |
-| IPv4-mapped | | ::ffff:0:0/96 mapping any address above |
+The blocked address classes are every private address as ATCH section 6 defines it (an IANA special-purpose entry that is not globally reachable, a multicast address, or an IPv4-mapped or NAT64 IPv6 address whose embedded IPv4 address is private) and the deprecated site-local range fec0::/10.
 
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
 | PUSH-210 | Channel must be configured | When `Register` names a channel whose configuration table is absent, the backend MUST fail the request with `FAILED_PRECONDITION`. | |
-| PUSH-256 | Webhook destination safety | When an `HttpDelivery` has a `url` whose scheme is not `https` or that carries a username or password, a `signing_key` shorter than 16 or longer than 64 bytes, or a host that matches no entry of a non-empty `allowed_domains`, whose lookup answers with no address, or, while `allow_private_addresses` is `false`, resolves to an address in the blocked address table above, the backend MUST fail `Register` with `INVALID_ARGUMENT`. When the lookup of the host fails, including for a name that does not exist, or does not finish, the backend MUST fail `Register` with `UNAVAILABLE`. The backend MUST look up the host only for a request that passes every condition of this row and of admission check 4 that needs no lookup. Before each webhook attempt the backend MUST resolve the host again, MUST NOT send when the host no longer matches a non-empty `allowed_domains` or, while `allow_private_addresses` is `false`, any resolved address is in the table, MUST connect only to an address it resolved then, and MUST NOT follow a redirect. | A redirect, a rebinding host, or a widened list moves a signed request to an address that was never checked. The backend cannot tell a missing name from a resolver outage, and `INVALID_ARGUMENT` stops push for good (PUSH-262). |
+| PUSH-256 | Webhook destination safety | When an `HttpDelivery` has a `url` whose scheme is not `https` or that carries a username or password, a `signing_key` shorter than 16 or longer than 64 bytes, or a host that matches no entry of a non-empty `allowed_domains`, whose lookup answers with no address, or, while `allow_private_addresses` is `false`, resolves to a blocked address, the backend MUST fail `Register` with `INVALID_ARGUMENT`. When the lookup of the host fails, including for a name that does not exist, or does not finish, the backend MUST fail `Register` with `UNAVAILABLE`. The backend MUST look up the host only for a request that passes every condition of this row and of admission check 4 that needs no lookup. Before each webhook attempt the backend MUST resolve the host again, MUST NOT send when the host no longer matches a non-empty `allowed_domains` or, while `allow_private_addresses` is `false`, any resolved address is blocked, MUST connect only to an address it resolved then, and MUST NOT follow a redirect. | A redirect, a rebinding host, or a widened list moves a signed request to an address that was never checked. The backend cannot tell a missing name from a resolver outage, and `INVALID_ARGUMENT` stops push for good (PUSH-262). |
 
 ## 3. Subscriptions
 
@@ -311,3 +304,5 @@ There is no rate limit on the notification RPCs.
 A webhook host that does not exist answers `UNAVAILABLE`, so the client keeps retrying `Register` with backoff (at most hourly) until the app changes the URL or disables push; `enable` still returns the failure to the app.
 
 Host lookups for webhook `Register` share one pool of 32 per backend process, and a lookup that does not finish keeps its slot after `Register` answers, until the system resolver returns. A caller that keeps sending registrations for hosts whose lookups never answer holds every slot, and every other webhook `Register` on that process answers `UNAVAILABLE` and is retried with backoff (PUSH-262). Deliveries to stored recipients resolve their hosts outside this pool and continue.
+
+The backend recognizes only the NAT64 prefixes `64:ff9b::/96` and `64:ff9b:1::/48`. Behind a NAT64 that uses its own prefix, a webhook host under that prefix that embeds a private IPv4 address passes PUSH-256; the operator can set `allowed_domains`.
