@@ -203,9 +203,12 @@ impl Backend {
     /// keeps enough metadata for the database layer to restore response
     /// order. A whole-request bound fails the request at once. An envelope
     /// over a bound fails it once every envelope is checked, with the lowest
-    /// index of an envelope over a bound or one that does not parse: an
-    /// envelope that would fail only a check that reads the store is never
-    /// examined. Without one, the first parse error is reported at commit,
+    /// index of an envelope over a bound or one that does not parse. No
+    /// envelope of such a request is validated: an envelope at a lower index
+    /// that would fail any later check, such as its signature, a key
+    /// package, the shape of an identity update, or a check that reads the
+    /// store, is never examined, so its index is not the one reported.
+    /// Without a bound failure, the first parse error is reported at commit,
     /// with the validation errors. The envelope bound counts the input,
     /// duplicates included, before any envelope is parsed, so it also caps
     /// the signatures a request can make the backend verify. The ERC-6492
