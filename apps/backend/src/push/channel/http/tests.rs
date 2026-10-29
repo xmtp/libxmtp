@@ -248,7 +248,8 @@ async fn empty_dns_answer_is_transient_and_private_ip_literals_are_rejected() {
     for url in ["https://127.0.0.1/hook", "https://[::1]/hook"] {
         assert_eq!(sender.send(&delivery(url.into())).await, Outcome::Rejected);
     }
-    assert_eq!(resolver.calls.load(Ordering::SeqCst), 1);
+    // The name's lookup, and NAT64 prefix discovery for the name and the IPv6 literal.
+    assert_eq!(resolver.calls.load(Ordering::SeqCst), 3);
 }
 
 // verifies: PUSH-256, PUSH-259
@@ -302,9 +303,32 @@ async fn send_time_dns_rejects_private_addresses_and_checks_every_answer() {
     }
     assert_eq!(
         resolver.calls.load(Ordering::SeqCst),
-        2,
+        4,
         "DNS results were reused across attempts"
     );
+}
+
+// verifies: PUSH-256
+#[xmtp_common::test(unwrap_try = true)]
+async fn send_time_checks_use_the_discovered_nat64_prefix() {
+    // The resolver also answers `ipv4only.arpa`, so `2a00:1450:4001:64::/96`
+    // is the prefix: the answer is 192.0.0.170 and `::a00:1` is 10.0.0.1.
+    let sender = HttpSender {
+        allow_private: false,
+        allowed_domains: None,
+        resolver: Arc::new(FixedResolver {
+            addresses: vec!["[2a00:1450:4001:64::c000:aa]:443".parse()?],
+            calls: AtomicUsize::new(0),
+        }),
+        trusted_root: None,
+    };
+    for url in [
+        "https://nat64.invalid/",
+        "https://[2a00:1450:4001:64::a00:1]/",
+    ] {
+        let outcome = sender.send(&delivery(url.into())).await;
+        assert_eq!(outcome, Outcome::Rejected, "{url}");
+    }
 }
 
 struct StalledResolver;

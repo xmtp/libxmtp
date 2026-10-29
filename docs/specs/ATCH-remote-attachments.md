@@ -266,7 +266,7 @@ A download takes a remote attachment from any sender and any host. The client do
 
 A download that returns `not_found` can succeed later. Under optimistic sending, a recipient can ask for an object before its sender's upload completes.
 
-A private address is an address in an entry of the [IANA IPv4 Special-Purpose Address Registry](https://www.iana.org/assignments/iana-ipv4-special-registry/) or the [IANA IPv6 Special-Purpose Address Registry](https://www.iana.org/assignments/iana-ipv6-special-registry/) ([RFC 6890 §2.2](https://www.rfc-editor.org/rfc/rfc6890#section-2.2)) whose "Globally Reachable" value is `False` or `N/A`, a multicast address, or an IPv4-mapped or NAT64 IPv6 address whose embedded IPv4 address is private.
+A private address is an address in an entry of the [IANA IPv4 Special-Purpose Address Registry](https://www.iana.org/assignments/iana-ipv4-special-registry/) or the [IANA IPv6 Special-Purpose Address Registry](https://www.iana.org/assignments/iana-ipv6-special-registry/) ([RFC 6890 §2.2](https://www.rfc-editor.org/rfc/rfc6890#section-2.2)) whose "Globally Reachable" value is `False` or `N/A`, a multicast address, or an IPv4-mapped or NAT64 IPv6 address whose embedded IPv4 address is private. A NAT64 IPv6 address is an address under `64:ff9b::/96` or `64:ff9b:1::/48`, or, where the client looks up a host or connects to an IPv6 literal itself, under a prefix that the client finds in the answer for `ipv4only.arpa` ([RFC 7050 §3](https://www.rfc-editor.org/rfc/rfc7050#section-3)) when it checks the address; its embedded IPv4 address sits where [RFC 6052 §2.2](https://www.rfc-editor.org/rfc/rfc6052#section-2.2) places it for that prefix length.
 
 ```webidl
 dictionary AttachmentOptions {
@@ -390,4 +390,4 @@ A client whose app disables background workers, or the attachment cleanup worker
 
 A file that an app removes from the attachments directory without asking the client leaves its record behind until the next client creation, or until the app asks the client to delete the local files of that remote attachment.
 
-The client recognizes only the NAT64 prefixes `64:ff9b::/96` and `64:ff9b:1::/48`. On a network whose NAT64 uses its own prefix, an IP literal under that prefix that embeds a private IPv4 address, or a host whose lookup returns only such an address, is treated as public. A host whose lookup also returns the private IPv4 address fails as `blocked_address`.
+The client learns a NAT64 prefix other than `64:ff9b::/96` and `64:ff9b:1::/48` only from the answer for `ipv4only.arpa`. When that lookup fails, takes longer than 5 seconds, or the network's DNS64 does not synthesize that name, an address under the network's own prefix that embeds a private IPv4 address is treated as public. A host whose lookup also returns the private IPv4 address still fails as `blocked_address`. In a browser the client does not look up `ipv4only.arpa`.

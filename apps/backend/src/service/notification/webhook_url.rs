@@ -1,8 +1,10 @@
 //! Webhook host checks shared by registration and delivery.
 
 use crate::config::push::HttpConfig;
-use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
+use std::net::{IpAddr, Ipv6Addr, SocketAddr, ToSocketAddrs};
+use std::sync::Arc;
 use tokio::sync::Semaphore;
+use xmtp_common::address::{NAT64_DISCOVERY_NAME, discover_nat64};
 
 const DNS_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 const SITE_LOCAL_NETWORK: u16 = 0xfec0;
@@ -42,7 +44,7 @@ async fn validate_with<F>(
     lookup: F,
 ) -> Result<(), WebhookUrlError>
 where
-    F: FnOnce(String, u16) -> std::io::Result<Vec<SocketAddr>> + Send + 'static,
+    F: Fn(String, u16) -> std::io::Result<Vec<SocketAddr>> + Send + Sync + 'static,
 {
     use WebhookUrlError::*;
     let parsed = url::Url::parse(url).map_err(|_| NotAllowed)?;
@@ -59,27 +61,44 @@ where
         }
     }
     let port = parsed.port_or_known_default().ok_or(NotAllowed)?;
-    let addresses: Vec<SocketAddr> = match host {
-        url::Host::Ipv4(ip) => vec![SocketAddr::new(ip.into(), port)],
-        url::Host::Ipv6(ip) => vec![SocketAddr::new(ip.into(), port)],
+    // The host lookup takes its permit first; discovery runs beside it only on
+    // a spare permit, which it also keeps until its thread returns.
+    let permit = match host {
+        url::Host::Domain(_) => Some(lookups.try_acquire().map_err(|_| Unavailable)?),
+        _ => None,
+    };
+    let lookup = Arc::new(lookup);
+    let discovery = (!config.allow_private_addresses && !matches!(host, url::Host::Ipv4(_)))
+        .then(|| lookups.try_acquire().ok())
+        .flatten()
+        .map(|permit| {
+            let lookup = lookup.clone();
+            let task = tokio::task::spawn_blocking(move || {
+                let _permit = permit;
+                lookup(NAT64_DISCOVERY_NAME.into(), 0)
+            });
+            async { task.await.map_err(std::io::Error::other)? }
+        });
+    let nat64 = discover_nat64(discovery);
+    let (addresses, nat64): (Vec<SocketAddr>, _) = match host {
+        url::Host::Ipv4(ip) => (vec![SocketAddr::new(ip.into(), port)], vec![]),
+        url::Host::Ipv6(ip) => (vec![SocketAddr::new(ip.into(), port)], nat64.await),
         url::Host::Domain(name) => {
-            let permit = lookups.try_acquire().map_err(|_| Unavailable)?;
             let name = name.to_owned();
             let resolve = tokio::task::spawn_blocking(move || {
                 // A timed-out lookup keeps its thread, so it keeps its permit.
                 let _permit = permit;
                 lookup(name, port)
             });
-            xmtp_common::time::timeout(lookup_timeout, resolve)
-                .await
-                .map_err(|_| Unavailable)?
-                .map_err(|_| Unavailable)?
-                .map_err(|_| Unavailable)?
+            let resolve = xmtp_common::time::timeout(lookup_timeout, resolve);
+            let (Ok(Ok(Ok(addresses))), nat64) = tokio::join!(resolve, nat64) else {
+                return Err(Unavailable);
+            };
+            (addresses, nat64)
         }
     };
     if addresses.is_empty()
-        || (!config.allow_private_addresses
-            && addresses.iter().any(|address| blocked(address.ip())))
+        || (!config.allow_private_addresses && addresses.iter().any(|a| blocked(a.ip(), &nat64)))
     {
         return Err(NotAllowed);
     }
@@ -100,10 +119,11 @@ fn deprecated_site_local(ip: std::net::Ipv6Addr) -> bool {
     (ip.segments()[0] & SITE_LOCAL_MASK) == SITE_LOCAL_NETWORK
 }
 
-/// PUSH blocked classes: ATCH private addresses plus deprecated site-local.
+/// PUSH blocked classes: ATCH private addresses, including those under a
+/// discovered NAT64 prefix, plus deprecated site-local.
 // implements: PUSH-256
-pub(crate) fn blocked(ip: IpAddr) -> bool {
-    xmtp_common::address::is_private(ip)
+pub(crate) fn blocked(ip: IpAddr, nat64: &[(Ipv6Addr, u8)]) -> bool {
+    xmtp_common::address::is_private_behind(ip, nat64)
         || matches!(ip, IpAddr::V6(ip) if deprecated_site_local(ip))
 }
 
@@ -125,10 +145,12 @@ mod tests {
     /// A lookup that returns only once the sender is used or dropped.
     fn blocked_lookup() -> (
         mpsc::Sender<()>,
-        impl FnOnce(String, u16) -> io::Result<Vec<SocketAddr>> + Send + 'static,
+        impl Fn(String, u16) -> io::Result<Vec<SocketAddr>> + Send + Sync + 'static,
     ) {
         let (release, blocked) = mpsc::channel::<()>();
+        let blocked = std::sync::Mutex::new(blocked);
         (release, move |_, _| {
+            let blocked = blocked.lock().map_err(|_| io::Error::other("poisoned"))?;
             blocked.recv().map(|()| vec![]).map_err(io::Error::other)
         })
     }
@@ -138,19 +160,30 @@ mod tests {
     async fn lookup_failures_are_unavailable_and_answers_are_classified() {
         static PERMITS: Semaphore = Semaphore::const_new(MAX_LOOKUPS);
         let config = HttpConfig::default();
-        for (answer, expected) in [
+        // The lookup gives the same answer for `ipv4only.arpa`; under the
+        // discovered prefix `2a00:1450:4001:64::/96`, `::a00:1` is 10.0.0.1.
+        let nat64 = &["2a00:1450:4001:64::c000:aa"][..];
+        for (url, answer, expected) in [
+            (URL, None, Err(WebhookUrlError::Unavailable)),
+            (URL, Some(&[][..]), Err(WebhookUrlError::NotAllowed)),
             (
-                Err(io::Error::other("lookup failed")),
-                Err(WebhookUrlError::Unavailable),
+                URL,
+                Some(&["10.0.0.1"][..]),
+                Err(WebhookUrlError::NotAllowed),
             ),
-            (addresses(&[]), Err(WebhookUrlError::NotAllowed)),
-            (addresses(&["10.0.0.1"]), Err(WebhookUrlError::NotAllowed)),
-            (addresses(&["8.8.8.8"]), Ok(())),
+            (URL, Some(&["8.8.8.8"][..]), Ok(())),
+            (URL, Some(nat64), Err(WebhookUrlError::NotAllowed)),
+            (
+                "https://[2a00:1450:4001:64::a00:1]/",
+                Some(nat64),
+                Err(WebhookUrlError::NotAllowed),
+            ),
         ] {
-            let lookup = move |_, _| answer;
+            let lookup = move |_, _| answer.map_or(Err(io::Error::other("failed")), addresses);
             assert_eq!(
-                validate_with(URL, &config, &PERMITS, DNS_TIMEOUT, lookup).await,
-                expected
+                validate_with(url, &config, &PERMITS, DNS_TIMEOUT, lookup).await,
+                expected,
+                "{url} {answer:?}"
             );
         }
         let (_release, lookup) = blocked_lookup();
