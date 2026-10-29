@@ -883,7 +883,7 @@ async fn sync_message_from_another_inbox_is_not_applied() {
     alix1.group(&eve_group.group_id)?.sync().await?;
 
     let db = alix1.context.db();
-    let pending = db.unprocessed_sync_group_messages()?;
+    let pending = db.unprocessed_sync_group_messages(None)?;
     assert!(
         pending
             .iter()
@@ -892,9 +892,7 @@ async fn sync_message_from_another_inbox_is_not_applied() {
     let _capture =
         worker::test_hooks::PreferenceCapture::new(vec![alix1.context.installation_id()], &[]);
     let client = alix1.device_sync_client();
-    client
-        .process_sync_group_messages(&client.metrics, pending)
-        .await?;
+    client.process_sync_group_messages(&client.metrics).await?;
 
     let consent = |entity: &str| db.get_consent_record(entity.to_string(), ConsentType::InboxId);
     assert!(consent("from-eve")?.is_none());
@@ -903,7 +901,7 @@ async fn sync_message_from_another_inbox_is_not_applied() {
         StoredUserPreferences::load(&db)?.hmac_key,
         Some(vec![2; 42].into())
     );
-    assert!(db.unprocessed_sync_group_messages()?.is_empty());
+    assert!(db.unprocessed_sync_group_messages(None)?.is_empty());
 }
 
 /// Fails the own-state read like an unreachable verifier until the returned fn runs.
@@ -928,6 +926,7 @@ pub(super) fn hide_own_identity_updates<'a>(
 async fn failing_sync_message_stays_pending() {
     use diesel::RunQueryDsl;
     use preference_sync::PreferenceUpdate;
+    use xmtp_db::processed_device_sync_messages::SYNC_MESSAGE_PAGE;
     tester!(alix, disable_workers);
     let client = alix.device_sync_client();
     let db = alix.context.db();
@@ -937,10 +936,8 @@ async fn failing_sync_message_stays_pending() {
         .sync_preferences(vec![PreferenceUpdate::Consent(record.clone())])
         .await?;
     let restore = hide_own_identity_updates(alix.context.db(), alix.inbox_id())?;
-    client
-        .process_sync_group_messages(&client.metrics, db.unprocessed_sync_group_messages()?)
-        .await?;
-    assert_eq!(db.unprocessed_sync_group_messages()?.len(), 1);
+    client.process_sync_group_messages(&client.metrics).await?;
+    assert_eq!(db.unprocessed_sync_group_messages(None)?.len(), 1);
     assert!(
         db.get_consent_record(record.entity.clone(), record.entity_type)?
             .is_none()
@@ -953,26 +950,40 @@ async fn failing_sync_message_stays_pending() {
         )
         .execute(conn)
     })?;
-    for _ in 0..4 {
+    // Later rows still apply in the same pass while `retry` stays Pending.
+    let more: Vec<_> = (0..SYNC_MESSAGE_PAGE)
+        .map(|i| format!("more-{i}"))
+        .collect();
+    for entity in &more {
+        let update =
+            StoredConsentRecord::new(ConsentType::InboxId, ConsentState::Allowed, entity.clone());
         client
-            .process_sync_group_messages(&client.metrics, db.unprocessed_sync_group_messages()?)
+            .sync_preferences(vec![PreferenceUpdate::Consent(update)])
             .await?;
     }
-    assert_eq!(db.unprocessed_sync_group_messages()?.len(), 1);
+    client.process_sync_group_messages(&client.metrics).await?;
+    for entity in more {
+        assert!(
+            db.get_consent_record(entity, ConsentType::InboxId)?
+                .is_some()
+        );
+    }
+    for _ in 0..4 {
+        client.process_sync_group_messages(&client.metrics).await?;
+    }
+    assert_eq!(db.unprocessed_sync_group_messages(None)?.len(), 1);
     assert!(
         db.get_consent_record(record.entity.clone(), record.entity_type)?
             .is_none()
     );
     db.raw_query(|conn| diesel::sql_query("DROP TRIGGER fail_sync_consent").execute(conn))?;
-    client
-        .process_sync_group_messages(&client.metrics, db.unprocessed_sync_group_messages()?)
-        .await?;
+    client.process_sync_group_messages(&client.metrics).await?;
     assert_eq!(
         db.get_consent_record(record.entity.clone(), record.entity_type)?
             .map(|r| (r.state, r.consented_at_ns)),
         Some((record.state, record.consented_at_ns))
     );
-    assert!(db.unprocessed_sync_group_messages()?.is_empty());
+    assert!(db.unprocessed_sync_group_messages(None)?.is_empty());
 }
 
 // verifies: SYNC-011
@@ -1003,15 +1014,13 @@ async fn sync_message_from_revoked_installation_is_not_applied() {
     group.sync().await?;
 
     let db = alix1.context.db();
-    let pending = db.unprocessed_sync_group_messages()?;
+    let pending = db.unprocessed_sync_group_messages(None)?;
     assert!(pending.iter().any(|message| {
         message.sender_installation_id == alix2.context.installation_id()
             && message.sender_inbox_id == alix1.inbox_id()
     }));
     let client = alix1.device_sync_client();
-    client
-        .process_sync_group_messages(&client.metrics, pending)
-        .await?;
+    client.process_sync_group_messages(&client.metrics).await?;
     assert!(
         db.get_consent_record(
             "from-revoked-installation".to_string(),
@@ -1020,7 +1029,7 @@ async fn sync_message_from_revoked_installation_is_not_applied() {
         .is_none(),
         "a revoked installation's preference update was applied"
     );
-    assert!(db.unprocessed_sync_group_messages()?.is_empty());
+    assert!(db.unprocessed_sync_group_messages(None)?.is_empty());
 }
 
 /// Revoke `revoked`'s installation with `owner`'s wallet signature.
@@ -1074,10 +1083,7 @@ async fn publish_removes_revoked_leaf_and_adds_no_newcomer() {
     for (alix, reads_key) in [(&alix3, true), (&alix2, false)] {
         alix.group(&group.group_id)?.sync().await?;
         let client = alix.device_sync_client();
-        let pending = alix.context.db().unprocessed_sync_group_messages()?;
-        client
-            .process_sync_group_messages(&client.metrics, pending)
-            .await?;
+        client.process_sync_group_messages(&client.metrics).await?;
         let preferences = StoredUserPreferences::load(alix.context.db())?;
         assert_eq!(preferences.hmac_key.is_some(), reads_key);
     }
@@ -1131,9 +1137,7 @@ async fn synced_hmac_key_emits_hmac_keys_updated_once() {
         .subscribe_app(EventFilter::new([EventKind::HmacKeysUpdated]))?;
     let db = alix1.context.db();
     let client = alix1.device_sync_client();
-    client
-        .process_sync_group_messages(&client.metrics, db.unprocessed_sync_group_messages()?)
-        .await?;
+    client.process_sync_group_messages(&client.metrics).await?;
 
     assert_eq!(
         StoredUserPreferences::load(&db)?.hmac_key,
@@ -1246,16 +1250,15 @@ async fn stored_preference_logs_omit_installation_id_and_secret_material() {
         )
         .await?;
     let db = alix.context.db();
-    let messages = db.unprocessed_sync_group_messages()?;
-    assert_eq!(messages.len(), 1);
+    assert_eq!(db.unprocessed_sync_group_messages(None)?.len(), 1);
     let sink = Arc::new(Capture(parking_lot::Mutex::new(Vec::new())));
     let capture = LogCapture::with_sink(Level::Info, Some(sink.clone()));
     client
-        .process_sync_group_messages(&client.metrics, messages)
+        .process_sync_group_messages(&client.metrics)
         .with_subscriber(capture.dispatch())
         .await?;
 
-    assert!(db.unprocessed_sync_group_messages()?.is_empty());
+    assert!(db.unprocessed_sync_group_messages(None)?.is_empty());
     assert_eq!(
         StoredUserPreferences::load(&db)?.hmac_key,
         Some(key.clone().into())

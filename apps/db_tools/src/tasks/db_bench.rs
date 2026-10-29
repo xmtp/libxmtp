@@ -606,7 +606,7 @@ where
 
     fn bench_device_sync_queries(&mut self) -> Result<()> {
         // Unprocessed sync group messages
-        bench!(self, unprocessed_sync_group_messages())?;
+        bench!(self, unprocessed_sync_group_messages(None))?;
 
         // Sync group messages paged (already covered but adding here for completeness)
         bench!(self, sync_group_messages_paged(0, 100))?;
