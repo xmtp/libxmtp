@@ -314,24 +314,39 @@ async fn restored_history_dm_creation_does_not_synthesize_allowed_consent() {
 }
 
 /// Opening a DM with a peer whose restored DM is denied creates a DM that
-/// keeps the archived decision and its time, and is not a local decision.
+/// keeps the stored decision and its time, and is not a local decision. The
+/// copy is local, so a stored time more than a day ahead is kept too.
 // verifies: DMS-010, CONS-020, SYNC-021
+#[rstest::rstest]
+#[case::archived(false)]
+#[case::stored_ahead(true)]
 #[xmtp_common::test(unwrap_try = true)]
-async fn restored_dm_find_or_create_keeps_the_archived_denial() {
+async fn restored_dm_find_or_create_keeps_the_archived_denial(#[case] stored_ahead: bool) {
     use crate::subscriptions::internal::{InternalEvent, PreferenceOrigin};
     tester!(alix1, disable_workers);
     tester!(bo, disable_workers);
-    let archived = alix1.find_or_create_dm(bo.inbox_id(), None).await?;
+    let archived = alix1.find_or_create_dm(bo.inbox_id(), None).await.unwrap();
+    let denied = |consented_at_ns| StoredConsentRecord {
+        entity_type: ConsentType::ConversationId,
+        state: ConsentState::Denied,
+        entity: hex::encode(archived.group_id),
+        consented_at_ns,
+    };
     alix1
         .db()
-        .insert_or_replace_consent_records(&[StoredConsentRecord {
-            entity_type: ConsentType::ConversationId,
-            state: ConsentState::Denied,
-            entity: hex::encode(archived.group_id),
-            consented_at_ns: 30,
-        }])?;
+        .insert_or_replace_consent_records(&[denied(30)])
+        .unwrap();
     tester!(alix2, from: alix1, disable_workers);
-    let elements = exported_elements(alix1.db()).await?;
+    let mut denied_at = 30;
+    if stored_ahead {
+        // As an older build stored it; the archived record at 30 loses to it.
+        denied_at = xmtp_common::time::now_ns() + 2 * xmtp_common::NS_IN_DAY;
+        alix2
+            .db()
+            .insert_or_replace_consent_records(&[denied(denied_at)])
+            .unwrap();
+    }
+    let elements = exported_elements(alix1.db()).await.unwrap();
     apply(
         &alix2.context,
         elements
@@ -341,7 +356,8 @@ async fn restored_dm_find_or_create_keeps_the_archived_denial() {
             })
             .collect(),
     )
-    .await?;
+    .await
+    .unwrap();
     let events = alix2.context.events().subscribe(
         xmtp_events::EventFilter::new([]).with_internal(|event| {
             matches!(
@@ -355,16 +371,18 @@ async fn restored_dm_find_or_create_keeps_the_archived_denial() {
         None,
     );
 
-    let dm = alix2.find_or_create_dm(bo.inbox_id(), None).await?;
+    let dm = alix2.find_or_create_dm(bo.inbox_id(), None).await.unwrap();
     assert_ne!(dm.group_id, archived.group_id);
     let record = alix2
         .db()
-        .get_consent_record(hex::encode(dm.group_id), ConsentType::ConversationId)??;
+        .get_consent_record(hex::encode(dm.group_id), ConsentType::ConversationId)
+        .unwrap()
+        .unwrap();
     assert_eq!(
         (record.state, record.consented_at_ns),
-        (ConsentState::Denied, 30)
+        (ConsentState::Denied, denied_at)
     );
-    let listed = alix2.find_groups(GroupQueryArgs::default())?;
+    let listed = alix2.find_groups(GroupQueryArgs::default()).unwrap();
     assert!(listed.iter().all(|group| group.group_id != dm.group_id));
     assert!(
         events.drain().is_empty(),

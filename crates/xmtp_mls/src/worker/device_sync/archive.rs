@@ -69,6 +69,11 @@ fn insert(
     match element {
         Element::Consent(consent) => {
             let consent: StoredConsentRecord = consent.try_into()?;
+            // implements: CONS-010
+            if xmtp_db::beyond_received_bound(consent.consented_at_ns) {
+                tracing::warn!("skipping an archived consent record timed more than a day ahead");
+                return Ok(());
+            }
             // A stored element counts as a restore even when only its time moved.
             import_context.changed |= context.db().insert_newer_consent_record(consent)?.applied;
         }
@@ -551,9 +556,11 @@ mod tests {
     #[xmtp_common::test(unwrap_try = true)]
     async fn archived_consent_keeps_the_latest_record() {
         tester!(alix, disable_workers);
+        let soon = xmtp_common::time::now_ns() + xmtp_common::NS_IN_HOUR;
         let records = [
+            (xmtp_db::consent_record::ConsentState::Denied, i64::MAX),
             (xmtp_db::consent_record::ConsentState::Allowed, 10),
-            (xmtp_db::consent_record::ConsentState::Allowed, 30),
+            (xmtp_db::consent_record::ConsentState::Allowed, soon),
             (xmtp_db::consent_record::ConsentState::Denied, 20),
         ];
         let mut elements = futures::stream::iter(records.map(|(state, consented_at_ns)| {
@@ -576,7 +583,7 @@ mod tests {
             )?
             .unwrap();
         assert_eq!(stored.state, xmtp_db::consent_record::ConsentState::Allowed);
-        assert_eq!(stored.consented_at_ns, 30);
+        assert_eq!(stored.consented_at_ns, soon);
     }
 
     /// An import that only moves a stored record's time still stored an

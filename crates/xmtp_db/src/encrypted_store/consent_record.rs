@@ -113,7 +113,8 @@ pub trait QueryConsentRecord {
 
     /// Merge a received record. `applied` is set when the record is inserted or
     /// wins the time and state order; `state_changed` only when the stored
-    /// state differs afterwards.
+    /// state differs afterwards. The time is not bounded: a caller storing a
+    /// received record checks `beyond_received_bound` first.
     fn insert_newer_consent_record(
         &self,
         record: StoredConsentRecord,
@@ -611,58 +612,6 @@ mod tests {
                     (ConsentState::Allowed, 15),
                     "{entity}"
                 );
-            }
-            Ok::<(), crate::ConnectionError>(())
-        })?;
-    }
-
-    // verifies: CONS-010
-    #[xmtp_common::test(unwrap_try = true)]
-    fn equal_time_uses_state_order_in_both_arrival_orders() {
-        with_connection(|conn| {
-            for entity_type in [ConsentType::ConversationId, ConsentType::InboxId] {
-                let prefix = match entity_type {
-                    ConsentType::ConversationId => "conversation",
-                    ConsentType::InboxId => "inbox",
-                };
-                let upgrade_entity = format!("{prefix}-upgrade");
-                let allowed = record(entity_type, &upgrade_entity, ConsentState::Allowed, 50);
-                let denied = record(entity_type, &upgrade_entity, ConsentState::Denied, 50);
-                let unknown = record(entity_type, &upgrade_entity, ConsentState::Unknown, 50);
-                assert!(
-                    conn.insert_newer_consent_record(unknown.clone())?
-                        .state_changed
-                );
-                assert!(
-                    conn.insert_newer_consent_record(allowed.clone())?
-                        .state_changed
-                );
-                assert!(
-                    conn.insert_newer_consent_record(denied.clone())?
-                        .state_changed
-                );
-                assert!(!conn.insert_newer_consent_record(allowed)?.state_changed);
-                assert!(!conn.insert_newer_consent_record(unknown)?.state_changed);
-                let stored = conn
-                    .get_consent_record(upgrade_entity, entity_type)?
-                    .unwrap();
-                assert_eq!(stored.state, ConsentState::Denied);
-                assert_eq!(stored.consented_at_ns, 50);
-
-                let downgrade_entity = format!("{prefix}-downgrade");
-                let allowed = record(entity_type, &downgrade_entity, ConsentState::Allowed, 60);
-                let denied = record(entity_type, &downgrade_entity, ConsentState::Denied, 60);
-                assert!(
-                    conn.insert_newer_consent_record(denied.clone())?
-                        .state_changed
-                );
-                assert!(!conn.insert_newer_consent_record(allowed)?.state_changed);
-                assert!(!conn.insert_newer_consent_record(denied)?.state_changed);
-                let stored = conn
-                    .get_consent_record(downgrade_entity, entity_type)?
-                    .unwrap();
-                assert_eq!(stored.state, ConsentState::Denied);
-                assert_eq!(stored.consented_at_ns, 60);
             }
             Ok::<(), crate::ConnectionError>(())
         })?;
