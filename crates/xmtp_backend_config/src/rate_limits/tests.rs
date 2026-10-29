@@ -369,6 +369,44 @@ fn the_most_specific_limits_apply() {
     }
 }
 
+/// A server converts every list once with `try_map`: each caller then gets
+/// the converted form of the list `limits` gives it, and a list the
+/// conversion refuses fails the whole table.
+#[xmtp_common::test(unwrap_try = true)]
+fn mapped_limits_keep_each_callers_list() {
+    let config = load(
+        "[rate_limits.categories.publish]\n\
+         jwt = [{ count = 2, window_seconds = 2 }]\n\
+         [[rate_limits.overrides]]\nip = '192.0.2.1'\n\
+         [rate_limits.overrides.limits]\n\
+         publish = [{ count = 4, window_seconds = 4 }, { count = 40, window_seconds = 40 }]\n",
+    )?;
+    let limits = config.rate_limits();
+    let counts = limits
+        .caller_limits()
+        .try_map(|list| Ok::<_, ()>(list.iter().map(|limit| limit.count).collect::<Vec<_>>()))
+        .expect("an infallible map");
+    let jwt = CallerKey::Jwt {
+        issuer: String::new(),
+        subject: "user".into(),
+    };
+    for caller in [ip("192.0.2.1"), ip("192.0.2.2"), jwt] {
+        for category in Category::ALL {
+            let expected: Vec<u32> = limits
+                .limits(category, &caller)
+                .iter()
+                .map(|limit| limit.count)
+                .collect();
+            assert_eq!(counts.get(category, &caller), &expected, "{category:?}");
+        }
+    }
+    let refused = limits.caller_limits().try_map(|list| match list.len() {
+        2 if list[0].count == 4 => Err("the override"),
+        _ => Ok(()),
+    });
+    assert_eq!(refused.err(), Some("the override"));
+}
+
 /// Without a `[rate_limits]` table, limits are on with the default limits
 /// table for every caller, 100 MiB of state, and no trusted proxy.
 #[xmtp_common::test(unwrap_try = true)]

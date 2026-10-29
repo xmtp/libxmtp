@@ -37,7 +37,7 @@ pub mod rate_limits;
 mod schema;
 mod telemetry;
 mod validated;
-pub use rate_limits::{AuthType, CallerKey, Category, LimitConfig, RateLimitConfig};
+pub use rate_limits::{AuthType, CallerKey, CallerLimits, Category, LimitConfig, RateLimitConfig};
 pub use telemetry::{IDENTIFIER_ATTRIBUTE, TelemetryConfig};
 pub use validated::{Validated, ValidatedConfig};
 

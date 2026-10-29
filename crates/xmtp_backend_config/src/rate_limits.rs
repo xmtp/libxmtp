@@ -298,7 +298,7 @@ impl std::fmt::Debug for RateLimitOverride {
 }
 
 /// The limits of each category one override names, by `Category` index.
-type OverrideLimits = [Option<Vec<LimitConfig>>; 7];
+type OverrideLimits = Vec<Option<Vec<LimitConfig>>>;
 
 /// `network` as the IPv4 network it maps when it lies within the IPv4-mapped
 /// range. A peer with an IPv4-mapped address is compared as its IPv4
@@ -321,24 +321,65 @@ pub struct RateLimitConfig {
     pub max_memory_mib: u32,
     /// An IPv4-mapped network is resolved to the IPv4 network it maps.
     pub trusted_proxies: Vec<IpNet>,
-    /// The limits of each category for each auth type, with the category's
-    /// `default` and the default limits table applied.
-    tiers: [[Vec<LimitConfig>; 3]; 7],
-    overrides: HashMap<CallerKey, OverrideLimits>,
+    /// Each list holds at most three limits with different windows, and an
+    /// empty list admits every spend.
+    limits: CallerLimits<Vec<LimitConfig>>,
 }
 
 impl RateLimitConfig {
-    /// The limits that apply to `caller` in `category`, most specific first: the
-    /// caller's override for the category, else its auth type's limits, else
-    /// the category's `default`, else the default limits table. Each holds
-    /// at most three limits with different windows, and an empty slice
-    /// admits every spend.
-    // implements: RATE-025
+    /// The limits that apply to `caller` in `category`; see [`CallerLimits::get`].
     pub fn limits(&self, category: Category, caller: &CallerKey) -> &[LimitConfig] {
+        self.limits.get(category, caller)
+    }
+
+    /// Every caller's limits, for a server to convert once at startup.
+    pub fn caller_limits(&self) -> &CallerLimits<Vec<LimitConfig>> {
+        &self.limits
+    }
+}
+
+/// A value, such as a limit list, for each category and each caller: one per
+/// auth type, and one for each category an override names.
+#[derive(Clone, Debug)]
+pub struct CallerLimits<T> {
+    /// By `Category` index, then `AuthType` index, with the category's
+    /// `default` and the default limits table applied.
+    tiers: Vec<[T; 3]>,
+    /// By `Category` index.
+    overrides: HashMap<CallerKey, Vec<Option<T>>>,
+}
+
+impl<T> CallerLimits<T> {
+    /// The value that applies to `caller` in `category`, most specific first:
+    /// the caller's override for the category, else its auth type's, else the
+    /// category's `default`, else the default limits table.
+    // implements: RATE-025
+    pub fn get(&self, category: Category, caller: &CallerKey) -> &T {
         self.overrides
             .get(caller)
-            .and_then(|limits| limits[category.index()].as_deref())
+            .and_then(|values| values[category.index()].as_ref())
             .unwrap_or(&self.tiers[category.index()][caller.auth_type().index()])
+    }
+
+    /// The same table with every value mapped by `f`, or the first error `f`
+    /// returns. A server uses it to build its own form of each list once.
+    pub fn try_map<U, E>(
+        &self,
+        mut f: impl FnMut(&T) -> Result<U, E>,
+    ) -> Result<CallerLimits<U>, E> {
+        let mut tiers = Vec::with_capacity(self.tiers.len());
+        for [ip, jwt, api_key] in &self.tiers {
+            tiers.push([f(ip)?, f(jwt)?, f(api_key)?]);
+        }
+        let mut overrides = HashMap::with_capacity(self.overrides.len());
+        for (caller, values) in &self.overrides {
+            let mut mapped = Vec::with_capacity(values.len());
+            for value in values {
+                mapped.push(value.as_ref().map(&mut f).transpose()?);
+            }
+            overrides.insert(caller.clone(), mapped);
+        }
+        Ok(CallerLimits { tiers, overrides })
     }
 }
 
@@ -382,23 +423,24 @@ impl RateLimitsSection {
             configured[category.index()] = Some(tiers);
         }
         let overrides = self.resolve_overrides()?;
-        let tiers = Category::ALL.map(|category| {
-            AuthType::ALL.map(|auth_type| {
-                configured[category.index()]
-                    .and_then(|tiers| {
-                        tiers
-                            .get(auth_type.as_str())
-                            .or_else(|| tiers.get(DEFAULT_TIER))
-                    })
-                    .map_or_else(|| category.default_limits().to_vec(), Clone::clone)
+        let tiers = Category::ALL
+            .map(|category| {
+                AuthType::ALL.map(|auth_type| {
+                    configured[category.index()]
+                        .and_then(|tiers| {
+                            tiers
+                                .get(auth_type.as_str())
+                                .or_else(|| tiers.get(DEFAULT_TIER))
+                        })
+                        .map_or_else(|| category.default_limits().to_vec(), Clone::clone)
+                })
             })
-        });
+            .into();
         Ok(RateLimitConfig {
             enabled: self.enabled,
             max_memory_mib: self.max_memory_mib,
             trusted_proxies,
-            tiers,
-            overrides,
+            limits: CallerLimits { tiers, overrides },
         })
     }
 
@@ -431,7 +473,7 @@ impl RateLimitsSection {
                 None => None,
             };
             let limits_path = field("limits");
-            let mut limits = OverrideLimits::default();
+            let mut limits: OverrideLimits = vec![None; Category::ALL.len()];
             for (name, list) in &entry.limits {
                 let path = key_path(&limits_path, Step::Key(name));
                 let category = category_named(name, &path)?;
