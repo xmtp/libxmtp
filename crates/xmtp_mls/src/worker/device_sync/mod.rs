@@ -220,7 +220,7 @@ pub enum DeviceSyncError {
     // The own identity state could not be read; a sync publish waits for it.
     #[error("own identity state unavailable: {0}")]
     #[error_code(inherit)]
-    OwnStateUnavailable(ClientError),
+    OwnStateUnavailable(#[source] ClientError),
 }
 
 #[derive(Debug)]
