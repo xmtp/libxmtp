@@ -15,7 +15,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use siphasher::sip::SipHasher13;
 
 use crate::gcra::{self, FULL_ALLOWANCE, Tats};
-use crate::{Decision, Limit, MAX_LIMITS, Spend};
+use crate::{Decision, Limit, Spend};
 
 /// Slots per set.
 const WAYS: usize = 8;
@@ -195,15 +195,7 @@ impl<L: ShardLock> Table<L> {
     /// another thread commits while this one waits, and the delay would be
     /// too long by the wait.
     pub(crate) fn spend(&self, now: impl FnOnce() -> u64, spend: &Spend<'_>) -> Decision {
-        debug_assert!(
-            spend.limits.len() <= MAX_LIMITS,
-            "a category carries at most {MAX_LIMITS} limits"
-        );
-        let limits = &spend.limits[..spend.limits.len().min(MAX_LIMITS)];
-        debug_assert!(
-            limits.iter().all(|limit| !limit.window.is_zero()),
-            "a limit's window is at least 1 ns"
-        );
+        let limits = spend.limits.as_slice();
         if spend.cost == 0 || limits.is_empty() {
             return Decision::Allowed;
         }

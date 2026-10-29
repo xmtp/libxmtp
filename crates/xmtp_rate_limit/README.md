@@ -7,14 +7,16 @@ work before it does that work. The behaviour it implements is specified in
 
 ```rust
 use std::time::Duration;
-use xmtp_rate_limit::{Decision, Limit, MemoryLimiter, RateLimiter, Spend};
+use xmtp_rate_limit::{Decision, Limit, Limits, MemoryLimiter, RateLimiter, Spend};
 
 const PUBLISH: u8 = 1;
 let limiter = MemoryLimiter::new(100 << 20);
-let limits = [
+// At most three limits, each with a nonzero window; the backend builds these
+// once, when it starts.
+let limits = Limits::new(&[
     Limit { count: 1000, window: Duration::from_secs(60) },
     Limit { count: 20_000, window: Duration::from_secs(3600) },
-];
+])?;
 let spend = Spend { key: b"caller key bytes", category: PUBLISH, limits: &limits, cost: 25 };
 match limiter.try_spend(spend).await {
     Decision::Allowed => { /* do the work */ }
@@ -38,6 +40,10 @@ match limiter.try_spend(spend).await {
   exact wait, rounded up to a whole millisecond. TATs are matched to limits by
   position, so a caller key is always spent in a category with the same limits
   in the same order.
+- **Validated limits.** A spend carries a `Limits`, which `Limits::new`
+  builds from at most three limits, each with a nonzero window, and refuses
+  otherwise. A list the table cannot record fails where it is built, such as
+  when a server starts, not at a spend.
 - **A fixed table.** One 8-way set-associative table, allocated once from the
   memory budget. A slot is 32 bytes: a SipHash-1-3 hash of (category, caller
   key) under a 128-bit key drawn from the operating system at construction, and

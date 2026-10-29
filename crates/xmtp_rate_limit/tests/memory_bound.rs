@@ -8,7 +8,9 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
-use xmtp_rate_limit::{Clock, Decision, Limit, MemoryLimiter, RateLimiter, SLOT_BYTES, Spend};
+use xmtp_rate_limit::{
+    Clock, Decision, Limit, Limits, MemoryLimiter, RateLimiter, SLOT_BYTES, Spend,
+};
 
 const MIB: usize = 1 << 20;
 const SECOND: u64 = 1_000_000_000;
@@ -148,12 +150,13 @@ fn spending_never_allocates() {
             },
         ],
     ];
+    let limit_sets = limit_sets.map(|limits| Limits::new(limits).expect("valid limits"));
 
     let ((admitted, denied), _, allocations) = measure(|| {
         let (mut admitted, mut denied) = (0u64, 0u64);
         for caller in 0..CALLERS {
             let key = caller.to_le_bytes();
-            let limits = limit_sets[(caller % 4) as usize];
+            let limits = &limit_sets[(caller % 4) as usize];
             for cost in [1, 1, 7, 0, 1] {
                 let spend = Spend {
                     key: &key,

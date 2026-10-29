@@ -1,4 +1,5 @@
 use super::*;
+use crate::LimitsError;
 
 /// The spec's admission rule, stated from its definitions rather than from the
 /// limiter's TATs: each admitted spend is earned back at max(t, E′) + n × W / C
@@ -230,24 +231,28 @@ fn extreme_values_saturate() {
     );
 }
 
-/// A zero window would earn back any cost at once. Debug builds stop on it;
-/// release builds admit every spend under it, as an unbounded rate would.
+/// A slot records three limits per category, and a zero window would earn
+/// back any cost at once and admit every spend. `Limits::new` refuses both, so
+/// such a list fails where it is built, before any spend.
 #[xmtp_common::test]
-fn a_zero_window_panics_in_debug_and_admits_in_release() {
-    let (limiter, _clock) = limiter();
-    let limits = [Limit {
+fn limits_refuse_a_fourth_limit_and_a_zero_window() {
+    let three = [limit(5, 60), limit(5, 120), limit(5, 180)];
+    assert_eq!(
+        Limits::new(&three).map(|limits| limits.as_slice().to_vec()),
+        Ok(three.to_vec())
+    );
+    assert_eq!(
+        Limits::new(&[three[0], three[1], three[2], limit(1, 240)]),
+        Err(LimitsError::TooMany { len: 4 })
+    );
+    let zero = Limit {
         count: 1,
         window: Duration::ZERO,
-    }];
-    let first =
-        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| spend(&limiter, &limits, 5)));
-    if cfg!(debug_assertions) {
-        assert!(first.is_err());
-        assert_eq!(tats(&limiter), None);
-    } else {
-        assert_eq!(first.ok(), Some(Decision::Allowed));
-        assert_eq!(spend(&limiter, &limits, 5), Decision::Allowed);
-    }
+    };
+    assert_eq!(
+        Limits::new(&[limit(1, 60), zero]),
+        Err(LimitsError::ZeroWindow { index: 1 })
+    );
 }
 
 /// A count of 0 behaves as a count of 1 instead of dividing by zero.
@@ -262,21 +267,4 @@ fn a_zero_count_counts_as_one() {
             retry_after: Duration::from_secs(60)
         }
     );
-}
-
-/// Limits after the third have no slot to be recorded in. Debug builds stop on
-/// such a list; release builds ignore the extra limits.
-#[xmtp_common::test]
-fn more_than_three_limits_panic_in_debug_and_are_cut_in_release() {
-    let (limiter, _clock) = limiter();
-    let limits = [limit(5, 60), limit(5, 120), limit(5, 180), limit(1, 240)];
-    let first =
-        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| spend(&limiter, &limits, 1)));
-    if cfg!(debug_assertions) {
-        assert!(first.is_err());
-        assert_eq!(tats(&limiter), None);
-    } else {
-        assert_eq!(first.ok(), Some(Decision::Allowed));
-        assert_eq!(spend(&limiter, &limits, 1), Decision::Allowed);
-    }
 }

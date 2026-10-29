@@ -7,7 +7,7 @@ use std::hint::black_box;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
-use xmtp_rate_limit::{Decision, Limit, MemoryLimiter, RateLimiter, SLOT_BYTES, Spend};
+use xmtp_rate_limit::{Decision, Limit, Limits, MemoryLimiter, RateLimiter, SLOT_BYTES, Spend};
 
 /// The default `rate_limits.max_memory_mib`.
 const DEFAULT_BUDGET: usize = 100 << 20;
@@ -17,7 +17,7 @@ const RUN: Duration = Duration::from_secs(3);
 /// Spends between two reads of the clock.
 const BATCH: usize = 1024;
 /// The default `request` limits.
-const LIMITS: [Limit; 2] = [
+const LIMITS: Limits = match Limits::new(&[
     Limit {
         count: 6000,
         window: Duration::from_secs(60),
@@ -26,7 +26,10 @@ const LIMITS: [Limit; 2] = [
         count: 200_000,
         window: Duration::from_secs(3600),
     },
-];
+]) {
+    Ok(limits) => limits,
+    Err(_) => panic!("valid limits"),
+};
 
 /// Counts the bytes allocated while `COUNTING` is set.
 struct Counting;

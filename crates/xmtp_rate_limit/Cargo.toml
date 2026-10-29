@@ -15,6 +15,7 @@ workspace = true
 getrandom.workspace = true
 parking_lot.workspace = true
 siphasher.workspace = true
+thiserror.workspace = true
 
 [features]
 # `ManualClock`, for tests in crates that use the limiter.

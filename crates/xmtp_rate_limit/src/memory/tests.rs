@@ -7,9 +7,9 @@ use proptest::prelude::*;
 use proptest::test_runner::{Config, TestRunner};
 
 use super::*;
-use crate::Limit;
 use crate::ManualClock;
 use crate::gcra::Tats;
+use crate::{Limit, Limits};
 
 mod admission;
 mod denial;
@@ -49,7 +49,7 @@ fn spend_as<C: Clock>(
         .try_spend(Spend {
             key,
             category,
-            limits,
+            limits: &Limits::new(limits).expect("valid limits"),
             cost,
         })
         .into_inner()
@@ -107,7 +107,7 @@ fn memory_limiter_answers_with_a_ready_future() {
     fn assert_send<T: Send>(_: &T) {}
 
     let (limiter, _clock) = limiter();
-    let limits = [limit(1, 60)];
+    let limits = Limits::new(&[limit(1, 60)]).expect("valid limits");
     let spend = Spend {
         key: KEY,
         category: CATEGORY,

@@ -13373,13 +13373,14 @@ dependencies = [
 
 [[package]]
 name = "xmtp_rate_limit"
-version = "1.12.0-dev"
+version = "1.12.0-dev.1"
 dependencies = [
  "getrandom 0.4.3",
  "parking_lot",
  "proptest",
  "shuttle",
  "siphasher",
+ "thiserror 2.0.19",
  "xmtp_common",
 ]
 

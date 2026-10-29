@@ -35,8 +35,8 @@ pub(crate) const FULL_ALLOWANCE: Tats = [0; MAX_LIMITS];
 /// The TATs are matched to `limits` by position, so a caller key and category
 /// must always be decided against the same limits in the same order.
 ///
-/// The caller handles a cost of 0 and an empty `limits` first, and passes at
-/// most [`MAX_LIMITS`] limits; a count of 0 is treated as 1.
+/// The caller handles a cost of 0 and an empty `limits` first, and passes the
+/// limits of a [`Limits`](crate::Limits); a count of 0 is treated as 1.
 // implements: RATE-020
 pub(crate) fn decide(tats: &Tats, limits: &[Limit], cost: u32, now: u64) -> Result<Tats, u64> {
     let now = u128::from(now);

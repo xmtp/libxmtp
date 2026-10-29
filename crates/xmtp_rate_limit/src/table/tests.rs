@@ -4,6 +4,7 @@ use proptest::prelude::*;
 use proptest::test_runner::{Config, TestRunner};
 
 use super::*;
+use crate::Limits;
 
 mod interleavings;
 
@@ -33,7 +34,7 @@ fn spend(
         &Spend {
             key,
             category,
-            limits,
+            limits: &Limits::new(limits).expect("valid limits"),
             cost,
         },
     )

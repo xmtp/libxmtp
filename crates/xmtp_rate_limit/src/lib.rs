@@ -36,14 +36,78 @@ pub const SLOT_BYTES: usize = size_of::<table::Slot>();
 
 /// A sustained rate of `count` units per `window`, with a burst of up to `count`.
 ///
-/// `count` is at least 1; a `count` of 0 is treated as 1. `window` is at least
-/// 1 ns. A zero window earns back any cost at once, so release builds admit
-/// every spend under it, and debug builds panic on it. The backend
-/// configuration refuses both.
+/// A `count` of 0 is treated as 1. [`Limits::new`] refuses a zero `window`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Limit {
     pub count: u32,
     pub window: Duration,
+}
+
+/// The limits of one category: at most [`MAX_LIMITS`], each with a window of
+/// at least 1 ns. An empty list admits every spend.
+///
+/// The limiter matches its stored state to these limits by position, so a
+/// caller key must always be spent in a category with the same limits in the
+/// same order. A different list reads state recorded for another limit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Limits {
+    /// Entries from `len` on are [`Limits::UNUSED`].
+    list: [Limit; MAX_LIMITS],
+    len: usize,
+}
+
+impl Limits {
+    /// No limits: every spend is admitted.
+    pub const NONE: Self = Self {
+        list: [Self::UNUSED; MAX_LIMITS],
+        len: 0,
+    };
+
+    const UNUSED: Limit = Limit {
+        count: 0,
+        window: Duration::ZERO,
+    };
+
+    /// `limits`, in order, or why the limiter cannot apply them.
+    pub const fn new(limits: &[Limit]) -> Result<Self, LimitsError> {
+        if limits.len() > MAX_LIMITS {
+            return Err(LimitsError::TooMany { len: limits.len() });
+        }
+        let mut list = Self::NONE.list;
+        let mut index = 0;
+        while index < limits.len() {
+            // A zero window earns back any cost at once: it would admit every spend.
+            if limits[index].window.is_zero() {
+                return Err(LimitsError::ZeroWindow { index });
+            }
+            list[index] = limits[index];
+            index += 1;
+        }
+        Ok(Self {
+            list,
+            len: limits.len(),
+        })
+    }
+
+    pub fn as_slice(&self) -> &[Limit] {
+        &self.list[..self.len]
+    }
+}
+
+impl Default for Limits {
+    fn default() -> Self {
+        Self::NONE
+    }
+}
+
+/// Why [`Limits::new`] refused a list.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum LimitsError {
+    /// A table slot records [`MAX_LIMITS`] limits per category.
+    #[error("a category carries at most {MAX_LIMITS} limits, not {len}")]
+    TooMany { len: usize },
+    #[error("limit {index} has a zero window")]
+    ZeroWindow { index: usize },
 }
 
 /// One charge of `cost` units in `category` to the caller named by `key`.
@@ -54,15 +118,7 @@ pub struct Spend<'a> {
     /// The caller key bytes; the server forms them.
     pub key: &'a [u8],
     pub category: u8,
-    /// At most [`MAX_LIMITS`] limits, each on a different window. An empty
-    /// slice admits every spend.
-    ///
-    /// The limiter matches its stored state to these limits by position, so a
-    /// caller key must always be spent in a category with the same limits in
-    /// the same order. A different list reads state recorded for another limit.
-    /// Debug builds panic on a longer list; release builds ignore the limits
-    /// after the last that fits.
-    pub limits: &'a [Limit],
+    pub limits: &'a Limits,
     /// A cost of 0 is admitted without a charge.
     pub cost: u32,
 }

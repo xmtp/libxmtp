@@ -50,7 +50,7 @@ fn spend_once<L: ShardLock>(table: &Table<L>, limits: &[Limit]) -> bool {
     let spend = Spend {
         key: CALLER,
         category: CATEGORY,
-        limits,
+        limits: &Limits::new(limits).expect("valid limits"),
         cost: 1,
     };
     table.spend(|| NOW, &spend) == Decision::Allowed
@@ -108,10 +108,13 @@ fn a_retry_delay_counts_from_the_decision() {
     use shuttle::sync::atomic::{AtomicU64, Ordering};
     const LATER: u64 = 10 * SECOND;
     const MILLI: u64 = 1_000_000;
-    const ONE_PER_MINUTE: [Limit; 1] = [Limit {
+    const ONE_PER_MINUTE: Limits = match Limits::new(&[Limit {
         count: 1,
         window: Duration::from_secs(60),
-    }];
+    }]) {
+        Ok(limits) => limits,
+        Err(_) => panic!("valid limits"),
+    };
     const SPEND: Spend<'static> = Spend {
         key: CALLER,
         category: CATEGORY,
