@@ -24,7 +24,7 @@ mod tests;
 
 /// The longest admission may take, before the commit timer starts.
 const ADMISSION_DEADLINE: Duration = Duration::from_secs(60);
-/// Identity-log replays running at once, across all requests.
+/// Identity-log reads and replays running at once, across all requests.
 pub(crate) const MAX_IDENTITY_REPLAYS: usize = 64;
 
 /// Counts publish-signature verification work, so tests can check where and
@@ -317,6 +317,13 @@ impl Backend {
                     item.validation = Err(ValidationError::from(error).into());
                     continue;
                 }
+                // The permit bounds the log read as well as its replay.
+                let permit = self
+                    .replays
+                    .clone()
+                    .acquire_owned()
+                    .await
+                    .map_err(|_| Status::internal("identity replay limit closed"))?;
                 let history = self.store.history(&item.topic).await?;
                 // implements: API-303
                 item.identity
@@ -329,7 +336,7 @@ impl Backend {
                     ));
                     continue;
                 }
-                match self.replay_history(history).await? {
+                match self.replay_history(history, permit).await? {
                     Ok(replayed) => (stored_claims, prior) = replayed,
                     Err(error) => {
                         item.validation = Err(error.into());
@@ -386,13 +393,15 @@ impl Backend {
     /// signature checks for each stored action, so it runs off the async
     /// runtime. A stored row that is not an identity envelope is an internal
     /// error; a stored update that fails validation rejects the new update,
-    /// as the inner error. It waits for one of [`MAX_IDENTITY_REPLAYS`]
-    /// permits. A cancelled request leaves the task to finish, holding its
-    /// permit; the entry limit bounds it at one log.
+    /// as the inner error. It holds one of [`MAX_IDENTITY_REPLAYS`] permits,
+    /// which the caller takes before it reads the log. A cancelled request
+    /// leaves the task to finish, holding its permit; the entry limit bounds
+    /// it at one log.
     // implements: IDENT-095
     async fn replay_history(
         &self,
         history: History,
+        permit: tokio::sync::OwnedSemaphorePermit,
     ) -> Result<Result<(Vec<i64>, AdmittedState), ValidationError>, Status> {
         let History {
             payloads,
@@ -404,12 +413,6 @@ impl Backend {
         }
         #[cfg(test)]
         let (replays, caller) = (self.identity_replays.clone(), std::thread::current().id());
-        let permit = self
-            .replays
-            .clone()
-            .acquire_owned()
-            .await
-            .map_err(|_| Status::internal("identity replay limit closed"))?;
         let span = tracing::Span::current();
         tokio::task::spawn_blocking(move || {
             // Held until the replay ends, even after the request is dropped.
