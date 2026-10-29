@@ -87,6 +87,9 @@ fn worker_event_filter(kind: WorkerKind) -> Option<(EventFilter<InternalEvent>, 
             EventKind::ConversationJoined,
             EventKind::ConversationRemoved,
             EventKind::HmacKeysUpdated,
+            // implements: PUSH-260
+            // An import writes consent without consent.changed.
+            EventKind::ArchiveRestored,
         ])
         .with_internal(|event| {
             matches!(
