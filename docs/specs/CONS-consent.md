@@ -33,7 +33,7 @@ Out of scope: how records travel and when they are published (`SYNC`), the dm id
 
 | Related | Relation |
 | --- | --- |
-| `SYNC` | Carries records between installations. SYNC-027 marks every change for publication. |
+| `SYNC` | Carries records between installations. SYNC-027 marks the changes to publish. |
 | `DMS` | Owns the dm id (DMS-001), the peer of a DM (DMS-017), and the group an app sees for a DM (DMS-007). |
 | `JOIN` | Owns the join. CONS-058 owns what a join stores: nothing. |
 | `PUSH` | Owns which conversations produce push notifications. It reads conversation consent. |
@@ -150,7 +150,7 @@ Before 8.0, a DM's consent was its group's record, and inbox records decided no 
 
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
-| CONS-061 | Pre-8.0 DM records | When the client receives or imports a record that names a 16-byte group id held as a DM, it MUST store the record under that DM's key under CONS-052. When an archive carries 16-byte DM groups that the client holds, whether or not its import stored them, the client MUST combine that archive's records for those DMs and the archive's inbox record for the same peer into one inbox record whose state is the strongest of theirs, denied over allowed over unknown, and whose consent time is the greatest of their times. When the client restores a 16-byte DM while it holds a record under that DM's group id, it MUST merge the record into the DM's key under CONS-053 and remove it. | An archive written before 8.0 names a DM by its 16-byte group id, which no Welcome can activate (JOIN-083), so moving it cannot give another inbox control of the record. Pre-8.0 times are first-insert times, so they cannot order the rows; the strongest state never weakens a block the user saw, in either the DM or the inbox read. The greatest time lets the combined record replace each of its sources, and the same archive imported twice gives the same record. |
+| CONS-061 | Pre-8.0 DM records | When the client receives or imports a record that names a 16-byte group id held as a DM, it MUST store the record under that DM's key under CONS-052. When an archive carries a 16-byte DM group that the client holds, whether or not its import stored it, the client MUST combine the archive's records for every 16-byte DM it holds with that DM's peer and the archive's inbox record for the peer into one inbox record whose state is the strongest of theirs, denied over allowed over unknown, and whose consent time is the greatest of their times. When the client restores a 16-byte DM while it holds a record under that DM's group id, it MUST merge the record into the DM's key under CONS-053 and remove it. | An archive written before 8.0 names a DM by its 16-byte group id, which no Welcome can activate (JOIN-083), so moving it cannot give another inbox control of the record. Pre-8.0 times are first-insert times, so they cannot order the rows; the strongest state never weakens a block the user saw, in either the DM or the inbox read. The greatest time lets the combined record replace each of its sources, and the same archive imported twice gives the same record. |
 
 ## Known limitations
 

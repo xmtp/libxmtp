@@ -28,7 +28,7 @@ flowchart TD
 
 In scope: what a published key package carries and advertises, its lifetime and rotation, when superseded key material is destroyed, unwrapping a Welcome under either wrapper, welcome pointers and their resolution, the join anchor, when a Welcome may replace existing local group state, validation of the membership a Welcome asserts, and the group properties a joiner checks before it accepts.
 
-Out of scope: steady-state commit validation and how a membership change is proposed and committed (`GMOD`), the association log a joiner resolves membership against (`IDENT`), the DM identifier and stitching (`DMS`), consent set on join (`CONS`), the sync conversation's own trust rule (`SYNC`), the policy engine (`PERM`), the metadata model (`META`), topic layout (`TOPIC`), and the publish and query contract (`API`).
+Out of scope: steady-state commit validation and how a membership change is proposed and committed (`GMOD`), the association log a joiner resolves membership against (`IDENT`), the DM identifier and stitching (`DMS`), consent, which no join stores (`CONS`), the sync conversation's own trust rule (`SYNC`), the policy engine (`PERM`), the metadata model (`META`), topic layout (`TOPIC`), and the publish and query contract (`API`).
 
 | Related | Relation |
 | --- | --- |
