@@ -109,13 +109,25 @@ fn timer_split(duration: Duration) -> (u128, Duration) {
     (duration.as_nanos() / timer, Duration::from_nanos(rest))
 }
 
+/// Waits at least `duration`, as [`Instant`] measures it.
 #[doc(hidden)]
 pub async fn sleep(duration: Duration) {
     wasm_or_native! {
         native => {tokio::time::sleep(duration).await},
         wasm => {
+            let deadline = saturating_after(Instant::now(), duration);
             for piece in timer_pieces(duration) {
                 gloo_timers::future::sleep(piece).await;
+            }
+            // A browser timer drops the part of a wait below 1 ms, and Node
+            // can fire one up to 1 ms early, so a rate-limit wait could end
+            // just before its delay. Wait out what is left.
+            loop {
+                let left = deadline.saturating_duration_since(Instant::now());
+                if left.is_zero() {
+                    break;
+                }
+                gloo_timers::future::sleep(left.max(Duration::from_millis(1))).await;
             }
         },
     }
@@ -231,6 +243,22 @@ mod tests {
                 .take(3)
                 .all(|piece| piece == MAX_TIMER)
         );
+    }
+
+    /// A sleep never ends before its duration, including a part below 1 ms,
+    /// which a browser timer drops.
+    #[xmtp_macro::test]
+    async fn a_sleep_lasts_at_least_its_duration() {
+        for duration in [Duration::from_micros(700), Duration::from_micros(1_500)] {
+            for _ in 0..10 {
+                let started = Instant::now();
+                sleep(duration).await;
+                assert!(
+                    started.elapsed() >= duration,
+                    "{duration:?} sleep ended early"
+                );
+            }
+        }
     }
 
     /// A delay no clock can hold saturates instead of panicking.
