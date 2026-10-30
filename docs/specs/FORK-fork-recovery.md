@@ -358,7 +358,7 @@ Any installation that holds the root can publish an entry whose `commit_sequence
 
 In a DM both members publish, and a reader keeps the first entry it reads for each commit (FORK-083). After a fork, the member that reports `forked`, and so is readded onto the other member's state, is the one whose entry the backend stored second, not necessarily the one whose state its other installations share.
 
-A readd request is sent once per fork. If every readder drops it, or every readder stays `unknown`, nothing resends it; the requester waits for a Welcome that does not come.
+The requester records each readd attempt before sending and retries definite non-publication failures after any rate-limit delay. If publication succeeds or its outcome is unknown, it waits for a Welcome and does not resend; an interrupted attempt can therefore leave it waiting even when no request reached a readder. If every readder drops the request, or every readder stays `unknown`, the requester waits for a Welcome that does not come. If an earlier attempt inside a retried publish has an unknown outcome and a later attempt is rate-limited, clearing the request mark can permit one duplicate readd request.
 
 A conversation whose log FORK-030 does not read, because its consent state is not allowed, keeps the fork state last computed for it until its consent state becomes allowed; one that was never allowed reports `unknown`. Its log is unread, so there are no new remote entries to compare, and checking every such conversation on every pass is work that any sender of unsolicited conversations can multiply.
 
