@@ -28,9 +28,11 @@ thiserror.workspace = true
 toml.workspace = true
 url.workspace = true
 xmtp_configuration.workspace = true
+zeroize.workspace = true
 
 [dev-dependencies]
 jsonschema = { version = "0.55", default-features = false }
 trybuild.workspace = true
 xmtp_common = { workspace = true, features = ["test-utils"] }
+xmtp_cryptography = { workspace = true, features = ["test-utils"] }
 xmtp_proto.workspace = true

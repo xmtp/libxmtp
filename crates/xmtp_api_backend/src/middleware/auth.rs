@@ -38,9 +38,10 @@ pub struct Credential {
 impl Credential {
     pub fn new(
         name: Option<http::header::HeaderName>,
-        value: http::header::HeaderValue,
+        mut value: http::header::HeaderValue,
         expires_at_seconds: i64,
     ) -> Self {
+        value.set_sensitive(true);
         Self {
             name: name.unwrap_or(http::header::AUTHORIZATION),
             value,

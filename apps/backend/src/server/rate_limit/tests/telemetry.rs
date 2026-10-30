@@ -93,9 +93,9 @@ const PEER: &str = "127.0.0.1";
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_denial_logs_its_request_and_category_and_no_caller() {
     let key = TestKey::es256();
-    let (api_key_value, api_keys) = api_key("operator");
+    let (api_key_value, mut api_keys) = api_key("operator");
     let mut auth = key.auth_config();
-    auth.api_keys = api_keys.api_keys;
+    auth.api_keys = std::mem::take(&mut api_keys.api_keys);
     let verifier = Arc::new(Verifier::new(Arc::new(KeySet::new(inline(&auth)?)), auth));
     let limiter = limiter(
         &format!(

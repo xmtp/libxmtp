@@ -166,10 +166,8 @@ fn all_supported_key_families_verify_with_independent_validations() {
                 .is_ok()
         );
     }
-    let config = AuthConfig {
-        keys: Some(keys[..3].iter().map(TestKey::config).collect()),
-        ..AuthConfig::default()
-    };
+    let mut config = AuthConfig::default();
+    config.keys = Some(keys[..3].iter().map(TestKey::config).collect());
     let verifier = verifier(config);
     for key in &keys[..3] {
         assert!(
@@ -428,9 +426,10 @@ fn key_selection_constructs_at_most_one_signature_verifier() {
     let first = TestKey::es256();
     let second = TestKey::es256();
     let ed = TestKey::eddsa();
-    let verifier = verifier(AuthConfig {
-        keys: Some(vec![first.config(), second.config()]),
-        ..AuthConfig::default()
+    let verifier = verifier({
+        let mut config = AuthConfig::default();
+        config.keys = Some(vec![first.config(), second.config()]);
+        config
     });
     for (key, kid, expected, signatures) in [
         (&first, Some(first.kid.clone()), Ok(()), 1),
@@ -461,9 +460,10 @@ fn selected_key_algorithm_mismatch_is_untrusted() {
     let ec = TestKey::es256();
     let ed = TestKey::eddsa();
     for loaded in [vec![ec.config()], vec![ec.config(), ed.config()]] {
-        let verifier = verifier(AuthConfig {
-            keys: Some(loaded),
-            ..AuthConfig::default()
+        let verifier = verifier({
+            let mut config = AuthConfig::default();
+            config.keys = Some(loaded);
+            config
         });
         for kid in [ec.kid.clone(), "unknown".into()] {
             let mut header = Header::new(ed.alg);
@@ -666,4 +666,34 @@ fn mixed_claim_errors_follow_table_order_with_and_without_allowlists() {
             }
         }
     }
+}
+
+#[cfg(unix)]
+xmtp_cryptography::install_heap_canary!();
+
+#[cfg(unix)]
+#[xmtp_common::test(unwrap_try = true)]
+fn verifier_discards_plaintext_api_keys_after_digesting() {
+    use xmtp_cryptography::secret::heap_canary::{Canary, scan};
+    const KEY: &str = "verifier-key-unique-sentinel-123456789";
+    let (verifier, hits) = scan(&[Canary::new(KEY.as_bytes())], || {
+        let mut config = AuthConfig::default();
+        config.api_keys.insert("operator".into(), KEY.into());
+        verifier(config)
+    });
+    assert!(
+        verifier.config.api_keys.is_empty(),
+        "Verifier retained plaintext API keys"
+    );
+    assert_eq!(hits, [0], "Verifier freed an unwiped API key");
+    assert_eq!(
+        verifier.verify(&headers(KEY))?,
+        AuthContext::ApiKey {
+            name: "operator".into()
+        }
+    );
+    assert_eq!(
+        verifier.verify(&headers("unknown")),
+        Err(Rejection::Untrusted)
+    );
 }

@@ -183,15 +183,15 @@ impl ContentCodec<RemoteAttachment> for RemoteAttachmentCodec {
         }
     }
 
-    fn encode(data: RemoteAttachment) -> Result<EncodedContent, CodecError> {
+    fn encode(mut data: RemoteAttachment) -> Result<EncodedContent, CodecError> {
         validate_remote_attachment(&data).map_err(|reason| CodecError::Encode(reason.into()))?;
         let fallback = Self::fallback(&data);
         let mut parameters = [
-            ("contentDigest", data.content_digest),
-            ("salt", hex::encode(data.salt)),
-            ("nonce", hex::encode(data.nonce)),
-            ("secret", hex::encode(data.secret)),
-            ("scheme", data.scheme),
+            ("contentDigest", std::mem::take(&mut data.content_digest)),
+            ("salt", hex::encode(&data.salt)),
+            ("nonce", hex::encode(&data.nonce)),
+            ("secret", hex::encode(&data.secret)),
+            ("scheme", std::mem::take(&mut data.scheme)),
         ]
         .into_iter()
         .map(|(k, v)| (k.to_string(), v))
@@ -201,7 +201,7 @@ impl ContentCodec<RemoteAttachment> for RemoteAttachmentCodec {
             parameters.insert("contentLength".to_string(), content_length.to_string());
         }
 
-        if let Some(filename) = data.filename {
+        if let Some(filename) = data.filename.take() {
             parameters.insert("filename".to_string(), filename);
         }
 
@@ -210,7 +210,7 @@ impl ContentCodec<RemoteAttachment> for RemoteAttachmentCodec {
             parameters,
             fallback,
             compression: None,
-            content: data.url.into_bytes(),
+            content: std::mem::take(&mut data.url).into_bytes(),
         })
     }
 
@@ -787,7 +787,8 @@ pub(crate) mod tests {
                 salt: vec![2; 32],
                 nonce: vec![3; 12],
                 scheme: canonical.into(),
-                ..Default::default()
+                filename: None,
+                content_length: None,
             };
             let mut legacy = RemoteAttachmentCodec::encode(value.clone())?;
             legacy.parameters.insert("scheme".into(), bare.into());
@@ -835,13 +836,12 @@ pub(crate) mod tests {
             salt: vec![2; 32],
             nonce: vec![3; 12],
             scheme: "http".into(),
-            ..Default::default()
+            filename: None,
+            content_length: None,
         };
-        let valid = RemoteAttachment {
-            url: "https://example.com/file".into(),
-            scheme: "https://".into(),
-            ..value.clone()
-        };
+        let mut valid = value.clone();
+        valid.url = "https://example.com/file".into();
+        valid.scheme = "https://".into();
         let mut legacy = RemoteAttachmentCodec::encode(valid)?;
         legacy.content = value.url.as_bytes().to_vec();
         legacy.parameters.insert("scheme".into(), "http".into());

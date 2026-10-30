@@ -6,6 +6,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     time::Duration,
 };
+use zeroize::Zeroize;
 
 pub const MAX_KID_BYTES: usize = 256;
 pub(crate) const MAX_API_KEYS: usize = 256;
@@ -23,6 +24,7 @@ const DEFAULT_LEEWAY_SECONDS: u64 = 60;
 const DEFAULT_JWKS_REFRESH_SECONDS: u64 = 300;
 const DEFAULT_JWKS_MAX_STALE_SECONDS: u64 = 3600;
 
+// Field defaults avoid moving fields out of serde's default Drop owner.
 #[derive(Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(default, deny_unknown_fields)]
 pub struct AuthConfig {
@@ -30,27 +32,37 @@ pub struct AuthConfig {
     /// configuration services. Required whenever `[auth]` is present; false
     /// leaves every other field in this section unread.
     #[schemars(schema_with = "enabled_schema")]
+    #[serde(default)]
     pub enabled: Option<bool>,
     /// Fetch signing keys from HTTPS, or HTTP on a loopback host.
     #[schemars(schema_with = "jwks_url_schema")]
+    #[serde(default)]
     pub jwks_url: Option<String>,
     /// Inline public signing keys. Cannot be combined with jwks_url.
+    #[serde(default)]
     pub keys: Option<Vec<AuthKeyConfig>>,
     /// Named static API keys. Values can be supplied with env:NAME.
     #[schemars(schema_with = "api_keys_schema")]
+    #[serde(default)]
     pub api_keys: BTreeMap<String, String>,
     /// Require an audience that matches one of these values when set.
+    #[serde(default)]
     pub audiences: Option<Vec<String>>,
     /// Require an issuer that matches one of these values when set.
+    #[serde(default)]
     pub issuers: Option<Vec<String>>,
     /// Require every one of these scopes on every authenticated RPC.
+    #[serde(default)]
     pub required_scopes: Vec<String>,
     #[schemars(range(max = MAX_LEEWAY_SECONDS))]
+    #[serde(default = "default_leeway_seconds")]
     pub leeway_seconds: u64,
     #[schemars(range(min = MIN_JWKS_REFRESH_SECONDS))]
+    #[serde(default = "default_jwks_refresh_seconds")]
     pub jwks_refresh_seconds: u64,
     /// Must be at least the refresh interval plus the ten-second fetch timeout.
     #[schemars(range(max = super::MAX_U32_KEY))]
+    #[serde(default = "default_jwks_max_stale_seconds")]
     pub jwks_max_stale_seconds: u64,
 }
 
@@ -85,6 +97,14 @@ impl Default for AuthConfig {
 }
 
 impl AuthConfig {
+    /// Wipe API key values before discarding unused runtime copies.
+    pub fn clear_api_keys(&mut self) {
+        for value in self.api_keys.values_mut() {
+            value.zeroize();
+        }
+        self.api_keys.clear();
+    }
+
     /// Reject invalid key sources, keys, RPC names, and timer relationships.
     /// Key errors identify the entry but never include the key value.
     ///
@@ -211,6 +231,12 @@ impl AuthConfig {
     }
 }
 
+impl Drop for AuthConfig {
+    fn drop(&mut self) {
+        self.clear_api_keys();
+    }
+}
+
 impl std::fmt::Debug for AuthConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("AuthConfig")
@@ -330,6 +356,18 @@ fn api_keys_schema(_: &mut SchemaGenerator) -> Schema {
 }
 fn algorithm_schema(_: &mut SchemaGenerator) -> Schema {
     json_schema!({"type": "string", "enum": ["RS256", "RS384", "RS512", "ES256", "ES384", "EdDSA"]})
+}
+
+fn default_leeway_seconds() -> u64 {
+    DEFAULT_LEEWAY_SECONDS
+}
+
+fn default_jwks_refresh_seconds() -> u64 {
+    DEFAULT_JWKS_REFRESH_SECONDS
+}
+
+fn default_jwks_max_stale_seconds() -> u64 {
+    DEFAULT_JWKS_MAX_STALE_SECONDS
 }
 
 #[cfg(test)]

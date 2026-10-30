@@ -124,11 +124,10 @@ impl TestKey {
         }
     }
     pub fn auth_config(&self) -> AuthConfig {
-        AuthConfig {
-            enabled: Some(true),
-            keys: Some(vec![self.config()]),
-            ..AuthConfig::default()
-        }
+        let mut config = AuthConfig::default();
+        config.enabled = Some(true);
+        config.keys = Some(vec![self.config()]);
+        config
     }
 }
 
@@ -140,11 +139,9 @@ pub fn api_key_value() -> String {
 /// Configure one named API key without a JWT key source.
 pub fn api_key(name: &str) -> (String, AuthConfig) {
     let value = api_key_value();
-    let config = AuthConfig {
-        enabled: Some(true),
-        api_keys: [(name.to_owned(), value.clone())].into(),
-        ..AuthConfig::default()
-    };
+    let mut config = AuthConfig::default();
+    config.enabled = Some(true);
+    config.api_keys = [(name.to_owned(), value.clone())].into();
     (value, config)
 }
 
@@ -276,11 +273,10 @@ impl JwksServer {
         *self.responses.lock() = responses.into();
     }
     pub fn config(&self) -> AuthConfig {
-        AuthConfig {
-            enabled: Some(true),
-            jwks_url: Some(self.url.clone()),
-            ..AuthConfig::default()
-        }
+        let mut config = AuthConfig::default();
+        config.enabled = Some(true);
+        config.jwks_url = Some(self.url.clone());
+        config
     }
 }
 impl Drop for JwksServer {

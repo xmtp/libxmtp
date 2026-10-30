@@ -13,15 +13,13 @@ async fn server(
     clock: &ManualClock,
 ) -> TestResult<(TestServer, Vec<String>)> {
     let values: Vec<String> = names.iter().map(|_| api_key_value()).collect();
-    let auth = AuthConfig {
-        enabled: Some(true),
-        api_keys: names
-            .iter()
-            .map(|name| name.to_string())
-            .zip(values.iter().cloned())
-            .collect(),
-        ..AuthConfig::default()
-    };
+    let mut auth = AuthConfig::default();
+    auth.enabled = Some(true);
+    auth.api_keys = names
+        .iter()
+        .map(|name| name.to_string())
+        .zip(values.iter().cloned())
+        .collect();
     let server = TestServer::with_rate_limit_clock(
         |config| {
             config.auth = Some(auth);

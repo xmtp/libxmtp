@@ -860,7 +860,7 @@ fn environment_references_resolve_once_in_every_string_position() {
     ))?;
     assert_eq!(config.telemetry.service_name, format!("env:{TARGET}"));
     assert_eq!(
-        config.into_config().auth?.audiences?,
+        config.into_config().auth?.audiences.take()?,
         vec!["xmtp.example.org".to_owned(), "literal".to_owned()]
     );
     let error = ValidatedConfig::load_str(&format!(

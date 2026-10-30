@@ -12746,6 +12746,7 @@ dependencies = [
  "xmtp_content_types",
  "xmtp_cryptography",
  "xmtp_proto",
+ "zeroize",
 ]
 
 [[package]]
@@ -12862,7 +12863,9 @@ dependencies = [
  "url",
  "xmtp_common",
  "xmtp_configuration",
+ "xmtp_cryptography",
  "xmtp_proto",
+ "zeroize",
 ]
 
 [[package]]

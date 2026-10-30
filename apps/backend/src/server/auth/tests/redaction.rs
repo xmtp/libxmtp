@@ -90,8 +90,8 @@ async fn every_rejection_is_counted_once_without_disclosing_token_data() {
     config.required_scopes = vec!["required".into()];
     config.audiences = Some(vec!["backend".into()]);
     config.issuers = Some(vec!["issuer".into()]);
-    let (value, api_config) = api_key("operator");
-    config.api_keys = api_config.api_keys;
+    let (value, mut api_config) = api_key("operator");
+    config.api_keys = std::mem::take(&mut api_config.api_keys);
     let wrong_value = api_key_value();
     let server = TestServer::new(|defaults| defaults.auth = Some(config.clone())).await?;
     let verifier = verifier(config);
