@@ -638,11 +638,6 @@ mock! {
             &self,
             message_id: &[u8],
         ) -> Result<(), StorageError>;
-
-        fn own_unprocessed_sync_messages(
-            &self,
-            installation_id: &[u8],
-        ) -> Result<Vec<crate::group_message::StoredGroupMessage>, StorageError>;
     }
 
     impl QueryRefreshState for DbQuery {

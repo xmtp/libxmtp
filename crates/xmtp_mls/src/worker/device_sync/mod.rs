@@ -13,10 +13,7 @@ use crate::{
 };
 use openmls::prelude::{BasicCredential, Member};
 use prost::Message;
-use std::{
-    collections::{HashMap, HashSet},
-    sync::Arc,
-};
+use std::{collections::HashMap, sync::Arc};
 use thiserror::Error;
 use tokio::sync::broadcast::error::RecvError;
 use tracing::instrument;
@@ -32,7 +29,7 @@ use xmtp_db::{
     consent_record::ConsentState,
     group::{GroupMembershipState, GroupQueryArgs},
     group_message::{DeliveryStatus, StoredGroupMessage},
-    sync_outbox::{OwedPage, owed_page},
+    sync_outbox::{OwedPage, clear_owed, owed_page},
 };
 use xmtp_db::{XmtpDb, group::ConversationType, prelude::*};
 use xmtp_events::EventWriter;
@@ -381,7 +378,7 @@ where
 
     /// Publish every owed value to the selected sync group, a page at
     /// a time. A page's marks clear only after the message carrying it is
-    /// published, in the transaction that settles its values.
+    /// published.
     // implements: SYNC-004, SYNC-024, SYNC-029, SYNC-033
     #[tracing::instrument(level = "debug", skip_all, fields(operation = "publish_outbox"))]
     pub(super) async fn publish_outbox(&self) -> Result<(), DeviceSyncError> {
@@ -389,7 +386,6 @@ where
         let max_bytes = (self.context.api().limits().max_envelope_bytes / 4).min(PAGE_BYTES);
         self.get_sync_group().await?;
         loop {
-            self.settle_published_outbox().await?;
             // Values first, target second. A sync Welcome that commits after
             // this read marks every key again, so the clear below skips them.
             // One that committed before it is already the selected group.
@@ -407,6 +403,9 @@ where
                     return Err(GroupError::InvalidGroupMembership.into());
                 }
             }
+            // One intent at a time: a page an earlier pass queued is
+            // published, or fails for good, before this one is queued.
+            group.sync_until_last_intent_resolved().await?;
             tracing::info!(
                 group_id = group.group_id.short_hex(),
                 "publishing owed preferences"
@@ -419,15 +418,16 @@ where
                 },
             )?;
             group.sync_until_last_intent_resolved().await?;
-            let mut sent = self
-                .db()
-                .get_group_message(&id)?
-                .ok_or(DeviceSyncError::OutboxPageUnpublished)?;
-            let plaintext = take_plaintext(&mut sent);
-            if sent.delivery_status != DeliveryStatus::Published {
+            // Only a published page clears its marks. Otherwise they stay
+            // owed, the pass backs off, and a later pass sends them again.
+            let status = self.db().get_group_message(&id)?.map(|mut sent| {
+                drop(take_plaintext(&mut sent));
+                sent.delivery_status
+            });
+            if status != Some(DeliveryStatus::Published) {
                 return Err(DeviceSyncError::OutboxPageUnpublished);
             }
-            self.apply_message(&sent, &plaintext, Some(&page))?;
+            clear_owed(&self.db(), &page)?;
             for _ in &page.consent {
                 self.metrics.increment_metric(SyncMetric::ConsentSent);
             }
@@ -442,34 +442,6 @@ where
     pub async fn sync_passes_for_test(&self) -> Result<(), DeviceSyncError> {
         self.publish_outbox().await?;
         self.process_sync_group_messages().await
-    }
-
-    /// A page an earlier pass queued is published, or fails for
-    /// good, before another is queued. Once it is published, store what its
-    /// receivers stored, even when its confirmation failed.
-    async fn settle_published_outbox(&self) -> Result<(), DeviceSyncError> {
-        let me = self.installation_id();
-        let mut own = with_plaintext(self.db().own_unprocessed_sync_messages(me.as_slice())?);
-        let queued: HashSet<GroupId> = own
-            .iter()
-            .filter(|(m, _)| m.delivery_status == DeliveryStatus::Unpublished)
-            .map(|(m, _)| m.group_id)
-            .collect();
-        if !queued.is_empty() {
-            for group_id in queued {
-                self.mls_store
-                    .group(&group_id)?
-                    .sync_until_last_intent_resolved()
-                    .await?;
-            }
-            own = with_plaintext(self.db().own_unprocessed_sync_messages(me.as_slice())?);
-        }
-        for (msg, plaintext) in own {
-            if self.settle_own_message(&msg, &plaintext)? {
-                return Err(DeviceSyncError::OutboxPageUnpublished);
-            }
-        }
-        Ok(())
     }
 
     /// Whether a leaf other than this installation's names an installation

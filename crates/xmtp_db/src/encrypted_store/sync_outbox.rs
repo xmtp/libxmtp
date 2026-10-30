@@ -3,15 +3,12 @@
 
 use super::{
     ConnectionExt,
-    consent_record::{ConsentWrite, Owed, StoredConsentRecord, parse_consent_save, write_consent},
+    consent_record::{Owed, StoredConsentRecord},
     schema::{consent_records::dsl, user_preferences::dsl as prefs},
     user_preferences::{RootKeyWrite, StoredUserPreferences, write_root_key},
 };
 use crate::{ConnectionError, DbQuery, StorageError, StoredSecret};
 use diesel::{dsl::exists, prelude::*, sql_types::BigInt};
-use xmtp_proto::xmtp::device_sync::content::{
-    PreferenceUpdate, preference_update::Update as UpdateProto,
-};
 
 /// A fresh owed mark.
 pub fn next_owed_seq(db: &impl ConnectionExt) -> Result<i64, ConnectionError> {
@@ -80,33 +77,6 @@ pub fn owed_page(
             .load(c)
     })?;
     Ok(OwedPage { root_key, consent })
-}
-
-/// After this installation's sync message carrying `updates` is published at
-/// `envelope_ns`, store what every receiver stored: each value more than a day
-/// after the envelope time is lowered to that limit while the key still holds
-/// it. Marks are unchanged.
-// implements: SYNC-034
-pub fn settle_sent(
-    db: &impl DbQuery,
-    updates: &[PreferenceUpdate],
-    envelope_ns: i64,
-) -> Result<(), StorageError> {
-    for update in updates.iter().filter_map(|update| update.update.as_ref()) {
-        match update {
-            UpdateProto::Consent(save) => {
-                if let Some((key, value)) = parse_consent_save(save) {
-                    let write = ConsentWrite::settle(value, envelope_ns);
-                    write_consent(db, &key, write, Owed::Keep)?;
-                }
-            }
-            UpdateProto::Hmac(hmac) => {
-                let write = RootKeyWrite::settle(&hmac.key, hmac.cycled_at_ns, envelope_ns);
-                write_root_key(db, write, Owed::Keep)?;
-            }
-        }
-    }
-    Ok(())
 }
 
 /// After the message carrying `page` is published, clear each key whose mark

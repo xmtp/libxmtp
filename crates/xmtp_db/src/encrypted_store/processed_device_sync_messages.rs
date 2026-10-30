@@ -127,11 +127,6 @@ pub trait QueryDeviceSyncMessages {
     ) -> Result<Vec<StoredGroupMessage>, StorageError>;
     /// Marks a device sync message as processed.
     fn mark_device_sync_msg_as_processed(&self, message_id: &[u8]) -> Result<(), StorageError>;
-    /// This installation's sync messages that are not processed yet.
-    fn own_unprocessed_sync_messages(
-        &self,
-        installation_id: &[u8],
-    ) -> Result<Vec<StoredGroupMessage>, StorageError>;
 }
 
 impl<T> QueryDeviceSyncMessages for &T
@@ -156,33 +151,9 @@ where
     fn mark_device_sync_msg_as_processed(&self, message_id: &[u8]) -> Result<(), StorageError> {
         (**self).mark_device_sync_msg_as_processed(message_id)
     }
-
-    fn own_unprocessed_sync_messages(
-        &self,
-        installation_id: &[u8],
-    ) -> Result<Vec<StoredGroupMessage>, StorageError> {
-        (**self).own_unprocessed_sync_messages(installation_id)
-    }
 }
 
 impl<C: ConnectionExt> QueryDeviceSyncMessages for DbConnection<C> {
-    fn own_unprocessed_sync_messages(
-        &self,
-        installation_id: &[u8],
-    ) -> Result<Vec<StoredGroupMessage>, StorageError> {
-        let processed = dsl::processed_device_sync_messages
-            .filter(dsl::message_id.eq(group_messages_dsl::id))
-            .filter(dsl::state.ne(DeviceSyncProcessingState::Pending));
-        let query = group_messages_dsl::group_messages
-            .inner_join(groups_dsl::groups.on(group_messages_dsl::group_id.eq(groups_dsl::id)))
-            .filter(groups_dsl::conversation_type.eq(ConversationType::Sync))
-            .filter(group_messages_dsl::sender_installation_id.eq(installation_id))
-            .filter(diesel::dsl::not(diesel::dsl::exists(processed)))
-            .order((group_messages_dsl::sent_at_ns, group_messages_dsl::id))
-            .select(StoredGroupMessage::as_select());
-        Ok(self.raw_query(|conn| query.load(conn))?)
-    }
-
     fn unprocessed_sync_group_messages(
         &self,
         after: Option<&SyncMessageKey>,

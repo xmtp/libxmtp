@@ -135,8 +135,6 @@ pub enum ConsentWrite {
     Decide(Decision),
     /// A record that carries its own time, capped at `bound_ns`.
     Merge { value: ConsentValue, bound_ns: i64 },
-    /// This installation published `sent`; store what its receivers stored.
-    Settle { sent: ConsentValue, bound_ns: i64 },
 }
 
 /// How far after its carrier's time a received consent or root-key time may be.
@@ -158,19 +156,11 @@ impl ConsentWrite {
             bound_ns: now_ns.saturating_add(MAX_AHEAD_NS),
         }
     }
-
-    /// A record this installation sent in a message the backend timed at `envelope_ns`.
-    pub fn settle(sent: ConsentValue, envelope_ns: i64) -> Self {
-        Self::Settle {
-            sent,
-            bound_ns: envelope_ns.saturating_add(MAX_AHEAD_NS),
-        }
-    }
 }
 
 /// Which value wins. No IO: the caller passes the stored value and the clock.
 /// None when the write changes nothing.
-// implements: CONS-053, CONS-054, CONS-055, CONS-056, CONS-057, SYNC-034
+// implements: CONS-053, CONS-054, CONS-055, CONS-056, CONS-057
 pub fn next_value(
     held: Option<ConsentValue>,
     write: ConsentWrite,
@@ -178,16 +168,6 @@ pub fn next_value(
 ) -> Option<ConsentValue> {
     use ConsentState::*;
     let incoming = match write {
-        // Lower the sender's own copy to what every receiver stored,
-        // only while the key still holds the sent value. It never raises a time.
-        ConsentWrite::Settle { sent, bound_ns } => {
-            return (held == Some(sent) && sent.consented_at_ns > bound_ns).then_some(
-                ConsentValue {
-                    consented_at_ns: bound_ns,
-                    ..sent
-                },
-            );
-        }
         ConsentWrite::Decide(decision) => {
             let state = match decision {
                 Decision::Set(state) => state,
@@ -221,8 +201,7 @@ pub fn next_value(
 pub enum Owed {
     /// Set a fresh mark: the change must reach the other installations.
     Mark,
-    /// Leave the mark as it was: the change came from the selected sync group,
-    /// or settles a value this installation published.
+    /// Leave the mark as it was: the change came from the selected sync group.
     Keep,
 }
 
@@ -618,7 +597,7 @@ where
 mod tests {
     use super::*;
     use crate::{
-        sync_outbox::{OwedPage, clear_owed, mark_all_owed, owed_page, settle_sent},
+        sync_outbox::{clear_owed, mark_all_owed, owed_page},
         test_utils::with_connection,
     };
     use ConsentState::*;
@@ -637,7 +616,7 @@ mod tests {
         }
     }
 
-    // verifies: CONS-053, CONS-054, CONS-055, CONS-056, CONS-057, SYNC-034
+    // verifies: CONS-053, CONS-054, CONS-055, CONS-056, CONS-057
     #[xmtp_common::test]
     fn next_value_rules() {
         let now = 1_000;
@@ -645,7 +624,6 @@ mod tests {
         let set = |state| ConsentWrite::Decide(Decision::Set(state));
         let created = ConsentWrite::Decide(Decision::Created);
         let sent = ConsentWrite::Decide(Decision::Sent);
-        let settle = |sent, bound_ns| ConsentWrite::Settle { sent, bound_ns };
         let cases: [(Option<ConsentValue>, ConsentWrite, Option<ConsentValue>); _] = [
             // A decision comes after the held time and the clock.
             (
@@ -704,17 +682,6 @@ mod tests {
                 },
                 None,
             ),
-            // Settle lowers only the exact held value above the bound.
-            (
-                Some(v(Denied, 500)),
-                settle(v(Denied, 500), 300),
-                Some(v(Denied, 300)),
-            ),
-            (Some(v(Denied, 501)), settle(v(Denied, 500), 300), None),
-            (Some(v(Allowed, 500)), settle(v(Denied, 500), 300), None),
-            (Some(v(Denied, 300)), settle(v(Denied, 300), 300), None),
-            (Some(v(Denied, 200)), settle(v(Denied, 200), 300), None),
-            (None, settle(v(Denied, 500), 300), None),
         ];
         for (index, (held, write, expected)) in cases.into_iter().enumerate() {
             assert_eq!(
@@ -859,50 +826,32 @@ mod tests {
         })?;
     }
 
-    /// The page as a sync message carries it.
-    fn sent(page: &OwedPage) -> Vec<xmtp_proto::xmtp::device_sync::content::PreferenceUpdate> {
-        use xmtp_proto::xmtp::device_sync::content::{PreferenceUpdate, preference_update::Update};
-        page.consent
-            .iter()
-            .map(|record| PreferenceUpdate {
-                update: Some(Update::Consent(record.clone().into())),
-            })
-            .collect()
-    }
-
-    fn settle_and_clear(conn: &impl DbQuery, page: &OwedPage, e0: i64) -> Result<(), StorageError> {
-        settle_sent(conn, &sent(page), e0)?;
-        Ok(clear_owed(conn, page)?)
-    }
-
-    /// A published page settles its values to the cap and clears only marks
-    /// it read; a key marked again while the page was in flight stays owed.
-    // verifies: SYNC-033, SYNC-034, SYNC-028
+    /// A published page clears only the marks it read; a key marked again
+    /// while the page was in flight stays owed, with its value unchanged.
+    // verifies: SYNC-033, SYNC-028
     #[xmtp_common::test(unwrap_try = true)]
-    fn sender_settles_to_the_cap() {
+    fn published_page_clears_only_marks_it_read() {
         with_connection(|conn| {
-            let e0 = 1_000_000;
-            let ahead = ConsentKey::inbox("ahead");
-            let near = ConsentKey::inbox("near");
+            let first = ConsentKey::inbox("first");
+            let second = ConsentKey::inbox("second");
             let decided = |key, value| write_consent(conn, key, merge(value), Owed::Mark);
-            decided(&ahead, v(Allowed, e0 + 2 * xmtp_common::NS_IN_DAY))?;
-            decided(&near, v(Denied, e0 + 5))?;
+            decided(&first, v(Allowed, 10))?;
+            decided(&second, v(Denied, 20))?;
             let page = owed_page(conn, 1_000, 256 * 1024)?;
             assert_eq!(page.consent.len(), 2);
-            settle_and_clear(conn, &page, e0)?;
-            let row = conn.consent_row(&ahead)?.unwrap();
-            assert_eq!(row.value(), v(Allowed, e0 + MAX_AHEAD_NS));
-            assert_eq!(row.owed_seq, 0);
-            assert_eq!(conn.consent_row(&near)?.unwrap().value(), v(Denied, e0 + 5));
+            clear_owed(conn, &page)?;
+            let row = conn.consent_row(&first)?.unwrap();
+            assert_eq!((row.value(), row.owed_seq), (v(Allowed, 10), 0));
+            assert_eq!(conn.consent_row(&second)?.unwrap().owed_seq, 0);
             assert!(owed_page(conn, 1_000, 256 * 1024)?.is_empty());
 
             // A newcomer's Welcome marks every key while a page is in flight.
-            decided(&ahead, v(Allowed, e0 + 3 * xmtp_common::NS_IN_DAY))?;
+            decided(&first, v(Allowed, 30))?;
             let page = owed_page(conn, 1_000, 256 * 1024)?;
             mark_all_owed(conn)?;
-            settle_and_clear(conn, &page, e0)?;
-            let row = conn.consent_row(&ahead)?.unwrap();
-            assert_eq!(row.value(), v(Allowed, e0 + MAX_AHEAD_NS));
+            clear_owed(conn, &page)?;
+            let row = conn.consent_row(&first)?.unwrap();
+            assert_eq!(row.value(), v(Allowed, 30));
             assert!(row.owed_seq > 0, "the newcomer's mark stays");
             let again = owed_page(conn, 1_000, 256 * 1024)?;
             assert_eq!(again.consent.len(), 2);

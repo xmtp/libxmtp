@@ -31,6 +31,8 @@ In scope: consent states, keys, the wire form, which record wins, what the clien
 
 Out of scope: how records travel and when they are published (`SYNC`), the dm id and the peer of a DM (`DMS`), stream delivery (`PROC`), push (`PUSH`), readd requests (FORK-053, FORK-080), and the archive container (`ARCH`).
 
+A device clock that is more than a day off is out of scope.
+
 | Related | Relation |
 | --- | --- |
 | `SYNC` | Carries records between installations. SYNC-027 marks the changes to publish. |
@@ -156,7 +158,7 @@ Before 8.0, a DM's consent was its group's record, and inbox records decided no 
 
 Two installations that decide on one key without seeing each other's decision are ordered by their clocks. The decision made later in real time loses when its installation's clock is behind.
 
-An installation whose clock is more than a day fast stores its decisions at its clock until they are published; after that it keeps the time its receivers stored (SYNC-034). A compromised own installation can store a record up to a day after its message's envelope time before it is revoked; the user's next decision replaces it. An archive carrying a time more than a day ahead of the import is capped at the importing clock, so importing it again later can raise that record above a decision made in between.
+A compromised own installation can store a record up to a day after its message's envelope time before it is revoked; the user's next decision replaces it.
 
 A join stores nothing. When another inbox removes the user from a group and adds the user back, or a former member builds a second MLS group under its id (JOIN-083), the conversation keeps the user's earlier decision, including an allow.
 

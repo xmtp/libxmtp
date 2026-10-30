@@ -188,9 +188,9 @@ async fn thousand_local_consent_changes_publish_once_without_echo() {
     tester!(alix1, sync_worker);
     tester!(alix2, from: alix1);
     alix1.test_has_same_sync_group_as(&alix2).await?;
-    let settled =
+    let drained =
         async || !has_owed(&alix1.context.db()).unwrap() && !has_owed(&alix2.context.db()).unwrap();
-    until(settled).await;
+    until(drained).await;
     alix1.worker().clear_metric(SyncMetric::ConsentSent);
     alix2.worker().clear_metric(SyncMetric::ConsentSent);
 
@@ -206,7 +206,7 @@ async fn thousand_local_consent_changes_publish_once_without_echo() {
         alix1.set_consent_states(&[act]).await?;
     }
     until(async || keys.iter().all(|key| held(&alix2, key).is_some())).await;
-    until(settled).await;
+    until(drained).await;
     assert_eq!(alix1.worker().get(SyncMetric::ConsentSent), 1_000);
     assert_eq!(
         alix2.worker().get(SyncMetric::ConsentSent),
@@ -1435,70 +1435,26 @@ async fn clock_set_back_still_selects_newcomer_group() {
     assert_eq!(held(&alix2, &key), held(&alix1, &key));
 }
 
-/// A decision from a clock two days fast is stored at its envelope time plus
-/// a day on every installation, the sender included, so a later decision
-/// elsewhere wins everywhere and a newcomer's replay keeps it.
-// verifies: CONS-054, CONS-055, SYNC-034, SYNC-028
+/// A page the backend accepted but whose confirmation failed keeps its
+/// marks, so the next pass sends its values again and only then clears them.
+// verifies: SYNC-033
 #[xmtp_common::test(unwrap_try = true)]
 #[cfg_attr(target_arch = "wasm32", ignore)]
-async fn fast_clock_decision_is_capped_not_lost() {
-    tester!(alix1, disable_workers);
-    tester!(alix2, from: alix1, disable_workers);
-    join_sync_group(&alix2, &[&alix1]).await?;
-    let x = ConsentKey::inbox("fast-clock");
-    let fast = now_ns() + 2 * NS_IN_DAY;
-    decide_at(&alix1, &x, ConsentState::Denied, fast)?;
-    publish(&alix1).await?;
-    receive(&alix2).await?;
-    let capped = held(&alix2, &x).unwrap();
-    assert_eq!(capped.state, ConsentState::Denied);
-    assert!(capped.consented_at_ns < fast);
-    assert_eq!(
-        held(&alix1, &x),
-        Some(capped),
-        "the sender stores what receivers store"
-    );
-    assert_eq!(alix1.context.db().consent_row(&x)?.unwrap().owed_seq, 0);
-
-    let allow = ConsentAct::new(
-        ConsentType::InboxId,
-        ConsentState::Allowed,
-        x.entity.clone(),
-    );
-    alix2.set_consent_states(&[allow]).await?;
-    assert_eq!(
-        held(&alix2, &x).unwrap().consented_at_ns,
-        capped.consented_at_ns + 1
-    );
-    publish(&alix2).await?;
-    receive(&alix1).await?;
-    assert_eq!(held(&alix1, &x), held(&alix2, &x));
-
-    // A newcomer joins later, and both peers replay.
-    tester!(alix3, from: alix1, disable_workers);
-    alix3.device_sync_client().get_sync_group().await?;
-    for peer in [&alix1, &alix2] {
-        peer.sync_welcomes().await?;
-        publish(peer).await?;
-    }
-    for client in [&alix3, &alix1, &alix2] {
-        receive(client).await?;
-        assert_eq!(held(client, &x).unwrap().state, ConsentState::Allowed);
-    }
-}
-
-/// A page the backend accepted but whose confirmation failed is settled
-/// before the next page is read, so sending it again cannot raise its time
-/// over a decision made elsewhere in between.
-// verifies: SYNC-034, SYNC-033
-#[xmtp_common::test(unwrap_try = true)]
-#[cfg_attr(target_arch = "wasm32", ignore)]
-async fn unconfirmed_publish_is_settled_before_the_retry() {
+async fn unconfirmed_page_stays_owed_until_sent_again() {
     tester!(alix1, disable_workers);
     tester!(alix2, from: alix1, disable_workers);
     join_sync_group(&alix2, &[&alix1]).await?;
     let x = ConsentKey::inbox("unconfirmed");
-    decide_at(&alix1, &x, ConsentState::Denied, now_ns() + 2 * NS_IN_DAY)?;
+    decide_at(&alix1, &x, ConsentState::Denied, now_ns())?;
+    let owed = || {
+        alix1
+            .context
+            .db()
+            .consent_row(&x)
+            .unwrap()
+            .unwrap()
+            .owed_seq
+    };
     // The page is published, but its confirmation fails.
     let page = owed_page(&alix1.context.db(), PAGE_UPDATES, PAGE_BYTES)?;
     let group = alix1.device_sync_client().primary_sync_group()?.unwrap();
@@ -1510,23 +1466,11 @@ async fn unconfirmed_publish_is_settled_before_the_retry() {
         },
     )?;
     group.publish_intents_unconfirmed().await?;
-    // alix2 stores the capped value, then allows after it.
-    receive(&alix2).await?;
-    let capped = held(&alix2, &x).unwrap();
-    let allow = ConsentAct::new(
-        ConsentType::InboxId,
-        ConsentState::Allowed,
-        x.entity.clone(),
-    );
-    alix2.set_consent_states(&[allow]).await?;
-    publish(&alix2).await?;
-    // alix1's next pass settles the accepted page first, then sends X again.
+    assert!(owed() > 0, "an unconfirmed page clears nothing");
     publish(&alix1).await?;
-    assert_eq!(held(&alix1, &x), Some(capped));
+    assert_eq!(owed(), 0);
     receive(&alix2).await?;
-    assert_eq!(held(&alix2, &x).unwrap().state, ConsentState::Allowed);
-    receive(&alix1).await?;
-    assert_eq!(held(&alix1, &x), held(&alix2, &x));
+    assert_eq!(held(&alix2, &x), held(&alix1, &x));
 }
 
 /// The revocation's root key is timed a day after the revocation's server

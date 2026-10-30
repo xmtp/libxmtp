@@ -25,11 +25,7 @@ use xmtp_common::time::Instant;
 use xmtp_db::group_message::{DeliveryStatus, StoredGroupMessage};
 use xmtp_db::prelude::*;
 use xmtp_db::processed_device_sync_messages::SyncMessageKey;
-use xmtp_db::{
-    StorageError,
-    TransactionOutcome::Continue,
-    sync_outbox::{OwedPage, clear_owed, has_owed, settle_sent},
-};
+use xmtp_db::{StorageError, TransactionOutcome::Continue, sync_outbox::has_owed};
 use xmtp_events::Subscription;
 use xmtp_id::associations::{AssociationState, IdentityAction, verify_updates};
 use xmtp_macro::log_event;
@@ -374,12 +370,10 @@ impl<Context> DeviceSyncClient<Context>
 where
     Context: XmtpSharedContext,
 {
-    /// Apply every unprocessed sync message. A peer's message is applied when
-    /// its sender was an own installation at its envelope time; this
-    /// installation's own published message is settled.
+    /// Apply every unprocessed sync message whose sender was an own
+    /// installation at its envelope time.
     // implements: SYNC-016, SYNC-030
     pub(super) async fn process_sync_group_messages(&self) -> Result<(), DeviceSyncError> {
-        let installation_id = self.installation_id();
         let mut after = None;
         loop {
             let page = self
@@ -400,26 +394,34 @@ where
             // every row Pending, and the pass backs off.
             let own = OwnTimeline::load(&self.context).await?;
             for (msg, plaintext) in page {
-                let result = if msg.sender_installation_id == installation_id.as_slice() {
-                    self.settle_own_message(&msg, &plaintext).map(drop)
-                } else {
-                    match own.sender_status(self.context.inbox_id(), &msg) {
-                        Sender::Member => self.apply_message(&msg, &plaintext, None),
-                        Sender::Gone => {
-                            tracing::warn!(
-                                group_id = msg.group_id.short_hex(),
-                                "dropping a sync message whose sender was not an own installation when it sent"
-                            );
-                            self.context
-                                .db()
-                                .mark_device_sync_msg_as_processed(&msg.id)?;
-                            continue;
-                        }
-                        // Its registration is not loaded yet: read it again later.
-                        Sender::NotYetKnown => continue,
+                // Only this installation's own messages are not yet published,
+                // or failed for good; neither has an envelope time to judge.
+                match msg.delivery_status {
+                    DeliveryStatus::Unpublished => continue,
+                    DeliveryStatus::Failed => {
+                        self.context
+                            .db()
+                            .mark_device_sync_msg_as_processed(&msg.id)?;
+                        continue;
                     }
-                };
-                if let Err(err) = result {
+                    DeliveryStatus::Published => {}
+                }
+                match own.sender_status(self.context.inbox_id(), &msg) {
+                    Sender::Member => {}
+                    Sender::Gone => {
+                        tracing::warn!(
+                            group_id = msg.group_id.short_hex(),
+                            "dropping a sync message whose sender was not an own installation when it sent"
+                        );
+                        self.context
+                            .db()
+                            .mark_device_sync_msg_as_processed(&msg.id)?;
+                        continue;
+                    }
+                    // Its registration is not loaded yet: read it again later.
+                    Sender::NotYetKnown => continue,
+                }
+                if let Err(err) = self.apply_message(&msg, &plaintext) {
                     // implements: SYNC-016 (a storage error leaves the row Pending for the next pass)
                     // A failed message is non-fatal, but a dropped pool must stop the worker.
                     if err.needs_db_reconnect() {
@@ -436,36 +438,13 @@ where
         }
     }
 
-    /// Settle a sync message this installation sent: once the backend times
-    /// it, apply it like a peer's and settle; once it fails for good, mark it
-    /// processed and its values stay owed. Returns whether it is still
-    /// unpublished.
-    pub(super) fn settle_own_message(
-        &self,
-        msg: &StoredGroupMessage,
-        plaintext: &[u8],
-    ) -> Result<bool, DeviceSyncError> {
-        match msg.delivery_status {
-            DeliveryStatus::Unpublished => return Ok(true),
-            DeliveryStatus::Failed => self
-                .context
-                .db()
-                .mark_device_sync_msg_as_processed(&msg.id)?,
-            DeliveryStatus::Published => self.apply_message(msg, plaintext, None)?,
-        }
-        Ok(false)
-    }
-
-    /// Apply one sync message like a peer's and mark it processed, in one
-    /// transaction. This installation's own published message is also settled
-    /// to what its receivers stored, and the marks of `page`, the
-    /// page it carried, are cleared. Content this client does not
-    /// support, such as older archive transfer content, is marked processed.
+    /// Apply one sync message and mark it processed, in one transaction.
+    /// Content this client does not support, such as older archive transfer
+    /// content, is marked processed.
     pub(super) fn apply_message(
         &self,
         msg: &StoredGroupMessage,
         plaintext: &[u8],
-        page: Option<&OwedPage>,
     ) -> Result<(), DeviceSyncError> {
         let content = decode_sync_message(plaintext);
         let own = msg.sender_installation_id == self.installation_id().as_slice();
@@ -505,12 +484,6 @@ where
                 let db = storage.db();
                 let applied =
                     apply_preference_updates(&db, self.context.inbox_id(), msg, updates, selected)?;
-                if own {
-                    settle_sent(&db, updates, msg.sent_at_ns)?;
-                }
-                if let Some(page) = page {
-                    clear_owed(&db, page)?;
-                }
                 emit_consent_changes(&self.context, events, &db, &applied.consent)?;
                 if let Some(marked) = applied.root_key {
                     emit_root_key_changed(events, &db, marked)?;

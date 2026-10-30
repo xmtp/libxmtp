@@ -106,12 +106,6 @@ pub enum RootKeyWrite<'a> {
         cycled_at_ns: i64,
         bound_ns: i64,
     },
-    /// This installation published this key; store what its receivers stored.
-    Settle {
-        key: &'a [u8],
-        cycled_at_ns: i64,
-        bound_ns: i64,
-    },
 }
 
 impl RootKeyWrite<'_> {
@@ -138,19 +132,10 @@ impl<'a> RootKeyWrite<'a> {
             bound_ns: envelope_ns.saturating_add(MAX_AHEAD_NS),
         }
     }
-
-    /// A key this installation sent in a message the backend timed at `envelope_ns`.
-    pub fn settle(key: &'a [u8], cycled_at_ns: i64, envelope_ns: i64) -> Self {
-        Self::Settle {
-            key,
-            cycled_at_ns,
-            bound_ns: envelope_ns.saturating_add(MAX_AHEAD_NS),
-        }
-    }
 }
 
 /// The only function that writes the root key. `true` when the key changed.
-// implements: SYNC-026, SYNC-027, SYNC-032, SYNC-034
+// implements: SYNC-026, SYNC-027, SYNC-032
 pub fn write_root_key(
     db: &impl DbQuery,
     write: RootKeyWrite<'_>,
@@ -165,20 +150,6 @@ pub fn write_root_key(
                 let after_held = held_at.map_or(i64::MIN, |t| t.saturating_add(1));
                 let at_ns = now_ns().max(after_held).max(not_before_ns);
                 (HmacKey::random_key(), at_ns)
-            }
-            // Only the exact key and time this installation sent, and only downward.
-            RootKeyWrite::Settle {
-                key,
-                cycled_at_ns,
-                bound_ns,
-            } => {
-                if held_key != Some(key)
-                    || held_at != Some(cycled_at_ns)
-                    || cycled_at_ns <= bound_ns
-                {
-                    return Ok(false);
-                }
-                (Secret::new(key.to_vec()), bound_ns)
             }
             RootKeyWrite::Received {
                 key,
@@ -423,9 +394,8 @@ mod tests {
     }
 
     /// A cycle comes after the held key and, for a revocation, a day after
-    /// its server time; a received key is capped at its envelope plus a day;
-    /// a settle lowers only the exact key this installation sent.
-    // verifies: SYNC-026, SYNC-027, SYNC-032, SYNC-034
+    /// its server time; a received key is capped at its envelope plus a day.
+    // verifies: SYNC-026, SYNC-027, SYNC-032
     #[xmtp_common::test(unwrap_try = true)]
     fn root_key_rules() {
         crate::test_utils::with_connection(|conn| {
@@ -464,40 +434,6 @@ mod tests {
             assert!(write_root_key(conn, received, Owed::Keep)?);
             assert_eq!(held(conn)?.hmac_key_cycled_at_ns, Some(far + MAX_AHEAD_NS));
 
-            // Settle: only the exact sent key and time, only downward, mark kept.
-            let mark = held(conn)?.hmac_key_owed_seq;
-            fn settle(key: &[u8], cycled_at_ns: i64, bound_ns: i64) -> RootKeyWrite<'_> {
-                RootKeyWrite::Settle {
-                    key,
-                    cycled_at_ns,
-                    bound_ns,
-                }
-            }
-            let sent_at = far + MAX_AHEAD_NS;
-            assert!(!write_root_key(
-                conn,
-                settle(&[3; 42], sent_at, far),
-                Owed::Keep
-            )?);
-            assert!(!write_root_key(
-                conn,
-                settle(&[2; 42], sent_at + 1, far),
-                Owed::Keep
-            )?);
-            assert!(!write_root_key(
-                conn,
-                settle(&[2; 42], sent_at, sent_at),
-                Owed::Keep
-            )?);
-            assert!(write_root_key(
-                conn,
-                settle(&[2; 42], sent_at, far),
-                Owed::Keep
-            )?);
-            let settled = held(conn)?;
-            assert_eq!(settled.hmac_key, Some(vec![2; 42].into()));
-            assert_eq!(settled.hmac_key_cycled_at_ns, Some(far));
-            assert_eq!(settled.hmac_key_owed_seq, mark);
             Ok::<_, StorageError>(())
         })?;
     }
