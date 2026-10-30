@@ -145,7 +145,7 @@ neutral:
   - ".github/**/*.md"
   - "{README,CONTRIBUTING,ONBOARDING,TEST_SCENARIOS}.md"
   - "{LICENSE,.envrc,.gitignore,.git-blame-ignore-revs,.gitattributes,.dockerignore,codecov.yml,cliff.toml}"
-  - "{.agents,.claude,.codex,.macroscope,.murmur,.vscode,.zed}/**"
+  - "{.agents,.capy,.claude,.codex,.macroscope,.murmur,.vscode,.zed}/**"
   - "{img,diagrams}/**"
   - "apps/.gitkeep"
   - ".github/{CODEOWNERS,dependabot.yml}"

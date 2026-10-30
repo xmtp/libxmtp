@@ -1,0 +1,49 @@
+{
+  "$schema": "https://api.capy.ai/schemas/setup.v1.json",
+  "format_version": 1,
+  "scripts": {
+    "initialize": "bash .capy/initialize.sh",
+    "refresh": "bash .capy/refresh.sh"
+  },
+  "timeouts": {
+    "initialize": 3600,
+    "refresh": 900
+  },
+  "startup": [
+    {
+      "name": "databases",
+      "command": "bash .capy/startup.sh",
+      "timeout": 300
+    }
+  ],
+  "commands": [
+    {
+      "name": "check",
+      "command": "dev/nix-shell 'just check'"
+    },
+    {
+      "name": "test",
+      "command": "dev/nix-shell 'just backend up && just test'"
+    },
+    {
+      "name": "lint",
+      "command": "dev/nix-shell 'just lint'"
+    },
+    {
+      "name": "test-dev",
+      "command": "dev/nix-shell 'just test dev'"
+    },
+    {
+      "name": "backend-up",
+      "command": "dev/nix-shell 'just backend up'"
+    },
+    {
+      "name": "backend-status",
+      "command": "dev/nix-shell 'just backend status'"
+    },
+    {
+      "name": "backend-down",
+      "command": "dev/nix-shell 'just backend down'"
+    }
+  ]
+}
