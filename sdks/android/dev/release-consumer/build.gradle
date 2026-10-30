@@ -1,0 +1,69 @@
+buildscript {
+    configurations.classpath.resolutionStrategy.activateDependencyLocking()
+    dependencyLocking { lockMode = LockMode.STRICT }
+}
+
+plugins {
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.android'
+}
+
+apply from: 'gradle/android-ndk.gradle'
+
+dependencyLocking {
+    lockAllConfigurations()
+    lockMode = LockMode.STRICT
+    ignoredDependencies.add('org.xmtp:android')
+}
+
+def frozenVersion = providers.gradleProperty('xmtpVersion').get()
+def pins = new Properties()
+file('gradle/toolchain.properties').withInputStream { pins.load(it) }
+
+android {
+    namespace 'org.xmtp.releaseconsumer'
+    compileSdk 35
+    defaultConfig {
+        applicationId 'org.xmtp.releaseconsumer'
+        minSdk 23
+        targetSdk 35
+        testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
+        buildConfigField 'String', 'EXPECTED_VERSION', "\"${frozenVersion}\""
+    }
+    buildFeatures { buildConfig true }
+    compileOptions {
+        coreLibraryDesugaringEnabled true
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    kotlinOptions { jvmTarget = '17' }
+}
+
+dependencies {
+    implementation "org.xmtp:android:${frozenVersion}"
+    coreLibraryDesugaring "com.android.tools:desugar_jdk_libs:${pins.getProperty('desugar')}"
+    androidTestImplementation 'androidx.test.ext:junit:1.1.5'
+    androidTestImplementation 'androidx.test:runner:1.5.2'
+}
+
+def verifyRetainedArtifact = tasks.register('verifyRetainedArtifact') {
+    doLast {
+        def artifacts = configurations.debugRuntimeClasspath.resolvedConfiguration.resolvedArtifacts
+        def sdk = artifacts.findAll { it.moduleVersion.id.group == 'org.xmtp' && it.moduleVersion.id.name == 'android' }
+        if (sdk.size() != 1 || sdk.first().moduleVersion.id.version != frozenVersion) {
+            throw new GradleException("Expected only org.xmtp:android:${frozenVersion}, got ${sdk}")
+        }
+        def retained = file("${providers.gradleProperty('xmtpRepository').get()}/org/xmtp/android/${frozenVersion}/android-${frozenVersion}.aar")
+        def digest = { file -> java.security.MessageDigest.getInstance('SHA-256').digest(file.bytes).encodeHex().toString() }
+        if (digest(sdk.first().file) != digest(retained)) {
+            throw new GradleException('Resolved AAR differs from the retained publication')
+        }
+        def components = configurations.debugRuntimeClasspath.incoming.resolutionResult.allComponents
+        ['net.java.dev.jna:jna', 'androidx.lifecycle:lifecycle-process', 'org.jetbrains.kotlinx:kotlinx-coroutines-core'].each { coordinate ->
+            if (!components.any { it.moduleVersion && "${it.moduleVersion.group}:${it.moduleVersion.name}" == coordinate }) {
+                throw new GradleException("Publication is missing runtime dependency ${coordinate}")
+            }
+        }
+    }
+}
+tasks.named('preBuild').configure { dependsOn verifyRetainedArtifact }

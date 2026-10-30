@@ -67,6 +67,9 @@ test-integration: build
 test-min-sdk:
   {{ _env }} && ./dev/bindings --release && NIX_ANDROID_EMULATOR_API=23 run-test-emulator -- ./gradlew -p . :library:assembleRelease :library:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=uniffi.xmtp_sdk.AndroidPackageTest\#generatedTimestampsLoadAndConvertWithDesugaring,uniffi.xmtp_sdk.AndroidPackageTest\#contextFactoryPreservesExplicitAndInMemoryStorage,uniffi.xmtp_sdk.AndroidPackageTest\#cancelledCollectorReplaysTheUnacknowledgedMessage ${CI:+--build-cache} --dependency-verification strict --no-daemon
 
+test-release-repository version:
+  NIX_ANDROID_EMULATOR_API=23 run-test-emulator -- python3 -B ./dev/check-release-consumer.py "{{ root }}/target/release/android/repository" "{{ version }}"
+
 # Check that the negative consumers in library/src/test/negative do not compile.
 check-consumers: build
   ./dev/check-consumers

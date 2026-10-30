@@ -268,10 +268,29 @@ jobs:
       - name: Prepare the Maven publication without uploading
         env:
           XMTP_RELEASE_SOURCE_SHA: ${{ inputs.source-sha }}
+          VERSION: ${{ inputs.version }}
         run: |
           dev/nix-shell 'cd sdks/android && ./gradlew publishReleasePublicationToReleaseRepository'
-          dev/nix-shell 'python3.11 sdks/android/dev/check-native-packages.py --require-all-abis sdks/android/library/build/outputs/aar/library-release.aar'
+          dev/nix-shell 'python3.11 sdks/android/dev/check-native-packages.py --require-all-abis "target/release/android/repository/org/xmtp/android/$VERSION/android-$VERSION.aar"'
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Verify the retained Maven publication on Android API 23
+        timeout-minutes: 30
+        env:
+          VERSION: ${{ inputs.version }}
+          NIX_DEVSHELL: android-ci-emulator
+          NIX_ANDROID_EMULATOR_LOG_DIR: ${{ runner.temp }}/android-release-consumer-startup
+          NIX_ANDROID_EMULATOR_FLAGS: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -memory 3072 -partition-size 8192 -verbose
+            -show-kernel
+        run: dev/nix-shell 'just android test-release-repository "$VERSION"'
       - name: Verify the installed Android native version
+        env:
+          NIX_ANDROID_EMULATOR_LOG_DIR: ${{ runner.temp }}/android-api23-emulator-startup
+          NIX_ANDROID_EMULATOR_FLAGS: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -memory 3072 -partition-size 8192 -verbose
+            -show-kernel
         run: dev/nix-shell 'NIX_DEVSHELL=android just backend ci just android test-min-sdk'
       - name: Seal the checked Maven publication
         run: |
