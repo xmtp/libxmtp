@@ -1023,7 +1023,10 @@ fn request_budget_fits_a_full_notification_batch() {
         config.clone().validate()?;
     }
     config.limits.max_request_bytes = required - 1;
-    assert_invalid(config.validate(), "limits.max_request_bytes");
+    assert_invalid(config.clone().validate(), "limits.max_request_bytes");
+    config.limits.max_response_bytes = 65_536 + ENVELOPE_METADATA_AND_FRAMING_BYTES;
+    let error = assert_invalid(config.validate(), "limits.max_request_bytes");
+    assert!(error.to_string().contains("limits.max_response_bytes"));
 }
 
 fn assert_control_budget(adds: usize, statics: usize, required: usize) {

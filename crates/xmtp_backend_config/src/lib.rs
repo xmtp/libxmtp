@@ -1013,14 +1013,19 @@ impl LimitsConfig {
         ] {
             at_most_u32(value as u64, field)?;
         }
+        let required = subscription_control_bytes(self.max_update_adds, 11)
+            .max(subscription_control_bytes(self.max_static_topics, 6));
         if self.max_request_bytes < NOTIFICATION_BATCH_MAX_BYTES {
             return Err(invalid(
                 "limits.max_request_bytes",
-                "must fit a full notification subscription batch",
+                if self.max_response_bytes < required {
+                    "must fit a full notification subscription batch; \
+                     limits.max_response_bytes must fit complete subscription control frames"
+                } else {
+                    "must fit a full notification subscription batch"
+                },
             ));
         }
-        let required = subscription_control_bytes(self.max_update_adds, 11)
-            .max(subscription_control_bytes(self.max_static_topics, 6));
         if self.max_response_bytes < required {
             return Err(invalid(
                 "limits.max_response_bytes",
