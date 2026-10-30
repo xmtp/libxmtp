@@ -348,7 +348,6 @@ impl XmtpError {
             message,
         ))
     }
-
     pub(crate) fn unknown(error: impl std::fmt::Display) -> Self {
         Self::Unknown(ErrorDetails {
             code: "Unknown".into(),
@@ -358,7 +357,6 @@ impl XmtpError {
             stream_failure: None,
         })
     }
-
     /// Map a core failure to the public code of its recovery action.
     // implements: CONF-064
     pub(crate) fn from_core<E: CoreError>(error: E) -> Self {
@@ -366,7 +364,6 @@ impl XmtpError {
             .unwrap_or_else(|| Self::unclassified(&error))
             .with_stream_failure(&error)
     }
-
     /// `Unknown` keeps the retry policy of a typed core error; with none, it
     /// is not retryable.
     fn unclassified(error: &(dyn std::error::Error + 'static)) -> Self {
@@ -377,7 +374,6 @@ impl XmtpError {
             error.to_string(),
         ))
     }
-
     fn typed_retryable(error: &(dyn std::error::Error + 'static)) -> Option<bool> {
         use xmtp_common::RetryableError;
         use xmtp_mls::{
@@ -409,7 +405,6 @@ impl XmtpError {
             .downcast_ref::<xmtp_db::StorageError>()
             .map(RetryableError::is_retryable)
     }
-
     fn classify(error: &(dyn std::error::Error + 'static)) -> Option<Self> {
         // A failed check before the request wins: the request was not sent,
         // and the check's own cause names the action. The search also opens
@@ -426,7 +421,6 @@ impl XmtpError {
         }
         None
     }
-
     fn classify_one(error: &(dyn std::error::Error + 'static)) -> Option<Self> {
         use xmtp_db::consent_record::ConsentActError as Act;
         use xmtp_mls::groups::GroupError;
