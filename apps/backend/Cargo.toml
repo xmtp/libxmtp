@@ -22,6 +22,7 @@ test-utils = [
   "xmtp_logging/test-utils",
   "xmtp_mls_validation/test-utils",
   "xmtp_proto/grpc_client_impls",
+  "xmtp_rate_limit/test-utils",
 ]
 
 [dependencies]
@@ -52,6 +53,7 @@ hyper-util = { workspace = true, features = [
   "http2",
   "tokio",
 ] }
+ipnet.workspace = true
 jsonwebtoken = { version = "10", default-features = false, features = [
   "rust_crypto",
   "use_pem",
@@ -106,6 +108,7 @@ xmtp_mls_common.workspace = true
 xmtp_mls_validation.workspace = true
 xmtp_proto = { workspace = true, features = ["grpc_server_impls"] }
 xmtp_push_types.workspace = true
+xmtp_rate_limit.workspace = true
 
 [dev-dependencies]
 h2 = "0.4"
@@ -128,6 +131,7 @@ xmtp_id = { workspace = true, features = ["test-utils"] }
 xmtp_logging = { workspace = true, features = ["test-utils"] }
 xmtp_mls_validation = { workspace = true, features = ["test-utils"] }
 xmtp_proto = { workspace = true, features = ["grpc_client_impls"] }
+xmtp_rate_limit = { workspace = true, features = ["test-utils"] }
 
 [lints]
 workspace = true

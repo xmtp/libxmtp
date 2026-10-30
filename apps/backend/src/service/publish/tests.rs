@@ -1,5 +1,6 @@
 use crate::test_support as support;
 
+mod charges;
 mod identity_history_cost;
 mod signatures;
 mod transport;
@@ -203,11 +204,12 @@ async fn failed_batch_leaves_new_topics_empty_and_reports_first_original_error()
     let server = TestServer::new(|_| {}).await?;
     let retained = inline_welcome_envelope([3; 32]);
     server.publish(vec![retained.clone()]).await?;
+    // Two envelopes fail validation; the lower one is reported.
     let request = api::PublishRequest {
         envelopes: vec![
             retained,
             expired_key_package_envelope().envelope,
-            api::ClientEnvelope::default(),
+            expired_key_package_envelope().envelope,
             inline_welcome_envelope([4; 32]),
         ],
     };
@@ -274,10 +276,18 @@ async fn publish_errors_keep_the_original_index_for_each_validation_reason() {
     ];
     for (bad, reason) in cases {
         let good = inline_welcome_envelope([70; 32]);
+        // The envelope after the bad one fails validation. The bad one is
+        // reported either way: as a parse failure, which is found first, or
+        // as the lower of two validation failures.
         let error = server
             .publisher()
             .publish(api::PublishRequest {
-                envelopes: vec![good.clone(), good, bad, api::ClientEnvelope::default()],
+                envelopes: vec![
+                    good.clone(),
+                    good,
+                    bad,
+                    expired_key_package_envelope().envelope,
+                ],
             })
             .await
             .unwrap_err();

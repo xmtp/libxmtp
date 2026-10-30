@@ -15,8 +15,10 @@ use xmtp_proto::types::{Topic, TopicKind};
 
 use crate::{
     Backend, api,
+    config::Category,
     db::{PushChannel, PushRecipientRecord, PushSubscriptionRecord, RecipientStateRecord},
     error::Error,
+    server::rate_limit::Charger,
 };
 
 const IDENTITY_BYTES: usize = 32;
@@ -80,13 +82,20 @@ impl api::notification_service_server::NotificationService for Backend {
         Ok(Response::new(api::UnregisterResponse {}))
     }
 
+    /// Each topic added is charged one `push` unit after the request's
+    /// identity is checked and before the recipient is read, so a request
+    /// over its caller's limit is refused the same way whether or not its
+    /// recipient exists.
     #[xmtp_common::rpc_span]
+    // implements: RATE-010
     async fn update_subscriptions(
         &self,
         request: Request<api::UpdateSubscriptionsRequest>,
     ) -> Result<Response<api::RecipientState>, Status> {
+        let charger = Charger::of(&request);
         let mut request = request.into_inner();
         let hash = identity(&request.recipient_id, &request.recipient_secret)?;
+        charger.charge(Category::Push, request.adds.len()).await?;
         let recipient = self
             .store
             .load_recipient(&request.recipient_id)

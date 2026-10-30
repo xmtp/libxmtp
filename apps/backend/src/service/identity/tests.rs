@@ -437,6 +437,75 @@ async fn scw_verify_request_rejects_unverifiable_inputs_before_verification() {
     server.stop().await?;
 }
 
+/// A request's `chain_verify` spend, one per entry or one for none, follows
+/// the checks of its entries and precedes every chain call, so a denied
+/// request calls no chain.
+// verifies: RATE-010, RATE-011
+#[xmtp_common::test(unwrap_try = true)]
+async fn scw_verification_spends_a_chain_unit_per_entry_before_any_call() {
+    use crate::test_support::{rate_limit_delay, rate_limits};
+    const ACCOUNT: &str = "eip155:1:0x1111111111111111111111111111111111111111";
+    let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let server = TestServer::with_verifier(
+        |config| {
+            config.rate_limits = rate_limits(
+                "max_memory_mib = 1\n\
+                 [categories.chain_verify]\nip = [{ count = 3, window_seconds = 3600 }]",
+            )
+        },
+        CountingVerifier(calls.clone()),
+        TestChain::at(1),
+    )
+    .await?;
+    // Distinct hashes, so the cache answers none of them.
+    let entry = |hash: u8, account_id: &str| {
+        api::verify_smart_contract_wallet_signatures_request::Signature {
+            account_id: account_id.into(),
+            hash: vec![hash; 32],
+            signature: vec![1; 65],
+            block_number: Some(1),
+        }
+    };
+    let verify = async |signatures| {
+        server
+            .identity()
+            .verify_smart_contract_wallet_signatures(
+                api::VerifySmartContractWalletSignaturesRequest { signatures },
+            )
+            .await
+    };
+    // An unverifiable entry fails the request before its spend.
+    let unverifiable = entry(9, "eip155:1:0x0000000000000000000000000000000000000000");
+    assert_eq!(
+        verify(vec![entry(1, ACCOUNT), unverifiable])
+            .await
+            .unwrap_err()
+            .code(),
+        Code::InvalidArgument
+    );
+    // The whole allowance is left for three entries.
+    verify(vec![
+        entry(1, ACCOUNT),
+        entry(2, ACCOUNT),
+        entry(3, ACCOUNT),
+    ])
+    .await?;
+    assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 3);
+    // None is left: a request with no entries costs one, and a denied
+    // request reaches no chain.
+    for signatures in [vec![], vec![entry(4, ACCOUNT)]] {
+        assert!(
+            rate_limit_delay(
+                &verify(signatures).await,
+                crate::config::Category::ChainVerify
+            )
+            .is_some()
+        );
+    }
+    assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 3);
+    server.stop().await?;
+}
+
 #[xmtp_common::test(unwrap_try = true)]
 async fn identity_update_scw_signature_limit_is_checked_before_verification() {
     let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));

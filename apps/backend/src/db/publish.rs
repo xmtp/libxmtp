@@ -41,13 +41,9 @@ impl Store {
     pub(crate) async fn commit_publish(
         &self,
         pending: &mut [PendingEnvelope],
-        parse_error: Option<(usize, AdmissionError)>,
         max_duration_ms: u64,
     ) -> Result<Vec<StoredMeta>, Error> {
         if pending.iter().all(|item| item.duplicate.is_some()) {
-            if let Some((index, error)) = parse_error {
-                return Err(Error::Admission { index, error });
-            }
             return pending
                 .iter()
                 .map(|item| {
@@ -72,11 +68,7 @@ impl Store {
                     .err()
                     .map(|error| (item.index, error.clone()))
             });
-        if let Some((index, error)) = validation_error
-            .into_iter()
-            .chain(parse_error)
-            .min_by_key(|(index, _)| *index)
-        {
+        if let Some((index, error)) = validation_error {
             return Err(Error::Admission { index, error });
         }
         let new: Vec<_> = pending

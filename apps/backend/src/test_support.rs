@@ -105,6 +105,24 @@ impl std::ops::DerefMut for TestServer {
     }
 }
 
+/// The rate limiter's clock in tests that set the time each spend sees.
+pub use xmtp_rate_limit::ManualClock;
+
+/// One spend a running server's rate limiter decided.
+#[derive(Clone, Debug)]
+pub struct SpendRecord {
+    pub category: crate::config::Category,
+    pub cost: u32,
+    /// The retry delay of a denied spend; `None` for an admitted one.
+    pub retry_after: Option<std::time::Duration>,
+    /// When the limiter decided it.
+    pub at: std::time::Instant,
+    /// A SHA-256 digest of the encoded request message the spend was for,
+    /// for a handler's spends; `None` for the rate-limit layer's `request`
+    /// unit, which precedes decoding.
+    pub request: Option<[u8; 32]>,
+}
+
 pub struct RunningServer {
     pub backend: Backend,
     pub channel: Channel,
@@ -117,7 +135,22 @@ impl TestServer {
     /// Apply `change` to the file layer of a configuration for a new test
     /// database, validate it, and start a server.
     pub async fn new(change: impl FnOnce(&mut Config)) -> TestResult<Self> {
-        Self::start(change, None).await
+        Self::start(change, None, None).await
+    }
+
+    /// `new`, with the rate limiter on `clock`, so a test sets the time each
+    /// spend sees, and every spend recorded. `change` must turn rate limits
+    /// on.
+    pub async fn with_rate_limit_clock(
+        change: impl FnOnce(&mut Config),
+        clock: ManualClock,
+    ) -> TestResult<Self> {
+        Self::start(
+            change,
+            None,
+            Some(server::rate_limit::LimiterClock::Manual(clock)),
+        )
+        .await
     }
 
     /// Apply partial TOML over defaults and resolve environment references.
@@ -137,6 +170,25 @@ impl TestServer {
                 defaults.database.url = url;
             },
             None,
+            None,
+        )
+        .await
+    }
+
+    /// `from_toml`, with the rate limiter on `clock` and every spend
+    /// recorded. The TOML must turn rate limits on.
+    pub async fn from_toml_with_rate_limit_clock(
+        toml: &str,
+        clock: ManualClock,
+    ) -> TestResult<Self> {
+        let config = partial_config(toml)?;
+        Self::with_rate_limit_clock(
+            move |defaults| {
+                let url = std::mem::take(&mut defaults.database.url);
+                *defaults = config;
+                defaults.database.url = url;
+            },
+            clock,
         )
         .await
     }
@@ -150,6 +202,7 @@ impl TestServer {
         Self::start(
             change,
             Some((Box::new(verifier), std::sync::Arc::new(chain))),
+            None,
         )
         .await
     }
@@ -160,6 +213,7 @@ impl TestServer {
             Box<dyn SmartContractSignatureVerifier>,
             std::sync::Arc<dyn ChainBlocks>,
         )>,
+        limiter_clock: Option<server::rate_limit::LimiterClock>,
     ) -> TestResult<Self> {
         let database = TestDatabase::new()?;
         let mut config = config_for(database.url());
@@ -176,6 +230,12 @@ impl TestServer {
                 backend.config.scw_cache_entries(),
             )?);
         }
+        if let Some(clock) = limiter_clock {
+            let limiter = server::rate_limit::limiter_on(backend.config.rate_limits(), clock)
+                .ok_or("a rate-limit clock needs rate limits on")?;
+            limiter.record_spends();
+            backend.rate_limiter = Some(limiter);
+        }
         let running = RunningServer::from_backend(backend).await?;
         Ok(Self { running, database })
     }
@@ -188,6 +248,32 @@ impl TestServer {
         stopped?;
         removed
     }
+}
+
+/// A `[rate_limits]` table from the TOML a file writes under it.
+#[cfg(test)]
+pub(crate) fn rate_limits(toml: &str) -> crate::config::rate_limits::RateLimitsSection {
+    toml::from_str(toml).expect("the test rate limits parse")
+}
+
+/// The retry delay of a rate-limit rejection in `category`, or `None` for
+/// any other result. The details are read the way any gRPC client reads
+/// them.
+#[cfg(test)]
+pub(crate) fn rate_limit_delay<T>(
+    result: &Result<T, tonic::Status>,
+    category: crate::config::Category,
+) -> Option<std::time::Duration> {
+    use tonic_types::StatusExt;
+    let status = result.as_ref().err()?;
+    let details = status.get_error_details();
+    let info = details.error_info()?;
+    (status.code() == tonic::Code::ResourceExhausted
+        && info.reason == xmtp_configuration::RATE_LIMITED_REASON
+        && info.domain == xmtp_configuration::RATE_LIMITED_DOMAIN
+        && info.metadata.get("category").map(String::as_str) == Some(category.as_str()))
+    .then(|| details.retry_info()?.retry_delay)
+    .flatten()
 }
 
 pub fn query_topic(topic: api::Topic, sequence_id: u64) -> api::TopicQuery {
@@ -239,6 +325,18 @@ impl RunningServer {
             stop: Some(stop),
             task: Some(task),
         })
+    }
+
+    /// Every spend this server's rate limiter decided, in order. Spends are
+    /// recorded only for a server started on a test clock, and none while
+    /// rate limits are off. A test reads which charged steps reached the
+    /// backend, at what cost, for which request, and when.
+    pub fn rate_limit_spends(&self) -> Vec<SpendRecord> {
+        self.backend
+            .rate_limiter
+            .as_ref()
+            .map(|limiter| limiter.spends())
+            .unwrap_or_default()
     }
 
     pub fn configuration(

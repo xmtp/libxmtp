@@ -12,7 +12,12 @@ gives the range and checks of every key.
 
 ## Rate limits
 
-The backend does not apply a per-caller rate limit. Each bidirectional stream has separate token buckets for update frames and client ping frames: 10 frames per second with a burst of 100. Pong frames do not consume either bucket. Exhaustion closes the stream with `RESOURCE_EXHAUSTED`. Reconnect with backoff from durable per-topic cursors.
+The backend charges each caller's requests against per-category rate limits,
+which are on by default; see [Rate limits](/deploy/overview/#rate-limits). A
+request they refuse gets `RESOURCE_EXHAUSTED` with a retry delay; send it again
+no earlier than that delay.
+
+Each bidirectional stream also has its own token buckets for update frames and client ping frames: 10 frames per second with a burst of 100. Pong frames do not consume either bucket. Exhaustion closes the stream with `RESOURCE_EXHAUSTED`. Reconnect with backoff from durable per-topic cursors.
 
 ## Backend request limits
 

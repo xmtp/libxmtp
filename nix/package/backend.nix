@@ -40,6 +40,7 @@ let
         "xmtp_mls_validation"
         "xmtp_proto"
         "xmtp_push_types"
+        "xmtp_rate_limit"
       ]
     );
   };

@@ -351,81 +351,11 @@ issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "Updates in one sync message are stored in one transaction. A storage error on one update rolls back the others in that message, which stays Pending until the error clears. Unusable updates are skipped, and other messages still apply."
 
 [[waiver]]
-id = "RATE-001"
-kind = "gap"
-owner = "backend"
-issue = "https://github.com/xmtp/libxmtp/issues/4696"
-reason = "The backend charges no request to any caller: it forms no caller key from an API key, a JWT, or an address."
-
-[[waiver]]
-id = "RATE-002"
-kind = "gap"
-owner = "backend"
-issue = "https://github.com/xmtp/libxmtp/issues/4696"
-reason = "The backend reads no client address for charging and has no `rate_limits.trusted_proxies` setting, so it never selects an `X-Forwarded-For` entry."
-
-[[waiver]]
-id = "RATE-003"
-kind = "gap"
-owner = "backend"
-issue = "https://github.com/xmtp/libxmtp/issues/4696"
-reason = "The backend forms no caller key from a client address, so it does not group an IPv6 caller by its /64 or an IPv4-mapped address by its IPv4 address."
-
-[[waiver]]
 id = "RATE-010"
 kind = "gap"
 owner = "backend"
 issue = "https://github.com/xmtp/libxmtp/issues/4696"
-reason = "The backend spends nothing before it reads the store, calls a chain, stores an envelope, registers a topic, stores a subscription, or obtains a storage credential; every step runs without a charge."
-
-[[waiver]]
-id = "RATE-011"
-kind = "gap"
-owner = "backend"
-issue = "https://github.com/xmtp/libxmtp/issues/4696"
-reason = "The backend has no category table and no rate-limit layer, so nothing yet establishes which paths are charged and which are exempt."
-
-[[waiver]]
-id = "RATE-012"
-kind = "gap"
-owner = "backend"
-issue = "https://github.com/xmtp/libxmtp/issues/4696"
-reason = "The backend has no `rate_limits.enabled` setting and no limiter to disable."
-
-[[waiver]]
-id = "RATE-014"
-kind = "gap"
-owner = "backend"
-issue = "https://github.com/xmtp/libxmtp/issues/4696"
-reason = "The backend has no `request` charge, so no denied `request` spend decides a request's status before the API status table, a bound, or an admission table of PUSH or ATCH."
-
-[[waiver]]
-id = "RATE-020"
-kind = "gap"
-owner = "backend"
-issue = "https://github.com/xmtp/libxmtp/issues/4696"
-reason = "The backend has no limiter, so it admits every spend whatever the caller has spent."
-
-[[waiver]]
-id = "RATE-022"
-kind = "gap"
-owner = "backend"
-issue = "https://github.com/xmtp/libxmtp/issues/4696"
-reason = "The backend has no limiter, so it records no charge and makes no denial."
-
-[[waiver]]
-id = "RATE-024"
-kind = "gap"
-owner = "backend"
-issue = "https://github.com/xmtp/libxmtp/issues/4696"
-reason = "The backend has no limiter and reports no retry delay."
-
-[[waiver]]
-id = "RATE-025"
-kind = "gap"
-owner = "backend"
-issue = "https://github.com/xmtp/libxmtp/issues/4696"
-reason = "The backend has no default limits, tier limits, or `rate_limits.overrides`, so no limits apply to any caller."
+reason = "A stream spends nothing before it registers a topic or reads the store: its rent, its catch-up reads, and the read of an `Update`'s catch-up target are not charged."
 
 [[waiver]]
 id = "RATE-030"
@@ -461,31 +391,3 @@ kind = "gap"
 owner = "backend"
 issue = "https://github.com/xmtp/libxmtp/issues/4696"
 reason = "An `Update` reads its catch-up target without spending a `request` unit, so no denial of that spend ends the stream or reports a delay."
-
-[[waiver]]
-id = "RATE-040"
-kind = "gap"
-owner = "backend"
-issue = "https://github.com/xmtp/libxmtp/issues/4696"
-reason = "The backend sends no rate-limit rejection, so no status carries the `RATE_LIMITED` `ErrorInfo` or a `RetryInfo`."
-
-[[waiver]]
-id = "RATE-050"
-kind = "gap"
-owner = "backend"
-issue = "https://github.com/xmtp/libxmtp/issues/4696"
-reason = "The backend holds no rate-limit state and has no `rate_limits.max_memory_mib` setting."
-
-[[waiver]]
-id = "RATE-051"
-kind = "gap"
-owner = "backend"
-issue = "https://github.com/xmtp/libxmtp/issues/4696"
-reason = "The backend holds no rate-limit state, so it never forgets a caller key's state to admit another."
-
-[[waiver]]
-id = "RATE-052"
-kind = "gap"
-owner = "backend"
-issue = "https://github.com/xmtp/libxmtp/issues/4696"
-reason = "The backend holds no rate-limit state, so it keeps no caller key's state until its spends are earned back."

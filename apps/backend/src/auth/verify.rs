@@ -24,6 +24,9 @@ pub(crate) const SCOPE: &str = "token is missing a required scope";
 pub enum AuthContext {
     Jwt {
         sub: Option<String>,
+        /// Two trusted issuers can issue the same `sub`, so a caller is named
+        /// by both.
+        iss: Option<String>,
         scopes: BTreeSet<String>,
     },
     ApiKey {
@@ -33,6 +36,7 @@ pub enum AuthContext {
 #[derive(Deserialize)]
 pub(crate) struct Claims {
     pub sub: Option<String>,
+    pub iss: Option<String>,
     #[serde(default, deserialize_with = "scope_claim")]
     pub scope: Option<ScopeClaim>,
 }
@@ -277,6 +281,7 @@ impl Verifier {
         }
         Ok(AuthContext::Jwt {
             sub: claims.sub,
+            iss: claims.iss,
             scopes,
         })
     }

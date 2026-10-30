@@ -195,6 +195,19 @@ The probe allows 15 seconds to connect and 10 seconds for the health request.
 
 Complete the [SDK quickstart](/get-started/quickstart/) with two clients that use this same backend. Send a message and check that it arrives while the recipient's stream remains open. A health check alone does not test browser gRPC-Web or message subscriptions. The API URL does not serve a web page, and the backend has no HTTP `/health` endpoint.
 
+## Rate limits
+
+Backend images with [rate limits](/deploy/overview/#rate-limits) limit each caller,
+and charge a caller without a credential to its address. Behind Serve, every
+request reaches the backend from the host's local Serve connection, so all
+callers without a credential share one allowance. Leave
+`rate_limits.trusted_proxies` empty: Tailscale documents the identity headers
+Serve adds ([Serve](https://tailscale.com/docs/features/tailscale-serve)), but
+not how it sets `X-Forwarded-For`, so this guide cannot rely on that header.
+For a few devices on your own tailnet, the default limits are rarely reached.
+If they are, raise the `ip` tier as the [overview](/deploy/overview/#rate-limits)
+shows, or give each client a credential.
+
 ## Keep the node available
 
 Keep the host awake, Docker running, and Tailscale connected. On Mac, enable Docker Desktop startup at sign in. The container restart policy takes effect when the Docker engine starts; it cannot wake the host or start Docker Desktop before sign in.

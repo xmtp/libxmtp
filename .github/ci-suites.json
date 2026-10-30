@@ -448,7 +448,8 @@
         "crates/xmtp_mls_common/**",
         "crates/xmtp_mls_validation/**",
         "crates/xmtp_proto/**",
-        "crates/xmtp_push_types/**"
+        "crates/xmtp_push_types/**",
+        "crates/xmtp_rate_limit/**"
       ],
       "workflow_files": [
         ".github/actions/setup-nix/**",
@@ -461,6 +462,7 @@
         "apps/backend/**",
         "crates/xmtp_attachments_server/**",
         "crates/xmtp_backend_config/**",
+        "crates/xmtp_rate_limit/**",
         "dev/backend/{local.toml,local-s3.toml}",
         "dev/docker/{compose.yml,up,compose,load-env,load-backend-image}",
         "dev/docker/{observe-check.sh,observe_check.py}",
@@ -535,7 +537,8 @@
         "crates/xmtp_mls_common/**",
         "crates/xmtp_mls_validation/**",
         "crates/xmtp_proto/**",
-        "crates/xmtp_push_types/**"
+        "crates/xmtp_push_types/**",
+        "crates/xmtp_rate_limit/**"
       ],
       "workflow_files": [
         ".github/actions/setup-nix/**",
@@ -549,6 +552,7 @@
         "crates/xmtp_attachments_server/**",
         "crates/xmtp_backend_config/**",
         "crates/xmtp_mls_validation/dev/check-validation",
+        "crates/xmtp_rate_limit/**",
         "dev/backend/**",
         "dev/docker/s3/**",
         "docs/{backend-observability.md,specs/OPS-backend-operations.md}",
@@ -632,6 +636,7 @@
         "apps/backend/**",
         "crates/xmtp_attachments_server/**",
         "crates/xmtp_backend_config/**",
+        "crates/xmtp_rate_limit/**",
         "dev/backend/{local.toml,local-s3.toml}",
         "dev/docker/{compose.yml,up,compose,load-env,load-backend-image}",
         "dev/docker/{postgres,s3,toxiproxy}/**",
@@ -711,6 +716,7 @@
         "crates/xmtp_mls_validation/**",
         "crates/xmtp_proto/**",
         "crates/xmtp_push_types/**",
+        "crates/xmtp_rate_limit/**",
         "crates/xmtp_sdk/**"
       ],
       "workflow_files": [
@@ -724,6 +730,7 @@
         "apps/backend/**",
         "crates/xmtp_attachments_server/**",
         "crates/xmtp_backend_config/**",
+        "crates/xmtp_rate_limit/**",
         "dev/backend/{local.toml,local-s3.toml}",
         "dev/docker/{compose.yml,up,compose,load-env,load-backend-image}",
         "dev/docker/{postgres,s3,toxiproxy}/**",
@@ -985,6 +992,7 @@
         "apps/xmtp_sdk_bindgen/**",
         "crates/xmtp_attachments_server/**",
         "crates/xmtp_backend_config/**",
+        "crates/xmtp_rate_limit/**",
         "crates/xmtp_sdk/**",
         "dev/backend/{local.toml,local-s3.toml}",
         "dev/docker/{compose.yml,up,compose,load-env,load-backend-image}",
@@ -1252,6 +1260,7 @@
         "apps/xmtp_sdk_bindgen/**",
         "crates/xmtp_attachments_server/**",
         "crates/xmtp_backend_config/**",
+        "crates/xmtp_rate_limit/**",
         "crates/xmtp_sdk/**",
         "dev/backend/**",
         "dev/check-apple-toolchain",
@@ -1660,6 +1669,7 @@
           "apps/xmtp_sdk_bindgen/**",
           "crates/xmtp_attachments_server/**",
           "crates/xmtp_backend_config/**",
+          "crates/xmtp_rate_limit/**",
           "crates/xmtp_sdk/**",
           "dev/backend/**",
           "dev/backend/{local.toml,local-s3.toml}",
