@@ -37,6 +37,19 @@ pub enum KeyPackageMaintenanceError {
     Rotation(IdentityError),
 }
 
+impl KeyPackageMaintenanceError {
+    /// The delay of a rate-limit rejection that failed this maintenance step.
+    pub(crate) fn rate_limit_delay(&self) -> Option<xmtp_common::time::Duration> {
+        use xmtp_common::RetryableError;
+        match self {
+            Self::Identity(e) | Self::DeleteKeyPackage(e) | Self::Rotation(e) => {
+                e.rate_limit_delay()
+            }
+            Self::Storage(_) | Self::Metadata(_) | Self::Fetch(_) | Self::Deletion(_) => None,
+        }
+    }
+}
+
 impl NeedsDbReconnect for KeyPackageMaintenanceError {
     fn needs_db_reconnect(&self) -> bool {
         match self {

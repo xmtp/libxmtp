@@ -6,6 +6,7 @@ use crate::groups::summary::SyncSummary;
 use crate::subscriptions::internal::dm_event_context;
 use futures::StreamExt;
 use std::collections::HashSet;
+use std::sync::Arc;
 use std::{collections::HashMap, time::Duration};
 use thiserror::Error;
 use xmtp_api::ApiError;
@@ -54,6 +55,26 @@ pub const DEFAULT_INTERVAL_DURATION: Duration = Duration::from_secs(60 * 5); // 
 #[derive(Clone)]
 pub struct Factory<Context> {
     context: Context,
+    /// Kept by the factory, so a storage reconnect, which builds a new
+    /// worker, keeps every rate-limit hold.
+    holds: Arc<parking_lot::Mutex<Holds>>,
+}
+
+impl<Context> Factory<Context>
+where
+    Context: XmtpSharedContext + 'static,
+{
+    pub(crate) fn new(context: Context) -> Self {
+        Self {
+            context,
+            holds: Arc::default(),
+        }
+    }
+
+    /// A worker that shares this factory's rate-limit holds.
+    pub(crate) fn worker(&self) -> CommitLogWorker<Context> {
+        CommitLogWorker::with_holds(self.context.clone(), self.holds.clone())
+    }
 }
 
 impl<Context> WorkerFactory for Factory<Context>
@@ -68,10 +89,7 @@ where
         &self,
         metrics: Option<crate::worker::DynMetrics>,
     ) -> (BoxedWorker, Option<crate::worker::DynMetrics>) {
-        (
-            Box::new(CommitLogWorker::new(self.context.clone())) as Box<_>,
-            metrics,
-        )
+        (Box::new(self.worker()) as Box<_>, metrics)
     }
 }
 
@@ -132,9 +150,27 @@ impl RetryableError for CommitLogError {
             Self::MissingLatestCommitSequenceId { .. } => false,
         }
     }
+
+    fn rate_limit_delay(&self) -> Option<xmtp_common::time::Duration> {
+        match self {
+            Self::Api(api_error) => api_error.rate_limit_delay(),
+            Self::GroupError(group_error) => group_error.rate_limit_delay(),
+            Self::SyncError(sync_error) => sync_error.rate_limit_delay(),
+            Self::FailedToSendReadd { source, .. } => source.rate_limit_delay(),
+            Self::FailedReadds { errors } => errors
+                .iter()
+                .filter_map(RetryableError::rate_limit_delay)
+                .max(),
+            _ => None,
+        }
+    }
 }
 
 impl NeedsDbReconnect for CommitLogError {
+    fn restart_delay(&self) -> Option<Duration> {
+        RetryableError::rate_limit_delay(self)
+    }
+
     fn needs_db_reconnect(&self) -> bool {
         match self {
             Self::Storage(s) => s.db_needs_connection(),
@@ -177,16 +213,45 @@ where
     where
         C: XmtpSharedContext + 'static,
     {
-        Factory { context }
+        Factory::new(context)
     }
+}
+
+/// Conversations held by a rate limit, and when each delay ends (RATE-041).
+#[derive(Default)]
+pub(crate) struct Holds {
+    /// Conversations whose commit-log publish was refused. Other
+    /// conversations still publish.
+    publish: HashMap<GroupId, xmtp_common::time::Instant>,
+    /// Conversations whose readd answer was refused. Other conversations
+    /// still answer.
+    readd: HashMap<GroupId, xmtp_common::time::Instant>,
 }
 
 pub struct CommitLogWorker<Context> {
     context: Context,
     /// The conversations whose commit-log publish failed in the last turn.
     failed_publishes: Vec<GroupId>,
+    /// Rate-limit holds, shared with the factory that built this worker.
+    holds: Arc<parking_lot::Mutex<Holds>>,
     #[cfg(test)]
     seal_fault: Option<SealFault>,
+}
+
+/// Hold `id` in `held` until `delay`, a rate-limit delay, has passed. A
+/// shorter later delay never ends a pending one.
+// implements: RATE-041
+fn hold(
+    held: &mut HashMap<GroupId, xmtp_common::time::Instant>,
+    id: GroupId,
+    delay: Option<Duration>,
+) {
+    let Some(delay) = delay else {
+        return;
+    };
+    let until = xmtp_common::time::saturating_after(xmtp_common::time::Instant::now(), delay);
+    let held = held.entry(id).or_insert(until);
+    *held = (*held).max(until);
 }
 
 /// A test-only fault at the result of each seal, by conversation.
@@ -205,9 +270,14 @@ where
     Context: XmtpSharedContext + 'static,
 {
     pub fn new(context: Context) -> Self {
+        Self::with_holds(context, Arc::default())
+    }
+
+    fn with_holds(context: Context, holds: Arc<parking_lot::Mutex<Holds>>) -> Self {
         Self {
             context,
             failed_publishes: Vec::new(),
+            holds,
             #[cfg(test)]
             seal_fault: None,
         }
@@ -312,21 +382,29 @@ where
     /// only its own conversation. A failed publish is logged, recorded in
     /// [`Self::failed_publishes`], and moves the conversation's cursor past
     /// the stored prefix only; the conversation is tried again at the next
-    /// tick. A refusal or a local parse failure holds back only its own
-    /// conversation. A transport failure ends the publishing part of the
-    /// turn, since every later conversation would wait through the same
-    /// retries. No publish failure stops the worker.
+    /// tick. A refusal, a rate limit, or a local parse failure holds back
+    /// only its own conversation. A transport failure ends the publishing
+    /// part of the turn, since every later conversation would wait through
+    /// the same retries. No publish failure stops the worker.
     // implements: FORK-021
     async fn publish_commit_logs_to_remote(
         &mut self,
     ) -> Result<Vec<ConversationCursorInfo>, CommitLogError> {
         self.failed_publishes.clear();
+        let now = xmtp_common::time::Instant::now();
+        self.holds.lock().publish.retain(|_, until| now < *until);
         let conn = &self.context.db();
         // DMs, and groups where we are a super admin
         let conversations = conn.get_conversation_ids_for_remote_log_publish()?;
         let api = self.context.api();
         let mut published = Vec::new();
         for conversation in &conversations {
+            // A rate-limited publish is not retried at a later tick inside its
+            // delay; other conversations still publish.
+            // implements: RATE-041
+            if self.holds.lock().publish.contains_key(&conversation.id) {
+                continue;
+            }
             let Some(PendingPublish {
                 cursor_info,
                 entries,
@@ -366,7 +444,14 @@ where
                         "Commit log publish failed; the conversation retries at the next turn"
                     );
                     self.failed_publishes.push(conversation.id);
-                    if error.is_retryable() {
+                    hold(
+                        &mut self.holds.lock().publish,
+                        conversation.id,
+                        error.rate_limit_delay(),
+                    );
+                    // A rate limit is retryable but holds only its own
+                    // conversation (RATE-041); the others still publish.
+                    if error.is_retryable() && error.rate_limit_delay().is_none() {
                         break;
                     }
                 }
@@ -950,10 +1035,12 @@ where
         Ok(())
     }
 
-    async fn handle_incoming_pending_readds(&self) -> Result<(), CommitLogError> {
+    async fn handle_incoming_pending_readds(&mut self) -> Result<(), CommitLogError> {
         if self.context.fork_recovery_opts().disable_recovery_responses {
             return Ok(());
         }
+        let now = xmtp_common::time::Instant::now();
+        self.holds.lock().readd.retain(|_, until| now < *until);
         let conn = self.context.db();
         let groups_for_readd = conn.get_conversation_ids_for_responding_readds()?;
 
@@ -967,6 +1054,12 @@ where
         );
 
         for group in groups_for_readd {
+            // A rate-limited readd is not answered again at a later tick
+            // inside its delay; other conversations still answer.
+            // implements: RATE-041
+            if self.holds.lock().readd.contains_key(&group.group_id) {
+                continue;
+            }
             match self.validate_pending_readds(&conn, &group).await {
                 Ok(validated_installations) => {
                     if validated_installations.is_empty() {
@@ -989,6 +1082,11 @@ where
                         if e.needs_db_reconnect() {
                             return Err(e);
                         }
+                        hold(
+                            &mut self.holds.lock().readd,
+                            group.group_id,
+                            e.rate_limit_delay(),
+                        );
                         tracing::warn!(
                             group_id = group.group_id.short_hex(),
                             "Keeping readd requests for group after a failed readd: {}",
@@ -1012,6 +1110,11 @@ where
                 }
                 // Reversible (e.g. a version pause): keep and retry next tick.
                 Err(e) => {
+                    hold(
+                        &mut self.holds.lock().readd,
+                        group.group_id,
+                        e.rate_limit_delay(),
+                    );
                     tracing::warn!(
                         group_id = group.group_id.short_hex(),
                         "Keeping readd requests for group after a failed validation: {}",

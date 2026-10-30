@@ -252,18 +252,18 @@ pub fn stream_failure_details(error: &(dyn Error + 'static)) -> Option<StreamFai
                 GroupError::StreamBarrier(error) => {
                     failures.push(StreamFailureDetails::barrier(error))
                 }
-                GroupError::PublishedButUnconfirmed { intent_id, cause } => {
-                    failures.push(StreamFailureDetails {
-                        kind: StreamFailureKind::PublishedButUnconfirmed,
-                        code: error.error_code().to_string(),
-                        message: "The published intent is not confirmed".into(),
-                        retryable: error.is_retryable(),
-                        intent_id: Some(*intent_id),
-                        published_intent_ids: vec![*intent_id],
-                        summary: None,
-                        barriers: cause.iter().map(|cause| cause.as_ref().into()).collect(),
-                    })
-                }
+                GroupError::PublishedButUnconfirmed {
+                    intent_id, cause, ..
+                } => failures.push(StreamFailureDetails {
+                    kind: StreamFailureKind::PublishedButUnconfirmed,
+                    code: error.error_code().to_string(),
+                    message: "The published intent is not confirmed".into(),
+                    retryable: error.is_retryable(),
+                    intent_id: Some(*intent_id),
+                    published_intent_ids: vec![*intent_id],
+                    summary: None,
+                    barriers: cause.iter().map(|cause| cause.as_ref().into()).collect(),
+                }),
                 GroupError::Sync(summary) | GroupError::SyncFailedToWait(summary) => {
                     push(summary.as_ref())
                 }

@@ -295,6 +295,9 @@ pub enum GroupError {
         intent_id: i32,
         #[source]
         cause: Option<Box<crate::subscriptions::barrier::BarrierError>>,
+        /// The delay of a rate limit that refused a request of the same sync,
+        /// such as the published commit's Welcomes (RATE-041).
+        rate_limit_delay: Option<xmtp_common::time::Duration>,
     },
     /// Missing pending commit.
     ///
@@ -649,6 +652,27 @@ impl RetryableError for GroupError {
             | Self::WelcomeDataNotFound(_)
             | Self::UninitializedField(_)
             | Self::UninitializedResult => false,
+        }
+    }
+
+    fn rate_limit_delay(&self) -> Option<xmtp_common::time::Duration> {
+        match self {
+            Self::Client(client_error) => client_error.rate_limit_delay(),
+            Self::ReceiveError(msg) => msg.rate_limit_delay(),
+            Self::Identity(identity) => identity.rate_limit_delay(),
+            Self::InstallationDiff(diff) => diff.rate_limit_delay(),
+            Self::CommitValidation(err) => err.rate_limit_delay(),
+            Self::WrappedApi(err) => err.rate_limit_delay(),
+            Self::StreamBarrier(error) => error.rate_limit_delay(),
+            Self::SyncFailedToWait(summary) | Self::Sync(summary) => summary.rate_limit_delay(),
+            Self::PublishedButUnconfirmed {
+                cause,
+                rate_limit_delay,
+                ..
+            } => (*rate_limit_delay).max(cause.as_ref().and_then(|cause| cause.rate_limit_delay())),
+            Self::MlsStore(e) => e.rate_limit_delay(),
+            Self::DeviceSync(e) => e.rate_limit_delay(),
+            _ => None,
         }
     }
 }

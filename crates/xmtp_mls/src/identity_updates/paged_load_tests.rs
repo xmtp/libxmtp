@@ -147,6 +147,12 @@ struct IdentityScript {
     /// Wake this and hold the stopped read until the caller drops it, instead
     /// of failing the read.
     hold: Option<Arc<Notify>>,
+    /// Refuse every identity read with a rate limit of this delay.
+    rate_limit: Option<xmtp_common::time::Duration>,
+    /// Answer identity reads from these envelopes instead of the backend.
+    served: Option<Vec<wire::ServerEnvelope>>,
+    /// Identity reads received.
+    reads: usize,
 }
 
 /// Forwards every call to the test backend, changing identity publishes and
@@ -171,8 +177,18 @@ async fn scripted_client(
     base: &crate::utils::Tester,
     max_fetched_rows: u32,
 ) -> (crate::Client<ScriptedContext>, Arc<Mutex<IdentityScript>>) {
+    scripted_client_verifying(base, max_fetched_rows, None).await
+}
+
+/// As [`scripted_client`], verifying smart contract wallets with `verifier`
+/// when one is given.
+async fn scripted_client_verifying(
+    base: &crate::utils::Tester,
+    max_fetched_rows: u32,
+    verifier: Option<Arc<RateLimitedVerifier>>,
+) -> (crate::Client<ScriptedContext>, Arc<Mutex<IdentityScript>>) {
     let script = Arc::new(Mutex::new(IdentityScript::default()));
-    let client = ClientBuilder::from_client(base.client.clone())
+    let builder = ClientBuilder::from_client(base.client.clone())
         .api_client(ScriptedIdentity {
             inner: base.context.api().api_client.raw_for_test().clone(),
             script: script.clone(),
@@ -182,10 +198,12 @@ async fn scripted_client(
             ..Default::default()
         })
         .with_disable_workers(true)
-        .with_allow_offline(Some(true))
-        .build()
-        .await
-        .expect("a scripted client");
+        .with_allow_offline(Some(true));
+    let builder = match verifier {
+        Some(verifier) => builder.with_scw_verifier(verifier),
+        None => builder,
+    };
+    let client = builder.build().await.expect("a scripted client");
     (client, script)
 }
 
@@ -237,6 +255,35 @@ impl XmtpBackendClient for ScriptedIdentity {
     async fn query(&self, request: wire::QueryRequest) -> Result<wire::QueryResponse, Self::Error> {
         if !is_identity_read(&request) {
             return self.inner.query(request).await;
+        }
+        let rate_limit = {
+            let mut script = self.script.lock();
+            script.reads += 1;
+            script.rate_limit
+        };
+        if let Some(delay) = rate_limit {
+            return Err(ApiClientError::client(
+                xmtp_api_grpc::error::GrpcError::Status(xmtp_api_grpc::error::rate_limited_status(
+                    "request", delay,
+                )),
+            ));
+        }
+        if let Some(served) = self.script.lock().served.clone() {
+            let envelopes = served
+                .into_iter()
+                .filter(|envelope| {
+                    let meta = envelope.meta.as_ref().unwrap();
+                    request.queries.iter().any(|query| {
+                        query.topic == meta.topic
+                            && query.cursor.as_ref().unwrap().sequence_id
+                                < meta.cursor.as_ref().unwrap().sequence_id
+                    })
+                })
+                .collect();
+            return Ok(wire::QueryResponse {
+                envelopes,
+                continuation: Some(wire::Continuation { has_more: false }),
+            });
         }
         let (stop, hold, one_per_read) = {
             let mut script = self.script.lock();
@@ -483,4 +530,164 @@ async fn an_update_stored_before_the_first_own_load_is_reported() {
 
     client.inbox_state(true).await?;
     assert_eq!(drained(&events), vec![added(&alix2)]);
+}
+
+/// A rate-limited batched proof fetch returns its rejection: the inboxes are
+/// not then fetched one request each.
+// verifies: RATE-041
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_rate_limited_batched_proof_fetch_is_not_split() {
+    use crate::identity_updates::dependencies::{
+        IdentityRequirement, resolve_identity_requirements,
+    };
+    tester!(alix, disable_workers);
+    tester!(bo);
+    tester!(caro);
+    let (client, script) = scripted_client(&alix, 100).await;
+    let delay = xmtp_common::time::Duration::from_secs(300);
+    script.lock().rate_limit = Some(delay);
+    let requirements = [&bo, &caro]
+        .into_iter()
+        .map(|tester| IdentityRequirement {
+            inbox_id: tester.inbox_id().to_string(),
+            sequence_id: 1,
+        })
+        .collect();
+    let error = resolve_identity_requirements(&client.context, &requirements)
+        .await
+        .unwrap_err();
+    assert_eq!(error.rate_limit_delay(), Some(delay));
+    assert_eq!(
+        script.lock().reads,
+        1,
+        "one batched read, no per-inbox reads"
+    );
+}
+
+/// Refuses every smart contract wallet check with a rate limit, and counts
+/// the checks. Each refusal's delay is 300 s; with `growing`, the n-th check's
+/// is n × 300 s. It answers without waiting, so refusals finish in call order
+/// and the first to finish has the shortest delay.
+#[derive(Default)]
+struct RateLimitedVerifier {
+    calls: std::sync::atomic::AtomicUsize,
+    growing: bool,
+}
+
+#[xmtp_common::async_trait]
+impl xmtp_id::scw_verifier::SmartContractSignatureVerifier for RateLimitedVerifier {
+    async fn is_valid_signature(
+        &self,
+        _: xmtp_id::associations::AccountId,
+        _: [u8; 32],
+        _: alloy::primitives::Bytes,
+        _: Option<alloy::primitives::BlockNumber>,
+    ) -> Result<xmtp_id::scw_verifier::ValidationResponse, xmtp_id::scw_verifier::VerifierError>
+    {
+        let call = self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst) as u64;
+        let steps = if self.growing { call + 1 } else { 1 };
+        Err(xmtp_id::scw_verifier::VerifierError::Other(Box::new(
+            ApiClientError::client(xmtp_api_grpc::error::GrpcError::Status(
+                xmtp_api_grpc::error::rate_limited_status(
+                    "chain_verify",
+                    xmtp_common::time::Duration::from_secs(300 * steps),
+                ),
+            )),
+        )))
+    }
+}
+
+/// An inbox created by a smart contract wallet, as an envelope at `sequence_id`.
+fn scw_inbox(sequence_id: u64) -> (String, wire::ServerEnvelope) {
+    use xmtp_id::associations::{
+        AccountId, Identifier,
+        unsigned_actions::UnsignedCreateInbox,
+        unverified::{
+            UnverifiedAction, UnverifiedCreateInbox, UnverifiedIdentityUpdate, UnverifiedSignature,
+        },
+    };
+    let wallet = Identifier::rand_ethereum();
+    let inbox_id = wallet.inbox_id(0).unwrap();
+    let create = UnverifiedAction::CreateInbox(UnverifiedCreateInbox::new(
+        UnsignedCreateInbox {
+            nonce: 0,
+            account_identifier: wallet.clone(),
+        },
+        UnverifiedSignature::new_smart_contract_wallet(
+            vec![1],
+            AccountId::new_evm(1, wallet.to_string()),
+            1,
+        ),
+    ));
+    let update = UnverifiedIdentityUpdate::new(inbox_id.clone(), 1, vec![create]).into();
+    (inbox_id, identity_envelope(&update, sequence_id))
+}
+
+/// A verification refused with a rate limit while the batched fetch verifies
+/// its proofs is returned at once, not verified again in a later round.
+// verifies: RATE-041
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_rate_limited_prefetched_verification_is_not_sent_again() {
+    use crate::identity_updates::dependencies::{
+        IdentityRequirement, resolve_identity_requirements,
+    };
+    tester!(alix, disable_workers);
+    let verifier = Arc::new(RateLimitedVerifier::default());
+    let (client, script) = scripted_client_verifying(&alix, 100, Some(verifier.clone())).await;
+    let (x, x_envelope) = scw_inbox(1);
+    let (y, y_envelope) = scw_inbox(2);
+    script.lock().served = Some(vec![x_envelope, y_envelope]);
+    let requirements = [(x, 1), (y, 2)]
+        .into_iter()
+        .map(|(inbox_id, sequence_id)| IdentityRequirement {
+            inbox_id,
+            sequence_id,
+        })
+        .collect();
+    let error = resolve_identity_requirements(&client.context, &requirements)
+        .await
+        .unwrap_err();
+    assert_eq!(
+        error.rate_limit_delay(),
+        Some(xmtp_common::time::Duration::from_secs(300))
+    );
+    assert_eq!(
+        verifier.calls.load(std::sync::atomic::Ordering::SeqCst),
+        2,
+        "each refused check is sent once"
+    );
+    assert_eq!(script.lock().reads, 1, "no per-inbox reads");
+}
+
+/// Of several refused verifications in one batched fetch, the longest delay is
+/// returned, so the caller does not retry a proof inside its own delay.
+// verifies: RATE-041
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_batched_fetch_returns_its_longest_refused_delay() {
+    use crate::identity_updates::dependencies::{
+        IdentityRequirement, resolve_identity_requirements,
+    };
+    tester!(alix, disable_workers);
+    let verifier = Arc::new(RateLimitedVerifier {
+        growing: true,
+        ..Default::default()
+    });
+    let (client, script) = scripted_client_verifying(&alix, 100, Some(verifier.clone())).await;
+    let (x, x_envelope) = scw_inbox(1);
+    let (y, y_envelope) = scw_inbox(2);
+    script.lock().served = Some(vec![x_envelope, y_envelope]);
+    let requirements = [(x, 1), (y, 2)]
+        .into_iter()
+        .map(|(inbox_id, sequence_id)| IdentityRequirement {
+            inbox_id,
+            sequence_id,
+        })
+        .collect();
+    let error = resolve_identity_requirements(&client.context, &requirements)
+        .await
+        .unwrap_err();
+    assert_eq!(
+        error.rate_limit_delay(),
+        Some(xmtp_common::time::Duration::from_secs(600))
+    );
 }

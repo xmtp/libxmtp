@@ -119,6 +119,8 @@ struct ReceiptSchedule {
     blocked_failures: u32,
     /// A rejected Query must not repeat from this unchanged durable cursor.
     rejected_at: Option<Cursor>,
+    /// A rate-limited Query is not sent again before this instant (RATE-041).
+    rate_limited_until: Option<Instant>,
     last_read: Option<Instant>,
 }
 
@@ -160,6 +162,9 @@ pub(super) struct Controller<C: XmtpSharedContext> {
     #[cfg(test)]
     receipt_progress_reads: std::sync::atomic::AtomicUsize,
     targets_retry_at: Option<Instant>,
+    /// Topics whose target capture was refused with a rate limit, and when
+    /// that delay ends. Other topics' captures are not held (RATE-041).
+    target_floors: HashMap<Topic, Instant>,
     read_queue: VecDeque<Topic>,
     dependencies: FuturesUnordered<BoxDynFuture<'static, DependencyResult<C>>>,
     dependency_registry: DependencyRegistry,
@@ -200,12 +205,13 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
     ) -> Self {
         let factory = context.incoming_runtime().factory.clone();
         let rejected_requests = context.incoming_runtime().rejected_requests.clone();
+        let rate_limit_hold = context.incoming_runtime().rate_limit_hold.clone();
         Self {
             context,
             commands,
             state: state.clone(),
             scopes: HashMap::new(),
-            transport: Transport::new(factory, state.recovery.clone()),
+            transport: Transport::new(factory, state.recovery.clone(), rate_limit_hold),
             read: None,
             targets: None,
             targets_request: None,
@@ -216,6 +222,7 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             #[cfg(test)]
             receipt_progress_reads: std::sync::atomic::AtomicUsize::new(0),
             targets_retry_at: None,
+            target_floors: HashMap::new(),
             read_queue: VecDeque::new(),
             dependencies: FuturesUnordered::new(),
             dependency_registry: DependencyRegistry::default(),
@@ -815,6 +822,8 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
         if self.targets.is_some() {
             return;
         }
+        let now = Instant::now();
+        self.target_floors.retain(|_, until| now < *until);
         let mut scopes = Vec::new();
         let mut topics = HashSet::new();
         for (id, scope) in &self.scopes {
@@ -824,6 +833,7 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                 .filter(|topic| {
                     self.transport.registered.contains(*topic)
                         && !scope.targets.contains_key(*topic)
+                        && !self.target_floors.contains_key(*topic)
                 })
                 .cloned()
                 .collect();
@@ -895,14 +905,25 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             Err(error) => {
                 let rejected = crate::subscriptions::recovery::rejected_request(&error);
                 if !rejected {
-                    self.targets_retry_at = Some(
-                        Instant::now()
-                            + self
-                                .context
-                                .incoming_runtime()
-                                .policy()
-                                .receiver_fallback_interval,
-                    );
+                    let fallback = self
+                        .context
+                        .incoming_runtime()
+                        .policy()
+                        .receiver_fallback_interval;
+                    self.targets_retry_at = Some(xmtp_common::time::saturating_after(
+                        Instant::now(),
+                        fallback,
+                    ));
+                    // A rate-limited target read waits its delay; other
+                    // topics' captures do not.
+                    // implements: RATE-041
+                    if let (Some(delay), Some(request)) = (error.rate_limit_delay(), &request) {
+                        let until = xmtp_common::time::saturating_after(Instant::now(), delay);
+                        for topic in request {
+                            let floor = self.target_floors.entry(topic.clone()).or_insert(until);
+                            *floor = (*floor).max(until);
+                        }
+                    }
                 }
                 let cause = Arc::new(IncomingError::Transport(error));
                 if let Some(request) = request {
@@ -1144,6 +1165,10 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                 || self.is_retired(&topic)
                 || (self.storage_error.is_some() && !self.transport.requested.contains(&topic))
                 || (self.receipt(&topic).blocked() && self.receipt(&topic).rejected_at.is_none())
+                || self
+                    .receipt(&topic)
+                    .rate_limited_until
+                    .is_some_and(|until| now < until)
             {
                 continue;
             }
@@ -1419,14 +1444,28 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             error.as_ref(),
             IncomingError::Store(crate::mls_store::MlsStoreError::Api(_))
         );
-        // The transport can advance its read cursor before storage commits. Drop
-        // that registration even when reconciliation immediately clears a pause.
-        self.transport.disconnect(
-            self.context
-                .incoming_runtime()
-                .policy()
-                .receiver_fallback_interval,
-        );
+        // A refused read leaves the stream untouched: only a request was denied,
+        // and the stream still delivers. The topic's read waits out the delay.
+        // implements: RATE-041
+        let rate_limit = error.rate_limit_delay();
+        let rate_limited = rate_limit.is_some();
+        if let Some(delay) = rate_limit {
+            self.topics
+                .entry(topic.clone())
+                .or_default()
+                .receipt
+                .rate_limited_until =
+                Some(xmtp_common::time::saturating_after(Instant::now(), delay));
+        } else {
+            // The transport can advance its read cursor before storage commits. Drop
+            // that registration even when reconciliation immediately clears a pause.
+            self.transport.disconnect(
+                self.context
+                    .incoming_runtime()
+                    .policy()
+                    .receiver_fallback_interval,
+            );
+        }
         let now = Instant::now();
         self.topics
             .entry(topic.clone())
@@ -1450,7 +1489,9 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             let receipt = &mut self.topics.entry(topic.clone()).or_default().receipt;
             receipt.blocked_failures = receipt.blocked_failures.saturating_add(1);
             receipt.blocked_until = Some(now + backoff.delay(receipt.blocked_failures));
-        } else {
+        } else if !rate_limited {
+            // A rate limit says nothing about the topic, so its permanent-error
+            // backoff stays.
             self.clear_receipt_failure(&topic);
         }
         self.topics.entry(topic.clone()).or_default().error = Some(error);

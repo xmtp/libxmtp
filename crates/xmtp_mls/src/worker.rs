@@ -450,7 +450,16 @@ pub trait Worker: MaybeSend + MaybeSync + 'static {
                             break;
                         } else {
                             tracing::error!(worker = %worker, "{:?} worker error: {}", kind, err);
-                            xmtp_common::time::sleep(WORKER_RESTART_DELAY).await;
+                            // A restart resends the refused work, so it waits
+                            // out a rate-limit delay first. A delay too large
+                            // for the clock saturates instead of overflowing.
+                            // implements: RATE-041
+                            let delay = err.restart_delay().map_or(WORKER_RESTART_DELAY, |delay| {
+                                delay.max(WORKER_RESTART_DELAY)
+                            });
+                            let now = xmtp_common::time::Instant::now();
+                            let until = xmtp_common::time::saturating_after(now, delay);
+                            xmtp_common::time::sleep(until.saturating_duration_since(now)).await;
                             tracing::info!(worker = %worker, "Restarting {:?} worker...", kind);
                         }
                     }
@@ -474,6 +483,12 @@ pub trait Worker: MaybeSend + MaybeSync + 'static {
 #[cfg_attr(target_arch = "wasm32", trait_variant::make(NeedsDbReconnect: xmtp_common::Wasm))]
 pub trait LocalNeedsDbReconnect: std::error::Error {
     fn needs_db_reconnect(&self) -> bool;
+
+    /// The least time to wait before restarting a worker that failed with
+    /// this error: a rate-limit rejection's delay (RATE-041).
+    fn restart_delay(&self) -> Option<Duration> {
+        None
+    }
 }
 
 pub trait WorkerFactory: MaybeSend + MaybeSync {
@@ -643,6 +658,7 @@ mod disconnect_propagation_tests {
                         ),
                     ),
                 ))))),
+                rate_limit_delay: None,
             }
             .needs_db_reconnect()
         );
@@ -832,5 +848,94 @@ mod worker_config_tests {
             cfg.worker_enabled(WorkerKind::CommitLog),
             "absent => enabled"
         );
+    }
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod restart_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    /// A worker whose every turn is refused by a rate limit.
+    struct RateLimited {
+        runs: Arc<AtomicUsize>,
+        /// The rejection each turn fails with.
+        status: tonic::Status,
+    }
+
+    struct NoFactory;
+
+    impl WorkerFactory for NoFactory {
+        fn kind(&self) -> WorkerKind {
+            WorkerKind::CommitLog
+        }
+
+        fn create(&self, _metrics: Option<DynMetrics>) -> (BoxedWorker, Option<DynMetrics>) {
+            unreachable!("the test spawns the worker directly")
+        }
+    }
+
+    #[xmtp_common::async_trait]
+    impl Worker for RateLimited {
+        fn kind(&self) -> WorkerKind {
+            WorkerKind::CommitLog
+        }
+
+        async fn run_tasks(&mut self) -> Result<(), Box<dyn NeedsDbReconnect>> {
+            self.runs.fetch_add(1, Ordering::SeqCst);
+            let refused = xmtp_api::ApiError::Api(xmtp_proto::api::NetworkError::new(
+                xmtp_api_grpc::error::GrpcError::Status(self.status.clone()),
+            ));
+            Err(Box::new(crate::groups::commit_log::CommitLogError::Api(
+                refused,
+            )))
+        }
+
+        fn factory<C>(_context: C) -> impl WorkerFactory + 'static
+        where
+            C: XmtpSharedContext + 'static,
+        {
+            NoFactory
+        }
+    }
+
+    /// A worker that failed with a rate limit restarts after the delay, not
+    /// after the one-second restart delay.
+    // verifies: RATE-041
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn a_rate_limited_worker_restarts_after_the_delay() {
+        tokio::time::pause();
+        let runs = Arc::new(AtomicUsize::new(0));
+        let cancel = CancellationToken::new();
+        let worker = Box::new(RateLimited {
+            runs: runs.clone(),
+            status: xmtp_api_grpc::error::rate_limited_status("request", Duration::from_secs(300)),
+        });
+        let handle = tokio::spawn(worker.spawn(cancel.clone()));
+        tokio::time::sleep(Duration::from_secs(10)).await;
+        assert_eq!(runs.load(Ordering::SeqCst), 1);
+        tokio::time::sleep(Duration::from_secs(300)).await;
+        assert_eq!(runs.load(Ordering::SeqCst), 2);
+        cancel.cancel();
+        handle.await?;
+    }
+
+    /// A delay too large for the clock holds the restart without a panic,
+    /// which a release build would turn into an abort.
+    // verifies: RATE-041
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn an_out_of_range_delay_holds_the_restart_without_panicking() {
+        tokio::time::pause();
+        let runs = Arc::new(AtomicUsize::new(0));
+        let cancel = CancellationToken::new();
+        let worker = Box::new(RateLimited {
+            runs: runs.clone(),
+            status: xmtp_api_grpc::error::rate_limited_status_raw(i64::MAX, 0),
+        });
+        let handle = tokio::spawn(worker.spawn(cancel.clone()));
+        tokio::time::sleep(Duration::from_secs(365 * 24 * 60 * 60)).await;
+        assert_eq!(runs.load(Ordering::SeqCst), 1);
+        cancel.cancel();
+        handle.await?;
     }
 }

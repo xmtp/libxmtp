@@ -1,7 +1,8 @@
 //! A backend client for commit-log worker tests. It forwards every call to
 //! the test backend, except that it refuses commit-log publishes for chosen
-//! commit-log ids and answers reads of chosen commit-log topics from a
-//! script. It records the commit-log ids and topics of every call.
+//! commit-log ids, can refuse group-message publishes with a rate limit, and
+//! answers reads of chosen commit-log topics from a script. It records the
+//! commit-log ids and topics of every call.
 use crate::context::XmtpSharedContext;
 use parking_lot::Mutex;
 use std::{
@@ -29,6 +30,16 @@ pub(super) struct Script {
     pub(super) refuse: HashSet<Vec<u8>>,
     /// Every commit-log publish fails as a transport failure would.
     pub(super) unavailable: bool,
+    /// Every commit-log publish is refused with a rate limit of this delay.
+    pub(super) rate_limit: Option<xmtp_common::time::Duration>,
+    /// Only the next commit-log publish is refused with `rate_limit`, which
+    /// then clears.
+    pub(super) rate_limit_once: bool,
+    /// Every publish that carries a group message is refused with a rate
+    /// limit of this delay.
+    pub(super) group_message_rate_limit: Option<xmtp_common::time::Duration>,
+    /// The publish requests that carried a group message.
+    pub(super) group_message_publishes: usize,
     /// Commit-log ids whose next publish request is refused as too large,
     /// so the client splits it. Each id is refused this way once.
     pub(super) too_large_once: HashSet<Vec<u8>>,
@@ -101,6 +112,21 @@ impl XmtpBackendClient for ScriptedApi {
         &self,
         request: wire::PublishRequest,
     ) -> Result<wire::PublishResponse, Self::Error> {
+        if request
+            .envelopes
+            .iter()
+            .any(|envelope| matches!(envelope.payload, Some(Payload::GroupMessage(_))))
+        {
+            let mut script = self.script.lock();
+            script.group_message_publishes += 1;
+            if let Some(delay) = script.group_message_rate_limit {
+                return Err(ApiClientError::client(
+                    xmtp_api_grpc::error::GrpcError::Status(
+                        xmtp_api_grpc::error::rate_limited_status("publish", delay),
+                    ),
+                ));
+            }
+        }
         let ids: Vec<Vec<u8>> = request
             .envelopes
             .iter()
@@ -136,6 +162,16 @@ impl XmtpBackendClient for ScriptedApi {
                 }
             }
             script.published.push(ids);
+            if let Some(delay) = script.rate_limit {
+                if script.rate_limit_once {
+                    script.rate_limit = None;
+                }
+                return Err(ApiClientError::client(
+                    xmtp_api_grpc::error::GrpcError::Status(
+                        xmtp_api_grpc::error::rate_limited_status("publish", delay),
+                    ),
+                ));
+            }
             if refuse {
                 return Err(refused());
             }

@@ -65,6 +65,13 @@ impl RetryableError for IdentityDependencyError {
             Self::InvalidSequence(_) | Self::MissingReference(_) => false,
         }
     }
+
+    fn rate_limit_delay(&self) -> Option<xmtp_common::time::Duration> {
+        match self {
+            Self::Client(error) => error.rate_limit_delay(),
+            _ => None,
+        }
+    }
 }
 
 impl crate::worker::NeedsDbReconnect for IdentityDependencyError {
@@ -286,20 +293,33 @@ async fn check_identity_requirement(
 }
 
 /// A failed proof takes precedence over an absent one, so a parent that
-/// needs unresolved identity history stays blocked, not rejected.
-// implements: PROC-012
+/// needs unresolved identity history stays blocked, not rejected. Of the
+/// failed proofs, the rate-limited one with the longest delay is returned, so
+/// the parent's retry waits out every refused verification instead of
+/// resending one inside its own delay.
+// implements: PROC-012, RATE-041
 fn parent_result(
     results: impl IntoIterator<Item = Result<(), IdentityDependencyError>>,
 ) -> Result<(), IdentityDependencyError> {
     let mut absent = None;
+    let mut failed: Option<IdentityDependencyError> = None;
     for result in results {
         match result {
             Ok(()) => {}
             Err(error @ IdentityDependencyError::MissingReference(_)) => absent = Some(error),
-            Err(error) => return Err(error),
+            // `None` orders first, so any delay beats none and a longer one
+            // beats a shorter one; the first failure is kept on a tie.
+            Err(error) => {
+                if failed
+                    .as_ref()
+                    .is_none_or(|kept| error.rate_limit_delay() > kept.rate_limit_delay())
+                {
+                    failed = Some(error);
+                }
+            }
         }
     }
-    absent.map_or(Ok(()), Err)
+    failed.or(absent).map_or(Ok(()), Err)
 }
 
 #[cfg(test)]

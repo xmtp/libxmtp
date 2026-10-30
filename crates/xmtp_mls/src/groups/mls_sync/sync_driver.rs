@@ -388,20 +388,31 @@ where
             // GroupSyncFinished event (in sync_until_intent_resolved) is the
             // single place the summary is logged — no per-attempt logging here.
             let mut round_succeeded = false;
-            match xmtp_common::time::timeout(
+            // A rate-limit wait inside the round ends by the round's timeout,
+            // so the delay reaches this loop instead of being lost to it.
+            let rate_limit_delay = match xmtp_common::time::timeout(
                 remaining,
-                self.sync_intent_round(intent_id, predecessor, remaining),
+                xmtp_common::retry::with_retry_deadline(
+                    xmtp_common::time::Instant::now() + remaining,
+                    self.sync_intent_round(intent_id, predecessor, remaining),
+                ),
             )
             .await
             {
                 Ok(Ok(s)) => {
                     round_succeeded = !s.is_errored();
+                    let delay = s.rate_limit_delay();
                     summary.extend(s);
+                    delay
                 }
                 Ok(Err(error @ GroupError::PublishedButUnconfirmed { .. })) => return Err(error),
-                Ok(Err(error)) => summary.add_other(error),
+                Ok(Err(error)) => {
+                    let delay = error.rate_limit_delay();
+                    summary.add_other(error);
+                    delay
+                }
                 Err(_) => break,
-            }
+            };
             let current = Fetch::<StoredGroupIntent>::fetch(&db, &intent_id);
             let waiting_to_publish = matches!(
                 &current,
@@ -529,6 +540,16 @@ where
                     .policy()
                     .barrier_timeout
                     .saturating_sub(time_spent.elapsed());
+                // A rate-limited round waits out its delay, or returns the
+                // rejection when the delay does not end within this call.
+                // implements: RATE-041
+                if let Some(delay) = rate_limit_delay {
+                    let Some(wait) = rate_limited_wait(wait_for, delay, remaining) else {
+                        break;
+                    };
+                    xmtp_common::time::sleep(wait).await;
+                    continue;
+                }
                 xmtp_common::time::sleep(wait_for.min(remaining)).await;
             }
         }
@@ -545,6 +566,7 @@ where
             return Err(GroupError::PublishedButUnconfirmed {
                 intent_id,
                 cause: None,
+                rate_limit_delay: summary.rate_limit_delay(),
             });
         }
         Err(GroupError::SyncFailedToWait(Box::new(summary)))
@@ -567,6 +589,10 @@ where
             Ok(Err(error)) => summary.add_publish_err(error),
             Err(_) => return Err(GroupError::SyncFailedToWait(Box::new(summary))),
         }
+        // A later error in this round must not hide a rate-limited publish's
+        // delay, so the round ends with the summary that holds it.
+        // implements: RATE-041
+        let publish_delay = summary.rate_limit_delay();
         let receipt = self.request_read_target(intent_id)?;
         let blocker = match receipt {
             Some(_) => None,
@@ -575,7 +601,14 @@ where
         let topic = Topic::new_group_message(self.group_id);
         let targets = match receipt.or(blocker) {
             Some(target) => [(topic, target)].into(),
-            None => self.context.api().newest_topic_cursors(vec![topic]).await?,
+            None => match self.context.api().newest_topic_cursors(vec![topic]).await {
+                Ok(targets) => targets,
+                Err(error) if publish_delay.is_some() => {
+                    summary.add_other(error.into());
+                    return Ok(summary);
+                }
+                Err(error) => return Err(error.into()),
+            },
         };
         if let Err(cause) = crate::subscriptions::barrier::wait_through(
             &self.context,
@@ -584,14 +617,18 @@ where
         )
         .await
         {
-            return Err(if self.published_request_target(intent_id)?.is_some() {
-                GroupError::PublishedButUnconfirmed {
+            if self.published_request_target(intent_id)?.is_some() {
+                return Err(GroupError::PublishedButUnconfirmed {
                     intent_id,
                     cause: Some(Box::new(cause)),
-                }
-            } else {
-                cause.into()
-            });
+                    rate_limit_delay: publish_delay,
+                });
+            }
+            if publish_delay.is_some() {
+                summary.add_other(cause.into());
+                return Ok(summary);
+            }
+            return Err(cause.into());
         }
         if let Err(error) = self.post_commit().await {
             summary.add_post_commit_err(error);
@@ -673,5 +710,28 @@ where
             ));
         }
         Ok(())
+    }
+}
+
+/// The wait before the next round of a rate-limited sync: at least the delay
+/// and the backoff, never past the call's remaining time. None when the delay
+/// does not end inside the call.
+// implements: RATE-041
+fn rate_limited_wait(backoff: Duration, delay: Duration, remaining: Duration) -> Option<Duration> {
+    (delay < remaining).then(|| backoff.max(delay).min(remaining))
+}
+
+#[cfg(test)]
+mod rate_limited_wait_tests {
+    use super::*;
+
+    /// The wait is at least the delay, and never outlasts the call.
+    // verifies: RATE-041
+    #[xmtp_common::test]
+    fn a_rate_limited_wait_stays_inside_the_call() {
+        let ms = Duration::from_millis;
+        assert_eq!(rate_limited_wait(ms(500), ms(100), ms(200)), Some(ms(200)));
+        assert_eq!(rate_limited_wait(ms(50), ms(100), ms(200)), Some(ms(100)));
+        assert_eq!(rate_limited_wait(ms(50), ms(200), ms(200)), None);
     }
 }

@@ -106,6 +106,7 @@ fn group_failures_keep_their_actions() {
         XmtpError::from_group(GroupError::PublishedButUnconfirmed {
             intent_id: 7,
             cause: None,
+            rate_limit_delay: None,
         }),
         "PublishedButUnconfirmed",
         ErrorCategory::Conversation,

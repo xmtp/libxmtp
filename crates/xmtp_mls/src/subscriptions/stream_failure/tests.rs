@@ -56,6 +56,7 @@ fn published_failure_keeps_zero_target_and_intent_identity() {
     let error = GroupError::PublishedButUnconfirmed {
         intent_id: 42,
         cause: Some(Box::new(barrier(Some(0), BarrierFailure::Cancelled))),
+        rate_limit_delay: None,
     };
     let details = decode_stream_failure(&encode_stream_failure(&error)?)?;
     assert_eq!(details.kind, StreamFailureKind::PublishedButUnconfirmed);
@@ -73,6 +74,7 @@ fn published_failure_without_barrier_keeps_intent_identity() {
     let error = GroupError::PublishedButUnconfirmed {
         intent_id: 17,
         cause: None,
+        rate_limit_delay: None,
     };
     let details = stream_failure_details(&error)?;
     assert_eq!(details.intent_id, Some(17));
@@ -88,10 +90,12 @@ fn traverses_all_sync_summary_branches_and_transparent_wrappers() {
     summary.add_publish_err(GroupError::PublishedButUnconfirmed {
         intent_id: 17,
         cause: Some(Box::new(barrier(Some(1), BarrierFailure::Blocked))),
+        rate_limit_delay: None,
     });
     summary.add_post_commit_err(GroupError::PublishedButUnconfirmed {
         intent_id: 18,
         cause: Some(Box::new(barrier(Some(2), BarrierFailure::Cancelled))),
+        rate_limit_delay: None,
     });
     summary.process.errored.push((
         Cursor(3),

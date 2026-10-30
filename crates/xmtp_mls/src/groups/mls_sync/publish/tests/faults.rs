@@ -26,6 +26,10 @@ pub(super) enum Fault {
     LoseResponse,
     /// Store the request, then return an ambiguous UNAVAILABLE error.
     StoreThenUnavailable,
+    /// Refuse with a rate-limit rejection of this delay, storing nothing.
+    RateLimit(xmtp_common::time::Duration),
+    /// Pass the request to the backend.
+    Pass,
 }
 
 /// Passes every request to the test backend, except that each publish carrying
@@ -37,6 +41,12 @@ pub(super) struct FaultyApi {
     faults: Arc<Mutex<VecDeque<Fault>>>,
     /// Every intercepted request, in the order sent.
     pub requests: Arc<Mutex<Vec<wire::PublishRequest>>>,
+    /// When each intercepted request was sent.
+    pub request_times: Arc<Mutex<Vec<xmtp_common::time::Instant>>>,
+    /// Refuse every `QueryNewest` with PERMISSION_DENIED.
+    pub fail_newest: Arc<AtomicBool>,
+    /// Refuse every `QueryNewest` with a rate limit of this delay.
+    pub rate_limit_newest: Arc<Mutex<Option<xmtp_common::time::Duration>>>,
     /// Metadata of each stored request whose response was lost.
     pub lost: Arc<Mutex<Vec<wire::EnvelopeMeta>>>,
     /// Fail every `Query` after the next `OUT_OF_RANGE` with `DATA_LOSS` until
@@ -65,6 +75,9 @@ impl FaultyApi {
             intercepts,
             faults: Arc::new(Mutex::new(faults.into_iter().collect())),
             requests: Default::default(),
+            request_times: Default::default(),
+            fail_newest: Default::default(),
+            rate_limit_newest: Default::default(),
             lost: Default::default(),
             stop_before_recovery: Default::default(),
             lag_newest: Default::default(),
@@ -126,12 +139,22 @@ impl XmtpBackendClient for FaultyApi {
         let _serial = self.serial.lock().await;
         let fault = self.faults.lock().pop_front();
         self.requests.lock().push(request.clone());
+        self.request_times
+            .lock()
+            .push(xmtp_common::time::Instant::now());
         let publish_error = match fault {
-            None => return self.inner.publish(request).await,
+            None | Some(Fault::Pass) => return self.inner.publish(request).await,
             Some(Fault::Refuse(code)) if code != tonic::Code::OutOfRange => {
                 return Err(status(code));
             }
             Some(Fault::Refuse(_)) => status(tonic::Code::OutOfRange),
+            Some(Fault::RateLimit(delay)) => {
+                return Err(ApiClientError::client(
+                    xmtp_api_grpc::error::GrpcError::Status(
+                        xmtp_api_grpc::error::rate_limited_status("publish", delay),
+                    ),
+                ));
+            }
             Some(Fault::LoseResponse | Fault::StoreThenUnavailable) => {
                 let response = self.inner.publish(request).await?;
                 self.lost.lock().extend(response.envelope_metas);
@@ -167,6 +190,17 @@ impl XmtpBackendClient for FaultyApi {
         &self,
         request: wire::QueryNewestRequest,
     ) -> Result<wire::QueryNewestResponse, Self::Error> {
+        if self.fail_newest.load(Ordering::SeqCst) {
+            return Err(status(tonic::Code::PermissionDenied));
+        }
+        let rate_limit = *self.rate_limit_newest.lock();
+        if let Some(delay) = rate_limit {
+            return Err(ApiClientError::client(
+                xmtp_api_grpc::error::GrpcError::Status(xmtp_api_grpc::error::rate_limited_status(
+                    "request", delay,
+                )),
+            ));
+        }
         if self.lag_newest.load(Ordering::SeqCst) {
             return Ok(wire::QueryNewestResponse::default());
         }

@@ -489,6 +489,16 @@ impl RetryableError for GroupMessageProcessingError {
             Self::EpochAuthenticatorNotAdvanced { .. } => true,
         }
     }
+
+    fn rate_limit_delay(&self) -> Option<xmtp_common::time::Duration> {
+        match self {
+            Self::PreparedAttempt(error) => error.rate_limit_delay(),
+            Self::Identity(err) => err.rate_limit_delay(),
+            Self::Client(err) => err.rate_limit_delay(),
+            Self::CommitValidation(err) => err.rate_limit_delay(),
+            _ => None,
+        }
+    }
 }
 
 impl crate::worker::NeedsDbReconnect for GroupMessageProcessingError {
@@ -577,6 +587,10 @@ impl std::fmt::Display for IntentResolutionError {
 impl RetryableError for IntentResolutionError {
     fn is_retryable(&self) -> bool {
         self.processing_error.is_retryable()
+    }
+
+    fn rate_limit_delay(&self) -> Option<xmtp_common::time::Duration> {
+        self.processing_error.rate_limit_delay()
     }
 }
 

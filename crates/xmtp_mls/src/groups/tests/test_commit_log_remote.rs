@@ -1,7 +1,7 @@
 use crate::groups::MlsGroup;
 use crate::groups::PolicySet;
 use crate::groups::commit_log::{
-    CommitLogTestFunction, CommitLogWorker, should_skip_remote_commit_log_entry,
+    CommitLogTestFunction, CommitLogWorker, Factory, should_skip_remote_commit_log_entry,
 };
 use crate::groups::send_message_opts::SendMessageOpts;
 use crate::{context::XmtpSharedContext, tester};
@@ -360,6 +360,188 @@ async fn test_publish_commit_log_to_remote() {
         .query_commit_log([(topic, Cursor(0))].into())
         .await?;
     assert_eq!(again.len(), 1);
+}
+
+/// A rate-limited publish is not retried at the next turn inside its delay.
+// verifies: RATE-041
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_rate_limited_publish_waits_out_its_delay() {
+    tester!(alix, disable_workers);
+    let group = alix.create_group(None, None)?;
+    group.update_group_name("limited".into()).await?;
+    let (client, script) = scripted::scripted(&alix.client).await;
+    script.lock().rate_limit = Some(xmtp_common::time::Duration::from_secs(300));
+    let id = keys_of(&group).commit_log_id().to_vec();
+    let mut worker = CommitLogWorker::new(client.context.clone());
+    assert!(publish_turn(&mut worker).await.is_empty());
+    assert_eq!(script.lock().publishes_for(&id), 1);
+    assert!(publish_turn(&mut worker).await.is_empty());
+    assert_eq!(
+        script.lock().publishes_for(&id),
+        1,
+        "no publish inside the delay"
+    );
+}
+
+/// A storage reconnect builds a new worker from the same factory, which keeps
+/// the publish hold: the new worker does not publish inside the delay.
+// verifies: RATE-041
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_publish_hold_survives_a_new_worker() {
+    tester!(alix, disable_workers);
+    let group = alix.create_group(None, None)?;
+    group.update_group_name("limited".into()).await?;
+    let (client, script) = scripted::scripted(&alix.client).await;
+    script.lock().rate_limit = Some(Duration::from_secs(300));
+    let id = keys_of(&group).commit_log_id().to_vec();
+    let factory = Factory::new(client.context.clone());
+    assert!(publish_turn(&mut factory.worker()).await.is_empty());
+    assert_eq!(script.lock().publishes_for(&id), 1);
+    assert!(publish_turn(&mut factory.worker()).await.is_empty());
+    assert_eq!(
+        script.lock().publishes_for(&id),
+        1,
+        "no publish inside the delay"
+    );
+}
+
+/// A readd answer refused with a rate limit keeps the request and is not
+/// answered again inside the delay, also by a worker a storage reconnect
+/// builds from the same factory.
+// verifies: RATE-041
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_rate_limited_readd_waits_out_its_delay() {
+    tester!(alix, disable_workers, enable_fork_recovery_requests);
+    tester!(bo, disable_workers);
+    let dm = alix
+        .find_or_create_dm(bo.inbox_id().to_string(), None)
+        .await?;
+    bo.sync_all_welcomes_and_groups(None).await?;
+    let bo_dm = bo.group(&dm.group_id)?;
+    bo_dm.update_consent_state(ConsentState::Allowed)?;
+    dm.key_update().await?;
+    bo_dm.sync().await?;
+    let mut alix_worker = CommitLogWorker::new(alix.context.clone());
+    let (bo_client, script) = scripted::scripted(&bo.client).await;
+    let factory = Factory::new(bo_client.context.clone());
+    let mut bo_worker = factory.worker();
+    alix_worker._tick().await?;
+    bo_worker._tick().await?;
+    alix.context
+        .db()
+        .set_group_commit_log_forked_status(&dm.group_id, Some(true))?;
+    alix_worker._tick().await?;
+    bo.sync_welcomes().await?;
+    let installation = alix.context.installation_id();
+    let bo_db = bo.context.db();
+    assert!(bo_db.is_awaiting_readd(&dm.group_id, installation.as_slice())?);
+
+    script.lock().group_message_rate_limit = Some(Duration::from_secs(300));
+    let epoch = bo_dm.epoch().await?;
+    bo_worker._tick().await?;
+    let attempts = script.lock().group_message_publishes;
+    assert!(attempts > 0, "the readd is sent");
+    assert_eq!(bo_dm.epoch().await?, epoch);
+    assert!(bo_db.is_awaiting_readd(&dm.group_id, installation.as_slice())?);
+    bo_worker._tick().await?;
+    factory.worker()._tick().await?;
+    assert_eq!(
+        script.lock().group_message_publishes,
+        attempts,
+        "no readd inside the delay"
+    );
+    assert!(bo_db.is_awaiting_readd(&dm.group_id, installation.as_slice())?);
+}
+
+/// A rate-limited conversation holds only its own commit-log publish: another
+/// conversation still publishes inside the delay.
+// verifies: RATE-041
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_rate_limited_publish_holds_only_its_conversation() {
+    tester!(alix, disable_workers);
+    let first = alix.create_group(None, None)?;
+    first.update_group_name("one".into()).await?;
+    let second = alix.create_group(None, None)?;
+    second.update_group_name("two".into()).await?;
+    let ids = [
+        keys_of(&first).commit_log_id().to_vec(),
+        keys_of(&second).commit_log_id().to_vec(),
+    ];
+    let (client, script) = scripted::scripted(&alix.client).await;
+    script.lock().rate_limit = Some(xmtp_common::time::Duration::from_secs(300));
+    let mut worker = CommitLogWorker::new(client.context.clone());
+    assert!(publish_turn(&mut worker).await.is_empty());
+    let refused = ids
+        .iter()
+        .find(|id| script.lock().publishes_for(id) == 1)?
+        .clone();
+    let other = ids.iter().find(|id| **id != refused)?.clone();
+    script.lock().rate_limit = None;
+    publish_turn(&mut worker).await;
+    assert_eq!(
+        script.lock().publishes_for(&refused),
+        1,
+        "no publish of the refused conversation inside its delay"
+    );
+    assert!(
+        script.lock().publishes_for(&other) >= 1,
+        "the other conversation still publishes"
+    );
+}
+
+/// A rate limit on one conversation's publish does not end the turn: the
+/// next conversation still publishes in the same turn.
+// verifies: RATE-041
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_rate_limited_publish_does_not_end_the_turn() {
+    tester!(alix, disable_workers);
+    let first = alix.create_group(None, None)?;
+    first.update_group_name("one".into()).await?;
+    let second = alix.create_group(None, None)?;
+    second.update_group_name("two".into()).await?;
+    let ids = [
+        keys_of(&first).commit_log_id().to_vec(),
+        keys_of(&second).commit_log_id().to_vec(),
+    ];
+    let (client, script) = scripted::scripted(&alix.client).await;
+    {
+        let mut script = script.lock();
+        script.rate_limit = Some(xmtp_common::time::Duration::from_secs(300));
+        script.rate_limit_once = true;
+    }
+    let mut worker = CommitLogWorker::new(client.context.clone());
+    let published = publish_turn(&mut worker).await;
+    for id in &ids {
+        assert_eq!(
+            script.lock().publishes_for(id),
+            1,
+            "each conversation is sent once"
+        );
+    }
+    assert_eq!(
+        published.len(),
+        1,
+        "the conversation after the refused one publishes"
+    );
+}
+
+/// Publication resumes once a rate-limit hold has ended.
+// verifies: RATE-041
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_commit_log_publish_resumes_after_its_hold() {
+    tester!(alix, disable_workers);
+    let group = alix.create_group(None, None)?;
+    group.update_group_name("limited".into()).await?;
+    let (client, script) = scripted::scripted(&alix.client).await;
+    script.lock().rate_limit = Some(xmtp_common::time::Duration::from_millis(50));
+    let mut worker = CommitLogWorker::new(client.context.clone());
+    assert!(publish_turn(&mut worker).await.is_empty());
+    script.lock().rate_limit = None;
+    xmtp_common::time::sleep(xmtp_common::time::Duration::from_millis(60)).await;
+    assert_eq!(
+        publish_turn(&mut worker).await,
+        vec![group.group_id.to_vec()]
+    );
 }
 
 /// The backend refuses one conversation's entries. Another conversation's

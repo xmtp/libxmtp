@@ -66,6 +66,13 @@ impl RetryableError for MlsStoreError {
             Self::NotFound(e) => e.is_retryable(),
         }
     }
+
+    fn rate_limit_delay(&self) -> Option<xmtp_common::time::Duration> {
+        match self {
+            Self::Api(e) => e.rate_limit_delay(),
+            _ => None,
+        }
+    }
 }
 
 impl crate::worker::NeedsDbReconnect for MlsStoreError {

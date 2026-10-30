@@ -18,7 +18,8 @@ impl Drop for BeforeRequestGuard {
     }
 }
 
-/// Run one local change after batch preparation and before request validation.
+/// Run one local change before a request is sent: after an update batch is
+/// prepared, or before a registration takes the request lock.
 pub(crate) fn on_before_request(change: impl FnOnce() + 'static) -> BeforeRequestGuard {
     BEFORE_REQUEST.with(|hook| {
         assert!(hook.borrow_mut().replace(Box::new(change)).is_none());
@@ -61,6 +62,10 @@ pub(crate) struct Server {
     pub(crate) calls: Vec<Call>,
     pub(crate) pause_next: bool,
     pub(crate) next_error: Option<tonic::Code>,
+    /// Refuse the next request of this kind with a rate limit of this delay.
+    pub(crate) rate_limit: Option<(Call, xmtp_common::time::Duration)>,
+    /// Answer the next request of this kind only after this long.
+    pub(crate) slow: Option<(Call, xmtp_common::time::Duration)>,
 }
 
 #[derive(Default)]
@@ -79,15 +84,33 @@ fn status(code: tonic::Code) -> ApiClientError {
 
 impl Peer {
     async fn gate(&self, call: Call) -> Result<(), ApiClientError> {
-        let (pause, error) = {
+        let (pause, error, rate_limit, slow) = {
             let mut state = self.state.lock();
             state.calls.push(call);
             let pause = std::mem::take(&mut state.pause_next);
-            (pause, state.next_error.take())
+            let rate_limit = state
+                .rate_limit
+                .take_if(|(kind, _)| *kind == call)
+                .map(|(_, delay)| delay);
+            let slow = state
+                .slow
+                .take_if(|(kind, _)| *kind == call)
+                .map(|(_, delay)| delay);
+            (pause, state.next_error.take(), rate_limit, slow)
         };
         if pause {
             self.entered.notify_one();
             self.release.notified().await;
+        }
+        if let Some(delay) = slow {
+            xmtp_common::time::sleep(delay).await;
+        }
+        if let Some(delay) = rate_limit {
+            return Err(ApiClientError::client(
+                xmtp_api_grpc::error::GrpcError::Status(xmtp_api_grpc::error::rate_limited_status(
+                    "push", delay,
+                )),
+            ));
         }
         error.map(status).map_or(Ok(()), Err)
     }

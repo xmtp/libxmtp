@@ -844,6 +844,15 @@ mock! {
             next_attempt_at_ns: i64,
         ) -> Result<crate::tasks::Task, StorageError>;
 
+        fn update_task_and_expiry(
+            &self,
+            id: i32,
+            attempts: i32,
+            last_attempted_at_ns: i64,
+            next_attempt_at_ns: i64,
+            expires_at_ns: i64,
+        ) -> Result<crate::tasks::Task, StorageError>;
+
         fn delete_task(&self, id: i32) -> Result<bool, StorageError>;
     }
 

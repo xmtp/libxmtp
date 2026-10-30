@@ -191,7 +191,12 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                 }
                 TopicKind::IdentityUpdatesV1 => {
                     if let Err(error) = self.prepare_identity_head(&topic) {
-                        self.defer_head(&topic, "identity_invalid", !error.is_retryable());
+                        self.defer_head(
+                            &topic,
+                            "identity_invalid",
+                            !error.is_retryable(),
+                            error.rate_limit_delay(),
+                        );
                         self.topic_error(topic, error);
                     }
                 }
@@ -453,6 +458,11 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
     pub(super) fn dependency_finished(&mut self, result: DependencyResult<C>) {
         match result {
             DependencyResult::PrefixTarget(cursor, topic, result) => {
+                let fallback = self
+                    .context
+                    .incoming_runtime()
+                    .policy()
+                    .receiver_fallback_interval;
                 let Some(hold) = self.prefix_holds.get_mut(&cursor) else {
                     return;
                 };
@@ -460,15 +470,13 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                     Ok(target) => hold.target = PrefixTarget::Known(target),
                     Err(error) => {
                         tracing::warn!(sequence_id = cursor.0, %error, "group prefix target read failed");
+                        // A rate-limited read waits its delay (RATE-041).
+                        let wait = fallback.max(error.rate_limit_delay().unwrap_or_default());
                         hold.target = PrefixTarget::Unrequested {
-                            retry_at: Some(
-                                Instant::now()
-                                    + self
-                                        .context
-                                        .incoming_runtime()
-                                        .policy()
-                                        .receiver_fallback_interval,
-                            ),
+                            retry_at: Some(xmtp_common::time::saturating_after(
+                                Instant::now(),
+                                wait,
+                            )),
                         };
                         // implements: API-284
                         if crate::subscriptions::recovery::rejected_request(&error) {
@@ -519,6 +527,9 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                 let error = result
                     .err()
                     .map(|error| Arc::new(IncomingError::Identity(error)));
+                // The head that needed a refused proof retries after its delay.
+                // implements: RATE-041
+                let floor = error.as_ref().and_then(|error| error.rate_limit_delay());
                 for parent in parents {
                     if !self.parent_is_pending(&parent) {
                         continue;
@@ -565,7 +576,13 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                                         (self.welcome_topic(), cursor, "identity_dependency")
                                     }
                                 };
-                                self.defer_cursor(&topic, cursor, code, !error.is_retryable());
+                                self.defer_cursor(
+                                    &topic,
+                                    cursor,
+                                    code,
+                                    !error.is_retryable(),
+                                    floor,
+                                );
                                 self.topics.entry(topic).or_default().error = Some(error.clone());
                             }
                         }
@@ -601,11 +618,17 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
         }
     }
 
-    fn defer_head(&self, topic: &Topic, code: &'static str, blocked: bool) {
+    fn defer_head(
+        &self,
+        topic: &Topic,
+        code: &'static str,
+        blocked: bool,
+        floor: Option<Duration>,
+    ) {
         if let Ok(key) = topic_key(topic)
             && let Ok(Some(head)) = self.context.db().first_pending_envelope(&key)
         {
-            self.defer_cursor(topic, Cursor(head.sequence_id as u64), code, blocked);
+            self.defer_cursor(topic, Cursor(head.sequence_id as u64), code, blocked, floor);
         }
     }
 
@@ -620,15 +643,25 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
         blocked && previous != Some(cursor)
     }
 
-    fn defer_cursor(&self, topic: &Topic, cursor: Cursor, code: &'static str, blocked: bool) {
+    /// Retry the head after the fallback interval, or after `floor`, a
+    /// rate-limit delay, when that is later.
+    fn defer_cursor(
+        &self,
+        topic: &Topic,
+        cursor: Cursor,
+        code: &'static str,
+        blocked: bool,
+        floor: Option<Duration>,
+    ) {
         if let Ok(key) = topic_key(topic) {
-            let retry_at_ns = xmtp_common::time::now_ns().saturating_add(
-                self.context
-                    .incoming_runtime()
-                    .policy()
-                    .receiver_fallback_interval
-                    .as_nanos() as i64,
-            );
+            let delay = self
+                .context
+                .incoming_runtime()
+                .policy()
+                .receiver_fallback_interval
+                .max(floor.unwrap_or_default());
+            let retry_at_ns = xmtp_common::time::now_ns()
+                .saturating_add(i64::try_from(delay.as_nanos()).unwrap_or(i64::MAX));
             let _ = self.context.db().set_incoming_retry(
                 &key,
                 cursor,

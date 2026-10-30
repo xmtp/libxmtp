@@ -310,6 +310,16 @@ impl xmtp_common::RetryableError for ClientError {
             _ => false,
         }
     }
+
+    fn rate_limit_delay(&self) -> Option<xmtp_common::time::Duration> {
+        match self {
+            ClientError::Group(group_error) => group_error.rate_limit_delay(),
+            ClientError::Api(api_error) => api_error.rate_limit_delay(),
+            ClientError::SignatureValidation(e) => e.rate_limit_delay(),
+            ClientError::ConfigurationUnavailable(e) => e.rate_limit_delay(),
+            _ => None,
+        }
+    }
 }
 
 impl From<String> for ClientError {

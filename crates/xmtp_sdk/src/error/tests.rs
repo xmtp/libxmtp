@@ -224,6 +224,7 @@ fn group_errors_keep_storage_retry_policy_on_reads_only() {
     let unconfirmed = || GroupError::PublishedButUnconfirmed {
         intent_id: 1,
         cause: None,
+        rate_limit_delay: None,
     };
     for error in [
         XmtpError::from_group(unconfirmed()),
