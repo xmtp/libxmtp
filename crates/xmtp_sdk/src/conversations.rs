@@ -88,6 +88,9 @@ pub enum MessageSortBy {
     InsertedAt,
 }
 
+/// Time bounds are strict selection filters, not paging cursors.
+/// Page Published history with `message_history_page`; use
+/// `message_recovery_page` for Failed and Unpublished rows.
 #[derive(Clone, Debug, Default, uniffi::Record)]
 pub struct ListMessagesOptions {
     #[uniffi(default = None)]

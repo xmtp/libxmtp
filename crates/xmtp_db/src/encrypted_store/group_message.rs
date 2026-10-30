@@ -1426,6 +1426,12 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
         let query = dsl::group_messages
             .filter(group_id_filter(group_id.as_ref()))
             .filter(dsl::content_type.eq_any(allowed_content_types))
+            .filter(dsl::delivery_status.eq(DeliveryStatus::Published))
+            .filter(
+                dsl::expire_at_ns
+                    .is_null()
+                    .or(dsl::expire_at_ns.gt(now_ns())),
+            )
             .group_by(dsl::sender_inbox_id)
             .select((dsl::sender_inbox_id, diesel::dsl::max(dsl::sent_at_ns)))
             .into_boxed();
