@@ -215,6 +215,18 @@ jobs:
     secrets: inherit
     with:
       runner: ${{ github.event_name == 'pull_request' && 'blacksmith-16vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
+  test_chaos:
+    name: Rust chaos
+    needs:
+    - detect-changes
+    if: contains(fromJSON(needs.detect-changes.outputs.test_suites), 'test_chaos')
+    uses: ./.github/workflows/test-chaos.yml
+    permissions:
+      contents: read
+    secrets:
+      CACHIX_PR_AUTH_TOKEN: ${{ secrets.CACHIX_PR_AUTH_TOKEN }}
+    with:
+      runner: ubuntu-24.04
   docs_rust:
     name: Rust reference
     needs:
@@ -504,6 +516,7 @@ jobs:
     - test_nix_checks
     - test_workspace
     - test_wasm
+    - test_chaos
     - docs_rust
     - check_types
     - check_sdk

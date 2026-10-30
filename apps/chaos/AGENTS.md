@@ -1,7 +1,9 @@
 # Chaos suite
 
 `xchaos` runs real client processes against this worktree's self-hosted backend.
-It is outside `default-members` and CI.
+It is outside `default-members`. The blocking `Rust chaos` CI suite runs a
+50-round baseline and five minutes of faults for changes to this app or
+`crates/xmtp_mls/`, and on merges. See [CI selection](../../.github/CI.md).
 
 ## Run gate
 
