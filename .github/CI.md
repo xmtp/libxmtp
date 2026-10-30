@@ -38,7 +38,7 @@ second caller job (`<suite>_advisory`, named `<title> (advisory)`) that no gate
 needs. A full run of a pull request runs a suite with `advisory_filters` as
 advisory unless a `pr_filters` entry matched. When detection fails or a pull
 request has more than 3,000 files, a suite that `pr_filters` can select
-blocks. Merge and manual runs run every selected suite as blocking. The
+blocks. Merge, nightly, and manual runs run every selected suite as blocking. The
 example apps use this selection policy: the app's own paths, its workflow, and its
 label block; the SDK the app consumes and the SDK and toolchain Nix inputs
 (`example_ios_nix`, `example_android_nix`) run it as advisory; nothing else
@@ -47,9 +47,9 @@ selects it, so backend and service inputs and full runs leave it out
 Test gate never waits for advisory work.
 
 `runners` maps a workflow input to a `{pr, merge}` pair of labels. The caller
-passes the `pr` label on pull requests and the merge label on merge and manual
+passes the `pr` label on pull requests and the merge label on merge, nightly, and manual
 runs, so a manual run on a branch measures the merge runners; the suite
-workflow uses it as `runs-on: ${{ inputs.NAME }}`. Merge and manual runs use
+workflow uses it as `runs-on: ${{ inputs.NAME }}`. Merge, nightly, and manual runs use
 free GitHub-hosted runners, except the Gradle jobs, which write the Gradle
 home that pull requests restore from Blacksmith's cache, and the macOS jobs,
 which run on WarpBuild for pull requests and merges. On a GitHub-hosted
@@ -61,7 +61,12 @@ Pull request pushes run the suites whose inputs changed. Draft pushes run only
 suites with `draft_pr_push` in `run_on`; test suites never do. On drafts the
 gates are named `Lint (draft)` and `Test (not run on drafts)`, so a draft run
 cannot satisfy the required checks. The Nix evaluation suite (`nix_eval`)
-skips drafts. A merge to `main` runs every suite with `merge` in `run_on`. A
+skips drafts. A merge to `main` runs every suite with `merge` in `run_on`. The
+daily run at 09:17 UTC runs every suite, subject to `covered_by`, without path
+detection. Its gates notify Slack on failure. Nightly suites use mode `ci`:
+they may write the CI-only `xmtp-pr` cache with `CACHIX_PR_AUTH_TOKEN`, but
+never write trusted Cachix `xmtp`, Kache S3, or the saved pnpm store. Gradle
+caches remain read-only on schedules. A
 manual run takes a `suites` input, a comma-separated list of suite keys, and
 runs those suites; an empty input runs every suite, and an unknown key fails
 `Select suites`. A run of a subset names its gates `Lint (manual subset)` and
@@ -71,16 +76,20 @@ detection. Rename-expanded path counts do not select a full run. Empty diffs
 are valid. Fork pull requests skip suites with `disable_on_forks`. A suite
 with `covered_by` does not run when its cover runs in the same or a stronger
 tier. A suite with `skip_full_runs` runs in a full pull request run only when
-its own filters or labels match: the full RN device chain and the example
-apps do, so other full runs get the Android smoke and no example app. A `neutral` file selects a suite only through a repository-wide glob
+its own filters or labels match: both RN device chains and the example
+apps do, so unrelated full PR runs get no devices or example apps. A `neutral` file selects a suite only through a repository-wide glob
 that starts with `**/`, such as `**/*.md` or the formatter's file types. A
 pull request that deletes or renames a file also runs the `on_deleted_path`
 suites, because `dev/ci-suites check` can then find a pattern that names no
 file, and a Nix file can still name it. A new pull request push cancels the
 older run. A running merge run is not cancelled, but GitHub keeps one pending
 run per concurrency group, so a newer push to `main` replaces a merge run that
-is still waiting: merge runs are latest-wins. Manual runs have their own group
-and never replace a merge run.
+is still waiting: merge runs are latest-wins. Manual and nightly runs have
+their own groups and never replace a merge run.
+
+Before a release, dispatch `ci.yml` on the release candidate ref with `suites`
+empty to run the full suite, including examples and RN devices. Existing
+release-specific checks remain in the release workflows.
 
 Products need `CACHIX_PR_AUTH_TOKEN`. Fork runs have no secrets. Dependabot
 runs have only Dependabot secrets, so the token reaches them once it is added
@@ -112,8 +121,12 @@ tests, markdownlint, and the docs source check. It runs on drafts too, and on
 every merge. Each check step runs even when an earlier one failed. The cargo-deny
 advisories check runs only in the daily `lint-deny.yml` schedule on the
 default branch, so a new advisory never fails a pull request or merge. A backend change selects the backend suites and
-the client suites `test_workspace`, `test_wasm`, and `test_node`; the Android,
-browser, and SDK platform suites run on the merge. `test_workspace` builds
+the client suites `test_workspace`, `test_wasm_sample`, and `test_node`; the Android,
+browser, and SDK platform suites run on the merge. Backend-only PRs run
+`test_backend_darwin` to build and start the native backend and test services
+on macOS without Swift generation or simulator tests. Swift, SDK, and Apple
+toolchain inputs still select `test_ios`, which covers that smoke; main and
+nightly runs keep full iOS checks. `test_workspace` builds
 with the `ci-test` Cargo profile: release speed with overflow checks and
 debug assertions in the workspace crates. Android lint has no suite of its own: `sdk-build` in
 `test-android.yml` runs `gradlew build`, which includes it.
@@ -123,6 +136,27 @@ change Rust core crates omit the SDK and mobile suites; the merge run covers
 them. The standalone Rust reference keeps rustdoc and glossary checks for Rust
 changes. Automatic PR backend image checks use amd64; two-architecture
 publication runs only on main, tag pushes, or reusable calls.
+
+Ordinary Rust/backend PRs compile the full WASM archive but run one of its
+four partitions, selected by `github.run_number % 4 + 1`. Rerunning an attempt
+keeps the same partition. WASM-specific source and storage, browser SDK,
+dependency, runner, and toolchain inputs select all four, as does the
+`ci-wasm-full` label. Unknown paths and failed detection remain conservative
+full runs. Main, nightly, and manual runs always use all four partitions,
+even when manually selecting `test_wasm_sample`. The omitted tests defer
+feedback until a full run; rotation does not guarantee every PR sees all tests.
+
+Example apps no longer run on every merge. Their path/label-selected PR
+coverage stays in place, and nightly/manual full runs cover every example.
+Gradle caches remain writable only by protected pushes; these example jobs
+therefore no longer refresh their Gradle homes on each merge.
+
+Repository prose and spec edits use the existing Markdown, spec, and docs
+source checks, without selecting `docs_site`. Changes to `apps/docs`, SDK/API
+generation, JS dependencies, and documentation tooling retain full site builds,
+composition, browser checks, and Lighthouse. Post-merge still publishes the
+complete docs, and nightly full runs validate them. Rendering regressions in
+spec prose can therefore be found after merging rather than on the PR.
 
 All CI commands select a targeted Nix shell. Full root Nix warming still builds
 all outputs and dependencies, including the default developer shell. Kache is
@@ -134,7 +168,7 @@ Recovery runs only through the manual workflow. The release `load` jobs of
 
 `check-react-native.yml` runs the RN unit checks (`check-package`, `test-react`,
 `test-native`, `test-control`) on Linux with no device and blocks merges.
-`test-react-native.yml` is the advisory device chain: components, the npm
+`test-react-native.yml` is the PR-advisory device chain: components, the npm
 package, and the installed bare/Expo apps. Its `scope` input is `full` or
 `android-smoke` (the bare Android app). Pull request runs build the partial test
 package (x86_64 Android, iOS simulator, version `-partial`, rejected by
@@ -145,11 +179,15 @@ token push each stage and the next stage substitutes it; forks and releases
 exchange signed same-run closures (zstd). Receipts run only with the `debug`
 input or a debug re-run.
 
+RN paths or the `react-native` label select the full PR device chain. Broad
+SDK/backend changes no longer select Android smoke automatically: use the
+`ci-rn-smoke` label to opt in. Nightly full CI runs the complete device chain
+as blocking, including every journey on Android/iOS bare and Expo apps.
+
 Once GitHub registers the workflow, `gh workflow run test-react-native.yml --ref
 REF` runs only the RN chain. Platform jobs retain
 `target/react-native-results/*.json` in `react-native-proof-PLATFORM`; release
-jobs use `react-native-release-proof-PLATFORM`, post-merge
-`react-native-post-merge-proof-PLATFORM`. Do not upload peer logs with these
+jobs use `react-native-release-proof-PLATFORM`. Do not upload peer logs with these
 reports. The consumer builds retain 100 Nix failure lines so CocoaPods hook
 exceptions remain visible before their Ruby stack traces.
 
@@ -160,12 +198,12 @@ and cache mode. Cache setup, credentials, explicit uploads, and trusted writer
 environments stay in the calling workflows. Native derivations select their
 declared Xcode; the consumer action sets `DEVELOPER_DIR` for simulator commands
 outside Nix. `react-native-conformance` executes fresh installed bare/Expo
-proofs in test, post-merge, and release jobs.
+proofs in PR, nightly, manual, and release jobs.
 
 Post-merge `rn-*` cache jobs build and push the RN stages, test package, and
 bare Android test app. `rn-consumers` also builds, pushes, and pins each system's
-`ciSets.<system>.rn` as `rn-<system>`. `rn-smoke` runs every journey
-(`XMTP_RN_JOURNEYS=full`) in mode `read` without a token. `rn-alert` runs on a
+`ciSets.<system>.rn` as `rn-<system>`. Post-merge runs no device tests, but keeps
+cache warming to avoid moving compilation costs into PRs and releases. `rn-alert` runs on a
 free runner whenever the run is not cancelled: it checks each RN set already in
 `xmtp` with `dev/ci/warm-closure`, including a successful platform when the other
 failed, and alerts on RN failures, timeouts, or closure-check failure.
@@ -181,8 +219,7 @@ Keep advisory RN failures isolated from other post-merge work:
   suite runs `dev/ci/rn-isolation` to reject non-RN sets that build an RN member.
 - RN cache jobs wait for `build` to substitute shared SDK outputs but must still
   run if it fails. After `!cancelled()`, their conditions check only the prior RN
-  job; GitHub's implicit success check would otherwise skip them. Smoke also
-  waits for `build` for backend/services but can run after its failure.
+  job; GitHub's implicit success check would otherwise skip them.
 - Declare new RN outputs in `rnAll` in `nix/ci-sets.nix`; add them to
   `rnBlocking` only when a blocking Linux PR suite builds them. `ciStages`
   derives from the warm sets.

@@ -191,7 +191,7 @@ class SelectionTests(unittest.TestCase):
                 self.assertTrue(
                     examples.isdisjoint(selected(result) | advisory(result))
                 )
-                self.assertEqual(advisory(result), {"test_react_native_smoke"})
+                self.assertEqual(advisory(result), set())
         # setup-js is not a shared input. Its suites run, but no example app
         # and not the full RN chain.
         result = select([".github/actions/setup-js/action.yml"])
@@ -230,8 +230,8 @@ class SelectionTests(unittest.TestCase):
                 self.assertTrue(result["reasons"])
                 self.assertEqual(selected(result) & examples, blocking)
                 self.assertEqual(advisory(result) & examples, advisory_only)
-        # Merge and manual runs run every example suite as blocking.
-        for name in ("push", "workflow_dispatch"):
+        # Nightly and manual runs run every example suite as blocking.
+        for name in ("schedule", "workflow_dispatch"):
             with self.subTest(name=name):
                 result = select(name=name, payload={})
                 self.assertLessEqual(examples, selected(result))
@@ -344,27 +344,30 @@ class SelectionTests(unittest.TestCase):
             if SELECTOR.has_advisory_tier(suite)
         }
         self.assertEqual(
-            selected(result), eligible("ready_pr_push") - {"docs_rust"} - tiered
+            selected(result),
+            eligible("ready_pr_push")
+            - {"docs_rust", "test_wasm_sample", "test_backend_darwin"}
+            - tiered,
         )
-        # Without an RN change the full RN chain skips the full run, and the
-        # Android smoke runs instead. The example apps skip it too.
-        self.assertEqual(advisory(result), {"test_react_native_smoke"})
+        # Without an RN change or a label the device chains skip full runs.
+        self.assertEqual(advisory(result), set())
 
     def test_full_runs_run_the_full_rn_chain_only_for_rn_changes(self):
         # Decision D2: the full device chain on RN paths or the label, the
-        # Android smoke on every other pull request that selects RN.
+        # Android smoke only on its label.
         for paths, labels, chain in [
-            (["flake.nix"], [], "test_react_native_smoke"),
+            (["flake.nix"], [], None),
             (["flake.nix", "sdks/react-native/src/index.ts"], [], "test_react_native"),
             (["flake.nix"], ["react-native"], "test_react_native"),
-            (["new-language/source.xyz"], [], "test_react_native_smoke"),
+            (["flake.nix"], ["ci-rn-smoke"], "test_react_native_smoke"),
+            (["new-language/source.xyz"], [], None),
         ]:
             with self.subTest(paths=paths, labels=labels):
                 result = select(paths, payload=event(labels=labels), total=len(paths))
                 self.assertTrue(result["reasons"])
                 rn = {name for name in advisory(result) if "react_native" in name}
-                self.assertEqual(rn, {chain})
-        # Merge runs leave the device chain to post-merge; manual runs run
+                self.assertEqual(rn, {chain} if chain else set())
+        # Merge runs warm device caches; nightly and manual runs execute
         # the full chain.
         self.assertFalse(
             {"test_react_native", "test_react_native_smoke"}
@@ -583,7 +586,13 @@ class ManualRunTests(unittest.TestCase):
             name for name, suite in SELECTOR.SUITES.items() if not suite["covered_by"]
         }
         self.assertEqual(
-            set(SELECTOR.SUITES) - everything, {"docs_rust", "test_react_native_smoke"}
+            set(SELECTOR.SUITES) - everything,
+            {
+                "docs_rust",
+                "test_react_native_smoke",
+                "test_wasm_sample",
+                "test_backend_darwin",
+            },
         )
         for payload in (dispatch(""), dispatch(" , "), {"inputs": {}}, {}):
             with self.subTest(payload=payload):
@@ -695,14 +704,16 @@ class WorkflowTests(unittest.TestCase):
             return run, values, (temp / "summary").read_text()
 
     def test_workflow_passes_json_as_data(self):
-        path = 'docs/quote"\nCI_PATH_DATA\n$(touch injected)\n<script>.md'
+        path = 'apps/docs/quote"\nCI_PATH_DATA\n$(touch injected)\n<script>.md'
         data = {
             "changes": json.dumps(["all_files"]),
             "all_files_files": json.dumps([path]),
         }
         run, values, text = self.run_select(data)
         self.assertEqual(run.returncode, 0, run.stderr)
-        self.assertEqual(json.loads(values["test_suites"]), ["docs_site"])
+        self.assertEqual(
+            json.loads(values["test_suites"]), ["check_types", "docs_site"]
+        )
         self.assertEqual(json.loads(values["products"]), [])
         self.assertEqual(json.loads(values["advisory_suites"]), [])
         # The path is not in the checkout, so it counts as deleted.
@@ -774,7 +785,7 @@ class WorkflowTests(unittest.TestCase):
         """Run a gate step the way GitHub runs it: `needs` holds only the jobs
         the gate needs."""
         gate = self.jobs[phase]
-        (step,) = gate["steps"]
+        (step,) = (step for step in gate["steps"] if "run" in step)
         needs = {job: {"result": "skipped"} for job in gate["needs"]}
         needs["detect-changes"] = {"result": detected}
         needs.update(

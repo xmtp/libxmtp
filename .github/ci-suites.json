@@ -679,6 +679,61 @@
         }
       },
       "with": {},
+      "cargo_roots": [],
+      "crates": [],
+      "workflow_files": [
+        ".github/actions/setup-nix/**",
+        ".github/workflows/test-wasm.yml"
+      ],
+      "workflow_tier": "blocking",
+      "paths": [
+        "crates/**/*opfs*.rs",
+        "crates/**/wasm*.rs",
+        "crates/**/wasm/**",
+        "crates/**/web.rs",
+        "crates/*/Cargo.toml",
+        "crates/xmtp_sdk/dev/*wasm*",
+        "nix/lib/packages/wasm-bindgen-cli.nix",
+        "sdks/browser/**",
+        "{Cargo.toml,Cargo.lock}",
+        "{nix/package/wasm-nextest.nix,nix/ci-checks.nix,nix/lib/junit.nix}",
+        "{webdriver.json,.config/nextest.toml,dev/wasm.just}"
+      ],
+      "labels": [
+        "ci-wasm-full"
+      ],
+      "advisory": {
+        "cargo_roots": [],
+        "crates": [],
+        "paths": [],
+        "labels": []
+      }
+    },
+    "test_wasm_sample": {
+      "title": "Rust WASM sample",
+      "phase": "test",
+      "workflow": "test-wasm.yml",
+      "run_on": [
+        "ready_pr_push"
+      ],
+      "disable_on_forks": false,
+      "secrets": "inherit",
+      "permissions": {
+        "contents": "read"
+      },
+      "covered_by": "test_wasm",
+      "skip_full_runs": false,
+      "kache": [],
+      "products": [],
+      "runners": {
+        "runner": {
+          "pr": "blacksmith-16vcpu-ubuntu-2404",
+          "merge": "ubuntu-24.04"
+        }
+      },
+      "with": {
+        "scope": "sample"
+      },
       "cargo_roots": [
         "xmtp_api",
         "xmtp_api_backend",
@@ -1195,7 +1250,6 @@
         "apps/xmtp_sdk_bindgen/**",
         "crates/xmtp_sdk/**",
         "dev/js/{sdk-*,tsconfig.*.json}",
-        "docs/**",
         "nix/docs.nix",
         "nix/lib/packages/napi-rs-cli/**",
         "nix/lib/packages/pnpm.nix",
@@ -1256,31 +1310,71 @@
       ],
       "workflow_tier": "blocking",
       "paths": [
-        "apps/backend/**",
         "apps/xmtp_sdk_bindgen/**",
-        "crates/xmtp_attachments_server/**",
-        "crates/xmtp_backend_config/**",
-        "crates/xmtp_rate_limit/**",
         "crates/xmtp_sdk/**",
-        "dev/backend/**",
         "dev/check-apple-toolchain",
-        "dev/docker/s3/**",
         "nix/lib/ios-env.nix",
         "nix/lib/packages/napi-rs-cli/**",
         "nix/lib/packages/{swiftformat,swiftlint}.nix",
         "nix/lib/packages/{ubrn,wasm-bindgen-cli}.nix",
         "nix/lib/{sdk-sources,sdk-provenance,sdk-native-toolchain,napiTarget}.nix",
         "nix/node-packages.nix",
-        "nix/package/backend.nix",
         "nix/package/ios.nix",
         "nix/package/libffi-zig-cross.site",
         "nix/package/node.nix",
         "nix/package/xmtp-sdk{,-native,-node-runtime}.nix",
         "nix/sdk-platforms.json",
-        "nix/services/**",
         "sdks/ios/**",
         "{Cargo.toml,Cargo.lock}",
         "{Package.swift,Package.resolved,.spi.yml}"
+      ],
+      "labels": [],
+      "advisory": {
+        "cargo_roots": [],
+        "crates": [],
+        "paths": [],
+        "labels": []
+      }
+    },
+    "test_backend_darwin": {
+      "title": "Darwin backend smoke",
+      "phase": "test",
+      "workflow": "test-backend-darwin.yml",
+      "run_on": [
+        "ready_pr_push"
+      ],
+      "disable_on_forks": false,
+      "secrets": "cachix-pr",
+      "permissions": {
+        "contents": "read"
+      },
+      "covered_by": "test_ios",
+      "skip_full_runs": false,
+      "kache": [],
+      "products": [],
+      "runners": {
+        "runner": {
+          "pr": "warp-macos-15-arm64-6x",
+          "merge": "warp-macos-15-arm64-6x"
+        }
+      },
+      "with": {},
+      "cargo_roots": [],
+      "crates": [],
+      "workflow_files": [
+        ".github/actions/setup-nix/**",
+        ".github/workflows/test-backend-darwin.yml"
+      ],
+      "workflow_tier": "blocking",
+      "paths": [
+        "apps/backend/**",
+        "crates/xmtp_attachments_server/**",
+        "crates/xmtp_backend_config/**",
+        "crates/xmtp_rate_limit/**",
+        "dev/backend/**",
+        "dev/docker/s3/**",
+        "nix/package/backend.nix",
+        "nix/services/**"
       ],
       "labels": [],
       "advisory": {
@@ -1349,8 +1443,7 @@
       "phase": "test",
       "workflow": "test-example-android.yml",
       "run_on": [
-        "ready_pr_push",
-        "merge"
+        "ready_pr_push"
       ],
       "disable_on_forks": false,
       "secrets": "inherit",
@@ -1403,8 +1496,7 @@
       "phase": "test",
       "workflow": "test-example-android.yml",
       "run_on": [
-        "ready_pr_push",
-        "merge"
+        "ready_pr_push"
       ],
       "disable_on_forks": false,
       "secrets": "inherit",
@@ -1457,8 +1549,7 @@
       "phase": "test",
       "workflow": "test-example-ios.yml",
       "run_on": [
-        "ready_pr_push",
-        "merge"
+        "ready_pr_push"
       ],
       "disable_on_forks": false,
       "secrets": "cachix-pr",
@@ -1642,7 +1733,7 @@
         "contents": "read"
       },
       "covered_by": "test_react_native",
-      "skip_full_runs": false,
+      "skip_full_runs": true,
       "kache": [],
       "products": [],
       "runners": {},
@@ -1654,8 +1745,6 @@
       "workflow_files": [
         ".github/actions/react-native-conformance/**",
         ".github/actions/react-native-product/**",
-        ".github/actions/setup-js/**",
-        ".github/actions/setup-nix/**",
         ".github/workflows/test-react-native.yml"
       ],
       "workflow_tier": "advisory",
@@ -1664,37 +1753,10 @@
       "advisory": {
         "cargo_roots": [],
         "crates": [],
-        "paths": [
-          "apps/backend/**",
-          "apps/xmtp_sdk_bindgen/**",
-          "crates/xmtp_attachments_server/**",
-          "crates/xmtp_backend_config/**",
-          "crates/xmtp_rate_limit/**",
-          "crates/xmtp_sdk/**",
-          "dev/backend/**",
-          "dev/backend/{local.toml,local-s3.toml}",
-          "dev/docker/s3/**",
-          "dev/docker/{compose.yml,up,compose,load-env,load-backend-image}",
-          "dev/docker/{postgres,s3,toxiproxy}/**",
-          "dev/js/{sdk-*,tsconfig.*.json}",
-          "nix/lib/packages/napi-rs-cli/**",
-          "nix/lib/packages/pnpm.nix",
-          "nix/lib/packages/{ubrn,wasm-bindgen-cli}.nix",
-          "nix/lib/{sdk-sources,sdk-provenance,sdk-native-toolchain,napiTarget}.nix",
-          "nix/musl-docker.nix",
-          "nix/node-packages.nix",
-          "nix/package/backend.nix",
-          "nix/package/libffi-zig-cross.site",
-          "nix/package/node.nix",
-          "nix/package/xmtp-sdk{,-native,-node-runtime}.nix",
-          "nix/sdk-platforms.json",
-          "nix/services/**",
-          "nix/{js,js-node}.nix",
-          "sdks/js.just",
-          "{Cargo.toml,Cargo.lock}",
-          "{package.json,pnpm-lock.yaml,pnpm-workspace.yaml,.node-version,.nvmrc,.oxlintrc.json,.oxfmtrc.json}"
-        ],
-        "labels": []
+        "paths": [],
+        "labels": [
+          "ci-rn-smoke"
+        ]
       }
     }
   }

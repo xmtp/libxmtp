@@ -1,0 +1,42 @@
+name: "Test: Darwin backend smoke"
+
+on:
+  workflow_call:
+    inputs:
+      runner:
+        description: The macOS runner label. ci.yml passes it from .github/ci-suites.yml (runners).
+        type: string
+        required: true
+    secrets:
+      CACHIX_PR_AUTH_TOKEN:
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: Native backend and service readiness (macOS)
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 30
+    env:
+      NIX_DEVSHELL: rust
+    steps:
+      - name: Check out the source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - name: Set up Nix
+        uses: ./.github/actions/setup-nix
+        with:
+          cache-mode: "ci"
+          cachix-pr-auth-token: ${{ secrets.CACHIX_PR_AUTH_TOKEN }}
+          github-token: ${{ github.token }}
+      - name: Build and start the native backend and wait for test services
+        run: dev/nix-shell 'just backend ci true'
+      - name: Retain native service logs
+        if: always()
+        timeout-minutes: 2
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: darwin-backend-ci-logs
+          path: ${{ runner.temp }}/backend-ci-logs
+          retention-days: 7
