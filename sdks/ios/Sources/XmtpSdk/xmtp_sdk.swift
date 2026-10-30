@@ -13137,6 +13137,11 @@ public func FfiConverterTypeListConversationsOptions_lower(_ value: ListConversa
 }
 
 
+/**
+ * Time bounds are strict selection filters, not paging cursors.
+ * Page Published history with `message_history_page`; use
+ * `message_recovery_page` for Failed and Unpublished rows.
+ */
 public struct ListMessagesOptions: Equatable, Hashable {
     public var limit: UInt32?
     public var sentBefore: Timestamp?

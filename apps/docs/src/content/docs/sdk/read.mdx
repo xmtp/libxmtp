@@ -73,11 +73,13 @@ The cursor is the reaction's current position. If that reaction expires or is de
 
 ### Paginate messages
 
-By default, messages are sorted by `sentAt`. A message can arrive after a newer message. The timestamp-filter examples below use `insertedAt` for local insertion order. The React Native example uses `messageHistoryPage` to paginate Published history by sent time and local delivery order with an opaque position.
+Use `messageHistoryPage` to paginate Published history by sent time and local delivery order. Use `messageRecoveryPage` for Failed and Unpublished rows. The time bounds on legacy `messages()` are strict selection filters, not paging cursors: a timestamp alone can skip messages that share a page-boundary timestamp.
 
-A timestamp-only cursor can skip messages that have the same timestamp at a page boundary. For recent history followed by live delivery, use a [message history snapshot and delivery cursor](/sdk/stream/). A snapshot is a bounded recent tail. To replay all retained delivery history, start an independent reader at `client.conversations.beginningDeliveryCursor()` in each SDK.
+Resume in the same direction with the page's raw `lastPosition` unchanged, and use `hasMore` to decide whether to continue. Do not stop just because `messages` is empty: a page can consume rows that the SDK cannot convert and still have a position and more history.
 
-Here is how to paginate messages with the cursor that each SDK exposes:
+A message can arrive after a newer message. For recent history followed by live delivery, use a [message history snapshot and delivery cursor](/sdk/stream/). A snapshot is a bounded recent tail. To replay all retained delivery history, start an independent reader at `client.conversations.beginningDeliveryCursor()` in each SDK.
+
+Here is how to paginate Published history:
 
 <Tabs syncKey="sdk">
 <TabItem label="Browser">
@@ -104,30 +106,28 @@ Here is how to paginate messages with the cursor that each SDK exposes:
 <TabItem label="Kotlin">
 
 ```kotlin
-val firstPage = group.messages(ListMessagesOptions(
+val options = ListMessagesOptions(
     limit = 20u,
-    sortBy = MessageSortBy.INSERTED_AT,
     direction = MessageOrder.DESCENDING,
-))
-val secondPage = group.messages(ListMessagesOptions(
-    limit = 20u,
-    sortBy = MessageSortBy.INSERTED_AT,
-    direction = MessageOrder.DESCENDING,
-    insertedBefore = firstPage.lastOrNull()?.insertedAt,
-))
+)
+val firstPage = group.messageHistoryPage(options)
+val position = firstPage.lastPosition
+if (firstPage.hasMore && position != null) {
+    val secondPage = group.messageHistoryPage(options, before = position)
+    val messages = secondPage.messages
+}
 ```
 
 </TabItem>
 <TabItem label="Swift">
 
 ```swift
-let firstPage = try await group.messages(options: ListMessagesOptions(
-  limit: 20, direction: .descending, sortBy: .insertedAt
-))
-let secondPage = try await group.messages(options: ListMessagesOptions(
-  limit: 20, insertedBefore: firstPage.last?.insertedAt,
-  direction: .descending, sortBy: .insertedAt
-))
+let options = ListMessagesOptions(limit: 20, direction: .descending)
+let firstPage = try await group.messageHistoryPage(options: options)
+if firstPage.hasMore, let position = firstPage.lastPosition {
+  let secondPage = try await group.messageHistoryPage(options: options, before: position)
+  let messages = secondPage.messages
+}
 ```
 
 </TabItem>
