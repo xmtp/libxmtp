@@ -35,7 +35,7 @@ use xmtp_mls_common::{
 };
 use xmtp_mls_validation::commit::{
     AppDataPostStates, AppDataUpdateInCommit, extract_commit_participant, read_committed_metadata,
-    validate_app_data_update_sequence,
+    validate_app_data_update_sequence, validate_post_dictionary_size,
 };
 use xmtp_proto::xmtp::mls::message_contents::{
     MetadataPolicy as MetadataPolicyProto,
@@ -357,7 +357,7 @@ pub(crate) fn field_writes_commit(
 /// membership upkeep only cleans up after removals already pending, never
 /// changing membership. With the committed values, it is the membership
 /// before the commit.
-// implements: META-071, META-073
+// implements: META-071, META-073, META-077
 fn authorize_updates(
     openmls_group: &OpenMlsGroup,
     registry: &ComponentRegistry,
@@ -397,6 +397,8 @@ fn authorize_updates(
         )
         .map_err(|_| FieldError::Denied(*id))?;
         states.extend(post);
+        validate_post_dictionary_size(Some(values), &states)
+            .map_err(|_| FieldError::Denied(*id))?;
     }
     Ok(())
 }

@@ -34,8 +34,9 @@ use xmtp_proto::xmtp::mls::message_contents::{
 };
 
 use super::{
-    AppDataUpdateInCommit, CommitRuleError, app_data_update_proposer_leaf, removes_super_admin,
-    validate_app_data_update_sequence, validate_one_app_data_update_with_old_value,
+    AppDataUpdateInCommit, CommitRuleError, MAX_DICTIONARY_BYTES, app_data_update_proposer_leaf,
+    removes_super_admin, validate_app_data_update_sequence,
+    validate_one_app_data_update_with_old_value, validate_post_dictionary_size,
     validate_standalone_app_data_update,
 };
 
@@ -1549,5 +1550,35 @@ fn group_root_key_writes_must_be_32_bytes() {
     write(32)?;
     for len in [0, 31, 33] {
         assert!(write(len).is_err(), "a {len}-byte root was accepted");
+    }
+}
+
+/// A commit may grow the summed values of every component other than
+/// `GROUP_MEMBERSHIP` to 4 MiB and no further. A dictionary already past
+/// the limit stays usable for commits that do not grow it, and membership
+/// bytes are not counted.
+// verifies: META-077
+#[xmtp_common::test(unwrap_try = true)]
+fn dictionary_growth_past_the_limit_is_rejected() {
+    const APP: ComponentId = ComponentId::new(0xC077);
+    const MEMBERS: ComponentId = ComponentId::GROUP_MEMBERSHIP;
+    const MAX: usize = MAX_DICTIONARY_BYTES;
+    // The committed `APP` and membership lengths, the component the commit
+    // writes and its new length, and whether the commit is accepted.
+    let rows = [
+        (MAX / 2, 0, APP, MAX, true),
+        (MAX / 2, 0, APP, MAX + 1, false),
+        (MAX + 2, 0, APP, MAX + 1, true),
+        (MAX + 2, 0, APP, MAX + 2, true),
+        (MAX + 1, 0, APP, MAX + 2, false),
+        (MAX, MAX / 2, MEMBERS, MAX, true),
+    ];
+    for (row, (app, members, id, len, accepted)) in rows.into_iter().enumerate() {
+        let mut committed = openmls::extensions::AppDataDictionary::new();
+        committed.insert(APP.as_u16(), vec![0; app]);
+        committed.insert(MEMBERS.as_u16(), vec![0; members]);
+        let state = Some(Zeroizing::new(vec![0; len]));
+        let result = validate_post_dictionary_size(Some(&committed), [(id, &state)]);
+        assert_eq!(result.is_ok(), accepted, "row {row}: {result:?}");
     }
 }

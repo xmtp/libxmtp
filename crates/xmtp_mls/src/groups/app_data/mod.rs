@@ -43,9 +43,10 @@ use xmtp_mls_common::app_data::protocol_floor::committed_floor_exceeding;
 use xmtp_mls_common::inbox_id::InboxId;
 use xmtp_mls_common::libxmtp_version::LibXMTPVersion;
 use xmtp_mls_validation::commit::{
-    AppDataUpdateInCommit, AppDataUpdateList, app_data_update_proposer_leaf,
-    extract_commit_participant, membership_inbox_ids, read_committed_metadata,
-    validate_app_data_update_sequence, validate_post_registry,
+    AppDataPostStates, AppDataUpdateInCommit, AppDataUpdateList, CommitRuleError,
+    app_data_update_proposer_leaf, extract_commit_participant, membership_inbox_ids,
+    read_committed_metadata, validate_app_data_update_sequence, validate_post_dictionary_size,
+    validate_post_registry,
 };
 
 #[cfg(any(test, feature = "test-utils"))]
@@ -211,6 +212,18 @@ impl<'a> AppDataBatch<'a> {
         }
     }
 
+    /// Reject `post`, the states of proposals after the ones applied so far,
+    /// when receivers would reject the commit's dictionary total.
+    // implements: META-077
+    pub(crate) fn fits(&self, post: &AppDataPostStates) -> Result<(), CommitRuleError> {
+        let states = &self.states;
+        let earlier = states.iter().map(|(id, s)| (ComponentId::from(*id), s));
+        let earlier = earlier.filter(|(id, _)| !post.contains_key(id));
+        let committed = self.group.extensions().app_data_dictionary();
+        let post = earlier.chain(post.iter().map(|(id, s)| (*id, s)));
+        validate_post_dictionary_size(committed.map(|e| e.dictionary()), post)
+    }
+
     /// The [`AppDataUpdates`] for the commit; `None` when no proposal was
     /// applied.
     pub(crate) fn updates(self) -> Option<AppDataUpdates> {
@@ -249,8 +262,8 @@ impl<'a> Committable<'a> {
     /// accepts it after the proposals kept before it. Receivers check the
     /// list rule ([`AppDataUpdateList`]), the proposer's policy against the
     /// chained value and the post-commit membership
-    /// ([`validate_app_data_update_sequence`]), and the registry the
-    /// commit leaves ([`validate_post_registry`]).
+    /// ([`validate_app_data_update_sequence`]), and the registry and total the
+    /// commit leaves ([`validate_post_registry`], [`validate_post_dictionary_size`]).
     ///
     /// Receivers judge a standalone proposal alone, against the committed
     /// dictionary. Proposals accepted one by one can still make an invalid
@@ -356,7 +369,7 @@ impl<'a> Committable<'a> {
                 ) else {
                     continue;
                 };
-                if validate_post_registry(&post).is_err() {
+                if validate_post_registry(&post).is_err() || batch.fits(&post).is_err() {
                     continue;
                 }
                 list.push(id, operation);

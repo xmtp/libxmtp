@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 
 use openmls::{
     component::ComponentData,
+    extensions::AppDataDictionary,
     framing::MlsMessageOut,
     group::MlsGroup as OpenMlsGroup,
     messages::proposals::{AppDataUpdateOperation, Proposal},
@@ -22,12 +23,15 @@ use xmtp_db::{
 use xmtp_mls_common::{
     app_data::{
         component_id::ComponentId,
-        fields::{ComponentMutation, FieldValue, MetadataFieldRef},
+        fields::{
+            ComponentMutation, FieldError, FieldKey, FieldValue, MapMutation, MetadataFieldRef,
+        },
     },
     inbox_id::InboxId,
     tls_map::{TlsMap, TlsMapDelta},
     tls_set::TlsSet,
 };
+use xmtp_mls_validation::commit::MAX_DICTIONARY_BYTES;
 use xmtp_proto::xmtp::mls::message_contents::{ComponentType, metadata_policy::MetadataBasePolicy};
 
 use super::test_dictionary_creation::{definition, value};
@@ -564,6 +568,94 @@ async fn test_immutable_field_is_written_once() {
     let pair = vec![(PAIR, b"a".to_vec()), (PAIR, b"b".to_vec())];
     assert_peer_rejects(&group, &bo_group, pair).await?;
     assert_eq!(value(&bo_group, PAIR)?, None);
+}
+
+fn dictionary<C: XmtpSharedContext>(group: &MlsGroup<C>) -> Result<AppDataDictionary, GroupError> {
+    group.with_group_snapshot(|group| {
+        Ok(group
+            .extensions()
+            .app_data_dictionary()
+            .unwrap()
+            .dictionary()
+            .clone())
+    })
+}
+
+/// A DM participant fills application maps until the next one would grow
+/// the dictionary past 4 MiB: that write is refused as a field write and as a
+/// payload, nothing is published, and the peer's dictionary is unchanged.
+// verifies: META-077
+#[xmtp_common::test(unwrap_try = true)]
+// Dozens of multi-MiB commits outlast the wasm job's time limit.
+#[cfg_attr(target_arch = "wasm32", ignore)]
+async fn test_dictionary_growth_is_bounded() {
+    const FIELDS: u16 = 67;
+    tester!(alix, configured: |c| {
+        c.application_components = (0..FIELDS)
+            .map(|n| {
+                definition(0xFD10 + n, ComponentType::TlsMapBytesBytes, MetadataBasePolicy::Allow, false, true)
+            })
+            .collect()
+    });
+    tester!(bo);
+    let dm = alix.find_or_create_dm(bo.inbox_id(), None).await?;
+    let bo_dm = bo.wait_for_welcomes().await?.pop()?;
+    let total = |dictionary: AppDataDictionary| -> usize {
+        let entries = dictionary.entries();
+        let counted = entries.filter(|c| c.id() != ComponentId::GROUP_MEMBERSHIP.as_u16());
+        counted.map(|c| c.data().len()).sum()
+    };
+    // Eight 8000-byte values: a map just under the snapshot bound.
+    let fill = ComponentMutation::MapDelta(
+        (0..8u8)
+            .map(|k| {
+                MapMutation::Insert(FieldKey::Bytes(vec![k]), FieldValue::Bytes(vec![k; 8000]))
+            })
+            .collect(),
+    );
+    let mut fields = (0..FIELDS).map(|n| MetadataFieldRef::new(ComponentId::new(0xFD10 + n)));
+    // Fill `count` maps in one commit, so the test reaches the limit in a
+    // few commits.
+    let mut fill_maps = |count: usize| {
+        let batch: Vec<_> = fields.by_ref().take(count).collect();
+        let fill = &fill;
+        dm.write_fields(move |snapshot| {
+            batch
+                .iter()
+                .map(|field| snapshot.field_write(field, fill))
+                .collect()
+        })
+    };
+
+    let before = total(dictionary(&dm)?);
+    fill_maps(1).await?;
+    let map = total(dictionary(&dm)?) - before;
+    let mut room = (MAX_DICTIONARY_BYTES - before - map) / map;
+    while room > 0 {
+        // Each sync processes one commit, well inside the sync deadline.
+        let count = room.min(16);
+        fill_maps(count).await?;
+        bo_dm.sync().await?;
+        room -= count;
+    }
+    assert!(total(dictionary(&dm)?) + map > MAX_DICTIONARY_BYTES);
+    bo_dm.sync().await?;
+    let expected = dictionary(&bo_dm)?;
+    assert_eq!(expected, dictionary(&dm)?);
+    assert!(matches!(
+        fill_maps(1).await,
+        Err(GroupError::MetadataField(FieldError::Denied(_)))
+    ));
+    // The same map as a payload intent is refused before it is published.
+    let payload = (0..8u8).fold(TlsMapDelta::<VLBytes, VLBytes>::new(), |delta, k| {
+        delta.insert(VLBytes::new(vec![k]), VLBytes::new(vec![k; 8000]))
+    });
+    let unused = ComponentId::new(0xFD10 + FIELDS - 1);
+    let payload = payload.tls_serialize_detached()?;
+    assert!(write(&dm, unused, payload).await.is_err());
+    bo_dm.sync().await?;
+    assert_eq!(last_rejection(&bo_dm)?, None);
+    assert_eq!(dictionary(&bo_dm)?, expected);
 }
 
 /// Publish `operation` on `id` as a signed standalone proposal with no

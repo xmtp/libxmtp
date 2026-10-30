@@ -32,7 +32,7 @@ use xmtp_mls_common::{
     tls_set::{TlsSet, TlsSetDelta},
 };
 use xmtp_mls_validation::commit::{
-    AppDataUpdateInCommit, extract_commit_participant, read_committed_metadata,
+    AppDataPostStates, AppDataUpdateInCommit, extract_commit_participant, read_committed_metadata,
     validate_app_data_update_sequence,
 };
 use xmtp_proto::{types::ConversationType, xmtp::mls::message_contents::ComponentType};
@@ -43,7 +43,7 @@ use crate::groups::GroupError;
 /// The inline `AppDataUpdate` proposals this client adds to a commit, in
 /// addition to the group's pending proposals, and the dictionary updates
 /// of a commit that carries both, in the order OpenMLS applies them.
-// implements: META-067, GMOD-039
+// implements: META-067, GMOD-039, META-077
 pub(crate) fn membership_upkeep(
     group: &OpenMlsGroup,
     catalogue: &[ApplicationComponentDefinition],
@@ -140,7 +140,9 @@ pub(crate) fn membership_upkeep(
             &registry,
             immutable.dm_members.as_ref(),
             Some(&members),
-        ) {
+        )
+        .and_then(|post| batch.fits(&post))
+        {
             Ok(_) => {
                 batch.apply(id.as_u16(), proposal.operation())?;
                 proposals.push(Proposal::AppDataUpdate(Box::new(proposal)));
@@ -150,6 +152,8 @@ pub(crate) fn membership_upkeep(
             }
         }
     }
+    // An intent's own proposals are pending too, so check the whole commit.
+    batch.fits(&AppDataPostStates::new())?;
     Ok((proposals, batch.updates()))
 }
 

@@ -9,7 +9,7 @@ use std::collections::{HashMap, HashSet};
 
 use openmls::{
     credentials::{BasicCredential, Credential as OpenMlsCredential, errors::BasicCredentialError},
-    extensions::Extensions,
+    extensions::{AppDataDictionary, Extensions},
     group::{GroupContext, MlsGroup as OpenMlsGroup, StagedCommit},
     messages::proposals::{AppDataUpdateOperation, Proposal, ProposalType},
     prelude::{LeafNodeIndex, Sender},
@@ -1346,7 +1346,41 @@ pub fn validate_app_data_update_proposals_in_commit(
         membership_inbox_ids(membership.as_deref().map(Vec::as_slice)).as_ref(),
     )?;
 
-    validate_post_registry(&component_post_states)
+    validate_post_registry(&component_post_states)?;
+    let committed = openmls_group.extensions().app_data_dictionary();
+    validate_post_dictionary_size(committed.map(|e| e.dictionary()), &component_post_states)
+}
+
+/// Most bytes all components other than `GROUP_MEMBERSHIP` may hold together.
+pub const MAX_DICTIONARY_BYTES: usize = 4 << 20;
+
+/// Reject a commit that grows the summed value lengths of every component
+/// other than `GROUP_MEMBERSHIP` past [`MAX_DICTIONARY_BYTES`], given the
+/// dictionary before it and the state after it of each component it touches.
+// implements: META-077
+pub fn validate_post_dictionary_size<'a, K: std::borrow::Borrow<ComponentId>>(
+    committed: Option<&AppDataDictionary>,
+    post: impl IntoIterator<Item = (K, &'a Option<Zeroizing<Vec<u8>>>)>,
+) -> Result<(), CommitRuleError> {
+    let counted = |id: ComponentId| id != ComponentId::GROUP_MEMBERSHIP;
+    let old = |id: ComponentId| Some(committed?.get(&id.as_u16())?.len());
+    let before: usize = committed
+        .into_iter()
+        .flat_map(AppDataDictionary::entries)
+        .filter(|component| counted(component.id().into()))
+        .map(|component| component.data().len())
+        .sum();
+    let after = post
+        .into_iter()
+        .map(|(id, state)| (*id.borrow(), state))
+        .filter(|(id, _)| counted(*id))
+        .fold(before, |sum, (id, s)| {
+            sum - old(id).unwrap_or(0) + s.as_deref().map_or(0, Vec::len)
+        });
+    if after > MAX_DICTIONARY_BYTES && after > before {
+        return Err(CommitRuleError::InsufficientPermissions);
+    }
+    Ok(())
 }
 
 /// Validate the registry `post_states` leave, if they change it: required
