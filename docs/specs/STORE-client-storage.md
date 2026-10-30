@@ -51,7 +51,7 @@ The storage interface reports the file in use and controls its connection and re
 | STORE-010 | Reconnect the same database | When an app reconnects storage of a client it has not ended, the SDK MUST reopen the database file that client opened. | Reconnecting to another file changes the client's stored identity and history. |
 | STORE-011 | In-memory storage cannot be deleted | When an app asks to delete in-memory client storage, the SDK MUST fail with a typed invalid-input error. | In-memory storage has no database file to remove. |
 | STORE-017 | Close before file removal | When an app asks to delete file-backed client storage, the SDK MUST close the client before it removes the database file. | A live connection could otherwise write to a file after its name is removed. |
-| STORE-018 | Database file is gone after deletion | When deletion of file-backed client storage completes, the SDK MUST have removed the database file. | An app that deletes a client's storage expects that database file to be gone. |
+| STORE-018 | Storage files gone after deletion | When deletion of file-backed client storage or a browser database completes, the SDK MUST have removed the database file and every journal, shared-memory, salt, and temporary salt file belonging to it; native client storage deletion MUST also remove the attachment key directories, staged ciphertext, and unfinished attachment files in that client's attachments directory. If a required removal fails, the SDK MUST report a typed error, and a later retry MUST continue past files already absent. The SDK MUST NOT remove other files in the attachments directory. | A database-only deletion leaves plaintext and recovery data after the app reports that storage is gone. |
 | STORE-026 | Synced before it leaves the device | Before a client returns a queued message's id, or sends a request that publishes a prepared envelope or a key package, it MUST have completed a sync to stable storage of the file-backed database write that recorded that work. | An operating system crash or power loss can otherwise erase the local record of work other devices already hold: the installation forks its group, loses the send, or cannot read Welcomes to the package. |
 
 ## 3. Database encryption choice
@@ -73,7 +73,9 @@ Creation of a database under a database encryption key lasts from the SDK's firs
 
 Storage reconnect fails after the app ends the client; the app builds a new client instead.
 
-Deleting file-backed client storage removes the database file only (STORE-018). The attachments directory, its staged ciphertext, and the deployment record of a data directory stay. An app removes every file of one inbox on one deployment by removing its inbox directory (ATCH-040) after the deletion completes.
+Deletion under STORE-018 removes file names; it does not promise forensic erasure of deleted blocks, backups, or copied files. Empty storage directories and the deployment record of a data directory stay. Browser database administration removes the database file family from its storage pool; the separate attachments directory stays. An app closes every other client or process using the same database or attachments directory before native deletion, because the SDK stops only the client receiving the request.
+
+The replacement STORE paragraph makes the surviving empty directories, deployment record, browser attachment tree and lack of forensic erasure explicit.
 
 A browser SDK does not encrypt its database. Anyone who can read the origin's browser storage, for example from a copied browser profile, can read the stored installation keys and decrypted messages.
 
