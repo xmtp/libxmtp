@@ -264,6 +264,15 @@ that category meanwhile. SDK clients wait that delay before they send the
 request again and never split it into smaller requests. The refused charge is not
 counted; charges the request already passed, such as its `request` unit, are.
 
+**Older clients.** An SDK client from before rate limits reads
+`RESOURCE_EXHAUSTED` as a request that is too large. It splits a refused read
+or publish batch into smaller requests at once. Those are refused too, or store
+part of a batch the limit refused as a whole, and each spends more of the
+caller's allowance. Before you turn limits on, set `server.min_libxmtp_version`
+to the libxmtp version of the first SDK release with rate limits, or set
+`rate_limits.enabled = false` until your clients have upgraded. See
+[`[server]`](/get-started/run-the-backend/#server).
+
 **Callers.** The backend charges a request to the most specific identity it
 has: the API key's name, else a JWT's issuer and subject, else the client
 address. A JWT without `sub` is charged to its address. An IPv6 address is
