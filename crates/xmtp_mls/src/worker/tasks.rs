@@ -43,6 +43,8 @@ pub(crate) mod test_hooks {
             xmtp_common::time::Duration,
         )>,
     > = Mutex::new(None);
+    /// When set, the next retry schedule write fails, once.
+    pub(crate) static FAIL_RESCHEDULE: Mutex<bool> = Mutex::new(false);
     pub(crate) static TASK_SCHEDULED_CONSUMED: Mutex<
         Option<(Vec<u8>, tokio::sync::oneshot::Sender<()>)>,
     > = Mutex::new(None);
@@ -401,19 +403,43 @@ where
                 }
                 let next_attempt_duration = next_attempt_at_ns.saturating_sub(retry_from);
                 tracing::warn!(%error, "Task {} retry failed. Retrying in {next_attempt_duration}ns", task.id);
-                match context.db().update_task_and_expiry(
+                #[cfg(test)]
+                let stored = if std::mem::take(&mut *test_hooks::FAIL_RESCHEDULE.lock().unwrap()) {
+                    Err(StorageError::DieselResult(
+                        diesel::result::Error::BrokenTransactionManager,
+                    ))
+                } else {
+                    context.db().update_task_and_expiry(
+                        task.id,
+                        attempts,
+                        now,
+                        next_attempt_at_ns,
+                        expires_at_ns,
+                    )
+                };
+                #[cfg(not(test))]
+                let stored = context.db().update_task_and_expiry(
                     task.id,
                     attempts,
                     now,
                     next_attempt_at_ns,
                     expires_at_ns,
-                ) {
+                );
+                match stored {
                     Ok(_) => {}
                     // The row was concurrently deleted (e.g. a dead-row cleanup in
                     // upsert_pending_self_remove_task crossed this retry). Nothing
                     // left to reschedule — don't abort the worker loop.
                     Err(StorageError::DieselResult(diesel::result::Error::NotFound)) => {
                         tracing::debug!("Task {} vanished before reschedule; skipping", task.id);
+                    }
+                    // The task stays due, so a restarted worker would resend
+                    // it at once. Return the rejection instead: the worker then
+                    // restarts only after the delay.
+                    // implements: RATE-041
+                    Err(e) if error.rate_limit_delay().is_some() => {
+                        tracing::warn!(%e, "Task {} rate-limit hold not stored", task.id);
+                        return Err(error);
                     }
                     Err(e) => return Err(e.into()),
                 }
@@ -957,6 +983,30 @@ mod tests {
         *test_hooks::RATE_LIMIT_OVERRIDE.lock().unwrap() = None;
         let held = task().expect("a second refusal keeps it too");
         assert_eq!(held.attempts, 19);
+    }
+
+    /// When the retry time of a rate-limited task cannot be stored, the turn
+    /// fails with the rejection, so the worker restarts after the delay instead
+    /// of resending the still-due task after its one-second restart delay.
+    // verifies: RATE-041
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn a_rate_limited_task_whose_hold_is_not_stored_holds_the_restart() {
+        use crate::worker::NeedsDbReconnect;
+        use xmtp_common::time::Duration;
+        tester!(alix, worker_config: no_runner_cfg());
+        let db = alix.context.db();
+        let now = xmtp_common::time::now_ns();
+        let proto = unique_proto();
+        let hash = data_hash_for(&proto);
+        let row = seed(&db, proto, now - 1, i64::MAX, 0, 20);
+        let delay = Duration::from_secs(5 * 60);
+        *test_hooks::RATE_LIMIT_OVERRIDE.lock().unwrap() =
+            Some((hash.to_vec(), Duration::ZERO, delay));
+        *test_hooks::FAIL_RESCHEDULE.lock().unwrap() = true;
+        let result = TaskWorker::run_and_reschedule_task(row, &alix.context).await;
+        *test_hooks::RATE_LIMIT_OVERRIDE.lock().unwrap() = None;
+        let error = result.expect_err("the write failed");
+        assert_eq!(error.restart_delay(), Some(delay));
     }
 
     #[xmtp_common::test(unwrap_try = true)]
