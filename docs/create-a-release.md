@@ -56,15 +56,16 @@ is still unused. This change does not republish or retag rc4.
 The workflow freezes the source SHA and one complete SDK and CLI version in
 `sdk-release-plan`. Every builder materializes that version into Cargo and SDK
 metadata before compilation, so native runtime versions agree with their
-package versions. Every selected SDK and CLI builds and passes its package and
-installed-consumer checks before any selected publisher starts. Select each
-SDK or CLI explicitly for dev, RC, and final releases. Any subset is allowed;
-there is no aggregate `sdks` toggle. Dry runs exercise selected
-mobile jobs too; they publish no packages, GitHub releases, or remote tags and
+package versions. All six SDKs build and pass their package and installed-consumer
+checks before the first publication, even when only one destination is selected.
+CLI shares the version line and also passes validation when selected. Select
+publication destinations explicitly for dev, RC, and final releases; selectors
+never narrow the six-SDK validation barrier. There is no aggregate `sdks` toggle.
+Dry runs exercise all six SDKs too; they publish no packages, GitHub releases, or remote tags and
 send no notification.
 They do not prove registry authorization.
 
-For example, release only Android from `main`:
+For example, validate all six SDKs and publish only Android from `main`:
 
 ```sh
 gh workflow run release.yml \
@@ -77,8 +78,8 @@ gh workflow run release.yml \
 All product selectors (`ios`, `android`, `node-sdk`, `browser-sdk`, `agent-sdk`,
 `react-native-sdk`, and `cli`) default to false and work for every release type.
 Selecting Agent or CLI also selects Node so the matching exact dependency is
-available. A single-product dry run builds and checks only that selection and
-its required Node dependency; pass `dry-run=true` to skip publication.
+available. A single-destination dry run still builds and checks all six SDKs;
+pass `dry-run=true` to skip publication. CLI is checked additionally when selected.
 
 | Kind | Published SDK / CLI version | npm channel |
 | --- | --- | --- |

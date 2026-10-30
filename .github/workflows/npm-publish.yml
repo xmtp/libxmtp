@@ -164,13 +164,6 @@ jobs:
           [ "$(printf '%s\n' 11.5.1 "$v" | sort -V | head -1)" = 11.5.1 ] ||
             { echo "::error::npm $v is below 11.5.1, which OIDC trusted publishing needs"; exit 1; }
 
-      - name: Set up Nix
-        if: inputs.package-tarball != ''
-        uses: ./.github/actions/setup-nix
-        with:
-          cache-mode: "read"
-          github-token: ${{ github.token }}
-
       - name: Verify the checked React Native tarball
         if: inputs.prepared != true && (inputs.package-tarball != '')
         env:

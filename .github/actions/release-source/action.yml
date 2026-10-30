@@ -8,7 +8,7 @@ runs:
   using: composite
   steps:
     - name: Download the frozen version
-      uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8 # v8
+      uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
       with:
         name: sdk-release-plan
         path: ${{ runner.temp }}/sdk-release-plan

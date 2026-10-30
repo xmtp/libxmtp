@@ -146,10 +146,41 @@ class SdkReleaseSelectionTest(unittest.TestCase):
                                 for name in SDKS
                                 if results[f"{phase}-{name}"] == "success"
                             },
-                            expected,
+                            set(SDKS[:-1]) | ({"cli"} if sdk == "cli" else set())
+                            if phase == "build"
+                            else expected,
                         )
                     self.assertEqual(results["sdk-ready"], "success")
                     self.assertEqual(results["sdk-complete"], "success")
+
+    def test_unselected_sdk_validation_failure_blocks_the_first_publication(self):
+        for sdk in SDKS[:-1]:
+            for status in ("failure", "skipped", "cancelled"):
+                with self.subTest(sdk=sdk, status=status):
+                    _, selection = self.resolve(cli=True)
+                    results = self.graph(selection, {f"build-{sdk}": status})
+                    self.assertEqual(results["sdk-ready"], "failure")
+                    self.assertTrue(
+                        all(results[f"release-{name}"] == "skipped" for name in SDKS)
+                    )
+
+    def test_unselected_cli_does_not_weaken_the_six_sdk_barrier(self):
+        _, selection = self.resolve(android=True)
+        results = self.graph(selection)
+        self.assertEqual(results["build-cli"], "skipped")
+        self.assertTrue(all(results[f"build-{sdk}"] == "success" for sdk in SDKS[:-1]))
+        self.assertEqual(results["sdk-ready"], "success")
+        self.assertEqual(results["release-android"], "success")
+
+    def test_selected_cli_validation_blocks_publication_on_failure(self):
+        _, selection = self.resolve(cli=True)
+        for status in ("failure", "skipped", "cancelled"):
+            with self.subTest(status=status):
+                results = self.graph(selection, {"build-cli": status})
+                self.assertEqual(results["sdk-ready"], "failure")
+                self.assertTrue(
+                    all(results[f"release-{sdk}"] == "skipped" for sdk in SDKS)
+                )
 
     def test_explicit_all_products_and_backend_only_runs(self):
         self.assertNotIn("sdks", self.workflow[True]["workflow_dispatch"]["inputs"])

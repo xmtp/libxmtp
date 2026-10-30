@@ -9,12 +9,20 @@ These jobs do not run SDK or release tools. The tag push job imports a Git
 bundle into a new bare repository.
 Resolve the requested ref before SDK code runs. All SDK jobs use that fixed
 source SHA for checkout, build, and tag checks. `release.yml` freezes the
-source in `validate` and computes every selected SDK version there, once,
-from the requested ref (for dev classification) and one run timestamp. It
-passes the source SHA and the version to each SDK workflow; the backend
-computes its own version after it pins its source. Only a direct dispatch of
-`release-agent-sdk.yml` or `release-cli.yml` computes its version in the SDK
-workflow. The version CLI gets its hash from the pinned HEAD.
+source and one shared SDK/CLI version in a retained `sdk-release-plan`.
+Every builder materializes the plan into Cargo and product metadata before
+compilation. All six SDKs, plus CLI when selected, must pass package and installed
+consumer validation before any SDK or CLI publication. Product selectors restrict
+publication destinations, never this validation barrier. Agent and CLI publication
+also select Node and require its exact matching version. Backend version labels
+remain independent.
+
+Publishers consume retained checked bytes and reject conflicting retries. Node
+builds use deterministic local materialization commits for cache and provenance
+identities; the frozen plan continues to name the original source. SwiftPM uses a
+version-keyed archive with a source/version-bound receipt; publish that archive
+before its installable tag. Standalone iOS CocoaPods distribution is retired;
+React Native retains its npm-shipped podspec.
 Each SDK workflow runs `check-release-push.yml` once before it builds.
 `npm-publish.yml` takes the checked `source-sha` from its caller. Its publish
 job authorizes itself as well: a real publish runs in the `release`
