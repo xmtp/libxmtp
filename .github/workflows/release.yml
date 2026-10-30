@@ -36,7 +36,7 @@ on:
         type: string
         default: main
       dry-run:
-        description: Build selected artifacts and verify React Native consumers; skip publishing, tags, merges, and notifications
+        description: Validate all six SDKs and any selected CLI; skip publishing, tags, merges, and notifications
         required: false
         type: boolean
         default: false
@@ -208,7 +208,7 @@ jobs:
   build-ios:
     name: Build and validate ios
     needs: [validate]
-    if: needs.validate.outputs.ios == 'true'
+    if: needs.validate.outputs.products-selected == 'true'
     uses: ./.github/workflows/release-ios.yml
     with:
       source-sha: ${{ needs.validate.outputs.source-sha }}
@@ -222,7 +222,7 @@ jobs:
   build-android:
     name: Build and validate android
     needs: [validate]
-    if: needs.validate.outputs.android == 'true'
+    if: needs.validate.outputs.products-selected == 'true'
     uses: ./.github/workflows/release-android.yml
     with:
       source-sha: ${{ needs.validate.outputs.source-sha }}
@@ -237,7 +237,7 @@ jobs:
   build-node-sdk:
     name: Build and validate node-sdk
     needs: [validate]
-    if: needs.validate.outputs.node-sdk == 'true'
+    if: needs.validate.outputs.products-selected == 'true'
     uses: ./.github/workflows/release-node-sdk.yml
     with:
       source-sha: ${{ needs.validate.outputs.source-sha }}
@@ -251,7 +251,7 @@ jobs:
   build-browser-sdk:
     name: Build and validate browser-sdk
     needs: [validate]
-    if: needs.validate.outputs.browser-sdk == 'true'
+    if: needs.validate.outputs.products-selected == 'true'
     uses: ./.github/workflows/release-browser-sdk.yml
     with:
       source-sha: ${{ needs.validate.outputs.source-sha }}
@@ -265,7 +265,7 @@ jobs:
   build-agent-sdk:
     name: Build and validate agent-sdk
     needs: [validate, build-node-sdk]
-    if: needs.validate.outputs.agent-sdk == 'true'
+    if: needs.validate.outputs.products-selected == 'true'
     uses: ./.github/workflows/release-agent-sdk.yml
     with:
       source-sha: ${{ needs.validate.outputs.source-sha }}
@@ -293,7 +293,7 @@ jobs:
   build-react-native-sdk:
     name: Build and validate react-native-sdk
     needs: [validate]
-    if: needs.validate.outputs.react-native-sdk == 'true'
+    if: needs.validate.outputs.products-selected == 'true'
     uses: ./.github/workflows/release-react-native-sdk.yml
     with:
       source-sha: ${{ needs.validate.outputs.source-sha }}
@@ -305,12 +305,12 @@ jobs:
       contents: read
       id-token: write
   sdk-ready:
-    name: Selected SDK and CLI products validated
+    name: All six SDKs and selected CLI validated
     needs: [validate, build-ios, build-android, build-node-sdk, build-browser-sdk, build-agent-sdk, build-react-native-sdk, build-cli]
     if: "!cancelled() && needs.validate.result == 'success' && needs.validate.outputs.products-selected == 'true'"
     runs-on: ubuntu-latest
     steps:
-      - name: Require every selected SDK to succeed
+      - name: Require all six SDKs and any selected CLI to succeed
         env:
           SDK_SELECTION: ${{ toJSON(needs.validate.outputs) }}
           JOB_RESULTS: ${{ toJSON(needs) }}
@@ -322,8 +322,8 @@ jobs:
           results = json.loads(os.environ["JOB_RESULTS"])
           prefix = os.environ["SDK_JOB_PREFIX"]
           for sdk in ("ios", "android", "node-sdk", "browser-sdk", "agent-sdk", "react-native-sdk", "cli"):
-              if selected[sdk] == "true" and results[f"{prefix}-{sdk}"]["result"] != "success":
-                  raise SystemExit(f"Selected SDK {sdk} did not succeed")
+              if (sdk != "cli" or selected[sdk] == "true") and results[f"{prefix}-{sdk}"]["result"] != "success":
+                  raise SystemExit(f"Required product {sdk} did not succeed")
           PYTHON
   release-ios:
     name: Publish ios

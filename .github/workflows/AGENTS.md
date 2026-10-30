@@ -21,7 +21,7 @@ Validate edits with `dev/nix-shell 'just lint-config'` and
   and branch checks. Read [release wiring](../RELEASING.md) before editing it.
 - Pass JS shard flags directly to Just, without an extra `--`.
 - Materialize the frozen release plan into Cargo and product metadata before
-  compiling. Every selected product must pass validation before any publishes.
+  compiling. All six SDKs and any selected CLI must pass validation before any publishes.
   Publishers use retained checked bytes; iOS publishes its version-keyed archive
   before its installable tag. Keep React Native's podspec, not standalone CocoaPods.
 - Keep full Nix build logs off by default. Scope `XMTP_NIX_BUILD_LOGS=1` to a
