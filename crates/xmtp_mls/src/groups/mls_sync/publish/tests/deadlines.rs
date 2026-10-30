@@ -398,3 +398,24 @@ async fn find_or_create_dm_reports_its_unconfirmed_repair() {
         result.map(|dm| dm.group_id)
     );
 }
+
+// verifies: GMOD-056
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_create_with_an_unconfirmed_add_returns_the_group() {
+    const ADD_BUDGET: Duration = Duration::from_secs(5);
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    let client =
+        client_with_stalled_api_within(&alix, StalledCall::WelcomePublish, ADD_BUDGET).await;
+    let result = timeout(
+        ADD_BUDGET * 3,
+        client.create_group_with_members(&[bo.inbox_id()], None, None),
+    ).await?;
+    assert!(result.is_ok(), "{:?}", result.as_ref().map(|group| group.group_id));
+    let group = result?;
+    assert_eq!(alix.find_groups(..)?.len(), 1);
+    assert!(client.context.api().api_client.raw_for_test().entered.load(Ordering::SeqCst));
+    alix.group(&group.group_id)?.sync().await?;
+    bo.wait_for_welcomes().await?;
+    assert_eq!(bo.group(&group.group_id)?.members().await?.len(), 2);
+}
