@@ -33,3 +33,4 @@ xmtp_configuration.workspace = true
 jsonschema = { version = "0.55", default-features = false }
 trybuild.workspace = true
 xmtp_common = { workspace = true, features = ["test-utils"] }
+xmtp_proto.workspace = true

@@ -544,3 +544,46 @@ async fn a_denied_catch_up_target_registers_no_topic_and_leaves_no_applied_pendi
     assert!(crate::test_support::rate_limit_delay(&denied, Category::Request).is_some());
     assert_nothing_registered(&session, &registry);
 }
+
+// verifies: API-260, API-283
+#[xmtp_common::test(unwrap_try = true)]
+async fn oversized_static_targets_fail_without_a_partial_started_frame() {
+    let mut config = crate::config::Config::from_toml_str(CONFIG)?;
+    config.limits.max_envelope_bytes = 1_024;
+    config.limits.max_response_bytes = 66_560;
+    let error = config
+        .clone()
+        .validate()
+        .expect_err("old budget cannot fit controls");
+    assert_eq!(error.field(), Some("limits.max_response_bytes"));
+    config.limits.max_update_adds = 1;
+    config.limits.max_static_topics = 1;
+    let (mut session, _, _, receiver, _, _) = idle_session(config.validate()?);
+    session.static_subscription = true;
+    let targets = (0_u64..2000)
+        .map(|id| {
+            let mut identifier = [0; 32];
+            identifier[..8].copy_from_slice(&id.to_be_bytes());
+            api::CatchupTarget {
+                topic: Some(crate::test_support::topic(
+                    xmtp_proto::types::TopicKind::WelcomeMessagesV1,
+                    &identifier,
+                )),
+                through_sequence_id: 0,
+            }
+        })
+        .collect();
+    let error = session
+        .control(api::subscribe_response::Response::Applied(
+            api::subscribe_response::Applied {
+                id: 1,
+                added_targets: targets,
+            },
+        ))
+        .expect_err("oversized control must fail, not truncate");
+    assert_eq!(error.code(), tonic::Code::ResourceExhausted);
+    assert!(matches!(
+        receiver.lock().try_recv(),
+        Err(mpsc::error::TryRecvError::Empty)
+    ));
+}

@@ -603,8 +603,6 @@ fn every_cross_field_relationship_is_rejected() {
     assert_invalid(config.clone().validate(), "limits.max_update_adds");
     config = toml::from_str(MINIMAL)?;
     config.limits.max_envelope_bytes = DELIVERY_FRAME_BYTES - ENVELOPE_METADATA_AND_FRAMING_BYTES;
-    config.limits.max_request_bytes = DELIVERY_FRAME_BYTES;
-    config.limits.max_response_bytes = DELIVERY_FRAME_BYTES;
     config.clone().validate()?;
     config.limits.max_envelope_bytes = DELIVERY_FRAME_BYTES;
     assert_invalid(config.clone().validate(), "limits.max_envelope_bytes");
@@ -973,7 +971,7 @@ fn the_minimum_client_version_is_optional_and_semantic() {
 /// The transport ceiling is fixed, so a budget above it would promise a client
 /// something the transport cannot carry.
 #[xmtp_common::test(unwrap_try = true)]
-// verifies: CONF-008
+// verifies: CONF-096
 fn request_and_response_budgets_stop_at_the_transport_ceiling() {
     for field in ["limits.max_request_bytes", "limits.max_response_bytes"] {
         let mut config: Config = toml::from_str(MINIMAL)?;
@@ -987,6 +985,114 @@ fn request_and_response_budgets_stop_at_the_transport_ceiling() {
             _ => config.limits.max_response_bytes += 1,
         }
         assert_invalid(config.clone().validate(), field);
+    }
+}
+
+/// Distinct, largest legal group topics, not the legacy 16-byte identifiers.
+fn subscription_topic(id: usize) -> xmtp_proto::xmtp::backend::v1::Topic {
+    let mut bytes = vec![0; 33];
+    bytes[1..9].copy_from_slice(&(id as u64).to_be_bytes());
+    xmtp_proto::types::Topic::parse(&bytes).unwrap();
+    xmtp_proto::xmtp::backend::v1::Topic { topic: bytes }
+}
+
+// verifies: CONF-096
+#[xmtp_common::test(unwrap_try = true)]
+fn request_budget_fits_a_full_notification_batch() {
+    use prost::Message;
+    use xmtp_proto::xmtp::backend::v1 as api;
+    let request = api::UpdateSubscriptionsRequest {
+        recipient_id: vec![1; 32],
+        recipient_secret: vec![2; 32],
+        adds: (0..xmtp_configuration::NOTIFICATION_BATCH_TOPICS)
+            .map(|id| api::Subscription {
+                topic: subscription_topic(id).topic,
+                hmac_epoch_base: i64::MAX,
+                hmac_keys: vec![vec![3; 42]; xmtp_configuration::MAX_SUBSCRIPTION_HMAC_KEYS],
+                include_commits: true,
+            })
+            .collect(),
+        removes: vec![],
+    };
+    let required = request.encode_to_vec().len();
+    assert_eq!(required, 182_068);
+    let mut config: Config = toml::from_str(MINIMAL)?;
+    config.limits.max_envelope_bytes = 65_536;
+    for budget in [required, required + 1] {
+        config.limits.max_request_bytes = budget;
+        config.clone().validate()?;
+    }
+    config.limits.max_request_bytes = required - 1;
+    assert_invalid(config.clone().validate(), "limits.max_request_bytes");
+    config.limits.max_response_bytes = 65_536 + ENVELOPE_METADATA_AND_FRAMING_BYTES;
+    let error = assert_invalid(config.validate(), "limits.max_request_bytes");
+    assert!(error.to_string().contains("limits.max_response_bytes"));
+}
+
+fn assert_control_budget(adds: usize, statics: usize, required: usize) {
+    let mut config: Config = toml::from_str(MINIMAL).unwrap();
+    config.limits.max_envelope_bytes = 65_536;
+    config.limits.max_update_adds = adds;
+    config.limits.max_static_topics = statics;
+    for budget in [required, required + 1] {
+        config.limits.max_response_bytes = budget;
+        let validated = config.clone().validate().expect("complete controls fit");
+        assert_eq!(validated.limits.max_update_adds, adds);
+        assert_eq!(validated.limits.max_static_topics, statics);
+        assert_eq!(validated.limits.max_response_bytes, budget);
+    }
+    config.limits.max_response_bytes = required - 1;
+    assert_invalid(config.validate(), "limits.max_response_bytes");
+}
+
+fn catchup_targets(count: usize) -> Vec<xmtp_proto::xmtp::backend::v1::CatchupTarget> {
+    (0..count)
+        .map(|id| xmtp_proto::xmtp::backend::v1::CatchupTarget {
+            topic: Some(subscription_topic(id)),
+            through_sequence_id: i64::MAX as u64,
+        })
+        .collect()
+}
+
+// verifies: CONF-096
+#[xmtp_common::test(unwrap_try = true)]
+fn response_budget_fits_a_complete_applied() {
+    use prost::Message;
+    use xmtp_proto::xmtp::backend::v1 as api;
+    let limits = LimitsConfig::default();
+    let frame = api::SubscribeResponse {
+        response: Some(api::subscribe_response::Response::Applied(
+            api::subscribe_response::Applied {
+                id: u64::MAX,
+                added_targets: catchup_targets(limits.max_update_adds),
+            },
+        )),
+    };
+    let required = frame.encode_to_vec().len();
+    assert_eq!(required, 4_900_016);
+    assert_control_budget(limits.max_update_adds, limits.max_static_topics, required);
+}
+
+// verifies: CONF-096
+#[xmtp_common::test(unwrap_try = true)]
+fn response_budget_fits_a_complete_static_started() {
+    use prost::Message;
+    use xmtp_proto::xmtp::backend::v1 as api;
+    for (count, expected) in [
+        (LimitsConfig::default().max_static_topics, 490_010),
+        (2_000, 98_010),
+    ] {
+        let frame = api::SubscribeStaticResponse {
+            response: Some(api::subscribe_static_response::Response::Started(
+                api::subscribe_static_response::Started {
+                    keepalive_interval_ms: u32::MAX,
+                    targets: catchup_targets(count),
+                },
+            )),
+        };
+        let required = frame.encode_to_vec().len();
+        assert_eq!(required, expected);
+        assert_control_budget(1, count, required);
     }
 }
 

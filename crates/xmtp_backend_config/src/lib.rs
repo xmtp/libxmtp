@@ -24,8 +24,8 @@ use xmtp_configuration::{
     BACKEND_DEFAULT_MAX_UPDATE_ADDS, BACKEND_DEFAULT_MAX_UPDATE_BURST,
     BACKEND_DEFAULT_MAX_UPDATE_FRAMES_PER_SECOND, BACKEND_DEFAULT_MAX_UPDATE_REMOVES,
     BACKEND_DEFAULT_QUERY_LIMIT, BACKEND_DEFAULT_WELCOME_SECONDS, MAX_SCW_SIGNATURES_PER_REQUEST,
-    MAX_SERVER_IDENTIFIER_BYTES, MAX_TRANSPORT_BYTES, parse_eip155_chain_id,
-    validate_server_identifier,
+    MAX_SERVER_IDENTIFIER_BYTES, MAX_TRANSPORT_BYTES, NOTIFICATION_BATCH_MAX_BYTES,
+    parse_eip155_chain_id, validate_server_identifier,
 };
 
 pub mod application_components;
@@ -937,7 +937,7 @@ pub struct LimitsConfig {
 
 impl LimitsConfig {
     /// Check positive limits, downstream integer ranges, and related capacities.
-    // implements: CONF-008
+    // implements: CONF-096
     fn validate(&self) -> Result<(), ConfigError> {
         positive(self.max_push_topics, "limits.max_push_topics")?;
         positive(self.max_query_topics, "limits.max_query_topics")?;
@@ -1013,6 +1013,25 @@ impl LimitsConfig {
         ] {
             at_most_u32(value as u64, field)?;
         }
+        let required = subscription_control_bytes(self.max_update_adds, 11)
+            .max(subscription_control_bytes(self.max_static_topics, 6));
+        if self.max_request_bytes < NOTIFICATION_BATCH_MAX_BYTES {
+            return Err(invalid(
+                "limits.max_request_bytes",
+                if self.max_response_bytes < required {
+                    "must fit a full notification subscription batch; \
+                     limits.max_response_bytes must fit complete subscription control frames"
+                } else {
+                    "must fit a full notification subscription batch"
+                },
+            ));
+        }
+        if self.max_response_bytes < required {
+            return Err(invalid(
+                "limits.max_response_bytes",
+                "must fit complete subscription control frames",
+            ));
+        }
         // The relations come after each key's own checks, so a value outside
         // its own range is refused under its own key.
         if self.max_query_limit < self.default_query_limit {
@@ -1053,6 +1072,17 @@ impl LimitsConfig {
         }
         Ok(())
     }
+}
+
+/// Complete control protobuf, excluding the gRPC header: each repeated target
+/// includes a 33-byte topic and INT64_MAX sequence; headers cover a UINT64_MAX
+/// Applied id or UINT32_MAX Started keepalive interval.
+fn subscription_control_bytes(count: usize, header: usize) -> usize {
+    const CATCHUP_TARGET_MAX_BYTES: usize = 49;
+    let body = count
+        .saturating_mul(CATCHUP_TARGET_MAX_BYTES)
+        .saturating_add(header);
+    body.saturating_add(1 + prost::encoding::encoded_len_varint(body as u64))
 }
 
 impl Default for LimitsConfig {

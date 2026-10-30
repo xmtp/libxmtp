@@ -12862,6 +12862,7 @@ dependencies = [
  "url",
  "xmtp_common",
  "xmtp_configuration",
+ "xmtp_proto",
 ]
 
 [[package]]
