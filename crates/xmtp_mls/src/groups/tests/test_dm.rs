@@ -235,11 +235,11 @@ async fn test_dm_welcome_with_preexisting_consent() {
 
     tester!(bo2, from: bo1);
 
-    // Mock device sync - the consent record is processed on Bo2 before
-    // the welcome is processed.
+    // Mock device sync - the DM's record, alix's inbox record, is
+    // processed on Bo2 before the welcome is processed.
     xmtp_db::consent_record::write_consent(
         &bo2.context.db(),
-        &xmtp_db::consent_record::ConsentKey::group(a_group.group_id.as_ref()),
+        &xmtp_db::consent_record::ConsentKey::inbox(alix.inbox_id()),
         xmtp_db::consent_record::ConsentWrite::Decide(xmtp_db::consent_record::Decision::Set(
             ConsentState::Allowed,
         )),

@@ -143,6 +143,40 @@ async fn pre8_archive_import() {
     assert!(db.consent_row(&ConsentKey::inbox(&p1))?.unwrap().owed_seq > 0);
 }
 
+/// An archive that carries one of a peer's 16-byte DMs folds its records
+/// for every 16-byte DM held with that peer, including one held from an
+/// earlier import, into the peer's record: the strongest state at the
+/// greatest time.
+// verifies: CONS-061
+#[xmtp_common::test(unwrap_try = true)]
+async fn carried_dm_folds_every_held_dm_of_its_peer() {
+    tester!(alix, disable_workers);
+    let own = alix.inbox_id();
+    let peer = "7f".repeat(32);
+    import(&alix.context, &[dm(vec![2; 16], own, &peer, 1)]).await?;
+    let archive = [
+        dm(vec![1; 16], own, &peer, 1),
+        consent(
+            ConsentTypeSave::ConversationId,
+            ConsentStateSave::Allowed,
+            &hex::encode([1; 16]),
+            10,
+        ),
+        consent(
+            ConsentTypeSave::ConversationId,
+            ConsentStateSave::Denied,
+            &hex::encode([2; 16]),
+            5,
+        ),
+    ];
+    import(&alix.context, &archive).await?;
+    let held = alix
+        .db()
+        .consent_row(&ConsentKey::inbox(&peer))?
+        .map(|row| row.value());
+    assert_eq!(held, value(ConsentState::Denied, 10));
+}
+
 /// An 8.0 archive carries no 16-byte DM group. Its 16-byte record for a DM
 /// held from an earlier import merges into the peer by time, so a newer
 /// inbox decision in the same archive stays.

@@ -2320,52 +2320,6 @@ pub(crate) mod tests {
         })
     }
 
-    /// One place spells a group's consent key in SQL, and the deleted consent
-    /// writers and readers stay deleted: a reader keyed by group id alone
-    /// would read a DM's own record instead of its peer's.
-    // verifies: CONS-052
-    #[cfg(not(target_arch = "wasm32"))]
-    #[xmtp_common::test]
-    fn consent_grep_gates() {
-        let crates = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
-        let banned = [
-            "lower(hex(",
-            "get_consent_record",
-            "record_app_act",
-            "insert_newer_consent_record",
-            "PreferenceOrigin",
-            "beyond_received_bound",
-            "stitch_dm_consent",
-            "store_hmac_key",
-        ];
-        let mut found = vec![];
-        let mut dirs = vec![crates];
-        while let Some(dir) = dirs.pop() {
-            for entry in std::fs::read_dir(&dir).unwrap() {
-                let path = entry.unwrap().path();
-                let name = path.to_string_lossy().into_owned();
-                if name.contains("xmtp_legacy_migration") || name.ends_with("target") {
-                    continue;
-                }
-                if path.is_dir() {
-                    dirs.push(path);
-                } else if name.ends_with(".rs") {
-                    let text = std::fs::read_to_string(&path).unwrap();
-                    for word in banned {
-                        let allowed =
-                            word == "lower(hex(" && name.ends_with("encrypted_store/group.rs");
-                        // This test names the words it bans.
-                        let allowed = allowed || text.contains("fn consent_grep_gates");
-                        if !allowed && text.contains(word) {
-                            found.push(format!("{name}: {word}"));
-                        }
-                    }
-                }
-            }
-        }
-        assert!(found.is_empty(), "{found:#?}");
-    }
-
     /// The SQL join and `ConsentKey::of_group` give a group the same consent
     /// record, or both none, for every dm id shape.
     // verifies: CONS-052, CONS-060

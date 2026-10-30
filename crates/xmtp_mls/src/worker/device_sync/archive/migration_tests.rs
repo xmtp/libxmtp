@@ -19,7 +19,7 @@ const DM: &str = "a06859a4aebe75c970b8875698fbeddb";
 /// stored.
 const APPDATA_GROUP: &str = "f23017122a085cf60892ae13ae53412c";
 
-// verifies: MIG-001, MIG-003, MIG-005, MIG-006, ARCH-007, ARCH-010, CONS-050, CONS-061, MIG-009
+// verifies: MIG-001, MIG-003, MIG-005, MIG-006, ARCH-007, ARCH-010, CONS-050
 #[xmtp_common::test(unwrap_try = true)]
 async fn legacy_migration_imports_into_empty_and_populated_stores_and_retries() {
     let directory = tempfile::tempdir()?;

@@ -949,9 +949,9 @@ async fn test_delete_message() {
 }
 
 /// A DM's consent is its peer's inbox record, so one decision covers every
-/// group of the pair — through any group id or the inbox — and every reader
-/// sees it: listing, the conversation list, push, commit-log selection, and a
-/// group the client holds no row for.
+/// group of the pair, through any group id or the inbox, and every reader
+/// sees it: listing, the conversation list, push, and commit-log selection.
+/// A group with the peer keeps its own record.
 // verifies: CONS-052, CONS-060, CONS-059
 #[xmtp_common::test(unwrap_try = true)]
 async fn dm_block_covers_every_group_with_the_peer() {
@@ -968,8 +968,19 @@ async fn dm_block_covers_every_group_with_the_peer() {
     let g2 = alix
         .create_dm_by_inbox_id(bo.inbox_id().to_string(), None)
         .await?;
-    assert_eq!(g1.group_id, g1.group_id);
     assert_ne!(g1.group_id, g2.group_id);
+    let group = alix.create_group(None, None)?;
+    group.add_members(&[bo.inbox_id()]).await?;
+    let commit_log_ids = || -> Result<Vec<_>, xmtp_db::ConnectionError> {
+        Ok(alix
+            .db()
+            .get_conversation_ids_for_remote_log_publish()?
+            .into_iter()
+            .map(|row| row.id)
+            .collect())
+    };
+    let selected = commit_log_ids()?;
+    assert!(selected.contains(&g1.group_id) && selected.contains(&g2.group_id));
     // Both read allowed from creating, through the peer's record.
     assert_eq!(g1.consent_state()?, ConsentState::Allowed);
     assert_eq!(g2.consent_state()?, ConsentState::Allowed);
@@ -1008,9 +1019,11 @@ async fn dm_block_covers_every_group_with_the_peer() {
         ConsentState::Denied
     );
 
-    // The default listing (Allowed + Unknown) excludes every group of the pair.
+    // The default listing (Allowed + Unknown) excludes every group of the
+    // pair, and keeps a group with the peer, which has its own record.
     let listed = alix.find_groups(GroupQueryArgs::default())?;
     assert!(listed.iter().all(|g| g.dm_id.is_none()));
+    assert!(listed.iter().any(|g| g.group_id == group.group_id));
     let all = alix.find_groups(GroupQueryArgs {
         consent_states: Some(vec![ConsentState::Denied]),
         ..Default::default()
@@ -1021,15 +1034,16 @@ async fn dm_block_covers_every_group_with_the_peer() {
     );
     let list = alix.list_conversations(GroupQueryArgs::default())?;
     assert!(list.iter().all(|c| c.group.dm_id.is_none()));
-    // Push reads the same record.
+    // Push and commit-log publication read the same record.
     assert!(!g1.notifications_enabled()?);
+    let selected = commit_log_ids()?;
+    assert!(!selected.contains(&g1.group_id) && !selected.contains(&g2.group_id));
 
-    // A group id the client does not hold yet reads the peer's record.
+    // A group id the client does not hold is its own key, which holds nothing.
     let g3 = xmtp_proto::types::GroupId::from([0x5b; 32]);
     assert_eq!(
         xmtp_db::consent_record::conversation_consent(&alix.db(), alix.inbox_id(), &g3)?,
-        ConsentState::Unknown,
-        "an unheld group id is its own key until held"
+        ConsentState::Unknown
     );
     // Allow through the inbox directly, then both DMs are allowed again.
     alix.set_consent_states(&[crate::client::ConsentAct {

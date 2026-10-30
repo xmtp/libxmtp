@@ -130,11 +130,12 @@ fn insert(
     Ok(())
 }
 
-/// Apply one archive's consent records, after its groups. The records of a
-/// peer's 16-byte DMs that this archive restored, with the archive's inbox
-/// record for that peer, become one record. A record naming a
-/// 16-byte DM held from elsewhere moves to the peer and merges by time. Every
-/// other record merges as named. Returns whether anything changed.
+/// Apply one archive's consent records, after its groups. When the archive
+/// carries a 16-byte DM with a peer, its records for every 16-byte DM held
+/// with that peer and its inbox record for the peer become one record. For
+/// any other peer, a record naming a 16-byte DM held from elsewhere moves to
+/// the peer and merges by time. Every other record merges as named. Returns
+/// whether anything changed.
 // implements: CONS-051, CONS-054, CONS-061
 fn import_consent(
     db: &impl DbQuery,
