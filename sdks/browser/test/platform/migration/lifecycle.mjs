@@ -111,6 +111,92 @@ try {
       );
     });
   }
+  if (selected === "all" || selected === "delete-family") {
+    await withMigrationPage(browser, server, async (page) => {
+      await page.evaluate(async () => {
+        const { fixtureCall, check } = await import("./support.mjs");
+        const bytes = new Uint8Array(
+          await (await fetch("/row-fixture/stable")).arrayBuffer(),
+        );
+        const path = "/delete-family.db3";
+        const family = [
+          path,
+          ...["-journal", "-wal", "-shm"].map((suffix) => path + suffix),
+        ];
+        for (const member of family)
+          await fixtureCall({ operation: "import", path: member, bytes });
+        const sdk = await import("/target/sdk-packages/browser/entry.js");
+        const OriginalWorker = globalThis.Worker;
+        let generations = 0;
+        let terminations = 0;
+        let onTermination = () => {};
+        globalThis.Worker = class extends OriginalWorker {
+          constructor(url, options) {
+            generations++;
+            super(
+              generations === 1
+                ? new URL(
+                    "./lifecycle-worker.mjs?phase=delete-family",
+                    location.href,
+                  )
+                : url,
+              options,
+            );
+          }
+          terminate() {
+            terminations++;
+            onTermination();
+            return super.terminate();
+          }
+        };
+        try {
+          const admin = await sdk.Storage.admin();
+          let failed = false;
+          try {
+            await admin.deleteFile(path);
+          } catch (error) {
+            failed = error instanceof sdk.XmtpError.Storage;
+          }
+          check(failed, "second family truncation must report Storage");
+          check(
+            terminations === 1,
+            "failed deletion must automatically terminate its worker",
+          );
+          const retry = await sdk.Storage.admin();
+          check(generations === 2, "retry must use a new worker");
+          check(
+            (await retry.deleteFile(path)) === false,
+            "retry must preserve the absent-main boolean",
+          );
+          const retired = new Promise((resolve) => {
+            onTermination = resolve;
+          });
+          await retry.end();
+          await retired;
+          const fresh = await sdk.Storage.admin();
+          check(
+            generations === 3,
+            "verification must use another fresh worker",
+          );
+          for (const member of family)
+            check(
+              !(await fresh.fileExists(member)),
+              "database family remains: " + member,
+            );
+          check(
+            (await fresh.deleteFile(path)) === false,
+            "repeated deletion must return false",
+          );
+          await fresh.end();
+        } finally {
+          globalThis.Worker = OriginalWorker;
+        }
+      });
+      console.log(
+        "delete-family: failure terminates the worker, retry removes orphan sidecars, fresh verification passed",
+      );
+    });
+  }
   if (selected === "all" || selected === "fixture") {
     await withMigrationPage(browser, server, async (page) => {
       await page.evaluate(async () => {

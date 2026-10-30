@@ -225,6 +225,10 @@ async fn restored_bytes(data: &[u8]) -> Result<Vec<u8>, StorageError> {
         .map_err(Into::into)
 }
 
+fn database_family(path: &str) -> [String; 4] {
+    ["", "-journal", "-wal", "-shm"].map(|suffix| format!("{path}{suffix}"))
+}
+
 /// Import a whole database to an absent path after all target handles close.
 /// Validation and identity rotation occur in memory before file creation.
 /// Existing files are never overwritten. Old target objects cannot reconnect.
@@ -237,8 +241,10 @@ pub async fn import_opfs_database(path: &str, data: &[u8]) -> Result<(), Storage
     let util = resume_sqlite(true).await?;
     let prepared = restored_bytes(data).await?;
     let states = closed_target(Some(path))?;
-    if util.exists(path).map_err(PlatformStorageError::from)? {
-        return Err(PlatformStorageError::RestoreDestinationExists.into());
+    for member in database_family(path) {
+        if util.exists(&member).map_err(PlatformStorageError::from)? {
+            return Err(PlatformStorageError::RestoreDestinationExists.into());
+        }
     }
     if let Err(error) = util.import_db(path, &prepared) {
         // The VFS can allocate the destination before a write fails.
@@ -258,9 +264,18 @@ pub async fn delete_opfs_database(path: &str) -> Result<bool, StorageError> {
     let _lifecycle = PoolChange::acquire()?;
     let _transition = POOL_TRANSITION.lock().await;
     let util = resume_sqlite(true).await?;
-    let states = closed_target(Some(path))?;
-    let result = util.delete_db(path).map_err(PlatformStorageError::from)?;
+    let family = database_family(path);
+    let mut states = Vec::new();
+    for member in &family {
+        states.extend(closed_target(Some(member))?);
+    }
     fence(states);
+    let failure = VfsTransitionFailure(true);
+    let result = util.delete_db(path).map_err(PlatformStorageError::from)?;
+    for member in &family[1..] {
+        util.delete_db(member).map_err(PlatformStorageError::from)?;
+    }
+    failure.complete();
     Ok(result)
 }
 

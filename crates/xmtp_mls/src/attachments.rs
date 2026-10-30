@@ -988,6 +988,12 @@ impl AttachmentRuntime {
         })
     }
 
+    /// Delete local files through the retained store after the client shuts down.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub async fn delete_local_files(&self) -> Result<(), AttachmentClientError> {
+        self.store()?.delete_local_files().await.map_err(Into::into)
+    }
+
     fn store(&self) -> Result<&Arc<dyn LocalStore>, AttachmentClientError> {
         self.store
             .as_ref()
