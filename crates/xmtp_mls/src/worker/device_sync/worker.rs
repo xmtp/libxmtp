@@ -31,6 +31,7 @@ use xmtp_db::{
 use xmtp_events::Subscription;
 use xmtp_id::associations::AssociationState;
 use xmtp_macro::log_event;
+use xmtp_proto::ShortHex;
 use xmtp_proto::xmtp::device_sync::content::{
     DeviceSyncAcknowledge, PreferenceUpdates as PreferenceUpdatesProto,
     device_sync_content::Content as ContentProto,
@@ -381,7 +382,7 @@ where
                         Sender::Member => self.apply_message(&msg, &plaintext, None),
                         Sender::Gone => {
                             tracing::warn!(
-                                group_id = %msg.group_id,
+                                group_id = msg.group_id.short_hex(),
                                 "dropping a sync message whose sender was not an own installation when it sent"
                             );
                             self.context
@@ -468,13 +469,17 @@ where
         }
         // implements: PROC-036
         tracing::info!(update_count = updates.len(), "storing preference updates");
+        // Read before the write: a sync Welcome that commits in between marks
+        // every key owed, so an older choice only keeps a mark that is set.
+        let selected = self.primary_sync_group()?.map(|group| group.group_id);
         crate::state_tx::state_write_with_events(
             self.context.mls_storage(),
             self.context.events(),
             |tx, events| {
                 let storage = tx.storage();
                 let db = storage.db();
-                let applied = apply_preference_updates(&db, self.context.inbox_id(), msg, updates)?;
+                let applied =
+                    apply_preference_updates(&db, self.context.inbox_id(), msg, updates, selected)?;
                 if own {
                     settle_sent(&db, updates, msg.sent_at_ns)?;
                 }

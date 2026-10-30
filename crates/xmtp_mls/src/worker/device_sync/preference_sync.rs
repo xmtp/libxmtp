@@ -26,24 +26,21 @@ pub(super) struct Applied {
 }
 
 /// Merge a peer's sync message. `updates` is borrowed, so a transaction
-/// retry copies no HMAC root key; the caller wipes the keys.
+/// retry copies no HMAC root key; the caller wipes the keys. A value from
+/// `selected`, the sync group the publisher selects, keeps its mark; one
+/// from an older group is passed on.
 // implements: CONS-051, CONS-061, SYNC-023, SYNC-027, SYNC-032
 pub(super) fn apply_preference_updates(
     db: &impl DbQuery,
     own_inbox: &str,
     msg: &StoredGroupMessage,
     updates: &[PreferenceUpdateProto],
+    selected: Option<GroupId>,
 ) -> Result<Applied, StorageError> {
-    // A value from the selected sync group keeps the mark; one from
-    // an older group is passed on. Only a group the own inbox added is
-    // selected, as the publisher selects (SYNC-002).
-    let selected = db
-        .all_sync_groups()?
-        .into_iter()
-        .find(|group| group.added_by_inbox_id == own_inbox);
-    let owed = match selected {
-        Some(group) if group.id == msg.group_id => Owed::Keep,
-        _ => Owed::Mark,
+    let owed = if selected == Some(msg.group_id) {
+        Owed::Keep
+    } else {
+        Owed::Mark
     };
     let mut applied = Applied::default();
     for update in updates.iter().filter_map(|update| update.update.as_ref()) {
@@ -133,19 +130,14 @@ mod tests {
         }
     }
 
-    fn sync_group(
-        db: &impl DbQuery,
-        id: u8,
-        created_at_ns: i64,
-        added_by: &str,
-    ) -> Result<GroupId, StorageError> {
+    fn sync_group(db: &impl DbQuery, id: u8, created_at_ns: i64) -> Result<GroupId, StorageError> {
         use xmtp_db::Store;
         let id = GroupId::from([id; 16]);
         StoredGroup::builder()
             .id(id)
             .created_at_ns(created_at_ns)
             .membership_state(GroupMembershipState::Allowed)
-            .added_by_inbox_id(added_by)
+            .added_by_inbox_id("me")
             .conversation_type(ConversationType::Sync)
             .build()?
             .store(db)?;
@@ -172,8 +164,10 @@ mod tests {
             consent(entity_type, state, "bad", now + 1)
         };
         let updates = vec![bad, consent(2, 2, "good", now), root_key(vec![2; 42], now)];
-        let group = sync_group(&db, 1, now, "me").unwrap();
-        let applied = apply_preference_updates(&db, "me", &message(group, now), &updates).unwrap();
+        let group = sync_group(&db, 1, now).unwrap();
+        let applied =
+            apply_preference_updates(&db, "me", &message(group, now), &updates, Some(group))
+                .unwrap();
         assert_eq!(applied.consent.len(), 1);
         let stored: Vec<_> = db
             .consent_records()
@@ -190,8 +184,7 @@ mod tests {
 
     /// A received time is capped at a day after its envelope; a 16-byte DM id
     /// moves to its peer's record; a value from the selected sync group keeps
-    /// its mark and one from an older group is marked to pass it on. A sync
-    /// group another inbox added is never the selected one.
+    /// its mark and one from an older group is marked to pass it on.
     // verifies: CONS-054, CONS-061, SYNC-027, SYNC-032
     #[xmtp_common::test(unwrap_try = true)]
     async fn received_values_are_capped_keyed_and_marked() {
@@ -200,10 +193,8 @@ mod tests {
         let db = alix.context.db();
         let own = alix.inbox_id();
         let envelope = now_ns();
-        let older = sync_group(&db, 1, envelope - 10, own)?;
-        let selected = sync_group(&db, 2, envelope, own)?;
-        // An older build stored another inbox's sync group; it is never selected.
-        sync_group(&db, 3, envelope + 10, "other")?;
+        let older = sync_group(&db, 1, envelope - 10)?;
+        let selected = sync_group(&db, 2, envelope)?;
         let peer = "ab".repeat(32);
         let dm = GroupId::from([7; 16]);
         StoredGroup::builder()
@@ -241,7 +232,13 @@ mod tests {
             consent(2, 2, "far", far),
             root_key(vec![3; 42], far),
         ];
-        let applied = apply_preference_updates(&db, own, &message(selected, envelope), &updates)?;
+        let applied = apply_preference_updates(
+            &db,
+            own,
+            &message(selected, envelope),
+            &updates,
+            Some(selected),
+        )?;
         assert_eq!(applied.root_key, Some(false));
         let cap = envelope + MAX_AHEAD_NS;
         let row = |key: &ConsentKey| db.consent_row(key).unwrap().unwrap();
@@ -275,7 +272,8 @@ mod tests {
         assert_eq!(prefs.hmac_key_owed_seq, 0);
         // From an older group: a change is passed on.
         let later = vec![consent(ConsentType::InboxId as i32, 3, "far", cap + 1)];
-        let applied = apply_preference_updates(&db, own, &message(older, envelope), &later)?;
+        let applied =
+            apply_preference_updates(&db, own, &message(older, envelope), &later, Some(selected))?;
         assert!(applied.consent[0].marked);
         assert!(row(&ConsentKey::inbox("far")).owed_seq > 0);
     }
