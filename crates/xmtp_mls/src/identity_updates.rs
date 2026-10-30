@@ -46,10 +46,8 @@ pub use dependencies::{IdentityDependencyError, IdentityRequirement, IdentityRes
 pub(crate) use dependencies::{
     MissingProofs, OwnInstallationEvents, require_association_state, resolve_identity_requirements,
 };
-pub(crate) use state_store::get_association_state_for_client;
-#[cfg(test)]
-pub(crate) use state_store::store_association_state;
 use state_store::{ResolvedState, resolve_association_state};
+pub(crate) use state_store::{get_association_state_for_client, store_association_state};
 
 #[derive(Debug, Error)]
 pub enum IdentityUpdateError {

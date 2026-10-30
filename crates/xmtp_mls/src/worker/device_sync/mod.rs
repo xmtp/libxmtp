@@ -1,3 +1,4 @@
+use crate::state_tx::StateTx;
 use crate::{
     client::ClientError,
     context::XmtpSharedContext,
@@ -24,6 +25,7 @@ use xmtp_archive::ArchiveError;
 use xmtp_common::ErrorCode;
 use xmtp_common::{NS_IN_DAY, RetryableError, time::now_ns};
 use xmtp_cryptography::secret::{Zeroize, Zeroizing};
+use xmtp_db::TransactionalKeyStore;
 use xmtp_db::tasks::NewTask;
 use xmtp_db::{
     NotFound, StorageError,
@@ -130,6 +132,29 @@ impl Drop for ReceivedContent {
     fn drop(&mut self) {
         wipe_hmac_keys(&mut self.0);
     }
+}
+
+/// The id of the group [`DeviceSyncClient::primary_sync_group`] selects,
+/// read in the caller's write.
+// implements: SYNC-002, SYNC-010
+pub(super) fn selected_sync_group_in<T: TransactionalKeyStore>(
+    tx: &mut StateTx<'_, T>,
+    own_inbox_id: &str,
+) -> Result<Option<GroupId>, GroupError> {
+    let groups = tx.storage().db().all_sync_groups()?;
+    for stored in groups {
+        let own = tx.with_group(stored.id, |group, _| {
+            Ok::<_, GroupError>(is_own_sync_group(
+                own_inbox_id,
+                &stored.added_by_inbox_id,
+                group.members(),
+            ))
+        })?;
+        if own {
+            return Ok(Some(stored.id));
+        }
+    }
+    Ok(None)
 }
 
 /// A sync group belongs to the own inbox only when that inbox added this

@@ -1,10 +1,12 @@
 use super::{
     DeviceSyncClient, DeviceSyncError, ReceivedContent, decode_sync_message,
-    preference_sync::apply_preference_updates, with_plaintext,
+    preference_sync::apply_preference_updates, selected_sync_group_in, with_plaintext,
 };
 use crate::{
+    client::ClientError,
     context::XmtpSharedContext,
-    identity_updates::{IdentityUpdates, load_identity_updates_for_client},
+    identity::IdentityExt,
+    identity_updates::{load_identity_updates_for_client, store_association_state},
     subscriptions::{
         incoming::{IncomingCoordinator, IncomingScope},
         internal::{InternalEvent, emit_consent_changes, emit_root_key_changed},
@@ -29,7 +31,7 @@ use xmtp_db::{
     sync_outbox::{OwedPage, clear_owed, has_owed, settle_sent},
 };
 use xmtp_events::Subscription;
-use xmtp_id::associations::AssociationState;
+use xmtp_id::associations::{AssociationState, IdentityAction, verify_updates};
 use xmtp_macro::log_event;
 use xmtp_proto::ShortHex;
 use xmtp_proto::xmtp::device_sync::content::{
@@ -302,22 +304,45 @@ impl OwnTimeline {
         let db = context.db();
         let inbox_id = context.inbox_id();
         load_identity_updates_for_client(context, &db, &[inbox_id]).await?;
-        let identity = IdentityUpdates::new(context);
-        let mut steps = vec![];
-        for update in db.get_identity_updates(inbox_id, None, None)? {
-            // A cached state is one read. A miss verifies that prefix once and
-            // caches its state.
-            let state = match db.read_from_cache(inbox_id, update.sequence_id)? {
-                Some(cached) => AssociationState::try_from(cached).map_err(StorageError::from)?,
-                None => {
-                    identity
-                        .get_association_state(&db, inbox_id, Some(update.sequence_id))
-                        .await?
-                }
+        let updates = db.get_identity_updates(inbox_id, None, None)?;
+        // A cached prefix state is one read.
+        let mut states = vec![];
+        for update in &updates {
+            let Some(cached) = db.read_from_cache(inbox_id, update.sequence_id)? else {
+                break;
             };
-            let installations = state.installation_ids().into_iter().collect();
-            steps.push((update.server_timestamp_ns, installations));
+            states.push(AssociationState::try_from(cached).map_err(StorageError::from)?);
         }
+        // The rest are verified in one batch, folded from the last cached
+        // state, and cached.
+        let rest = &updates[states.len()..];
+        if !rest.is_empty() {
+            let unverified = rest
+                .iter()
+                .cloned()
+                .map(IdentityExt::to_unverified)
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(ClientError::from)?;
+            let verifier = context.scw_verifier();
+            let verified = verify_updates(unverified, &verifier)
+                .await
+                .map_err(ClientError::from)?;
+            for (stored, update) in rest.iter().zip(verified) {
+                let state = update
+                    .update_state(states.last().cloned(), update.client_timestamp_ns)
+                    .map_err(ClientError::from)?;
+                store_association_state(context, stored.sequence_id, &state)?;
+                states.push(state);
+            }
+        }
+        let steps = updates
+            .iter()
+            .zip(states)
+            .map(|(update, state)| {
+                let installations = state.installation_ids().into_iter().collect();
+                (update.server_timestamp_ns, installations)
+            })
+            .collect();
         Ok(Self { steps })
     }
 
@@ -469,13 +494,13 @@ where
         }
         // implements: PROC-036
         tracing::info!(update_count = updates.len(), "storing preference updates");
-        // Read before the write: a sync Welcome that commits in between marks
-        // every key owed, so an older choice only keeps a mark that is set.
-        let selected = self.primary_sync_group()?.map(|group| group.group_id);
         crate::state_tx::state_write_with_events(
             self.context.mls_storage(),
             self.context.events(),
             |tx, events| {
+                // Read in this write, so a sync Welcome commits wholly before
+                // or after it.
+                let selected = selected_sync_group_in(tx, self.context.inbox_id())?;
                 let storage = tx.storage();
                 let db = storage.db();
                 let applied =
@@ -491,7 +516,7 @@ where
                     emit_root_key_changed(events, &db, marked)?;
                 }
                 db.mark_device_sync_msg_as_processed(&msg.id)?;
-                Ok::<_, StorageError>(Continue(()))
+                Ok::<_, crate::groups::GroupError>(Continue(()))
             },
         )?;
         for update in updates.iter().filter_map(|update| update.update.as_ref()) {
@@ -601,6 +626,44 @@ mod startup_tests {
             };
             assert_eq!(status, expected, "{inbox} {installation} at {at}");
         }
+    }
+
+    /// A timeline built from the cache and one verified pass gives each
+    /// prefix the state the resolver gives it, and caches each one.
+    // verifies: SYNC-030
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn timeline_states_match_each_prefix() {
+        use diesel::prelude::*;
+        use xmtp_db::{ConnectionExt, schema::association_state::dsl};
+        tester!(alix1, disable_workers);
+        tester!(alix2, from: alix1, disable_workers);
+        tester!(alix3, from: alix1, disable_workers);
+        let db = alix1.context.db();
+        let inbox_id = alix1.inbox_id();
+        load_identity_updates_for_client(&alix1.context, &db, &[inbox_id]).await?;
+        let updates = db.get_identity_updates(inbox_id, None, None)?;
+        assert!(updates.len() >= 3);
+        let mut expected = vec![];
+        for update in &updates {
+            let state = crate::identity_updates::IdentityUpdates::new(&alix1.context)
+                .get_association_state(&db, inbox_id, Some(update.sequence_id))
+                .await?;
+            let installations: HashSet<_> = state.installation_ids().into_iter().collect();
+            expected.push((update.server_timestamp_ns, installations));
+        }
+        // Only the first prefix stays cached, so the fold starts from it.
+        db.raw_query(|conn| {
+            diesel::delete(
+                dsl::association_state.filter(dsl::sequence_id.gt(updates[0].sequence_id)),
+            )
+            .execute(conn)
+        })?;
+        let timeline = OwnTimeline::load(&alix1.context).await?;
+        assert_eq!(timeline.steps, expected);
+        for update in &updates {
+            assert!(db.read_from_cache(inbox_id, update.sequence_id)?.is_some());
+        }
+        drop((alix2, alix3));
     }
 
     /// Closing the subscription stops the worker after its owed passes.
