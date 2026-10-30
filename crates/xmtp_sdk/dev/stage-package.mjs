@@ -285,7 +285,7 @@ const contract = stagePackage(product, (destination) => {
   }
   const manifest = {
     name: target === "node" ? "xmtp-sdk" : "xmtp-sdk-browser",
-    version: "0.0.0-stage",
+    version: readJson(join(root, "sdks", target, "package.json")).version,
     private: true,
     type: "module",
     engines: { node: ">=22.12.0" },

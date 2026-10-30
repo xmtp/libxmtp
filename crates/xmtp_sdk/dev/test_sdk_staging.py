@@ -8,6 +8,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 import tarfile
+import tomllib
 import unittest
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -114,6 +115,12 @@ class StagingTests(unittest.TestCase):
         result = stage()
         self.assertEqual(result.returncode, 0, result.stderr)
         product = output / "browser"
+        self.assertEqual(
+            json.loads((product / "package.json").read_text())["version"],
+            tomllib.loads((ROOT / "Cargo.toml").read_text())["workspace"]["package"][
+                "version"
+            ],
+        )
         for tree in ("typescript-wasm", "typescript-pure"):
             self.assertTrue((product / tree / "index.js").is_file())
             self.assertTrue((product / tree / "snippets/helper.js").is_file())
@@ -187,6 +194,12 @@ class StagingTests(unittest.TestCase):
                 )
                 self.assertEqual(result.returncode, 0, result.stderr)
                 manifest = json.loads((out / "node/package.json").read_text())
+                self.assertEqual(
+                    manifest["version"],
+                    tomllib.loads((ROOT / "Cargo.toml").read_text())["workspace"][
+                        "package"
+                    ]["version"],
+                )
                 if layout == "prebuilt":
                     source = json.loads((ROOT / "sdks/node/package.json").read_text())
                     self.assertEqual(manifest["name"], source["name"])
