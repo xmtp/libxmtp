@@ -424,6 +424,7 @@ where
                     storage,
                     &self.group_id,
                     &validated_commit.readded_installations,
+                    self.context.installation_id().as_slice(),
                     cursor.0 as i64,
                 )?;
 

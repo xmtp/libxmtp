@@ -457,6 +457,9 @@ impl GroupQueryArgs {
 }
 
 pub trait QueryGroup {
+    /// Delete a settled one-shot's child records and row in the caller's MLS-state transaction.
+    fn delete_oneshot_group(&self, group_id: &GroupId) -> Result<(), crate::ConnectionError>;
+
     /// Return regular `Purpose::Conversation` groups with additional optional filters
     fn find_groups<A: AsRef<GroupQueryArgs>>(
         &self,
@@ -608,6 +611,10 @@ impl<T> QueryGroup for &T
 where
     T: QueryGroup,
 {
+    fn delete_oneshot_group(&self, group_id: &GroupId) -> Result<(), crate::ConnectionError> {
+        (**self).delete_oneshot_group(group_id)
+    }
+
     /// Return regular `Purpose::Conversation` groups with additional optional filters
     fn find_groups<A: AsRef<GroupQueryArgs>>(
         &self,
@@ -826,6 +833,27 @@ impl<C: ConnectionExt> DbConnection<C> {
 }
 
 impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
+    fn delete_oneshot_group(&self, group_id: &GroupId) -> Result<(), crate::ConnectionError> {
+        // Publisher boundary cursors have composite keys, not the bare group id.
+        crate::remote_commit_log::QueryRemoteCommitLog::set_commit_log_publisher_boundaries(
+            self,
+            group_id,
+            &Default::default(),
+        )?;
+        self.raw_query(|conn| {
+            macro_rules! delete_rows {
+                ($($table:ident.$key:ident),* $(,)?) => { $(
+                    diesel::delete(super::schema::$table::table.filter(super::schema::$table::$key.eq(group_id))).execute(conn)?;
+                )* };
+            }
+            delete_rows!(group_intents.group_id, group_messages.group_id, local_commit_log.group_id,
+                remote_commit_log.group_id, refresh_state.entity_id, incoming_envelopes.entity_id,
+                pending_remove.group_id, readd_status.group_id);
+            diesel::delete(dsl::groups.filter(dsl::id.eq(group_id)).filter(dsl::conversation_type.eq(ConversationType::Oneshot))).execute(conn)?;
+            Ok(())
+        })
+    }
+
     /// Return regular `Purpose::Conversation` groups with additional optional filters
     #[xmtp_common::db_span]
     // implements: CONS-060, CONS-031
