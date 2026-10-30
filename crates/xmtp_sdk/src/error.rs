@@ -457,6 +457,12 @@ impl XmtpError {
         }
         if let Some(group) = error.downcast_ref::<GroupError>() {
             return match group {
+                GroupError::MessageSenderConflict => Some(Self::InvalidInput(Self::details(
+                    "MessageSenderConflict",
+                    ErrorCategory::Input,
+                    false,
+                    "message id belongs to another sender inbox",
+                ))),
                 GroupError::MetadataField(field) => Some(Self::from_field(field)),
                 GroupError::ComponentSource(source) => Some(Self::from_component_source(source)),
                 GroupError::TooManyCharacters { .. } => {

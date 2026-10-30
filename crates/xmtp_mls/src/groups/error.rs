@@ -45,6 +45,9 @@ pub enum GroupError {
     /// Application messages cannot use a reserved transcript content type. Not retryable.
     #[error("reserved transcript content type")]
     ReservedTranscriptContentType,
+    /// The message id belongs to another sender inbox. Not retryable.
+    #[error("message id belongs to another sender inbox")]
+    MessageSenderConflict,
     #[error(transparent)]
     #[error_code(inherit)]
     OutgoingPreparation(#[from] super::mls_sync::publish::OutgoingPreparationError),
@@ -574,6 +577,7 @@ impl RetryableError for DmValidationError {
 impl RetryableError for GroupError {
     fn is_retryable(&self) -> bool {
         match self {
+            Self::MessageSenderConflict => false,
             Self::OutgoingPreparation(error) => error.is_retryable(),
             Self::Client(client_error) => client_error.is_retryable(),
             Self::Storage(storage) => storage.is_retryable(),

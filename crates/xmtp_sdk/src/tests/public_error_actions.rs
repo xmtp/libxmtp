@@ -95,6 +95,16 @@ fn preflight(cause: ClientError) -> ApiError {
 
 #[xmtp_common::test(unwrap_try = true)]
 fn group_failures_keep_their_actions() {
+    for map in [XmtpError::from_group, XmtpError::from_group_write] {
+        let error = map(GroupError::MessageSenderConflict);
+        assert!(matches!(error, XmtpError::InvalidInput(_)), "{error:?}");
+        let XmtpError::InvalidInput(found) = error else {
+            unreachable!()
+        };
+        assert_eq!(found.code, "MessageSenderConflict");
+        assert!(matches!(found.category, ErrorCategory::Input));
+        assert!(!found.retryable);
+    }
     expect(
         XmtpError::from_group(GroupError::UserLimitExceeded),
         "UserLimitExceeded",

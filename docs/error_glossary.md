@@ -4,7 +4,7 @@
 
 This document lists all error codes defined in LibXMTP, the core library underlying the XMTP SDKs. Each error code is a unique identifier returned to help diagnose issues.
 
-**40 error types** across **10 crates** with **429 total error codes**.
+**40 error types** across **10 crates** with **430 total error codes**.
 
 ## xmtp_api
 
@@ -489,6 +489,7 @@ Stable failure categories. Inner causes remain available to Rust callers.
 | Error Code | Description |
 |:-----------|:------------|
 | `GroupError::ReservedTranscriptContentType` | Application messages cannot use a reserved transcript content type. Not retryable. |
+| `GroupError::MessageSenderConflict` | The message id belongs to another sender inbox. Not retryable. |
 | `GroupError::UserLimitExceeded` | Max user limit exceeded. Attempted to add too many members. Not retryable. |
 | `GroupError::MissingSequenceId` | Sequence ID not found. No sequence ID for an inbox after an identity-update refresh — its registration hasn't propagated yet. Retryable. |
 | `GroupError::AddressNotFound` | Addresses not found. Specified addresses have no XMTP identity. Not retryable. |
