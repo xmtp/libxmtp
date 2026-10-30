@@ -35,8 +35,12 @@ pub(super) fn apply_preference_updates(
     updates: &[PreferenceUpdateProto],
 ) -> Result<Applied, StorageError> {
     // A value from the selected sync group keeps the mark; one from
-    // an older group is passed on.
-    let selected = db.all_sync_groups()?.into_iter().next();
+    // an older group is passed on. Only a group the own inbox added is
+    // selected, as the publisher selects (SYNC-002).
+    let selected = db
+        .all_sync_groups()?
+        .into_iter()
+        .find(|group| group.added_by_inbox_id == own_inbox);
     let owed = match selected {
         Some(group) if group.id == msg.group_id => Owed::Keep,
         _ => Owed::Mark,
@@ -129,14 +133,19 @@ mod tests {
         }
     }
 
-    fn sync_group(db: &impl DbQuery, id: u8, created_at_ns: i64) -> Result<GroupId, StorageError> {
+    fn sync_group(
+        db: &impl DbQuery,
+        id: u8,
+        created_at_ns: i64,
+        added_by: &str,
+    ) -> Result<GroupId, StorageError> {
         use xmtp_db::Store;
         let id = GroupId::from([id; 16]);
         StoredGroup::builder()
             .id(id)
             .created_at_ns(created_at_ns)
             .membership_state(GroupMembershipState::Allowed)
-            .added_by_inbox_id("me")
+            .added_by_inbox_id(added_by)
             .conversation_type(ConversationType::Sync)
             .build()?
             .store(db)?;
@@ -163,7 +172,7 @@ mod tests {
             consent(entity_type, state, "bad", now + 1)
         };
         let updates = vec![bad, consent(2, 2, "good", now), root_key(vec![2; 42], now)];
-        let group = sync_group(&db, 1, now).unwrap();
+        let group = sync_group(&db, 1, now, "me").unwrap();
         let applied = apply_preference_updates(&db, "me", &message(group, now), &updates).unwrap();
         assert_eq!(applied.consent.len(), 1);
         let stored: Vec<_> = db
@@ -181,7 +190,8 @@ mod tests {
 
     /// A received time is capped at a day after its envelope; a 16-byte DM id
     /// moves to its peer's record; a value from the selected sync group keeps
-    /// its mark and one from an older group is marked to pass it on.
+    /// its mark and one from an older group is marked to pass it on. A sync
+    /// group another inbox added is never the selected one.
     // verifies: CONS-054, CONS-061, SYNC-027, SYNC-032
     #[xmtp_common::test(unwrap_try = true)]
     async fn received_values_are_capped_keyed_and_marked() {
@@ -190,8 +200,10 @@ mod tests {
         let db = alix.context.db();
         let own = alix.inbox_id();
         let envelope = now_ns();
-        let older = sync_group(&db, 1, envelope - 10)?;
-        let selected = sync_group(&db, 2, envelope)?;
+        let older = sync_group(&db, 1, envelope - 10, own)?;
+        let selected = sync_group(&db, 2, envelope, own)?;
+        // An older build stored another inbox's sync group; it is never selected.
+        sync_group(&db, 3, envelope + 10, "other")?;
         let peer = "ab".repeat(32);
         let dm = GroupId::from([7; 16]);
         StoredGroup::builder()
