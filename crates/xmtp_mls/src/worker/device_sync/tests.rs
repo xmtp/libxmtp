@@ -10,7 +10,6 @@ use xmtp_db::{
         StoredConsentRecord, write_consent,
     },
     group::{ConversationType, GroupMembershipState, StoredGroup},
-    group_message::StoredGroupMessage,
     sync_outbox::has_owed,
     user_preferences::StoredUserPreferences,
 };
@@ -1369,42 +1368,6 @@ async fn older_group_value_reaches_newcomer() {
     assert_eq!(held(&alix3, &x), held(&alix2, &x));
 }
 
-/// A sync message of this installation that failed for good does not hold
-/// the outbox back; its values stay owed and go out in the next page.
-// verifies: SYNC-033
-#[xmtp_common::test(unwrap_try = true)]
-#[cfg_attr(target_arch = "wasm32", ignore)]
-async fn refused_page_stays_owed() {
-    use xmtp_db::{Store, group_message::DeliveryStatus};
-    tester!(alix1, disable_workers);
-    tester!(alix2, from: alix1, disable_workers);
-    let group_id = join_sync_group(&alix2, &[&alix1]).await?;
-    let refused = ConsentKey::inbox("refused");
-    decide_at(&alix1, &refused, ConsentState::Denied, now_ns())?;
-    // Stands in for a page the deployment refused for good.
-    StoredGroupMessage {
-        sender_installation_id: alix1.context.installation_id().to_vec(),
-        sender_inbox_id: alix1.inbox_id().to_string(),
-        delivery_status: DeliveryStatus::Failed,
-        decrypted_message_bytes: sync_bytes(vec![consent_update(
-            ConsentType::InboxId,
-            ConsentState::Denied,
-            "refused",
-        )])
-        .to_vec(),
-        ..crate::test::mock::generate_stored_msg(xmtp_proto::types::Cursor(1), group_id)
-    }
-    .store(&alix1.context.db())?;
-    assert!(alix1.context.db().consent_row(&refused)?.unwrap().owed_seq > 0);
-    publish(&alix1).await?;
-    assert_eq!(
-        alix1.context.db().consent_row(&refused)?.unwrap().owed_seq,
-        0
-    );
-    receive(&alix2).await?;
-    assert_eq!(held(&alix2, &refused), held(&alix1, &refused));
-}
-
 /// After the clock is set back, a newcomer's sync group is still stored
 /// after every held group and selected, so the replay reaches it.
 // verifies: SYNC-031, SYNC-002
@@ -1435,12 +1398,13 @@ async fn clock_set_back_still_selects_newcomer_group() {
     assert_eq!(held(&alix2, &key), held(&alix1, &key));
 }
 
-/// A page the backend accepted but whose confirmation failed keeps its
-/// marks, so the next pass sends its values again and only then clears them.
+/// A page whose read-back is not published, because its confirmation failed
+/// or the deployment refused it, clears no mark: the pass fails, and a later
+/// pass sends the values again and only then clears them.
 // verifies: SYNC-033
 #[xmtp_common::test(unwrap_try = true)]
 #[cfg_attr(target_arch = "wasm32", ignore)]
-async fn unconfirmed_page_stays_owed_until_sent_again() {
+async fn unpublished_page_stays_owed_until_sent_again() {
     tester!(alix1, disable_workers);
     tester!(alix2, from: alix1, disable_workers);
     join_sync_group(&alix2, &[&alix1]).await?;
@@ -1455,17 +1419,11 @@ async fn unconfirmed_page_stays_owed_until_sent_again() {
             .unwrap()
             .owed_seq
     };
-    // The page is published, but its confirmation fails.
-    let page = owed_page(&alix1.context.db(), PAGE_UPDATES, PAGE_BYTES)?;
-    let group = alix1.device_sync_client().primary_sync_group()?.unwrap();
-    group.prepare_message(
-        &sync_message_bytes(page_content(&page)),
-        SendMessageOpts {
-            should_push: false,
-            idempotency_key: None,
-        },
-    )?;
-    group.publish_intents_unconfirmed().await?;
+    *UNCONFIRMED_NEXT_PAGE.lock() = Some(alix1.context.installation_id().to_vec());
+    assert!(matches!(
+        publish(&alix1).await,
+        Err(DeviceSyncError::OutboxPageUnpublished)
+    ));
     assert!(owed() > 0, "an unconfirmed page clears nothing");
     publish(&alix1).await?;
     assert_eq!(owed(), 0);

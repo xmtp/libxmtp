@@ -25,7 +25,7 @@ pub(super) struct Applied {
     pub root_key: Option<bool>,
 }
 
-/// Merge a peer's sync message. `updates` is borrowed, so a transaction
+/// Merge the updates of a sync message, a peer's or this installation's. `updates` is borrowed, so a transaction
 /// retry copies no HMAC root key; the caller wipes the keys. A value from
 /// `selected`, the sync group the publisher selects, keeps its mark; one
 /// from an older group is passed on.

@@ -583,39 +583,52 @@ mod startup_tests {
 
     /// A pass refused by a rate limit runs again only after the delay: a wake
     /// or a tick does not cut it short, and neither does a worker rebuilt
-    /// after a reconnect, which shares the passes through the factory.
+    /// after a reconnect, which shares the passes through the factory. A
+    /// refused publish and a refused own-identity read both wait.
     // verifies: RATE-041
     #[xmtp_common::test(unwrap_try = true)]
     async fn a_rate_limited_pass_waits_out_its_delay() {
         tester!(alix, disable_workers);
         let delay = Duration::from_secs(300);
-        let refused = DeviceSyncError::Group(crate::groups::GroupError::WrappedApi(
+        let refused = |method| {
             xmtp_api::ApiError::Api(xmtp_proto::api::NetworkError::new(
                 xmtp_api_grpc::error::GrpcError::Status(xmtp_api_grpc::error::rate_limited_status(
-                    "publish", delay,
+                    method, delay,
                 )),
-            )),
-        ));
-        assert_eq!(RetryableError::rate_limit_delay(&refused), Some(delay));
+            ))
+        };
+        let publish =
+            DeviceSyncError::Group(crate::groups::GroupError::WrappedApi(refused("publish")));
+        let identity = DeviceSyncError::Client(crate::client::ClientError::Api(refused(
+            "get_identity_updates",
+        )));
+        for error in [&publish, &identity] {
+            assert_eq!(RetryableError::rate_limit_delay(error), Some(delay));
+        }
         let factory = Factory {
             context: alix.context.clone(),
             passes: SharedPasses::default(),
         };
         let before = Instant::now();
-        factory
-            .passes
-            .lock()
-            .outbox
-            .finish("publish", Err(refused))?;
-        let rebuilt = SyncWorker::new(alix.context.clone(), None, factory.passes.clone());
-        let mut passes = rebuilt.passes.lock();
-        passes.outbox.wake();
-        passes.outbox.restart();
-        assert!(!passes.outbox.is_due());
-        assert!(passes.outbox.due.unwrap() >= before + delay);
-        // A pass without a rate limit is due again after its backoff alone.
-        passes.inbox.restart();
-        assert!(passes.inbox.is_due());
+        {
+            let mut passes = factory.passes.lock();
+            passes.outbox.finish("publish", Err(publish))?;
+            passes.inbox.finish("receive", Err(identity))?;
+        }
+        let (_rebuilt, _) = factory.create(None);
+        assert_eq!(
+            Arc::strong_count(&factory.passes),
+            2,
+            "a rebuilt worker shares the passes"
+        );
+        let mut guard = factory.passes.lock();
+        let passes = &mut *guard;
+        for pass in [&mut passes.outbox, &mut passes.inbox] {
+            pass.wake();
+            pass.restart();
+            assert!(!pass.is_due());
+            assert!(pass.due.unwrap() >= before + delay);
+        }
     }
 
     /// The sender of a sync message is judged at its envelope time against

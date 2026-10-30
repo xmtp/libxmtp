@@ -70,15 +70,6 @@ enum NextPublish {
     Behind(ID),
 }
 
-#[cfg(test)]
-impl<Context: XmtpSharedContext> MlsGroup<Context> {
-    /// Publish the queued intents without reading them back, as a send whose
-    /// confirmation fails after the backend accepted it.
-    pub(crate) async fn publish_intents_unconfirmed(&self) -> Result<(), GroupError> {
-        self.publish_intents().await
-    }
-}
-
 impl<Context: XmtpSharedContext> MlsGroup<Context> {
     /// Persist each attempt with its crypto state before publication. An ambiguous
     /// result retries the saved bytes, except `OUT_OF_RANGE`, which a recovery

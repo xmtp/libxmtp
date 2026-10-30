@@ -158,7 +158,7 @@ Before 8.0, a DM's consent was its group's record, and inbox records decided no 
 
 Two installations that decide on one key without seeing each other's decision are ordered by their clocks. The decision made later in real time loses when its installation's clock is behind.
 
-A compromised own installation can store a record up to a day after its message's envelope time before it is revoked; the user's next decision replaces it.
+A compromised own installation can store a record up to a day after its message's envelope time before it is revoked; the user's next decision replaces it. An archive carrying a time more than a day ahead of the import is capped at the importing clock, so importing it again later can raise that record above a decision made in between.
 
 A join stores nothing. When another inbox removes the user from a group and adds the user back, or a former member builds a second MLS group under its id (JOIN-083), the conversation keeps the user's earlier decision, including an allow.
 

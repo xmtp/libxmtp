@@ -424,6 +424,11 @@ where
                 drop(take_plaintext(&mut sent));
                 sent.delivery_status
             });
+            #[cfg(test)]
+            let status = UNCONFIRMED_NEXT_PAGE
+                .lock()
+                .take_if(|installation| *installation == self.installation_id().as_slice())
+                .map_or(status, |_| None);
             if status != Some(DeliveryStatus::Published) {
                 return Err(DeviceSyncError::OutboxPageUnpublished);
             }
@@ -558,6 +563,12 @@ where
         )?)
     }
 }
+
+/// Test-only fault: the next outbox page of this installation reads back as
+/// not published, as when its confirmation fails after the backend took it.
+#[cfg(test)]
+pub(super) static UNCONFIRMED_NEXT_PAGE: parking_lot::Mutex<Option<Vec<u8>>> =
+    parking_lot::Mutex::new(None);
 
 /// Records per sync message the outbox sends.
 const PAGE_UPDATES: usize = 1_000;
