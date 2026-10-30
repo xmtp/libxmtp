@@ -109,6 +109,50 @@ class SdkVersionTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "frozen plan"):
             version.materialize(self.root, plan | {"version": "8.0.0-rc6"})
 
+    def test_ordinary_materialization_rejects_changed_tracked_source(self):
+        source = self.root / "crates/xmtp_sdk/src/lib.rs"
+        source.parent.mkdir()
+        source.write_text("pub fn source() -> u8 { 1 }\n")
+        self.git("add", str(source))
+        self.git("commit", "-qm", "tracked source")
+        self.sha = self.git("rev-parse", "HEAD")
+        plan = self.record()
+        source.write_text("pub fn source() -> u8 { 2 }\n")
+        path = self.root / "release-plan.json"
+        path.write_text(json.dumps(plan))
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(ROOT / "dev/sdk_version.py"),
+                "--root",
+                str(self.root),
+                "materialize",
+                "--plan",
+                str(path),
+            ],
+            capture_output=True,
+            text=True,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("changed tracked source", result.stderr)
+        self.assertEqual(version.target(self.root), "8.0.0")
+        self.assertEqual(source.read_text(), "pub fn source() -> u8 { 2 }\n")
+
+    def test_materialization_retry_rejects_nonversion_mirror_changes(self):
+        plan = self.record()
+        version.materialize(self.root, plan)
+        path = self.root / "sdks/node/package.json"
+        package = json.loads(path.read_text())
+        package["scripts"]["unexpected"] = "unreviewed-build-tool"
+        path.write_text(json.dumps(package, indent=2) + "\n")
+        with self.assertRaisesRegex(ValueError, "changed tracked source"):
+            version.materialize(self.root, plan)
+        self.assertEqual(version.target(self.root), "8.0.0-rc5")
+        self.assertEqual(
+            json.loads(path.read_text())["scripts"]["unexpected"],
+            "unreviewed-build-tool",
+        )
+
     def test_node_snapshot_admits_versioned_inputs_without_reusing_another_version(
         self,
     ):

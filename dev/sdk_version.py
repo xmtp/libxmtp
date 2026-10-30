@@ -76,9 +76,16 @@ def check(root):
     return version
 
 
-def sync(root, version):
-    manifest = root / "Cargo.toml"
-    source = manifest.read_text()
+def versioned_mirrors(root, version, source_sha=None):
+    def read(name):
+        if source_sha is None:
+            return (root / name).read_text()
+        return subprocess.check_output(
+            ["git", "-C", str(root), "show", f"{source_sha}:{name}"], text=True
+        )
+
+    mirrors = {}
+    source = read("Cargo.toml")
     source, count = re.subn(
         r'(\[workspace\.package\][\s\S]*?\bversion\s*=\s*)"[^"]+"',
         lambda m: m[1] + json.dumps(version),
@@ -87,24 +94,22 @@ def sync(root, version):
     )
     if count != 1:
         raise ValueError("Missing workspace.package.version")
-    manifest.write_text(source)
+    mirrors["Cargo.toml"] = source
     for name in MANIFESTS:
-        path = root / name
-        package = json.loads(path.read_text())
+        package = json.loads(read(name))
         package["version"] = version
         for dep, value in package.get("dependencies", {}).items():
             if dep in [f"@xmtp/{sdk}-sdk" for sdk in SDK_PACKAGES]:
                 if not value.startswith("workspace:"):
                     package["dependencies"][dep] = version
-        path.write_text(json.dumps(package, indent=2, ensure_ascii=False) + "\n")
-    android = root / "sdks/android/gradle.properties"
-    android.write_text(
-        re.sub(
-            r"^version\s*=.*$", "version=" + version, android.read_text(), flags=re.M
-        )
+        mirrors[name] = json.dumps(package, indent=2, ensure_ascii=False) + "\n"
+    mirrors["sdks/android/gradle.properties"] = re.sub(
+        r"^version\s*=.*$",
+        "version=" + version,
+        read("sdks/android/gradle.properties"),
+        flags=re.M,
     )
     inherited = packages(root)
-    lock = root / "Cargo.lock"
 
     def update(block):
         package = tomllib.loads(block)["package"][0]
@@ -118,13 +123,17 @@ def sync(root, version):
             )
         return block
 
-    lock.write_text(
-        re.sub(
-            r"\[\[package\]\][\s\S]*?(?=\n\[\[package\]\]|\Z)",
-            lambda m: update(m[0]),
-            lock.read_text(),
-        )
+    mirrors["Cargo.lock"] = re.sub(
+        r"\[\[package\]\][\s\S]*?(?=\n\[\[package\]\]|\Z)",
+        lambda m: update(m[0]),
+        read("Cargo.lock"),
     )
+    return mirrors
+
+
+def sync(root, version):
+    for name, content in versioned_mirrors(root, version).items():
+        (root / name).write_text(content)
     check(root)
 
 
@@ -181,6 +190,14 @@ def materialize(root, record, snapshot=False):
         raise ValueError("Checkout differs from frozen release source")
     if snapshot and git(root, "status", "--porcelain", "--untracked-files=no"):
         raise ValueError("A release snapshot needs a clean source checkout")
+    expected = versioned_mirrors(root, record["version"], record["sourceSha"])
+    for name in git(root, "diff", "--name-only", "HEAD").splitlines():
+        if (
+            name not in expected
+            or not (root / name).is_file()
+            or (root / name).read_text() != expected[name]
+        ):
+            raise ValueError(f"Release checkout has changed tracked source: {name}")
     if target(root) not in (record["targetVersion"], record["version"]):
         raise ValueError("Cargo target differs from frozen release plan")
     check(root)
