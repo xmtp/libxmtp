@@ -10,7 +10,7 @@ use crate::{
     identity_updates::load_identity_updates,
     mutex_registry::MutexRegistry,
     server_configuration::ServerConfigurationHandle,
-    utils::{VersionInfo, cleanup_duplicate_updates},
+    utils::VersionInfo,
     worker::{WorkerRunner, tasks::TaskWorker},
     worker::{device_sync::worker::SyncWorker, disappearing_messages::DisappearingMessagesWorker},
 };
@@ -26,8 +26,8 @@ use xmtp_api_backend::TrackedStatsClient;
 use xmtp_common::snippet::Snippet;
 use xmtp_common::{ErrorCode, Event, Retry};
 use xmtp_cryptography::signature::IdentifierValidationError;
-use xmtp_db::{DbConnection, XmtpMlsStorageProvider, prelude::*};
 use xmtp_db::{XmtpDb, sql_key_store::SqlKeyStore};
+use xmtp_db::{XmtpMlsStorageProvider, prelude::*};
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_macro::log_event;
 use xmtp_proto::api_client::XmtpBackendClient;
@@ -909,16 +909,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
                 events: events_for_lifetime,
             }),
         };
-
-        // Cleanup old unstitched group updated messages.
-        let conn = DbConnection::new(client.db());
-        let cancel = client.context.cancellation_token().clone();
-        xmtp_common::spawn(None, async move {
-            tokio::select! {
-                _ = cancel.cancelled() => {}
-                _ = cleanup_duplicate_updates::perform(conn) => {}
-            }
-        });
 
         Ok(client)
     }

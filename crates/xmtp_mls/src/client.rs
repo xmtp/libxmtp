@@ -1560,13 +1560,16 @@ where
         }
     }
 
-    /// Check whether an account_identifier has a key package registered on the network
+    /// Reports whether the backend names an inbox for each identifier.
+    /// This is an unverified availability hint. The client does not independently
+    /// verify the lookup against current association state or check
+    /// key packages. This is not a delivery guarantee.
     ///
     /// Arguments:
     /// - account_identifier: a list of account identifiers to check
     ///
     /// Returns:
-    /// A Vec of booleans indicating whether each account address has a key package registered on the network
+    /// A map from each identifier to its availability hint.
     pub async fn can_message(
         &self,
         account_identifiers: &[Identifier],

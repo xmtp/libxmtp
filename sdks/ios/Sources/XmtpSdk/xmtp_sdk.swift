@@ -1413,8 +1413,11 @@ public protocol ClientProtocol: AnyObject, Sendable {
 
     /**
      * Returns one entry per core identity. Keys use `ethereum:<core text>`,
-     * `passkey:<lowercase core hex>`, or `handle:<canonical handle>`. A
-     * handle is available when the backend names an inbox for it.
+     * `passkey:<lowercase core hex>`, or `handle:<canonical handle>`.
+     * Reports whether the backend names an inbox for each identifier.
+     * This is an unverified availability hint. The client does not independently
+     * verify the lookup against current association state or check
+     * key packages. This is not a delivery guarantee.
      */
     func canMessage(identities: [PublicIdentity]) async throws  -> [String: Bool]
 
@@ -1812,8 +1815,11 @@ open func availableHandles(name: String)async throws  -> [String]  {
 
     /**
      * Returns one entry per core identity. Keys use `ethereum:<core text>`,
-     * `passkey:<lowercase core hex>`, or `handle:<canonical handle>`. A
-     * handle is available when the backend names an inbox for it.
+     * `passkey:<lowercase core hex>`, or `handle:<canonical handle>`.
+     * Reports whether the backend names an inbox for each identifier.
+     * This is an unverified availability hint. The client does not independently
+     * verify the lookup against current association state or check
+     * key packages. This is not a delivery guarantee.
      */
 open func canMessage(identities: [PublicIdentity])async throws  -> [String: Bool]  {
     return
@@ -29795,8 +29801,11 @@ public func localSignerFromPrivateKey(key: Data)async throws  -> Signer  {
 }
 /**
  * Returns one entry per core identity. Keys use `ethereum:<core text>`,
- * `passkey:<lowercase core hex>`, or `handle:<canonical handle>`. A handle is
- * available when the backend names an inbox for it.
+ * `passkey:<lowercase core hex>`, or `handle:<canonical handle>`.
+ * Reports whether the backend names an inbox for each identifier.
+ * This is an unverified availability hint. The client does not independently
+ * verify the lookup against current association state or check
+ * key packages. This is not a delivery guarantee.
  */
 public func canMessageWithBackend(backend: BackendSource, identities: [PublicIdentity])async throws  -> [String: Bool]  {
     return
@@ -30070,7 +30079,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtp_sdk_checksum_func_local_signer_from_private_key() != 30382) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_func_can_message_with_backend() != 19273) {
+    if (uniffi_xmtp_sdk_checksum_func_can_message_with_backend() != 22338) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_func_inbox_id_for_with_backend() != 7298) {
@@ -30196,7 +30205,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtp_sdk_checksum_method_client_available_handles() != 13049) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_method_client_can_message() != 51852) {
+    if (uniffi_xmtp_sdk_checksum_method_client_can_message() != 11705) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_method_client_catch_up_to_live() != 37718) {
