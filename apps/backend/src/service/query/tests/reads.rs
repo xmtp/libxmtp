@@ -248,6 +248,8 @@ async fn full_query_and_newest_fail_when_response_bytes_exceed_the_cap() {
         let server = TestServer::new(|config| {
             config.limits.max_envelope_bytes = 1_024;
             config.limits.max_response_bytes = 1_500;
+            config.limits.max_update_adds = 1;
+            config.limits.max_static_topics = 1;
         })
         .await?;
         let mut envelopes = Vec::new();
