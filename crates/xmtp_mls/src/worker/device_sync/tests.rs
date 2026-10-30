@@ -1532,3 +1532,36 @@ async fn revocation_key_beats_delayed_pre_revocation_key() {
     load_identity_updates_for_client(&alix2.context, &db, &[alix2.inbox_id()]).await?;
     assert_eq!(key_of(&alix2).hmac_key, Some(k.to_vec().into()));
 }
+
+/// A reconcile task armed after a rate-limited add is due only once the
+/// add's delay has passed, so the runner does not resend it at once.
+// verifies: RATE-041
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_rate_limited_add_arms_its_reconcile_after_the_delay() {
+    tester!(alix, disable_workers);
+    let sync = alix.context.device_sync_client();
+    let group = alix.create_group(None, None)?;
+    // Longer than a task's default three-day expiry.
+    let delay = xmtp_common::time::Duration::from_secs(4 * 24 * 60 * 60);
+    let before = xmtp_common::time::now_ns();
+    sync.schedule_add_missing_installations_task(group.group_id, Some(delay))?;
+    let task = alix
+        .context
+        .db()
+        .get_tasks()?
+        .into_iter()
+        .find(|task| {
+            matches!(
+                xmtp_proto::xmtp::mls::database::Task::decode(task.data.as_slice())
+                    .ok()
+                    .and_then(|task| task.task),
+                Some(TaskKindProto::AddMissingInstallations(_))
+            )
+        })
+        .expect("the reconcile task");
+    assert!(task.next_attempt_at_ns >= before + delay.as_nanos() as i64);
+    assert!(
+        task.expires_at_ns > task.next_attempt_at_ns,
+        "the task does not expire before it is due"
+    );
+}

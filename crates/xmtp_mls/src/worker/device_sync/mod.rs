@@ -534,10 +534,8 @@ where
         Ok(sync_group)
     }
 
-    /// Durably enqueue one AddMissingInstallations task for `group_id`
-    /// (deduped by payload hash against any pending row for the same group)
-    /// and wake the TaskRunner.
-    /// Arm the reconcile task, due once `delay`, a rate-limit delay, has passed.
+    /// Arm the reconcile task for `group_id`, due once `delay`, a rate-limit
+    /// delay, has passed.
     pub(crate) fn schedule_add_missing_installations_task(
         &self,
         group_id: GroupId,
@@ -547,6 +545,7 @@ where
             &self.context.db(),
             self.context.events(),
             group_id,
+            delay,
         )?)
     }
 
@@ -612,21 +611,28 @@ pub(crate) fn schedule_newcomer_adds(
         ..Default::default()
     })?;
     for group in &groups {
-        schedule_add_missing_installations(db, events, group.id)?;
+        schedule_add_missing_installations(db, events, group.id, None)?;
     }
     Ok(groups.len())
 }
 
 /// Durably enqueue one AddMissingInstallations task for `group_id` (deduped
 /// by payload hash against any pending row for the same group) and wake the
-/// TaskRunner.
+/// TaskRunner. The task is due once `delay`, a rate-limit delay, has passed.
 fn schedule_add_missing_installations(
     db: &impl DbQuery,
     events: &impl EventWriter<InternalEvent>,
     group_id: GroupId,
+    delay: Option<xmtp_common::time::Duration>,
 ) -> Result<(), StorageError> {
+    let due = now_ns().saturating_add(delay.map_or(0, |delay| {
+        i64::try_from(delay.as_nanos()).unwrap_or(i64::MAX)
+    }));
+    // The usual three days to succeed count from when the task is due.
     let task = NewTask::builder()
         .originating_message_sequence_id(0)
+        .next_attempt_at_ns(due)
+        .expires_at_ns(due.saturating_add(NS_IN_DAY * 3))
         .build(TaskProto {
             task: Some(TaskKindProto::AddMissingInstallations(
                 AddMissingInstallationsProto {

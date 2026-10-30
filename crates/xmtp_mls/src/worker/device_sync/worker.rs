@@ -20,8 +20,8 @@ use futures::TryFutureExt;
 use std::{collections::HashSet, sync::Arc, time::Duration};
 use tokio::sync::OnceCell;
 use tracing::instrument;
-use xmtp_common::Event;
 use xmtp_common::time::Instant;
+use xmtp_common::{Event, RetryableError};
 use xmtp_db::group_message::{DeliveryStatus, StoredGroupMessage};
 use xmtp_db::prelude::*;
 use xmtp_db::processed_device_sync_messages::SyncMessageKey;
@@ -56,11 +56,21 @@ struct Pass {
     failures: u32,
 }
 
+/// The receive and outbox passes. Shared by the factory, so a worker rebuilt
+/// after a reconnect keeps their backoffs and rate-limit waits.
+#[derive(Default)]
+struct Passes {
+    inbox: Pass,
+    outbox: Pass,
+}
+
+type SharedPasses = Arc<parking_lot::Mutex<Passes>>;
+
 impl Pass {
-    fn owed_now() -> Self {
-        Self {
-            due: Some(Instant::now()),
-            failures: 0,
+    /// A restart drains what is owed, but not inside a backoff.
+    fn restart(&mut self) {
+        if self.failures == 0 {
+            self.due = Some(Instant::now());
         }
     }
 
@@ -86,7 +96,12 @@ impl Pass {
             Err(e) if e.needs_db_reconnect() => return Err(e),
             Err(e) => {
                 self.failures = self.failures.saturating_add(1);
-                self.due = Some(Instant::now() + backoff(self.failures));
+                // A retry resends the refused request, so it also waits out
+                // a rate limit's delay.
+                // implements: RATE-041
+                let delay = RetryableError::rate_limit_delay(&e).unwrap_or_default();
+                let wait = backoff(self.failures).max(delay);
+                self.due = Some(xmtp_common::time::saturating_after(Instant::now(), wait));
                 tracing::warn!(error = %e, pass, failures = self.failures, "device sync pass failed; it stays owed");
             }
         }
@@ -97,6 +112,7 @@ impl Pass {
 pub struct SyncWorker<Context> {
     client: DeviceSyncClient<Context>,
     subscription: Option<Arc<Subscription<InternalEvent>>>,
+    passes: SharedPasses,
     init: OnceCell<()>,
     metrics: Arc<WorkerMetrics<SyncMetric>>,
 }
@@ -105,7 +121,7 @@ impl<Context> SyncWorker<Context>
 where
     Context: XmtpSharedContext + 'static,
 {
-    fn new(context: Context, metrics: Option<DynMetrics>) -> Self {
+    fn new(context: Context, metrics: Option<DynMetrics>, passes: SharedPasses) -> Self {
         let metrics = metrics
             .and_then(|m| m.as_sync_metrics())
             .unwrap_or(Arc::new(WorkerMetrics::new(context.installation_id())));
@@ -114,6 +130,7 @@ where
         Self {
             client,
             subscription: None,
+            passes,
             init: OnceCell::new(),
             metrics,
         }
@@ -122,6 +139,7 @@ where
 
 struct Factory<Context> {
     context: Context,
+    passes: SharedPasses,
 }
 
 impl<Context> WorkerFactory for Factory<Context>
@@ -129,7 +147,7 @@ where
     Context: XmtpSharedContext + 'static,
 {
     fn create(&self, metrics: Option<DynMetrics>) -> (BoxedWorker, Option<DynMetrics>) {
-        let worker = SyncWorker::new(self.context.clone(), metrics);
+        let worker = SyncWorker::new(self.context.clone(), metrics, self.passes.clone());
         let metrics = worker.metrics.clone();
 
         (Box::new(worker) as Box<_>, Some(metrics as Arc<_>))
@@ -161,7 +179,10 @@ where
     where
         C: XmtpSharedContext + 'static,
     {
-        Factory { context }
+        Factory {
+            context,
+            passes: SharedPasses::default(),
+        }
     }
 
     async fn run_tasks(&mut self) -> WorkerResult<()> {
@@ -201,28 +222,36 @@ where
             .as_ref()
             .expect("runner installs subscription")
             .clone();
-        // A restart drains what is owed.
-        let (mut inbox, mut outbox) = (Pass::owed_now(), Pass::owed_now());
+        {
+            let mut passes = self.passes.lock();
+            passes.inbox.restart();
+            passes.outbox.restart();
+        }
         loop {
-            if inbox.is_due() {
+            if self.passes.lock().inbox.is_due() {
                 let result = Box::pin(self.client.process_sync_group_messages()).await;
-                inbox.finish("receive", result)?;
+                self.passes.lock().inbox.finish("receive", result)?;
             }
-            if outbox.is_due() {
+            if self.passes.lock().outbox.is_due() {
                 let result = Box::pin(self.client.publish_outbox()).await;
-                outbox.finish("publish", result)?;
+                self.passes.lock().outbox.finish("publish", result)?;
             }
-            let wait = [inbox.due, outbox.due]
-                .into_iter()
-                .flatten()
-                .min()
-                .map(|at| at.saturating_duration_since(Instant::now()));
+            let wait = {
+                let passes = self.passes.lock();
+                [passes.inbox.due, passes.outbox.due]
+                    .into_iter()
+                    .flatten()
+                    .min()
+                    .map(|at| at.saturating_duration_since(Instant::now()))
+            };
             tokio::select! {
                 event = subscription.next() => {
                     let Some(event) = event else { break; };
                     match event.internal {
-                        Some(InternalEvent::MessageStored { is_sync: true, .. }) => inbox.wake(),
-                        Some(InternalEvent::OutboxChanged) => outbox.wake(),
+                        Some(InternalEvent::MessageStored { is_sync: true, .. }) => {
+                            self.passes.lock().inbox.wake();
+                        }
+                        Some(InternalEvent::OutboxChanged) => self.passes.lock().outbox.wake(),
                         _ => {}
                     }
                 }
@@ -232,9 +261,9 @@ where
                         skip_initial_tick = false;
                         continue;
                     }
-                    inbox.wake();
+                    self.passes.lock().inbox.wake();
                     if has_owed(&self.client.db())? {
-                        outbox.wake();
+                        self.passes.lock().outbox.wake();
                     }
                 },
             }
@@ -526,7 +555,7 @@ mod startup_tests {
     use crate::tester;
 
     fn idle_worker<C: XmtpSharedContext + 'static>(context: C) -> SyncWorker<C> {
-        SyncWorker::new(context, None)
+        SyncWorker::new(context, None, SharedPasses::default())
     }
 
     /// A failed pass stays owed and waits out its backoff; a wake does not
@@ -534,7 +563,8 @@ mod startup_tests {
     // verifies: SYNC-033
     #[xmtp_common::test(unwrap_try = true)]
     fn pass_backs_off_and_stays_owed() {
-        let mut pass = Pass::owed_now();
+        let mut pass = Pass::default();
+        pass.restart();
         assert!(pass.is_due());
         pass.finish("test", Err(DeviceSyncError::OutboxPageUnpublished))?;
         assert_eq!(pass.failures, 1);
@@ -549,6 +579,43 @@ mod startup_tests {
         assert_eq!((pass.due, pass.failures), (None, 0));
         pass.wake();
         assert!(pass.is_due());
+    }
+
+    /// A pass refused by a rate limit runs again only after the delay: a wake
+    /// or a tick does not cut it short, and neither does a worker rebuilt
+    /// after a reconnect, which shares the passes through the factory.
+    // verifies: RATE-041
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn a_rate_limited_pass_waits_out_its_delay() {
+        tester!(alix, disable_workers);
+        let delay = Duration::from_secs(300);
+        let refused = DeviceSyncError::Group(crate::groups::GroupError::WrappedApi(
+            xmtp_api::ApiError::Api(xmtp_proto::api::NetworkError::new(
+                xmtp_api_grpc::error::GrpcError::Status(xmtp_api_grpc::error::rate_limited_status(
+                    "publish", delay,
+                )),
+            )),
+        ));
+        assert_eq!(RetryableError::rate_limit_delay(&refused), Some(delay));
+        let factory = Factory {
+            context: alix.context.clone(),
+            passes: SharedPasses::default(),
+        };
+        let before = Instant::now();
+        factory
+            .passes
+            .lock()
+            .outbox
+            .finish("publish", Err(refused))?;
+        let rebuilt = SyncWorker::new(alix.context.clone(), None, factory.passes.clone());
+        let mut passes = rebuilt.passes.lock();
+        passes.outbox.wake();
+        passes.outbox.restart();
+        assert!(!passes.outbox.is_due());
+        assert!(passes.outbox.due.unwrap() >= before + delay);
+        // A pass without a rate limit is due again after its backoff alone.
+        passes.inbox.restart();
+        assert!(passes.inbox.is_due());
     }
 
     /// The sender of a sync message is judged at its envelope time against
