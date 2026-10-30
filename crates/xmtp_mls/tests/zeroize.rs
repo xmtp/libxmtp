@@ -736,13 +736,7 @@ fn attachment_message_debug_redacts_secret_fields() {
     };
     let debug = format!("{single:?} {multi:?} {reply:?} {decoded:?}");
     for bytes in [&attachment.secret, &attachment.salt, &attachment.nonce] {
-        assert!(
-            !debug.contains(&format!("{bytes:?}")),
-            "message Debug shows decimal secret bytes"
-        );
-        assert!(
-            !debug.contains(&hex::encode(bytes)),
-            "message Debug shows hex secret bytes"
-        );
+        assert!(!debug.contains(&format!("{bytes:?}")), "decimal");
+        assert!(!debug.contains(&hex::encode(bytes)), "hex");
     }
 }

@@ -247,14 +247,8 @@ fn remote_attachment_debug_redacts_secret_fields() {
     let value = remote_attachment();
     let debug = format!("{value:?} {:?}", value.clone());
     for bytes in [&value.secret, &value.salt, &value.nonce] {
-        assert!(
-            !debug.contains(&format!("{bytes:?}")),
-            "attachment Debug shows decimal secret bytes"
-        );
-        assert!(
-            !debug.contains(&hex::encode(bytes)),
-            "attachment Debug shows hex secret bytes"
-        );
+        assert!(!debug.contains(&format!("{bytes:?}")), "decimal");
+        assert!(!debug.contains(&hex::encode(bytes)), "hex");
     }
 }
 
