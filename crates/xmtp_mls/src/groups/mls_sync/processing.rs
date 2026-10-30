@@ -5,6 +5,7 @@ use crate::{
     identity_updates::{IdentityDependencyError, IdentityRequirement},
     state_tx::{state_write, state_write_with_events},
     subscriptions::internal::{InternalEvent, emit_root_key_changed},
+    worker::device_sync::schedule_newcomer_adds,
 };
 use std::collections::BTreeSet;
 use xmtp_api_backend::envelope::decode_group_message;
@@ -200,15 +201,17 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                                 envelope,
                                 event_buffer,
                             )?;
-                            // implements: SYNC-035
+                            // implements: SYNC-014, SYNC-035
                             // A new leaf is owed every record and the root key,
-                            // marked with this commit so a restart keeps them.
+                            // and the adds to conversations, stored with this
+                            // commit so a restart keeps them.
                             if leaves_before.is_some_and(|leaves| {
                                 group
                                     .members()
                                     .any(|member| !leaves.contains(&member.signature_key))
                             }) {
                                 let db = storage.db();
+                                schedule_newcomer_adds(&db, event_buffer)?;
                                 if xmtp_db::sync_outbox::mark_all_owed(&db)? {
                                     emit_root_key_changed(event_buffer, &db, true)?;
                                 }

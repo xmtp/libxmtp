@@ -1184,6 +1184,40 @@ async fn arming_a_retry_makes_an_older_expiring_row_durable() {
     assert_eq!((row.expires_at_ns, row.max_attempts), (i64::MAX, i32::MAX));
 }
 
+/// A newcomer that never creates a sync group of its own is added to the
+/// selected one by a publish. The commit that adds it schedules its adds to
+/// the user's conversations, so it joins a quiet one where no one sends.
+// verifies: SYNC-014, SYNC-034
+#[xmtp_common::test(unwrap_try = true)]
+#[cfg_attr(target_arch = "wasm32", ignore)]
+async fn newcomer_added_by_a_publish_joins_quiet_conversations() {
+    use crate::worker::tasks::TaskWorker;
+    use xmtp_db::tasks::QueryTasks;
+
+    tester!(alix1, disable_workers);
+    tester!(bo, disable_workers);
+    let quiet = alix1
+        .create_group_with_members(&[bo.inbox_id()], None, None)
+        .await?;
+    alix1.device_sync_client().get_sync_group().await?;
+    tester!(alix2, from: alix1, disable_workers);
+    alix1.inbox_state(true).await?;
+    decide_at(
+        &alix1,
+        &ConsentKey::inbox("x"),
+        ConsentState::Denied,
+        now_ns(),
+    )?;
+    publish(&alix1).await?;
+
+    for task in alix1.context.db().get_tasks()? {
+        TaskWorker::run_and_reschedule_task(task, &alix1.context).await?;
+    }
+    alix2.sync_welcomes().await?;
+    assert_eq!(alix2.context.db().all_sync_groups()?.len(), 1);
+    assert!(alix2.group(&quiet.group_id).is_ok());
+}
+
 /// A sync group whose creation add failed is completed by its task even
 /// after another sync group became selected, so the peer still receives
 /// the newcomer's Welcome.
