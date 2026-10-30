@@ -415,6 +415,52 @@ async fn restored_history_export_excludes_groups_and_messages_but_keeps_consent(
     }
 }
 
+/// An archive carries no sync or one-shot conversation (ARCH-010), so an
+/// import makes none and adds no message to a held one. A crafted root key
+/// from this installation, timed far ahead, never reaches device sync.
+// verifies: ARCH-010, SYNC-032
+#[xmtp_common::test(unwrap_try = true)]
+async fn import_skips_internal_conversations() {
+    use xmtp_db::user_preferences::StoredUserPreferences;
+    use xmtp_proto::xmtp::device_sync::content::{
+        HmacKeyUpdate, PreferenceUpdate, PreferenceUpdates, device_sync_content::Content,
+        preference_update::Update,
+    };
+    tester!(alix, disable_workers);
+    let sync = alix.device_sync_client().get_sync_group().await?;
+    let db = alix.db();
+    let held = StoredUserPreferences::load(&db)?.hmac_key;
+    let content = crate::worker::device_sync::sync_message_bytes(Content::PreferenceUpdates(
+        PreferenceUpdates {
+            updates: vec![PreferenceUpdate {
+                update: Some(Update::Hmac(HmacKeyUpdate {
+                    key: vec![0x5a; 42],
+                    cycled_at_ns: i64::MAX,
+                })),
+            }],
+        },
+    ));
+    let mut message = stored_message(sync.group_id, alix.inbox_id().to_string(), 0x51);
+    message.sender_installation_id = alix.context.installation_id().to_vec();
+    message.sent_at_ns = i64::MAX;
+    message.decrypted_message_bytes = content.to_vec();
+    let mut crafted = saved_group(70, false);
+    crafted.conversation_type = 3;
+    let elements = vec![
+        group_element(crafted),
+        BackupElement {
+            element: Some(Element::GroupMessage(message.into())),
+        },
+    ];
+    apply(&alix.context, elements).await?;
+    assert!(db.find_group(&GroupId::from([70; 16]))?.is_none());
+    assert!(db.get_group_message([0x51; 32])?.is_none());
+    alix.device_sync_client()
+        .process_sync_group_messages()
+        .await?;
+    assert_eq!(StoredUserPreferences::load(&db)?.hmac_key, held);
+}
+
 fn stored_message(group_id: GroupId, sender_inbox_id: String, marker: u8) -> StoredGroupMessage {
     use xmtp_db::group_message::{ContentType, DeliveryStatus, GroupMessageKind};
     StoredGroupMessage {

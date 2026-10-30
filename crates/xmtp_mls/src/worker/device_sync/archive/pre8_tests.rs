@@ -170,11 +170,33 @@ async fn carried_dm_folds_every_held_dm_of_its_peer() {
         ),
     ];
     import(&alix.context, &archive).await?;
-    let held = alix
-        .db()
-        .consent_row(&ConsentKey::inbox(&peer))?
-        .map(|row| row.value());
-    assert_eq!(held, value(ConsentState::Denied, 10));
+    let held = |peer: &str| {
+        alix.db()
+            .consent_row(&ConsentKey::inbox(peer))
+            .unwrap()
+            .map(|row| row.value())
+    };
+    assert_eq!(held(&peer), value(ConsentState::Denied, 10));
+    // The carried DM needs no record of its own.
+    let other = "8f".repeat(32);
+    import(&alix.context, &[dm(vec![4; 16], own, &other, 1)]).await?;
+    let archive = [
+        dm(vec![3; 16], own, &other, 1),
+        consent(
+            ConsentTypeSave::ConversationId,
+            ConsentStateSave::Denied,
+            &hex::encode([4; 16]),
+            10,
+        ),
+        consent(
+            ConsentTypeSave::InboxId,
+            ConsentStateSave::Allowed,
+            &other,
+            20,
+        ),
+    ];
+    import(&alix.context, &archive).await?;
+    assert_eq!(held(&other), value(ConsentState::Denied, 20));
 }
 
 /// An 8.0 archive carries no 16-byte DM group. Its 16-byte record for a DM

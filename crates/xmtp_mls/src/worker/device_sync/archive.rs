@@ -4,13 +4,14 @@ use crate::{
     subscriptions::internal::InternalEvent, worker::NeedsDbReconnect,
 };
 use futures::{Stream, StreamExt};
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 pub use xmtp_archive::*;
 use xmtp_configuration::LEGACY_GROUP_ID_BYTES;
 use xmtp_db::{
     StorageError,
     TransactionOutcome::Continue,
     consent_record::{ConsentKey, ConsentWrite, Owed, parse_consent_save, write_consent},
+    group::ConversationType,
     group_message::StoredGroupMessage,
     prelude::*,
 };
@@ -27,6 +28,22 @@ struct ImportContext {
     consent: Vec<ConsentSave>,
     /// The archive's 16-byte DM groups, whatever their restore did.
     dm_groups: HashSet<GroupId>,
+    /// Whether the client holds each group the archive's messages name as a
+    /// sync or one-shot conversation.
+    internal: HashMap<GroupId, bool>,
+}
+
+impl ImportContext {
+    fn is_internal(&mut self, db: &impl DbQuery, group_id: GroupId) -> Result<bool, StorageError> {
+        if let Some(internal) = self.internal.get(&group_id) {
+            return Ok(*internal);
+        }
+        let internal = db
+            .find_group(&group_id)?
+            .is_some_and(|group| group.conversation_type.is_virtual());
+        self.internal.insert(group_id, internal);
+        Ok(internal)
+    }
 }
 
 pub async fn insert_importer(
@@ -109,6 +126,12 @@ fn insert(
 
     match element {
         Element::Consent(save) => import.consent.push(save),
+        // An archive carries no sync or one-shot conversation (ARCH-010), so
+        // an import makes none and adds no message to one: device sync
+        // applies only what the backend delivered.
+        Element::Group(save)
+            if ConversationType::try_from(save.conversation_type())
+                .is_ok_and(|kind| kind.is_virtual()) => {}
         Element::Group(save) => {
             // Registered before the restore, so a re-import that finds the
             // group held combines the same rows.
@@ -122,7 +145,10 @@ fn insert(
         }
         Element::GroupMessage(message) => {
             let message: StoredGroupMessage = message.try_into()?;
-            import.changed |= message.store_or_ignore_changed(&context.db())?;
+            let db = context.db();
+            if !import.is_internal(&db, message.group_id)? {
+                import.changed |= message.store_or_ignore_changed(&db)?;
+            }
         }
         _ => {}
     }
@@ -143,6 +169,13 @@ fn import_consent(
     import: &ImportContext,
     now_ns: i64,
 ) -> Result<bool, StorageError> {
+    // The peers of the 16-byte DMs this archive carries.
+    let mut carried = BTreeSet::new();
+    for id in &import.dm_groups {
+        if let Some((peer, _)) = ConsentKey::group(id.as_ref()).pre8_dm(db, own_inbox)? {
+            carried.insert(peer);
+        }
+    }
     let mut plain: BTreeMap<ConsentKey, Vec<ConsentSave>> = BTreeMap::new();
     let mut pre8: BTreeMap<ConsentKey, Vec<ConsentSave>> = BTreeMap::new();
     for save in &import.consent {
@@ -150,21 +183,18 @@ fn import_consent(
         let Some((key, _)) = parse_consent_save(save) else {
             continue;
         };
-        let rows = match key.pre8_dm(db, own_inbox)? {
-            Some((peer, dm)) if import.dm_groups.contains(&dm.id) => pre8.entry(peer),
-            Some((peer, _)) => plain.entry(peer),
-            None => plain.entry(key),
+        // A record naming a held 16-byte DM is its peer's.
+        let key = key.pre8_dm(db, own_inbox)?.map_or(key, |(peer, _)| peer);
+        let rows = if carried.contains(&key) {
+            pre8.entry(key)
+        } else {
+            plain.entry(key)
         };
         rows.or_default().push(save.clone());
     }
-    for (peer, mut rows) in pre8 {
-        rows.extend(plain.remove(&peer).unwrap_or_default());
-        plain.insert(
-            peer.clone(),
-            pre8::pre8_peer_consent(&peer.entity, &rows)
-                .into_iter()
-                .collect(),
-        );
+    for (peer, rows) in pre8 {
+        let combined = pre8::pre8_peer_consent(&peer.entity, &rows);
+        plain.insert(peer, combined.into_iter().collect());
     }
     let mut changed = false;
     for (key, saves) in plain {
