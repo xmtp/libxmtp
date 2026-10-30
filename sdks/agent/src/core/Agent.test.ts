@@ -673,26 +673,19 @@ describe("Agent", () => {
       ).rejects.toThrow("relative URL without a base");
     });
 
-    it("should set appVersion to include package version by default", async () => {
-      const signer = createSigner(createUser());
-      const agent = await Agent.create(signer, {
-        backend: { url: process.env.XMTP_BACKEND_URL! },
+    it.each([
+      [{}, `agent-sdk/${appVersion}`],
+      [{ appVersion: "custom-app/1.0.0" }, "custom-app/1.0.0"],
+    ] as const)("appVersion %j", async (override, expected) => {
+      const agent = await Agent.create(createSigner(createUser()), {
+        backend: { url: process.env.XMTP_BACKEND_URL!, ...override },
         storage: { location: "inMemory" },
       });
-      expect(agent.client.appVersion).toBe(`agent-sdk/${appVersion}`);
-    });
-
-    it("should allow custom appVersion to override default", async () => {
-      const signer = createSigner(createUser());
-      const customVersion = "custom-app/1.0.0";
-      const agent = await Agent.create(signer, {
-        backend: {
-          url: process.env.XMTP_BACKEND_URL!,
-          appVersion: customVersion,
-        },
-        storage: { location: "inMemory" },
-      });
-      expect(agent.client.appVersion).toBe(customVersion);
+      try {
+        expect(agent.client.appVersion).toBe(expected);
+      } finally {
+        await agent.client.end();
+      }
     });
   });
 

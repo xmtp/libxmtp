@@ -270,14 +270,24 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
     }
     const client = await Client.create(signer, initializedOptions);
 
-    const info = await getInstallationInfo(client);
-    if (info.totalInstallations > 1 && info.isMostRecent) {
-      console.warn(
-        `[WARNING] You have "${info.totalInstallations}" installations. Installation ID "${info.installationId}" is the most recent. Make sure to persist and reload your installation data. If you exceed the installation limit, your Agent will stop working. Read more: https://docs.xmtp.org/agents/build-agents/local-database#installation-limits-and-revocation-rules`,
-      );
-    }
+    try {
+      const info = await getInstallationInfo(client).catch(() => {
+        console.warn("Unable to read installation information.");
+        return undefined;
+      });
+      if (info && info.totalInstallations > 1 && info.isMostRecent) {
+        console.warn(
+          `[WARNING] You have "${info.totalInstallations}" installations. Installation ID "${info.installationId}" is the most recent. Make sure to persist and reload your installation data. If you exceed the installation limit, your Agent will stop working. Read more: https://docs.xmtp.org/agents/build-agents/local-database#installation-limits-and-revocation-rules`,
+        );
+      }
 
-    return new Agent({ client });
+      return new Agent({ client });
+    } catch (error) {
+      try {
+        await client.end();
+      } catch {}
+      throw error;
+    }
   }
 
   /** Create an agent from `XMTP_*` variables. `XMTP_BACKEND_URL` overrides `options.backend`; one must be supplied. Pass `backend.credentials` in options for backend authentication. */
