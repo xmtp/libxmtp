@@ -1162,6 +1162,37 @@ async fn publish_reaches_present_leaves_and_retries_a_missing_one() {
         sequence
     );
 }
+/// A retry row that an older build stored with the three-day lifetime is
+/// replaced, while the installation is still missing, by one that never
+/// expires.
+// verifies: SYNC-034
+#[xmtp_common::test(unwrap_try = true)]
+#[cfg_attr(target_arch = "wasm32", ignore)]
+async fn an_expiring_retry_row_is_replaced_by_a_durable_one() {
+    use crate::utils::test_mocks_helpers::{
+        RestoreKeyPackages, set_test_mode_upload_malformed_keypackage,
+    };
+    use crate::worker::tasks::TaskWorker;
+    use xmtp_db::tasks::QueryTasks;
+
+    tester!(alix1, disable_workers);
+    let group = alix1.device_sync_client().get_sync_group().await?;
+    tester!(alix2, from: alix1, disable_workers);
+    alix1.inbox_state(true).await?;
+    let _restore = RestoreKeyPackages;
+    set_test_mode_upload_malformed_keypackage(
+        true,
+        Some(vec![alix2.context.installation_id().to_vec()]),
+    );
+    let db = alix1.context.db();
+    schedule_add_missing_installations(&db, alix1.context.events(), group.group_id, None, false)?;
+    let [old] = db.get_tasks()?.try_into().unwrap();
+    assert_ne!(old.expires_at_ns, i64::MAX);
+    TaskWorker::run_and_reschedule_task(old, &alix1.context).await?;
+    let [row] = db.get_tasks()?.try_into().unwrap();
+    assert_eq!((row.expires_at_ns, row.max_attempts), (i64::MAX, i32::MAX));
+}
+
 /// A sync group whose creation add failed is completed by its task even
 /// after another sync group became selected, so the peer still receives
 /// the newcomer's Welcome.
