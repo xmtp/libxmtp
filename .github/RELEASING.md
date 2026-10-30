@@ -34,6 +34,7 @@ release commit
 that changes only the iOS release files. The push job checks this before it
 creates its token.
 Npm dry runs resolve the source but do not create an App token or push a tag.
+Windows dry runs restore existing build caches but never save new cache entries.
 `just test dev` checks the tag transfer with a local Git HTTP remote.
 `check-release-push.yml` refuses a source commit that is not on `main`
 or a `release/**` branch; dry runs skip that check.

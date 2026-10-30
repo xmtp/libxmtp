@@ -11,6 +11,8 @@ import unittest
 
 import yaml
 
+from test_react_native_workflow import expression, inner
+
 ROOT = Path(__file__).resolve().parents[2]
 SDKS = [
     "ios",
@@ -24,6 +26,43 @@ SDKS = [
 
 
 class ReleaseGraphTest(unittest.TestCase):
+    def test_dry_run_does_not_save_windows_release_caches(self):
+        release = yaml.safe_load((ROOT / ".github/workflows/release.yml").read_text())
+        node = yaml.safe_load(
+            (ROOT / ".github/workflows/release-node-sdk.yml").read_text()
+        )
+        platform = yaml.safe_load(
+            (ROOT / ".github/workflows/build-sdk-node-platforms.yml").read_text()
+        )
+        dry_run = release["jobs"]["build-node-sdk"]["with"]["dry-run"]
+        forwarded = node["jobs"]["build"]["with"].get("dry-run", False)
+        effective = (
+            expression(inner(forwarded), {"inputs.dry-run": dry_run})
+            if isinstance(forwarded, str)
+            else forwarded
+        )
+        steps = platform["jobs"]["windows"]["steps"]
+        pair = next(
+            s for s in steps if s.get("uses", "").startswith("actions/cache/save@")
+        )
+        rust = next(
+            s for s in steps if s.get("uses", "").startswith("Swatinem/rust-cache@")
+        )
+        for hit in ("true", "false"):
+            values = {
+                "inputs.dry-run": effective,
+                "steps.restore.outputs.cache-hit": hit,
+            }
+            with self.subTest(hit=hit):
+                self.assertFalse(expression(pair.get("if", "true"), values))
+                save = rust.get("with", {}).get("save-if", True)
+                self.assertFalse(
+                    expression(inner(save), values) if isinstance(save, str) else save
+                )
+        values = {"inputs.dry-run": False, "steps.restore.outputs.cache-hit": "false"}
+        self.assertTrue(expression(pair["if"], values))
+        self.assertTrue(expression(inner(rust["with"]["save-if"]), values))
+
     def test_every_sdk_publish_waits_for_every_checked_product(self):
         jobs = yaml.safe_load((ROOT / ".github/workflows/release.yml").read_text())[
             "jobs"

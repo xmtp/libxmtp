@@ -14,6 +14,10 @@ on:
       sdk-release:
         type: boolean
         default: false
+      dry-run:
+        description: Restore caches without saving build outputs
+        type: boolean
+        default: false
     outputs:
       artifact:
         value: sdk_node_public
@@ -257,6 +261,7 @@ jobs:
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           workspaces: .
+          save-if: ${{ inputs.dry-run != true }}
       # Matches the Nix protobuf of the Linux and macOS builds. The version and
       # hash are part of this file, so a bump changes the pair's cache key.
       - name: Install protoc
@@ -308,7 +313,7 @@ jobs:
           PY
           python crates/xmtp_sdk/dev/record-node-platform.py "$TARGET" --library target/sdk-node-windows/native/"$LIBRARY" --addon target/sdk-node-runtime-source/target/"$RUST_TARGET"/release/uniffi_runtime_napi.dll --native-artifacts target/sdk-node-windows/artifacts.json --runtime-provenance target/sdk-node-windows/runtime-provenance.json --runtime-source target/sdk-node-runtime-source --source-key "$RUNNER_TEMP/source-key.json"
       - name: Save the built pair
-        if: steps.restore.outputs.cache-hit != 'true'
+        if: inputs.dry-run != true && steps.restore.outputs.cache-hit != 'true'
         uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         with:
           path: target/sdk-node-platforms/${{ matrix.target }}
