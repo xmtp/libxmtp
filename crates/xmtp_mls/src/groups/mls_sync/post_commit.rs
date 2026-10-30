@@ -20,6 +20,114 @@ fn log_missing_installations(
     );
 }
 
+pub(crate) async fn membership_update_intent(
+    context: &impl XmtpSharedContext,
+    group_id: &GroupId,
+    existing_group_membership: &GroupMembership,
+    retry_leaves: Option<&[Vec<u8>]>,
+    inbox_ids_to_add: &[InboxIdRef<'_>],
+    inbox_ids_to_remove: &[InboxIdRef<'_>],
+) -> Result<UpdateGroupMembershipIntentData, GroupError> {
+    // TODO:nm prevent querying for updates on members who are being removed
+    let mut inbox_ids = existing_group_membership.inbox_ids();
+    inbox_ids.extend_from_slice(inbox_ids_to_add);
+    let conn = context.db();
+    // Load any missing updates from the network
+    load_identity_updates_for_client(context, &conn, &inbox_ids).await?;
+
+    let latest_sequence_id_map = conn.get_latest_sequence_id(&inbox_ids as &[&str])?;
+
+    // Get a list of all inbox IDs that have increased sequence_id for the group
+    let mut changed_inbox_ids =
+        inbox_ids
+            .iter()
+            .try_fold(HashMap::new(), |mut updates, inbox_id| {
+                match (
+                    latest_sequence_id_map.get(inbox_id as &str),
+                    existing_group_membership.get(inbox_id),
+                ) {
+                    // This is an update. We have a new sequence ID and an existing one
+                    (Some(latest_sequence_id), Some(current_sequence_id)) => {
+                        let latest_sequence_id_u64 = *latest_sequence_id as u64;
+                        if latest_sequence_id_u64.gt(current_sequence_id) {
+                            updates.insert(inbox_id.to_string(), latest_sequence_id_u64);
+                        }
+                    }
+                    // This is for new additions to the group
+                    (Some(latest_sequence_id), None) => {
+                        // This is the case for net new members to the group
+                        updates.insert(inbox_id.to_string(), *latest_sequence_id as u64);
+                    }
+                    (_, _) => {
+                        tracing::warn!(
+                            "Could not find existing sequence ID for inbox {}",
+                            inbox_id
+                        );
+                        return Err(GroupError::MissingSequenceId);
+                    }
+                }
+
+                Ok(updates)
+            })?;
+    let old_group_membership = existing_group_membership.clone();
+    let mut new_membership = old_group_membership.clone();
+    for (inbox_id, sequence_id) in changed_inbox_ids.iter() {
+        new_membership.add(inbox_id.clone(), *sequence_id);
+    }
+    for inbox_id in inbox_ids_to_remove {
+        new_membership.remove(inbox_id);
+    }
+
+    let changes_with_kps = calculate_membership_changes_with_keypackages(
+        context,
+        group_id,
+        &new_membership,
+        &old_group_membership,
+        retry_leaves,
+    )
+    .await?;
+
+    // A retry alone changes no entry: refresh the own entry at its current
+    // sequence so the intent is not empty. Apply keeps the higher sequence.
+    if changed_inbox_ids.is_empty()
+        && !changes_with_kps.new_installations.is_empty()
+        && let Some(&sequence_id) = existing_group_membership.get(context.inbox_id())
+    {
+        changed_inbox_ids.insert(context.inbox_id().to_string(), sequence_id);
+    }
+
+    // If we fail to fetch or verify all the added members' KeyPackage, return an error.
+    // skip if the inbox ids is 0 from the beginning
+    if !inbox_ids_to_add.is_empty()
+        && !changes_with_kps.failed_installations.is_empty()
+        && changes_with_kps.new_installations.is_empty()
+    {
+        return Err(GroupError::FailedToVerifyInstallations(
+            FailedInstallationIds(changes_with_kps.failed_installations.clone()),
+        ));
+    }
+
+    // Only an inbox the app asked to add may be inserted. Every other
+    // entry refreshes an existing member.
+    let refreshed_members = changed_inbox_ids
+        .keys()
+        .filter(|inbox_id| {
+            existing_group_membership.get(inbox_id.as_str()).is_some()
+                && !inbox_ids_to_add.contains(&inbox_id.as_str())
+        })
+        .cloned()
+        .collect();
+    Ok(UpdateGroupMembershipIntentData::new(
+        changed_inbox_ids,
+        inbox_ids_to_remove
+            .iter()
+            .map(|s| s.to_string())
+            .collect::<Vec<String>>(),
+        changes_with_kps.failed_installations,
+    )
+    .with_refreshed_members(refreshed_members))
+}
+
 impl<Context> MlsGroup<Context>
 where
     Context: XmtpSharedContext,
@@ -123,105 +231,67 @@ where
                 retry_leaves(group.extensions(), group.members()),
             ))
         })?;
-        {
-            // TODO:nm prevent querying for updates on members who are being removed
-            let mut inbox_ids = existing_group_membership.inbox_ids();
-            inbox_ids.extend_from_slice(inbox_ids_to_add);
-            let conn = self.context.db();
-            // Load any missing updates from the network
-            load_identity_updates_for_client(&self.context, &conn, &inbox_ids).await?;
+        membership_update_intent(
+            &self.context,
+            &self.group_id,
+            &existing_group_membership,
+            retry_leaves.as_deref(),
+            inbox_ids_to_add,
+            inbox_ids_to_remove,
+        )
+        .await
+    }
 
-            let latest_sequence_id_map = conn.get_latest_sequence_id(&inbox_ids as &[&str])?;
+    pub(crate) async fn initial_add(
+        context: &Context,
+        draft: &(
+            super::super::lifecycle::NewGroupId,
+            openmls::group::MlsGroupCreateConfig,
+        ),
+        ids: &[InboxIdRef<'_>],
+    ) -> Result<Option<UpdateGroupMembershipIntentData>, GroupError> {
+        use super::super::lifecycle::NewGroupId;
+        let id = match draft.0 {
+            NewGroupId::Keyed { group_id, .. } | NewGroupId::Placeholder(group_id) => group_id,
+        };
+        // The prepared dictionary supplies the stored group's membership and
+        // floor; its only leaf is this installation.
+        let extensions = draft.1.group_context_extensions();
+        let existing = extract_group_membership(extensions)?;
+        let leaves = retry_leaves(extensions, std::iter::empty())
+            .map(|_| vec![context.installation_id().to_vec()]);
+        let add =
+            membership_update_intent(context, &id, &existing, leaves.as_deref(), ids, &[]).await?;
+        if add.is_empty() {
+            return Ok(None);
+        }
+        let max_members = context
+            .server_configuration()
+            .configuration()
+            .mls
+            .max_group_members;
+        let resulting: HashSet<&str> = existing
+            .inbox_ids()
+            .into_iter()
+            .chain(add.membership_updates.keys().map(String::as_str))
+            .collect();
+        if resulting.len() > max_members {
+            return Err(GroupError::UserLimitExceeded);
+        }
+        Ok(Some(add))
+    }
 
-            // Get a list of all inbox IDs that have increased sequence_id for the group
-            let mut changed_inbox_ids =
-                inbox_ids
-                    .iter()
-                    .try_fold(HashMap::new(), |mut updates, inbox_id| {
-                        match (
-                            latest_sequence_id_map.get(inbox_id as &str),
-                            existing_group_membership.get(inbox_id),
-                        ) {
-                            // This is an update. We have a new sequence ID and an existing one
-                            (Some(latest_sequence_id), Some(current_sequence_id)) => {
-                                let latest_sequence_id_u64 = *latest_sequence_id as u64;
-                                if latest_sequence_id_u64.gt(current_sequence_id) {
-                                    updates.insert(inbox_id.to_string(), latest_sequence_id_u64);
-                                }
-                            }
-                            // This is for new additions to the group
-                            (Some(latest_sequence_id), None) => {
-                                // This is the case for net new members to the group
-                                updates.insert(inbox_id.to_string(), *latest_sequence_id as u64);
-                            }
-                            (_, _) => {
-                                tracing::warn!(
-                                    "Could not find existing sequence ID for inbox {}",
-                                    inbox_id
-                                );
-                                return Err(GroupError::MissingSequenceId);
-                            }
-                        }
-
-                        Ok(updates)
-                    })?;
-            let old_group_membership = existing_group_membership.clone();
-            let mut new_membership = old_group_membership.clone();
-            for (inbox_id, sequence_id) in changed_inbox_ids.iter() {
-                new_membership.add(inbox_id.clone(), *sequence_id);
+    pub(crate) fn intent_pending(&self, id: i32) -> Result<bool, GroupError> {
+        if self.membership_child_follow_up_failed(id)? {
+            return Ok(false);
+        }
+        let intent: Option<StoredGroupIntent> = self.context.db().fetch(&id)?;
+        match intent.map(|intent| intent.state) {
+            Some(IntentState::ToPublish | IntentState::Published | IntentState::Committed) => {
+                Ok(true)
             }
-            for inbox_id in inbox_ids_to_remove {
-                new_membership.remove(inbox_id);
-            }
-
-            let changes_with_kps = calculate_membership_changes_with_keypackages(
-                &self.context,
-                &self.group_id,
-                &new_membership,
-                &old_group_membership,
-                retry_leaves.as_deref(),
-            )
-            .await?;
-
-            // A retry alone changes no entry: refresh the own entry at its current
-            // sequence so the intent is not empty. Apply keeps the higher sequence.
-            if changed_inbox_ids.is_empty()
-                && !changes_with_kps.new_installations.is_empty()
-                && let Some(&sequence_id) = existing_group_membership.get(self.context.inbox_id())
-            {
-                changed_inbox_ids.insert(self.context.inbox_id().to_string(), sequence_id);
-            }
-
-            // If we fail to fetch or verify all the added members' KeyPackage, return an error.
-            // skip if the inbox ids is 0 from the beginning
-            if !inbox_ids_to_add.is_empty()
-                && !changes_with_kps.failed_installations.is_empty()
-                && changes_with_kps.new_installations.is_empty()
-            {
-                return Err(GroupError::FailedToVerifyInstallations(
-                    FailedInstallationIds(changes_with_kps.failed_installations.clone()),
-                ));
-            }
-
-            // Only an inbox the app asked to add may be inserted. Every other
-            // entry refreshes an existing member.
-            let refreshed_members = changed_inbox_ids
-                .keys()
-                .filter(|inbox_id| {
-                    existing_group_membership.get(inbox_id.as_str()).is_some()
-                        && !inbox_ids_to_add.contains(&inbox_id.as_str())
-                })
-                .cloned()
-                .collect();
-            Ok(UpdateGroupMembershipIntentData::new(
-                changed_inbox_ids,
-                inbox_ids_to_remove
-                    .iter()
-                    .map(|s| s.to_string())
-                    .collect::<Vec<String>>(),
-                changes_with_kps.failed_installations,
-            )
-            .with_refreshed_members(refreshed_members))
+            Some(IntentState::Processed) => Ok(!self.pending_membership_children(id)?.is_empty()),
+            _ => Ok(false),
         }
     }
 

@@ -239,7 +239,7 @@ async fn test_create_group_with_member_all_malformed_installations() {
         "Group creation should fail when all installations have bad key packages"
     );
 
-    assert!(alix.find_groups(..)?.is_empty());
+    assert!(alix.find_groups(GroupQueryArgs::default())?.is_empty());
     bola_1.sync_welcomes().await?;
     bola_2.sync_welcomes().await?;
 

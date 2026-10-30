@@ -12,10 +12,14 @@ async fn a_create_whose_add_cannot_resolve_stores_nothing() {
         Some(10),
     );
     let missing_inbox = hex::encode(xmtp_common::rand_vec::<32>());
-    let result = alix.create_group_with_members(&[missing_inbox], None, None).await;
-    assert!(matches!(result, Err(crate::client::ClientError::Group(error))
-        if matches!(*error, GroupError::MissingSequenceId)));
-    assert!(alix.find_groups(..)?.is_empty());
+    let result = alix
+        .create_group_with_members(&[missing_inbox], None, None)
+        .await;
+    assert!(
+        matches!(result, Err(crate::client::ClientError::Group(error))
+        if matches!(*error, GroupError::MissingSequenceId))
+    );
+    assert!(alix.find_groups(GroupQueryArgs::default())?.is_empty());
     assert!(alix.context.db().consent_records()?.is_empty());
     assert!(events.drain().is_empty());
 }

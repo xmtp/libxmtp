@@ -4,6 +4,7 @@ use std::sync::{
     atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 use xmtp_common::time::{Duration, Instant, timeout};
+use xmtp_db::group::GroupQueryArgs;
 use xmtp_proto::{api::ApiClientError, api_client::XmtpBackendClient, backend_v1 as wire};
 
 const BUDGET: Duration = Duration::from_millis(250);
@@ -410,11 +411,24 @@ async fn a_create_with_an_unconfirmed_add_returns_the_group() {
     let result = timeout(
         ADD_BUDGET * 3,
         client.create_group_with_members(&[bo.inbox_id()], None, None),
-    ).await?;
-    assert!(result.is_ok(), "{:?}", result.as_ref().map(|group| group.group_id));
+    )
+    .await?;
+    assert!(
+        result.is_ok(),
+        "{:?}",
+        result.as_ref().map(|group| group.group_id)
+    );
     let group = result?;
-    assert_eq!(alix.find_groups(..)?.len(), 1);
-    assert!(client.context.api().api_client.raw_for_test().entered.load(Ordering::SeqCst));
+    assert_eq!(alix.find_groups(GroupQueryArgs::default())?.len(), 1);
+    assert!(
+        client
+            .context
+            .api()
+            .api_client
+            .raw_for_test()
+            .entered
+            .load(Ordering::SeqCst)
+    );
     alix.group(&group.group_id)?.sync().await?;
     bo.wait_for_welcomes().await?;
     assert_eq!(bo.group(&group.group_id)?.members().await?.len(), 2);

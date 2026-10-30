@@ -820,8 +820,8 @@ where
     }
 
     /// Create a group with an initial set of members added. Every account
-    /// resolves before the group exists, so an account with no inbox fails
-    /// with [`GroupError::AddressNotFound`] and leaves no group.
+    /// resolves before the group is stored, as do member identities and key
+    /// packages. An account with no inbox fails with [`GroupError::AddressNotFound`].
     pub async fn create_group_with_identifiers(
         &self,
         account_identifiers: &[Identifier],
@@ -844,9 +844,48 @@ where
         opts: Option<GroupMetadataOptions>,
     ) -> Result<MlsGroup<Context>, ClientError> {
         tracing::info!("creating group");
-        let group = self.create_group(permissions_policy_set, opts)?;
-
-        group.add_members(inbox_ids).await?;
+        self.ensure_identity_ready()?;
+        let opts = opts.unwrap_or_default();
+        let draft = MlsGroup::<Context>::prepare_new(
+            &self.context,
+            None,
+            ConversationType::Group,
+            permissions_policy_set.unwrap_or_default(),
+            &opts,
+            None,
+        )?;
+        let ids = inbox_ids.iter().map(AsIdRef::as_ref).collect::<Vec<_>>();
+        // implements: GMOD-056
+        let add = MlsGroup::<Context>::initial_add(&self.context, &draft, &ids).await?;
+        let (stored, intent) = MlsGroup::<Context>::store_new(
+            &self.context,
+            draft,
+            GroupMembershipState::Allowed,
+            ConversationType::Group,
+            opts,
+            true,
+            add,
+        )?;
+        let group = MlsGroup::new(
+            self.context.clone(),
+            stored.id,
+            stored.dm_id,
+            stored.conversation_type,
+            stored.created_at_ns,
+        );
+        log_event!(
+            Event::CreatedGroup,
+            self.context.installation_id(),
+            group_id = group.group_id
+        );
+        let Some(intent) = intent else {
+            return Ok(group);
+        };
+        match group.sync_until_intent_resolved(intent.id).await {
+            Err(error) if !group.intent_pending(intent.id)? => return Err(error.into()),
+            Err(error) => tracing::warn!(?error, "first add pending; a sync finishes it"),
+            Ok(_) => {}
+        }
 
         Ok(group)
     }
