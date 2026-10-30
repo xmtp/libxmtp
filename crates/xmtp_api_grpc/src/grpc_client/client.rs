@@ -296,6 +296,15 @@ impl ApiBuilder for ClientBuilder {
 
     fn build(self) -> Result<Self::Output, Self::Error> {
         let host = self.host.ok_or(GrpcBuilderError::MissingHostUrl)?;
+        // implements: CONF-096
+        if !matches!(host.path(), "" | "/")
+            || host.query().is_some()
+            || host.fragment().is_some()
+            || !host.username().is_empty()
+            || host.password().is_some()
+        {
+            return Err(GrpcBuilderError::InvalidBackendUrl);
+        }
         let host_str: Arc<str> = host.as_str().into();
         let channel = crate::GrpcService::new(host, self.limit)?;
         Ok(GrpcClient {
@@ -340,6 +349,44 @@ pub mod tests {
     use xmtp_proto::backend_v1::PublishRequest;
     use xmtp_proto::prelude::{NetConnectConfig, XmtpTestClient};
     use xmtp_proto::types::AppVersion;
+
+    // verifies: CONF-096
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn backend_url_policy() {
+        xmtp_common::if_native! { @ xmtp_cryptography::install_crypto_provider(); }
+        for url in [
+            "http://localhost/prefix",
+            "http://localhost//",
+            "http://localhost/?key=value",
+            "http://localhost/?",
+            "http://localhost/#fragment",
+            "http://localhost/#",
+            "http://user@localhost",
+            "http://user:password@localhost",
+            "http://:password@localhost",
+            "http://user:@localhost",
+        ] {
+            assert!(
+                matches!(
+                    super::GrpcClient::create(url.parse()?),
+                    Err(crate::error::GrpcBuilderError::InvalidBackendUrl)
+                ),
+                "{url}"
+            );
+        }
+        for url in [
+            "http://localhost",
+            "http://localhost/",
+            "http://localhost:8080",
+            "http://localhost:8080/",
+            "https://localhost",
+            "https://localhost/",
+            "https://localhost:8443",
+            "https://localhost:8443/",
+        ] {
+            assert!(super::GrpcClient::create(url.parse()?).is_ok(), "{url}");
+        }
+    }
 
     #[xmtp_common::test(unwrap_try = true)]
     async fn metadata_test() {
