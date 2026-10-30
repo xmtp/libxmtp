@@ -344,13 +344,6 @@ issue = "https://github.com/xmtp/libxmtp/issues/4606"
 reason = "Two Type gaps remain. A table with fixed keys, including an entry of auth.keys or application_components, accepts an array and decodes it by position, such as limits = [] or database = ['postgres://localhost/xmtp']; a table whose keys the operator chooses refuses one. A key whose value is one of a fixed list of strings (server.log_level, server.log_format, and the type and policies of application_components[]) accepts a one-key table, such as server.log_level = { debug = {} }. attachments.target and attachments.target.S3.credentials refuse an array, and attachments.target.S3.credentials.kind refuses a table. The bounds and the standard checks hold: every_standard_check_in_the_field_table_refuses_a_failing_value proves them."
 
 [[waiver]]
-id = "GMOD-042"
-kind = "gap"
-owner = "Nicholas Molnar"
-issue = "https://github.com/xmtp/libxmtp/issues/4644"
-reason = "OpenMLS logs the serialized group context, root included, at TRACE under `openmls::schedule`, which a Rust host that installs its own global subscriber with the `tracing-log` bridge receives, because `xmtp_logging::group_context_guard` covers only the subscribers libxmtp installs."
-
-[[waiver]]
 id = "SEND-024"
 kind = "gap"
 owner = "Nicholas Molnar"
