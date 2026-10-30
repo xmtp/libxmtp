@@ -253,8 +253,16 @@ where
         tracing::instrument(level = "trace", skip_all)
     )]
     pub async fn remove_members(&self, inbox_ids: &[InboxIdRef<'_>]) -> Result<(), GroupError> {
+        self.remove_inboxes(inbox_ids, false).await
+    }
+
+    async fn remove_inboxes(&self, ids: &[InboxIdRef<'_>], leave: bool) -> Result<(), GroupError> {
         self.ensure_not_paused().await?;
-        let intent_data = self.get_membership_update_intent(&[], inbox_ids).await?;
+        let mut intent_data = self.get_membership_update_intent(&[], ids).await?;
+        if leave {
+            intent_data =
+                intent_data.with_leave_removals(ids.iter().map(|s| s.to_string()).collect());
+        }
         let intent = QueueIntent::update_group_membership()
             .data(intent_data)
             .queue(self)?;
@@ -394,15 +402,7 @@ where
             "Removing pending members from group"
         );
 
-        self.ensure_not_paused().await?;
-        let data = self
-            .get_membership_update_intent(&[], &valid_removals)
-            .await?
-            .with_leave_removals(valid_removals.iter().map(|s| s.to_string()).collect());
-        let intent = QueueIntent::update_group_membership()
-            .data(data)
-            .queue(self)?;
-        match self.sync_until_intent_resolved(intent.id).await {
+        match self.remove_inboxes(&valid_removals, true).await {
             Ok(_) => {
                 tracing::info!(
                     group_id = %self.group_id,
