@@ -4,7 +4,7 @@
 
 This document lists all error codes defined in LibXMTP, the core library underlying the XMTP SDKs. Each error code is a unique identifier returned to help diagnose issues.
 
-**39 error types** across **10 crates** with **426 total error codes**.
+**40 error types** across **10 crates** with **429 total error codes**.
 
 ## xmtp_api
 
@@ -105,6 +105,17 @@ Archive export or import failure.
 | `ConnectionError::ReconnectInTransaction` | Reconnect in transaction. Cannot reconnect while transaction is active. Retryable. |
 | `ConnectionError::InvalidQuery` | Invalid query. Invalid query parameters or configuration. Not retryable. |
 | `ConnectionError::InvalidVersion` | Invalid version. DB migration version mismatch -- running a newer DB on older LibXMTP. Not retryable. |
+
+### ConsentActError <sub>enum</sub>
+
+<small>`crates/xmtp_db/src/encrypted_store/consent_record.rs`</small>
+
+Why an app act cannot be stored.
+
+| Error Code | Description |
+|:-----------|:------------|
+| `ConsentActError::InvalidEntity` | Invalid consent entity. The entity is too long, is not a group id, or names a DM whose dm id does not name this inbox. Not retryable. |
+| `ConsentActError::ConversationNotHeld` | Conversation not held. The client holds no conversation with this group id. Not retryable until the conversation syncs; acting on the other member's inbox covers every DM with that person. |
 
 ### NotFound <sub>enum</sub>
 
@@ -462,6 +473,7 @@ Stable failure categories. Inner causes remain available to Rust callers.
 | `DeviceSyncError::MlsStore` | MLS store error. OpenMLS key store operation failed. Retryable. |
 | `DeviceSyncError::Recv` | Receive error. Channel receive failed. Retryable. |
 | `DeviceSyncError::MissingField` | Missing field. Required field not present. Retryable. |
+| `DeviceSyncError::OutboxPageUnpublished` | Outbox page unpublished. A queued sync message is not published yet; its values stay owed and the outbox retries. Retryable. |
 
 ### EnrichMessageError <sub>enum</sub>
 
