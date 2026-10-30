@@ -455,6 +455,8 @@ A validator applies each of them to every update it reads, on admission and when
 
 `client_timestamp_ns` is not checked against any clock. A sender sets any value; it orders members for display and nothing else.
 
+An identity update's signature text binds neither its sequence id nor a previous-update hash. A client trusts the backend for the order of an association log it first reads. A malicious backend can serve a valid revocation before the valid add it originally followed. If both updates remain authorized in that order, a client without the original log accepts the revoked member as current: revoking an absent member is permitted, and each authorization is still used only once under IDENT-090. This is accepted for the current identity update format because it carries no signed proof of log order.
+
 A `passkey` signature verifies the challenge binding and the P-256 signature, and nothing else of the WebAuthn assertion: not the ceremony `type`, the relying party id hash, the user-present or user-verified flags, the signature counter, a minimum authenticator data length, or the `origin`. A forged update still needs the private key. The omitted checks protect against phishing and cloned authenticators, not against forgery, and their absence has not been shown to permit a forgery.
 
 IDENT-062 bounds the window for a removed signer to 1800 seconds at admission. It does not close it, and it does not run when a stored log is replayed, so a signature admitted in that window stays valid for ever.
