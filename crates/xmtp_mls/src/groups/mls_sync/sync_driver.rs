@@ -3,7 +3,6 @@
 use super::*;
 use xmtp_common::snippet::Snippet;
 
-// implements: PROC-036
 fn log_publish_error(error: &GroupError) {
     if let GroupError::FailedToVerifyInstallations(failed) = error {
         tracing::error!(
