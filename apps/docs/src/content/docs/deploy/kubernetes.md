@@ -386,8 +386,12 @@ so the cluster does not replace the client's source address. Kubernetes
 [notes](https://kubernetes.io/docs/tutorials/services/source-ip/#cross-platform-support)
 that this keeps the client's address only behind a cloud load balancer that
 forwards packets; one that terminates the connection replaces it with its own,
-and every caller without a credential then shares one allowance. Check your
-provider's load balancer. This guide has not verified the client address on a
+and every caller without a credential then shares one allowance. If that load
+balancer's address is inside a network in `trusted_proxies`, such as the pod
+CIDR, the backend skips it as well and takes an address the client wrote into
+`X-Forwarded-For`, so the client chooses the address it is charged to. Check
+your provider's load balancer, and keep its addresses out of
+`trusted_proxies`. This guide has not verified the client address on a
 live cluster.
 
 The limiter allocates `rate_limits.max_memory_mib`, 100 MiB by default, at
