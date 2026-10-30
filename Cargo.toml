@@ -204,6 +204,9 @@ sha2 = "0.10.9"
 sha2-zeroize = { package = "sha2", version = "0.11", default-features = false, features = [
   "zeroize",
 ] }
+# Test-only: runs lock code under every thread schedule.
+shuttle = "0.9"
+siphasher = "1.0"
 strum = { version = "0.28", features = ["derive"] }
 subtle = "2.6.1"
 syn = { version = "2.0", features = [
@@ -305,6 +308,7 @@ xmtp_mls_common = { path = "crates/xmtp_mls_common" }
 xmtp_mls_validation = { path = "crates/xmtp_mls_validation" }
 xmtp_proto = { path = "crates/xmtp_proto" }
 xmtp_push_types = { path = "crates/xmtp_push_types" }
+xmtp_rate_limit = { path = "crates/xmtp_rate_limit" }
 
 [profile.dbg]
 debug = true
