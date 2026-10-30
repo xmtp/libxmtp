@@ -274,13 +274,13 @@ them; an older image refuses this table at startup. See
 [Rate limits](/deploy/overview/#rate-limits) for what each category charges,
 how callers are named, and how proxies affect the client address.
 
-| Key               | Type                 | Default | Purpose                                                                                                                            |
-| ----------------- | -------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| `enabled`         | boolean              | `true`  | `false` admits every request and allocates no limiter.                                                                             |
-| `max_memory_mib`  | integer, 1 to 65536  | `100`   | Memory for the per-caller counts, allocated at startup. When a caller's part of it is full, the least-spent caller there is forgotten.                    |
-| `trusted_proxies` | array of IP networks | `[]`    | Proxies whose `X-Forwarded-For` entries name the client. List only proxies that append the address they received the request from. |
-| `categories`      | table of categories  | `{}`    | Limits by category and tier. A category left out gets the defaults in the deployment overview.                                     |
-| `overrides`       | array of tables      | `[]`    | Limits for one caller, which replace every other limit of the categories they name.                                                |
+| Key               | Type                 | Default | Purpose                                                                                                                                |
+| ----------------- | -------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `enabled`         | boolean              | `true`  | `false` admits every request and allocates no limiter.                                                                                 |
+| `max_memory_mib`  | integer, 1 to 65536  | `100`   | Memory for the per-caller counts, allocated at startup. When a caller's part of it is full, the least-spent caller there is forgotten. |
+| `trusted_proxies` | array of IP networks | `[]`    | Proxies whose `X-Forwarded-For` entries name the client. List only proxies that append the address they received the request from.     |
+| `categories`      | table of categories  | `{}`    | Limits by category and tier. A category left out gets the defaults in the deployment overview.                                         |
+| `overrides`       | array of tables      | `[]`    | Limits for one caller, which replace every other limit of the categories they name.                                                    |
 
 Under `categories.<category>`, set a list of limits for the tier `default`, or
 for one auth type: `ip`, `jwt`, or `api_key`. An auth type without its own list
