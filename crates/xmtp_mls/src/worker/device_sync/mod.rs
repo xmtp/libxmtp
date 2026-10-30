@@ -29,7 +29,7 @@ use xmtp_db::{
     NotFound, StorageError,
     consent_record::ConsentState,
     group::{GroupMembershipState, GroupQueryArgs},
-    group_message::DeliveryStatus,
+    group_message::{DeliveryStatus, StoredGroupMessage},
     sync_outbox::{OwedPage, owed_page},
 };
 use xmtp_db::{XmtpDb, group::ConversationType, prelude::*};
@@ -103,6 +103,23 @@ fn wipe_hmac_keys(content: &mut ContentProto) {
             }
         }
     }
+}
+
+/// Move a stored sync message's plaintext into a buffer wiped on drop. It
+/// can hold an HMAC root key, so it moves as the row loads, before any
+/// path out can drop it.
+fn take_plaintext(msg: &mut StoredGroupMessage) -> Zeroizing<Vec<u8>> {
+    Zeroizing::new(std::mem::take(&mut msg.decrypted_message_bytes))
+}
+
+/// [`take_plaintext`] for every loaded row.
+fn with_plaintext(rows: Vec<StoredGroupMessage>) -> Vec<(StoredGroupMessage, Zeroizing<Vec<u8>>)> {
+    rows.into_iter()
+        .map(|mut msg| {
+            let plaintext = take_plaintext(&mut msg);
+            (msg, plaintext)
+        })
+        .collect()
 }
 
 /// Sync content decoded from a received message. Its HMAC root keys are wiped
@@ -377,13 +394,15 @@ where
                 },
             )?;
             group.sync_until_last_intent_resolved().await?;
-            let mut published = self
+            let mut sent = self
                 .db()
                 .get_group_message(&id)?
-                .filter(|m| m.delivery_status == DeliveryStatus::Published)
                 .ok_or(DeviceSyncError::OutboxPageUnpublished)?;
-            let plaintext = Zeroizing::new(std::mem::take(&mut published.decrypted_message_bytes));
-            self.apply_message(&published, &plaintext, Some(&page))?;
+            let plaintext = take_plaintext(&mut sent);
+            if sent.delivery_status != DeliveryStatus::Published {
+                return Err(DeviceSyncError::OutboxPageUnpublished);
+            }
+            self.apply_message(&sent, &plaintext, Some(&page))?;
             for _ in &page.consent {
                 self.metrics.increment_metric(SyncMetric::ConsentSent);
             }
@@ -393,30 +412,36 @@ where
         }
     }
 
+    /// One outbox pass, then one receive pass, as the worker runs them.
+    #[cfg(any(test, feature = "test-utils"))]
+    pub async fn sync_passes_for_test(&self) -> Result<(), DeviceSyncError> {
+        self.publish_outbox().await?;
+        self.process_sync_group_messages().await
+    }
+
     /// A page an earlier pass queued is published, or fails for
     /// good, before another is queued. Once it is published, store what its
     /// receivers stored, even when its confirmation failed.
     async fn settle_published_outbox(&self) -> Result<(), DeviceSyncError> {
         let me = self.installation_id();
-        let queued: HashSet<GroupId> = self
-            .db()
-            .own_unprocessed_sync_messages(me.as_slice())?
+        let mut own = with_plaintext(self.db().own_unprocessed_sync_messages(me.as_slice())?);
+        let queued: HashSet<GroupId> = own
             .iter()
-            .filter(|m| m.delivery_status == DeliveryStatus::Unpublished)
-            .map(|m| m.group_id)
+            .filter(|(m, _)| m.delivery_status == DeliveryStatus::Unpublished)
+            .map(|(m, _)| m.group_id)
             .collect();
-        for group_id in queued {
-            self.mls_store
-                .group(&group_id)?
-                .sync_until_last_intent_resolved()
-                .await?;
+        if !queued.is_empty() {
+            for group_id in queued {
+                self.mls_store
+                    .group(&group_id)?
+                    .sync_until_last_intent_resolved()
+                    .await?;
+            }
+            own = with_plaintext(self.db().own_unprocessed_sync_messages(me.as_slice())?);
         }
-        for mut msg in self.db().own_unprocessed_sync_messages(me.as_slice())? {
-            let plaintext = Zeroizing::new(std::mem::take(&mut msg.decrypted_message_bytes));
-            match msg.delivery_status {
-                DeliveryStatus::Unpublished => return Err(DeviceSyncError::OutboxPageUnpublished),
-                DeliveryStatus::Published => self.apply_message(&msg, &plaintext, None)?,
-                DeliveryStatus::Failed => self.db().mark_device_sync_msg_as_processed(&msg.id)?,
+        for (msg, plaintext) in own {
+            if self.settle_own_message(&msg, &plaintext)? {
+                return Err(DeviceSyncError::OutboxPageUnpublished);
             }
         }
         Ok(())
@@ -635,8 +660,15 @@ impl Drop for SyncPayload {
 /// Decode a received sync message: the outer `EncodedContent`, then the
 /// supported device-sync content inside it.
 pub(super) fn decode_sync_message(plaintext: &[u8]) -> Option<ReceivedContent> {
-    let payload = SyncPayload::decode(plaintext).ok()?;
+    let payload = SyncPayload::decode(decode_buffer(plaintext)).ok()?;
     decode_supported_content(&payload.content)
+}
+
+/// A copy of `bytes` for prost to decode. prost decodes a bytes field of a
+/// `&[u8]` through a temporary copy that it frees unwiped; from `Bytes` it
+/// takes a slice instead. This copy is wiped on drop.
+fn decode_buffer(bytes: &[u8]) -> bytes::Bytes {
+    bytes::Bytes::from_owner(Zeroizing::new(bytes.to_vec()))
 }
 
 /// Decode only device-sync content that this client supports.
@@ -648,7 +680,7 @@ pub(super) fn decode_sync_message(plaintext: &[u8]) -> Option<ReceivedContent> {
 /// `bytes` can hold an HMAC root key: the caller wipes them, and the content
 /// wipes its keys on drop.
 fn decode_supported_content(bytes: &[u8]) -> Option<ReceivedContent> {
-    DeviceSyncContentProto::decode(bytes)
+    DeviceSyncContentProto::decode(decode_buffer(bytes))
         .ok()?
         .content
         .map(ReceivedContent)

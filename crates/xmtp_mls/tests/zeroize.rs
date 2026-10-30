@@ -19,17 +19,19 @@ use prost::Message;
 
 use openmls::prelude::KeyPackageBundle;
 use openmls_traits::{OpenMlsProvider, storage::StorageProvider};
+use xmtp_common::{NS_IN_HOUR, time::now_ns};
 use xmtp_cryptography::{
     XmtpInstallationCredential,
     secret::{
-        Secret,
+        Secret, Zeroize,
         heap_canary::{Canary, scan, scan_async},
     },
     utils::generate_local_wallet,
 };
 use xmtp_db::{
-    StoredSecret, XmtpMlsStorageProvider, XmtpOpenMlsProviderRef, XmtpTestDb,
+    Store, StoredSecret, XmtpMlsStorageProvider, XmtpOpenMlsProviderRef, XmtpTestDb,
     group_intent::{IntentKind, QueryGroupIntent},
+    group_message::{ContentType, DeliveryStatus, GroupMessageKind, StoredGroupMessage},
     identity::StoredIdentity,
     sql_key_store::{KEY_PACKAGE_WRAPPER_PRIVATE_KEY, codec::encode_key},
     user_preferences::{RootKeyWrite, StoredUserPreferences, write_root_key},
@@ -56,7 +58,10 @@ use xmtp_mls_common::{
     group_keys::{GroupKeys, GroupRoot},
 };
 use xmtp_proto::xmtp::device_sync::content::{
-    HmacKeyUpdate as HmacKeyUpdateProto, preference_update::Update as UpdateProto,
+    DeviceSyncContent, HmacKeyUpdate as HmacKeyUpdateProto,
+    PreferenceUpdate as PreferenceUpdateProto, PreferenceUpdates,
+    device_sync_content::Content as DeviceSyncContentKind,
+    preference_update::Update as UpdateProto,
 };
 use xmtp_proto::xmtp::mls::message_contents::{ContentTypeId, EncodedContent};
 
@@ -277,9 +282,7 @@ async fn welcome_keys_are_wiped_when_joining() {
 /// message, and converting and storing a synced root key must not free an
 /// unwiped copy of a root key or a derived key.
 ///
-/// The sync worker's receive path is crate-private. It decodes into
-/// `ReceivedContent`, which wipes the root keys on drop, and
-/// `store_preference_updates` borrows them; proven by type and review. A
+/// The sync passes are covered by `sync_passes_wipe_stored_root_keys`. A
 /// generated root key cannot be a canary;
 /// `HmacKey::random_key` returns `Secret`, proven by type.
 #[xmtp_common::test(unwrap_try = true, flavor = "multi_thread")]
@@ -333,7 +336,7 @@ async fn hmac_keys_are_wiped_on_load_derive_send_and_sync() {
                 xmtp_db::consent_record::Owed::Keep,
             )
             .unwrap();
-            xmtp_cryptography::secret::Zeroize::zeroize(&mut hmac.key);
+            hmac.key.zeroize();
             drop(synced);
         }),
     )
@@ -348,6 +351,110 @@ async fn hmac_keys_are_wiped_on_load_derive_send_and_sync() {
     assert_eq!(
         stored.as_ref().map(StoredSecret::as_slice),
         Some(SYNCED_HMAC_ROOT_KEY.as_slice())
+    );
+}
+
+/// The `EncodedContent` bytes of a sync message carrying root key `key`.
+/// The copies made on the way are wiped: a block freed unwiped before a scan
+/// can be reused and freed again inside it.
+fn root_key_message(key: &[u8], cycled_at_ns: i64) -> Vec<u8> {
+    let mut update = HmacKeyUpdateProto {
+        key: key.to_vec(),
+        cycled_at_ns,
+    };
+    let mut content = DeviceSyncContent {
+        content: Some(DeviceSyncContentKind::PreferenceUpdates(
+            PreferenceUpdates {
+                updates: vec![PreferenceUpdateProto {
+                    update: Some(UpdateProto::Hmac(update.clone())),
+                }],
+            },
+        )),
+    }
+    .encode_to_vec();
+    update.key.zeroize();
+    let mut encoded = EncodedContent {
+        r#type: Some(ContentTypeId {
+            authority_id: "xmtp.org".to_string(),
+            type_id: "application/x-protobuf".to_string(),
+            version_major: 1,
+            version_minor: 0,
+        }),
+        content: std::mem::take(&mut content),
+        ..Default::default()
+    };
+    let bytes = encoded.encode_to_vec();
+    encoded.content.zeroize();
+    bytes
+}
+
+/// The outbox and receive passes free no unwiped copy of a root key that a
+/// stored sync message holds: an own page that failed for good, an own
+/// published page, and a page from an installation the own inbox never
+/// held. Encrypting and decrypting a sync message is OpenMLS's, out of reach.
+#[xmtp_common::test(unwrap_try = true, flavor = "multi_thread")]
+async fn sync_passes_wipe_stored_root_keys() {
+    tester!(alix, disable_workers);
+    let sync = alix.device_sync_client();
+    let group_id = sync.get_sync_group().await?.group_id;
+    // The new sync group's own page goes out before the scan.
+    sync.sync_passes_for_test().await?;
+    let db = alix.context.db();
+    let keys: [[u8; 42]; 3] = std::array::from_fn(|i| {
+        let mut key = SYNCED_HMAC_ROOT_KEY;
+        key[0] ^= 0x10 << i;
+        key
+    });
+    let cycled_at_ns = now_ns() + NS_IN_HOUR;
+    let own = alix.context.installation_id().to_vec();
+    let rows = [
+        (DeliveryStatus::Failed, own.clone()),
+        (DeliveryStatus::Published, own),
+        (DeliveryStatus::Published, xmtp_common::rand_vec::<32>()),
+    ];
+    for (n, ((status, sender), key)) in rows.into_iter().zip(&keys).enumerate() {
+        let mut row = StoredGroupMessage {
+            id: xmtp_common::rand_vec::<32>(),
+            group_id,
+            decrypted_message_bytes: root_key_message(key, cycled_at_ns),
+            sent_at_ns: now_ns(),
+            kind: GroupMessageKind::Application,
+            sender_installation_id: sender,
+            sender_inbox_id: alix.inbox_id().to_string(),
+            delivery_status: status,
+            content_type: ContentType::Unknown,
+            version_major: 1,
+            version_minor: 0,
+            authority_id: "xmtp.org".to_string(),
+            reference_id: None,
+            sequence_id: 1_000 + n as i64,
+            envelope_hash: None,
+            expiry_ns: None,
+            expiry_unknown: false,
+            expire_at_ns: None,
+            inserted_at_ns: 0,
+            should_push: false,
+            idempotency_key: n.to_string(),
+        };
+        row.store(&db)?;
+        row.decrypted_message_bytes.zeroize();
+    }
+    let canaries = keys.each_ref().map(|key| Canary::new(key));
+
+    let ((), hits) = scan_async(
+        &canaries,
+        traced(async {
+            sync.sync_passes_for_test().await.unwrap();
+        }),
+    )
+    .await;
+
+    assert_eq!(hits, [0, 0, 0], "freed heap blocks held a synced root key");
+    // The own published page was applied.
+    let stored = StoredUserPreferences::load(&db)?.hmac_key;
+    assert_eq!(
+        stored.as_ref().map(StoredSecret::as_slice),
+        Some(keys[1].as_slice())
     );
 }
 

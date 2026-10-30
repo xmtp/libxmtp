@@ -1,6 +1,6 @@
 use super::{
     DeviceSyncClient, DeviceSyncError, ReceivedContent, decode_sync_message,
-    preference_sync::apply_preference_updates,
+    preference_sync::apply_preference_updates, with_plaintext,
 };
 use crate::{
     context::XmtpSharedContext,
@@ -20,7 +20,6 @@ use tokio::sync::OnceCell;
 use tracing::instrument;
 use xmtp_common::Event;
 use xmtp_common::time::Instant;
-use xmtp_cryptography::secret::Zeroizing;
 use xmtp_db::group_message::{DeliveryStatus, StoredGroupMessage};
 use xmtp_db::prelude::*;
 use xmtp_db::processed_device_sync_messages::SyncMessageKey;
@@ -353,30 +352,20 @@ where
             };
             after = Some(SyncMessageKey::of(last));
             tracing::info!("Processing {} messages.", page.len());
+            // The plaintext and its inner encoding can hold an HMAC root key.
+            // Both are wiped on every path, including skipped messages.
+            let page = with_plaintext(page);
             // Every message in `page` was stored before this load, so the load
             // holds every own identity update the backend timed at or before
             // it, unless a lagging replica serves the read. A failure leaves
             // every row Pending, and the pass backs off.
             let own = OwnTimeline::load(&self.context).await?;
-            for mut msg in page {
-                // The plaintext and its inner encoding can hold an HMAC root key.
-                // Both are wiped on every path, including skipped messages.
-                let plaintext = Zeroizing::new(std::mem::take(&mut msg.decrypted_message_bytes));
-                if msg.sender_installation_id == installation_id.as_slice() {
-                    match msg.delivery_status {
-                        // Applied and settled once the backend times it.
-                        DeliveryStatus::Unpublished => continue,
-                        DeliveryStatus::Failed => {
-                            self.context
-                                .db()
-                                .mark_device_sync_msg_as_processed(&msg.id)?;
-                            continue;
-                        }
-                        DeliveryStatus::Published => {}
-                    }
+            for (msg, plaintext) in page {
+                let result = if msg.sender_installation_id == installation_id.as_slice() {
+                    self.settle_own_message(&msg, &plaintext).map(drop)
                 } else {
                     match own.sender_status(self.context.inbox_id(), &msg) {
-                        Sender::Member => {}
+                        Sender::Member => self.apply_message(&msg, &plaintext, None),
                         Sender::Gone => {
                             tracing::warn!(
                                 group_id = %msg.group_id,
@@ -390,8 +379,8 @@ where
                         // Its registration is not loaded yet: read it again later.
                         Sender::NotYetKnown => continue,
                     }
-                }
-                if let Err(err) = self.apply_message(&msg, &plaintext, None) {
+                };
+                if let Err(err) = result {
                     // implements: SYNC-016 (a storage error leaves the row Pending for the next pass)
                     // A failed message is non-fatal, but a dropped pool must stop the worker.
                     if err.needs_db_reconnect() {
@@ -406,6 +395,26 @@ where
                 }
             }
         }
+    }
+
+    /// Settle a sync message this installation sent: once the backend times
+    /// it, apply it like a peer's and settle; once it fails for good, mark it
+    /// processed and its values stay owed. Returns whether it is still
+    /// unpublished.
+    pub(super) fn settle_own_message(
+        &self,
+        msg: &StoredGroupMessage,
+        plaintext: &[u8],
+    ) -> Result<bool, DeviceSyncError> {
+        match msg.delivery_status {
+            DeliveryStatus::Unpublished => return Ok(true),
+            DeliveryStatus::Failed => self
+                .context
+                .db()
+                .mark_device_sync_msg_as_processed(&msg.id)?,
+            DeliveryStatus::Published => self.apply_message(msg, plaintext, None)?,
+        }
+        Ok(false)
     }
 
     /// Apply one sync message like a peer's and mark it processed, in one
