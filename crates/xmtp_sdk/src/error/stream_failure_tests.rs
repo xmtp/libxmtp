@@ -324,7 +324,7 @@ fn failure_before_admission_has_no_scope_generation() {
     assert_eq!(topic.received, u64::MAX);
 }
 
-// verifies: PROC-018, PROC-036
+// verifies: PROC-018
 #[xmtp_common::test(unwrap_try = true)]
 fn stream_error_formatting_redacts_topic_bytes_but_keeps_structured_details() {
     let error = XmtpError::from_group(GroupError::StreamBarrier(barrier(
