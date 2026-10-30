@@ -129,19 +129,19 @@ A rate-limit rejection says that the request was refused for its caller's allowa
 
 ## 6. Memory
 
-The limiter's memory is fixed by `rate_limits.max_memory_mib` and does not grow with the number of callers. A caller back at full allowance holds no state. When the state is full, the backend forgets the caller that has spent least, rather than refuse a request, so a flood of new callers costs other callers some of their recorded spend, never their admission.
+The limiter's memory is fixed by `rate_limits.max_memory_mib` and does not grow with the number of callers. A caller back at full allowance holds no state. A caller key can be recorded in only a small part of the state. When that part has no room, the backend forgets a caller recorded there, rather than refuse a request, so a flood of new callers costs other callers some of their recorded spend, never their admission.
 
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
 | RATE-050 | Memory bound | The backend MUST NOT hold more than `rate_limits.max_memory_mib` MiB of rate-limit state, whatever the number of caller keys. | A flood of fresh addresses would otherwise grow the state until the instance is killed. |
-| RATE-051 | Full state never denies | When the rate-limit state is full, the backend MUST NOT deny a spend because its caller key has no state recorded and none can be, and MUST forget another caller key's state instead. | Refusing new callers when full lets a flood of fresh keys deny service to every caller it did not already know. |
+| RATE-051 | Full state never denies | When the backend has no room to record a caller key's state where that key can be recorded, it MUST NOT deny a spend because of that, and MUST forget instead the state, among those it could replace, whose admitted spends are all earned back soonest. | Refusing new callers when full lets a flood of fresh keys deny service to every caller it did not already know. |
 | RATE-052 | State is kept until earned back | The backend MUST keep a caller key's state for a limit until every spend the instance admitted under that limit for that key is earned back, unless it forgets that state under RATE-051 or the instance restarts. | A limiter that forgets state early admits more than the limit, and no other row refuses it. |
 
 ## Known limitations
 
 Limits apply per instance. A deployment that runs N instances behind a balancer admits up to N times each limit to a caller whose requests are spread across them.
 
-An instance forgets every caller's spend when it restarts, and when its state is full it forgets the callers that have spent least. A forgotten caller receives a fresh allowance. A caller that floods fresh caller keys gains more from the fresh allowances of those keys than from what its flood makes the instance forget.
+An instance forgets every caller's spend when it restarts. It also forgets a caller's spend under RATE-051, which can start long before the whole state is full, because a caller key can be recorded in only a small part of it. The caller forgotten is the one whose spends are earned back soonest, so a heavy spender is forgotten last. A forgotten caller receives a fresh allowance. A caller that floods fresh caller keys gains more from the fresh allowances of those keys than from what its flood makes the instance forget.
 
 Callers behind one IPv4 address, such as the subscribers of a carrier-grade NAT, share one caller key and one allowance when they hold no credential.
 
