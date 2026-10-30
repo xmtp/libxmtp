@@ -24,7 +24,9 @@ use xmtp_events::{ArchiveRestored, ClientEvent, EventWriter};
 #[derive(Default)]
 struct ImportContext {
     changed: bool,
-    /// The archive's consent records, applied after all its elements.
+    /// The archive's usable consent records, applied after all its elements.
+    /// Archive frames are ciphertext and do not compress, so these grow with
+    /// the archive's own size.
     consent: Vec<ConsentSave>,
     /// The archive's 16-byte DM groups, whatever their restore did.
     dm_groups: HashSet<GroupId>,
@@ -125,7 +127,12 @@ fn insert(
     };
 
     match element {
-        Element::Consent(save) => import.consent.push(save),
+        // An unusable record is dropped here, so each held record is small.
+        Element::Consent(save) => {
+            if parse_consent_save(&save).is_some() {
+                import.consent.push(save);
+            }
+        }
         // The exporter writes no sync or one-shot conversation, so an import
         // makes none and adds no message to one: device sync applies only
         // what the backend delivered.

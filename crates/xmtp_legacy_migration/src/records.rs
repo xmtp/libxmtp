@@ -2,7 +2,7 @@
 use crate::{MigrationError, MigrationReport, RecordError};
 use diesel::{connection::DefaultLoadingMode, prelude::*, sql_types::*};
 use prost::Message;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 use xmtp_proto::xmtp::{
     device_sync::{
         BackupMetadataSave,
@@ -101,14 +101,9 @@ struct Consent {
     entity: String,
     #[diesel(sql_type = BigInt)]
     consented_at_ns: i64,
-}
-
-#[derive(QueryableByName)]
-struct DmGroup {
-    #[diesel(sql_type = Binary)]
-    id: Vec<u8>,
-    #[diesel(sql_type = Text)]
-    dm_id: String,
+    /// The DM id of the group a conversation row names, when it is a DM.
+    #[diesel(sql_type = Nullable<Text>)]
+    dm_id: Option<String>,
 }
 
 #[derive(QueryableByName)]
@@ -289,8 +284,7 @@ pub(crate) fn export(
     let own = diesel::sql_query("SELECT inbox_id FROM identity LIMIT 1")
         .get_result::<OwnInbox>(conn)
         .optional()?;
-    let mut dm_peers = HashMap::new();
-    if let Some(own) = &own {
+    if own.is_some() {
         let oversized = diesel::sql_query(
             "SELECT EXISTS(SELECT 1 FROM groups WHERE dm_id IS NOT NULL AND \
              COALESCE(length(CAST(id AS BLOB)), 0) + length(CAST(dm_id AS BLOB)) > ?) AS count",
@@ -300,19 +294,17 @@ pub(crate) fn export(
         if oversized.count != 0 {
             return Err(invalid("stored DM id exceeds the 64 MiB byte limit"));
         }
-        let groups = diesel::sql_query("SELECT id, dm_id FROM groups WHERE dm_id IS NOT NULL")
-            .load_iter::<DmGroup, DefaultLoadingMode>(conn)?;
-        for group in groups {
-            let group = group?;
-            if let Some(peer) = xmtp_archive::pre8::dm_peer(&group.dm_id, &own.inbox_id) {
-                dm_peers.insert(hex::encode(group.id), peer.to_ascii_lowercase());
-            }
-        }
     }
     // Conversation rows sort first, so a peer's DM rows are known before its inbox row.
     let mut by_peer: BTreeMap<String, Vec<ConsentSave>> = BTreeMap::new();
-    for consent in diesel::sql_query("SELECT entity_type, state, entity, consented_at_ns FROM consent_records ORDER BY entity_type, entity")
-        .load_iter::<Consent, DefaultLoadingMode>(conn)?
+    // Each conversation row reads its DM's id with it, so no DM is held apart.
+    for consent in diesel::sql_query(
+        "SELECT c.entity_type, c.state, c.entity, c.consented_at_ns, g.dm_id \
+         FROM consent_records c LEFT JOIN groups g \
+         ON c.entity_type = 1 AND g.id = unhex(c.entity) AND g.dm_id IS NOT NULL \
+         ORDER BY c.entity_type, c.entity",
+    )
+    .load_iter::<Consent, DefaultLoadingMode>(conn)?
     {
         let consent = consent?;
         if !matches!(consent.entity_type, 1 | 2) || consent.entity.is_empty() {
@@ -330,8 +322,10 @@ pub(crate) fn export(
             entity: consent.entity,
             consented_at_ns: consent.consented_at_ns,
         };
-        let peer = match consent.entity_type {
-            1 => dm_peers.get(&entity).cloned(),
+        let peer = match (consent.entity_type, &own, &consent.dm_id) {
+            (1, Some(own), Some(dm_id)) => xmtp_archive::pre8::dm_peer(dm_id, &own.inbox_id)
+                .map(|peer| peer.to_ascii_lowercase()),
+            (1, ..) => None,
             _ => by_peer.contains_key(&entity).then_some(entity),
         };
         match peer {
