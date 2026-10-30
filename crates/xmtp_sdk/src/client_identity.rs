@@ -416,8 +416,10 @@ impl Client {
     }
 
     /// Returns one entry per core identity. Keys use `ethereum:<core text>`,
-    /// `passkey:<lowercase core hex>`, or `handle:<canonical handle>`. A
-    /// handle is available when the backend names an inbox for it.
+    /// `passkey:<lowercase core hex>`, or `handle:<canonical handle>`.
+    /// Reports whether the backend names an inbox for each identifier.
+    /// This is an unverified availability hint. It checks neither current
+    /// association state nor key packages and does not promise delivery.
     pub async fn can_message(
         &self,
         identities: Vec<PublicIdentity>,
