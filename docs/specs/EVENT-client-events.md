@@ -42,7 +42,7 @@ Out of scope: durable message delivery and acknowledgement (PROC section 7), int
 | `FORK` | Owns the fork state (FORK-082). |
 | `CONF` | Owns the blocked connection and the two conditions that set it (CONF-030, CONF-036). CONF-075 closes streams with network interest while EVENT-016 keeps event subscriptions open. |
 | `AUTH` | Owns credential lockout (AUTH-023) and replacing the credential (AUTH-024). |
-| `PUSH` | Owns the notification state (PUSH-262). |
+| `PUSH` | Owns the notification state (PUSH-267). |
 | `SYNC` | Owns the HMAC root key (SYNC-015, SYNC-022) and SYNC-005, which hides sync groups from an app. |
 | `ARCH` | Owns archive import (section 4, ARCH-021). |
 | `ATCH` | Owns pending attachment status (ATCH-034), downloads (section 6), local deletion (ATCH-047), attachment keys (ATCH-041), and the failure causes (ATCH-060). |
@@ -89,7 +89,7 @@ One act can produce events of more than one kind. A commit that removes the own 
 | `client.rejected_by_server` | The server rejects the client and blocks its connection: its backend does not match the stored one, or its version is below the server's minimum (CONF-075) | Rejection | `rejected_by_server` |
 | `client.lockout_changed` | The client enters lockout under AUTH-023, or leaves it: when the first request after the cool-down proceeds, or under AUTH-024 | Entry or exit | `lockout_changed` |
 | `conversation.fork_detected` | A conversation's fork state becomes `forked` under FORK-082 | Group | `conversation_fork_detected` |
-| `notifications.failed` | The notification state becomes failed under PUSH-262 | Failure | `notifications_failed` |
+| `notifications.failed` | The notification state becomes failed under PUSH-267 | Failure | `notifications_failed` |
 | `archive.restored` | An archive import ends, with or without an error, after it stored at least one element (ARCH-021) | Import | `archive_restored` |
 | `connection.state_changed` | The client-wide state of open app streams that hold network interest changes under EVENT-027 | Transition | `connection_state_changed` |
 | `attachment.upload_started` | A pending attachment's status becomes `uploading` (ATCH-034) | Transition | `attachment_upload_started` |
@@ -223,7 +223,7 @@ dictionary ClientRejectedByServer {
   DOMString min_libxmtp_version;                  // EVENT-008
 };
 dictionary LockoutChanged { required LockoutChange change; };
-dictionary NotificationsFailed { required DOMString cause; };                 // the failure cause PUSH-262 records
+dictionary NotificationsFailed { required DOMString cause; };                 // the failure cause PUSH-267 records
 dictionary ArchiveRestored { required boolean complete; };                    // EVENT-017
 dictionary ConnectionStateChanged {
   required ConnectionState previous;
@@ -263,7 +263,7 @@ The member source table, which EVENT-024 makes binding. Members that other rows 
 | `inbox_id` in `IdentityRegistered` | The own inbox's id |
 | `installation_key` | The installation key of the installation registered, added, or revoked (IDENT section 8) |
 | `is_this_installation` | Whether `installation_key` equals this installation's key |
-| `cause` in `NotificationsFailed` | The failure cause PUSH-262 records |
+| `cause` in `NotificationsFailed` | The failure cause PUSH-267 records |
 | `change` in `LockoutChanged` | `entered` or `left`, per the kind table's trigger |
 | `discarded` in `Lagged` | The count EVENT-031 names |
 | `attachment_key`, `url`, `content_digest` in `AttachmentRef` and `AttachmentFailed` | The attachment key under ATCH-041, the `url`, and the `content_digest` of the remote attachment the transition, download, or deletion is about |

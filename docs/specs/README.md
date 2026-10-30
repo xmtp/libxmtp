@@ -18,6 +18,7 @@ A requirement without a proving test needs a waiver under SPEC-055, SPEC-094, an
 | `CONF` | [Backend configuration](CONF-backend-configuration.md) | The configuration file, configuration validation, what is published, how the client applies it | draft |
 | `AUTH` | [Backend auth](AUTH-backend-auth.md) | Request authentication and authorization, client credentials, terminal auth failures | draft |
 | `OPS` | [Backend operations](OPS-backend-operations.md) | Retention and pruning, readiness and health, shutdown as observed, the metric catalogue | draft |
+| `RATE` | [Backend rate limits](RATE-backend-rate-limits.md) | Caller keys, request costs by category, limits and overrides, stream rent, rate-limit rejections, limiter memory | draft |
 | `PUSH` | [Push subscriptions and webhooks](PUSH-push-subscriptions.md) | Recipient registration, channels, subscription sync, dispatch, HMAC suppression, webhook signing | draft |
 | `IDENT` | [Identity updates](IDENT-identity-updates.md) | Association log, signature kinds, inbox id derivation, replay protection, installation lifecycle, local signing-key persistence | draft |
 | `JOIN` | [Joining groups](JOIN-joining-groups.md) | Key packages, Welcomes, welcome pointers, when a Welcome replaces local state, join validation | draft |
