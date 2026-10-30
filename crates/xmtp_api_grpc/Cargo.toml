@@ -65,6 +65,7 @@ xmtp_logging = { workspace = true, features = ["test-utils"] }
 xmtp_proto = { workspace = true, features = ["test-utils-network"] }
 
 [target.'cfg(not(all(target_family = "wasm", target_os = "unknown")))'.dev-dependencies]
+xmtp_cryptography.workspace = true
 tokio = { workspace = true }
 pbjson-types.workspace = true
 tokio-stream.workspace = true
@@ -72,6 +73,7 @@ hyper-util.workspace = true
 
 [target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dev-dependencies]
 getrandom = { workspace = true, features = ["wasm_js"] }
+wasm-bindgen.workspace = true
 wasm-bindgen-test.workspace = true
 
 [features]

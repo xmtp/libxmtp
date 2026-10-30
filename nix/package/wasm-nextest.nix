@@ -35,6 +35,7 @@ let
     "xmtp_cryptography"
     "xmtp_common"
     "xmtp_api"
+    "xmtp_api_grpc"
     "xmtp_id"
     "xmtp_db"
     "xmtp_api_backend"

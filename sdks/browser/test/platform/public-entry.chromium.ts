@@ -167,7 +167,7 @@ function isPublicError(error: unknown): error is sdk.XmtpError {
 
 export async function exercise(): Promise<string[]> {
   const results: string[] = [];
-  const backend: sdk.BackendOptions = { url: `${location.origin}/backend` };
+  const backend: sdk.BackendOptions = { url: location.origin };
   const options: sdk.ClientOptions = {
     backend,
     storage: { location: "inMemory" },
@@ -580,7 +580,7 @@ async function orphanMessage(options: sdk.ClientOptions): Promise<sdk.Message> {
 export async function failures(
   failWorkers: (on: boolean) => void,
 ): Promise<string[]> {
-  const backend: sdk.BackendOptions = { url: `${location.origin}/backend` };
+  const backend: sdk.BackendOptions = { url: location.origin };
   const calls: [string, () => Promise<unknown>][] = [
     ["generateLocalSigner", () => sdk.generateLocalSigner()],
     ["flushTelemetry", () => sdk.flushTelemetry()],
@@ -624,7 +624,7 @@ export async function retiredWorker(
   terminated: () => number,
   waitForTermination: (count: number) => Promise<void>,
 ): Promise<string[]> {
-  const backend: sdk.BackendOptions = { url: `${location.origin}/backend` };
+  const backend: sdk.BackendOptions = { url: location.origin };
   const before = terminated();
   const client = await sdk.Client.create(signerFor(), {
     backend,
@@ -682,7 +682,7 @@ export async function retiredWorker(
  * unknown until activation. The independent adder stays equal to A's inbox.
  */
 export async function restored(): Promise<string[]> {
-  const backend: sdk.BackendOptions = { url: `${location.origin}/backend` };
+  const backend: sdk.BackendOptions = { url: location.origin };
   const options: sdk.ClientOptions = {
     backend,
     storage: { location: "inMemory" },
@@ -752,7 +752,7 @@ export async function restored(): Promise<string[]> {
 // verifies: LOG-008
 export async function loggingEnd(): Promise<void> {
   const client = await sdk.Client.create(signerFor(), {
-    backend: { url: `${location.origin}/backend` },
+    backend: { url: location.origin },
     storage: { location: "inMemory" },
     deviceSync: false,
   });
@@ -797,7 +797,7 @@ export async function loggingSecrets(): Promise<void> {
   for (const operation of [
     () =>
       sdk.Backend.connect({
-        url: `${location.origin}/backend`,
+        url: location.origin,
         credentials: {
           value: `Bearer ${credential}\n`,
           expiresAtSeconds: 0n,

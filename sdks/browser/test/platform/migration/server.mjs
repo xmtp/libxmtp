@@ -29,10 +29,9 @@ export async function createMigrationServer(directory, names) {
       port: 0,
       fs: { strict: false },
       proxy: {
-        "/backend": {
+        "/xmtp.": {
           target: process.env.XMTP_BACKEND_URL ?? "http://127.0.0.1:5050",
           changeOrigin: true,
-          rewrite: (path) => path.replace(/^\/backend/, ""),
         },
       },
     },

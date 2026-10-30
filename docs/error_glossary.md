@@ -4,7 +4,7 @@
 
 This document lists all error codes defined in LibXMTP, the core library underlying the XMTP SDKs. Each error code is a unique identifier returned to help diagnose issues.
 
-**40 error types** across **10 crates** with **430 total error codes**.
+**40 error types** across **10 crates** with **431 total error codes**.
 
 ## xmtp_api
 
@@ -48,6 +48,7 @@ backend reports it in the structured `PublishError` detail of the publish.
 
 | Error Code | Description |
 |:-----------|:------------|
+| `GrpcBuilderError::InvalidBackendUrl` | Unsupported backend URL components. Not retryable. |
 | `GrpcBuilderError::MissingAppVersion` | Missing app version. App version not set on builder. Not retryable. |
 | `GrpcBuilderError::MissingLibxmtpVersion` | Missing LibXMTP version. Core library version not set. Not retryable. |
 | `GrpcBuilderError::MissingHostUrl` | Missing host URL. Host URL not set on builder. Not retryable. |

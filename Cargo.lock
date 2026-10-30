@@ -12664,10 +12664,12 @@ dependencies = [
  "tower",
  "tracing",
  "url",
+ "wasm-bindgen",
  "wasm-bindgen-test",
  "xmtp-workspace-hack",
  "xmtp_common",
  "xmtp_configuration",
+ "xmtp_cryptography",
  "xmtp_logging",
  "xmtp_proto",
 ]

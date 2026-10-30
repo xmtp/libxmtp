@@ -108,6 +108,9 @@ fn non_negative(seconds: i64, nanos: i32) -> Duration {
 
 #[derive(Debug, Error, ErrorCode)]
 pub enum GrpcBuilderError {
+    /// Unsupported backend URL components. Not retryable.
+    #[error("backend URL must be an origin without userinfo, query, or fragment")]
+    InvalidBackendUrl,
     /// Missing app version.
     ///
     /// App version not set on builder. Not retryable.
@@ -527,7 +530,7 @@ pub(crate) mod rate_limit_tests {
         None
     )]
     #[xmtp_common::test(unwrap_try = true)]
-    fn rate_limit_is_resource_exhausted_with_the_detail(
+    async fn rate_limit_is_resource_exhausted_with_the_detail(
         #[case] code: Code,
         #[case] reason: &str,
         #[case] domain: &str,
@@ -582,7 +585,7 @@ pub(crate) mod rate_limit_tests {
     #[case(-5, 0)]
     #[case(0, -1)]
     #[xmtp_common::test(unwrap_try = true)]
-    fn a_negative_delay_counts_as_zero(#[case] seconds: i64, #[case] nanos: i32) {
+    async fn a_negative_delay_counts_as_zero(#[case] seconds: i64, #[case] nanos: i32) {
         let retry = any(
             RETRY_INFO_TYPE_URL,
             pb::RetryInfo {
