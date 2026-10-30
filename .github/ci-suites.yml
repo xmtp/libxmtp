@@ -413,6 +413,8 @@ suites:
       - "dev/services"
       # dev/tests/test_sdk_package.py runs it.
       - "dev/js/sdk-package"
+      # dev/tests/test_backend_configs.py reads the Node recovery backend.
+      - "sdks/node/test/recoveryBackend.ts"
       # dev/tests/test_android_release.py reads the SDK Gradle properties.
       - "sdks/android/gradle.properties"
       # dev/tests/test_ci_suites.py dry-runs the iOS lifecycle recipes.
@@ -514,7 +516,7 @@ suites:
       - path_group: docker_backend
       - "{.config/nextest.toml,webdriver.json}"
       # xmtp_backend_config tests embed these files.
-      - "docs/{schemas/backend-v1.json,specs/CONF-backend-configuration.md}"
+      - "docs/{schemas/backend-v1.json,specs/CONF-backend-configuration.md,specs/RATE-backend-rate-limits.md}"
       - "{nix/package/nextest.nix,nix/ci-checks.nix,nix/lib/junit.nix,dev/check-ephemeral-backend}"
       # The derivation starts these services.
       - "nix/services/**"

@@ -5,3 +5,8 @@ listen = "[::]:5050"
 
 [database]
 url = "env:XMTP_DATABASE_URL"
+
+# Validation stack only. Every client reaches the backend through one proxy
+# address, so per-caller rate limits stay off.
+[rate_limits]
+enabled = false

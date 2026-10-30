@@ -120,13 +120,7 @@ impl AuthConfig {
                 field: key_path("auth.api_keys", Step::Key(name)),
                 reason,
             };
-            if name.is_empty()
-                || name.len() > MAX_API_KEY_NAME_BYTES
-                || !name.as_bytes()[0].is_ascii_alphanumeric()
-                || !name
-                    .bytes()
-                    .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
-            {
+            if !is_api_key_name(name) {
                 return Err(error("name must match ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"));
             }
             if !(MIN_API_KEY_BYTES..=MAX_API_KEY_BYTES).contains(&value.len()) {
@@ -299,6 +293,17 @@ pub fn is_loopback(url: &url::Url) -> bool {
         _ => false,
     }
 }
+/// Whether `name` matches `^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`, the form of an
+/// API key name.
+pub(crate) fn is_api_key_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= MAX_API_KEY_NAME_BYTES
+        && name.as_bytes()[0].is_ascii_alphanumeric()
+        && name
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
+}
+
 fn enabled_schema(_: &mut SchemaGenerator) -> Schema {
     json_schema!({"type": "boolean"})
 }

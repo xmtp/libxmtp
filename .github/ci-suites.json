@@ -306,6 +306,7 @@
         "sdks/browser/test/platform/object-store/with-object-store",
         "sdks/ios/ios.just",
         "sdks/js.just",
+        "sdks/node/test/recoveryBackend.ts",
         "sdks/react-native/scripts/test-installed",
         "{package.json,pnpm-lock.yaml,pnpm-workspace.yaml,.node-version,.nvmrc,.oxlintrc.json,.oxfmtrc.json}"
       ],
@@ -634,7 +635,7 @@
         "dev/backend/{local.toml,local-s3.toml}",
         "dev/docker/{compose.yml,up,compose,load-env,load-backend-image}",
         "dev/docker/{postgres,s3,toxiproxy}/**",
-        "docs/{schemas/backend-v1.json,specs/CONF-backend-configuration.md}",
+        "docs/{schemas/backend-v1.json,specs/CONF-backend-configuration.md,specs/RATE-backend-rate-limits.md}",
         "nix/musl-docker.nix",
         "nix/package/backend.nix",
         "nix/services/**",

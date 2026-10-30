@@ -151,7 +151,7 @@ fn collect_schema_paths(
 }
 
 /// The fenced `toml` block of CONF section 1.3.
-fn example() -> &'static str {
+pub(crate) fn example() -> &'static str {
     let section = &SPEC[SPEC
         .find("### 1.3 Example configuration")
         .expect("CONF has section 1.3")..];

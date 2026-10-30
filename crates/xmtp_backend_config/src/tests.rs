@@ -1,7 +1,7 @@
 use super::*;
 use std::collections::BTreeSet;
 
-mod example;
+pub(crate) mod example;
 
 /// A command that runs one test of this test binary in a child process. The
 /// test is named by `module_path!()` where it is defined and its function name.
@@ -275,11 +275,8 @@ fn unknown_keys_are_refused_in_every_table() {
         {
             continue;
         }
-        tables.push(if element {
-            format!("{}[]", row.key)
-        } else {
-            row.key.clone()
-        });
+        let table = listed_keys(&rows, &row.key);
+        tables.push(if element { format!("{table}[]") } else { table });
     }
     for (table, enabled) in tables
         .iter()
@@ -301,6 +298,73 @@ fn unknown_keys_are_refused_in_every_table() {
             matches!(error, ConfigError::Invalid { reason, .. } if reason == "is not a configuration key"),
             "an unlisted key in [{table}] with auth enabled = {enabled}: {error}"
         );
+    }
+}
+
+/// `key` with each operator-chosen segment, such as `<category>`, replaced by
+/// the first name the `key one of:` check of that segment's row lists.
+fn listed_keys(rows: &[example::FieldRow], key: &str) -> String {
+    let mut listed = String::new();
+    let mut rest = key;
+    while let Some(open) = rest.find('<') {
+        let close = open + rest[open..].find('>').expect("an unclosed <");
+        let segment = &key[..key.len() - rest.len() + close + 1];
+        listed.push_str(&rest[..open]);
+        listed.push_str(&listed_names(rows, segment)[0]);
+        rest = &rest[close + 1..];
+    }
+    listed.push_str(rest);
+    listed
+}
+
+/// The names the `key one of:` check of the row for `key` lists.
+fn listed_names(rows: &[example::FieldRow], key: &str) -> Vec<String> {
+    let row = rows
+        .iter()
+        .find(|row| row.key == key)
+        .unwrap_or_else(|| panic!("{key} has no row"));
+    standard_checks(&row.checks)
+        .iter()
+        .find_map(|check| check.strip_prefix("key one of: "))
+        .unwrap_or_else(|| panic!("{key} lists no key names"))
+        .split(", ")
+        .map(str::to_owned)
+        .collect()
+}
+
+/// Every category and tier name the field table lists loads, under
+/// `rate_limits.categories` and in an override, and names its own limits.
+#[xmtp_common::test(unwrap_try = true)]
+fn every_listed_rate_limit_name_is_accepted() {
+    const MINIMAL: &str =
+        "[server]\nidentifier = 'org.xmtp.test'\n[database]\nurl = 'postgres://localhost/xmtp'\n";
+    let rows = example::field_table();
+    let tiers = listed_names(&rows, "rate_limits.categories.<category>.<tier>");
+    let caller = CallerKey::ApiKey("bot".into());
+    for (key, override_limits) in [
+        ("rate_limits.categories.<category>", false),
+        ("rate_limits.overrides[].limits.<category>", true),
+    ] {
+        for name in listed_names(&rows, key) {
+            let document = if override_limits {
+                format!(
+                    "{MINIMAL}[[rate_limits.overrides]]\napi_key = 'bot'\n\
+                     [rate_limits.overrides.limits]\n{name} = []\n"
+                )
+            } else {
+                let lists: String = tiers.iter().map(|tier| format!("{tier} = []\n")).collect();
+                format!("{MINIMAL}[rate_limits.categories.{name}]\n{lists}")
+            };
+            let config = ValidatedConfig::load_str(&document)
+                .unwrap_or_else(|error| panic!("{key} {name}: {error}"));
+            // Only the named category's limits are the empty list.
+            let emptied: Vec<&str> = Category::ALL
+                .into_iter()
+                .filter(|category| config.rate_limits().limits(*category, &caller).is_empty())
+                .map(Category::as_str)
+                .collect();
+            assert_eq!(emptied, [name.as_str()], "{key}");
+        }
     }
 }
 
@@ -416,6 +480,16 @@ url = "postgres://localhost/xmtp"
 [validation]
 [limits]
 max_scw_signatures = 200
+[rate_limits]
+trusted_proxies = ["10.0.0.0/8"]
+[[rate_limits.categories.request.default]]
+count = 100
+window_seconds = 60
+[[rate_limits.overrides]]
+api_key = "bot"
+[[rate_limits.overrides.limits.request]]
+count = 100
+window_seconds = 60
 [mls]
 max_installations_per_inbox = 100
 [handles]
@@ -1205,6 +1279,7 @@ fn failing_values() -> Vec<FailingValue> {
     ] {
         cases.push(failing(key, "range 1..", "0"));
     }
+    cases.extend(rate_limit_failing_values());
     for key in [
         "application_components[].insert_policy",
         "application_components[].update_policy",
@@ -1219,6 +1294,136 @@ fn failing_values() -> Vec<FailingValue> {
             "'maybe'",
             &format!("application_components[0].{name}"),
         ));
+    }
+    cases
+}
+
+/// The values that fail each standard check of a `rate_limits` row.
+fn rate_limit_failing_values() -> Vec<FailingValue> {
+    const WINDOW: &str = "range 1..2592000";
+    let mut cases = vec![
+        failing("rate_limits.max_memory_mib", "range 1..65536", "0"),
+        failing("rate_limits.max_memory_mib", "range 1..65536", "65537"),
+        failing_name(
+            "rate_limits.categories.<category>",
+            "key one of: request, publish, identity_update, chain_verify, push, upload, stream_rent",
+            "rate_limits.categories",
+            "query",
+            "{}",
+            "rate_limits.categories.query",
+        ),
+        failing_name(
+            "rate_limits.categories.<category>.<tier>",
+            "key one of: default, ip, jwt, api_key",
+            "rate_limits.categories.request",
+            "anonymous",
+            "[]",
+            "rate_limits.categories.request.anonymous",
+        ),
+        failing_name(
+            "rate_limits.overrides[].limits.<category>",
+            "key one of: request, publish, identity_update, chain_verify, push, upload, stream_rent",
+            "rate_limits.overrides[].limits",
+            "query",
+            "[]",
+            "rate_limits.overrides[0].limits.query",
+        ),
+        failing_name(
+            "rate_limits.overrides[].api_key",
+            "pattern ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$",
+            "rate_limits.overrides[]",
+            "api_key",
+            "'-bot'",
+            "rate_limits.overrides[0].api_key",
+        ),
+        failing_name(
+            "rate_limits.overrides[].jwt_subject",
+            "non-empty",
+            "rate_limits.overrides[]",
+            "jwt_subject",
+            "''",
+            "rate_limits.overrides[0].jwt_subject",
+        ),
+    ];
+    // An IPv4 octet or IPv6 group out of range, a leading zero, a zone, a
+    // bracket, a host name, a prefix that does not fit, and a bit set after
+    // the prefix.
+    for network in [
+        "10.0.0.0",
+        "256.0.0.0/8",
+        "010.0.0.0/8",
+        "10.0.0.0/33",
+        "10.0.0.0/+8",
+        "10.0.0.0/",
+        "10.0.0.1/8",
+        "fe80::%1/64",
+        "[fe80::]/64",
+        "fe80::/129",
+        "fe80::1/64",
+        "localhost/8",
+    ] {
+        cases.push(FailingValue {
+            field: "rate_limits.trusted_proxies[0]".into(),
+            ..failing(
+                "rate_limits.trusted_proxies",
+                "ip network",
+                &format!("['{network}']"),
+            )
+        });
+    }
+    for ip in [
+        "10.0.0.0/8",
+        "256.0.0.1",
+        "01.2.3.4",
+        "fe80::1%1",
+        "[::1]",
+        "host",
+    ] {
+        cases.push(failing_name(
+            "rate_limits.overrides[].ip",
+            "ip address",
+            "rate_limits.overrides[]",
+            "ip",
+            &format!("'{ip}'"),
+            "rate_limits.overrides[0].ip",
+        ));
+    }
+    let tier = "rate_limits.categories.request.default[]";
+    let category = "rate_limits.overrides[].limits.request[]";
+    for (key, table, field, check, texts) in [
+        (
+            "rate_limits.categories.<category>.<tier>[].count",
+            tier,
+            "rate_limits.categories.request.default[0].count",
+            COUNT,
+            ["0", "4294967296"],
+        ),
+        (
+            "rate_limits.categories.<category>.<tier>[].window_seconds",
+            tier,
+            "rate_limits.categories.request.default[0].window_seconds",
+            WINDOW,
+            ["0", "2592001"],
+        ),
+        (
+            "rate_limits.overrides[].limits.<category>[].count",
+            category,
+            "rate_limits.overrides[0].limits.request[0].count",
+            COUNT,
+            ["0", "4294967296"],
+        ),
+        (
+            "rate_limits.overrides[].limits.<category>[].window_seconds",
+            category,
+            "rate_limits.overrides[0].limits.request[0].window_seconds",
+            WINDOW,
+            ["0", "2592001"],
+        ),
+    ] {
+        let name = field.rsplit_once('.').expect("a key below its table").1;
+        for text in texts {
+            cases.push(failing_name(key, check, table, name, text, field));
+        }
     }
     cases
 }
