@@ -765,7 +765,6 @@ where
             Some(InternalEvent::GroupJoined {
                 group_id: group.group_id,
                 is_sync: stored_group.conversation_type == ConversationType::Sync,
-                origin: crate::subscriptions::internal::GroupOrigin::Welcomed,
             }),
             dm_event_context(group.dm_id.as_deref()),
         );

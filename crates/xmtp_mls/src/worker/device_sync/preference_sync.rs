@@ -1,8 +1,7 @@
 use super::*;
 use xmtp_cryptography::secret::Secret;
 use xmtp_db::consent_record::{
-    ConsentChange, ConsentWrite, MAX_AHEAD_NS, Owed, StoredConsentRecord, parse_consent_save,
-    write_consent,
+    ConsentChange, ConsentWrite, Owed, StoredConsentRecord, parse_consent_save, write_consent,
 };
 use xmtp_db::group_message::StoredGroupMessage;
 use xmtp_db::user_preferences::{RootKeyWrite, write_root_key};
@@ -58,11 +57,7 @@ pub(super) fn apply_preference_updates(
                     .extend(write_consent(db, &key, write, owed)?);
             }
             UpdateProto::Hmac(hmac) => {
-                let write = RootKeyWrite::Received {
-                    key: &hmac.key,
-                    cycled_at_ns: hmac.cycled_at_ns,
-                    bound_ns: msg.sent_at_ns.saturating_add(MAX_AHEAD_NS),
-                };
+                let write = RootKeyWrite::from_peer(&hmac.key, hmac.cycled_at_ns, msg.sent_at_ns);
                 if write_root_key(db, write, owed)? {
                     applied.root_key = Some(owed == Owed::Mark);
                 }
@@ -76,7 +71,9 @@ pub(super) fn apply_preference_updates(
 mod tests {
     use super::*;
     use crate::tester;
-    use xmtp_db::consent_record::{ConsentKey, ConsentState, ConsentType, ConsentValue};
+    use xmtp_db::consent_record::{
+        ConsentKey, ConsentState, ConsentType, ConsentValue, MAX_AHEAD_NS,
+    };
     use xmtp_db::group::{ConversationType, GroupMembershipState, StoredGroup};
     use xmtp_db::user_preferences::StoredUserPreferences;
     use xmtp_proto::types::GroupId;

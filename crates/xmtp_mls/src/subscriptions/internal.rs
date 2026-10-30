@@ -23,7 +23,6 @@ pub enum InternalEvent {
     GroupJoined {
         group_id: GroupId,
         is_sync: bool,
-        origin: GroupOrigin,
     },
     MessageStored {
         group_id: GroupId,
@@ -61,12 +60,6 @@ impl InternalEvent {
     pub(crate) fn is_message_deletion(&self) -> bool {
         matches!(self, Self::MessagesDeleted(_) | Self::MessagesExpired(_))
     }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum GroupOrigin {
-    Created,
-    Welcomed,
 }
 
 /// Report stored consent changes: one event per changed key and entity the

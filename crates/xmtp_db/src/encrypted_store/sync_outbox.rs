@@ -3,9 +3,7 @@
 
 use super::{
     ConnectionExt,
-    consent_record::{
-        ConsentWrite, MAX_AHEAD_NS, Owed, StoredConsentRecord, parse_consent_save, write_consent,
-    },
+    consent_record::{ConsentWrite, Owed, StoredConsentRecord, parse_consent_save, write_consent},
     schema::{consent_records::dsl, user_preferences::dsl as prefs},
     user_preferences::{RootKeyWrite, StoredUserPreferences, write_root_key},
 };
@@ -103,11 +101,7 @@ pub fn settle_sent(
                 }
             }
             UpdateProto::Hmac(hmac) => {
-                let write = RootKeyWrite::Settle {
-                    key: &hmac.key,
-                    cycled_at_ns: hmac.cycled_at_ns,
-                    bound_ns: envelope_ns.saturating_add(MAX_AHEAD_NS),
-                };
+                let write = RootKeyWrite::settle(&hmac.key, hmac.cycled_at_ns, envelope_ns);
                 write_root_key(db, write, Owed::Keep)?;
             }
         }

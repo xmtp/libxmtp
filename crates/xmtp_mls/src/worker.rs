@@ -505,7 +505,6 @@ impl MetricsCasting for DynMetrics {
 #[cfg(test)]
 mod event_subscription_tests {
     use super::*;
-    use crate::subscriptions::internal::GroupOrigin;
     use xmtp_events::{EventBus, EventWriter};
 
     /// The outbox and the sync messages are stored state; the worker wakes
@@ -529,7 +528,6 @@ mod event_subscription_tests {
             InternalEvent::GroupJoined {
                 group_id,
                 is_sync: true,
-                origin: GroupOrigin::Welcomed,
             },
             stored(false),
         ] {

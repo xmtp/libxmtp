@@ -434,7 +434,6 @@ where
                                 Some(crate::subscriptions::internal::InternalEvent::GroupJoined {
                                     group_id: stored_group.id,
                                     is_sync: true,
-                                    origin: crate::subscriptions::internal::GroupOrigin::Created,
                                 }),
                             );
                         }
@@ -498,7 +497,6 @@ where
                     Some(crate::subscriptions::internal::InternalEvent::GroupJoined {
                         group_id: stored_group.id,
                         is_sync: false,
-                        origin: crate::subscriptions::internal::GroupOrigin::Created,
                     }),
                 );
                 Ok::<_, GroupError>(Continue(stored_group))
@@ -679,7 +677,6 @@ where
                                 Some(crate::subscriptions::internal::InternalEvent::GroupJoined {
                                     group_id: stored_group.id,
                                     is_sync: false,
-                                    origin: crate::subscriptions::internal::GroupOrigin::Created,
                                 }),
                                 dm_event_context(stored_group.dm_id.as_deref()),
                             );

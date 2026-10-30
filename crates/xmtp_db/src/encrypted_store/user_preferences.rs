@@ -129,6 +129,26 @@ impl RootKeyWrite<'_> {
     }
 }
 
+impl<'a> RootKeyWrite<'a> {
+    /// A key from a sync message, capped by its envelope time.
+    pub fn from_peer(key: &'a [u8], cycled_at_ns: i64, envelope_ns: i64) -> Self {
+        Self::Received {
+            key,
+            cycled_at_ns,
+            bound_ns: envelope_ns.saturating_add(MAX_AHEAD_NS),
+        }
+    }
+
+    /// A key this installation sent in a message the backend timed at `envelope_ns`.
+    pub fn settle(key: &'a [u8], cycled_at_ns: i64, envelope_ns: i64) -> Self {
+        Self::Settle {
+            key,
+            cycled_at_ns,
+            bound_ns: envelope_ns.saturating_add(MAX_AHEAD_NS),
+        }
+    }
+}
+
 /// The only function that writes the root key. `true` when the key changed.
 // implements: SYNC-026, SYNC-027, SYNC-032, SYNC-034
 pub fn write_root_key(
