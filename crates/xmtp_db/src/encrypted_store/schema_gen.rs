@@ -14,6 +14,7 @@ diesel::table! {
         state -> Integer,
         entity -> Text,
         consented_at_ns -> BigInt,
+        owed_seq -> BigInt,
     }
 }
 
@@ -338,6 +339,8 @@ diesel::table! {
         push_generation -> BigInt,
         push_suppressed -> Nullable<Binary>,
         push_unregister_owed -> Bool,
+        hmac_key_owed_seq -> BigInt,
+        owed_counter -> BigInt,
     }
 }
 

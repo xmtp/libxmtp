@@ -1,5 +1,4 @@
 //! The Group database table. Stored information surrounding group membership and ID's.
-use super::consent_record::ConsentType;
 use super::group_message::{ContentType, GroupMessageKind};
 use super::schema::consent_records;
 use super::schema::group_messages;
@@ -150,21 +149,44 @@ impl<T: QueryConversationState + ?Sized> QueryConversationState for &T {
     }
 }
 
-type ConversationConsentJoin = diesel::dsl::And<
-    diesel::dsl::Eq<
-        diesel::expression::SqlLiteral<diesel::sql_types::Text>,
-        consent_records::entity,
-    >,
-    diesel::dsl::Eq<consent_records::entity_type, ConsentType>,
->;
+/// The join from the `groups` row named `g` to its consent record. A DM's
+/// record is the other member's inbox record, in exactly the cases where
+/// `DmIdExt::other_inbox_id` returns one: a two-member `dm:` id with
+/// distinct, non-empty members, one of which is the own inbox (the one
+/// `identity` row). Otherwise the key is NULL, which matches no record, so the
+/// DM reads unknown. Both sides are equalities on the primary key, so SQLite
+/// looks the record up by index.
+// implements: CONS-052, CONS-060
+pub fn consent_join_sql(g: &str) -> String {
+    let r = format!("substr({g}.dm_id, 4)");
+    let a = format!("substr({r}, 1, instr({r}, ':') - 1)");
+    let b = format!("substr({r}, instr({r}, ':') + 1)");
+    let me = "(SELECT inbox_id FROM identity)";
+    format!(
+        "consent_records.entity_type = CASE WHEN {g}.dm_id IS NULL THEN 1 ELSE 2 END \
+         AND consent_records.entity = CASE \
+           WHEN {g}.dm_id IS NULL THEN lower(hex({g}.id)) \
+           WHEN substr({g}.dm_id, 1, 3) <> 'dm:' OR instr({r}, ':') = 0 \
+             OR {a} = '' OR {b} = '' OR instr({b}, ':') > 0 OR {a} = {b} THEN NULL \
+           WHEN {a} = {me} THEN lower({b}) \
+           WHEN {b} = {me} THEN lower({a}) \
+           END"
+    )
+}
 
-/// The ON clause that joins a group to its own consent record. A keyed
-/// group's 64-hex id has the shape of an inbox id, so the join also matches
-/// the record's kind.
-fn conversation_consent_join() -> ConversationConsentJoin {
-    sql::<diesel::sql_types::Text>("lower(hex(groups.id))")
-        .eq(consent_records::entity)
-        .and(consent_records::entity_type.eq(ConsentType::ConversationId))
+fn conversation_consent_join() -> diesel::expression::SqlLiteral<diesel::sql_types::Bool> {
+    sql::<diesel::sql_types::Bool>(&consent_join_sql("groups"))
+}
+
+/// A sync group's local join time: after the clock and after every sync
+/// group held, so the group joined last is the one publishing selects.
+// implements: SYNC-031
+pub fn next_sync_join_time(db: &impl QueryGroup) -> Result<i64, crate::ConnectionError> {
+    let newest = db
+        .all_sync_groups()?
+        .first()
+        .map_or(i64::MIN, |g| g.created_at_ns.saturating_add(1));
+    Ok(xmtp_common::time::now_ns().max(newest))
 }
 
 /// The conversations whose commit log the client reads: allowed DMs and
@@ -189,14 +211,9 @@ impl<C: ConnectionExt> QueryConversationState for DbConnection<C> {
         &self,
         group_id: &GroupId,
     ) -> Result<Option<(StoredGroup, Option<ConsentState>)>, StorageError> {
-        let entity = hex::encode(group_id);
         Ok(self.raw_query(|conn| {
             groups::table
-                .left_join(
-                    consent_records::table.on(consent_records::entity_type
-                        .eq(ConsentType::ConversationId)
-                        .and(consent_records::entity.eq(&entity))),
-                )
+                .left_join(consent_records::table.on(conversation_consent_join()))
                 .filter(groups::id.eq(group_id))
                 .select((StoredGroup::as_select(), consent_records::state.nullable()))
                 .first(conn)
@@ -811,7 +828,7 @@ impl<C: ConnectionExt> DbConnection<C> {
 impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
     /// Return regular `Purpose::Conversation` groups with additional optional filters
     #[xmtp_common::db_span]
-    // implements: CONS-030, CONS-031
+    // implements: CONS-060, CONS-031
     fn find_groups<A: AsRef<GroupQueryArgs>>(
         &self,
         args: A,
@@ -1691,18 +1708,34 @@ pub(crate) mod tests {
             .unwrap()
     }
 
+    /// The own identity `generate_dm` names, and the consent record of `dm`'s
+    /// peer in `state`.
+    pub fn dm_peer_consent(
+        conn: &impl crate::DbQuery,
+        dm: &StoredGroup,
+        state: ConsentState,
+    ) -> StoredConsentRecord {
+        let own = "placeholder_inbox_id_1";
+        if conn
+            .raw_query(|c| crate::schema::identity::table.count().get_result::<i64>(c))
+            .unwrap()
+            == 0
+        {
+            crate::identity::StoredIdentity::new(own.into(), vec![0], vec![0])
+                .store(conn)
+                .unwrap();
+        }
+        let peer = dm.dm_id.clone().unwrap().other_inbox_id(own).unwrap();
+        generate_consent_record(ConsentType::InboxId, state, peer)
+    }
+
     /// Generate a test consent
     pub fn generate_consent_record(
         entity_type: ConsentType,
         state: ConsentState,
         entity: String,
     ) -> StoredConsentRecord {
-        StoredConsentRecord {
-            entity_type,
-            state,
-            entity,
-            consented_at_ns: now_ns(),
-        }
+        StoredConsentRecord::new(entity_type, state, entity)
     }
 
     #[xmtp_common::test]
@@ -1956,7 +1989,7 @@ pub(crate) mod tests {
         })
     }
 
-    // verifies: CONS-030, SYNC-005
+    // verifies: CONS-060, SYNC-005
     #[xmtp_common::test(unwrap_try = true)]
     fn test_find_groups_by_consent_state() {
         with_connection(|conn| {
@@ -1981,11 +2014,8 @@ pub(crate) mod tests {
                 hex::encode(test_group_2.id),
             );
             test_group_2_consent.store(conn).unwrap();
-            let test_group_3_consent = generate_consent_record(
-                ConsentType::ConversationId,
-                ConsentState::Allowed,
-                hex::encode(test_group_3.id),
-            );
+            // A DM's consent is its peer's inbox record.
+            let test_group_3_consent = dm_peer_consent(conn, &test_group_3, ConsentState::Allowed);
             test_group_3_consent.store(conn).unwrap();
 
             use ConsentState::{Allowed, Denied, Unknown};
@@ -2269,6 +2299,133 @@ pub(crate) mod tests {
                 .collect();
             assert_eq!(ids, [newer[0], newer[1], older[1], older[0]]);
         })
+    }
+
+    /// A sync group is stored after every sync group held, even when the
+    /// clock was set back after the older group was stored.
+    // verifies: SYNC-031
+    #[xmtp_common::test]
+    fn sync_join_time_grows_after_clock_set_back() {
+        with_connection(|conn| {
+            let ahead = now_ns() + 2 * xmtp_common::NS_IN_HOUR;
+            let mut older = generate_group_with_created_at(None, ahead);
+            older.conversation_type = ConversationType::Sync;
+            older.store(conn).unwrap();
+            let joined = next_sync_join_time(conn).unwrap();
+            assert_eq!(joined, ahead + 1);
+            let mut newer = generate_group_with_created_at(None, joined);
+            newer.conversation_type = ConversationType::Sync;
+            newer.store(conn).unwrap();
+            assert_eq!(conn.all_sync_groups().unwrap()[0].id, newer.id);
+        })
+    }
+
+    /// One place spells a group's consent key in SQL, and the deleted consent
+    /// writers and readers stay deleted: a reader keyed by group id alone
+    /// would read a DM's own record instead of its peer's.
+    // verifies: CONS-052
+    #[cfg(not(target_arch = "wasm32"))]
+    #[xmtp_common::test]
+    fn consent_grep_gates() {
+        let crates = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+        let banned = [
+            "lower(hex(",
+            "get_consent_record",
+            "record_app_act",
+            "insert_newer_consent_record",
+            "PreferenceOrigin",
+            "beyond_received_bound",
+            "stitch_dm_consent",
+            "store_hmac_key",
+        ];
+        let mut found = vec![];
+        let mut dirs = vec![crates];
+        while let Some(dir) = dirs.pop() {
+            for entry in std::fs::read_dir(&dir).unwrap() {
+                let path = entry.unwrap().path();
+                let name = path.to_string_lossy().into_owned();
+                if name.contains("xmtp_legacy_migration") || name.ends_with("target") {
+                    continue;
+                }
+                if path.is_dir() {
+                    dirs.push(path);
+                } else if name.ends_with(".rs") {
+                    let text = std::fs::read_to_string(&path).unwrap();
+                    for word in banned {
+                        let allowed =
+                            word == "lower(hex(" && name.ends_with("encrypted_store/group.rs");
+                        // This test names the words it bans.
+                        let allowed = allowed || text.contains("fn consent_grep_gates");
+                        if !allowed && text.contains(word) {
+                            found.push(format!("{name}: {word}"));
+                        }
+                    }
+                }
+            }
+        }
+        assert!(found.is_empty(), "{found:#?}");
+    }
+
+    /// The SQL join and `ConsentKey::of_group` give a group the same consent
+    /// record, or both none, for every dm id shape.
+    // verifies: CONS-052, CONS-060
+    #[xmtp_common::test(unwrap_try = true)]
+    fn consent_join_sql_matches_of_group() {
+        use crate::consent_record::ConsentKey;
+        use diesel::sql_types::{Binary, Integer, Nullable, Text};
+        #[derive(QueryableByName)]
+        struct Joined {
+            #[diesel(sql_type = Nullable<Integer>)]
+            entity_type: Option<i32>,
+            #[diesel(sql_type = Nullable<Text>)]
+            entity: Option<String>,
+        }
+        with_connection(|conn| {
+            crate::identity::StoredIdentity::new("me".into(), vec![0], vec![0]).store(conn)?;
+            let entities = ["p", "q", "me", "a", "b", "a:b", "p:q", "x"];
+            for entity in entities {
+                generate_consent_record(ConsentType::InboxId, ConsentState::Denied, entity.into())
+                    .store(conn)?;
+            }
+            let dm_ids = [
+                None,
+                Some("dm:me:p"),
+                Some("dm:p:me"),
+                Some("dm:me:P"),
+                Some("dm:a:b"),
+                Some("dm:me:me"),
+                Some("dm:me:p:q"),
+                Some("dm::me"),
+                Some("dm:me:"),
+                Some("dm:me"),
+                Some("x:me:p"),
+            ];
+            for dm_id in dm_ids {
+                let mut group = generate_group(None);
+                group.dm_id = dm_id.map(String::from);
+                group.store(conn)?;
+                generate_consent_record(
+                    ConsentType::ConversationId,
+                    ConsentState::Denied,
+                    hex::encode(group.id),
+                )
+                .store(conn)?;
+                let joined = conn.raw_query(|c| {
+                    diesel::sql_query(format!(
+                        "SELECT consent_records.entity_type, consent_records.entity FROM groups \
+                         LEFT JOIN consent_records ON {} WHERE groups.id = ?",
+                        consent_join_sql("groups")
+                    ))
+                    .bind::<Binary, _>(group.id)
+                    .get_result::<Joined>(c)
+                })?;
+                let rust = ConsentKey::of_group(&group, "me")
+                    .map(|key| (key.entity_type as i32, key.entity));
+                let sql = joined.entity_type.zip(joined.entity);
+                assert_eq!(sql, rust, "{dm_id:?}");
+            }
+            Ok::<_, StorageError>(())
+        })?;
     }
 
     /// An imported Restored sync group carries an archive-controlled join
@@ -2826,7 +2983,13 @@ pub(crate) mod tests {
             assert_eq!(changed_by()?, 0, "message insert");
 
             let consent = |entity_type, state, entity: String| {
-                conn.record_app_act(&[generate_consent_record(entity_type, state, entity)])
+                use crate::consent_record::{ConsentKey, ConsentWrite, Decision, Owed};
+                let key = ConsentKey {
+                    entity_type,
+                    entity,
+                };
+                let write = ConsentWrite::Decide(Decision::Set(state));
+                crate::consent_record::write_consent(conn, &key, write, Owed::Mark)
             };
             let entity = hex::encode(group.id);
             consent(
@@ -2856,9 +3019,13 @@ pub(crate) mod tests {
                 .execute(c)
             })?;
             assert_eq!(changed_by()?, 1, "conversation consent delete");
+            // Inbox consent decides DMs, so it changes the group set.
             consent(ConsentType::InboxId, ConsentState::Denied, "bo".into())?;
+            assert_eq!(changed_by()?, 1, "inbox consent insert");
             consent(ConsentType::InboxId, ConsentState::Allowed, "bo".into())?;
-            assert_eq!(changed_by()?, 0, "inbox consent");
+            assert_eq!(changed_by()?, 1, "inbox consent change");
+            crate::sync_outbox::mark_all_owed(conn)?;
+            assert_eq!(changed_by()?, 0, "owed marks only");
 
             conn.record_welcome_discovery(group.id, Cursor(5))?;
             assert_eq!(changed_by()?, 1, "Welcome discovery");

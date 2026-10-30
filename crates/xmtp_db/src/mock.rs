@@ -91,40 +91,13 @@ mock! {
     }
 
     impl QueryConsentRecord for DbQuery {
-        fn get_consent_record(
+        fn consent_row(
             &self,
-            entity: String,
-            entity_type: crate::consent_record::ConsentType,
+            key: &crate::consent_record::ConsentKey,
         ) -> Result<Option<crate::consent_record::StoredConsentRecord>, crate::ConnectionError>;
 
         fn consent_records(
             &self,
-        ) -> Result<Vec<crate::consent_record::StoredConsentRecord>, crate::ConnectionError>;
-
-        fn consent_records_paged(
-            &self,
-            limit: i64,
-            offset: i64,
-        ) -> Result<Vec<crate::consent_record::StoredConsentRecord>, crate::ConnectionError>;
-
-        fn insert_newer_consent_record(
-            &self,
-            record: crate::consent_record::StoredConsentRecord,
-        ) -> Result<crate::consent_record::ConsentMerge, crate::ConnectionError>;
-
-        fn record_app_act(
-            &self,
-            records: &[crate::consent_record::StoredConsentRecord],
-        ) -> Result<Vec<(crate::consent_record::StoredConsentRecord, bool)>, crate::ConnectionError>;
-
-        fn maybe_insert_consent_record_return_existing(
-            &self,
-            record: &crate::consent_record::StoredConsentRecord,
-        ) -> Result<Option<crate::consent_record::StoredConsentRecord>, crate::ConnectionError>;
-
-        fn find_consent_by_dm_id(
-            &self,
-            dm_id: &str,
         ) -> Result<Vec<crate::consent_record::StoredConsentRecord>, crate::ConnectionError>;
     }
 
@@ -153,6 +126,11 @@ mock! {
         fn fetch_stitched(
             &self,
             key: &GroupId,
+        ) -> Result<Option<crate::group::StoredGroup>, ConnectionError>;
+
+        fn find_dm_by_dm_id(
+            &self,
+            dm_id: &str,
         ) -> Result<Option<crate::group::StoredGroup>, ConnectionError>;
 
         #[mockall::concretize]
@@ -660,6 +638,11 @@ mock! {
             &self,
             message_id: &[u8],
         ) -> Result<(), StorageError>;
+
+        fn own_unprocessed_sync_messages(
+            &self,
+            installation_id: &[u8],
+        ) -> Result<Vec<crate::group_message::StoredGroupMessage>, StorageError>;
     }
 
     impl QueryRefreshState for DbQuery {
