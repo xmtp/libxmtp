@@ -22,14 +22,14 @@ flowchart LR
 
 In scope: registration and the bearer secret; the three channels and the safety of a webhook destination; how a subscription is added, replaced, and removed, and where it starts; which envelopes are pushed; the delivery condition and what survives a restart; sender suppression; the push body and the provider contract; when a recipient is deleted; webhook signing; retention; the client's desired set, its sync, and its recovery; and what an SDK exposes to an app.
 
-Out of scope: request authentication on the notification RPCs (AUTH-001, AUTH-003, AUTH-013); sequence ids and the publish contract (API-286 through API-289, API-210); the closed allocation boundary (API-203); the layout of a topic (TOPIC-001); how the root HMAC key is generated and reaches every installation of an inbox (SYNC-015, SYNC-022); consent states (`CONS` section 1); metrics, shutdown, and read routing (OPS-007, OPS-008, OPS-014, OPS-017); the push configuration keys, their checks, and the startup checks of provider credentials (CONF section 1.2); the backend's internal bounds, which belong to operator documentation; and the platform a deployment runs on.
+Out of scope: request authentication on the notification RPCs (AUTH-001, AUTH-003, AUTH-013); sequence ids and the publish contract (API-286 through API-289, API-210); the closed allocation boundary (API-203); the layout of a topic (TOPIC-001); how the root HMAC key is generated and reaches every installation of an inbox (SYNC-026, SYNC-032); consent states (`CONS` section 1); metrics, shutdown, and read routing (OPS-007, OPS-008, OPS-014, OPS-017); the push configuration keys, their checks, and the startup checks of provider credentials (CONF section 1.2); the backend's internal bounds, which belong to operator documentation; and the platform a deployment runs on.
 
 | Related | Relation |
 | --- | --- |
 | `AUTH` | AUTH-001, AUTH-003, and AUTH-013 apply to the three notification RPCs as to every other path. No claim is read for ownership; the secret alone decides it. |
 | `API` | Owns sequence ids (API-286 through API-289), the envelope wire format including `GroupMessage` (API-210), admission (API-230), and the closed allocation boundary (API-203). |
 | `TOPIC` | TOPIC-001 gives the kind byte and identifier of a group-message topic and a welcome topic, the two kinds a subscription may carry. |
-| `SYNC` | SYNC-015 and SYNC-022 own the inbox's 42-byte root HMAC key. This spec owns what is derived from it. |
+| `SYNC` | SYNC-026 and SYNC-032 own the inbox's 42-byte root HMAC key. This spec owns what is derived from it. |
 | `OPS` | OPS-014 keeps request data out of telemetry; OPS-017 owns the metric catalogue; OPS-007 and OPS-008 own shutdown as a client sees it. |
 | `EVENT` | EVENT-001 reports when the stored notification state becomes failed. |
 | `CONF` | Owns the `[push]` configuration keys, their types, presence, and checks, and the defaults that PUSH-217 and PUSH-226 do not state (CONF section 1.2, CONF-091, CONF-092). |
@@ -49,7 +49,7 @@ API-203 defines the closed allocation boundary; PUSH-216 requires that a new sub
 | Start position | The closed allocation boundary (API-203) read in the transaction that first stored a subscription (PUSH-216). |
 | HMAC epoch | A 30-day period: the Unix time in seconds divided by 2592000, rounded down. |
 | Key window | The `hmac_keys` of a subscription: up to three 42-byte keys for consecutive HMAC epochs starting at `hmac_epoch_base`, so the key at index `n` is for epoch `hmac_epoch_base + n`. |
-| Root key | The inbox's 42-byte random key from which every group HMAC key derives (SYNC-015). |
+| Root key | The inbox's 42-byte random key from which every group HMAC key derives (SYNC-026). |
 | Push-eligible envelope | A stored envelope that PUSH-219 makes eligible for delivery. |
 | Settled envelope | An envelope whose sequence id is at or below the closed allocation boundary. |
 | Dispatcher | The backend process that, at a given time, loads deliveries and records dispatch progress. |
@@ -209,7 +209,7 @@ The dispatcher also runs the retention pass: a recipient that has not renewed wi
 
 ## 6. Sender suppression
 
-A sender's own message must not wake the sender's devices. The backend cannot read the message to learn who sent it, so the sender attaches an HMAC and the recipient's installations upload the keys that verify it. Every installation of an inbox derives the same key for a group from the inbox's root key (SYNC-015, SYNC-022), so a match means "this recipient's inbox sent it". The key rotates every HMAC epoch and the client uploads a three-epoch window, so a key uploaded a month ago still covers the current epoch and the next.
+A sender's own message must not wake the sender's devices. The backend cannot read the message to learn who sent it, so the sender attaches an HMAC and the recipient's installations upload the keys that verify it. Every installation of an inbox derives the same key for a group from the inbox's root key (SYNC-026, SYNC-032), so a match means "this recipient's inbox sent it". The key rotates every HMAC epoch and the client uploads a three-epoch window, so a key uploaded a month ago still covers the current epoch and the next.
 
 The check runs only on a delivery that already passes PUSH-257, and it fails open. A missing `sender_hmac`, no key for the envelope's epoch, a payload that does not decode, a key window that has not reached the backend yet, or an envelope whose 16 MiB check total is spent all result in a push. The sender picks the epoch by its own clock at send time and the backend by the envelope's server timestamp, so a message near an epoch boundary can reach its own sender (Known limitations).
 

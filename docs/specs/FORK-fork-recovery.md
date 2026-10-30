@@ -38,7 +38,7 @@ Out of scope: commit validation, the membership component, and the protocol-vers
 | `TOPIC` | Owns the commit-log kind byte and its 32-byte commit-log identifier (TOPIC-001, TOPIC-002). |
 | `OPS` | Owns retention. API-212 assigns commit-log expiry; OPS-001 prevents deletion of an exempt envelope. |
 | PERM-001, GMOD-052 | Own the super admin role and the same-installation readd exception used by FORK-062. |
-| [CONS section 1](CONS-consent.md#1-states-and-entities) | Defines the conversation consent state tested by FORK-085, FORK-030, and FORK-053. |
+| [CONS section 1](CONS-consent.md#1-records-and-keys) | Defines the conversation consent state tested by FORK-085, FORK-030, and FORK-053. |
 | [META section 2](META-group-metadata.md#2-well-known-components) | Owns the `GROUP_ROOT_KEY`, `ONESHOT_MESSAGE`, and minimum protocol version components. This spec states their use. |
 | GMOD-040, GMOD-041 | Own the group root and the commit-log keys derived from it. |
 | `ARCH` | Owns restored groups (ARCH-015). A restored group holds no group root, so it has no commit-log id, and FORK-030 does not read it. |

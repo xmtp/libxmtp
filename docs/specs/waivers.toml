@@ -116,7 +116,7 @@ id = "EVENT-001"
 kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/4207"
-reason = "One-event evidence remains missing for the HMAC root-key path that stores a new root key under SYNC-015 and SYNC-022, replacing an ended group, activating a restored group, and a transaction that aborts before commit and succeeds on retry."
+reason = "One-event evidence remains missing for the HMAC root-key path that stores a new root key under SYNC-026 and SYNC-032, replacing an ended group, activating a restored group, and a transaction that aborts before commit and succeeds on retry."
 
 [[waiver]]
 id = "EVENT-002"

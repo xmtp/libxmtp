@@ -21,7 +21,7 @@ archive owner inbox check. The app selects the destination inbox.
 | --- | --- |
 | ARCH | Owns the archive format, record ordering, exclusions, and import behavior. |
 | META | Owns metadata meaning and disappearing-message policy. |
-| CONS | Owns consent meaning and conflict resolution. |
+| CONS | Owns consent meaning and conflict resolution, and CONS-061, which combines a peer's pre-8.0 rows. |
 
 ## Terms
 
@@ -114,12 +114,20 @@ The retained variable fields are:
   sender inbox ID, authority ID, and optional reference ID.
 - Group row: group ID, added-by inbox ID, optional DM ID, and optional paused
   version.
-- Consent row: entity.
+- Consent row: entity, and the DM id of the group it names.
 
 Count TEXT as bytes, not characters, including embedded NULs. An absent optional
 field contributes zero bytes. Optional MLS context data has a separate decode
 budget. This is a per-row limit, not a database or archive size limit. Conversion
 does not skip an oversized eligible row.
+
+Before 8.0, a DM's consent was its group's row. 8.0 reads a DM's consent from
+the record of its other member's inbox (CONS-052), so the converter names that
+member.
+
+| ID | Title | Requirement | Why |
+| --- | --- | --- | --- |
+| MIG-009 | A DM's consent names its peer | When the legacy database holds an identity row, the converter MUST write the consent rows of every group whose DM id holds that row's inbox, together with the inbox row of that DM's other member, as one inbox record for that member, combined under CONS-061, and MUST NOT write those rows separately. Without an identity row, it MUST write every row as stored. | 8.0 keys a DM's consent by its peer's inbox (CONS-052). The converter's group filter can leave the DM's group out of the archive, so the importer cannot find the peer. Pre-8.0 times are first-insert times, so the rows must be combined, not merged by time. |
 
 ## 4. Archive byte reads
 
