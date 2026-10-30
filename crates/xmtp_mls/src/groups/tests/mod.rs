@@ -4,6 +4,7 @@ mod test_commit_log_fork_detection;
 mod test_commit_log_local;
 mod test_commit_log_readd_requests;
 mod test_commit_log_remote;
+mod test_commit_log_upgrade;
 mod test_consent;
 mod test_delete_message;
 mod test_dm;
@@ -11,6 +12,7 @@ mod test_dm;
 mod test_failed_installations;
 mod test_group_info;
 mod test_group_updated;
+mod test_leaf_key_binding;
 #[cfg(not(target_arch = "wasm32"))]
 mod test_legacy_placeholder_topics;
 mod test_membership;
@@ -26,6 +28,8 @@ mod test_proposals;
 mod test_proposals_app_data;
 mod test_proposals_pause;
 mod test_proposals_permissions;
+#[cfg(not(target_arch = "wasm32"))]
+mod test_rate_limits;
 mod test_self_removal;
 mod test_send_message_opts;
 mod test_send_receive;
@@ -87,7 +91,7 @@ use xmtp_db::{
     prelude::*,
 };
 use xmtp_id::associations::Identifier;
-use xmtp_id::associations::test_utils::WalletTestExt;
+use xmtp_id::associations::test_utils::add_wallet_signature;
 use xmtp_mls_common::group_metadata::GroupMetadata;
 use xmtp_mls_common::group_mutable_metadata::{MessageDisappearingSettings, MetadataField};
 use xmtp_proto::xmtp::mls::message_contents::{EncodedContent, PlaintextEnvelope};
@@ -151,6 +155,21 @@ pub(super) async fn get_latest_message(group: &TestMlsGroup) -> StoredGroupMessa
     group.sync().await.unwrap();
     let mut messages = group.find_messages(&MsgQueryArgs::default()).unwrap();
     messages.pop().unwrap()
+}
+
+/// Revoke the installation `key` from `member`'s inbox.
+pub(in crate::groups) async fn revoke(member: &ClientTester, key: &[u8]) {
+    let mut request = member
+        .identity_updates()
+        .revoke_installations(vec![key.to_vec()])
+        .await
+        .unwrap();
+    add_wallet_signature(&mut request, &member.builder.owner).await;
+    member
+        .identity_updates()
+        .apply_signature_request(request)
+        .await
+        .unwrap();
 }
 
 // Adds a member to the group without the usual validations on group membership
@@ -418,6 +437,7 @@ pub(super) async fn create_membership_update_no_sync(group: &TestMlsGroup) {
  * intents that do the same thing, leading to conflicts
  */
 
+// verifies: CONS-057
 #[cfg_attr(target_arch = "wasm32", ignore)]
 #[rstest]
 #[xmtp_common::test]
@@ -453,99 +473,55 @@ async fn test_get_and_set_consent(
     // group consent state should be allowed if user sends a message to the group
     assert_eq!(bola_group.consent_state().unwrap(), ConsentState::Allowed);
 
+    // A send in an allowed conversation stores no record.
+    use crate::subscriptions::internal::InternalEvent::PreferencesChanged;
+    let preferences = bola.context.events().subscribe(
+        xmtp_events::EventFilter::default()
+            .with_internal(|e| matches!(e, PreferencesChanged { .. })),
+        Some(16),
+    );
+    bola_group
+        .send_message("again from bola".as_bytes(), SendMessageOpts::default())
+        .await
+        .unwrap();
+    assert!(preferences.drain().is_empty());
+
     alix_group.add_members(&[caro.inbox_id()]).await.unwrap();
 
     caro.sync_welcomes().await.unwrap();
     let caro_groups = caro.find_groups(GroupQueryArgs::default()).unwrap();
     let caro_group = caro_groups.first().unwrap();
 
-    caro_group
-        .send_message_optimistic("hi from caro".as_bytes(), SendMessageOpts::default())
+    let text = xmtp_content_types::text::TextCodec::encode("hi from caro".into()).unwrap();
+    let message_id = caro_group
+        .send_message_optimistic(
+            &xmtp_content_types::encoded_content_to_bytes(text),
+            SendMessageOpts::default(),
+        )
         .unwrap();
 
-    caro_group.publish_messages().await.unwrap();
-
-    // group consent state should be allowed if user publishes a message to the group
+    // Queueing the message allows, before it is published.
     assert_eq!(caro_group.consent_state().unwrap(), ConsentState::Allowed);
+
+    // A deny made before the publish completes stands, and a retry that
+    // reuses the queued intent does not replace it.
+    caro_group
+        .update_consent_state(ConsentState::Denied)
+        .unwrap();
+    caro_group
+        .publish_stored_message(&message_id)
+        .await
+        .unwrap();
+    assert_eq!(caro_group.consent_state().unwrap(), ConsentState::Denied);
+    caro_group.publish_messages().await.unwrap();
+    assert_eq!(caro_group.consent_state().unwrap(), ConsentState::Denied);
+
+    // Deleting a message does not allow.
+    caro_group.delete_message(message_id).unwrap();
+    assert_eq!(caro_group.consent_state().unwrap(), ConsentState::Denied);
 }
 
-#[xmtp_common::test]
-// TODO(rich): Generalize the test once fixed - test messages that are 0, 1, 2, 3, 4, 5 epochs behind
-async fn test_max_past_epochs() {
-    // Create group with two members
-    let bo_wallet = generate_local_wallet();
-    let alix = ClientBuilder::new_test_client_vanilla(&generate_local_wallet()).await;
-    let bo = ClientBuilder::new_test_client_vanilla(&bo_wallet).await;
-    let alix_group = alix
-        .create_group_with_identifiers(&[bo_wallet.identifier()], None, None)
-        .await
-        .unwrap();
-
-    bo.sync_welcomes().await.unwrap();
-    let bo_groups = bo.find_groups(GroupQueryArgs::default()).unwrap();
-    let bo_group = bo_groups.first().unwrap();
-
-    // Both members see the same amount of messages to start
-    alix_group
-        .send_message("alix 1".as_bytes(), SendMessageOpts::default())
-        .await
-        .unwrap();
-    bo_group
-        .send_message("bo 1".as_bytes(), SendMessageOpts::default())
-        .await
-        .unwrap();
-    alix_group.sync().await.unwrap();
-    bo_group.sync().await.unwrap();
-
-    let alix_messages = alix_group
-        .find_messages(&MsgQueryArgs {
-            kind: Some(GroupMessageKind::Application),
-            ..Default::default()
-        })
-        .unwrap();
-    let bo_messages = bo_group
-        .find_messages(&MsgQueryArgs {
-            kind: Some(GroupMessageKind::Application),
-            ..Default::default()
-        })
-        .unwrap();
-
-    assert_eq!(alix_messages.len(), 2);
-    assert_eq!(bo_messages.len(), 2);
-
-    // Alix moves the group forward by 1 epoch
-    alix_group
-        .update_group_name("new name".to_string())
-        .await
-        .unwrap();
-
-    // Bo sends a message while 1 epoch behind
-    bo_group
-        .send_message("bo 2".as_bytes(), SendMessageOpts::default())
-        .await
-        .unwrap();
-
-    // If max_past_epochs is working, Alix should be able to decrypt Bo's message
-    alix_group.sync().await.unwrap();
-    bo_group.sync().await.unwrap();
-
-    let alix_messages = alix_group
-        .find_messages(&MsgQueryArgs {
-            kind: Some(GroupMessageKind::Application),
-            ..Default::default()
-        })
-        .unwrap();
-    let bo_messages = bo_group
-        .find_messages(&MsgQueryArgs {
-            kind: Some(GroupMessageKind::Application),
-            ..Default::default()
-        })
-        .unwrap();
-    assert_eq!(bo_messages.len(), 3);
-    assert_eq!(alix_messages.len(), 3); // Fails here, 2 != 3
-}
-
-// verifies: DMS-003
+// verifies: DMS-021
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_validate_dm_group() {
     use crate::groups::build_group_config;
@@ -556,12 +532,15 @@ async fn test_validate_dm_group() {
             component_id::ComponentId,
             creation::{InitialGroupKind, initial_dictionary},
         },
+        group_keys::GroupRoot,
         inbox_id::InboxId as ComponentInboxId,
         tls_set::TlsSet,
     };
 
     tester!(client);
     let added_by_inbox = hex::encode([0x42; 32]);
+    // A DM Welcome must carry the group's root.
+    let root = GroupRoot::generate();
     let make_group = |policies: PolicySet,
                       changes: Vec<(ComponentId, Option<Vec<u8>>)>,
                       leaf_inbox: Option<&str>| {
@@ -572,7 +551,7 @@ async fn test_validate_dm_group() {
             &policies.to_proto().unwrap(),
             &GroupMetadataOptions::default(),
             client.inbox_id(),
-            None,
+            Some(&root),
             &[],
         )
         .unwrap();
@@ -933,23 +912,90 @@ async fn test_membership_state() {
     assert_eq!(bola_state, GroupMembershipState::Pending);
 }
 
+/// Each referencing type stores its reference only when it is a 32-byte
+/// message id in hexadecimal, in either case. A custom authority or an
+/// unknown major version stores none.
 // verifies: CTYPE-001, CTYPE-018
 #[xmtp_common::test(unwrap_try = true)]
-fn queryable_fields_do_not_classify_custom_reply() {
+fn reference_ids_are_canonical_message_ids() {
     use xmtp_content_types::{
+        CodecError,
+        compression::compress,
+        delete_message::DeleteMessageCodec,
+        reaction::{LegacyReaction, LegacyReactionCodec, ReactionCodec},
         reply::{Reply, ReplyCodec},
         text::TextCodec,
     };
     use xmtp_db::group_message::ContentType;
+    use xmtp_proto::xmtp::mls::message_contents::content_types::{DeleteMessage, ReactionV2};
+    use xmtp_proto::xmtp::mls::message_contents::{Compression, EncodedContent};
 
-    let standard = ReplyCodec::encode(Reply {
-        reference: "0102".into(),
-        reference_inbox_id: None,
-        content: TextCodec::encode("reply".into())?,
-    })?;
+    type Encode = fn(&str) -> Result<EncodedContent, CodecError>;
+    let reply: Encode = |reference| {
+        ReplyCodec::encode(Reply {
+            reference: reference.into(),
+            reference_inbox_id: None,
+            content: TextCodec::encode("reply".into())?,
+        })
+    };
+    let reaction: Encode = |reference| {
+        ReactionCodec::encode(ReactionV2 {
+            reference: reference.into(),
+            ..Default::default()
+        })
+    };
+    let legacy_reaction: Encode = |reference| {
+        LegacyReactionCodec::encode(LegacyReaction {
+            action: "added".into(),
+            reference: reference.into(),
+            reference_inbox_id: None,
+            schema: "unicode".into(),
+            content: "👍".into(),
+        })
+    };
+    let delete: Encode = |reference| {
+        DeleteMessageCodec::encode(DeleteMessage {
+            message_id: reference.into(),
+        })
+    };
+    let reference_id =
+        |content| super::QueryableContentFields::try_from(content).map(|f| f.reference_id);
+
+    let id = "ab".repeat(32);
+    let arms = [
+        ("reply", reply),
+        ("reaction", reaction),
+        ("legacy reaction", legacy_reaction),
+        ("delete", delete),
+    ];
+    for (arm, encode) in arms {
+        for (reference, expected) in [
+            (id.clone(), Some(vec![0xab; 32])),
+            (id.to_uppercase(), Some(vec![0xab; 32])),
+            ("0102".into(), None),
+            ("ab".repeat(33), None),
+            ("zz".repeat(32), None),
+            (format!("0x{}", "ab".repeat(31)), None),
+        ] {
+            assert_eq!(
+                reference_id(encode(&reference)?)?,
+                expected,
+                "{arm} {reference}"
+            );
+        }
+    }
+    let compressed_reply = compress(reply(&id)?, Compression::Deflate)?;
+    assert_eq!(reference_id(compressed_reply)?, Some(vec![0xab; 32]));
+    let oversized = compress(reaction(&"ab".repeat(512 * 1024))?, Compression::Deflate)?;
+    assert_eq!(
+        reference_id(oversized)?,
+        None,
+        "compressed oversized reaction"
+    );
+
+    let standard = reply(&id)?;
     let fields = super::QueryableContentFields::try_from(standard.clone())?;
     assert_eq!(fields.content_type, ContentType::Reply);
-    assert_eq!(fields.reference_id, Some(vec![1, 2]));
 
     let mut custom = standard.clone();
     custom.r#type.as_mut().unwrap().authority_id = "custom.example".into();

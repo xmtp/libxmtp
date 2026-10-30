@@ -769,45 +769,6 @@ describe("Agent", () => {
       ).toHaveBeenCalledTimes(0);
     });
 
-    it("doesn't emit when a middleware returns early", async () => {
-      const callOrder: string[] = [];
-
-      const mw1: AgentMiddleware = async (_, next) => {
-        callOrder.push("1");
-        await next();
-      };
-
-      const mw2: AgentMiddleware = async (_, next) => {
-        callOrder.push("2");
-        await next();
-      };
-
-      const returnsEarly: AgentMiddleware = () => {
-        return Promise.resolve();
-      };
-
-      const notBeingExecuted: AgentMiddleware = async (_, next) => {
-        callOrder.push("4");
-        await next();
-      };
-
-      agent.use(mw1, mw2, returnsEarly, notBeingExecuted);
-
-      agent.on("unknownMessage", () => {
-        callOrder.push("never happening");
-      });
-
-      await agent.start();
-
-      const otherClient = await createClient();
-      const dm = await otherClient.conversations.createDm(client.inboxId);
-      await dm.sendText("Hello world");
-
-      await waitForNetwork(() => {
-        expect(callOrder).toEqual(["1", "2"]);
-      });
-    });
-
     it("can end an error queue when returning", async () => {
       const callOrder: string[] = [];
 

@@ -21,7 +21,7 @@ archive owner inbox check. The app selects the destination inbox.
 | --- | --- |
 | ARCH | Owns the archive format, record ordering, exclusions, and import behavior. |
 | META | Owns metadata meaning and disappearing-message policy. |
-| CONS | Owns consent meaning and conflict resolution. |
+| CONS | Owns consent meaning and conflict resolution, and CONS-061, which combines a peer's pre-8.0 rows. |
 
 ## Terms
 
@@ -106,7 +106,7 @@ for implementation. The specification as a whole remains a draft.
 | --- | --- | --- | --- |
 | MIG-005 | Optional metadata degrades independently | When optional legacy metadata cannot be decoded, the converter MUST retain the group and eligible messages and omit only unavailable metadata; unreadable required records MUST fail preparation. | A damaged optional field must not remove readable history. |
 | MIG-006 | Exclude recorded message expiry | When preparing an archive, the converter MUST exclude every otherwise eligible message whose stored `expire_at_ns` value is non-null. A null value, including one added by a legacy schema migration, MUST NOT cause exclusion by itself. | Keep available history while excluding every recorded disappearing deadline. |
-| MIG-007 | Bounded required-record reads | Before loading the retained variable fields of each otherwise eligible message, group, or consent row, the converter MUST validate their combined byte length in SQL against a fixed 64 MiB budget. It MUST project only retained columns and load at most one admitted group row at a time after bounded ID pagination. A row at the limit MUST remain supported. A row over the limit MUST fail the whole preparation with a typed record error, preserve source and previous output, and leave no incomplete output. | A large stored record must not cause an unbounded allocation or silent loss of history. |
+| MIG-007 | Bounded required-record reads | Before loading the retained variable fields of each otherwise eligible message, group, or consent row, the converter MUST validate their combined byte length in SQL against a fixed 64 MiB budget, and after decoding a message's content it MUST count the content type ID and authority ID it copies from that content toward the same budget. It MUST project only retained columns and load at most one admitted group row at a time after bounded ID pagination. A row at the limit MUST remain supported. A row over the limit MUST fail the whole preparation with a typed record error, preserve source and previous output, and leave no incomplete output. | A large stored record must not cause an unbounded allocation or silent loss of history. |
 
 The retained variable fields are:
 
@@ -114,12 +114,20 @@ The retained variable fields are:
   sender inbox ID, authority ID, and optional reference ID.
 - Group row: group ID, added-by inbox ID, optional DM ID, and optional paused
   version.
-- Consent row: entity.
+- Consent row: entity, and the DM id of the group it names.
 
 Count TEXT as bytes, not characters, including embedded NULs. An absent optional
 field contributes zero bytes. Optional MLS context data has a separate decode
 budget. This is a per-row limit, not a database or archive size limit. Conversion
 does not skip an oversized eligible row.
+
+Before 8.0, a DM's consent was its group's row. 8.0 reads a DM's consent from
+the record of its other member's inbox (CONS-052), so the converter names that
+member.
+
+| ID | Title | Requirement | Why |
+| --- | --- | --- | --- |
+| MIG-009 | A DM's consent names its peer | When the legacy database holds an identity row, the converter MUST write the consent rows of every group whose DM id holds that row's inbox, together with the inbox row of that DM's other member, as one inbox record for that member, combined under CONS-061, and MUST NOT write those rows separately. Without an identity row, it MUST write every row as stored. | 8.0 keys a DM's consent by its peer's inbox (CONS-052). The converter's group filter can leave the DM's group out of the archive, so the importer cannot find the peer. Pre-8.0 times are first-insert times, so the rows must be combined, not merged by time. |
 
 ## 4. Archive byte reads
 

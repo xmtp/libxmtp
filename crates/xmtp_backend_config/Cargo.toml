@@ -16,6 +16,7 @@ clap = ["dep:clap"]
 [dependencies]
 clap = { workspace = true, optional = true }
 http.workspace = true
+ipnet.workspace = true
 prost.workspace = true
 # The published schema lists properties in declaration order.
 schemars = { workspace = true, features = ["preserve_order"] }

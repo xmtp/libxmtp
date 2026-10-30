@@ -39,6 +39,44 @@ pub use definitions::*;
 
 use super::VersionInfo;
 
+/// Wrap content in compressed replies, optionally padded with valid unknown protobuf fields.
+#[cfg(test)]
+pub(crate) fn nested_reply(
+    mut content: xmtp_proto::xmtp::mls::message_contents::EncodedContent,
+    levels: usize,
+    pad_to: usize,
+) -> xmtp_proto::xmtp::mls::message_contents::EncodedContent {
+    use xmtp_content_types::{
+        ContentCodec,
+        compression::compress,
+        reply::{Reply as EncodedReply, ReplyCodec},
+    };
+    use xmtp_proto::xmtp::mls::message_contents::Compression;
+
+    for _ in 0..levels {
+        let mut reply = ReplyCodec::encode(EncodedReply {
+            reference: "0102".into(),
+            reference_inbox_id: None,
+            content,
+        })
+        .unwrap();
+        if pad_to > reply.content.len() + 6 {
+            // An unknown protobuf field pads this reply without changing its body.
+            let padding = pad_to - reply.content.len() - 6;
+            reply.content.extend_from_slice(&[0xa2, 0x06]);
+            let mut length = padding;
+            while length >= 0x80 {
+                reply.content.push((length as u8) | 0x80);
+                length >>= 7;
+            }
+            reply.content.push(length as u8);
+            reply.content.resize(reply.content.len() + padding, 0);
+        }
+        content = compress(reply, Compression::Deflate).unwrap();
+    }
+    content
+}
+
 /// Each secret that must stay in the client, in the encodings a leak would
 /// take: the group root and each private or symmetric key of the group key
 /// table, as raw bytes and as lowercase and uppercase hex. The keys derive
@@ -72,6 +110,64 @@ pub(crate) fn group_secret_encodings(
             ]
         })
         .collect()
+}
+
+/// A key package for this installation, signed with its installation key and
+/// naming its inbox, whose key package extensions are exactly `extensions`.
+/// Its capabilities advertise both XMTP addressing extensions. Nothing
+/// uploads it.
+#[cfg(test)]
+pub(crate) fn key_package_with_extensions(
+    context: &impl XmtpSharedContext,
+    ciphersuite: openmls::prelude::Ciphersuite,
+    extensions: Vec<openmls::prelude::Extension>,
+) -> Vec<u8> {
+    use openmls::prelude::{
+        ApplicationIdExtension, Capabilities, CredentialWithKey, Extension, ExtensionType,
+        Extensions, KeyPackage, LeafNode, ProposalType, tls_codec::Serialize,
+    };
+    use xmtp_configuration::{
+        WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID, WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID,
+    };
+    let identity = context.identity();
+    let capabilities = Capabilities::new(
+        None,
+        Some(&[ciphersuite]),
+        Some(&[
+            ExtensionType::ApplicationId,
+            ExtensionType::AppDataDictionary,
+            ExtensionType::Unknown(WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID),
+            ExtensionType::Unknown(WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID),
+        ]),
+        Some(&[
+            ProposalType::GroupContextExtensions,
+            ProposalType::AppDataUpdate,
+        ]),
+        None,
+    );
+    KeyPackage::builder()
+        .leaf_node_capabilities(capabilities)
+        .leaf_node_extensions(
+            Extensions::<LeafNode>::single(Extension::ApplicationId(ApplicationIdExtension::new(
+                context.inbox_id().as_bytes(),
+            )))
+            .unwrap(),
+        )
+        .key_package_extensions(Extensions::from_vec(extensions).unwrap())
+        .mark_as_last_resort()
+        .build(
+            ciphersuite,
+            &context.mls_provider(),
+            &identity.installation_keys,
+            CredentialWithKey {
+                credential: identity.credential(),
+                signature_key: identity.installation_keys.public_slice().into(),
+            },
+        )
+        .unwrap()
+        .key_package()
+        .tls_serialize_detached()
+        .unwrap()
 }
 
 impl<A, S> ClientBuilder<A, S> {
@@ -220,6 +316,79 @@ where
         xmtp_common::time::timeout(Duration::from_secs(20), poll)
             .await
             .expect("no welcome arrived within 20 s")
+    }
+
+    /// The local store's key for this installation's Welcome topic.
+    pub fn welcome_topic(&self) -> xmtp_db::incoming_envelope::StreamTopic {
+        xmtp_db::incoming_envelope::StreamTopic {
+            entity_id: self.context.installation_id().to_vec(),
+            kind: xmtp_db::incoming_envelope::NetworkEntityKind::Welcome,
+        }
+    }
+
+    async fn newest_welcome_cursor(&self) -> Option<xmtp_proto::types::Cursor> {
+        self.context
+            .api()
+            .query_welcome_messages(self.context.installation_id())
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|welcome| welcome.cursor)
+            .max()
+    }
+
+    /// Assert that this installation rejected its newest published Welcome
+    /// for good: the last terminal rejection names it with `invalid_welcome`
+    /// and its pending row is gone.
+    pub async fn assert_newest_welcome_rejected(&self) {
+        use xmtp_db::incoming_envelope::QueryIncomingEnvelope;
+
+        let topic = self.welcome_topic();
+        let newest = self
+            .newest_welcome_cursor()
+            .await
+            .expect("a published Welcome");
+        let db = self.context.db();
+        let rejected = db
+            .read_last_rejection(&topic)
+            .unwrap()
+            .expect("a terminal rejection");
+        assert_eq!(rejected.sequence_id, newest);
+        assert_eq!(rejected.code, "invalid_welcome");
+        assert!(db.pending_envelope(&topic, newest).unwrap().is_none());
+    }
+
+    /// Sync Welcomes until the newest published Welcome, which must be past
+    /// `after`, is rejected for good; then assert as
+    /// [`Self::assert_newest_welcome_rejected`] does and return its cursor.
+    /// A Welcome a test just sent can reach the backend's read replica after
+    /// the first query. Panics if it is not rejected within 20 s.
+    pub async fn wait_for_newest_welcome_rejected(
+        &self,
+        after: xmtp_proto::types::Cursor,
+    ) -> xmtp_proto::types::Cursor {
+        use xmtp_db::incoming_envelope::QueryIncomingEnvelope;
+
+        let topic = self.welcome_topic();
+        let poll = async {
+            loop {
+                let _ = self.sync_welcomes().await;
+                let newest = self.newest_welcome_cursor().await;
+                let rejected = self.context.db().read_last_rejection(&topic).unwrap();
+                if let (Some(newest), Some(rejected)) = (newest, rejected)
+                    && newest > after
+                    && rejected.sequence_id == newest
+                {
+                    return newest;
+                }
+                xmtp_common::task::yield_now().await;
+            }
+        };
+        let newest = xmtp_common::time::timeout(Duration::from_secs(20), poll)
+            .await
+            .expect("the newest Welcome was not rejected within 20 s");
+        self.assert_newest_welcome_rejected().await;
+        newest
     }
 }
 

@@ -5,17 +5,39 @@ use crate::{
         mls_sync::GroupHeadOutcome,
         welcome_sync::{WelcomeHeadOutcome, WelcomeRequirement, WelcomeService},
     },
-    identity_updates::{IdentityDependencyError, resolve_identity_requirement},
+    identity_updates::{IdentityDependencyError, resolve_identity_requirements},
 };
 use prost::Message;
 use xmtp_db::{identity_update::StoredIdentityUpdate, incoming_envelope::IncomingRetry};
 
 pub(super) enum DependencyResult<C> {
-    Identity(IdentityRequirement, Result<(), IdentityDependencyError>),
+    Identity(
+        BTreeSet<IdentityRequirement>,
+        Result<(), IdentityDependencyError>,
+    ),
     Welcome(
         Cursor,
         Result<WelcomeHeadOutcome<C>, crate::groups::GroupError>,
     ),
+    /// The newest position of a held Welcome's group topic, read after its deadline.
+    PrefixTarget(Cursor, Topic, Result<Cursor, xmtp_api::ApiError>),
+}
+
+/// The final catch-up of one group-prefix hold. Kept in memory only: after a
+/// restart the hold is rebuilt from the stored deadline and reads again.
+pub(super) struct PrefixHold {
+    pub(super) deadline_ns: i64,
+    pub(super) target: PrefixTarget,
+}
+
+pub(super) enum PrefixTarget {
+    /// No read since the deadline, or the last one failed and retries at `retry_at`.
+    Unrequested {
+        retry_at: Option<Instant>,
+    },
+    Requested,
+    /// The group topic's newest position read at or after the deadline.
+    Known(Cursor),
 }
 
 impl<C: XmtpSharedContext + 'static> Controller<C> {
@@ -92,12 +114,12 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                         }
                         Ok(GroupHeadOutcome::Need {
                             cursor,
-                            requirement,
+                            requirements,
                         }) => {
-                            tracing::trace!(%group_id, sequence_id = cursor.0, "group head needs an identity proof");
+                            tracing::trace!(%group_id, sequence_id = cursor.0, proofs = requirements.len(), "group head needs identity proofs");
                             self.dependency_registry.attach(
                                 DependencyParent::GroupHead(topic, cursor),
-                                DependencyKey::Identity(requirement),
+                                DependencyKey::Identity(requirements),
                             );
                         }
                         Ok(GroupHeadOutcome::Inactive) => {
@@ -132,7 +154,9 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                     }
                     let outcomes = match self.welcome_blocked_scan {
                         Some(after) => service.retry_blocked_welcomes_after(after),
-                        None => service.process_pending_welcomes_once(),
+                        None => service.process_pending_welcomes_once(
+                            &self.dependency_registry.welcome_cursors(),
+                        ),
                     };
                     match outcomes {
                         Ok(outcomes) => {
@@ -167,25 +191,61 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                 }
                 TopicKind::IdentityUpdatesV1 => {
                     if let Err(error) = self.prepare_identity_head(&topic) {
-                        self.defer_head(&topic, "identity_invalid", !error.is_retryable());
+                        self.defer_head(
+                            &topic,
+                            "identity_invalid",
+                            !error.is_retryable(),
+                            error.rate_limit_delay(),
+                        );
                         self.topic_error(topic, error);
                     }
                 }
                 _ => self.topic_error(topic, IncomingError::UnsupportedTopic),
             }
         }
-        let due: Vec<_> = self
-            .dependency_registry
-            .prefixes()
-            .filter_map(|(cursor, group, anchor)| {
-                self.context
-                    .db()
-                    .topic_progress(&StreamTopic::group(group))
-                    .ok()
-                    .filter(|progress| progress.processed >= anchor)
-                    .map(|_| cursor)
-            })
-            .collect();
+        let now_ns = xmtp_common::time::now_ns();
+        let (mut due, mut requests, mut expired) = (Vec::new(), Vec::new(), Vec::new());
+        for (cursor, group, anchor) in self.dependency_registry.prefixes() {
+            // Removal can stop the old membership before the rejoin anchor.
+            // Retry now that Welcome validation can replace inactive state.
+            if self.is_retired(&Topic::new_group_message(group)) {
+                due.push(cursor);
+                continue;
+            }
+            let Ok(processed) = self
+                .context
+                .db()
+                .topic_progress(&StreamTopic::group(group))
+                .map(|progress| progress.processed)
+            else {
+                continue;
+            };
+            if processed >= anchor {
+                due.push(cursor);
+                continue;
+            }
+            // implements: JOIN-092
+            // After the deadline, read the topic's newest position while its
+            // receipt continues. Expire only below a target processing reached.
+            let Some(hold) = self
+                .prefix_holds
+                .get(&cursor)
+                .filter(|hold| hold.deadline_ns <= now_ns)
+            else {
+                continue;
+            };
+            match hold.target {
+                PrefixTarget::Unrequested { retry_at }
+                    if retry_at.is_none_or(|at| Instant::now() >= at) =>
+                {
+                    requests.push((cursor, Topic::new_group_message(group)));
+                }
+                PrefixTarget::Known(target) if target < anchor && target <= processed => {
+                    expired.push((cursor, group, anchor, target));
+                }
+                _ => {}
+            }
+        }
         for cursor in due {
             self.dependency_registry
                 .detach(&DependencyParent::Welcome(cursor));
@@ -197,8 +257,57 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                 Err(error) => self.topic_error(self.welcome_topic(), error.into()),
             }
         }
+        for (cursor, topic) in requests {
+            self.request_prefix_target(cursor, topic);
+        }
+        for (cursor, group, anchor, target) in expired {
+            match WelcomeService::new(self.context.clone())
+                .expire_group_prefix_welcome(cursor, group, anchor, target)
+            {
+                Ok(outcome) => progress |= self.welcome_outcome(outcome),
+                Err(error) => self.topic_error(self.welcome_topic(), error.into()),
+            }
+        }
         self.start_dependencies();
         progress
+    }
+
+    /// Read the newest position of a held Welcome's group topic. The read takes
+    /// a dependency request slot; the Welcome keeps its prefix watch meanwhile.
+    /// Like fixed-target capture, it waits while live work is suspended or the
+    /// transport backs off.
+    // implements: API-284
+    fn request_prefix_target(&mut self, cursor: Cursor, topic: Topic) {
+        let request = RequestKey::QueryNewest(HashSet::from([topic.clone()]));
+        if self.live_suspended()
+            || self.transport.backing_off()
+            || self.dependencies.len()
+                >= self
+                    .context
+                    .incoming_runtime()
+                    .policy()
+                    .max_dependency_requests
+            || self
+                .rejected_requests
+                .lock()
+                .iter()
+                .any(|(key, _)| key == &request)
+        {
+            return;
+        }
+        let Some(hold) = self.prefix_holds.get_mut(&cursor) else {
+            return;
+        };
+        hold.target = PrefixTarget::Requested;
+        let context = self.context.clone();
+        self.dependencies.push(Box::pin(async move {
+            let result = context
+                .api()
+                .newest_topic_cursors(vec![topic.clone()])
+                .await
+                .map(|targets| targets.get(&topic).copied().unwrap_or_default());
+            DependencyResult::PrefixTarget(cursor, topic, result)
+        }));
     }
 
     fn welcome_topic(&self) -> Topic {
@@ -220,23 +329,32 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             }
             WelcomeHeadOutcome::Need {
                 cursor,
-                requirement: WelcomeRequirement::Identity(requirement),
+                requirement: WelcomeRequirement::Identity(requirements),
             } => {
                 self.dependency_registry.attach(
                     DependencyParent::Welcome(cursor),
-                    DependencyKey::Identity(requirement),
+                    DependencyKey::Identity(requirements),
                 );
                 false
             }
             WelcomeHeadOutcome::Need {
                 cursor,
-                requirement: WelcomeRequirement::GroupPrefix { group_id, anchor },
+                requirement:
+                    WelcomeRequirement::GroupPrefix {
+                        group_id,
+                        anchor,
+                        deadline_ns,
+                    },
             } => {
                 self.dependency_registry.attach(
                     DependencyParent::Welcome(cursor),
                     DependencyKey::GroupPrefix(group_id, anchor),
                 );
                 self.extra_topics.insert(Topic::new_group_message(group_id));
+                self.prefix_holds.entry(cursor).or_insert(PrefixHold {
+                    deadline_ns,
+                    target: PrefixTarget::Unrequested { retry_at: None },
+                });
                 false
             }
             WelcomeHeadOutcome::Need {
@@ -283,9 +401,9 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             let context = self.context.clone();
             self.dependencies.push(Box::pin(async move {
                 match key {
-                    DependencyKey::Identity(requirement) => {
-                        let result = resolve_identity_requirement(&context, &requirement).await;
-                        DependencyResult::Identity(requirement, result)
+                    DependencyKey::Identity(requirements) => {
+                        let result = resolve_identity_requirements(&context, &requirements).await;
+                        DependencyResult::Identity(requirements, result)
                     }
                     DependencyKey::Welcome(cursor) => DependencyResult::Welcome(
                         cursor,
@@ -332,13 +450,48 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
         };
         self.dependency_registry.attach(
             DependencyParent::IdentityHead(topic.clone(), Cursor(pending.sequence_id as u64)),
-            DependencyKey::Identity(requirement),
+            DependencyKey::Identity(BTreeSet::from([requirement])),
         );
         Ok(())
     }
 
     pub(super) fn dependency_finished(&mut self, result: DependencyResult<C>) {
         match result {
+            DependencyResult::PrefixTarget(cursor, topic, result) => {
+                let fallback = self
+                    .context
+                    .incoming_runtime()
+                    .policy()
+                    .receiver_fallback_interval;
+                let Some(hold) = self.prefix_holds.get_mut(&cursor) else {
+                    return;
+                };
+                match result {
+                    Ok(target) => hold.target = PrefixTarget::Known(target),
+                    Err(error) => {
+                        tracing::warn!(sequence_id = cursor.0, %error, "group prefix target read failed");
+                        // A rate-limited read waits its delay (RATE-041).
+                        let wait = fallback.max(error.rate_limit_delay().unwrap_or_default());
+                        hold.target = PrefixTarget::Unrequested {
+                            retry_at: Some(xmtp_common::time::saturating_after(
+                                Instant::now(),
+                                wait,
+                            )),
+                        };
+                        // implements: API-284
+                        if crate::subscriptions::recovery::rejected_request(&error) {
+                            let request = RequestKey::QueryNewest(HashSet::from([topic]));
+                            let mut permanent = self.rejected_requests.lock();
+                            if !permanent.iter().any(|(key, _)| key == &request) {
+                                let cause = Arc::new(IncomingError::Store(
+                                    crate::mls_store::MlsStoreError::Api(error),
+                                ));
+                                permanent.push((request, cause));
+                            }
+                        }
+                    }
+                }
+            }
             DependencyResult::Welcome(cursor, result) => {
                 let parents = self
                     .dependency_registry
@@ -361,29 +514,40 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                     Err(_) => {}
                 }
             }
-            DependencyResult::Identity(requirement, result) => {
+            DependencyResult::Identity(requirements, result) => {
                 let parents = self
                     .dependency_registry
-                    .finish(&DependencyKey::Identity(requirement.clone()));
-                let missing = matches!(result, Err(IdentityDependencyError::MissingReference(_)));
+                    .finish(&DependencyKey::Identity(requirements));
+                let missing = match &result {
+                    Err(IdentityDependencyError::MissingReference(requirement)) => {
+                        Some(requirement.clone())
+                    }
+                    _ => None,
+                };
                 let error = result
                     .err()
                     .map(|error| Arc::new(IncomingError::Identity(error)));
+                // The head that needed a refused proof retries after its delay.
+                // implements: RATE-041
+                let floor = error.as_ref().and_then(|error| error.rate_limit_delay());
                 for parent in parents {
                     if !self.parent_is_pending(&parent) {
                         continue;
                     }
                     match parent {
-                        DependencyParent::GroupHead(topic, cursor) if missing => {
+                        DependencyParent::GroupHead(topic, cursor) if missing.is_some() => {
                             self.topics
                                 .entry(topic)
                                 .or_default()
                                 .processing
-                                .missing_reference = Some((cursor, requirement.clone()));
+                                .missing_reference =
+                                missing.clone().map(|requirement| (cursor, requirement));
                         }
-                        DependencyParent::Welcome(cursor) if error.is_none() || missing => {
+                        DependencyParent::Welcome(cursor)
+                            if error.is_none() || missing.is_some() =>
+                        {
                             match WelcomeService::new(self.context.clone())
-                                .retry_pending_welcome(cursor, missing.then_some(&requirement))
+                                .retry_pending_welcome(cursor, missing.as_ref())
                             {
                                 Ok(outcome) => {
                                     self.welcome_outcome(outcome);
@@ -412,7 +576,13 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                                         (self.welcome_topic(), cursor, "identity_dependency")
                                     }
                                 };
-                                self.defer_cursor(&topic, cursor, code, !error.is_retryable());
+                                self.defer_cursor(
+                                    &topic,
+                                    cursor,
+                                    code,
+                                    !error.is_retryable(),
+                                    floor,
+                                );
                                 self.topics.entry(topic).or_default().error = Some(error.clone());
                             }
                         }
@@ -448,11 +618,17 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
         }
     }
 
-    fn defer_head(&self, topic: &Topic, code: &'static str, blocked: bool) {
+    fn defer_head(
+        &self,
+        topic: &Topic,
+        code: &'static str,
+        blocked: bool,
+        floor: Option<Duration>,
+    ) {
         if let Ok(key) = topic_key(topic)
             && let Ok(Some(head)) = self.context.db().first_pending_envelope(&key)
         {
-            self.defer_cursor(topic, Cursor(head.sequence_id as u64), code, blocked);
+            self.defer_cursor(topic, Cursor(head.sequence_id as u64), code, blocked, floor);
         }
     }
 
@@ -467,15 +643,25 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
         blocked && previous != Some(cursor)
     }
 
-    fn defer_cursor(&self, topic: &Topic, cursor: Cursor, code: &'static str, blocked: bool) {
+    /// Retry the head after the fallback interval, or after `floor`, a
+    /// rate-limit delay, when that is later.
+    fn defer_cursor(
+        &self,
+        topic: &Topic,
+        cursor: Cursor,
+        code: &'static str,
+        blocked: bool,
+        floor: Option<Duration>,
+    ) {
         if let Ok(key) = topic_key(topic) {
-            let retry_at_ns = xmtp_common::time::now_ns().saturating_add(
-                self.context
-                    .incoming_runtime()
-                    .policy()
-                    .receiver_fallback_interval
-                    .as_nanos() as i64,
-            );
+            let delay = self
+                .context
+                .incoming_runtime()
+                .policy()
+                .receiver_fallback_interval
+                .max(floor.unwrap_or_default());
+            let retry_at_ns = xmtp_common::time::now_ns()
+                .saturating_add(i64::try_from(delay.as_nanos()).unwrap_or(i64::MAX));
             let _ = self.context.db().set_incoming_retry(
                 &key,
                 cursor,

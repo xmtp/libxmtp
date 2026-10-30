@@ -145,7 +145,7 @@ neutral:
   - ".github/**/*.md"
   - "{README,CONTRIBUTING,ONBOARDING,TEST_SCENARIOS}.md"
   - "{LICENSE,.envrc,.gitignore,.git-blame-ignore-revs,.gitattributes,.dockerignore,codecov.yml,cliff.toml}"
-  - "{.agents,.claude,.codex,.macroscope,.murmur,.vscode,.zed}/**"
+  - "{.agents,.capy,.claude,.codex,.macroscope,.murmur,.vscode,.zed}/**"
   - "{img,diagrams}/**"
   - "apps/.gitkeep"
   - ".github/{CODEOWNERS,dependabot.yml}"
@@ -156,7 +156,7 @@ neutral:
 path_groups:
   # Suites that start the Docker stack test against a backend built from source.
   # A backend change runs the backend suites and three client suites that talk
-  # to it: test_workspace, test_wasm, and test_node. The Android, iOS, browser,
+  # to it: test_workspace, test_wasm_sample, and test_node. The Android, iOS, browser,
   # and SDK platform suites add wrapper code that a backend change does not
   # touch; the merge run covers them. The observability services (Tempo,
   # Prometheus, Grafana) select only test_backend, which checks them.
@@ -164,19 +164,21 @@ path_groups:
     - "apps/backend/**"
     - "crates/xmtp_attachments_server/**"
     - "crates/xmtp_backend_config/**"
+    - "crates/xmtp_rate_limit/**"
     - "dev/docker/{compose.yml,up,compose,load-env,load-backend-image}"
     - "dev/docker/{postgres,s3,toxiproxy}/**"
     - "dev/backend/{local.toml,local-s3.toml}"
     - "nix/package/backend.nix"
     - "nix/musl-docker.nix"
   # The native backend package and the test services (nix/services), which
-  # `just backend ci` runs. test_ios starts them on macOS, the only Darwin run
-  # before a merge. test_dev checks the services contract on Linux
+  # `just backend ci` runs. test_backend_darwin starts them on macOS unless
+  # test_ios already does. test_dev checks the services contract on Linux
   # (dev/tests/test_services.py).
   native_backend:
     - "apps/backend/**"
     - "crates/xmtp_attachments_server/**"
     - "crates/xmtp_backend_config/**"
+    - "crates/xmtp_rate_limit/**"
     - "dev/backend/**"
     - "dev/docker/s3/**"
     - "nix/package/backend.nix"
@@ -413,6 +415,8 @@ suites:
       - "dev/services"
       # dev/tests/test_sdk_package.py runs it.
       - "dev/js/sdk-package"
+      # dev/tests/test_backend_configs.py reads the Node recovery backend.
+      - "sdks/node/test/recoveryBackend.ts"
       # dev/tests/test_android_release.py reads the SDK Gradle properties.
       - "sdks/android/gradle.properties"
       # dev/tests/test_ci_suites.py dry-runs the iOS lifecycle recipes.
@@ -514,7 +518,7 @@ suites:
       - path_group: docker_backend
       - "{.config/nextest.toml,webdriver.json}"
       # xmtp_backend_config tests embed these files.
-      - "docs/{schemas/backend-v1.json,specs/CONF-backend-configuration.md}"
+      - "docs/{schemas/backend-v1.json,specs/CONF-backend-configuration.md,specs/RATE-backend-rate-limits.md}"
       - "{nix/package/nextest.nix,nix/ci-checks.nix,nix/lib/junit.nix,dev/check-ephemeral-backend}"
       # The derivation starts these services.
       - "nix/services/**"
@@ -530,6 +534,34 @@ suites:
     products: []
     runners:
       runner: {pr: blacksmith-16vcpu-ubuntu-2404, merge: ubuntu-24.04}
+    pr_filters:
+      - "crates/**/wasm*.rs"
+      - "crates/**/wasm/**"
+      - "crates/**/*opfs*.rs"
+      - "crates/**/web.rs"
+      - "crates/*/Cargo.toml"
+      - "crates/xmtp_sdk/dev/*wasm*"
+      - "sdks/browser/**"
+      - "{Cargo.toml,Cargo.lock}"
+      - "{webdriver.json,.config/nextest.toml,dev/wasm.just}"
+      - "{nix/package/wasm-nextest.nix,nix/ci-checks.nix,nix/lib/junit.nix}"
+      - "nix/lib/packages/wasm-bindgen-cli.nix"
+      - pr_label: ci-wasm-full
+  test_wasm_sample:
+    title: Rust WASM sample
+    phase: test
+    workflow: test-wasm.yml
+    run_on: [ready_pr_push]
+    disable_on_forks: false
+    secrets: inherit
+    permissions: {contents: read}
+    covered_by: test_wasm
+    kache: []
+    products: []
+    runners:
+      runner: {pr: blacksmith-16vcpu-ubuntu-2404, merge: ubuntu-24.04}
+    with:
+      scope: sample
     pr_filters:
       - cargo_package:
           - xmtp_mls
@@ -679,7 +711,6 @@ suites:
       - path_group: sdk_core
       - "apps/docs/**"
       - "nix/docs.nix"
-      - "docs/**"
       - "sdks/agent/src/**"
       - "sdks/{node,browser,agent}/{package.json,tsconfig.json,typedoc.json}"
       # The RN reference: TypeDoc reads the declarations that
@@ -692,9 +723,7 @@ suites:
 
   # --- Mobile ----------------------------------------------------------------
   # The tests job also runs SwiftLint and SwiftFormat. Forks run it: its only
-  # secret is the PR-cache token, which forks do not get. The native backend
-  # selects it because no other job builds and starts the backend and the test
-  # services on macOS before a merge.
+  # secret is the PR-cache token, which forks do not get.
   test_ios:
     title: iOS SDK
     phase: test
@@ -710,6 +739,20 @@ suites:
     pr_filters:
       - path_group: sdk_core
       - path_group: swift
+  test_backend_darwin:
+    title: Darwin backend smoke
+    phase: test
+    workflow: test-backend-darwin.yml
+    run_on: [ready_pr_push]
+    disable_on_forks: false
+    secrets: cachix-pr
+    permissions: {contents: read}
+    covered_by: test_ios
+    kache: []
+    products: []
+    runners:
+      runner: {pr: warp-macos-15-arm64-6x, merge: warp-macos-15-arm64-6x}
+    pr_filters:
       - path_group: native_backend
   test_android:
     title: Android SDK
@@ -730,12 +773,12 @@ suites:
   # build job, and the emulator tests. Decision D1 applies to both: the app's
   # own paths and its label block; the Kotlin SDK and the SDK and toolchain
   # Nix inputs run them as advisory; other pull requests, full runs included,
-  # do not run them. Merge runs run both as blocking.
+  # do not run them. Nightly and manual runs run them as blocking.
   test_example_android:
     title: Android example app
     phase: test
     workflow: test-example-android.yml
-    run_on: [ready_pr_push, merge]
+    run_on: [ready_pr_push]
     disable_on_forks: false
     secrets: inherit
     permissions: {contents: read}
@@ -754,7 +797,7 @@ suites:
     title: Android example emulator
     phase: test
     workflow: test-example-android.yml
-    run_on: [ready_pr_push, merge]
+    run_on: [ready_pr_push]
     disable_on_forks: false
     secrets: inherit
     permissions: {contents: read}
@@ -774,7 +817,7 @@ suites:
     title: iOS example app
     phase: test
     workflow: test-example-ios.yml
-    run_on: [ready_pr_push, merge]
+    run_on: [ready_pr_push]
     disable_on_forks: false
     secrets: cachix-pr
     permissions: {contents: read}
@@ -799,8 +842,8 @@ suites:
   # ownership, native helpers) run on Linux with no device and block. The
   # device chain is advisory on pull requests: the full chain (Android and
   # iOS, bare and Expo) on RN paths or the `react-native` label, and only the
-  # bare Android app on the other paths that can break RN. Merge runs leave
-  # the device chain to post-merge, which alerts on a failure.
+  # bare Android app on the `ci-rn-smoke` label. Nightly and manual runs
+  # run the full device chain; post-merge only warms its caches.
   check_react_native:
     title: React Native unit checks
     phase: test
@@ -825,7 +868,7 @@ suites:
     disable_on_forks: false
     secrets: cachix-pr
     permissions: {contents: read}
-    # On a full run without RN changes, the Android smoke runs instead.
+    # On a full PR run without RN changes or labels, device tests skip.
     skip_full_runs: true
     kache: []
     products: []
@@ -843,12 +886,10 @@ suites:
     secrets: cachix-pr
     permissions: {contents: read}
     covered_by: test_react_native
+    skip_full_runs: true
     kache: []
     products: []
     with: {scope: android-smoke}
     pr_filters: []
     advisory_filters:
-      - path_group: sdk_core
-      - path_group: js_workspace
-      - path_group: native_backend
-      - path_group: docker_backend
+      - pr_label: ci-rn-smoke

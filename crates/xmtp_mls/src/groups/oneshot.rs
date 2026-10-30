@@ -3,9 +3,9 @@ use crate::context::XmtpSharedContext;
 use xmtp_common::snippet::Snippet;
 use xmtp_db::{
     MlsProviderExt, XmtpMlsStorageProvider,
-    consent_record::{ConsentState, ConsentType},
+    consent_record::{ConsentState, conversation_consent},
     group::ConversationType,
-    prelude::{QueryConsentRecord, QueryReaddStatus},
+    prelude::QueryReaddStatus,
 };
 use xmtp_id::AsIdRef;
 use xmtp_mls_common::{group::GroupMetadataOptions, group_metadata::GroupMetadata};
@@ -57,7 +57,7 @@ impl Oneshot {
 
     pub fn process_message(
         provider: &impl MlsProviderExt,
-        _sender_inbox_id: String,
+        own_inbox_id: &str,
         sender_installation_id: Vec<u8>,
         message: OneshotMessage,
     ) -> Result<(), GroupError> {
@@ -65,6 +65,7 @@ impl Oneshot {
             Some(oneshot_message::MessageType::ReaddRequest(readd_request)) => {
                 if Self::validate_readd_request(
                     provider.key_store(),
+                    own_inbox_id,
                     &readd_request.group_id,
                     &sender_installation_id,
                 )? {
@@ -94,14 +95,14 @@ impl Oneshot {
 
     pub fn process_welcome(
         provider: &impl MlsProviderExt,
+        own_inbox_id: &str,
         cursor: Cursor,
-        sender_inbox_id: String,
         sender_installation_id: Vec<u8>,
         metadata: GroupMetadata,
     ) -> Result<(), GroupError> {
         tracing::debug!("Processing oneshot welcome");
         if let Some(message) = metadata.oneshot_message {
-            Self::process_message(provider, sender_inbox_id, sender_installation_id, message)?;
+            Self::process_message(provider, own_inbox_id, sender_installation_id, message)?;
         } else {
             tracing::warn!(
                 "Oneshot group welcome {} does not have oneshot message",
@@ -111,22 +112,15 @@ impl Oneshot {
         Ok(())
     }
 
+    // implements: FORK-053
     fn validate_readd_request(
         storage: &impl XmtpMlsStorageProvider,
+        own_inbox_id: &str,
         group_id: &Vec<u8>,
         sender_installation_id: &Vec<u8>,
     ) -> Result<bool, GroupError> {
-        let Some(record) = storage
-            .db()
-            .get_consent_record(hex::encode(group_id), ConsentType::ConversationId)?
-        else {
-            tracing::warn!(
-                group_id = group_id.snippet(),
-                "No consent record found for readd request"
-            );
-            return Ok(false);
-        };
-        if record.state != ConsentState::Allowed {
+        let id = GroupId::try_from(group_id.as_slice())?;
+        if conversation_consent(&storage.db(), own_inbox_id, &id)? != ConsentState::Allowed {
             tracing::warn!(
                 group_id = group_id.snippet(),
                 "Group not consented for readd request"

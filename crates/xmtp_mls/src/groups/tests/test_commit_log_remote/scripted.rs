@@ -1,7 +1,8 @@
 //! A backend client for commit-log worker tests. It forwards every call to
 //! the test backend, except that it refuses commit-log publishes for chosen
-//! commit-log ids and answers reads of chosen commit-log topics from a
-//! script. It records the commit-log ids and topics of every call.
+//! commit-log ids, can refuse group-message publishes with a rate limit, and
+//! answers reads of chosen commit-log topics from a script. It records the
+//! commit-log ids and topics of every call.
 use crate::context::XmtpSharedContext;
 use parking_lot::Mutex;
 use std::{
@@ -29,6 +30,16 @@ pub(super) struct Script {
     pub(super) refuse: HashSet<Vec<u8>>,
     /// Every commit-log publish fails as a transport failure would.
     pub(super) unavailable: bool,
+    /// Every commit-log publish is refused with a rate limit of this delay.
+    pub(super) rate_limit: Option<xmtp_common::time::Duration>,
+    /// Only the next commit-log publish is refused with `rate_limit`, which
+    /// then clears.
+    pub(super) rate_limit_once: bool,
+    /// Every publish that carries a group message is refused with a rate
+    /// limit of this delay.
+    pub(super) group_message_rate_limit: Option<xmtp_common::time::Duration>,
+    /// The publish requests that carried a group message.
+    pub(super) group_message_publishes: usize,
     /// Commit-log ids whose next publish request is refused as too large,
     /// so the client splits it. Each id is refused this way once.
     pub(super) too_large_once: HashSet<Vec<u8>>,
@@ -39,6 +50,9 @@ pub(super) struct Script {
     accepted: HashMap<Vec<u8>, usize>,
     /// Commit-log topics whose reads return these envelopes.
     pub(super) reads: HashMap<Vec<u8>, Vec<wire::ServerEnvelope>>,
+    /// Commit-log reads after this many fail without a retry, as if the
+    /// reader stopped there.
+    pub(super) stop_reads_after: Option<usize>,
     /// The commit-log id of each sealed entry of each publish request.
     pub(super) published: Vec<Vec<Vec<u8>>>,
     /// The commit-log topics of each read request.
@@ -75,6 +89,13 @@ fn too_large() -> ApiClientError {
     )))
 }
 
+fn stopped() -> ApiClientError {
+    ApiClientError::OtherUnretryable(Box::new(tonic::Status::new(
+        tonic::Code::Unavailable,
+        "stopped by the test script",
+    )))
+}
+
 fn is_commit_log(topic: &[u8]) -> bool {
     topic.first() == Some(&(TopicKind::CommitLogEntriesV1 as u8))
 }
@@ -91,6 +112,21 @@ impl XmtpBackendClient for ScriptedApi {
         &self,
         request: wire::PublishRequest,
     ) -> Result<wire::PublishResponse, Self::Error> {
+        if request
+            .envelopes
+            .iter()
+            .any(|envelope| matches!(envelope.payload, Some(Payload::GroupMessage(_))))
+        {
+            let mut script = self.script.lock();
+            script.group_message_publishes += 1;
+            if let Some(delay) = script.group_message_rate_limit {
+                return Err(ApiClientError::client(
+                    xmtp_api_grpc::error::GrpcError::Status(
+                        xmtp_api_grpc::error::rate_limited_status("publish", delay),
+                    ),
+                ));
+            }
+        }
         let ids: Vec<Vec<u8>> = request
             .envelopes
             .iter()
@@ -126,6 +162,16 @@ impl XmtpBackendClient for ScriptedApi {
                 }
             }
             script.published.push(ids);
+            if let Some(delay) = script.rate_limit {
+                if script.rate_limit_once {
+                    script.rate_limit = None;
+                }
+                return Err(ApiClientError::client(
+                    xmtp_api_grpc::error::GrpcError::Status(
+                        xmtp_api_grpc::error::rate_limited_status("publish", delay),
+                    ),
+                ));
+            }
             if refuse {
                 return Err(refused());
             }
@@ -153,6 +199,12 @@ impl XmtpBackendClient for ScriptedApi {
                 .collect();
             if !commit_log.is_empty() {
                 script.read.push(commit_log);
+                if script
+                    .stop_reads_after
+                    .is_some_and(|after| script.read.len() > after)
+                {
+                    return Err(stopped());
+                }
             }
             (!topics.is_empty() && topics.iter().all(|topic| script.reads.contains_key(topic)))
                 .then(|| {
@@ -176,10 +228,12 @@ impl XmtpBackendClient for ScriptedApi {
                         .collect::<Vec<_>>()
                 })
         };
-        if let Some(envelopes) = scripted {
+        if let Some(mut envelopes) = scripted {
+            let has_more = envelopes.len() > request.limit as usize;
+            envelopes.truncate(request.limit as usize);
             return Ok(wire::QueryResponse {
                 envelopes,
-                continuation: Some(wire::Continuation { has_more: false }),
+                continuation: Some(wire::Continuation { has_more }),
             });
         }
         self.inner.query(request).await
@@ -235,6 +289,13 @@ impl XmtpBackendClient for ScriptedApi {
 pub(super) async fn scripted(
     base: &crate::utils::FullXmtpClient,
 ) -> (crate::Client<Context>, Arc<Mutex<Script>>) {
+    scripted_with_page_size(base, xmtp_configuration::STREAM_BATCH_ROWS).await
+}
+
+pub(super) async fn scripted_with_page_size(
+    base: &crate::utils::FullXmtpClient,
+    page_size: u32,
+) -> (crate::Client<Context>, Arc<Mutex<Script>>) {
     let script = Arc::new(Mutex::new(Script::default()));
     let api = ScriptedApi {
         inner: base.context.api().api_client.raw_for_test().clone(),
@@ -242,6 +303,10 @@ pub(super) async fn scripted(
     };
     let client = crate::builder::ClientBuilder::from_client(base.clone())
         .api_client(api)
+        .stream_policy(crate::subscriptions::policy::StreamPolicy {
+            max_fetched_rows: page_size,
+            ..Default::default()
+        })
         .with_disable_workers(true)
         .with_allow_offline(Some(true))
         .build()

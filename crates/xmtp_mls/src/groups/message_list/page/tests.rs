@@ -108,6 +108,7 @@ mod snapshot {
             envelope_hash: None,
             expiry_ns: None,
             inserted_at_ns: 0,
+            expiry_unknown: false,
             expire_at_ns: None,
             should_push: false,
             idempotency_key: id.to_string(),

@@ -12,13 +12,9 @@ use prost::{Message, bytes::Bytes};
 use std::collections::{HashMap, HashSet};
 use thiserror::Error;
 use xmtp_common::types::Address;
-use xmtp_configuration::{
-    GROUP_KEY_ROTATION_INTERVAL_NS, WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID,
-};
+use xmtp_configuration::GROUP_KEY_ROTATION_INTERVAL_NS;
 use xmtp_cryptography::secret::{Zeroize, Zeroizing};
-use xmtp_id::key_package::{
-    KeyPackageVerificationError, VerifiedKeyPackageV2, WrapperAlgorithm, WrapperEncryptionExtension,
-};
+use xmtp_id::key_package::{KeyPackageVerificationError, VerifiedKeyPackageV2, WrapperAlgorithm};
 use xmtp_mls_common::{
     app_data::{
         component_id::ComponentId,
@@ -54,7 +50,7 @@ use xmtp_proto::{
             self, V1 as UpdatePermissionV1, Version as UpdatePermissionVersion,
         },
     },
-    xmtp::mls::message_contents::ComponentType,
+    xmtp::mls::message_contents::{ComponentType, WelcomePointerWrapperAlgorithm},
 };
 
 mod queue;
@@ -383,6 +379,12 @@ pub(crate) struct UpdateGroupMembershipIntentData {
     pub membership_updates: HashMap<String, u64>,
     pub removed_members: Vec<String>,
     pub failed_installations: Vec<Vec<u8>>,
+    /// Inboxes in `membership_updates` that were members when the intent was
+    /// built and that the app did not ask to add. Empty on intents that
+    /// earlier builds stored: each of their entries can insert its inbox.
+    pub refreshed_members: Vec<String>,
+    /// Add no leaf; record each installation the raise would add as failed.
+    pub removal_only: bool,
 }
 
 impl UpdateGroupMembershipIntentData {
@@ -395,7 +397,18 @@ impl UpdateGroupMembershipIntentData {
             membership_updates,
             removed_members,
             failed_installations,
+            refreshed_members: Vec::new(),
+            removal_only: false,
         }
+    }
+
+    /// Mark these inboxes' entries as refreshes of existing members.
+    pub fn with_refreshed_members(mut self, mut refreshed_members: Vec<String>) -> Self {
+        // Encode the same intent to the same bytes.
+        refreshed_members.sort_unstable();
+        refreshed_members.dedup();
+        self.refreshed_members = refreshed_members;
+        self
     }
 
     pub fn is_empty(&self) -> bool {
@@ -407,8 +420,18 @@ impl UpdateGroupMembershipIntentData {
     pub fn apply_to_group_membership(&self, group_membership: &GroupMembership) -> GroupMembership {
         tracing::info!("old group membership: {:?}", group_membership.members);
         let mut new_membership = group_membership.clone();
-        for (inbox_id, sequence_id) in self.membership_updates.iter() {
-            new_membership.add(inbox_id.clone(), *sequence_id);
+        for (inbox_id, &sequence_id) in self.membership_updates.iter() {
+            let sequence_id = match group_membership.get(inbox_id) {
+                // A queued refresh can be older than a commit that raised this
+                // entry. Keep the higher sequence id; never lower it.
+                Some(&current) => current.max(sequence_id),
+                // implements: GMOD-051
+                // A refresh raises an existing entry. A commit may have removed
+                // the inbox after the refresh was built; do not insert it again.
+                None if self.refreshed_members.contains(inbox_id) => continue,
+                None => sequence_id,
+            };
+            new_membership.add(inbox_id.clone(), sequence_id);
         }
 
         for inbox_id in self.removed_members.iter() {
@@ -437,6 +460,8 @@ impl From<UpdateGroupMembershipIntentData> for Vec<u8> {
                 membership_updates: intent.membership_updates,
                 removed_members: intent.removed_members,
                 failed_installations: intent.failed_installations,
+                refreshed_members: intent.refreshed_members,
+                removal_only: intent.removal_only,
             })),
         }
         .encode(&mut buf)
@@ -454,11 +479,13 @@ impl TryFrom<Vec<u8>> for UpdateGroupMembershipIntentData {
             version: Some(UpdateGroupMembershipVersion::V1(v1)),
         } = UpdateGroupMembershipData::decode(data.as_slice())?
         {
-            Ok(Self::new(
-                v1.membership_updates,
-                v1.removed_members,
-                v1.failed_installations,
-            ))
+            Ok(Self {
+                membership_updates: v1.membership_updates,
+                removed_members: v1.removed_members,
+                failed_installations: v1.failed_installations,
+                refreshed_members: v1.refreshed_members,
+                removal_only: v1.removal_only,
+            })
         } else {
             Err(IntentError::MissingPayload)
         }
@@ -473,11 +500,13 @@ impl<'a> TryFrom<&'a [u8]> for UpdateGroupMembershipIntentData {
             version: Some(UpdateGroupMembershipVersion::V1(v1)),
         } = UpdateGroupMembershipData::decode(data)?
         {
-            Ok(Self::new(
-                v1.membership_updates,
-                v1.removed_members,
-                v1.failed_installations,
-            ))
+            Ok(Self {
+                membership_updates: v1.membership_updates,
+                removed_members: v1.removed_members,
+                failed_installations: v1.failed_installations,
+                refreshed_members: v1.refreshed_members,
+                removal_only: v1.removal_only,
+            })
         } else {
             Err(IntentError::MissingPayload)
         }
@@ -960,25 +989,24 @@ pub struct Installation {
 }
 
 impl Installation {
-    pub fn from_verified_key_package(
-        key_package: &VerifiedKeyPackageV2,
-    ) -> Result<Self, IntentError> {
-        let wrapper_encryption = WrapperEncryptionExtension::advertised_by(&key_package.inner)?;
-
-        let welcome_pointee_encryption_aead_types = key_package
-            .inner
-            .extensions()
-            .unknown(WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID)
-            .map(|ext| ext.0.as_slice().try_into())
-            .transpose()?;
-
-        Ok(Self {
+    /// The addressing fields verification already decoded and checked, so a
+    /// sender can always wrap a Welcome for the result.
+    pub fn from_verified_key_package(key_package: &VerifiedKeyPackageV2) -> Self {
+        Self {
             installation_key: key_package.installation_id(),
-            hpke_public_key: wrapper_encryption.pub_key_bytes,
-            welcome_wrapper_algorithm: wrapper_encryption.algorithm,
-            welcome_pointee_encryption_aead_types: welcome_pointee_encryption_aead_types
-                .unwrap_or_else(WelcomePointersExtension::empty),
-        })
+            hpke_public_key: key_package.wrapper.pub_key_bytes.clone(),
+            welcome_wrapper_algorithm: key_package.wrapper.algorithm,
+            welcome_pointee_encryption_aead_types: key_package.pointee_aead.clone(),
+        }
+    }
+
+    /// The installation can open a welcome pointer: it advertises a
+    /// ChaCha20-Poly1305 pointee, and its wrapper is one the pointer wire format
+    /// can name. Pointers are always wrapped post-quantum.
+    // implements: JOIN-091
+    pub(crate) fn pointer_capable(&self) -> bool {
+        self.welcome_pointee_encryption_aead_types.compatible()
+            && WelcomePointerWrapperAlgorithm::try_from(self.welcome_wrapper_algorithm).is_ok()
     }
 }
 
@@ -1395,6 +1423,30 @@ pub(crate) mod tests {
             intent.failed_installations,
             restored_intent.failed_installations
         );
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn membership_refresh_never_lowers_committed_sequence() {
+        let mut committed = GroupMembership::new();
+        committed.add("stale".to_string(), 5);
+        committed.add("raised".to_string(), 3);
+        committed.add("removed".to_string(), 2);
+        let intent = UpdateGroupMembershipIntentData::new(
+            HashMap::from([
+                ("stale".to_string(), 4),
+                ("raised".to_string(), 7),
+                ("added".to_string(), 1),
+                ("removed".to_string(), 9),
+            ]),
+            vec!["removed".to_string()],
+            vec![],
+        );
+        let updated = intent.apply_to_group_membership(&committed);
+        assert_eq!(updated.get("stale"), Some(&5));
+        assert_eq!(updated.get("raised"), Some(&7));
+        assert_eq!(updated.get("added"), Some(&1));
+        assert_eq!(updated.get("removed"), None);
+        assert_eq!(updated.members.len(), 3);
     }
 
     #[xmtp_common::test]

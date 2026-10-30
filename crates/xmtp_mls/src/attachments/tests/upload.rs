@@ -1027,6 +1027,21 @@ async fn blocked_connection_upload_fails() {
     );
 }
 
+/// A rate limit is a transient backend condition.
+// verifies: RATE-041
+#[xmtp_common::test(unwrap_try = true)]
+fn a_rate_limit_maps_to_a_transient_cause() {
+    use xmtp_proto::api::ApiClientError;
+    let limited = xmtp_api_grpc::error::rate_limited_status(
+        "upload",
+        xmtp_common::time::Duration::from_secs(5),
+    );
+    let error = ApiClientError::client(xmtp_api_grpc::error::GrpcError::Status(limited));
+    let mapped = api_error(xmtp_api::dyn_err(error));
+    assert_eq!(mapped.cause, Cause::BackendUnavailable);
+    assert!(!mapped.missing_scope);
+}
+
 // verifies: ATCH-060, ATCH-061
 #[xmtp_common::test(unwrap_try = true)]
 fn causes_map() {

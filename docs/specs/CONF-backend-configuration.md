@@ -21,7 +21,7 @@ flowchart LR
 
 In scope: the backend's configuration file, which is a contract with operators: the sources the backend reads it from, every key with its type, presence, default, and checks, environment references, which values are secret, and what a later release must still accept; the configuration checks the backend makes before it serves; the boundary between what is published and what stays private; the public configuration wire format; how a client fetches, validates, stores, and binds to it; what a refresh may change; the conditions under which a client stops; what a client sizes or rejects using it; and what an SDK exposes to an app.
 
-Out of scope: what a key does once it is applied, and the checks and defaults that another spec states for a key, which the configuration field table cites by identifier. These include credentials and authorization ([AUTH](AUTH-backend-auth.md)), the backend API's enforcement of limits and its errors ([API section 7](API-backend-api.md#7-bounds-errors-and-transport)), operations such as retention, readiness, and telemetry ([OPS](OPS-backend-operations.md)), push delivery ([PUSH](PUSH-push-subscriptions.md)), and attachment storage ([ATCH](ATCH-remote-attachments.md)). The platform a deployment runs on is also out of scope.
+Out of scope: what a key does once it is applied, and the checks and defaults that another spec states for a key, which the configuration field table cites by identifier. These include credentials and authorization ([AUTH](AUTH-backend-auth.md)), the backend API's enforcement of limits and its errors ([API section 7](API-backend-api.md#7-bounds-errors-and-transport)), per-caller rate limits and their defaults ([RATE](RATE-backend-rate-limits.md)), operations such as retention, readiness, and telemetry ([OPS](OPS-backend-operations.md)), push delivery ([PUSH](PUSH-push-subscriptions.md)), and attachment storage ([ATCH](ATCH-remote-attachments.md)). The platform a deployment runs on is also out of scope.
 
 | Related | Relation |
 | --- | --- |
@@ -30,6 +30,7 @@ Out of scope: what a key does once it is applied, and the checks and defaults th
 | [OPS](OPS-backend-operations.md) | Owns retention enforcement, health, the identifier's use in telemetry, and the startup checks OPS-020, OPS-021, and OPS-022, which the configuration field table cites. |
 | [PUSH](PUSH-push-subscriptions.md) | Owns push channels, delivery, and recipient expiry, with the defaults that PUSH-217 and PUSH-226 state. This spec owns the `[push]` keys and their checks, including CONF-091 and CONF-092. |
 | [ATCH section 1](ATCH-remote-attachments.md#1-what-the-backend-publishes) | Owns the checks of the `[attachments]` keys that its rows state, the upload ceiling default of ATCH-003, and what is published about storage. This spec owns the layout and presence of that table and its other defaults. |
+| [RATE](RATE-backend-rate-limits.md) | Owns what the `rate_limits` keys mean and the default limits. This spec owns their types, presence, and checks, including CONF-094. |
 | [IDENT](IDENT-identity-updates.md) | Owns handles: the grammar and the rules for a claim in an identity log. This spec owns only the published minimum name length. |
 | `EVENT` | EVENT-016 keeps local event subscriptions open after a server rejection. EVENT-001 owns the `client.rejected_by_server` event. |
 
@@ -119,6 +120,8 @@ The standard checks table defines each standard check. A rule that relates keys,
 | `pattern R` | The whole string matches the regular expression R, read under [ECMA-262 §22.2](https://tc39.es/ecma262/#sec-regexp-regular-expression-objects) with no flags. |
 | `socket address` | The string is an IPv4 address, or an IPv6 address in square brackets. An IPv4 address is four decimal numbers from 0 to 255, each without a leading zero, joined by `.`. An IPv6 address follows [RFC 4291 §2.2](https://www.rfc-editor.org/rfc/rfc4291#section-2.2), and inside the brackets `%` and a decimal zone index may follow it. After the address come `:` and a decimal port from 0 to 65535. A host name does not pass. |
 | `socket address or empty` | The string is empty, or passes `socket address`. |
+| `ip address` | The string is an IPv4 address, written as in `socket address`, or an IPv6 address following [RFC 4291 §2.2](https://www.rfc-editor.org/rfc/rfc4291#section-2.2) without brackets or a zone index. |
+| `ip network` | The string passes `ip address`, followed by `/` and a decimal prefix length from 0 to 32 for IPv4 or 0 to 128 for IPv6, with every bit after the prefix 0. |
 | `url S` | The string begins with `S://` for one of the listed schemes S. The [WHATWG URL Standard basic URL parser](https://url.spec.whatwg.org/#concept-basic-url-parser), given no base URL, returns a URL for it. |
 | `secure url` | The basic URL parser, given no base URL, returns a URL for the string that has a host. Its scheme is `https`, or `http` when the host is `localhost`, an IPv4 address in `127.0.0.0/8`, or `::1`. |
 | `plain url` | The string is ASCII with no control character, no white space, and no `\`, and has no `%` between `://` and the next `/`. The basic URL parser, given no base URL, returns a URL for it that has a host and no username, password, query, or fragment. An IPv4 host is written in the dotted-decimal form that the parser serializes. |
@@ -177,16 +180,34 @@ The standard checks table defines each standard check. A rule that relates keys,
 | `limits.max_stream_topics` | integer | optional | section 3 | `range 1..4294967295`; CONF-089 | |
 | `limits.max_static_topics` | integer | optional | section 3 | `range 1..4294967295` | |
 | `limits.max_lookup_identifiers` | integer | optional | section 3 | `range 1..4294967295` | |
-| `limits.max_scw_signatures` | integer | optional | section 3 | `range 1..4294967295` | |
+| `limits.max_scw_signatures` | integer | optional | section 3 | `range 1..200` | Not above two for each action IDENT-094 allows, the most ERC-6492 signatures one identity update can carry. Clients size verify requests by it. |
 | `limits.max_identity_entries` | integer | optional | section 3 | `range 1..4294967295` | API-234. |
 | `limits.max_http2_streams` | integer | optional | `100` | `range 1..4294967295` | Concurrent HTTP/2 streams per connection. Open subscriptions count toward it. Not published. |
 | `limits.max_update_frames_per_second` | integer | optional | section 3 | `range 1..4294967295` | API-258. |
 | `limits.max_update_burst` | integer | optional | section 3 | `range 1..4294967295` | API-258. |
 | `limits.max_ping_frames_per_second` | integer | optional | section 3 | `range 1..4294967295` | API-258. |
 | `limits.max_ping_burst` | integer | optional | section 3 | `range 1..4294967295` | API-258. |
+| `rate_limits` | table | optional | `{}` | | RATE. |
+| `rate_limits.enabled` | boolean | optional | `true` | | When `false`: RATE-012. |
+| `rate_limits.max_memory_mib` | integer | optional | `100` | `range 1..65536` | The bound of RATE-050. |
+| `rate_limits.trusted_proxies` | array of strings | optional | `[]` | `ip network` | The trusted proxies of RATE-002. |
+| `rate_limits.categories` | table | optional | `{}` | | |
+| `rate_limits.categories.<category>` | table | optional | absent | key `one of: request, publish, identity_update, chain_verify, push, upload, stream_rent` | The categories of RATE section 2. |
+| `rate_limits.categories.<category>.<tier>` | array of tables | optional | RATE-025 | key `one of: default, ip, jwt, api_key`; CONF-094 | The limits RATE-025 applies. `[]` admits every spend. |
+| `rate_limits.categories.<category>.<tier>[].count` | integer | required | none | `range 1..4294967295`; CONF-094 | |
+| `rate_limits.categories.<category>.<tier>[].window_seconds` | integer | required | none | `range 1..2592000` | |
+| `rate_limits.overrides` | array of tables | optional | `[]` | ; CONF-094 | One caller each. |
+| `rate_limits.overrides[].api_key` | string | optional; CONF-094 | absent | `pattern ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$` | An API key name (AUTH-028). |
+| `rate_limits.overrides[].jwt_issuer` | string | optional; CONF-094 | absent | | The `iss` of RATE-001. When absent, the override names a token with no `iss`. |
+| `rate_limits.overrides[].jwt_subject` | string | optional; CONF-094 | absent | `non-empty` | The `sub` of RATE-001. |
+| `rate_limits.overrides[].ip` | string | optional; CONF-094 | absent | `ip address` | An IPv6 address names its /64 (RATE-003). |
+| `rate_limits.overrides[].limits` | table | required in `rate_limits.overrides[]` | none | | |
+| `rate_limits.overrides[].limits.<category>` | array of tables | optional | absent | key `one of: request, publish, identity_update, chain_verify, push, upload, stream_rent`; CONF-094 | `[]` admits every spend. |
+| `rate_limits.overrides[].limits.<category>[].count` | integer | required | none | `range 1..4294967295`; CONF-094 | |
+| `rate_limits.overrides[].limits.<category>[].window_seconds` | integer | required | none | `range 1..2592000` | |
 | `mls` | table | optional | `{}` | | |
 | `mls.max_group_members` | integer | optional | section 3 | `range 1..65535` | Advisory. Clients apply it (CONF-043). |
-| `mls.max_installations_per_inbox` | integer | optional | section 3 | `range 1..65535` | Advisory. Clients apply it (CONF-044). |
+| `mls.max_installations_per_inbox` | integer | optional | section 3 | `range 1..100` | Advisory. Clients apply it (CONF-044). Not above the action limit of IDENT-094, so one update can revoke every installation within the ceiling. |
 | `mls.commit_log_enabled` | boolean | optional | section 3 | | CONF-045. |
 | `handles` | table | optional | `{}` | | |
 | `handles.min_name_length` | integer | optional | section 3 | ; CONF-080 | API-297 applies it to claims. |
@@ -261,9 +282,11 @@ The standard checks table defines each standard check. A rule that relates keys,
 | CONF-087 | Field table is enforced | When a key whose row in the configuration field table makes it required, and whose Presence cell names no requirement, is absent, when a value does not have the type its row's Type cell gives, or when, outside an `[auth]` table whose `enabled` is `false`, a value fails a check from the standard checks table that its row's Checks cell names, the backend MUST refuse to start. | A value outside its range reaches code that cannot honour it: a timeout the store refuses, a count published as a number other than the one enforced (CONF-069), or a zero that clients read as not provided (CONF-025). |
 | CONF-088 | Absent keys take their default | When the configuration omits an optional key whose Default cell in the configuration field table holds a value or `section 3`, the backend MUST apply that value. For `section 3`, the value is the compiled default that section 3 gives for the field the key is published as. | An operator who omits a key relies on the value this table documents. Any other value changes a limit, a timeout, or a published field the operator never set. |
 | CONF-089 | Related keys agree | When `publishing.max_publish_duration_ms` is not greater than `database.max_statement_timeout_ms`, `limits.max_query_limit` is less than `limits.default_query_limit`, or `limits.max_update_adds` is greater than `limits.max_stream_topics`, the backend MUST refuse to start. | Each pair nests one bound inside another. When a pair is inverted, a publish ends at its own deadline before its statement timeout can act, a page for `limit` 0 is larger than the published `max_query_limit`, and an update of `max_update_adds` topics is refused. |
-| CONF-090 | Chain keys are EIP-155 ids | When a key of the `chains` table is not `eip155:` followed by a chain id in the decimal form IDENT-060 requires and not greater than 18446744073709551615, the backend MUST refuse to start. | A key in another form is published (CONF-070) but never equals the chain of a signature that IDENT-060 admits, so no signature on that chain is ever verified. |
+| CONF-090 | Chain keys are EIP-155 ids | When a key of the `chains` table is not `eip155:` followed by a chain id in the decimal form IDENT-093 requires and not greater than 18446744073709551615, the backend MUST refuse to start. | A key in another form is published (CONF-070) but never equals the chain of a signature that IDENT-093 admits, so no signature on that chain is ever verified. |
 | CONF-091 | Push expiry fits the clock | When `push.recipient_ttl_seconds`, converted to nanoseconds and added to the primary store's clock at startup, cannot be represented as a signed 64-bit nanosecond timestamp, the backend MUST refuse to start. | Otherwise every `Register` fails with `INTERNAL`, because the `expires_at_ns` that PUSH-255 returns cannot be computed, while the instance reports SERVING. |
 | CONF-092 | Push credentials load at startup | When `[push.apns]` is present and its `key` is not a PEM-encoded private key ([RFC 7468 §10](https://www.rfc-editor.org/rfc/rfc7468#section-10)) in the form of [RFC 5958 §2](https://www.rfc-editor.org/rfc/rfc5958#section-2) on the curve `secp256r1` ([RFC 5480 §2.1.1.1](https://www.rfc-editor.org/rfc/rfc5480#section-2.1.1.1)), the backend MUST refuse to start. When `[push.fcm]` is present and its `service_account` is not a JSON object ([RFC 8259 §4](https://www.rfc-editor.org/rfc/rfc8259#section-4)) whose `project_id` is a string of one or more ASCII letters, digits, or `-`, whose `client_email` is a string that is not empty, whose `private_key` is a PEM-encoded RSA private key ([RFC 8017 §3.2](https://www.rfc-editor.org/rfc/rfc8017#section-3.2)) in the same form, and whose `token_uri` is `https://oauth2.googleapis.com/token`, the backend MUST refuse to start. | Otherwise the backend reports SERVING while every delivery on that channel fails. Any other `token_uri` would send the signed token request to a host the file names. |
+| CONF-094 | Rate limit lists and overrides agree | When a list of limits under `rate_limits` holds more than 3 entries, two entries with equal `window_seconds`, or an entry whose `count` is greater than 1,000,000,000 × its `window_seconds`, when an entry of `rate_limits.overrides` sets none or more than one of `api_key`, `jwt_subject`, and `ip`, or sets `jwt_issuer` without `jwt_subject`, or when two entries name the same caller key under RATE-001 and RATE-003, the backend MUST refuse to start. | Two overrides for one caller make the applied limits depend on file order, a fourth limit has nowhere to be recorded, and a limit of more than one unit per nanosecond is earned back at once, so it admits every spend. |
+| CONF-095 | Unsafe settings are reported | Before it serves, the backend MUST log, while the configured log level admits WARN, one entry at level WARN for each of these settings, and MUST NOT refuse to start because of any of them: auth disabled while `server.listen` is not a loopback address; a `database.url` or `database.replica_url` whose host is not a loopback address, `localhost`, or a Unix socket and whose TLS mode is not `verify-full`, where the TLS mode is the URL's `sslmode` parameter, or else the `PGSSLMODE` environment variable, or else `prefer`; and a `chains` URL whose scheme is `http` and whose host is not a loopback address or `localhost`. Each entry MUST name the key and, for a store URL, the TLS mode. | CONF-086 keeps these files valid, so a log entry is how an operator learns that any caller is admitted without a credential, or that a party on the network path can read and rewrite the store link or forge a chain's answers. |
 
 ### 1.3 Example configuration
 
@@ -415,6 +438,38 @@ max_update_burst = 100
 max_ping_frames_per_second = 10
 # Ping frames one Subscribe stream may send in a burst.
 max_ping_burst = 100
+
+# Per-caller rate limits (RATE). On by default with the limits RATE section 3
+# lists. Set `enabled = false` to turn them off.
+[rate_limits]
+enabled = true
+max_memory_mib = 100
+# Networks your proxy connects from. Their X-Forwarded-For entries are
+# trusted. The default trusts none.
+trusted_proxies = ["10.0.0.0/8"]
+
+# Callers without credentials get a tighter publish limit.
+[rate_limits.categories.publish]
+ip = [{ count = 600, window_seconds = 60 }, { count = 10000, window_seconds = 3600 }]
+
+# One bot publishes without a limit.
+[[rate_limits.overrides]]
+api_key = "bridge-bot"
+[rate_limits.overrides.limits]
+publish = []
+
+# One user of an identity provider may make more requests.
+[[rate_limits.overrides]]
+jwt_issuer = "https://auth.example.org"
+jwt_subject = "user-1234"
+[rate_limits.overrides.limits]
+request = [{ count = 20000, window_seconds = 60 }]
+
+# One office network shares an address and holds more streams.
+[[rate_limits.overrides]]
+ip = "203.0.113.7"
+[rate_limits.overrides.limits]
+stream_rent = [{ count = 1000, window_seconds = 60 }]
 
 [mls]
 # Largest group a client creates or grows. Clients apply it; the backend only
@@ -837,7 +892,7 @@ The client refreshes on its own schedule, spread at random. The interval, the sp
 
 ## 6. Applying the snapshot
 
-The client splits and bounds its requests to the published limits, so that a request the backend would reject is never sent. The table below names the bound for each request; one bound is fixed rather than published. The fields it does not name (`max_response_bytes`, `max_stream_topics`, `max_identity_entries`, and the four rate-limit fields) are published for an app to read. API-281 and API-282 own response and request bounds, API-234 owns the identity-log limit, and API-258 owns stream frame rate limits.
+The client splits and bounds its requests to the published limits, so that a request the backend would reject is never sent. The table below names the bound for each request; one bound is fixed rather than published. The fields it does not name (`max_response_bytes`, `max_stream_topics`, `max_identity_entries`, `max_ping_frames_per_second`, and `max_ping_burst`) are published for an app to read. The client paces `Update` frames to `max_update_frames_per_second` and `max_update_burst` (CONF-093). API-281 and API-282 own response and request bounds, API-234 owns the identity-log limit, and API-258 owns the backend's stream frame rate limits.
 
 | Request | Bound |
 | --- | --- |
@@ -845,7 +900,7 @@ The client splits and bounds its requests to the published limits, so that a req
 | Query | Topics per request not more than `max_query_topics`; `limit` not more than `max_query_limit` |
 | QueryNewest | Topics per request not more than `max_newest_full_topics` with full envelopes and `max_newest_metadata_topics` without |
 | GetInboxIds | Identifiers per request not more than `max_lookup_identifiers` |
-| VerifySmartContractWalletSignatures | Signatures per request not more than `max_scw_signatures` |
+| VerifySmartContractWalletSignatures | Signatures per request not more than `max_scw_signatures`; encoded request not longer than `max_request_bytes` |
 | SubscribeStatic | Topics per stream not more than `max_static_topics` |
 | Subscribe update | `adds` not more than `max_update_adds`; `removes` not more than `max_update_removes`; encoded frame not longer than `max_request_bytes` |
 
@@ -860,6 +915,7 @@ The version gate and the credential requirement fail creation, so an app gets on
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
 | CONF-073 | Size every request to its bounds | The client MUST split or bound every request it sends so that it stays within each bound in the table above. When one envelope alone is longer than `max_envelope_bytes`, the client MUST reject the publish before it sends any request. | |
+| CONF-093 | Pace updates to the snapshot | The client MUST send `Update` frames on each `Subscribe` stream no faster than the snapshot's `max_update_frames_per_second` with a burst of `max_update_burst`, counting the `Update` it sends when it opens the stream. | The backend fails a stream whose `Update` frames arrive faster than these values (API-258), so a client that paces to its compiled defaults loses its stream on ordinary interest changes when a deployment publishes lower values. |
 | CONF-043 | Advisory group size | When the number of distinct inboxes in a group's `GROUP_MEMBERSHIP` component plus the inboxes a change would add is greater than `max_group_members`, the client MUST reject the change before it builds a commit. | |
 | CONF-044 | Advisory installation count | When the number of installations an inbox's association state names is not less than `max_installations_per_inbox`, the client MUST NOT register a new installation for that inbox. | |
 | CONF-045 | Commit log follows the deployment | While the snapshot's `commit_log_enabled` is `false`, the client MUST NOT publish a commit-log entry and MUST NOT read the commit log. | A deployment that keeps no commit log would be sent entries it discards, and clients would read an always-empty log as evidence about groups. |
@@ -893,6 +949,10 @@ A deployment behind one address may be more than one process, and two of them ma
 
 An operator's change reaches an existing client's stored copy within one refresh interval and its behaviour only when a client is next created. If every refresh fails there is no upper bound on how stale a stored copy may be; the client keeps using it rather than falling back to the compiled defaults.
 
+A deployment that lowers `max_update_frames_per_second` or `max_update_burst` can fail the `Subscribe` streams of clients created before the change with `RESOURCE_EXHAUSTED` (API-258), because each client paces to the snapshot it was created with (CONF-020) until it is created again.
+
+The backend counts an `Update` frame when it arrives, and the client counts it when it sends it. The client leaves 500 ms more than the published refill interval between frames beyond the burst. When an earlier frame is held back, for example by a TCP retransmission, later frames on the same stream queue behind it and arrive together. If the earlier frame's delay exceeds a later frame's delay by more than 500 ms, those frames can exceed the backend's bucket and fail the stream with `RESOURCE_EXHAUSTED`; the client then opens a new stream.
+
 An app that checks a name against the snapshot's `handles.min_name_length` uses the value from when the client was created (CONF-020). After the operator changes the setting, such an app can refuse a name the backend admits, or pass a name the backend refuses. The backend's answer to the claim decides.
 
 Anyone who can reach the backend API can read the public configuration, including the auth summary and the accepted chains (CONF-010). CONF-011 keeps it harmless to disclose.
@@ -904,3 +964,5 @@ A string value that begins with `env:` is always an environment reference, so a 
 A value that is not a secret value can come from an environment reference and still appear in output. The deployment identifier is on spans and logs under OPS-013, and OPS-022 names a metrics address that fails to bind.
 
 CONF-086 binds the keys a file holds and the units of their values. It does not bind the defaults of keys the file omits, or whether a later release still applies a key it accepts. A later release can change a default, and with it the behaviour of a deployment that relies on that default.
+
+The backend starts with auth disabled, with a store link that does not verify the server's certificate and host, and with a chain RPC URL in plain HTTP, because CONF-086 keeps a file that an earlier release accepted valid. CONF-095 logs each one; it does not refuse it.

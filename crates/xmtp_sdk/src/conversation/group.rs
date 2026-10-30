@@ -177,8 +177,9 @@ impl Group {
     }
 
     /// Add members by account identity or handle. Hosts present this as an
-    /// `addMembers` overload or union. Every handle resolves through the
-    /// verified handle resolver first, and all members join in one commit.
+    /// `addMembers` overload or union. Every account and handle resolves
+    /// through the verified resolver first, and all members join in one
+    /// commit.
     #[tracing::instrument(skip_all)]
     pub async fn add_members_by_identity(
         &self,
@@ -207,8 +208,9 @@ impl Group {
     }
 
     /// Remove members by account identity or handle. Hosts present this as
-    /// a `removeMembers` overload or union. Every handle resolves through the
-    /// verified handle resolver first, and all members leave in one commit.
+    /// a `removeMembers` overload or union. Every account and handle resolves
+    /// through the verified resolver first, and all members leave in one
+    /// commit.
     pub async fn remove_members_by_identity(
         &self,
         members: Vec<PublicIdentity>,

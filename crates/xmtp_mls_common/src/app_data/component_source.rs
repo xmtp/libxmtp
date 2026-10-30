@@ -389,7 +389,7 @@ pub fn read_post_commit_component_bytes(
 /// uses that to resolve `RemoveByHash` mutations back to their underlying
 /// inbox id. `xmtp_mls`'s `app_data` module also uses it from
 /// `process_message_with_app_data`, `stage_app_data_propose_and_commit`,
-/// and `pending_app_data_updates`.
+/// and `AppDataBatch::pending`.
 pub fn read_from_app_data_dict(id: ComponentId, mls_group: &OpenMlsGroup) -> Option<&[u8]> {
     read_from_app_data_dict_from_extensions(id, mls_group.extensions())
 }
@@ -579,7 +579,8 @@ fn check_update_payload_bounds(
     payload: &[u8],
     registry: &ComponentRegistry,
 ) -> Result<(), ComponentSourceError> {
-    if !is_field_bounded(id) {
+    // GROUP_MEMBERSHIP: payload entries only, so a stored entry never blocks commits.
+    if !is_field_bounded(id) && id != ComponentId::GROUP_MEMBERSHIP {
         return Ok(());
     }
     // A removal by hash names no key bytes.
@@ -2377,7 +2378,8 @@ mod tests {
     }
 
     /// Each key and value of an application byte map, and each
-    /// `USER_DISPLAY_NAME` value, may hold 8192 bytes and no more.
+    /// `USER_DISPLAY_NAME` and `GROUP_MEMBERSHIP` value, may hold 8192 bytes
+    /// and no more.
     // verifies: META-068
     #[xmtp_common::test(unwrap_try = true)]
     fn bounded_map_elements_hold_at_most_the_element_limit() {
@@ -2417,6 +2419,17 @@ mod tests {
         assert!(over(app_entry(1, MAX_FIELD_ELEMENT_BYTES + 1)));
         name(MAX_FIELD_ELEMENT_BYTES)?;
         assert!(over(name(MAX_FIELD_ELEMENT_BYTES + 1)));
+        let entry = |len: usize| {
+            let delta = TlsMapDelta::<InboxId, VLBytes>::new().insert(fake_inbox(1), bytes(len));
+            apply_app_data_update_payload(
+                ComponentId::GROUP_MEMBERSHIP,
+                &delta.tls_serialize_detached().unwrap(),
+                None,
+                &registry,
+            )
+        };
+        entry(MAX_FIELD_ELEMENT_BYTES)?;
+        assert!(over(entry(MAX_FIELD_ELEMENT_BYTES + 1)));
     }
 
     /// A serialized collection may hold 65536 bytes and no more, even when
@@ -2453,53 +2466,6 @@ mod tests {
                 ..
             })
         ));
-    }
-
-    /// An element over the bound is refused even when a later mutation of
-    /// the same payload removes it, so the final value cannot hide it.
-    // verifies: META-068
-    #[xmtp_common::test(unwrap_try = true)]
-    fn apply_bounds_elements_that_the_payload_later_removes() {
-        let set = ComponentId::new(0xC06D);
-        let map = ComponentId::new(0xC06E);
-        let over = || bytes(MAX_FIELD_ELEMENT_BYTES + 1);
-        let apply = |id, payload: Vec<u8>, ty| {
-            apply_app_data_update_payload(id, &payload, None, &registry_with(id, ty))
-        };
-        let exceeded = |result| {
-            matches!(
-                result,
-                Err(ComponentSourceError::FieldBoundExceeded { len: 8193, .. })
-            )
-        };
-
-        let set_payload = TlsSetDelta::<VLBytes>::new()
-            .insert(over())
-            .remove(over())
-            .tls_serialize_detached()?;
-        assert!(exceeded(apply(
-            set,
-            set_payload,
-            ComponentType::TlsSetBytes
-        )));
-        let value_payload = TlsMapDelta::<VLBytes, VLBytes>::new()
-            .insert(bytes(1), over())
-            .delete(bytes(1))
-            .tls_serialize_detached()?;
-        assert!(exceeded(apply(
-            map,
-            value_payload,
-            ComponentType::TlsMapBytesBytes
-        )));
-        let key_payload = TlsMapDelta::<VLBytes, VLBytes>::new()
-            .insert(over(), bytes(1))
-            .delete(over())
-            .tls_serialize_detached()?;
-        assert!(exceeded(apply(
-            map,
-            key_payload,
-            ComponentType::TlsMapBytesBytes
-        )));
     }
 
     /// A registry entry padded to `len` bytes by an unknown protobuf field,
@@ -2594,8 +2560,9 @@ mod tests {
     }
 
     /// The bounds cover application components, `USER_DISPLAY_NAME`,
-    /// `GROUP_IMAGE`, and `COMPONENT_REGISTRY` only. Other XMTP components
-    /// keep their own limits.
+    /// `GROUP_IMAGE`, and `COMPONENT_REGISTRY` only, and `GROUP_MEMBERSHIP`
+    /// entries but not its snapshot. Other XMTP components keep their own
+    /// limits.
     // verifies: META-068
     #[xmtp_common::test(unwrap_try = true)]
     fn field_bounds_skip_other_xmtp_components() {
@@ -2604,63 +2571,68 @@ mod tests {
         let registry = registry_with(registered, ComponentType::Bytes);
         apply_app_data_update_payload(registered, &over, None, &registry)?;
         apply_app_data_update_payload(ComponentId::GROUP_DESCRIPTION, &over, None, &registry)?;
+        let members = (0..9).fold(TlsMapDelta::<InboxId, VLBytes>::new(), |delta, n| {
+            delta.insert(fake_inbox(n), bytes(MAX_FIELD_ELEMENT_BYTES))
+        });
+        let snapshot = apply_app_data_update_payload(
+            ComponentId::GROUP_MEMBERSHIP,
+            &members.tls_serialize_detached()?,
+            None,
+            &registry,
+        )?;
+        assert!(snapshot.len() > MAX_FIELD_SNAPSHOT_BYTES);
     }
 
     /// A payload's element bound covers every byte key and value it names,
     /// removal keys included: an oversized key can never match a stored one,
-    /// so admitting it only spends proposal storage.
+    /// so admitting it only spends proposal storage. An element is bounded
+    /// even when a later mutation of the same payload removes it, so the
+    /// final value cannot hide it.
     // verifies: META-068
     #[xmtp_common::test(unwrap_try = true)]
     fn payload_bounds_measure_every_named_element() {
-        let set = ComponentId::new(0xC06B);
-        let map = ComponentId::new(0xC06C);
-        let registries = [
-            registry_with(set, ComponentType::TlsSetBytes),
-            registry_with(map, ComponentType::TlsMapBytesBytes),
-        ];
-        let over = MAX_FIELD_ELEMENT_BYTES + 1;
-        let check = |id, payload: Vec<u8>| {
-            check_update_payload_bounds(id, &payload, &registries[usize::from(id == map)])
+        const LIMIT: usize = MAX_FIELD_ELEMENT_BYTES;
+        const OVER: usize = LIMIT + 1;
+        type Set = TlsSetDelta<VLBytes>;
+        type Map = TlsMapDelta<VLBytes, VLBytes>;
+        let apply = |id, ty, payload: Vec<u8>| {
+            apply_app_data_update_payload(id, &payload, None, &registry_with(id, ty))
         };
-        let exceeded = |result| matches!(result, Err(ComponentSourceError::FieldBoundExceeded { len, .. }) if len == over);
+        let set = ComponentId::new(0xC06B);
+        let in_set = |build: fn(Set) -> Set| {
+            let payload = build(Set::new()).tls_serialize_detached().unwrap();
+            apply(set, ComponentType::TlsSetBytes, payload)
+        };
+        let map = ComponentId::new(0xC06C);
+        let in_map = |build: fn(Map) -> Map| {
+            let payload = build(Map::new()).tls_serialize_detached().unwrap();
+            apply(map, ComponentType::TlsMapBytesBytes, payload)
+        };
 
-        let set_delta = |delta: TlsSetDelta<VLBytes>| delta.tls_serialize_detached().unwrap();
-        check(
-            set,
-            set_delta(TlsSetDelta::new().insert(bytes(MAX_FIELD_ELEMENT_BYTES))),
-        )?;
-        assert!(exceeded(check(
-            set,
-            set_delta(TlsSetDelta::new().insert(bytes(over)))
-        )));
-        assert!(exceeded(check(
-            set,
-            set_delta(TlsSetDelta::new().remove(bytes(over)))
-        )));
-        check(
-            set,
-            set_delta(TlsSetDelta::new().remove(bytes(MAX_FIELD_ELEMENT_BYTES))),
-        )?;
-
-        let map_delta =
-            |delta: TlsMapDelta<VLBytes, VLBytes>| delta.tls_serialize_detached().unwrap();
-        assert!(exceeded(check(
-            map,
-            map_delta(TlsMapDelta::new().update(bytes(over), bytes(1)))
-        )));
-        assert!(exceeded(check(
-            map,
-            map_delta(TlsMapDelta::new().update(bytes(1), bytes(over)))
-        )));
-        assert!(exceeded(check(
-            map,
-            map_delta(TlsMapDelta::new().delete(bytes(over)))
-        )));
-        check(
-            map,
-            map_delta(TlsMapDelta::new().delete(bytes(MAX_FIELD_ELEMENT_BYTES))),
-        )?;
-
-        check(ComponentId::GROUP_DESCRIPTION, vec![b'a'; over])?;
+        for accepted in [
+            in_set(|d| d.insert(bytes(LIMIT))),
+            in_set(|d| d.insert(bytes(LIMIT)).remove(bytes(LIMIT))),
+            in_map(|d| d.insert(bytes(LIMIT), bytes(1)).delete(bytes(LIMIT))),
+        ] {
+            accepted?;
+        }
+        for rejected in [
+            in_set(|d| d.insert(bytes(OVER))),
+            in_set(|d| d.remove(bytes(OVER))),
+            in_set(|d| d.insert(bytes(OVER)).remove(bytes(OVER))),
+            in_map(|d| d.update(bytes(OVER), bytes(1))),
+            in_map(|d| d.update(bytes(1), bytes(OVER))),
+            in_map(|d| d.delete(bytes(OVER))),
+            in_map(|d| d.insert(bytes(1), bytes(OVER)).delete(bytes(1))),
+            in_map(|d| d.insert(bytes(OVER), bytes(1)).delete(bytes(OVER))),
+        ] {
+            assert!(
+                matches!(
+                    rejected,
+                    Err(ComponentSourceError::FieldBoundExceeded { len: OVER, .. })
+                ),
+                "{rejected:?}"
+            );
+        }
     }
 }

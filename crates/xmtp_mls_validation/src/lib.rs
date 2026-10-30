@@ -2,17 +2,18 @@
 
 use std::collections::{BTreeSet, HashMap};
 
-use futures::future::try_join_all;
+use futures::{StreamExt, TryStreamExt, stream};
 use openmls::prelude::{ContentType, KeyPackageIn, MlsMessageIn, ProtocolMessage};
 use openmls_rust_crypto::RustCrypto;
 use tls_codec::Deserialize;
 use xmtp_common::RetryableError;
 
+use xmtp_configuration::MAX_CHAIN_CALLS_IN_FLIGHT;
 use xmtp_id::{
     associations::{
         self, AccountId, AssociationError, AssociationState, AssociationStateDiff, Handle,
-        IdentityAction as _, SignatureError, try_map_vec, unverified::UnverifiedIdentityUpdate,
-        verify_updates,
+        IdentityAction as _, SignatureError, UpdateShapeError, check_update_shape, try_map_vec,
+        unverified::UnverifiedIdentityUpdate, verify_admitted_updates, verify_updates,
     },
     key_package::{KeyPackageVerificationError, VerifiedKeyPackageV2},
     scw_verifier::{BlockStamp, ChainBlocks, SmartContractSignatureVerifier, VerifierError},
@@ -30,13 +31,15 @@ use xmtp_proto::{
             ClientEnvelope, SealedCommitLogEntry, client_envelope::Payload, publish_error::Reason,
             welcome_message::Version,
         },
-        identity::associations::{
-            IdentityUpdate, SmartContractWalletSignature, identity_action, signature,
-        },
+        identity::associations::IdentityUpdate,
     },
 };
 
+pub use xmtp_id::associations::erc6492_signatures;
+
 pub mod commit;
+pub mod fork_actors;
+pub use fork_actors::{ForkActors, ReaddAuthority};
 pub mod group_membership;
 pub mod group_permissions;
 #[cfg(any(test, feature = "test-utils"))]
@@ -105,6 +108,19 @@ pub enum ValidationError {
     #[error(transparent)]
     #[error_code(inherit)]
     InvalidAccountId(ConversionError),
+}
+
+impl From<UpdateShapeError> for ValidationError {
+    fn from(error: UpdateShapeError) -> Self {
+        match error {
+            UpdateShapeError::Malformed(error) => Self::IdentityEncoding(error),
+            // Rejected like a malformed account id: a signature that can never
+            // verify.
+            UpdateShapeError::SignatureTooLong(length) => {
+                Self::Signature(VerifierError::SignatureTooLong(length).into())
+            }
+        }
+    }
 }
 
 impl RetryableError for ValidationError {
@@ -347,7 +363,46 @@ pub async fn validate_identity_updates(
     } else {
         Some(associations::get_state(old)?)
     };
-    let mut state = old_state.clone();
+    apply_suffix(old_state.as_ref(), new)
+}
+
+/// The association state of an identity log that the backend admitted and
+/// stored, replayed without chain access. Only [`admitted_state`] builds one
+/// from a log, so every prior state [`validate_envelope`] accepts is either
+/// that replay or, by [`Default`], the state of an empty log.
+#[derive(Debug, Clone, Default)]
+pub struct AdmittedState(Option<AssociationState>);
+
+/// Replay the backend's own stored identity log, in sequence order, to the
+/// state a new update is validated against.
+///
+/// Every stored update passes every check a client makes except the chain
+/// call of its ERC-6492 signatures ([`verify_admitted_updates`]), so a stored
+/// update that does not decode, verify or apply fails as it would in
+/// [`validate_identity_updates`]. It is CPU work with no I/O, up to two
+/// signature checks for each stored action, so a caller on an async runtime
+/// runs it in a blocking task.
+///
+/// Only a backend may call this, and only for a log read from its own store:
+/// an ERC-6492 signature in the log is taken as valid without asking a chain.
+/// A client validates every log it reads with [`validate_identity_updates`].
+// implements: IDENT-095
+pub fn admitted_state(history: Vec<IdentityUpdate>) -> Result<AdmittedState, ValidationError> {
+    let updates = try_map_vec(history).map_err(ValidationError::IdentityEncoding)?;
+    let updates = verify_admitted_updates(updates)?;
+    if updates.is_empty() {
+        return Ok(AdmittedState::default());
+    }
+    Ok(AdmittedState(Some(associations::get_state(updates)?)))
+}
+
+/// Apply verified `new` updates, in order, to `old_state`, the state of the
+/// log before them or `None` for an empty log. Pure state transitions.
+fn apply_suffix(
+    old_state: Option<&AssociationState>,
+    new: Vec<associations::IdentityUpdate>,
+) -> Result<AssociationValidation, ValidationError> {
+    let mut state = old_state.cloned();
     let mut claimed_handles = Vec::new();
     for update in new {
         let applied = update.update_state(state, update.client_timestamp_ns)?;
@@ -358,7 +413,7 @@ pub async fn validate_identity_updates(
         state = Some(applied);
     }
     let state = state.ok_or(AssociationError::NotCreated)?;
-    let diff = match &old_state {
+    let diff = match old_state {
         Some(old_state) => old_state.diff(&state),
         None => state.as_diff(),
     };
@@ -372,44 +427,14 @@ pub async fn validate_identity_updates(
 /// The oldest a new update's ERC-6492 block may be, relative to the chain head.
 pub const MAX_BLOCK_AGE_SECS: u64 = 1800;
 
-/// Every ERC-6492 signature an identity update carries, in action order.
-pub fn erc6492_signatures(
-    update: &IdentityUpdate,
-) -> impl Iterator<Item = &SmartContractWalletSignature> {
-    update
-        .actions
-        .iter()
-        .flat_map(|action| match &action.kind {
-            Some(identity_action::Kind::CreateInbox(value)) => {
-                [value.initial_identifier_signature.as_ref(), None]
-            }
-            Some(identity_action::Kind::Add(value)) => [
-                value.existing_member_signature.as_ref(),
-                value.new_member_signature.as_ref(),
-            ],
-            Some(identity_action::Kind::Revoke(value)) => {
-                [value.recovery_identifier_signature.as_ref(), None]
-            }
-            Some(identity_action::Kind::ChangeRecoveryAddress(value)) => {
-                [value.existing_recovery_identifier_signature.as_ref(), None]
-            }
-            Some(identity_action::Kind::ClaimHandle(value)) => [value.signature.as_ref(), None],
-            None => [None, None],
-        })
-        .flatten()
-        .filter_map(|value| match &value.signature {
-            Some(signature::Signature::Erc6492(signature)) => Some(signature),
-            _ => None,
-        })
-}
-
 /// Reject a new update whose ERC-6492 signature names a block after its
 /// chain's head, or one more than [`MAX_BLOCK_AGE_SECS`] before it.
 ///
 /// Every account id's form, chain id and address, is checked before
 /// the first chain call, so a malformed one is rejected without chain access. Each chain's head is then
 /// read once, so a block after it is rejected without further calls, and each
-/// distinct block's timestamp once; reads within a round run concurrently.
+/// distinct block's timestamp once; reads within a round run concurrently, at
+/// most [`MAX_CHAIN_CALLS_IN_FLIGHT`] at a time.
 /// Chain failures stay retryable; they are never a verdict on the signature.
 /// A block stamped after its head, as reads straddling a reorg can report, is
 /// rejected rather than read as fresh.
@@ -429,28 +454,21 @@ pub async fn check_freshness(
         })
         .collect::<Result<BTreeSet<_>, ValidationError>>()?;
     let chain_ids: BTreeSet<&str> = blocks.iter().map(|(id, _)| id.as_str()).collect();
-    let heads: HashMap<&str, BlockStamp> = try_join_all(
-        chain_ids
-            .into_iter()
-            .map(|id| async move { Ok::<_, VerifierError>((id, chain.head(id).await?)) }),
-    )
-    .await
-    .map_err(SignatureError::from)?
-    .into_iter()
-    .collect();
+    let heads = chain_reads(chain_ids.iter().map(|id| chain.head(id)).collect()).await?;
+    let heads: HashMap<&str, BlockStamp> = chain_ids.into_iter().zip(heads).collect();
     if let Some((_, number)) = blocks
         .iter()
         .find(|(id, number)| *number > heads[id.as_str()].number)
     {
         return Err(ValidationError::StaleBlock(*number));
     }
-    let timestamps = try_join_all(
+    let timestamps = chain_reads(
         blocks
             .iter()
-            .map(|(id, number)| chain.timestamp(id, *number)),
+            .map(|(id, number)| chain.timestamp(id, *number))
+            .collect(),
     )
-    .await
-    .map_err(SignatureError::from)?;
+    .await?;
     blocks
         .iter()
         .zip(timestamps)
@@ -460,6 +478,19 @@ pub async fn check_freshness(
                 _ => Err(ValidationError::StaleBlock(*number)),
             }
         })
+}
+
+/// Run `reads`, at most [`MAX_CHAIN_CALLS_IN_FLIGHT`] at a time, and return
+/// their results in the order of `reads`. Each read is a future that starts
+/// only when it is polled; a failure is retryable when the read's is.
+async fn chain_reads<T>(
+    reads: Vec<impl Future<Output = Result<T, VerifierError>>>,
+) -> Result<Vec<T>, ValidationError> {
+    stream::iter(reads)
+        .buffered(MAX_CHAIN_CALLS_IN_FLIGHT)
+        .try_collect()
+        .await
+        .map_err(|error| SignatureError::from(error).into())
 }
 
 /// Verify the publish signature of a parsed envelope with the rule every
@@ -514,10 +545,12 @@ pub fn verify_publish(parsed: &ParsedEnvelope) -> Result<(), ValidationError> {
 
 /// Validate one parsed envelope after duplicate lookup.
 ///
-/// Key packages receive their existing package checks. Identity updates are
-/// folded against the caller's snapshot and return a projection diff; only the
-/// new update, never the stored history, must first pass [`check_freshness`].
-/// Other kinds need no admission here beyond the parsing phase.
+/// Key packages receive their existing package checks. An identity update is
+/// verified and applied to `prior`, the state of its inbox's stored log, and
+/// returns a projection diff; it must first pass [`check_update_shape`] and
+/// then [`check_freshness`], so a shape no validator accepts is rejected for
+/// good before any chain access. Other kinds need no admission here beyond
+/// the parsing phase, and their callers pass [`AdmittedState::default`].
 ///
 /// Publish signatures are not checked here. A caller verifies every envelope
 /// that [`ParsedEnvelope::is_signed`] calls signed with [`verify_publish`],
@@ -525,7 +558,7 @@ pub fn verify_publish(parsed: &ParsedEnvelope) -> Result<(), ValidationError> {
 /// verification path.
 pub async fn validate_envelope(
     parsed: &ParsedEnvelope,
-    history: &[IdentityUpdate],
+    prior: &AdmittedState,
     verifier: impl SmartContractSignatureVerifier,
     chain: &dyn ChainBlocks,
 ) -> Result<Option<AssociationValidation>, ValidationError> {
@@ -540,10 +573,13 @@ pub async fn validate_envelope(
             Ok(None)
         }
         Payload::IdentityUpdate(update) => {
+            check_update_shape(update)?;
             check_freshness(update, chain).await?;
-            Ok(Some(
-                validate_identity_updates(history.to_vec(), vec![update.clone()], verifier).await?,
-            ))
+            let update = UnverifiedIdentityUpdate::try_from(update.clone())
+                .map_err(ValidationError::IdentityEncoding)?
+                .to_verified(verifier)
+                .await?;
+            Ok(Some(apply_suffix(prior.0.as_ref(), vec![update])?))
         }
         _ => Ok(None),
     }

@@ -4,15 +4,42 @@ use super::GroupMessageProcessingError;
 use crate::groups::app_data::ProcessMessageWithAppDataError;
 use openmls::framing::errors::{MessageDecryptionError, SecretTreeError};
 use openmls::group::{ProcessMessageError, StageCommitError, ValidationError};
+use openmls::prelude::ContentType;
 use xmtp_db::sql_key_store::SqlKeyStoreError;
 
 impl GroupMessageProcessingError {
+    /// Sender data authenticates the content type before either ratchet error.
+    /// Handshakes stay held because their sender may already have merged a commit.
+    pub(crate) fn classify_application_sender(self, content_type: ContentType) -> Self {
+        if content_type != ContentType::Application {
+            return self;
+        }
+        let error = match &self {
+            Self::OpenMlsProcessMessage(error)
+            | Self::OpenMlsProcessMessageWithAppData(ProcessMessageWithAppDataError::OpenMls(
+                error,
+            )) => error,
+            _ => return self,
+        };
+        match error {
+            ProcessMessageError::ValidationError(ValidationError::UnableToDecrypt(
+                MessageDecryptionError::SecretTreeError(SecretTreeError::TooDistantInTheFuture),
+            )) => Self::FarForwardApplicationMessage,
+            ProcessMessageError::ValidationError(ValidationError::UnableToDecrypt(
+                MessageDecryptionError::SecretTreeError(SecretTreeError::IndexOutOfBounds),
+            )) => Self::ApplicationSenderOutsideTree,
+            _ => self,
+        }
+    }
+
     /// Stable diagnostics contain no ciphertext, credentials, or verifier text.
     pub(crate) fn processing_code(&self) -> &'static str {
         match self {
             Self::CorruptIncomingEnvelope(_) => "corrupt_incoming_envelope",
             Self::UnsupportedMlsVersion => "unsupported_mls_version",
             Self::LostProposalState => "lost_proposal_state",
+            Self::FarForwardApplicationMessage => "far_forward_generation",
+            Self::ApplicationSenderOutsideTree => "sender_outside_tree",
             Self::GroupPaused => "unsupported_protocol_version",
             Self::GroupInactive => "group_inactive",
             Self::IncomingHeadChanged => "incoming_head_changed",
@@ -39,6 +66,8 @@ impl GroupMessageProcessingError {
     pub(crate) fn is_safe_rejection(&self) -> bool {
         match self {
             Self::InvalidPayload
+            | Self::FarForwardApplicationMessage
+            | Self::ApplicationSenderOutsideTree
             | Self::Envelope(_)
             | Self::OwnMessageWithoutAttempt
             | Self::InvalidSender { .. }
@@ -147,6 +176,57 @@ fn rejected_commit(error: &StageCommitError) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use xmtp_common::RetryableError;
+
+    // verifies: PROC-055
+    #[xmtp_common::test(unwrap_try = true)]
+    fn sender_secret_tree_failures_are_terminal_only_for_application_messages() {
+        for content_type in [
+            ContentType::Application,
+            ContentType::Commit,
+            ContentType::Proposal,
+        ] {
+            for app_data_wrapper in [false, true] {
+                for (secret_tree_error, code) in [
+                    (
+                        SecretTreeError::TooDistantInTheFuture,
+                        "far_forward_generation",
+                    ),
+                    (SecretTreeError::IndexOutOfBounds, "sender_outside_tree"),
+                ] {
+                    let error =
+                        ProcessMessageError::ValidationError(ValidationError::UnableToDecrypt(
+                            MessageDecryptionError::SecretTreeError(secret_tree_error),
+                        ));
+                    let error = if app_data_wrapper {
+                        GroupMessageProcessingError::OpenMlsProcessMessageWithAppData(
+                            ProcessMessageWithAppDataError::OpenMls(error),
+                        )
+                    } else {
+                        GroupMessageProcessingError::OpenMlsProcessMessage(error)
+                    }
+                    .classify_application_sender(content_type);
+                    let application = content_type == ContentType::Application;
+                    assert_eq!(
+                        error.is_safe_rejection(),
+                        application,
+                        "{content_type:?}: {error:?}"
+                    );
+                    assert_eq!(
+                        error.processing_code(),
+                        if application {
+                            code
+                        } else {
+                            "mls_processing_failure"
+                        }
+                    );
+                    if application {
+                        assert!(!error.is_retryable());
+                    }
+                }
+            }
+        }
+    }
 
     #[xmtp_common::test(unwrap_try = true)]
     fn obsolete_generations_are_rejected_but_local_secret_tree_failures_stay_pending() {

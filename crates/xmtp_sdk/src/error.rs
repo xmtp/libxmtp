@@ -428,7 +428,12 @@ impl XmtpError {
     }
 
     fn classify_one(error: &(dyn std::error::Error + 'static)) -> Option<Self> {
+        use xmtp_db::consent_record::ConsentActError as Act;
         use xmtp_mls::groups::GroupError;
+        if let Some(act @ (Act::ConversationNotHeld(_) | Act::InvalidEntity)) = error.downcast_ref()
+        {
+            return Some(Self::invalid_argument(act.to_string()));
+        }
         if let Some(xmtp_mls::identity::IdentityError::IdentifierNotInInbox { .. }) =
             error.downcast_ref::<xmtp_mls::identity::IdentityError>()
         {
@@ -669,6 +674,10 @@ impl XmtpError {
             ClientError::Api(api) => Self::api_cause(api),
             ClientError::Storage(storage) => Self::storage_cause(storage),
             ClientError::Handle(handle) => Self::from_handle(handle),
+            ClientError::SignatureRequest(
+                source @ xmtp_id::associations::builder::SignatureRequestError::TooManyActions(_),
+            ) => Self::invalid(source.to_string()),
+            ClientError::InvalidListOptions(reason) => Self::invalid_argument(*reason),
             _ => return None,
         })
     }

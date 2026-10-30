@@ -9,7 +9,7 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use xmtp_common::{ErrorCode, RetryableError};
 use xmtp_cryptography::secret::{Secret, Zeroizing};
-use xmtp_db::consent_record::{ConsentState, ConsentType};
+use xmtp_db::consent_record::{ConsentState, conversation_consent};
 use xmtp_db::{
     StorageError, StoredSecret, TransactionOutcome::Continue, XmtpMlsStorageProvider,
     notifications::StoredNotification, prelude::*,
@@ -183,11 +183,25 @@ impl RetryableError for NotificationError {
             _ => self.failure().is_none(),
         }
     }
+
+    fn rate_limit_delay(&self) -> Option<xmtp_common::time::Duration> {
+        match self {
+            Self::Api(e) => e.rate_limit_delay(),
+            Self::Group(e) => e.rate_limit_delay(),
+            _ => None,
+        }
+    }
 }
 
 impl From<xmtp_api::ApiError> for NotificationError {
     fn from(error: xmtp_api::ApiError) -> Self {
         use tonic::Code;
+        // A rate limit is not the recipient topic limit: the request succeeds
+        // after its delay, so the state stays enabled and adds keep going.
+        // implements: PUSH-267
+        if error.rate_limit_delay().is_some() {
+            return Self::Api(error);
+        }
         let mut source: Option<&(dyn std::error::Error + 'static)> = Some(&error);
         while let Some(current) = source {
             if matches!(
@@ -308,6 +322,7 @@ pub(crate) fn state(record: &StoredNotification) -> Result<NotificationState, St
 
 impl<Context: XmtpSharedContext> Client<Context> {
     /// Store configuration, then register inline. The task retries transient errors.
+    // implements: PUSH-266
     #[xmtp_common::rpc_span]
     pub async fn enable_notifications(
         &self,
@@ -329,54 +344,32 @@ impl<Context: XmtpSharedContext> Client<Context> {
         if !valid_channel {
             return Err(NotificationError::InvalidArgument);
         }
-        let generation = {
-            let mut pending = self
-                .context
-                .task_channels()
-                .notification_pending_topics
-                .lock();
-            let generation = crate::state_tx::state_write(self.context.mls_storage(), |tx| {
-                let storage = tx.storage();
-                let db = storage.db();
-                let mut record = db.notification_record()?;
-                if record.push_recipient_id.is_none() {
-                    record.push_recipient_id = Some(xmtp_common::rand_vec::<32>());
-                    record.push_recipient_secret =
-                        Some(xmtp_cryptography::rand::rand_secret::<32>().into());
-                }
-                record.push_generation = record
-                    .push_generation
-                    .checked_add(1)
-                    .ok_or(StorageError::DbSerialize)?;
-                record.push_config = Some(encode_config(&config)?);
-                record.push_state = 1;
-                record.push_failed_error = None;
-                record.push_deadlines = Some(encode(&worker::Deadlines::default())?);
-                record.push_suppressed = None;
-                // A disabled client keeps confirmed backend topics in memory.
-                // Restore them as stale so this configuration can reconcile them.
-                let present: std::collections::BTreeSet<_> = db
-                    .uploaded_topics()?
-                    .into_iter()
-                    .map(|row| row.topic)
-                    .collect();
-                let restore: Vec<_> = pending
-                    .values()
-                    .filter(|row| !present.contains(&row.topic))
-                    .cloned()
-                    .map(|mut row| {
-                        row.stale = true;
-                        row
-                    })
-                    .collect();
-                db.confirm_uploaded_topics(&restore, &[])?;
-                db.save_notification_record(&record)?;
-                Ok::<_, StorageError>(Continue(record.push_generation))
-            })?
-            .into_continued();
-            pending.clear();
-            generation
-        };
+        let generation = crate::state_tx::state_write(self.context.mls_storage(), |tx| {
+            let storage = tx.storage();
+            let db = storage.db();
+            let mut record = db.notification_record()?;
+            if record.push_recipient_id.is_none() {
+                record.push_recipient_id = Some(xmtp_common::rand_vec::<32>());
+                record.push_recipient_secret =
+                    Some(xmtp_cryptography::rand::rand_secret::<32>().into());
+            }
+            record.push_generation = record
+                .push_generation
+                .checked_add(1)
+                .ok_or(StorageError::DbSerialize)?;
+            record.push_config = Some(encode_config(&config)?);
+            record.push_state = 1;
+            record.push_failed_error = None;
+            // A new configuration does not end a pending rate-limit delay.
+            // Deadlines that cannot be decoded hold nothing, so they never
+            // stop an app from enabling.
+            let hold = worker::rate_limit_hold(&record).unwrap_or_default();
+            record.push_deadlines = Some(encode(&hold)?);
+            record.push_suppressed = None;
+            db.save_notification_record(&record)?;
+            Ok::<_, StorageError>(Continue(record.push_generation))
+        })?
+        .into_continued();
         notification_settings_changed(&self.context);
         let _guard = self
             .context
@@ -398,23 +391,26 @@ impl<Context: XmtpSharedContext> Client<Context> {
     }
 
     /// Disable locally before unregistering. The recipient identity and overrides stay.
-    /// A failed unregister leaves the client disabled; the backend recipient expires.
+    /// A failed unregister leaves the client disabled with its recipient reset owed.
     #[xmtp_common::rpc_span]
     pub async fn disable_notifications(&self) -> Result<(), NotificationError> {
-        let record = {
-            let mut pending = self
-                .context
-                .task_channels()
-                .notification_pending_topics
-                .lock();
-            let (record, cleared) =
-                crate::state_tx::state_write(self.context.mls_storage(), |tx| {
-                    Ok::<_, StorageError>(Continue(tx.storage().db().disable_notifications()?))
-                })?
-                .into_continued();
-            pending.extend(cleared.into_iter().map(|row| (row.topic.clone(), row)));
-            record
-        };
+        let record = crate::state_tx::state_write(self.context.mls_storage(), |tx| {
+            let storage = tx.storage();
+            let db = storage.db();
+            // Deadlines that cannot be decoded hold nothing, so they never
+            // stop an app from disabling.
+            let hold = worker::rate_limit_hold(&db.notification_record()?).unwrap_or_default();
+            let mut record = db.disable_notifications()?;
+            // The task must not send inside a pending rate-limit delay after a
+            // later enable. App calls themselves are not held (RATE-041 binds
+            // the client's own retries).
+            if hold.rate_limited(xmtp_common::time::now_ns()) {
+                record.push_deadlines = Some(encode(&hold)?);
+                db.save_notification_record(&record)?;
+            }
+            Ok::<_, StorageError>(Continue(record))
+        })?
+        .into_continued();
         notification_settings_changed(&self.context);
         if record.push_recipient_id.is_none() {
             return Ok(());
@@ -431,21 +427,7 @@ impl<Context: XmtpSharedContext> Client<Context> {
             notification_settings_changed(&self.context);
             return Ok(());
         }
-        let request = backend_v1::UnregisterRequest {
-            recipient_secret: recipient_secret(&record),
-            recipient_id: record.push_recipient_id.unwrap_or_default(),
-        };
-        match worker::bounded(self.context.api().unregister(request)).await {
-            Ok(_) | Err(NotificationError::NotFound) => {
-                self.context
-                    .task_channels()
-                    .notification_pending_topics
-                    .lock()
-                    .clear();
-                Ok(())
-            }
-            Err(error) => Err(error),
-        }
+        worker::unregister(&self.context, &record, worker::request_deadline()).await
     }
 
     /// Read the locally stored state without a backend call.
@@ -517,10 +499,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
         let group = db
             .find_group(&self.group_id)?
             .ok_or(xmtp_db::NotFound::GroupById(self.group_id))?;
-        let consent = db
-            .get_consent_record(hex::encode(self.group_id), ConsentType::ConversationId)?
-            .map(|row| row.state)
-            .unwrap_or(ConsentState::Unknown);
+        let consent = conversation_consent(&db, self.context.inbox_id(), &self.group_id)?;
         enabled_from_record(&record, &group, consent)
     }
 }

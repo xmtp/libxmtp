@@ -1,0 +1,175 @@
+#!/usr/bin/env bash
+# A small host wrapper around sbx; configuration stays in sbxenv.yaml.
+set -euo pipefail
+
+tools="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+root="$(cd "$tools/../.." && pwd)"
+name=libxmtp-claude
+host="$name.sbx"
+environment="$tools/sbxenv.yaml"
+
+usage() {
+  echo 'Usage: dev/sbx/sandbox start [--codex] [--api-key HOST PLACEHOLDER]... | pause | destroy | key HOST PLACEHOLDER'
+}
+codex=false
+keys=()
+parse_start_options() {
+  while (($#)); do
+    case $1 in
+      --codex) codex=true; shift ;;
+      --api-key)
+        (($# >= 3)) || { usage >&2; exit 2; }
+        validate_key "$2" "$3"
+        keys+=("$2" "$3")
+        shift 3
+        ;;
+      *) usage >&2; exit 2 ;;
+    esac
+  done
+}
+fail() { echo "sandbox: $*" >&2; exit 1; }
+if [[ ${1:-} == --help || ${1:-} == -h ]]; then usage; exit; fi
+(($#)) || { usage >&2; exit 2; }
+action=$1; shift
+
+# Only jq and realpath need the repository's tools; sbx and Orca stay native.
+if ! command -v jq >/dev/null || ! command -v realpath >/dev/null; then
+  [[ ${LIBXMTP_SBX_NIX:-} != 1 ]] || fail 'jq and realpath are required'
+  exec env LIBXMTP_SBX_NIX=1 "$root/dev/nix-shell" --shell rust --command bash "$tools/sandbox" "$action" "$@"
+fi
+unset ORCA_ENVIRONMENT ORCA_PAIRING_CODE ORCA_REMOTE_PAIRING
+command -v sbx >/dev/null || fail 'Install Docker Sandboxes (sbx) first'
+inventory="$(sbx ls --json)"
+jq -e --arg name "$name" 'length <= 1 and all(.[]; .name == $name)' <<<"$inventory" >/dev/null \
+  || fail "Only $name may exist; remove other local sandboxes first"
+state="$(jq -r '.[0].status // "absent"' <<<"$inventory")"
+
+check_vm() {
+  sbx inspect "$name" --json | jq -e '
+    .agent == "sbx-kit-claude" and .runtime_mounts == [] and
+    (.workspace // "") == "" and (.mounts // []) == [] and
+    (.kits | sort) == (["docker.io/docker/sbx-kit-claude:2.1.267", "docker.io/sbx/codex-mixin:0.155.1"] | sort)
+  ' >/dev/null || fail 'Existing VM has different kits or host mounts; inspect it before removing it manually'
+}
+guest_ready() {
+  # shellcheck disable=SC2016 # HOME belongs to the guest.
+  sbx exec "$name" bash -c 'test -x "$HOME/.nix-profile/bin/nix" && test -d "$HOME/libxmtp/.git" && test -f /tmp/libxmtp-sbx-smoke'
+}
+
+orca_adapter() {
+  local executable app
+  executable="$(command -v orca)" || fail 'Install the Orca CLI first'
+  executable="$(realpath "$executable")"
+  app="${executable%%.app/*}.app"
+  [[ -x $app/Contents/MacOS/Orca ]] || fail 'Could not locate Orca.app from its CLI'
+  ELECTRON_RUN_AS_NODE=1 "$app/Contents/MacOS/Orca" "$tools/orca.mjs" "$1" "$app" "$host"
+}
+local_orca() {
+  command -v orca >/dev/null || fail 'Install the Orca CLI first'
+  orca status --json >/dev/null 2>&1 || orca open --json >/dev/null
+}
+forget_orca() {
+  local connection identifier
+  local_orca
+  connection="$(orca_adapter lookup)"
+  identifier="$(jq -r '.environmentId // empty' <<<"$connection")"
+  if [[ -n $identifier ]]; then
+    orca environment forget --environment "$identifier" --yes --json >/dev/null
+  fi
+  orca_adapter remove >/dev/null
+}
+# The Codex kit seeds its login once, at VM creation, from the host's OpenAI
+# secret. Without one, Codex in the VM has no proxy-managed credential.
+# The OAuth secret is global, so only --codex creates it.
+ensure_openai_secret() {
+  local count
+  count="$(sbx secret ls --global --service openai --json | jq -er '.secrets | arrays | length')" \
+    || fail 'Could not read global OpenAI secrets; the VM was not created'
+  ((count == 0)) || return 0
+  echo 'No global OpenAI secret: sign in to ChatGPT on the host for Codex.' >&2
+  sbx secret set openai --oauth || fail 'OpenAI sign-in failed; the VM was not created'
+}
+validate_key() {
+  [[ $1 =~ ^[A-Za-z0-9][A-Za-z0-9.-]*$ ]] || fail 'HOST must be a hostname, without a URL or port'
+  [[ $2 =~ ^sbx-[A-Za-z0-9_-]+$ ]] || fail 'PLACEHOLDER must start with sbx- and contain letters, digits, underscores, or hyphens'
+}
+register_key() {
+  local target=$1 placeholder=$2 api_key secret_env
+  validate_key "$target" "$placeholder"
+  [[ $state != absent ]] || fail 'Run start before registering a key'
+  check_vm
+  secret_env="$(printf 'LIBXMTP_%s' "${placeholder//-/_}" | tr '[:lower:]' '[:upper:]')"
+  sbx policy allow network --sandbox "$name" "$target"
+  printf 'API key for %s [%s] (stored on host): ' "$target" "$placeholder" >&2
+  IFS= read -r -s api_key || [[ -n $api_key ]]
+  printf '\n'
+  [[ -n $api_key && ! $api_key =~ [[:space:]] ]] || fail 'The key must be nonempty and contain no whitespace'
+  if ! printf '%s\n' "$api_key" | sbx secret set-custom --sandbox "$name" \
+    --host "$target" --env "$secret_env" --placeholder "$placeholder" >/dev/null 2>&1; then
+    unset api_key
+    fail 'Could not register the key with the sandbox credential proxy'
+  fi
+  unset api_key
+  echo "Registered $placeholder for $target; the real key stays on the host."
+}
+
+case "$action" in
+  start)
+    parse_start_options "$@"
+    sbx mcp ls --json | jq -e 'type == "array" and length == 0' >/dev/null \
+      || fail 'Remove Docker Sandboxes MCP registrations before starting; keep the catalog empty while this VM runs'
+    if [[ $state != absent ]]; then check_vm; fi
+    [[ $(sbx settings get ssh.agentForwardingEnabled) == false ]] \
+      || fail 'Disable host SSH-agent forwarding first; see dev/sbx/README.md'
+    if [[ $codex == true && $state == absent ]]; then
+      ensure_openai_secret
+    elif [[ $codex == true ]]; then
+      echo 'Codex login is set when the VM is created; this VM keeps its current login.' >&2
+    fi
+    DOCKER_SANDBOXES_ROOT_SIZE=150g DOCKER_SANDBOXES_DOCKER_SIZE=80g \
+      sbx env run --detach --force "$environment"
+    state=running
+    check_vm
+    # Native postCreate does not run again after an interrupted first setup.
+    if ! guest_ready; then
+      SBX_SANDBOX_NAME="$name" "$tools/setup"
+      guest_ready || fail 'Guest setup is incomplete'
+    fi
+    for ((i = 0; i < ${#keys[@]}; i += 2)); do
+      register_key "${keys[i]}" "${keys[i + 1]}"
+    done
+    sbx setup ssh
+    local_orca
+    connection="$(orca_adapter ensure)"
+    identifier="$(jq -er '.environmentId | select(type == "string" and length > 0)' <<<"$connection")"
+    orca status --environment "$identifier" --json \
+      | jq -e '.ok and .result.runtime.state == "ready" and .result.runtime.reachable' >/dev/null \
+      || fail 'Orca is not ready; see dev/sbx/README.md for recovery commands'
+    echo "Ready: $host; repository /home/agent/libxmtp"
+    ;;
+  pause)
+    (($# == 0)) || { usage >&2; exit 2; }
+    if [[ $state != absent ]]; then
+      # An Orca reconnect would wake a stopped VM, so unlink this target first.
+      forget_orca
+      sbx stop "$name"
+      [[ $(sbx ls --json | jq -r '.[0].status // "absent"') == stopped ]] \
+        || fail 'The VM did not remain stopped'
+    fi
+    echo 'Paused; the VM disk and scoped keys remain.'
+    ;;
+  destroy)
+    (($# == 0)) || { usage >&2; exit 2; }
+    if [[ $state != absent ]]; then
+      check_vm
+      forget_orca
+    fi
+    sbx env rm --force "$environment"
+    echo 'Deleted the VM disks and scoped keys; Docker retains Claude history volumes.'
+    ;;
+  key)
+    (($# == 2)) || { usage >&2; exit 2; }
+    register_key "$1" "$2"
+    ;;
+  *) usage >&2; exit 2 ;;
+esac

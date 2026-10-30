@@ -1,6 +1,13 @@
 //! Extension and group-config builders, plus DM validation.
 
 use super::*;
+use openmls::prelude::SenderRatchetConfiguration;
+use xmtp_configuration::{
+    SENDER_RATCHET_MAX_FORWARD_DISTANCE, SENDER_RATCHET_OUT_OF_ORDER_TOLERANCE,
+};
+use xmtp_mls_common::app_data::dm_registry_profile::{
+    dm_registry_profiles, matches_dm_registry_profile,
+};
 use xmtp_mls_validation::commit::{extract_group_membership, inbox_id_from_credential};
 
 // implements: DMS-001, ARCH-020
@@ -86,6 +93,10 @@ pub(crate) fn build_group_config(
         .ciphersuite(CIPHERSUITE)
         .wire_format_policy(WireFormatPolicy::default())
         .max_past_epochs(MAX_PAST_EPOCHS)
+        .sender_ratchet_configuration(SenderRatchetConfiguration::new(
+            SENDER_RATCHET_OUT_OF_ORDER_TOLERANCE,
+            SENDER_RATCHET_MAX_FORWARD_DISTANCE,
+        ))
         .use_ratchet_tree_extension(true)
         .build())
 }
@@ -111,7 +122,7 @@ pub fn filter_inbox_ids_needing_updates<'a>(
     Ok(needs_update)
 }
 
-// implements: DMS-003
+// implements: DMS-021
 pub(in crate::groups) fn validate_dm_group(
     context: impl XmtpSharedContext,
     mls_group: &OpenMlsGroup,
@@ -178,23 +189,10 @@ pub(in crate::groups) fn validate_dm_group(
         return Err(DmValidationError::MustHaveEmptyAdminAndSuperAdmin.into());
     }
 
-    // Validate permissions so no one adds us to a dm that they can unexpectedly add another member to
-    // Note: we don't validate mutable metadata permissions, because they don't affect group membership
-    let permissions = group_permissions::policy_set_from_dictionary(mls_group.extensions())?;
-    let mut expected_permissions = GroupMutablePermissions::new(PolicySet::new_dm());
-    // Dictionary permission updates require a super admin. A DM has none.
-    expected_permissions.policies.update_permissions_policy =
-        group_permissions::PermissionsPolicies::allow_if_actor_super_admin();
-
-    if permissions.policies.add_member_policy != expected_permissions.policies.add_member_policy
-        || permissions.policies.remove_member_policy
-            != expected_permissions.policies.remove_member_policy
-        || permissions.policies.add_admin_policy != expected_permissions.policies.add_admin_policy
-        || permissions.policies.remove_admin_policy
-            != expected_permissions.policies.remove_admin_policy
-        || permissions.policies.update_permissions_policy
-            != expected_permissions.policies.update_permissions_policy
-    {
+    // The entries outside the application range must be one DM registry
+    // profile, byte for byte.
+    let received = app_data::load_component_registry(mls_group)?;
+    if !matches_dm_registry_profile(&received, &dm_registry_profiles()) {
         return Err(DmValidationError::InvalidPermissions.into());
     }
 

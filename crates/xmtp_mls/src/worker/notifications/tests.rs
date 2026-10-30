@@ -8,7 +8,7 @@ use crate::{
 };
 use std::sync::Arc;
 use xmtp_common::{
-    StreamHandle,
+    RetryableError, StreamHandle,
     time::{Duration, timeout},
     wait_for_eq,
 };
@@ -290,7 +290,11 @@ async fn notification_reuploads_keys_flags_and_root_from_request_snapshot() {
     let old_root = client.db().uploaded_topics()?[0]
         .root_key_fingerprint
         .clone();
-    StoredUserPreferences::store_hmac_key(&client.db(), &[8; 42], None)?;
+    xmtp_db::user_preferences::store_test_root_key(
+        &client.db(),
+        &[8; 42],
+        xmtp_common::time::now_ns() + xmtp_common::NS_IN_DAY,
+    )?;
     run(&client.context).await?;
     assert_ne!(
         client.db().uploaded_topics()?[0].root_key_fingerprint,
@@ -535,6 +539,370 @@ async fn notification_task_is_durable_coalesced_and_retries_after_sixty_seconds(
     assert_eq!(peer.calls(Call::Update), calls + 1);
 }
 
+/// A rate-limited add is not the topic limit: the state stays enabled, adds
+/// are not suppressed, and no request is sent before the delay ends.
+// verifies: PUSH-267, RATE-041
+#[xmtp_common::test(unwrap_try = true)]
+async fn notification_rate_limit_keeps_state_enabled_and_waits_the_delay() {
+    use crate::worker::tasks::TaskWorker;
+    let delay = Duration::from_secs(120);
+    let mapped = NotificationError::from(xmtp_api::dyn_err(
+        xmtp_proto::api::ApiClientError::client(xmtp_api_grpc::error::GrpcError::Status(
+            xmtp_api_grpc::error::rate_limited_status("push", delay),
+        )),
+    ));
+    assert!(matches!(mapped, NotificationError::Api(_)));
+    assert!(mapped.is_retryable());
+
+    let (client, peer) = support::client().await;
+    let mut config = config();
+    config.include_welcomes = false;
+    client.enable_notifications(config).await?;
+    run(&client.context).await?;
+    client.create_group(None, None)?;
+    wake(&client.context)?;
+    let task = || {
+        client
+            .db()
+            .get_tasks()
+            .unwrap()
+            .into_iter()
+            .find(|row| row.data_hash == task_hash().as_ref())
+            .unwrap()
+    };
+    let mut due = task();
+    due.next_attempt_at_ns = 0;
+    peer.state.lock().rate_limit = Some((Call::Update, delay));
+    let calls = peer.calls(Call::Update);
+    let before = time::now_ns();
+    TaskWorker::run_and_reschedule_task(due, &client.context).await?;
+    assert_eq!(peer.calls(Call::Update), calls + 1);
+    let row = task();
+    assert_eq!(row.attempts, 1);
+    assert!(row.next_attempt_at_ns >= before + delay.as_nanos() as i64);
+    assert!(matches!(
+        client.notification_state()?,
+        NotificationState::Enabled
+    ));
+    let record = client.db().notification_record()?;
+    assert!(record.push_suppressed.is_none());
+    assert!(record.push_failed_error.is_none());
+
+    // A wake that makes the task run early still sends nothing inside the delay.
+    let TaskOutcome::RescheduleAt(next) = run(&client.context).await? else {
+        panic!("enabled task must remain");
+    };
+    assert_eq!(peer.calls(Call::Update), calls + 1);
+    assert!(next >= before + delay.as_nanos() as i64);
+}
+
+/// A rate limit maps to the retryable `Api` error, also through the preflight
+/// wrapper. The detail on another code keeps that code's PUSH-267 row.
+// verifies: PUSH-267, RATE-041
+#[xmtp_common::test(unwrap_try = true)]
+fn notification_rate_limits_map_to_api() {
+    use xmtp_api_grpc::error::{GrpcError, rate_limited_status};
+    use xmtp_proto::api::ApiClientError;
+    let delay = Duration::from_secs(5);
+    let preflight = xmtp_api::ApiError::Preflight(xmtp_api::preflight::PreflightError::new(
+        ApiClientError::client(GrpcError::Status(rate_limited_status("request", delay))),
+    ));
+    let mapped = NotificationError::from(preflight);
+    assert!(matches!(mapped, NotificationError::Api(_)));
+    assert_eq!(mapped.rate_limit_delay(), Some(delay));
+
+    let limited = rate_limited_status("request", delay);
+    let denied = tonic::Status::with_details(
+        tonic::Code::PermissionDenied,
+        limited.message(),
+        limited.details().to_vec().into(),
+    );
+    let mapped = NotificationError::from(xmtp_api::dyn_err(ApiClientError::client(
+        GrpcError::Status(denied),
+    )));
+    assert!(matches!(mapped, NotificationError::PermissionDenied));
+}
+
+/// A refused Unregister records its delay even though the client is now
+/// disabled, so the task waits it out after a later enable.
+// verifies: RATE-041
+#[xmtp_common::test(unwrap_try = true)]
+async fn notification_a_refused_unregister_records_its_delay() {
+    let (client, peer) = support::client().await;
+    client.enable_notifications(config()).await?;
+    peer.state.lock().rate_limit = Some((Call::Unregister, Duration::from_secs(600)));
+    assert!(client.disable_notifications().await.is_err());
+    let record = client.db().notification_record()?;
+    assert!(deadlines(&record)?.registration_rate_limited_until_ns > time::now_ns());
+}
+
+/// A hold that cannot be stored does not replace the refusal: the caller
+/// still sees the rate limit and its delay.
+// verifies: RATE-041
+#[xmtp_common::test(unwrap_try = true)]
+async fn notification_a_failed_hold_write_keeps_the_rate_limit() {
+    let (client, peer) = support::client().await;
+    client.enable_notifications(config()).await?;
+    let delay = Duration::from_secs(600);
+    {
+        let mut state = peer.state.lock();
+        state.rate_limit = Some((Call::Unregister, delay));
+        state.pause_next = true;
+    }
+    let disabling = client.clone();
+    let disable = xmtp_common::spawn(None, async move { disabling.disable_notifications().await });
+    timeout(Duration::from_secs(5), peer.entered.notified()).await?;
+    let mut record = client.db().notification_record()?;
+    record.push_deadlines = Some(vec![0xff]);
+    client.db().save_notification_record(&record)?;
+    peer.release.notify_one();
+    let error = disable.join().await?.unwrap_err();
+    assert_eq!(error.rate_limit_delay(), Some(delay));
+}
+
+/// A registration hold does not stop subscription updates while an existing
+/// registration's renewal waits for the hold to end, and the turn after does
+/// not spin.
+// verifies: RATE-041
+#[xmtp_common::test(unwrap_try = true)]
+async fn notification_a_held_renewal_leaves_updates_running() {
+    let (client, peer) = support::client().await;
+    let mut config = config();
+    config.include_welcomes = false;
+    client.enable_notifications(config).await?;
+    run(&client.context).await?;
+    let hold = time::now_ns() + 600 * xmtp_common::NS_IN_SEC;
+    let mut record = client.db().notification_record()?;
+    let mut held = deadlines(&record)?;
+    held.renewal_ns = time::now_ns() - 1;
+    held.registration_rate_limited_until_ns = hold;
+    record.push_deadlines = Some(encode(&held)?);
+    client.db().save_notification_record(&record)?;
+    client.create_group(None, None)?;
+    let (registers, updates) = (peer.calls(Call::Register), peer.calls(Call::Update));
+    run(&client.context).await?;
+    assert_eq!(peer.calls(Call::Update), updates + 1, "updates go on");
+    assert_eq!(
+        peer.calls(Call::Register),
+        registers,
+        "no renewal inside the hold"
+    );
+    // With nothing left to send and the renewal still held, the task waits
+    // for the hold instead of running again at once.
+    let mut record = client.db().notification_record()?;
+    let mut held = deadlines(&record)?;
+    held.renewal_ns = time::now_ns() - 1;
+    record.push_deadlines = Some(encode(&held)?);
+    client.db().save_notification_record(&record)?;
+    let TaskOutcome::RescheduleAt(at) = run(&client.context).await? else {
+        panic!("the task waits");
+    };
+    assert!(at > time::now_ns(), "the next turn is not due at once");
+    assert!(at <= hold, "the renewal runs when the hold ends");
+    // The same holds inside an update hold.
+    let mut record = client.db().notification_record()?;
+    let mut held = deadlines(&record)?;
+    held.rate_limited_until_ns = time::now_ns() + 300 * xmtp_common::NS_IN_SEC;
+    record.push_deadlines = Some(encode(&held)?);
+    client.db().save_notification_record(&record)?;
+    let TaskOutcome::RescheduleAt(at) = run(&client.context).await? else {
+        panic!("the task waits");
+    };
+    assert!(at > time::now_ns(), "the next turn is not due at once");
+    assert!(at <= held.rate_limited_until_ns);
+}
+
+/// A registration hold recorded after the task read its record, as an inline
+/// enable records one, still holds the task's Register.
+// verifies: RATE-041
+#[xmtp_common::test(unwrap_try = true)]
+async fn notification_a_hold_recorded_before_the_lock_holds_the_register() {
+    let (client, peer) = support::client().await;
+    client.enable_notifications(config()).await?;
+    let mut record = client.db().notification_record()?;
+    let mut due = deadlines(&record)?;
+    due.renewal_ns = time::now_ns() - 1;
+    record.push_deadlines = Some(encode(&due)?);
+    client.db().save_notification_record(&record)?;
+    let hold = time::now_ns() + 600 * xmtp_common::NS_IN_SEC;
+    let holding = client.clone();
+    let _hook = support::on_before_request(move || {
+        let mut record = holding.db().notification_record().unwrap();
+        let mut held = deadlines(&record).unwrap();
+        held.registration_rate_limited_until_ns = hold;
+        record.push_deadlines = Some(encode(&held).unwrap());
+        holding.db().save_notification_record(&record).unwrap();
+    });
+    let registers = peer.calls(Call::Register);
+    run(&client.context).await?;
+    run(&client.context).await?;
+    assert_eq!(
+        peer.calls(Call::Register),
+        registers,
+        "no Register inside the hold"
+    );
+}
+
+/// A Register hold that cannot be stored does not replace the refusal: the
+/// app still sees the rate limit and its delay.
+// verifies: RATE-041
+#[xmtp_common::test(unwrap_try = true)]
+async fn notification_a_failed_registration_hold_write_keeps_the_rate_limit() {
+    let (client, peer) = support::client().await;
+    let delay = Duration::from_secs(600);
+    {
+        let mut state = peer.state.lock();
+        state.rate_limit = Some((Call::Register, delay));
+        state.pause_next = true;
+    }
+    let enabling = client.clone();
+    let enable = xmtp_common::spawn(None, async move {
+        enabling.enable_notifications(config()).await
+    });
+    timeout(Duration::from_secs(5), peer.entered.notified()).await?;
+    let mut record = client.db().notification_record()?;
+    record.push_deadlines = Some(vec![0xff]);
+    client.db().save_notification_record(&record)?;
+    peer.release.notify_one();
+    let error = enable.join().await?.unwrap_err();
+    assert_eq!(error.rate_limit_delay(), Some(delay));
+}
+
+/// An update hold does not postpone a registration renewal that falls due
+/// inside it: the task wakes for the renewal.
+// verifies: RATE-041
+#[xmtp_common::test(unwrap_try = true)]
+async fn notification_an_update_hold_keeps_the_renewal_due() {
+    let (client, peer) = support::client().await;
+    let mut config = config();
+    config.include_welcomes = false;
+    client.enable_notifications(config).await?;
+    run(&client.context).await?;
+    client.create_group(None, None)?;
+    peer.state.lock().rate_limit = Some((Call::Update, Duration::from_secs(600)));
+    assert!(run(&client.context).await.is_err());
+    let renewal = time::now_ns() + 10 * xmtp_common::NS_IN_SEC;
+    let mut record = client.db().notification_record()?;
+    let mut held = deadlines(&record)?;
+    held.renewal_ns = renewal;
+    record.push_deadlines = Some(encode(&held)?);
+    client.db().save_notification_record(&record)?;
+    let TaskOutcome::RescheduleAt(at) = run(&client.context).await? else {
+        panic!("the task waits");
+    };
+    assert!(
+        at <= renewal,
+        "the renewal is not postponed by the update hold"
+    );
+}
+
+/// A refused owed Unregister holds registration only: once an enable has
+/// registered, the task still sends subscription updates.
+// verifies: RATE-041
+#[xmtp_common::test(unwrap_try = true)]
+async fn notification_a_registration_hold_leaves_updates_running() {
+    let (client, peer) = support::client().await;
+    client.enable_notifications(config()).await?;
+    run(&client.context).await?;
+    peer.state.lock().rate_limit = Some((Call::Unregister, Duration::from_secs(600)));
+    assert!(client.disable_notifications().await.is_err());
+    client.enable_notifications(config()).await?;
+    client.create_group(None, None)?;
+    wake(&client.context)?;
+    let updates = peer.calls(Call::Update);
+    run(&client.context).await?;
+    assert_eq!(peer.calls(Call::Update), updates + 1);
+}
+
+/// An update hold ends with its delay: the next turn after it sends.
+// verifies: RATE-041
+#[xmtp_common::test(unwrap_try = true)]
+async fn notification_an_update_hold_ends_with_its_delay() {
+    let (client, peer) = support::client().await;
+    let mut config = config();
+    config.include_welcomes = false;
+    client.enable_notifications(config).await?;
+    run(&client.context).await?;
+    client.create_group(None, None)?;
+    peer.state.lock().rate_limit = Some((Call::Update, Duration::from_secs(600)));
+    assert!(run(&client.context).await.is_err());
+    let updates = peer.calls(Call::Update);
+    assert!(matches!(
+        run(&client.context).await?,
+        TaskOutcome::RescheduleAt(_)
+    ));
+    assert_eq!(peer.calls(Call::Update), updates, "held");
+    // The delay ends.
+    let mut record = client.db().notification_record()?;
+    let mut held = deadlines(&record)?;
+    held.rate_limited_until_ns = time::now_ns() - 1;
+    record.push_deadlines = Some(encode(&held)?);
+    client.db().save_notification_record(&record)?;
+    run(&client.context).await?;
+    assert_eq!(peer.calls(Call::Update), updates + 1);
+}
+
+/// Enabling again, or disabling and enabling, does not end a pending delay:
+/// the task still sends no subscription update inside it.
+// verifies: RATE-041
+#[xmtp_common::test(unwrap_try = true)]
+async fn notification_reenable_keeps_a_pending_rate_limit_delay() {
+    let delay = Duration::from_secs(600);
+    let (client, peer) = support::client().await;
+    let mut config = config();
+    config.include_welcomes = false;
+    client.enable_notifications(config.clone()).await?;
+    run(&client.context).await?;
+    client.create_group(None, None)?;
+    peer.state.lock().rate_limit = Some((Call::Update, delay));
+    let before = time::now_ns();
+    assert!(run(&client.context).await.is_err());
+    let updates = peer.calls(Call::Update);
+
+    client.enable_notifications(config.clone()).await?;
+    wake(&client.context)?;
+    let TaskOutcome::RescheduleAt(next) = run(&client.context).await? else {
+        panic!("enabled task must remain");
+    };
+    assert_eq!(peer.calls(Call::Update), updates);
+    assert!(next >= before + delay.as_nanos() as i64);
+
+    client.disable_notifications().await?;
+    client.enable_notifications(config).await?;
+    wake(&client.context)?;
+    let TaskOutcome::RescheduleAt(next) = run(&client.context).await? else {
+        panic!("enabled task must remain");
+    };
+    assert_eq!(peer.calls(Call::Update), updates);
+    assert!(next >= before + delay.as_nanos() as i64);
+}
+
+/// The owed reset and the registration share one 30-second deadline. A
+/// registration refused with a delay that ends past it returns the rate limit
+/// at once, instead of waiting until the turn times out and losing the delay.
+// verifies: RATE-041, PUSH-267
+#[xmtp_common::test(unwrap_try = true)]
+async fn notification_registration_after_a_slow_reset_keeps_its_rate_limit() {
+    let delay = Duration::from_secs(28);
+    let (client, peer) = support::client().await;
+    client.enable_notifications(config()).await?;
+    peer.state.lock().next_error = Some(tonic::Code::Unavailable);
+    assert!(client.disable_notifications().await.is_err());
+    assert!(client.db().notification_record()?.push_unregister_owed);
+    {
+        let mut state = peer.state.lock();
+        state.slow = Some((Call::Unregister, Duration::from_secs(3)));
+        state.rate_limit = Some((Call::Register, delay));
+    }
+    let started = xmtp_common::time::Instant::now();
+    let error = client.enable_notifications(config()).await.unwrap_err();
+    assert!(started.elapsed() < Duration::from_secs(20));
+    assert!(matches!(error, NotificationError::Api(_)));
+    assert_eq!(error.rate_limit_delay(), Some(delay));
+    let record = client.db().notification_record()?;
+    assert!(deadlines(&record)?.registration_rate_limited_until_ns > time::now_ns());
+}
+
 #[xmtp_common::test(unwrap_try = true)]
 async fn notification_successful_reenable_resets_old_retry_backoff() {
     use crate::worker::tasks::TaskWorker;
@@ -719,6 +1087,48 @@ async fn notification_disable_discards_an_in_flight_success() {
     assert_eq!(peer.calls(Call::Unregister), 1);
 }
 
+// verifies: PUSH-266
+#[xmtp_common::test(unwrap_try = true)]
+async fn notification_disable_during_a_reset_cannot_register_again() {
+    let (client, peer) = support::client().await;
+    client.enable_notifications(config()).await?;
+    peer.state.lock().next_error = Some(tonic::Code::Unavailable);
+    assert!(
+        client
+            .disable_notifications()
+            .await
+            .unwrap_err()
+            .is_retryable()
+    );
+
+    let before_enable = peer.state.lock().calls.len();
+    peer.state.lock().pause_next = true;
+    let other = client.clone();
+    let enable = xmtp_common::spawn(
+        None,
+        async move { other.enable_notifications(config()).await },
+    );
+    timeout(Duration::from_secs(5), peer.entered.notified()).await?;
+    let other = client.clone();
+    let disable = xmtp_common::spawn(None, async move { other.disable_notifications().await });
+    wait_for_eq(
+        || async { client.db().notification_record().unwrap().push_state },
+        0,
+    )
+    .await?;
+    peer.release.notify_one();
+    assert!(matches!(enable.join().await??, NotificationState::Disabled));
+    disable.join().await??;
+
+    assert_eq!(
+        &peer.state.lock().calls[before_enable..],
+        &[Call::Unregister, Call::Unregister]
+    );
+    assert!(!peer.state.lock().registered);
+    assert!(!client.db().notification_record()?.push_unregister_owed);
+    assert!(client.db().uploaded_topics()?.is_empty());
+}
+
 #[xmtp_common::test(unwrap_try = true)]
 async fn notification_queued_disable_cannot_unregister_a_newer_enable() {
     let (client, peer) = support::client().await;
@@ -752,7 +1162,12 @@ async fn notification_queued_disable_cannot_unregister_a_newer_enable() {
     disable.join().await??;
     enable.join().await??;
 
-    assert_eq!(peer.calls(Call::Unregister), 0);
+    assert!(
+        peer.state
+            .lock()
+            .calls
+            .ends_with(&[Call::Unregister, Call::Register])
+    );
     assert!(peer.state.lock().registered);
     let record = client.db().notification_record()?;
     assert!(stored_config(&record)?.include_commits);
@@ -813,13 +1228,20 @@ async fn notification_superseded_disable_reconciles_previously_uploaded_topics()
     disable.join().await??;
     enable.join().await??;
 
-    assert_eq!(peer.calls(Call::Unregister), 0);
+    assert_eq!(peer.calls(Call::Unregister), 1);
     assert_eq!(peer.calls(Call::Register), 3);
-    assert!(peer.state.lock().subscriptions.contains_key(&topic));
+    assert!(
+        peer.state
+            .lock()
+            .calls
+            .ends_with(&[Call::Unregister, Call::Register])
+    );
+    assert!(peer.state.lock().subscriptions.is_empty());
+    assert!(client.db().uploaded_topics()?.is_empty());
     run(&client.context).await?;
     assert!(peer.state.lock().subscriptions.is_empty());
     assert!(client.db().uploaded_topics()?.is_empty());
-    assert_eq!(peer.state.lock().batches, vec![(1, 0), (0, 1)]);
+    assert_eq!(peer.state.lock().batches, vec![(1, 0)]);
 }
 
 #[xmtp_common::test(unwrap_try = true)]
@@ -930,16 +1352,14 @@ async fn notification_in_flight_deltas_survive_disable_enable_interleavings() {
                     second.await?;
                 }
                 enable.await?;
-                assert_eq!(peer.calls(Call::Unregister), 0);
-                assert_eq!(
-                    peer.state.lock().subscriptions.contains_key(&topic),
-                    !remove
-                );
+                assert_eq!(peer.calls(Call::Unregister), 1);
+                assert!(peer.state.lock().subscriptions.is_empty());
+                assert!(client.db().uploaded_topics()?.is_empty());
 
                 run(&client.context).await?;
                 assert_eq!(peer.state.lock().subscriptions.contains_key(&topic), remove);
                 assert_eq!(client.db().uploaded_topics()?.len(), usize::from(remove));
-                assert_eq!(peer.calls(Call::Update), if remove { 3 } else { 2 });
+                assert_eq!(peer.calls(Call::Update), if remove { 3 } else { 1 });
             }
         }
     }
@@ -955,7 +1375,11 @@ async fn notification_request_keeps_the_root_key_snapshot() {
     let upload = xmtp_common::spawn(None, async move { run(&context).await });
     timeout(Duration::from_secs(5), peer.entered.notified()).await?;
     let previous = StoredUserPreferences::load(client.db())?.hmac_key.unwrap();
-    StoredUserPreferences::store_hmac_key(&client.db(), &[9; 42], None)?;
+    xmtp_db::user_preferences::store_test_root_key(
+        &client.db(),
+        &[9; 42],
+        xmtp_common::time::now_ns() + xmtp_common::NS_IN_DAY,
+    )?;
     peer.release.notify_one();
     upload.join().await??;
     let topic = Topic::new_group_message(group.group_id).cloned_vec();
@@ -984,40 +1408,146 @@ async fn notification_request_keeps_the_root_key_snapshot() {
 }
 
 xmtp_common::if_native! {
+    // verifies: PUSH-240
     #[xmtp_common::test(unwrap_try = true)]
     async fn notification_stalled_request_bounds_runner_delay_and_keeps_messaging_live() {
         use crate::worker::{key_package_maintenance as kp, tasks::TaskWorker};
-        let (client, peer) = support::client().await;
-        tester!(bo, disable_workers);
-        let group = client.create_group(None, None)?;
-        client.enable_notifications(config()).await?;
-        client.db().queue_key_package_rotation()?;
-        let now = time::now_ns();
-        client.db().create_or_ignore_task(kp::kp_seed(kp::kp_rotation_proto(), now + 5 * NS_IN_SEC)?)?;
-        peer.state.lock().pause_next = true;
-        let mut task_worker = TaskWorker::new(client.context.clone());
-        let runner = xmtp_common::spawn(None, async move { task_worker.run().await });
-        timeout(Duration::from_secs(5), peer.entered.notified()).await?;
-        let entered_at = std::time::Instant::now();
-        // Network waits cannot hold the database writer or the group state lock.
-        timeout(Duration::from_secs(5), async {
-            group.update_consent_state(ConsentState::Denied)?;
-            group.send_message(b"notification wait does not block messages", Default::default()).await?;
-            let invited = bo.create_group(None, None)?;
-            invited.add_members(&[client.inbox_id()]).await?;
-            let welcomes = client.sync_welcomes().await?;
-            assert!(welcomes.iter().any(|item| item.group_id == invited.group_id));
-            Ok::<_, crate::groups::GroupError>(())
-        }).await??;
-        assert!(client.db().next_key_package_rotation_ns()?.unwrap() < now + NS_IN_HOUR);
-        timeout(Duration::from_secs(32), async {
-            loop {
-                if client.db().next_key_package_rotation_ns().unwrap().unwrap() > now + NS_IN_HOUR { break; }
-                time::sleep(Duration::from_millis(50)).await;
+        const PHASE_DELAY: Duration = Duration::from_secs(20);
+        const MAINTENANCE_WAIT: Duration = Duration::from_secs(42);
+
+        for reset in [false, true] {
+            let (client, peer) = support::client().await;
+            tester!(bo, disable_workers);
+            let group = client.create_group(None, None)?;
+            client.enable_notifications(config()).await?;
+            if reset {
+                peer.state.lock().next_error = Some(tonic::Code::Unavailable);
+                assert!(client.disable_notifications().await.unwrap_err().is_retryable());
+                peer.state.lock().next_error = Some(tonic::Code::Unavailable);
+                assert!(client.enable_notifications(config()).await.unwrap_err().is_retryable());
+                assert!(client.db().notification_record()?.push_unregister_owed);
+                assert!(matches!(client.notification_state()?, NotificationState::Enabled));
             }
-        }).await?;
-        assert!(entered_at.elapsed() < Duration::from_secs(35));
-        assert!(peer.calls(Call::Publish) > 0);
-        runner.abort_handle().end();
+            client.db().queue_key_package_rotation()?;
+            let now = time::now_ns();
+            client.db().create_or_ignore_task(kp::kp_seed(kp::kp_rotation_proto(), now + 5 * NS_IN_SEC)?)?;
+            peer.state.lock().pause_next = true;
+            let mut task_worker = TaskWorker::new(client.context.clone());
+            let runner = xmtp_common::spawn(None, async move { task_worker.run().await });
+            timeout(Duration::from_secs(5), peer.entered.notified()).await?;
+            let entered_at = time::Instant::now();
+            let phases = reset.then(|| {
+                let peer = peer.clone();
+                xmtp_common::spawn(None, async move {
+                    time::sleep(PHASE_DELAY).await;
+                    peer.state.lock().pause_next = true;
+                    peer.release.notify_one();
+                    timeout(Duration::from_secs(5), peer.entered.notified()).await.unwrap();
+                    time::sleep(PHASE_DELAY).await;
+                    peer.release.notify_one();
+                })
+            });
+            // Network waits cannot hold the database writer or the group state lock.
+            timeout(Duration::from_secs(5), async {
+                group.update_consent_state(ConsentState::Denied)?;
+                group.send_message(b"notification wait does not block messages", Default::default()).await?;
+                let invited = bo.create_group(None, None)?;
+                invited.add_members(&[client.inbox_id()]).await?;
+                let welcomes = client.sync_welcomes().await?;
+                assert!(welcomes.iter().any(|item| item.group_id == invited.group_id));
+                Ok::<_, crate::groups::GroupError>(())
+            }).await??;
+            assert!(client.db().next_key_package_rotation_ns()?.unwrap() < now + NS_IN_HOUR);
+            // Let both requests finish on the weaker code, then check the bound
+            // from maintenance becoming due five seconds after the turn starts.
+            timeout(MAINTENANCE_WAIT, async {
+                loop {
+                    if client.db().next_key_package_rotation_ns().unwrap().unwrap() > now + NS_IN_HOUR { break; }
+                    time::sleep(Duration::from_millis(50)).await;
+                }
+            }).await?;
+            let elapsed = entered_at.elapsed();
+            assert!(elapsed < Duration::from_secs(35), "reset={reset}: key package maintenance waited {elapsed:?} after the notification turn started");
+            assert!(peer.calls(Call::Publish) > 0);
+            if reset {
+                assert_eq!(peer.calls(Call::Unregister), 3);
+                assert_eq!(peer.calls(Call::Register), 2);
+                let record = client.db().notification_record()?;
+                assert!(!record.push_unregister_owed);
+                assert!(record.push_last_state.is_none());
+                assert!(matches!(client.notification_state()?, NotificationState::Enabled));
+                assert!(!peer.state.lock().registered);
+            }
+            if let Some(phases) = phases {
+                phases.abort_handle().end();
+            }
+            runner.abort_handle().end();
+            if reset {
+                run(&client.context).await?;
+                assert_eq!(peer.calls(Call::Unregister), 3);
+                assert_eq!(peer.calls(Call::Register), 3);
+                assert!(peer.state.lock().registered);
+                assert!(client.db().notification_record()?.push_last_state.is_some());
+            }
+        }
     }
+}
+
+/// The backend rejects a batch with more than `REQUEST_TOPICS` adds and
+/// removes before it applies any, and that rejection is terminal, so removes
+/// take their share of the batch first, and adds of new or stale topics fill
+/// only the rest.
+#[xmtp_common::test]
+fn diff_keeps_adds_and_removes_within_the_batch_bound() {
+    let epoch = crate::utils::time::hmac_epoch();
+    let topics = synthetic_desired(2100);
+    let uploaded = |list: &[&Vec<u8>], stale| -> Vec<_> {
+        list.iter()
+            .map(|&topic| UploadedTopic {
+                topic: topic.clone(),
+                hmac_epoch_base: Some(epoch - 1),
+                include_commits: false,
+                root_key_fingerprint: vec![3; 32],
+                stale,
+            })
+            .collect()
+    };
+    let keys: Vec<_> = topics.keys().collect();
+    // (desired and not uploaded, desired and uploaded stale, uploaded and not
+    // desired) -> (adds, removes)
+    for (new, stale, unwanted, expected) in [
+        (700, 0, 700, (300, 700)),
+        (0, 0, 1500, (0, REQUEST_TOPICS)),
+        (0, 600, 600, (400, 600)),
+    ] {
+        let (new_topics, rest) = keys.split_at(new);
+        let (stale_topics, rest) = rest.split_at(stale);
+        let desired: Desired = new_topics
+            .iter()
+            .chain(stale_topics)
+            .map(|&topic| (topic.clone(), topics[topic].clone()))
+            .collect();
+        let mut rows = uploaded(stale_topics, true);
+        rows.extend(uploaded(&rest[..unwanted], false));
+        let (adds, removes) = diff(&desired, &rows, epoch, &[3; 32], false);
+        assert_eq!((adds.len(), removes.len()), expected);
+        assert!(adds.iter().all(|topic| desired.contains_key(topic)));
+        assert!(removes.iter().all(|topic| !desired.contains_key(topic)));
+    }
+}
+
+/// Stored deadlines that cannot be decoded do not stop an app from turning
+/// notifications off or back on: they hold nothing.
+#[xmtp_common::test(unwrap_try = true)]
+async fn notification_undecodable_deadlines_do_not_block_enable_or_disable() {
+    let (client, _peer) = support::client().await;
+    client.enable_notifications(config()).await?;
+    let mut record = client.db().notification_record()?;
+    record.push_deadlines = Some(vec![0xff]);
+    client.db().save_notification_record(&record)?;
+    client.disable_notifications().await?;
+    let mut record = client.db().notification_record()?;
+    record.push_deadlines = Some(vec![0xff]);
+    client.db().save_notification_record(&record)?;
+    client.enable_notifications(config()).await?;
 }

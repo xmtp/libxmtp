@@ -1308,6 +1308,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "assoc"
+version = "0.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bfdc70193dadb9d7287fa4b633f15f90c876915b31f6af17da307fc59c9859a8"
+
+[[package]]
 name = "async-compat"
 version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1322,9 +1328,9 @@ dependencies = [
 
 [[package]]
 name = "async-compression"
-version = "0.4.42"
+version = "0.4.51"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e79b3f8a79cccc2898f31920fc69f304859b3bd567490f75ebf51ae1c792a9ac"
+checksum = "9d5755640120b24961f8231e05892e4a4f7e0d04e8aeca161508c9c397946970"
 dependencies = [
  "compression-codecs",
  "compression-core",
@@ -2515,9 +2521,9 @@ dependencies = [
 
 [[package]]
 name = "compression-codecs"
-version = "0.4.38"
+version = "0.4.46"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ce2548391e9c1929c21bf6aa2680af86fe4c1b33e6cea9ac1cfeec0bd11218cf"
+checksum = "cae36683101b2899f48bd31f8db9839437356188e3b1ff23096e73dab09ba8fe"
 dependencies = [
  "compression-core",
  "zstd",
@@ -2526,9 +2532,9 @@ dependencies = [
 
 [[package]]
 name = "compression-core"
-version = "0.4.32"
+version = "0.4.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cc14f565cf027a105f7a44ccf9e5b424348421a1d8952a8fc9d499d313107789"
+checksum = "2ebdda89edc534bf8d5dd2857562633b6495557e5846552ade994b99ed13c36a"
 
 [[package]]
 name = "console"
@@ -2575,6 +2581,12 @@ name = "const-oid"
 version = "0.10.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a6ef517f0926dd24a1582492c791b6a4818a4d94e789a334894aa15b0d12f55c"
+
+[[package]]
+name = "const-siphasher"
+version = "1.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "03efed02df0504d71e44bfd51d3329f401b8303a2fd14254acf05c95a0af0153"
 
 [[package]]
 name = "const_format"
@@ -2640,6 +2652,19 @@ dependencies = [
  "hax-lib 0.3.7",
  "pastey",
  "rand 0.10.2",
+]
+
+[[package]]
+name = "corosensei"
+version = "0.3.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6886a0c0f263965933c438626e7179139a62b978a33aa18281cbf0cd5a975f34"
+dependencies = [
+ "autocfg",
+ "cfg-if",
+ "libc",
+ "scopeguard",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -3532,7 +3557,7 @@ dependencies = [
 
 [[package]]
 name = "error_glossary"
-version = "1.12.0-dev"
+version = "1.12.0-dev.1"
 dependencies = [
  "clap",
  "syn 2.0.119",
@@ -6016,7 +6041,7 @@ dependencies = [
 
 [[package]]
 name = "keepalive-probe"
-version = "1.12.0-dev"
+version = "1.12.0-dev.1"
 dependencies = [
  "anyhow",
  "bytes",
@@ -7349,7 +7374,7 @@ checksum = "c08d65885ee38876c4f86fa503fb49d7b507c2b62552df7c70b2fce627e06381"
 [[package]]
 name = "openmls"
 version = "0.9.1"
-source = "git+https://github.com/xmtp/openmls?rev=c2bad9f5653d4123c2b677aff0fff73398f7b6e5#c2bad9f5653d4123c2b677aff0fff73398f7b6e5"
+source = "git+https://github.com/xmtp/openmls?rev=39cddd5c7fd8db2b6c5f47a0a6672d8dbd122f0b#39cddd5c7fd8db2b6c5f47a0a6672d8dbd122f0b"
 dependencies = [
  "backtrace",
  "getrandom 0.4.3",
@@ -7379,7 +7404,7 @@ dependencies = [
 [[package]]
 name = "openmls_basic_credential"
 version = "0.6.0"
-source = "git+https://github.com/xmtp/openmls?rev=c2bad9f5653d4123c2b677aff0fff73398f7b6e5#c2bad9f5653d4123c2b677aff0fff73398f7b6e5"
+source = "git+https://github.com/xmtp/openmls?rev=39cddd5c7fd8db2b6c5f47a0a6672d8dbd122f0b#39cddd5c7fd8db2b6c5f47a0a6672d8dbd122f0b"
 dependencies = [
  "ed25519-dalek",
  "ml-dsa",
@@ -7395,7 +7420,7 @@ dependencies = [
 [[package]]
 name = "openmls_libcrux_crypto"
 version = "0.4.0"
-source = "git+https://github.com/xmtp/openmls?rev=c2bad9f5653d4123c2b677aff0fff73398f7b6e5#c2bad9f5653d4123c2b677aff0fff73398f7b6e5"
+source = "git+https://github.com/xmtp/openmls?rev=39cddd5c7fd8db2b6c5f47a0a6672d8dbd122f0b#39cddd5c7fd8db2b6c5f47a0a6672d8dbd122f0b"
 dependencies = [
  "hpke-rs 0.7.0",
  "hpke-rs-crypto 0.7.0",
@@ -7416,7 +7441,7 @@ dependencies = [
 [[package]]
 name = "openmls_memory_storage"
 version = "0.6.0"
-source = "git+https://github.com/xmtp/openmls?rev=c2bad9f5653d4123c2b677aff0fff73398f7b6e5#c2bad9f5653d4123c2b677aff0fff73398f7b6e5"
+source = "git+https://github.com/xmtp/openmls?rev=39cddd5c7fd8db2b6c5f47a0a6672d8dbd122f0b#39cddd5c7fd8db2b6c5f47a0a6672d8dbd122f0b"
 dependencies = [
  "hex",
  "log",
@@ -7429,7 +7454,7 @@ dependencies = [
 [[package]]
 name = "openmls_rust_crypto"
 version = "0.6.0"
-source = "git+https://github.com/xmtp/openmls?rev=c2bad9f5653d4123c2b677aff0fff73398f7b6e5#c2bad9f5653d4123c2b677aff0fff73398f7b6e5"
+source = "git+https://github.com/xmtp/openmls?rev=39cddd5c7fd8db2b6c5f47a0a6672d8dbd122f0b#39cddd5c7fd8db2b6c5f47a0a6672d8dbd122f0b"
 dependencies = [
  "aes-gcm",
  "chacha20poly1305",
@@ -7455,7 +7480,7 @@ dependencies = [
 [[package]]
 name = "openmls_serialization_helpers"
 version = "0.1.0"
-source = "git+https://github.com/xmtp/openmls?rev=c2bad9f5653d4123c2b677aff0fff73398f7b6e5#c2bad9f5653d4123c2b677aff0fff73398f7b6e5"
+source = "git+https://github.com/xmtp/openmls?rev=39cddd5c7fd8db2b6c5f47a0a6672d8dbd122f0b#39cddd5c7fd8db2b6c5f47a0a6672d8dbd122f0b"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -7466,7 +7491,7 @@ dependencies = [
 [[package]]
 name = "openmls_sqlite_storage"
 version = "0.3.0"
-source = "git+https://github.com/xmtp/openmls?rev=c2bad9f5653d4123c2b677aff0fff73398f7b6e5#c2bad9f5653d4123c2b677aff0fff73398f7b6e5"
+source = "git+https://github.com/xmtp/openmls?rev=39cddd5c7fd8db2b6c5f47a0a6672d8dbd122f0b#39cddd5c7fd8db2b6c5f47a0a6672d8dbd122f0b"
 dependencies = [
  "openmls_traits",
  "refinery",
@@ -7477,7 +7502,7 @@ dependencies = [
 [[package]]
 name = "openmls_test"
 version = "0.3.0"
-source = "git+https://github.com/xmtp/openmls?rev=c2bad9f5653d4123c2b677aff0fff73398f7b6e5#c2bad9f5653d4123c2b677aff0fff73398f7b6e5"
+source = "git+https://github.com/xmtp/openmls?rev=39cddd5c7fd8db2b6c5f47a0a6672d8dbd122f0b#39cddd5c7fd8db2b6c5f47a0a6672d8dbd122f0b"
 dependencies = [
  "openmls_libcrux_crypto",
  "openmls_rust_crypto",
@@ -7490,7 +7515,7 @@ dependencies = [
 [[package]]
 name = "openmls_traits"
 version = "0.6.0"
-source = "git+https://github.com/xmtp/openmls?rev=c2bad9f5653d4123c2b677aff0fff73398f7b6e5#c2bad9f5653d4123c2b677aff0fff73398f7b6e5"
+source = "git+https://github.com/xmtp/openmls?rev=39cddd5c7fd8db2b6c5f47a0a6672d8dbd122f0b#39cddd5c7fd8db2b6c5f47a0a6672d8dbd122f0b"
 dependencies = [
  "serde",
  "tls_codec 0.5.0",
@@ -8540,6 +8565,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "63b8176103e19a2643978565ca18b50549f6101881c443590420e4dc998a3c69"
 
 [[package]]
+name = "rand_pcg"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "59cad018caf63deb318e5a4586d99a24424a364f40f1e5778c29aca23f4fc73e"
+dependencies = [
+ "rand_core 0.6.4",
+]
+
+[[package]]
 name = "rand_xorshift"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9041,9 +9075,9 @@ dependencies = [
 
 [[package]]
 name = "rustls"
-version = "0.23.45"
+version = "0.23.46"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0d41d731c7d2f962d1ccc364cec258de3c0e93b38c2fb3ba97ac74513048d634"
+checksum = "48e13bd8c0e9365c43cfa5c9e8f9ad49d3c8444926c9aac819e0e4dc503c8fdf"
 dependencies = [
  "aws-lc-rs",
  "log",
@@ -9105,9 +9139,9 @@ checksum = "f87165f0995f63a9fbeea62b64d10b4d9d8e78ec6d7d51fb2125fda7bb36788f"
 
 [[package]]
 name = "rustls-webpki"
-version = "0.103.15"
+version = "0.103.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f3c3cf1d8b1e7d4927e2d154c3fcb02979afb9939629c62cd9048d4f07b60ac2"
+checksum = "4443b1b6d39d7c663139942cc4558262562d2c84123bb6282ef177009ca8b281"
 dependencies = [
  "aws-lc-rs",
  "ring",
@@ -9739,6 +9773,75 @@ name = "shlex"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
+
+[[package]]
+name = "shuttle"
+version = "0.9.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "90f796ae4996c3fbf039c26d69536f8e112f49fd5e9a25fd353fe4787134b7cb"
+dependencies = [
+ "bitvec",
+ "cfg-if",
+ "const-siphasher",
+ "corosensei",
+ "hex",
+ "owo-colors",
+ "rand 0.8.7",
+ "rand_core 0.6.4",
+ "rand_pcg",
+ "scoped-tls",
+ "shuttle-engine",
+ "shuttle-schedulers",
+ "shuttle-std",
+ "tracing",
+]
+
+[[package]]
+name = "shuttle-engine"
+version = "0.1.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6bf952ac286e32a98c2f1540b44747ee93a3435a4835eb266eeb53658b9782ca"
+dependencies = [
+ "assoc",
+ "bitvec",
+ "cfg-if",
+ "const-siphasher",
+ "corosensei",
+ "hex",
+ "owo-colors",
+ "rand 0.8.7",
+ "rand_core 0.6.4",
+ "rand_pcg",
+ "scoped-tls",
+ "smallvec",
+ "tracing",
+]
+
+[[package]]
+name = "shuttle-schedulers"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d7673a579e1660404067f5aa1344d6530f15b59f53b0fe98767d7ab117d14067"
+dependencies = [
+ "rand 0.8.7",
+ "rand_pcg",
+ "shuttle-engine",
+ "smallvec",
+ "tracing",
+]
+
+[[package]]
+name = "shuttle-std"
+version = "0.1.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "05fa35d22b2671e0184a13d0221055ae9e07a570862798e866118acd4be50f15"
+dependencies = [
+ "assoc",
+ "owo-colors",
+ "shuttle-engine",
+ "smallvec",
+ "tracing",
+]
 
 [[package]]
 name = "signal-hook"
@@ -11848,18 +11951,18 @@ dependencies = [
 
 [[package]]
 name = "webpki-root-certs"
-version = "1.0.9"
+version = "1.0.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b96554aa2acc8ccdb7e1c9a58a7a68dd5d13bccc69cd124cb09406db612a1c9b"
+checksum = "e49d0e65abc00c142e8f9428da991da9f1a250c39be97459901eb12b9b49f62a"
 dependencies = [
  "rustls-pki-types",
 ]
 
 [[package]]
 name = "webpki-roots"
-version = "1.0.9"
+version = "1.0.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7dcd9d09a39985f5344844e66b0c530a33843579125f23e21e9f0f220850f22a"
+checksum = "f5f280bbb2b287bc8e7de7e3852945a0ff50d1bbcb5ed42b6c7a568c546df171"
 dependencies = [
  "rustls-pki-types",
 ]
@@ -11986,6 +12089,15 @@ name = "windows-sys"
 version = "0.52.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "282be5f36a8ce781fad8c8ae18fa3f9beff57ec1b52cb3de0789201425d9a33d"
+dependencies = [
+ "windows-targets",
+]
+
+[[package]]
+name = "windows-sys"
+version = "0.59.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1e38bc4d79ed67fd075bcc251a1c39b32a1776bbe92e5bef1f0bf1f8c531853b"
 dependencies = [
  "windows-targets",
 ]
@@ -12173,7 +12285,7 @@ dependencies = [
 
 [[package]]
 name = "xchaos"
-version = "1.12.0-dev"
+version = "1.12.0-dev.1"
 dependencies = [
  "alloy-signer-local",
  "anyhow",
@@ -12207,7 +12319,7 @@ dependencies = [
 
 [[package]]
 name = "xdbg"
-version = "1.12.0-dev"
+version = "1.12.0-dev.1"
 dependencies = [
  "alloy-primitives",
  "alloy-signer-local",
@@ -12277,7 +12389,7 @@ checksum = "66fee0b777b0f5ac1c69bb06d361268faafa61cd4682ae064a171c16c433e9e4"
 
 [[package]]
 name = "xmtp-db-tools"
-version = "1.12.0-dev"
+version = "1.12.0-dev.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -12295,7 +12407,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp-sdk-bindgen"
-version = "1.12.0-dev"
+version = "1.12.0-dev.1"
 dependencies = [
  "anyhow",
  "camino",
@@ -12436,6 +12548,7 @@ dependencies = [
  "tower",
  "tracing",
  "tracing-core",
+ "tracing-log",
  "tracing-subscriber",
  "typenum",
  "url",
@@ -12446,7 +12559,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_api"
-version = "1.12.0-dev"
+version = "1.12.0-dev.1"
 dependencies = [
  "async-trait",
  "chrono",
@@ -12479,7 +12592,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_api_backend"
-version = "1.12.0-dev"
+version = "1.12.0-dev.1"
 dependencies = [
  "arc-swap",
  "async-trait",
@@ -12526,7 +12639,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_api_grpc"
-version = "1.12.0-dev"
+version = "1.12.0-dev.1"
 dependencies = [
  "async-trait",
  "futures",
@@ -12540,11 +12653,13 @@ dependencies = [
  "pbjson-types",
  "pin-project",
  "prost",
+ "prost-types",
  "rstest",
  "thiserror 2.0.19",
  "tokio",
  "tokio-stream",
  "tonic",
+ "tonic-types",
  "tonic-web-wasm-client",
  "tower",
  "tracing",
@@ -12559,7 +12674,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_archive"
-version = "1.12.0-dev"
+version = "1.12.0-dev.1"
 dependencies = [
  "aes-gcm",
  "async-compression",
@@ -12584,7 +12699,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_attachments"
-version = "1.12.0-dev"
+version = "1.12.0-dev.1"
 dependencies = [
  "aes",
  "aes-gcm",
@@ -12635,7 +12750,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_attachments_server"
-version = "1.12.0-dev"
+version = "1.12.0-dev.1"
 dependencies = [
  "async-trait",
  "aws-config",
@@ -12657,7 +12772,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_backend"
-version = "1.12.0-dev"
+version = "1.12.0-dev.1"
 dependencies = [
  "alloy-primitives",
  "arc-swap",
@@ -12677,6 +12792,7 @@ dependencies = [
  "hyper",
  "hyper-rustls",
  "hyper-util",
+ "ipnet",
  "jsonwebtoken",
  "metrics",
  "metrics-exporter-prometheus",
@@ -12723,14 +12839,16 @@ dependencies = [
  "xmtp_mls_validation",
  "xmtp_proto",
  "xmtp_push_types",
+ "xmtp_rate_limit",
 ]
 
 [[package]]
 name = "xmtp_backend_config"
-version = "1.12.0-dev"
+version = "1.12.0-dev.1"
 dependencies = [
  "clap",
  "http",
+ "ipnet",
  "jsonschema",
  "prost",
  "schemars 1.2.1",
@@ -12748,7 +12866,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_common"
-version = "1.12.0-dev"
+version = "1.12.0-dev.1"
 dependencies = [
  "async-trait",
  "const-hex",
@@ -12788,7 +12906,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_configuration"
-version = "1.12.0-dev"
+version = "1.12.0-dev.1"
 dependencies = [
  "semver 1.0.28",
  "thiserror 2.0.19",
@@ -12797,7 +12915,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_content_types"
-version = "1.12.0-dev"
+version = "1.12.0-dev.1"
 dependencies = [
  "aes",
  "aes-gcm",
@@ -12821,13 +12939,14 @@ dependencies = [
  "wasm-bindgen-test",
  "xmtp-workspace-hack",
  "xmtp_common",
+ "xmtp_configuration",
  "xmtp_logging",
  "xmtp_proto",
 ]
 
 [[package]]
 name = "xmtp_cryptography"
-version = "1.12.0-dev"
+version = "1.12.0-dev.1"
 dependencies = [
  "alloy",
  "cbor4ii",
@@ -12860,7 +12979,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_db"
-version = "1.12.0-dev"
+version = "1.12.0-dev.1"
 dependencies = [
  "arc-swap",
  "ascii_table",
@@ -12915,7 +13034,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_events"
-version = "1.12.0-dev"
+version = "1.12.0-dev.1"
 dependencies = [
  "parking_lot",
  "tokio",
@@ -12925,7 +13044,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_id"
-version = "1.12.0-dev"
+version = "1.12.0-dev.1"
 dependencies = [
  "alloy",
  "alloy-provider",
@@ -12967,7 +13086,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_legacy_migration"
-version = "1.12.0-dev"
+version = "1.12.0-dev.1"
 dependencies = [
  "const-hex",
  "diesel",
@@ -13000,7 +13119,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_logging"
-version = "1.12.0-dev"
+version = "1.12.0-dev.1"
 dependencies = [
  "console_error_panic_hook",
  "const-hex",
@@ -13036,7 +13155,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_macro"
-version = "1.12.0-dev"
+version = "1.12.0-dev.1"
 dependencies = [
  "num_cpus",
  "proc-macro2",
@@ -13052,7 +13171,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_mls"
-version = "1.12.0-dev"
+version = "1.12.0-dev.1"
 dependencies = [
  "aes-gcm",
  "alloy",
@@ -13109,6 +13228,7 @@ dependencies = [
  "tokio-util",
  "tonic",
  "tracing",
+ "tracing-log",
  "tracing-subscriber",
  "trait-variant",
  "uuid",
@@ -13141,7 +13261,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_mls_common"
-version = "1.12.0-dev"
+version = "1.12.0-dev.1"
 dependencies = [
  "bon",
  "const-hex",
@@ -13173,7 +13293,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_mls_validation"
-version = "1.12.0-dev"
+version = "1.12.0-dev.1"
 dependencies = [
  "async-trait",
  "const-hex",
@@ -13203,7 +13323,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_proto"
-version = "1.12.0-dev"
+version = "1.12.0-dev.1"
 dependencies = [
  "async-trait",
  "bytes",
@@ -13246,7 +13366,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_push_types"
-version = "1.12.0-dev"
+version = "1.12.0-dev.1"
 dependencies = [
  "base64 0.23.0",
  "serde",
@@ -13257,8 +13377,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "xmtp_rate_limit"
+version = "1.12.0-dev.1"
+dependencies = [
+ "getrandom 0.4.3",
+ "parking_lot",
+ "proptest",
+ "shuttle",
+ "siphasher",
+ "thiserror 2.0.19",
+ "xmtp_common",
+]
+
+[[package]]
 name = "xmtp_sdk"
-version = "1.12.0-dev"
+version = "1.12.0-dev.1"
 dependencies = [
  "alloy",
  "async-trait",
@@ -13452,27 +13585,27 @@ checksum = "29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b"
 
 [[package]]
 name = "zstd"
-version = "0.13.3"
+version = "0.14.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e91ee311a569c327171651566e07972200e76fcfe2242a4fa446149a3881c08a"
+checksum = "db3ae9bf90af6e40197bef767eeefc46ad6397420fe873830bd85e5fbbfb3c70"
 dependencies = [
  "zstd-safe",
 ]
 
 [[package]]
 name = "zstd-safe"
-version = "7.2.4"
+version = "8.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8f49c4d5f0abb602a93fb8736af2a4f4dd9512e36f7f570d66e65ff867ed3b9d"
+checksum = "ded520f16b29e1a9b771c722221b2b0a0398c2316d9bb3c42b458a5414d7434b"
 dependencies = [
  "zstd-sys",
 ]
 
 [[package]]
 name = "zstd-sys"
-version = "2.0.16+zstd.1.5.7"
+version = "2.1.2+zstd.1.5.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "91e19ebc2adc8f83e43039e79776e3fda8ca919132d68a1fed6a5faca2683748"
+checksum = "481ada9c543b2323cbb7bbdbb5249177fbf0188ed959ed2c15e4b22421c84ed3"
 dependencies = [
  "cc",
  "pkg-config",

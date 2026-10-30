@@ -25,6 +25,8 @@ mod bidi_fuzz_tests;
 pub mod barrier;
 pub mod catch_up;
 pub(crate) mod connection_state;
+mod group_set_gate;
+pub(crate) use group_set_gate::GroupSetGate;
 pub mod incoming;
 #[doc(hidden)]
 pub mod internal;
@@ -40,6 +42,9 @@ pub mod stream_messages;
 // `bidi_tests` above).
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod delivery_integration_tests;
+// A message stream against a backend that charges stream rent.
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod rate_limit_tests;
 // Native callback adapters over the shared backend transport.
 #[cfg(not(target_arch = "wasm32"))]
 pub mod router_callbacks;
@@ -315,6 +320,20 @@ impl RetryableError for SubscribeError {
             Enriched(c) => retryable!(c),
             Configuration(_) => false,
             StreamStale => true,
+        }
+    }
+
+    fn rate_limit_delay(&self) -> Option<xmtp_common::time::Duration> {
+        use SubscribeError::*;
+        match self {
+            #[cfg(not(target_arch = "wasm32"))]
+            Transport(error) => error.rate_limit_delay(),
+            Group(e) => e.rate_limit_delay(),
+            ReceiveGroup(e) => e.rate_limit_delay(),
+            ApiClient(e) => e.rate_limit_delay(),
+            LocalDelivery(e) => e.rate_limit_delay(),
+            BoxError(e) => e.rate_limit_delay(),
+            _ => None,
         }
     }
 }

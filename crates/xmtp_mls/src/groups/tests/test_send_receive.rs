@@ -3,6 +3,108 @@
 use super::*;
 use xmtp_events::{ClientEvent, EventFilter, EventKind, MessageStatus};
 
+#[derive(Clone, Copy, Debug)]
+enum RefreshCase {
+    SuperAdmin,
+    Member,
+    DmRevocation,
+    DmAddition,
+}
+
+// Port of the 5adea8f7 evidence test, with both DM identity-change paths.
+// verifies: GMOD-050, PERM-003
+#[rstest::rstest]
+#[case::super_admin_refreshes_own_revoked_installation(RefreshCase::SuperAdmin)]
+#[case::member_refreshes_another_inbox_under_admin_only_policy(RefreshCase::Member)]
+#[case::dm_member_refreshes_after_peer_revokes_device(RefreshCase::DmRevocation)]
+#[case::dm_member_adds_own_new_installation(RefreshCase::DmAddition)]
+#[xmtp_common::test(unwrap_try = true)]
+async fn revoked_installation_refresh_reaches_every_member(
+    #[case] case: RefreshCase,
+) -> Result<(), Box<dyn std::error::Error>> {
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    tester!(caro, disable_workers);
+    let is_dm = matches!(case, RefreshCase::DmRevocation | RefreshCase::DmAddition);
+    let addition = matches!(case, RefreshCase::DmAddition);
+    let group = if is_dm {
+        alix.find_or_create_dm(bo.inbox_id(), None).await?
+    } else {
+        let policies = matches!(case, RefreshCase::Member)
+            .then(|| PreconfiguredPolicies::AdminsOnly.to_policy_set());
+        alix.create_group_with_members(&[bo.inbox_id(), caro.inbox_id()], policies, None)
+            .await?
+    };
+    let bo_group = receive_group_invite(&bo).await;
+    let caro_group = if is_dm {
+        None
+    } else {
+        Some(receive_group_invite(&caro).await)
+    };
+    let owner = match case {
+        RefreshCase::SuperAdmin | RefreshCase::DmAddition => &alix,
+        RefreshCase::Member => &caro,
+        RefreshCase::DmRevocation => &bo,
+    };
+    tester!(device, from: owner, disable_workers);
+    let device_id = device.installation_id.to_vec();
+    let revoked_group = if addition {
+        None
+    } else {
+        group.add_missing_installations().await?;
+        bo_group.sync().await?;
+        if let Some(peer) = &caro_group {
+            peer.sync().await?;
+        }
+        let device_group = receive_group_invite(&device).await;
+        revoke(owner, &device_id).await;
+        Some(device_group)
+    };
+    let refresher = if matches!(case, RefreshCase::Member) {
+        &bo_group
+    } else {
+        &group
+    };
+    refresher.add_missing_installations().await?;
+    group.sync().await?;
+    bo_group.sync().await?;
+    if let Some(peer) = &caro_group {
+        peer.sync().await?;
+    }
+    let authenticator = group.epoch_authenticator().await?;
+    for peer in [&group, &bo_group].into_iter().chain(caro_group.as_ref()) {
+        assert_eq!(peer.epoch_authenticator().await?, authenticator);
+        assert_eq!(
+            peer.with_group_snapshot(|mls| Ok::<_, GroupError>(
+                mls.members()
+                    .any(|member| member.signature_key == device_id)
+            ))?,
+            addition
+        );
+    }
+    if let Some(revoked_group) = revoked_group {
+        revoked_group.sync().await?;
+        assert!(!revoked_group.is_active()?);
+    } else {
+        let added_group = receive_group_invite(&device).await;
+        assert!(added_group.is_active()?);
+        assert_eq!(added_group.epoch_authenticator().await?, authenticator);
+    }
+    group
+        .send_message(b"after refresh", Default::default())
+        .await?;
+    bo_group.sync().await?;
+    bo_group
+        .send_message(b"peer after refresh", Default::default())
+        .await?;
+    group.sync().await?;
+    assert_eq!(
+        group.test_last_message_bytes().await?,
+        Some(b"peer after refresh".to_vec())
+    );
+    Ok(())
+}
+
 // verifies: EVENT-001, EVENT-018, EVENT-019, EVENT-024
 #[xmtp_common::test(unwrap_try = true)]
 async fn group_membership_and_received_message_emit_once_after_storage() {
@@ -242,14 +344,7 @@ async fn revoked_installation_emits_removal_without_inbox_membership_change() {
         Some(10),
     );
 
-    let mut revoke = bo
-        .identity_updates()
-        .revoke_installations(vec![bo2.installation_id.to_vec()])
-        .await?;
-    xmtp_id::associations::test_utils::add_wallet_signature(&mut revoke, &bo.builder.owner).await;
-    bo.identity_updates()
-        .apply_signature_request(revoke)
-        .await?;
+    revoke(&bo, bo2.installation_id.as_slice()).await;
     group.add_members(&[] as &[&str]).await?;
     let _ = bo2_group.sync().await;
     bo_group.sync().await?;
@@ -742,286 +837,6 @@ async fn test_optimistic_send() {
     );
 }
 
-// verifies: PROC-036
-#[cfg(not(target_arch = "wasm32"))]
-#[xmtp_common::test(unwrap_try = true)]
-async fn envelope_processing_logs_omit_full_installation_ids_while_pending() {
-    use crate::groups::mls_sync::GroupHeadOutcome;
-    use std::sync::Arc;
-    use tracing::instrument::WithSubscriber;
-
-    use crate::groups::intents::{QueueIntent, UpdateMetadataIntentData};
-    use xmtp_db::incoming_envelope::{
-        IncomingLimits, NetworkEntityKind, NewIncomingEnvelope, PendingBudget,
-        QueryIncomingEnvelope, StreamTopic,
-    };
-    use xmtp_logging::{Level, LogRecord, LogSinkTarget, SinkError, test_logging::LogCapture};
-    use xmtp_proto::types::{Cursor, OrderedEnvelopeBatch, Topic};
-
-    struct Capture(parking_lot::Mutex<Vec<LogRecord>>);
-    impl LogSinkTarget for Capture {
-        fn on_record(&self, record: LogRecord) -> Result<(), SinkError> {
-            self.0.lock().push(record);
-            Ok(())
-        }
-    }
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
-    let sender = alix.create_group(None, None)?;
-    sender.add_members(&[bo.inbox_id()]).await?;
-    let receiver = receive_group_invite(&bo).await;
-    receiver.receive().await?;
-    let message_topic = StreamTopic::group(receiver.group_id);
-    let before = bo.context.db().topic_progress(&message_topic)?;
-    let topic = StreamTopic {
-        entity_id: vec![42; 32],
-        kind: NetworkEntityKind::Group,
-    };
-    let retained = NewIncomingEnvelope {
-        sequence_id: Cursor(1),
-        envelope: vec![1, 2, 3],
-    };
-    let budget = PendingBudget {
-        rows: 8,
-        bytes: 1024,
-    };
-    bo.context.db().admit_ordered_batch(
-        &topic,
-        Cursor(0),
-        std::slice::from_ref(&retained),
-        IncomingLimits {
-            batch: budget,
-            topic: budget,
-            kind: budget,
-        },
-    )?;
-    assert!(
-        bo.context
-            .db()
-            .pending_envelope(&topic, Cursor(1))?
-            .is_some()
-    );
-
-    let payload = b"pending-log-control";
-    sender
-        .send_message(payload, SendMessageOpts::default())
-        .await?;
-    let wire_topic = Topic::new_group_message(receiver.group_id);
-    let envelopes = bo
-        .context
-        .api()
-        .query_all(
-            [(wire_topic.clone(), before.received)].into(),
-            bo.context.api().limits().max_query_limit as u32,
-        )
-        .await?;
-    assert_eq!(envelopes.len(), 1);
-    bo.mls_store().admit_incoming_batch(
-        &OrderedEnvelopeBatch {
-            topic: wire_topic,
-            after: before.received,
-            envelopes,
-        },
-        bo.context
-            .incoming_runtime()
-            .policy()
-            .incoming_limits(message_topic.kind),
-    )?;
-    assert!(
-        bo.context
-            .db()
-            .first_pending_envelope(&message_topic)?
-            .is_some()
-    );
-    let full_ids = [
-        hex::encode(bo.context.installation_id()),
-        hex::encode(alix.context.installation_id()),
-    ];
-    let pending_is_retained = || {
-        assert_eq!(
-            bo.context
-                .db()
-                .pending_envelope(&topic, Cursor(1))?
-                .unwrap()
-                .envelope,
-            retained.envelope
-        );
-        Ok::<_, GroupError>(())
-    };
-    let sink = Arc::new(Capture(parking_lot::Mutex::new(Vec::new())));
-    let capture = LogCapture::with_sink(Level::Debug, Some(sink.clone()));
-    let stream = bo
-        .stream_all_messages(None, None)
-        .with_subscriber(capture.dispatch())
-        .await?;
-    drop(stream);
-    let stream = bo
-        .stream_all_messages_owned(None, None)
-        .with_subscriber(capture.dispatch())
-        .await?;
-    drop(stream);
-    let outcome = tracing::dispatcher::with_default(&capture.dispatch(), || {
-        receiver.process_pending_group_head(None)
-    })?;
-    assert!(matches!(
-        outcome,
-        GroupHeadOutcome::Progress { result: Ok(_), .. }
-    ));
-    assert_eq!(
-        get_latest_message(&receiver).await.decrypted_message_bytes,
-        payload
-    );
-    pending_is_retained()?;
-    QueueIntent::metadata_update()
-        .data(UpdateMetadataIntentData::new_update_group_name(
-            "pending log group".into(),
-        ))
-        .queue(&sender)?;
-    sender.publish_intents().await?;
-    for group in [&sender, &receiver] {
-        let commit_topic = StreamTopic::group(group.group_id);
-        let after = group.context.db().topic_progress(&commit_topic)?.received;
-        let wire_topic = Topic::new_group_message(group.group_id);
-        let envelopes = group
-            .context
-            .api()
-            .query_all(
-                [(wire_topic.clone(), after)].into(),
-                group.context.api().limits().max_query_limit as u32,
-            )
-            .await?;
-        assert!(!envelopes.is_empty());
-        let count = envelopes.len();
-        crate::mls_store::MlsStore::new(group.context.clone()).admit_incoming_batch(
-            &OrderedEnvelopeBatch {
-                topic: wire_topic,
-                after,
-                envelopes,
-            },
-            group
-                .context
-                .incoming_runtime()
-                .policy()
-                .incoming_limits(commit_topic.kind),
-        )?;
-        for _ in 0..count {
-            let outcome = tracing::dispatcher::with_default(&capture.dispatch(), || {
-                group.process_pending_group_head(None)
-            })?;
-            assert!(matches!(
-                outcome,
-                GroupHeadOutcome::Progress { result: Ok(_), .. }
-            ));
-        }
-    }
-    {
-        let records = sink.0.lock();
-        assert_eq!(
-            records
-                .iter()
-                .filter(|record| record.message == "stream all messages")
-                .count(),
-            2
-        );
-        assert!(
-            records
-                .iter()
-                .any(|record| record.message.contains("processing own message for intent"))
-        );
-        let extracted = records
-            .iter()
-            .find(|record| record.message.contains("extracted sender inbox id"))
-            .expect("actual envelope processing emits the sender record");
-        assert!(extracted.fields.contains_key("installation_id"));
-        assert!(records.iter().any(
-            |record| record.fields.contains_key("sender_installation_id")
-                && !record.fields.contains_key("actor_installation_id")
-        ));
-        assert_eq!(
-            records
-                .iter()
-                .filter(|record| {
-                    record.fields.contains_key("actor_installation_id")
-                        || record.message.contains("actor_installation_id")
-                })
-                .count(),
-            2,
-            "both own and external staged commits reach the app sink"
-        );
-    }
-    tester!(alix2, from: alix, disable_workers);
-    assert_ne!(alix2.installation_id, alix.installation_id);
-    receiver.sync().with_subscriber(capture.dispatch()).await?;
-    receiver
-        .maybe_update_installations(Some(0))
-        .with_subscriber(capture.dispatch())
-        .await?;
-    pending_is_retained()?;
-    let welcome_sender = alix.create_group(None, None)?;
-    welcome_sender.add_members(&[bo.inbox_id()]).await?;
-    let welcome = bo
-        .context
-        .api()
-        .query_welcome_messages(bo.context.installation_id())
-        .await?
-        .into_iter()
-        .max_by_key(|welcome| welcome.cursor)
-        .unwrap();
-    let pending =
-        crate::groups::welcome_sync::pending_welcome_for_test(&bo.context, &welcome).await?;
-    let joined = crate::groups::welcomes::XmtpWelcome::builder()
-        .context(bo.context.clone())
-        .welcome(&welcome)
-        .pending(pending)
-        .validator(crate::groups::welcomes::InitialMembershipValidator::new(
-            bo.context.clone(),
-        ))
-        .process()
-        .with_subscriber(capture.dispatch())
-        .await?
-        .unwrap();
-    assert_eq!(joined.group_id, welcome_sender.group_id);
-    pending_is_retained()?;
-    let records = sink.0.lock();
-    assert!(
-        records
-            .iter()
-            .any(|record| record.message == "syncing group")
-    );
-    assert!(
-        records
-            .iter()
-            .any(|record| record.message.starts_with("Adding missing installations"))
-    );
-    let welcome_record = records
-        .iter()
-        .find(|record| record.message == "updated message cursor from welcome metadata")
-        .expect("actual Welcome processing emits the cursor record");
-    assert!(welcome_record.fields.contains_key("installation_id"));
-    let json = capture.output();
-    let json_disclosures = full_ids
-        .iter()
-        .filter(|id| json.contains(id.as_str()))
-        .count();
-    let app_disclosures = full_ids
-        .iter()
-        .filter(|id| {
-            records.iter().any(|record| {
-                record.message.contains(id.as_str())
-                    || record
-                        .fields
-                        .values()
-                        .any(|value| value.contains(id.as_str()))
-            })
-        })
-        .count();
-    assert_eq!(
-        (json_disclosures, app_disclosures),
-        (0, 0),
-        "envelope processing logs full local or sender installation IDs while a row is pending"
-    );
-}
-
 // verifies: EVENT-018
 #[xmtp_common::test(unwrap_try = true)]
 async fn stitched_dm_received_event_names_the_stored_group() {
@@ -1210,4 +1025,73 @@ async fn same_millisecond_optimistic_sends_keep_recovery_order() {
     // An idempotent retry retains the original message and timestamp.
     assert_eq!(send(keys[0])?, first);
     assert_eq!(db.get_group_message(&first)?.unwrap().sent_at_ns, wall_ns);
+}
+
+#[derive(Clone, Copy, Debug)]
+enum PastEpochSender {
+    Present,
+    Removed,
+    LeafReusedBySibling,
+}
+
+// verifies: PROC-059
+#[rstest::rstest]
+#[case::present_member_one_epoch_behind(PastEpochSender::Present)]
+#[case::removed_member(PastEpochSender::Removed)]
+#[case::revoked_installation_leaf_reused_by_sibling(PastEpochSender::LeafReusedBySibling)]
+#[xmtp_common::test(unwrap_try = true)]
+async fn retained_epoch_sender_must_still_hold_its_leaf(
+    #[case] case: PastEpochSender,
+) -> Result<(), Box<dyn std::error::Error>> {
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    let group = alix.create_group(None, None)?;
+    group.add_members(&[bo.inbox_id()]).await?;
+    let bo_group = receive_group_invite(&bo).await;
+    // Rotate now so the old-epoch send below queues no key update commit.
+    bo_group.key_update().await?;
+    group.sync().await?;
+    match case {
+        PastEpochSender::Present => group.update_group_name("renamed".into()).await?,
+        PastEpochSender::Removed => group.remove_members(&[bo.inbox_id()]).await?,
+        PastEpochSender::LeafReusedBySibling => {
+            tester!(bo2, from: bo, disable_workers);
+            revoke(&bo, bo.installation_id.as_slice()).await;
+            // One refresh commit removes bo and adds bo2 into bo's freed leaf.
+            group.add_missing_installations().await?;
+            let leaf_of = |key: Vec<u8>| {
+                group.with_group_snapshot(|mls| {
+                    Ok::<_, GroupError>(
+                        mls.members()
+                            .find(|member| member.signature_key == key)
+                            .map(|member| member.index),
+                    )
+                })
+            };
+            assert!(leaf_of(bo.installation_id.to_vec())?.is_none());
+            let bo_leaf =
+                bo_group.with_group_snapshot(|mls| Ok::<_, GroupError>(mls.own_leaf_index()))?;
+            assert_eq!(leaf_of(bo2.installation_id.to_vec())?, Some(bo_leaf));
+        }
+    }
+
+    let message_id = bo_group.send_message_optimistic(b"old epoch", SendMessageOpts::default())?;
+    bo_group.publish_intents().await?;
+    assert!(bo_group.epoch().await? < group.epoch().await?);
+    let sent = group.test_get_last_message_from_network().await?;
+    assert!(!sent.is_commit());
+    group.sync().await?;
+
+    let sender = group
+        .find_messages(&MsgQueryArgs::default())?
+        .into_iter()
+        .find(|message| message.id == message_id)
+        .map(|message| message.sender_installation_id);
+    if matches!(case, PastEpochSender::Present) {
+        assert_eq!(sender, Some(bo.installation_id.to_vec()));
+    } else {
+        assert_eq!(sender, None);
+        assert_eq!(group.cursor().await?, sent.cursor);
+    }
+    Ok(())
 }

@@ -1,4 +1,5 @@
 use super::*;
+use crate::consent_record::ConsentType;
 use crate::group::tests::generate_group;
 use crate::group_message::tests::generate_message;
 use crate::schema::group_messages;

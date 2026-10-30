@@ -2,7 +2,9 @@ import {
   type ComponentRef,
   type ReactNode,
   useEffect,
+  useMemo,
   useRef,
+  useState,
   useSyncExternalStore,
 } from "react";
 import {
@@ -32,6 +34,11 @@ import {
   menuItems,
   swipeArmed,
 } from "@/core/messageInteractions.ts";
+import {
+  AttachmentActions,
+  type AttachmentAction,
+} from "@/features/attachments/AttachmentActions";
+import { attachmentPresentationCopy } from "@/features/attachments/copy";
 import { useChatContext } from "@/features/chat/ChatContext";
 import {
   openEmojiPicker,
@@ -62,6 +69,17 @@ export function MessageInteractions({
   children,
 }: MessageInteractionsProps) {
   const { runtime, conversationId } = useChatContext();
+  const [attachmentActions, setAttachmentActions] = useState<
+    readonly AttachmentAction[]
+  >([]);
+  const [openRequest, setOpenRequest] = useState(0);
+  const attachmentMenu = useMemo(
+    () => ({
+      register: setAttachmentActions,
+      open: () => setOpenRequest((value) => value + 1),
+    }),
+    [],
+  );
   const flights = flightState(runtime);
   const rowId = row.id;
   // Primitive reads, so a timeline or flight change re-renders only the rows
@@ -135,15 +153,20 @@ export function MessageInteractions({
     },
   });
 
-  // The badges reach 12 pt above the bubble. SwiftUI hosts the bubble and
-  // gets no touches outside its frame, so the hosted view grows up by the
-  // overhang and the row shifts it back.
+  // Reserve the badges' 12 pt overhang inside the press target, then shift
+  // the row back so its layout stays aligned with the bubble.
   const overhang = reactionBadges(row.reactions, own).length > 0;
 
   const menu = (
     <MessageContextMenu
       items={menuItems(row, own, allowed)}
-      previewText={contentText(row.content)}
+      attachmentActions={attachmentActions}
+      openRequest={openRequest}
+      previewText={
+        row.content.kind === "attachment"
+          ? attachmentPresentationCopy.actions
+          : contentText(row.content)
+      }
       quickReactions={allowed}
       onItem={(item) => {
         runMenuItem(runtime, rowId, item);
@@ -170,7 +193,11 @@ export function MessageInteractions({
       </View>
     </MessageContextMenu>
   );
-  return overhang ? <View style={styles.overhang}>{menu}</View> : menu;
+  return (
+    <AttachmentActions value={attachmentMenu}>
+      {overhang ? <View style={styles.overhang}>{menu}</View> : menu}
+    </AttachmentActions>
+  );
 }
 
 export interface MessageAccessibilityProps {
@@ -182,8 +209,7 @@ export interface MessageAccessibilityProps {
 
 /**
  * The bubble as one VoiceOver element with the menu's actions: Reply, React,
- * Copy and Delete. Attachment bubbles stay a group, so their card buttons
- * remain reachable.
+ * Copy and Delete. Attachments expose a custom action that opens this menu.
  */
 export function MessageAccessibility({
   row,
@@ -214,8 +240,7 @@ export function MessageAccessibility({
 /**
  * The widest a bubble gets: the screen less the list's 16 pt sides, the
  * opposite side's 42 pt gap and 6 pt spacing, and a group
- * sender's 24 pt avatar with its 6 pt spacing. The SwiftUI context menu
- * hosts the bubble without a width proposal, so it needs this bound to wrap.
+ * sender's 24 pt avatar with its 6 pt spacing.
  */
 function bubbleMaxWidth(windowWidth: number, hasAvatar: boolean): number {
   return windowWidth - 32 - 48 - (hasAvatar ? 30 : 0);

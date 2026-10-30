@@ -17,18 +17,18 @@ flowchart LR
 
 ## Scope
 
-In scope: the identifier a client derives from the DM pair; what a creator writes into a DM; the fixed DM policy and the one addition it permits; what a joiner checks before it accepts a DM or activates a restored DM; how a client folds the groups that share an identifier into one conversation and which of them it acts in; how consent carries across those groups; deduplication of the membership-change messages they repeat; and what an SDK exposes about a DM.
+In scope: the identifier a client derives from the DM pair; what a creator writes into a DM; the fixed DM policy and the one addition it permits; what a joiner checks before it accepts a DM; how a client folds the groups that share an identifier into one conversation and which of them it acts in; deduplication of the membership-change messages they repeat; and what an SDK exposes about a DM.
 
-Out of scope: the join itself and its rejections (`JOIN`), component ids and encodings (`META`), the policy engine and role rules (`PERM`), commit validation (`GMOD`), consent states and defaults (`CONS`), stream ordering (`PROC`), and archives (`ARCH`).
+Out of scope: the join itself and its rejections (`JOIN`), component ids and encodings (`META`), the policy engine and role rules (`PERM`), commit validation (`GMOD`), consent, including a DM's (`CONS`), stream ordering (`PROC`), and archives (`ARCH`).
 
 | Related | Relation |
 | --- | --- |
 | `META-004`, `META-010`, `META-030` | Own immutability, component encodings, and DM pair structure. This spec owns DM initialization and admission. |
-| `JOIN-060` | Rejects a Welcome whose group fails the checks its kind demands. DMS-003 states the checks a DM demands. |
-| `JOIN-025` | Names the inbox that added the joiner, which DMS-003 compares against the DM pair. |
-| `JOIN-080`, `JOIN-081` | Own activation of a restored placeholder by a validated Welcome, and the type rule when neither type is DM. DMS-015 owns the type and pair rule when either type is DM. |
+| `JOIN-060` | Rejects a Welcome whose group fails the checks its kind demands. DMS-021 states the checks a DM demands. |
+| `JOIN-025` | Names the inbox that added the joiner, which DMS-021 compares against the DM pair. |
+| `JOIN-080`, `JOIN-089` | Own activation of a restored placeholder by a validated Welcome, and the rule that a Welcome for a held group, a restored DM included, keeps its conversation type and dm id. |
 | `PERM-009`, `PERM-011`, `PERM-026`, `PERM-028` | Own hardcoded authority, the DM participant's application registry and policy authority, and evaluation against each proposer's operation. This spec owns fixed DM policy values and the participant-add exception. |
-| `CONS-010`, `CONS-024` | Own consent conflict ordering and precedence over join defaults. DMS-010 owns inheritance across a DM's groups. |
+| CONS-052, CONS-053 | Own a DM's consent: the other member's inbox record, and its merge. |
 | `PROC-025`, `PROC-026`, `PROC-034` | Own stream eligibility and delivery order. DMS-009 owns the stitched scope and query ordering; DMS-016 owns the legacy snapshot tail. |
 | `EVENT` | EVENT-020 selects events across the groups of one stitched DM. |
 
@@ -44,6 +44,7 @@ Out of scope: the join itself and its rejections (`JOIN`), component ids and enc
 | Activity timestamp | The retained `last_message_ns` value used for conversation ordering, including a value imported under ARCH-014. It can outlive the messages that supplied it. |
 | Restored placeholder | A group imported without MLS state under ARCH-015. |
 | Fixed DM policy | The policy values of section 2. |
+| DM registry profile | A numbered list of the registry entries outside the application range that a DM holds from its creation, defined in section 2. |
 | Membership-change message | A message for a commit or join that carries a `GroupUpdated` payload. |
 
 ## 1. The DM pair and its identifier
@@ -55,7 +56,7 @@ A DM is between two different inboxes. A client does not create a DM with itself
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
 | DMS-001 | Dm id derivation | The client MUST derive a DM's dm id as `dm:` followed by the two inbox ids of `DM_MEMBERS` in lowercase hexadecimal, sorted ascending by byte order and joined by `:`. | Two installations that derive it differently import each other's archives and consent records into different conversations. |
-| DMS-002 | What a creator writes | When a client creates a DM, it MUST set `CONVERSATION_TYPE` to `CONVERSATION_TYPE_DM`, `DM_MEMBERS` to its own inbox id and one distinct inbox id, and both `ADMIN_LIST` and `SUPER_ADMIN_LIST` to empty sets. It MUST initialize the registry policies to the values in the fixed DM policy tables in section 2. | |
+| DMS-002 | What a creator writes | When a client creates a DM, it MUST set `CONVERSATION_TYPE` to `CONVERSATION_TYPE_DM`, `DM_MEMBERS` to its own inbox id and one distinct inbox id, and both `ADMIN_LIST` and `SUPER_ADMIN_LIST` to empty sets. It MUST write, at ids outside the application range, exactly the registry entries of one DM registry profile of section 2. | A joiner rejects a DM whose entries match no profile (DMS-021). |
 
 ## 2. The fixed DM policy
 
@@ -66,7 +67,7 @@ A DM's fixed policies deny inbox additions, inbox removals, and admin changes. D
 | `GROUP_MEMBERSHIP` | `METADATA_BASE_POLICY_DENY` | `METADATA_BASE_POLICY_ALLOW` | `METADATA_BASE_POLICY_DENY` |
 | `ADMIN_LIST` | `METADATA_BASE_POLICY_DENY` | `METADATA_BASE_POLICY_DENY` | `METADATA_BASE_POLICY_DENY` |
 
-The settings policies below apply at creation under DMS-002. The component names and wire ids belong to META section 2. Permission evaluation belongs to PERM-011. Clearing disappearing settings writes disabled values instead of removing the components. The `USER_DISPLAY_NAME` row applies under META-066 rather than DMS-002, with the policies of PERM-029. A DM registry has no `GROUP_IMAGE` entry.
+The settings policies below apply at creation under DMS-002. The component names and wire ids belong to META section 2. Permission evaluation belongs to PERM-011. Clearing disappearing settings writes disabled values instead of removing the components. The `USER_DISPLAY_NAME` row has the policies of PERM-029, which META-066 also requires. A DM registry has no `GROUP_IMAGE` entry.
 
 | Registry entries | `insert_policy` | `update_policy` | `delete_policy` |
 | --- | --- | --- | --- |
@@ -75,9 +76,11 @@ The settings policies below apply at creation under DMS-002. The component names
 | `USER_DISPLAY_NAME` | `METADATA_BASE_POLICY_ALLOW_IF_SELF_OR_NON_MEMBER` | `METADATA_BASE_POLICY_ALLOW_IF_SELF_OR_NON_MEMBER` | `METADATA_BASE_POLICY_ALLOW_IF_SELF_OR_NON_MEMBER` |
 | `CONVERSATION_TYPE`, `CREATOR_INBOX_ID`, `DM_MEMBERS`, `GROUP_ROOT_KEY` | `METADATA_BASE_POLICY_ALLOW_IF_SUPER_ADMIN` | `METADATA_BASE_POLICY_DENY` | `METADATA_BASE_POLICY_DENY` |
 
+The two tables above are DM registry profile 1. A DM registry profile lists, for each component it names, one registry entry whose bytes are the serialized `ComponentMetadata` holding that component's `component_type` from META section 2 and the three policies of its table row, with no other field and its fields in field-number order. A change to the entries a creator writes outside the application range, such as a new well-known component or a new `ComponentMetadata` field, is a new profile with the next number. A profile is never changed or removed, because a DM keeps the entries it was created with for its life and new installations keep joining it. A release writes a new profile only after the minimum client version (CONF-036) excludes every client that does not accept it.
+
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
-| DMS-003 | A DM is what it claims | When a client joins a DM, it MUST verify that `DM_MEMBERS` is the distinct pair of META-030 and includes its own inbox, that the adder under JOIN-025 is either inbox of that pair, and that every `GROUP_MEMBERSHIP` entry and every ratchet-tree leaf names an inbox in that pair. It MUST also verify that `SUPER_ADMIN_LIST` and `ADMIN_LIST` are empty and that the membership and admin insert and delete policies equal the first table above, including when the adder is its own inbox. If any check fails, it MUST reject the Welcome under JOIN-060. | Valid credentials for a third inbox do not make that inbox a DM participant. |
+| DMS-021 | A DM is what it claims | When a client joins a DM, it MUST verify that `DM_MEMBERS` is the distinct pair of META-030 and includes its own inbox, that the adder under JOIN-025 is either inbox of that pair, that every `GROUP_MEMBERSHIP` entry and every ratchet-tree leaf names an inbox in that pair, and that `SUPER_ADMIN_LIST` and `ADMIN_LIST` are empty. It MUST also verify, including when the adder is its own inbox, that the registry's entries at ids outside the application range are exactly the entries of one DM registry profile of section 2, each byte-equal to that profile's entry for its id. If any check fails, it MUST reject the Welcome under JOIN-060. | Valid credentials for a third inbox do not make it a participant. PERM-026 lets no participant change a registry entry outside the application range, so an entry that differs, such as a `GROUP_MEMBERSHIP` update policy of deny or a field a later release would read, stays for the DM's life. A client that accepts only the newest profile rejects every older DM when a new installation joins it. |
 | DMS-004 | Only the pair is added | When a proposal in a DM adds exactly the other inbox of `DM_MEMBERS` relative to its proposer, the client MUST allow that inbox's `GROUP_MEMBERSHIP` insertion and its MLS Add proposals despite the fixed deny policy, subject to all other validation. It MUST reject an inbox addition outside that exception. | Without the exception the DM cannot gain its second participant. |
 
 ## 3. Duplicate groups and the winner
@@ -86,7 +89,7 @@ Two groups for one pair arise whenever the two sides, or two installations of on
 
 The winner order is deterministic for the state a client holds. Installations with different received history can select different winners. An archive import can raise a group's retained activity timestamp under ARCH-014 without importing a message at that time. Message deletion does not cause selection to fall back to the remaining history.
 
-The client does not create a further group while it holds one that is not a restored placeholder, so the set grows only from races, never from repetition.
+The client does not create a further group while it holds one that is not a restored placeholder, so an honest peer's set grows only from races, never from repetition. A peer that ignores that rule can create any number of groups (Known limitations).
 
 A restored placeholder keeps its archived conversation type and dm id under ARCH-020, and that pair need not include the client's own inbox. A Welcome for the same group id activates the placeholder under JOIN-080.
 
@@ -95,24 +98,24 @@ The legacy history-to-live snapshot is a separate handoff API. DMS-016 states it
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
 | DMS-005 | Reuse before create | When an app asks the client for the DM with an inbox and the client holds a group whose dm id is that pair's and that is not a restored placeholder, the client MUST return that stitched DM's winner and MUST NOT create another group. | Every group created adds a Welcome, a key package fetch, and a group the peer must hold for ever. |
+| DMS-020 | A DM holds its peer before use | When an SDK returns a stored DM for an app's request to find or create the DM with an inbox (DMS-005), or sends a message in a DM, and that DM's `GROUP_MEMBERSHIP` holds no entry for the peer inbox, the SDK MUST first publish and apply a commit that adds the peer inbox under DMS-004. If that commit fails, the SDK MUST return its failure instead of the DM or the message. | A creation interrupted between storing the DM and adding the peer otherwise leaves a conversation that reports sent messages the peer never receives. |
 | DMS-013 | Winner uses retained activity | Among the groups of a stitched DM, the client MUST select the winner by preferring non-restored groups, then the greatest retained `last_message_ns` with absent lowest, then the greatest group id under byte order. It MUST retain activity after message deletion and include activity imported under ARCH-014, even when no retained message has that timestamp. | Recomputing from remaining messages can move the winner after expiry or an archive import. |
 | DMS-007 | One conversation per dm id | When the client lists conversations, or resolves a group id that belongs to a stitched DM, it MUST return the winner and MUST NOT return another group of the set unless the app asked for duplicates. | |
 | DMS-008 | A second group is joined | When a client receives a Welcome for a group whose dm id equals that of a group it holds, it MUST process the Welcome under JOIN and MUST NOT reject it for the equal dm id. | The peer created it and may be sending in it. |
 | DMS-009 | The thread is the union | When an app queries or streams a stitched DM through any of its group ids, the client MUST use the union of the groups' messages and apply the requested filters and limit to that union. For history queries, it MUST order by `sent_at_ns` ascending by default, or by the app's requested supported sort field and direction. For streams, it MUST apply the eligibility and delivery order of PROC-025, PROC-026, and PROC-034. | Applying a limit separately to each group gives the app the wrong page. |
-| DMS-015 | Activation keeps the DM type and pair | When a Welcome names a group the client holds as a restored placeholder, and its `CONVERSATION_TYPE` or the stored conversation type is DM, the client MUST reject the Welcome unless both are DM and the dm id derived from its `DM_MEMBERS` under DMS-001 equals the stored dm id. | A Welcome that reuses a restored group id would otherwise move the archived history into a conversation of another kind or pair. |
+| DMS-019 | One group's failure stays local | When the app syncs a stitched DM through one of its group ids, the client MUST sync every group of the set that is not a restored placeholder, holding a paused group under GMOD-025, and MUST NOT let a failure or pause of one group stop it from syncing the others. It MUST return the outcome of the group the app named and MUST NOT return another group's failure. | A pause or error in a group the peer created would otherwise stop the rest of the thread, including the group both sides send in. |
 | DMS-016 | Snapshot selects recent delivery | When the client creates a legacy history-to-live snapshot for a stitched DM through any group id, it MUST select the eligible retained messages with the greatest local delivery numbers under one limit across the union and return them in ascending local delivery-number order. | A per-group limit or sent-time selection can omit the most recent visible messages at stream handoff. |
 
 ## 4. Consent and repeated records
 
-Consent is recorded per group. DMS-010 carries the newest decision to a new group of the same DM. CONS-024 governs its precedence over join defaults and the reset after a leave. Copying a decision does not make it a new decision.
+A DM has no consent record of its own. Its consent is the record of its other member's inbox under DMS-017 (CONS-052), so a decision covers every group of the DM: held now, joined later, or restored from an archive.
 
 Each group of a set records its own membership-change messages, and the join into a second group records the same add the first one did. The client suppresses a record that repeats what it already holds for the set, so the thread does not show the user being added twice.
 
-CONS-001 owns the unknown state when no record exists. CONS-030 and CONS-031 own consent filtering and default listing.
+CONS-001 owns the unknown state when no record exists. CONS-060 and CONS-031 own consent filtering and default listing.
 
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
-| DMS-010 | Consent carries across the set | When the client installs a group with a dm id and holds a consent record for another group with that dm id, it MUST inherit the state and original `consented_at_ns` of the record with the greatest consent time, using the state tie-break of CONS-010, before the app sees the group. It MUST apply the precedence rules of CONS-024 to that inherited record. | Giving an older decision a new time can override a newer block. |
 | DMS-011 | Repeated adds are shown once | When membership-change messages in a stitched DM have non-empty `added_inboxes` and equal decoded `GroupUpdated` payloads, the client MUST show at most one of them in app queries and streams. It MUST compare `initiated_by_inbox_id`, every repeated field in its listed order, and both presence and value of each optional field. It MUST NOT suppress a message as a duplicate under this rule unless one complete earlier payload equals it. | Combining fields from different records can hide a change that has never been shown. |
 
 ## 5. What an app can read
@@ -129,10 +132,10 @@ The winner can change when another group's activity timestamp becomes greater, i
 
 A Restored DM can contain history for two inboxes other than the importing inbox. It has no peer relative to that inbox under DMS-017. It stays inactive until a validated Welcome joins the exact stored pair and kind. Import preserves that pair, but current placeholder metadata can still replace other archived values such as creator and adder; ARCH-020 remains open for those values.
 
-A DM has no super admin, so its well-known registry entries cannot be changed through the fixed policies. Only application registry entries can change, under PERM-026.
+A DM has no super admin, so its well-known registry entries cannot be changed through the fixed policies. Only application registry entries can change, under PERM-026. A DM therefore keeps the profile it was created with for its life, and a component that a later profile adds is absent from older DMs. A client rejects a DM whose profile it does not know (DMS-021), so a creator that writes a new profile before every client accepts it makes those clients reject the DM.
 
-History imported from an archive is trusted as written, because the archive key is its only authentication. Import does not check a message's sender against the DM pair, so an archive can add history under any sender to a DM, and the stitched thread shows that history. The client does not check a stored DM against DMS-003 again after its join, because that check would load the MLS state of every stored DM at each client open. A DM that an older client accepted with an inbox outside its pair therefore stays in the stitched thread.
-
-Current consent inheritance selects the oldest record and assigns the copy the current time. DMS-010 instead preserves the newest decision and its time.
+History imported from an archive is trusted as written, because the archive key is its only authentication. Import does not check a message's sender against the DM pair, so an archive can add history under any sender to a DM, and the stitched thread shows that history. The client does not check a stored DM against DMS-021 again after its join, because that check would load the MLS state of every stored DM at each client open. A DM that an older client accepted with an inbox outside its pair therefore stays in the stitched thread.
 
 Current add-record deduplication compares accumulated hashes of the most recent non-empty fields and ignores the initiator. It can suppress a record that does not equal any complete earlier payload, or show one that equals an older payload. This differs from DMS-011. Records without adds are outside that rule; DM history omits membership-change messages by default.
+
+A peer that does not follow DMS-005 can create any number of groups for one pair, and the client joins each under DMS-008. Syncing the DM under DMS-019, and listing its duplicates under DMS-017, then costs work linear in that number. An admission limit would drop a group and lose its messages, but a per-call work budget with fair scheduling across calls could bound the work without dropping a group. This release adds no such budget.

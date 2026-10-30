@@ -136,6 +136,13 @@ impl RetryableError for ConnectionFailure {
             Self::Protocol(_) => false,
         }
     }
+
+    fn rate_limit_delay(&self) -> Option<xmtp_common::time::Duration> {
+        match self {
+            Self::Wire(error) => error.rate_limit_delay(),
+            Self::Protocol(_) => None,
+        }
+    }
 }
 
 type FailureSlot = Arc<Mutex<Option<Arc<ConnectionFailure>>>>;

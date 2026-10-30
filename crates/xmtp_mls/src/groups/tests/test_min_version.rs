@@ -88,6 +88,56 @@ async fn test_update_group_min_version_rejects_above_own() {
     );
 }
 
+/// A DM participant publishes a floor that differs from its peer's version
+/// only in build metadata. Build metadata has no SemVer precedence, so the
+/// peer keeps processing and sending.
+// verifies: GMOD-025, GMOD-027
+#[xmtp_common::test(unwrap_try = true)]
+async fn build_metadata_floor_does_not_pause_same_precedence_dm_peer() {
+    let peer_version = VersionInfo::default().pkg_version().to_string();
+    let floor = format!("{peer_version}+octane.1");
+    let mut participant_version = VersionInfo::default();
+    participant_version.test_update_version(&floor);
+    tester!(victim, disable_workers);
+    tester!(participant, version: participant_version, disable_workers);
+
+    // The unsuffixed client creates the DM. The suffixed client is an
+    // ordinary participant, not its creator or super admin.
+    let victim_dm = victim
+        .find_or_create_dm(participant.inbox_id(), None)
+        .await?;
+    participant.wait_for_welcomes().await?;
+    let participant_dm = participant.group(&victim_dm.group_id)?;
+    participant_dm.update_group_min_version(&floor).await?;
+    participant_dm
+        .send_message(b"message after build floor", SendMessageOpts::default())
+        .await?;
+
+    // One sync can miss a fresh write (the newest position lags), so poll.
+    // A paused peer holds the message back until the timeout.
+    let delivered = xmtp_common::wait_for_some(|| async {
+        let _ = victim_dm.sync().await;
+        let messages = victim_dm.find_messages(&MsgQueryArgs::default()).unwrap();
+        messages
+            .into_iter()
+            .find(|message| message.decrypted_message_bytes == b"message after build floor")
+    })
+    .await;
+    assert!(delivered.is_some(), "the peer must store the later message");
+    // The committed floor keeps its build metadata.
+    let committed = victim_dm.mutable_metadata()?;
+    assert_eq!(
+        committed
+            .attributes()
+            .get(&MetadataField::MinimumSupportedProtocolVersion.to_string()),
+        Some(&floor)
+    );
+    assert_eq!(victim_dm.paused_for_version()?, None);
+    victim_dm
+        .send_message(b"reply", SendMessageOpts::default())
+        .await?;
+}
+
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_can_set_min_supported_protocol_version_for_commit() {
     let mut amal_version = VersionInfo::default();
@@ -578,6 +628,7 @@ async fn test_send_message_after_min_version_update_gets_expected_error() {
     let Err(GroupError::PublishedButUnconfirmed {
         intent_id,
         cause: Some(error),
+        ..
     }) = result
     else {
         panic!("expected an accepted send with a blocked processing obligation, got {result:?}");

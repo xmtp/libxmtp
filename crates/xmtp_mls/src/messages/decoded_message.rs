@@ -1,4 +1,4 @@
-use crate::groups::GroupError;
+use crate::groups::{GroupError, encoded_content_type};
 use prost::Message;
 use xmtp_content_types::actions::{Actions, ActionsCodec};
 use xmtp_content_types::group_updated::GroupUpdatedCodec;
@@ -195,10 +195,14 @@ pub struct DecodedMessage {
     pub content: MessageBody,
     // Fallback text for the message
     pub fallback_text: Option<String>,
-    // A list of reactions
+    // The latest reaction messages that decode as reactions, oldest first:
+    // at most `MESSAGE_REACTION_LIMIT` reaction messages are read.
     pub reactions: Vec<DecodedMessage>,
     // The number of replies to the message available
     pub num_replies: usize,
+    // Unexpired reaction messages to this message, including removals and
+    // ones that do not decode. It is not a reaction tally.
+    pub num_reaction_messages: usize,
 }
 
 #[cfg(feature = "conformance")]
@@ -206,7 +210,13 @@ pub struct DecodedMessage {
 pub mod decode_counter;
 
 /// Maximum number of reply envelopes inside one message.
-const MAX_REPLY_NESTING_DEPTH: usize = 8;
+pub(crate) const MAX_REPLY_NESTING_DEPTH: usize = 8;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Origin {
+    StoredTranscript,
+    Application,
+}
 
 /// Strict decode of an in-memory envelope. A content failure is an error.
 /// `Custom` raw bytes are this value's serialization, which is the input the
@@ -217,8 +227,13 @@ impl TryFrom<EncodedContent> for MessageBody {
 
     fn try_from(value: EncodedContent) -> Result<Self, Self::Error> {
         let bytes = value.encode_to_vec();
-        Self::decode_bytes(&bytes, &mut compression::DecompressionBudget::new(), 0)
-            .map_err(|failure| GroupError::CodecError(failure.into()))
+        Self::decode_bytes(
+            &bytes,
+            &mut compression::DecompressionBudget::new(),
+            0,
+            Origin::Application,
+        )
+        .map_err(|failure| GroupError::CodecError(failure.into()))
     }
 }
 
@@ -229,18 +244,72 @@ fn has_complete_type(content: &EncodedContent) -> Option<&ContentTypeId> {
         .filter(|kind| !kind.authority_id.is_empty() && !kind.type_id.is_empty())
 }
 
+/// Whether a type is a reserved transcript under the standard authority, at any version.
+pub(crate) fn is_reserved_transcript_type(content_type: &ContentTypeId) -> bool {
+    content_type.authority_id == "xmtp.org"
+        && matches!(
+            content_type.type_id.as_str(),
+            "group_updated" | "group_membership_change"
+        )
+}
+
+/// Refuse reserved types at any depth, or replies that exceed the bounded scan.
+/// Other malformed content does not identify a reserved transcript.
+pub(crate) fn carries_reserved_transcript(raw: &[u8]) -> bool {
+    let mut budget = compression::DecompressionBudget::new();
+    let mut current = std::borrow::Cow::Borrowed(raw);
+    let mut reply_depth = 0;
+    loop {
+        let Ok(Some(kind)) = encoded_content_type(&current) else {
+            return false;
+        };
+        if kind.authority_id.is_empty() || kind.type_id.is_empty() {
+            return false;
+        }
+        if is_reserved_transcript_type(&kind) {
+            return true;
+        }
+        let reply = kind.authority_id == "xmtp.org"
+            && kind.type_id == ReplyCodec::TYPE_ID
+            && kind.version_major == ReplyCodec::MAJOR_VERSION;
+        if !reply {
+            return false;
+        }
+        if reply_depth >= MAX_REPLY_NESTING_DEPTH {
+            return true;
+        }
+        reply_depth += 1;
+        let Ok(envelope) = EncodedContent::decode(&*current) else {
+            return false;
+        };
+        let Ok(value) = compression::decompress_with_budget(envelope, &mut budget) else {
+            return budget.limit_exceeded();
+        };
+        current = std::borrow::Cow::Owned(value.content);
+    }
+}
+
 impl MessageBody {
     /// Decode received content from its exact bytes. Every content failure
     /// returns `Undecodable` with those bytes; this never fails.
     // implements: CTYPE-008
     pub fn from_received_bytes(raw: &[u8]) -> Self {
-        Self::from_received(EncodedContent::decode(raw).ok(), raw)
+        Self::from_received(EncodedContent::decode(raw).ok(), raw, Origin::Application)
     }
 
-    fn from_received(envelope: Option<EncodedContent>, raw: &[u8]) -> Self {
+    /// Decode stored content using the kind assigned when the client wrote the row.
+    pub fn from_stored_bytes(raw: &[u8], kind: GroupMessageKind) -> Self {
+        let origin = match kind {
+            GroupMessageKind::MembershipChange => Origin::StoredTranscript,
+            GroupMessageKind::Application => Origin::Application,
+        };
+        Self::from_received(EncodedContent::decode(raw).ok(), raw, origin)
+    }
+
+    fn from_received(envelope: Option<EncodedContent>, raw: &[u8], origin: Origin) -> Self {
         let mut budget = compression::DecompressionBudget::new();
         let result = match envelope {
-            Some(envelope) => Self::decode_envelope(envelope, raw, &mut budget, 0),
+            Some(envelope) => Self::decode_envelope(envelope, raw, &mut budget, 0, origin),
             None => Err(ContentDecodeFailure::malformed(
                 "bytes are not a serialized EncodedContent",
             )),
@@ -258,13 +327,17 @@ impl MessageBody {
         raw: &[u8],
         budget: &mut compression::DecompressionBudget,
         depth: usize,
+        origin: Origin,
     ) -> Result<Self, ContentDecodeFailure> {
+        // implements: CTYPE-033
+        xmtp_content_types::decode_limits::check_protobuf_fields(raw)
+            .map_err(ContentDecodeFailure::codec)?;
         let envelope = EncodedContent::decode(raw).map_err(|error| {
             ContentDecodeFailure::malformed(format!(
                 "bytes are not a serialized EncodedContent: {error}"
             ))
         })?;
-        Self::decode_envelope(envelope, raw, budget, depth)
+        Self::decode_envelope(envelope, raw, budget, depth, origin)
     }
 
     fn decode_envelope(
@@ -272,11 +345,18 @@ impl MessageBody {
         raw: &[u8],
         budget: &mut compression::DecompressionBudget,
         depth: usize,
+        origin: Origin,
     ) -> Result<Self, ContentDecodeFailure> {
         // An untyped envelope is malformed before anything else is checked.
         let malformed_type =
             || ContentDecodeFailure::malformed("content type identifier is absent or incomplete");
-        has_complete_type(&envelope).ok_or_else(malformed_type)?;
+        let content_type = has_complete_type(&envelope).ok_or_else(malformed_type)?;
+        // implements: GMOD-053
+        if origin == Origin::Application && is_reserved_transcript_type(content_type) {
+            return Err(ContentDecodeFailure::codec(
+                "transcript type in application content",
+            ));
+        }
         // implements: CTYPE-024, CTYPE-025
         let value = compression::decompress_with_budget(envelope, budget)
             .map_err(ContentDecodeFailure::codec)?;
@@ -341,12 +421,13 @@ impl MessageBody {
                 // exact serialization. A nested failure fails the outer body.
                 // implements: CTYPE-027, CTYPE-028, CTYPE-029
                 let content =
-                    Self::decode_bytes(&value.content, budget, depth + 1).map_err(|failure| {
-                        ContentDecodeFailure::codec(format!(
-                            "nested reply content: {}",
-                            failure.message
-                        ))
-                    })?;
+                    Self::decode_bytes(&value.content, budget, depth + 1, Origin::Application)
+                        .map_err(|failure| {
+                            ContentDecodeFailure::codec(format!(
+                                "nested reply content: {}",
+                                failure.message
+                            ))
+                        })?;
                 Ok(MessageBody::Reply(Reply {
                     in_reply_to: None,
                     content: Box::new(content),
@@ -423,6 +504,7 @@ impl DecodedMessage {
             fallback_text: None,
             reactions: Vec::new(),
             num_replies: 0,
+            num_reaction_messages: 0,
         }
     }
 }
@@ -437,7 +519,7 @@ impl From<StoredGroupMessage> for DecodedMessage {
             .as_ref()
             .map(|envelope| (envelope.r#type.clone(), envelope.fallback.clone()))
             .unwrap_or_default();
-        let content = MessageBody::from_received(envelope, raw);
+        let content = MessageBody::from_stored_bytes(raw, value.kind);
 
         let metadata = DecodedMessageMetadata {
             id: value.id,
@@ -459,6 +541,7 @@ impl From<StoredGroupMessage> for DecodedMessage {
             // Enrichment fills reactions and reply counts.
             reactions: Vec::new(),
             num_replies: 0,
+            num_reaction_messages: 0,
         }
     }
 }
@@ -466,6 +549,7 @@ impl From<StoredGroupMessage> for DecodedMessage {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::utils::test::nested_reply;
     use xmtp_content_types::{
         actions::{Action, Actions},
         attachment::Attachment,
@@ -486,8 +570,6 @@ mod tests {
             content: inner,
         })?;
         let outer = compress(outer, Compression::Deflate)?;
-        let fields = crate::groups::QueryableContentFields::try_from(outer.clone())?;
-        assert_eq!(fields.reference_id, Some(vec![1, 2]));
         let MessageBody::Reply(reply) = MessageBody::try_from(outer)? else {
             panic!("expected reply");
         };
@@ -516,6 +598,7 @@ mod tests {
             envelope_hash: None,
             expiry_ns: None,
             inserted_at_ns: 0,
+            expiry_unknown: false,
             expire_at_ns: None,
             should_push: false,
             idempotency_key: String::new(),
@@ -528,16 +611,119 @@ mod tests {
         content
     }
 
+    // verifies: GMOD-053, CTYPE-008
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn application_transcripts_are_undecodable() {
+        for type_id in ["group_updated", "group_membership_change"] {
+            for version in [1, 7] {
+                for compression in [None, Some(Compression::Gzip as i32)] {
+                    let mut transcript = GroupUpdatedCodec::encode(GroupUpdated::default())?;
+                    transcript.r#type.as_mut().unwrap().type_id = type_id.into();
+                    transcript.r#type.as_mut().unwrap().version_major = version;
+                    // Neither prost nor gzip can decode this payload. The provenance
+                    // failure must happen before either one examines it.
+                    transcript.content = vec![0xff];
+                    transcript.compression = compression;
+                    transcript.fallback = Some("untrusted transcript".into());
+                    let reply = ReplyCodec::encode(EncodedReply {
+                        reference: "0102".into(),
+                        reference_inbox_id: None,
+                        content: transcript.clone(),
+                    })?;
+                    let gzip_reply = compress(reply.clone(), Compression::Gzip)?;
+                    let two_levels = ReplyCodec::encode(EncodedReply {
+                        reference: "0304".into(),
+                        reference_inbox_id: None,
+                        content: gzip_reply.clone(),
+                    })?;
+                    for (content, prefix) in [
+                        (transcript, ""),
+                        (gzip_reply, "nested reply content: "),
+                        (two_levels, "nested reply content: nested reply content: "),
+                    ] {
+                        let stored = stored_message(content.clone());
+                        let raw = stored.decrypted_message_bytes.clone();
+                        let id = stored.id.clone();
+                        let decoded = DecodedMessage::from(stored);
+                        assert_eq!(decoded.metadata.id, id);
+                        assert_eq!(decoded.metadata.content_type, content.r#type);
+                        assert_eq!(decoded.fallback_text, content.fallback);
+                        let MessageBody::Undecodable(value) = decoded.content else {
+                            panic!("application transcript was decoded");
+                        };
+                        assert_eq!(value.raw_bytes, raw);
+                        assert_eq!(value.encoded, Some(content.clone()));
+                        assert_eq!(
+                            value.failure.kind,
+                            ContentDecodeFailureKind::CodecDecodeFailed
+                        );
+                        assert_eq!(
+                            value.failure.message,
+                            format!("{prefix}transcript type in application content")
+                        );
+                        assert!(matches!(
+                            MessageBody::try_from(content),
+                            Err(GroupError::CodecError(CodecError::Decode(_)))
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn stored_transcripts_still_decode() {
+        let transcript = GroupUpdatedCodec::encode(GroupUpdated {
+            initiated_by_inbox_id: "committer".into(),
+            ..Default::default()
+        })?;
+        for content in [
+            transcript.clone(),
+            compress(transcript.clone(), Compression::Gzip)?,
+        ] {
+            let mut stored = stored_message(content);
+            stored.kind = GroupMessageKind::MembershipChange;
+            let MessageBody::GroupUpdated(update) = DecodedMessage::from(stored).content else {
+                panic!("stored transcript did not decode");
+            };
+            assert_eq!(update.initiated_by_inbox_id, "committer");
+        }
+        let mut legacy = transcript.clone();
+        legacy.r#type.as_mut().unwrap().type_id = "group_membership_change".into();
+        let mut stored = stored_message(legacy.clone());
+        stored.kind = GroupMessageKind::MembershipChange;
+        assert!(
+            matches!(DecodedMessage::from(stored).content, MessageBody::Custom(value) if value.encoded == legacy)
+        );
+
+        // A stored transcript kind never grants transcript provenance to a reply body.
+        let mut stored = stored_message(ReplyCodec::encode(EncodedReply {
+            reference: "0102".into(),
+            reference_inbox_id: None,
+            content: transcript,
+        })?);
+        stored.kind = GroupMessageKind::MembershipChange;
+        assert!(
+            matches!(DecodedMessage::from(stored).content, MessageBody::Undecodable(value)
+            if value.failure.message == "nested reply content: transcript type in application content")
+        );
+    }
+
     // verifies: CTYPE-001, CTYPE-008
     #[xmtp_common::test(unwrap_try = true)]
     async fn standard_codecs_match_authority_for_all_types() {
         macro_rules! check {
-            ($content:expr, $standard:pat) => {{
+            ($content:expr, $standard:pat) => {
+                check!($content, $standard, GroupMessageKind::Application)
+            };
+            ($content:expr, $standard:pat, $kind:expr) => {{
                 let mut standard = $content;
                 let id = standard.r#type.as_mut().expect("encoded type");
                 id.version_minor = 9;
                 let name = format!("{}/{}", id.authority_id, id.type_id);
-                let decoded = DecodedMessage::from(stored_message(standard.clone()));
+                let mut stored = stored_message(standard.clone());
+                stored.kind = $kind;
+                let decoded = DecodedMessage::from(stored);
                 assert!(matches!(decoded.content, $standard), "{name} did not decode");
 
                 if standard.r#type.as_ref().expect("encoded type").authority_id != "xmtp.org" {
@@ -624,7 +810,8 @@ mod tests {
         );
         check!(
             GroupUpdatedCodec::encode(GroupUpdated::default())?,
-            MessageBody::GroupUpdated(_)
+            MessageBody::GroupUpdated(_),
+            GroupMessageKind::MembershipChange
         );
         check!(
             ReadReceiptCodec::encode(ReadReceipt {})?,
@@ -697,31 +884,6 @@ mod tests {
         assert_eq!(nested.raw_bytes, outer.content);
     }
 
-    fn nested_reply(mut content: EncodedContent, levels: usize, pad_to: usize) -> EncodedContent {
-        for _ in 0..levels {
-            let mut reply = ReplyCodec::encode(EncodedReply {
-                reference: "0102".into(),
-                reference_inbox_id: None,
-                content,
-            })
-            .unwrap();
-            if pad_to > reply.content.len() + 6 {
-                // An unknown protobuf field pads this reply without changing its body.
-                let padding = pad_to - reply.content.len() - 6;
-                reply.content.extend_from_slice(&[0xa2, 0x06]);
-                let mut length = padding;
-                while length >= 0x80 {
-                    reply.content.push((length as u8) | 0x80);
-                    length >>= 7;
-                }
-                reply.content.push(length as u8);
-                reply.content.resize(reply.content.len() + padding, 0);
-            }
-            content = compress(reply, Compression::Deflate).unwrap();
-        }
-        content
-    }
-
     // verifies: CTYPE-008, CTYPE-025
     #[xmtp_common::test(unwrap_try = true)]
     async fn nested_compressed_reply_uses_one_budget() {
@@ -732,15 +894,12 @@ mod tests {
         );
         let bytes = attack.encode_to_vec();
         let mut budget = compression::DecompressionBudget::new();
-        let failure = MessageBody::decode_bytes(&bytes, &mut budget, 0).unwrap_err();
+        let failure =
+            MessageBody::decode_bytes(&bytes, &mut budget, 0, Origin::Application).unwrap_err();
         assert_eq!(failure.kind, ContentDecodeFailureKind::CodecDecodeFailed);
         assert!(failure.message.contains("decompressed content exceeds"));
         assert!(budget.used() > 0);
-        assert!(budget.peak_capacity() <= compression::MAX_DECOMPRESSED_BYTES + 65_536);
-        eprintln!(
-            "attack peak decompressed capacity: {} bytes",
-            budget.peak_capacity()
-        );
+        assert!(budget.peak_capacity() <= compression::MAX_DECOMPRESSED_BYTES);
 
         let expected = EncodedContent::decode(bytes.as_slice())?;
         // Decode from the exact bytes: re-encoding a parameter map can
@@ -755,6 +914,26 @@ mod tests {
             original.failure.kind,
             ContentDecodeFailureKind::CodecDecodeFailed
         );
+    }
+
+    // verifies: CTYPE-008, CTYPE-033
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn nested_reply_field_count_is_limited() {
+        let mut inner = TextCodec::encode("inner".into())?;
+        let fields = xmtp_content_types::decode_limits::MAX_PROTOBUF_FIELDS + 1;
+        inner
+            .parameters
+            .extend((0..fields).map(|i| (i.to_string(), String::new())));
+        let outer = ReplyCodec::encode(EncodedReply {
+            reference: "0102".into(),
+            reference_inbox_id: None,
+            content: inner,
+        })?;
+        let body = MessageBody::from_received_bytes(&outer.encode_to_vec());
+        let MessageBody::Undecodable(undecodable) = body else {
+            panic!("expected undecodable content");
+        };
+        assert!(undecodable.failure.message.contains("protobuf fields"));
     }
 
     // verifies: CTYPE-008

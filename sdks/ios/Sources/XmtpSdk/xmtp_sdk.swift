@@ -1436,10 +1436,10 @@ public protocol ClientProtocol: AnyObject, Sendable {
     func identity()  -> PublicIdentity
 
     /**
-     * The inbox of an account or a handle, or `None`. A handle resolves only
-     * when the inbox the backend names holds it in its own identity log, and
-     * an old handle of an inbox still resolves to it. This never derives an
-     * inbox ID from a handle.
+     * The inbox of an account or a handle, or `None`. Either resolves only
+     * when the newest state of the inbox the backend names holds it in that
+     * inbox's own identity log, and an old handle of an inbox still resolves
+     * to it. This never derives an inbox ID.
      */
     func inboxIdFor(identity: PublicIdentity) async throws  -> InboxId?
 
@@ -1495,6 +1495,11 @@ public protocol ClientProtocol: AnyObject, Sendable {
 
     func unsafeApplySignatureRequest(request: SignatureRequest) async throws
 
+    /**
+     * Recovery moves only to an identity of the inbox, so a change to any
+     * other identity fails here, against the inbox's state fetched from the
+     * network, before anything asks a signer to sign.
+     */
     func unsafeChangeRecoveryIdentifierSignatureRequest(identity: PublicIdentity) async throws  -> SignatureRequest
 
     func unsafeCreateInboxSignatureRequest() async throws  -> SignatureRequest?
@@ -1912,10 +1917,10 @@ open func identity() -> PublicIdentity  {
 }
 
     /**
-     * The inbox of an account or a handle, or `None`. A handle resolves only
-     * when the inbox the backend names holds it in its own identity log, and
-     * an old handle of an inbox still resolves to it. This never derives an
-     * inbox ID from a handle.
+     * The inbox of an account or a handle, or `None`. Either resolves only
+     * when the newest state of the inbox the backend names holds it in that
+     * inbox's own identity log, and an old handle of an inbox still resolves
+     * to it. This never derives an inbox ID.
      */
 open func inboxIdFor(identity: PublicIdentity)async throws  -> InboxId?  {
     return
@@ -2283,6 +2288,11 @@ open func unsafeApplySignatureRequest(request: SignatureRequest)async throws   {
         )
 }
 
+    /**
+     * Recovery moves only to an identity of the inbox, so a change to any
+     * other identity fails here, against the inbox's state fetched from the
+     * network, before anything asks a signer to sign.
+     */
 open func unsafeChangeRecoveryIdentifierSignatureRequest(identity: PublicIdentity)async throws  -> SignatureRequest  {
     return
         try  await uniffiRustCallAsync(
@@ -2677,9 +2687,9 @@ public protocol ConversationsProtocol: AnyObject, Sendable {
 
     /**
      * Find or create a DM with an account identity or a handle. Hosts
-     * present this as a `createDm` overload or union. A handle resolves
-     * through the verified handle resolver before the existing DM is looked
-     * up.
+     * present this as a `createDm` overload or union. An account or a handle
+     * resolves through the verified resolver before the existing DM is
+     * looked up.
      */
 
     func createGroup(members: [InboxId], options: CreateGroupOptions?) async throws  -> Group
@@ -2688,9 +2698,9 @@ public protocol ConversationsProtocol: AnyObject, Sendable {
 
     /**
      * Create a group from account identities and handles. Hosts present
-     * this as a `createGroup` overload or union. Every handle resolves
-     * through the verified handle resolver before the group exists, and all
-     * members join in one commit.
+     * this as a `createGroup` overload or union. Every account and handle
+     * resolves through the verified resolver, a handle before the group
+     * exists, and all members join in one commit.
      */
 
     func deleteMessage(id: MessageId) async throws  -> MessageId
@@ -2700,8 +2710,8 @@ public protocol ConversationsProtocol: AnyObject, Sendable {
     func getById(id: ConversationId) async throws  -> Conversation?
 
     /**
-     * The DM with an account or a handle, or `None`. A handle resolves
-     * through the verified handle resolver before the DM is looked up.
+     * The DM with an account or a handle, or `None`. Either resolves
+     * through the verified resolver before the DM is looked up.
      */
     func getDmByIdentity(identity: PublicIdentity) async throws  -> Dm?
 
@@ -2844,9 +2854,9 @@ open func createDm(peer: InboxId, options: CreateDmOptions? = nil)async throws  
 
     /**
      * Find or create a DM with an account identity or a handle. Hosts
-     * present this as a `createDm` overload or union. A handle resolves
-     * through the verified handle resolver before the existing DM is looked
-     * up.
+     * present this as a `createDm` overload or union. An account or a handle
+     * resolves through the verified resolver before the existing DM is
+     * looked up.
      */
 func createDmWithIdentity(peer: PublicIdentity, options: CreateDmOptions? = nil)async throws  -> Dm  {
     return
@@ -2901,9 +2911,9 @@ open func createGroupOptimistic(options: CreateGroupOptions? = nil)async throws 
 
     /**
      * Create a group from account identities and handles. Hosts present
-     * this as a `createGroup` overload or union. Every handle resolves
-     * through the verified handle resolver before the group exists, and all
-     * members join in one commit.
+     * this as a `createGroup` overload or union. Every account and handle
+     * resolves through the verified resolver, a handle before the group
+     * exists, and all members join in one commit.
      */
 func createGroupWithIdentities(members: [PublicIdentity], options: CreateGroupOptions? = nil)async throws  -> Group  {
     return
@@ -2974,8 +2984,8 @@ open func getById(id: ConversationId)async throws  -> Conversation?  {
 }
 
     /**
-     * The DM with an account or a handle, or `None`. A handle resolves
-     * through the verified handle resolver before the DM is looked up.
+     * The DM with an account or a handle, or `None`. Either resolves
+     * through the verified resolver before the DM is looked up.
      */
 open func getDmByIdentity(identity: PublicIdentity)async throws  -> Dm?  {
     return
@@ -3264,11 +3274,23 @@ public func FfiConverterTypeConversations_lower(_ value: Conversations) -> UInt6
 
 
 
+/**
+ * Supplies credentials one callback at a time. Requests with a fresh held
+ * credential do not wait for a callback that is still running.
+ * Call setCredential before using the client from a callback. Sending to the
+ * conversation whose sync started the callback still waits for that sync.
+ */
 public protocol CredentialSource: AnyObject, Sendable {
 
     func credential() async throws  -> Credential
 
 }
+/**
+ * Supplies credentials one callback at a time. Requests with a fresh held
+ * credential do not wait for a callback that is still running.
+ * Call setCredential before using the client from a callback. Sending to the
+ * conversation whose sync started the callback still waits for that sync.
+ */
 open class CredentialSourceImpl: CredentialSource, @unchecked Sendable {
     fileprivate let handle: UInt64
 
@@ -3724,6 +3746,16 @@ public protocol DmProtocol: AnyObject, Sendable {
 
     func messageHistorySnapshot(limit: UInt32) async throws  -> MessageHistorySnapshot
 
+    /**
+     * Reaction messages to `message_id`, newest first by send time,
+     * then sequence id, then message id: at most `limit` (1 to 1000;
+     * 50 when absent). For the next page, pass the last returned id
+     * as `before`. A `before` that is not an unexpired reaction to
+     * this message fails with InvalidArgument; restart from the
+     * newest reaction. A deleted or expired message has none.
+     */
+    func messageReactions(messageId: MessageId, before: MessageId?, limit: UInt32?) async throws  -> [ReactionMessage]
+
     func messageReader(options: ConversationMessageReaderOptions?) async throws  -> MessageReader
 
     /**
@@ -3738,6 +3770,11 @@ public protocol DmProtocol: AnyObject, Sendable {
      */
     func messageRecoveryPage(options: ListMessagesOptions?, before: MessageRecoveryPosition?, after: MessageRecoveryPosition?) async throws  -> MessageRecoveryPage
 
+    /**
+     * At most `limit` messages (1 to 1000). With no `limit`, the 100
+     * newest by the sort field, in the requested order. To read more,
+     * page with `message_history_page`.
+     */
     func messages(options: ListMessagesOptions?) async throws  -> [Message]
 
     /**
@@ -4164,6 +4201,31 @@ open func messageHistorySnapshot(limit: UInt32)async throws  -> MessageHistorySn
         )
 }
 
+    /**
+     * Reaction messages to `message_id`, newest first by send time,
+     * then sequence id, then message id: at most `limit` (1 to 1000;
+     * 50 when absent). For the next page, pass the last returned id
+     * as `before`. A `before` that is not an unexpired reaction to
+     * this message fails with InvalidArgument; restart from the
+     * newest reaction. A deleted or expired message has none.
+     */
+open func messageReactions(messageId: MessageId, before: MessageId? = nil, limit: UInt32? = nil)async throws  -> [ReactionMessage]  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_xmtp_sdk_fn_method_dm_message_reactions(
+                        self.uniffiCloneHandle(),FfiConverterTypeMessageId_lower(messageId),FfiConverterOptionTypeMessageId.lower(before),FfiConverterOptionUInt32.lower(limit)
+                )
+            },
+            pollFunc: ffi_xmtp_sdk_rust_future_poll_rust_buffer,
+            completeFunc: ffi_xmtp_sdk_rust_future_complete_rust_buffer,
+            cancelFunc: ffi_xmtp_sdk_rust_future_cancel_rust_buffer,
+            freeFunc: ffi_xmtp_sdk_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterSequenceTypeReactionMessage.lift,
+            errorHandler: FfiConverterTypeXmtpError_lift
+        )
+}
+
 open func messageReader(options: ConversationMessageReaderOptions? = nil)async throws  -> MessageReader  {
     return
         try  await uniffiRustCallAsync(
@@ -4208,6 +4270,11 @@ open func messageRecoveryPage(options: ListMessagesOptions? = nil, before: Messa
         )
 }
 
+    /**
+     * At most `limit` messages (1 to 1000). With no `limit`, the 100
+     * newest by the sort field, in the requested order. To read more,
+     * page with `message_history_page`.
+     */
 open func messages(options: ListMessagesOptions? = nil)async throws  -> [Message]  {
     return
         try  await uniffiRustCallAsync(
@@ -5209,8 +5276,9 @@ public protocol GroupProtocol: AnyObject, Sendable {
 
     /**
      * Add members by account identity or handle. Hosts present this as an
-     * `addMembers` overload or union. Every handle resolves through the
-     * verified handle resolver first, and all members join in one commit.
+     * `addMembers` overload or union. Every account and handle resolves
+     * through the verified resolver first, and all members join in one
+     * commit.
      */
 
     func addSuperAdmin(inboxId: InboxId) async throws
@@ -5276,6 +5344,16 @@ public protocol GroupProtocol: AnyObject, Sendable {
 
     func messageHistorySnapshot(limit: UInt32) async throws  -> MessageHistorySnapshot
 
+    /**
+     * Reaction messages to `message_id`, newest first by send time,
+     * then sequence id, then message id: at most `limit` (1 to 1000;
+     * 50 when absent). For the next page, pass the last returned id
+     * as `before`. A `before` that is not an unexpired reaction to
+     * this message fails with InvalidArgument; restart from the
+     * newest reaction. A deleted or expired message has none.
+     */
+    func messageReactions(messageId: MessageId, before: MessageId?, limit: UInt32?) async throws  -> [ReactionMessage]
+
     func messageReader(options: ConversationMessageReaderOptions?) async throws  -> MessageReader
 
     /**
@@ -5290,6 +5368,11 @@ public protocol GroupProtocol: AnyObject, Sendable {
      */
     func messageRecoveryPage(options: ListMessagesOptions?, before: MessageRecoveryPosition?, after: MessageRecoveryPosition?) async throws  -> MessageRecoveryPage
 
+    /**
+     * At most `limit` messages (1 to 1000). With no `limit`, the 100
+     * newest by the sort field, in the requested order. To read more,
+     * page with `message_history_page`.
+     */
     func messages(options: ListMessagesOptions?) async throws  -> [Message]
 
     /**
@@ -5328,8 +5411,9 @@ public protocol GroupProtocol: AnyObject, Sendable {
 
     /**
      * Remove members by account identity or handle. Hosts present this as
-     * a `removeMembers` overload or union. Every handle resolves through the
-     * verified handle resolver first, and all members leave in one commit.
+     * a `removeMembers` overload or union. Every account and handle resolves
+     * through the verified resolver first, and all members leave in one
+     * commit.
      */
 
     func removeSuperAdmin(inboxId: InboxId) async throws
@@ -5501,8 +5585,9 @@ open func addMembers(members: [InboxId])async throws  -> MembershipResult  {
 
     /**
      * Add members by account identity or handle. Hosts present this as an
-     * `addMembers` overload or union. Every handle resolves through the
-     * verified handle resolver first, and all members join in one commit.
+     * `addMembers` overload or union. Every account and handle resolves
+     * through the verified resolver first, and all members join in one
+     * commit.
      */
 func addMembersByIdentity(members: [PublicIdentity])async throws  -> MembershipResult  {
     return
@@ -5881,6 +5966,31 @@ open func messageHistorySnapshot(limit: UInt32)async throws  -> MessageHistorySn
         )
 }
 
+    /**
+     * Reaction messages to `message_id`, newest first by send time,
+     * then sequence id, then message id: at most `limit` (1 to 1000;
+     * 50 when absent). For the next page, pass the last returned id
+     * as `before`. A `before` that is not an unexpired reaction to
+     * this message fails with InvalidArgument; restart from the
+     * newest reaction. A deleted or expired message has none.
+     */
+open func messageReactions(messageId: MessageId, before: MessageId? = nil, limit: UInt32? = nil)async throws  -> [ReactionMessage]  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_xmtp_sdk_fn_method_group_message_reactions(
+                        self.uniffiCloneHandle(),FfiConverterTypeMessageId_lower(messageId),FfiConverterOptionTypeMessageId.lower(before),FfiConverterOptionUInt32.lower(limit)
+                )
+            },
+            pollFunc: ffi_xmtp_sdk_rust_future_poll_rust_buffer,
+            completeFunc: ffi_xmtp_sdk_rust_future_complete_rust_buffer,
+            cancelFunc: ffi_xmtp_sdk_rust_future_cancel_rust_buffer,
+            freeFunc: ffi_xmtp_sdk_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterSequenceTypeReactionMessage.lift,
+            errorHandler: FfiConverterTypeXmtpError_lift
+        )
+}
+
 open func messageReader(options: ConversationMessageReaderOptions? = nil)async throws  -> MessageReader  {
     return
         try  await uniffiRustCallAsync(
@@ -5925,6 +6035,11 @@ open func messageRecoveryPage(options: ListMessagesOptions? = nil, before: Messa
         )
 }
 
+    /**
+     * At most `limit` messages (1 to 1000). With no `limit`, the 100
+     * newest by the sort field, in the requested order. To read more,
+     * page with `message_history_page`.
+     */
 open func messages(options: ListMessagesOptions? = nil)async throws  -> [Message]  {
     return
         try  await uniffiRustCallAsync(
@@ -6128,8 +6243,9 @@ open func removeMembers(members: [InboxId])async throws   {
 
     /**
      * Remove members by account identity or handle. Hosts present this as
-     * a `removeMembers` overload or union. Every handle resolves through the
-     * verified handle resolver first, and all members leave in one commit.
+     * a `removeMembers` overload or union. Every account and handle resolves
+     * through the verified resolver first, and all members leave in one
+     * commit.
      */
 func removeMembersByIdentity(members: [PublicIdentity])async throws   {
     return
@@ -9750,6 +9866,9 @@ public struct ClientOptions {
     public var deviceSync: Bool
     /**
      * Permit startup from stored state when the backend is unavailable.
+     * Such a startup checks that the identity belongs to its inbox against
+     * the newest identity state the database stores, which can predate a
+     * revocation.
      */
     public var allowOffline: Bool
     public var registration: RegistrationOptions
@@ -9766,6 +9885,9 @@ public struct ClientOptions {
          */backend: BackendSource? = nil, storage: StorageOptions, deviceSync: Bool = true,
         /**
          * Permit startup from stored state when the backend is unavailable.
+         * Such a startup checks that the identity belongs to its inbox against
+         * the newest identity state the database stores, which can predate a
+         * revocation.
          */allowOffline: Bool = false, registration: RegistrationOptions = RegistrationOptions(), forkRecovery: ForkRecoveryOptions? = nil, workers: WorkerOptions? = nil, handlers: ClientHandlers? = nil, attachments: AttachmentOptions? = nil) {
         self.backend = backend
         self.storage = storage
@@ -12905,6 +13027,12 @@ public func FfiConverterTypeLimitsConfiguration_lower(_ value: LimitsConfigurati
 }
 
 
+/**
+ * One page of a conversation listing. To read the next page, pass the last
+ * conversation's `created_at` as `created_before` in creation order, or its
+ * `last_activity_at()` as `last_activity_before` in activity order, and its
+ * id as `before_id`.
+ */
 public struct ListConversationsOptions: Equatable, Hashable {
     public var kind: ConversationKind?
     public var consentStates: [ConsentState]?
@@ -12912,13 +13040,32 @@ public struct ListConversationsOptions: Equatable, Hashable {
     public var createdBefore: Timestamp?
     public var lastActivityAfter: Timestamp?
     public var lastActivityBefore: Timestamp?
+    /**
+     * At most this many conversations, from 1 to 1000; 100 when absent.
+     */
     public var limit: UInt32?
     public var orderBy: ConversationOrder?
     public var includeDuplicateDms: Bool
+    /**
+     * Resume after this conversation: a conversation at exactly the before
+     * time of the list order is returned only when its id is lower. Needs
+     * `created_before` in creation order or `last_activity_before` in
+     * activity order.
+     */
+    public var beforeId: ConversationId?
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(kind: ConversationKind? = nil, consentStates: [ConsentState]? = nil, createdAfter: Timestamp? = nil, createdBefore: Timestamp? = nil, lastActivityAfter: Timestamp? = nil, lastActivityBefore: Timestamp? = nil, limit: UInt32? = nil, orderBy: ConversationOrder? = nil, includeDuplicateDms: Bool = false) {
+    public init(kind: ConversationKind? = nil, consentStates: [ConsentState]? = nil, createdAfter: Timestamp? = nil, createdBefore: Timestamp? = nil, lastActivityAfter: Timestamp? = nil, lastActivityBefore: Timestamp? = nil,
+        /**
+         * At most this many conversations, from 1 to 1000; 100 when absent.
+         */limit: UInt32? = nil, orderBy: ConversationOrder? = nil, includeDuplicateDms: Bool = false,
+        /**
+         * Resume after this conversation: a conversation at exactly the before
+         * time of the list order is returned only when its id is lower. Needs
+         * `created_before` in creation order or `last_activity_before` in
+         * activity order.
+         */beforeId: ConversationId? = nil) {
         self.kind = kind
         self.consentStates = consentStates
         self.createdAfter = createdAfter
@@ -12928,6 +13075,7 @@ public struct ListConversationsOptions: Equatable, Hashable {
         self.limit = limit
         self.orderBy = orderBy
         self.includeDuplicateDms = includeDuplicateDms
+        self.beforeId = beforeId
     }
 
 
@@ -12954,7 +13102,8 @@ public struct FfiConverterTypeListConversationsOptions: FfiConverterRustBuffer {
                 lastActivityBefore: FfiConverterOptionTypeTimestamp.read(from: &buf),
                 limit: FfiConverterOptionUInt32.read(from: &buf),
                 orderBy: FfiConverterOptionTypeConversationOrder.read(from: &buf),
-                includeDuplicateDms: FfiConverterBool.read(from: &buf)
+                includeDuplicateDms: FfiConverterBool.read(from: &buf),
+                beforeId: FfiConverterOptionTypeConversationId.read(from: &buf)
         )
     }
 
@@ -12968,6 +13117,7 @@ public struct FfiConverterTypeListConversationsOptions: FfiConverterRustBuffer {
         FfiConverterOptionUInt32.write(value.limit, into: &buf)
         FfiConverterOptionTypeConversationOrder.write(value.orderBy, into: &buf)
         FfiConverterBool.write(value.includeDuplicateDms, into: &buf)
+        FfiConverterOptionTypeConversationId.write(value.beforeId, into: &buf)
     }
 }
 
@@ -13603,6 +13753,7 @@ public struct MessageData: Equatable, Hashable {
     public var sentAt: Timestamp
     public var insertedAt: Timestamp
     public var expiresAt: Timestamp?
+    public var expiryUnknown: Bool
     public var kind: MessageKind
     public var deliveryStatus: DeliveryStatus
     /**
@@ -13620,12 +13771,21 @@ public struct MessageData: Equatable, Hashable {
     public var encoded: EncodedContent?
     public var content: MessageContent
     public var replyCount: UInt64
+    /**
+     * At most the 50 latest reaction messages, oldest first, that decode as
+     * reactions. Read the rest with `message_reactions`.
+     */
     public var reactions: [ReactionMessage]
+    /**
+     * Unexpired reaction messages to this message, including removals and
+     * ones that do not decode. It is not a reaction tally.
+     */
+    public var reactionMessageCount: UInt64
     public var inReplyTo: ReplyParent?
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(id: MessageId, clientKey: UInt64, deliveryCursor: String? = nil, conversationId: ConversationId, topic: String, senderInboxId: InboxId, sentAt: Timestamp, insertedAt: Timestamp, expiresAt: Timestamp?, kind: MessageKind, deliveryStatus: DeliveryStatus,
+    public init(id: MessageId, clientKey: UInt64, deliveryCursor: String? = nil, conversationId: ConversationId, topic: String, senderInboxId: InboxId, sentAt: Timestamp, insertedAt: Timestamp, expiresAt: Timestamp?, expiryUnknown: Bool = false, kind: MessageKind, deliveryStatus: DeliveryStatus,
         /**
          * The original received serialization. Empty after deletion.
          */rawBytes: Data,
@@ -13634,7 +13794,15 @@ public struct MessageData: Equatable, Hashable {
          */contentType: ContentTypeId?, fallback: String?,
         /**
          * Uncompressed codec input. Absent if conversion or decompression fails.
-         */encoded: EncodedContent?, content: MessageContent, replyCount: UInt64, reactions: [ReactionMessage], inReplyTo: ReplyParent?) {
+         */encoded: EncodedContent?, content: MessageContent, replyCount: UInt64,
+        /**
+         * At most the 50 latest reaction messages, oldest first, that decode as
+         * reactions. Read the rest with `message_reactions`.
+         */reactions: [ReactionMessage],
+        /**
+         * Unexpired reaction messages to this message, including removals and
+         * ones that do not decode. It is not a reaction tally.
+         */reactionMessageCount: UInt64 = UInt64(0), inReplyTo: ReplyParent?) {
         self.id = id
         self.clientKey = clientKey
         self.deliveryCursor = deliveryCursor
@@ -13644,6 +13812,7 @@ public struct MessageData: Equatable, Hashable {
         self.sentAt = sentAt
         self.insertedAt = insertedAt
         self.expiresAt = expiresAt
+        self.expiryUnknown = expiryUnknown
         self.kind = kind
         self.deliveryStatus = deliveryStatus
         self.rawBytes = rawBytes
@@ -13653,6 +13822,7 @@ public struct MessageData: Equatable, Hashable {
         self.content = content
         self.replyCount = replyCount
         self.reactions = reactions
+        self.reactionMessageCount = reactionMessageCount
         self.inReplyTo = inReplyTo
     }
 
@@ -13681,6 +13851,7 @@ public struct FfiConverterTypeMessageData: FfiConverterRustBuffer {
                 sentAt: FfiConverterTypeTimestamp.read(from: &buf),
                 insertedAt: FfiConverterTypeTimestamp.read(from: &buf),
                 expiresAt: FfiConverterOptionTypeTimestamp.read(from: &buf),
+                expiryUnknown: FfiConverterBool.read(from: &buf),
                 kind: FfiConverterTypeMessageKind.read(from: &buf),
                 deliveryStatus: FfiConverterTypeDeliveryStatus.read(from: &buf),
                 rawBytes: FfiConverterData.read(from: &buf),
@@ -13690,6 +13861,7 @@ public struct FfiConverterTypeMessageData: FfiConverterRustBuffer {
                 content: FfiConverterTypeMessageContent.read(from: &buf),
                 replyCount: FfiConverterUInt64.read(from: &buf),
                 reactions: FfiConverterSequenceTypeReactionMessage.read(from: &buf),
+                reactionMessageCount: FfiConverterUInt64.read(from: &buf),
                 inReplyTo: FfiConverterOptionTypeReplyParent.read(from: &buf)
         )
     }
@@ -13704,6 +13876,7 @@ public struct FfiConverterTypeMessageData: FfiConverterRustBuffer {
         FfiConverterTypeTimestamp.write(value.sentAt, into: &buf)
         FfiConverterTypeTimestamp.write(value.insertedAt, into: &buf)
         FfiConverterOptionTypeTimestamp.write(value.expiresAt, into: &buf)
+        FfiConverterBool.write(value.expiryUnknown, into: &buf)
         FfiConverterTypeMessageKind.write(value.kind, into: &buf)
         FfiConverterTypeDeliveryStatus.write(value.deliveryStatus, into: &buf)
         FfiConverterData.write(value.rawBytes, into: &buf)
@@ -13713,6 +13886,7 @@ public struct FfiConverterTypeMessageData: FfiConverterRustBuffer {
         FfiConverterTypeMessageContent.write(value.content, into: &buf)
         FfiConverterUInt64.write(value.replyCount, into: &buf)
         FfiConverterSequenceTypeReactionMessage.write(value.reactions, into: &buf)
+        FfiConverterUInt64.write(value.reactionMessageCount, into: &buf)
         FfiConverterOptionTypeReplyParent.write(value.inReplyTo, into: &buf)
     }
 }
@@ -27157,6 +27331,30 @@ fileprivate struct FfiConverterOptionDictionaryStringString: FfiConverterRustBuf
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionTypeConversationId: FfiConverterRustBuffer {
+    typealias SwiftType = ConversationId?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeConversationId.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeConversationId.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionTypeInboxId: FfiConverterRustBuffer {
     typealias SwiftType = InboxId?
 
@@ -27197,6 +27395,30 @@ fileprivate struct FfiConverterOptionTypeMessage: FfiConverterRustBuffer {
         switch try readInt(&buf) as Int8 {
         case 0: return nil
         case 1: return try FfiConverterTypeMessage.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionTypeMessageId: FfiConverterRustBuffer {
+    typealias SwiftType = MessageId?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeMessageId.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeMessageId.read(from: &buf)
         default: throw UniffiInternalError.unexpectedOptionalTag
         }
     }
@@ -29587,11 +29809,13 @@ public func canMessageWithBackend(backend: BackendSource, identities: [PublicIde
         )
 }
 /**
- * The inbox of an account or a handle. An account with no live inbox gets
- * the inbox ID it would create with nonce 0. A handle never derives an inbox
- * ID: it resolves only when the inbox the backend names holds it in its own
- * identity log, and fails with `IdentityNotFound` otherwise. An old handle
- * of an inbox still resolves to it.
+ * The inbox of an account or a handle. Either resolves to the inbox the
+ * backend names only when the newest state of that inbox's own identity log
+ * holds it, and an old handle of an inbox still resolves to it. An account
+ * that resolves to no inbox gets the inbox ID it would create with nonce 0,
+ * but only when that inbox's log holds no update or still holds the account.
+ * A handle never derives an inbox ID. Any other lookup fails with
+ * `IdentityNotFound`.
  */
 public func inboxIdForWithBackend(backend: BackendSource, identity: PublicIdentity)async throws  -> InboxId  {
     return
@@ -29844,7 +30068,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtp_sdk_checksum_func_can_message_with_backend() != 19273) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_func_inbox_id_for_with_backend() != 7019) {
+    if (uniffi_xmtp_sdk_checksum_func_inbox_id_for_with_backend() != 7298) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_func_inbox_states_with_backend() != 12284) {
@@ -29985,7 +30209,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtp_sdk_checksum_method_client_identity() != 61052) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_method_client_inbox_id_for() != 1422) {
+    if (uniffi_xmtp_sdk_checksum_method_client_inbox_id_for() != 62264) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_method_client_inbox_state() != 57646) {
@@ -30057,7 +30281,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtp_sdk_checksum_method_client_unsafe_apply_signature_request() != 64034) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_method_client_unsafe_change_recovery_identifier_signature_request() != 45674) {
+    if (uniffi_xmtp_sdk_checksum_method_client_unsafe_change_recovery_identifier_signature_request() != 16873) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_method_client_unsafe_create_inbox_signature_request() != 10436) {
@@ -30096,7 +30320,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtp_sdk_checksum_method_conversations_create_dm() != 578) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_method_conversations_create_dm_with_identity() != 60772) {
+    if (uniffi_xmtp_sdk_checksum_method_conversations_create_dm_with_identity() != 11782) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_method_conversations_create_group() != 23137) {
@@ -30105,7 +30329,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtp_sdk_checksum_method_conversations_create_group_optimistic() != 41274) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_method_conversations_create_group_with_identities() != 24231) {
+    if (uniffi_xmtp_sdk_checksum_method_conversations_create_group_with_identities() != 29398) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_method_conversations_delete_message() != 23841) {
@@ -30117,7 +30341,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtp_sdk_checksum_method_conversations_get_by_id() != 32520) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_method_conversations_get_dm_by_identity() != 16124) {
+    if (uniffi_xmtp_sdk_checksum_method_conversations_get_dm_by_identity() != 62036) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_method_conversations_get_dm_by_inbox_id() != 61920) {
@@ -30213,13 +30437,16 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtp_sdk_checksum_method_dm_message_history_snapshot() != 11434) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_xmtp_sdk_checksum_method_dm_message_reactions() != 22758) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_xmtp_sdk_checksum_method_dm_message_reader() != 16038) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_method_dm_message_recovery_page() != 28719) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_method_dm_messages() != 55325) {
+    if (uniffi_xmtp_sdk_checksum_method_dm_messages() != 13267) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_method_dm_metadata_field() != 18425) {
@@ -30321,7 +30548,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtp_sdk_checksum_method_group_add_members() != 43735) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_method_group_add_members_by_identity() != 10876) {
+    if (uniffi_xmtp_sdk_checksum_method_group_add_members_by_identity() != 15124) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_method_group_add_super_admin() != 2507) {
@@ -30393,13 +30620,16 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtp_sdk_checksum_method_group_message_history_snapshot() != 50554) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_xmtp_sdk_checksum_method_group_message_reactions() != 4413) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_xmtp_sdk_checksum_method_group_message_reader() != 32244) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_method_group_message_recovery_page() != 12885) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_method_group_messages() != 9628) {
+    if (uniffi_xmtp_sdk_checksum_method_group_messages() != 33446) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_method_group_metadata_field() != 51491) {
@@ -30432,7 +30662,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtp_sdk_checksum_method_group_remove_members() != 34386) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_method_group_remove_members_by_identity() != 29488) {
+    if (uniffi_xmtp_sdk_checksum_method_group_remove_members_by_identity() != 1052) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_method_group_remove_super_admin() != 29988) {

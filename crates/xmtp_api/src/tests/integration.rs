@@ -122,11 +122,16 @@ async fn backend_round_trip_covers_five_kinds_paging_and_absent_key() {
     assert_eq!(groups[0].expiry_ns, Some(group_metas[0].expiry_ns));
 
     // A sealed entry on its commit-log topic, named by the commit-log id.
-    let plaintext = PlaintextCommitLogEntry {
+    let mut plaintext = PlaintextCommitLogEntry {
         group_id: keys.group_id().to_vec(),
         commit_sequence_id: 1,
         ..Default::default()
     };
+    xmtp_mls_common::commit_log::sign_entry_author(
+        &keys,
+        &xmtp_cryptography::XmtpInstallationCredential::new(),
+        &mut plaintext,
+    )?;
     let entry = seal_entry(&keys, &plaintext)?;
     let mut commit_metas = Vec::new();
     api.publish_commit_log(vec![entry.clone()], &mut commit_metas)
@@ -144,7 +149,12 @@ async fn backend_round_trip_covers_five_kinds_paging_and_absent_key() {
         commit_metas[0].cursor.as_ref()?.sequence_id
     );
     assert_eq!(
-        open_entry(&keys, &keys.group_id(), logs[0].sealed.as_ref()?)?,
+        open_entry(
+            &keys,
+            &keys.group_id(),
+            logs[0].cursor.0,
+            logs[0].sealed.as_ref()?
+        )?,
         plaintext
     );
 

@@ -8,9 +8,9 @@ An SDK keeps each client's database and attachments at a location the app names 
 
 ## Scope
 
-In scope: the default directories, how the default location and a directory the app names map to the storage location layouts, the database file name in a data directory, the storage label, the identity needed to build a client from a stored database, storage lifecycle, and support for unencrypted databases.
+In scope: the default directories, how the default location and a directory the app names map to the storage location layouts, the database file name in a data directory, the storage label, the identity needed to build a client from a stored database, storage lifecycle, and the database encryption choice: an absent key, a supplied key, and creating and opening a database under a key.
 
-Out of scope: the storage location layouts themselves and the attachments directory (ATCH section 5), database contents, encryption algorithms, and key management.
+Out of scope: the storage location layouts themselves and the attachments directory (ATCH section 5), database contents, encryption algorithms, and how an app creates and stores its database encryption key.
 
 ## Terms
 
@@ -19,6 +19,7 @@ Out of scope: the storage location layouts themselves and the attachments direct
 | Storage label | A value the app supplies to keep separate client stores under one root directory. |
 | Default location | The directory the SDK selects when the app does not name a location. |
 | Root directory | The default location, or the directory the app names. It is the data directory of a `data_dir` storage location (ATCH-040), or holds that data directory when the app supplies a storage label. |
+| Salt file | A file that an SDK keeps beside a database file it created under a database encryption key. The SDK needs it, with the key, to read that database, so an app that copies or backs up the database file copies the salt file with it. |
 
 ## 1. Database location
 
@@ -51,6 +52,7 @@ The storage interface reports the file in use and controls its connection and re
 | STORE-011 | In-memory storage cannot be deleted | When an app asks to delete in-memory client storage, the SDK MUST fail with a typed invalid-input error. | In-memory storage has no database file to remove. |
 | STORE-017 | Close before file removal | When an app asks to delete file-backed client storage, the SDK MUST close the client before it removes the database file. | A live connection could otherwise write to a file after its name is removed. |
 | STORE-018 | Database file is gone after deletion | When deletion of file-backed client storage completes, the SDK MUST have removed the database file. | An app that deletes a client's storage expects that database file to be gone. |
+| STORE-026 | Synced before it leaves the device | Before a client returns a queued message's id, or sends a request that publishes a prepared envelope or a key package, it MUST have completed a sync to stable storage of the file-backed database write that recorded that work. | An operating system crash or power loss can otherwise erase the local record of work other devices already hold: the installation forks its group, loses the send, or cannot read Welcomes to the package. |
 
 ## 3. Database encryption choice
 
@@ -58,12 +60,23 @@ An app can use a database without an encryption key. When the key is absent,
 the database is not encrypted by the SDK. This choice applies when the app
 creates a database and when it opens that database again.
 
+Creation of a database under a database encryption key lasts from the SDK's first write for a path whose database file is absent or 0 bytes long until the call that opens the database returns.
+
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
 | STORE-022 | Optional database encryption key | When an app omits the database encryption key, the SDK MUST support creating a database and reopening a database created without a key, without requiring a key. | Requiring a key prevents an app from using or reopening its existing store. |
+| STORE-023 | Interrupted keyed creation stays openable | If the app's process exits or is killed at any point while the SDK creates a file-backed database under a database encryption key, and the device keeps running, then when the app later opens the same path with the same key, the SDK MUST open a database at that path. This requirement does not cover a power loss or an operating system crash. | A stop that leaves files the key cannot read makes every later open of that path fail, so the app cannot create or restore its client there without deleting files by hand. |
+| STORE-024 | Failed keyed open preserves the store | If an app opens with a database encryption key a path whose database file is longer than 0 bytes and the SDK cannot read that database with the key, then the SDK MUST fail with a typed error. It MUST NOT change the data the database holds, and MUST NOT create, change, or remove its salt file. | An open that rewrites or resets a store it cannot read can destroy data that the right key, or the missing salt file restored from a copy, would still recover. |
+| STORE-025 | A supplied key is applied or refused | When an app supplies a database encryption key for a file-backed database, the SDK MUST either store that database encrypted under the key, so that a later open of it with a different key fails with a typed error, or fail with a typed error before it opens a database. | A key the SDK accepts and ignores leaves installation keys and decrypted messages readable from a copy of the files while the app believes they are protected. |
 
 ## Known limitations
 
 Storage reconnect fails after the app ends the client; the app builds a new client instead.
 
 Deleting file-backed client storage removes the database file only (STORE-018). The attachments directory, its staged ciphertext, and the deployment record of a data directory stay. An app removes every file of one inbox on one deployment by removing its inbox directory (ATCH-040) after the deletion completes.
+
+A browser SDK does not encrypt its database. Anyone who can read the origin's browser storage, for example from a copied browser profile, can read the stored installation keys and decrypted messages.
+
+Older SDK releases wrote some encrypted databases without a salt file. The SDK does not convert such a database, and a keyed open of it fails (STORE-024).
+
+A power loss shortly after an SDK first creates an encrypted database can lose the new salt file on a file system that cannot sync a directory, and on Windows, where the SDK does not sync the directory. A later keyed open of that path can then fail (STORE-024), and the app removes the files and creates its client again. Closing this window on those systems needs platform-specific file-system calls.

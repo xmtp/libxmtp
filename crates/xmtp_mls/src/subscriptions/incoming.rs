@@ -40,9 +40,45 @@ pub(crate) type RejectedRequests = Arc<Mutex<Vec<(RequestKey, Arc<IncomingError>
 pub(crate) trait SubscriptionFactory: MaybeSend + MaybeSync {
     fn open(&self, cursors: TopicCursor, limits: IncomingBatchLimits) -> SubscriptionFuture;
 
+    /// Bind a fresh factory to one client's admitted snapshot when it needs it.
+    fn bind_limits(
+        &self,
+        _limits: &xmtp_configuration::LimitsConfiguration,
+    ) -> Option<Arc<dyn SubscriptionFactory>> {
+        None
+    }
+
     /// A suspended live receiver must not start automatic unary network work.
     fn is_suspended(&self) -> bool {
         false
+    }
+}
+
+/// When this client's incoming controllers may next open a stream after a
+/// refused open or a rate-limited stream end (RATE-041). The runtime keeps it,
+/// so a replacement controller cannot reopen inside the delay. Refused reads
+/// wait on their own request's floor instead.
+#[derive(Debug, Default)]
+pub(crate) struct RateLimitHold {
+    opens: Option<Instant>,
+}
+
+pub(crate) type SharedRateLimitHold = Arc<Mutex<RateLimitHold>>;
+
+impl RateLimitHold {
+    fn until(delay: xmtp_common::time::Duration) -> Instant {
+        xmtp_common::time::saturating_after(Instant::now(), delay)
+    }
+
+    /// No stream open until `delay` has passed. A pending later end stays.
+    pub(crate) fn hold_opens(&mut self, delay: xmtp_common::time::Duration) {
+        let until = Self::until(delay);
+        self.opens = Some(self.opens.map_or(until, |at| at.max(until)));
+    }
+
+    /// The end of a pending open hold.
+    pub(crate) fn opens_until(&self) -> Option<Instant> {
+        self.opens.filter(|until| Instant::now() < *until)
     }
 }
 
@@ -57,6 +93,8 @@ pub struct IncomingRuntime {
     pub(crate) coordinator: Mutex<Option<Arc<IncomingCoordinator>>>,
     /// A new controller on this client cannot resend a rejected wire request.
     pub(crate) rejected_requests: RejectedRequests,
+    /// A new controller on this client cannot send inside a rate-limit delay.
+    pub(crate) rate_limit_hold: SharedRateLimitHold,
     /// A closed reader whose owner token must be released after storage repair.
     pub(crate) retired_delivery_owner: Mutex<Option<xmtp_db::delivery::DeliveryOwner>>,
 }
@@ -73,6 +111,7 @@ impl IncomingRuntime {
             factory,
             coordinator: Mutex::new(None),
             rejected_requests: Arc::new(Mutex::new(Vec::new())),
+            rate_limit_hold: Arc::default(),
             retired_delivery_owner: Mutex::new(None),
         }
     }
@@ -132,12 +171,13 @@ where
 xmtp_common::if_native! {
 pub(crate) struct BidiSubscriptionFactory<A> {
     api: A,
+    mutate: Option<xmtp_api_backend::MutateLimits>,
     transport: std::sync::OnceLock<Arc<xmtp_api_backend::BidiTransport<xmtp_api_backend::BackendBinding>>>,
 }
 
 impl<A> BidiSubscriptionFactory<A> {
     pub(crate) fn new(api: A) -> Self {
-        Self { api, transport: std::sync::OnceLock::new() }
+        Self { api, mutate: None, transport: std::sync::OnceLock::new() }
     }
 }
 
@@ -155,7 +195,10 @@ where
         // Keep the shared transport alive between this client's receiving calls.
         // The process registry must not keep credentials after factories and subscriptions drop.
         let transport = self.transport.get_or_init(|| {
-            super::router_callbacks::shared_transport(self.api.clone())
+            let mutate = self.mutate.unwrap_or_else(|| {
+                xmtp_api_backend::MutateLimits::from_limits(&self.api.bidi_limits())
+            });
+            super::router_callbacks::shared_transport_within(self.api.clone(), mutate)
         }).clone();
         Box::pin(async move {
             transport
@@ -177,6 +220,17 @@ where
                 })
                 .map_err(NetworkError::new)
         })
+    }
+
+    fn bind_limits(
+        &self,
+        limits: &xmtp_configuration::LimitsConfiguration,
+    ) -> Option<Arc<dyn SubscriptionFactory>> {
+        Some(Arc::new(Self {
+            api: self.api.clone(),
+            mutate: Some(xmtp_api_backend::MutateLimits::from_limits(limits)),
+            transport: std::sync::OnceLock::new(),
+        }))
     }
 
     fn is_suspended(&self) -> bool {

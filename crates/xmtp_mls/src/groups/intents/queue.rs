@@ -51,6 +51,19 @@ impl QueueIntentBuilder {
     where
         C: XmtpSharedContext,
     {
+        Ok(self.queue_in_reporting_reuse(db, group)?.0)
+    }
+
+    /// As [`Self::queue_in`], and report whether an unresolved send intent
+    /// with the same payload was reused instead of a new one queued.
+    pub(crate) fn queue_in_reporting_reuse<C>(
+        &mut self,
+        db: &impl DbQuery,
+        group: &MlsGroup<C>,
+    ) -> Result<(StoredGroupIntent, bool), GroupError>
+    where
+        C: XmtpSharedContext,
+    {
         self.build()?.queue_with_conn(db, group)
     }
 }
@@ -157,7 +170,7 @@ impl QueueIntent {
         self,
         conn: &impl DbQuery,
         group: &MlsGroup<Ctx>,
-    ) -> Result<StoredGroupIntent, GroupError>
+    ) -> Result<(StoredGroupIntent, bool), GroupError>
     where
         Ctx: XmtpSharedContext,
     {
@@ -185,7 +198,7 @@ impl QueueIntent {
                 .into_iter()
                 .find(|intent| intent.data.as_slice() == self.data.as_slice())
             {
-                return Ok(existing);
+                return Ok((existing, true));
             }
             self.maybe_insert_key_update_intent(conn, group)?;
         }
@@ -209,7 +222,7 @@ impl QueueIntent {
         }
         tracing::debug!(inbox_id = group.context.inbox_id(), intent_kind = %intent_kind, "queued intent");
 
-        Ok(intent)
+        Ok((intent, false))
     }
 
     #[tracing::instrument(level = "trace", skip_all)]

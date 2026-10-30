@@ -1,19 +1,21 @@
 use crate::builder::ForkRecoveryPolicy;
 use crate::groups::MlsGroup;
+use crate::groups::mls_sync::retry_due;
 use crate::groups::oneshot::Oneshot;
 use crate::groups::summary::SyncSummary;
+use crate::subscriptions::internal::dm_event_context;
 use futures::StreamExt;
 use std::collections::HashSet;
+use std::sync::Arc;
 use std::{collections::HashMap, time::Duration};
 use thiserror::Error;
 use xmtp_api::ApiError;
 use xmtp_common::RetryableError;
 use xmtp_common::hex::NormalizeHex;
 use xmtp_common::snippet::Snippet;
+use xmtp_common::time::now_ns;
 use xmtp_db::TransactionOutcome::Continue;
 use xmtp_db::consent_record::ConsentState;
-use xmtp_db::group::ConversationType;
-use xmtp_db::group::DmIdExt;
 use xmtp_db::group::StoredGroupForRespondingReadds;
 use xmtp_db::remote_commit_log::RemoteCommitLog;
 use xmtp_db::remote_commit_log::RemoteCommitLogOrder;
@@ -26,8 +28,10 @@ use xmtp_db::{
     remote_commit_log::{CommitResult, NewRemoteCommitLog},
 };
 use xmtp_mls_common::app_data::group_root::group_keys_from_extensions;
-use xmtp_mls_common::commit_log::{open_entry, seal_entry};
+use xmtp_mls_common::commit_log::{open_entry, seal_entry, sign_entry_author};
 use xmtp_mls_common::group_keys::{GroupKeys, SealError};
+use xmtp_mls_validation::ForkActors;
+use xmtp_proto::ShortHex;
 use xmtp_proto::backend_v1::SealedCommitLogEntry;
 use xmtp_proto::types::Cursor;
 use xmtp_proto::types::{CommitLogEntry as DecodedCommitLogEntry, Topic, TopicCursor};
@@ -51,6 +55,26 @@ pub const DEFAULT_INTERVAL_DURATION: Duration = Duration::from_secs(60 * 5); // 
 #[derive(Clone)]
 pub struct Factory<Context> {
     context: Context,
+    /// Kept by the factory, so a storage reconnect, which builds a new
+    /// worker, keeps every rate-limit hold.
+    holds: Arc<parking_lot::Mutex<Holds>>,
+}
+
+impl<Context> Factory<Context>
+where
+    Context: XmtpSharedContext + 'static,
+{
+    pub(crate) fn new(context: Context) -> Self {
+        Self {
+            context,
+            holds: Arc::default(),
+        }
+    }
+
+    /// A worker that shares this factory's rate-limit holds.
+    pub(crate) fn worker(&self) -> CommitLogWorker<Context> {
+        CommitLogWorker::with_holds(self.context.clone(), self.holds.clone())
+    }
 }
 
 impl<Context> WorkerFactory for Factory<Context>
@@ -65,10 +89,7 @@ where
         &self,
         metrics: Option<crate::worker::DynMetrics>,
     ) -> (BoxedWorker, Option<crate::worker::DynMetrics>) {
-        (
-            Box::new(CommitLogWorker::new(self.context.clone())) as Box<_>,
-            metrics,
-        )
+        (Box::new(self.worker()) as Box<_>, metrics)
     }
 }
 
@@ -129,9 +150,27 @@ impl RetryableError for CommitLogError {
             Self::MissingLatestCommitSequenceId { .. } => false,
         }
     }
+
+    fn rate_limit_delay(&self) -> Option<xmtp_common::time::Duration> {
+        match self {
+            Self::Api(api_error) => api_error.rate_limit_delay(),
+            Self::GroupError(group_error) => group_error.rate_limit_delay(),
+            Self::SyncError(sync_error) => sync_error.rate_limit_delay(),
+            Self::FailedToSendReadd { source, .. } => source.rate_limit_delay(),
+            Self::FailedReadds { errors } => errors
+                .iter()
+                .filter_map(RetryableError::rate_limit_delay)
+                .max(),
+            _ => None,
+        }
+    }
 }
 
 impl NeedsDbReconnect for CommitLogError {
+    fn restart_delay(&self) -> Option<Duration> {
+        RetryableError::rate_limit_delay(self)
+    }
+
     fn needs_db_reconnect(&self) -> bool {
         match self {
             Self::Storage(s) => s.db_needs_connection(),
@@ -142,6 +181,7 @@ impl NeedsDbReconnect for CommitLogError {
             // A readd send failure wraps an inner CommitLogError; forward.
             Self::FailedToSendReadd { source, .. } => source.needs_db_reconnect(),
             Self::FailedReadds { errors } => errors.iter().any(|e| e.needs_db_reconnect()),
+            Self::SyncError(summary) => summary.needs_db_reconnect(),
             // Remaining variants can't carry a dropped-pool signal.
             Self::Diesel(_)
             | Self::Api(_)
@@ -151,7 +191,6 @@ impl NeedsDbReconnect for CommitLogError {
             | Self::TryFromSliceError(_)
             | Self::Conversion(_)
             | Self::GroupReaddValidationError(_)
-            | Self::SyncError(_)
             | Self::MissingLatestCommitSequenceId { .. } => false,
         }
     }
@@ -174,16 +213,45 @@ where
     where
         C: XmtpSharedContext + 'static,
     {
-        Factory { context }
+        Factory::new(context)
     }
+}
+
+/// Conversations held by a rate limit, and when each delay ends (RATE-041).
+#[derive(Default)]
+pub(crate) struct Holds {
+    /// Conversations whose commit-log publish was refused. Other
+    /// conversations still publish.
+    publish: HashMap<GroupId, xmtp_common::time::Instant>,
+    /// Conversations whose readd answer was refused. Other conversations
+    /// still answer.
+    readd: HashMap<GroupId, xmtp_common::time::Instant>,
 }
 
 pub struct CommitLogWorker<Context> {
     context: Context,
     /// The conversations whose commit-log publish failed in the last turn.
     failed_publishes: Vec<GroupId>,
+    /// Rate-limit holds, shared with the factory that built this worker.
+    holds: Arc<parking_lot::Mutex<Holds>>,
     #[cfg(test)]
     seal_fault: Option<SealFault>,
+}
+
+/// Hold `id` in `held` until `delay`, a rate-limit delay, has passed. A
+/// shorter later delay never ends a pending one.
+// implements: RATE-041
+fn hold(
+    held: &mut HashMap<GroupId, xmtp_common::time::Instant>,
+    id: GroupId,
+    delay: Option<Duration>,
+) {
+    let Some(delay) = delay else {
+        return;
+    };
+    let until = xmtp_common::time::saturating_after(xmtp_common::time::Instant::now(), delay);
+    let held = held.entry(id).or_insert(until);
+    *held = (*held).max(until);
 }
 
 /// A test-only fault at the result of each seal, by conversation.
@@ -202,9 +270,14 @@ where
     Context: XmtpSharedContext + 'static,
 {
     pub fn new(context: Context) -> Self {
+        Self::with_holds(context, Arc::default())
+    }
+
+    fn with_holds(context: Context, holds: Arc<parking_lot::Mutex<Holds>>) -> Self {
         Self {
             context,
             failed_publishes: Vec::new(),
+            holds,
             #[cfg(test)]
             seal_fault: None,
         }
@@ -309,21 +382,29 @@ where
     /// only its own conversation. A failed publish is logged, recorded in
     /// [`Self::failed_publishes`], and moves the conversation's cursor past
     /// the stored prefix only; the conversation is tried again at the next
-    /// tick. A refusal or a local parse failure holds back only its own
-    /// conversation. A transport failure ends the publishing part of the
-    /// turn, since every later conversation would wait through the same
-    /// retries. No publish failure stops the worker.
+    /// tick. A refusal, a rate limit, or a local parse failure holds back
+    /// only its own conversation. A transport failure ends the publishing
+    /// part of the turn, since every later conversation would wait through
+    /// the same retries. No publish failure stops the worker.
     // implements: FORK-021
     async fn publish_commit_logs_to_remote(
         &mut self,
     ) -> Result<Vec<ConversationCursorInfo>, CommitLogError> {
         self.failed_publishes.clear();
+        let now = xmtp_common::time::Instant::now();
+        self.holds.lock().publish.retain(|_, until| now < *until);
         let conn = &self.context.db();
         // DMs, and groups where we are a super admin
         let conversations = conn.get_conversation_ids_for_remote_log_publish()?;
         let api = self.context.api();
         let mut published = Vec::new();
         for conversation in &conversations {
+            // A rate-limited publish is not retried at a later tick inside its
+            // delay; other conversations still publish.
+            // implements: RATE-041
+            if self.holds.lock().publish.contains_key(&conversation.id) {
+                continue;
+            }
             let Some(PendingPublish {
                 cursor_info,
                 entries,
@@ -363,7 +444,14 @@ where
                         "Commit log publish failed; the conversation retries at the next turn"
                     );
                     self.failed_publishes.push(conversation.id);
-                    if error.is_retryable() {
+                    hold(
+                        &mut self.holds.lock().publish,
+                        conversation.id,
+                        error.rate_limit_delay(),
+                    );
+                    // A rate limit is retryable but holds only its own
+                    // conversation (RATE-041); the others still publish.
+                    if error.is_retryable() && error.rate_limit_delay().is_none() {
                         break;
                     }
                 }
@@ -376,23 +464,56 @@ where
     /// ascending row order, with the cursor that publishing them reaches.
     /// `None` when it has no new entries, or when they cannot be sealed this
     /// turn.
-    // implements: FORK-021
+    // implements: FORK-021, FORK-085
     fn prepare_conversation_publish(
         &self,
         conn: &impl DbQuery,
         conversation_id: &GroupId,
     ) -> Result<Option<PendingPublish>, CommitLogError> {
+        // Recovery and its durable cutoff share the MLS state transaction.
+        // Enumeration includes unrecovered groups even when their old flag is false.
+        let recovery = crate::state_tx::state_write(self.context.mls_storage(), |tx| {
+            tx.with_group(*conversation_id, |group, storage| {
+                use crate::groups::mls_ext::CommitLogStorer;
+                let db = storage.db();
+                let permits = group
+                    .recover_commit_log_publisher(&db, self.context.inbox_id().as_ref())
+                    .map_err(GroupError::from)?;
+                // Bound this batch to the same state that authorized publication.
+                // Keep cursor read errors outside the per-conversation recovery fallback.
+                Ok::<_, GroupError>((permits, db.get_local_commit_log_cursor(conversation_id)))
+            })
+            .map(Continue)
+        });
+        let (permits, local_commit_log_cursor) = match recovery {
+            Ok(outcome) => outcome.into_continued(),
+            Err(error) if error.needs_db_reconnect() => return Err(error.into()),
+            Err(error) => {
+                tracing::warn!(
+                    group_id = %conversation_id.as_slice().snippet(),
+                    %error,
+                    "A conversation's publisher state did not load; it skips publication this turn"
+                );
+                return Ok(None);
+            }
+        };
+
+        if !permits {
+            return Ok(None);
+        }
         // Propagate read errors (incl. a dropped pool) to the supervisor; a
         // missing cursor legitimately defaults to 0.
-        let local_commit_log_cursor = conn
-            .get_local_commit_log_cursor(conversation_id)?
-            .unwrap_or(0);
+        let local_commit_log_cursor = local_commit_log_cursor?.unwrap_or(0);
+        let membership_floor = conn
+            .get_latest_chain_start_rowid(conversation_id)?
+            .unwrap_or(0) as u64;
         let published_commit_log_cursor = conn
             .get_last_cursor(
                 conversation_id,
                 xmtp_db::refresh_state::EntityKind::CommitLogUpload,
             )?
-            .0;
+            .0
+            .max(membership_floor);
         if local_commit_log_cursor <= published_commit_log_cursor as i32 {
             // We have no new commits to publish for this conversation
             return Ok(None);
@@ -400,11 +521,12 @@ where
 
         // Local commit log entries are returned sorted in ascending order of `rowid`
         // All local commit log will have rowid > 0 since sqlite rowid starts at 1 https://www.sqlite.org/autoinc.html
-        let logs = conn.get_local_commit_log_after_cursor(
+        let mut logs = conn.get_local_commit_log_after_cursor(
             conversation_id,
             published_commit_log_cursor as i64,
             LocalCommitLogOrder::AscendingByRowid,
         )?;
+        logs.retain(|log| log.rowid <= local_commit_log_cursor);
         let Some(max_rowid) = logs.last().map(|log| log.rowid) else {
             return Ok(None);
         };
@@ -465,7 +587,14 @@ where
         };
         let mut sealed = Vec::with_capacity(plaintext_commit_log_entries.len());
         for entry in plaintext_commit_log_entries {
-            match self.apply_seal_fault(conversation_id, seal_entry(&keys, entry)) {
+            let mut entry = entry.clone();
+            let sealed_entry = sign_entry_author(
+                &keys,
+                &self.context.identity().installation_keys,
+                &mut entry,
+            )
+            .and_then(|()| seal_entry(&keys, &entry));
+            match self.apply_seal_fault(conversation_id, sealed_entry) {
                 Ok(entry) => sealed.push(entry),
                 Err(error) => {
                     tracing::error!(
@@ -573,26 +702,52 @@ where
             return Ok(HashMap::new());
         }
 
-        // A query returns each topic's envelopes in sequence id order.
-        let api = self.context.api();
-        let query_commit_log_responses = api.query_commit_log(query_log_requests).await?;
-
-        let mut grouped: HashMap<GroupId, Vec<DecodedCommitLogEntry>> = HashMap::new();
-        for entry in query_commit_log_responses {
-            if let Some(group_id) = conversations.get(entry.topic.identifier()) {
-                grouped.entry(*group_id).or_default().push(entry);
+        let mut keys_by_group = HashMap::new();
+        let mut cursors = query_log_requests;
+        for group_id in conversations.values() {
+            if let Some(keys) = self.group_keys(group_id)? {
+                keys_by_group.insert(*group_id, keys);
             }
         }
+        cursors.retain(|topic, _| {
+            conversations
+                .get(topic.identifier())
+                .is_some_and(|group| keys_by_group.contains_key(group))
+        });
+        let limits = self.context.incoming_runtime().policy().fetched_limits();
         let mut save_remote_commit_log_results = HashMap::new();
-        for (group_id, entries) in grouped {
-            let Some(keys) = self.group_keys(&group_id)? else {
-                continue;
-            };
-            let num_entries = self.save_remote_commit_log_entries_and_update_cursors(
-                conn, &group_id, &keys, entries,
-            )?;
-            save_remote_commit_log_results.insert(group_id.to_vec(), num_entries);
-        }
+        self.context
+            .api()
+            .fold_ordered_pages(cursors, limits, |batches, cursors| {
+                for batch in batches {
+                    let Some(group_id) = conversations.get(batch.topic.identifier()) else {
+                        continue;
+                    };
+                    let Some(keys) = keys_by_group.get(group_id) else {
+                        continue;
+                    };
+                    let entries = batch
+                        .envelopes
+                        .into_iter()
+                        .map(xmtp_api_backend::envelope::decode_commit_log_entry)
+                        .collect::<Result<Vec<_>, _>>()
+                        .map_err(ApiError::from)?;
+                    let (num_entries, held) = self
+                        .save_remote_commit_log_entries_and_update_cursors(
+                            conn, group_id, keys, entries,
+                        )?;
+                    *save_remote_commit_log_results
+                        .entry(group_id.to_vec())
+                        .or_insert(0) += num_entries;
+                    if held {
+                        // The durable cursor still precedes the held entry. Do not
+                        // fetch or evaluate any later page from this topic this turn.
+                        cursors.remove(&batch.topic);
+                    }
+                }
+                Ok::<_, CommitLogError>(())
+            })
+            .await?;
 
         Ok(save_remote_commit_log_results)
     }
@@ -606,7 +761,33 @@ where
         group_id: &GroupId,
         keys: &GroupKeys,
         entries: Vec<DecodedCommitLogEntry>,
-    ) -> Result<usize, CommitLogError> {
+    ) -> Result<(usize, bool), CommitLogError> {
+        // implements: FORK-087
+        // Read the durable processed position before loading the tree. Commits
+        // and their positions share a transaction, so this tree cannot precede
+        // the position against which the hold is checked.
+        let processed = conn
+            .latest_cursor_for_id(
+                group_id,
+                &[xmtp_db::refresh_state::EntityKind::ApplicationMessage],
+            )?
+            .0;
+        let (active, publishers, boundaries, reader_epoch_floor) =
+            crate::state_tx::state_write(self.context.mls_storage(), |tx| {
+                tx.with_group(*group_id, |g, storage| {
+                    use crate::groups::mls_ext::CommitLogStorer;
+                    Ok::<_, GroupError>((
+                        g.is_active(),
+                        ForkActors::from_group(g)?.publisher_keys(g)?,
+                        storage.db().get_commit_log_publisher_boundaries(group_id)?,
+                        g.initialize_commit_log_reader_epoch(&storage.db())?,
+                    ))
+                })
+                .map(Continue)
+            })?
+            .into_continued();
+        let mut evaluated_to = None;
+        let mut held = false;
         let mut num_entries_saved = 0;
         // From the stored remote commit log, fetch the following info:
         // 1. The latest applied epoch authenticator
@@ -615,9 +796,36 @@ where
         let mut latest_saved_remote_log = conn.get_latest_remote_log_for_group(group_id)?;
         for decoded in &entries {
             let Some(log_entry) = open_remote_entry(keys, group_id, decoded) else {
+                evaluated_to = Some(decoded.cursor);
                 continue;
             };
-            if should_skip_remote_commit_log_entry(latest_saved_remote_log.as_ref(), &log_entry) {
+            // implements: FORK-087
+            if log_entry.applied_epoch_number < reader_epoch_floor {
+                evaluated_to = Some(decoded.cursor);
+                continue;
+            }
+            if active && log_entry.commit_sequence_id > processed {
+                held = true;
+                break;
+            }
+            evaluated_to = Some(decoded.cursor);
+            if !publishers.contains(&log_entry.author_installation_key) {
+                continue;
+            }
+            let chain_holds = latest_saved_remote_log.as_ref().is_some_and(|latest| {
+                let boundary = boundaries
+                    .get(&latest.author_installation_key)
+                    .copied()
+                    .unwrap_or(0);
+                publishers.contains(&latest.author_installation_key)
+                    && !(latest.commit_sequence_id < boundary
+                        && log_entry.commit_sequence_id >= boundary as u64)
+            });
+            if should_skip_remote_commit_log_entry(
+                latest_saved_remote_log.as_ref(),
+                &log_entry,
+                chain_holds,
+            ) {
                 continue;
             }
 
@@ -633,6 +841,7 @@ where
                 commit_result,
                 applied_epoch_number: log_entry.applied_epoch_number as i64,
                 applied_epoch_authenticator: log_entry.applied_epoch_authenticator.clone(),
+                author_installation_key: log_entry.author_installation_key.clone(),
             }
             .store(conn)?;
 
@@ -644,17 +853,18 @@ where
                 commit_result,
                 applied_epoch_number: log_entry.applied_epoch_number as i64,
                 applied_epoch_authenticator: log_entry.applied_epoch_authenticator,
+                author_installation_key: log_entry.author_installation_key,
             });
         }
-        if let Some(last_entry) = entries.last() {
+        if let Some(cursor) = evaluated_to {
             conn.update_cursor(
                 group_id,
                 xmtp_db::refresh_state::EntityKind::CommitLogDownload,
-                last_entry.cursor,
+                cursor,
             )?;
         }
 
-        Ok(num_entries_saved)
+        Ok((num_entries_saved, held))
     }
 
     // Updates fork status for conversations in the database
@@ -663,51 +873,56 @@ where
             self.context.db().get_conversation_ids_for_fork_check()?;
 
         for conversation_id in conversation_ids_for_forked_state_check {
-            let conversation_id = GroupId::try_from(conversation_id)?;
-            crate::state_tx::state_write_with_events(
-                self.context.mls_storage(),
-                self.context.events(),
-                |tx, events| {
-                    let storage = tx.storage();
-                    let db = storage.db();
-                    let was_forked = db.get_group_commit_log_forked_status(&conversation_id)?;
-                    let is_forked = self.check_conversation_fork_state(&db, &conversation_id)?;
-                    // Persist the fork status to the database
-                    db.set_group_commit_log_forked_status(&conversation_id, is_forked)?;
-                    if was_forked != Some(true) && is_forked == Some(true) {
-                        events.emit(
-                            Some(ClientEvent::ConversationForkDetected(GroupRef {
-                                group_id: conversation_id.to_vec(),
-                            })),
-                            None,
-                        );
-                    }
-                    Ok::<_, CommitLogError>(Continue(()))
-                },
-            )
-            .map(TransactionOutcome::into_continued)?;
+            self.refresh_fork_state(&GroupId::try_from(conversation_id)?)?;
             tokio::task::yield_now().await;
         }
 
         Ok(())
     }
 
-    /// Returns the list of permitted readders for a group
-    /// Note: Does not return self - self is always a permitted readder
+    /// Recompute and persist a conversation's fork status. A stored `forked`
+    /// is sticky and returned without recomputing.
+    // implements: FORK-041, FORK-082
+    fn refresh_fork_state(
+        &self,
+        conversation_id: &GroupId,
+    ) -> Result<Option<bool>, CommitLogError> {
+        crate::state_tx::state_write_with_events(
+            self.context.mls_storage(),
+            self.context.events(),
+            |tx, events| {
+                let storage = tx.storage();
+                let db = storage.db();
+                if db.get_group_commit_log_forked_status(conversation_id)? == Some(true) {
+                    return Ok::<_, CommitLogError>(Continue(Some(true)));
+                }
+                let is_forked = self.check_conversation_fork_state(&db, conversation_id)?;
+                db.set_group_commit_log_forked_status(conversation_id, is_forked)?;
+                if is_forked == Some(true) {
+                    let dm_id = db
+                        .find_group(conversation_id)?
+                        .and_then(|group| group.dm_id);
+                    events.emit_with_context(
+                        Some(ClientEvent::ConversationForkDetected(GroupRef {
+                            group_id: conversation_id.to_vec(),
+                        })),
+                        None,
+                        dm_event_context(dm_id.as_deref()),
+                    );
+                }
+                Ok(Continue(is_forked))
+            },
+        )
+        .map(TransactionOutcome::into_continued)
+    }
+
+    /// Explicit request recipients; the one-shot sender also includes its own inbox.
+    // implements: FORK-050
     async fn permitted_readders(&self, group_id: &GroupId) -> Result<Vec<String>, CommitLogError> {
-        let (group, stored_group) = MlsGroup::new_cached(self.context.clone(), group_id)?;
-        if stored_group.conversation_type == ConversationType::Dm {
-            let Some(dm_id) = stored_group.dm_id.clone() else {
-                tracing::error!(group_id = %group_id, "DM group has no dm_id");
-                return Ok(vec![]);
-            };
-            return Ok(dm_id
-                .other_inbox_id(self.context.inbox_id())
-                .into_iter()
-                .collect());
-        }
-        let super_admins = group.super_admin_list()?;
-        Ok(super_admins)
+        let (group, _) = MlsGroup::new_cached(self.context.clone(), group_id)?;
+        Ok(group.with_group_snapshot(|g| {
+            Ok::<_, GroupError>(ForkActors::from_group(g)?.request_targets(self.context.inbox_id()))
+        })?)
     }
 
     async fn request_readd(
@@ -728,7 +943,7 @@ where
 
         tracing::debug!(group_id = %group_id, "Sending readd request");
 
-        // Send oneshot message with readd request to super admins
+        // Send the one-shot request to the permitted readders.
         let latest_commit_sequence_id = group_info
             .latest_commit_sequence_id
             .ok_or(CommitLogError::MissingLatestCommitSequenceId { group_id })?;
@@ -820,10 +1035,12 @@ where
         Ok(())
     }
 
-    async fn handle_incoming_pending_readds(&self) -> Result<(), CommitLogError> {
+    async fn handle_incoming_pending_readds(&mut self) -> Result<(), CommitLogError> {
         if self.context.fork_recovery_opts().disable_recovery_responses {
             return Ok(());
         }
+        let now = xmtp_common::time::Instant::now();
+        self.holds.lock().readd.retain(|_, until| now < *until);
         let conn = self.context.db();
         let groups_for_readd = conn.get_conversation_ids_for_responding_readds()?;
 
@@ -837,6 +1054,12 @@ where
         );
 
         for group in groups_for_readd {
+            // A rate-limited readd is not answered again at a later tick
+            // inside its delay; other conversations still answer.
+            // implements: RATE-041
+            if self.holds.lock().readd.contains_key(&group.group_id) {
+                continue;
+            }
             match self.validate_pending_readds(&conn, &group).await {
                 Ok(validated_installations) => {
                     if validated_installations.is_empty() {
@@ -849,18 +1072,32 @@ where
                         group.conversation_type,
                         group.created_at_ns,
                     );
-                    mls_group
+                    if let Err(e) = mls_group
                         .readd_installations(
                             validated_installations.into_iter().collect::<Vec<_>>(),
                         )
-                        .await?;
-                }
-                Err(e) => {
-                    // Permanently-bad group: drop its readd statuses and move on.
-                    // Retryable failures (incl. a dropped pool) propagate instead.
-                    if e.is_retryable() {
-                        return Err(e);
+                        .await
+                    {
+                        let e = CommitLogError::from(e);
+                        if e.needs_db_reconnect() {
+                            return Err(e);
+                        }
+                        hold(
+                            &mut self.holds.lock().readd,
+                            group.group_id,
+                            e.rate_limit_delay(),
+                        );
+                        tracing::warn!(
+                            group_id = group.group_id.short_hex(),
+                            "Keeping readd requests for group after a failed readd: {}",
+                            e
+                        );
                     }
+                }
+                Err(e) if e.needs_db_reconnect() => return Err(e),
+                // The responder no longer consents to, is active in, or may
+                // readd in the group: the requests are moot.
+                Err(e @ CommitLogError::GroupReaddValidationError(_)) => {
                     tracing::warn!(
                         group_id = %group.group_id,
                         "Deleting readd statuses for group because it failed validation: {}",
@@ -870,7 +1107,19 @@ where
                         &group.group_id,
                         self.context.installation_id().as_slice(),
                     )?;
-                    continue;
+                }
+                // Reversible (e.g. a version pause): keep and retry next tick.
+                Err(e) => {
+                    hold(
+                        &mut self.holds.lock().readd,
+                        group.group_id,
+                        e.rate_limit_delay(),
+                    );
+                    tracing::warn!(
+                        group_id = group.group_id.short_hex(),
+                        "Keeping readd requests for group after a failed validation: {}",
+                        e
+                    );
                 }
             }
         }
@@ -878,7 +1127,7 @@ where
         Ok(())
     }
 
-    // implements: FORK-061
+    // implements: FORK-080, FORK-061
     async fn validate_pending_readds(
         &self,
         conn: &impl DbQuery,
@@ -890,8 +1139,9 @@ where
             "Processing readd requests for group"
         );
 
-        mls_group.sync_with_conn().await?;
-
+        let synced = mls_group.sync_with_conn().await;
+        // A sync never changes consent or activity, so these drop moot
+        // requests even when it fails (e.g. a paused group).
         if mls_group.consent_state()? != ConsentState::Allowed {
             return Err(CommitLogError::GroupReaddValidationError(
                 "Group is not consented".to_string(),
@@ -902,18 +1152,24 @@ where
                 "Group is not active".to_string(),
             ));
         }
-        let is_super_admin = mls_group.live_is_super_admin(self.context.inbox_id())?;
-        if !is_super_admin {
+        // An unsynced commit may have made this member a readder.
+        synced?;
+        let actors =
+            mls_group.with_group_snapshot(|g| Ok::<_, GroupError>(ForkActors::from_group(g)?))?;
+        if !actors.permits(self.context.inbox_id()) {
             return Err(CommitLogError::GroupReaddValidationError(
-                "No longer super admin of group".to_string(),
+                "No longer a permitted readder of group".to_string(),
             ));
         }
 
-        let fork_state = self.check_conversation_fork_state(conn, &mls_group.group_id)?;
-        if let Some(true) = fork_state {
-            return Err(CommitLogError::GroupReaddValidationError(
-                "Group is forked".to_string(),
-            ));
+        // A forked responder keeps the requests; a Welcome clears the fork.
+        let fork_state = self.refresh_fork_state(&mls_group.group_id)?;
+        if fork_state == Some(true) {
+            tracing::info!(
+                group_id = mls_group.group_id.short_hex(),
+                "Responder is forked, keeping readd requests"
+            );
+            return Ok(HashSet::new());
         } else if fork_state.is_none() {
             tracing::info!(
                 group_id = %mls_group.group_id,
@@ -949,7 +1205,26 @@ where
         );
         conn.delete_readd_statuses(&mls_group.group_id, unverified)?;
 
-        Ok(verified)
+        let processed = conn
+            .latest_cursor_for_id(
+                mls_group.group_id,
+                &[xmtp_db::refresh_state::EntityKind::ApplicationMessage],
+            )?
+            .0;
+        let now = now_ns();
+        // Unsigned wire claims above i64::MAX are stored as negative values.
+        // Keep them pending instead of treating them as an earlier position.
+        Ok(readd_statuses
+            .into_iter()
+            .filter(|status| {
+                verified.contains(&status.installation_id)
+                    && retry_due(&status.installation_id, now)
+                    && status.requested_at_sequence_id.is_some_and(|requested| {
+                        u64::try_from(requested).is_ok_and(|requested| requested <= processed)
+                    })
+            })
+            .map(|status| status.installation_id)
+            .collect())
     }
 
     fn check_conversation_fork_state(
@@ -1099,7 +1374,7 @@ where
 /// discards it; the reason is logged without entry bytes. The log names the
 /// envelope by its commit-log id and sequence id only, never by group id, so
 /// it does not link the conversation to its commit-log topic.
-// implements: FORK-075
+// implements: FORK-077
 fn open_remote_entry(
     keys: &GroupKeys,
     group_id: &GroupId,
@@ -1114,7 +1389,7 @@ fn open_remote_entry(
         );
         return None;
     };
-    open_entry(keys, group_id.as_slice(), sealed)
+    open_entry(keys, group_id.as_slice(), decoded.cursor.0, sealed)
         .inspect_err(|reason| {
             tracing::warn!(
                 commit_log_id = %commit_log_id.as_slice().snippet(),
@@ -1126,20 +1401,26 @@ fn open_remote_entry(
         .ok()
 }
 
-// An opened entry is skipped if:
+// If the last accepted author lost its publisher role or the entry crosses
+// that author's publisher boundary, only rule 1 applies.
+// Otherwise an opened entry is skipped if:
 // 1. The commit_sequence_id of the entry is not greater than the most recently stored entry, if one exists.
 // 2. The last_epoch_authenticator does not match the epoch_authenticator of the most recently stored entry with a CommitResult of COMMIT_RESULT_APPLIED, if one exists.
 // 3. The entry has a CommitResult of COMMIT_RESULT_APPLIED, but the epoch number is not exactly 1 greater than the most recently stored entry with a result of COMMIT_RESULT_APPLIED, if one exists.
 // 4. The entry CommitResult is not COMMIT_RESULT_APPLIED, and the epoch authenticator or epoch number does not match the most recently applied values
-// implements: FORK-032
+// implements: FORK-083
 pub(crate) fn should_skip_remote_commit_log_entry(
     latest_saved_remote_log: Option<&RemoteCommitLog>,
     entry: &PlaintextCommitLogEntry,
+    chain_holds: bool,
 ) -> bool {
     let Some(latest_saved_remote_log) = latest_saved_remote_log else {
         return false;
     };
 
+    if !chain_holds {
+        return entry.commit_sequence_id <= latest_saved_remote_log.commit_sequence_id as u64;
+    }
     let is_applied = entry.commit_result == ProtoCommitResult::Applied as i32;
 
     entry.commit_sequence_id <= latest_saved_remote_log.commit_sequence_id as u64
@@ -1293,5 +1574,146 @@ mod stored_cursor_tests {
     #[xmtp_common::test(unwrap_try = true)]
     fn a_conversation_with_only_skipped_rows_moves_past_them() {
         assert_eq!(conversation(2, 0).stored_cursor(0), Some(5));
+    }
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod publication_snapshot_tests {
+    use super::*;
+    use crate::groups::UpdateAdminListType::{AddSuper, RemoveSuper};
+    use crate::tester;
+    use std::sync::{Arc, Mutex, mpsc};
+    use xmtp_db::mock::MockDbQuery;
+
+    // verifies: FORK-085
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn publication_excludes_a_demotion_applied_after_its_authority_snapshot() {
+        tester!(alix, disable_workers);
+        tester!(bo, disable_workers);
+        let a = alix
+            .create_group_with_members(&[bo.inbox_id()], None, None)
+            .await?;
+        bo.sync_welcomes().await?;
+        let b = bo.group(&a.group_id)?;
+        a.update_admin_list(AddSuper, bo.inbox_id().to_string())
+            .await?;
+        b.sync().await?;
+        let mut worker = CommitLogWorker::new(alix.context.clone());
+        worker.publish_commit_logs_to_remote().await?;
+
+        a.update_group_name("pending before demotion".into())
+            .await?;
+        b.sync().await?;
+        let pending = alix.context.db().get_latest_log_for_group(&a.group_id)??;
+        b.update_admin_list(RemoveSuper, alix.inbox_id().to_string())
+            .await?;
+        let demotion = bo.context.db().get_latest_log_for_group(&a.group_id)??;
+
+        let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
+        let (resume_tx, resume_rx) = mpsc::channel();
+        let gate = Arc::new(Mutex::new(Some((ready_tx, resume_rx))));
+        let pause = Arc::new(move || {
+            let barrier = gate.lock().unwrap().take();
+            if let Some((ready, resume)) = barrier {
+                ready.send(()).unwrap();
+                resume.recv_timeout(Duration::from_secs(30)).unwrap();
+            }
+        });
+        let context = alix.context.clone();
+        let group_id = a.group_id;
+        let preparation = std::thread::spawn(move || {
+            let mut conn = MockDbQuery::new();
+            // Forward every read to the real database. Pause at the first read
+            // outside the state transaction, even if the maximum-row read is
+            // incorrectly moved out of that transaction in a future change.
+            let db = context.db();
+            let pause_cursor = pause.clone();
+            conn.expect_get_local_commit_log_cursor()
+                .returning(move |id| {
+                    pause_cursor();
+                    db.get_local_commit_log_cursor(id)
+                });
+            let db = context.db();
+            conn.expect_get_latest_chain_start_rowid()
+                .returning(move |id| {
+                    pause();
+                    db.get_latest_chain_start_rowid(id)
+                });
+            let db = context.db();
+            conn.expect_get_last_cursor()
+                .returning(move |id, kind| db.get_last_cursor(id, kind));
+            let db = context.db();
+            conn.expect_get_local_commit_log_after_cursor()
+                .returning(move |id, cursor, order| {
+                    db.get_local_commit_log_after_cursor(id, cursor, order)
+                });
+            CommitLogWorker::new(context)
+                .prepare_conversation_publish(&conn, &group_id)
+                .unwrap()
+                .unwrap()
+        });
+
+        xmtp_common::time::timeout(Duration::from_secs(30), ready_rx).await??;
+        a.sync().await?;
+        assert!(
+            !alix
+                .context
+                .db()
+                .find_group(&a.group_id)??
+                .should_publish_commit_log
+        );
+        assert_eq!(
+            alix.context
+                .db()
+                .get_latest_log_for_group(&a.group_id)??
+                .commit_sequence_id,
+            demotion.commit_sequence_id
+        );
+        resume_tx.send(())?;
+        let prepared = preparation.join().unwrap();
+
+        let mut stored = Vec::new();
+        alix.context
+            .api()
+            .publish_commit_log(prepared.entries, &mut stored)
+            .await?;
+        let keys = worker.group_keys(&a.group_id)??;
+        let topic = Topic::new_commit_log(keys.commit_log_id());
+        let remote = alix
+            .context
+            .api()
+            .query_commit_log([(topic, Cursor(0))].into())
+            .await?;
+        let entries = remote
+            .iter()
+            .map(|entry| {
+                open_entry(
+                    &keys,
+                    a.group_id.as_slice(),
+                    entry.cursor.0,
+                    entry.sealed.as_ref().unwrap(),
+                )
+                .unwrap()
+            })
+            .collect::<Vec<_>>();
+        assert!(
+            entries
+                .iter()
+                .any(|entry| entry.commit_sequence_id == pending.commit_sequence_id as u64)
+        );
+        assert!(
+            entries
+                .iter()
+                .all(|entry| entry.commit_sequence_id != demotion.commit_sequence_id as u64)
+        );
+        assert_eq!(
+            prepared.cursor_info.stored_cursor(stored.len()),
+            Some(i64::from(pending.rowid))
+        );
+        assert!(
+            worker
+                .prepare_conversation_publish(&alix.context.db(), &a.group_id)?
+                .is_none()
+        );
     }
 }

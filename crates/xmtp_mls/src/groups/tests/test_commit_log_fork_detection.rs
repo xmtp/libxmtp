@@ -18,9 +18,80 @@ use xmtp_db::{
 };
 use xmtp_proto::types::{Cursor, Topic};
 
+// A conversation whose log is not read has no remote entry to compare, so no
+// fork check selects it, however many unsolicited conversations there are. It
+// is checked once it is allowed.
+// verifies: FORK-082
+#[xmtp_common::test(unwrap_try = true)]
+async fn fork_checks_select_only_allowed_conversations() {
+    use xmtp_db::{
+        consent_record::{ConsentState, ConsentType, StoredConsentRecord},
+        group::{ConversationType, GroupMembershipState, StoredGroup},
+        refresh_state::EntityKind,
+    };
+    use xmtp_proto::types::GroupId;
+
+    tester!(alix, with_commit_log_worker: false);
+    tester!(bo, with_commit_log_worker: false);
+    let unsolicited_dm = bo.find_or_create_dm(alix.inbox_id(), None).await?;
+    alix.sync_welcomes().await?;
+    let incoming_dm = alix.group(&unsolicited_dm.group_id)?;
+    assert_eq!(incoming_dm.consent_state()?, ConsentState::Unknown);
+
+    // Unsolicited DM rows, half with no consent record and half denied.
+    let db = alix.context.db();
+    let mut unconsented = vec![incoming_dm.group_id];
+    for marker in 100..164_u8 {
+        let group_id = GroupId::from([marker; 32]);
+        StoredGroup::builder()
+            .id(group_id)
+            .created_at_ns(i64::from(marker))
+            .membership_state(GroupMembershipState::Allowed)
+            .added_by_inbox_id("unsolicited-sender")
+            .conversation_type(ConversationType::Dm)
+            .dm_id(Some(format!("dm:unsolicited-sender:recipient-{marker}")))
+            .build()?
+            .store(&db)?;
+        if marker % 2 == 0 {
+            StoredConsentRecord {
+                entity_type: ConsentType::ConversationId,
+                entity: hex::encode(group_id),
+                state: ConsentState::Denied,
+                consented_at_ns: i64::from(marker),
+                owed_seq: 0,
+            }
+            .store(&db)?;
+        }
+        unconsented.push(group_id);
+    }
+    let selected = db.get_conversation_ids_for_fork_check()?;
+    assert_eq!(
+        unconsented
+            .iter()
+            .filter(|id| selected.iter().any(|candidate| candidate == id.as_slice()))
+            .count(),
+        0,
+        "no unknown or denied conversation is selected"
+    );
+
+    // The DM's Welcome entry moves its fork-check cursor only when a pass
+    // checks it.
+    let checked_through = || {
+        db.get_last_cursor(incoming_dm.group_id, EntityKind::CommitLogForkCheckLocal)
+            .unwrap()
+    };
+    let mut worker = CommitLogWorker::new(alix.context.clone());
+    worker.update_forked_state().await?;
+    let before_allowed = checked_through();
+    assert_eq!(before_allowed, Cursor(0));
+    incoming_dm.update_consent_state(ConsentState::Allowed)?;
+    worker.update_forked_state().await?;
+    assert!(checked_through() > before_allowed);
+}
+
 // The fault is artificial. State changes, log writing, signatures, transport,
 // remote verification, and fork detection use the normal implementation.
-// verifies: FORK-040, FORK-073
+// verifies: FORK-082, FORK-073
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_real_divergence_detected_through_signed_commit_logs() {
     use crate::utils::test_mocks_helpers::set_test_mode_future_wrong_epoch;
@@ -163,90 +234,12 @@ async fn test_real_divergence_detected_through_signed_commit_logs() {
     );
 }
 
-#[xmtp_common::test(unwrap_try = true)]
-async fn test_commit_log_fork_detection_no_fork() -> Result<(), Box<dyn std::error::Error>> {
-    tester!(alix);
-    let group = alix.create_group(None, None).unwrap();
-    let group_id = group.group_id;
-
-    // Insert local commit log entries
-    let local_entry_1 = NewLocalCommitLog {
-        group_id,
-        commit_sequence_id: 1,
-        last_epoch_authenticator: vec![0x11, 0x22, 0x33],
-        commit_result: CommitResult::Success,
-        error_message: None,
-        applied_epoch_number: 1,
-        applied_epoch_authenticator: vec![0xAA, 0xBB, 0xCC],
-        sender_inbox_id: None,
-        sender_installation_id: None,
-        commit_type: None,
-    };
-
-    let local_entry_2 = NewLocalCommitLog {
-        group_id,
-        commit_sequence_id: 2,
-        last_epoch_authenticator: vec![0xAA, 0xBB, 0xCC],
-        commit_result: CommitResult::Success,
-        error_message: None,
-        applied_epoch_number: 2,
-        applied_epoch_authenticator: vec![0xDD, 0xEE, 0xFF],
-        sender_inbox_id: None,
-        sender_installation_id: None,
-        commit_type: None,
-    };
-
-    local_entry_1.store(&alix.context.db())?;
-    local_entry_2.store(&alix.context.db())?;
-
-    // Insert matching remote commit log entries (no fork)
-    let remote_entry_1 = NewRemoteCommitLog {
-        log_sequence_id: 100,
-        group_id,
-        commit_sequence_id: 1,
-        commit_result: CommitResult::Success,
-        applied_epoch_number: 1,
-        applied_epoch_authenticator: vec![0xAA, 0xBB, 0xCC], // Same as local
-    };
-
-    let remote_entry_2 = NewRemoteCommitLog {
-        log_sequence_id: 101,
-        group_id,
-        commit_sequence_id: 2,
-        commit_result: CommitResult::Success,
-        applied_epoch_number: 2,
-        applied_epoch_authenticator: vec![0xDD, 0xEE, 0xFF], // Same as local
-    };
-
-    remote_entry_1.store(&alix.context.db())?;
-    remote_entry_2.store(&alix.context.db())?;
-
-    // Test fork detection
-    let mut worker = CommitLogWorker::new(alix.context.clone());
-    let results = worker
-        .run_test(CommitLogTestFunction::CheckForkedState, None)
-        .await
-        .unwrap();
-
-    // Should detect no fork
-    assert_eq!(results.len(), 1);
-    let result = &results[0];
-    assert!(result.is_forked.is_some());
-    let fork_status = result
-        .is_forked
-        .as_ref()
-        .unwrap()
-        .get(group_id.as_ref())
-        .unwrap();
-    assert_eq!(*fork_status, Some(false), "Should detect no fork");
-    Ok(())
-}
-
 // verifies: EVENT-001, EVENT-010
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_commit_log_fork_detection_forked() -> Result<(), Box<dyn std::error::Error>> {
     tester!(alix);
-    let group = alix.create_group(None, None).unwrap();
+    tester!(bo);
+    let group = alix.find_or_create_dm(bo.inbox_id(), None).await?;
     let group_id = group.group_id;
 
     // Insert local commit log entries
@@ -287,6 +280,7 @@ async fn test_commit_log_fork_detection_forked() -> Result<(), Box<dyn std::erro
         commit_result: CommitResult::Invalid, // For some reason remote marked this commit invalid
         applied_epoch_number: 1,
         applied_epoch_authenticator: vec![0xAA, 0xBB, 0xCC], // Same as local
+        author_installation_key: vec![],
     };
 
     let remote_entry_2 = NewRemoteCommitLog {
@@ -296,6 +290,7 @@ async fn test_commit_log_fork_detection_forked() -> Result<(), Box<dyn std::erro
         commit_result: CommitResult::Success,
         applied_epoch_number: 1,
         applied_epoch_authenticator: vec![0xCD, 0xDE, 0xEF], // Different from local
+        author_installation_key: vec![],
     };
 
     remote_entry_1.store(&alix.context.db())?;
@@ -325,12 +320,17 @@ async fn test_commit_log_fork_detection_forked() -> Result<(), Box<dyn std::erro
     worker
         .run_test(CommitLogTestFunction::CheckForkedState, None)
         .await?;
+    let envelopes = events.drain();
     assert!(matches!(
-        events.drain().as_slice(),
+        envelopes.as_slice(),
         [xmtp_events::EventEnvelope {
             client: Some(xmtp_events::ClientEvent::ConversationForkDetected(fork)), ..
         }] if fork.group_id == group_id.to_vec()
     ));
+    assert_eq!(
+        envelopes[0].context.dm_identifier,
+        Some(group.dm_id.clone().expect("DM ID").into_bytes())
+    );
 
     Ok(())
 }
@@ -365,6 +365,7 @@ async fn test_commit_log_fork_detection_cursor_updates() -> Result<(), Box<dyn s
         commit_result: CommitResult::Success,
         applied_epoch_number: 1,
         applied_epoch_authenticator: vec![0xAA, 0xBB, 0xCC], // Same authenticator
+        author_installation_key: vec![],
     };
 
     remote_entry.store(&alix.context.db())?;
@@ -449,6 +450,7 @@ async fn test_commit_log_fork_detection_cursor_updates() -> Result<(), Box<dyn s
         commit_result: CommitResult::Success,
         applied_epoch_number: 2,
         applied_epoch_authenticator: vec![0xDD, 0xEE, 0x11], // different authenticator
+        author_installation_key: vec![],
     };
 
     remote_entry.store(&alix.context.db())?;
@@ -552,6 +554,7 @@ async fn test_commit_log_fork_detection_returns_none_when_no_matching_remote()
         commit_result: CommitResult::Success,
         applied_epoch_number: 1,
         applied_epoch_authenticator: vec![0xAA, 0xBB, 0xCC], // Same as local
+        author_installation_key: vec![],
     };
 
     remote_entry.store(&alix.context.db())?;
@@ -627,6 +630,7 @@ async fn test_commit_log_fork_status_persistence_no_new_commits()
         commit_result: CommitResult::Success,
         applied_epoch_number: 1,
         applied_epoch_authenticator: vec![0xAA, 0xBB, 0xCC], // Same as local
+        author_installation_key: vec![],
     };
 
     let remote_entry_2 = NewRemoteCommitLog {
@@ -636,6 +640,7 @@ async fn test_commit_log_fork_status_persistence_no_new_commits()
         commit_result: CommitResult::Success,
         applied_epoch_number: 2,
         applied_epoch_authenticator: vec![0xDD, 0xEE, 0xFF], // Same as local
+        author_installation_key: vec![],
     };
 
     remote_entry_1.store(&alix.context.db())?;
@@ -774,6 +779,8 @@ async fn test_fork_detection_not_triggered_by_removal_and_readd()
     alix_group.add_members(&[bo.inbox_id()]).await?;
     bo.sync_welcomes().await?;
     let bo_group = bo.group(&alix_group.group_id)?;
+    // Fork checks select only allowed conversations, so allow Bo's copy first.
+    bo_group.update_consent_state(xmtp_db::consent_record::ConsentState::Allowed)?;
     bo_group.sync().await?;
 
     // A normal commit Bo applies as an active member, so the commit log has a
@@ -849,6 +856,7 @@ async fn test_fork_detection_not_triggered_by_removal_and_readd()
             commit_result: CommitResult::Success,
             applied_epoch_number: epoch,
             applied_epoch_authenticator: auth,
+            author_installation_key: vec![],
         }
         .store(&bo.context.db())?;
         log_sequence_id += 1;

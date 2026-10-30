@@ -109,7 +109,7 @@ class GateTests(unittest.TestCase):
                         self.assertEqual(set(needs), ci_gate_needs(jobs, name))
                     else:
                         self.assertEqual(set(needs), set(jobs) - {name})
-                    (step,) = gate["steps"]
+                    (step,) = (step for step in gate["steps"] if "run" in step)
                     passing = {job: "success" for job in needs}
                     self.assertEqual(run_gate(step, passing), 0)
                     for job in needs:
@@ -206,6 +206,28 @@ class ActionPinTests(unittest.TestCase):
                 if not re.fullmatch(r"[^@\s]+@[0-9a-f]{40}", match[1]):
                     unpinned.append(f"{path.relative_to(ROOT)}:{number}: {match[1]}")
         self.assertEqual(unpinned, [])
+
+
+TOOL_FETCH = re.compile(
+    r"\bnpx\b|\bpnpm\s+dlx\b|\bnpm\s+(?:install|i)\b[^\n]*\s(?:-g|--global)\b"
+    r"|\bchoco\s+install\b|\|\s*(?:ba)?sh\b"
+)
+
+
+class ToolFetchTests(unittest.TestCase):
+    def test_no_step_fetches_a_tool_outside_a_lockfile(self):
+        """A step gets its tools from Nix, the pnpm lockfile, or a pinned hash.
+
+        `npx`, `pnpm dlx`, global npm installs, Chocolatey, and piping a
+        download into a shell resolve a version at run time.
+        """
+        fetches = []
+        for path in tracked(".github/*.yml", ".github/**/*.yml", ".github/**/*.yaml"):
+            for step in steps(yaml.safe_load(path.read_text())):
+                uses, run = str(step.get("uses", "")), str(step.get("run", ""))
+                if "ghaction-chocolatey" in uses or TOOL_FETCH.search(run):
+                    fetches.append(f"{path.relative_to(ROOT)}: {step.get('name')}")
+        self.assertEqual(fetches, [])
 
 
 if __name__ == "__main__":

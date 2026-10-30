@@ -227,6 +227,15 @@ macro_rules! common_conversation {
                     self.inner.context.clone(),
                     Box::pin(async move {
                         group
+                            .reject_reserved_stored_transcript_content(&bytes)
+                            .map_err(XmtpError::from_group_write)?;
+                        // A retry of a failed message queues a new intent.
+                        // implements: DMS-020
+                        group
+                            .ensure_dm_peer()
+                            .await
+                            .map_err(XmtpError::from_group_write)?;
+                        group
                             .publish_stored_message(&bytes)
                             .await
                             .map_err(XmtpError::from_group_write)
@@ -419,12 +428,15 @@ macro_rules! common_conversation {
                 send_standard(self.inner.clone(), StandardContent::Intent(intent), options).await
             }
 
+            /// At most `limit` messages (1 to 1000). With no `limit`, the 100
+            /// newest by the sort field, in the requested order. To read more,
+            /// page with `message_history_page`.
             #[uniffi::method(default(options = None))]
             pub async fn messages(
                 &self,
                 options: Option<ListMessagesOptions>,
             ) -> Result<Vec<Message>, XmtpError> {
-                let query: MsgQueryArgs = options.unwrap_or_default().try_into()?;
+                let (query, newest_tail) = message_list_query(options)?;
                 let group = self.inner.clone();
                 let client_key = self.client_key;
                 #[cfg(all(test, not(target_arch = "wasm32")))]
@@ -434,7 +446,11 @@ macro_rules! common_conversation {
                         let enriched = group
                             .find_messages_v2_with_stored(&query)
                             .map_err(XmtpError::from_core)?;
-                        Ok(lift_history_messages(enriched, client_key))
+                        let mut messages = lift_history_messages(enriched, client_key);
+                        if newest_tail {
+                            messages.reverse();
+                        }
+                        Ok(messages)
                     };
                     #[cfg(all(test, not(target_arch = "wasm32")))]
                     {
@@ -446,6 +462,28 @@ macro_rules! common_conversation {
                     {
                         load()
                     }
+                })
+                .await
+            }
+
+            /// Reaction messages to `message_id`, newest first by send time,
+            /// then sequence id, then message id: at most `limit` (1 to 1000;
+            /// 50 when absent). For the next page, pass the last returned id
+            /// as `before`. A `before` that is not an unexpired reaction to
+            /// this message fails with InvalidArgument; restart from the
+            /// newest reaction. A deleted or expired message has none.
+            #[uniffi::method(default(before = None, limit = None))]
+            pub async fn message_reactions(
+                &self,
+                message_id: MessageId,
+                before: Option<MessageId>,
+                limit: Option<u32>,
+            ) -> Result<Vec<crate::ReactionMessage>, XmtpError> {
+                let parent = message_id.to_bytes()?;
+                let before = before.map(|id| id.to_bytes()).transpose()?;
+                let group = self.inner.clone();
+                on_sdk_worker(self.inner.context.clone(), async move {
+                    reaction_page(&group, &parent, before.as_deref(), limit)
                 })
                 .await
             }
@@ -480,17 +518,22 @@ macro_rules! common_conversation {
             pub async fn delete_message(&self, id: MessageId) -> Result<MessageId, XmtpError> {
                 let group = self.inner.clone();
                 let bytes = id.to_bytes()?;
-                on_sdk_worker(self.inner.context.clone(), async move {
-                    let stored = group
-                        .context
-                        .db()
-                        .get_group_message(&bytes)
-                        .map_err(XmtpError::from_core)?
-                        .ok_or_else(|| XmtpError::invalid("message not found"))?;
-                    let group = deletion_group(group, &stored)?;
-                    let deletion_id = group.delete_message(bytes).map_err(XmtpError::from_core)?;
-                    MessageId::from_bytes(&deletion_id)
-                })
+                on_sdk_worker(
+                    self.inner.context.clone(),
+                    // Swift cooperative threads cannot hold the nested MLS future.
+                    Box::pin(async move {
+                        let stored = group
+                            .context
+                            .db()
+                            .get_group_message(&bytes)
+                            .map_err(XmtpError::from_core)?
+                            .ok_or_else(|| XmtpError::invalid("message not found"))?;
+                        let group = deletion_group(group, &stored).await?;
+                        let deletion_id =
+                            group.delete_message(bytes).map_err(XmtpError::from_core)?;
+                        MessageId::from_bytes(&deletion_id)
+                    }),
+                )
                 .await
             }
 
@@ -605,3 +648,27 @@ common_conversation!(Group, GroupState, GroupState::from_snapshot);
 common_conversation!(Dm, ConversationState, |snapshot| Ok(
     ConversationState::from_snapshot(&snapshot)
 ));
+
+/// The query for one `messages()` call, and whether to reverse its rows.
+// implements: PROC-057
+fn message_list_query(
+    options: Option<ListMessagesOptions>,
+) -> Result<(MsgQueryArgs, bool), XmtpError> {
+    use xmtp_configuration::{LOCAL_PAGE_MAX_LIMIT, MESSAGE_LIST_DEFAULT_LIMIT};
+    use xmtp_db::group_message::SortDirection;
+
+    let mut query: MsgQueryArgs = options.unwrap_or_default().try_into()?;
+    let limit = query.limit.unwrap_or(i64::from(MESSAGE_LIST_DEFAULT_LIMIT));
+    if !(1..=i64::from(LOCAL_PAGE_MAX_LIMIT)).contains(&limit) {
+        return Err(XmtpError::invalid_argument(
+            "limit must be at least 1 and at most the maximum page size",
+        ));
+    }
+    // With no limit, read the newest rows, then return them in the requested order.
+    let newest_tail = query.limit.is_none() && query.direction != Some(SortDirection::Descending);
+    if newest_tail {
+        query.direction = Some(SortDirection::Descending);
+    }
+    query.limit = Some(limit);
+    Ok((query, newest_tail))
+}

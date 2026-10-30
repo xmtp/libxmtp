@@ -1,6 +1,12 @@
 //! Adding, removing, and re-adding members.
 
 use super::*;
+use prost::Message;
+use xmtp_mls_common::app_data::{
+    components::tls_map_components::GroupMembershipComponent, typed_facade::MlsGroupAppData,
+};
+use xmtp_proto::ShortHex;
+use xmtp_proto::xmtp::mls::message_contents::{GroupMembershipEntry, group_membership_entry};
 
 impl<Context> MlsGroup<Context>
 where
@@ -8,6 +14,11 @@ where
 {
     ///
     /// Add members to the group by account address
+    ///
+    /// An account resolves to an inbox only when the newest state of the inbox
+    /// the backend names holds it. The add fails with
+    /// [`GroupError::AddressNotFound`], before any commit, when an account has
+    /// no such inbox.
     ///
     /// If any existing members have new installations that have not been added or removed, the
     /// group membership will be updated to include those changes as well.
@@ -22,31 +33,9 @@ where
         &self,
         account_identifiers: &[Identifier],
     ) -> Result<UpdateGroupMembershipResult, GroupError> {
-        // Fetch the associated inbox_ids
-        let requests = account_identifiers.iter().map(Into::into).collect();
-        let inbox_id_map: HashMap<Identifier, String> = self
-            .context
-            .api()
-            .get_inbox_ids(requests)
-            .await?
-            .into_iter()
-            .zip(account_identifiers.iter().cloned())
-            .filter_map(|(inbox, identifier)| inbox.map(|inbox| (identifier, inbox)))
-            .collect();
-
-        // The member limit is enforced in `add_members`, the one method both entry
-        // points reach.
-        if inbox_id_map.len() != account_identifiers.len() {
-            // The requested identifiers with no inbox, in request order.
-            let missing_addresses = account_identifiers
-                .iter()
-                .filter(|identifier| !inbox_id_map.contains_key(*identifier))
-                .map(|identifier| identifier.to_string())
-                .collect();
-            return Err(GroupError::AddressNotFound(missing_addresses));
-        }
-
-        self.add_members(&inbox_id_map.into_values().collect::<Vec<_>>())
+        // The member limit is enforced in `add_members`, the one method every
+        // entry point reaches.
+        self.add_members_by_targets(&crate::inbox_handles::account_targets(account_identifiers))
             .await
     }
 
@@ -73,11 +62,11 @@ where
         // TODO:nm this isn't the best test for whether the request is valid
         // If some existing group member has an update, this will return an intent with changes
         // when we really should return an error
-        let ok_result = Ok(UpdateGroupMembershipResult::from(intent_data.clone()));
+        let mut result = UpdateGroupMembershipResult::from(intent_data.clone());
 
         if intent_data.is_empty() {
             tracing::warn!("Member already added");
-            return ok_result;
+            return Ok(result);
         }
 
         // The deployment sets the ceiling, checked here — the one
@@ -113,6 +102,29 @@ where
         self.sync_until_intent_resolved(intent.id).await?;
         let epoch = self.epoch().await?;
 
+        // Publication can discover failures after the request was built,
+        // including additions suppressed to fit an envelope. Read the final
+        // entries for this request so split-child failures reach its caller.
+        result.failed_installations = self.with_group_snapshot(|group| {
+            let entries = MlsGroupAppData::new(group.extensions())
+                .get::<GroupMembershipComponent>()?
+                .ok_or(GroupError::InvalidGroupMembership)?;
+            let mut failed = Vec::new();
+            for (inbox, bytes) in entries.iter() {
+                if !result.added_members.contains_key(&inbox.to_hex()) {
+                    continue;
+                }
+                let entry = GroupMembershipEntry::decode(bytes.as_slice())?;
+                let Some(group_membership_entry::Version::V1(entry)) = entry.version else {
+                    return Err(GroupError::InvalidGroupMembership);
+                };
+                failed.extend(entry.failed_installations);
+            }
+            failed.sort_unstable();
+            failed.dedup();
+            Ok(failed)
+        })?;
+
         log_event!(
             Event::AddedMembers,
             self.context.installation_id(),
@@ -121,10 +133,95 @@ where
             epoch
         );
 
-        ok_result
+        Ok(result)
     }
 
-    /// Removes members from the group by their account addresses.
+    /// Add the DM peer when this DM's `GROUP_MEMBERSHIP` lacks it, before a
+    /// message is queued in the DM.
+    ///
+    /// A creation that stops between storing the DM and adding the peer
+    /// leaves a DM that holds only its creator. A DM peer can never leave or
+    /// be removed, so a missing peer always means such an interruption.
+    /// Await this before queueing a message in a DM: intents publish in queue
+    /// order, so a message queued before the add is encrypted at an epoch
+    /// the peer never joins. Does nothing for a group that is not a DM, an
+    /// inactive DM (such as a restored placeholder), or a DM whose pair does
+    /// not include this inbox.
+    ///
+    /// Returns Ok when the add is published with a receipt but its processing
+    /// is not confirmed when the wait ends. That outcome belongs to the add,
+    /// not to the caller's message, which is not queued yet. The backend holds
+    /// the add, and nothing is prepared behind a published state change until
+    /// its echo is applied (SEND-022), so a message queued next is built at an
+    /// epoch that holds the peer. Every other failure of the add, including a
+    /// wait that ends before the add has a receipt, is returned.
+    // implements: DMS-020
+    pub async fn ensure_dm_peer(&self) -> Result<(), GroupError> {
+        match self.add_missing_dm_peer().await {
+            Err(error @ GroupError::PublishedButUnconfirmed { .. }) => {
+                tracing::warn!(
+                    group_id = self.group_id.short_hex(),
+                    ?error,
+                    "the DM peer add is published but unconfirmed; later intents wait behind it"
+                );
+                Ok(())
+            }
+            result => result,
+        }
+    }
+
+    /// Add the DM peer when this DM's `GROUP_MEMBERSHIP` lacks it, and return
+    /// every failure of the add, as a new DM's creation does.
+    // implements: DMS-020
+    pub(crate) async fn add_missing_dm_peer(&self) -> Result<(), GroupError> {
+        let Some(peer) = self.missing_dm_peer()? else {
+            return Ok(());
+        };
+        tracing::info!(
+            group_id = self.group_id.short_hex(),
+            "adding the missing peer of an interrupted DM creation"
+        );
+        self.add_members(&[peer]).await?;
+        // An add can resolve as a no-op, such as one that would remove this
+        // installation's own leaf after its inbox revoked it.
+        if self.missing_dm_peer()?.is_some() {
+            return Err(GroupError::InvalidGroupMembership);
+        }
+        Ok(())
+    }
+
+    /// The peer of this DM when its `GROUP_MEMBERSHIP` lacks it. None for a
+    /// group that is not an active DM of this inbox.
+    fn missing_dm_peer(&self) -> Result<Option<String>, GroupError> {
+        if self.conversation_type != ConversationType::Dm || !self.is_active()? {
+            return Ok(None);
+        }
+        // Read the membership extension, not `members()`: that helper skips
+        // an inbox at sequence id zero, where a joiner sees the creator.
+        self.with_group_snapshot(|group| {
+            let Some(pair) = extract_group_metadata(group.extensions())
+                .map_err(MetadataPermissionsError::from)?
+                .dm_members
+            else {
+                return Ok(None);
+            };
+            let own = self.context.inbox_id();
+            let peer = if pair.member_one_inbox_id == own {
+                pair.member_two_inbox_id
+            } else if pair.member_two_inbox_id == own {
+                pair.member_one_inbox_id
+            } else {
+                return Ok(None);
+            };
+            let membership =
+                xmtp_mls_validation::commit::extract_group_membership(group.extensions())?;
+            Ok::<_, GroupError>(membership.get(&peer).is_none().then_some(peer))
+        })
+    }
+
+    /// Removes members from the group by their account addresses. An account
+    /// resolves to an inbox only when the newest state of the inbox the
+    /// backend names holds it; an account with no such inbox is skipped.
     ///
     /// # Arguments
     /// * `client` - The XMTP client.
@@ -136,21 +233,10 @@ where
         &self,
         account_addresses_to_remove: &[Identifier],
     ) -> Result<(), GroupError> {
-        let account_addresses_to_remove =
-            account_addresses_to_remove.iter().map(Into::into).collect();
-
-        let inbox_id_map = self
-            .context
-            .api()
-            .get_inbox_ids(account_addresses_to_remove)
-            .await?;
-
-        let ids = inbox_id_map
-            .iter()
-            .flatten()
-            .map(AsRef::as_ref)
-            .collect::<Vec<&str>>();
-        self.remove_members(ids.as_slice()).await
+        self.remove_members_by_targets(&crate::inbox_handles::account_targets(
+            account_addresses_to_remove,
+        ))
+        .await
     }
 
     /// Removes members from the group by their inbox IDs.

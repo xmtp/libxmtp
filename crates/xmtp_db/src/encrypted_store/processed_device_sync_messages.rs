@@ -19,6 +19,28 @@ use diesel::{
     sql_types::Integer,
 };
 use serde::{Deserialize, Serialize};
+use xmtp_proto::types::GroupId;
+
+/// The worker loads unprocessed sync messages in pages of this many rows.
+pub const SYNC_MESSAGE_PAGE: i64 = 20;
+
+/// The last row of a page: (group_id, sent_at_ns, id).
+#[derive(Debug, Clone, PartialEq)]
+pub struct SyncMessageKey {
+    pub group_id: GroupId,
+    pub sent_at_ns: i64,
+    pub id: Vec<u8>,
+}
+
+impl SyncMessageKey {
+    pub fn of(message: &StoredGroupMessage) -> Self {
+        Self {
+            group_id: message.group_id,
+            sent_at_ns: message.sent_at_ns,
+            id: message.id.clone(),
+        }
+    }
+}
 
 /// The state of a device sync message processing
 #[repr(i32)]
@@ -92,7 +114,12 @@ impl_store_or_ignore!(
 );
 
 pub trait QueryDeviceSyncMessages {
-    fn unprocessed_sync_group_messages(&self) -> Result<Vec<StoredGroupMessage>, StorageError>;
+    /// Up to [`SYNC_MESSAGE_PAGE`] unprocessed sync messages after `after`,
+    /// in (group_id, sent_at_ns, id) order.
+    fn unprocessed_sync_group_messages(
+        &self,
+        after: Option<&SyncMessageKey>,
+    ) -> Result<Vec<StoredGroupMessage>, StorageError>;
     fn sync_group_messages_paged(
         &self,
         offset: i64,
@@ -100,22 +127,17 @@ pub trait QueryDeviceSyncMessages {
     ) -> Result<Vec<StoredGroupMessage>, StorageError>;
     /// Marks a device sync message as processed.
     fn mark_device_sync_msg_as_processed(&self, message_id: &[u8]) -> Result<(), StorageError>;
-    /// Increments the attempt count for a device sync message.
-    /// If the attempt count reaches max_attempts, the state is set to Failed.
-    /// Returns the new attempt count.
-    fn increment_device_sync_msg_attempt(
-        &self,
-        message_id: &[u8],
-        max_attempts: i32,
-    ) -> Result<i32, StorageError>;
 }
 
 impl<T> QueryDeviceSyncMessages for &T
 where
     T: QueryDeviceSyncMessages,
 {
-    fn unprocessed_sync_group_messages(&self) -> Result<Vec<StoredGroupMessage>, StorageError> {
-        (**self).unprocessed_sync_group_messages()
+    fn unprocessed_sync_group_messages(
+        &self,
+        after: Option<&SyncMessageKey>,
+    ) -> Result<Vec<StoredGroupMessage>, StorageError> {
+        (**self).unprocessed_sync_group_messages(after)
     }
 
     fn sync_group_messages_paged(
@@ -129,38 +151,67 @@ where
     fn mark_device_sync_msg_as_processed(&self, message_id: &[u8]) -> Result<(), StorageError> {
         (**self).mark_device_sync_msg_as_processed(message_id)
     }
-
-    fn increment_device_sync_msg_attempt(
-        &self,
-        message_id: &[u8],
-        max_attempts: i32,
-    ) -> Result<i32, StorageError> {
-        (**self).increment_device_sync_msg_attempt(message_id, max_attempts)
-    }
 }
 
 impl<C: ConnectionExt> QueryDeviceSyncMessages for DbConnection<C> {
-    fn unprocessed_sync_group_messages(&self) -> Result<Vec<StoredGroupMessage>, StorageError> {
+    fn unprocessed_sync_group_messages(
+        &self,
+        after: Option<&SyncMessageKey>,
+    ) -> Result<Vec<StoredGroupMessage>, StorageError> {
+        // One sync group at a time, so each read is a range of
+        // `group_messages_sent_at_id_sort` with no sort.
         let result = self.raw_query(|conn| {
-            group_messages_dsl::group_messages
-                .inner_join(groups_dsl::groups.on(group_messages_dsl::group_id.eq(groups_dsl::id)))
+            let mut groups = groups_dsl::groups
                 .filter(groups_dsl::conversation_type.eq(ConversationType::Sync))
-                // Include messages that either:
-                // 1. Don't have an entry in processed_device_sync_messages, OR
-                // 2. Have an entry with state = Pending
-                .filter(
-                    diesel::dsl::not(diesel::dsl::exists(
-                        dsl::processed_device_sync_messages
-                            .filter(dsl::message_id.eq(group_messages_dsl::id)),
-                    ))
-                    .or(diesel::dsl::exists(
-                        dsl::processed_device_sync_messages
-                            .filter(dsl::message_id.eq(group_messages_dsl::id))
-                            .filter(dsl::state.eq(DeviceSyncProcessingState::Pending)),
-                    )),
-                )
-                .select(StoredGroupMessage::as_select())
-                .load::<StoredGroupMessage>(conn)
+                .select(groups_dsl::id)
+                .order(groups_dsl::id)
+                .into_boxed();
+            if let Some(after) = after {
+                groups = groups.filter(groups_dsl::id.ge(after.group_id));
+            }
+            let mut page = vec![];
+            for group_id in groups.load::<GroupId>(conn)? {
+                let mut query = group_messages_dsl::group_messages
+                    .filter(group_messages_dsl::group_id.eq(group_id))
+                    // Include messages that either:
+                    // 1. Don't have an entry in processed_device_sync_messages, OR
+                    // 2. Have an entry with state = Pending
+                    .filter(
+                        diesel::dsl::not(diesel::dsl::exists(
+                            dsl::processed_device_sync_messages
+                                .filter(dsl::message_id.eq(group_messages_dsl::id)),
+                        ))
+                        .or(diesel::dsl::exists(
+                            dsl::processed_device_sync_messages
+                                .filter(dsl::message_id.eq(group_messages_dsl::id))
+                                .filter(dsl::state.eq(DeviceSyncProcessingState::Pending)),
+                        )),
+                    )
+                    .into_boxed();
+                if let Some(k) = after.filter(|k| k.group_id == group_id) {
+                    // The `ge` bound lets SQLite start the index range at the cursor.
+                    query = query
+                        .filter(group_messages_dsl::sent_at_ns.ge(k.sent_at_ns))
+                        .filter(
+                            group_messages_dsl::sent_at_ns.gt(k.sent_at_ns).or(
+                                group_messages_dsl::sent_at_ns
+                                    .eq(k.sent_at_ns)
+                                    .and(group_messages_dsl::id.gt(&k.id)),
+                            ),
+                        );
+                }
+                page.extend(
+                    query
+                        .order((group_messages_dsl::sent_at_ns, group_messages_dsl::id))
+                        .limit(SYNC_MESSAGE_PAGE - page.len() as i64)
+                        .select(StoredGroupMessage::as_select())
+                        .load::<StoredGroupMessage>(conn)?,
+                );
+                if page.len() as i64 == SYNC_MESSAGE_PAGE {
+                    break;
+                }
+            }
+            Ok(page)
         })?;
         Ok(result)
     }
@@ -198,41 +249,6 @@ impl<C: ConnectionExt> QueryDeviceSyncMessages for DbConnection<C> {
         })?;
         Ok(())
     }
-
-    fn increment_device_sync_msg_attempt(
-        &self,
-        message_id: &[u8],
-        max_attempts: i32,
-    ) -> Result<i32, StorageError> {
-        let attempts = self.raw_query(|conn| {
-            // Upsert: insert with attempts=1 if no record exists, or increment attempts if it does
-            diesel::insert_into(dsl::processed_device_sync_messages)
-                .values(StoredProcessedDeviceSyncMessages {
-                    message_id: message_id.to_vec(),
-                    attempts: 1,
-                    state: DeviceSyncProcessingState::Pending,
-                })
-                .on_conflict(dsl::message_id)
-                .do_update()
-                .set(dsl::attempts.eq(dsl::attempts + 1))
-                .execute(conn)?;
-
-            // Get the updated record
-            let record: StoredProcessedDeviceSyncMessages = dsl::processed_device_sync_messages
-                .find(message_id)
-                .first(conn)?;
-
-            // If we've reached max attempts, set state to Failed
-            if record.attempts >= max_attempts {
-                diesel::update(dsl::processed_device_sync_messages.find(message_id))
-                    .set(dsl::state.eq(DeviceSyncProcessingState::Failed))
-                    .execute(conn)?;
-            }
-
-            Ok(record.attempts)
-        })?;
-        Ok(attempts)
-    }
 }
 
 #[cfg(test)]
@@ -246,130 +262,60 @@ mod tests {
     };
 
     #[xmtp_common::test(unwrap_try = true)]
-    fn it_marks_as_processed() {
+    fn unprocessed_sync_messages_page_through_every_group_once() {
         with_connection(|conn| {
-            let mut group = generate_group(None);
-            group.conversation_type = ConversationType::Sync;
-            group.store(conn)?;
+            let page = SYNC_MESSAGE_PAGE as usize;
+            let [mut first, mut second, mut dm] = [(); 3].map(|_| generate_group(None));
+            if second.id < first.id {
+                std::mem::swap(&mut first, &mut second);
+            }
+            first.conversation_type = ConversationType::Sync;
+            second.conversation_type = ConversationType::Sync;
+            dm.conversation_type = ConversationType::Dm;
+            let mut expected = vec![];
+            for (group, rows) in [(&mut first, page + 5), (&mut second, 7), (&mut dm, 1)] {
+                group.store(conn)?;
+                for i in 0..rows as i64 {
+                    // Rows page-3..=page+3 of the first group share one send time.
+                    let tie = SYNC_MESSAGE_PAGE - 3..=SYNC_MESSAGE_PAGE + 3;
+                    let sent_at_ns = if tie.contains(&i) {
+                        SYNC_MESSAGE_PAGE
+                    } else {
+                        i
+                    };
+                    let msg =
+                        generate_message(None, Some(&group.id), Some(sent_at_ns), None, None, None);
+                    msg.store(conn)?;
+                    expected.push(msg.id);
+                }
+            }
+            expected.pop(); // The DM row.
+            let processed = generate_message(None, Some(&first.id), Some(0), None, None, None);
+            processed.store(conn)?;
+            conn.mark_device_sync_msg_as_processed(&processed.id)?;
+            let pending = expected[1].clone();
+            StoredProcessedDeviceSyncMessages::new(pending.clone()).store(conn)?;
 
-            let mut group2 = generate_group(None);
-            group2.conversation_type = ConversationType::Sync;
-            group2.store(conn)?;
-
-            let message1 = generate_message(None, Some(&group.id), None, None, None, None);
-            message1.store(conn)?;
-            let message2 = generate_message(None, Some(&group2.id), None, None, None, None);
-            message2.store(conn)?;
-
-            let unprocessed = conn.unprocessed_sync_group_messages()?;
-            assert_eq!(unprocessed.len(), 2);
-
-            // Storing with Pending state still counts as unprocessed
-            StoredProcessedDeviceSyncMessages::new(message2.id.clone()).store(conn)?;
-            let unprocessed = conn.unprocessed_sync_group_messages()?;
-            assert_eq!(unprocessed.len(), 2);
-
-            // Setting state to Processed marks it as processed
-            conn.mark_device_sync_msg_as_processed(&message2.id)?;
-
-            let unprocessed = conn.unprocessed_sync_group_messages()?;
-            assert_eq!(unprocessed.len(), 1);
-        })
-    }
-
-    #[xmtp_common::test(unwrap_try = true)]
-    fn it_stores_with_attempts_and_state() {
-        with_connection(|conn| {
-            let mut group = generate_group(None);
-            group.conversation_type = ConversationType::Sync;
-            group.store(conn)?;
-
-            let message = generate_message(None, Some(&group.id), None, None, None, None);
-            message.store(conn)?;
-
-            // Store with default values (Pending state)
-            let stored = StoredProcessedDeviceSyncMessages::new(message.id.clone());
-            assert_eq!(stored.attempts, 0);
-            assert_eq!(stored.state, DeviceSyncProcessingState::Pending);
-            stored.store(conn)?;
-
-            // Pending state is still considered unprocessed
-            let unprocessed = conn.unprocessed_sync_group_messages()?;
-            assert_eq!(unprocessed.len(), 1);
-
-            // Update to Processed state using mark_device_sync_msg_as_processed
-            conn.mark_device_sync_msg_as_processed(&message.id)?;
-
-            // Now it's no longer in unprocessed
-            let unprocessed = conn.unprocessed_sync_group_messages()?;
-            assert_eq!(unprocessed.len(), 0);
-        })
-    }
-
-    #[xmtp_common::test(unwrap_try = true)]
-    fn it_preserves_attempts_when_marking_as_processed() {
-        with_connection(|conn| {
-            let mut group = generate_group(None);
-            group.conversation_type = ConversationType::Sync;
-            group.store(conn)?;
-
-            let message = generate_message(None, Some(&group.id), None, None, None, None);
-            message.store(conn)?;
-
-            // Store with Pending state
-            StoredProcessedDeviceSyncMessages::new(message.id.clone()).store(conn)?;
-
-            // Increment attempts a couple times
-            conn.increment_device_sync_msg_attempt(&message.id, 3)?;
-            conn.increment_device_sync_msg_attempt(&message.id, 3)?;
-
-            // Now mark as processed
-            conn.mark_device_sync_msg_as_processed(&message.id)?;
-
-            // Verify attempts are preserved (should be 2)
-            let record: StoredProcessedDeviceSyncMessages = conn.raw_query(|c| {
-                dsl::processed_device_sync_messages
-                    .find(&message.id)
-                    .first(c)
-            })?;
-            assert_eq!(record.attempts, 2);
-            assert_eq!(record.state, DeviceSyncProcessingState::Processed);
-        })
-    }
-
-    #[xmtp_common::test(unwrap_try = true)]
-    fn it_increments_attempts_and_sets_failed_at_max() {
-        with_connection(|conn| {
-            let mut group = generate_group(None);
-            group.conversation_type = ConversationType::Sync;
-            group.store(conn)?;
-
-            let message = generate_message(None, Some(&group.id), None, None, None, None);
-            message.store(conn)?;
-
-            // Store with default values (attempts = 0)
-            StoredProcessedDeviceSyncMessages::new(message.id.clone()).store(conn)?;
-
-            // Increment attempt 1
-            let attempts = conn.increment_device_sync_msg_attempt(&message.id, 3)?;
-            assert_eq!(attempts, 1);
-            // Still pending (below max)
-            let unprocessed = conn.unprocessed_sync_group_messages()?;
-            assert_eq!(unprocessed.len(), 1);
-
-            // Increment attempt 2
-            let attempts = conn.increment_device_sync_msg_attempt(&message.id, 3)?;
-            assert_eq!(attempts, 2);
-            // Still pending (below max)
-            let unprocessed = conn.unprocessed_sync_group_messages()?;
-            assert_eq!(unprocessed.len(), 1);
-
-            // Increment attempt 3 (reaches MAX_ATTEMPTS)
-            let attempts = conn.increment_device_sync_msg_attempt(&message.id, 3)?;
-            assert_eq!(attempts, 3);
-            // Should now be Failed and no longer in unprocessed
-            let unprocessed = conn.unprocessed_sync_group_messages()?;
-            assert_eq!(unprocessed.len(), 0);
+            let page_through = || -> Result<Vec<Vec<u8>>, StorageError> {
+                let (mut seen, mut after) = (std::collections::HashSet::new(), None);
+                loop {
+                    let rows = conn.unprocessed_sync_group_messages(after.as_ref())?;
+                    assert!(rows.len() <= page, "{} rows in one page", rows.len());
+                    let Some(last) = rows.last() else { break };
+                    after = Some(SyncMessageKey::of(last));
+                    for row in rows {
+                        assert!(seen.insert(row.id), "a row came back twice");
+                    }
+                }
+                let mut seen: Vec<_> = seen.into_iter().collect();
+                seen.sort();
+                Ok(seen)
+            };
+            expected.sort();
+            assert_eq!(page_through()?, expected);
+            conn.mark_device_sync_msg_as_processed(&pending)?;
+            expected.retain(|id| *id != pending);
+            assert_eq!(page_through()?, expected);
         })
     }
 

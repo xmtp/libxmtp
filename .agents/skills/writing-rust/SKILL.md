@@ -26,7 +26,8 @@ Never copy a function between crates; move it and import it. Read the package's
   `#[xmtp_common::async_trait]`. Wasm has no `Send`.
 - **Logging**: `tracing` only. `#[xmtp_common::rpc_span]` / `db_span` /
   `mls_span` / `err_span`; `log_event!` for product events. Never log keys,
-  payloads, or full ids. See [logging.md](logging.md).
+  credentials, payloads, or full ids, except full inbox and installation ids in
+  client logs; backend telemetry follows OPS-014. See [logging.md](logging.md).
 - **Ids**: `GroupId`, `InstallationId`, `Topic`, `Cursor` from
   `xmtp_proto::types`, not `Vec<u8>`. See [types.md](types.md).
 - **Constants**: every number has a name. A value shared by more than one crate
@@ -80,7 +81,7 @@ Never copy a function between crates; move it and import it. Read the package's
 | `tokio::spawn` in a shared crate | `xmtp_common::spawn(None, fut)`; keep the handle |
 | `#[xmtp_common::timeout]` in production (it panics) | `xmtp_common::time::timeout(..)`; handle `Expired` |
 | Bare `#[tracing::instrument]` on an API, DB, MLS, or FFI fn | `rpc_span` / `db_span` / `mls_span` / `err_span` |
-| Logging a full id, key, or payload | omit keys and payloads; `short_hex()` ids; `skip_all` |
+| Logging a full id, key, or payload | omit keys and payloads; `short_hex()` ids, except client inbox and installation ids; `skip_all` |
 | `Vec<u8>` for a group or installation id | `GroupId` / `InstallationId` |
 | Raw `conn.transaction(..)` in a client crate | `XmtpMlsStorageProvider::transaction(\|tx\| ..)` |
 | Hand-written `Store` / `Fetch` for a plain table | `impl_store!` / `impl_fetch!` |

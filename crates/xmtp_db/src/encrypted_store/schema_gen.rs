@@ -14,6 +14,7 @@ diesel::table! {
         state -> Integer,
         entity -> Text,
         consented_at_ns -> BigInt,
+        owed_seq -> BigInt,
     }
 }
 
@@ -58,6 +59,14 @@ diesel::table! {
         should_push -> Bool,
         idempotency_key -> Text,
         delivery_sequence -> Nullable<BigInt>,
+        expiry_unknown -> Bool,
+    }
+}
+
+diesel::table! {
+    group_set_generation (id) {
+        id -> Integer,
+        generation -> BigInt,
     }
 }
 
@@ -131,6 +140,8 @@ diesel::table! {
         blocked -> Bool,
         error_code -> Nullable<Text>,
         retry_expires_at_ns -> Nullable<BigInt>,
+        unreadable_expires_at_ns -> Nullable<BigInt>,
+        envelope_bytes -> BigInt,
     }
 }
 
@@ -275,6 +286,7 @@ diesel::table! {
         commit_result -> Integer,
         applied_epoch_number -> BigInt,
         applied_epoch_authenticator -> Binary,
+        author_installation_key -> Binary,
     }
 }
 
@@ -326,6 +338,9 @@ diesel::table! {
         push_repairing -> Bool,
         push_generation -> BigInt,
         push_suppressed -> Nullable<Binary>,
+        push_unregister_owed -> Bool,
+        hmac_key_owed_seq -> BigInt,
+        owed_counter -> BigInt,
     }
 }
 
@@ -340,6 +355,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     consent_records,
     group_intents,
     group_messages,
+    group_set_generation,
     group_welcome_discovery,
     groups,
     identity,

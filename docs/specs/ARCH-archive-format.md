@@ -18,18 +18,18 @@ flowchart LR
   F2 --> I[Import]
   I -->|new group: restored, inactive| D2[(Client database)]
   I -->|known group or message: unchanged| D2
-  I -->|consent: greater time wins| D2
+  I -->|consent: capped, greater record wins, published| D2
 ```
 
 ## Scope
 
 In scope: the container framing, its encryption, and its version; the element kinds and their wire form; what an export includes and excludes and the selection an app makes; the promise that an archive written under this version loads in every later client; what an app can read from an archive without importing it; and how an import merges each element with existing local state.
 
-Out of scope: what a consent record means and how two records merge (CONS-002, CONS-010); what a message's content means (CTYPE); what group metadata means (META); how a restored group becomes active again, which requires a validated Welcome (JOIN-080); the device sync channel, which does not carry archives (SYNC); and where an app stores an archive and its key.
+Out of scope: what a consent record means and how two records merge (CONS-050, CONS-053); what a message's content means (CTYPE); what group metadata means (META); how a restored group becomes active again, which requires a validated Welcome (JOIN-080); the device sync channel, which does not carry archives (SYNC); and where an app stores an archive and its key.
 
 | Related | Relation |
 | --- | --- |
-| CONS-002, CONS-010 | Own the consent wire form and merge rule. |
+| CONS-050, CONS-053 | Own the consent wire form and merge rule. |
 | CTYPE | Owns the `EncodedContent` a message element carries in `decrypted_message_bytes`. |
 | `JOIN-080` | Owns activation of a restored group by a validated Welcome; JOIN-042 applies only after a removal commit. |
 | META | Owns the meaning of the metadata attributes and admin lists a group element carries. |
@@ -67,13 +67,13 @@ flowchart LR
 
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
-| ARCH-001 | Container layout | When the client writes an archive, it MUST use the header, cipher, tag length, associated data, and zstd format stated above, with version 0 and a base nonce drawn from a cryptographically secure random source for that archive. It MUST encrypt each protobuf `BackupElement` as one frame, prefix the ciphertext with its four-byte little-endian length, and use the base nonce plus the frame number modulo 2^96 as a little-endian nonce. | A different frame or nonce encoding makes the archive unreadable by another client. |
+| ARCH-001 | Container layout | When the client writes an archive, it MUST use the header, cipher, tag length, associated data, and zstd format stated above, with version 0 and a base nonce drawn from a cryptographically secure random source for that archive. It MUST encrypt each protobuf `BackupElement` as one frame, prefix the ciphertext with its four-byte little-endian length, and use the base nonce plus the frame number modulo 2^96 as a little-endian nonce. When a frame's ciphertext would be longer than 75497472 bytes, it MUST fail the export instead of writing the frame. | A different frame or nonce encoding makes the archive unreadable by another client, and a frame above the ARCH-018 ceiling makes it unreadable by every client. |
 | ARCH-002 | Legacy nonce | If a frame fails authentication under its counter nonce, then the client MUST retry it under that nonce decremented by 1 and, when that succeeds, MUST continue the counter from the nonce that succeeded; if that also fails, it MUST fail the import. | Archives written before the counter existed used one nonce for every frame, and they are the only copy a user may have. |
 | ARCH-003 | Reject a later version | When the header's version is greater than 0, the client MUST fail the import before it reads any frame, naming the version. | A later container may frame or encrypt differently, and reading it as version 0 either fails on the first frame or applies elements it misread. |
 | ARCH-004 | Elements never change meaning | The client MUST NOT reuse a field number of any message in section 2 for another meaning, MUST NOT change a field's type, and MUST NOT reuse a retired enum value in section 2. | Reinterpreting a saved field changes existing archive content. |
 | ARCH-022 | Earlier archives remain importable | When given a valid version 0 archive in the counter-nonce form or the legacy form under ARCH-002, the client MUST import it and preserve its groups, message ids and bytes, historical metadata, and consent under sections 2 through 4, including in a later client version. | Retaining field numbers alone does not preserve the ability to restore an older backup. |
 | ARCH-005 | Unknown elements are skipped | When an element's `element` is unset, or is a variant the client does not implement, including `event`, the client MUST skip it and continue with the next frame. | An archive from a later client would otherwise fail on the first element the older client has not learned. |
-| ARCH-018 | Reject incomplete framing | When a header is incomplete, a frame length is less than 16, the stream ends within a length prefix or before its declared ciphertext length, or zstd reports an incomplete or invalid stream, the client MUST end the import with an error. It MUST report end-of-stream success only after complete metadata and a complete zstd stream with no pending length or ciphertext bytes. | Truncated input must not hang or appear to be a complete backup. |
+| ARCH-018 | Reject incomplete or oversized framing | When a header is incomplete, a frame length is less than 16 or greater than 75497472, the stream ends within a length prefix or before its declared ciphertext length, a zstd frame declares a window larger than 16777216 bytes, or zstd reports an incomplete or invalid stream, the client MUST end the import with an error. It MUST reject a frame length greater than 75497472 before it reads that frame's ciphertext. It MUST report end-of-stream success only after complete metadata and a complete zstd stream with no pending length or ciphertext bytes. | Truncated input must not hang or appear to be a complete backup. The lengths and the zstd stream are read before authentication, so without a ceiling a small file with any key can make the client buffer gigabytes. |
 
 ## 2. Elements
 
@@ -119,7 +119,7 @@ enum BackupElementSelection {
 }
 ```
 
-A group element carries conversation identity, timestamps, and historical metadata. Its `welcome_id`, when present, identifies the Welcome from which the source installation joined. A message element carries message identity, sender, time, delivery status, and content bytes. The identifier inside a typed `EncodedContent` controls over the separate identifier fields and the retired `content_type_save` enum; the separate fields serve records whose content is not a typed envelope. Consent uses the wire form in CONS-002 and merges under CONS-010.
+A group element carries conversation identity, timestamps, and historical metadata. Its `welcome_id`, when present, identifies the Welcome from which the source installation joined. A message element carries message identity, sender, time, delivery status, and content bytes. The identifier inside a typed `EncodedContent` controls over the separate identifier fields and the retired `content_type_save` enum; the separate fields serve records whose content is not a typed envelope. Consent uses the wire form in CONS-050 and merges under CONS-053.
 
 ```proto
 // Proto representation of a stored group
@@ -198,8 +198,8 @@ message GroupMessageSave {
   optional int64 sequence_id = 14;
   optional int64 originator_id = 15;
   string content_type = 16;
-  optional int64 expires_at_ns = 17; // pending: absolute expiry under ARCH-019
-  optional bool expiry_known = 18;   // pending: true distinguishes no expiry from unknown
+  optional int64 expires_at_ns = 17; // absolute expiry under ARCH-019
+  optional bool expiry_known = 18;   // true distinguishes no expiry from unknown
 }
 
 // Group message kind
@@ -252,7 +252,7 @@ The eligibility table defines the exported set. An empty explicit selection sele
 | MESSAGES: messages | Every application message in those conversations that satisfies ARCH-009 |
 | CONSENT | Every consent record, with no time window |
 
-Expiry is the absolute deadline assigned under META-050, not one recalculated from group settings at restore time. Settings may have changed after a message was sent. The pending fields in `GroupMessageSave` distinguish a known deadline, known absence of a deadline, and missing historical information.
+Expiry is the absolute deadline assigned under META-050, not one recalculated from group settings at restore time. Settings may have changed after a message was sent. The `expires_at_ns` and `expiry_known` fields in `GroupMessageSave` distinguish a known deadline, known absence of a deadline, and missing historical information.
 
 Legacy conversion uses the same selection and required-record rules. MIG-005 permits absent optional metadata when legacy decoding fails. Ordinary SDK database export retains the strict metadata failure rule.
 
@@ -268,11 +268,11 @@ Legacy conversion uses the same selection and required-record rules. MIG-005 per
 
 An app reads an archive's metadata with the key alone, before it decides to import: the container version, the selection, the window, and the export time. The metadata element is frame 0, so that read applies nothing.
 
-An import is additive. Message ids deduplicate under ARCH-013. Existing groups retain their live state under ARCH-014. Consent merges under CONS-010. A new conversation exposes the historical metadata in ARCH-020 and remains inactive under ARCH-015. An internal placeholder does not confer membership or make imported admin lists authoritative.
+An import is additive. Message ids deduplicate under ARCH-013. Existing groups retain their live state under ARCH-014. Consent is keyed under CONS-052, capped under CONS-054, and merged under CONS-053. A record the import changes is published to the user's other installations under SYNC-027. An unusable consent record is skipped (CONS-051). The client applies an archive's consent records after all its other elements, so a pre-8.0 DM record finds its group whatever the element order (CONS-061). A new conversation exposes the historical metadata in ARCH-020 and remains inactive under ARCH-015. An internal placeholder does not confer membership or make imported admin lists authoritative.
 
 JOIN-080 lets a validated Welcome activate a group created only by archive import, without comparing the Welcome's epoch to an internally generated placeholder epoch. It retains all Welcome validation, preserves imported history under JOIN-044, and installs positions from the validated join anchor. JOIN-042 continues to guard replacement of a group previously joined through MLS; missing archived secrets alone do not satisfy its removal-commit condition.
 
-Successful-import idempotence is separate from failure recovery. A failed import retains completed elements. Retrying after a transient read or storage failure can apply the remaining elements; repeating unchanged malformed input cannot repair it.
+Successful-import idempotence is separate from failure recovery. A failed import still applies every later element it can read, and retains what it applied. Retrying after a transient read or storage failure can apply the remaining elements; repeating unchanged malformed input cannot repair it.
 
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
@@ -283,7 +283,7 @@ Successful-import idempotence is separate from failure recovery. A failed import
 | ARCH-015 | Restored groups are inactive | Until a validated Welcome activates a restored group under JOIN-080, the client MUST NOT use import to authorize sending to that group or decrypting its subsequent traffic. It MUST reject send and sync requests for the restored group with an inactive-group error and MUST NOT publish to its topics. | Historical access does not prove current membership to the other members. |
 | ARCH-016 | Import is idempotent | After a successful import, and absent other writes or expiry under META-051, the client MUST leave groups, messages, and consent unchanged when the same archive is imported again. | Repeating a restore must not duplicate history or overwrite live state. |
 | ARCH-020 | Historical metadata stays visible | When the client creates a conversation from a `group` element, it MUST expose the archived group id, conversation type, DM identity where present, creation time, creator and adder inbox ids, mutable attributes, admin and super-admin lists, disappearing settings, and last-message time to the app as historical metadata. It MUST NOT replace these values with values generated for an internal placeholder. | The app would show a different conversation history after restore. |
-| ARCH-021 | Failure preserves completed work | When import fails, the client MUST return an error and retain the groups, messages, and consent already applied, without applying the failing element or later elements. After a transient read or storage failure has ended, it MUST allow a retry from the start using the same merge rules; a malformed recognized element or a still-missing required group MUST fail again, rather than be skipped or reported successful. | Idempotence alone does not recover a failed import. |
+| ARCH-027 | One failure does not stop the import | When an element fails to import, the client MUST still apply every later element it can read, MUST retain everything it applied, and MUST return an error when the import ends. After a transient read or storage failure has ended, it MUST allow a retry from the start using the same merge rules. A malformed recognized element, other than a consent record that CONS-051 skips, or a still-missing required group MUST fail again, rather than be skipped or reported successful. | Idempotence alone does not recover a failed import. An archive written before 8.0 often lists consent and later groups after a message whose group the export window left out, so stopping at that message loses them. |
 | ARCH-024 | Missing archived identity remains unknown | When import creates a Restored conversation from a `group` element, the client MUST preserve its creator as unknown exactly when `metadata` is absent or `metadata.creator_inbox_id` is empty, and its adder as unknown exactly when `added_by_inbox_id` is empty, without substituting another inbox for either unknown value. | A substitute inbox changes historical identity. |
 
 After validated activation, archive export uses current validated live metadata. The ARCH-024 rule applies only when import creates a Restored conversation; ARCH-014 continues to govern existing groups. The adder is independent of immutable metadata: when metadata is absent, a nonempty adder remains known. Nonempty creator or adder text stays exact under ARCH-020; protobuf does not preserve omitted-versus-explicit-empty presence for the scalar adder.
@@ -298,9 +298,11 @@ Restored conversations report an unknown creator, empty member and role lists, a
 
 A restored conversation whose group id is 16 bytes can never be activated: no installation holds a group root that derives a 16-byte id, so every Welcome naming it fails JOIN-083. Its history stays read-only on the installation that imported it.
 
-A message with a future expiry can remain in the archive after its deadline. Import applies META-051 only when the archive preserves that deadline. Legacy archives lack per-message expiry information; they remain readable with unknown expiry under ARCH-019. The store records unknown expiry and no expiry alike, so after activation, `exclude_disappearing_messages` can export imported messages whose expiry is unknown. This is waived under ARCH-009 until the store can tell them apart.
+An archive written before 8.0 carries consent times that are not decision times (CONS Known limitations).
 
-A frame for a missing group fails restoration when the destination lacks that group. This does not delete source data or corrupt the destination. Earlier completed elements remain, and an unchanged retry reaches the same failure.
+A message with a future expiry can remain in the archive after its deadline. Import applies META-051 only when the archive preserves that deadline. Archives written before `expiry_known` existed lack per-message expiry information; their messages remain readable with unknown expiry under ARCH-019, and current group settings cannot recover their deadlines. A message imported by a client version that did not record unknown expiry reports no expiry, because nothing stored separates it from a message that never expires, and an export with `exclude_disappearing_messages` still includes it.
+
+A frame for a missing group fails restoration when the destination lacks that group. This does not delete source data or corrupt the destination. The other elements are still applied, and an unchanged retry reaches the same failure.
 
 Legacy repeated-nonce archives remain readable, but nonce retry cannot restore the confidentiality or authentication lost by the writer. The container has no authenticated record count or final marker, so a valid zstd stream cut at a complete frame boundary cannot prove backup completeness.
 

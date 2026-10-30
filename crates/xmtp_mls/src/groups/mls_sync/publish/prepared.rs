@@ -27,6 +27,11 @@ pub enum OutgoingPreparationError {
     /// proved that the backend stored none of it.
     #[error("the backend stored none of a saved attempt that cannot be sent again")]
     Unstored,
+    /// The membership change is applied, but its required follow-up Welcome
+    /// batch cannot be sent, so some installations it added have no Welcome.
+    /// The intent ended in `FollowUpFailed`. Not retryable.
+    #[error("the membership change is applied, but its Welcomes were not sent")]
+    WelcomesUnsendable,
     /// The group holds no 32-byte root that derives its id, so it cannot sign
     /// a group message. A Restored placeholder or a legacy group. Not retryable.
     #[error("the group cannot sign group messages: {0}")]
@@ -110,6 +115,9 @@ pub(crate) struct PreparedAttempt {
     pub version: u8,
     /// Exact committed state against which this attempt was prepared.
     pub base: PreparedBase,
+    /// Original desired membership target, when this attempt is one split part.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_intent: Option<ID>,
     /// Inner MLS hash of the last payload, used to match the ordered intent result.
     #[serde(with = "xmtp_db::byte_string")]
     pub payload_hash: Vec<u8>,
@@ -130,6 +138,21 @@ pub(crate) struct PreparedAttempt {
 }
 
 impl PreparedAttempt {
+    /// Largest encoded request envelope, including required Welcome delivery.
+    #[cfg(test)]
+    pub(in crate::groups) fn max_envelope_size(&self) -> usize {
+        self.envelopes
+            .iter()
+            .chain(
+                self.welcomes
+                    .iter()
+                    .flat_map(|welcomes| &welcomes.envelopes),
+            )
+            .map(Vec::len)
+            .max()
+            .unwrap_or_default()
+    }
+
     /// Decode local state and verify its inner payload identity before reuse.
     ///
     /// The column is CBOR, which stores field names. A field added later as
@@ -210,6 +233,7 @@ impl PreparedAttempt {
     pub(super) fn same_attempt(&self, other: &Self) -> bool {
         self.version == other.version
             && self.base == other.base
+            && self.parent_intent == other.parent_intent
             && self.payload_hash == other.payload_hash
             && self.envelopes == other.envelopes
             && self.proposals == other.proposals
@@ -217,6 +241,113 @@ impl PreparedAttempt {
 }
 
 impl<Context: XmtpSharedContext> MlsGroup<Context> {
+    /// Read only attempts whose durable marker names this membership target.
+    /// Callers already holding a writer pass its connection so rejection
+    /// lookup and parent state observe the same committed child outcome.
+    pub(super) fn membership_child_attempts(
+        db: &impl DbQuery,
+        group_id: GroupId,
+        parent_id: ID,
+        states: &[IntentState],
+    ) -> Result<Vec<(StoredGroupIntent, PreparedAttempt)>, GroupError> {
+        if !Fetch::<StoredGroupIntent>::fetch(db, &parent_id)?.is_some_and(|intent| {
+            intent.group_id == group_id && intent.kind == IntentKind::UpdateGroupMembership
+        }) {
+            return Ok(Vec::new());
+        }
+        let mut children = Vec::new();
+        for intent in db.find_group_intents(
+            group_id,
+            Some(states.to_vec()),
+            Some(vec![IntentKind::UpdateGroupMembership]),
+        )? {
+            if intent.id <= parent_id {
+                continue;
+            }
+            let Some(bytes) = db.prepared_envelopes(intent.id)? else {
+                continue;
+            };
+            let attempt = PreparedAttempt::decode(&bytes)?;
+            if attempt.parent_intent == Some(parent_id) {
+                attempt.validate_intent(&intent)?;
+                children.push((intent, attempt));
+            }
+        }
+        Ok(children)
+    }
+
+    /// A split target is not complete until every child finishes its Welcomes.
+    /// Once the original target is processed, it cannot create more children.
+    pub(in crate::groups::mls_sync) fn pending_membership_children(
+        &self,
+        parent_id: ID,
+    ) -> Result<Vec<ID>, GroupError> {
+        Ok(Self::membership_child_attempts(
+            &self.context.db(),
+            self.group_id,
+            parent_id,
+            &[IntentState::Published, IntentState::Committed],
+        )?
+        .into_iter()
+        .map(|(intent, _)| intent.id)
+        .collect())
+    }
+
+    /// Whether a split part of this target ended its Welcome batch unsent.
+    /// Its Welcomes belong to the original request, so that request's
+    /// Welcomes were not all sent either.
+    pub(in crate::groups::mls_sync) fn membership_child_follow_up_failed(
+        &self,
+        parent_id: ID,
+    ) -> Result<bool, GroupError> {
+        Ok(!Self::membership_child_attempts(
+            &self.context.db(),
+            self.group_id,
+            parent_id,
+            &[IntentState::FollowUpFailed],
+        )?
+        .is_empty())
+    }
+
+    /// A saved child receipt is publication of its original membership request,
+    /// including a committed part that still owes Welcomes.
+    // implements: SEND-015
+    pub(in crate::groups::mls_sync) fn published_request_target(
+        &self,
+        intent_id: ID,
+    ) -> Result<Option<Cursor>, GroupError> {
+        self.request_target(intent_id, &[IntentState::Published, IntentState::Committed])
+    }
+
+    /// Only an unapplied child receipt can drive the request's next read.
+    /// An older applied part must not hide a newer ambiguous publication.
+    pub(in crate::groups::mls_sync) fn request_read_target(
+        &self,
+        intent_id: ID,
+    ) -> Result<Option<Cursor>, GroupError> {
+        self.request_target(intent_id, &[IntentState::Published])
+    }
+
+    fn request_target(
+        &self,
+        intent_id: ID,
+        child_states: &[IntentState],
+    ) -> Result<Option<Cursor>, GroupError> {
+        if let Some(target) = self.published_intent_target(intent_id)? {
+            return Ok(Some(target));
+        }
+        let mut target = None;
+        for (child, _) in Self::membership_child_attempts(
+            &self.context.db(),
+            self.group_id,
+            intent_id,
+            child_states,
+        )? {
+            target = target.max(self.published_intent_target(child.id)?);
+        }
+        Ok(target)
+    }
+
     /// Read the accepted publish target. An ambiguous attempt has no target.
     pub(crate) fn published_intent_target(
         &self,

@@ -14,102 +14,11 @@
 # The issue links below are placeholders. Each needs a real issue before its
 # spec is approved.
 [[waiver]]
-id = "JOIN-077"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "A Welcome whose wrapper algorithm is unknown is held for one day and then rejected. A Welcome whose MLS version is unsupported is held with no deadline, so it is never rejected and blocks key-package retirement for as long as it stays in the queue."
-
-[[waiver]]
-id = "JOIN-060"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "Three separate failures. The two-party conversation check rejects only when every policy differs from the fixed set, so a conversation with a single permissive policy is accepted. A conversation the joiner added itself skips the policy and admin checks. A conversation naming the kind used between an inbox's own installations is installed with no validation at all."
-
-[[waiver]]
 id = "JOIN-002"
 kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "A group whose members do not all advertise a capability silently drops that capability for the whole group rather than the non-advertising installation being excluded, and a key package that fails verification is treated as one that does not advertise the capability."
-
-[[waiver]]
-id = "FORK-020"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "A super admin promoted after joining never publishes commit-log entries, because should_publish_commit_log is set only at group creation and at Welcome."
-
-[[waiver]]
-id = "FORK-041"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "is_commit_log_forked is never reset after a replacement Welcome, and the worker excludes groups already marked forked, so a repaired member reports forked for ever."
-
-[[waiver]]
-id = "FORK-060"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "The readd responder requires is_super_admin and a DM's super admin list is empty, so a DM readd request is never answered."
-
-[[waiver]]
-id = "FORK-062"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "apply_readd_installations_intent removes a target whose key package fetch failed and records it in failed_installations instead of leaving it in place."
-
-[[waiver]]
-id = "IDENT-045"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "No chain id is recorded for the recovery role, so a recovery identifier that is not a member carries no chain binding."
-
-[[waiver]]
-id = "IDENT-046"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "The chain check runs only when the signer is found among the current members, and AddAssociation checks only existing_member_signature."
-
-[[waiver]]
-id = "CONS-011"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "insert_or_replace_consent_records sets only state, so a repeated same-state act by an app is reported unchanged and the stored time never moves."
-
-[[waiver]]
-id = "CONS-023"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "Creator auto-allow tests creator_inbox_id only, not the adder, and stores it with the current time, replacing any existing record including a synced denial."
-
-[[waiver]]
-id = "CONS-024"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "The creator auto-allow runs after DM consent stitching and overwrites the inherited record."
-
-[[waiver]]
-id = "CONS-025"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "The re-add reset is stored with each device's own clock rather than the Welcome's backend timestamp, and is skipped when the creator branch matched."
-
-[[waiver]]
-id = "SYNC-021"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "Only records the store reports as changed are published, so a repeated same-state decision is never published."
 
 [[waiver]]
 id = "PUSH-257"
@@ -133,13 +42,6 @@ issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "Final membership authorization evaluates the retained proposer for each inbox rather than the proposer of every corresponding Add or Remove."
 
 [[waiver]]
-id = "DMS-010"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "Consent inheritance orders records by descending time and then takes the last, selecting the oldest decision, and replaces its timestamp with the current time."
-
-[[waiver]]
 id = "DMS-011"
 kind = "gap"
 owner = "protocol"
@@ -154,13 +56,6 @@ issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "Recovery can discard the old receiver before the replacement is ready, and retries failures that a terminal authentication or request-size error excludes from general recovery."
 
 [[waiver]]
-id = "PROC-036"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "Client processing logs still contain full installation identifiers."
-
-[[waiver]]
 id = "PROC-043"
 kind = "gap"
 owner = "protocol"
@@ -172,7 +67,7 @@ id = "SEND-019"
 kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "MlsGroup::publish_messages (SDK publishMessages) waits only for the last intent it selected and does not report an exact outcome for each earlier intent. The SDK also maps an ordered rejection to Unknown without the rejected intent's stable reason code; that mapping moves to a later SEND-019 change."
+reason = "MlsGroup::publish_messages (SDK publishMessages) waits only for the last intent it selected and does not report an exact outcome for each earlier intent. The SDK also maps an ordered rejection to Unknown without the rejected intent's stable reason code, and maps a follow-up Welcome batch that SEND-025 ended to Unknown; those mappings move to a later SEND-019 change."
 
 [[waiver]]
 id = "ARCH-008"
@@ -180,13 +75,6 @@ kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "Export reduces an unknown content type identifier to the string unknown, and import does not give the embedded identifier precedence."
-
-[[waiver]]
-id = "ARCH-009"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "An imported message carries no per-message expiry and no distinction between unknown expiry and no expiry. So when exclude_disappearing_messages is set, export still includes restored messages whose expiry is unknown (a NULL expire_at_ns), because the store cannot tell them from messages that never expire. Separating the two needs a schema change."
 
 [[waiver]]
 id = "ARCH-020"
@@ -228,7 +116,7 @@ id = "EVENT-001"
 kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/4207"
-reason = "One-event evidence remains missing for the HMAC root-key path that stores a new root key under SYNC-015 and SYNC-022, replacing an ended group, activating a restored group, and a transaction that aborts before commit and succeeds on retry."
+reason = "One-event evidence remains missing for the HMAC root-key path that stores a new root key under SYNC-026 and SYNC-032, replacing an ended group, activating a restored group, and a transaction that aborts before commit and succeeds on retry."
 
 [[waiver]]
 id = "EVENT-002"
@@ -434,7 +322,7 @@ id = "CONF-085"
 kind = "gap"
 owner = "backend"
 issue = "https://github.com/xmtp/libxmtp/issues/4589"
-reason = "The backend's own errors and Debug output omit secret values, and a store connection failure with a password in the URL omits it (configuration_source_errors_and_help_omit_secrets). Errors from third-party crates, such as the database driver, the HTTP and gRPC clients, and the AWS SDK, are not audited on every path."
+reason = "The backend's own errors and Debug output omit secret values, and a store connection failure with a password in the URL omits it (configuration_source_errors_and_help_omit_secrets), and a chain RPC provider error omits the RPC URL (provider_errors_omit_the_rpc_url). Errors from other third-party crates, such as the database driver, the HTTP and gRPC clients, and the AWS SDK, are not audited on every path."
 
 [[waiver]]
 id = "CONF-086"
@@ -449,8 +337,15 @@ issue = "https://github.com/xmtp/libxmtp/issues/4606"
 reason = "Two Type gaps remain. A table with fixed keys, including an entry of auth.keys or application_components, accepts an array and decodes it by position, such as limits = [] or database = ['postgres://localhost/xmtp']; a table whose keys the operator chooses refuses one. A key whose value is one of a fixed list of strings (server.log_level, server.log_format, and the type and policies of application_components[]) accepts a one-key table, such as server.log_level = { debug = {} }. attachments.target and attachments.target.S3.credentials refuse an array, and attachments.target.S3.credentials.kind refuses a table. The bounds and the standard checks hold: every_standard_check_in_the_field_table_refuses_a_failing_value proves them."
 
 [[waiver]]
-id = "GMOD-042"
+id = "SEND-024"
 kind = "gap"
 owner = "Nicholas Molnar"
-issue = "https://github.com/xmtp/libxmtp/issues/4644"
-reason = "OpenMLS logs the serialized group context, root included, at TRACE under `openmls::schedule`, which a Rust host that installs its own global subscriber with the `tracing-log` bridge receives, because `xmtp_logging::group_context_guard` covers only the subscribers libxmtp installs."
+issue = "TBD-octane-tracking"
+reason = "A call waiting on a later intent still runs every earlier intent's Welcome publish in the same round. When that publish stalls past the wait's deadline, a later intent that owes its own Welcomes returns published but unconfirmed, and a later intent that owes none reports success only at that deadline. An earlier publish that fails no longer blocks the later intent. See the Known limitation comment on publish_required_welcomes in crates/xmtp_mls/src/groups/mls_sync/publish/welcomes.rs."
+
+[[waiver]]
+id = "SYNC-017"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "Updates in one sync message are stored in one transaction. A storage error on one update rolls back the others in that message, which stays Pending until the error clears. Unusable updates are skipped, and other messages still apply."

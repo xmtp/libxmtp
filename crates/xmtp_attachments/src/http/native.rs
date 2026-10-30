@@ -24,9 +24,9 @@ use super::{
 };
 use crate::{
     AttachmentError, AttachmentFailureCause as Cause,
-    address::is_private,
     store::{AttachmentOptions, CHUNK_SIZE, DownloadSink, StagedFile},
 };
+use xmtp_common::address::{NAT64_DISCOVERY_NAME, discover_nat64, is_private, is_private_behind};
 
 mod upload;
 
@@ -46,7 +46,7 @@ struct BlockedDns;
 
 impl std::fmt::Display for BlockedDns {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("all DNS answers are blocked attachment addresses")
+        f.write_str("a DNS answer is a blocked attachment address")
     }
 }
 
@@ -64,6 +64,10 @@ impl Resolve for SystemResolver {
     }
 }
 
+fn nat64_lookup(resolver: &dyn Resolve) -> Resolving {
+    resolver.resolve(NAT64_DISCOVERY_NAME.parse().expect("valid name"))
+}
+
 struct GuardedResolver {
     upstream: Arc<dyn Resolve>,
     allow_private: bool,
@@ -71,7 +75,8 @@ struct GuardedResolver {
 
 impl Resolve for GuardedResolver {
     fn resolve(&self, name: Name) -> Resolving {
-        let answer = if is_loopback_name(name.as_str()) {
+        let loopback = is_loopback_name(name.as_str());
+        let answer = if loopback {
             let addrs = [
                 SocketAddr::new(std::net::Ipv4Addr::LOCALHOST.into(), 0),
                 SocketAddr::new(std::net::Ipv6Addr::LOCALHOST.into(), 0),
@@ -81,12 +86,13 @@ impl Resolve for GuardedResolver {
             self.upstream.resolve(name)
         };
         let allow_private = self.allow_private;
+        let discovery = (!allow_private && !loopback).then(|| nat64_lookup(&*self.upstream));
         Box::pin(async move {
-            let addrs: Vec<SocketAddr> = answer
-                .await?
-                .filter(|addr| allow_private || !is_private(addr.ip()))
-                .collect();
-            if addrs.is_empty() {
+            let (answer, nat64) = tokio::join!(answer, discover_nat64(discovery));
+            let addrs: Vec<SocketAddr> = answer?.collect();
+            if addrs.is_empty()
+                || (!allow_private && addrs.iter().any(|a| is_private_behind(a.ip(), &nat64)))
+            {
                 return Err(Box::new(BlockedDns) as Box<dyn Error + Send + Sync>);
             }
             Ok(Box::new(addrs.into_iter()) as Addrs)
@@ -267,6 +273,15 @@ impl Transfer {
         let mut redirects = 0;
         let response = loop {
             validate_url(&url, &self.options)?;
+            // reqwest skips the resolver for IP literals, so check them here.
+            if let Some(url::Host::Ipv6(ip)) = url.host()
+                && !self.options.allow_private_network
+            {
+                let lookup = nat64_lookup(&*self.upload_resolver);
+                if is_private_behind(ip.into(), &discover_nat64(Some(lookup)).await) {
+                    return Err(AttachmentError::new(Cause::BlockedAddress));
+                }
+            }
             let response = timeout(
                 self.idle_timeout,
                 self.client
@@ -1503,9 +1518,19 @@ mod tests {
     // verifies: ATCH-054
     #[xmtp_common::test(unwrap_try = true)]
     async fn blocks_private_after_dns() {
-        for address in ["10.0.0.1", "::ffff:10.0.0.1", "64:ff9b::a00:1"] {
-            let address: IpAddr = address.parse()?;
-            let resolver = Arc::new(FakeResolver(vec![SocketAddr::new(address, 443)]));
+        for answer in [
+            &["10.0.0.1"][..],
+            &["::ffff:10.0.0.1"],
+            &["64:ff9b::a00:1"],
+            &["2a00:1450:4001:64::a00:1", "10.0.0.1"],
+            // The fake also answers `ipv4only.arpa` with it, so it is 192.0.0.170.
+            &["2a00:1450:4001:64::c000:aa"],
+        ] {
+            let mut addrs = vec![];
+            for address in answer {
+                addrs.push(SocketAddr::new(address.parse()?, 443));
+            }
+            let resolver = Arc::new(FakeResolver(addrs));
             let guarded = GuardedResolver {
                 upstream: resolver.clone(),
                 allow_private: false,
@@ -1531,8 +1556,12 @@ mod tests {
         for url in [
             "https://10.0.0.1/object",
             "https://[::ffff:10.0.0.1]/object",
+            "https://[2a00:1450:4001:64::a00:1]/object",
         ] {
-            let error = Transfer::new(AttachmentOptions::default())?
+            let resolver = Arc::new(FakeResolver(vec![
+                "[2a00:1450:4001:64::c000:aa]:0".parse()?,
+            ]));
+            let error = Transfer::with_resolver(AttachmentOptions::default(), resolver)?
                 .get(url, 10, &mut MemorySink::default())
                 .await
                 .unwrap_err();

@@ -42,6 +42,7 @@ mod schema_gen;
 pub mod server_configuration;
 pub mod store;
 pub mod stream_storage;
+pub mod sync_outbox;
 pub mod tasks;
 pub mod user_preferences;
 

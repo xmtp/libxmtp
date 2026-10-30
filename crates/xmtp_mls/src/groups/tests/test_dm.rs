@@ -1,9 +1,12 @@
-use xmtp_db::consent_record::StoredConsentRecord;
 use xmtp_db::consent_record::{ConsentState, ConsentType};
 use xmtp_db::group_message::{ContentType, MsgQueryArgs};
 use xmtp_db::prelude::*;
 
 use crate::context::XmtpSharedContext;
+use crate::groups::{
+    GroupError, MlsGroup,
+    intents::{QueueIntent, UpdateMetadataIntentData},
+};
 use crate::tester;
 use crate::utils::TestMlsGroup;
 
@@ -31,6 +34,7 @@ fn archived_message(
         sequence_id: 1,
         envelope_hash: None,
         expiry_ns: None,
+        expiry_unknown: false,
         expire_at_ns: None,
         inserted_at_ns: 0,
         should_push: false,
@@ -38,7 +42,7 @@ fn archived_message(
     }
 }
 
-// verifies: DMS-003, JOIN-080, JOIN-044
+// verifies: DMS-021, JOIN-080, JOIN-044
 #[xmtp_common::test(unwrap_try = true)]
 async fn restored_dm_placeholder_activates_with_archived_history() {
     use xmtp_db::{
@@ -88,7 +92,7 @@ async fn restored_dm_placeholder_activates_with_archived_history() {
     assert!(bo.group(&dm.group_id)?.is_active()?);
 }
 
-// verifies: DMS-003, JOIN-080, JOIN-044
+// verifies: DMS-021, JOIN-080, JOIN-044
 #[xmtp_common::test(unwrap_try = true)]
 async fn restored_dm_backup_stub_activates_with_archived_history() {
     use xmtp_db::{
@@ -132,7 +136,7 @@ async fn restored_dm_backup_stub_activates_with_archived_history() {
     assert!(bo.group(&dm.group_id)?.is_active()?);
 }
 
-// verifies: DMS-015
+// verifies: JOIN-089
 #[xmtp_common::test(unwrap_try = true)]
 async fn restored_foreign_pair_rejects_different_welcome_pair() {
     use xmtp_db::group::{GroupMembershipState, QueryGroup};
@@ -161,14 +165,15 @@ async fn restored_foreign_pair_rejects_different_welcome_pair() {
         Some(historical_pair.to_string().as_str())
     );
 
-    let _ = bo.sync_welcomes().await;
+    bo.wait_for_newest_welcome_rejected(xmtp_proto::types::Cursor(0))
+        .await;
     let after = bo.db().find_group(&dm.group_id)?.expect("Restored group");
     assert_eq!(after.membership_state, GroupMembershipState::Restored);
     assert_eq!(after.dm_id, before.dm_id);
     // A rejected Welcome keeps the archived record in use.
 }
 
-// verifies: DMS-015
+// verifies: JOIN-089
 #[xmtp_common::test(unwrap_try = true)]
 async fn restored_group_rejects_dm_welcome_kind_change() {
     use xmtp_db::group::{ConversationType, GroupMembershipState, QueryGroup};
@@ -186,7 +191,8 @@ async fn restored_group_rejects_dm_welcome_kind_change() {
         None,
         false,
     )?;
-    let _ = bo.sync_welcomes().await;
+    bo.wait_for_newest_welcome_rejected(xmtp_proto::types::Cursor(0))
+        .await;
     let stored = bo.db().find_group(&dm.group_id)?.expect("Restored group");
     assert_eq!(stored.membership_state, GroupMembershipState::Restored);
     assert_eq!(stored.conversation_type, ConversationType::Group);
@@ -229,14 +235,16 @@ async fn test_dm_welcome_with_preexisting_consent() {
 
     tester!(bo2, from: bo1);
 
-    // Mock device sync - the consent record is processed on Bo2 before
-    // the welcome is processed.
-    let cr = StoredConsentRecord::new(
-        ConsentType::ConversationId,
-        ConsentState::Allowed,
-        hex::encode(a_group.group_id),
-    );
-    bo2.context.db().insert_newer_consent_record(cr)?;
+    // Mock device sync - the DM's record, alix's inbox record, is
+    // processed on Bo2 before the welcome is processed.
+    xmtp_db::consent_record::write_consent(
+        &bo2.context.db(),
+        &xmtp_db::consent_record::ConsentKey::inbox(alix.inbox_id()),
+        xmtp_db::consent_record::ConsentWrite::Decide(xmtp_db::consent_record::Decision::Set(
+            ConsentState::Allowed,
+        )),
+        xmtp_db::consent_record::Owed::Mark,
+    )?;
     // Now bo2 processes the welcome
     bo1.find_or_create_dm(alix.inbox_id(), None)
         .await?
@@ -249,6 +257,17 @@ async fn test_dm_welcome_with_preexisting_consent() {
         bo2.find_or_create_dm(alix.inbox_id(), None).await?.group_id,
         a_group.group_id
     );
+}
+
+async fn queue_disappear_from_ns(
+    dm: &MlsGroup<impl XmtpSharedContext>,
+    value: i64,
+) -> Result<(), GroupError> {
+    let data: Vec<u8> =
+        UpdateMetadataIntentData::new_update_conversation_message_disappear_from_ns(value).into();
+    let intent = QueueIntent::metadata_update().data(data).queue(dm)?;
+    dm.sync_until_intent_resolved(intent.id).await?;
+    Ok(())
 }
 
 #[xmtp_common::test(unwrap_try = true)]
@@ -265,43 +284,27 @@ async fn test_group_update_dedupes() {
         })?
     };
     assert_eq!(updates().len(), 1);
+    let epoch = dm.epoch().await?;
 
-    dm.update_conversation_message_disappear_from_ns(1).await?;
+    queue_disappear_from_ns(&dm, 1).await?;
     assert_eq!(updates().len(), 2);
 
-    // The same event in a row will be deduped
-    dm.update_conversation_message_disappear_from_ns(1).await?;
+    // The same event in a row commits but emits no second transcript.
+    queue_disappear_from_ns(&dm, 1).await?;
+    assert_eq!(dm.epoch().await?, epoch + 2);
     assert_eq!(updates().len(), 2);
 
     // Different time means different update, will not be deduped.
-    dm.update_conversation_message_disappear_from_ns(2).await?;
+    queue_disappear_from_ns(&dm, 2).await?;
     assert_eq!(updates().len(), 3);
 
     // Back to 1, will not be deduped because we set it to 2 and back.
-    dm.update_conversation_message_disappear_from_ns(1).await?;
+    queue_disappear_from_ns(&dm, 1).await?;
     assert_eq!(updates().len(), 4);
 
     // Continue to dedupe because the field did not change.
-    dm.update_conversation_message_disappear_from_ns(1).await?;
+    queue_disappear_from_ns(&dm, 1).await?;
     assert_eq!(updates().len(), 4);
-}
-
-fn dictionary_native_dm(
-    context: &impl XmtpSharedContext,
-    added_by_inbox: &str,
-    allow_add_member: bool,
-) -> openmls::group::MlsGroup {
-    use crate::groups::group_permissions::{MembershipPolicies, PolicySet};
-    use xmtp_mls_common::app_data::creation::synthesize_registry_from_policy_set;
-
-    // Build the dictionary directly. DM bootstrap synthesis is a separate task.
-    let mut policies = PolicySet::new_dm();
-    if allow_add_member {
-        policies.add_member_policy = MembershipPolicies::allow();
-    }
-    let policy_proto = policies.to_proto().unwrap();
-    let registry = synthesize_registry_from_policy_set(&policy_proto).unwrap();
-    dictionary_native_dm_with_registry(context, added_by_inbox, registry)
 }
 
 fn dictionary_native_dm_with_registry(
@@ -400,6 +403,9 @@ fn dictionary_native_dm_with_registry(
     .unwrap()
 }
 
+/// A DM that `find_or_create_dm` creates passes the joiner's byte
+/// comparison of its registry, so creator and joiner agree.
+// verifies: DMS-021
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_dictionary_native_dm_accepts_valid_permissions() {
     tester!(alix, disable_workers);
@@ -421,13 +427,99 @@ async fn test_dictionary_native_dm_accepts_valid_permissions() {
     );
 }
 
+/// The registry of the newest DM registry profile, which a new DM writes.
+fn newest_dm_registry_profile() -> xmtp_mls_common::app_data::component_registry::ComponentRegistry
+{
+    xmtp_mls_common::app_data::dm_registry_profile::dm_registry_profiles()
+        .pop()
+        .unwrap()
+}
+
+/// The entries of the newest DM registry profile, as raw `(id, bytes)` pairs.
+fn standard_dm_registry_entries() -> Vec<(
+    xmtp_mls_common::app_data::component_id::ComponentId,
+    Vec<u8>,
+)> {
+    newest_dm_registry_profile()
+        .raw_entries()
+        .map(|(id, bytes)| (id, bytes.to_vec()))
+        .collect()
+}
+
+/// The registry a DM creator writes is the newest DM registry profile, so a
+/// change to the creator path fails until a new profile is added.
+// verifies: DMS-002
 #[xmtp_common::test(unwrap_try = true)]
-async fn test_dictionary_native_dm_rejects_add_member_policy_alone() {
+fn dm_creator_writes_the_newest_registry_profile() {
+    use crate::groups::group_permissions::PolicySet;
+    use xmtp_mls_common::{
+        app_data::{
+            component_id::ComponentId,
+            component_registry::ComponentRegistry,
+            creation::{InitialGroupKind, initial_dictionary},
+        },
+        group::GroupMetadataOptions,
+        group_keys::GroupRoot,
+    };
+
+    // The arguments of create_dm_and_insert, with no catalogue.
+    let dictionary = initial_dictionary(
+        InitialGroupKind::Dm {
+            target_inbox_id: &hex::encode([0x42; 32]),
+        },
+        &PolicySet::new_dm().to_proto()?,
+        &GroupMetadataOptions::default(),
+        &hex::encode([0x43; 32]),
+        Some(&GroupRoot::generate()),
+        &[],
+    )?;
+    let written =
+        ComponentRegistry::from_bytes(dictionary.get(&ComponentId::COMPONENT_REGISTRY.as_u16())?)?;
+    assert_eq!(written, newest_dm_registry_profile());
+}
+
+/// A registry holding exactly `entries`, including bytes that do not decode.
+fn raw_registry(
+    entries: Vec<(
+        xmtp_mls_common::app_data::component_id::ComponentId,
+        Vec<u8>,
+    )>,
+) -> xmtp_mls_common::app_data::component_registry::ComponentRegistry {
+    use tls_codec::{Serialize, VLBytes};
+    use xmtp_mls_common::{app_data::component_registry::ComponentRegistry, tls_map::TlsMap};
+
+    let map: TlsMap<_, _> = entries
+        .into_iter()
+        .map(|(id, bytes)| (id, VLBytes::new(bytes)))
+        .collect();
+    ComponentRegistry::from_bytes(&map.tls_serialize_detached().unwrap()).unwrap()
+}
+
+/// A DM whose `GROUP_MEMBERSHIP` update policy denies would refuse every
+/// later sequence bump of its members, and no participant could repair the
+/// entry. The joiner rejects it at the Welcome.
+// verifies: DMS-021
+#[xmtp_common::test(unwrap_try = true)]
+async fn dm_welcome_rejects_registry_that_blocks_membership_updates() {
     use crate::groups::{DmValidationError, MetadataPermissionsError};
+    use xmtp_mls_common::app_data::component_id::ComponentId;
+    use xmtp_proto::xmtp::mls::message_contents::{
+        MetadataPolicy,
+        metadata_policy::{Kind, MetadataBasePolicy},
+    };
 
     tester!(alix);
     let added_by = hex::encode([0x42; 32]);
-    let group = dictionary_native_dm(&alix.context, &added_by, true);
+    let mut registry = newest_dm_registry_profile();
+    let standard = dictionary_native_dm_with_registry(&alix.context, &added_by, registry.clone());
+    crate::groups::validate_dm_group(&alix.context, &standard, &added_by)?;
+
+    let mut membership = registry.get(&ComponentId::GROUP_MEMBERSHIP)?.unwrap();
+    membership.permissions.as_mut().unwrap().update_policy = Some(MetadataPolicy {
+        kind: Some(Kind::Base(MetadataBasePolicy::Deny as i32)),
+    });
+    registry.set(ComponentId::GROUP_MEMBERSHIP, membership)?;
+    let group = dictionary_native_dm_with_registry(&alix.context, &added_by, registry);
     let result = crate::groups::validate_dm_group(&alix.context, &group, &added_by);
     assert!(
         matches!(
@@ -438,4 +530,177 @@ async fn test_dictionary_native_dm_rejects_add_member_policy_alone() {
         ),
         "unexpected validation result: {result:?}"
     );
+}
+
+/// Every registry entry outside the application range must be byte-equal to
+/// the standard DM entry, and no entry may be missing or extra. Entries in
+/// the application range are the participants' to change. Every DM registry
+/// profile is admitted.
+// verifies: DMS-021
+#[xmtp_common::test(unwrap_try = true)]
+async fn dm_admission_compares_every_protocol_registry_entry() {
+    use crate::groups::{DmValidationError, MetadataPermissionsError};
+    use prost::Message;
+    use xmtp_common::assert_err;
+    use xmtp_mls_common::app_data::{
+        component_id::ComponentId, dm_registry_profile::dm_registry_profiles,
+    };
+    use xmtp_proto::xmtp::mls::message_contents::{
+        ComponentMetadata, ComponentPermissions, ComponentType, MetadataPolicy,
+        metadata_policy::{Kind, MetadataBasePolicy},
+    };
+
+    type Entries = Vec<(ComponentId, Vec<u8>)>;
+    type PolicySlot = fn(&mut ComponentPermissions) -> &mut Option<MetadataPolicy>;
+    let standard = standard_dm_registry_entries();
+    let metadata_of = |id: ComponentId| {
+        let (_, bytes) = standard.iter().find(|(entry, _)| *entry == id).unwrap();
+        ComponentMetadata::decode(bytes.as_slice()).unwrap()
+    };
+    // The standard entries with `id` replaced, added, or (for `None`) removed.
+    let with = |id: ComponentId, bytes: Option<Vec<u8>>| -> Entries {
+        let mut entries: Entries = standard
+            .iter()
+            .filter(|(entry, _)| *entry != id)
+            .cloned()
+            .collect();
+        entries.extend(bytes.map(|bytes| (id, bytes)));
+        entries
+    };
+    let base = |policy: MetadataBasePolicy| MetadataPolicy {
+        kind: Some(Kind::Base(policy as i32)),
+    };
+    let valid_entry = ComponentMetadata {
+        component_type: ComponentType::Bytes as i32,
+        permissions: Some(ComponentPermissions {
+            insert_policy: Some(base(MetadataBasePolicy::AllowIfSuperAdmin)),
+            update_policy: Some(base(MetadataBasePolicy::Deny)),
+            delete_policy: Some(base(MetadataBasePolicy::Deny)),
+        }),
+        external_committer_permissions: None,
+    }
+    .encode_to_vec();
+
+    let mut rejected: Vec<(String, Entries)> = Vec::new();
+    // Each policy of each entry, changed to a value the constrained
+    // ADMIN_LIST also accepts.
+    let slots: [(&str, PolicySlot); 3] = [
+        ("insert", |p| &mut p.insert_policy),
+        ("update", |p| &mut p.update_policy),
+        ("delete", |p| &mut p.delete_policy),
+    ];
+    for (id, _) in &standard {
+        for (slot, policy_of) in slots {
+            let mut metadata = metadata_of(*id);
+            let policy = policy_of(metadata.permissions.as_mut().unwrap());
+            *policy = Some(if *policy == Some(base(MetadataBasePolicy::Deny)) {
+                base(MetadataBasePolicy::AllowIfSuperAdmin)
+            } else {
+                base(MetadataBasePolicy::Deny)
+            });
+            rejected.push((
+                format!("{id} {slot} policy"),
+                with(*id, Some(metadata.encode_to_vec())),
+            ));
+        }
+    }
+    let group_image = ComponentMetadata {
+        component_type: ComponentType::Bytes as i32,
+        ..metadata_of(ComponentId::GROUP_IMAGE_URL)
+    };
+    let mut external_committer = metadata_of(ComponentId::GROUP_MEMBERSHIP);
+    external_committer.external_committer_permissions = external_committer.permissions.clone();
+    // Field 15 as a varint: prost skips it on decode, the stored bytes keep it.
+    let mut unknown_field = metadata_of(ComponentId::GROUP_MEMBERSHIP).encode_to_vec();
+    unknown_field.extend([15 << 3, 1]);
+    let unassigned = ComponentId::new(0x800E);
+    for (case, id, bytes) in [
+        (
+            "GROUP_IMAGE added",
+            ComponentId::GROUP_IMAGE,
+            Some(group_image.encode_to_vec()),
+        ),
+        (
+            "ONESHOT_MESSAGE added",
+            ComponentId::ONESHOT_MESSAGE,
+            Some(valid_entry.clone()),
+        ),
+        (
+            "USER_DISPLAY_NAME removed",
+            ComponentId::USER_DISPLAY_NAME,
+            None,
+        ),
+        (
+            "COMMIT_LOG_SIGNER removed",
+            ComponentId::COMMIT_LOG_SIGNER,
+            None,
+        ),
+        (
+            "external committer permissions",
+            ComponentId::GROUP_MEMBERSHIP,
+            Some(external_committer.encode_to_vec()),
+        ),
+        (
+            "unknown field",
+            ComponentId::GROUP_MEMBERSHIP,
+            Some(unknown_field),
+        ),
+        (
+            "valid entry at 0x800E",
+            unassigned,
+            Some(valid_entry.clone()),
+        ),
+        (
+            "undecodable entry at 0x800E",
+            unassigned,
+            Some(vec![0xFF; 3]),
+        ),
+        (
+            "entry at reserved 0xFF00",
+            ComponentId::new(0xFF00),
+            Some(valid_entry.clone()),
+        ),
+        (
+            "entry below the component space",
+            ComponentId::new(0x7FFF),
+            Some(valid_entry.clone()),
+        ),
+        (
+            "SUPER_ADMIN_LIST entry",
+            ComponentId::SUPER_ADMIN_LIST,
+            Some(valid_entry.clone()),
+        ),
+    ] {
+        rejected.push((case.into(), with(id, bytes)));
+    }
+
+    tester!(alix);
+    let added_by = hex::encode([0x42; 32]);
+    let validate = |entries: Entries| {
+        let group =
+            dictionary_native_dm_with_registry(&alix.context, &added_by, raw_registry(entries));
+        crate::groups::validate_dm_group(&alix.context, &group, &added_by)
+    };
+    for (case, entries) in rejected {
+        let result = validate(entries);
+        assert_err!(
+            result,
+            MetadataPermissionsError::DmValidation(DmValidationError::InvalidPermissions),
+            "{case}: {result:?}"
+        );
+    }
+    // Both ends of the application range.
+    for id in [0xC000, 0xFEFF] {
+        validate(with(ComponentId::new(id), Some(valid_entry.clone())))?;
+    }
+    // Every profile is admitted, so once a second profile exists this
+    // catches an admission that accepts only the newest.
+    for profile in dm_registry_profiles() {
+        validate(
+            profile
+                .raw_entries()
+                .map(|(id, bytes)| (id, bytes.to_vec()))
+                .collect(),
+        )?;
+    }
 }

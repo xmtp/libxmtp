@@ -37,6 +37,19 @@ pub enum KeyPackageMaintenanceError {
     Rotation(IdentityError),
 }
 
+impl KeyPackageMaintenanceError {
+    /// The delay of a rate-limit rejection that failed this maintenance step.
+    pub(crate) fn rate_limit_delay(&self) -> Option<xmtp_common::time::Duration> {
+        use xmtp_common::RetryableError;
+        match self {
+            Self::Identity(e) | Self::DeleteKeyPackage(e) | Self::Rotation(e) => {
+                e.rate_limit_delay()
+            }
+            Self::Storage(_) | Self::Metadata(_) | Self::Fetch(_) | Self::Deletion(_) => None,
+        }
+    }
+}
+
 impl NeedsDbReconnect for KeyPackageMaintenanceError {
     fn needs_db_reconnect(&self) -> bool {
         match self {
@@ -149,6 +162,27 @@ fn delete_key_package_material(
     Ok(())
 }
 
+/// Delete a refused key package's material and history in one transaction.
+// implements: JOIN-020
+pub(crate) fn discard_key_package(
+    mls_storage: &impl XmtpMlsStorageProvider,
+    history_id: i32,
+) -> Result<(), IdentityError> {
+    state_write(mls_storage, |tx| {
+        let storage = tx.storage();
+        let history = storage
+            .db()
+            .find_key_package_history_entries_before_id(i32::MAX)?;
+        for kp in history.iter().filter(|kp| kp.id == history_id) {
+            let pq_pub_key = kp.post_quantum_public_key.as_deref();
+            delete_key_package_material(&storage, &kp.key_package_hash_ref, pq_pub_key)?;
+            storage.db().delete_key_package_entry_with_id(kp.id)?;
+        }
+        Ok::<_, IdentityError>(Continue(()))
+    })?;
+    Ok(())
+}
+
 /// Keep expired keys while any durable Welcome remains pending.
 /// Otherwise, delete each expired key's material and history in one transaction.
 pub(crate) fn sweep_expired<Context: XmtpSharedContext>(
@@ -196,7 +230,7 @@ pub(crate) fn queue_key_rotation<Context: XmtpSharedContext>(
     Ok(())
 }
 
-/// Queue rotation on the caller's writer so Welcome receipt can commit with it.
+/// Queue rotation on the caller's writer so a Welcome install can commit with it.
 /// The caller emits the task fact in its event buffer.
 pub(crate) fn queue_key_rotation_in(
     storage: &impl XmtpMlsStorageProvider,

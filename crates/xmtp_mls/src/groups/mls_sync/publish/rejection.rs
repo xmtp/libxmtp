@@ -204,6 +204,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
             )? {
                 return Err(OutgoingPreparationError::StateChanged.into());
             }
+            Self::fail_membership_parent(db, intent, &attempt)?;
             Ok(())
         };
         record().map_err(|error| GroupMessageProcessingError::PreparedAttempt(Box::new(error)))
@@ -229,6 +230,21 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                     attempt.rejection
                 }
                 None => None,
+            };
+            // Split parents have no attempt of their own while a child fails.
+            // The child's durable code remains the original request's outcome,
+            // including after reconstructing the client over the same store.
+            let rejection = match rejection {
+                Some(rejection) => Some(rejection),
+                None => Self::membership_child_attempts(
+                    &db,
+                    self.group_id,
+                    intent_id,
+                    &[IntentState::Error],
+                )?
+                .into_iter()
+                .filter_map(|(_, attempt)| attempt.rejection)
+                .max_by_key(|rejection| rejection.sequence_id),
             };
             let Some(rejection) = rejection else {
                 return Ok(Continue(SyncSummary::other(GroupError::ReceiveError(

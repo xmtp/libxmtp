@@ -6,7 +6,8 @@ description: Evaluate the XMTP backend through a Railway TCP proxy and a separat
 **DEVELOPMENT ONLY:** This example has no caller authentication. TLS protects
 traffic, but anyone who can reach the endpoint can call the backend. Use only
 disposable evaluation data. Configure [authentication](/get-started/run-the-backend/#auth)
-before use with untrusted traffic. Caller quotas are not implemented.
+before use with untrusted traffic. On Railway, every caller without a
+credential shares one [rate limit](#rate-limits) allowance.
 
 Run two application services in one Railway project: public `haproxy` and
 private `backend`. Add `Postgres` for storage. HAProxy terminates TLS with a
@@ -373,6 +374,24 @@ redeploy. Work through the shared
 Finally, confirm the backend's **Public Networking** has no domain or TCP proxy,
 that the HAProxy TCP proxy targets only `18443`, and that port 9464 is
 unreachable from outside Railway.
+
+## Rate limits
+
+Backend images with [rate limits](/deploy/overview/#rate-limits) limit each caller.
+On Railway the backend cannot tell clients without a credential apart, so they
+share one allowance. Railway's TCP proxy forwards raw TCP and keeps no client
+address: Railway staff [state](https://station.railway.com/questions/restrict-tcp-proxy-to-specific-ip-addres-c296cf01)
+that "there's no mechanism to retrieve the original client IP" through it, and
+its [documentation](https://docs.railway.com/networking/tcp-proxy) offers none.
+HAProxy therefore sees only Railway's proxy, and the backend sees only HAProxy.
+
+Leave `rate_limits.trusted_proxies` empty. This HAProxy configuration passes a
+client's `X-Forwarded-For` header through unchanged, so trusting HAProxy would
+let each client choose the address it is charged to. To keep one busy client
+from using up the shared allowance of the rest, give clients credentials with
+[`[auth]`](/get-started/run-the-backend/#auth): each API key or JWT subject
+has its own allowance. If every evaluation client shares the address anyway,
+raise the `ip` tier as the [overview](/deploy/overview/#rate-limits) shows.
 
 ## Scaling and shutdown
 

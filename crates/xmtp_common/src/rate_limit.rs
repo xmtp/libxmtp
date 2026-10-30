@@ -21,6 +21,15 @@ impl Bucket {
         }
     }
 
+    /// Add a delay margin to each token's refill interval. A zero rate stays disabled.
+    pub fn with_margin(rate: u32, burst: u32, margin: Duration) -> Self {
+        let mut bucket = Self::new(rate, burst);
+        if rate > 0 {
+            bucket.rate = 1.0 / (1.0 / f64::from(rate) + margin.as_secs_f64());
+        }
+        bucket
+    }
+
     fn refill(&mut self) {
         let now = Instant::now();
         self.tokens = (self.tokens + now.duration_since(self.updated).as_secs_f64() * self.rate)

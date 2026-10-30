@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# Host-side postCreate hook, also used to retry incomplete setup.
+set -euo pipefail
+
+tools="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+name="${SBX_SANDBOX_NAME:?Run this through sbx env create or run}"
+if [[ "$name" != libxmtp-claude ]]; then
+  echo 'This setup is only for libxmtp-claude.' >&2
+  exit 1
+fi
+
+sbx policy allow network --sandbox "$name" \
+  'nixos.org,releases.nixos.org,channels.nixos.org,cache.nixos.org,xmtp.cachix.org,api.cachix.org'
+sbx policy deny network --sandbox "$name" 'localhost,host.docker.internal'
+sbx exec -i "$name" bash -s < "$tools/bootstrap"
+
+sbx cp "$tools/smoke" "$name:/tmp/libxmtp-sbx-smoke"

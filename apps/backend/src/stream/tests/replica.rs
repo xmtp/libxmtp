@@ -32,11 +32,7 @@ fn replica(config: &mut Config) {
 #[xmtp_common::test(unwrap_try = true)]
 async fn fixture_waits_for_database_creation_before_connecting_to_replica() {
     let _replay = REPLAY.lock().await;
-    let mut config: Config = toml::from_str(&format!(
-        "[database]\nurl = {:?}\n[server]\nidentifier = {:?}",
-        std::env::var("DATABASE_URL")?,
-        support::DEFAULT_TEST_IDENTIFIER,
-    ))?;
+    let mut config = support::config_for(&std::env::var("DATABASE_URL")?);
     replica(&mut config);
     let admin = sqlx::PgPool::connect(config.database.replica_url.as_ref().unwrap()).await?;
     let mut startup = std::pin::pin!(TestServer::new(replica));
@@ -160,11 +156,7 @@ async fn startup_waits_for_its_boundary_to_reach_the_selected_replica() {
 async fn startup_waits_for_fresh_schema_to_reach_the_selected_replica() {
     let _replay = REPLAY.lock().await;
     let mut database = TestDatabase::new()?;
-    let mut config: Config = toml::from_str(&format!(
-        "[database]\nurl = {:?}\n[server]\nidentifier = {:?}",
-        database.url(),
-        support::DEFAULT_TEST_IDENTIFIER,
-    ))?;
+    let mut config = support::config_for(database.url());
     replica(&mut config);
     let primary = sqlx::PgPool::connect(database.url()).await?;
     // Let CREATE DATABASE reach the replica, but apply no backend migrations yet.

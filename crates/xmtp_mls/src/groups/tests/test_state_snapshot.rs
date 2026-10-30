@@ -120,6 +120,7 @@ async fn test_state_snapshot_matches_getters() {
     );
 }
 
+// verifies: CONS-048
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_last_activity_matches_list_order() {
     tester!(alix);
@@ -177,14 +178,11 @@ async fn test_last_activity_matches_list_order() {
     let expected = [&empty, &text_then_receipt, &member_change, &receipt_only];
     for group in expected {
         let row = ordered.iter().find(|row| row.id == group.group_id).unwrap();
-        assert_eq!(
-            group.last_activity_ns(None)?,
-            row.sent_at_ns.unwrap_or(row.created_at_ns)
-        );
+        assert_eq!(group.last_activity_ns(None)?, row.listing_time_ns);
     }
     for group in [&text_then_receipt, &member_change, &receipt_only] {
         let row = ordered.iter().find(|row| row.id == group.group_id).unwrap();
-        let list_key = row.sent_at_ns.unwrap_or(row.created_at_ns);
+        let list_key = row.listing_time_ns;
         let last_message_ns = alix
             .context
             .db()
@@ -201,10 +199,7 @@ async fn test_last_activity_matches_list_order() {
         receipt_only.created_at_ns
     );
     for pair in ordered.windows(2) {
-        assert!(
-            pair[0].sent_at_ns.unwrap_or(pair[0].created_at_ns)
-                >= pair[1].sent_at_ns.unwrap_or(pair[1].created_at_ns)
-        );
+        assert!(pair[0].listing_time_ns >= pair[1].listing_time_ns);
     }
 }
 

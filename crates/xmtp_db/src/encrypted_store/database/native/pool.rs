@@ -231,13 +231,11 @@ mod tests {
     }
 
     #[derive(QueryableByName, Debug)]
-    struct JournalMode {
+    struct ConnectionPragmas {
+        #[diesel(sql_type = diesel::sql_types::Integer)]
+        timeout: i32,
         #[diesel(sql_type = diesel::sql_types::Text)]
         journal_mode: String,
-    }
-
-    #[derive(QueryableByName, Debug)]
-    struct Synchronous {
         #[diesel(sql_type = diesel::sql_types::Integer)]
         synchronous: i32,
     }
@@ -271,65 +269,25 @@ mod tests {
     #[case(encrypted_connection())]
     #[case(unencrypted_connection())]
     #[xmtp_common::test(unwrap_try = true)]
-    pub fn sets_busy_timeout(#[case] customizer: Box<dyn XmtpConnection>) {
-        use crate::DbConnection;
-        use xmtp_configuration::BUSY_TIMEOUT;
-        let pool = DbPool::builder()
-            .customizer(customizer.clone())
-            .build()
-            .unwrap();
-        let dbconn = DbConnection::new(pool);
-        let timeout = dbconn.busy_timeout().unwrap();
-        assert_eq!(timeout, BUSY_TIMEOUT, "wrong timeout");
-    }
-
-    #[rstest]
-    #[case(encrypted_connection())]
-    #[case(unencrypted_connection())]
-    #[xmtp_common::test(unwrap_try = true)]
-    pub fn sets_journal_mode(#[case] customizer: Box<dyn XmtpConnection>) {
-        let pool = DbPool::builder()
-            .customizer(customizer.clone())
-            .build()
-            .unwrap();
-        let mut conn = pool.get().unwrap();
-        let JournalMode { journal_mode } = diesel::sql_query("PRAGMA journal_mode")
-            .get_result::<JournalMode>(&mut conn)
-            .unwrap();
-        assert_eq!(journal_mode, "wal", "wrong journal mode");
-    }
-
-    #[rstest]
-    #[case(encrypted_connection())]
-    #[case(unencrypted_connection())]
-    #[xmtp_common::test(unwrap_try = true)]
-    pub fn sets_synchronous(#[case] customizer: Box<dyn XmtpConnection>) {
-        let pool = DbPool::builder()
-            .customizer(customizer.clone())
-            .build()
-            .unwrap();
-        let mut conn = pool.get().unwrap();
-        let Synchronous { synchronous } = diesel::sql_query("PRAGMA synchronous")
-            .get_result::<Synchronous>(&mut conn)
-            .unwrap();
-        // 1 corresponds to NORMAL
-        assert_eq!(synchronous, 1, "wrong synchronous");
-    }
-
-    #[rstest]
-    #[case(encrypted_connection())]
-    #[case(unencrypted_connection())]
-    #[xmtp_common::test(unwrap_try = true)]
-    pub fn sets_autocheckpoint(#[case] customizer: Box<dyn XmtpConnection>) {
-        let pool = DbPool::builder()
-            .customizer(customizer.clone())
-            .build()
-            .unwrap();
-        let mut conn = pool.get().unwrap();
-        let Autocheckpoint { wal_autocheckpoint } = diesel::sql_query("PRAGMA wal_autocheckpoint")
-            .get_result::<Autocheckpoint>(&mut conn)
-            .unwrap();
-        // 1 corresponds to NORMAL
-        assert_eq!(wal_autocheckpoint, 1_000, "wrong synchronous");
+    pub fn sets_connection_pragmas(
+        #[case] customizer: Box<dyn XmtpConnection>,
+    ) -> Result<(), crate::StorageError> {
+        let pool = DbPool::builder().customizer(customizer).build()?;
+        let mut first = pool.get()?;
+        let mut second = pool.get()?;
+        for conn in [&mut first, &mut second] {
+            let pragmas = diesel::sql_query(
+                "SELECT * FROM pragma_busy_timeout, pragma_journal_mode, pragma_synchronous",
+            )
+            .get_result::<ConnectionPragmas>(conn)?;
+            assert_eq!(pragmas.timeout, BUSY_TIMEOUT, "wrong timeout");
+            assert_eq!(pragmas.journal_mode, "wal", "wrong journal mode");
+            assert_eq!(pragmas.synchronous, 1, "wrong synchronous"); // NORMAL
+            let checkpoint = diesel::sql_query("PRAGMA wal_autocheckpoint")
+                .get_result::<Autocheckpoint>(conn)?;
+            assert_eq!(checkpoint.wal_autocheckpoint, 1_000, "wrong autocheckpoint");
+        }
+        assert_eq!(crate::DbConnection::new(pool).busy_timeout()?, BUSY_TIMEOUT);
+        Ok(())
     }
 }

@@ -235,7 +235,7 @@ Error middleware can be registered with `agent.errors.use` either one at a time 
 
 Error middleware receives the `error`, `ctx`, and a `next` function. Just like regular middleware, the flow in error middleware depends on how to use `next`:
 
-1. Use `next()` to mark the error as handled and continue with the main middleware chain
+1. Use `next()` to mark the error as handled and continue with the main middleware chain. If the failing middleware already called `next()`, the rest of the chain does not run again.
 2. Use `next(error)` to forward the original (or transformed) error to the next error handler
 3. Use `return` to end error handling and stop the current reader. A failed message remains eligible for a later stream.
 4. Use `throw` to raise a new error to be caught by the error chain

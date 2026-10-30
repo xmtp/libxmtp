@@ -17,6 +17,14 @@ explicitly request that pinned Xcode. It preserves Nix's default host paths;
 it does not mount Xcode into other derivations or disable their sandbox.
 Keep this path aligned with `lib.reactNativeXcode`.
 
+On Linux, every derivation that does not opt out (`__noChroot`) builds in the
+Nix sandbox, in `/build`, on every runner class. The GitHub-hosted images block
+the user namespaces that single-user Nix needs, so the action allows them
+first, and `sandbox-fallback = false` fails a build that cannot get the
+sandbox instead of silently building without it. The Linux SDK native build
+(`nix/package/xmtp-sdk-native.nix`) also fails when its build directory is
+not `/build`.
+
 The Nix store is not persisted between jobs. Each job substitutes from Cachix
 and cache.nixos.org, and Nix checks the signature of every path it adds.
 
@@ -34,7 +42,7 @@ Two Cachix caches hold CI outputs:
   developers substitute from it. Only jobs in mode `trusted` write it.
 - `xmtp-pr` (public key
   `xmtp-pr.cachix.org-1:QV97uslBSzm8N6XoUKzyifkel14qZVsq1kzZVkgJ70g=`) is
-  CI-only. Pull request jobs and the other merge-run jobs write it, so its
+  CI-only. Pull request, merge-run, and full nightly CI jobs write it, so its
   content can come from unreviewed code.
 
 **The rule:** a job that reads a CI-only store writes no trusted store
@@ -43,8 +51,8 @@ with the `cache-mode` input:
 
 | Mode | Reads | Writes | Token input | Kache | Used by |
 | --- | --- | --- | --- | --- | --- |
-| `read` (default) | `xmtp` | nothing | none | read-only | release, publish, and deploy jobs, the post-merge closure and docs jobs, schedules, manual tools |
-| `ci` | `xmtp`, `xmtp-pr` | `xmtp-pr` | `cachix-pr-auth-token` (`CACHIX_PR_AUTH_TOKEN`) | read-only | pull request and merge-run jobs |
+| `read` (default) | `xmtp` | nothing | none | read-only | release, publish, and deploy jobs, the post-merge closure and docs jobs, read-only schedules and manual tools |
+| `ci` | `xmtp`, `xmtp-pr` | `xmtp-pr` | `cachix-pr-auth-token` (`CACHIX_PR_AUTH_TOKEN`) | read-only | pull request, merge-run, and full nightly CI jobs |
 | `trusted` | `xmtp` | `xmtp`, Kache S3 | `cachix-auth-token` (`CACHIX_AUTH_TOKEN` of the writer environment) | writes when `kache-readonly: "false"` | the post-merge build, and writer jobs on a protected push to trunk |
 
 `kache-ci policy` runs before any cache is configured and fails the job

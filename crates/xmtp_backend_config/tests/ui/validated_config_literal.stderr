@@ -1,9 +1,11 @@
-error[E0451]: fields `config` and `scw_cache_entries` of struct `ValidatedConfig` are private
- --> tests/ui/validated_config_literal.rs:7:9
-  |
-6 |     let _validated = ValidatedConfig {
-  |                      --------------- in this type
-7 |         config,
-  |         ^^^^^^ private field
-8 |         scw_cache_entries: std::num::NonZeroUsize::MIN,
-  |         ^^^^^^^^^^^^^^^^^ private field
+error[E0451]: fields `config`, `scw_cache_entries` and `rate_limits` of struct `ValidatedConfig` are private
+  --> tests/ui/validated_config_literal.rs:13:9
+   |
+12 |     let _validated = ValidatedConfig {
+   |                      --------------- in this type
+13 |         config,
+   |         ^^^^^^ private field
+14 |         scw_cache_entries: std::num::NonZeroUsize::MIN,
+   |         ^^^^^^^^^^^^^^^^^ private field
+15 |         rate_limits,
+   |         ^^^^^^^^^^^ private field

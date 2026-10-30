@@ -8,6 +8,8 @@ mod publish;
 mod query;
 mod subscription;
 
+pub(crate) use error::publish_invalid;
+
 use crate::{config::ValidatedConfig, db::Store};
 use std::sync::Arc;
 use xmtp_id::scw_verifier::{CachedSmartContractSignatureVerifier, ChainBlocks};
@@ -23,12 +25,24 @@ pub struct Backend {
     pub(crate) attachments: Option<Arc<dyn xmtp_attachments_server::StorageTarget>>,
     pub(crate) streams: Option<Arc<crate::stream::StreamHub>>,
     pub(crate) push: Option<Arc<crate::push::PushHub>>,
+    /// The per-caller rate limiter, absent while rate limits are off.
+    pub(crate) rate_limiter: Option<Arc<crate::server::rate_limit::Limiter>>,
     /// The published deployment settings, built once from the validated
     /// configuration and returned unchanged for the life of the process.
     pub(crate) configuration: Arc<crate::api::GetConfigurationResponse>,
+    /// Bounds identity-log replays across all requests.
+    pub(crate) replays: Arc<tokio::sync::Semaphore>,
     /// Counts publish-signature verification work for tests.
     #[cfg(test)]
     pub(crate) signature_checks: Arc<publish::SignatureChecks>,
+    /// Counts identity-log replays that ran off the thread that started
+    /// them, for tests. A replay run inline on the async runtime is not
+    /// counted.
+    #[cfg(test)]
+    pub(crate) identity_replays: Arc<std::sync::atomic::AtomicUsize>,
+    /// Replaces the publish admission deadline for tests.
+    #[cfg(test)]
+    pub(crate) admission_deadline: Arc<parking_lot::Mutex<Option<std::time::Duration>>>,
 }
 
 impl Backend {
@@ -37,6 +51,8 @@ impl Backend {
     /// The configuration, verifier, and chains are shared immutably. The store is cheap
     /// to clone because its pools are reference counted by SQLx. `configuration` is
     /// the published response that `server::initialize` built and size-checked.
+    /// The rate limiter's table is allocated here, only while rate limits are on,
+    /// so `server::serve` enforces them however the backend was built.
     pub fn new(
         store: Store,
         config: ValidatedConfig,
@@ -45,6 +61,7 @@ impl Backend {
         configuration: crate::api::GetConfigurationResponse,
     ) -> Self {
         let configuration = Arc::new(configuration);
+        let rate_limiter = crate::server::rate_limit::limiter(config.rate_limits());
         Self {
             store: Arc::new(store),
             config: Arc::new(config),
@@ -52,11 +69,17 @@ impl Backend {
             chains,
             streams: None,
             push: None,
+            rate_limiter,
             auth: None,
             attachments: None,
             configuration,
+            replays: Arc::new(tokio::sync::Semaphore::new(publish::MAX_IDENTITY_REPLAYS)),
             #[cfg(test)]
             signature_checks: Arc::default(),
+            #[cfg(test)]
+            identity_replays: Arc::default(),
+            #[cfg(test)]
+            admission_deadline: Arc::default(),
         }
     }
 }

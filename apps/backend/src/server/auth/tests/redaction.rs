@@ -27,6 +27,7 @@ async fn request_span_records_only_api_key_names_as_principals() {
             mint(&claims, &key),
             AuthContext::Jwt {
                 sub: Some("private-jwt-subject".into()),
+                iss: None,
                 scopes: Default::default(),
             },
         ),

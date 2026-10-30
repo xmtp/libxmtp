@@ -182,7 +182,7 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             connections.push((*id, snapshot.connection));
             snapshot.discovery_pending = matches!(
                 scope.scope,
-                ScopeKind::AllGroups | ScopeKind::DeviceSyncGroups
+                ScopeKind::AllGroups(_) | ScopeKind::DeviceSyncGroups
             ) && topics.iter().any(|topic| {
                 topic.registration == IncomingRegistration::Pending
                     || (topic.topic.kind() == TopicKind::WelcomeMessagesV1

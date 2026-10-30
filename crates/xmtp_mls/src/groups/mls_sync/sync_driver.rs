@@ -3,7 +3,6 @@
 use super::*;
 use xmtp_common::snippet::Snippet;
 
-// implements: PROC-036
 fn log_publish_error(error: &GroupError) {
     if let GroupError::FailedToVerifyInstallations(failed) = error {
         tracing::error!(
@@ -27,46 +26,79 @@ where
             .map_err(|error| self.context.server_configuration().blocked_or(error))
     }
 
+    /// Sync this group, then every other group of its stitched DM.
+    ///
+    /// The result is this group's own. Siblings sync even when this group
+    /// fails, and a sibling's failure is logged, never returned, so one paused
+    /// or failing group cannot stop the rest of the conversation. A paused
+    /// sibling fails in `handle_group_paused` before it processes anything,
+    /// so it stays held. If the siblings cannot be loaded, the call fails:
+    /// with this group's error when it has one, else with the load error.
+    // implements: DMS-019
     async fn sync_once(&self) -> Result<SyncSummary, GroupError> {
-        let conn = self.context.db();
-        if conn
-            .find_group(&self.group_id)?
-            .is_some_and(|group| group.membership_state == GroupMembershipState::Restored)
-        {
-            return Err(GroupError::GroupInactive);
-        }
         // A client with a blocked connection makes no further calls.
         self.context.server_configuration().check()?;
 
-        let epoch = self.epoch().await?;
-        tracing::debug!(
-            inbox_id = self.context.inbox_id(),
-            installation_id = self.context.installation_id().as_slice().snippet(),
-            group_id = self.group_id.short_hex(),
-            epoch,
-            "syncing group",
-        );
+        let conn = self.context.db();
+        let result = async {
+            if conn
+                .find_group(&self.group_id)?
+                .is_some_and(|group| group.membership_state == GroupMembershipState::Restored)
+            {
+                return Err(GroupError::GroupInactive);
+            }
+            let epoch = self.epoch().await?;
+            tracing::debug!(
+                inbox_id = self.context.inbox_id(),
+                installation_id = self.context.installation_id().as_slice().snippet(),
+                group_id = self.group_id.short_hex(),
+                epoch,
+                "syncing group",
+            );
+            let sync_summary = self.sync_with_conn().await.map_err(GroupError::from)?;
+            self.maybe_update_installations(None).await?;
+            Ok(sync_summary)
+        }
+        .await;
 
-        // Also sync the "stitched DMs", if any...
-        for other_dm in conn.other_dms(&self.group_id)? {
-            if other_dm.membership_state == GroupMembershipState::Restored {
+        let siblings = match conn.other_dms(&self.group_id) {
+            Ok(siblings) => siblings,
+            // The siblings were not synced, so the call does not succeed. The
+            // named group's own failure still wins.
+            Err(error) => {
+                result?;
+                return Err(error.into());
+            }
+        };
+        for sibling in siblings {
+            if sibling.membership_state == GroupMembershipState::Restored {
                 continue;
             }
-            let other_dm = Self::new_from_arc(
+            let sibling = Self::new_from_arc(
                 self.context.clone(),
-                other_dm.id,
-                other_dm.dm_id.clone(),
-                other_dm.conversation_type,
-                other_dm.created_at_ns,
+                sibling.id,
+                sibling.dm_id,
+                sibling.conversation_type,
+                sibling.created_at_ns,
             );
-
-            other_dm.sync_with_conn().await?;
-            other_dm.maybe_update_installations(None).await?;
+            if let Err(error) = sibling.sync_with_conn().await {
+                tracing::warn!(
+                    group_id = sibling.group_id.short_hex(),
+                    ?error,
+                    "stitched DM sibling sync failed"
+                );
+                continue;
+            }
+            if let Err(error) = sibling.maybe_update_installations(None).await {
+                tracing::warn!(
+                    group_id = sibling.group_id.short_hex(),
+                    ?error,
+                    "stitched DM sibling installation update failed"
+                );
+            }
         }
 
-        let sync_summary = self.sync_with_conn().await.map_err(GroupError::from)?;
-        self.maybe_update_installations(None).await?;
-        Ok(sync_summary)
+        result
     }
 
     fn handle_group_paused(&self) -> Result<(), GroupError> {
@@ -246,7 +278,29 @@ where
         );
 
         // Keep the round future off the containing group sync poll stack.
-        let result = Box::pin(self.sync_until_intent_resolved_inner(intent_id)).await;
+        let result = async {
+            let waited = async {
+                let mut summary =
+                    Box::pin(self.sync_until_intent_resolved_inner(intent_id)).await?;
+                // A split target can become a no-op after another member completes
+                // it. Its already-applied children can still owe Welcome delivery.
+                for child in self.pending_membership_children(intent_id)? {
+                    summary.extend(Box::pin(self.sync_until_intent_resolved_inner(child)).await?);
+                }
+                Ok::<_, GroupError>(summary)
+            }
+            .await;
+            // implements: SEND-025
+            // A part can end its batch in a round of a wait above, while the
+            // original target is still publishing, and then no wait reads it.
+            // That outcome wins over any error of another part's wait: the
+            // membership change is applied, but its Welcomes were not sent.
+            if self.membership_child_follow_up_failed(intent_id)? {
+                return Err(super::publish::OutgoingPreparationError::WelcomesUnsendable.into());
+            }
+            waited
+        }
+        .await;
         let summary = match &result {
             Ok(summary) => Some(summary),
             Err(GroupError::Sync(summary)) => Some(&**summary),
@@ -307,6 +361,20 @@ where
             let wait_for = backoff
                 .backoff(attempt + 1, time_spent)
                 .unwrap_or(Duration::from_millis(50));
+            let membership_before = match Fetch::<StoredGroupIntent>::fetch(&db, &intent_id)? {
+                Some(intent)
+                    if intent.kind == IntentKind::UpdateGroupMembership
+                        && intent.state == IntentState::ToPublish =>
+                {
+                    Some((
+                        UpdateGroupMembershipIntentData::try_from(intent.data.as_slice())?,
+                        self.with_group_snapshot(|group| {
+                            extract_group_membership(group.extensions()).map_err(GroupError::from)
+                        })?,
+                    ))
+                }
+                _ => None,
+            };
 
             log_event!(
                 Event::GroupSyncAttempt,
@@ -320,20 +388,31 @@ where
             // GroupSyncFinished event (in sync_until_intent_resolved) is the
             // single place the summary is logged — no per-attempt logging here.
             let mut round_succeeded = false;
-            match xmtp_common::time::timeout(
+            // A rate-limit wait inside the round ends by the round's timeout,
+            // so the delay reaches this loop instead of being lost to it.
+            let rate_limit_delay = match xmtp_common::time::timeout(
                 remaining,
-                self.sync_intent_round(intent_id, predecessor, remaining),
+                xmtp_common::retry::with_retry_deadline(
+                    xmtp_common::time::Instant::now() + remaining,
+                    self.sync_intent_round(intent_id, predecessor, remaining),
+                ),
             )
             .await
             {
                 Ok(Ok(s)) => {
                     round_succeeded = !s.is_errored();
+                    let delay = s.rate_limit_delay();
                     summary.extend(s);
+                    delay
                 }
                 Ok(Err(error @ GroupError::PublishedButUnconfirmed { .. })) => return Err(error),
-                Ok(Err(error)) => summary.add_other(error),
+                Ok(Err(error)) => {
+                    let delay = error.rate_limit_delay();
+                    summary.add_other(error);
+                    delay
+                }
                 Err(_) => break,
-            }
+            };
             let current = Fetch::<StoredGroupIntent>::fetch(&db, &intent_id);
             let waiting_to_publish = matches!(
                 &current,
@@ -388,6 +467,23 @@ where
                     summary.extend(self.rejected_intent_summary(intent_id)?);
                     return Err(GroupError::from(summary));
                 }
+                // implements: SEND-025
+                // The commit is applied, but its Welcomes were not sent, and
+                // no later round can send them.
+                Ok(Some(StoredGroupIntent {
+                    state: IntentState::FollowUpFailed,
+                    kind,
+                    ..
+                })) => {
+                    log_event!(
+                        Event::GroupSyncIntentErrored,
+                        self.context.installation_id(),
+                        level = warn,
+                        group_id = self.group_id, intent_id = intent_id,
+                        intent_kind = ?kind
+                    );
+                    return Err(super::publish::OutgoingPreparationError::WelcomesUnsendable.into());
+                }
                 Ok(Some(StoredGroupIntent { state, kind, .. })) => {
                     log_event!(
                         Event::GroupSyncIntentRetry,
@@ -408,13 +504,33 @@ where
             };
             // A round can finish a queued state change without publishing the
             // requested intent. That is progress, not a failed send attempt.
-            if round_succeeded
-                && waiting_to_publish
-                && let Some(predecessor) = predecessor
-                && Fetch::<StoredGroupIntent>::fetch(&db, &predecessor)?
-                    .is_some_and(|intent| intent.state == IntentState::Processed)
-            {
-                continue;
+            if round_succeeded && waiting_to_publish {
+                let predecessor_finished = if let Some(predecessor) = predecessor {
+                    Fetch::<StoredGroupIntent>::fetch(&db, &predecessor)?
+                        .is_some_and(|intent| intent.state == IntentState::Processed)
+                } else {
+                    false
+                };
+                // Split refresh children have later IDs. Count a round as
+                // progress only when it completes a requested inbox change;
+                // unrelated commits and repeated failures consume the budget.
+                let membership_advanced = if let Some((target, before)) = membership_before {
+                    let after = self.with_group_snapshot(|group| {
+                        extract_group_membership(group.extensions()).map_err(GroupError::from)
+                    })?;
+                    target.membership_updates.iter().any(|(inbox, target)| {
+                        before.get(inbox).is_none_or(|old| old < target)
+                            && after.get(inbox).is_some_and(|new| new >= target)
+                    }) || target
+                        .removed_members
+                        .iter()
+                        .any(|inbox| before.get(inbox).is_some() && after.get(inbox).is_none())
+                } else {
+                    false
+                };
+                if predecessor_finished || membership_advanced {
+                    continue;
+                }
             }
             attempt += 1;
             if attempt < MAX_GROUP_SYNC_RETRIES {
@@ -424,18 +540,33 @@ where
                     .policy()
                     .barrier_timeout
                     .saturating_sub(time_spent.elapsed());
+                // A rate-limited round waits out its delay, or returns the
+                // rejection when the delay does not end within this call.
+                // implements: RATE-041
+                if let Some(delay) = rate_limit_delay {
+                    let Some(wait) = rate_limited_wait(wait_for, delay, remaining) else {
+                        break;
+                    };
+                    xmtp_common::time::sleep(wait).await;
+                    continue;
+                }
                 xmtp_common::time::sleep(wait_for.min(remaining)).await;
             }
         }
-        if Fetch::<StoredGroupIntent>::fetch(&db, &intent_id)?
-            .is_some_and(|intent| intent.state == IntentState::Processed)
-        {
-            return Ok(summary);
+        // The wait can end before a round reads the intent's state.
+        match Fetch::<StoredGroupIntent>::fetch(&db, &intent_id)?.map(|intent| intent.state) {
+            Some(IntentState::Processed) => return Ok(summary),
+            // implements: SEND-025
+            Some(IntentState::FollowUpFailed) => {
+                return Err(super::publish::OutgoingPreparationError::WelcomesUnsendable.into());
+            }
+            _ => {}
         }
-        if self.published_intent_target(intent_id)?.is_some() {
+        if self.published_request_target(intent_id)?.is_some() {
             return Err(GroupError::PublishedButUnconfirmed {
                 intent_id,
                 cause: None,
+                rate_limit_delay: summary.rate_limit_delay(),
             });
         }
         Err(GroupError::SyncFailedToWait(Box::new(summary)))
@@ -458,15 +589,26 @@ where
             Ok(Err(error)) => summary.add_publish_err(error),
             Err(_) => return Err(GroupError::SyncFailedToWait(Box::new(summary))),
         }
-        let receipt = self.published_intent_target(intent_id)?;
-        let blocker = match (receipt, predecessor) {
-            (None, Some(predecessor)) => self.published_intent_target(predecessor)?,
-            _ => None,
+        // A later error in this round must not hide a rate-limited publish's
+        // delay, so the round ends with the summary that holds it.
+        // implements: RATE-041
+        let publish_delay = summary.rate_limit_delay();
+        let receipt = self.request_read_target(intent_id)?;
+        let blocker = match receipt {
+            Some(_) => None,
+            None => self.blocking_target(predecessor)?,
         };
         let topic = Topic::new_group_message(self.group_id);
         let targets = match receipt.or(blocker) {
             Some(target) => [(topic, target)].into(),
-            None => self.context.api().newest_topic_cursors(vec![topic]).await?,
+            None => match self.context.api().newest_topic_cursors(vec![topic]).await {
+                Ok(targets) => targets,
+                Err(error) if publish_delay.is_some() => {
+                    summary.add_other(error.into());
+                    return Ok(summary);
+                }
+                Err(error) => return Err(error.into()),
+            },
         };
         if let Err(cause) = crate::subscriptions::barrier::wait_through(
             &self.context,
@@ -475,19 +617,51 @@ where
         )
         .await
         {
-            return Err(if receipt.is_some() {
-                GroupError::PublishedButUnconfirmed {
+            if self.published_request_target(intent_id)?.is_some() {
+                return Err(GroupError::PublishedButUnconfirmed {
                     intent_id,
                     cause: Some(Box::new(cause)),
-                }
-            } else {
-                cause.into()
-            });
+                    rate_limit_delay: publish_delay,
+                });
+            }
+            if publish_delay.is_some() {
+                summary.add_other(cause.into());
+                return Ok(summary);
+            }
+            return Err(cause.into());
         }
         if let Err(error) = self.post_commit().await {
             summary.add_post_commit_err(error);
         }
         Ok(summary)
+    }
+
+    /// The receipt of the state change that holds an unpublished intent.
+    /// Nothing is prepared while a state change is published, so a published
+    /// one is the blocker, whatever its id: a commit of the pending proposals
+    /// queued for a deferred message comes after it. Otherwise it is the
+    /// predecessor, which can already be processed.
+    // implements: SEND-022
+    fn blocking_target(&self, predecessor: Option<ID>) -> Result<Option<Cursor>, GroupError> {
+        let published = self
+            .context
+            .db()
+            .find_group_intents(
+                self.group_id,
+                Some(vec![IntentState::Published]),
+                Some(
+                    IntentKind::all()
+                        .filter(|kind| *kind != IntentKind::SendMessage)
+                        .collect(),
+                ),
+            )?
+            .into_iter()
+            .map(|intent| intent.id)
+            .min();
+        match published.or(predecessor) {
+            Some(blocker) => self.published_intent_target(blocker),
+            None => Ok(None),
+        }
     }
 
     pub(super) fn validate_message_epoch(
@@ -536,5 +710,28 @@ where
             ));
         }
         Ok(())
+    }
+}
+
+/// The wait before the next round of a rate-limited sync: at least the delay
+/// and the backoff, never past the call's remaining time. None when the delay
+/// does not end inside the call.
+// implements: RATE-041
+fn rate_limited_wait(backoff: Duration, delay: Duration, remaining: Duration) -> Option<Duration> {
+    (delay < remaining).then(|| backoff.max(delay).min(remaining))
+}
+
+#[cfg(test)]
+mod rate_limited_wait_tests {
+    use super::*;
+
+    /// The wait is at least the delay, and never outlasts the call.
+    // verifies: RATE-041
+    #[xmtp_common::test]
+    fn a_rate_limited_wait_stays_inside_the_call() {
+        let ms = Duration::from_millis;
+        assert_eq!(rate_limited_wait(ms(500), ms(100), ms(200)), Some(ms(200)));
+        assert_eq!(rate_limited_wait(ms(50), ms(100), ms(200)), Some(ms(100)));
+        assert_eq!(rate_limited_wait(ms(50), ms(200), ms(200)), None);
     }
 }

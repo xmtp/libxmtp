@@ -13,6 +13,8 @@ name: CI
     - main
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review, converted_to_draft, labeled, unlabeled]
+  schedule:
+    - cron: '17 9 * * *'
   workflow_dispatch:
     inputs:
       suites:
@@ -49,7 +51,7 @@ jobs:
         fetch-depth: 2
     - name: List changed paths
       id: paths
-      if: github.event_name != 'workflow_dispatch'
+      if: github.event_name != 'workflow_dispatch' && github.event_name != 'schedule'
       continue-on-error: true
       uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4
       with:
@@ -215,6 +217,18 @@ jobs:
     secrets: inherit
     with:
       runner: ${{ github.event_name == 'pull_request' && 'blacksmith-16vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
+  test_wasm_sample:
+    name: Rust WASM sample
+    needs:
+    - detect-changes
+    if: contains(fromJSON(needs.detect-changes.outputs.test_suites), 'test_wasm_sample')
+    uses: ./.github/workflows/test-wasm.yml
+    permissions:
+      contents: read
+    secrets: inherit
+    with:
+      scope: sample
+      runner: ${{ github.event_name == 'pull_request' && 'blacksmith-16vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
   docs_rust:
     name: Rust reference
     needs:
@@ -311,6 +325,18 @@ jobs:
     permissions:
       contents: read
     secrets: inherit
+    with:
+      runner: warp-macos-15-arm64-6x
+  test_backend_darwin:
+    name: Darwin backend smoke
+    needs:
+    - detect-changes
+    if: contains(fromJSON(needs.detect-changes.outputs.test_suites), 'test_backend_darwin')
+    uses: ./.github/workflows/test-backend-darwin.yml
+    permissions:
+      contents: read
+    secrets:
+      CACHIX_PR_AUTH_TOKEN: ${{ secrets.CACHIX_PR_AUTH_TOKEN }}
     with:
       runner: warp-macos-15-arm64-6x
   test_android:
@@ -489,6 +515,15 @@ jobs:
           | ($broken[] | "\(.): \($results[.].result); the suites that wait for it did not run"),
             ($failed[] | "\(.): \($results[.].result)"),
             ($broken + $failed == [])'
+    - name: Check out the notification action
+      if: ${{ failure() && github.event_name == 'schedule' }}
+      uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+    - name: Notify on nightly failure
+      if: ${{ failure() && github.event_name == 'schedule' }}
+      uses: ./.github/actions/slack-notify
+      with:
+        message: "Nightly CI Lint failed: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+        webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
   test:
     name: ${{ github.event_name == 'pull_request' && toJSON(github.event.pull_request.draft) == 'true' && 'Test (not run on drafts)' || github.event_name == 'workflow_dispatch' && inputs.suites != '' && 'Test (manual subset)' || 'Test' }}
     if: always()
@@ -504,6 +539,7 @@ jobs:
     - test_nix_checks
     - test_workspace
     - test_wasm
+    - test_wasm_sample
     - docs_rust
     - check_types
     - check_sdk
@@ -512,6 +548,7 @@ jobs:
     - test_sdk_platform
     - docs_site
     - test_ios
+    - test_backend_darwin
     - test_android
     - test_example_android
     - test_example_android_emulator
@@ -544,3 +581,12 @@ jobs:
           | ($broken[] | "\(.): \($results[.].result); the suites that wait for it did not run"),
             ($failed[] | "\(.): \($results[.].result)"),
             ($broken + $failed == [])'
+    - name: Check out the notification action
+      if: ${{ failure() && github.event_name == 'schedule' }}
+      uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+    - name: Notify on nightly failure
+      if: ${{ failure() && github.event_name == 'schedule' }}
+      uses: ./.github/actions/slack-notify
+      with:
+        message: "Nightly CI Test failed: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+        webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}

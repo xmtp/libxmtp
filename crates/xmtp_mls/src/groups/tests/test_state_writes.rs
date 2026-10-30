@@ -77,91 +77,120 @@ async fn failed_intent_insert_rolls_back_optimistic_message() {
     );
 }
 
-/// Welcome bytes, receipt progress, and rotation work commit or roll back together.
+/// A Welcome install, its pending-row completion, and its key-package
+/// rotation work commit or roll back together, and the task runner hears of
+/// the work only after commit. Receipt queues no rotation.
 #[xmtp_common::test(unwrap_try = true)]
-async fn welcome_admission_queues_rotation_atomically_before_decode() {
-    use crate::mls_store::MlsStore;
-    use xmtp_db::{
-        incoming_envelope::{NetworkEntityKind, StreamTopic},
-        prelude::{QueryIdentity, QueryIncomingEnvelope, QueryTasks},
+async fn welcome_install_queues_rotation_atomically() {
+    use crate::groups::{
+        InitialMembershipValidator,
+        welcome_sync::{WelcomeService, pending_welcome_for_test},
     };
-    use xmtp_proto::{
-        backend_v1 as wire,
-        types::{Cursor, OrderedEnvelopeBatch, Topic},
-    };
+    use crate::subscriptions::internal::InternalEvent;
+    use xmtp_common::time::now_ns;
+    use xmtp_configuration::KEY_PACKAGE_QUEUE_INTERVAL_NS;
+    use xmtp_db::prelude::{QueryGroup, QueryIdentity, QueryIncomingEnvelope};
 
+    tester!(alix, disable_workers);
     tester!(bo, disable_workers);
     let db = bo.context.db();
     let before = db.next_key_package_rotation_ns()?;
-    let topic = Topic::new_welcome_message(bo.context.installation_id());
-    let key = StreamTopic {
-        entity_id: bo.context.installation_id().to_vec(),
-        kind: NetworkEntityKind::Welcome,
-    };
-    let batch = OrderedEnvelopeBatch {
-        topic: topic.clone(),
-        after: Cursor(0),
-        envelopes: [
-            None,
-            Some(wire::client_envelope::Payload::WelcomeMessage(
-                wire::WelcomeMessage { version: None },
-            )),
-        ]
-        .into_iter()
-        .enumerate()
-        .map(|(index, payload)| wire::ServerEnvelope {
-            meta: Some(wire::EnvelopeMeta {
-                cursor: Some(wire::Cursor {
-                    sequence_id: (index as u64 + 1) * 10,
-                }),
-                server_ns: 123,
-                topic: Some(wire::Topic {
-                    topic: topic.cloned_vec(),
-                }),
-                message_hash: Some(wire::MessageHash {
-                    hash: Some(wire::message_hash::Hash::Sha256(vec![7; 32])),
-                }),
-                ..Default::default()
-            }),
-            envelope: Some(wire::ClientEnvelope { payload }),
-        })
-        .collect(),
-    };
-    let fail_rotation = || {
-        db.raw_query(|conn| {
-            diesel::sql_query(
-                "CREATE TRIGGER fail_welcome_rotation BEFORE INSERT ON tasks \
-             BEGIN SELECT RAISE(ABORT, 'injected rotation failure'); END",
-            )
-            .execute(conn)
-        })
-    };
-    fail_rotation()?;
-    let store = MlsStore::new(bo.context.clone());
-    let limits = bo
+    let key = bo.welcome_topic();
+    let group = alix.create_group(None, None)?;
+    group.invite(&bo).await?;
+    let welcome = bo
         .context
-        .incoming_runtime()
-        .policy()
-        .incoming_limits(NetworkEntityKind::Welcome);
-    assert!(store.admit_incoming_batch(&batch, limits).is_err());
-    assert_eq!(db.topic_progress(&key)?.received, Cursor(0));
-    assert!(db.pending_envelope(&key, Cursor(10))?.is_none());
+        .api()
+        .query_welcome_messages(bo.context.installation_id())
+        .await?
+        .pop()?;
+    db.raw_query(|conn| {
+        diesel::sql_query(
+            "CREATE TRIGGER fail_welcome_rotation BEFORE INSERT ON tasks \
+         BEGIN SELECT RAISE(ABORT, 'injected rotation failure'); END",
+        )
+        .execute(conn)
+    })?;
+
+    let scheduled = bo.context.events().subscribe(
+        xmtp_events::EventFilter::default()
+            .with_internal(|event| matches!(event, InternalEvent::TaskScheduled)),
+        None,
+    );
+
+    // Receipt stores the Welcome without queuing rotation work.
+    pending_welcome_for_test(&bo.context, &welcome).await?;
+    // The rotation task cannot be stored, so the install rolls back.
+    let welcomes = WelcomeService::new(bo.context.clone());
+    let validator = || InitialMembershipValidator::new(bo.context.clone());
+    assert!(
+        welcomes
+            .process_new_welcome(&welcome, validator())
+            .await
+            .is_err()
+    );
+    assert!(db.find_group(&group.group_id)?.is_none());
+    assert!(db.pending_envelope(&key, welcome.cursor)?.is_some());
     assert_eq!(db.next_key_package_rotation_ns()?, before);
-    assert!(db.get_tasks()?.is_empty());
+    assert!(scheduled.drain().is_empty());
 
     db.raw_query(|conn| diesel::sql_query("DROP TRIGGER fail_welcome_rotation").execute(conn))?;
-    let admitted = store.admit_incoming_batch(&batch, limits)?;
-    assert_eq!(admitted.inserted, 2);
-    assert_eq!(db.topic_progress(&key)?.received, Cursor(20));
-    assert!(db.pending_envelope(&key, Cursor(10))?.is_some());
-    assert!(db.pending_envelope(&key, Cursor(20))?.is_some());
-    assert!(db.next_key_package_rotation_ns()?.unwrap() < before.unwrap());
-    assert_eq!(db.get_tasks()?.len(), 2);
+    let joined = welcomes.process_new_welcome(&welcome, validator()).await?;
+    assert_eq!(joined?.group_id, group.group_id);
+    assert!(!scheduled.drain().is_empty());
+    assert!(db.pending_envelope(&key, welcome.cursor)?.is_none());
+    assert!(db.next_key_package_rotation_ns()?? <= now_ns() + KEY_PACKAGE_QUEUE_INTERVAL_NS);
+}
 
-    // Duplicate receipt does not enqueue rotation work again.
-    fail_rotation()?;
-    assert_eq!(store.admit_incoming_batch(&batch, limits)?.inserted, 0);
-    db.raw_query(|conn| diesel::sql_query("DROP TRIGGER fail_welcome_rotation").execute(conn))?;
+/// Anyone who knows an installation key can publish Welcomes to it. A
+/// Welcome rejected before any install, or inside the install transaction,
+/// leaves key-package rotation where it was.
+#[xmtp_common::test(unwrap_try = true)]
+async fn rejected_welcomes_do_not_schedule_key_package_rotation() {
+    use crate::utils::test::crafted_welcome::send_crafted_welcome;
+    use xmtp_common::{NS_IN_DAY, time::now_ns};
+    use xmtp_db::prelude::{QueryIdentity, QueryKeyPackageHistory};
+    use xmtp_mls_common::group_keys::{GroupKeys, GroupRoot};
+    use xmtp_proto::backend_v1::{
+        WelcomeMessage,
+        welcome_message::{V1, Version},
+    };
+    use xmtp_proto::types::Cursor;
+    use xmtp_proto::xmtp::mls::message_contents::WelcomeWrapperAlgorithm;
+
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    let db = bo.context.db();
+
+    // A short ciphertext with the advertised wrapper algorithm and key routes
+    // to this installation but never decrypts to an MLS Welcome.
+    let current_key = db
+        .find_key_package_history_entries_before_id(i32::MAX)?
+        .pop()
+        .and_then(|entry| entry.post_quantum_public_key)
+        .expect("the current key package advertises the PQ wrapper key");
+    let undecryptable = WelcomeMessage {
+        version: Some(Version::V1(V1 {
+            installation_key: bo.context.installation_id().to_vec(),
+            data: vec![1],
+            hpke_public_key: current_key,
+            wrapper_algorithm: WelcomeWrapperAlgorithm::XwingMlkem768Draft6.into(),
+            welcome_metadata: Vec::new(),
+        })),
+    };
+    alix.context
+        .api()
+        .send_welcome_messages(&[undecryptable])
+        .await?;
+    let first = bo.wait_for_newest_welcome_rejected(Cursor(0)).await;
+    assert!(db.next_key_package_rotation_ns()?? > now_ns() + NS_IN_DAY);
+
+    // This Welcome decrypts but names no group root, so the install
+    // transaction rejects it for good.
+    let root = GroupRoot::generate();
+    send_crafted_welcome(&alix, &bo, &GroupKeys::derive(&root).group_id(), None).await;
+    bo.wait_for_newest_welcome_rejected(first).await;
+    assert!(db.next_key_package_rotation_ns()?? > now_ns() + NS_IN_DAY);
 }
 
 /// A removal must abandon this installation's unaccepted outgoing work in the

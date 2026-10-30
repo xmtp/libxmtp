@@ -7,7 +7,9 @@ use std::sync::Arc;
 use std::time::Duration;
 use thiserror::Error;
 use xmtp_common::time::now_ns;
-use xmtp_db::{StorageError, XmtpMlsStorageProvider, prelude::*};
+use xmtp_db::{
+    StorageError, XmtpMlsStorageProvider, group_message::EXPIRED_MESSAGE_BATCH, prelude::*,
+};
 use xmtp_events::Subscription;
 
 /// Default cap on how long the worker parks between deadline recomputes, used
@@ -147,29 +149,34 @@ where
     /// Iterate on the list of groups and delete expired messages
     #[tracing::instrument(skip_all, fields(worker = ?self.kind(), operation = "worker_turn"))]
     async fn delete_expired_messages(&mut self) -> Result<(), DisappearingMessagesCleanerError> {
-        let deleted_messages = crate::state_tx::state_write_with_events(
-            self.context.mls_storage(),
-            self.context.events(),
-            |tx, events| {
-                let storage = tx.storage();
-                let db = storage.db();
-                let deleted = db.delete_expired_messages()?;
-                crate::subscriptions::internal::emit_expired_messages(
-                    events,
-                    deleted.clone(),
-                    &db,
-                )?;
-                Ok::<_, StorageError>(xmtp_db::TransactionOutcome::Continue(deleted))
-            },
-        )
-        .map_err(DisappearingMessagesCleanerError::DeleteExpired)?
-        .into_continued();
+        // implements: META-063
+        let pass_start = now_ns();
+        let mut total = 0;
+        loop {
+            let deleted = crate::state_tx::state_write_with_events(
+                self.context.mls_storage(),
+                self.context.events(),
+                |tx, events| {
+                    let storage = tx.storage();
+                    let db = storage.db();
+                    let deleted = db.delete_expired_messages(pass_start)?;
+                    let n = deleted.len();
+                    crate::subscriptions::internal::emit_expired_messages(events, deleted, &db)?;
+                    Ok::<_, StorageError>(xmtp_db::TransactionOutcome::Continue(n))
+                },
+            )
+            .map_err(DisappearingMessagesCleanerError::DeleteExpired)?
+            .into_continued();
+            total += deleted;
+            if deleted < EXPIRED_MESSAGE_BATCH as usize {
+                break;
+            }
+            // Let waiting writers in between batches.
+            xmtp_common::task::yield_now().await;
+        }
 
-        if !deleted_messages.is_empty() {
-            tracing::info!(
-                "Successfully deleted {} expired messages",
-                deleted_messages.len()
-            );
+        if total > 0 {
+            tracing::info!("Successfully deleted {} expired messages", total);
         }
 
         Ok(())
@@ -181,13 +188,14 @@ mod tests {
     use super::*;
     use crate::messages::decoded_message::{DecodedMessage, DeletedBy, MessageBody};
     use crate::tester;
+    use std::collections::HashSet;
     use xmtp_db::group_message::StoredGroupMessage;
     use xmtp_events::{ClientEvent, EventBus, EventFilter, EventKind, EventWriter};
     use xmtp_mls_common::group::GroupMetadataOptions;
     use xmtp_mls_common::group_mutable_metadata::MessageDisappearingSettings;
     use xmtp_proto::types::GroupId;
 
-    // verifies: EVENT-001
+    // verifies: EVENT-001, META-063
     #[xmtp_common::test(unwrap_try = true)]
     async fn expired_message_worker_emits_once_after_deletion() {
         tester!(alix, disable_workers);
@@ -205,17 +213,35 @@ mod tests {
         let message_id = group.send_message(b"expires", Default::default()).await?;
         wait_until_expired(&alix.context, &message_id).await;
         let db = alix.context.db();
+        // A cohort larger than one batch: one pass must still delete all of it.
+        let template = db.get_group_message(&message_id)?.unwrap();
+        let mut expired_ids = HashSet::from([message_id]);
+        for _ in 0..EXPIRED_MESSAGE_BATCH {
+            let extra = StoredGroupMessage {
+                id: xmtp_common::rand_vec::<32>(),
+                ..template.clone()
+            };
+            extra.store(&db)?;
+            expired_ids.insert(extra.id);
+        }
 
         let mut worker = DisappearingMessagesWorker::new(alix.context.clone());
         worker.delete_expired_messages().await?;
-        assert!(db.get_group_message(&message_id)?.is_none());
-        assert!(matches!(
-            events.drain().as_slice(),
-            [xmtp_events::EventEnvelope {
-                client: Some(ClientEvent::MessageExpired(expired)), ..
-            }] if expired.group_id == group.group_id.to_vec()
-                && expired.message_id == message_id
-        ));
+        for id in &expired_ids {
+            assert!(db.get_group_message(id)?.is_none());
+        }
+        let emitted: Vec<_> = events
+            .drain()
+            .into_iter()
+            .filter_map(|event| match event.client {
+                Some(ClientEvent::MessageExpired(e)) if e.group_id == group.group_id.to_vec() => {
+                    Some(e.message_id)
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(emitted.len(), 1_001);
+        assert_eq!(HashSet::from_iter(emitted), expired_ids);
         worker.delete_expired_messages().await?;
         assert!(events.drain().is_empty());
     }
@@ -398,6 +424,7 @@ mod tests {
             version_minor: 0,
             authority_id: "xmtp.org".into(),
             reference_id: None,
+            expiry_unknown: false,
             expire_at_ns: Some(now_ns() - 1),
             sequence_id: 1,
             envelope_hash: None,

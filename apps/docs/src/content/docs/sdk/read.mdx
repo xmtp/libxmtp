@@ -10,7 +10,7 @@ import { Tabs, TabItem } from "@astrojs/starlight/components";
 
 | Option                                | Default    | Description                       |
 | ------------------------------------- | ---------- | --------------------------------- |
-| `limit`                               | None       | Maximum result count              |
+| `limit`                               | 100 newest | Maximum result count, 1 to 1000   |
 | `sentBefore`, `sentAfter`             | None       | Filter by sent time               |
 | `insertedBefore`, `insertedAfter`     | None       | Filter by local insertion time    |
 | `sortBy`                              | Sent time  | Sort by sent or inserted time     |
@@ -19,6 +19,8 @@ import { Tabs, TabItem } from "@astrojs/starlight/components";
 | `kind`                                | All        | Application or membership change  |
 | `contentTypes`, `excludeContentTypes` | All / none | Include or exclude content types  |
 | `excludeSenderInboxIds`               | None       | Exclude sender inbox IDs          |
+
+With no `limit`, `messages()` returns the 100 newest matching messages by the sort field, in the requested order. An explicit `limit` returns the first `limit` messages in the requested order. A `limit` below 1 or above 1000 fails with `InvalidArgument`. To read more messages, page with `messageHistoryPage`.
 
 Time filters use `Timestamp` values. A `Timestamp` has an `ns` field for nanoseconds. Pass `direction` when order matters.
 
@@ -60,6 +62,14 @@ let messages = try await conversation.messages(options: ListMessagesOptions(limi
 </Tabs>
 
 Read the message's `content` value and handle its content kind. For a reply, also inspect `replyContent` or `inReplyToContent`.
+
+### Reactions
+
+`message.reactions` holds at most the 50 latest reaction messages to a message, oldest first. `reactionMessageCount` counts every unexpired reaction message to it, including removals, so it is not a per-emoji tally. A UI that tallies from `message.reactions` undercounts a message with more than 50 reaction messages.
+
+To read the rest, call `messageReactions(messageId, before, limit)` on the conversation. It returns reaction messages newest first, at most `limit` (1 to 1000, default 50). For the next page, pass the last returned reaction's ID as `before`. A deleted or expired message has no reactions to read.
+
+The cursor is the reaction's current position. If that reaction expires or is deleted between two calls, the call fails with `InvalidArgument`; start again from the newest reaction. If it is your own reaction and it is published between two calls, it moves to the time the backend gives it, so the next page can repeat or skip reactions.
 
 ### Paginate messages
 
@@ -176,13 +186,24 @@ let conversations = try await client.conversations.list(
 | ----------------------------------------- | ------------------- | ------------------------------------ |
 | `consentStates`                           | Allowed and unknown | Consent states to include            |
 | `kind`                                    | Both                | Groups or DMs                        |
-| `limit`                                   | None                | Maximum result count                 |
-| `orderBy`                                 | Created time        | Creation or last activity            |
+| `limit`                                   | 100                 | Maximum result count, 1 to 1000      |
+| `orderBy`                                 | Last activity       | Creation or last activity            |
 | `createdBefore`, `createdAfter`           | None                | Creation-time bounds                 |
 | `lastActivityBefore`, `lastActivityAfter` | None                | Last-activity bounds                 |
+| `beforeId`                                | None                | Resume after this conversation       |
 | `includeDuplicateDms`                     | `false`             | Include every underlying stitched DM |
 
-These options are available on all five platform SDKs. Time bounds use `Timestamp` values. Set `orderBy` to creation time and use `createdBefore` to paginate. A timestamp-only boundary can skip conversations with the same creation time.
+These options are available on all five platform SDKs. Time bounds use `Timestamp` values. A list returns at most 100 conversations when you pass no `limit`. A `limit` below 1 or above 1000 fails with `InvalidArgument`.
+
+### Paginate conversations
+
+A list returns conversations newest first, by listing time and then by conversation ID. To read every conversation once, set `orderBy` to creation time. For the next page, pass the last conversation's `createdAt` as `createdBefore` and its ID as `beforeId`. A time alone skips conversations that share the boundary time.
+
+In last-activity order, pass the last conversation's `lastActivityAt()` as `lastActivityBefore` and its ID as `beforeId`. A conversation whose activity changes between two pages, because a message arrives or expires, can be returned twice or skipped. The cursor is read after the page, so a change to the last conversation moves it: a message that arrives there makes the next page repeat conversations, and its newest message expiring makes the next page skip conversations whose activity did not change.
+
+Creation order can also return a DM twice or skip it when a message in another group of the same DM changes which group the list shows. A restored group whose Welcome arrives between two pages can be skipped. `beforeId` without the before time that matches `orderBy` fails with `InvalidArgument`.
+
+`lastActivityAt()` with no content types ignores expired disappearing messages, so it is the time a last-activity list sorts by.
 
 :::warning[Do not use with streaming]
 Do not paginate a conversation list while a conversation stream adds items to that same list. Keep the stream and paginated result separate until pagination ends.

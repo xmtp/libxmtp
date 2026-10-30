@@ -32,6 +32,7 @@ A prefix appears exactly once. A prefix whose document was deleted is removed fr
 | `ATCH` | Remote attachments | `docs/specs/ATCH-remote-attachments.md` |
 | `EVENT` | Client events | `docs/specs/EVENT-client-events.md` |
 | `LOG` | Client logging | `docs/specs/LOG-client-logging.md` |
+| `RATE` | Backend rate limits | `docs/specs/RATE-backend-rate-limits.md` |
 
 | `MIG` | Legacy database migration | `docs/specs/MIG-legacy-database-migration.md` |
 

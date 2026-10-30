@@ -119,6 +119,13 @@ public extension Conversation {
         }
     }
 
+    func messageReactions(messageId: MessageId, before: MessageId?, limit: UInt32?) async throws  -> [ReactionMessage] {
+        switch self {
+        case .group(let group): return try await group.messageReactions(messageId: messageId, before: before, limit: limit)
+        case .dm(let dm): return try await dm.messageReactions(messageId: messageId, before: before, limit: limit)
+        }
+    }
+
     func messageReader(options: ConversationMessageReaderOptions?) async throws  -> MessageReader {
         switch self {
         case .group(let group): return try await group.messageReader(options: options)

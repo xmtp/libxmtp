@@ -28,6 +28,10 @@ impl RetryableError for PreflightError {
     fn is_retryable(&self) -> bool {
         self.cause.is_retryable()
     }
+
+    fn rate_limit_delay(&self) -> Option<xmtp_common::time::Duration> {
+        self.cause.rate_limit_delay()
+    }
 }
 
 /// Find the admission marker without treating a failed configuration RPC as

@@ -50,7 +50,7 @@ transparent_wrappers! {
     xmtp_mls::identity::IdentityError => [StorageError, ApiClient, IdentityUpdate, Db],
     xmtp_mls::identity_updates::IdentityUpdateError => [Api, Load(boxed)],
     xmtp_mls::identity_updates::InstallationDiffError => [IdentityDependency, Client, Db, Storage],
-    xmtp_mls::identity_updates::IdentityDependencyError => [Client(boxed), Storage, Shared(boxed)],
+    xmtp_mls::identity_updates::IdentityDependencyError => [Client(boxed), Storage],
     xmtp_mls::groups::validated_commit::CommitValidationError => [
         IdentityDependency, InstallationDiff, StorageError,
     ],
@@ -71,6 +71,7 @@ transparent_wrappers! {
     ],
     xmtp_archive::ArchiveError => [Storage],
     xmtp_mls::subscriptions::catch_up::CatchUpError => [Group],
+    xmtp_db::consent_record::ConsentActError => [Storage],
 }
 
 /// A core error type that `XmtpError::from_core` maps. Every type passed to

@@ -339,7 +339,7 @@ fn seal_with(
 /// Every length is checked before any cryptography, then the signature,
 /// then the AEAD. A malformed field never reaches the AEAD. The caller
 /// decodes the plaintext and checks its `group_id` and `commit_sequence_id`.
-// implements: FORK-075
+// implements: FORK-077
 pub fn open_commit_log_entry(
     keys: &GroupKeys,
     entry: &SealedCommitLogEntry,

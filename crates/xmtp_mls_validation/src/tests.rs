@@ -186,7 +186,7 @@ async fn key_package_admission_accepts_the_existing_credential_shape() {
         assert!(
             validate_envelope(
                 &parsed,
-                &[],
+                &AdmittedState::default(),
                 MockSmartContractSignatureVerifier::new(false),
                 &TestChain::at(1),
             )
@@ -230,10 +230,22 @@ fn p256_key_package_envelope() -> (ClientEnvelope, Vec<u8>) {
     )
 }
 
+/// A P-256 key package fails two separate checks. Verification refuses it
+/// because, without a 0xff03 extension, its wrapper is Curve25519 under its
+/// init key, which is a P-256 key. Parsing refuses it first, as a malformed
+/// payload, because its 65-byte signature key breaks the topic contract.
+// verifies: JOIN-090
 #[xmtp_common::test(unwrap_try = true)]
-fn key_package_topic_length_is_separate_from_ciphersuite_validation() {
+fn p256_key_package_fails_the_init_key_wrapper_and_topic_checks() {
     let (envelope, bytes) = p256_key_package_envelope();
-    assert!(verify_key_package(&bytes).is_ok());
+    assert!(matches!(
+        verify_key_package(&bytes),
+        Err(
+            xmtp_id::key_package::KeyPackageVerificationError::ConversionError(
+                xmtp_proto::ConversionError::InvalidLength { .. }
+            )
+        )
+    ));
     let error = parse_envelope(envelope)
         .err()
         .expect("P-256 signature keys do not satisfy the 32-byte topic contract");
@@ -255,7 +267,7 @@ async fn key_package_parse_precedes_existing_cryptographic_validation() {
         );
         let error = validate_envelope(
             &parsed,
-            &[],
+            &AdmittedState::default(),
             MockSmartContractSignatureVerifier::new(false),
             &TestChain::at(1),
         )
@@ -304,7 +316,7 @@ async fn key_package_admission_rejects_a_last_resort_mark_with_data() {
         assert!(
             validate_envelope(
                 &parsed,
-                &[],
+                &AdmittedState::default(),
                 MockSmartContractSignatureVerifier::new(false),
                 &TestChain::at(1),
             )
@@ -318,7 +330,7 @@ async fn key_package_admission_rejects_a_last_resort_mark_with_data() {
     )?;
     let error = validate_envelope(
         &parsed,
-        &[],
+        &AdmittedState::default(),
         MockSmartContractSignatureVerifier::new(false),
         &TestChain::at(1),
     )
@@ -349,7 +361,7 @@ async fn identity_admission_folds_real_history_and_a_passkey_update() {
     );
     let result = validate_envelope(
         &parsed,
-        &fixture.history,
+        &admitted_state(fixture.history)?,
         MockSmartContractSignatureVerifier::new(false),
         &TestChain::at(1),
     )
@@ -361,7 +373,7 @@ async fn identity_admission_folds_real_history_and_a_passkey_update() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
-// verifies: IDENT-050
+// verifies: IDENT-090
 async fn identity_admission_preserves_typed_replay_failure() {
     let fixture = identity_history_with_passkey().await;
     let mut history = fixture.history;
@@ -522,11 +534,12 @@ impl ChainBlocks for RoutelessChain {
 /// that chain reaches it and stays retryable. Every malformed form fails its
 /// signature, whether or not it is a CAIP-10 account id at all.
 #[xmtp_common::test]
-// verifies: IDENT-060, IDENT-061, API-230
+// verifies: IDENT-061, IDENT-093, API-230
 async fn freshness_rejects_any_malformed_account_before_chain_access() {
     let chain = RoutelessChain::default();
     for malformed in [
         "eip155:01:0x1111111111111111111111111111111111111111",
+        "eip155:1:0x0000000000000000000000000000000000000000",
         "eip155:1:bad",
         "eip155:1:1111111111111111111111111111111111111111",
         "eip155:1:0x111111111111111111111111111111111111111g",
@@ -571,39 +584,101 @@ fn with_second_signature(
     update
 }
 
-/// Counts the reads it forwards to a [`TestChain`].
-#[derive(Default)]
-struct CountingChain {
-    heads: std::sync::atomic::AtomicUsize,
-    timestamps: std::sync::atomic::AtomicUsize,
-}
-
-#[xmtp_common::async_trait]
-impl ChainBlocks for CountingChain {
-    async fn head(&self, chain_id: &str) -> Result<BlockStamp, VerifierError> {
-        self.heads
-            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        TestChain::at(10).head(chain_id).await
-    }
-
-    async fn timestamp(&self, chain_id: &str, number: u64) -> Result<u64, VerifierError> {
-        self.timestamps
-            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        TestChain::at(10).timestamp(chain_id, number).await
-    }
-}
-
 /// An update may carry up to the configured signature limit, so admission
 /// reads each chain's head once and each distinct block's timestamp once
 /// rather than once per signature.
 #[xmtp_common::test(unwrap_try = true)]
 // verifies: IDENT-062
 async fn freshness_reads_each_head_and_block_once() {
-    let chain = CountingChain::default();
+    let chain = CountingChain::at(10);
     check_freshness(&with_second_signature(|_| {}), &chain).await?;
     check_freshness(&with_second_signature(|scw| scw.block_number = 2), &chain).await?;
-    assert_eq!(chain.heads.into_inner(), 2);
-    assert_eq!(chain.timestamps.into_inner(), 3);
+    assert_eq!(chain.reads(), (2, 3));
+}
+
+/// The chains of [`freshness_block_reads_keep_eight_in_flight`].
+const CHAINS: u64 = 100;
+
+/// The blocks between two chains' heads in [`InFlightChain`].
+const HEAD_SPACING: u64 = 10_000;
+
+/// Chain `eip155:n` has its head at block `n * HEAD_SPACING`, and block `b`
+/// of any chain has timestamp `b`. Records the most reads in flight at once.
+/// A read on chain `n` yields `CHAINS + 1 - n` times before it answers, so
+/// reads started together overlap and a later chain's read finishes first.
+#[derive(Default)]
+struct InFlightChain {
+    now: std::sync::atomic::AtomicUsize,
+    most: std::sync::atomic::AtomicUsize,
+}
+
+impl InFlightChain {
+    async fn read<T>(&self, chain_id: &str, answer: impl FnOnce(u64) -> T) -> T {
+        use std::sync::atomic::Ordering::SeqCst;
+        let chain: u64 = chain_id
+            .strip_prefix("eip155:")
+            .and_then(|chain| chain.parse().ok())
+            .expect("the test names eip155 chains");
+        let now = self.now.fetch_add(1, SeqCst) + 1;
+        self.most.fetch_max(now, SeqCst);
+        for _ in chain..=CHAINS {
+            xmtp_common::task::yield_now().await;
+        }
+        self.now.fetch_sub(1, SeqCst);
+        answer(chain)
+    }
+}
+
+#[xmtp_common::async_trait]
+impl ChainBlocks for InFlightChain {
+    async fn head(&self, chain_id: &str) -> Result<BlockStamp, VerifierError> {
+        Ok(self
+            .read(chain_id, |chain| BlockStamp {
+                number: chain * HEAD_SPACING,
+                timestamp: chain * HEAD_SPACING,
+            })
+            .await)
+    }
+
+    async fn timestamp(&self, chain_id: &str, number: u64) -> Result<u64, VerifierError> {
+        Ok(self.read(chain_id, |_| number).await)
+    }
+}
+
+/// Freshness keeps at most eight chain reads in flight, for the heads and for
+/// the block timestamps, so an update's ERC-6492 signatures cannot start one
+/// chain call each at once, and it judges each block by its own chain's head
+/// and its own timestamp although later reads finish first. These 100
+/// signatures name 100 chains, each at the oldest block its own head admits,
+/// so a block judged by another chain's head or another block's timestamp is
+/// stale or after the head; the other way round, a stale block could be
+/// admitted.
+#[xmtp_common::test(unwrap_try = true)]
+async fn freshness_block_reads_keep_eight_in_flight() {
+    use xmtp_proto::xmtp::identity::associations::{identity_action, signature};
+    let mut update = scw_create_inbox_update_at(1);
+    let create = update.actions.remove(0);
+    for chain in 1..=CHAINS {
+        let mut action = create.clone();
+        let Some(identity_action::Kind::CreateInbox(create)) = &mut action.kind else {
+            unreachable!("fixture creates an inbox")
+        };
+        let Some(signature::Signature::Erc6492(scw)) = create
+            .initial_identifier_signature
+            .as_mut()
+            .and_then(|value| value.signature.as_mut())
+        else {
+            unreachable!("fixture signs with a smart-contract wallet")
+        };
+        scw.account_id = scw
+            .account_id
+            .replacen("eip155:1:", &format!("eip155:{chain}:"), 1);
+        scw.block_number = chain * HEAD_SPACING - MAX_BLOCK_AGE_SECS;
+        update.actions.push(action);
+    }
+    let chain = InFlightChain::default();
+    check_freshness(&update, &chain).await?;
+    assert_eq!(chain.most.into_inner(), MAX_CHAIN_CALLS_IN_FLIGHT);
 }
 
 /// A claim a smart contract wallet signs carries an ERC-6492 signature like
@@ -653,4 +728,66 @@ async fn validation_reports_claimed_handle() {
 
     let created = validate_identity_updates(vec![], vec![create], &verifier).await?;
     assert!(created.claimed_handles.is_empty());
+}
+
+/// Admission runs the addressing checks: a key package whose X-Wing wrapper
+/// key is one byte short is refused as an invalid key package. An undefined
+/// pointee AEAD value is not a reason to refuse one. The xmtp_id unit tests
+/// cover each other unusable extension.
+// verifies: JOIN-090, API-230
+#[xmtp_common::test(unwrap_try = true)]
+async fn key_package_admission_rejects_unusable_addressing_extensions() {
+    use xmtp_configuration::{
+        WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID,
+        WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID, WELCOME_WRAPPER_XWING_KEY_BYTES,
+    };
+    use xmtp_proto::xmtp::mls::message_contents::{
+        WelcomePointeeEncryptionAeadTypesExtension, WelcomeWrapperEncryption,
+    };
+    async fn admit(
+        fixture: KeyPackageFixture,
+    ) -> Result<Option<AssociationValidation>, ValidationError> {
+        let parsed = parse_envelope(fixture.envelope)?;
+        validate_envelope(
+            &parsed,
+            &AdmittedState::default(),
+            MockSmartContractSignatureVerifier::new(false),
+            &TestChain::at(1),
+        )
+        .await
+    }
+
+    let undefined_aead = WelcomePointeeEncryptionAeadTypesExtension {
+        supported_aead_types: vec![i32::MAX],
+    };
+    let fixture = addressing_key_package_envelope(
+        WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID,
+        undefined_aead.encode_to_vec(),
+    );
+    assert!(admit(fixture).await?.is_none());
+
+    let short_xwing_key = WelcomeWrapperEncryption {
+        pub_key: vec![9; WELCOME_WRAPPER_XWING_KEY_BYTES - 1],
+        algorithm: xmtp_id::key_package::WrapperAlgorithm::XWingMLKEM768Draft6.into(),
+    };
+    let fixture = addressing_key_package_envelope(
+        WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID,
+        short_xwing_key.encode_to_vec(),
+    );
+    let error = admit(fixture)
+        .await
+        .err()
+        .expect("a short X-Wing wrapper key must fail admission");
+    assert!(
+        matches!(
+            &error,
+            ValidationError::KeyPackage(
+                xmtp_id::key_package::KeyPackageVerificationError::ConversionError(
+                    xmtp_proto::ConversionError::InvalidLength { .. }
+                )
+            )
+        ),
+        "{error:?}"
+    );
+    assert_eq!(error.reason(), Reason::InvalidKeyPackage);
 }

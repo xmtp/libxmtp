@@ -90,6 +90,21 @@ where
         Ok(())
     }
 
+    /// Refresh membership, removing revoked installations but adding none.
+    // implements: SYNC-024
+    pub(crate) async fn remove_revoked_installations(&self) -> Result<(), GroupError> {
+        let mut intent_data = self.get_membership_update_intent(&[], &[]).await?;
+        if intent_data.is_empty() {
+            return Ok(());
+        }
+        intent_data.removal_only = true;
+        let intent = QueueIntent::update_group_membership()
+            .data(intent_data)
+            .queue(self)?;
+        self.sync_until_intent_resolved(intent.id).await?;
+        Ok(())
+    }
+
     #[tracing::instrument(level = "trace", skip_all)]
     /**
      * get_membership_update_intent will query the network for any new [`IdentityUpdate`]s for any of the existing
@@ -102,8 +117,11 @@ where
         inbox_ids_to_add: &[InboxIdRef<'_>],
         inbox_ids_to_remove: &[InboxIdRef<'_>],
     ) -> Result<UpdateGroupMembershipIntentData, GroupError> {
-        let existing_group_membership = self.with_group_snapshot(|group| {
-            extract_group_membership(group.extensions()).map_err(Into::into)
+        let (existing_group_membership, retry_leaves) = self.with_group_snapshot(|group| {
+            Ok::<_, GroupError>((
+                extract_group_membership(group.extensions())?,
+                retry_leaves(group.extensions(), group.members()),
+            ))
         })?;
         {
             // TODO:nm prevent querying for updates on members who are being removed
@@ -116,7 +134,7 @@ where
             let latest_sequence_id_map = conn.get_latest_sequence_id(&inbox_ids as &[&str])?;
 
             // Get a list of all inbox IDs that have increased sequence_id for the group
-            let changed_inbox_ids =
+            let mut changed_inbox_ids =
                 inbox_ids
                     .iter()
                     .try_fold(HashMap::new(), |mut updates, inbox_id| {
@@ -161,8 +179,18 @@ where
                 &self.group_id,
                 &new_membership,
                 &old_group_membership,
+                retry_leaves.as_deref(),
             )
             .await?;
+
+            // A retry alone changes no entry: refresh the own entry at its current
+            // sequence so the intent is not empty. Apply keeps the higher sequence.
+            if changed_inbox_ids.is_empty()
+                && !changes_with_kps.new_installations.is_empty()
+                && let Some(&sequence_id) = existing_group_membership.get(self.context.inbox_id())
+            {
+                changed_inbox_ids.insert(self.context.inbox_id().to_string(), sequence_id);
+            }
 
             // If we fail to fetch or verify all the added members' KeyPackage, return an error.
             // skip if the inbox ids is 0 from the beginning
@@ -175,6 +203,16 @@ where
                 ));
             }
 
+            // Only an inbox the app asked to add may be inserted. Every other
+            // entry refreshes an existing member.
+            let refreshed_members = changed_inbox_ids
+                .keys()
+                .filter(|inbox_id| {
+                    existing_group_membership.get(inbox_id.as_str()).is_some()
+                        && !inbox_ids_to_add.contains(&inbox_id.as_str())
+                })
+                .cloned()
+                .collect();
             Ok(UpdateGroupMembershipIntentData::new(
                 changed_inbox_ids,
                 inbox_ids_to_remove
@@ -182,7 +220,8 @@ where
                     .map(|s| s.to_string())
                     .collect::<Vec<String>>(),
                 changes_with_kps.failed_installations,
-            ))
+            )
+            .with_refreshed_members(refreshed_members))
         }
     }
 
@@ -215,34 +254,36 @@ where
         &self,
         epoch_delta_range: RangeInclusive<i64>,
     ) -> Result<Zeroizing<Vec<HmacKey>>, StorageError> {
-        crate::state_tx::state_write(self.context.mls_storage(), |tx| {
-            self.hmac_keys_in(tx.storage().db(), epoch_delta_range)
-                .map(Continue)
-        })
+        crate::state_tx::state_write_with_events(
+            self.context.mls_storage(),
+            self.context.events(),
+            |tx, events| {
+                self.hmac_keys_in(tx.storage().db(), events, epoch_delta_range)
+                    .map(Continue)
+            },
+        )
         .map(TransactionOutcome::into_continued)
     }
 
     /// Derive the group's HMAC key for each epoch in `epoch_delta_range`,
     /// relative to the current HMAC epoch. Generates and stores a root key
-    /// when none is stored.
+    /// when none is stored, and reports it to `events`, which the caller
+    /// emits once its transaction commits.
     ///
     /// The vector is wiped on drop, including slots that `pop()` vacated.
     // implements: PUSH-258
     pub(crate) fn hmac_keys_in(
         &self,
         conn: impl xmtp_db::DbQuery,
+        events: &impl xmtp_events::EventWriter<crate::subscriptions::internal::InternalEvent>,
         epoch_delta_range: RangeInclusive<i64>,
     ) -> Result<Zeroizing<Vec<HmacKey>>, StorageError> {
-        let preferences = StoredUserPreferences::load(&conn)?;
-        let generated;
-        let root_key = match &preferences.hmac_key {
-            Some(key) => key.as_slice(),
-            None => {
-                generated = HmacKey::random_key();
-                StoredUserPreferences::store_hmac_key(&conn, generated.as_slice(), None)?;
-                generated.as_slice()
-            }
-        };
+        // implements: SYNC-026
+        let (root_key, made) = ensure_root_key(&conn)?;
+        if made {
+            crate::subscriptions::internal::emit_root_key_changed(events, &conn, true)?;
+        }
+        let root_key = root_key.as_slice();
         let group_id = self.group_id.as_ref();
         // Sized up front: growing would free an unwiped partial copy.
         let mut ikm = Zeroizing::new(Vec::with_capacity(root_key.len() + group_id.len()));
@@ -276,12 +317,17 @@ where
         &self,
         payloads: Vec<(&[u8], bool)>,
     ) -> Result<Vec<PublishUnit>, GroupError> {
-        crate::state_tx::state_write(self.context.mls_storage(), |tx| {
-            tx.with_group(self.group_id, |group, storage| {
-                let envelopes = self.prepare_group_envelopes_in(storage.db(), group, payloads)?;
-                Ok::<_, GroupError>(Continue(vec![PublishUnit::new(envelopes)?]))
-            })
-        })
+        crate::state_tx::state_write_with_events(
+            self.context.mls_storage(),
+            self.context.events(),
+            |tx, events| {
+                tx.with_group(self.group_id, |group, storage| {
+                    let envelopes =
+                        self.prepare_group_envelopes_in(storage.db(), events, group, payloads)?;
+                    Ok::<_, GroupError>(Continue(vec![PublishUnit::new(envelopes)?]))
+                })
+            },
+        )
         .map(TransactionOutcome::into_continued)
     }
 
@@ -293,6 +339,7 @@ where
     pub(super) fn prepare_group_envelopes_in(
         &self,
         conn: impl xmtp_db::DbQuery,
+        events: &impl xmtp_events::EventWriter<crate::subscriptions::internal::InternalEvent>,
         group: &OpenMlsGroup,
         payloads: Vec<(&[u8], bool)>,
     ) -> Result<Vec<ClientEnvelope>, GroupError> {
@@ -301,7 +348,7 @@ where
             group.group_id().as_slice(),
         )
         .map_err(OutgoingPreparationError::GroupKeys)?;
-        let hmac_keys = self.hmac_keys_in(conn, 0..=0)?;
+        let hmac_keys = self.hmac_keys_in(conn, events, 0..=0)?;
         let hmac_key = hmac_keys.last().expect("Range of count 1 was provided.");
         let signed = group_message_envelopes(hmac_key, &keys, payloads);
         #[cfg(test)]

@@ -1,6 +1,23 @@
 //! Sending, preparing, and querying messages.
 
+use super::mls_sync::publish::OutgoingPreparationError;
 use super::*;
+use crate::messages::decoded_message::carries_reserved_transcript;
+use crate::messages::enrichment::find_valid_deletion;
+
+/// An installation refresh before a send applies its membership change even
+/// when the Welcomes for the installations it adds cannot be sent. That
+/// outcome is logged and dropped here, so the send goes on; the installations
+/// stay without a Welcome, as the SEND Known limitations describe.
+fn unsent_welcomes_do_not_stop_a_send(result: Result<(), GroupError>) -> Result<(), GroupError> {
+    match result {
+        Err(GroupError::OutgoingPreparation(OutgoingPreparationError::WelcomesUnsendable)) => {
+            tracing::warn!("installations added before a send have no Welcome");
+            Ok(())
+        }
+        other => other,
+    }
+}
 
 impl<Context> MlsGroup<Context>
 where
@@ -22,8 +39,12 @@ where
         Self::reject_reserved_transcript_content(message)?;
 
         self.ensure_not_paused().await?;
+        // implements: DMS-020
+        self.ensure_dm_peer().await?;
         let update_interval_ns = Some(SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS);
-        self.maybe_update_installations(update_interval_ns).await?;
+        unsent_welcomes_do_not_stop_a_send(
+            self.maybe_update_installations(update_interval_ns).await,
+        )?;
 
         // Check for pending proposals and commit them first
         // OpenMLS blocks message creation when there are pending proposals
@@ -32,9 +53,6 @@ where
         let message_id = self.prepare_message(message, opts)?;
 
         self.sync_until_last_intent_resolved().await?;
-
-        // implicitly set group consent state to allowed
-        self.update_consent_state(ConsentState::Allowed)?;
 
         Ok(message_id)
     }
@@ -57,7 +75,7 @@ where
             // its membership update. Refresh before committing that proposal,
             // even when the regular installation-check interval has not elapsed.
             if has_pending_add {
-                self.add_missing_installations().await?;
+                unsent_welcomes_do_not_stop_a_send(self.add_missing_installations().await)?;
             }
             tracing::debug!(
                 inbox_id = self.context.inbox_id(),
@@ -80,11 +98,10 @@ where
     pub async fn publish_messages(&self) -> Result<(), GroupError> {
         self.ensure_not_paused().await?;
         let update_interval_ns = Some(SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS);
-        self.maybe_update_installations(update_interval_ns).await?;
+        unsent_welcomes_do_not_stop_a_send(
+            self.maybe_update_installations(update_interval_ns).await,
+        )?;
         self.sync_until_last_intent_resolved().await?;
-
-        // implicitly set group consent state to allowed
-        self.update_consent_state(ConsentState::Allowed)?;
 
         Ok(())
     }
@@ -100,6 +117,9 @@ where
     }
 
     /// Send a message, optimistically returning the ID of the message before the result of a message publish.
+    ///
+    /// In a DM, await [`Self::ensure_dm_peer`] first. This method does not
+    /// add a missing peer, so the peer could never read the message.
     pub fn send_message_optimistic(
         &self,
         message: &[u8],
@@ -121,6 +141,9 @@ where
     ///   derived from. Defaults to a random key when `None`.
     ///
     /// Returns the message ID.
+    ///
+    /// In a DM, await [`Self::ensure_dm_peer`] first. This method does not
+    /// add a missing peer, so the peer could never read the message.
     pub fn prepare_message_for_later_publish(
         &self,
         message: &[u8],
@@ -184,6 +207,7 @@ where
             sequence_id: 0,
             envelope_hash: None,
             expiry_ns: None,
+            expiry_unknown: false,
             expire_at_ns: None,
             inserted_at_ns: 0,
             should_push,
@@ -219,34 +243,14 @@ where
                 self.ensure_active_for_send(tx)?;
                 let storage = tx.storage();
                 let db = storage.db();
-                let mut message = db
-                    .get_group_message(message_id)?
-                    .filter(|message| message.group_id == self.group_id)
-                    .ok_or_else(|| {
-                        GroupError::NotFound(NotFound::MessageById(message_id.to_vec()))
-                    })?;
+                let mut message = db.get_group_message(message_id)?.ok_or_else(|| {
+                    GroupError::NotFound(NotFound::MessageById(message_id.to_vec()))
+                })?;
                 // The content can hold a device-sync HMAC root key, or a
                 // commit-log signer an older build recorded, so it is wiped
                 // on every exit.
                 let outcome = (|| {
-                    // An older build stored this row before the creation check.
-                    // It fails here and is never queued; the transaction commits.
-                    // A saved prepared attempt may already be on the backend, so
-                    // its outcome stays unknown and its saved bytes may still publish.
-                    // implements: GMOD-035
-                    if message.delivery_status != DeliveryStatus::Published
-                        && Self::is_reserved_transcript_content(&message.decrypted_message_bytes)
-                        && !self.has_saved_attempt(&db, &message.id)?
-                    {
-                        if message.delivery_status == DeliveryStatus::Unpublished {
-                            db.set_delivery_status_to_failed(&message.id)?;
-                            self.emit_message_status_changed(
-                                message.id.clone(),
-                                xmtp_events::MessageStatus::Unpublished,
-                                xmtp_events::MessageStatus::Failed,
-                                events,
-                            );
-                        }
+                    if self.reject_reserved_stored_message(&db, &message, events)? {
                         return Ok(Continue(Err(GroupError::ReservedTranscriptContentType)));
                     }
                     self.queue_stored_message(&db, events, &message)
@@ -257,24 +261,62 @@ where
             },
         )?
         .into_continued()?;
-        if !queued {
+        let Some(intent_id) = queued else {
             return Ok(());
-        }
+        };
 
         // Publish
-        self.maybe_update_installations(Some(SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS))
-            .await?;
-        self.sync_until_last_intent_resolved().await?;
-
-        // Implicitly set group consent state to allowed
-        self.update_consent_state(ConsentState::Allowed)?;
+        unsent_welcomes_do_not_stop_a_send(
+            self.maybe_update_installations(Some(SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS))
+                .await,
+        )?;
+        self.sync_until_intent_resolved(intent_id).await?;
 
         Ok(())
+    }
+
+    /// Refuse reserved stored content before work that can publish, such as DM repair.
+    /// Publication rechecks the row under its own transaction.
+    pub fn reject_reserved_stored_transcript_content(
+        &self,
+        message_id: &[u8],
+    ) -> Result<(), GroupError> {
+        if !self.is_active()? {
+            return Err(GroupError::GroupInactive);
+        }
+        crate::state_tx::state_write_with_events(
+            self.context.mls_storage(),
+            self.context.events(),
+            |tx, events| {
+                self.ensure_active_for_send(tx)?;
+                let storage = tx.storage();
+                let db = storage.db();
+                let mut message = db.get_group_message(message_id)?.ok_or_else(|| {
+                    GroupError::NotFound(NotFound::MessageById(message_id.to_vec()))
+                })?;
+                let outcome = self
+                    .reject_reserved_stored_message(&db, &message, events)
+                    .map(|refused| {
+                        Continue(if refused {
+                            Err(GroupError::ReservedTranscriptContentType)
+                        } else {
+                            Ok(())
+                        })
+                    });
+                // Wipe even allowed, saved-attempt and wrong-group payloads.
+                message.decrypted_message_bytes.zeroize();
+                outcome
+            },
+        )?
+        .into_continued()
     }
 
     /// Delete a message by its ID. Returns the ID of the deletion message.
     ///
     /// Only the original sender or a super admin can delete a message.
+    ///
+    /// In a DM, await [`Self::ensure_dm_peer`] first. This method does not
+    /// add a missing peer, so the peer could never read the deletion.
     ///
     /// # Wire Protocol
     /// The `DeleteMessage` protobuf encodes `message_id` as a hex-encoded string for wire
@@ -303,8 +345,8 @@ where
             return Err(DeleteMessageError::NotAuthorized.into());
         }
 
-        // Check if message is already deleted
-        if conn.is_message_deleted(&message_id)? {
+        // implements: PROC-056
+        if find_valid_deletion(&conn, &original_msg)?.is_some() {
             return Err(DeleteMessageError::MessageAlreadyDeleted.into());
         }
 
@@ -347,16 +389,7 @@ where
             |tx, events| {
                 let storage = tx.storage();
                 let db = storage.db();
-                let already_deleted = db
-                    .get_deletions_for_messages(vec![original_msg.id.clone()])?
-                    .iter()
-                    .any(|prior| {
-                        crate::messages::enrichment::is_deletion_valid(
-                            prior,
-                            &original_msg,
-                            &self.group_id,
-                        )
-                    });
+                let already_deleted = find_valid_deletion(&db, &original_msg)?.is_some();
                 deletion.store(&db)?;
                 if !already_deleted {
                     crate::subscriptions::internal::emit_deleted_messages(
@@ -372,6 +405,39 @@ where
         )?;
 
         Ok(deletion_message_id)
+    }
+
+    /// Refuse an unsaved reserved row and persist its terminal failure in this write.
+    // implements: GMOD-054
+    fn reject_reserved_stored_message(
+        &self,
+        db: &impl DbQuery,
+        message: &StoredGroupMessage,
+        events: &impl xmtp_events::EventWriter<crate::subscriptions::internal::InternalEvent>,
+    ) -> Result<bool, GroupError> {
+        if message.group_id != self.group_id {
+            return Err(GroupError::NotFound(NotFound::MessageById(
+                message.id.clone(),
+            )));
+        }
+        // An older build may have stored this content before the creation check.
+        // Saved prepared bytes can already be on the backend and remain publishable.
+        if message.delivery_status == DeliveryStatus::Published
+            || !Self::is_reserved_transcript_content(&message.decrypted_message_bytes)
+            || self.has_saved_attempt(db, &message.id)?
+        {
+            return Ok(false);
+        }
+        if message.delivery_status == DeliveryStatus::Unpublished {
+            db.set_delivery_status_to_failed(&message.id)?;
+            self.emit_message_status_changed(
+                message.id.clone(),
+                xmtp_events::MessageStatus::Unpublished,
+                xmtp_events::MessageStatus::Failed,
+                events,
+            );
+        }
+        Ok(true)
     }
 
     /// Whether a send intent for this message already has a saved attempt.
@@ -391,23 +457,16 @@ where
         Ok(false)
     }
 
-    /// Whether the outer content type is a reserved transcript type. Only the
-    /// `xmtp.org` authority reserves these type ids, at any version.
-    // implements: GMOD-035
+    /// Whether content or any nested reply carries a reserved transcript type.
+    /// Only the `xmtp.org` authority reserves these type ids, at any version.
+    // implements: GMOD-054
     pub(in crate::groups) fn is_reserved_transcript_content(message: &[u8]) -> bool {
-        encoded_content_type(message)
-            .ok()
-            .flatten()
-            .is_some_and(|content_type| {
-                content_type.authority_id == "xmtp.org"
-                    && matches!(
-                        content_type.type_id.as_str(),
-                        "group_updated" | "group_membership_change"
-                    )
-            })
+        carries_reserved_transcript(message)
     }
 
-    fn reject_reserved_transcript_content(message: &[u8]) -> Result<(), GroupError> {
+    /// Refuse reserved transcript types at any reply depth and replies that exceed
+    /// the bounded scan. Call this before network work such as [`Self::ensure_dm_peer`].
+    pub fn reject_reserved_transcript_content(message: &[u8]) -> Result<(), GroupError> {
         if Self::is_reserved_transcript_content(message) {
             Err(GroupError::ReservedTranscriptContentType)
         } else {
@@ -455,7 +514,7 @@ where
         message: &[u8],
         opts: send_message_opts::SendMessageOpts,
     ) -> Result<Vec<u8>, GroupError> {
-        crate::state_tx::state_write_with_events(
+        crate::state_tx::state_write_with_events_durable(
             self.context.mls_storage(),
             self.context.events(),
             |tx, events| {
@@ -482,24 +541,28 @@ where
     ///
     /// A published message is never queued again, and an unresolved intent for
     /// the same envelope is reused. A retry of a failed message returns it to
-    /// `Unpublished` in the same transaction as its new intent. Returns whether
-    /// the message has work to publish.
+    /// `Unpublished` in the same transaction as its new intent. Returns that
+    /// exact intent's ID, or None when the message is already published.
     // implements: SEND-003
     fn queue_stored_message(
         &self,
         db: &impl DbQuery,
         events: &impl xmtp_events::EventWriter<crate::subscriptions::internal::InternalEvent>,
         message: &StoredGroupMessage,
-    ) -> Result<bool, GroupError> {
+    ) -> Result<Option<i32>, GroupError> {
         if message.delivery_status == DeliveryStatus::Published {
-            return Ok(false);
+            return Ok(None);
         }
         let envelope =
             Self::encode_envelope(&message.decrypted_message_bytes, &message.idempotency_key);
-        QueueIntent::send_message()
+        let (intent, reused) = QueueIntent::send_message()
             .data(Vec::<u8>::from(SendMessageIntentData::new(envelope)))
             .should_push(message.should_push)
-            .queue_in(db, self)?;
+            .queue_in_reporting_reuse(db, self)?;
+        // A retry that reuses the queued intent sends nothing new.
+        if !reused {
+            self.allow_after_send(db, events, message)?;
+        }
         if db.set_failed_delivery_status_to_unpublished(&message.id)? > 0 {
             self.emit_message_status_changed(
                 message.id.clone(),
@@ -508,7 +571,32 @@ where
                 events,
             );
         }
-        Ok(true)
+        Ok(Some(intent.id))
+    }
+
+    /// Store allowed for a conversation that does not read allowed when the
+    /// app queues a message other than a deletion or a leave request.
+    // implements: CONS-057
+    fn allow_after_send(
+        &self,
+        db: &impl DbQuery,
+        events: &impl xmtp_events::EventWriter<crate::subscriptions::internal::InternalEvent>,
+        message: &StoredGroupMessage,
+    ) -> Result<(), GroupError> {
+        let Some(decision) = Decision::on_send(self.conversation_type, message.content_type) else {
+            return Ok(());
+        };
+        let Some(group) = db.find_group(&self.group_id)? else {
+            return Ok(());
+        };
+        let Some(key) = ConsentKey::of_group(&group, self.context.inbox_id()) else {
+            return Ok(());
+        };
+        let changes: Vec<_> = write_consent(db, &key, ConsentWrite::Decide(decision), Owed::Mark)?
+            .into_iter()
+            .collect();
+        crate::subscriptions::internal::emit_consent_changes(&self.context, events, db, &changes)?;
+        Ok(())
     }
 
     /// Check membership while holding the same writer as the new message or intent.

@@ -259,8 +259,8 @@ impl Conversations {
         .await
     }
 
-    /// The DM with an account or a handle, or `None`. A handle resolves
-    /// through the verified handle resolver before the DM is looked up.
+    /// The DM with an account or a handle, or `None`. Either resolves
+    /// through the verified resolver before the DM is looked up.
     pub async fn get_dm_by_identity(
         &self,
         identity: PublicIdentity,
@@ -331,9 +331,9 @@ impl Conversations {
     }
 
     /// Create a group from account identities and handles. Hosts present
-    /// this as a `createGroup` overload or union. Every handle resolves
-    /// through the verified handle resolver before the group exists, and all
-    /// members join in one commit.
+    /// this as a `createGroup` overload or union. Every account and handle
+    /// resolves through the verified resolver, a handle before the group
+    /// exists, and all members join in one commit.
     #[uniffi::method(default(options = None))]
     pub async fn create_group_with_identities(
         &self,
@@ -358,9 +358,9 @@ impl Conversations {
     }
 
     /// Find or create a DM with an account identity or a handle. Hosts
-    /// present this as a `createDm` overload or union. A handle resolves
-    /// through the verified handle resolver before the existing DM is looked
-    /// up.
+    /// present this as a `createDm` overload or union. An account or a handle
+    /// resolves through the verified resolver before the existing DM is
+    /// looked up.
     #[uniffi::method(default(options = None))]
     pub async fn create_dm_with_identity(
         &self,
@@ -412,7 +412,7 @@ impl Conversations {
         let client = self.client.clone();
         let client_key = self.client_key;
         on_sdk_worker(self.client.context.clone(), async move {
-            let args: GroupQueryArgs = options.unwrap_or_default().into();
+            let args: GroupQueryArgs = options.unwrap_or_default().try_into()?;
             list_local(client, client_key, args).await
         })
         .await
@@ -500,13 +500,17 @@ impl Conversations {
 
     pub async fn delete_message(&self, id: MessageId) -> Result<MessageId, XmtpError> {
         let (stored, group) = self.message_group(&id).await?;
-        on_sdk_worker(self.client.context.clone(), async move {
-            let group = deletion_group(group, &stored)?;
-            let deletion_id = group
-                .delete_message(stored.id)
-                .map_err(XmtpError::from_core)?;
-            MessageId::from_bytes(&deletion_id)
-        })
+        on_sdk_worker(
+            self.client.context.clone(),
+            // Swift cooperative threads cannot hold the nested MLS future.
+            Box::pin(async move {
+                let group = deletion_group(group, &stored).await?;
+                let deletion_id = group
+                    .delete_message(stored.id)
+                    .map_err(XmtpError::from_core)?;
+                MessageId::from_bytes(&deletion_id)
+            }),
+        )
         .await
     }
 

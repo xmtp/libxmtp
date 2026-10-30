@@ -23,6 +23,11 @@ use xmtp_proto::{types::GroupId, xmtp::device_sync::BackupMetadataSave};
 pub const ENC_KEY_SIZE: usize = 32; // 256-bit key
 pub const NONCE_SIZE: usize = 12; // 96-bit nonce
 pub const TAG_SIZE: usize = 16; // 128-bit AES-GCM tag
+/// Holds a legacy converter row at its 64 MiB budget plus what that budget does not
+/// count: about 2 MiB of decoded group metadata, protobuf field overhead, and the tag.
+pub const MAX_FRAME_BYTES: usize = 72 * 1024 * 1024;
+/// 16 MiB. Exporters use zstd's default level, whose window is 2 MiB.
+pub const ZSTD_WINDOW_LOG_MAX: u32 = 24;
 
 // Increment on breaking changes
 pub const BACKUP_VERSION: u16 = 0;
@@ -30,6 +35,7 @@ pub const BACKUP_VERSION: u16 = 0;
 pub mod archive_options;
 pub mod exporter;
 pub mod importer;
+pub mod pre8;
 mod snapshot;
 mod util;
 

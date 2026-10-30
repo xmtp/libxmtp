@@ -159,6 +159,7 @@ openmls_basic_credential.workspace = true
 proptest.workspace = true
 rstest = { workspace = true, features = ["async-timeout"] }
 rstest_reuse.workspace = true
+tracing-log = "0.2"
 wasm-bindgen-test.workspace = true
 xmtp_api = { workspace = true, features = ["test-utils"] }
 xmtp_api_backend = { workspace = true, features = ["test-utils"] }
@@ -187,7 +188,7 @@ xmtp_backend = { path = "../../apps/backend", features = ["test-utils"] }
 ctor.workspace = true
 mockito = "1.7.2"
 tempfile = "3.27.0"
-tokio = { workspace = true, features = ["rt-multi-thread"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "test-util"] }
 
 [target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dev-dependencies]
 tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
@@ -203,6 +204,10 @@ required-features = ["test-utils"]
 
 [[test]]
 name = "zeroize"
+required-features = ["test-utils"]
+
+[[test]]
+name = "openmls_host_logging"
 required-features = ["test-utils"]
 
 [[bench]]

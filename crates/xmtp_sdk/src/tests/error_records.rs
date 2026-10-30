@@ -169,3 +169,22 @@ fn inbox_state_preserves_member_creation_order() {
         [early.to_string(), late.to_string(), owner.to_string()]
     );
 }
+
+/// A refused consent act is the caller's: a conversation the client does
+/// not hold, or one whose key is not valid, such as a restored DM of another
+/// inbox.
+// verifies: CONS-052
+#[xmtp_common::test]
+fn refused_consent_acts_are_invalid_arguments() {
+    use xmtp_db::consent_record::ConsentActError;
+    for refused in [
+        ConsentActError::InvalidEntity,
+        ConsentActError::ConversationNotHeld("cd".repeat(32)),
+    ] {
+        let mapped = XmtpError::from_client(xmtp_mls::client::ClientError::ConsentAct(refused));
+        assert!(
+            matches!(mapped, XmtpError::InvalidArgument(_)),
+            "{mapped:?}"
+        );
+    }
+}

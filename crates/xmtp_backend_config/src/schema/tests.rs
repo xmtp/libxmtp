@@ -57,6 +57,7 @@ fn published_schema_accepts_the_example_and_rejects_unknown_keys() {
         "push",
         "validation",
         "limits",
+        "rate_limits",
         "mls",
     ] {
         let mut instance = example.clone();
@@ -221,13 +222,19 @@ fn published_schema_enforces_every_numeric_scalar_range() {
                     | "max_stream_topics"
                     | "max_static_topics"
                     | "max_lookup_identifiers"
-                    | "max_scw_signatures"
                     | "max_identity_entries",
                 ) => u32::MAX as u64,
+                ("limits", "max_scw_signatures") => {
+                    xmtp_configuration::MAX_SCW_SIGNATURES_PER_REQUEST as u64
+                }
                 ("database", "max_statement_timeout_ms") | ("publishing", _) => i32::MAX as u64,
                 ("retention", _) => i64::MAX as u64 / 1_000_000_000,
+                ("mls", "max_installations_per_inbox") => {
+                    super::super::MAX_INSTALLATIONS_LIMIT as u64
+                }
                 ("mls", _) => super::super::MAX_MLS_LIMIT as u64,
                 ("handles", "min_name_length") => 27,
+                ("rate_limits", "max_memory_mib") => 65_536,
                 _ => u64::MAX,
             };
             let minimum = if section == "push" && field == "recipient_ttl_seconds" {
@@ -434,6 +441,149 @@ fn published_schema_checks_socket_addresses_with_the_runtime_parser() {
             address.parse::<std::net::SocketAddr>().is_ok(),
             "{address:?}"
         );
+    }
+}
+
+/// The published `ip address` and `ip network` patterns accept exactly what
+/// startup accepts, except a network with a bit set after its prefix, which
+/// only startup refuses.
+#[xmtp_common::test(unwrap_try = true)]
+fn published_schema_checks_ip_addresses_and_networks_with_the_runtime_parser() {
+    let validator = validator();
+    let addresses = [
+        "0.0.0.0",
+        "255.255.255.255",
+        "192.0.2.1",
+        "::",
+        "::1",
+        "1:2:3:4:5:6:7:8",
+        "1:2:3:4:5:6:192.0.2.1",
+        "::ffff:192.0.2.1",
+        "2001:DB8::1",
+        "",
+        "01.2.3.4",
+        "256.0.0.1",
+        "1.2.3",
+        "[::1]",
+        "fe80::1%1",
+        "1::2::3",
+        "::gg",
+        "1:2:3:4:5:6:7:8:9",
+        "localhost",
+        " 192.0.2.1",
+        "192.0.2.1\n",
+    ];
+    for address in addresses {
+        let instance = json!({
+            "database": {"url": "postgres://localhost/xmtp"},
+            "rate_limits": {"overrides": [{"ip": address, "limits": {}}]}
+        });
+        assert_eq!(
+            validator.is_valid(&instance),
+            crate::ip_address(address).is_some(),
+            "{address:?}"
+        );
+    }
+    let mut networks = vec![
+        "0.0.0.0/0".to_owned(),
+        "10.0.0.0/8".into(),
+        "192.0.2.7/32".into(),
+        "192.0.2.0/024".into(),
+        "::/0".into(),
+        "fd00::/8".into(),
+        "2001:db8::1/128".into(),
+        "::ffff:192.0.2.0/120".into(),
+        "10.0.0.0/33".into(),
+        "10.0.0.0/+8".into(),
+        "10.0.0.0/-8".into(),
+        "10.0.0.0/".into(),
+        "10.0.0.0".into(),
+        "/8".into(),
+        "fd00::/129".into(),
+        "fd00::%1/8".into(),
+        "[fd00::]/8".into(),
+        "10.0.0.0/8/8".into(),
+    ];
+    // A full-length prefix sets no bit after it.
+    networks.extend(addresses.iter().map(|address| {
+        let length = if address.contains(':') { 128 } else { 32 };
+        format!("{address}/{length}")
+    }));
+    for network in &networks {
+        let instance = json!({
+            "database": {"url": "postgres://localhost/xmtp"},
+            "rate_limits": {"trusted_proxies": [network]}
+        });
+        assert_eq!(
+            validator.is_valid(&instance),
+            crate::ip_network(network).is_some(),
+            "{network:?}"
+        );
+    }
+    for network in ["10.0.0.1/8", "fd00::1/8", "192.0.2.1/31"] {
+        let instance = json!({
+            "database": {"url": "postgres://localhost/xmtp"},
+            "rate_limits": {"trusted_proxies": [network]}
+        });
+        assert!(validator.is_valid(&instance), "{network:?}");
+        assert!(crate::ip_network(network).is_none(), "{network:?}");
+    }
+}
+
+/// The published schema accepts the `[rate_limits]` table of the CONF example
+/// and refuses an unlisted category or tier name, a `count` or
+/// `window_seconds` out of range, a limit without `count`, an override without
+/// `limits`, and an unknown key. CONF-094 is checked only at startup.
+#[xmtp_common::test(unwrap_try = true)]
+fn published_schema_checks_the_rate_limits_table() {
+    let validator = validator();
+    let example: toml::Table = toml::from_str(crate::tests::example::example())?;
+    let rate_limits = serde_json::to_value(&example["rate_limits"])?;
+    assert!(rate_limits["categories"]["publish"]["ip"][0].is_object());
+    assert!(rate_limits["overrides"][0]["limits"].is_object());
+    let instance = |rate_limits: &Value| json!({"database": {"url": "postgres://localhost/xmtp"}, "rate_limits": rate_limits});
+    assert!(validator.is_valid(&instance(&rate_limits)));
+    type Change = fn(&mut Value);
+    let changes: [(&str, Change); 10] = [
+        ("category query", |table| {
+            table["categories"]["query"] = json!({})
+        }),
+        ("tier anon", |table| {
+            table["categories"]["publish"]["anon"] = json!([])
+        }),
+        ("window_seconds 2592001", |table| {
+            table["categories"]["publish"]["ip"][0]["window_seconds"] = json!(2_592_001)
+        }),
+        ("window_seconds 0", |table| {
+            table["categories"]["publish"]["ip"][0]["window_seconds"] = json!(0)
+        }),
+        ("count 0", |table| {
+            table["categories"]["publish"]["ip"][0]["count"] = json!(0)
+        }),
+        ("a limit without count", |table| {
+            table["categories"]["publish"]["ip"][0] = json!({"window_seconds": 60})
+        }),
+        ("an unknown key in a limit", |table| {
+            table["overrides"][0]["limits"]["publish"] =
+                json!([{"count": 1, "window_seconds": 1, "unknown": 1}])
+        }),
+        ("an override without limits", |table| {
+            table["overrides"][0]
+                .as_object_mut()
+                .unwrap()
+                .remove("limits");
+        }),
+        ("an unknown key in an override", |table| {
+            table["overrides"][0]["unknown"] = json!(1)
+        }),
+        ("override category query", |table| {
+            table["overrides"][0]["limits"]["query"] = json!([])
+        }),
+    ];
+    for (label, change) in changes {
+        let mut changed = rate_limits.clone();
+        change(&mut changed);
+        assert!(!validator.is_valid(&instance(&changed)), "{label}");
     }
 }
 

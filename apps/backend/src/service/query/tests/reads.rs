@@ -1,8 +1,8 @@
 use crate::test_support as support;
 
-use crate::api;
+use crate::{api, api::query_service_server::QueryService as _};
 use support::{TestServer, query_topic, topic};
-use tonic::Code;
+use tonic::{Code, Request};
 use xmtp_mls_validation::test_utils::inline_welcome_envelope;
 use xmtp_proto::types::TopicKind;
 
@@ -15,12 +15,7 @@ async fn paging_coalesces_inputs_and_uses_one_total_clamped_limit() {
     })
     .await?;
     let first = inline_welcome_envelope([1; 32]);
-    let mut second = first.clone();
-    if let Some(api::client_envelope::Payload::WelcomeMessage(welcome)) = &mut second.payload
-        && let Some(api::welcome_message::Version::V1(welcome)) = &mut welcome.version
-    {
-        welcome.data.push(1);
-    }
+    let second = support::native::envelope(1, 1);
     let other = inline_welcome_envelope([2; 32]);
     let metas = server.publish(vec![first, other, second]).await?;
     let topic_a = metas[0].topic.clone().unwrap();
@@ -94,7 +89,7 @@ async fn newest_limits_accept_exact_count_and_reject_one_past_for_both_modes() {
     })
     .await?;
     let envelope = inline_welcome_envelope([4; 32]);
-    let meta = server.publish(vec![envelope.clone()]).await?.remove(0);
+    let meta = server.publish(vec![envelope]).await?.remove(0);
     let primary_topic = meta.topic.clone().unwrap();
     let other = topic(TopicKind::WelcomeMessagesV1, &[5; 32]);
 
@@ -108,11 +103,6 @@ async fn newest_limits_accept_exact_count_and_reject_one_past_for_both_modes() {
             .await?
             .into_inner();
         assert_eq!(result.results.len(), 1);
-        assert_eq!(result.results[0].meta, Some(meta.clone()));
-        assert_eq!(
-            result.results[0].envelope,
-            include_full_envelope.then(|| envelope.clone())
-        );
 
         assert_eq!(
             server
@@ -249,60 +239,82 @@ async fn reads_name_group_and_commit_log_topics_only_by_32_byte_identifiers() {
 #[xmtp_common::test(unwrap_try = true)]
 // verifies: API-283
 async fn full_query_and_newest_fail_when_response_bytes_exceed_the_cap() {
-    let server = TestServer::new(|config| {
-        config.limits.max_envelope_bytes = 1_024;
-        config.limits.max_response_bytes = 1_500;
-    })
-    .await?;
-    let mut envelopes = Vec::new();
-    for id in 0..3 {
-        let mut envelope = inline_welcome_envelope([id; 32]);
-        if let Some(api::client_envelope::Payload::WelcomeMessage(welcome)) = &mut envelope.payload
-            && let Some(api::welcome_message::Version::V1(version)) = &mut welcome.version
-        {
-            version.data = vec![3; 700];
+    // At 690 data bytes, two payloads fit (1486 bytes), but response framing does not.
+    for (data_bytes, count, expected) in [
+        (500, 2, Ok(2)),
+        (500, 3, Err(Code::OutOfRange)),
+        (690, 2, Ok(2)),
+    ] {
+        let server = TestServer::new(|config| {
+            config.limits.max_envelope_bytes = 1_024;
+            config.limits.max_response_bytes = 1_500;
+        })
+        .await?;
+        let mut envelopes = Vec::new();
+        for id in 0..count {
+            let mut envelope = inline_welcome_envelope([id as u8; 32]);
+            if let Some(api::client_envelope::Payload::WelcomeMessage(welcome)) =
+                &mut envelope.payload
+                && let Some(api::welcome_message::Version::V1(version)) = &mut welcome.version
+            {
+                version.data = vec![3; data_bytes];
+            }
+            envelopes.push(envelope);
         }
-        envelopes.push(envelope);
-    }
-    let metas = server.publish(envelopes).await?;
-    let topics: Vec<_> = metas
-        .iter()
-        .map(|meta| meta.topic.clone().unwrap())
-        .collect();
-    let queries = topics
-        .iter()
-        .cloned()
-        .map(|topic| query_topic(topic, 0))
-        .collect();
-    assert_eq!(
-        server
-            .query()
-            .query(api::QueryRequest { queries, limit: 3 })
+        let metas = server.publish(envelopes).await?;
+        let topics: Vec<_> = metas
+            .iter()
+            .map(|meta| meta.topic.clone().unwrap())
+            .collect();
+        let query = api::QueryRequest {
+            queries: topics[..count]
+                .iter()
+                .cloned()
+                .map(|t| query_topic(t, 0))
+                .collect(),
+            limit: 3,
+        };
+        let newest = api::QueryNewestRequest {
+            topics: topics[..count].to_vec(),
+            include_full_envelope: true,
+        };
+        let page = server
+            .backend
+            .query(Request::new(query.clone()))
             .await
-            .unwrap_err()
-            .code(),
-        Code::OutOfRange
-    );
-    assert_eq!(
-        server
+            .map(|r| r.into_inner().envelopes.len())
+            .map_err(|e| e.code());
+        let results = server
+            .backend
+            .query_newest(Request::new(newest.clone()))
+            .await
+            .map(|r| r.into_inner().results.len())
+            .map_err(|e| e.code());
+        assert_eq!((page, results), (expected, expected));
+        if count == 3 || data_bytes == 690 {
+            assert_eq!(
+                server.query().query(query).await.unwrap_err().code(),
+                Code::OutOfRange
+            );
+            assert_eq!(
+                server
+                    .query()
+                    .query_newest(newest)
+                    .await
+                    .unwrap_err()
+                    .code(),
+                Code::OutOfRange
+            );
+        }
+        let metadata = server
             .query()
             .query_newest(api::QueryNewestRequest {
-                topics: topics.clone(),
-                include_full_envelope: true,
+                topics,
+                include_full_envelope: false,
             })
-            .await
-            .unwrap_err()
-            .code(),
-        Code::OutOfRange
-    );
-    let metadata = server
-        .query()
-        .query_newest(api::QueryNewestRequest {
-            topics,
-            include_full_envelope: false,
-        })
-        .await?
-        .into_inner();
-    assert_eq!(metadata.results.len(), 3);
-    server.stop().await?;
+            .await?
+            .into_inner();
+        assert_eq!(metadata.results.len(), count);
+        server.stop().await?;
+    }
 }

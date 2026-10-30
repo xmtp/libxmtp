@@ -277,11 +277,7 @@ fn decode_rejects_compression_bomb_with_bounded_output() {
     use flate2::{Compression as FlateCompression, write::ZlibEncoder};
     use prost::Message as _;
     use std::io::Write;
-    use xmtp_content_types::{
-        ContentCodec,
-        compression::{COMPRESSION_CHUNK_BYTES, DecompressionBudget, MAX_DECOMPRESSED_BYTES},
-        text::TextCodec,
-    };
+    use xmtp_content_types::{ContentCodec, compression::MAX_DECOMPRESSED_BYTES, text::TextCodec};
     use xmtp_proto::xmtp::mls::message_contents::Compression as WireCompression;
 
     let mut encoder = ZlibEncoder::new(Vec::new(), FlateCompression::default());
@@ -289,12 +285,9 @@ fn decode_rejects_compression_bomb_with_bounded_output() {
     let mut content = TextCodec::encode("placeholder".into())?;
     content.content = encoder.finish()?;
     content.compression = Some(WireCompression::Deflate as i32);
-    let error = MessageContent::decode(content.clone().encode_to_vec()).unwrap_err();
+    let error = MessageContent::decode(content.encode_to_vec()).unwrap_err();
     assert!(
         error.to_string().contains("decompressed content exceeds"),
         "unexpected decode error: {error}"
     );
-    let mut budget = DecompressionBudget::new();
-    assert!(xmtp_content_types::compression::decompress_with_budget(content, &mut budget).is_err());
-    assert!(budget.peak_capacity() <= MAX_DECOMPRESSED_BYTES + COMPRESSION_CHUNK_BYTES);
 }

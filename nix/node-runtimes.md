@@ -81,7 +81,12 @@ Upstream commit `bc5af1c67cd8e029f86ec992688dde9307f4d61a` synchronizes actual W
 completion in the shared-isolate C++ test. It replaces a bounded number of
 nonblocking event-loop turns with elapsed-time waiting that yields to the Worker,
 without changing assertions, disabling tests, or adding retries. Apply it only to
-Node 26. Remove the backport when the selected release sources contain that commit
+Node 26. The patch is vendored as `lib/node-worker-exit.patch` because GitHub
+can lengthen generated diff index abbreviations for the same commit, breaking a
+fetch hash. The vendored copy retains the original 11-digit indices and checksum.
+A local `fetchurl` keeps the original fixed-output name and hash so the Node
+runtime output paths and cached builds stay unchanged.
+Remove the backport when the selected release sources contain that commit
 or an equivalent fix, and both shared-isolate variants pass the unchanged native
 upstream suite without the extra patch.
 
@@ -96,7 +101,10 @@ nix build --no-link .#node-runtime-dependencies.x86_64-linux
 The Linux check also runs the real React Native JS build phase against a tiny
 read-only generated-file fixture. It stubs only the staging command and drops
 its unused Rust/runtime path contexts, so it builds no SDK or Node sources.
-The sandbox must reject a direct rename with `EXDEV`; publication must preserve
+The check injects `EXDEV` for rename calls, independent of whether the runner
+puts the build directory and store on separate filesystems. It retains the real
+copy/remove fallback and verifies the injection with a direct rename probe.
+Publication must preserve
 the exact tree contents and leave the read-only source intact. This regression
 runs through the existing scoped-runtime CI check, without another job.
 

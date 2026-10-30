@@ -49,6 +49,10 @@ vi.mock("@/components/Conversation/MembersList", () => ({
 }));
 vi.mock("@/components/Conversation/Composer", () => ({ Composer: () => null }));
 vi.mock("@/components/Messages/Messages", () => ({ Messages: () => null }));
+vi.mock("@/contexts/XMTPContext", () => ({ useClient: () => ({}) }));
+vi.mock("@/hooks/useConsentState", () => ({
+  useConsentState: () => undefined,
+}));
 vi.mock("@/layouts/ContentLayout", () => ({
   ContentLayout: ({
     title,

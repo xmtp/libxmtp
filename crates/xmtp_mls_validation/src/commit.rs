@@ -9,7 +9,7 @@ use std::collections::{HashMap, HashSet};
 
 use openmls::{
     credentials::{BasicCredential, Credential as OpenMlsCredential, errors::BasicCredentialError},
-    extensions::Extensions,
+    extensions::{AppDataDictionary, Extensions},
     group::{GroupContext, MlsGroup as OpenMlsGroup, StagedCommit},
     messages::proposals::{AppDataUpdateOperation, Proposal, ProposalType},
     prelude::{LeafNodeIndex, Sender},
@@ -26,6 +26,7 @@ use xmtp_mls_common::{
     group_mutable_metadata::{GroupMutableMetadata, GroupMutableMetadataError, MetadataField},
     libxmtp_version::{InvalidVersionFormat, LibXMTPVersion},
 };
+use xmtp_proto::types::ConversationType;
 use xmtp_proto::xmtp::{
     identity::MlsCredential,
     mls::message_contents::group_updated::{
@@ -34,7 +35,8 @@ use xmtp_proto::xmtp::{
 };
 
 use crate::{
-    group_membership::{GroupMembership, MembershipDiff},
+    ReaddAuthority,
+    group_membership::{FailedInstallations, GroupMembership, MembershipDiff},
     group_permissions::GroupMutablePermissionsError,
 };
 
@@ -340,25 +342,16 @@ pub fn validate_committed_proposals<'a>(
     has_state: impl Fn(ComponentId) -> bool,
 ) -> Result<(), CommitRuleError> {
     let mut rejection = None;
-    let mut updated = HashSet::new();
-    let mut removed = HashSet::new();
+    let mut list = AppDataUpdateList::default();
     for proposal in proposals {
         match proposal {
             Proposal::Add(_) | Proposal::Update(_) | Proposal::Remove(_) => {}
             Proposal::AppDataUpdate(update) => {
                 let id = ComponentId::from(update.component_id());
-                let valid = match update.operation() {
-                    AppDataUpdateOperation::Update(_) => {
-                        updated.insert(id);
-                        !removed.contains(&id)
-                    }
-                    AppDataUpdateOperation::Remove => {
-                        removed.insert(id) && !updated.contains(&id) && has_state(id)
-                    }
-                };
-                if !valid {
+                if !list.admits(id, update.operation(), || has_state(id)) {
                     rejection.get_or_insert(CommitRuleError::InvalidAppDataUpdateList(id));
                 }
+                list.push(id, update.operation());
             }
             Proposal::PreSharedKey(_) => {
                 rejection.get_or_insert(CommitRuleError::NoPSKSupport);
@@ -373,8 +366,44 @@ pub fn validate_committed_proposals<'a>(
     rejection.map_or(Ok(()), Err)
 }
 
+/// A commit's `AppDataUpdate` list, built in commit order and judged by
+/// draft-ietf-mls-extensions-08 §4.7: per component, no Update together
+/// with a Remove, at most one Remove, and a Remove only for a component
+/// with state before the commit.
+#[derive(Default)]
+pub struct AppDataUpdateList {
+    updated: HashSet<ComponentId>,
+    removed: HashSet<ComponentId>,
+}
+
+impl AppDataUpdateList {
+    /// Whether the list stays valid with `operation` on `id` next.
+    /// `has_state` tells whether `id` has state before the commit.
+    pub fn admits(
+        &self,
+        id: ComponentId,
+        operation: &AppDataUpdateOperation,
+        has_state: impl FnOnce() -> bool,
+    ) -> bool {
+        !self.removed.contains(&id)
+            && match operation {
+                AppDataUpdateOperation::Update(_) => true,
+                AppDataUpdateOperation::Remove => !self.updated.contains(&id) && has_state(),
+            }
+    }
+
+    pub fn push(&mut self, id: ComponentId, operation: &AppDataUpdateOperation) {
+        match operation {
+            AppDataUpdateOperation::Update(_) => self.updated.insert(id),
+            AppDataUpdateOperation::Remove => self.removed.insert(id),
+        };
+    }
+}
+
 pub struct ProposalChanges {
     pub added_installations: HashSet<Vec<u8>>,
+    /// Added keys proposed by a member of the inbox the leaf's credential names.
+    pub self_added_installations: HashSet<Vec<u8>>,
     pub removed_installations: HashSet<Vec<u8>>,
     pub credentials_to_verify: Vec<CommitParticipant>,
     /// Maps inbox_id to the proposer who proposed adding it
@@ -385,9 +414,11 @@ pub struct ProposalChanges {
 
 /**
  * Extracts the installations added and removed via proposals in the commit.
- * Also returns a list of credentials from existing members that need verification (caused by update proposals)
+ * Also returns the leaves of Add and Update proposals, whose signature keys the caller must
+ * check against the identity state of their credentials' inboxes.
  * Tracks which proposer created each proposal for permission validation.
  */
+// implements: PERM-030
 pub fn get_proposal_changes(
     staged_commit: &StagedCommit,
     openmls_group: &OpenMlsGroup,
@@ -396,10 +427,13 @@ pub fn get_proposal_changes(
 ) -> Result<ProposalChanges, CommitRuleError> {
     // The actual installations added and removed via proposals in the commit
     let mut added_installations: HashSet<Vec<u8>> = HashSet::new();
+    let mut self_added_installations: HashSet<Vec<u8>> = HashSet::new();
     let mut removed_installations: HashSet<Vec<u8>> = HashSet::new();
     let mut credentials_to_verify: Vec<CommitParticipant> = vec![];
     let mut added_inbox_proposers: HashMap<String, CommitParticipant> = HashMap::new();
     let mut removed_inbox_proposers: HashMap<String, CommitParticipant> = HashMap::new();
+
+    let mut membership_deletes = Vec::new();
 
     for proposal in staged_commit.queued_proposals() {
         // Extract the proposer for this proposal
@@ -417,21 +451,34 @@ pub fn get_proposal_changes(
             // For update proposals, we need to validate that the credential and installation key
             // are valid for the inbox_id in the current group membership state
             Proposal::Update(update_proposal) => {
-                credentials_to_verify.push(CommitParticipant::from_leaf_node(
+                let leaf = CommitParticipant::from_leaf_node(
                     update_proposal.leaf_node(),
                     immutable_metadata,
                     mutable_metadata,
-                )?);
+                )?;
+                // implements: GMOD-003
+                // `proposer` is the sender's current leaf in the pre-commit tree.
+                if leaf.installation_id != proposer.installation_id {
+                    return Err(CommitRuleError::InboxValidationFailed(leaf.inbox_id));
+                }
+                credentials_to_verify.push(leaf);
             }
-            // For Add Proposals, all we need to do is validate that the installation_id is in the expected diff
+            // For Add proposals, the installation_id must be in the expected diff, and the
+            // credential must name the inbox that owns that installation. The expected diff
+            // is one set across all inboxes, so it does not check the second part.
             Proposal::Add(add_proposal) => {
-                // We don't need to validate the credential here, since we've already validated it as part of
-                // building the expected installation diff
                 let leaf_node = add_proposal.key_package().leaf_node();
-                let installation_id = leaf_node.signature_key().as_slice().to_vec();
-                let inbox_id = inbox_id_from_credential(leaf_node.credential())?;
-                added_installations.insert(installation_id);
-                added_inbox_proposers.insert(inbox_id, proposer);
+                let participant = CommitParticipant::from_leaf_node(
+                    leaf_node,
+                    immutable_metadata,
+                    mutable_metadata,
+                )?;
+                added_installations.insert(participant.installation_id.clone());
+                if proposer.inbox_id == participant.inbox_id {
+                    self_added_installations.insert(participant.installation_id.clone());
+                }
+                added_inbox_proposers.insert(participant.inbox_id.clone(), proposer);
+                credentials_to_verify.push(participant);
             }
             // For Remove Proposals, all we need to do is validate that the installation_id is in the expected diff
             Proposal::Remove(remove_proposal) => {
@@ -443,12 +490,39 @@ pub fn get_proposal_changes(
                 removed_installations.insert(installation_id);
                 removed_inbox_proposers.insert(inbox_id, proposer);
             }
+            Proposal::AppDataUpdate(update)
+                if ComponentId::from(update.component_id()) == ComponentId::GROUP_MEMBERSHIP =>
+            {
+                use tls_codec::{Deserialize as _, VLBytes};
+                use xmtp_mls_common::{
+                    inbox_id::InboxId,
+                    tls_map::{TlsMapDelta, TlsMapMutation},
+                };
+
+                if let AppDataUpdateOperation::Update(payload) = update.operation() {
+                    let delta =
+                        TlsMapDelta::<InboxId, VLBytes>::tls_deserialize_exact(payload.as_slice())
+                            .map_err(ComponentSourceError::from)?;
+                    for mutation in delta.mutations {
+                        if let TlsMapMutation::Delete { key } = mutation {
+                            membership_deletes.push((key.to_string(), proposer.clone()));
+                        }
+                    }
+                }
+            }
             _ => continue,
         }
     }
 
+    // A Remove's proposer takes precedence. The removal check still requires
+    // every pre-commit leaf of a deleted inbox to be removed.
+    for (inbox, proposer) in membership_deletes {
+        removed_inbox_proposers.entry(inbox).or_insert(proposer);
+    }
+
     Ok(ProposalChanges {
         added_installations,
+        self_added_installations,
         removed_installations,
         credentials_to_verify,
         added_inbox_proposers,
@@ -546,16 +620,16 @@ pub fn validate_identity_sequence_order(
     Ok(())
 }
 
-/// Superadmins are permitted to readd installations, e.g. for fork recovery
-/// We can take these readded installations out of the list of installations to validate
-// implements: GMOD-015
+/// Exclude authorized readds from identity-driven leaf changes.
+/// DM participants may use matched pairs; only super admins may remove failed keys.
+// implements: GMOD-052
 pub fn extract_readded_installations(
-    actor: &CommitParticipant,
+    authority: ReaddAuthority,
     added_installations: &mut HashSet<Vec<u8>>,
     removed_installations: &mut HashSet<Vec<u8>>,
     failed_installations: &mut HashSet<Vec<u8>>,
 ) -> HashSet<Vec<u8>> {
-    if !actor.is_super_admin {
+    if authority == ReaddAuthority::None {
         return HashSet::new();
     }
     let successfully_readded = added_installations
@@ -564,6 +638,10 @@ pub fn extract_readded_installations(
         .collect::<HashSet<Vec<u8>>>();
     added_installations.retain(|installation_id| !successfully_readded.contains(installation_id));
     removed_installations.retain(|installation_id| !successfully_readded.contains(installation_id));
+
+    if authority == ReaddAuthority::DmParticipant {
+        return successfully_readded;
+    }
 
     // We only want to intersect with *remaining* removed installations here, to avoid double counting
     let unsuccessfully_readded = failed_installations
@@ -609,6 +687,23 @@ pub fn validate_membership_diff(
         }
     }
 
+    Ok(())
+}
+
+/// A sync group's membership names only its creator's inbox.
+// implements: SYNC-010
+pub fn validate_sync_membership(
+    metadata: &GroupMetadata,
+    membership: &GroupMembership,
+) -> Result<(), CommitRuleError> {
+    if metadata.conversation_type == ConversationType::Sync
+        && membership
+            .members
+            .keys()
+            .any(|inbox_id| *inbox_id != metadata.creator_inbox_id)
+    {
+        return Err(CommitRuleError::InsufficientPermissions);
+    }
     Ok(())
 }
 
@@ -693,7 +788,10 @@ pub fn validate_one_app_data_update(
 /// the snapshot bound on the committed
 /// state. Other apply failures are left to commit validation,
 /// because a commit may order other proposals ahead of this one and change
-/// the state it applies to.
+/// the state it applies to. A sender omits from its commits each pending
+/// proposal that the proposals kept before it make invalid, and each
+/// membership delta with no Add or Remove of its inbox, so neither blocks
+/// them.
 // implements: META-068
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn validate_standalone_app_data_update(
@@ -775,7 +873,7 @@ pub(crate) fn removes_super_admin(
 /// The inbox ids of a `GROUP_MEMBERSHIP` snapshot. `None` when the
 /// snapshot is absent or malformed, which fails the self-owned policy's
 /// non-member test closed.
-fn membership_inbox_ids(
+pub fn membership_inbox_ids(
     snapshot: Option<&[u8]>,
 ) -> Option<std::collections::HashSet<xmtp_mls_common::inbox_id::InboxId>> {
     use tls_codec::{Deserialize as _, VLBytes};
@@ -1075,9 +1173,7 @@ pub(crate) fn validate_one_app_data_update_with_old_value(
 /// `AppDataUpdate` by design — only an existing leaf can propose one.
 /// Pulled out so the rejection reason is a single code path that can
 /// be unit-tested without constructing a `StagedCommit`.
-pub(crate) fn app_data_update_proposer_leaf(
-    sender: &Sender,
-) -> Result<&LeafNodeIndex, CommitRuleError> {
+pub fn app_data_update_proposer_leaf(sender: &Sender) -> Result<&LeafNodeIndex, CommitRuleError> {
     match sender {
         Sender::Member(leaf_index) => Ok(leaf_index),
         Sender::External(_) | Sender::NewMemberCommit | Sender::NewMemberProposal => {
@@ -1250,23 +1346,62 @@ pub fn validate_app_data_update_proposals_in_commit(
         membership_inbox_ids(membership.as_deref().map(Vec::as_slice)).as_ref(),
     )?;
 
-    // Validate the final registry after all deltas. Required action entries
-    // must remain present, and every child in each action tree must be valid.
-    if let Some(post_registry) = component_post_states.get(&ComponentId::COMPONENT_REGISTRY) {
-        let bytes = post_registry
-            .as_deref()
-            .ok_or(CommitRuleError::InsufficientPermissions)?;
-        let registry =
-            xmtp_mls_common::app_data::component_registry::ComponentRegistry::from_bytes(bytes)
-                .map_err(|_| CommitRuleError::InsufficientPermissions)?;
-        xmtp_mls_common::app_data::policy_set::validate_registry_action_policies(&registry)
-            .map_err(|error| {
-                tracing::warn!(%error, "invalid registry action policy in commit");
-                CommitRuleError::InsufficientPermissions
-            })?;
-    }
+    validate_post_registry(&component_post_states)?;
+    let committed = openmls_group.extensions().app_data_dictionary();
+    validate_post_dictionary_size(committed.map(|e| e.dictionary()), &component_post_states)
+}
 
+/// Most bytes all components other than `GROUP_MEMBERSHIP` may hold together.
+pub const MAX_DICTIONARY_BYTES: usize = 4 << 20;
+
+/// Reject a commit that grows the summed value lengths of every component
+/// other than `GROUP_MEMBERSHIP` past [`MAX_DICTIONARY_BYTES`], given the
+/// dictionary before it and the state after it of each component it touches.
+// implements: META-077
+pub fn validate_post_dictionary_size<'a, K: std::borrow::Borrow<ComponentId>>(
+    committed: Option<&AppDataDictionary>,
+    post: impl IntoIterator<Item = (K, &'a Option<Zeroizing<Vec<u8>>>)>,
+) -> Result<(), CommitRuleError> {
+    let counted = |id: ComponentId| id != ComponentId::GROUP_MEMBERSHIP;
+    let old = |id: ComponentId| Some(committed?.get(&id.as_u16())?.len());
+    let before: usize = committed
+        .into_iter()
+        .flat_map(AppDataDictionary::entries)
+        .filter(|component| counted(component.id().into()))
+        .map(|component| component.data().len())
+        .sum();
+    let after = post
+        .into_iter()
+        .map(|(id, state)| (*id.borrow(), state))
+        .filter(|(id, _)| counted(*id))
+        .fold(before, |sum, (id, s)| {
+            sum - old(id).unwrap_or(0) + s.as_deref().map_or(0, Vec::len)
+        });
+    if after > MAX_DICTIONARY_BYTES && after > before {
+        return Err(CommitRuleError::InsufficientPermissions);
+    }
     Ok(())
+}
+
+/// Validate the registry `post_states` leave, if they change it: required
+/// action entries must remain present, and every child in each action tree
+/// must be valid.
+pub fn validate_post_registry(post_states: &AppDataPostStates) -> Result<(), CommitRuleError> {
+    let Some(post_registry) = post_states.get(&ComponentId::COMPONENT_REGISTRY) else {
+        return Ok(());
+    };
+    let bytes = post_registry
+        .as_deref()
+        .ok_or(CommitRuleError::InsufficientPermissions)?;
+    let registry =
+        xmtp_mls_common::app_data::component_registry::ComponentRegistry::from_bytes(bytes)
+            .map_err(|_| CommitRuleError::InsufficientPermissions)?;
+    xmtp_mls_common::app_data::policy_set::validate_registry_action_policies(&registry).map_err(
+        |error| {
+            tracing::warn!(%error, "invalid registry action policy in commit");
+            CommitRuleError::InsufficientPermissions
+        },
+    )
 }
 
 /// Extracts the [`CommitParticipant`] from the [`LeafNodeIndex`]
@@ -1308,6 +1443,56 @@ pub fn extract_group_membership(
         members: proto.members,
         failed_installations: proto.failed_installations,
     })
+}
+
+/// Decode the membership snapshot once, retaining each failure's inbox.
+pub fn membership_entries(
+    bytes: &[u8],
+) -> Result<(GroupMembership, FailedInstallations), CommitRuleError> {
+    use tls_codec::{Deserialize as _, VLBytes};
+    use xmtp_mls_common::{inbox_id::InboxId, tls_map::TlsMap};
+    use xmtp_proto::xmtp::mls::message_contents::{
+        GroupMembershipEntry, group_membership_entry::Version,
+    };
+
+    let snapshot = TlsMap::<InboxId, VLBytes>::tls_deserialize_exact(bytes)
+        .map_err(ComponentSourceError::from)?;
+    let mut membership = GroupMembership::new();
+    let mut failed = FailedInstallations::default();
+    for (inbox, value) in snapshot {
+        let entry = GroupMembershipEntry::decode(value.as_slice())?;
+        let Some(Version::V1(entry)) = entry.version else {
+            return Err(ComponentSourceError::MalformedComponentValue {
+                component_id: ComponentId::GROUP_MEMBERSHIP,
+                reason: "GroupMembershipEntry has unknown or unset version".into(),
+            }
+            .into());
+        };
+        let inbox = inbox.to_string();
+        membership.add(inbox.clone(), entry.sequence_id);
+        membership
+            .failed_installations
+            .extend(entry.failed_installations.iter().cloned());
+        failed
+            .0
+            .insert(inbox, entry.failed_installations.into_iter().collect());
+    }
+    Ok((membership, failed))
+}
+
+/// Read the membership snapshot and per-inbox failures from the dictionary.
+pub fn extract_group_membership_with_failures(
+    extensions: &Extensions<GroupContext>,
+) -> Result<(GroupMembership, FailedInstallations), CommitRuleError> {
+    let bytes = extensions
+        .app_data_dictionary()
+        .and_then(|extension| {
+            extension
+                .dictionary()
+                .get(&ComponentId::GROUP_MEMBERSHIP.as_u16())
+        })
+        .ok_or(CommitRuleError::MissingGroupMembership)?;
+    membership_entries(bytes)
 }
 
 pub fn metadata_changes_between(
@@ -1440,6 +1625,18 @@ fn mutable_metadata_field_changes(
             } else {
                 None
             }
+        })
+        .collect()
+}
+
+/// Map each pre-commit leaf's installation key to its credential inbox.
+pub fn leaf_owners(
+    members: impl Iterator<Item = openmls::group::Member>,
+) -> Result<HashMap<Vec<u8>, String>, CommitRuleError> {
+    members
+        .map(|member| {
+            let inbox = inbox_id_from_credential(&member.credential)?;
+            Ok((member.signature_key, inbox))
         })
         .collect()
 }
@@ -1587,6 +1784,28 @@ mod permission_on_receive_tests {
         }
     }
 
+    #[xmtp_common::test(unwrap_try = true)]
+    fn sync_membership_names_only_the_creator() {
+        let creator = "creator".to_string();
+        let outsider = "outsider".to_string();
+        for (conversation_type, inbox_ids, allowed) in [
+            (ConversationType::Sync, vec![&creator], true),
+            (ConversationType::Sync, vec![&creator, &outsider], false),
+            (ConversationType::Sync, vec![&outsider], false),
+            (ConversationType::Group, vec![&creator, &outsider], true),
+        ] {
+            let metadata = GroupMetadata::new(conversation_type, creator.clone(), None, None);
+            let mut membership = GroupMembership::new();
+            for inbox_id in inbox_ids {
+                membership.add(inbox_id.clone(), 1);
+            }
+            match validate_sync_membership(&metadata, &membership) {
+                Ok(()) => assert!(allowed),
+                Err(error) => assert!(!allowed && error.is_safe_rejection()),
+            }
+        }
+    }
+
     fn non_admin_actor() -> ActorAuthority {
         ActorAuthority {
             is_admin: false,
@@ -1708,6 +1927,14 @@ mod min_version_monotonicity_tests {
             ),
             "expected MinVersionDowngrade, got {err:?}",
         );
+    }
+
+    /// Build metadata has no precedence, so a floor that changes only its
+    /// `+...` suffix is not lower than the committed floor.
+    // verifies: GMOD-026
+    #[xmtp_common::test(unwrap_try = true)]
+    fn build_metadata_only_floor_change_is_not_a_downgrade() {
+        enforce_min_version_monotonicity(&update_op("1.11.0+a"), Some(b"1.11.0+b"))?;
     }
 
     // verifies: GMOD-026

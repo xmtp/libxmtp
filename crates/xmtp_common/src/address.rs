@@ -1,4 +1,4 @@
-//! Download address checks.
+//! Private address checks for attachment downloads and webhook hosts.
 //!
 //! `address-registry.txt` is a snapshot of the IANA IPv4 and IPv6 registries:
 //! <https://www.iana.org/assignments/iana-ipv4-special-registry/iana-ipv4-special-registry.xhtml>
@@ -7,7 +7,10 @@
 //! Refresh the snapshot when either `<updated>` value changes. A longer entry
 //! overrides its parent entry.
 
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
+
+/// RFC 7050 §2.2: a DNS64 synthesizes this name's AAAA under its NAT64 prefix.
+pub const NAT64_DISCOVERY_NAME: &str = "ipv4only.arpa";
 
 fn prefix_matches(address: IpAddr, prefix: IpAddr, bits: u32) -> bool {
     match (address, prefix) {
@@ -53,7 +56,7 @@ fn parse_row(line: &str) -> Option<(IpAddr, u32, bool)> {
 }
 
 /// Return true for an address that must not be reached by a default client.
-pub(crate) fn is_private(address: IpAddr) -> bool {
+pub fn is_private(address: IpAddr) -> bool {
     match address {
         IpAddr::V4(ip) if ip.is_multicast() => return true,
         IpAddr::V6(ip) if ip.is_multicast() => return true,
@@ -75,6 +78,56 @@ pub(crate) fn is_private(address: IpAddr) -> bool {
         }
     }
     !reachable
+}
+
+/// RFC 6052 §2.2: the IPv4 bytes follow the prefix and skip byte 8.
+fn embedded_at(ip: Ipv6Addr, bits: u8) -> Ipv4Addr {
+    let octets = ip.octets();
+    let mut v4 = (usize::from(bits / 8)..16)
+        .filter(|&i| i != 8)
+        .map(|i| octets[i]);
+    Ipv4Addr::from(std::array::from_fn(|_| v4.next().unwrap_or(0)))
+}
+
+/// RFC 7050 §3: the NAT64 prefixes in the answer for `NAT64_DISCOVERY_NAME`.
+fn nat64_prefixes(answer: impl IntoIterator<Item = IpAddr>) -> Vec<(Ipv6Addr, u8)> {
+    let mut prefixes = vec![];
+    for ip in answer {
+        let IpAddr::V6(ip) = ip else { continue };
+        for bits in [96, 64, 56, 48, 40, 32] {
+            if matches!(embedded_at(ip, bits).octets(), [192, 0, 0, 170 | 171]) {
+                let mask = u128::MAX << (128 - u32::from(bits));
+                prefixes.push((Ipv6Addr::from(u128::from(ip) & mask), bits));
+            }
+        }
+    }
+    prefixes
+}
+
+/// The prefixes in a `NAT64_DISCOVERY_NAME` answer. No lookup, a failed one,
+/// or one slower than 5 seconds adds no prefix.
+pub async fn discover_nat64<A, E>(
+    lookup: Option<impl Future<Output = Result<A, E>>>,
+) -> Vec<(Ipv6Addr, u8)>
+where
+    A: IntoIterator<Item = SocketAddr>,
+{
+    let Some(lookup) = lookup else {
+        return vec![];
+    };
+    match crate::time::timeout(std::time::Duration::from_secs(5), lookup).await {
+        Ok(Ok(answer)) => nat64_prefixes(answer.into_iter().map(|address| address.ip())),
+        _ => vec![],
+    }
+}
+
+/// `is_private`, or under a discovered NAT64 prefix with a private IPv4 address.
+pub fn is_private_behind(address: IpAddr, prefixes: &[(Ipv6Addr, u8)]) -> bool {
+    is_private(address)
+        || matches!(address, IpAddr::V6(ip) if prefixes.iter().any(|&(prefix, bits)| {
+            prefix_matches(address, prefix.into(), bits.into())
+                && is_private(embedded_at(ip, bits).into())
+        }))
 }
 
 fn embedded_ipv4(ip: Ipv6Addr) -> Option<Ipv4Addr> {
@@ -105,27 +158,20 @@ mod tests {
     }
 
     #[xmtp_common::test(unwrap_try = true)]
-    fn parse_row_accepts_tab_separator() {
-        assert_eq!(
-            parse_row("10.0.0.0/8\tfalse"),
-            Some(("10.0.0.0".parse()?, 8, false))
-        );
-    }
-
-    #[xmtp_common::test(unwrap_try = true)]
-    fn parse_row_rejects_malformed() {
-        for row in [
-            "10.0.0.0/8",
-            "10.0.0.0/8 true extra",
-            "bad/8 true",
-            "10.0.0.0 true",
-            "10.0.0.0/33 true",
-            "2001:db8::/129 true",
-            "10.1.0.0/8 true",
-            "2001:db8::1/32 true",
-            "10.0.0.0/8 TRUE",
+    fn parse_row_accepts_only_well_formed_rows() {
+        for (row, expected) in [
+            ("10.0.0.0/8\tfalse", Some(("10.0.0.0".parse()?, 8, false))),
+            ("10.0.0.0/8", None),
+            ("10.0.0.0/8 true extra", None),
+            ("bad/8 true", None),
+            ("10.0.0.0 true", None),
+            ("10.0.0.0/33 true", None),
+            ("2001:db8::/129 true", None),
+            ("10.1.0.0/8 true", None),
+            ("2001:db8::1/32 true", None),
+            ("10.0.0.0/8 TRUE", None),
         ] {
-            assert_eq!(parse_row(row), None, "{row}");
+            assert_eq!(parse_row(row), expected, "{row}");
         }
     }
 
@@ -151,6 +197,27 @@ mod tests {
             "64:ff9b::808:808",
         ] {
             assert!(!is_private(address.parse()?), "{address}");
+        }
+        let net: Ipv6Addr = "2a00:1450:4001:64::".parse()?;
+        let (net96, net64) = ((net, 96), (net, 64));
+        for (answer, expected) in [
+            ("2a00:1450:4001:64::c000:aa", vec![net96]),
+            ("2a00:1450:4001:64:c0:0:aa00:0", vec![net64]),
+            ("2001:db8:c000:ab::", vec![("2001:db8::".parse()?, 32)]),
+            ("192.0.0.170", vec![]),
+        ] {
+            assert_eq!(nat64_prefixes([answer.parse()?]), expected, "{answer}");
+        }
+        for (address, prefixes, expected) in [
+            ("2a00:1450:4001:64:a:0:100:0", net64, true),
+            ("2a00:1450:4001:64::808:808", net96, false),
+            ("2606:4700:4700::1111", net96, false),
+        ] {
+            assert_eq!(
+                is_private_behind(address.parse()?, &[prefixes]),
+                expected,
+                "{address}"
+            );
         }
     }
 }

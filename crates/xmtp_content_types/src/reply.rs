@@ -79,6 +79,7 @@ impl ContentCodec<Reply> for ReplyCodec {
     }
 
     fn decode(encoded: EncodedContent) -> Result<Reply, CodecError> {
+        crate::decode_limits::check_protobuf_fields(&encoded.content)?;
         let inner_content = EncodedContent::decode(encoded.content.as_slice())
             .map_err(|e| CodecError::Decode(e.to_string()))?;
 

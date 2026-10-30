@@ -4,6 +4,7 @@
 use prost::Message;
 use std::collections::HashMap;
 
+use openmls_rust_crypto::RustCrypto;
 use xmtp_api::ApiError;
 use xmtp_common::RetryableError;
 use xmtp_db::incoming_envelope::{
@@ -13,6 +14,7 @@ use xmtp_db::{
     Fetch, NotFound, XmtpOpenMlsProvider,
     group::{GroupQueryArgs, StoredGroup},
 };
+use xmtp_proto::backend_v1 as wire;
 use xmtp_proto::types::{
     GroupId, IncomingBatchLimits, InstallationId, OrderedEnvelopeBatch, Topic, TopicCursor,
     TopicKind,
@@ -23,6 +25,25 @@ use xmtp_id::key_package::{KeyPackageVerificationError, VerifiedKeyPackageV2};
 
 use thiserror::Error;
 use xmtp_db::prelude::*;
+
+/// Verify the package served for `id`. A package whose leaf key is another
+/// installation's was not served for `id`, so it is left out.
+// implements: API-245
+pub fn verify_served_key_package(
+    crypto: &RustCrypto,
+    id: &InstallationId,
+    package: &wire::KeyPackage,
+) -> Option<Result<VerifiedKeyPackageV2, KeyPackageVerificationError>> {
+    let verified = VerifiedKeyPackageV2::from_bytes(crypto, &package.key_package_tls_serialized);
+    if verified
+        .as_ref()
+        .is_ok_and(|package| *id != package.installation_public_key)
+    {
+        tracing::warn!("dropping a key package whose leaf names another installation");
+        return None;
+    }
+    Some(verified)
+}
 
 #[derive(Error, Debug)]
 pub enum MlsStoreError {
@@ -43,6 +64,13 @@ impl RetryableError for MlsStoreError {
             Self::Api(e) => e.is_retryable(),
             Self::Connection(e) => e.is_retryable(),
             Self::NotFound(e) => e.is_retryable(),
+        }
+    }
+
+    fn rate_limit_delay(&self) -> Option<xmtp_common::time::Duration> {
+        match self {
+            Self::Api(e) => e.rate_limit_delay(),
+            _ => None,
         }
     }
 }
@@ -111,7 +139,7 @@ where
     }
 
     /// Store a validated raw batch and its receipt position in one transaction.
-    /// New Welcome rows queue key rotation in that same writer, before decoding.
+    /// Receipt queues no key rotation; only an installed Welcome does.
     pub fn admit_incoming_batch(
         &self,
         batch: &OrderedEnvelopeBatch,
@@ -147,26 +175,13 @@ where
                 envelope: envelope.encode_to_vec(),
             });
         }
-        let admitted = crate::state_tx::state_write_with_events(
-            self.context.mls_storage(),
-            self.context.events(),
-            |tx, events| {
-                let storage = tx.storage();
-                let admitted =
-                    storage
-                        .db()
-                        .admit_ordered_batch(&topic, batch.after, &rows, limits)?;
-                if topic.kind == NetworkEntityKind::Welcome && admitted.inserted > 0 {
-                    crate::worker::key_package_maintenance::queue_key_rotation_in(&storage)?;
-                    xmtp_events::EventWriter::emit(
-                        events,
-                        None,
-                        Some(crate::subscriptions::internal::InternalEvent::TaskScheduled),
-                    );
-                }
-                Ok::<_, xmtp_db::StorageError>(xmtp_db::TransactionOutcome::Continue(admitted))
-            },
-        )?
+        let admitted = crate::state_tx::state_write(self.context.mls_storage(), |tx| {
+            let admitted =
+                tx.storage()
+                    .db()
+                    .admit_ordered_batch(&topic, batch.after, &rows, limits)?;
+            Ok::<_, xmtp_db::StorageError>(xmtp_db::TransactionOutcome::Continue(admitted))
+        })?
         .into_continued();
         Ok(admitted)
     }
@@ -251,14 +266,8 @@ where
             key_package_results
                 .iter()
                 .filter_map(|(id, package)| {
-                    let package = package.as_ref()?;
-                    Some((
-                        id.to_vec(),
-                        VerifiedKeyPackageV2::from_bytes(
-                            &crypto_provider,
-                            &package.key_package_tls_serialized,
-                        ),
-                    ))
+                    verify_served_key_package(&crypto_provider, id, package.as_ref()?)
+                        .map(|result| (id.to_vec(), result))
                 })
                 .collect();
 

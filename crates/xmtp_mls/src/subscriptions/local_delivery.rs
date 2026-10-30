@@ -19,7 +19,7 @@ use xmtp_common::{
 };
 use xmtp_db::{
     Fetch, StorageError,
-    consent_record::{ConsentState, ConsentType},
+    consent_record::{ConsentState, conversation_consent},
     delivery::{DeliveryMessage, QueryDelivery},
     group::StoredGroup,
     group_message::StoredGroupMessage,
@@ -524,10 +524,7 @@ fn matches_filter<Context: XmtpSharedContext>(
     }
     // Borrow the effective states; this runs once per candidate.
     if let Some(states) = effective_consent_states(scope, filter) {
-        let consent = db
-            .get_consent_record(hex::encode(group_id), ConsentType::ConversationId)
-            .map_err(StorageError::from)?
-            .map_or(ConsentState::Unknown, |record| record.state);
+        let consent = conversation_consent(&db, context.inbox_id(), &group_id)?;
         if !states.contains(&consent) {
             return Ok(false);
         }

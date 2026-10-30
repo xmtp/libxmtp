@@ -10,6 +10,9 @@ use xmtp_proto::{
     prelude::XmtpBackendClient,
 };
 
+/// Verifies through a backend's `VerifySmartContractWalletSignatures`, one
+/// signature per request. It knows no published limits, so it keeps the
+/// default `verify_many`; the API client batches within them instead.
 pub struct RemoteSignatureVerifier<C> {
     api: C,
 }

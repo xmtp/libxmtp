@@ -75,6 +75,13 @@ pub trait XmtpMlsStorageProvider:
         F: FnOnce(&mut Self::TxQuery) -> Result<TransactionOutcome<T>, E>,
         E: From<diesel::result::Error> + From<crate::ConnectionError> + std::error::Error;
 
+    /// Like `transaction`, but synced to stable storage before return; use before network side effects.
+    // implements: STORE-026
+    fn durable_transaction<T, E, F>(&self, f: F) -> Result<TransactionOutcome<T>, E>
+    where
+        F: FnOnce(&mut Self::TxQuery) -> Result<TransactionOutcome<T>, E>,
+        E: From<diesel::result::Error> + From<crate::ConnectionError> + std::error::Error;
+
     /// Start a savepoint within a transaction.
     ///
     /// Must only be used when already in a transaction.

@@ -1,7 +1,13 @@
-//! Select pending membership proposals for one outgoing commit.
+//! Select the pending proposals one outgoing commit carries: the membership
+//! selection, and the omission of proposals no commit can carry.
 
 use super::*;
+use crate::groups::app_data::Committable;
 use crate::groups::group_permissions::MembershipPolicy;
+use crate::identity_updates::{
+    IdentityDependencyError, InstallationDiffError, get_installation_diff_local,
+    required_leaf_removals,
+};
 use openmls::group::QueuedProposal;
 use openmls::messages::proposals::AppDataUpdateOperation;
 use tls_codec::{Deserialize, VLBytes};
@@ -12,17 +18,26 @@ use xmtp_mls_common::app_data::{
     typed::Component,
 };
 use xmtp_mls_common::tls_map::{TlsMapDelta, TlsMapError, TlsMapMutation};
-use xmtp_mls_validation::commit::CommitRuleError;
+use xmtp_mls_validation::{
+    commit::{CommitRuleError, extract_group_membership_with_failures, membership_entries},
+    group_membership::FailedInstallations,
+};
+use xmtp_proto::xmtp::mls::message_contents::ConversationType as ConversationTypeProto;
 
 /// A read-only snapshot. Dependency resolution never retains a mutable MLS group.
 pub(super) struct SelectionRequirements {
     proposals: Vec<QueuedProposal>,
     membership_bytes: Vec<u8>,
     old: GroupMembership,
+    old_failed: FailedInstallations,
     own_update: Option<UpdateGroupMembershipIntentData>,
     readds: HashSet<Vec<u8>>,
     can_replace: HashSet<Vec<u8>>,
-    leaves: HashMap<LeafNodeIndex, Vec<u8>>,
+    is_super_admin: bool,
+    /// The creator's inbox, the only one a sync group may hold.
+    sync_creator: Option<String>,
+    /// Each leaf's installation and inbox.
+    leaves: HashMap<LeafNodeIndex, (Vec<u8>, String)>,
 }
 
 #[derive(Default)]
@@ -55,10 +70,7 @@ impl SelectionRequirements {
         group: &OpenMlsGroup,
         intent: &StoredGroupIntent,
     ) -> Result<Option<Self>, GroupError> {
-        if matches!(
-            intent.kind,
-            IntentKind::SendMessage | IntentKind::ProposeMemberUpdate
-        ) {
+        if !commits_proposals(intent.kind) {
             return Ok(None);
         }
         let proposals: Vec<_> = group.pending_proposals().cloned().collect();
@@ -129,12 +141,14 @@ impl SelectionRequirements {
                 );
             }
         }
+        let (old, old_failed) = extract_group_membership_with_failures(group.extensions())?;
         Ok(Some(Self {
             proposals,
             membership_bytes: read_from_app_data_dict(ComponentId::GROUP_MEMBERSHIP, group)
                 .ok_or(GroupError::InvalidGroupMembership)?
                 .to_vec(),
-            old: extract_group_membership(group.extensions())?,
+            old,
+            old_failed,
             own_update: (intent.kind == IntentKind::UpdateGroupMembership)
                 .then(|| UpdateGroupMembershipIntentData::try_from(intent.data.as_slice()))
                 .transpose()?,
@@ -147,19 +161,32 @@ impl SelectionRequirements {
                 HashSet::new()
             },
             can_replace,
+            is_super_admin: actor.is_super_admin,
+            sync_creator: (seed.conversation_type == ConversationTypeProto::Sync as i32)
+                .then_some(seed.creator_inbox_id),
             leaves: group
                 .members()
-                .map(|member| (member.index, member.signature_key))
-                .collect(),
+                .map(|member| {
+                    let credential = BasicCredential::try_from(member.credential)?;
+                    Ok((
+                        member.index,
+                        (
+                            member.signature_key,
+                            parse_credential(credential.identity())?,
+                        ),
+                    ))
+                })
+                .collect::<Result<_, GroupError>>()?,
         }))
     }
 
     fn membership(
         &self,
         omitted: &mut HashSet<usize>,
+        conflicts: &mut HashSet<usize>,
         own_payload: Option<&[u8]>,
         same_request: &HashSet<usize>,
-    ) -> Result<GroupMembership, GroupError> {
+    ) -> Result<(GroupMembership, FailedInstallations), GroupError> {
         let mut bytes = self.membership_bytes.clone();
         for (index, proposal) in self.proposals.iter().enumerate() {
             if matches!(
@@ -183,8 +210,9 @@ impl SelectionRequirements {
                     )) => {
                         // Each proposal was accepted against the committed
                         // dictionary. Concurrent Insert/Delete deltas can conflict.
-                        // Keep one whole delta, then recompute its tree changes.
-                        omitted.insert(index);
+                        // Retry this delta if an earlier invalid delta is later omitted.
+                        // Otherwise the first valid delta keeps precedence.
+                        conflicts.insert(index);
                     }
                     Err(error) => return Err(error.into()),
                 }
@@ -193,12 +221,66 @@ impl SelectionRequirements {
         // The builder reuses an equivalent accepted delta. Otherwise it appends
         // its own encoded delta, which can be empty after a competing commit.
         if let Some(payload) = own_payload
-            && !same_request.iter().any(|index| !omitted.contains(index))
+            && !same_request
+                .iter()
+                .any(|index| !omitted.contains(index) && !conflicts.contains(index))
         {
             bytes = GroupMembershipComponent::apply_update_payload(payload, Some(&bytes))
                 .map_err(ComponentSourceError::from)?;
         }
-        membership_from_app_data_bytes(&bytes)
+        Ok(membership_entries(&bytes)?)
+    }
+
+    /// Whether a membership delta writes an entry this client cannot decode,
+    /// writes a committed inbox below its entry, adds an inbox at sequence 0,
+    /// names a sequence id no identity update can have, or writes an inbox
+    /// other than the creator's in a sync group. Proposal admission
+    /// checks authority and the map codec, not entry contents, so a stale
+    /// refresh can be accepted. No commit that keeps such a write can be
+    /// validated.
+    fn cannot_commit(&self, proposal: &QueuedProposal) -> Result<bool, GroupError> {
+        use xmtp_proto::xmtp::mls::message_contents::{
+            GroupMembershipEntry, group_membership_entry,
+        };
+        let Some(payload) = membership_payload(proposal) else {
+            return Ok(false);
+        };
+        let delta =
+            TlsMapDelta::<xmtp_mls_common::inbox_id::InboxId, VLBytes>::tls_deserialize_exact(
+                payload,
+            )?;
+        for mutation in &delta.mutations {
+            let (TlsMapMutation::Insert { key, value } | TlsMapMutation::Update { key, value }) =
+                mutation
+            else {
+                continue;
+            };
+            // implements: SYNC-010
+            if matches!(&self.sync_creator, Some(creator) if *creator != key.to_hex()) {
+                return Ok(true);
+            }
+            // An error here would block every commit of pending proposals.
+            // Omitting the whole delta is always a valid selection.
+            let Ok(GroupMembershipEntry {
+                version: Some(group_membership_entry::Version::V1(entry)),
+            }) = GroupMembershipEntry::decode(value.as_slice())
+            else {
+                return Ok(true);
+            };
+            // An Insert of a committed inbox can follow a Delete in the same delta.
+            // An added entry needs a resolved identity reference, never 0.
+            if i64::try_from(entry.sequence_id).is_err()
+                || self
+                    .old
+                    .get(key.to_hex())
+                    .map_or(entry.sequence_id == 0, |&committed| {
+                        entry.sequence_id < committed
+                    })
+            {
+                return Ok(true);
+            }
+        }
+        Ok(false)
     }
 
     /// Drop a whole authenticated membership delta. Never rewrite another
@@ -242,16 +324,57 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
             active: true,
             ..Default::default()
         };
+        // implements: GMOD-038
+        // Omit each whole stale delta before any other use of its entries.
+        // The selection loop recomputes the Add and Remove proposals that
+        // depended on it.
+        for (index, proposal) in requirements.proposals.iter().enumerate() {
+            if requirements.cannot_commit(proposal)? {
+                selection.omitted.insert(index);
+            }
+        }
+        // Readd package resolution includes only current, non-own leaves.
+        // Pending proposals must use the same usable targets as the builder;
+        // a requested installation without a package must keep its leaf.
+        let usable_readds: HashSet<_> = own_changes
+            .into_iter()
+            .flat_map(|changes| &changes.new_key_packages)
+            .map(|package| package.leaf_node().signature_key().as_slice())
+            .filter(|key| requirements.readds.contains(*key))
+            .collect();
+        let owners: HashMap<_, _> = requirements.leaves.values().cloned().collect();
         let mut same_request = HashSet::new();
+        let mut own_inboxes = HashSet::new();
+        let mut own_removals = HashSet::new();
         let own_payload = if let Some(update) = &requirements.own_update {
             let mut target = update.apply_to_group_membership(&requirements.old);
-            if let Some(changes) = own_changes {
-                target
-                    .failed_installations
-                    .extend(changes.failed_installations.iter().cloned());
-                target.failed_installations.sort_unstable();
-                target.failed_installations.dedup();
-            }
+            let no_removals = HashSet::new();
+            own_removals = required_leaf_removals(
+                &self.context.db(),
+                &requirements.old,
+                &target,
+                own_changes.map_or(&no_removals, |changes| &changes.removed_installations),
+                &owners,
+            )
+            .map_err(InstallationDiffError::from)?;
+            // Publication writes the same failed list.
+            let (fetch_failures, added) = own_changes.map_or((&[][..], &[][..]), |changes| {
+                (
+                    changes.failed_installations.as_slice(),
+                    changes.new_key_packages.as_slice(),
+                )
+            });
+            target.failed_installations = update_group_membership::leafless_failures(
+                std::mem::take(&mut target.failed_installations)
+                    .into_iter()
+                    .chain(fetch_failures.iter().cloned()),
+                &requirements
+                    .leaves
+                    .values()
+                    .map(|(installation, _)| installation.clone())
+                    .collect(),
+                added,
+            );
             let payload = update_group_membership::build_membership_delta(
                 &self.context.db(),
                 &requirements.membership_bytes,
@@ -263,18 +386,19 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                 Some(&requirements.membership_bytes),
             )
             .map_err(ComponentSourceError::from)?;
-            let target = membership_from_app_data_bytes(&target_bytes)?;
+            let (target, target_failed) = membership_entries(&target_bytes)?;
             for (index, proposal) in requirements.proposals.iter().enumerate() {
+                if selection.omitted.contains(&index) {
+                    continue;
+                }
                 if let Some(payload) = membership_payload(proposal) {
                     let bytes = GroupMembershipComponent::apply_update_payload(
                         payload,
                         Some(&requirements.membership_bytes),
                     )
                     .map_err(ComponentSourceError::from)?;
-                    let mut membership = membership_from_app_data_bytes(&bytes)?;
-                    membership.failed_installations.sort_unstable();
-                    membership.failed_installations.dedup();
-                    if membership == target {
+                    let (membership, failed) = membership_entries(&bytes)?;
+                    if membership.members == target.members && failed == target_failed {
                         same_request.insert(index);
                     }
                 }
@@ -291,7 +415,9 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                 };
                 // An own Update also conflicts with a pending Delete. Use the
                 // exact emitted mutations, not absolute requested membership.
-                requirements.omit_dependencies(&key.to_hex(), &mut selection.omitted)?;
+                let inbox = key.to_hex();
+                requirements.omit_dependencies(&inbox, &mut selection.omitted)?;
+                own_inboxes.insert(inbox);
             }
             // An accepted delta for this exact request can be committed by
             // reference. Re-signing it would repeat the same proposal reference.
@@ -352,7 +478,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                 .await?
         };
         #[cfg(any(test, feature = "test-utils"))]
-        inject_failed_installations_for_test(&mut packages);
+        inject_test_key_packages(&mut packages);
         let mut reusable = HashMap::new();
         for (index, id, _, retained) in &pending {
             let Some(Ok(current)) = packages.get(id) else {
@@ -369,33 +495,95 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                 reusable.entry(id.clone()).or_insert(*index);
             }
         }
+        let leaf_inboxes: HashSet<_> = owners.values().map(String::as_str).collect();
         loop {
             // Each retry omits another complete membership delta. Recompute
             // tree proposals because removing a delta can restore an earlier value.
             selection
                 .omitted
                 .retain(|index| membership_operation(&requirements.proposals[*index]).is_some());
-            let target = requirements.membership(
+            let mut conflicts = HashSet::new();
+            let (target, new_failed) = requirements.membership(
                 &mut selection.omitted,
+                &mut conflicts,
                 own_payload.as_deref(),
                 &same_request,
             )?;
-            let diff = identity
+            let inbox_diff = requirements.old.diff(&target);
+            let diff = match identity
                 .get_installation_diff(
                     &self.context.db(),
                     &self.group_id,
                     &requirements.old,
                     &target,
-                    &requirements.old.diff(&target),
+                    &inbox_diff,
                 )
-                .await?;
+                .await
+            {
+                Ok(diff) => diff,
+                // The backend holds no identity update at this reference, so
+                // no commit that keeps it can be validated.
+                Err(InstallationDiffError::IdentityDependency(
+                    IdentityDependencyError::MissingReference(requirement),
+                )) => {
+                    if requirements
+                        .omit_dependencies(&requirement.inbox_id, &mut selection.omitted)?
+                    {
+                        continue;
+                    }
+                    return Err(InstallationDiffError::from(
+                        IdentityDependencyError::MissingReference(requirement),
+                    )
+                    .into());
+                }
+                Err(error) => return Err(error.into()),
+            };
+            let required = required_leaf_removals(
+                &self.context.db(),
+                &requirements.old,
+                &target,
+                &diff.removed_installations,
+                &owners,
+            )
+            .map_err(InstallationDiffError::from)?;
             let mut changed = false;
+            let mut unproven: HashMap<&str, Vec<&[u8]>> = HashMap::new();
+            for (inbox, key) in new_failed.unproven_new_failures(&requirements.old_failed, &owners)
+            {
+                unproven.entry(inbox).or_default().push(key);
+            }
+            for (inbox, keys) in unproven {
+                let sequence = target.get(inbox).copied().unwrap_or(0);
+                let invalid = if sequence == 0 {
+                    true
+                } else {
+                    let state = identity
+                        .get_association_state(&self.context.db(), inbox, Some(sequence as i64))
+                        .await?;
+                    let installations: HashSet<_> = state.installation_ids().into_iter().collect();
+                    keys.iter().any(|key| !installations.contains(*key))
+                };
+                if invalid {
+                    if !requirements.omit_dependencies(inbox, &mut selection.omitted)? {
+                        return Err(CommitValidationError::Rule(
+                            CommitRuleError::InboxValidationFailed(inbox.to_string()),
+                        )
+                        .into());
+                    }
+                    changed = true;
+                }
+            }
+            if changed {
+                continue;
+            }
             let mut replacements = Vec::new();
             let mut included = HashSet::new();
+            // The inboxes whose Add this commit carries.
+            let mut added = HashSet::new();
             for (index, id, inbox, _) in &pending {
-                let desired = (diff.added_installations.contains(id)
+                let desired = (diff.added_installations.contains_key(id)
                     && !target.failed_installations.contains(id))
-                    || requirements.readds.contains(id);
+                    || usable_readds.contains(id.as_slice());
                 if !desired || !active.get(inbox).is_some_and(|ids| ids.contains(id)) {
                     selection.omitted.insert(*index);
                     if desired {
@@ -433,6 +621,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                     if index != selected {
                         selection.omitted.insert(*index);
                     }
+                    added.insert(inbox.as_str());
                     continue;
                 }
                 if !requirements.can_replace.contains(id) {
@@ -446,26 +635,99 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                     }
                     continue;
                 }
-                if !included.insert(id.clone()) {
-                    selection.omitted.insert(*index);
-                } else {
-                    selection.omitted.insert(*index);
+                selection.omitted.insert(*index);
+                if included.insert(id.clone()) {
                     replacements.push(current.inner.clone());
                 }
+                added.insert(inbox.as_str());
             }
             if changed {
                 continue;
             }
+            // The inboxes whose Remove this commit carries.
+            let mut removed = HashSet::new();
+            let mut removed_keys = HashSet::new();
             for (index, proposal) in requirements.proposals.iter().enumerate() {
-                if let Proposal::Remove(remove) = proposal.proposal()
-                    && requirements.leaves.get(&remove.removed()).is_none_or(|id| {
-                        !diff.removed_installations.contains(id)
-                            && !requirements.readds.contains(id)
-                    })
-                {
-                    selection.omitted.insert(index);
+                let Proposal::Remove(remove) = proposal.proposal() else {
+                    continue;
+                };
+                match requirements.leaves.get(&remove.removed()) {
+                    Some((id, inbox))
+                        if required.contains(id) || usable_readds.contains(id.as_slice()) =>
+                    {
+                        removed.insert(inbox.as_str());
+                        // The receiver removes failed readds from its
+                        // actual-removal set, so they cannot cover this delta.
+                        if !requirements.is_super_admin || !target.failed_installations.contains(id)
+                        {
+                            removed_keys.insert(id);
+                        }
+                    }
+                    _ => {
+                        selection.omitted.insert(index);
+                    }
                 }
             }
+            // An own update builds these removals inline. Readds do not
+            // cover them: the receiver excludes matched Adds and Removes.
+            // Attribute each missing removal to the inbox update requiring it.
+            // A shared key's leaf can name a different, unchanged inbox.
+            let uncovered_removals: HashSet<_> = required
+                .iter()
+                .filter(|key| !removed_keys.contains(*key) && !own_removals.contains(*key))
+                .cloned()
+                .collect();
+            if !uncovered_removals.is_empty() {
+                for inbox in inbox_diff
+                    .added_inboxes
+                    .iter()
+                    .chain(&inbox_diff.updated_inboxes)
+                    .chain(&inbox_diff.removed_inboxes)
+                {
+                    let mut inbox_target = requirements.old.clone();
+                    if let Some(sequence) = target.get(inbox) {
+                        inbox_target.add((*inbox).clone(), *sequence);
+                    } else {
+                        inbox_target.remove(inbox);
+                    }
+                    let inbox_changes = get_installation_diff_local(
+                        &self.context.db(),
+                        &requirements.old,
+                        &inbox_target,
+                        &requirements.old.diff(&inbox_target),
+                    )
+                    .map_err(InstallationDiffError::from)?;
+                    let inbox_removals = required_leaf_removals(
+                        &self.context.db(),
+                        &requirements.old,
+                        &inbox_target,
+                        &inbox_changes.removed_installations,
+                        &owners,
+                    )
+                    .map_err(InstallationDiffError::from)?;
+                    if !inbox_removals.is_disjoint(&uncovered_removals) {
+                        changed |= requirements.omit_dependencies(inbox, &mut selection.omitted)?;
+                    }
+                }
+            }
+            // implements: GMOD-038, GMOD-047
+            // Added inboxes need an Add. A removed inbox needs a Remove only
+            // when it has a pre-commit leaf; leafless deletes carry their proposer.
+            let uncovered = inbox_diff
+                .added_inboxes
+                .iter()
+                .filter(|inbox| !added.contains(inbox.as_str()))
+                .chain(inbox_diff.removed_inboxes.iter().filter(|inbox| {
+                    leaf_inboxes.contains(inbox.as_str()) && !removed.contains(inbox.as_str())
+                }))
+                .filter(|inbox| !own_inboxes.contains(inbox.as_str()));
+            for inbox in uncovered {
+                changed |= requirements.omit_dependencies(inbox, &mut selection.omitted)?;
+            }
+            if changed {
+                continue;
+            }
+            selection.omitted.extend(conflicts);
             selection.replacements = replacements;
             return Ok(selection);
         }
@@ -481,9 +743,14 @@ impl ProposalSelection {
         storage: &impl XmtpMlsStorageProvider,
         signer: &impl openmls_traits::signatures::Signer,
     ) -> Result<Vec<Vec<u8>>, GroupError> {
-        let proposals: Vec<_> = group.pending_proposals().cloned().collect();
-        for index in &self.omitted {
-            remove_proposal(group, storage, &proposals[*index])?;
+        if !self.omitted.is_empty() {
+            let kept: Vec<_> = group
+                .pending_proposals()
+                .enumerate()
+                .filter(|(index, _)| !self.omitted.contains(index))
+                .map(|(_, proposal)| proposal.clone())
+                .collect();
+            replace_proposals(group, storage, &kept)?;
         }
         let provider = XmtpOpenMlsProviderRef::new(storage);
         let mut payloads = Vec::new();
@@ -497,19 +764,55 @@ impl ProposalSelection {
     }
 }
 
-pub(super) fn restore_proposals(
+/// Replace the pending proposals with `proposals`, in order. Removing one
+/// copy of a repeated reference deletes the stored proposal for every copy,
+/// so the store is always rebuilt whole.
+pub(super) fn replace_proposals(
     group: &mut OpenMlsGroup,
     storage: &impl XmtpMlsStorageProvider,
-    originals: &[QueuedProposal],
+    proposals: &[QueuedProposal],
 ) -> Result<(), GroupError> {
     let current: Vec<_> = group.pending_proposals().cloned().collect();
     for proposal in &current {
         remove_proposal(group, storage, proposal)?;
     }
-    for proposal in originals {
+    for proposal in proposals {
         group.store_pending_proposal(storage, proposal.clone())?;
     }
     Ok(())
+}
+
+/// Whether preparing an intent of `kind` builds a commit of the pending proposals.
+pub(super) fn commits_proposals(kind: IntentKind) -> bool {
+    !matches!(
+        kind,
+        IntentKind::SendMessage | IntentKind::ProposeMemberUpdate
+    )
+}
+
+/// Drop each pending proposal no commit can carry, and each `AppDataUpdate`
+/// past the cap (see [`Committable::pending`]), and return whether any was
+/// dropped. It expires with the epoch.
+// implements: GMOD-047
+pub(super) fn omit_uncommittable_proposals(
+    group: &mut OpenMlsGroup,
+    storage: &impl XmtpMlsStorageProvider,
+) -> Result<bool, GroupError> {
+    let kept: Vec<_> = Committable::pending(group)?
+        .proposals
+        .into_iter()
+        .cloned()
+        .collect();
+    let omitted = group.pending_proposals().count() - kept.len();
+    if omitted > 0 {
+        tracing::warn!(
+            group_id = group.group_id().as_slice().short_hex(),
+            omitted,
+            "omitting pending proposals no commit can carry; they expire with the epoch"
+        );
+        replace_proposals(group, storage, &kept)?;
+    }
+    Ok(omitted > 0)
 }
 
 fn remove_proposal(

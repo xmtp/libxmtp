@@ -30,6 +30,8 @@ pub(super) struct Transport {
     pub(super) permanent_failures: u32,
     pub(super) recovery: crate::subscriptions::recovery::RecoverySnapshot,
     pub(super) attempted_open: Option<RequestKey>,
+    /// The client's rate-limit hold, shared with every later controller.
+    rate_limit_hold: super::super::SharedRateLimitHold,
     has_connected: std::sync::atomic::AtomicBool,
     shared_recovery: Arc<parking_lot::Mutex<crate::subscriptions::recovery::RecoverySnapshot>>,
 }
@@ -50,10 +52,16 @@ impl Transport {
     pub(super) fn new(
         factory: Option<Arc<dyn SubscriptionFactory>>,
         shared_recovery: Arc<parking_lot::Mutex<crate::subscriptions::recovery::RecoverySnapshot>>,
+        rate_limit_hold: super::super::SharedRateLimitHold,
     ) -> Self {
+        // A replacement controller starts no earlier than a pending hold ends.
+        let first_open = rate_limit_hold
+            .lock()
+            .opens_until()
+            .unwrap_or_else(Instant::now);
         Self {
             factory,
-            state: TransportState::Waiting(Instant::now()),
+            state: TransportState::Waiting(first_open),
             requested: HashSet::new(),
             registered: HashSet::new(),
             generation: 0,
@@ -61,6 +69,7 @@ impl Transport {
             permanent_failures: 0,
             recovery: Default::default(),
             attempted_open: None,
+            rate_limit_hold,
             has_connected: std::sync::atomic::AtomicBool::new(false),
             shared_recovery,
         }
@@ -79,8 +88,15 @@ impl Transport {
         }
     }
 
+    /// True while a rate-limit delay holds every open.
+    // implements: RATE-041
+    pub(super) fn opens_held(&self) -> bool {
+        self.rate_limit_hold.lock().opens_until().is_some()
+    }
+
     pub(super) fn can_open(&self) -> bool {
         !self.requested.is_empty()
+            && !self.opens_held()
             && match self.state {
                 TransportState::Waiting(at) => Instant::now() >= at,
                 TransportState::Unary => self.registered != self.requested,
@@ -116,8 +132,11 @@ impl Transport {
         }
     }
 
+    /// True while a retry is pending or a rate limit holds every open. A
+    /// refused read holds opens too, so target reads wait out its delay.
     pub(super) fn backing_off(&self) -> bool {
         matches!(self.state, TransportState::Waiting(at) if Instant::now() < at)
+            || self.opens_held()
     }
 
     #[cfg(test)]
@@ -129,10 +148,15 @@ impl Transport {
     }
 
     /// A wake advances a pending retry, including one scheduled after a
-    /// permanent error. No failure is terminal.
+    /// permanent error, but never before a rate-limit delay ends. No failure
+    /// is terminal.
     pub(super) fn wake(&mut self) {
         if let TransportState::Waiting(at) = &mut self.state {
-            *at = Instant::now();
+            *at = self
+                .rate_limit_hold
+                .lock()
+                .opens_until()
+                .unwrap_or_else(Instant::now);
         }
     }
 
@@ -144,7 +168,8 @@ impl Transport {
     pub(super) fn disconnect(&mut self, delay: Duration) {
         self.recovery.healthy_since = None;
         self.registered.clear();
-        let at = Instant::now() + delay;
+        // The delay can come from a backend's RetryInfo, so the add saturates.
+        let at = xmtp_common::time::saturating_after(Instant::now(), delay);
         self.state = match self.state {
             TransportState::Waiting(pending) if pending > at => TransportState::Waiting(pending),
             _ => TransportState::Waiting(at),
@@ -172,7 +197,13 @@ impl Transport {
             return;
         }
         let retryable = error.is_retryable();
-        let delay = if retryable {
+        // A rate limit holds the next open for its delay and leaves the
+        // permanent-failure backoff where it was.
+        // implements: RATE-041
+        let delay = if let Some(floor) = error.rate_limit_delay() {
+            self.rate_limit_hold.lock().hold_opens(floor);
+            delay.max(floor)
+        } else if retryable {
             self.permanent_failures = 0;
             delay
         } else {
@@ -258,6 +289,130 @@ impl Transport {
 }
 
 #[cfg(test)]
+mod rate_limit_tests {
+    use super::*;
+    use xmtp_api_grpc::error::{GrpcError, rate_limited_status};
+
+    /// A rate-limited open or stream end holds the next open for the delay,
+    /// and a wake cannot advance it.
+    // verifies: RATE-041
+    #[xmtp_common::test(unwrap_try = true)]
+    fn rate_limited_failure_holds_the_next_open_through_a_wake() {
+        let delay = Duration::from_secs(5);
+        let mut transport = Transport::new(None, Default::default(), Default::default());
+        transport.requested = HashSet::from([Topic::new_group_message([1; 32])]);
+        let failed = Instant::now();
+        transport.fail(
+            NetworkError::new(xmtp_proto::api::ApiClientError::client(GrpcError::Status(
+                rate_limited_status("stream_rent", delay),
+            ))),
+            Duration::from_millis(100),
+            RetryBackoff {
+                initial: Duration::from_secs(1),
+                max: Duration::from_secs(60),
+            },
+        );
+        assert!(transport.retry_at()? >= failed + delay);
+        transport.wake();
+        assert!(transport.retry_at()? >= failed + delay);
+        assert!(!transport.can_open());
+    }
+    /// A delay no clock can hold saturates instead of panicking the client.
+    // verifies: RATE-041
+    #[xmtp_common::test(unwrap_try = true)]
+    fn a_huge_rate_limit_delay_holds_without_panicking() {
+        let mut transport = Transport::new(None, Default::default(), Default::default());
+        transport.requested = HashSet::from([Topic::new_group_message([1; 32])]);
+        transport.fail(
+            NetworkError::new(xmtp_proto::api::ApiClientError::client(GrpcError::Status(
+                xmtp_api_grpc::error::rate_limited_status_raw(i64::MAX, 0),
+            ))),
+            Duration::from_millis(100),
+            RetryBackoff {
+                initial: Duration::from_secs(1),
+                max: Duration::from_secs(60),
+            },
+        );
+        assert!(!transport.can_open());
+    }
+
+    /// A hold ends with its delay: the transport opens again after it.
+    // verifies: RATE-041
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn a_rate_limit_hold_ends_with_its_delay() {
+        let mut transport = Transport::new(None, Default::default(), Default::default());
+        transport.requested = HashSet::from([Topic::new_group_message([1; 32])]);
+        transport.fail(
+            NetworkError::new(xmtp_proto::api::ApiClientError::client(GrpcError::Status(
+                rate_limited_status("stream_rent", Duration::from_millis(50)),
+            ))),
+            Duration::ZERO,
+            RetryBackoff {
+                initial: Duration::from_secs(1),
+                max: Duration::from_secs(60),
+            },
+        );
+        assert!(!transport.can_open());
+        xmtp_common::time::sleep(Duration::from_millis(60)).await;
+        assert!(transport.can_open());
+    }
+
+    /// A rate limit leaves the permanent-failure backoff where it was.
+    // verifies: RATE-041
+    #[xmtp_common::test(unwrap_try = true)]
+    fn a_rate_limit_keeps_the_permanent_failure_backoff() {
+        let backoff = RetryBackoff {
+            initial: Duration::from_secs(1),
+            max: Duration::from_secs(60),
+        };
+        let mut transport = Transport::new(None, Default::default(), Default::default());
+        transport.requested = HashSet::from([Topic::new_group_message([1; 32])]);
+        for _ in 0..2 {
+            transport.fail(
+                NetworkError::new(xmtp_api::ApiError::InvalidResponse("permanent")),
+                Duration::from_millis(100),
+                backoff,
+            );
+        }
+        transport.fail(
+            NetworkError::new(xmtp_proto::api::ApiClientError::client(GrpcError::Status(
+                rate_limited_status("stream_rent", Duration::from_secs(1)),
+            ))),
+            Duration::from_millis(100),
+            backoff,
+        );
+        assert_eq!(transport.permanent_failures, 2);
+    }
+
+    /// The bidi transport hands a refused open, a refused reopen, and a stream
+    /// end over in its own wrappers. Each keeps the delay.
+    // verifies: RATE-041
+    #[cfg(not(target_arch = "wasm32"))]
+    #[xmtp_common::test(unwrap_try = true)]
+    fn rate_limit_delay_survives_the_bidi_transport_wrapping() {
+        use std::sync::Arc;
+        use xmtp_api_backend::{ConnectionFailure, OpenError, TransportError};
+        use xmtp_common::RetryableError;
+        use xmtp_proto::api::ApiClientError;
+        let delay = Duration::from_secs(5);
+        let rate_limited =
+            || ApiClientError::client(GrpcError::Status(rate_limited_status("stream_rent", delay)));
+        for error in [
+            NetworkError::new(TransportError::Open(OpenError::new(rate_limited()))),
+            NetworkError::new(TransportError::Wire(Arc::new(ConnectionFailure::Wire(
+                NetworkError::new(OpenError::new(rate_limited())),
+            )))),
+            NetworkError::new(TransportError::Wire(Arc::new(ConnectionFailure::Wire(
+                NetworkError::new(rate_limited()),
+            )))),
+        ] {
+            assert_eq!(xmtp_api_grpc::error::rate_limit_delay(&error), Some(delay));
+            assert_eq!(error.rate_limit_delay(), Some(delay));
+        }
+    }
+}
+
+#[cfg(test)]
 mod lifecycle_tests {
     use super::*;
     use crate::subscriptions::connection_state::ConnectionStates;
@@ -275,7 +430,7 @@ mod lifecycle_tests {
             IncomingSubscription::<NetworkError>::new(Box::pin(futures::stream::pending()), |_| {})
                 .with_connection_source(move || source.load(Ordering::Acquire))
                 .map_error(|error| error);
-        let mut transport = Transport::new(None, Default::default());
+        let mut transport = Transport::new(None, Default::default(), Default::default());
         transport.state = TransportState::Streaming(subscription);
         let bus = EventBus::<()>::new();
         let events = bus.subscribe(

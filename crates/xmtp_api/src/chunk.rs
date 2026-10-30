@@ -7,7 +7,10 @@ use std::{
     future::Future,
 };
 use tonic::Code;
-use xmtp_common::{RetryableError, retry_async};
+use xmtp_common::{
+    ExponentialBackoff, Retry, RetryableError, Strategy, retry_async,
+    time::{Duration, Instant},
+};
 use xmtp_configuration::*;
 use xmtp_proto::{
     api::grpc_status,
@@ -225,8 +228,13 @@ pub(crate) fn publish_error_reason(
         .and_then(|error| wire::publish_error::Reason::try_from(error.reason).ok())
 }
 
+/// A refusal that a smaller request may avoid. A rate-limit rejection is
+/// never one: splitting it multiplies the load the limit refused.
+// implements: CONF-073, RATE-041
 pub(crate) fn size_error(error: &(dyn std::error::Error + 'static)) -> bool {
-    if crate::preflight::failure(error).is_some() {
+    if crate::preflight::failure(error).is_some()
+        || xmtp_api_grpc::error::rate_limit_delay(error).is_some()
+    {
         return false;
     }
     let Some(status) = grpc_status(error) else {
@@ -266,12 +274,46 @@ impl<E: RetryableError + 'static> RetryableError for CallError<E> {
             }
         }
     }
+
+    fn rate_limit_delay(&self) -> Option<Duration> {
+        match self {
+            Self::Resize(_) => None,
+            Self::Retry(error) => xmtp_api_grpc::error::rate_limit_delay(error),
+        }
+    }
+}
+
+/// The client's backoff, which also gives up on a rate-limit wait that would
+/// end after the caller's deadline, so the caller still sees the delay.
+struct Until<'a> {
+    strategy: &'a ExponentialBackoff,
+    deadline: Option<Instant>,
+}
+
+impl Strategy for Until<'_> {
+    fn backoff(&self, attempts: usize, time_spent: Instant) -> Option<Duration> {
+        self.strategy.backoff(attempts, time_spent)
+    }
+
+    fn backoff_at_least(
+        &self,
+        attempts: usize,
+        time_spent: Instant,
+        floor: Duration,
+    ) -> Option<Duration> {
+        let wait = self
+            .strategy
+            .backoff_at_least(attempts, time_spent, floor)?;
+        self.deadline
+            .is_none_or(|deadline| deadline.saturating_duration_since(Instant::now()) > wait)
+            .then_some(wait)
+    }
 }
 
 impl<C> ApiClientWrapper<C> {
     pub(crate) async fn retry_call<T, E, F, Fut>(
         &self,
-        mut call: F,
+        call: F,
         resize: bool,
     ) -> std::result::Result<T, E>
     where
@@ -279,8 +321,33 @@ impl<C> ApiClientWrapper<C> {
         F: FnMut() -> Fut,
         Fut: Future<Output = std::result::Result<T, E>>,
     {
+        self.retry_call_until(call, resize, None).await
+    }
+
+    /// Retry `call` with backoff. A rate-limit rejection waits at least its
+    /// delay before the next attempt; a wait that does not fit the retry
+    /// budget, or that would end after `deadline`, returns the error at once.
+    // implements: RATE-041
+    pub(crate) async fn retry_call_until<T, E, F, Fut>(
+        &self,
+        mut call: F,
+        resize: bool,
+        deadline: Option<Instant>,
+    ) -> std::result::Result<T, E>
+    where
+        E: RetryableError + 'static,
+        F: FnMut() -> Fut,
+        Fut: Future<Output = std::result::Result<T, E>>,
+    {
+        let retry = Retry::builder()
+            .retries(self.retry_strategy.retries())
+            .with_strategy(Until {
+                strategy: self.retry_strategy.strategy(),
+                deadline,
+            })
+            .build();
         retry_async!(
-            self.retry_strategy,
+            retry,
             (async {
                 call().await.map_err(|error| {
                     if resize && size_error(&error) {
@@ -485,6 +552,41 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
         Ok(page)
     }
 
+    /// Fold one bounded ordered page at a time without retaining earlier pages.
+    /// Cursors advance before the fold runs. Remove a topic from the fold's
+    /// cursors to stop reading it. An API or fold error stops the read immediately;
+    /// the caller owns persistence of each page and its durable cursors.
+    pub async fn fold_ordered_pages<E: From<ApiError>>(
+        &self,
+        mut cursors: TopicCursor,
+        limits: IncomingBatchLimits,
+        mut fold: impl FnMut(Vec<OrderedEnvelopeBatch>, &mut TopicCursor) -> std::result::Result<(), E>,
+    ) -> std::result::Result<(), E> {
+        let limit = limits
+            .max_rows
+            .min(self.limits().max_query_limit)
+            .min(u32::MAX as usize) as u32;
+        while !cursors.is_empty() {
+            let page = self
+                .query_ordered_page(cursors.clone(), limit, limits)
+                .await?;
+            for batch in &page.batches {
+                let cursor = batch
+                    .envelopes
+                    .last()
+                    .and_then(|envelope| envelope.meta.as_ref())
+                    .and_then(|meta| meta.cursor.as_ref())
+                    .ok_or(ApiError::InvalidResponse("ordered page cursor"))?;
+                cursors.insert(batch.topic.clone(), Cursor(cursor.sequence_id));
+            }
+            fold(page.batches, &mut cursors)?;
+            if !page.has_more {
+                break;
+            }
+        }
+        Ok(())
+    }
+
     /// Capture fixed newest targets. Absent topics have target zero.
     /// Keep these targets unchanged while waiting for processing to reach them.
     // implements: PROC-015
@@ -511,6 +613,7 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
     }
 
     /// Read every page. Each topic advances only to its own returned cursor.
+    /// Use [`Self::fold_ordered_pages`] to process a backlog without retaining it all.
     pub async fn query_all(
         &self,
         cursors: TopicCursor,

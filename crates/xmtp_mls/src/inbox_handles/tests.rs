@@ -14,10 +14,7 @@ use crate::{Client, context::XmtpSharedContext, utils::Tester};
 use parking_lot::Mutex;
 use std::{collections::HashMap, sync::Arc};
 use xmtp_id::associations::{AssociationState, Identifier, handle::Handle};
-use xmtp_proto::{
-    api::ApiClientError, api_client::XmtpBackendClient, backend_v1 as wire,
-    xmtp::identity::associations::IdentifierKind,
-};
+use xmtp_proto::{api::ApiClientError, api_client::XmtpBackendClient, backend_v1 as wire};
 
 /// Longer than the backend's interval of 7 days between two claims by one
 /// inbox. Aging an inbox's identity history by it admits the inbox's next claim.
@@ -92,7 +89,8 @@ fn new_inbox_state() -> AssociationState {
 /// What a [`ScriptedLookups`] client saw, and the inboxes it names falsely.
 #[derive(Default)]
 struct LookupScript {
-    /// Handle lookups answered with this inbox, as a lying backend would.
+    /// Lookups of an identifier, a handle or an account, answered with this
+    /// inbox, as a lying backend would.
     lies: HashMap<String, String>,
     /// The number of entries in each `GetInboxIds` request, in order.
     lookups: Vec<usize>,
@@ -101,8 +99,8 @@ struct LookupScript {
 }
 
 /// A backend client that forwards every call to the shared backend. It
-/// records lookups and publishes, and can answer a handle lookup with a
-/// chosen inbox.
+/// records lookups and publishes, and can answer a handle or account lookup
+/// with a chosen inbox.
 #[derive(Clone)]
 struct ScriptedLookups {
     inner: crate::utils::TestClient,
@@ -173,9 +171,7 @@ impl XmtpBackendClient for ScriptedLookups {
         let mut response = self.inner.get_inbox_ids(request).await?;
         let script = self.script.lock();
         for answer in &mut response.responses {
-            if answer.identifier_kind == IdentifierKind::Handle as i32
-                && let Some(inbox_id) = script.lies.get(&answer.identifier)
-            {
+            if let Some(inbox_id) = script.lies.get(&answer.identifier) {
                 answer.inbox_id = Some(inbox_id.clone());
             }
         }
@@ -186,6 +182,9 @@ impl XmtpBackendClient for ScriptedLookups {
         request: wire::GetConfigurationRequest,
     ) -> Result<wire::GetConfigurationResponse, Self::Error> {
         self.inner.get_configuration(request).await
+    }
+    fn backend_url(&self) -> Option<&str> {
+        self.inner.backend_url()
     }
     async fn verify_smart_contract_wallet_signatures(
         &self,

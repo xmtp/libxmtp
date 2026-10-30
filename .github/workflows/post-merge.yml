@@ -2,7 +2,7 @@
 # the newest push, pushes them to the trusted Cachix cache `xmtp`, and pins
 # them; release, developers, and CI jobs then substitute these outputs. Then it
 # checks that the sets substitute, builds the docs, and deploys GitHub Pages.
-# The RN device chain is advisory, so an RN break can reach trunk. The RN jobs
+# The RN cache chain is advisory, so an RN break can reach trunk. The RN jobs
 # warm, pin, and check the RN set after `build`, and no other job waits for
 # them: an RN break fails and alerts the RN jobs alone. The other sets hold
 # only the RN outputs that blocking pull request suites build.
@@ -182,76 +182,16 @@ jobs:
           path=$(grep -x '/nix/store/[0-9a-z]\{32\}-ci-set-rn' "$RUNNER_TEMP/rn-apps")
           cachix pin xmtp "rn-$SYSTEM" "$path" --keep-revisions 3
 
-  # The RN device smoke of each merge: the full package's bare and Expo apps,
-  # with every journey. It reads only `xmtp` and holds no token. The cache
-  # jobs pushed the package and apps; `build` pushed the backend and the test
-  # services that the journeys start, so the smoke waits for it and builds
-  # nothing. If `build` fails, the smoke still runs and builds what it
-  # misses. `build` does not wait for the smoke.
-  rn-smoke:
-    name: RN installed-app smoke (${{ matrix.platform }})
-    needs: [rn-consumers, build]
-    if: ${{ !cancelled() && needs.rn-consumers.result == 'success' }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          # GitHub-hosted: KVM for the emulator (GitHub changelog 2024-04-02).
-          # Revert label: blacksmith-16vcpu-ubuntu-2404.
-          - platform: android
-            system: x86_64-linux
-            runner: ubuntu-latest
-          # Installs and runs only. Revert label: warp-macos-26-arm64-12x.
-          - platform: ios
-            system: aarch64-darwin
-            runner: warp-macos-26-arm64-6x
-    runs-on: ${{ matrix.runner }}
-    timeout-minutes: 60
-    env:
-      XMTP_SDK_BUILD: nix
-      XMTP_RN_JOURNEYS: full
-    steps:
-      - name: Check out the source
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          ref: ${{ github.sha }}
-      - name: Set up Nix
-        uses: ./.github/actions/setup-nix
-        with:
-          cache-mode: read
-          github-token: ${{ github.token }}
-      - name: Install the Node peer dependencies
-        uses: ./.github/actions/setup-js
-        with:
-          cache-mode: read
-          filter: "@xmtp/node-sdk..."
-      - name: Fetch the cached apps
-        uses: ./.github/actions/react-native-product
-        with:
-          stage: consumers
-          system: ${{ matrix.system }}
-          source-sha: ${{ github.sha }}
-          package-version: ""
-          exchange: "false"
-          substitute-only: "true"
-          artifact-prefix: rn
-          cache-mode: read
-      - name: Run the installed-app tests
-        uses: ./.github/actions/react-native-conformance
-        with:
-          platform: ${{ matrix.platform }}
-          artifact-prefix: react-native-post-merge
-
   # Runs after the RN jobs on a free runner whenever the run goes on, also
   # when some RN jobs failed. It dry-runs the RN set of each system whose set
   # `xmtp` holds: a leg of rn-consumers pushes and pins its system's set, so a
-  # platform that pinned is checked even when the other leg or the smoke
-  # failed. Then it alerts when an RN job or this check failed. A job that
+  # platform that pinned is checked even when the other leg failed. Then it
+  # alerts when an RN job or this check failed. A job that
   # hits its timeout ends as cancelled while the run goes on, so a cancelled
   # result alerts too. A cancelled run checks and alerts on nothing.
   rn-alert:
     name: Check the RN sets and alert on an RN failure
-    needs: [rn-components, rn-package, rn-consumers, rn-smoke]
+    needs: [rn-components, rn-package, rn-consumers]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -270,7 +210,8 @@ jobs:
         env:
           RN_CONSUMERS: ${{ needs.rn-consumers.result }}
         run: |
-          nix eval --json .#ciSets --apply 'builtins.mapAttrs (_: sets: sets.rn.outPath)' > "$RUNNER_TEMP/rn-sets.json"
+          # Only the systems that build RN have an rn set.
+          nix eval --json .#ciSets --apply 'ciSets: builtins.mapAttrs (_: sets: sets.rn.outPath) (builtins.removeAttrs ciSets (builtins.filter (system: !(ciSets.${system} ? rn)) (builtins.attrNames ciSets)))' > "$RUNNER_TEMP/rn-sets.json"
           # The list goes through a file: bash ignores the exit status of a
           # process substitution, so a failed jq would shrink the check.
           jq -r 'to_entries[] | "\(.key) \(.value)"' "$RUNNER_TEMP/rn-sets.json" > "$RUNNER_TEMP/rn-sets.txt"
@@ -311,6 +252,9 @@ jobs:
           - system: aarch64-darwin
             os: macOS
             runner: warp-macos-15-arm64-12x
+          - system: aarch64-linux
+            os: Linux arm64
+            runner: blacksmith-16vcpu-ubuntu-2404-arm
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
     environment: kache-s3-writer
@@ -375,7 +319,7 @@ jobs:
 
   closure:
     name: Verify cached dev and release outputs
-    # Waits for both build jobs, after their post steps finish the uploads.
+    # Waits for every build leg, after their post steps finish the uploads.
     needs: build
     runs-on: ubuntu-24.04
     timeout-minutes: 30

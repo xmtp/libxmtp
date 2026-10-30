@@ -1,5 +1,13 @@
 use super::*;
-use crate::test_support::auth::{TestKey, mint, valid_claims};
+use crate::test_support::{
+    auth::{TestKey, mint, valid_claims},
+    native::{framed, raw_unary},
+};
+use prost::Message;
+use xmtp_configuration::{NOTIFICATION_BATCH_HMAC_KEYS, NOTIFICATION_BATCH_TOPICS};
+
+const UPDATE: &str = "/xmtp.backend.v1.NotificationService/UpdateSubscriptions";
+const BATCH_LIMIT: &str = "request exceeds the subscription batch limit";
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn malformed_protobuf_has_a_constant_status_on_each_wire_method() {
@@ -47,6 +55,138 @@ fn authorized<T>(request: T, token: &str) -> Request<T> {
         .metadata_mut()
         .insert("authorization", format!("Bearer {token}").parse().unwrap());
     request
+}
+
+/// `count` distinct group-message topics.
+fn topics(count: usize) -> impl Iterator<Item = Vec<u8>> {
+    (0..count).map(|n| {
+        let mut id = [0; 32];
+        id[..4].copy_from_slice(&(n as u32).to_be_bytes());
+        TopicKind::GroupMessagesV1.create(id).to_vec()
+    })
+}
+
+/// Adds and removes count together, and a batch over the bound fails before
+/// any insert. A sequence counts insert attempts, which a rollback does not
+/// undo.
+#[xmtp_common::test(unwrap_try = true)]
+// verifies: PUSH-264
+async fn subscription_batch_over_bound_does_no_database_work() {
+    let server = TestServer::new(configured).await?;
+    let mut client = server.notifications();
+    client.register(registration()).await?;
+    sqlx::raw_sql(
+        r#"
+        CREATE SEQUENCE attempted_subscription_inserts;
+        CREATE FUNCTION count_subscription_insert() RETURNS trigger AS $$
+        BEGIN
+            PERFORM nextval('attempted_subscription_inserts');
+            RETURN NEW;
+        END;
+        $$ LANGUAGE plpgsql;
+        CREATE TRIGGER count_subscription_insert BEFORE INSERT ON push_subscription
+        FOR EACH ROW EXECUTE FUNCTION count_subscription_insert();
+        "#,
+    )
+    .execute(&server.backend.store.primary)
+    .await?;
+    let mut entries: Vec<_> = topics(NOTIFICATION_BATCH_TOPICS + 1).collect();
+    let removes = entries.split_off(NOTIFICATION_BATCH_TOPICS / 2 + 1);
+    let adds = entries
+        .into_iter()
+        .map(|topic| api::Subscription {
+            topic,
+            hmac_epoch_base: 0,
+            hmac_keys: vec![],
+            include_commits: false,
+        })
+        .collect();
+    let error = client
+        .update_subscriptions(update(adds, removes))
+        .await
+        .unwrap_err();
+    status(error, Code::InvalidArgument, BATCH_LIMIT);
+    let attempted: bool =
+        sqlx::query_scalar("SELECT is_called FROM attempted_subscription_inserts")
+            .fetch_one(&server.backend.store.primary)
+            .await?;
+    assert!(!attempted);
+    assert_count(&server, 0).await;
+    server.stop().await?;
+}
+
+/// The bound precedes the recipient lookup, so an unknown recipient gets
+/// INVALID_ARGUMENT and not NOT_FOUND.
+#[xmtp_common::test(unwrap_try = true)]
+// verifies: PUSH-264
+async fn subscription_batch_bound_precedes_recipient_lookup() {
+    let server = TestServer::new(configured).await?;
+    let removes = topics(NOTIFICATION_BATCH_TOPICS + 1).collect();
+    let error = server
+        .notifications()
+        .update_subscriptions(update(vec![], removes))
+        .await
+        .unwrap_err();
+    status(error, Code::InvalidArgument, BATCH_LIMIT);
+    server.stop().await?;
+}
+
+/// Entries past the bound are never decoded: a request that would fail to
+/// decode gets the bound's status, not the decoder's.
+#[xmtp_common::test(unwrap_try = true)]
+// verifies: PUSH-264
+async fn subscription_batch_bound_precedes_decode() {
+    let server = TestServer::new(configured).await?;
+    let mut message =
+        update(vec![], topics(NOTIFICATION_BATCH_TOPICS + 1).collect()).encode_to_vec();
+    message.push(0xff);
+    let error = raw_unary(&server, UPDATE, &[], framed(&message), true).await?;
+    status(error, Code::InvalidArgument, BATCH_LIMIT);
+    server.stop().await?;
+}
+
+/// Keys count across adds, before decode.
+#[xmtp_common::test(unwrap_try = true)]
+// verifies: PUSH-264
+async fn subscription_keys_are_rejected_before_decode() {
+    let server = TestServer::new(configured).await?;
+    let mut add = subscription(1, 0);
+    add.hmac_keys = vec![vec![1; HMAC_KEY_BYTES]; NOTIFICATION_BATCH_HMAC_KEYS / 2 + 1];
+    let mut other = add.clone();
+    other.topic = subscription(2, 0).topic.clone();
+    let mut message = update(vec![add, other], vec![]).encode_to_vec();
+    message.push(0xff);
+    let error = raw_unary(&server, UPDATE, &[], framed(&message), true).await?;
+    status(
+        error,
+        Code::InvalidArgument,
+        "request exceeds the subscription key limit",
+    );
+    server.stop().await?;
+}
+
+/// Tonic decodes every message of a unary body and hands the handler the
+/// first, so without the gate the first update would apply.
+#[xmtp_common::test(unwrap_try = true)]
+async fn subscription_second_message_is_rejected() {
+    let server = TestServer::new(configured).await?;
+    server.notifications().register(registration()).await?;
+    let message = framed(&update(vec![subscription(1, 3)], vec![]).encode_to_vec());
+    let error = raw_unary(
+        &server,
+        UPDATE,
+        &[],
+        [message.clone(), message].concat(),
+        true,
+    )
+    .await?;
+    status(
+        error,
+        Code::InvalidArgument,
+        "request carries more than one message",
+    );
+    assert_count(&server, 0).await;
+    server.stop().await?;
 }
 
 #[xmtp_common::test(unwrap_try = true)]
@@ -114,9 +254,12 @@ async fn all_notification_methods_use_global_auth_and_scopes_before_identity_che
             .code(),
         Code::Unauthenticated
     );
+    // A batch over the count bound gets the auth status too, because the
+    // count gate runs inside auth.
+    let over_bound = || update(vec![], topics(NOTIFICATION_BATCH_TOPICS + 1).collect());
     assert_eq!(
         client
-            .update_subscriptions(api::UpdateSubscriptionsRequest::default())
+            .update_subscriptions(over_bound())
             .await
             .unwrap_err()
             .code(),
@@ -141,10 +284,7 @@ async fn all_notification_methods_use_global_auth_and_scopes_before_identity_che
     );
     assert_eq!(
         client
-            .update_subscriptions(authorized(
-                api::UpdateSubscriptionsRequest::default(),
-                &insufficient
-            ))
+            .update_subscriptions(authorized(over_bound(), &insufficient))
             .await
             .unwrap_err()
             .code(),

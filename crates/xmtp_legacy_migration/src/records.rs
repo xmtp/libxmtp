@@ -2,6 +2,7 @@
 use crate::{MigrationError, MigrationReport, RecordError};
 use diesel::{connection::DefaultLoadingMode, prelude::*, sql_types::*};
 use prost::Message;
+use std::collections::BTreeMap;
 use xmtp_proto::xmtp::{
     device_sync::{
         BackupMetadataSave,
@@ -100,6 +101,15 @@ struct Consent {
     entity: String,
     #[diesel(sql_type = BigInt)]
     consented_at_ns: i64,
+    /// The DM id of the group a conversation row names, when it is a DM.
+    #[diesel(sql_type = Nullable<Text>)]
+    dm_id: Option<String>,
+}
+
+#[derive(QueryableByName)]
+struct OwnInbox {
+    #[diesel(sql_type = Text)]
+    inbox_id: String,
 }
 
 #[derive(QueryableByName)]
@@ -213,8 +223,8 @@ pub(crate) fn export(
     if malformed_deletions.count != 0 {
         return Err(invalid("invalid required deletion identity or Boolean"));
     }
-    // Keep NULL expiry as unknown. Current group settings do not establish a
-    // historical message expiry (MIG-006; ARCH-009 gap waiver).
+    // A NULL expiry stays eligible and is written with expiry_known unset, which
+    // imports as unknown expiry. Current group settings do not establish a historical deadline.
     let unknown_kind = diesel::sql_query("SELECT count(*) AS count FROM group_messages m LEFT JOIN groups g ON m.group_id = g.id WHERE m.expire_at_ns IS NULL AND (m.kind IS NULL OR m.kind NOT IN (1,2)) AND (g.id IS NULL OR (g.conversation_type IN (1,2) AND g.membership_state IN (1,2,3,5)))")
         .get_result::<Count>(conn)?;
     if unknown_kind.count != 0 {
@@ -268,14 +278,40 @@ pub(crate) fn export(
     if oversized.count != 0 {
         return Err(invalid("stored consent row exceeds the 64 MiB byte limit"));
     }
-    for consent in diesel::sql_query("SELECT entity_type, state, entity, consented_at_ns FROM consent_records ORDER BY entity_type, entity")
-        .load_iter::<Consent, DefaultLoadingMode>(conn)?
+    // implements: MIG-009
+    // A DM's consent names its peer. A database that never finished
+    // registration has no identity row, and then every row is written as stored.
+    let own = diesel::sql_query("SELECT inbox_id FROM identity LIMIT 1")
+        .get_result::<OwnInbox>(conn)
+        .optional()?;
+    if own.is_some() {
+        let oversized = diesel::sql_query(
+            "SELECT EXISTS(SELECT 1 FROM groups WHERE dm_id IS NOT NULL AND \
+             COALESCE(length(CAST(id AS BLOB)), 0) + length(CAST(dm_id AS BLOB)) > ?) AS count",
+        )
+        .bind::<BigInt, _>(MAX_ROW_BYTES)
+        .get_result::<Count>(conn)?;
+        if oversized.count != 0 {
+            return Err(invalid("stored DM id exceeds the 64 MiB byte limit"));
+        }
+    }
+    // Conversation rows sort first, so a peer's DM rows are known before its inbox row.
+    let mut by_peer: BTreeMap<String, Vec<ConsentSave>> = BTreeMap::new();
+    // Each conversation row reads its DM's id with it, so no DM is held apart.
+    for consent in diesel::sql_query(
+        "SELECT c.entity_type, c.state, c.entity, c.consented_at_ns, g.dm_id \
+         FROM consent_records c LEFT JOIN groups g \
+         ON c.entity_type = 1 AND g.id = unhex(c.entity) AND g.dm_id IS NOT NULL \
+         ORDER BY c.entity_type, c.entity",
+    )
+    .load_iter::<Consent, DefaultLoadingMode>(conn)?
     {
         let consent = consent?;
         if !matches!(consent.entity_type, 1 | 2) || consent.entity.is_empty() {
             return Err(invalid("invalid required consent identity or enum"));
         }
-        emit(Element::Consent(ConsentSave {
+        let entity = consent.entity.to_ascii_lowercase();
+        let save = ConsentSave {
             entity_type: consent.entity_type,
             state: match consent.state {
                 0 => ConsentStateSave::Unknown,
@@ -285,8 +321,26 @@ pub(crate) fn export(
             } as i32,
             entity: consent.entity,
             consented_at_ns: consent.consented_at_ns,
-        }))?;
-        report.consent_count += 1;
+        };
+        let peer = match (consent.entity_type, &own, &consent.dm_id) {
+            (1, Some(own), Some(dm_id)) => xmtp_archive::pre8::dm_peer(dm_id, &own.inbox_id)
+                .map(|peer| peer.to_ascii_lowercase()),
+            (1, ..) => None,
+            _ => by_peer.contains_key(&entity).then_some(entity),
+        };
+        match peer {
+            Some(peer) => by_peer.entry(peer).or_default().push(save),
+            None => {
+                emit(Element::Consent(save))?;
+                report.consent_count += 1;
+            }
+        }
+    }
+    for (peer, rows) in &by_peer {
+        if let Some(save) = xmtp_archive::pre8::pre8_peer_consent(peer, rows) {
+            emit(Element::Consent(save))?;
+            report.consent_count += 1;
+        }
     }
     Ok(report)
 }
@@ -327,6 +381,21 @@ impl MessageRow {
                 return Ok(None);
             }
         }
+        // The archive also carries the type fields copied from the content, so they
+        // count toward the same budget as the SQL check.
+        let copied = encoded_type
+            .as_ref()
+            .map_or(0, |id| id.type_id.len() + id.authority_id.len());
+        let retained = self.id.len()
+            + self.group_id.len()
+            + self.decrypted_message_bytes.len()
+            + self.sender_installation_id.len()
+            + self.sender_inbox_id.len()
+            + self.authority_id.len()
+            + self.reference_id.as_ref().map_or(0, Vec::len);
+        if retained + copied > MAX_ROW_BYTES as usize {
+            return Err(invalid("stored message row exceeds the 64 MiB byte limit"));
+        }
         let mut save = GroupMessageSave {
             id: self.id,
             group_id: self.group_id,
@@ -344,6 +413,8 @@ impl MessageRow {
             sequence_id: Some(self.sequence_id),
             originator_id: Some(self.originator_id),
             content_type: legacy_content_type(self.content_type).to_owned(),
+            expires_at_ns: None,
+            expiry_known: None,
         };
         if let Some(id) = encoded_type {
             save.authority_id = id.authority_id;

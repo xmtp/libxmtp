@@ -349,10 +349,7 @@ async fn provider_timeout_completes_first_attempt_and_releases_the_cursor() {
 #[xmtp_common::test(unwrap_try = true)]
 async fn pruning_between_pages_does_not_leave_an_incomplete_window_forever() {
     let fixture = Fixture::new().await?;
-    sqlx::query("INSERT INTO push_recipient (recipient_id, secret_hash, channel, delivery, signing_key, topic_count, renewed_ns) SELECT decode(lpad(to_hex(id),64,'0'),'hex'), decode(repeat('01',32),'hex'), 3, 'https://push.invalid', decode(repeat('07',32),'hex'), 1, (extract(epoch FROM clock_timestamp()) * 1000000000)::bigint FROM generate_series(1,13000) id")
-        .execute(&fixture.store.primary).await?;
-    sqlx::query("INSERT INTO push_subscription (recipient_id, topic, since_sequence_id, include_commits) SELECT recipient_id, $1, 0, false FROM push_recipient")
-        .bind(&[1u8][..]).execute(&fixture.store.primary).await?;
+    fixture.subscribers(13000, &[1]).await?;
     fixture
         .recipient(20000, PushChannel::Apns, &[2], false, 0)
         .await?;
@@ -392,6 +389,8 @@ async fn server_drain_interrupts_blocked_push_queries_within_the_shared_budget()
     server.shutdown();
     timeout(Duration::from_millis(500), server.wait_stopped()).await??;
     blocker.rollback().await?;
-    assert!(holder_pid(&server.backend.store).await.is_none());
+    // Drain closes the lock session. PostgreSQL drops its advisory lock when
+    // that session's server process exits, which can be after the drain ends.
+    xmtp_common::wait_for_eq(|| holder_pid(&server.backend.store), None).await?;
     server.stop().await?;
 }

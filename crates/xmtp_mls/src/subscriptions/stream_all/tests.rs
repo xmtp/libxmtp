@@ -473,7 +473,7 @@ async fn test_stream_all_messages_detached_group_changes() {
     assert_eq!(messages.len(), 5);
 }
 
-// verifies: CONS-030
+// verifies: CONS-060
 #[xmtp_common::timeout(Duration::from_secs(30))]
 #[xmtp_common::test]
 #[cfg_attr(target_arch = "wasm32", ignore)]

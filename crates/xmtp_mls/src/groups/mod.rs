@@ -41,15 +41,15 @@ use self::{
 #[cfg(test)]
 use crate::GroupCommitLock;
 use crate::context::XmtpSharedContext;
+use crate::groups::send_message_opts::SendMessageOpts;
 use crate::groups::{
     intents::{QueueIntent, ReaddInstallationsIntentData},
     mls_ext::CommitLogStorer,
 };
 use crate::state_tx::state_write;
-use crate::{client::ClientError, utils::id::calculate_message_id};
 use crate::{
-    groups::send_message_opts::SendMessageOpts,
-    worker::device_sync::preference_sync::PreferenceUpdate,
+    client::ClientError,
+    utils::id::{calculate_message_id, decode_message_reference},
 };
 pub use error::*;
 use intents::SendMessageIntentData;
@@ -84,11 +84,11 @@ use xmtp_content_types::{
 };
 use xmtp_cryptography::configuration::CIPHERSUITE;
 use xmtp_cryptography::secret::Zeroize;
-use xmtp_db::message_deletion::{QueryMessageDeletion, StoredMessageDeletion};
+use xmtp_db::Fetch;
+use xmtp_db::message_deletion::StoredMessageDeletion;
 use xmtp_db::pending_remove::QueryPendingRemove;
 use xmtp_db::prelude::*;
 use xmtp_db::user_preferences::HmacKey;
-use xmtp_db::{Fetch, consent_record::ConsentType};
 use xmtp_db::{
     NotFound, StorageError,
     group_intent::{IntentState, StoredGroupIntent},
@@ -102,7 +102,10 @@ use xmtp_db::{
     remote_commit_log::{RemoteCommitLog, RemoteCommitLogOrder},
 };
 use xmtp_db::{
-    consent_record::{ConsentState, StoredConsentRecord},
+    consent_record::{
+        ConsentActError, ConsentKey, ConsentState, ConsentWrite, Decision, Owed,
+        conversation_consent, write_consent,
+    },
     group::{ConversationType, GroupMembershipState, StoredGroup},
     group_message::{DeliveryStatus, GroupMessageKind, MsgQueryArgs, StoredGroupMessage},
 };
@@ -189,12 +192,16 @@ where
     }
 }
 
+/// One conversation of a list page. It carries no message content.
 pub struct ConversationListItem<Context> {
     pub group: MlsGroup<Context>,
     pub membership_state: GroupMembershipState,
     pub added_by_inbox_id: String,
-    pub last_message: Option<StoredGroupMessage>,
     pub is_commit_log_forked: Option<bool>,
+    /// The time the list orders by: the creation time in creation order, and
+    /// the activity time (`MlsGroup::last_activity_ns(None)`) in activity
+    /// order.
+    pub listing_time_ns: i64,
 }
 
 impl<Context: XmtpSharedContext> Clone for MlsGroup<Context> {
@@ -327,18 +334,21 @@ impl TryFrom<EncodedContent> for QueryableContentFields {
             match (type_id_str.as_str(), content_type_id.version_major) {
                 (ReplyCodec::TYPE_ID, 1) => ReplyCodec::decode(content.clone())
                     .ok()
-                    .and_then(|reply| hex::decode(reply.reference).ok()),
+                    .and_then(|reply| decode_message_reference(&reply.reference)),
                 (ReactionCodec::TYPE_ID, ReactionCodec::MAJOR_VERSION) => {
                     ReactionV2::decode(content.content.as_slice())
                         .ok()
-                        .and_then(|reaction| hex::decode(reaction.reference).ok())
+                        .and_then(|reaction| decode_message_reference(&reaction.reference))
                 }
-                (ReactionCodec::TYPE_ID, 1) => LegacyReaction::decode(&content.content)
-                    .and_then(|legacy_reaction| hex::decode(legacy_reaction.reference).ok()),
+                (ReactionCodec::TYPE_ID, 1) => {
+                    LegacyReaction::decode(&content.content).and_then(|legacy_reaction| {
+                        decode_message_reference(&legacy_reaction.reference)
+                    })
+                }
                 (DeleteMessageCodec::TYPE_ID, DeleteMessageCodec::MAJOR_VERSION) => {
                     DeleteMessage::decode(content.content.as_slice())
                         .ok()
-                        .and_then(|delete_msg| hex::decode(delete_msg.message_id).ok())
+                        .and_then(|delete_msg| decode_message_reference(&delete_msg.message_id))
                 }
                 _ => None,
             }

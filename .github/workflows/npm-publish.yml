@@ -152,10 +152,13 @@ jobs:
             echo "tag=latest" >> "$GITHUB_OUTPUT"
           fi
 
-      # OIDC trusted publishing needs npm >= 11.5.1. Keep the tested major
-      # stable instead of taking a new npm major from the runner image.
-      - name: Update npm
-        run: npm install -g npm@11
+      # OIDC trusted publishing needs npm >= 11.5.1. Use the npm bundled with
+      # Node from .node-version (26.12.1 ships 11.20.0) instead of fetching one.
+      - name: Check npm for trusted publishing
+        run: |
+          v="$(npm --version)"
+          [ "$(printf '%s\n' 11.5.1 "$v" | sort -V | head -1)" = 11.5.1 ] ||
+            { echo "::error::npm $v is below 11.5.1, which OIDC trusted publishing needs"; exit 1; }
 
       - name: Set up Nix
         if: inputs.package-tarball != ''
@@ -220,7 +223,7 @@ jobs:
           git bundle create "$RUNNER_TEMP/release.bundle" "$tag_ref"
       - name: Store release tag
         if: ${{ inputs.dry-run != true }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-tag-${{ inputs.sdk }}
           path: ${{ runner.temp }}/release.bundle

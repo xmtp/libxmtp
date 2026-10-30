@@ -23,7 +23,7 @@ pub struct StoredKeyPackageHistoryEntry {
     pub created_at_ns: i64,
     pub delete_at_ns: Option<i64>,
     pub post_quantum_public_key: Option<Vec<u8>>,
-    /// Highest confirmed publication receipt. Unknown publication never retires another key.
+    /// Highest confirmed publication receipt, or the sequence id a read served it at.
     pub published_sequence_id: Option<i64>,
 }
 
@@ -52,6 +52,15 @@ pub trait QueryKeyPackageHistory {
         &self,
         history_id: i32,
         sequence: Cursor,
+    ) -> Result<(), StorageError>;
+
+    /// Settle unconfirmed keys against the package the backend serves at `served`.
+    /// A served unconfirmed key is recorded; every other unconfirmed key is retired.
+    /// A served copy behind the latest receipt or an unknown package changes nothing.
+    fn settle_key_packages(
+        &self,
+        served_hash_ref: Vec<u8>,
+        served: Cursor,
     ) -> Result<(), StorageError>;
 
     fn get_expired_key_packages(&self) -> Result<Vec<StoredKeyPackageHistoryEntry>, StorageError>;
@@ -97,6 +106,14 @@ where
         (**self).record_key_package_publication(history_id, sequence)
     }
 
+    fn settle_key_packages(
+        &self,
+        served_hash_ref: Vec<u8>,
+        served: Cursor,
+    ) -> Result<(), StorageError> {
+        (**self).settle_key_packages(served_hash_ref, served)
+    }
+
     fn get_expired_key_packages(&self) -> Result<Vec<StoredKeyPackageHistoryEntry>, StorageError> {
         (**self).get_expired_key_packages()
     }
@@ -110,49 +127,98 @@ where
     }
 }
 
+/// A receipt's stored sequence id and the retirement deadline it starts.
+fn receipt(sequence: Cursor) -> Result<(i64, i64), StorageError> {
+    let sequence = i64::try_from(sequence.0)
+        .ok()
+        .filter(|sequence| *sequence > 0)
+        .ok_or(crate::stream_storage::StreamStorageError::InvalidBatch)?;
+    let delete_at = now_ns()
+        .checked_add(KEYS_EXPIRATION_INTERVAL_NS)
+        .ok_or(StorageError::DbSerialize)?;
+    Ok((sequence, delete_at))
+}
+
+/// Record a receipt and retire every confirmed key published before the latest.
+/// A settled unconfirmed key keeps its deadline.
+fn record_publication(
+    conn: &mut SqliteConnection,
+    history_id: i32,
+    sequence: i64,
+    delete_at: i64,
+) -> Result<(), StorageError> {
+    use crate::schema::key_package_history::dsl;
+    let previous = dsl::key_package_history
+        .find(history_id)
+        .select(dsl::published_sequence_id)
+        .first::<Option<i64>>(conn)
+        .optional()?
+        .ok_or(crate::NotFound::KeyPackageHistory(history_id))?;
+    diesel::update(dsl::key_package_history.find(history_id))
+        .set(dsl::published_sequence_id.eq(previous.unwrap_or(0).max(sequence)))
+        .execute(conn)?;
+    let latest = dsl::key_package_history
+        .select(diesel::dsl::max(dsl::published_sequence_id))
+        .first::<Option<i64>>(conn)?
+        .ok_or(StorageError::DbDeserialize)?;
+    diesel::update(
+        dsl::key_package_history
+            .filter(dsl::published_sequence_id.lt(latest))
+            .filter(dsl::delete_at_ns.is_null()),
+    )
+    .set(dsl::delete_at_ns.eq(delete_at))
+    .execute(conn)?;
+    diesel::update(dsl::key_package_history.filter(dsl::published_sequence_id.eq(latest)))
+        .set(dsl::delete_at_ns.eq(None::<i64>))
+        .execute(conn)?;
+    Ok(())
+}
+
 impl<C: ConnectionExt> QueryKeyPackageHistory for DbConnection<C> {
     fn record_key_package_publication(
         &self,
         history_id: i32,
         sequence: Cursor,
     ) -> Result<(), StorageError> {
-        use crate::schema::key_package_history::dsl;
-        let sequence = i64::try_from(sequence.0)
-            .ok()
-            .filter(|sequence| *sequence > 0)
-            .ok_or(crate::stream_storage::StreamStorageError::InvalidBatch)?;
+        let (sequence, delete_at) = receipt(sequence)?;
         super::stream_storage::stream_transaction(self, |conn| {
-            let previous = dsl::key_package_history
-                .find(history_id)
-                .select(dsl::published_sequence_id)
-                .first::<Option<i64>>(conn)
-                .optional()?
-                .ok_or(crate::NotFound::KeyPackageHistory(history_id))?;
-            diesel::update(dsl::key_package_history.find(history_id))
-                .set(dsl::published_sequence_id.eq(previous.unwrap_or(0).max(sequence)))
-                .execute(conn)?;
+            record_publication(conn, history_id, sequence, delete_at)
+        })
+    }
+
+    // implements: JOIN-074
+    fn settle_key_packages(
+        &self,
+        served_hash_ref: Vec<u8>,
+        served: Cursor,
+    ) -> Result<(), StorageError> {
+        use crate::schema::key_package_history::dsl;
+        let (served, delete_at) = receipt(served)?;
+        super::stream_storage::stream_transaction(self, |conn| {
             let latest = dsl::key_package_history
                 .select(diesel::dsl::max(dsl::published_sequence_id))
-                .first::<Option<i64>>(conn)?
-                .ok_or(StorageError::DbDeserialize)?;
-            let delete_at = now_ns()
-                .checked_add(KEYS_EXPIRATION_INTERVAL_NS)
-                .ok_or(StorageError::DbSerialize)?;
+                .first::<Option<i64>>(conn)?;
+            // A lagging copy can serve a package older than a receipt.
+            if latest.is_some_and(|latest| served < latest) {
+                return Ok(());
+            }
+            let Some((id, published)) = dsl::key_package_history
+                .filter(dsl::key_package_hash_ref.eq(served_hash_ref))
+                .select((dsl::id, dsl::published_sequence_id))
+                .first::<(i32, Option<i64>)>(conn)
+                .optional()?
+            else {
+                return Ok(());
+            };
+            if published.is_none() {
+                record_publication(conn, id, served, delete_at)?;
+            }
             diesel::update(
                 dsl::key_package_history
-                    .filter(dsl::published_sequence_id.lt(latest))
+                    .filter(dsl::published_sequence_id.is_null())
                     .filter(dsl::delete_at_ns.is_null()),
             )
             .set(dsl::delete_at_ns.eq(delete_at))
-            .execute(conn)?;
-            diesel::update(
-                dsl::key_package_history.filter(
-                    dsl::published_sequence_id
-                        .eq(latest)
-                        .or(dsl::published_sequence_id.is_null()),
-                ),
-            )
-            .set(dsl::delete_at_ns.eq(None::<i64>))
             .execute(conn)?;
             Ok(())
         })
@@ -338,64 +404,75 @@ mod tests {
     }
 
     #[xmtp_common::test]
-    fn test_store_key_package_history_entry() {
+    fn stores_finds_and_deletes_history_entries() {
         with_connection(|conn| {
-            let hash_ref = rand_vec::<24>();
             let post_quantum_public_key = rand_vec::<32>();
-            let new_entry = conn
+            let first = conn
                 .store_key_package_history_entry(
-                    hash_ref.clone(),
+                    rand_vec::<24>(),
                     Some(post_quantum_public_key.clone()),
                 )
                 .unwrap();
-            assert_eq!(new_entry.key_package_hash_ref, hash_ref);
-            assert_eq!(
-                new_entry.post_quantum_public_key,
-                Some(post_quantum_public_key)
-            );
-            assert_eq!(new_entry.id, 1);
-
-            // Now delete it
-            conn.delete_key_package_entry_with_id(1).unwrap();
-            let all_entries = conn
-                .find_key_package_history_entries_before_id(100)
+            assert_eq!(first.post_quantum_public_key, Some(post_quantum_public_key));
+            conn.store_key_package_history_entry(rand_vec::<24>(), None)
                 .unwrap();
-            assert!(all_entries.is_empty());
+            let third = conn
+                .store_key_package_history_entry(rand_vec::<24>(), None)
+                .unwrap();
+            let earlier = conn
+                .find_key_package_history_entries_before_id(third.id)
+                .unwrap();
+            assert_eq!(earlier.len(), 2);
+
+            conn.delete_key_package_entry_with_id(first.id).unwrap();
+            let remaining = conn
+                .find_key_package_history_entries_before_id(i32::MAX)
+                .unwrap();
+            assert_eq!(remaining.len(), 2);
+            assert!(remaining.iter().all(|entry| entry.id != first.id));
         })
     }
 
-    #[xmtp_common::test]
-    fn test_store_multiple() {
-        with_connection(|conn| {
-            let post_quantum_public_key = rand_vec::<32>();
-            let hash_ref1 = rand_vec::<24>();
-            let hash_ref2 = rand_vec::<24>();
-            let hash_ref3 = rand_vec::<24>();
+    /// C has receipt 10 and N none. Each case serves one package at one
+    /// sequence id; only a package at or past the latest receipt settles N.
+    // verifies: JOIN-074
+    #[rstest::rstest]
+    #[case::served_confirmed(vec![1], 10, Some(10), false, None, true)]
+    #[case::served_unconfirmed(vec![2], 12, Some(10), true, Some(12), false)]
+    #[case::lagging_copy(vec![2], 8, Some(10), false, None, false)]
+    #[case::unknown_package(vec![3], 12, Some(10), false, None, false)]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn settlement_retires_only_packages_the_backend_does_not_serve(
+        #[case] served_hash_ref: Vec<u8>,
+        #[case] served: u64,
+        #[case] confirmed_sequence: Option<i64>,
+        #[case] confirmed_retired: bool,
+        #[case] unconfirmed_sequence: Option<i64>,
+        #[case] unconfirmed_retired: bool,
+    ) -> Result<(), crate::StorageError> {
+        use crate::{TestDb, XmtpTestDb};
+        use xmtp_proto::types::Cursor;
+        let store = TestDb::create_persistent_store(None).await;
+        let db = store.db();
+        let confirmed = db.store_key_package_history_entry(vec![1], None)?;
+        db.store_key_package_history_entry(vec![2], None)?;
+        db.record_key_package_publication(confirmed.id, Cursor(10))?;
 
-            conn.store_key_package_history_entry(
-                hash_ref1.clone(),
-                Some(post_quantum_public_key.clone()),
-            )
-            .unwrap();
-            conn.store_key_package_history_entry(
-                hash_ref2.clone(),
-                Some(post_quantum_public_key.clone()),
-            )
-            .unwrap();
-            let entry_3 = conn
-                .store_key_package_history_entry(hash_ref3.clone(), None)
-                .unwrap();
+        db.settle_key_packages(served_hash_ref, Cursor(served))?;
 
-            let all_entries = conn
-                .find_key_package_history_entries_before_id(100)
-                .unwrap();
-
-            assert_eq!(all_entries.len(), 3);
-
-            let earlier_entries = conn
-                .find_key_package_history_entries_before_id(entry_3.id)
-                .unwrap();
-            assert_eq!(earlier_entries.len(), 2);
-        })
+        let confirmed = db.find_key_package_history_entry_by_hash_ref(vec![1])?;
+        let unconfirmed = db.find_key_package_history_entry_by_hash_ref(vec![2])?;
+        assert_eq!(confirmed.published_sequence_id, confirmed_sequence);
+        assert_eq!(confirmed.delete_at_ns.is_some(), confirmed_retired);
+        assert_eq!(unconfirmed.published_sequence_id, unconfirmed_sequence);
+        assert_eq!(unconfirmed.delete_at_ns.is_some(), unconfirmed_retired);
+        if unconfirmed_retired {
+            // A later receipt keeps the settled deadline.
+            let later = db.store_key_package_history_entry(vec![4], None)?;
+            db.record_key_package_publication(later.id, Cursor(20))?;
+            let settled = db.find_key_package_history_entry_by_hash_ref(vec![2])?;
+            assert_eq!(settled.delete_at_ns, unconfirmed.delete_at_ns);
+        }
+        Ok(())
     }
 }

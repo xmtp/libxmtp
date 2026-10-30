@@ -854,3 +854,5 @@ async fn separate_api_clients_at_one_host_use_separate_wires() {
     bo_handle.wait_for_ready().await;
     assert_eq!(shared_transport_count(), before + 2);
 }
+
+mod update_pacing;

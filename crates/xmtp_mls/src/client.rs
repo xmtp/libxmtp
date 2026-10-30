@@ -10,15 +10,14 @@ use crate::{
         IdentityUpdateError, IdentityUpdates, load_identity_updates,
         load_identity_updates_for_client,
     },
+    inbox_handles::{IdentityTarget, account_targets, resolve_verified_in},
     mls_store::{MlsStore, MlsStoreError},
     subscriptions::{
         LocalEventError,
-        internal::{PreferenceOrigin, emit_deleted_messages, emit_preference_updates},
+        internal::{emit_consent_changes, emit_deleted_messages},
     },
     utils::VersionInfo,
-    worker::device_sync::{
-        DeviceSyncClient, preference_sync::PreferenceUpdate, worker::SyncMetric,
-    },
+    worker::device_sync::{DeviceSyncClient, worker::SyncMetric},
     worker::{WorkerRunner, metrics::WorkerMetrics},
 };
 pub mod notifications;
@@ -30,27 +29,31 @@ use crate::{
         enrichment::{EnrichMessageError, enrich_messages},
     },
 };
-use itertools::Itertools;
 use openmls::prelude::tls_codec::Error as TlsCodecError;
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     sync::{Arc, atomic::Ordering},
 };
 use thiserror::Error;
 use xmtp_api::{ApiClientWrapper, XmtpApi};
 use xmtp_common::{ErrorCode, Event, Retry, retry_async, retryable};
-use xmtp_configuration::{CREATE_PQ_KEY_PACKAGE_EXTENSION, KEY_PACKAGE_ROTATION_INTERVAL_NS};
+use xmtp_configuration::{
+    CONVERSATION_LIST_DEFAULT_LIMIT, CREATE_PQ_KEY_PACKAGE_EXTENSION,
+    KEY_PACKAGE_ROTATION_INTERVAL_NS, LOCAL_PAGE_MAX_LIMIT,
+};
 use xmtp_cryptography::signature::IdentifierValidationError;
 use xmtp_db::TransactionOutcome::Continue;
 use xmtp_db::{
     ConnectionExt, NotFound, StorageError, TransactionOutcome, XmtpDb,
-    consent_record::{ConsentState, ConsentType, StoredConsentRecord},
+    consent_record::{
+        ConsentActError, ConsentKey, ConsentState, ConsentType, ConsentWrite, Decision, Owed,
+        conversation_consent, write_consent,
+    },
     db_connection::DbConnection,
     encrypted_store::conversation_list::ConversationListItem as DbConversationListItem,
     group::{ConversationType, GroupMembershipState, GroupQueryArgs},
     group_message::StoredGroupMessage,
     identity::StoredIdentity,
-    identity_cache::StoredIdentityKind,
 };
 use xmtp_db::{group::GroupQueryOrderBy, prelude::*};
 use xmtp_events::DeletionCause;
@@ -69,12 +72,11 @@ use xmtp_mls_common::{
     group_metadata::DmMembers,
     group_mutable_metadata::MessageDisappearingSettings,
 };
+use xmtp_proto::types::InstallationId;
 use xmtp_proto::{
-    ConversionError,
     api::HasStats,
     api_client::{ApiStats, IdentityStats, XmtpBackendClient},
 };
-use xmtp_proto::{types::InstallationId, xmtp::identity::associations::IdentifierKind};
 
 use xmtp_proto::types::GroupId;
 /// Enum representing the network the Client is connected to
@@ -98,6 +100,25 @@ const REGISTRATION_MAX_BACKOFF: std::time::Duration = std::time::Duration::from_
 impl Default for VisibilityConfirmationOptions {
     fn default() -> Self {
         Self { timeout_ms: 30_000 }
+    }
+}
+
+/// An app's consent decision about one entity. It carries no
+/// time: the client times it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ConsentAct {
+    pub entity_type: ConsentType,
+    pub entity: String,
+    pub state: ConsentState,
+}
+
+impl ConsentAct {
+    pub fn new(entity_type: ConsentType, state: ConsentState, entity: String) -> Self {
+        Self {
+            entity_type,
+            entity,
+            state,
+        }
     }
 }
 
@@ -261,12 +282,28 @@ pub enum ClientError {
         chain: String,
         accepted: Vec<String>,
     },
+    /// Invalid list options.
+    ///
+    /// A conversation listing named a limit below 1 or above the maximum page
+    /// size, a before conversation id without the before time of its list
+    /// order, or sync or one-shot groups. Not retryable — fix the options.
+    #[error("invalid list options: {0}")]
+    InvalidListOptions(&'static str),
+    /// Consent act refused.
+    ///
+    /// The consent entity cannot be stored, or names a conversation the
+    /// client does not hold. Not retryable.
+    #[error("consent act: {0}")]
+    #[error_code(inherit)]
+    ConsentAct(#[from] ConsentActError),
 }
 
 impl ClientError {
     pub fn db_needs_connection(&self) -> bool {
         match self {
-            Self::Storage(s) => s.db_needs_connection(),
+            Self::Storage(s) | Self::ConsentAct(ConsentActError::Storage(s)) => {
+                s.db_needs_connection()
+            }
             Self::Db(c) => c.db_needs_connection(),
             _ => false,
         }
@@ -302,6 +339,16 @@ impl xmtp_common::RetryableError for ClientError {
             ClientError::ConfigurationUnavailable(e) => retryable!(e),
             ClientError::Generic(err) => err.contains("database is locked"),
             _ => false,
+        }
+    }
+
+    fn rate_limit_delay(&self) -> Option<xmtp_common::time::Duration> {
+        match self {
+            ClientError::Group(group_error) => group_error.rate_limit_delay(),
+            ClientError::Api(api_error) => api_error.rate_limit_delay(),
+            ClientError::SignatureValidation(e) => e.rate_limit_delay(),
+            ClientError::ConfigurationUnavailable(e) => e.rate_limit_delay(),
+            _ => None,
         }
     }
 }
@@ -541,62 +588,19 @@ where
         )
     }
 
-    /// Calls the server to look up the `inbox_id` associated with a given identifier
+    /// The inbox that holds `identifier`, or `None`. The backend's answer
+    /// counts only when the newest state the client derives for the answered
+    /// inbox holds the identifier.
     pub async fn find_inbox_id_from_identifier(
         &self,
-        conn: &impl DbQuery,
         identifier: Identifier,
     ) -> Result<Option<String>, ClientError> {
-        let results = self
-            .find_inbox_ids_from_identifiers(conn, &[identifier])
-            .await?;
-        Ok(results.into_iter().next().flatten())
-    }
-
-    /// Calls the server to look up the `inbox_id`s` associated with a list of identifiers.
-    /// If no `inbox_id` is found, returns None.
-    pub(crate) async fn find_inbox_ids_from_identifiers(
-        &self,
-        conn: &impl DbQuery,
-        identifiers: &[Identifier],
-    ) -> Result<Vec<Option<String>>, ClientError> {
-        let ids: Vec<(String, StoredIdentityKind)> = identifiers
-            .iter()
-            .map(|i| {
-                Ok::<_, ConversionError>((
-                    i.clone().to_string(),
-                    StoredIdentityKind::try_from(IdentifierKind::from(i))?,
-                ))
-            })
-            .try_collect()?;
-        let cached_inbox_ids = conn.fetch_cached_inbox_ids(&ids)?;
-        let mut new_inbox_ids: HashMap<&Identifier, Option<String>> = HashMap::new();
-
-        let missing: Vec<_> = identifiers
-            .iter()
-            .filter(|ident| !cached_inbox_ids.contains_key(&format!("{ident}")))
-            .collect();
-
-        if !missing.is_empty() {
-            let requests = missing
-                .iter()
-                .map(|identifier| (*identifier).into())
-                .collect();
-            let results = self.context.api().get_inbox_ids(requests).await?;
-            new_inbox_ids = missing.into_iter().zip(results).collect();
-        }
-
-        let inbox_ids = identifiers
-            .iter()
-            .map(|ident| {
-                let cache_key = format!("{ident}");
-                if let Some(inbox_id) = cached_inbox_ids.get(&cache_key) {
-                    return Some(inbox_id.clone());
-                }
-                new_inbox_ids.get(ident).cloned().flatten()
-            })
-            .collect();
-        Ok(inbox_ids)
+        Ok(
+            resolve_verified_in(&self.context, &[IdentityTarget::Account(identifier)])
+                .await?
+                .pop()
+                .flatten(),
+        )
     }
 
     /// Get the highest `sequence_id` from the local database for the client's `inbox_id`.
@@ -709,33 +713,27 @@ where
         Ok(signature_kind)
     }
 
-    /// Set a consent record in the local database.
-    /// If the consent record is an address set the consent state for both the address and `inbox_id`
-    pub async fn set_consent_states(
-        &self,
-        records: &[StoredConsentRecord],
-    ) -> Result<(), ClientError> {
-        // One transaction exposes only each entity's final state.
-        let mut seen = HashSet::new();
-        let mut final_records: Vec<_> = records
+    /// Store the app's consent decisions in one transaction. An
+    /// act on a group id the client does not hold fails the whole call, and
+    /// nothing is stored.
+    pub async fn set_consent_states(&self, acts: &[ConsentAct]) -> Result<(), ClientError> {
+        let own = self.context.inbox_id();
+        let keys = acts
             .iter()
-            .rev()
-            .filter(|record| seen.insert((record.entity_type as i32, record.entity.as_str())))
-            .cloned()
-            .collect();
-        final_records.reverse();
+            .map(|act| ConsentKey::for_app(&self.context.db(), own, act.entity_type, &act.entity))
+            .collect::<Result<Vec<_>, _>>()?;
         crate::state_tx::state_write_with_events(
             self.context.mls_storage(),
             self.context.events(),
             |tx, events| {
                 let storage = tx.storage();
                 let db = storage.db();
-                let changed = db.insert_or_replace_consent_records(&final_records)?;
-                let updates: Vec<_> = changed.into_iter().map(PreferenceUpdate::Consent).collect();
-                if !updates.is_empty() {
-                    self.context.task_channels().mark_notification_changed();
+                let mut changes = vec![];
+                for (key, act) in keys.iter().zip(acts) {
+                    let decision = ConsentWrite::Decide(Decision::Set(act.state));
+                    changes.extend(write_consent(&db, key, decision, Owed::Mark)?);
                 }
-                emit_preference_updates(events, updates, PreferenceOrigin::Local, &db)?;
+                emit_consent_changes(&self.context, events, &db, &changes)?;
                 Ok::<_, StorageError>(Continue(()))
             },
         )?
@@ -744,19 +742,24 @@ where
         Ok(())
     }
 
-    /// Get the consent state for a given entity
+    /// The consent an app reads for an entity: a conversation's under
+    /// its key, held or not, or an inbox's record.
+    // implements: CONS-001
     pub async fn get_consent_state(
         &self,
         entity_type: ConsentType,
         entity: String,
     ) -> Result<ConsentState, ClientError> {
-        let conn = self.context.db();
-        let record = conn.get_consent_record(entity, entity_type)?;
-
-        match record {
-            Some(rec) => Ok(rec.state),
-            None => Ok(ConsentState::Unknown),
-        }
+        let db = self.context.db();
+        let Some(key) = ConsentKey::parse(entity_type, &entity) else {
+            return Ok(ConsentState::Unknown);
+        };
+        Ok(match key.group_id() {
+            Some(id) => conversation_consent(&db, self.context.inbox_id(), &id)?,
+            None => db
+                .consent_row(&key)?
+                .map_or(ConsentState::Unknown, |r| r.state),
+        })
     }
 
     /// Release the client's database connection
@@ -816,18 +819,21 @@ where
         Ok(group)
     }
 
-    /// Create a group with an initial set of members added
+    /// Create a group with an initial set of members added. Every account
+    /// resolves before the group exists, so an account with no inbox fails
+    /// with [`GroupError::AddressNotFound`] and leaves no group.
     pub async fn create_group_with_identifiers(
         &self,
         account_identifiers: &[Identifier],
         permissions_policy_set: Option<PolicySet>,
         opts: Option<GroupMetadataOptions>,
     ) -> Result<MlsGroup<Context>, ClientError> {
-        let group = self.create_group(permissions_policy_set, opts)?;
-
-        group.add_members_by_identity(account_identifiers).await?;
-
-        Ok(group)
+        self.create_group_with_targets(
+            &account_targets(account_identifiers),
+            permissions_policy_set,
+            opts,
+        )
+        .await
     }
 
     #[tracing::instrument(level = "debug", skip_all, fields(size = inbox_ids.len()))]
@@ -885,7 +891,7 @@ where
         self.ensure_identity_ready()?;
         tracing::info!("finding or creating dm with address: {target_identity}");
         let inbox_id = match self
-            .find_inbox_id_from_identifier(&self.context.db(), target_identity.clone())
+            .find_inbox_id_from_identifier(target_identity.clone())
             .await?
         {
             Some(id) => id,
@@ -897,7 +903,10 @@ where
         self.find_or_create_dm(inbox_id, opts).await
     }
 
-    /// Find or create a Direct Message by inbox_id with the default settings
+    /// Find or create a Direct Message by inbox_id with the default settings.
+    /// A stored DM whose creation stopped before the peer was added gets the
+    /// peer first, and any failure of that add is returned, as a new DM's
+    /// creation returns its add's failure.
     pub async fn find_or_create_dm(
         &self,
         inbox_id: impl AsIdRef,
@@ -913,13 +922,16 @@ where
         })?;
 
         if let Some(group) = group {
-            return Ok(MlsGroup::new(
+            let group = MlsGroup::new(
                 self.context.clone(),
                 group.id,
                 group.dm_id,
                 group.conversation_type,
                 group.created_at_ns,
-            ));
+            );
+            // implements: DMS-020
+            group.add_missing_dm_peer().await?;
+            return Ok(group);
         }
         self.create_dm_by_inbox_id(inbox_id.to_string(), opts).await
     }
@@ -1093,60 +1105,51 @@ where
             .map_err(Into::into)
     }
 
+    /// List one page of the app's conversations, in activity order unless
+    /// `args` names another order. A page holds at most `args.limit`
+    /// conversations, or [`CONVERSATION_LIST_DEFAULT_LIMIT`] when it names
+    /// none. To read the next page, pass the last row's `listing_time_ns` as
+    /// the order's before time and its group id as `before_id`.
+    ///
+    /// Internal callers that need every group use `find_groups` or
+    /// `fetch_conversation_list`, which apply no default limit.
+    // implements: CONS-046, CONS-049
     pub fn list_conversations(
         &self,
-        args: GroupQueryArgs,
+        mut args: GroupQueryArgs,
     ) -> Result<Vec<ConversationListItem<Context>>, ClientError> {
-        let mut args = args.clone();
-        // Default to last activity order by for this endpoint
         if args.order_by.is_none() {
             args.order_by = Some(GroupQueryOrderBy::LastActivity);
+        }
+        let limit = args
+            .limit
+            .unwrap_or(i64::from(CONVERSATION_LIST_DEFAULT_LIMIT));
+        if !(1..=i64::from(LOCAL_PAGE_MAX_LIMIT)).contains(&limit) {
+            return Err(ClientError::InvalidListOptions(
+                "limit must be at least 1 and at most the maximum page size",
+            ));
+        }
+        args.limit = Some(limit);
+        if args.before_id.is_some() && args.order_before_ns().is_none() {
+            return Err(ClientError::InvalidListOptions(
+                "before_id needs the before time of the list order",
+            ));
+        }
+        // Requested sync groups bypass the page's limit, order and cursor, and
+        // a sync group is not a conversation.
+        if args.include_sync_groups || args.conversation_type.is_some_and(|kind| kind.is_virtual())
+        {
+            return Err(ClientError::InvalidListOptions(
+                "a conversation listing cannot include sync or one-shot groups",
+            ));
         }
         Ok(self
             .context
             .db()
             .fetch_conversation_list(args)?
             .into_iter()
-            .map(|conversation_item: DbConversationListItem| {
-                let message = conversation_item.message_id.and_then(|message_id| {
-                    if conversation_item
-                        .expire_at_ns
-                        .is_some_and(|deadline| deadline <= xmtp_common::time::now_ns())
-                    {
-                        return None;
-                    }
-                    // Only construct StoredGroupMessage if all fields are Some
-                    let msg: Option<StoredGroupMessage> = Some(StoredGroupMessage {
-                        id: message_id,
-                        group_id: conversation_item.id,
-                        decrypted_message_bytes: conversation_item.decrypted_message_bytes?,
-                        sent_at_ns: conversation_item.sent_at_ns?,
-                        sender_installation_id: conversation_item.sender_installation_id?,
-                        sender_inbox_id: conversation_item.sender_inbox_id?,
-                        kind: conversation_item.kind?,
-                        delivery_status: conversation_item.delivery_status?,
-                        content_type: conversation_item.content_type?,
-                        version_major: conversation_item.version_major?,
-                        version_minor: conversation_item.version_minor?,
-                        authority_id: conversation_item.authority_id?,
-                        reference_id: None, // conversation_item does not use message reference_id
-                        sequence_id: conversation_item.sequence_id?,
-                        envelope_hash: None,
-                        expiry_ns: conversation_item.expiry_ns,
-                        expire_at_ns: conversation_item.expire_at_ns,
-                        inserted_at_ns: 0, // Not used for conversation list display
-                        should_push: true, // Not used for conversation list display
-                        // The conversation-list query does not carry the key; use
-                        // the timestamp proxy (display-only, never republished).
-                        idempotency_key: conversation_item.sent_at_ns.unwrap_or_default().to_string(),
-                    });
-                    if msg.is_none() {
-                        tracing::warn!("tried listing message, but message had missing fields so it was skipped");
-                    }
-                    msg
-                });
-
-                ConversationListItem {
+            .map(
+                |conversation_item: DbConversationListItem| ConversationListItem {
                     membership_state: conversation_item.membership_state,
                     added_by_inbox_id: conversation_item.added_by_inbox_id,
                     group: MlsGroup::new(
@@ -1156,10 +1159,10 @@ where
                         conversation_item.conversation_type,
                         conversation_item.created_at_ns,
                     ),
-                    last_message: message,
                     is_commit_log_forked: conversation_item.is_commit_log_forked,
-                }
-            })
+                    listing_time_ns: conversation_item.listing_time_ns,
+                },
+            )
             .collect())
     }
 
@@ -1225,51 +1228,38 @@ where
                 "key package publish cursor",
             ))?;
 
-        // Record the state before publication. A conflict retry can load
-        // another installation's update into this database before the final
-        // reload, so the event comparison must start here.
-        let _own_refresh = self
-            .context
-            .identity_resolution_registry()
-            .own_inbox_refresh()
-            .lock()
-            .await;
+        // Own-installation changes are compared from before publication. A
+        // conflict retry can load another installation's update into this
+        // database before the final reload, and those changes are reported too.
         let inbox_id = self.inbox_id().to_string();
-        let previous_sequence = self
-            .context
-            .db()
-            .get_latest_sequence_id(&[inbox_id.as_str()])?
-            .get(&inbox_id)
-            .copied();
-        let before = if previous_sequence.is_some() {
-            Some(
-                self.identity_updates()
-                    .get_association_state(&self.context.db(), &inbox_id, None)
-                    .await?,
+        let registration_cursor = self
+            .identity_updates()
+            .with_own_installation_events(
+                &self.context.db(),
+                Box::pin(async {
+                    // Step 4: Publish identity update (makes installation visible)
+                    let registration_cursor = crate::identity_updates::publish_with_conflict_retry(
+                        self.context.api(),
+                        &self.context.db(),
+                        identity_update,
+                        &self.context.scw_verifier(),
+                    )
+                    .await?;
+                    // Step 5: Fetch and store in local DB (needed for group operations)
+                    retry_async!(
+                        Retry::default(),
+                        (async {
+                            load_identity_updates(
+                                self.context.api(),
+                                &self.context.db(),
+                                &[inbox_id.as_str()],
+                            )
+                            .await
+                        })
+                    )?;
+                    Ok(registration_cursor)
+                }),
             )
-        } else {
-            None
-        };
-
-        // Step 4: Publish identity update (makes installation visible)
-        let registration_cursor = crate::identity_updates::publish_with_conflict_retry(
-            self.context.api(),
-            &self.context.db(),
-            identity_update,
-            &self.context.scw_verifier(),
-        )
-        .await?;
-
-        // Step 5: Fetch and store in local DB (needed for group operations)
-        retry_async!(
-            Retry::default(),
-            (async {
-                load_identity_updates(self.context.api(), &self.context.db(), &[inbox_id.as_str()])
-                    .await
-            })
-        )?;
-        self.identity_updates()
-            .emit_own_installation_updates(&self.context.db(), &inbox_id, before, previous_sequence)
             .await?;
 
         // Backend publication order can differ from local generation order.
@@ -1294,7 +1284,6 @@ where
             .registration_event_pending()
             .store(true, Ordering::Release);
         self.identity().set_ready();
-        drop(_own_refresh);
         self.ensure_registration_visible().await
     }
 
@@ -1389,8 +1378,7 @@ where
         Ok(())
     }
 
-    /// Upload a new key package to the network replacing an existing key package
-    /// This is expected to be run any time the client receives new Welcome messages
+    /// Upload a new key package to the network replacing an existing key package.
     pub async fn rotate_and_upload_key_package(&self) -> Result<(), ClientError> {
         // A client with a blocked connection publishes nothing. This one
         // reaches `Identity` directly instead of going through a group or the

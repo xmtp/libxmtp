@@ -6,7 +6,8 @@
 //   visible rows plus 50 below them, a few at a time. A reload keeps the
 //   details it has until the window reads them again.
 // - Pages hold 50 rows. Loading more re-reads the whole prefix with a larger
-//   limit. Message requests ask for extra rows to cover dismissed ones.
+//   limit, up to the SDK maximum of 1000 rows. Message requests ask for extra
+//   rows to cover dismissed ones.
 // - Chats also reads up to 501 requests for the "Message requests · N" badge.
 // - Results apply only while the store is open, the session is current and
 //   no newer load started.
@@ -15,6 +16,7 @@ import type { MessageBody, MessageContent } from "@xmtp/react-native-sdk";
 
 import { timeOfDay } from "./dates.ts";
 import {
+  CONVERSATION_LIST_MAX_LIMIT,
   CONVERSATION_PAGE_SIZE,
   REQUEST_COUNT_LIMIT,
   detailWindow,
@@ -247,7 +249,10 @@ export class ConversationListStore extends Store<ConversationListState> {
   loadMore(): void {
     const state = this.getState();
     if (state.search !== "" || state.loading || !state.hasMore) return;
-    this.#limit += CONVERSATION_PAGE_SIZE;
+    this.#limit = Math.min(
+      this.#limit + CONVERSATION_PAGE_SIZE,
+      CONVERSATION_LIST_MAX_LIMIT,
+    );
     void this.#load();
   }
 
@@ -379,8 +384,10 @@ export class ConversationListStore extends Store<ConversationListState> {
     const { consent, queries } = this.#options;
     const limit = this.#limit;
     // Dismissed requests still occupy the SDK prefix: read enough for a full page.
-    const requested =
-      limit + (consent === "unknown" ? this.#dismissed().size : 0);
+    const requested = Math.min(
+      limit + (consent === "unknown" ? this.#dismissed().size : 0),
+      CONVERSATION_LIST_MAX_LIMIT,
+    );
     this.#loadInFlight = revision;
     try {
       const records = await queries.list(consent, requested);
@@ -416,7 +423,9 @@ export class ConversationListStore extends Store<ConversationListState> {
         visible: filterRows(rows, state.search),
         loading: false,
         loaded: true,
-        hasMore: records.length === requested || shown.length > limit,
+        hasMore:
+          limit < CONVERSATION_LIST_MAX_LIMIT &&
+          (records.length === requested || shown.length > limit),
         requestCount,
         error: undefined,
       }));

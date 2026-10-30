@@ -213,8 +213,13 @@ xmtp conversations create-group <address> \
 ### List Conversations
 
 ```bash
-# list all conversations from local database
+# list the 100 most recently active conversations from the local database
 xmtp conversations list
+# read every conversation: pages of up to 1000 in creation order, resuming
+# after the last row's createdAtNs and id
+xmtp conversations list --order-by created-at --limit 1000
+xmtp conversations list --order-by created-at --limit 1000 \
+  --created-before <createdAtNs> --before-id <id>
 # sync from network before listing to get latest data
 xmtp conversations list --sync
 # filter to only DMs (or use --type group for groups)
@@ -430,7 +435,8 @@ These operations require `--force` to skip confirmation:
 xmtp client add-account --new-wallet-key <wallet-key> --force
 # remove a wallet from this inbox
 xmtp client remove-account --identifier <address> --force
-# change the recovery wallet address for this inbox
+# change the recovery wallet address for this inbox; the address must already
+# be an account of this inbox, so run client add-account for it first
 xmtp client change-recovery-identifier --identifier <address> --force
 # verify the current inbox state after changes
 xmtp preferences inbox-state

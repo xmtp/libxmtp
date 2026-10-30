@@ -78,11 +78,60 @@ where
     }
 }
 
+/// A wait longer than any process lives. An instant or deadline that would
+/// overflow saturates to this far ahead instead of panicking.
+pub const FAR_FUTURE: Duration = Duration::from_secs(100 * 365 * 24 * 60 * 60);
+
+/// The instant `duration` after `now`, saturating at [`FAR_FUTURE`].
+pub fn saturating_after(now: Instant, duration: Duration) -> Instant {
+    now.checked_add(duration)
+        .unwrap_or_else(|| now + FAR_FUTURE)
+}
+
+/// The longest wait one browser timer holds: a longer one fires at once.
+const MAX_TIMER: Duration = Duration::from_millis(i32::MAX as u64);
+
+/// Split a wait into pieces one browser timer can hold, in order. gloo panics
+/// past `u32::MAX` milliseconds and a timer fires at once past `i32::MAX`.
+#[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+fn timer_pieces(duration: Duration) -> impl Iterator<Item = Duration> {
+    let (full, rest) = timer_split(duration);
+    (0..full)
+        .map(|_| MAX_TIMER)
+        .chain((!rest.is_zero() || full == 0).then_some(rest))
+}
+
+/// The number of full browser timers in `duration`, and the remainder.
+#[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+fn timer_split(duration: Duration) -> (u128, Duration) {
+    let timer = MAX_TIMER.as_nanos();
+    let rest = u64::try_from(duration.as_nanos() % timer).expect("a remainder fits one timer");
+    (duration.as_nanos() / timer, Duration::from_nanos(rest))
+}
+
+/// Waits at least `duration`, as [`Instant`] measures it.
 #[doc(hidden)]
 pub async fn sleep(duration: Duration) {
     wasm_or_native! {
         native => {tokio::time::sleep(duration).await},
-        wasm => {gloo_timers::future::sleep(duration).await},
+        wasm => {
+            // A wait too long for the clock saturates, and so do its timers.
+            let now = Instant::now();
+            let deadline = saturating_after(now, duration);
+            for piece in timer_pieces(deadline.saturating_duration_since(now)) {
+                gloo_timers::future::sleep(piece).await;
+            }
+            // A browser timer drops the part of a wait below 1 ms, and Node
+            // can fire one up to 1 ms early, so a rate-limit wait could end
+            // just before its delay. Wait out what is left.
+            loop {
+                let left = deadline.saturating_duration_since(Instant::now());
+                if left.is_zero() {
+                    break;
+                }
+                gloo_timers::future::sleep(left.max(Duration::from_millis(1))).await;
+            }
+        },
     }
 }
 
@@ -167,6 +216,64 @@ pub fn jittered_interval_stream(
 mod tests {
     use super::*;
     use crate::ErrorCode;
+
+    /// Every piece fits one browser timer, and the pieces sum to the wait.
+    #[xmtp_macro::test]
+    fn a_long_wait_splits_into_timer_pieces() {
+        for duration in [
+            Duration::ZERO,
+            MAX_TIMER,
+            MAX_TIMER + Duration::from_millis(1),
+            Duration::from_secs(60 * 24 * 60 * 60),
+        ] {
+            let pieces: Vec<_> = timer_pieces(duration).collect();
+            assert!(!pieces.is_empty());
+            assert!(pieces.iter().all(|piece| *piece <= MAX_TIMER));
+            assert_eq!(pieces.iter().sum::<Duration>(), duration);
+        }
+    }
+
+    /// A wait of more than `u32::MAX` timers still splits into pieces that each
+    /// fit one timer.
+    #[xmtp_macro::test]
+    fn a_wait_past_u32_max_timers_keeps_every_piece_bounded() {
+        let extra = Duration::from_millis(5);
+        let duration = MAX_TIMER * u32::MAX + MAX_TIMER * 2 + extra;
+        assert_eq!(timer_split(duration), (u128::from(u32::MAX) + 2, extra));
+        assert!(
+            timer_pieces(Duration::MAX)
+                .take(3)
+                .all(|piece| piece == MAX_TIMER)
+        );
+    }
+
+    /// A sleep never ends before its duration, including a part below 1 ms,
+    /// which a browser timer drops.
+    #[xmtp_macro::test]
+    async fn a_sleep_lasts_at_least_its_duration() {
+        for duration in [Duration::from_micros(700), Duration::from_micros(1_500)] {
+            for _ in 0..10 {
+                let started = Instant::now();
+                sleep(duration).await;
+                assert!(
+                    started.elapsed() >= duration,
+                    "{duration:?} sleep ended early"
+                );
+            }
+        }
+    }
+
+    /// A delay no clock can hold saturates instead of panicking.
+    #[xmtp_macro::test]
+    fn an_unrepresentable_delay_saturates() {
+        let now = Instant::now();
+        let until = saturating_after(now, Duration::MAX);
+        assert!(until >= now + FAR_FUTURE);
+        assert_eq!(
+            saturating_after(now, Duration::from_secs(5)),
+            now + Duration::from_secs(5)
+        );
+    }
 
     #[test]
     fn test_expired_error_code() {

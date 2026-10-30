@@ -4,7 +4,8 @@ use crate::{
     context::XmtpSharedContext,
     identity_updates::{
         IdentityDependencyError, IdentityRequirement, InstallationDiff, InstallationDiffError,
-        get_installation_diff_local, require_association_state,
+        MissingProofs, get_installation_diff_local, require_association_state,
+        required_leaf_removals,
     },
 };
 use openmls::{
@@ -31,17 +32,18 @@ use xmtp_mls_common::{
     libxmtp_version::{InvalidVersionFormat, LibXMTPVersion},
 };
 use xmtp_mls_validation::{
+    ForkActors,
     commit::{
         CommitParticipant, CommitRuleError, Inbox, MembershipValidationInfo, MetadataChanges,
         ProposalChanges, build_inbox_with_proposer, extract_commit_participant,
-        extract_committer_and_proposers, extract_group_membership, extract_readded_installations,
-        get_current_group_members, get_latest_group_membership, get_proposal_changes,
-        inbox_id_from_credential, metadata_changes_between, read_committed_metadata,
-        read_post_commit_mutable_metadata, validate_app_data_update_proposals_in_commit,
-        validate_committed_proposals, validate_identity_sequence_order, validate_membership_diff,
-        validate_one_app_data_update,
+        extract_committer_and_proposers, extract_group_membership_with_failures,
+        extract_readded_installations, get_proposal_changes, inbox_id_from_credential, leaf_owners,
+        metadata_changes_between, read_committed_metadata, read_post_commit_mutable_metadata,
+        validate_app_data_update_proposals_in_commit, validate_committed_proposals,
+        validate_identity_sequence_order, validate_membership_diff, validate_one_app_data_update,
+        validate_sync_membership,
     },
-    group_membership::GroupMembership,
+    group_membership::{FailedInstallations, GroupMembership},
     group_permissions::{GroupMutablePermissionsError, MembershipPolicy, PolicySet},
 };
 use xmtp_proto::xmtp::mls::message_contents::{
@@ -86,6 +88,14 @@ impl RetryableError for CommitValidationError {
             CommitValidationError::InstallationDiff(diff_error) => retryable!(diff_error),
             CommitValidationError::Rule(error) => retryable!(error),
             _ => false,
+        }
+    }
+
+    fn rate_limit_delay(&self) -> Option<xmtp_common::time::Duration> {
+        match self {
+            CommitValidationError::IdentityDependency(error) => error.rate_limit_delay(),
+            CommitValidationError::InstallationDiff(diff_error) => diff_error.rate_limit_delay(),
+            _ => None,
         }
     }
 }
@@ -141,9 +151,9 @@ from_rule_error!(
  * 2. The client must create an expected diff of installations added and removed based on the difference between the current
  *    [`GroupMembership`] and the [`GroupMembership`] found in the [`StagedCommit`]
  * 3. Installations may only be added or removed in the commit if they were added/removed in the expected diff
- * 4. For updates (either updating a path or via an Update Proposal) clients must verify that the `installation_id` is
- *    present in the [`AssociationState`] for the `inbox_id` presented in the credential at the `to_sequence_id` found in the
- *    new [`GroupMembership`].
+ * 4. For the committer's leaf, the update path leaf, and every Add or Update proposal leaf, clients must verify that the
+ *    `installation_id` is present in the [`AssociationState`] for the `inbox_id` presented in the credential at the
+ *    `to_sequence_id` found in the new [`GroupMembership`].
  * 5. All proposals must come from group members (proposer permissions are validated, not committer)
  * 6. Only Add, Update, Remove, and AppDataUpdate proposals are allowed, in a valid list
  * 7. New installations may be missing from the commit but still be present in the expected diff.
@@ -184,9 +194,9 @@ impl ValidatedCommit {
                 u64::MAX,
             ) {
                 Err(CommitValidationError::IdentityDependency(IdentityDependencyError::Need(
-                    requirement,
+                    requirements,
                 ))) => {
-                    crate::identity_updates::resolve_identity_requirement(context, &requirement)
+                    crate::identity_updates::resolve_identity_requirements(context, &requirements)
                         .await?;
                 }
                 result => return result,
@@ -246,7 +256,9 @@ impl ValidatedCommit {
                         CommitRuleError::GroupMutablePermissions(error),
                     ))
                 })?;
-        let current_group_members = get_current_group_members(openmls_group);
+        let leaf_owners =
+            leaf_owners(openmls_group.members()).map_err(CommitValidationError::installed_state)?;
+        let current_group_members = leaf_owners.keys().cloned().collect();
 
         // Reuse the committed registry for all component checks. Apply pending
         // floor updates to this view, then check their policy before pausing.
@@ -300,6 +312,7 @@ impl ValidatedCommit {
         // Get the installations actually added and removed in the commit
         let ProposalChanges {
             mut added_installations,
+            self_added_installations,
             mut removed_installations,
             mut credentials_to_verify,
             added_inbox_proposers,
@@ -310,6 +323,24 @@ impl ValidatedCommit {
             &immutable_metadata,
             &mutable_metadata,
         )?;
+
+        // OpenMLS lets a commit's update path replace the committer's leaf with
+        // any credential and signature key. The leaf must keep the committer's
+        // inbox, and its key is checked like any other leaf's below.
+        // implements: GMOD-043
+        if let Some(leaf_node) = staged_commit.update_path_leaf_node() {
+            let path_leaf = CommitParticipant::from_leaf_node(
+                leaf_node,
+                &immutable_metadata,
+                &mutable_metadata,
+            )?;
+            if path_leaf.inbox_id != actor.inbox_id {
+                return Err(CommitValidationError::Rule(
+                    CommitRuleError::InboxValidationFailed(path_leaf.inbox_id),
+                ));
+            }
+            credentials_to_verify.push(path_leaf);
+        }
 
         // Get the expected diff of installations added and removed based on the difference between the current
         // group membership and the new group membership.
@@ -326,6 +357,8 @@ impl ValidatedCommit {
         let ExpectedDiff {
             old_group_membership,
             new_group_membership,
+            old_failed,
+            new_failed,
             expected_installation_diff,
             added_inboxes,
             removed_inboxes,
@@ -340,19 +373,18 @@ impl ValidatedCommit {
             .cloned()
             .collect();
 
-        // A deleted inbox has no post-commit entry to retain its failures.
-        // Keep authenticated old failures only when they have no current leaf.
-        failed_installations.extend(
-            old_group_membership
-                .failed_installations
-                .iter()
-                .filter(|id| !current_group_members.contains(*id))
-                .cloned(),
-        );
+        let required_removals = required_leaf_removals(
+            conn,
+            &old_group_membership,
+            &new_group_membership,
+            &expected_installation_diff.removed_installations,
+            &leaf_owners,
+        )?;
 
         // Remove readded installations from the added/removed/failed lists before going through validation
         let readded_installations = extract_readded_installations(
-            &actor,
+            ForkActors::new(&immutable_metadata, &mutable_metadata)
+                .readd_authority(&actor.inbox_id),
             &mut added_installations,
             &mut removed_installations,
             &mut failed_installations,
@@ -361,16 +393,26 @@ impl ValidatedCommit {
         expected_diff_matches_commit(
             &expected_installation_diff,
             added_installations,
+            &self_added_installations,
             removed_installations,
-            current_group_members,
-            failed_installations,
+            &required_removals,
+            &current_group_members,
+        )?;
+        validate_new_failed_installations(
+            conn,
+            &new_group_membership,
+            &old_failed,
+            &new_failed,
+            &leaf_owners,
         )?;
         credentials_to_verify.push(actor.clone());
 
         // Verify the credentials of the following entities
         // 1. The actor who created the commit
-        // 2. Anyone referenced in an update proposal
+        // 2. The leaf in the commit's update path
+        // 3. Every leaf in an Add or Update proposal
         // Satisfies Rule 4
+        // implements: GMOD-012
         for participant in credentials_to_verify {
             let inbox_id = &participant.inbox_id;
             let sequence_id = match new_group_membership.get(inbox_id) {
@@ -547,6 +589,8 @@ struct ExpectedDiff {
     old_group_membership: GroupMembership,
     /// Proposed inbox sequences. They cannot rewrite the old proof requirements.
     new_group_membership: GroupMembership,
+    old_failed: FailedInstallations,
+    new_failed: FailedInstallations,
     /// Installation changes authorized by those exact identity snapshots.
     expected_installation_diff: InstallationDiff,
     added_inboxes: Vec<Inbox>,
@@ -596,9 +640,11 @@ impl ExpectedDiff {
         added_inbox_proposers: &HashMap<String, CommitParticipant>,
         removed_inbox_proposers: &HashMap<String, CommitParticipant>,
     ) -> Result<ExpectedDiff, CommitValidationError> {
-        let old_group_membership = extract_group_membership(existing_group_extensions)
-            .map_err(CommitValidationError::installed_state)?;
-        let new_group_membership = get_latest_group_membership(staged_commit)?;
+        let (old_group_membership, old_failed) =
+            extract_group_membership_with_failures(existing_group_extensions)
+                .map_err(CommitValidationError::installed_state)?;
+        let (new_group_membership, new_failed) =
+            extract_group_membership_with_failures(staged_commit.group_context().extensions())?;
         validate_identity_sequence_order(&new_group_membership, envelope_sequence)?;
         let membership_diff = old_group_membership.diff(&new_group_membership);
 
@@ -607,6 +653,7 @@ impl ExpectedDiff {
             &new_group_membership,
             &membership_diff,
         )?;
+        validate_sync_membership(immutable_metadata, &new_group_membership)?;
 
         let added_inboxes = membership_diff
             .added_inboxes
@@ -656,6 +703,8 @@ impl ExpectedDiff {
         Ok(ExpectedDiff {
             old_group_membership,
             new_group_membership,
+            old_failed,
+            new_failed,
             expected_installation_diff,
             added_inboxes,
             removed_inboxes,
@@ -663,26 +712,70 @@ impl ExpectedDiff {
     }
 }
 
+/// Newly listed failures must belong to the entry's inbox or one of its old leaves.
+// implements: GMOD-049
+fn validate_new_failed_installations(
+    conn: &impl DbQuery,
+    membership: &GroupMembership,
+    before: &FailedInstallations,
+    after: &FailedInstallations,
+    leaf_owners: &HashMap<Vec<u8>, String>,
+) -> Result<(), CommitValidationError> {
+    let mut by_inbox: HashMap<&str, Vec<&[u8]>> = HashMap::new();
+    for (inbox, key) in after.unproven_new_failures(before, leaf_owners) {
+        by_inbox.entry(inbox).or_default().push(key);
+    }
+    let mut missing = MissingProofs::default();
+    for (inbox, keys) in by_inbox {
+        let sequence_id = membership.get(inbox).copied().unwrap_or(0);
+        if sequence_id == 0 {
+            return Err(CommitRuleError::InboxValidationFailed(inbox.to_string()).into());
+        }
+        let Some(state) = missing.read(
+            conn,
+            &IdentityRequirement {
+                inbox_id: inbox.to_string(),
+                sequence_id,
+            },
+        )?
+        else {
+            continue;
+        };
+        let installations: HashSet<_> = state.installation_ids().into_iter().collect();
+        if keys.iter().any(|key| !installations.contains(*key)) {
+            return Err(CommitRuleError::InboxValidationFailed(inbox.to_string()).into());
+        }
+    }
+    missing.check()?;
+    Ok(())
+}
+
 /// Compare the list of installations added and removed in the commit to the expected diff based on the changes
 /// to the inbox state.
 /// Satisfies Rule 3 and Rule 7
-// implements: GMOD-010, GMOD-011
+// implements: GMOD-010, GMOD-046
 fn expected_diff_matches_commit(
     expected_diff: &InstallationDiff,
     added_installations: HashSet<Vec<u8>>,
+    self_added_installations: &HashSet<Vec<u8>>,
     removed_installations: HashSet<Vec<u8>>,
-    existing_installation_ids: HashSet<Vec<u8>>,
-    failed_installation_ids: HashSet<Vec<u8>>,
+    required_removals: &HashSet<Vec<u8>>,
+    existing_installation_ids: &HashSet<Vec<u8>>,
 ) -> Result<(), CommitValidationError> {
     // Check and make sure that any added installations are either:
     // 1. In the expected diff
     // 2. Already a member of the group (for example, the group creator is already a member on the first commit)
+    // 3. Proposed by a member of the inbox the leaf's credential names
 
     let unknown_adds = added_installations
         .into_iter()
         .filter(|installation_id| {
-            !expected_diff.added_installations.contains(installation_id)
+            !expected_diff
+                .added_installations
+                .contains_key(installation_id)
                 && !existing_installation_ids.contains(installation_id)
+                // The identity check below still needs the key in its inbox's state.
+                && !self_added_installations.contains(installation_id)
         })
         .collect::<Vec<Vec<u8>>>();
     if !unknown_adds.is_empty() {
@@ -691,16 +784,9 @@ fn expected_diff_matches_commit(
         ));
     }
 
-    let filtered_expected: HashSet<_> = expected_diff
-        .removed_installations
-        .iter()
-        .filter(|id| !failed_installation_ids.contains(*id))
-        .cloned()
-        .collect();
-
-    if removed_installations != filtered_expected {
+    if &removed_installations != required_removals {
         let unexpected: Vec<_> = removed_installations
-            .difference(&expected_diff.removed_installations)
+            .symmetric_difference(required_removals)
             .cloned()
             .collect();
 

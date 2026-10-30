@@ -1,12 +1,15 @@
 use std::{collections::HashMap, sync::Arc};
 
 use xmtp_id::associations::{
-    MemberIdentifier,
+    Identifier, MemberIdentifier,
     unverified::{NewUnverifiedSmartContractWalletSignature, UnverifiedSignature},
 };
-use xmtp_id::key_package::VerifiedKeyPackageV2;
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
-use xmtp_mls::inbox_handles::{IdentityTarget, resolve_handles_with_verifier};
+use xmtp_mls::identity_updates::{
+    identifier_membership, identifier_opens_inbox, load_identity_updates,
+};
+use xmtp_mls::inbox_handles::{IdentityTarget, resolve_verified_with_verifier};
+use xmtp_mls::mls_store::verify_served_key_package;
 use xmtp_proto::types::{ApiIdentifier, GroupId, InstallationId as CoreInstallationId};
 use xmtp_proto::xmtp::identity::associations::IdentifierKind;
 
@@ -103,11 +106,13 @@ fn lookup(target: &IdentityTarget) -> ApiIdentifier {
     }
 }
 
-/// The inbox of an account or a handle. An account with no live inbox gets
-/// the inbox ID it would create with nonce 0. A handle never derives an inbox
-/// ID: it resolves only when the inbox the backend names holds it in its own
-/// identity log, and fails with `IdentityNotFound` otherwise. An old handle
-/// of an inbox still resolves to it.
+/// The inbox of an account or a handle. Either resolves to the inbox the
+/// backend names only when the newest state of that inbox's own identity log
+/// holds it, and an old handle of an inbox still resolves to it. An account
+/// that resolves to no inbox gets the inbox ID it would create with nonce 0,
+/// but only when that inbox's log holds no update or still holds the account.
+/// A handle never derives an inbox ID. Any other lookup fails with
+/// `IdentityNotFound`.
 #[xmtp_macro::sdk_export(client_static)]
 pub async fn inbox_id_for_with_backend(
     backend: BackendSource,
@@ -126,29 +131,49 @@ pub(crate) async fn inbox_id_for_target<A>(
 where
     A: xmtp_mls::XmtpApi,
 {
-    let inbox = match target {
-        IdentityTarget::Account(identifier) => {
-            let found = api
-                .get_inbox_ids(vec![identifier.clone().into()])
-                .await
-                .map_err(XmtpError::from_api)?;
-            match found.into_iter().next().flatten() {
-                Some(value) => value,
-                None => identifier.inbox_id(0).map_err(XmtpError::from_core)?,
-            }
-        }
+    let store = in_memory_store().await?;
+    let conn = store.db();
+    let verified = resolve_verified_with_verifier(api, &conn, std::slice::from_ref(&target), api)
+        .await
+        .map_err(XmtpError::from_client)?
+        .pop()
+        .flatten();
+    let inbox = match (verified, target) {
+        (Some(inbox), _) => inbox,
         // implements: IDENT-085
-        IdentityTarget::Handle(handle) => {
-            let store = in_memory_store().await?;
-            resolve_handles_with_verifier(api, &store.db(), &[handle], api)
-                .await
-                .map_err(XmtpError::from_client)?
-                .pop()
-                .flatten()
-                .ok_or_else(XmtpError::handle_not_found)?
+        (None, IdentityTarget::Handle(_)) => return Err(XmtpError::handle_not_found()),
+        (None, IdentityTarget::Account(identifier)) => {
+            derived_inbox(api, &conn, &identifier).await?
         }
     };
     InboxId::try_from(inbox)
+}
+
+/// The inbox `identifier` creates with nonce 0, when that inbox's log holds
+/// no update or its newest state holds `identifier`. The backend may have
+/// named that very inbox, or the account may have left it, so it gets the
+/// same check as an answer.
+// implements: IDENT-096
+async fn derived_inbox<A>(
+    api: &xmtp_api::ApiClientWrapper<A>,
+    conn: &impl xmtp_db::DbQuery,
+    identifier: &Identifier,
+) -> Result<String, XmtpError>
+where
+    A: xmtp_mls::XmtpApi,
+{
+    let inbox_id = identifier.inbox_id(0).map_err(XmtpError::from_core)?;
+    load_identity_updates(api, conn, &[inbox_id.as_str()])
+        .await
+        .map_err(XmtpError::from_client)?;
+    let membership = identifier_membership(conn, &inbox_id, identifier, api)
+        .await
+        .map_err(XmtpError::from_client)?;
+    if identifier_opens_inbox(membership, identifier, 0, &inbox_id) {
+        Ok(inbox_id)
+    } else {
+        Err(XmtpError::account_not_found())
+    }
 }
 
 #[xmtp_macro::sdk_export(client_static)]
@@ -192,22 +217,21 @@ pub async fn key_package_statuses_with_backend(
     Ok(installations
         .into_iter()
         .map(|key| {
-            let status = match found.get(&key).and_then(Option::as_ref) {
-                Some(package) => match VerifiedKeyPackageV2::from_bytes(
-                    &crypto,
-                    &package.key_package_tls_serialized,
-                ) {
-                    Ok(package) => KeyPackageStatus {
-                        lifetime: package.life_time().map(|value| KeyPackageLifetime {
-                            not_before: value.not_before,
-                            not_after: value.not_after,
-                        }),
-                        validation_error: None,
-                    },
-                    Err(error) => KeyPackageStatus {
-                        lifetime: None,
-                        validation_error: Some(error.to_string()),
-                    },
+            let status = match found
+                .get(&key)
+                .and_then(Option::as_ref)
+                .and_then(|package| verify_served_key_package(&crypto, &key, package))
+            {
+                Some(Ok(package)) => KeyPackageStatus {
+                    lifetime: package.life_time().map(|value| KeyPackageLifetime {
+                        not_before: value.not_before,
+                        not_after: value.not_after,
+                    }),
+                    validation_error: None,
+                },
+                Some(Err(error)) => KeyPackageStatus {
+                    lifetime: None,
+                    validation_error: Some(error.to_string()),
                 },
                 None => KeyPackageStatus {
                     lifetime: None,

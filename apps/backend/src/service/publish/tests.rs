@@ -1,6 +1,9 @@
 use crate::test_support as support;
 
+mod charges;
+mod identity_history_cost;
 mod signatures;
+mod transport;
 
 use crate::api::{self, publish_error::Reason};
 use prost::Message;
@@ -8,10 +11,11 @@ use support::TestServer;
 use tonic::Code;
 use xmtp_mls_common::group_keys::sign_group_message;
 use xmtp_mls_validation::test_utils::{
-    GroupMessageKind, TestChain, expired_key_package_envelope, group_keys, identity_envelope,
-    identity_history_with_passkey, inline_welcome_envelope, keyed_group_message_envelope,
-    malformed_signature_create_inbox_update, scw_change_recovery_update_at,
-    scw_create_inbox_update_at, sealed_commit_log_envelope,
+    CountingChain, GroupMessageKind, TestChain, expired_key_package_envelope, group_keys,
+    identity_envelope, identity_history_with_passkey, inline_welcome_envelope,
+    keyed_group_message_envelope, malformed_signature_create_inbox_update,
+    scw_change_recovery_update_at, scw_create_inbox_update_at, scw_create_nonce_inbox_update_at,
+    sealed_commit_log_envelope,
 };
 
 #[xmtp_common::test(unwrap_try = true)]
@@ -200,11 +204,12 @@ async fn failed_batch_leaves_new_topics_empty_and_reports_first_original_error()
     let server = TestServer::new(|_| {}).await?;
     let retained = inline_welcome_envelope([3; 32]);
     server.publish(vec![retained.clone()]).await?;
+    // Two envelopes fail validation; the lower one is reported.
     let request = api::PublishRequest {
         envelopes: vec![
             retained,
             expired_key_package_envelope().envelope,
-            api::ClientEnvelope::default(),
+            expired_key_package_envelope().envelope,
             inline_welcome_envelope([4; 32]),
         ],
     };
@@ -271,10 +276,18 @@ async fn publish_errors_keep_the_original_index_for_each_validation_reason() {
     ];
     for (bad, reason) in cases {
         let good = inline_welcome_envelope([70; 32]);
+        // The envelope after the bad one fails validation. The bad one is
+        // reported either way: as a parse failure, which is found first, or
+        // as the lower of two validation failures.
         let error = server
             .publisher()
             .publish(api::PublishRequest {
-                envelopes: vec![good.clone(), good, bad, api::ClientEnvelope::default()],
+                envelopes: vec![
+                    good.clone(),
+                    good,
+                    bad,
+                    expired_key_package_envelope().envelope,
+                ],
             })
             .await
             .unwrap_err();
@@ -525,14 +538,17 @@ impl xmtp_id::scw_verifier::SmartContractSignatureVerifier for ChainVerifier {
 /// at a block it has not produced. The rule binds admission alone: a stored update
 /// whose block has since aged stays valid when its log is replayed to admit
 /// the next update, and a chain outage stays retryable rather than reading as
-/// a bad signature.
+/// a bad signature. Each update reads its chain's head, while one publish
+/// reads each block's timestamp once for all its updates and the next
+/// publish reads it again.
 #[xmtp_common::test(unwrap_try = true)]
 // verifies: IDENT-062
 async fn scw_admission_freshness() {
     const HEAD: u64 = 10_000;
     let chain = TestChain::at(HEAD);
+    let counting = CountingChain::new(chain.clone());
     let server =
-        TestServer::with_verifier(|_| {}, ChainVerifier(chain.clone()), chain.clone()).await?;
+        TestServer::with_verifier(|_| {}, ChainVerifier(chain.clone()), counting.clone()).await?;
     let stale = Err((Code::InvalidArgument, Some(Reason::InvalidSignature)));
 
     let future = publish_identity(&server, scw_create_inbox_update_at(HEAD + 1)).await?;
@@ -557,6 +573,22 @@ async fn scw_admission_freshness() {
         replayed,
         (Ok(()), 2),
         "an update after an aged stored block"
+    );
+
+    let (heads, timestamps) = counting.reads();
+    server
+        .publish(vec![
+            identity_envelope(scw_create_nonce_inbox_update_at(1, later)),
+            identity_envelope(scw_create_nonce_inbox_update_at(2, later)),
+        ])
+        .await?;
+    assert_eq!(counting.reads(), (heads + 2, timestamps + 1), "one publish");
+    let next = publish_identity(&server, scw_create_nonce_inbox_update_at(3, later)).await?;
+    assert_eq!(next, (Ok(()), 5));
+    assert_eq!(
+        counting.reads(),
+        (heads + 3, timestamps + 2),
+        "the next publish"
     );
     server.stop().await?;
 }

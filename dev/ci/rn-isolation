@@ -10,7 +10,7 @@ temp=$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/rn-isolation.XXXXXX")
 nix eval --json .#ciSets --apply '
   builtins.mapAttrs (_: sets: {
     drvs = builtins.mapAttrs (_: set: set.drvPath) sets;
-    rn = map (member: member.drvPath) (builtins.attrValues sets.rn.passthru.members);
+    rn = map (member: member.drvPath) (builtins.attrValues (sets.rn.passthru.members or { }));
   })' > "$temp/sets.json"
 jq . "$temp/sets.json"
 # Each list goes through a file: bash ignores the exit status of a process

@@ -142,6 +142,44 @@ Fly Postgres (`fly postgres`) replica, follow the
 not cover unmanaged Fly Postgres, so you own its operations, upgrades, backups,
 and disaster recovery.
 
+## Charge callers by address
+
+Backend images with [rate limits](/deploy/overview/#rate-limits) limit each caller,
+and charge a caller without a credential to its address. The backend's peer is
+Fly Proxy, so it must find the client in `X-Forwarded-For`. Fly
+[documents](https://fly.io/docs/networking/request-headers/) that this header
+lists the client that originated the request and that "the last address
+(rightmost) in this list will be a shared or dedicated IP address assigned to
+your app". After the first deploy, list those addresses:
+
+```sh
+fly ips list --app my-xmtp-backend
+```
+
+Add both to `config.toml` with the network Fly Proxy connects from, then run
+`fly deploy --ha=false` again. Replace the example addresses:
+
+```toml
+[rate_limits]
+# Fly Proxy's private network, then this app's public IPv4 and IPv6.
+trusted_proxies = ["172.16.0.0/12", "66.241.125.1/32", "2a09:8280:1::1:0/128"]
+```
+
+An image without rate limits refuses this table, so deploy it only with an
+image that has them. The limiter's table takes `rate_limits.max_memory_mib` of
+memory, 100 MiB by default, allocated at startup: the image measured about
+115 MiB resident at startup with the defaults. The 512 MB VM above leaves room;
+on a smaller VM, lower `max_memory_mib`.
+
+The backend reads the list from the right, skips these addresses, and charges
+the first address it does not trust: the client as Fly Proxy saw it. An entry
+a client wrote itself sits further left and is never chosen. Fly does not
+document the network Fly Proxy connects from. `172.16.0.0/12` is what Fly apps
+report; this guide has not verified it. If the proxy connects from elsewhere,
+the backend ignores the header and every caller without a credential shares
+the proxy's allowance. That is never more permissive. The backend does not
+read `Fly-Client-IP`.
+
 ## Check the deployment
 
 Use `https://my-xmtp-backend.fly.dev` as the SDK backend URL. Check gRPC health:

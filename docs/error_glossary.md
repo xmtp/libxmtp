@@ -4,7 +4,7 @@
 
 This document lists all error codes defined in LibXMTP, the core library underlying the XMTP SDKs. Each error code is a unique identifier returned to help diagnose issues.
 
-**39 error types** across **10 crates** with **420 total error codes**.
+**40 error types** across **10 crates** with **429 total error codes**.
 
 ## xmtp_api
 
@@ -22,6 +22,7 @@ This document lists all error codes defined in LibXMTP, the core library underly
 | `ApiError::ResponseTooLarge` | A single-topic response still exceeds a backend limit. Not retryable. |
 | `ApiError::InvalidRequest` | The request has invalid input. Not retryable. |
 | `ApiError::InvalidResponse` | A response does not match the request. Not retryable. |
+| `ApiError::VerdictCount` | A signature verification response holds a different number of verdicts than its request holds signatures. Retryable: no verdict is taken from it, and the signatures may still be valid. |
 | `ApiError::InvalidEnvelope` | The payload cannot be parsed. Not retryable. |
 | `ApiError::Envelope` | A returned backend envelope cannot be decoded. Not retryable. |
 | `ApiError::ProtoConversion` | Proto conversion error. Protobuf conversion failed. Not retryable. |
@@ -105,6 +106,17 @@ Archive export or import failure.
 | `ConnectionError::InvalidQuery` | Invalid query. Invalid query parameters or configuration. Not retryable. |
 | `ConnectionError::InvalidVersion` | Invalid version. DB migration version mismatch -- running a newer DB on older LibXMTP. Not retryable. |
 
+### ConsentActError <sub>enum</sub>
+
+<small>`crates/xmtp_db/src/encrypted_store/consent_record.rs`</small>
+
+Why an app act cannot be stored.
+
+| Error Code | Description |
+|:-----------|:------------|
+| `ConsentActError::InvalidEntity` | Invalid consent entity. The entity is too long, is not a group id, or names a DM whose dm id does not name this inbox. Not retryable. |
+| `ConsentActError::ConversationNotHeld` | Conversation not held. The client holds no conversation with this group id. Not retryable until the conversation syncs; acting on the other member's inbox covers every DM with that person. |
+
 ### NotFound <sub>enum</sub>
 
 <small>`crates/xmtp_db/src/errors.rs`</small>
@@ -141,6 +153,7 @@ Archive export or import failure.
 | `PlatformStorageError::PoolRequiresPath` | Pool requires path. DB pool requires a persistent file path. Not retryable. |
 | `PlatformStorageError::SqlCipherNotLoaded` | SQLCipher not loaded. Encryption key given but SQLCipher not available. Retryable. |
 | `PlatformStorageError::SqlCipherKeyIncorrect` | SQLCipher key incorrect. PRAGMA key or salt has wrong value. Not retryable. |
+| `PlatformStorageError::MissingSaltFile` | Missing salt file. Database has data but no salt file. Not retryable. |
 | `PlatformStorageError::DatabaseLocked` | Database locked. Database file is locked by another process. Retryable. |
 | `PlatformStorageError::DieselResult` | Diesel result error. Database query error. May be retryable. |
 | `PlatformStorageError::NotFound` | Not found. Record not found in storage. Not retryable. |
@@ -240,7 +253,7 @@ Stable storage failures that preserve receipt, processing, and delivery invarian
 |:-----------|:------------|
 | `AccountIdError::InvalidChainId` | Invalid chain ID. Chain ID is not a u64 in canonical decimal form. Not retryable. |
 | `AccountIdError::MissingEip155Prefix` | Missing EIP-155 prefix. Chain ID is not prefixed with `eip155:`. Not retryable. |
-| `AccountIdError::InvalidAddress` | Invalid account address. Account address is not `0x` followed by 40 hexadecimal characters. Not retryable. |
+| `AccountIdError::InvalidAddress` | Invalid account address. Account address is not `0x` followed by 40 hexadecimal characters that are not all zero. Not retryable. |
 
 ### AssociationError <sub>enum</sub>
 
@@ -265,6 +278,7 @@ Stable storage failures that preserve receipt, processing, and delivery invarian
 | `AssociationError::NotIdentifier` | Not an identifier. Value is not a valid public identifier. Not retryable. |
 | `AssociationError::ClaimNotAlone` | Claim not alone. An identity update that claims a handle carries another action. Not retryable. |
 | `AssociationError::HandleClaimLimit` | Handle claim limit reached. The inbox's log already holds the most handle claims it can hold. Not retryable. |
+| `AssociationError::RecoveryNotMember` | Recovery not member. The new recovery identifier is not a member of the inbox. Not retryable. |
 
 ### DeserializationError <sub>enum</sub>
 
@@ -333,6 +347,7 @@ The string is not a handle under the handle grammar. Not retryable.
 | `SignatureRequestError::MissingSigner` | Missing signer. Required signature was not provided. Not retryable. |
 | `SignatureRequestError::BlockNumber` | Unable to get block number. Block number not returned after successful SCW verification. May be retryable. |
 | `SignatureRequestError::ChainNotAccepted` | The deployment does not accept this chain. The smart contract wallet signature names a chain outside the list the backend published. Not retryable. |
+| `SignatureRequestError::TooManyActions` | Too many actions. The request would hold more actions than one identity update may carry, so every validator would reject it. Split it. Not retryable. |
 
 ### VerifierError <sub>enum</sub>
 
@@ -349,6 +364,7 @@ The string is not a handle under the handle grammar. Not retryable.
 | `VerifierError::NoVerifier` | No verifier. Verifier not configured for the given chain ID. Retryable. |
 | `VerifierError::MissingBlock` | Missing block. The chain did not return a block at or below its reported head. Retryable. |
 | `VerifierError::InvalidHash` | Invalid hash. Hash has invalid length or format. Not retryable. |
+| `VerifierError::SignatureTooLong` | Signature too long. The smart contract wallet signature is longer than `MAX_SCW_SIGNATURE_BYTES`, so it is never verified. Not retryable. |
 | `VerifierError::Other` | Other error. Unclassified verifier error. May be retryable. |
 
 ## xmtp_legacy_migration
@@ -435,6 +451,7 @@ Stable failure categories. Inner causes remain available to Rust callers.
 | `ClientError::ClientVersionTooOld` | Client version too old. The backend requires a newer libxmtp than this build. Not retryable — ship an updated client. |
 | `ClientError::AuthRequired` | Authentication required. The backend requires a credential and none was configured. Not retryable — supply an auth callback or handle before building. |
 | `ClientError::ChainNotAccepted` | Chain not accepted. The backend does not verify smart contract wallet signatures on this chain. Not retryable — use a chain the deployment accepts. |
+| `ClientError::InvalidListOptions` | Invalid list options. A conversation listing named a limit below 1 or above the maximum page size, a before conversation id without the before time of its list order, or sync or one-shot groups. Not retryable — fix the options. |
 
 ### DeviceSyncError <sub>enum</sub>
 
@@ -456,6 +473,7 @@ Stable failure categories. Inner causes remain available to Rust callers.
 | `DeviceSyncError::MlsStore` | MLS store error. OpenMLS key store operation failed. Retryable. |
 | `DeviceSyncError::Recv` | Receive error. Channel receive failed. Retryable. |
 | `DeviceSyncError::MissingField` | Missing field. Required field not present. Retryable. |
+| `DeviceSyncError::OutboxPageUnpublished` | Outbox page unpublished. A queued sync message is not published yet; its values stay owed and the outbox retries. Retryable. |
 
 ### EnrichMessageError <sub>enum</sub>
 

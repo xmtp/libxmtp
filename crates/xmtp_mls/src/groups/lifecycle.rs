@@ -1,6 +1,10 @@
 //! Construction, loading, proposal capability, and insertion.
 
 use super::*;
+use crate::subscriptions::internal::{dm_event_context, emit_consent_changes};
+use xmtp_db::consent_record::{
+    ConsentChange, ConsentKey, ConsentWrite, Decision, Owed, fold_into_inbox, write_consent,
+};
 
 mod restored;
 use xmtp_db::TransactionalKeyStore;
@@ -430,7 +434,6 @@ where
                                 Some(crate::subscriptions::internal::InternalEvent::GroupJoined {
                                     group_id: stored_group.id,
                                     is_sync: true,
-                                    origin: crate::subscriptions::internal::GroupOrigin::Created,
                                 }),
                             );
                         }
@@ -474,22 +477,13 @@ where
                 }
                 let storage = tx.storage();
                 let db = storage.db();
-                let record = StoredConsentRecord::new(
-                    xmtp_db::consent_record::ConsentType::ConversationId,
-                    ConsentState::Allowed,
-                    hex::encode(stored_group.id),
-                );
-                let consent_changes = db.insert_or_replace_consent_records(&[record])?;
-                crate::subscriptions::internal::emit_preference_updates(
-                    events,
-                    consent_changes
-                        .iter()
-                        .cloned()
-                        .map(PreferenceUpdate::Consent)
-                        .collect(),
-                    crate::subscriptions::internal::PreferenceOrigin::Local,
-                    &db,
-                )?;
+                // implements: CONS-056
+                let key = ConsentKey::group(stored_group.id.as_ref());
+                let created = ConsentWrite::Decide(Decision::Created);
+                let changes: Vec<_> = write_consent(&db, &key, created, Owed::Mark)?
+                    .into_iter()
+                    .collect();
+                emit_consent_changes(context, events, &db, &changes)?;
                 context.task_channels().mark_notification_changed();
                 events.emit(
                     Some(xmtp_events::ClientEvent::ConversationJoined(
@@ -503,7 +497,6 @@ where
                     Some(crate::subscriptions::internal::InternalEvent::GroupJoined {
                         group_id: stored_group.id,
                         is_sync: false,
-                        origin: crate::subscriptions::internal::GroupOrigin::Created,
                     }),
                 );
                 Ok::<_, GroupError>(Continue(stored_group))
@@ -537,9 +530,15 @@ where
         let mls_group =
             Self::create_mls_group(context, &storage, id, group_config, commit_log_enabled)?;
         let group_id: GroupId = mls_group.group_id().try_into()?;
+        // implements: SYNC-031
+        let created_at_ns = if conversation_type == ConversationType::Sync {
+            xmtp_db::group::next_sync_join_time(&db)?
+        } else {
+            now_ns()
+        };
         let stored_group = StoredGroup::builder()
             .id(group_id)
-            .created_at_ns(now_ns())
+            .created_at_ns(created_at_ns)
             .membership_state(membership_state)
             .conversation_type(conversation_type)
             .added_by_inbox_id(context.inbox_id().to_string())
@@ -573,6 +572,22 @@ where
             },
             opts,
             existing_group_id,
+        )
+    }
+
+    /// Store an allowed DM with `peer_inbox_id` without adding the peer: the
+    /// state a creation leaves when it stops between the insert and the add.
+    #[cfg(any(test, feature = "test-utils"))]
+    pub fn create_dm_without_peer(
+        context: &Context,
+        peer_inbox_id: InboxId,
+    ) -> Result<Self, GroupError> {
+        Self::create_dm_and_insert(
+            context,
+            GroupMembershipState::Allowed,
+            peer_inbox_id,
+            GroupMetadataOptions::default(),
+            None,
         )
     }
 
@@ -634,7 +649,7 @@ where
                 context.mls_storage(),
                 context.events(),
                 |tx, events| {
-                    let (stored_group, created, consent_changes) = Self::insert_dm_row(
+                    let (stored_group, created, consent) = Self::insert_dm_row(
                         context,
                         tx,
                         membership_state,
@@ -646,20 +661,11 @@ where
                     )?;
                     if created {
                         let storage = tx.storage();
-                        let db = storage.db();
-                        crate::subscriptions::internal::emit_preference_updates(
-                            events,
-                            consent_changes
-                                .iter()
-                                .cloned()
-                                .map(PreferenceUpdate::Consent)
-                                .collect(),
-                            crate::subscriptions::internal::PreferenceOrigin::Local,
-                            &db,
-                        )?;
+                        let changes: Vec<_> = consent.iter().cloned().collect();
+                        emit_consent_changes(context, events, &storage.db(), &changes)?;
                         if existing_group_id.is_none() {
                             context.task_channels().mark_notification_changed();
-                            events.emit(
+                            events.emit_with_context(
                                 Some(xmtp_events::ClientEvent::ConversationJoined(
                                     xmtp_events::ConversationJoined {
                                         group_id: stored_group.id.to_vec(),
@@ -671,12 +677,12 @@ where
                                 Some(crate::subscriptions::internal::InternalEvent::GroupJoined {
                                     group_id: stored_group.id,
                                     is_sync: false,
-                                    origin: crate::subscriptions::internal::GroupOrigin::Created,
                                 }),
+                                dm_event_context(stored_group.dm_id.as_deref()),
                             );
                         }
                     }
-                    Ok::<_, GroupError>(Continue((stored_group, created, consent_changes)))
+                    Ok::<_, GroupError>(Continue((stored_group, created, consent)))
                 },
             )?
             .into_continued()
@@ -705,13 +711,13 @@ where
         id: NewGroupId,
         group_config: &MlsGroupCreateConfig,
         commit_log_enabled: bool,
-    ) -> Result<(StoredGroup, bool, Vec<StoredConsentRecord>), GroupError> {
+    ) -> Result<(StoredGroup, bool, Option<ConsentChange>), GroupError> {
         let storage = tx.storage();
         let db = storage.db();
         if let NewGroupId::Placeholder(group_id) = id
             && let Some(existing) = db.find_group(&group_id)?
         {
-            return Ok((existing, false, Vec::new()));
+            return Ok((existing, false, None));
         }
         let mls_group =
             Self::create_mls_group(context, &storage, id, group_config, commit_log_enabled)?;
@@ -731,16 +737,20 @@ where
             .commit_log_public_key(id.commit_log_id())
             .build()?;
         stored_group.store(&db)?;
-        if membership_state == GroupMembershipState::Restored {
-            return Ok((stored_group, true, Vec::new()));
-        }
-        let record = StoredConsentRecord::new(
-            xmtp_db::consent_record::ConsentType::ConversationId,
-            ConsentState::Allowed,
-            hex::encode(group_id),
-        );
-        let consent_changes = db.insert_or_replace_consent_records(&[record])?;
-        Ok((stored_group, true, consent_changes))
+        // A DM's consent is its peer's inbox record.
+        let own = context.inbox_id();
+        let consent = match ConsentKey::of_group(&stored_group, own) {
+            _ if membership_state == GroupMembershipState::Restored => {
+                fold_into_inbox(&db, own, &stored_group)?
+            }
+            // implements: CONS-056
+            Some(key) => {
+                let created = ConsentWrite::Decide(Decision::Created);
+                write_consent(&db, &key, created, Owed::Mark)?
+            }
+            None => None,
+        };
+        Ok((stored_group, true, consent))
     }
 
     /// Create the MLS group a new row names. A restored group starts with a

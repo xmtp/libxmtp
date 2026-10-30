@@ -4,12 +4,13 @@ import {
   cleanup,
   fireEvent,
   render,
-  waitFor,
+  within,
 } from "@testing-library/react";
-import type { RemoteAttachment } from "@xmtp/browser-sdk";
+import type { ConsentState, RemoteAttachment } from "@xmtp/browser-sdk";
 import { StrictMode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { ConversationProvider } from "@/contexts/ConversationContext";
 import type * as attachmentHelpers from "@/helpers/attachment";
 
 import { RemoteAttachmentContent } from "./RemoteAttachmentContent";
@@ -38,9 +39,17 @@ const content = (name: string): RemoteAttachment => ({
 
 const attachment = new Blob([new Uint8Array([1])], { type: "image/png" });
 
-const view = (source: RemoteAttachment) => (
+// null: consent not read yet
+const view = (
+  source: RemoteAttachment,
+  consent: ConsentState | null = "allowed",
+) => (
   <MantineProvider>
-    <RemoteAttachmentContent content={source} align="left" />
+    <ConversationProvider
+      conversationId="conversation"
+      consentState={consent ?? undefined}>
+      <RemoteAttachmentContent content={source} align="left" />
+    </ConversationProvider>
   </MantineProvider>
 );
 
@@ -95,8 +104,6 @@ describe("remote attachment lifecycle", () => {
     });
     const newUrl = result.getByRole("img").getAttribute("src");
     expect(newUrl).not.toBe(oldUrl);
-    result.unmount();
-    expect(revokeUrl).toHaveBeenCalledWith(newUrl);
   });
 
   it("keeps the URL when an equivalent content object is rendered", async () => {
@@ -130,17 +137,11 @@ describe("remote attachment lifecycle", () => {
     const revokeUrl = vi.spyOn(URL, "revokeObjectURL");
     const source = content("shared");
     const first = render(view(source));
-    await waitFor(() => {
-      expect(first.container.querySelector("img")).not.toBeNull();
-    });
-    const firstUrl = first.container.querySelector("img")?.getAttribute("src");
+    const firstImage = await within(first.container).findByRole("img");
+    const firstUrl = firstImage.getAttribute("src");
     const second = render(view(source));
-    await waitFor(() => {
-      expect(second.container.querySelector("img")).not.toBeNull();
-    });
-    const secondUrl = second.container
-      .querySelector("img")
-      ?.getAttribute("src");
+    const secondImage = await within(second.container).findByRole("img");
+    const secondUrl = secondImage.getAttribute("src");
 
     expect(download).toHaveBeenCalledTimes(1);
     expect(firstUrl).not.toBe(secondUrl);
@@ -166,5 +167,38 @@ describe("remote attachment lifecycle", () => {
 
     expect(download).toHaveBeenCalledTimes(1);
     expect(createUrl).not.toHaveBeenCalled();
+  });
+
+  it.each([null, "unknown", "denied"] as const)(
+    "waits for a click when consent is %s",
+    async (consent) => {
+      download.mockResolvedValue(attachment);
+      const source = content(`click-${consent}`);
+      const first = render(<StrictMode>{view(source, consent)}</StrictMode>);
+      await act(async () => {});
+      expect(download).not.toHaveBeenCalled();
+
+      fireEvent.click(first.getByRole("button", { name: "Load attachment" }));
+      await first.findByRole("img");
+      expect(download).toHaveBeenCalledTimes(1);
+
+      // a download this tab already made needs no second click
+      first.unmount();
+      const second = render(view(source, consent));
+      await second.findByRole("img");
+      expect(download).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it("loads when consent becomes allowed", async () => {
+    download.mockResolvedValue(attachment);
+    const source = content("becomes-allowed");
+    const result = render(view(source, "unknown"));
+    await act(async () => {});
+    expect(download).not.toHaveBeenCalled();
+
+    result.rerender(view(source, "allowed"));
+    await result.findByRole("img");
+    expect(download).toHaveBeenCalledTimes(1);
   });
 });

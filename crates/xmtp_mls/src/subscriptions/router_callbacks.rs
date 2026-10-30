@@ -1,6 +1,6 @@
 //! Native callback streams over the backend subscription router.
 //!
-//! Clients share a wire only when they share an API client Arc and host.
+//! Clients share a wire only with the same API client Arc, host, and admitted limits.
 //! Each client factory owns its transport. The registry keeps only weak handles.
 //! A live transport retains the API client, so its address cannot be reused.
 //! Retryable wire failures keep leases alive and reconnect with backoff.
@@ -13,7 +13,9 @@ use parking_lot::Mutex;
 
 use tokio::sync::oneshot;
 
-use xmtp_api_backend::{BackendBinding, BidiConnection, BidiTransport, OpenError, TransportError};
+use xmtp_api_backend::{
+    BackendBinding, BidiConnection, BidiTransport, MutateLimits, OpenError, TransportError,
+};
 use xmtp_common::{MaybeSend, StreamHandle};
 use xmtp_db::consent_record::ConsentState;
 use xmtp_db::group::ConversationType;
@@ -43,7 +45,7 @@ impl<C: ?Sized> ApiClientIdentity for Arc<C> {
     }
 }
 
-type WireKey = (String, usize);
+type WireKey = (String, usize, MutateLimits);
 
 struct SharedWires {
     transports: HashMap<WireKey, Weak<BidiTransport<BackendBinding>>>,
@@ -79,17 +81,27 @@ pub(crate) fn shared_transport_count() -> usize {
 /// agents. A process that tears its runtime down and starts another (some
 /// non-`nextest` test harnesses) would find the cached transport dead;
 /// `nextest`'s process-per-test model keeps tests clear of that.
+#[cfg(test)]
 pub(crate) fn shared_transport<C>(api: C) -> Arc<BidiTransport<BackendBinding>>
 where
     C: XmtpMlsBidiStreams + ApiClientIdentity + Clone + Send + Sync + 'static,
     C::SubscribeStream: 'static,
 {
-    let key = (api.host().to_owned(), api.api_client_identity());
-    // Interest-update frames are chunked here, below
-    // `ApiClientWrapper`, so the caps come from the transport's own copy of the
-    // snapshot. Whoever creates the transport donates them along with the API
-    // client, and a transport that was never told keeps the compiled defaults.
-    let mutate = xmtp_api_backend::MutateLimits::from_limits(&api.bidi_limits());
+    let mutate = MutateLimits::from_limits(&api.bidi_limits());
+    shared_transport_within(api, mutate)
+}
+
+pub(super) fn shared_transport_within<C>(
+    api: C,
+    mutate: MutateLimits,
+) -> Arc<BidiTransport<BackendBinding>>
+where
+    C: XmtpMlsBidiStreams + ApiClientIdentity + Clone + Send + Sync + 'static,
+    C::SubscribeStream: 'static,
+{
+    // Chunk and pace below ApiClientWrapper with the owning client's snapshot.
+    // An API Arc can serve clients admitted with different limits.
+    let key = (api.host().to_owned(), api.api_client_identity(), mutate);
     let mut wires = SHARED_WIRES.lock();
     // A transport created while the app is backgrounded is born suspended —
     // its first lease parks instead of dialing (see [`SharedWires`]).

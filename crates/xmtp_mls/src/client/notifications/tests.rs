@@ -18,6 +18,7 @@ fn notification_error_debug_does_not_expose_backend_text() {
     assert!(!format!("{:?}", NotificationState::Failed(error)).contains(secret));
 }
 
+// verifies: PUSH-266
 #[xmtp_common::test(unwrap_try = true)]
 async fn notification_http_signing_key_boundaries_before_persistence() {
     for size in [15, 16, 64, 65] {
@@ -47,6 +48,7 @@ async fn notification_http_signing_key_boundaries_before_persistence() {
     }
 }
 
+// verifies: PUSH-266
 #[xmtp_common::test(unwrap_try = true)]
 async fn notification_enable_without_task_runner_stores_nothing() {
     tester!(alix, disable_workers);
@@ -176,6 +178,7 @@ async fn notification_registration_capacity_error_uses_backoff() {
     assert!(client.db().notification_record()?.push_suppressed.is_none());
 }
 
+// verifies: PUSH-266
 #[xmtp_common::test(unwrap_try = true)]
 async fn notification_disable_keeps_identity_and_conversation_override() {
     let (client, peer) = support::client().await;
@@ -208,6 +211,7 @@ async fn notification_disable_keeps_identity_and_conversation_override() {
     assert!(!group.notifications_enabled()?);
     peer.state.lock().registered = false;
     client.disable_notifications().await?;
+    assert!(!client.db().notification_record()?.push_unregister_owed);
 }
 
 #[xmtp_common::test(unwrap_try = true)]
@@ -237,6 +241,7 @@ async fn notification_failed_unregister_stays_disabled_without_background_retry(
         );
         assert!(disabled.push_config.is_none());
         assert!(disabled.push_deadlines.is_none());
+        assert!(disabled.push_unregister_owed);
         assert!(client.db().uploaded_topics()?.is_empty());
         // Later tasks must not make calls while disabled. The backend
         // retains the recipient only until expiry unless the caller retries.
@@ -249,8 +254,151 @@ async fn notification_failed_unregister_stays_disabled_without_background_retry(
         assert!(peer.state.lock().registered);
         client.disable_notifications().await?;
         assert_eq!(peer.calls(support::Call::Unregister), 2);
+        assert!(!client.db().notification_record()?.push_unregister_owed);
         assert!(!peer.state.lock().registered);
     }
+}
+
+// verifies: PUSH-265, PUSH-266
+#[xmtp_common::test(unwrap_try = true)]
+async fn notification_failed_unregister_restart_resets_before_reregistering() {
+    use xmtp_db::ConnectionExt;
+    use xmtp_proto::{backend_v1::register_request::Delivery, types::Topic};
+
+    let (client, peer) = support::client().await;
+    let group = client.create_group(None, None)?;
+    let group_id = group.group_id;
+    let topic = Topic::new_group_message(group_id).cloned_vec();
+    let mut initial = config();
+    initial.include_welcomes = false;
+    client.enable_notifications(initial).await?;
+    notifications::run(&client.context).await?;
+    assert!(peer.state.lock().subscriptions.contains_key(&topic));
+    assert_eq!(client.db().uploaded_topics()?.len(), 1);
+    let original = client.db().notification_record()?;
+
+    peer.state.lock().next_error = Some(tonic::Code::Unavailable);
+    assert!(
+        client
+            .disable_notifications()
+            .await
+            .unwrap_err()
+            .is_retryable()
+    );
+    assert!(client.db().uploaded_topics()?.is_empty());
+    assert!(peer.state.lock().subscriptions.contains_key(&topic));
+    assert!(client.db().notification_record()?.push_unregister_owed);
+
+    let snapshot = std::sync::Arc::new(
+        client
+            .db()
+            .raw_query(|conn| Ok(conn.serialize_database_to_buffer().to_vec()))?,
+    );
+    drop(group);
+    drop(client);
+    let restored = support::client_from_snapshot(snapshot, peer.clone()).await;
+    assert!(restored.db().uploaded_topics()?.is_empty());
+    assert!(restored.db().notification_record()?.push_unregister_owed);
+
+    let mut replacement = config();
+    replacement.consent_states.clear();
+    replacement.channel = NotificationChannel::Http {
+        url: "https://new.example.test/push".into(),
+        signing_key: vec![9; 32].into(),
+    };
+    let before_enable = peer.state.lock().calls.len();
+    restored.enable_notifications(replacement).await?;
+    assert_eq!(
+        &peer.state.lock().calls[before_enable..],
+        &[support::Call::Unregister, support::Call::Register]
+    );
+    assert!(peer.state.lock().subscriptions.is_empty());
+    let after = restored.db().notification_record()?;
+    assert_eq!(after.push_recipient_id, original.push_recipient_id);
+    assert_eq!(after.push_recipient_secret, original.push_recipient_secret);
+    assert!(!restored.group(&group_id)?.notifications_enabled()?);
+    assert!(matches!(
+        restored.notification_state()?,
+        NotificationState::Enabled
+    ));
+    assert_eq!(peer.response().topic_count, 0);
+    assert!(!after.push_unregister_owed);
+    assert!(matches!(
+        peer.state.lock().delivery,
+        Some(Delivery::Http(ref delivery)) if delivery.url == "https://new.example.test/push"
+    ));
+
+    notifications::run(&restored.context).await?;
+    notifications::run(&restored.context).await?;
+    let mut record = restored.db().notification_record()?;
+    record.push_deadlines = Some(encode(&notifications::Deadlines::default())?);
+    restored.db().save_notification_record(&record)?;
+    notifications::run(&restored.context).await?;
+    assert_eq!(peer.calls(support::Call::Register), 3);
+    let welcome = Topic::new_welcome_message(restored.context.installation_id()).cloned_vec();
+    assert_eq!(
+        peer.state
+            .lock()
+            .subscriptions
+            .keys()
+            .cloned()
+            .collect::<Vec<_>>(),
+        vec![welcome.clone()]
+    );
+    let uploaded = restored.db().uploaded_topics()?;
+    assert_eq!(uploaded.len(), 1);
+    assert_eq!(uploaded[0].topic, welcome);
+    assert!(!restored.db().notification_record()?.push_repairing);
+    assert_eq!(peer.calls(support::Call::Update), 2);
+    assert_eq!(peer.calls(support::Call::Unregister), 2);
+}
+
+// verifies: PUSH-265
+#[xmtp_common::test(unwrap_try = true)]
+async fn notification_enable_reset_failure_stays_enabled_and_the_task_retries_it() {
+    let (client, peer) = support::client().await;
+    client.enable_notifications(config()).await?;
+    notifications::run(&client.context).await?;
+    assert!(!peer.state.lock().subscriptions.is_empty());
+    peer.state.lock().next_error = Some(tonic::Code::Unavailable);
+    assert!(
+        client
+            .disable_notifications()
+            .await
+            .unwrap_err()
+            .is_retryable()
+    );
+
+    let before_enable = peer.state.lock().calls.len();
+    peer.state.lock().next_error = Some(tonic::Code::Unavailable);
+    assert!(
+        client
+            .enable_notifications(config())
+            .await
+            .unwrap_err()
+            .is_retryable()
+    );
+    assert!(matches!(
+        client.notification_state()?,
+        NotificationState::Enabled
+    ));
+    assert_eq!(
+        &peer.state.lock().calls[before_enable..],
+        &[support::Call::Unregister]
+    );
+    assert!(client.db().notification_record()?.push_unregister_owed);
+
+    notifications::run(&client.context).await?;
+    assert_eq!(
+        &peer.state.lock().calls[before_enable..],
+        &[
+            support::Call::Unregister,
+            support::Call::Unregister,
+            support::Call::Register,
+        ]
+    );
+    assert!(!client.db().notification_record()?.push_unregister_owed);
+    assert!(peer.state.lock().subscriptions.is_empty());
 }
 
 #[xmtp_common::test(unwrap_try = true)]

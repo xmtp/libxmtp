@@ -224,6 +224,7 @@ fn group_errors_keep_storage_retry_policy_on_reads_only() {
     let unconfirmed = || GroupError::PublishedButUnconfirmed {
         intent_id: 1,
         cause: None,
+        rate_limit_delay: None,
     };
     for error in [
         XmtpError::from_group(unconfirmed()),
@@ -391,7 +392,7 @@ fn group_errors_keep_storage_retry_policy_on_reads_only() {
     }
 }
 
-// verifies: GMOD-035
+// verifies: GMOD-054
 #[xmtp_common::test(unwrap_try = true)]
 fn reserved_transcript_type_is_a_stable_input_error() {
     use xmtp_mls::groups::GroupError;
@@ -474,4 +475,31 @@ fn commit_permission_causes_remain_typed() {
         assert!(!details.retryable);
         assert_eq!(details.message, "Insufficient permissions");
     }
+}
+
+/// A revocation over the action limit is the app's input, so it fails as
+/// `InvalidInput` and never retries. Only that variant is input: a verifier
+/// outage while a signature is added keeps its own classification.
+#[xmtp_common::test(unwrap_try = true)]
+fn too_many_actions_maps_to_invalid_input() {
+    use xmtp_id::{
+        associations::{SignatureError, builder::SignatureRequestError},
+        scw_verifier::VerifierError,
+    };
+    use xmtp_mls::client::ClientError;
+
+    let core = SignatureRequestError::TooManyActions(101);
+    let expected_message = core.to_string();
+    let XmtpError::InvalidInput(details) = XmtpError::from_client(ClientError::from(core)) else {
+        panic!("expected InvalidInput");
+    };
+    assert_eq!(details.code, "InvalidInput");
+    assert!(matches!(details.category, ErrorCategory::Input));
+    assert!(!details.retryable);
+    assert_eq!(details.message, expected_message);
+
+    let outage = XmtpError::from_client(ClientError::from(SignatureRequestError::Signature(
+        SignatureError::VerifierError(VerifierError::NoVerifier("eip155:1".into())),
+    )));
+    assert!(!matches!(outage, XmtpError::InvalidInput(_)), "{outage:?}");
 }

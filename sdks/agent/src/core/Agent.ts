@@ -28,6 +28,7 @@ import {
   type StreamOptions,
   type TransactionReference,
   type WalletSendCalls,
+  XmtpError,
 } from "@xmtp/node-sdk";
 import { isHex, toBytes, type Hex } from "viem";
 
@@ -370,7 +371,13 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
           }
         }
         if (!options?.allowOffline && !resolvedInboxId) {
-          ids.add((await Client.inboxIdFor(identity, backend)).toLowerCase());
+          try {
+            ids.add((await Client.inboxIdFor(identity, backend)).toLowerCase());
+          } catch (error) {
+            // No inbox holds the identity, so no legacy database belongs to
+            // a current inbox of it.
+            if (!(error instanceof XmtpError.IdentityNotFound)) throw error;
+          }
           resolvedInboxId = true;
         }
         const candidate = { name: entry.name, inboxId: inboxId.toLowerCase() };
@@ -802,14 +809,17 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
       (next, mw) => {
         return async () => {
           if (!isCurrent()) return;
+          // The rest of the chain runs at most once per message.
+          let downstream: Promise<void> | undefined;
+          const once = () => (downstream ??= Promise.resolve(next()));
           try {
-            await mw(context, next);
+            await mw(context, once);
           } catch (error) {
             if (error instanceof UnacceptedValueError) throw error;
             if (!isCurrent()) return;
             const disposition = await this.#runErrorChain(error, context);
             if (disposition === "resume" && isCurrent()) {
-              await next();
+              await once();
             }
             if (disposition !== "resume") throw new UnacceptedValueError(error);
           }

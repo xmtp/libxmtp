@@ -1,6 +1,7 @@
 //! Mutable metadata, permissions, and group settings.
 
 use super::*;
+use xmtp_mls_common::app_data::fields::{ComponentMutation, FieldValue, MetadataFieldRef};
 
 impl<Context> MlsGroup<Context>
 where
@@ -148,12 +149,11 @@ where
     /// * `version` - The libxmtp version to update the group min version to.
     ///   This is a semver-formatted string matching the Cargo.toml in the
     ///   libxmtp dependency, and does not match mobile or web release versions.
-    ///   Comparison is done via the [`semver`] crate's `Ord` impl, so
+    ///   Versions compare by SemVer precedence (SemVer 2.0.0 section 11), so
     ///   pre-release identifiers (e.g. `"1.0.0-rc.1"`) sort BEFORE the
-    ///   corresponding release (`"1.0.0"`) per semver 2.0 §11. Build
-    ///   metadata (`+...`) parses but is included in ordering by the
-    ///   semver crate — avoid passing it unless you understand the
-    ///   total-ordering implication.
+    ///   corresponding release (`"1.0.0"`), and build metadata (`+...`) has
+    ///   no precedence: `"1.0.0+a"` equals `"1.0.0"` and `"1.0.0+b"`. The
+    ///   group stores the string as given.
     ///
     /// # Returns
     /// A `Result` indicating success or failure of the operation.
@@ -381,16 +381,27 @@ where
             .unwrap_or_default())
     }
 
+    // implements: META-076
     pub async fn update_conversation_message_disappearing_settings(
         &self,
         settings: MessageDisappearingSettings,
     ) -> Result<(), GroupError> {
-        self.ensure_not_paused().await?;
-
-        self.update_conversation_message_disappear_from_ns(settings.from_ns)
-            .await?;
-        self.update_conversation_message_disappear_in_ns(settings.in_ns)
-            .await
+        let replace = |value: i64| {
+            ComponentMutation::Replace(FieldValue::Bytes(value.to_be_bytes().to_vec()))
+        };
+        self.write_fields(|fields| {
+            Ok(vec![
+                fields.field_write(
+                    &MetadataFieldRef::MESSAGE_DISAPPEAR_FROM_NS,
+                    &replace(settings.from_ns),
+                )?,
+                fields.field_write(
+                    &MetadataFieldRef::MESSAGE_DISAPPEAR_IN_NS,
+                    &replace(settings.in_ns),
+                )?,
+            ])
+        })
+        .await
     }
 
     pub async fn remove_conversation_message_disappearing_settings(
@@ -402,50 +413,6 @@ where
             MessageDisappearingSettings::default(),
         )
         .await
-    }
-
-    #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(level = "info", fields(inbox_id = %self.context.inbox_id()), skip(self)))]
-    #[cfg_attr(
-        not(any(test, feature = "test-utils")),
-        tracing::instrument(level = "trace", skip(self))
-    )]
-    pub(in crate::groups) async fn update_conversation_message_disappear_from_ns(
-        &self,
-        expire_from_ms: i64,
-    ) -> Result<(), GroupError> {
-        self.ensure_not_paused().await?;
-
-        let intent_data: Vec<u8> =
-            UpdateMetadataIntentData::new_update_conversation_message_disappear_from_ns(
-                expire_from_ms,
-            )
-            .into();
-        let intent = QueueIntent::metadata_update()
-            .data(intent_data)
-            .queue(self)?;
-        let _ = self.sync_until_intent_resolved(intent.id).await?;
-        Ok(())
-    }
-
-    #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(level = "info", fields(inbox_id = %self.context.inbox_id()), skip(self)))]
-    #[cfg_attr(
-        not(any(test, feature = "test-utils")),
-        tracing::instrument(level = "trace", skip(self))
-    )]
-    pub(in crate::groups) async fn update_conversation_message_disappear_in_ns(
-        &self,
-        expire_in_ms: i64,
-    ) -> Result<(), GroupError> {
-        self.ensure_not_paused().await?;
-
-        let intent_data: Vec<u8> =
-            UpdateMetadataIntentData::new_update_conversation_message_disappear_in_ns(expire_in_ms)
-                .into();
-        let intent = QueueIntent::metadata_update()
-            .data(intent_data)
-            .queue(self)?;
-        let _ = self.sync_until_intent_resolved(intent.id).await?;
-        Ok(())
     }
 
     /// If group is not paused, will return None, otherwise will return the version that the group is paused for

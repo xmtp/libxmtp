@@ -1,13 +1,15 @@
 //! Ops: set consent state on every group primary is in.
 //!
 //! - `UpdateConsentState`: emits an MLS commit recording the new consent.
-//! - `UpdateConsentStateQuiet`: updates only local consent state, no commit.
+//! - `UpdateConsentStateQuiet`: writes the consent record directly, with no events.
 
 use crate::app::health::context::HealthContext;
 use crate::app::health::ops::HealthOp;
 use crate::app::health::result::OpResult;
 use async_trait::async_trait;
-use xmtp_db::consent_record::ConsentState;
+use xmtp_db::consent_record::{
+    ConsentKey, ConsentState, ConsentType, ConsentWrite, Decision, Owed, write_consent,
+};
 
 pub struct UpdateConsentState;
 
@@ -49,9 +51,16 @@ impl HealthOp for UpdateConsentStateQuiet {
     async fn execute(&self, ctx: &mut HealthContext) -> Vec<OpResult> {
         ctx.for_each_group(self.name(), |primary, gid| async move {
             let db = primary.db();
-            primary
-                .group(&gid)?
-                .quietly_update_consent_state(ConsentState::Allowed, &db)?;
+            // The conversation's key: a DM's is its peer's inbox record.
+            let key = ConsentKey::for_app(
+                &db,
+                primary.inbox_id(),
+                ConsentType::ConversationId,
+                &hex::encode(gid.as_ref()),
+            )?;
+            let decide = ConsentWrite::Decide(Decision::Set(ConsentState::Allowed));
+            // Quiet: the decision is not queued for the other installations.
+            write_consent(&db, &key, decide, Owed::Keep)?;
             Ok(())
         })
         .await

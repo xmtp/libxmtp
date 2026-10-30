@@ -53,71 +53,42 @@ pub struct EncryptedConnection {
 }
 
 impl EncryptedConnection {
-    /// Creates a file for the salt and stores it
+    /// Prepare a keyed connection, publishing the salt before the first database page.
     pub fn new(key: EncryptionKey, opts: &StorageOption) -> Result<Self, PlatformStorageError> {
         use crate::StorageOption::*;
 
-        let salt = match opts {
-            Ephemeral => None,
-            Persistent(db_path) => {
-                {
-                    let mut conn = SqliteConnection::establish(db_path)?;
-                    Self::check_for_sqlcipher(opts, &mut conn)?;
-                }
-                let mut salt = [0u8; 16];
-                let db_pathbuf = PathBuf::from(db_path);
-                let salt_path = Self::salt_file(db_path)?;
-
-                match (salt_path.try_exists()?, db_pathbuf.try_exists()?) {
-                    // db and salt exist
-                    (true, true) => {
-                        tracing::debug!(
-                            salt = %salt_path.display(),
-                            db = %db_pathbuf.display(),
-                            "salt and database exist, db=[{}], salt=[{}]",
-                            db_pathbuf.display(),
-                            salt_path.display(),
-                        );
+        let salt =
+            match opts {
+                Ephemeral => None,
+                Persistent(db_path) => {
+                    let db_len = match std::fs::metadata(db_path) {
+                        Ok(metadata) => metadata.len(),
+                        Err(error) if error.kind() == std::io::ErrorKind::NotFound => 0,
+                        Err(error) => return Err(error.into()),
+                    };
+                    let salt_path = Self::salt_file(db_path)?;
+                    let has_salt = salt_path.try_exists()?;
+                    // implements: STORE-024
+                    if db_len > 0 && !has_salt {
+                        return Err(PlatformStorageError::MissingSaltFile);
+                    }
+                    {
+                        let mut conn = SqliteConnection::establish(db_path)?;
+                        Self::check_for_sqlcipher(opts, &mut conn)?;
+                    }
+                    let mut salt = [0u8; 16];
+                    if has_salt {
                         let file = BufReader::new(File::open(salt_path)?);
                         salt = <Salt as hex::FromHex>::from_hex(
                             file.bytes().take(32).collect::<Result<Vec<u8>, _>>()?,
                         )?;
-                    }
-                    // the db exists and needs to be migrated
-                    (false, true) => {
-                        tracing::debug!(
-                            "migrating sqlcipher db=[{}] to plaintext header with salt=[{}]",
-                            db_pathbuf.display(),
-                            salt_path.display()
-                        );
-                        Self::migrate(db_path, &key, &mut salt)?;
-                    }
-                    // the db doesn't exist yet and needs to be created
-                    (false, false) => {
-                        tracing::debug!(
-                            "creating new sqlcipher db=[{}] with salt=[{}]",
-                            db_pathbuf.display(),
-                            salt_path.display()
-                        );
+                    } else {
                         Self::create(db_path, &key, &mut salt)?;
                     }
-                    // the db doesn't exist but the salt does
-                    // This generally doesn't make sense & shouldn't happen.
-                    // Create a new database and delete the salt file.
-                    (true, false) => {
-                        tracing::debug!(
-                            "database [{}] does not exist, but the salt [{}] does, re-creating",
-                            db_pathbuf.display(),
-                            salt_path.display(),
-                        );
-                        std::fs::remove_file(salt_path)?;
-                        Self::create(db_path, &key, &mut salt)?;
-                    }
+                    tracing::info!("db_path=[{}]", db_path);
+                    Some(salt)
                 }
-                tracing::info!("db_path=[{}]", db_path);
-                Some(salt)
-            }
-        };
+            };
 
         Ok(Self {
             key,
@@ -147,42 +118,9 @@ impl EncryptedConnection {
         Ok(())
     }
 
-    /// Executes the steps outlined in the [SQLCipher Docs](https://www.zetetic.net/sqlcipher/sqlcipher-api/#cipher_plaintext_header_size)
-    /// Migrates the database to `cipher_plaintext_header_size` and returns the salt after
-    /// persisting it to SALT_FILE_NAME.
-    ///
-    /// if the salt file already exists, deletes it.
-    fn migrate(
-        path: &String,
-        key: &EncryptionKey,
-        salt: &mut [u8],
-    ) -> Result<(), PlatformStorageError> {
-        let conn = &mut SqliteConnection::establish(path)?;
-
-        conn.batch_execute(&format!(
-            r#"
-            {}
-            select count(*) from sqlite_master; -- trigger header read, currently it is encrypted
-        "#,
-            pragma_key(hex::encode(key))
-        ))?;
-
-        // get the salt and save it for later use
-        Self::write_salt(path, conn, salt)?;
-
-        conn.batch_execute(&format!(
-            r#"
-            {}
-            PRAGMA user_version = 1; -- force header write
-        "#,
-            pragma_plaintext_header()
-        ))?;
-
-        Ok(())
-    }
-
     /// Get the salt from the opened database, write it to `Self::salt_file(db_path)` as hex-encoded
     /// bytes, and then copy it to `buf` after decoding hex bytes.
+    // implements: STORE-023
     fn write_salt(
         path: &String,
         conn: &mut SqliteConnection,
@@ -194,17 +132,25 @@ impl EncryptedConnection {
             .next()
             .ok_or(NotFound::CipherSalt(path.to_string()))??;
         let salt = <String as FromSqlRow<diesel::sql_types::Text, _>>::build_from_row(&row)?;
-        tracing::debug!(
-            salt,
-            file = %Self::salt_file(PathBuf::from(path))?.display(),
-            "writing salt to file"
-        );
-        let mut f = File::create(Self::salt_file(PathBuf::from(path))?)?;
-
-        f.write_all(salt.as_bytes())?;
-        let mut perms = f.metadata()?.permissions();
-        perms.set_readonly(true);
-        f.set_permissions(perms)?;
+        let salt_path = Self::salt_file(path)?;
+        let temp_path = salt_path.with_extension(format!("{SALT_FILE_NAME}.tmp"));
+        let mut file = File::create(&temp_path)?;
+        file.write_all(salt.as_bytes())?;
+        file.sync_all()?;
+        std::fs::rename(temp_path, &salt_path)?;
+        #[cfg(unix)]
+        {
+            let parent = salt_path
+                .parent()
+                .filter(|path| !path.as_os_str().is_empty())
+                .unwrap_or_else(|| Path::new("."));
+            if let Err(error) = File::open(parent).and_then(|directory| directory.sync_all()) {
+                tracing::warn!(%error, "could not sync the database salt directory");
+            }
+        }
+        let mut permissions = file.metadata()?.permissions();
+        permissions.set_readonly(true);
+        file.set_permissions(permissions)?;
 
         let salt = hex::decode(salt)?;
         buf.copy_from_slice(&salt);
@@ -356,7 +302,9 @@ fn pragma_plaintext_header() -> impl Display {
 
 #[cfg(test)]
 mod tests {
-    use crate::{EncryptedMessageStore, NativeDb, ValidatedConnection, XmtpTestDb};
+    use crate::{
+        ConnectionExt, EncryptedMessageStore, NativeDb, ValidatedConnection, XmtpDb, XmtpTestDb,
+    };
     use diesel::connection::InstrumentationEvent;
     use diesel_migrations::MigrationHarness;
     use std::{fs::File, sync::mpsc};
@@ -368,6 +316,149 @@ mod tests {
     const LOCK_PROBE_TIMEOUT: Duration = Duration::from_millis(100);
     const VALIDATION_START_TIMEOUT: Duration = Duration::from_secs(10);
     use StorageOption::*;
+
+    fn legacy_header_database_with_row() -> String {
+        let path = tmp_path();
+        let mut conn = SqliteConnection::establish(&path).unwrap();
+        conn.batch_execute(&format!(
+            "{} CREATE TABLE interrupted_migration_fixture (value INTEGER NOT NULL); \
+             INSERT INTO interrupted_migration_fixture VALUES (42);",
+            pragma_key(hex::encode(VALIDATION_KEY))
+        ))
+        .unwrap();
+        drop(conn);
+        assert_ne!(
+            &std::fs::read(&path).unwrap()[..16],
+            SQLITE3_PLAINTEXT_HEADER.as_bytes()
+        );
+        path
+    }
+
+    enum UnsaltedFile {
+        Plaintext,
+        LegacyHeader,
+        Invalid,
+    }
+
+    // verifies: STORE-024
+    #[rstest::rstest]
+    #[case::plaintext(UnsaltedFile::Plaintext)]
+    #[case::legacy_header(UnsaltedFile::LegacyHeader)]
+    #[case::invalid(UnsaltedFile::Invalid)]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn keyed_open_without_salt_file_changes_nothing(#[case] format: UnsaltedFile) {
+        let path = match format {
+            UnsaltedFile::LegacyHeader => legacy_header_database_with_row(),
+            UnsaltedFile::Plaintext => {
+                let path = tmp_path();
+                let mut conn = SqliteConnection::establish(&path).unwrap();
+                conn.batch_execute(
+                    "CREATE TABLE preserved (value INTEGER); INSERT INTO preserved VALUES (42);",
+                )
+                .unwrap();
+                path
+            }
+            UnsaltedFile::Invalid => {
+                let path = tmp_path();
+                std::fs::write(&path, b"not a SQLite database").unwrap();
+                path
+            }
+        };
+        let salt_path = EncryptedConnection::salt_file(&path).unwrap();
+        let temp_path = salt_path.with_extension(format!("{SALT_FILE_NAME}.tmp"));
+        let before = std::fs::read(&path).unwrap();
+        assert!(!before.is_empty());
+        let error = NativeDb::builder()
+            .persistent(path.clone())
+            .key(VALIDATION_KEY)
+            .build()
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            crate::StorageError::Platform(PlatformStorageError::MissingSaltFile)
+        ));
+        assert_eq!(error.error_code(), "StorageError::Platform");
+        assert!(!error.is_retryable());
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+        assert!(!salt_path.exists());
+        assert!(!temp_path.exists());
+        std::fs::remove_file(path).unwrap();
+    }
+
+    // verifies: STORE-023
+    #[rstest::rstest]
+    #[case::empty(false, false)]
+    #[case::unfinished_salt(true, false)]
+    #[case::published_salt(false, true)]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn interrupted_keyed_creation_reopens(
+        #[case] unfinished_salt: bool,
+        #[case] published_salt: bool,
+    ) {
+        let path = tmp_path();
+        File::create(&path).unwrap();
+        let salt_path = EncryptedConnection::salt_file(&path).unwrap();
+        let temp_path = salt_path.with_extension(format!("{SALT_FILE_NAME}.tmp"));
+        let saved_salt = hex::encode([9u8; 16]);
+        if unfinished_salt {
+            std::fs::write(&temp_path, b"partial salt").unwrap();
+        }
+        if published_salt {
+            std::fs::write(&salt_path, &saved_salt).unwrap();
+        }
+        let db = NativeDb::builder()
+            .persistent(path.clone())
+            .key(VALIDATION_KEY)
+            .build()
+            .unwrap();
+        db.conn().raw_query(|conn| {
+            conn.batch_execute("CREATE TABLE interrupted_creation (value INTEGER NOT NULL); INSERT INTO interrupted_creation VALUES (42);")
+        }).unwrap();
+        drop(db);
+        let reopened = NativeDb::builder()
+            .persistent(path.clone())
+            .key(VALIDATION_KEY)
+            .build()
+            .unwrap();
+        let value = reopened
+            .conn()
+            .raw_query(|conn| {
+                diesel::select(diesel::dsl::sql::<diesel::sql_types::Integer>(
+                    "(SELECT value FROM interrupted_creation)",
+                ))
+                .get_result::<i32>(conn)
+            })
+            .unwrap();
+        assert_eq!(value, 42);
+        if published_salt {
+            assert_eq!(std::fs::read(&salt_path).unwrap(), saved_salt.as_bytes());
+        }
+        assert!(!temp_path.exists());
+        drop(reopened);
+        EncryptedMessageStore::<()>::remove_db_files(path);
+    }
+
+    // verifies: STORE-023
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn fresh_keyed_store_publishes_salt_before_any_page() {
+        let path = tmp_path();
+        let connection =
+            EncryptedConnection::new(VALIDATION_KEY.into(), &Persistent(path.clone()))?;
+        assert_eq!(std::fs::metadata(&path)?.len(), 0);
+        let salt_path = EncryptedConnection::salt_file(&path)?;
+        assert_eq!(
+            hex::decode(std::fs::read(&salt_path)?)?,
+            connection.salt.unwrap()
+        );
+        assert!(std::fs::metadata(&salt_path)?.permissions().readonly());
+        assert!(
+            !salt_path
+                .with_extension(format!("{SALT_FILE_NAME}.tmp"))
+                .exists()
+        );
+        drop(connection);
+        EncryptedMessageStore::<()>::remove_db_files(path);
+    }
 
     /// Keep a real encrypted WAL database locked until the caller drops the connection.
     fn locked_encrypted_database() -> (String, EncryptedConnection, SqliteConnection) {
@@ -718,6 +809,8 @@ mod tests {
     /// stopped at the baseline upgrades in place, and a database that already
     /// applied later migrations reopens. Otherwise the first proposal would
     /// meet "no such table: received_proposals" and block its group.
+    /// Welcome migration preserves established wrapper deadlines without
+    /// mistaking a pointer-fetch deadline for unreadable-input retention.
     #[xmtp_common::test(unwrap_try = true)]
     async fn upgrades_a_baseline_database_to_the_latest_migration() {
         use crate::encrypted_store::EmbeddedMigrationsExt;
@@ -753,6 +846,27 @@ mod tests {
                         .is_err()
                 );
             }
+            diesel::sql_query(
+                "INSERT INTO groups (id, created_at_ns, membership_state, installations_last_checked, added_by_inbox_id)
+                 VALUES (zeroblob(32), 1, 4, 0, '')",
+            ).execute(conn)?;
+            diesel::sql_query(
+                "INSERT INTO group_messages (id, group_id, decrypted_message_bytes, sent_at_ns,
+                 sender_installation_id, sender_inbox_id, authority_id, sequence_id)
+                 VALUES (zeroblob(32), zeroblob(32), x'01', 1, x'01', 'sender', 'xmtp.org', 0)",
+            ).execute(conn)?;
+            diesel::sql_query(
+                "INSERT INTO refresh_state (entity_id, entity_kind, sequence_id) VALUES (x'01', 1, 0)",
+            )
+            .execute(conn)?;
+            diesel::sql_query(
+                "INSERT INTO incoming_envelopes
+                 (entity_id, entity_kind, sequence_id, envelope, error_code, retry_expires_at_ns)
+                 VALUES (x'01', 1, 1, x'01', 'unsupported_welcome', 100),
+                        (x'01', 1, 2, x'02', 'welcome_pointee', 200),
+                        (x'01', 1, 3, x'03', 'welcome_blocked', NULL)",
+            )
+            .execute(conn)?;
             Ok::<_, diesel::result::Error>(())
         })?;
 
@@ -774,6 +888,7 @@ mod tests {
         assert_eq!(has_index("group_messages_sent_at_sort")?, 1);
         assert_eq!(has_index("group_messages_sent_at_id_sort")?, 0);
         assert_eq!(has_index("group_messages_group_reference")?, 0);
+        assert_eq!(has_index("incoming_held_envelopes")?, 0);
 
         EncryptedMessageStore::new(database)?;
         connection.raw_query(|conn| {
@@ -783,10 +898,97 @@ mod tests {
         assert_eq!(has_index("group_messages_sent_at_id_sort")?, 1);
         assert_eq!(has_index("group_messages_pending_history_position")?, 1);
         assert_eq!(has_index("group_messages_group_reference")?, 1);
+        assert_eq!(has_index("incoming_held_envelopes")?, 1);
+        #[derive(diesel::QueryableByName)]
+        struct Deadline {
+            #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::BigInt>)]
+            retry_expires_at_ns: Option<i64>,
+            #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::BigInt>)]
+            unreadable_expires_at_ns: Option<i64>,
+        }
+        let deadlines = connection.raw_query(|conn| {
+            diesel::sql_query(
+                "SELECT retry_expires_at_ns, unreadable_expires_at_ns
+                 FROM incoming_envelopes ORDER BY sequence_id",
+            )
+            .load::<Deadline>(conn)
+        })?;
+        assert_eq!(
+            deadlines
+                .iter()
+                .map(|row| (row.retry_expires_at_ns, row.unreadable_expires_at_ns))
+                .collect::<Vec<_>>(),
+            vec![(None, Some(100)), (Some(200), None), (None, None)]
+        );
+        let envelope_bytes = connection.raw_query(|conn| {
+            diesel::sql_query("SELECT SUM(envelope_bytes) AS count FROM incoming_envelopes")
+                .get_result::<Count>(conn)
+        })?;
+        assert_eq!(envelope_bytes.count, 3);
+        let generation = connection.raw_query(|conn| {
+            diesel::sql_query("SELECT generation AS count FROM group_set_generation WHERE id = 1")
+                .get_result::<Count>(conn)
+        })?;
+        assert_eq!(generation.count, 0);
+        let expiry = connection.raw_query(|conn| {
+            diesel::sql_query("SELECT expiry_unknown AS count FROM group_messages")
+                .get_result::<Count>(conn)
+        })?;
+        assert_eq!(expiry.count, 0);
         let latest = connection.raw_query(|conn| {
             conn.applied_migrations()
                 .map_err(diesel::result::Error::QueryBuilderError)
         })?;
         assert_eq!(latest[0].to_string(), crate::MIGRATIONS.final_migration());
+    }
+
+    #[rstest::rstest]
+    #[case::disabled_unconfirmed(0, Some(vec![1]), None, true)]
+    #[case::enabled_unconfirmed(1, Some(vec![1]), None, true)]
+    #[case::enabled_confirmed(1, Some(vec![1]), Some(vec![1]), false)]
+    #[case::no_recipient(0, None, None, false)]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn push_unregister_owed_backfill_marks_only_unconfirmed_recipients(
+        #[case] state: i32,
+        #[case] recipient: Option<Vec<u8>>,
+        #[case] last_state: Option<Vec<u8>>,
+        #[case] expected: bool,
+    ) {
+        use crate::{ConnectionExt, TestDb, XmtpDb};
+        use diesel::sql_types::{Binary, Bool, Integer, Nullable};
+
+        const RESET_MIGRATION: &str = "20261026000000";
+        let database = TestDb::create_database(None).await;
+        database.init().unwrap();
+        let connection = database.conn();
+        let owed = connection.raw_query(|conn| {
+            while conn
+                .applied_migrations()
+                .map_err(diesel::result::Error::QueryBuilderError)?
+                .iter()
+                .any(|version| version.to_string() == RESET_MIGRATION)
+            {
+                conn.revert_last_migration(crate::MIGRATIONS)
+                    .map_err(diesel::result::Error::QueryBuilderError)?;
+            }
+            diesel::sql_query(
+                "UPDATE user_preferences SET push_state = ?, push_recipient_id = ?, push_last_state = ?",
+            )
+            .bind::<Integer, _>(state)
+            .bind::<Nullable<Binary>, _>(recipient)
+            .bind::<Nullable<Binary>, _>(last_state)
+            .execute(conn)?;
+            conn.run_pending_migrations(crate::MIGRATIONS)
+                .map_err(diesel::result::Error::QueryBuilderError)?;
+            #[derive(diesel::QueryableByName)]
+            struct Reset {
+                #[diesel(sql_type = Bool)]
+                push_unregister_owed: bool,
+            }
+            diesel::sql_query("SELECT push_unregister_owed FROM user_preferences")
+                .get_result::<Reset>(conn)
+                .map(|row| row.push_unregister_owed)
+        }).unwrap();
+        assert_eq!(owed, expected);
     }
 }

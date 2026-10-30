@@ -75,7 +75,7 @@ use xmtp_content_types::{CodecError, ContentCodec, group_updated::GroupUpdatedCo
 use xmtp_db::TransactionOutcome::{Continue, Rollback};
 use xmtp_db::XmtpMlsStorageProvider;
 use xmtp_db::group::GroupMembershipState;
-use xmtp_db::message_deletion::{QueryMessageDeletion, StoredMessageDeletion};
+use xmtp_db::message_deletion::StoredMessageDeletion;
 use xmtp_db::{
     Fetch, StorageError, StoreOrIgnore, TransactionOutcome,
     group::ConversationType,
@@ -83,7 +83,7 @@ use xmtp_db::{
     group_message::{ContentType, DeliveryStatus, GroupMessageKind, StoredGroupMessage},
     remote_commit_log::CommitResult,
     sql_key_store,
-    user_preferences::StoredUserPreferences,
+    user_preferences::ensure_root_key,
 };
 use xmtp_db::{NotFound, group_intent::IntentKind::MetadataUpdate};
 use xmtp_db::{XmtpOpenMlsProviderRef, prelude::*};
@@ -102,6 +102,7 @@ use xmtp_mls_common::mls_ext::payload_encryption::{
 use xmtp_mls_validation::commit::{
     CommitRuleError, Inbox, MetadataChanges, extract_group_membership,
 };
+use xmtp_proto::ShortHex;
 use xmtp_proto::backend_v1::{
     ClientEnvelope, GroupMessage as BackendGroupMessage, WelcomeMessage as WelcomeMessageInput,
     client_envelope::Payload,
@@ -111,7 +112,6 @@ use xmtp_proto::backend_v1::{
     },
 };
 use xmtp_proto::types::GroupId;
-use xmtp_proto::xmtp::mls::message_contents::content_types::DeleteMessage;
 use xmtp_proto::xmtp::mls::{
     database::{ProcessPendingSelfRemove, Task as TaskProto, task::Task as TaskKind},
     message_contents::{
@@ -124,7 +124,6 @@ use xmtp_proto::{
     GroupUpdateDeduper,
     types::{Cursor, GroupMessage},
 };
-use xmtp_proto::{ShortHex, xmtp::mls::message_contents::EncodedContent};
 use zeroize::Zeroizing;
 
 mod envelope_and_app_data;
@@ -283,6 +282,12 @@ pub enum GroupMessageProcessingError {
     /// evidence that the commit is invalid, so the head is held.
     #[error("a committed proposal was received but is missing from local state")]
     LostProposalState,
+    /// An application sender is beyond the fixed forward window. Not retryable.
+    #[error("application sender generation exceeds the forward window")]
+    FarForwardApplicationMessage,
+    /// An application sender names a leaf outside the ratchet tree. Not retryable.
+    #[error("application sender is outside the ratchet tree")]
+    ApplicationSenderOutsideTree,
     /// Supported envelope framing fails validation after its complete prefix.
     #[error(transparent)]
     Envelope(xmtp_api_backend::envelope::EnvelopeError),
@@ -418,6 +423,8 @@ impl RetryableError for GroupMessageProcessingError {
             Self::CorruptIncomingEnvelope(_)
             | Self::UnsupportedMlsVersion
             | Self::LostProposalState
+            | Self::FarForwardApplicationMessage
+            | Self::ApplicationSenderOutsideTree
             | Self::Envelope(_)
             | Self::OwnMessageWithoutAttempt
             | Self::UnsupportedOwnIntentKind(_) => false,
@@ -480,6 +487,16 @@ impl RetryableError for GroupMessageProcessingError {
             // cursor advance) and the message converges via cursor dedup
             // instead of persisting a forked commit log entry.
             Self::EpochAuthenticatorNotAdvanced { .. } => true,
+        }
+    }
+
+    fn rate_limit_delay(&self) -> Option<xmtp_common::time::Duration> {
+        match self {
+            Self::PreparedAttempt(error) => error.rate_limit_delay(),
+            Self::Identity(err) => err.rate_limit_delay(),
+            Self::Client(err) => err.rate_limit_delay(),
+            Self::CommitValidation(err) => err.rate_limit_delay(),
+            _ => None,
         }
     }
 }
@@ -570,6 +587,10 @@ impl std::fmt::Display for IntentResolutionError {
 impl RetryableError for IntentResolutionError {
     fn is_retryable(&self) -> bool {
         self.processing_error.is_retryable()
+    }
+
+    fn rate_limit_delay(&self) -> Option<xmtp_common::time::Duration> {
+        self.processing_error.rate_limit_delay()
     }
 }
 
@@ -799,7 +820,7 @@ pub(crate) mod tests {
     #[xmtp_common::test(unwrap_try = true)]
     async fn hmac_derivation_matches_known_answer() {
         use crate::tester;
-        use xmtp_db::{group::ConversationType, user_preferences::StoredUserPreferences};
+        use xmtp_db::group::ConversationType;
 
         const ROOT_KEY: &str =
             "0b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186abd0f51a3f6489aed3f8";
@@ -813,7 +834,11 @@ pub(crate) mod tests {
 
         tester!(alix, disable_workers);
         let db = alix.context.db();
-        StoredUserPreferences::store_hmac_key(&db, &hex::decode(ROOT_KEY)?, None)?;
+        xmtp_db::user_preferences::store_test_root_key(
+            &db,
+            &hex::decode(ROOT_KEY)?,
+            xmtp_common::time::now_ns() + xmtp_common::NS_IN_DAY,
+        )?;
         let group = MlsGroup::new(
             alix.context.clone(),
             GroupId::try_from(hex::decode(GROUP_ID)?.as_slice())?,
@@ -824,7 +849,7 @@ pub(crate) mod tests {
 
         // The epoch comes from the clock, so ask for the fixed one by its delta.
         let delta = EPOCH - hmac_epoch();
-        let keys = group.hmac_keys_in(&db, delta..=delta)?;
+        let keys = group.hmac_keys_in(&db, alix.context.events(), delta..=delta)?;
         assert_eq!(keys.len(), 1);
         assert_eq!(keys[0].epoch, EPOCH);
         assert_eq!(hex::encode(keys[0].key), DERIVED_KEY);
@@ -847,213 +872,97 @@ pub(crate) mod tests {
         assert_eq!(hex::encode(&message.sender_hmac), SENDER_HMAC);
     }
 
-    /// Test that process_delete_message handles completely malformed bytes gracefully
-    ///
-    /// This verifies sync resilience when receiving corrupted DeleteMessage protos.
+    /// A DeleteMessage that cannot be decoded, or names no message id, is
+    /// skipped without failing sync and stores no deletion.
     #[xmtp_common::test(unwrap_try = true)]
-    async fn test_process_delete_message_malformed_encoded_content() {
+    async fn malformed_delete_messages_store_no_deletion() {
         use crate::tester;
-        use xmtp_db::group_message::{ContentType, DeliveryStatus, GroupMessageKind};
-
-        tester!(alix);
-        let alix_group = alix.create_group(None, None)?;
-
-        // Create a message with completely invalid EncodedContent proto
-        let malformed_message = xmtp_db::group_message::StoredGroupMessage {
-            id: vec![1, 2, 3],
-            group_id: alix_group.group_id,
-            decrypted_message_bytes: vec![0xFF, 0xFE, 0xFD], // Invalid protobuf
-            sent_at_ns: xmtp_common::time::now_ns(),
-            kind: GroupMessageKind::Application,
-            sender_installation_id: vec![1, 2, 3],
-            sender_inbox_id: alix.inbox_id().to_string(),
-            delivery_status: DeliveryStatus::Published,
-            content_type: ContentType::DeleteMessage,
-            version_major: 1,
-            version_minor: 0,
-            authority_id: "xmtp.org".to_string(),
-            reference_id: None,
-            expire_at_ns: None,
-            sequence_id: 1,
-            envelope_hash: None,
-            expiry_ns: None,
-            inserted_at_ns: 0,
-            should_push: false,
-            idempotency_key: String::new(),
+        use xmtp_content_types::{
+            ContentCodec, compression::compress, delete_message::DeleteMessageCodec,
+            encoded_content_to_bytes,
         };
-
-        // Use load_mls_group_with_lock to get access to the MLS group and call process_delete_message
-        let storage = alix.context.mls_storage();
-        let result: Result<(), crate::groups::GroupError> =
-            alix_group.load_mls_group_with_lock(storage, |mls_group| {
-                let inner_result = alix_group.process_delete_message(
-                    &mls_group,
-                    storage,
-                    &malformed_message,
-                    alix_group.context.events(),
-                );
-                match inner_result {
-                    Ok(()) => Ok(()),
-                    Err(_) => Err(crate::groups::GroupError::InvalidGroupMembership),
-                }
-            });
-
-        assert!(
-            result.is_ok(),
-            "Malformed EncodedContent should not cause error"
-        );
-    }
-
-    /// Test that process_delete_message handles valid EncodedContent with malformed inner proto
-    #[xmtp_common::test(unwrap_try = true)]
-    async fn test_process_delete_message_malformed_inner_proto() {
-        use crate::tester;
-        use prost::Message;
-        use xmtp_db::group_message::{ContentType, DeliveryStatus, GroupMessageKind};
-        use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
-
-        tester!(alix);
-        let alix_group = alix.create_group(None, None)?;
-
-        // Create a valid EncodedContent wrapper but with invalid inner DeleteMessage content
-        let encoded_content = EncodedContent {
-            r#type: Some(xmtp_proto::xmtp::mls::message_contents::ContentTypeId {
-                authority_id: "xmtp.org".to_string(),
-                type_id: "deleteMessage".to_string(),
-                version_major: 1,
-                version_minor: 0,
-            }),
-            parameters: std::collections::HashMap::new(),
-            fallback: None,
-            compression: None,
-            content: vec![0xFF, 0xFE, 0xFD], // Invalid DeleteMessage proto bytes
+        use xmtp_db::Store;
+        use xmtp_db::group_message::{
+            ContentType, DeliveryStatus, GroupMessageKind, StoredGroupMessage,
         };
-
-        let mut encoded_bytes = Vec::new();
-        encoded_content.encode(&mut encoded_bytes)?;
-
-        let malformed_message = xmtp_db::group_message::StoredGroupMessage {
-            id: vec![4, 5, 6],
-            group_id: alix_group.group_id,
-            decrypted_message_bytes: encoded_bytes,
-            sent_at_ns: xmtp_common::time::now_ns(),
-            kind: GroupMessageKind::Application,
-            sender_installation_id: vec![1, 2, 3],
-            sender_inbox_id: alix.inbox_id().to_string(),
-            delivery_status: DeliveryStatus::Published,
-            content_type: ContentType::DeleteMessage,
-            version_major: 1,
-            version_minor: 0,
-            authority_id: "xmtp.org".to_string(),
-            reference_id: None,
-            expire_at_ns: None,
-            sequence_id: 2,
-            envelope_hash: None,
-            expiry_ns: None,
-            inserted_at_ns: 0,
-            should_push: false,
-            idempotency_key: String::new(),
-        };
-
-        let storage = alix.context.mls_storage();
-        let result: Result<(), crate::groups::GroupError> =
-            alix_group.load_mls_group_with_lock(storage, |mls_group| {
-                let inner_result = alix_group.process_delete_message(
-                    &mls_group,
-                    storage,
-                    &malformed_message,
-                    alix_group.context.events(),
-                );
-                match inner_result {
-                    Ok(()) => Ok(()),
-                    Err(_) => Err(crate::groups::GroupError::InvalidGroupMembership),
-                }
-            });
-
-        assert!(
-            result.is_ok(),
-            "Malformed inner DeleteMessage proto should not cause error"
-        );
-    }
-
-    /// Test that process_delete_message handles invalid hex message_id gracefully
-    #[xmtp_common::test(unwrap_try = true)]
-    async fn test_process_delete_message_invalid_hex_message_id() {
-        use crate::tester;
-        use prost::Message;
-        use xmtp_db::group_message::{ContentType, DeliveryStatus, GroupMessageKind};
-        use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
+        use xmtp_db::message_deletion::QueryMessageDeletion;
+        use xmtp_proto::xmtp::mls::message_contents::Compression;
         use xmtp_proto::xmtp::mls::message_contents::content_types::DeleteMessage;
 
         tester!(alix);
         let alix_group = alix.create_group(None, None)?;
-
-        // Create a valid DeleteMessage but with invalid hex in message_id
-        let delete_msg = DeleteMessage {
-            message_id: "not_valid_hex!!!".to_string(), // Invalid hex
+        let delete_of = |message_id: &str| {
+            DeleteMessageCodec::encode(DeleteMessage {
+                message_id: message_id.into(),
+            })
         };
+        let mut malformed_inner = delete_of("")?;
+        malformed_inner.content = vec![0xFF, 0xFE, 0xFD];
+        let oversized = compress(delete_of(&"ab".repeat(512 * 1024))?, Compression::Deflate)?;
 
-        let mut delete_bytes = Vec::new();
-        delete_msg.encode(&mut delete_bytes)?;
-
-        let encoded_content = EncodedContent {
-            r#type: Some(xmtp_proto::xmtp::mls::message_contents::ContentTypeId {
-                authority_id: "xmtp.org".to_string(),
-                type_id: "deleteMessage".to_string(),
+        let rows = [
+            ("malformed EncodedContent", vec![0xFF, 0xFE, 0xFD]),
+            (
+                "malformed DeleteMessage",
+                encoded_content_to_bytes(malformed_inner),
+            ),
+            (
+                "non-hex id",
+                encoded_content_to_bytes(delete_of("not_valid_hex!!!")?),
+            ),
+            ("2-byte id", encoded_content_to_bytes(delete_of("0102")?)),
+            (
+                "33-byte id",
+                encoded_content_to_bytes(delete_of(&"ab".repeat(33))?),
+            ),
+            (
+                "compressed oversized id",
+                encoded_content_to_bytes(oversized),
+            ),
+        ];
+        let storage = alix.context.mls_storage();
+        for (n, (case, decrypted_message_bytes)) in (1..).zip(rows) {
+            // The receive path stores the reference it decodes from the bytes.
+            let fields = TestMlsGroup::extract_queryable_content_fields(&decrypted_message_bytes);
+            let message = StoredGroupMessage {
+                id: vec![n; 32],
+                group_id: alix_group.group_id,
+                decrypted_message_bytes,
+                sent_at_ns: xmtp_common::time::now_ns(),
+                kind: GroupMessageKind::Application,
+                sender_installation_id: vec![1, 2, 3],
+                sender_inbox_id: alix.inbox_id().to_string(),
+                delivery_status: DeliveryStatus::Published,
+                content_type: ContentType::DeleteMessage,
                 version_major: 1,
                 version_minor: 0,
-            }),
-            parameters: std::collections::HashMap::new(),
-            fallback: None,
-            compression: None,
-            content: delete_bytes,
-        };
-
-        let mut encoded_bytes = Vec::new();
-        encoded_content.encode(&mut encoded_bytes)?;
-
-        let message_with_bad_hex = xmtp_db::group_message::StoredGroupMessage {
-            id: vec![7, 8, 9],
-            group_id: alix_group.group_id,
-            decrypted_message_bytes: encoded_bytes,
-            sent_at_ns: xmtp_common::time::now_ns(),
-            kind: GroupMessageKind::Application,
-            sender_installation_id: vec![1, 2, 3],
-            sender_inbox_id: alix.inbox_id().to_string(),
-            delivery_status: DeliveryStatus::Published,
-            content_type: ContentType::DeleteMessage,
-            version_major: 1,
-            version_minor: 0,
-            authority_id: "xmtp.org".to_string(),
-            reference_id: None,
-            expire_at_ns: None,
-            sequence_id: 3,
-            envelope_hash: None,
-            expiry_ns: None,
-            inserted_at_ns: 0,
-            should_push: false,
-            idempotency_key: String::new(),
-        };
-
-        let storage = alix.context.mls_storage();
-        let result: Result<(), crate::groups::GroupError> =
-            alix_group.load_mls_group_with_lock(storage, |mls_group| {
-                let inner_result = alix_group.process_delete_message(
-                    &mls_group,
-                    storage,
-                    &message_with_bad_hex,
-                    alix_group.context.events(),
-                );
-                match inner_result {
-                    Ok(()) => Ok(()),
-                    Err(_) => Err(crate::groups::GroupError::InvalidGroupMembership),
-                }
+                authority_id: "xmtp.org".to_string(),
+                reference_id: fields.reference_id,
+                expiry_unknown: false,
+                expire_at_ns: None,
+                sequence_id: n.into(),
+                envelope_hash: None,
+                expiry_ns: None,
+                inserted_at_ns: 0,
+                should_push: false,
+                idempotency_key: String::new(),
+            };
+            // The receive path stores the DeleteMessage row before handling it.
+            message.store(&alix.context.db())?;
+            let result = alix_group.load_mls_group_with_lock(storage, |mls_group| {
+                alix_group
+                    .process_delete_message(
+                        &mls_group,
+                        storage,
+                        &message,
+                        alix_group.context.events(),
+                    )
+                    .map_err(|_| GroupError::InvalidGroupMembership)
             });
-
-        assert!(
-            result.is_ok(),
-            "Invalid hex message_id should not cause error"
-        );
+            assert!(result.is_ok(), "{case}: {result:?}");
+            let deletion = alix.context.db().get_message_deletion(&message.id)?;
+            assert!(deletion.is_none(), "{case}: {deletion:?}");
+        }
     }
 
     /// Pin the `CommitResult` mapping for each arm of the AppData-aware

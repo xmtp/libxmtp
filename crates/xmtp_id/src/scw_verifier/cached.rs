@@ -50,6 +50,10 @@ fn build_cache_key(
 ///
 /// This wraps MultiSmartContractSignatureVerifier (or any other verifier
 /// implementing SmartContractSignatureVerifier) and adds an in-memory LRU cache.
+///
+/// It keeps the default `verify_many`, which checks each input through the
+/// cache with `is_valid_signature`. A wrapped verifier that batches, such as
+/// the API client, therefore gets one single-signature check per input.
 pub struct CachedSmartContractSignatureVerifier {
     verifier: Box<dyn SmartContractSignatureVerifier>,
     cache: Mutex<LruCache<CacheKey, ValidationResponse>>,

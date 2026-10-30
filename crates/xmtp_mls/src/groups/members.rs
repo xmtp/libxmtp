@@ -4,7 +4,7 @@ use super::{GroupError, MlsGroup};
 use xmtp_db::prelude::*;
 use xmtp_db::{
     StorageError,
-    consent_record::{ConsentState, ConsentType},
+    consent_record::{ConsentKey, ConsentState},
 };
 use xmtp_id::{
     InboxId,
@@ -117,7 +117,7 @@ where
                     PermissionLevel::Member
                 };
 
-                let consent = db.get_consent_record(inbox_id_str.clone(), ConsentType::InboxId)?;
+                let consent = db.consent_row(&ConsentKey::inbox(&inbox_id_str))?;
 
                 Ok(GroupMember {
                     inbox_id: inbox_id_str.clone(),

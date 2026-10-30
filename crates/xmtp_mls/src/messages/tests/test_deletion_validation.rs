@@ -38,6 +38,7 @@ fn create_test_message(
         version_minor: 0,
         authority_id: "xmtp.org".to_string(),
         reference_id: None,
+        expiry_unknown: false,
         expire_at_ns: None,
         sequence_id: 1,
         envelope_hash: None,
@@ -79,8 +80,8 @@ fn old_cached_text_requires_a_deletable_raw_identifier() {
     );
     let sender = create_test_deletion(vec![7], group_id, message.id.clone(), "sender_inbox", false);
     let admin = create_test_deletion(vec![8], group_id, message.id.clone(), "admin_inbox", true);
-    assert!(is_deletion_valid(&sender, &message, &group_id));
-    assert!(is_deletion_valid(&admin, &message, &group_id));
+    assert!(is_deletion_valid(&sender, &message));
+    assert!(is_deletion_valid(&admin, &message));
 
     let cases = [
         vec![0xff],
@@ -118,58 +119,9 @@ fn old_cached_text_requires_a_deletable_raw_identifier() {
     ];
     for raw in cases {
         message.decrypted_message_bytes = raw;
-        assert!(!is_deletion_valid(&sender, &message, &group_id));
-        assert!(!is_deletion_valid(&admin, &message, &group_id));
+        assert!(!is_deletion_valid(&sender, &message));
+        assert!(!is_deletion_valid(&admin, &message));
     }
-}
-
-#[test]
-fn test_valid_deletion_by_sender() {
-    let group_id = GroupId::from([0x01u8; 16]);
-    let message_id = vec![4, 5, 6];
-    let sender = "sender_inbox";
-
-    let message = create_test_message(
-        message_id.clone(),
-        group_id,
-        sender,
-        ContentType::Text,
-        GroupMessageKind::Application,
-    );
-
-    let deletion = create_test_deletion(
-        vec![7, 8, 9],
-        group_id,
-        message_id.clone(),
-        sender, // Same sender deleting their own message
-        false,
-    );
-
-    assert!(is_deletion_valid(&deletion, &message, &group_id));
-}
-
-#[test]
-fn test_valid_deletion_by_super_admin() {
-    let group_id = GroupId::from([0x01u8; 16]);
-    let message_id = vec![4, 5, 6];
-
-    let message = create_test_message(
-        message_id.clone(),
-        group_id,
-        "original_sender",
-        ContentType::Text,
-        GroupMessageKind::Application,
-    );
-
-    let deletion = create_test_deletion(
-        vec![7, 8, 9],
-        group_id,
-        message_id.clone(),
-        "admin_inbox", // Different person, but is super admin
-        true,
-    );
-
-    assert!(is_deletion_valid(&deletion, &message, &group_id));
 }
 
 #[test]
@@ -193,7 +145,7 @@ fn test_invalid_deletion_unauthorized() {
         false,         // Not a super admin
     );
 
-    assert!(!is_deletion_valid(&deletion, &message, &group_id));
+    assert!(!is_deletion_valid(&deletion, &message));
 }
 
 #[test]
@@ -220,7 +172,7 @@ fn test_invalid_deletion_message_id_mismatch() {
         false,
     );
 
-    assert!(!is_deletion_valid(&deletion, &message, &group_id));
+    assert!(!is_deletion_valid(&deletion, &message));
 }
 
 // verifies: PROC-037
@@ -248,212 +200,49 @@ fn test_invalid_deletion_cross_group_deletion_group_mismatch() {
         false,
     );
 
-    assert!(!is_deletion_valid(&deletion, &message, &group_id));
+    assert!(!is_deletion_valid(&deletion, &message));
 }
 
+// verifies: CTYPE-018
 #[test]
-fn test_invalid_deletion_message_group_mismatch() {
-    let expected_group_id = GroupId::from([0x01u8; 16]);
-    let message_group_id = GroupId::from([0x0au8; 16]);
-    let message_id = vec![4, 5, 6];
-    let sender = "sender_inbox";
-
-    // Message is in a different group than expected
-    let message = create_test_message(
-        message_id.clone(),
-        message_group_id, // Message is in wrong group
-        sender,
-        ContentType::Text,
-        GroupMessageKind::Application,
-    );
-
-    let deletion = create_test_deletion(
-        vec![7, 8, 9],
-        expected_group_id,
-        message_id.clone(),
-        sender,
-        false,
-    );
-
-    assert!(!is_deletion_valid(&deletion, &message, &expected_group_id));
-}
-
-#[test]
-fn test_invalid_deletion_non_deletable_content_type() {
+fn eligibility_depends_on_content_type_and_message_kind() {
     let group_id = GroupId::from([0x01u8; 16]);
     let message_id = vec![4, 5, 6];
     let sender = "sender_inbox";
-
-    // GroupUpdated is not deletable
-    let message = create_test_message(
-        message_id.clone(),
-        group_id,
-        sender,
-        ContentType::GroupUpdated,
-        GroupMessageKind::Application,
-    );
-
     let deletion = create_test_deletion(vec![7, 8, 9], group_id, message_id.clone(), sender, false);
 
-    assert!(!is_deletion_valid(&deletion, &message, &group_id));
-}
-
-#[test]
-fn test_invalid_deletion_non_deletable_message_kind() {
-    let group_id = GroupId::from([0x01u8; 16]);
-    let message_id = vec![4, 5, 6];
-    let sender = "sender_inbox";
-
-    // MembershipChange kind is not deletable
-    let message = create_test_message(
-        message_id.clone(),
-        group_id,
-        sender,
-        ContentType::Text,
-        GroupMessageKind::MembershipChange,
-    );
-
-    let deletion = create_test_deletion(vec![7, 8, 9], group_id, message_id.clone(), sender, false);
-
-    assert!(!is_deletion_valid(&deletion, &message, &group_id));
-}
-
-#[test]
-fn test_invalid_deletion_delete_message_content_type() {
-    let group_id = GroupId::from([0x01u8; 16]);
-    let message_id = vec![4, 5, 6];
-    let sender = "sender_inbox";
-
-    // DeleteMessage content type should not be deletable
-    let message = create_test_message(
-        message_id.clone(),
-        group_id,
-        sender,
-        ContentType::DeleteMessage,
-        GroupMessageKind::Application,
-    );
-
-    let deletion = create_test_deletion(vec![7, 8, 9], group_id, message_id.clone(), sender, false);
-
-    assert!(!is_deletion_valid(&deletion, &message, &group_id));
-}
-
-#[test]
-fn test_invalid_deletion_read_receipt_not_deletable() {
-    let group_id = GroupId::from([0x01u8; 16]);
-    let message_id = vec![4, 5, 6];
-    let sender = "sender_inbox";
-
-    // ReadReceipt is not deletable
-    let message = create_test_message(
-        message_id.clone(),
-        group_id,
-        sender,
-        ContentType::ReadReceipt,
-        GroupMessageKind::Application,
-    );
-
-    let deletion = create_test_deletion(vec![7, 8, 9], group_id, message_id.clone(), sender, false);
-
-    assert!(!is_deletion_valid(&deletion, &message, &group_id));
-}
-
-#[test]
-fn test_invalid_deletion_reaction_not_deletable() {
-    let group_id = GroupId::from([0x01u8; 16]);
-    let message_id = vec![4, 5, 6];
-    let sender = "sender_inbox";
-
-    // Reaction is not deletable
-    let message = create_test_message(
-        message_id.clone(),
-        group_id,
-        sender,
-        ContentType::Reaction,
-        GroupMessageKind::Application,
-    );
-
-    let deletion = create_test_deletion(vec![7, 8, 9], group_id, message_id.clone(), sender, false);
-
-    assert!(!is_deletion_valid(&deletion, &message, &group_id));
-}
-
-#[test]
-fn test_valid_deletion_markdown_content() {
-    let group_id = GroupId::from([0x01u8; 16]);
-    let message_id = vec![4, 5, 6];
-    let sender = "sender_inbox";
-
-    // Markdown is deletable
-    let message = create_test_message(
-        message_id.clone(),
-        group_id,
-        sender,
-        ContentType::Markdown,
-        GroupMessageKind::Application,
-    );
-
-    let deletion = create_test_deletion(vec![7, 8, 9], group_id, message_id.clone(), sender, false);
-
-    assert!(is_deletion_valid(&deletion, &message, &group_id));
-}
-
-#[test]
-fn test_valid_deletion_reply_content() {
-    let group_id = GroupId::from([0x01u8; 16]);
-    let message_id = vec![4, 5, 6];
-    let sender = "sender_inbox";
-
-    // Reply is deletable
-    let message = create_test_message(
-        message_id.clone(),
-        group_id,
-        sender,
-        ContentType::Reply,
-        GroupMessageKind::Application,
-    );
-
-    let deletion = create_test_deletion(vec![7, 8, 9], group_id, message_id.clone(), sender, false);
-
-    assert!(is_deletion_valid(&deletion, &message, &group_id));
-}
-
-#[test]
-fn test_valid_deletion_attachment_content() {
-    let group_id = GroupId::from([0x01u8; 16]);
-    let message_id = vec![4, 5, 6];
-    let sender = "sender_inbox";
-
-    // Attachment is deletable
-    let message = create_test_message(
-        message_id.clone(),
-        group_id,
-        sender,
-        ContentType::Attachment,
-        GroupMessageKind::Application,
-    );
-
-    let deletion = create_test_deletion(vec![7, 8, 9], group_id, message_id.clone(), sender, false);
-
-    assert!(is_deletion_valid(&deletion, &message, &group_id));
-}
-
-#[test]
-fn test_valid_deletion_remote_attachment_content() {
-    let group_id = GroupId::from([0x01u8; 16]);
-    let message_id = vec![4, 5, 6];
-    let sender = "sender_inbox";
-
-    // RemoteAttachment is deletable
-    let message = create_test_message(
-        message_id.clone(),
-        group_id,
-        sender,
-        ContentType::RemoteAttachment,
-        GroupMessageKind::Application,
-    );
-
-    let deletion = create_test_deletion(vec![7, 8, 9], group_id, message_id.clone(), sender, false);
-
-    assert!(is_deletion_valid(&deletion, &message, &group_id));
+    for (content_type, kind, valid) in [
+        (
+            ContentType::GroupUpdated,
+            GroupMessageKind::Application,
+            false,
+        ),
+        (ContentType::Text, GroupMessageKind::MembershipChange, false),
+        (
+            ContentType::DeleteMessage,
+            GroupMessageKind::Application,
+            false,
+        ),
+        (
+            ContentType::ReadReceipt,
+            GroupMessageKind::Application,
+            false,
+        ),
+        (ContentType::Reaction, GroupMessageKind::Application, false),
+        (ContentType::Markdown, GroupMessageKind::Application, true),
+        (ContentType::Reply, GroupMessageKind::Application, true),
+        (ContentType::Attachment, GroupMessageKind::Application, true),
+        (
+            ContentType::RemoteAttachment,
+            GroupMessageKind::Application,
+            true,
+        ),
+    ] {
+        let message = create_test_message(message_id.clone(), group_id, sender, content_type, kind);
+        assert_eq!(
+            is_deletion_valid(&deletion, &message),
+            valid,
+            "{content_type:?} {kind:?}"
+        );
+    }
 }

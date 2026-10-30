@@ -510,12 +510,13 @@ async fn static_frame_above_receive_rows_splits() {
 async fn identity_entry_boundary(#[case] cap: usize) {
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_id::associations::{
+        MemberIdentifier,
         builder::SignatureRequestBuilder,
         test_utils::{WalletTestExt, add_wallet_signature},
     };
 
     let api = backend();
-    let mut wallet = generate_local_wallet();
+    let wallet = generate_local_wallet();
     let inbox = wallet.get_inbox_id(0);
     let mut request = SignatureRequestBuilder::new(&inbox)
         .create_inbox(wallet.identifier(), 0)
@@ -526,10 +527,13 @@ async fn identity_entry_boundary(#[case] cap: usize) {
         .unwrap();
     let mut last = Cursor(0);
     for entries in 1..=cap {
-        // A new recovery address makes each signature distinct. The member set stays small.
-        let next_wallet = generate_local_wallet();
+        // Revoking a fresh non-member makes each signature text distinct. The member set stays
+        // small.
         let mut request = SignatureRequestBuilder::new(&inbox)
-            .change_recovery_address(wallet.identifier().into(), next_wallet.identifier())
+            .revoke_association(
+                wallet.identifier().into(),
+                MemberIdentifier::rand_ethereum(),
+            )
             .build();
         add_wallet_signature(&mut request, &wallet).await;
         let before = api.api_client.mls_stats().publish.get_count();
@@ -541,7 +545,6 @@ async fn identity_entry_boundary(#[case] cap: usize) {
             let cursor = result.unwrap();
             assert!(cursor > last);
             last = cursor;
-            wallet = next_wallet;
         } else {
             assert_eq!(
                 grpc_status(&result.unwrap_err()).unwrap().code(),

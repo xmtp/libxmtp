@@ -173,11 +173,13 @@ function ChatsList({ session }: { readonly session: ActiveSession }) {
                 testID="chats.banner"
               />
             )}
-            <RequestsRow
-              swipeGroup={swipeGroup}
-              count={state.requestCount}
-              showsSeparator={!empty || state.error !== undefined}
-            />
+            {state.requestCount !== 0 ? (
+              <RequestsRow
+                swipeGroup={swipeGroup}
+                count={state.requestCount}
+                showsSeparator={!empty || state.error !== undefined}
+              />
+            ) : null}
           </>
         }
         ListEmptyComponent={

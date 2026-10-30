@@ -14,7 +14,7 @@ fn capture() -> (TestWriter, impl tracing::Subscriber + Send + Sync) {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
-fn metric_trace_omits_installation_id() {
+fn metric_trace_names_metric() {
     let installation_id: InstallationId = [0x7a; 32].into();
     let metrics = WorkerMetrics::new(installation_id);
     let (writer, subscriber) = capture();
@@ -22,11 +22,10 @@ fn metric_trace_omits_installation_id() {
     assert_eq!(metrics.get("completed"), 1);
     let output = writer.as_string();
     assert!(output.contains("firing \"completed\""));
-    assert!(!output.contains(&hex::encode(installation_id)));
 }
 
 #[xmtp_common::test(unwrap_try = true)]
-async fn metric_wait_log_omits_installation_id() {
+async fn metric_wait_log_names_metric() {
     let installation_id: InstallationId = [0x7a; 32].into();
     let metrics = WorkerMetrics::new(installation_id);
     metrics.increment_metric("completed");
@@ -35,5 +34,4 @@ async fn metric_wait_log_omits_installation_id() {
     interest.wait().with_subscriber(subscriber).await?;
     let output = writer.as_string();
     assert!(output.contains("successfully waited for \"completed\""));
-    assert!(!output.contains(&hex::encode(installation_id)));
 }

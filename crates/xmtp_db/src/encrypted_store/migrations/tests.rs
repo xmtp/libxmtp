@@ -92,3 +92,38 @@ async fn prior_databases_with_data_upgrade_only_from_the_cbor_marker() {
         crate::EncryptedMessageStore::<()>::remove_db_files(path);
     }
 }
+
+/// Upgrading discards unauthenticated remote rows and the rowid cursor that
+/// would otherwise skip newly accepted entries after SQLite reuses rowids.
+#[xmtp_common::test(unwrap_try = true)]
+async fn the_author_migration_drops_unsigned_remote_entries() {
+    use crate::prelude::*;
+    use crate::refresh_state::EntityKind;
+    use xmtp_proto::types::GroupId;
+
+    let (path, _) = prior_database(
+        "20261022000000",
+        Some(
+            "INSERT INTO remote_commit_log (log_sequence_id, group_id, commit_sequence_id, commit_result, applied_epoch_number, applied_epoch_authenticator) \
+             VALUES (10, zeroblob(32), 9, 1, 2, x'01'); \
+             INSERT INTO refresh_state (entity_id, entity_kind, sequence_id) VALUES (zeroblob(32), 6, 100); \
+             INSERT INTO refresh_state (entity_id, entity_kind, sequence_id) VALUES (zeroblob(32), 4, 10);",
+        ),
+    ).await?;
+    {
+        let store = crate::TestDb::create_persistent_store(Some(path.clone())).await;
+        let conn = store.db();
+        let group_id = GroupId::from([0; 32]);
+        assert!(conn.get_latest_remote_log_for_group(&group_id)?.is_none());
+        assert!(
+            conn.get_refresh_state(group_id, EntityKind::CommitLogForkCheckRemote)?
+                .is_none()
+        );
+        assert_eq!(
+            conn.get_last_cursor(group_id, EntityKind::CommitLogDownload)?
+                .0,
+            10
+        );
+    }
+    crate::EncryptedMessageStore::<()>::remove_db_files(path);
+}

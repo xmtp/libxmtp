@@ -1,12 +1,14 @@
 //! HTTPS webhook attempts with checked, pinned DNS results.
 
 use super::{ATTEMPT_TIMEOUT, Delivery, Outcome, Sender};
+use crate::service::notification::webhook_url;
 use base64::{Engine, engine::general_purpose::STANDARD};
 use hmac::{Hmac, Mac};
 use serde::Serialize;
 use sha2::Sha256;
 use std::net::SocketAddr;
 use std::sync::Arc;
+use xmtp_common::address::{NAT64_DISCOVERY_NAME, discover_nat64};
 
 #[async_trait::async_trait]
 trait Resolver: Send + Sync {
@@ -66,22 +68,25 @@ impl HttpSender {
             return Err(Outcome::Rejected);
         }
         let port = url.port_or_known_default().unwrap_or(443);
-        let addresses: Vec<SocketAddr> = match host {
-            url::Host::Ipv4(ip) => vec![SocketAddr::new(ip.into(), port)],
-            url::Host::Ipv6(ip) => vec![SocketAddr::new(ip.into(), port)],
-            url::Host::Domain(name) => self
-                .resolver
-                .resolve(name, port)
-                .await
-                .map_err(|_| Outcome::Transient { retry_after: None })?,
+        let discovery = (!self.allow_private && !matches!(host, url::Host::Ipv4(_)))
+            .then(|| self.resolver.resolve(NAT64_DISCOVERY_NAME, 0));
+        let lookup = async {
+            Ok(match &host {
+                url::Host::Ipv4(ip) => vec![SocketAddr::new((*ip).into(), port)],
+                url::Host::Ipv6(ip) => vec![SocketAddr::new((*ip).into(), port)],
+                url::Host::Domain(name) => self.resolver.resolve(name, port).await?,
+            })
         };
+        let (addresses, nat64) = tokio::join!(lookup, discover_nat64(discovery));
+        let addresses: Vec<SocketAddr> =
+            addresses.map_err(|_: std::io::Error| Outcome::Transient { retry_after: None })?;
         if addresses.is_empty() {
             return Err(Outcome::Transient { retry_after: None });
         }
         if !self.allow_private
             && addresses
                 .iter()
-                .any(|address| crate::service::notification::webhook_url::blocked(address.ip()))
+                .any(|address| webhook_url::blocked(address.ip(), &nat64))
         {
             return Err(Outcome::Rejected);
         }

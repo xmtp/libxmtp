@@ -59,8 +59,10 @@ build:
 _simulator_skip := "-skip-testing:XmtpSdkTests/LoggingTests/testGeneratedSwiftCallbacksKeepQueueOrderBoundAndGeneration -skip-testing:XmtpSdkTests/StreamLifecycleTests/testBackgroundSuspendsAndForegroundResumesALiveStream"
 
 # Run the suite on an installed iOS simulator, without `_simulator_skip`.
-test-simulator destination="platform=iOS Simulator,name=iPhone 17":
-    {{ _env }} && ./dev/bindings && cd "$(git rev-parse --show-toplevel)" && TEST_RUNNER_XMTP_BACKEND_URL="$XMTP_BACKEND_URL" env -u LD xcodebuild test -scheme XmtpSdk -destination '{{ destination }}' {{ _simulator_skip }}
+# Without a destination, `dev/simulator` boots an iPhone that the selected
+# Xcode can run.
+test-simulator destination="":
+    {{ _env }} && ./dev/bindings && destination='{{ destination }}' && destination="${destination:-$(./dev/simulator)}" && cd "$(git rev-parse --show-toplevel)" && TEST_RUNNER_XMTP_BACKEND_URL="$XMTP_BACKEND_URL" env -u LD xcodebuild test -scheme XmtpSdk -destination "$destination" {{ _simulator_skip }}
 
 # Generate a static DocC site. The output path is relative to the repository root.
 docs output="apps/docs/generated/reference/swift":

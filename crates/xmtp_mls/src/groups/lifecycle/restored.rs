@@ -6,7 +6,7 @@ use xmtp_proto::xmtp::device_sync::group_backup::GroupSave;
 
 impl<Context: XmtpSharedContext> MlsGroup<Context> {
     /// Apply one archive `group` element. Returns whether storage changed.
-    // implements: ARCH-014, ARCH-020, ARCH-021
+    // implements: ARCH-014, ARCH-020, ARCH-027
     pub fn restore_from_archive(context: &Context, save: &GroupSave) -> Result<bool, GroupError> {
         let group_id = GroupId::try_from(save.id.as_slice())?;
         state_write(context.mls_storage(), |tx| {

@@ -1185,3 +1185,108 @@ async fn creator_readd_preserves_welcome_stream_cursor() {
     let stream = creator.stream_conversations(None, false).await?;
     drop(stream);
 }
+
+/// A re-add after a removal or a leave keeps the consent the user gave
+/// earlier, on every installation, because a join stores nothing.
+// verifies: CONS-058
+#[rstest]
+#[case::allowed(ConsentState::Allowed, false)]
+#[case::denied_removed(ConsentState::Denied, false)]
+#[case::denied_left(ConsentState::Denied, true)]
+#[xmtp_common::test(unwrap_try = true)]
+async fn readd_keeps_consent(#[case] state: ConsentState, #[case] leave: bool) {
+    tester!(amal, disable_workers);
+    tester!(bola, disable_workers);
+    tester!(bola2, from: bola, disable_workers);
+    let amal_group = amal.create_group(None, None).unwrap();
+    amal_group.add_members(&[bola.inbox_id()]).await.unwrap();
+    let bola_group = bola
+        .sync_welcomes()
+        .await
+        .unwrap()
+        .pop()
+        .expect("Bola joined");
+    let leaver = bola2
+        .sync_welcomes()
+        .await
+        .unwrap()
+        .pop()
+        .expect("Bola2 joined");
+
+    bola_group.update_consent_state(state).unwrap();
+    assert_eq!(bola_group.consent_state().unwrap(), state);
+    let decided_at = bola
+        .db()
+        .consent_row(&xmtp_db::consent_record::ConsentKey::group(
+            bola_group.group_id.as_ref(),
+        ))
+        .unwrap()
+        .unwrap()
+        .consented_at_ns;
+
+    if leave {
+        leaver.leave_group().await.unwrap();
+        amal_group.sync().await.unwrap();
+        amal_group.process_pending_self_removals().await.unwrap();
+    } else {
+        amal_group.remove_members(&[bola.inbox_id()]).await.unwrap();
+    }
+    bola_group.sync().await.unwrap();
+    assert!(!bola_group.is_active().unwrap());
+
+    amal_group.add_members(&[bola.inbox_id()]).await.unwrap();
+    bola.sync_welcomes().await.unwrap();
+    bola2.sync_welcomes().await.unwrap();
+    assert!(
+        bola.group(&bola_group.group_id)
+            .unwrap()
+            .is_active()
+            .unwrap()
+    );
+
+    // The re-add wrote no consent on either installation: bola keeps its
+    // decision and bola2, which never decided, still has no record.
+    let key = xmtp_db::consent_record::ConsentKey::group(bola_group.group_id.as_ref());
+    assert_eq!(
+        bola.group(&bola_group.group_id)
+            .unwrap()
+            .consent_state()
+            .unwrap(),
+        state
+    );
+    assert_eq!(
+        bola.db()
+            .consent_row(&key)
+            .unwrap()
+            .unwrap()
+            .consented_at_ns,
+        decided_at
+    );
+    assert!(bola2.db().consent_row(&key).unwrap().is_none());
+}
+
+/// A leave request is not a reply: leaving a denied group stores no allow.
+// verifies: CONS-057
+#[xmtp_common::test(unwrap_try = true)]
+async fn leaving_does_not_allow() {
+    use xmtp_db::consent_record::ConsentKey;
+    tester!(amal, disable_workers);
+    tester!(bola, disable_workers);
+    let amal_group = amal.create_group(None, None).unwrap();
+    amal_group.add_members(&[bola.inbox_id()]).await.unwrap();
+    let bola_group = bola
+        .sync_welcomes()
+        .await
+        .unwrap()
+        .pop()
+        .expect("Bola joined");
+    bola_group
+        .update_consent_state(ConsentState::Denied)
+        .unwrap();
+    let key = ConsentKey::group(bola_group.group_id.as_ref());
+    let denied = bola.db().consent_row(&key).unwrap().unwrap();
+    bola_group.leave_group().await.unwrap();
+    let after = bola.db().consent_row(&key).unwrap().unwrap();
+    assert_eq!(after.state, ConsentState::Denied);
+    assert_eq!(after.consented_at_ns, denied.consented_at_ns);
+}

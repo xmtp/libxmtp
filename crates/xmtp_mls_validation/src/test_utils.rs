@@ -1,9 +1,7 @@
 //! Stateless payload fixtures for native and wasm callers.
 
 use openmls::{
-    extensions::{
-        AppDataDictionary, AppDataDictionaryExtension, Extension, ExtensionType, Extensions,
-    },
+    extensions::{AppDataDictionary, AppDataDictionaryExtension, Extension, Extensions},
     key_packages::Lifetime,
     prelude::{
         Capabilities, Ciphersuite, CredentialWithKey, GroupId as OpenMlsGroupId,
@@ -87,6 +85,38 @@ impl ChainBlocks for TestChain {
             return Err(VerifierError::MissingBlock(number));
         }
         Ok(number)
+    }
+}
+
+/// Counts the heads and timestamps it reads from a [`TestChain`]. Clones
+/// share the counts.
+#[derive(Clone)]
+pub struct CountingChain(TestChain, Arc<Mutex<(usize, usize)>>);
+
+impl CountingChain {
+    pub fn at(head: u64) -> Self {
+        Self::new(TestChain::at(head))
+    }
+
+    pub fn new(chain: TestChain) -> Self {
+        Self(chain, Arc::default())
+    }
+
+    pub fn reads(&self) -> (usize, usize) {
+        *self.1.lock().expect("counting chain lock")
+    }
+}
+
+#[xmtp_common::async_trait]
+impl ChainBlocks for CountingChain {
+    async fn head(&self, chain_id: &str) -> Result<BlockStamp, VerifierError> {
+        self.1.lock().expect("counting chain lock").0 += 1;
+        self.0.head(chain_id).await
+    }
+
+    async fn timestamp(&self, chain_id: &str, number: u64) -> Result<u64, VerifierError> {
+        self.1.lock().expect("counting chain lock").1 += 1;
+        self.0.timestamp(chain_id, number).await
     }
 }
 
@@ -185,6 +215,7 @@ pub fn sealed_commit_log_envelope(keys: &GroupKeys, commit_sequence_id: u64) -> 
         commit_result: 1,
         applied_epoch_number: 8,
         applied_epoch_authenticator: vec![0x62, 0x63],
+        ..Default::default()
     };
     ClientEnvelope {
         payload: Some(Payload::SealedCommitLogEntry(
@@ -335,42 +366,59 @@ pub const LAST_RESORT_COMPONENT: u16 = 0x0004;
 /// Build a key package whose `app_data_dictionary` extension holds
 /// `components`, with capabilities that advertise the dictionary.
 pub fn app_data_key_package_envelope(components: &[(u16, Vec<u8>)]) -> KeyPackageFixture {
-    let inbox_id = "app-data-key-package".to_string();
-    let provider = OpenMlsRustCrypto::default();
-    let installation_keys = XmtpInstallationCredential::new();
     let mut dictionary = AppDataDictionary::new();
     for (component, data) in components {
         let _ = dictionary.insert(*component, data.clone());
     }
+    single_extension_key_package_envelope(
+        "app-data-key-package",
+        Extension::AppDataDictionary(AppDataDictionaryExtension::new(dictionary)),
+    )
+}
+
+/// Build a key package with one XMTP addressing extension, `extension_id`
+/// (`0xff03` or `0xff04`) holding `data`, that its capabilities advertise.
+pub fn addressing_key_package_envelope(extension_id: u16, data: Vec<u8>) -> KeyPackageFixture {
+    single_extension_key_package_envelope(
+        "addressing-key-package",
+        Extension::Unknown(extension_id, openmls::extensions::UnknownExtension(data)),
+    )
+}
+
+/// A key package for `inbox_id` whose only key package extension is
+/// `extension`, with capabilities that advertise its type.
+fn single_extension_key_package_envelope(
+    inbox_id: &str,
+    extension: Extension,
+) -> KeyPackageFixture {
+    let provider = OpenMlsRustCrypto::default();
+    let installation_keys = XmtpInstallationCredential::new();
     let ciphersuite = xmtp_cryptography::configuration::CIPHERSUITE;
     let bundle = OpenMlsKeyPackage::builder()
         .leaf_node_capabilities(Capabilities::new(
             None,
             Some(&[ciphersuite]),
-            Some(&[ExtensionType::AppDataDictionary]),
+            Some(&[extension.extension_type()]),
             None,
             None,
         ))
         .key_package_extensions(
-            Extensions::from_vec(vec![Extension::AppDataDictionary(
-                AppDataDictionaryExtension::new(dictionary),
-            )])
-            .expect("one AppData dictionary is a valid extension list"),
+            Extensions::single(extension).expect("one extension is a valid extension list"),
         )
         .build(
             ciphersuite,
             &provider,
             &installation_keys,
             CredentialWithKey {
-                credential: create_credential(&inbox_id),
+                credential: create_credential(inbox_id),
                 signature_key: installation_keys.public_slice().into(),
             },
         )
-        .expect("AppData key-package fixture builds");
+        .expect("single-extension key-package fixture builds");
     let tls_bytes = bundle
         .key_package()
         .tls_serialize_detached()
-        .expect("AppData key-package fixture serializes");
+        .expect("single-extension key-package fixture serializes");
     KeyPackageFixture {
         envelope: ClientEnvelope {
             payload: Some(Payload::KeyPackage(KeyPackage {
@@ -379,7 +427,7 @@ pub fn app_data_key_package_envelope(components: &[(u16, Vec<u8>)]) -> KeyPackag
         },
         tls_bytes,
         installation_id: installation_keys.public_slice().to_vec(),
-        inbox_id,
+        inbox_id: inbox_id.to_string(),
     }
 }
 
@@ -501,13 +549,21 @@ pub fn scw_create_inbox_update() -> IdentityUpdate {
 
 /// Create the fixture wallet's inbox with an ERC-6492 signature at `block_number`.
 pub fn scw_create_inbox_update_at(block_number: u64) -> IdentityUpdate {
+    scw_create_nonce_inbox_update_at(0, block_number)
+}
+
+/// Create the fixture wallet's inbox of `nonce`, signed at `block_number`.
+pub fn scw_create_nonce_inbox_update_at(nonce: u64, block_number: u64) -> IdentityUpdate {
+    let identifier = Identifier::eth(SCW_ACCOUNT).expect("fixture account is valid");
     UnverifiedIdentityUpdate::new(
-        scw_inbox_id(),
+        identifier
+            .inbox_id(nonce)
+            .expect("fixture account derives an inbox"),
         1,
         vec![UnverifiedAction::CreateInbox(UnverifiedCreateInbox::new(
             UnsignedCreateInbox {
-                account_identifier: Identifier::eth(SCW_ACCOUNT).expect("fixture account is valid"),
-                nonce: 0,
+                account_identifier: identifier,
+                nonce,
             },
             scw_signature(0x55, block_number),
         ))],
@@ -515,8 +571,9 @@ pub fn scw_create_inbox_update_at(block_number: u64) -> IdentityUpdate {
     .into()
 }
 
-/// Move the fixture inbox's recovery identifier, signed by the wallet at
-/// `block_number`. It applies after [`scw_create_inbox_update_at`].
+/// Set the fixture inbox's recovery identifier to the wallet itself, its only
+/// member, signed by the wallet at `block_number`. It applies after
+/// [`scw_create_inbox_update_at`].
 pub fn scw_change_recovery_update_at(block_number: u64) -> IdentityUpdate {
     UnverifiedIdentityUpdate::new(
         scw_inbox_id(),
@@ -524,10 +581,8 @@ pub fn scw_change_recovery_update_at(block_number: u64) -> IdentityUpdate {
         vec![UnverifiedAction::ChangeRecoveryAddress(
             UnverifiedChangeRecoveryAddress::new(
                 UnsignedChangeRecoveryAddress {
-                    new_recovery_identifier: Identifier::eth(
-                        "0x3333333333333333333333333333333333333333",
-                    )
-                    .expect("fixture recovery is valid"),
+                    new_recovery_identifier: Identifier::eth(SCW_ACCOUNT)
+                        .expect("fixture account is valid"),
                 },
                 scw_signature(0x56, block_number),
             ),
@@ -537,8 +592,9 @@ pub fn scw_change_recovery_update_at(block_number: u64) -> IdentityUpdate {
 }
 
 /// Claim `handle` for the fixture inbox, signed by the wallet at
-/// `block_number`. The signature's bytes are `signature`, so two claims with
-/// two bytes have two replay keys. It applies after
+/// `block_number`. The signature's bytes are `signature`, and the update's
+/// time is `signature` seconds. A signature text holds whole seconds, so two
+/// claims with two bytes have two texts and two replay keys. It applies after
 /// [`scw_create_inbox_update_at`].
 pub fn scw_claim_handle_update_at(
     handle: &str,
@@ -547,7 +603,7 @@ pub fn scw_claim_handle_update_at(
 ) -> IdentityUpdate {
     UnverifiedIdentityUpdate::new(
         scw_inbox_id(),
-        3,
+        u64::from(signature) * xmtp_common::NS_IN_SEC.unsigned_abs(),
         vec![UnverifiedAction::ClaimHandle(UnverifiedClaimHandle::new(
             UnsignedClaimHandle {
                 handle: handle.to_string(),
@@ -628,6 +684,7 @@ pub fn retired_commit_log_envelope_bytes(group_id: impl AsRef<[u8]>) -> Vec<u8> 
         commit_result: 1,
         applied_epoch_number: 8,
         applied_epoch_authenticator: vec![0x62, 0x63],
+        ..Default::default()
     }
     .encode_to_vec();
     let mut retired = Vec::new();

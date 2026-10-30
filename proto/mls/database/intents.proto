@@ -77,6 +77,15 @@ message UpdateGroupMembershipData {
     repeated string removed_members = 2;
     // List of installations that failed to be added due to errors encountered during the evaluation process.
     repeated bytes failed_installations = 3;
+    // Inboxes in membership_updates that were members when the intent was
+    // built and that the app did not ask to add. Each of their entries only
+    // raises an existing entry; an inbox that is no longer a member is
+    // skipped. An intent stored without this field treats every entry as an
+    // add, as earlier builds did.
+    repeated string refreshed_members = 4;
+    // Raise entries and make removals, but add no leaf. Each installation
+    // the raise would add is recorded as failed. Used for sync groups.
+    bool removal_only = 5;
   }
 
   oneof version {

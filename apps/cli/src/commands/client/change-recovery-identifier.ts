@@ -11,6 +11,11 @@ Updates the recovery identifier used to recover access to this inbox.
 The recovery identifier is a critical security feature that allows you
 to regain access to your inbox if you lose access to all installations.
 
+The new recovery identifier must already be an account of this inbox.
+Add it first with client add-account; any other address fails before
+the wallet is asked to sign. After the change, removing that account from
+the inbox does not remove its recovery role.
+
 IMPORTANT: The new recovery identifier must be an address you control.
 If you lose access to both your current installations AND the recovery
 identifier, you will permanently lose access to this inbox.
@@ -25,7 +30,8 @@ The recovery identifier must be an Ethereum address.`;
   static examples = [
     {
       command: "<%= config.bin %> <%= command.id %> --identifier <address>",
-      description: "Change recovery to a new Ethereum address",
+      description:
+        "Change recovery to an Ethereum address already added with client add-account",
     },
     {
       command:

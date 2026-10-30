@@ -44,6 +44,7 @@ impl ContentCodec<WalletSendCalls> for WalletSendCallsCodec {
     }
 
     fn decode(encoded: EncodedContent) -> Result<WalletSendCalls, CodecError> {
+        crate::decode_limits::check_json_values(&encoded.content)?;
         serde_json::from_slice(&encoded.content)
             .map_err(|e| CodecError::Decode(format!("JSON decode error: {e}")))
     }

@@ -409,7 +409,7 @@ async fn claim_stores_the_lowercase_form_of_a_mixed_case_handle() {
 }
 
 // The static lookup covers the verified resolver for a caller with no
-// client (`resolve_handles_with_verifier`).
+// client (`resolve_verified_with_verifier`).
 #[xmtp_common::test(unwrap_try = true)]
 async fn inbox_id_for_old_and_unclaimed_handles() {
     let backend = DisposableBackend::start("").await?;

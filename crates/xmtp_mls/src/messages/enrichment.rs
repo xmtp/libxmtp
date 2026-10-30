@@ -3,11 +3,12 @@ use prost::Message;
 use std::collections::HashMap;
 use thiserror::Error;
 use xmtp_common::{ErrorCode, RetryableError};
+use xmtp_configuration::MESSAGE_REACTION_LIMIT;
 use xmtp_db::DbQuery;
 use xmtp_db::group_message::{
     ContentType as DbContentType, Deletable, RelationCounts, RelationQuery, StoredGroupMessage,
 };
-use xmtp_db::message_deletion::StoredMessageDeletion;
+use xmtp_db::message_deletion::{QueryMessageDeletion, StoredMessageDeletion};
 use xmtp_proto::xmtp::mls::message_contents::{ContentTypeId, EncodedContent};
 
 use xmtp_proto::types::GroupId;
@@ -80,18 +81,18 @@ pub(crate) fn is_deletable_stored_message(message: &StoredGroupMessage) -> bool 
     .is_deletable()
 }
 
-/// Validates if a deletion should be applied. Checks group membership and authorization.
+/// Whether a deletion applies: it is in its target's group, and it is authorized.
 // implements: PROC-037
 pub(crate) fn is_deletion_valid(
     deletion: &StoredMessageDeletion,
     message: &StoredGroupMessage,
-    group_id: &GroupId,
 ) -> bool {
     if deletion.deleted_message_id != message.id {
         return false;
     }
 
-    if deletion.group_id != *group_id || message.group_id != *group_id {
+    // A stitched DM reads rows and reply parents from every group of the set.
+    if deletion.group_id != message.group_id {
         return false;
     }
 
@@ -101,6 +102,25 @@ pub(crate) fn is_deletion_valid(
 
     let is_sender = deletion.deleted_by_inbox_id == message.sender_inbox_id;
     is_sender || deletion.is_super_admin_deletion
+}
+
+/// The first stored deletion of `message` that takes effect.
+pub(crate) fn find_valid_deletion(
+    db: &impl QueryMessageDeletion,
+    message: &StoredGroupMessage,
+) -> Result<Option<StoredMessageDeletion>, xmtp_db::ConnectionError> {
+    Ok(db
+        .get_deletions_for_messages(vec![message.id.clone()])?
+        .into_iter()
+        .find(|deletion| is_deletion_valid(deletion, message)))
+}
+
+/// Whether a valid deletion replaces `message`, as enrichment applies one.
+pub fn is_deleted(
+    conn: impl DbQuery,
+    message: &StoredGroupMessage,
+) -> Result<bool, EnrichMessageError> {
+    Ok(find_valid_deletion(&conn, message)?.is_some())
 }
 
 #[xmtp_common::mls_span]
@@ -130,12 +150,32 @@ fn apply_deletion(
     message.fallback_text = None;
     message.reactions = Vec::new();
     message.num_replies = 0;
+    message.num_reaction_messages = 0;
 }
+
+// A row adds its id and at most one parent id to the deletion query.
+// Leave room under SQLite's bound-value limit for the other binds.
+const ENRICHMENT_BATCH: usize = 250;
 
 /// Enrich every stored row. Content that fails to decode stays in the list
 /// as an undecodable body; only a database failure is an error.
 // implements: CTYPE-008
 pub fn enrich_messages_with_stored(
+    conn: impl DbQuery,
+    group_id: &GroupId,
+    messages: Vec<StoredGroupMessage>,
+) -> Result<Vec<EnrichedStoredMessage>, EnrichMessageError> {
+    let mut enriched = Vec::with_capacity(messages.len());
+    let mut messages = messages.into_iter();
+    while messages.len() > ENRICHMENT_BATCH {
+        let batch = messages.by_ref().take(ENRICHMENT_BATCH).collect();
+        enriched.extend(enrich_batch(&conn, group_id, batch)?);
+    }
+    enriched.extend(enrich_batch(&conn, group_id, messages.collect())?);
+    Ok(enriched)
+}
+
+fn enrich_batch(
     conn: impl DbQuery,
     group_id: &GroupId,
     messages: Vec<StoredGroupMessage>,
@@ -162,7 +202,7 @@ pub fn enrich_messages_with_stored(
                     .and_then(|deletions| {
                         deletions
                             .iter()
-                            .find(|deletion| is_deletion_valid(deletion, &stored_message, group_id))
+                            .find(|deletion| is_deletion_valid(deletion, &stored_message))
                     });
 
             if let Some(deletion) = valid_deletion {
@@ -175,6 +215,12 @@ pub fn enrich_messages_with_stored(
 
                 decoded.num_replies = relations
                     .reply_counts
+                    .get(&decoded.metadata.id)
+                    .cloned()
+                    .unwrap_or(0);
+
+                decoded.num_reaction_messages = relations
+                    .reaction_counts
                     .get(&decoded.metadata.id)
                     .cloned()
                     .unwrap_or(0);
@@ -197,7 +243,7 @@ pub fn enrich_messages_with_stored(
                             && let Some((stored_msg, _)) = relations.referenced_messages.get(&id)
                             && let Some(deletion) = deletions
                                 .iter()
-                                .find(|deletion| is_deletion_valid(deletion, stored_msg, group_id))
+                                .find(|deletion| is_deletion_valid(deletion, stored_msg))
                         {
                             apply_deletion(msg, deletion, stored_msg);
                         }
@@ -228,26 +274,31 @@ fn get_relations(
     if message_ids.is_empty() {
         return Ok(GetRelationsResults {
             reactions: HashMap::new(),
+            reaction_counts: HashMap::new(),
             referenced_messages: HashMap::new(),
             reply_counts: HashMap::new(),
             deletions: HashMap::new(),
         });
     }
 
-    let reactions_relations_query = RelationQuery::builder()
-        .content_types(Some(vec![DbContentType::Reaction]))
-        .build()
-        .unwrap_or_default();
+    let of_type = |content_type| RelationQuery {
+        content_types: Some(vec![content_type]),
+        ..Default::default()
+    };
+    // Any member can send unlimited reactions, so each message carries only
+    // its latest reaction messages and a count of all of them.
+    // implements: PROC-053
+    let summary_query = RelationQuery {
+        limit: Some(i64::from(MESSAGE_REACTION_LIMIT)),
+        ..of_type(DbContentType::Reaction)
+    };
 
-    let replies_count_query = RelationQuery::builder()
-        .content_types(Some(vec![DbContentType::Reply]))
-        .build()
-        .unwrap_or_default();
-
-    let reactions = conn.get_inbound_relations(group_id, message_ids, reactions_relations_query)?;
+    let reactions = conn.get_inbound_relations(group_id, message_ids, summary_query)?;
+    let reaction_counts =
+        conn.get_inbound_relation_counts(group_id, message_ids, of_type(DbContentType::Reaction))?;
     let referenced_messages = conn.get_outbound_relations(group_id, reference_ids)?;
     let reply_counts =
-        conn.get_inbound_relation_counts(group_id, message_ids, replies_count_query)?;
+        conn.get_inbound_relation_counts(group_id, message_ids, of_type(DbContentType::Reply))?;
 
     // Get deletions for all messages AND referenced messages in a single batch query.
     // This ensures that if a reply references a deleted message, we can properly show
@@ -258,6 +309,7 @@ fn get_relations(
 
     Ok(GetRelationsResults {
         reactions: get_reactions(reactions),
+        reaction_counts,
         referenced_messages: get_referenced_messages(referenced_messages),
         reply_counts,
         deletions: get_deletions(deletions),
@@ -266,6 +318,7 @@ fn get_relations(
 
 struct GetRelationsResults {
     reactions: ReactionMap,
+    reaction_counts: RelationCounts,
     referenced_messages: ReferencedMessageMap,
     reply_counts: RelationCounts,
     deletions: DeletionMap,

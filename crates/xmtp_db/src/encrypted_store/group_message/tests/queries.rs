@@ -254,64 +254,67 @@ fn it_gets_messages_by_time() {
     })
 }
 
+/// Expiry cleanup deletes at most `EXPIRED_MESSAGE_BATCH` rows per call and
+/// leaves rows that are unexpired, unpublished, or not application messages.
 #[xmtp_common::test]
-fn it_deletes_middle_message_by_expiration_time() {
+fn it_deletes_expired_messages_in_batches() {
     with_connection(|conn| {
-        let mut group = generate_group(None);
-
-        let disappear_from_ns = Some(1_000_500_000); // After Message 1
-        let disappear_in_ns = Some(500_000); // Before Message 3
-        group.message_disappear_from_ns = disappear_from_ns;
-        group.message_disappear_in_ns = disappear_in_ns;
-
+        let group = generate_group(None);
         group.store(conn).unwrap();
-
-        let messages = vec![
-            generate_message(None, Some(&group.id), Some(1_000_000_000), None, None, None),
+        let pass_start = 1_000_000_000;
+        let expired = |kind| {
             generate_message(
-                None,
+                Some(kind),
                 Some(&group.id),
-                Some(1_001_000_000),
-                None,
-                Some(1_001_000_000),
-                None,
-            ),
-            generate_message(
-                None,
-                Some(&group.id),
-                Some(2_000_000_000_000_000_000),
                 None,
                 None,
+                Some(pass_start),
                 None,
-            ),
-        ];
-        assert_ok!(messages.store(conn));
-
-        let deleted_messages = conn.delete_expired_messages().unwrap();
-        assert_eq!(deleted_messages.len(), 1); // Ensure exactly 1 message is deleted
-        assert_eq!(deleted_messages[0].id, messages[1].id); // Verify the correct message (middle one with expiration) was deleted
-
-        let remaining_messages = conn
-            .get_group_messages(
-                &group.id,
-                &MsgQueryArgs {
-                    ..Default::default()
-                },
             )
-            .unwrap();
+        };
+        for _ in 0..2_001 {
+            let message = StoredGroupMessage {
+                decrypted_message_bytes: vec![7; 1024],
+                ..expired(GroupMessageKind::Application)
+            };
+            assert_ok!(message.store(conn));
+        }
+        let survivors = vec![
+            generate_message(
+                None,
+                Some(&group.id),
+                None,
+                None,
+                Some(pass_start + 1),
+                None,
+            ),
+            generate_message(None, Some(&group.id), None, None, None, None),
+            expired(GroupMessageKind::MembershipChange),
+            StoredGroupMessage {
+                delivery_status: DeliveryStatus::Unpublished,
+                ..expired(GroupMessageKind::Application)
+            },
+        ];
+        assert_ok!(survivors.store(conn));
 
-        // Verify the count and content of the remaining messages
-        assert_eq!(remaining_messages.len(), 2);
-        assert!(
-            remaining_messages
-                .iter()
-                .any(|msg| msg.sent_at_ns == 1_000_000_000)
-        ); // Message 1
-        assert!(
-            remaining_messages
-                .iter()
-                .any(|msg| msg.sent_at_ns == 2_000_000_000_000_000_000)
-        ); // Message 3
+        let mut batches = vec![];
+        loop {
+            let deleted = conn.delete_expired_messages(pass_start).unwrap();
+            assert!(deleted.iter().all(|m| m.decrypted_message_bytes.is_empty()));
+            batches.push(deleted.len());
+            if deleted.len() < EXPIRED_MESSAGE_BATCH as usize {
+                break;
+            }
+        }
+        assert_eq!(batches, [1_000, 1_000, 1]);
+
+        let mut remaining: Vec<Vec<u8>> = conn
+            .raw_query(|raw_conn| dsl::group_messages.select(dsl::id).load(raw_conn))
+            .unwrap();
+        let mut expected: Vec<_> = survivors.into_iter().map(|m| m.id).collect();
+        remaining.sort();
+        expected.sort();
+        assert_eq!(remaining, expected);
     })
 }
 
@@ -529,6 +532,104 @@ fn message_expiry_from_sent_time_is_persisted_once() {
                 conn.get_group_message(&message.id)??.expire_at_ns,
                 Some(1_900)
             );
+        }
+    })
+}
+
+// verifies: ARCH-019
+#[xmtp_common::test(unwrap_try = true)]
+fn publication_establishes_known_expiry_for_imported_messages() {
+    use prost::Message as _;
+    use xmtp_proto::xmtp::{
+        device_sync::message_backup::{DeliveryStatusSave, GroupMessageKindSave, GroupMessageSave},
+        mls::message_contents::{ContentTypeId, EncodedContent},
+    };
+
+    const SENT_AT_NS: i64 = 1_793_000_000_000_000_000;
+    const DEADLINE_NS: i64 = 2_000_000_000_000_000_000;
+    with_connection(|conn| {
+        let group = generate_group(None);
+        group.store(conn)?;
+        let bytes = EncodedContent {
+            r#type: Some(ContentTypeId {
+                authority_id: "xmtp.org".into(),
+                type_id: "text".into(),
+                version_major: 1,
+                version_minor: 0,
+            }),
+            content: b"publication expiry".to_vec(),
+            ..Default::default()
+        }
+        .encode_to_vec();
+        let mut case_id = 1;
+        for status in [
+            DeliveryStatusSave::Unpublished,
+            DeliveryStatusSave::Failed,
+            DeliveryStatusSave::Published,
+        ] {
+            for deadline in [Some(DEADLINE_NS), None] {
+                let id = vec![case_id; 32];
+                case_id += 1;
+                let imported = StoredGroupMessage::try_from(GroupMessageSave {
+                    id: id.clone(),
+                    group_id: group.id.to_vec(),
+                    decrypted_message_bytes: bytes.clone(),
+                    sent_at_ns: SENT_AT_NS,
+                    sender_installation_id: vec![2; 32],
+                    sender_inbox_id: "03".repeat(32),
+                    kind: GroupMessageKindSave::Application as i32,
+                    delivery_status: status as i32,
+                    ..Default::default()
+                })?;
+                assert_eq!(
+                    (imported.expire_at_ns, imported.expiry_unknown),
+                    (None, true)
+                );
+                imported.store(conn)?;
+                if status == DeliveryStatusSave::Failed {
+                    assert_eq!(conn.set_failed_delivery_status_to_unpublished(&id)?, 1);
+                }
+                let expected = if status == DeliveryStatusSave::Published {
+                    (None, true)
+                } else {
+                    (deadline, false)
+                };
+                assert_eq!(
+                    conn.set_delivery_status_to_published(
+                        &id,
+                        SENT_AT_NS as u64,
+                        Cursor(7),
+                        deadline
+                    )?,
+                    1
+                );
+                let published = conn.get_group_message(&id)??;
+                assert_eq!(published.delivery_status, DeliveryStatus::Published);
+                assert_eq!(
+                    (published.expire_at_ns, published.expiry_unknown),
+                    expected,
+                    "first publication of {status:?} with {deadline:?}"
+                );
+                let exported = GroupMessageSave::from(published);
+                assert_eq!(
+                    (exported.expires_at_ns, exported.expiry_known),
+                    (expected.0, Some(!expected.1))
+                );
+                let restored = StoredGroupMessage::try_from(exported)?;
+                assert_eq!((restored.expire_at_ns, restored.expiry_unknown), expected);
+
+                // Later receipts cannot infer a historical deadline or replace a known absence.
+                for later in [Some(DEADLINE_NS + 1), None] {
+                    conn.set_delivery_status_to_published(
+                        &id,
+                        SENT_AT_NS as u64,
+                        Cursor(7),
+                        later,
+                    )?;
+                    let stored = conn.get_group_message(&id)??;
+                    assert_eq!((stored.expire_at_ns, stored.expiry_unknown), expected);
+                }
+            }
         }
     })
 }

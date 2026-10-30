@@ -1,8 +1,14 @@
+//! Dependency keys and exact parent ownership for the incoming controller.
+//!
+//! `DependencyRegistry` shares queued/running requests and keeps their Welcome
+//! parents out of ready batches until resolution finishes or ownership is removed.
+
 use super::*;
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub(super) enum DependencyKey {
-    Identity(IdentityRequirement),
+    /// Every proof one parent attempt lacked, fetched in one batch.
+    Identity(BTreeSet<IdentityRequirement>),
     Welcome(Cursor),
     GroupPrefix(GroupId, Cursor),
 }
@@ -47,6 +53,18 @@ impl DependencyRegistry {
         self.entries
             .values()
             .any(|entry| entry.parents.contains(parent))
+    }
+
+    /// All Welcomes awaiting dependency work, whether queued or running.
+    pub(super) fn welcome_cursors(&self) -> Vec<Cursor> {
+        self.entries
+            .values()
+            .flat_map(|entry| &entry.parents)
+            .filter_map(|parent| match parent {
+                DependencyParent::Welcome(cursor) => Some(*cursor),
+                _ => None,
+            })
+            .collect()
     }
 
     pub(super) fn start_queued(&mut self, available: usize) -> Vec<DependencyKey> {

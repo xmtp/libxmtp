@@ -35,8 +35,8 @@ let
     (src + /crates/xmtp_db/migrations)
     (src + /crates/xmtp_legacy_migration/migrations)
     (src + /crates/xmtp_legacy_migration/browser-storage.js)
-    # The attachment client reads the IANA special-purpose address snapshot at compile time.
-    (src + /crates/xmtp_attachments/src/address-registry.txt)
+    # The shared address classifier reads the IANA special-purpose address snapshot at compile time.
+    (src + /crates/xmtp_common/src/address-registry.txt)
     (lib.fileset.maybeMissing (src + /apps/backend/migrations))
     (lib.fileset.maybeMissing (src + /apps/backend/.sqlx))
     (fileFilter (file: lib.hasSuffix ".sql" file.name) (src + /apps/backend/src))
@@ -311,7 +311,7 @@ let
       (src + /apps/backend/migrations)
       (src + /apps/backend/.sqlx)
     ];
-    "crates/xmtp_attachments" = [ (src + /crates/xmtp_attachments/src/address-registry.txt) ];
+    "crates/xmtp_common" = [ (src + /crates/xmtp_common/src/address-registry.txt) ];
     "crates/xmtp_db" = [ (src + /crates/xmtp_db/migrations) ];
     "crates/xmtp_legacy_migration" = [
       (src + /crates/xmtp_legacy_migration/migrations)
@@ -343,6 +343,7 @@ let
     "crates/xmtp_backend_config" = [
       (src + /docs/schemas/backend-v1.json)
       (src + /docs/specs/CONF-backend-configuration.md)
+      (src + /docs/specs/RATE-backend-rate-limits.md)
       (src + /dev/backend/local.toml)
       (src + /dev/backend/local-s3.toml)
     ];

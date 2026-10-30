@@ -1,19 +1,22 @@
 //! Publish signatures and the envelope bound at the publish service.
 
+use super::transport::{PUBLISH, empty_envelopes};
 use super::*;
+use support::native::{framed, raw_unary};
+use xmtp_configuration::MAX_PUBLISH_IDENTITY_ACTIONS;
 use xmtp_mls_validation::test_utils::{
     group_keys, keyed_group_message_envelope, sealed_commit_log_envelope,
 };
 
 /// The index and reason of a refused publish.
-fn rejection(error: tonic::Status) -> support::TestResult<(Option<u32>, Reason)> {
+pub(super) fn rejection(error: tonic::Status) -> support::TestResult<(Option<u32>, Reason)> {
     assert_eq!(error.code(), Code::InvalidArgument, "{error:?}");
     let status = tonic_types::pb::Status::decode(error.details())?;
     let detail = api::PublishError::decode(status.details[0].value.as_slice())?;
     Ok((detail.index, detail.reason()))
 }
 
-async fn stored_rows(server: &TestServer) -> support::TestResult<i64> {
+pub(super) async fn stored_rows(server: &TestServer) -> support::TestResult<i64> {
     Ok(sqlx::query_scalar("SELECT count(*) FROM envelopes")
         .fetch_one(&server.backend.store.primary)
         .await?)
@@ -66,6 +69,61 @@ async fn the_envelope_bound_counts_every_input_and_names_no_envelope() {
         1000
     );
     assert_eq!(stored_rows(&server).await?, 1000);
+    server.stop().await?;
+}
+
+/// An empty envelope is two bytes on the wire, so a request far within the
+/// byte limit can hold more envelopes than the bound. Prost would build all
+/// 16,384 of them before it reached the truncated tail and failed.
+#[xmtp_common::test(unwrap_try = true)]
+// verifies: API-304
+async fn publish_count_is_rejected_before_decode() {
+    let server = TestServer::new(|_| {}).await?;
+    let body = empty_envelopes(16_384, &[0x0a, 0x05]);
+    assert!(body.len() < server.backend.config.limits.max_request_bytes);
+    let error = raw_unary(&server, PUBLISH, &[], body, true).await?;
+    assert_eq!(error.message(), "publish request exceeds envelope limit");
+    assert_eq!(rejection(error)?, (None, Reason::TooLarge));
+    assert_eq!(stored_rows(&server).await?, 0);
+    server.stop().await?;
+}
+
+/// The action bound is 500 across the request, ahead of the bound on one
+/// update. Behind a truncated tail, an update at the bound reaches the
+/// decoder, which fails on the tail, and one more action is refused before
+/// decode.
+#[xmtp_common::test(unwrap_try = true)]
+// verifies: API-304
+async fn publish_identity_actions_are_rejected_before_decode() {
+    use xmtp_proto::xmtp::identity::associations::{IdentityAction, IdentityUpdate};
+    let body = |actions| {
+        let mut message = api::PublishRequest {
+            envelopes: vec![api::ClientEnvelope {
+                payload: Some(api::client_envelope::Payload::IdentityUpdate(
+                    IdentityUpdate {
+                        actions: vec![IdentityAction::default(); actions],
+                        client_timestamp_ns: 1,
+                        inbox_id: "inbox".into(),
+                    },
+                )),
+            }],
+        }
+        .encode_to_vec();
+        message.extend_from_slice(&[0x0a, 0x05]);
+        framed(&message)
+    };
+    let server = TestServer::new(|_| {}).await?;
+    let limit = MAX_PUBLISH_IDENTITY_ACTIONS;
+    assert_eq!(limit, 500);
+    let at_bound = raw_unary(&server, PUBLISH, &[], body(limit), true).await?;
+    assert_eq!(at_bound.code(), Code::Internal, "{at_bound:?}");
+    let error = raw_unary(&server, PUBLISH, &[], body(limit + 1), true).await?;
+    assert_eq!(
+        error.message(),
+        "publish request exceeds identity action limit"
+    );
+    assert_eq!(rejection(error)?, (None, Reason::TooLarge));
+    assert_eq!(stored_rows(&server).await?, 0);
     server.stop().await?;
 }
 

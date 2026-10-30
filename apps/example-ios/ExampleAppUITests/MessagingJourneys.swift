@@ -125,7 +125,6 @@ import XmtpSdk
 		let next = wait(identified("newConversation.next", in: app))
 		waitUntil("enabled == true", element: next)
 		next.tap()
-		wait(identified("newConversation.create", in: app)).tap()
 		let header = wait(identified("chat.details", in: app), timeout: 20)
 		XCTAssertTrue(header.label.localizedCaseInsensitiveContains(handle))
 	}
@@ -136,6 +135,7 @@ import XmtpSdk
 		let search = wait(identified("emoji.search", in: app))
 		search.tap()
 		acknowledgeKeyboardIntro(app)
+		search.tap()
 		search.typeText("thumbs up")
 		let option = wait(identified("emoji.option.👍", in: app))
 		waitUntil("hittable == true", element: option)
@@ -153,6 +153,18 @@ import XmtpSdk
 		replyAction.tap()
 		send("quoted reply", app: app)
 		let own = wait(app.staticTexts["quoted reply"].firstMatch)
+		own.press(forDuration: 1)
+		let quickReaction = wait(app.buttons["👍"].firstMatch)
+		let reactionMenu = XCTAttachment(screenshot: app.screenshot())
+		reactionMenu.name = "Quick reactions menu"
+		reactionMenu.lifetime = .keepAlways
+		add(reactionMenu)
+		quickReaction.tap()
+		waitUntil("exists == false", element: app.buttons["React"])
+		let quickBadge = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "👍")).firstMatch
+		wait(quickBadge)
+		selectThumbsUp(on: own, app: app)
+		waitUntil("exists == false", element: quickBadge)
 		selectThumbsUp(on: own, app: app)
 		let badge = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "👍")).firstMatch
 		wait(badge)

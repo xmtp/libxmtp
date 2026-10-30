@@ -73,11 +73,11 @@ memchr = { version = "2" }
 nu-ansi-term = { version = "0.50" }
 num-traits = { version = "0.2", features = ["i128", "libm"] }
 once_cell = { version = "1" }
-openmls = { git = "https://github.com/xmtp/openmls", rev = "c2bad9f5653d4123c2b677aff0fff73398f7b6e5", default-features = false, features = ["draft-ietf-mls-pq-ciphersuites", "extensions-draft", "test-utils"] }
-openmls_basic_credential = { git = "https://github.com/xmtp/openmls", rev = "c2bad9f5653d4123c2b677aff0fff73398f7b6e5", default-features = false, features = ["clonable", "draft-ietf-mls-pq-ciphersuites", "test-utils"] }
-openmls_memory_storage = { git = "https://github.com/xmtp/openmls", rev = "c2bad9f5653d4123c2b677aff0fff73398f7b6e5", default-features = false, features = ["draft-ietf-mls-pq-ciphersuites", "extensions-draft", "test-utils"] }
-openmls_rust_crypto = { git = "https://github.com/xmtp/openmls", rev = "c2bad9f5653d4123c2b677aff0fff73398f7b6e5", default-features = false, features = ["draft-ietf-mls-pq-ciphersuites", "extensions-draft", "test-utils"] }
-openmls_traits = { git = "https://github.com/xmtp/openmls", rev = "c2bad9f5653d4123c2b677aff0fff73398f7b6e5", features = ["draft-ietf-mls-pq-ciphersuites", "extensions-draft", "test-utils"] }
+openmls = { git = "https://github.com/xmtp/openmls", rev = "39cddd5c7fd8db2b6c5f47a0a6672d8dbd122f0b", default-features = false, features = ["draft-ietf-mls-pq-ciphersuites", "extensions-draft", "test-utils"] }
+openmls_basic_credential = { git = "https://github.com/xmtp/openmls", rev = "39cddd5c7fd8db2b6c5f47a0a6672d8dbd122f0b", default-features = false, features = ["clonable", "draft-ietf-mls-pq-ciphersuites", "test-utils"] }
+openmls_memory_storage = { git = "https://github.com/xmtp/openmls", rev = "39cddd5c7fd8db2b6c5f47a0a6672d8dbd122f0b", default-features = false, features = ["draft-ietf-mls-pq-ciphersuites", "extensions-draft", "test-utils"] }
+openmls_rust_crypto = { git = "https://github.com/xmtp/openmls", rev = "39cddd5c7fd8db2b6c5f47a0a6672d8dbd122f0b", default-features = false, features = ["draft-ietf-mls-pq-ciphersuites", "extensions-draft", "test-utils"] }
+openmls_traits = { git = "https://github.com/xmtp/openmls", rev = "39cddd5c7fd8db2b6c5f47a0a6672d8dbd122f0b", features = ["draft-ietf-mls-pq-ciphersuites", "extensions-draft", "test-utils"] }
 p256 = { version = "0.13", features = ["ecdh", "jwk"] }
 percent-encoding = { version = "2" }
 rand-274715c4dabd11b0 = { package = "rand", version = "0.9", default-features = false, features = ["serde", "thread_rng"] }
@@ -175,11 +175,11 @@ memchr = { version = "2" }
 nu-ansi-term = { version = "0.50" }
 num-traits = { version = "0.2", features = ["i128", "libm"] }
 once_cell = { version = "1" }
-openmls = { git = "https://github.com/xmtp/openmls", rev = "c2bad9f5653d4123c2b677aff0fff73398f7b6e5", default-features = false, features = ["draft-ietf-mls-pq-ciphersuites", "extensions-draft", "test-utils"] }
-openmls_basic_credential = { git = "https://github.com/xmtp/openmls", rev = "c2bad9f5653d4123c2b677aff0fff73398f7b6e5", default-features = false, features = ["clonable", "draft-ietf-mls-pq-ciphersuites", "test-utils"] }
-openmls_memory_storage = { git = "https://github.com/xmtp/openmls", rev = "c2bad9f5653d4123c2b677aff0fff73398f7b6e5", default-features = false, features = ["draft-ietf-mls-pq-ciphersuites", "extensions-draft", "test-utils"] }
-openmls_rust_crypto = { git = "https://github.com/xmtp/openmls", rev = "c2bad9f5653d4123c2b677aff0fff73398f7b6e5", default-features = false, features = ["draft-ietf-mls-pq-ciphersuites", "extensions-draft", "test-utils"] }
-openmls_traits = { git = "https://github.com/xmtp/openmls", rev = "c2bad9f5653d4123c2b677aff0fff73398f7b6e5", features = ["draft-ietf-mls-pq-ciphersuites", "extensions-draft", "test-utils"] }
+openmls = { git = "https://github.com/xmtp/openmls", rev = "39cddd5c7fd8db2b6c5f47a0a6672d8dbd122f0b", default-features = false, features = ["draft-ietf-mls-pq-ciphersuites", "extensions-draft", "test-utils"] }
+openmls_basic_credential = { git = "https://github.com/xmtp/openmls", rev = "39cddd5c7fd8db2b6c5f47a0a6672d8dbd122f0b", default-features = false, features = ["clonable", "draft-ietf-mls-pq-ciphersuites", "test-utils"] }
+openmls_memory_storage = { git = "https://github.com/xmtp/openmls", rev = "39cddd5c7fd8db2b6c5f47a0a6672d8dbd122f0b", default-features = false, features = ["draft-ietf-mls-pq-ciphersuites", "extensions-draft", "test-utils"] }
+openmls_rust_crypto = { git = "https://github.com/xmtp/openmls", rev = "39cddd5c7fd8db2b6c5f47a0a6672d8dbd122f0b", default-features = false, features = ["draft-ietf-mls-pq-ciphersuites", "extensions-draft", "test-utils"] }
+openmls_traits = { git = "https://github.com/xmtp/openmls", rev = "39cddd5c7fd8db2b6c5f47a0a6672d8dbd122f0b", features = ["draft-ietf-mls-pq-ciphersuites", "extensions-draft", "test-utils"] }
 p256 = { version = "0.13", features = ["ecdh", "jwk"] }
 percent-encoding = { version = "2" }
 proc-macro2 = { version = "1", features = ["span-locations"] }
@@ -246,6 +246,7 @@ time = { version = "0.3", default-features = false, features = ["formatting"] }
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
 tokio-stream = { version = "0.1", features = ["net", "sync"] }
 tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
+tracing-log = { version = "0.2" }
 typenum = { version = "1", default-features = false, features = ["const-generics"] }
 
 [target.x86_64-unknown-linux-gnu.build-dependencies]
@@ -276,6 +277,7 @@ time = { version = "0.3", default-features = false, features = ["formatting"] }
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
 tokio-stream = { version = "0.1", features = ["net", "sync"] }
 tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
+tracing-log = { version = "0.2" }
 typenum = { version = "1", default-features = false, features = ["const-generics"] }
 
 [target.aarch64-apple-darwin.dependencies]
@@ -306,6 +308,7 @@ time = { version = "0.3", default-features = false, features = ["formatting"] }
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
 tokio-stream = { version = "0.1", features = ["net", "sync"] }
 tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
+tracing-log = { version = "0.2" }
 typenum = { version = "1", default-features = false, features = ["const-generics"] }
 
 [target.aarch64-apple-darwin.build-dependencies]
@@ -337,6 +340,7 @@ time = { version = "0.3", default-features = false, features = ["formatting"] }
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
 tokio-stream = { version = "0.1", features = ["net", "sync"] }
 tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
+tracing-log = { version = "0.2" }
 typenum = { version = "1", default-features = false, features = ["const-generics"] }
 
 [target.aarch64-linux-android.dependencies]
@@ -367,6 +371,7 @@ time = { version = "0.3", default-features = false, features = ["formatting"] }
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
 tokio-stream = { version = "0.1", features = ["net", "sync"] }
 tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
+tracing-log = { version = "0.2" }
 typenum = { version = "1", default-features = false, features = ["const-generics"] }
 
 [target.aarch64-linux-android.build-dependencies]
@@ -398,6 +403,7 @@ time = { version = "0.3", default-features = false, features = ["formatting"] }
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
 tokio-stream = { version = "0.1", features = ["net", "sync"] }
 tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
+tracing-log = { version = "0.2" }
 typenum = { version = "1", default-features = false, features = ["const-generics"] }
 
 [target.x86_64-linux-android.dependencies]
@@ -427,6 +433,7 @@ time = { version = "0.3", default-features = false, features = ["formatting"] }
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
 tokio-stream = { version = "0.1", features = ["net", "sync"] }
 tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
+tracing-log = { version = "0.2" }
 typenum = { version = "1", default-features = false, features = ["const-generics"] }
 
 [target.x86_64-linux-android.build-dependencies]
@@ -457,6 +464,7 @@ time = { version = "0.3", default-features = false, features = ["formatting"] }
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
 tokio-stream = { version = "0.1", features = ["net", "sync"] }
 tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
+tracing-log = { version = "0.2" }
 typenum = { version = "1", default-features = false, features = ["const-generics"] }
 
 ### END HAKARI SECTION

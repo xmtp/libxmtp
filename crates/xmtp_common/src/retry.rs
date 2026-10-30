@@ -39,12 +39,45 @@ pub fn arc_retryable_to_error(retryable: Arc<dyn RetryableError>) -> Arc<dyn Err
 
 pub type BoxedRetry = Retry<Box<dyn Strategy>>;
 
+tokio::task_local! {
+    static RETRY_DEADLINE: crate::time::Instant;
+}
+
+/// Run `future` so that every rate-limit wait of [`retry_async!`] inside it
+/// ends by `deadline`. A wait that would pass it returns the rejection at once,
+/// so a caller that times out at `deadline` still sees the delay. A nested
+/// scope keeps the earlier deadline.
+pub async fn with_retry_deadline<F: std::future::Future>(
+    deadline: crate::time::Instant,
+    future: F,
+) -> F::Output {
+    let deadline = RETRY_DEADLINE
+        .try_with(|outer| (*outer).min(deadline))
+        .unwrap_or(deadline);
+    RETRY_DEADLINE.scope(deadline, future).await
+}
+
+/// True when a rate-limit wait of `wait` ends before the scoped deadline of
+/// [`with_retry_deadline`], or when no deadline is scoped.
+#[doc(hidden)]
+pub fn fits_retry_deadline(wait: Duration) -> bool {
+    RETRY_DEADLINE
+        .try_with(|deadline| deadline.saturating_duration_since(crate::time::Instant::now()) > wait)
+        .unwrap_or(true)
+}
+
 pub struct NotSpecialized;
 
 /// Specifies which errors are retryable.
 /// All Errors are not retryable by-default.
 pub trait RetryableError<SP = NotSpecialized>: std::error::Error + MaybeSend + MaybeSync {
     fn is_retryable(&self) -> bool;
+
+    /// The least time to wait before a retry, when the error says so. A
+    /// rate-limit rejection carries one; [`retry_async!`] never retries sooner.
+    fn rate_limit_delay(&self) -> Option<Duration> {
+        None
+    }
 }
 
 impl<T> RetryableError for &'_ T
@@ -54,11 +87,19 @@ where
     fn is_retryable(&self) -> bool {
         (**self).is_retryable()
     }
+
+    fn rate_limit_delay(&self) -> Option<Duration> {
+        (**self).rate_limit_delay()
+    }
 }
 
 impl<E: RetryableError> RetryableError for Box<E> {
     fn is_retryable(&self) -> bool {
         (**self).is_retryable()
+    }
+
+    fn rate_limit_delay(&self) -> Option<Duration> {
+        (**self).rate_limit_delay()
     }
 }
 
@@ -90,8 +131,23 @@ impl<S: Strategy> Retry<S> {
         self.retries
     }
 
+    /// The backoff strategy this retry uses.
+    pub fn strategy(&self) -> &S {
+        &self.strategy
+    }
+
     pub fn backoff(&self, attempts: usize, time_spent: crate::time::Instant) -> Option<Duration> {
         self.strategy.backoff(attempts, time_spent)
+    }
+
+    /// The backoff, but at least `floor`. `None` gives up.
+    pub fn backoff_at_least(
+        &self,
+        attempts: usize,
+        time_spent: crate::time::Instant,
+        floor: Duration,
+    ) -> Option<Duration> {
+        self.strategy.backoff_at_least(attempts, time_spent, floor)
     }
 }
 
@@ -110,6 +166,18 @@ pub trait Strategy: MaybeSend + MaybeSync {
     /// Returns None when we should no longer backoff,
     /// despite possibly being below attempts
     fn backoff(&self, attempts: usize, time_spent: crate::time::Instant) -> Option<Duration>;
+
+    /// The wait before the next attempt when the error asks for at least
+    /// `floor`. Returns None when the strategy gives up instead of waiting.
+    fn backoff_at_least(
+        &self,
+        attempts: usize,
+        time_spent: crate::time::Instant,
+        floor: Duration,
+    ) -> Option<Duration> {
+        self.backoff(attempts, time_spent)
+            .map(|wait| wait.max(floor))
+    }
 }
 
 impl Strategy for () {
@@ -121,6 +189,15 @@ impl Strategy for () {
 impl<S: ?Sized + Strategy> Strategy for Box<S> {
     fn backoff(&self, attempts: usize, time_spent: crate::time::Instant) -> Option<Duration> {
         (**self).backoff(attempts, time_spent)
+    }
+
+    fn backoff_at_least(
+        &self,
+        attempts: usize,
+        time_spent: crate::time::Instant,
+        floor: Duration,
+    ) -> Option<Duration> {
+        (**self).backoff_at_least(attempts, time_spent, floor)
     }
 }
 
@@ -213,6 +290,19 @@ impl Strategy for ExponentialBackoff {
         let jitter = rand::rng().sample(distr);
         let wait = duration + jitter;
         Some(wait)
+    }
+
+    /// Wait `max(floor, backoff)` only when the wait ends within the total
+    /// budget. A longer wait gives up at once, so the caller still sees the
+    /// error and its delay.
+    fn backoff_at_least(
+        &self,
+        attempts: usize,
+        time_spent: crate::time::Instant,
+        floor: Duration,
+    ) -> Option<Duration> {
+        let wait = self.backoff(attempts, time_spent)?.max(floor);
+        (time_spent.elapsed().saturating_add(wait) <= self.total_wait_max).then_some(wait)
     }
 }
 
@@ -345,9 +435,19 @@ macro_rules! retry_async {
                             "retrying function that failed with error={}",
                             e.to_string()
                         );
-                        if let Some(d) = $retry.backoff(attempts, time_spent) {
+                        let wait = match (&e).rate_limit_delay() {
+                            Some(floor) => $retry
+                                .backoff_at_least(attempts, time_spent, floor)
+                                .filter(|wait| $crate::retry::fits_retry_deadline(*wait)),
+                            None => $retry.backoff(attempts, time_spent),
+                        };
+                        if let Some(d) = wait {
                             attempts += 1;
-                            $crate::time::sleep(d).await;
+                            // A delay too large for the clock saturates
+                            // instead of overflowing the timer's deadline.
+                            let now = $crate::time::Instant::now();
+                            let until = $crate::time::saturating_after(now, d);
+                            $crate::time::sleep(until.saturating_duration_since(now)).await;
                         } else {
                             tracing::warn!(
                                 attempts,
@@ -507,6 +607,206 @@ pub(crate) mod tests {
             (async { retryable_async_fn(&mut data).await })
         )
         .unwrap();
+    }
+
+    #[derive(Debug, Error)]
+    #[error("rate limited")]
+    struct RateLimited(Duration);
+
+    impl RetryableError for RateLimited {
+        fn is_retryable(&self) -> bool {
+            true
+        }
+
+        fn rate_limit_delay(&self) -> Option<Duration> {
+            Some(self.0)
+        }
+    }
+
+    /// Run until the second attempt or until the loop gives up, on tokio's
+    /// paused clock. Returns the start of each attempt.
+    #[cfg(not(target_arch = "wasm32"))]
+    async fn attempt_starts(
+        delay: Duration,
+    ) -> (Vec<tokio::time::Instant>, Result<(), RateLimited>) {
+        tokio::time::pause();
+        let mut starts = Vec::new();
+        let result = retry_async!(
+            Retry::default(),
+            (async {
+                starts.push(tokio::time::Instant::now());
+                if starts.len() == 1 {
+                    Err(RateLimited(delay))
+                } else {
+                    Ok(())
+                }
+            })
+        );
+        (starts, result)
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[xmtp_macro::test]
+    async fn rate_limited_retry_waits_the_delay() {
+        let delay = Duration::from_secs(5);
+        let (starts, result) = attempt_starts(delay).await;
+        assert!(result.is_ok());
+        assert_eq!(starts.len(), 2);
+        assert!(starts[1] - starts[0] >= delay);
+    }
+
+    /// A strategy with no budget takes any rate-limit delay; one too large
+    /// for the clock waits without a panic, which a release build would turn
+    /// into an abort.
+    // verifies: RATE-041
+    #[cfg(not(target_arch = "wasm32"))]
+    #[xmtp_macro::test]
+    async fn an_out_of_range_delay_waits_without_panicking() {
+        tokio::time::pause();
+        let attempts = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counted = attempts.clone();
+        let retry = tokio::spawn(async move {
+            retry_async!(
+                Retry::builder().with_strategy(()).retries(1).build(),
+                (async {
+                    counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    Err::<(), _>(RateLimited(Duration::from_secs(u64::MAX)))
+                })
+            )
+        });
+        tokio::time::sleep(Duration::from_secs(365 * 24 * 60 * 60)).await;
+        assert_eq!(attempts.load(std::sync::atomic::Ordering::SeqCst), 1);
+        assert!(!retry.is_finished(), "the retry waits out the delay");
+        retry.abort();
+        assert!(retry.await.unwrap_err().is_cancelled(), "it did not panic");
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[xmtp_macro::test]
+    async fn rate_limit_delay_beyond_the_budget_returns_at_once() {
+        let (starts, result) = attempt_starts(Duration::from_secs(200)).await;
+        assert_eq!(result.unwrap_err().0, Duration::from_secs(200));
+        assert_eq!(starts.len(), 1);
+        assert_eq!(starts[0], tokio::time::Instant::now());
+    }
+
+    /// On the real clock, a wait that fits the whole budget but not what is
+    /// left of it returns at once.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[xmtp_macro::test]
+    async fn a_rate_limit_wait_past_the_remaining_budget_returns_at_once() {
+        let retry = Retry::builder()
+            .retries(5)
+            .with_strategy(
+                ExponentialBackoff::builder()
+                    .duration(Duration::ZERO)
+                    .max_jitter(Duration::ZERO)
+                    .total_wait_max(Duration::from_millis(300))
+                    .build(),
+            )
+            .build();
+        let mut attempts = 0;
+        let result: Result<(), RateLimited> = retry_async!(
+            retry,
+            (async {
+                attempts += 1;
+                crate::time::sleep(Duration::from_millis(200)).await;
+                Err(RateLimited(Duration::from_millis(150)))
+            })
+        );
+        assert!(result.is_err());
+        assert_eq!(attempts, 1);
+    }
+
+    /// A rate-limit wait that would pass a scoped deadline returns at once,
+    /// even though it fits the retry budget.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[xmtp_macro::test]
+    async fn a_rate_limit_wait_past_a_scoped_deadline_returns_at_once() {
+        let mut attempts = 0;
+        let result: Result<(), RateLimited> = with_retry_deadline(
+            crate::time::Instant::now() + Duration::from_secs(1),
+            async {
+                retry_async!(
+                    Retry::default(),
+                    (async {
+                        attempts += 1;
+                        Err(RateLimited(Duration::from_secs(5)))
+                    })
+                )
+            },
+        )
+        .await;
+        assert_eq!(result.unwrap_err().0, Duration::from_secs(5));
+        assert_eq!(attempts, 1);
+    }
+
+    /// Fail with `RateLimited(delay)` once, then succeed; count the attempts.
+    async fn retry_once_under(deadline: crate::time::Instant, delay: Duration) -> usize {
+        let mut attempts = 0;
+        let result: Result<(), RateLimited> = with_retry_deadline(deadline, async {
+            retry_async!(
+                Retry::default(),
+                (async {
+                    attempts += 1;
+                    if attempts == 1 {
+                        Err(RateLimited(delay))
+                    } else {
+                        Ok(())
+                    }
+                })
+            )
+        })
+        .await;
+        let _ = result;
+        attempts
+    }
+
+    /// A nested scope keeps the earlier deadline.
+    #[xmtp_macro::test]
+    async fn a_nested_retry_deadline_keeps_the_earlier_one() {
+        let now = crate::time::Instant::now();
+        let mut attempts = 0;
+        let result: Result<(), RateLimited> =
+            with_retry_deadline(now + Duration::from_secs(10), async {
+                with_retry_deadline(now + Duration::from_secs(60), async {
+                    retry_async!(
+                        Retry::default(),
+                        (async {
+                            attempts += 1;
+                            if attempts == 1 {
+                                Err(RateLimited(Duration::from_secs(20)))
+                            } else {
+                                Ok(())
+                            }
+                        })
+                    )
+                })
+                .await
+            })
+            .await;
+        assert!(result.is_err());
+        assert_eq!(attempts, 1);
+    }
+
+    /// A wait that ends before the scoped deadline is still taken.
+    #[xmtp_macro::test]
+    async fn a_rate_limit_wait_inside_a_scoped_deadline_is_taken() {
+        let deadline = crate::time::Instant::now() + Duration::from_secs(10);
+        assert_eq!(
+            retry_once_under(deadline, Duration::from_millis(50)).await,
+            2
+        );
+    }
+
+    #[xmtp_macro::test]
+    fn backoff_at_least_keeps_the_longer_backoff() {
+        let retry = Retry::default();
+        let time_spent = crate::time::Instant::now();
+        let wait = retry
+            .backoff_at_least(3, time_spent, Duration::from_millis(1))
+            .unwrap();
+        assert!(wait >= Duration::from_millis(450));
     }
 
     #[xmtp_macro::test]

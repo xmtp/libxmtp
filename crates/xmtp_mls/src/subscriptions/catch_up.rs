@@ -50,6 +50,16 @@ impl RetryableError for CatchUpError {
             Self::Incomplete { causes, .. } => causes.iter().any(RetryableError::is_retryable),
         }
     }
+
+    fn rate_limit_delay(&self) -> Option<xmtp_common::time::Duration> {
+        match self {
+            Self::Group(error) => error.rate_limit_delay(),
+            Self::Incomplete { causes, .. } => causes
+                .iter()
+                .filter_map(RetryableError::rate_limit_delay)
+                .max(),
+        }
+    }
 }
 
 impl From<crate::client::ClientError> for CatchUpError {

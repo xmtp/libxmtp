@@ -1,5 +1,4 @@
 //! The Group database table. Stored information surrounding group membership and ID's.
-use super::consent_record::ConsentType;
 use super::group_message::{ContentType, GroupMessageKind};
 use super::schema::consent_records;
 use super::schema::group_messages;
@@ -150,21 +149,61 @@ impl<T: QueryConversationState + ?Sized> QueryConversationState for &T {
     }
 }
 
-type ConversationConsentJoin = diesel::dsl::And<
-    diesel::dsl::Eq<
-        diesel::expression::SqlLiteral<diesel::sql_types::Text>,
-        consent_records::entity,
-    >,
-    diesel::dsl::Eq<consent_records::entity_type, ConsentType>,
->;
+/// The join from the `groups` row named `g` to its consent record. A DM's
+/// record is the other member's inbox record, in exactly the cases where
+/// `DmIdExt::other_inbox_id` returns one: a two-member `dm:` id with
+/// distinct, non-empty members, one of which is the own inbox (the one
+/// `identity` row). Otherwise the key is NULL, which matches no record, so the
+/// DM reads unknown. Both sides are equalities on the primary key, so SQLite
+/// looks the record up by index.
+// implements: CONS-052, CONS-060
+pub fn consent_join_sql(g: &str) -> String {
+    let r = format!("substr({g}.dm_id, 4)");
+    let a = format!("substr({r}, 1, instr({r}, ':') - 1)");
+    let b = format!("substr({r}, instr({r}, ':') + 1)");
+    let me = "(SELECT inbox_id FROM identity)";
+    format!(
+        "consent_records.entity_type = CASE WHEN {g}.dm_id IS NULL THEN 1 ELSE 2 END \
+         AND consent_records.entity = CASE \
+           WHEN {g}.dm_id IS NULL THEN lower(hex({g}.id)) \
+           WHEN substr({g}.dm_id, 1, 3) <> 'dm:' OR instr({r}, ':') = 0 \
+             OR {a} = '' OR {b} = '' OR instr({b}, ':') > 0 OR {a} = {b} THEN NULL \
+           WHEN {a} = {me} THEN lower({b}) \
+           WHEN {b} = {me} THEN lower({a}) \
+           END"
+    )
+}
 
-/// The ON clause that joins a group to its own consent record. A keyed
-/// group's 64-hex id has the shape of an inbox id, so the join also matches
-/// the record's kind.
-fn conversation_consent_join() -> ConversationConsentJoin {
-    sql::<diesel::sql_types::Text>("lower(hex(groups.id))")
-        .eq(consent_records::entity)
-        .and(consent_records::entity_type.eq(ConsentType::ConversationId))
+fn conversation_consent_join() -> diesel::expression::SqlLiteral<diesel::sql_types::Bool> {
+    sql::<diesel::sql_types::Bool>(&consent_join_sql("groups"))
+}
+
+/// A sync group's local join time: after the clock and after every sync
+/// group held, so the group joined last is the one publishing selects.
+// implements: SYNC-031
+pub fn next_sync_join_time(db: &impl QueryGroup) -> Result<i64, crate::ConnectionError> {
+    let newest = db
+        .all_sync_groups()?
+        .first()
+        .map_or(i64::MIN, |g| g.created_at_ns.saturating_add(1));
+    Ok(xmtp_common::time::now_ns().max(newest))
+}
+
+/// The conversations whose commit log the client reads: allowed DMs and
+/// groups other than one-shot, sync and restored groups. The download and
+/// the fork check both select from it, so their scopes cannot drift. A
+/// correlated `EXISTS` keeps it a plain groups query.
+// implements: FORK-030
+fn allowed_commit_log_groups() -> groups::BoxedQuery<'static, Sqlite> {
+    dsl::groups
+        .filter(dsl::membership_state.ne(GroupMembershipState::Restored))
+        .filter(dsl::conversation_type.ne_all(ConversationType::virtual_types()))
+        .filter(diesel::dsl::exists(
+            consent_records::table
+                .filter(conversation_consent_join())
+                .filter(consent_records::state.eq(ConsentState::Allowed)),
+        ))
+        .into_boxed()
 }
 
 impl<C: ConnectionExt> QueryConversationState for DbConnection<C> {
@@ -172,14 +211,9 @@ impl<C: ConnectionExt> QueryConversationState for DbConnection<C> {
         &self,
         group_id: &GroupId,
     ) -> Result<Option<(StoredGroup, Option<ConsentState>)>, StorageError> {
-        let entity = hex::encode(group_id);
         Ok(self.raw_query(|conn| {
             groups::table
-                .left_join(
-                    consent_records::table.on(consent_records::entity_type
-                        .eq(ConsentType::ConversationId)
-                        .and(consent_records::entity.eq(&entity))),
-                )
+                .left_join(consent_records::table.on(conversation_consent_join()))
                 .filter(groups::id.eq(group_id))
                 .select((StoredGroup::as_select(), consent_records::state.nullable()))
                 .first(conn)
@@ -187,6 +221,10 @@ impl<C: ConnectionExt> QueryConversationState for DbConnection<C> {
         })?)
     }
 
+    /// With the list content types, this is the activity time that an
+    /// activity-ordered conversation list sorts by (`activity_time` in
+    /// conversation_list.rs).
+    // implements: CONS-048
     fn last_activity_ns(
         &self,
         group_id: &GroupId,
@@ -210,6 +248,11 @@ impl<C: ConnectionExt> QueryConversationState for DbConnection<C> {
                 .filter(group_messages::group_id.eq(group_id))
                 .filter(group_messages::kind.eq(GroupMessageKind::Application))
                 .filter(group_messages::content_type.eq_any(content_types))
+                .filter(
+                    group_messages::expire_at_ns
+                        .is_null()
+                        .or(group_messages::expire_at_ns.gt(xmtp_common::time::now_ns())),
+                )
                 .select(diesel::dsl::max(group_messages::sent_at_ns))
                 .first::<Option<i64>>(conn)
         })?;
@@ -254,6 +297,68 @@ pub struct StoredGroupForRespondingReadds {
     pub created_at_ns: i64,
 }
 
+/// The columns an internal operation needs to enumerate a stored group. It has
+/// no message or other peer-sized field, so an enumeration costs the same for
+/// every group.
+#[derive(Debug, Clone, Queryable, Selectable)]
+#[diesel(table_name = groups)]
+#[diesel(check_for_backend(Sqlite))]
+pub struct StoredGroupRef {
+    pub id: GroupId,
+    pub dm_id: Option<String>,
+    pub conversation_type: ConversationType,
+    pub created_at_ns: i64,
+    pub membership_state: GroupMembershipState,
+}
+
+/// Which stored groups `stored_group_refs` returns. There is no limit field: an
+/// internal operation reads every group its selection names. Oneshot groups
+/// are never selected, and every group of a DM is selected.
+#[derive(Debug, Clone)]
+pub struct GroupScope {
+    /// The consent states of the non-sync groups to select. A group with no
+    /// consent record is Unknown. `None` selects every state; `Some` with no
+    /// states selects no non-sync group.
+    pub consent: Option<Vec<ConsentState>>,
+    /// Also select every sync group, whatever its consent.
+    pub include_sync: bool,
+    /// Also select Restored archive placeholders.
+    pub include_restored: bool,
+}
+
+impl GroupScope {
+    /// The groups a conversation listing with `consent` names (none means
+    /// Allowed and Unknown), with every group of a DM, sync groups and
+    /// Restored placeholders.
+    pub fn listing(consent: Option<Vec<ConsentState>>) -> Self {
+        Self {
+            consent: Some(
+                consent.unwrap_or_else(|| vec![ConsentState::Allowed, ConsentState::Unknown]),
+            ),
+            include_sync: true,
+            include_restored: true,
+        }
+    }
+
+    /// Every stored group whatever its consent, sync groups and Restored
+    /// placeholders included.
+    pub fn every_group() -> Self {
+        Self {
+            consent: None,
+            include_sync: true,
+            include_restored: true,
+        }
+    }
+
+    /// The same selection without Restored archive placeholders.
+    pub fn without_restored(self) -> Self {
+        Self {
+            include_restored: false,
+            ..self
+        }
+    }
+}
+
 // TODO: Create two more structs that delegate to StoredGroup
 impl_fetch!(StoredGroup, groups, GroupId);
 impl_store!(StoredGroup, groups);
@@ -289,6 +394,8 @@ pub struct GroupQueryArgs {
     pub created_before_ns: Option<i64>,
     pub last_activity_after_ns: Option<i64>,
     pub last_activity_before_ns: Option<i64>,
+    /// No limit returns every matching group. Callers that need every group
+    /// (stream catch-up, barriers, device sync, commit-log scans) rely on it.
     pub limit: Option<i64>,
     pub conversation_type: Option<ConversationType>,
     pub consent_states: Option<Vec<ConsentState>>,
@@ -296,6 +403,11 @@ pub struct GroupQueryArgs {
     pub include_duplicate_dms: bool,
     pub should_publish_commit_log: Option<bool>,
     pub order_by: Option<GroupQueryOrderBy>,
+    /// Breaks ties at the list order's before time
+    /// ([`GroupQueryArgs::order_before_ns`]): a group at exactly that time is
+    /// returned only when its id is lower in byte order. It needs that before
+    /// time. Only `fetch_conversation_list` honors it; `find_groups` ignores it.
+    pub before_id: Option<GroupId>,
 }
 
 impl AsRef<GroupQueryArgs> for GroupQueryArgs {
@@ -324,7 +436,23 @@ impl GroupQueryArgs {
             ));
         }
 
+        if self.before_id.is_some() && self.order_before_ns().is_none() {
+            return Err(crate::ConnectionError::InvalidQuery(
+                "before_id needs the before time of the list order".to_string(),
+            ));
+        }
+
         Ok(())
+    }
+
+    /// The before time of the list order, which `before_id` breaks ties at:
+    /// `created_before_ns` in creation order, `last_activity_before_ns` in
+    /// activity order.
+    pub fn order_before_ns(&self) -> Option<i64> {
+        match self.order_by.clone().unwrap_or_default() {
+            GroupQueryOrderBy::CreatedAt => self.created_before_ns,
+            GroupQueryOrderBy::LastActivity => self.last_activity_before_ns,
+        }
     }
 }
 
@@ -383,6 +511,9 @@ pub trait QueryGroup {
         in_ns: Option<i64>,
     ) -> Result<(), StorageError>;
 
+    /// Store the group a Welcome installs: insert it, replace a Restored
+    /// placeholder, or keep an existing row and advance its Welcome cursor.
+    /// Every successful call changes the group-set generation.
     fn insert_or_replace_group(&self, group: StoredGroup) -> Result<StoredGroup, StorageError>;
 
     /// Get all the welcome ids turned into groups
@@ -403,12 +534,14 @@ pub trait QueryGroup {
         &self,
     ) -> Result<Vec<StoredGroupCommitLogPublicKey>, crate::ConnectionError>;
 
-    /// Get conversations for all conversations that require a remote commit log download (DMs and groups that are not sync groups)
+    /// The conversations whose commit log the client reads: allowed DMs and
+    /// groups other than one-shot, sync and restored groups.
     fn get_conversation_ids_for_remote_log_download(
         &self,
     ) -> Result<Vec<StoredGroupCommitLogPublicKey>, crate::ConnectionError>;
 
-    /// Get conversation IDs for fork checking (excludes already forked conversations and sync groups)
+    /// The conversations whose commit log the client reads, other than those
+    /// already forked. Any other conversation keeps its last fork state.
     fn get_conversation_ids_for_fork_check(&self) -> Result<Vec<Vec<u8>>, crate::ConnectionError>;
 
     /// Get conversation IDs for conversations that are forked and need readd requests
@@ -425,6 +558,14 @@ pub trait QueryGroup {
         &self,
         group_id: &GroupId,
     ) -> Result<ConversationType, crate::ConnectionError>;
+
+    /// Update the cached publisher role in the caller's state transaction.
+    /// The caller owns publication eligibility and any role-transition cutoff.
+    fn set_should_publish_commit_log(
+        &self,
+        group_id: &GroupId,
+        should_publish: bool,
+    ) -> Result<(), crate::ConnectionError>;
 
     /// Updates the is_commit_log_forked status for a group
     fn set_group_commit_log_forked_status(
@@ -448,6 +589,19 @@ pub trait QueryGroup {
 
     fn get_groups_have_pending_leave_request(&self)
     -> Result<Vec<Vec<u8>>, crate::ConnectionError>;
+
+    /// Every stored group that `scope` selects, newest first: regular groups,
+    /// then sync groups. Reads no message.
+    fn stored_group_refs(
+        &self,
+        scope: &GroupScope,
+    ) -> Result<Vec<StoredGroupRef>, crate::ConnectionError>;
+
+    /// A counter that changes whenever a group is added or removed, a group's
+    /// id, membership state, Welcome cursor, DM id or type changes, a
+    /// conversation's consent changes, or a Welcome discovery is recorded.
+    /// Message writes and inbox consent do not change it.
+    fn group_set_generation(&self) -> Result<i64, crate::ConnectionError>;
 }
 
 impl<T> QueryGroup for &T
@@ -595,6 +749,14 @@ where
         (**self).get_conversation_type(group_id)
     }
 
+    fn set_should_publish_commit_log(
+        &self,
+        group_id: &GroupId,
+        should_publish: bool,
+    ) -> Result<(), crate::ConnectionError> {
+        (**self).set_should_publish_commit_log(group_id, should_publish)
+    }
+
     fn set_group_commit_log_forked_status(
         &self,
         group_id: &GroupId,
@@ -623,9 +785,31 @@ where
     ) -> Result<Vec<Vec<u8>>, crate::ConnectionError> {
         (**self).get_groups_have_pending_leave_request()
     }
+
+    fn stored_group_refs(
+        &self,
+        scope: &GroupScope,
+    ) -> Result<Vec<StoredGroupRef>, crate::ConnectionError> {
+        (**self).stored_group_refs(scope)
+    }
+
+    fn group_set_generation(&self) -> Result<i64, crate::ConnectionError> {
+        (**self).group_set_generation()
+    }
 }
 
 impl<C: ConnectionExt> DbConnection<C> {
+    /// Change the group-set generation for a write its triggers do not see.
+    fn bump_group_set_generation(&self) -> Result<(), crate::ConnectionError> {
+        use crate::schema::group_set_generation::dsl as generation_dsl;
+        self.raw_query(|conn| {
+            diesel::update(generation_dsl::group_set_generation)
+                .set(generation_dsl::generation.eq(generation_dsl::generation + 1))
+                .execute(conn)
+        })?;
+        Ok(())
+    }
+
     /// The stored rows of the sync groups the app asked for, or none. The
     /// conversation list's `requested_sync_groups` applies the same rule.
     // implements: SYNC-005
@@ -644,7 +828,7 @@ impl<C: ConnectionExt> DbConnection<C> {
 impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
     /// Return regular `Purpose::Conversation` groups with additional optional filters
     #[xmtp_common::db_span]
-    // implements: CONS-030, CONS-031
+    // implements: CONS-060, CONS-031
     fn find_groups<A: AsRef<GroupQueryArgs>>(
         &self,
         args: A,
@@ -666,6 +850,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
             last_activity_before_ns,
             should_publish_commit_log,
             order_by,
+            before_id: _,
         } = args.as_ref();
 
         // An empty filter names no consent state, so it matches no conversation.
@@ -752,7 +937,17 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
         };
 
         let includes_unknown = effective_consent_states.contains(&ConsentState::Unknown);
-        let includes_all = effective_consent_states.len() == 3;
+        // "All states requested" means the request covers every distinct
+        // ConsentState, not merely that it has three elements — a caller passing
+        // duplicates (e.g. `[Allowed, Allowed, Allowed]`) must not be treated as
+        // an unfiltered query and leak Denied/Unknown conversations.
+        let includes_all = [
+            ConsentState::Allowed,
+            ConsentState::Denied,
+            ConsentState::Unknown,
+        ]
+        .iter()
+        .all(|state| effective_consent_states.contains(state));
 
         if let Some(should_publish_commit_log) = should_publish_commit_log {
             query = query.filter(dsl::should_publish_commit_log.eq(should_publish_commit_log));
@@ -1012,6 +1207,9 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
                 )))
             } else {
                 tracing::info!("Group already exists");
+                // The row keeps its conversation type and dm id. Its only
+                // production caller, XmtpWelcome::commit, rejects a Welcome
+                // that would change either before it calls this.
                 // If the welcome id is greater than the existing group welcome, update the welcome id
                 // on the existing group
                 if group.sequence_id.is_some()
@@ -1024,6 +1222,11 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
                             .execute(c)
                     })?;
                     existing_group.sequence_id = group.sequence_id;
+                } else {
+                    // Welcome publication order is not epoch order: an older
+                    // Welcome can still rejoin an inactive group. It writes no
+                    // triggered column, so record the change here.
+                    self.bump_group_set_generation()?;
                 }
                 Ok(existing_group)
             }
@@ -1095,14 +1298,23 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
         })
     }
 
-    /// Get conversation IDs for all conversations that require a remote commit log publish
-    /// (DMs and groups where user is super admin, excluding sync groups and rejected groups)
+    /// Get allowed publisher candidates, including groups whose legacy role
+    /// has not yet been recovered. Sync and restored groups are excluded.
+    // implements: FORK-086
     #[xmtp_common::db_span]
     fn get_conversation_ids_for_remote_log_publish(
         &self,
     ) -> Result<Vec<StoredGroupCommitLogPublicKey>, crate::ConnectionError> {
         use crate::schema::consent_records::dsl as consent_dsl;
 
+        let unrecovered = diesel::dsl::not(diesel::dsl::exists(
+            crate::schema::refresh_state::table
+                .filter(crate::schema::refresh_state::entity_id.eq(dsl::id))
+                .filter(
+                    crate::schema::refresh_state::entity_kind
+                        .eq(super::refresh_state::EntityKind::CommitLogPublisherRecovery),
+                ),
+        ));
         let query = dsl::groups
             .filter(dsl::membership_state.ne(GroupMembershipState::Restored))
             .filter(
@@ -1110,7 +1322,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
                     .eq(ConversationType::Dm)
                     .or(dsl::conversation_type
                         .eq(ConversationType::Group)
-                        .and(dsl::should_publish_commit_log.eq(true))),
+                        .and(dsl::should_publish_commit_log.eq(true).or(unrecovered))),
             )
             .inner_join(consent_dsl::consent_records.on(conversation_consent_join()))
             .filter(consent_dsl::state.eq(ConsentState::Allowed))
@@ -1120,39 +1332,24 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
         self.raw_query(|conn| query.load::<StoredGroupCommitLogPublicKey>(conn))
     }
 
-    // All dms and groups that are not sync groups and have consent state Allowed
     #[xmtp_common::db_span]
     fn get_conversation_ids_for_remote_log_download(
         &self,
     ) -> Result<Vec<StoredGroupCommitLogPublicKey>, crate::ConnectionError> {
-        use crate::schema::consent_records::dsl as consent_dsl;
-
-        let query = dsl::groups
-            .filter(dsl::membership_state.ne(GroupMembershipState::Restored))
-            .filter(dsl::conversation_type.ne_all(ConversationType::virtual_types()))
-            .inner_join(consent_dsl::consent_records.on(conversation_consent_join()))
-            .filter(consent_dsl::state.eq(ConsentState::Allowed))
-            .select((dsl::id, dsl::commit_log_public_key));
-
+        let query = allowed_commit_log_groups().select((dsl::id, dsl::commit_log_public_key));
         self.raw_query(|conn| query.load::<StoredGroupCommitLogPublicKey>(conn))
     }
 
-    // Get conversation IDs for fork checking (excludes already forked conversations and sync groups)
+    // implements: FORK-082
     #[xmtp_common::db_span]
     fn get_conversation_ids_for_fork_check(&self) -> Result<Vec<Vec<u8>>, crate::ConnectionError> {
-        let query = dsl::groups
-            .filter(dsl::membership_state.ne(GroupMembershipState::Restored))
+        let query = allowed_commit_log_groups()
             .filter(
-                dsl::conversation_type
-                    .ne_all(ConversationType::virtual_types())
-                    .and(
-                        dsl::is_commit_log_forked
-                            .is_null()
-                            .or(dsl::is_commit_log_forked.ne(Some(true))),
-                    ),
+                dsl::is_commit_log_forked
+                    .is_null()
+                    .or(dsl::is_commit_log_forked.ne(Some(true))),
             )
             .select(dsl::id);
-
         self.raw_query(|conn| query.load::<Vec<u8>>(conn))
     }
 
@@ -1218,6 +1415,20 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
         Ok(conversation_type)
     }
 
+    // implements: FORK-085
+    fn set_should_publish_commit_log(
+        &self,
+        group_id: &GroupId,
+        should_publish: bool,
+    ) -> Result<(), crate::ConnectionError> {
+        self.raw_query(|conn| {
+            diesel::update(dsl::groups.find(group_id))
+                .set(dsl::should_publish_commit_log.eq(should_publish))
+                .execute(conn)?;
+            Ok(())
+        })
+    }
+
     fn set_group_commit_log_forked_status(
         &self,
         group_id: &GroupId,
@@ -1273,6 +1484,87 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
             .select(dsl::id);
 
         self.raw_query(|conn| query.load::<Vec<u8>>(conn))
+    }
+
+    // implements: PROC-015
+    #[xmtp_common::db_span]
+    fn stored_group_refs(
+        &self,
+        scope: &GroupScope,
+    ) -> Result<Vec<StoredGroupRef>, crate::ConnectionError> {
+        let GroupScope {
+            consent,
+            include_sync,
+            include_restored,
+        } = scope;
+        let filter_restored = |query: groups::BoxedQuery<'static, Sqlite>| {
+            if *include_restored {
+                query
+            } else {
+                query.filter(dsl::membership_state.ne(GroupMembershipState::Restored))
+            }
+        };
+        let newest_first = (dsl::created_at_ns.desc(), dsl::id.desc());
+
+        let mut refs = match consent {
+            Some(states) if states.is_empty() => Vec::new(),
+            consent => {
+                let mut query = filter_restored(
+                    dsl::groups
+                        .filter(dsl::conversation_type.ne_all(ConversationType::virtual_types()))
+                        .into_boxed(),
+                );
+                let all_states = [
+                    ConsentState::Unknown,
+                    ConsentState::Allowed,
+                    ConsentState::Denied,
+                ];
+                // A group with no consent record is Unknown. A filter that
+                // names every state selects every group without a lookup.
+                if let Some(states) = consent
+                    && !all_states.iter().all(|state| states.contains(state))
+                {
+                    let has_state = diesel::dsl::exists(
+                        consent_records::table
+                            .filter(conversation_consent_join())
+                            .filter(consent_records::state.eq_any(states.clone())),
+                    );
+                    query = if states.contains(&ConsentState::Unknown) {
+                        let has_record = diesel::dsl::exists(
+                            consent_records::table.filter(conversation_consent_join()),
+                        );
+                        query.filter(has_state.or(diesel::dsl::not(has_record)))
+                    } else {
+                        query.filter(has_state)
+                    };
+                }
+                let query = query
+                    .order(newest_first)
+                    .select(StoredGroupRef::as_select());
+                self.raw_query(|conn| query.load(conn))?
+            }
+        };
+        if *include_sync {
+            let query = filter_restored(
+                dsl::groups
+                    .filter(dsl::conversation_type.eq(ConversationType::Sync))
+                    .into_boxed(),
+            )
+            .order(newest_first)
+            .select(StoredGroupRef::as_select());
+            refs.extend(self.raw_query(|conn| query.load(conn))?);
+        }
+        Ok(refs)
+    }
+
+    #[xmtp_common::db_span]
+    fn group_set_generation(&self) -> Result<i64, crate::ConnectionError> {
+        use crate::schema::group_set_generation::dsl as generation_dsl;
+        self.raw_query(|conn| {
+            generation_dsl::group_set_generation
+                .select(generation_dsl::generation)
+                .first(conn)
+        })
     }
 }
 
@@ -1416,18 +1708,34 @@ pub(crate) mod tests {
             .unwrap()
     }
 
+    /// The own identity `generate_dm` names, and the consent record of `dm`'s
+    /// peer in `state`.
+    pub fn dm_peer_consent(
+        conn: &impl crate::DbQuery,
+        dm: &StoredGroup,
+        state: ConsentState,
+    ) -> StoredConsentRecord {
+        let own = "placeholder_inbox_id_1";
+        if conn
+            .raw_query(|c| crate::schema::identity::table.count().get_result::<i64>(c))
+            .unwrap()
+            == 0
+        {
+            crate::identity::StoredIdentity::new(own.into(), vec![0], vec![0])
+                .store(conn)
+                .unwrap();
+        }
+        let peer = dm.dm_id.clone().unwrap().other_inbox_id(own).unwrap();
+        generate_consent_record(ConsentType::InboxId, state, peer)
+    }
+
     /// Generate a test consent
     pub fn generate_consent_record(
         entity_type: ConsentType,
         state: ConsentState,
         entity: String,
     ) -> StoredConsentRecord {
-        StoredConsentRecord {
-            entity_type,
-            state,
-            entity,
-            consented_at_ns: now_ns(),
-        }
+        StoredConsentRecord::new(entity_type, state, entity)
     }
 
     #[xmtp_common::test]
@@ -1681,8 +1989,8 @@ pub(crate) mod tests {
         })
     }
 
-    // verifies: CONS-030, SYNC-005
-    #[xmtp_common::test]
+    // verifies: CONS-060, SYNC-005
+    #[xmtp_common::test(unwrap_try = true)]
     fn test_find_groups_by_consent_state() {
         with_connection(|conn| {
             let test_group_1 = generate_group(Some(GroupMembershipState::Allowed));
@@ -1706,69 +2014,47 @@ pub(crate) mod tests {
                 hex::encode(test_group_2.id),
             );
             test_group_2_consent.store(conn).unwrap();
-            let test_group_3_consent = generate_consent_record(
-                ConsentType::ConversationId,
-                ConsentState::Allowed,
-                hex::encode(test_group_3.id),
-            );
+            // A DM's consent is its peer's inbox record.
+            let test_group_3_consent = dm_peer_consent(conn, &test_group_3, ConsentState::Allowed);
             test_group_3_consent.store(conn).unwrap();
 
-            let all_results = conn
-                .find_groups(GroupQueryArgs {
-                    consent_states: Some(vec![
-                        ConsentState::Allowed,
-                        ConsentState::Unknown,
-                        ConsentState::Denied,
-                    ]),
-                    ..Default::default()
-                })
-                .unwrap();
-            assert_eq!(all_results.len(), 4);
-
-            let default_results = conn.find_groups(GroupQueryArgs::default()).unwrap();
-            assert_eq!(default_results.len(), 3);
-
-            let allowed_results = conn
-                .find_groups(GroupQueryArgs {
-                    consent_states: Some(vec![ConsentState::Allowed]),
-                    ..Default::default()
-                })
-                .unwrap();
-            assert_eq!(allowed_results.len(), 2);
-
-            let allowed_unknown_results = conn
-                .find_groups(GroupQueryArgs {
-                    consent_states: Some(vec![ConsentState::Allowed, ConsentState::Unknown]),
-                    ..Default::default()
-                })
-                .unwrap();
-            assert_eq!(allowed_unknown_results.len(), 3);
-
-            let denied_results = conn
-                .find_groups(GroupQueryArgs {
-                    consent_states: Some(vec![ConsentState::Denied]),
-                    ..Default::default()
-                })
-                .unwrap();
-            assert_eq!(denied_results.len(), 1);
-            assert_eq!(denied_results[0].id, test_group_2.id);
-
-            let unknown_results = conn
-                .find_groups(GroupQueryArgs {
-                    consent_states: Some(vec![ConsentState::Unknown]),
-                    ..Default::default()
-                })
-                .unwrap();
-            assert_eq!(unknown_results.len(), 1);
-            assert_eq!(unknown_results[0].id, test_group_4.id);
-
-            let empty_array_results = conn
-                .find_groups(GroupQueryArgs {
-                    consent_states: Some(vec![]),
-                    ..Default::default()
-                })
-                .unwrap();
-            assert!(empty_array_results.is_empty());
+            use ConsentState::{Allowed, Denied, Unknown};
+            let (g1, g2, g3, g4) = (
+                &test_group_1.id,
+                &test_group_2.id,
+                &test_group_3.id,
+                &test_group_4.id,
+            );
+            // Repeats do not count toward naming every state.
+            let cases = [
+                (Some(vec![Allowed, Unknown, Denied]), vec![g1, g2, g3, g4]),
+                (None, vec![g1, g3, g4]),
+                (Some(vec![Allowed]), vec![g1, g3]),
+                (Some(vec![Allowed, Unknown]), vec![g1, g3, g4]),
+                (Some(vec![Denied]), vec![g2]),
+                (Some(vec![Unknown]), vec![g4]),
+                (Some(vec![]), vec![]),
+                (Some(vec![Allowed, Allowed, Allowed]), vec![g1, g3]),
+                (Some(vec![Allowed, Denied, Denied]), vec![g1, g2, g3]),
+                (Some(vec![Unknown, Unknown, Allowed]), vec![g1, g3, g4]),
+            ];
+            for (consent_states, mut expected) in cases {
+                let mut ids: Vec<_> = conn
+                    .find_groups(GroupQueryArgs {
+                        consent_states: consent_states.clone(),
+                        ..Default::default()
+                    })?
+                    .into_iter()
+                    .map(|group| group.id)
+                    .collect();
+                ids.sort();
+                expected.sort();
+                assert_eq!(
+                    ids.iter().collect::<Vec<_>>(),
+                    expected,
+                    "{consent_states:?}"
+                );
+            }
 
             let mut sync_group = generate_group(Some(GroupMembershipState::Allowed));
             sync_group.conversation_type = ConversationType::Sync;
@@ -2013,6 +2299,87 @@ pub(crate) mod tests {
                 .collect();
             assert_eq!(ids, [newer[0], newer[1], older[1], older[0]]);
         })
+    }
+
+    /// A sync group is stored after every sync group held, even when the
+    /// clock was set back after the older group was stored.
+    // verifies: SYNC-031
+    #[xmtp_common::test]
+    fn sync_join_time_grows_after_clock_set_back() {
+        with_connection(|conn| {
+            let ahead = now_ns() + 2 * xmtp_common::NS_IN_HOUR;
+            let mut older = generate_group_with_created_at(None, ahead);
+            older.conversation_type = ConversationType::Sync;
+            older.store(conn).unwrap();
+            let joined = next_sync_join_time(conn).unwrap();
+            assert_eq!(joined, ahead + 1);
+            let mut newer = generate_group_with_created_at(None, joined);
+            newer.conversation_type = ConversationType::Sync;
+            newer.store(conn).unwrap();
+            assert_eq!(conn.all_sync_groups().unwrap()[0].id, newer.id);
+        })
+    }
+
+    /// The SQL join and `ConsentKey::of_group` give a group the same consent
+    /// record, or both none, for every dm id shape.
+    // verifies: CONS-052, CONS-060
+    #[xmtp_common::test(unwrap_try = true)]
+    fn consent_join_sql_matches_of_group() {
+        use crate::consent_record::ConsentKey;
+        use diesel::sql_types::{Binary, Integer, Nullable, Text};
+        #[derive(QueryableByName)]
+        struct Joined {
+            #[diesel(sql_type = Nullable<Integer>)]
+            entity_type: Option<i32>,
+            #[diesel(sql_type = Nullable<Text>)]
+            entity: Option<String>,
+        }
+        with_connection(|conn| {
+            crate::identity::StoredIdentity::new("me".into(), vec![0], vec![0]).store(conn)?;
+            let entities = ["p", "q", "me", "a", "b", "a:b", "p:q", "x"];
+            for entity in entities {
+                generate_consent_record(ConsentType::InboxId, ConsentState::Denied, entity.into())
+                    .store(conn)?;
+            }
+            let dm_ids = [
+                None,
+                Some("dm:me:p"),
+                Some("dm:p:me"),
+                Some("dm:me:P"),
+                Some("dm:a:b"),
+                Some("dm:me:me"),
+                Some("dm:me:p:q"),
+                Some("dm::me"),
+                Some("dm:me:"),
+                Some("dm:me"),
+                Some("x:me:p"),
+            ];
+            for dm_id in dm_ids {
+                let mut group = generate_group(None);
+                group.dm_id = dm_id.map(String::from);
+                group.store(conn)?;
+                generate_consent_record(
+                    ConsentType::ConversationId,
+                    ConsentState::Denied,
+                    hex::encode(group.id),
+                )
+                .store(conn)?;
+                let joined = conn.raw_query(|c| {
+                    diesel::sql_query(format!(
+                        "SELECT consent_records.entity_type, consent_records.entity FROM groups \
+                         LEFT JOIN consent_records ON {} WHERE groups.id = ?",
+                        consent_join_sql("groups")
+                    ))
+                    .bind::<Binary, _>(group.id)
+                    .get_result::<Joined>(c)
+                })?;
+                let rust = ConsentKey::of_group(&group, "me")
+                    .map(|key| (key.entity_type as i32, key.entity));
+                let sql = joined.entity_type.zip(joined.entity);
+                assert_eq!(sql, rust, "{dm_id:?}");
+            }
+            Ok::<_, StorageError>(())
+        })?;
     }
 
     /// An imported Restored sync group carries an archive-controlled join
@@ -2330,5 +2697,296 @@ pub(crate) mod tests {
                  got: {fields:?}"
             );
         })
+    }
+
+    /// Welcome sync and group discovery enumerate stored groups through this
+    /// projection, which has no message field and no row limit. Each scope the
+    /// callers use selects, in the same order, what that caller's former query
+    /// selected, in every membership state.
+    // verifies: PROC-015
+    #[xmtp_common::test(unwrap_try = true)]
+    fn stored_group_refs_select_like_listing_without_previews() {
+        use crate::conversation_list::QueryConversationList;
+        use ConsentState::{Allowed, Denied, Unknown};
+
+        // More than a default page, so a row limit would leave some out.
+        const UNKNOWN_GROUPS: usize = 150;
+
+        // The pattern names every field, so a field added to the projection
+        // fails to compile here.
+        fn ids(refs: Vec<StoredGroupRef>) -> Vec<GroupId> {
+            refs.into_iter()
+                .map(
+                    |StoredGroupRef {
+                         id,
+                         dm_id: _,
+                         conversation_type: _,
+                         created_at_ns: _,
+                         membership_state: _,
+                     }| id,
+                )
+                .collect()
+        }
+        fn sorted(ids: impl IntoIterator<Item = GroupId>) -> Vec<GroupId> {
+            let mut ids: Vec<_> = ids.into_iter().collect();
+            ids.sort();
+            ids
+        }
+
+        with_connection(|conn| -> Result<(), StorageError> {
+            let mut created_at_ns = 0;
+            let mut store = |state: GroupMembershipState,
+                             conversation_type: ConversationType,
+                             dm_id: Option<&str>,
+                             consent: Option<ConsentState>|
+             -> Result<GroupId, StorageError> {
+                created_at_ns += 1;
+                let mut group = generate_group_with_created_at(Some(state), created_at_ns);
+                group.conversation_type = conversation_type;
+                group.dm_id = dm_id.map(str::to_string);
+                group.store(conn)?;
+                if let Some(consent) = consent {
+                    generate_consent_record(
+                        ConsentType::ConversationId,
+                        consent,
+                        hex::encode(group.id),
+                    )
+                    .store(conn)?;
+                }
+                Ok(group.id)
+            };
+            use ConversationType::{Dm, Group, Oneshot, Sync};
+            use GroupMembershipState::{
+                Allowed as Joined, Pending, PendingRemove, Rejected, Restored,
+            };
+            let mut unknown = Vec::new();
+            for _ in 0..UNKNOWN_GROUPS {
+                unknown.push(store(Joined, Group, None, None)?);
+            }
+            let allowed = store(Joined, Group, None, Some(Allowed))?;
+            let denied = store(Joined, Group, None, Some(Denied))?;
+            let recorded_unknown = store(Joined, Group, None, Some(Unknown))?;
+            let pending = store(Pending, Group, None, None)?;
+            let leaving = store(PendingRemove, Group, None, None)?;
+            let rejected = store(Rejected, Group, None, None)?;
+            let restored = store(Restored, Group, None, None)?;
+            let oneshot = store(Joined, Oneshot, None, Some(Allowed))?;
+            let sync = store(Joined, Sync, None, Some(Denied))?;
+            let restored_sync = store(Restored, Sync, None, None)?;
+            let dm = store(Joined, Dm, Some("dm:alix:bo"), None)?;
+            let duplicate_dm = store(Joined, Dm, Some("dm:alix:bo"), None)?;
+
+            let listed = |consent_states: Option<Vec<ConsentState>>| {
+                conn.fetch_conversation_list(GroupQueryArgs {
+                    consent_states,
+                    include_sync_groups: true,
+                    include_duplicate_dms: true,
+                    ..Default::default()
+                })
+            };
+            let found = |consent_states: Option<Vec<ConsentState>>| {
+                let found = conn.find_groups(GroupQueryArgs {
+                    consent_states,
+                    include_sync_groups: true,
+                    include_duplicate_dms: true,
+                    ..Default::default()
+                })?;
+                Ok::<_, StorageError>(found)
+            };
+            let refs = |scope: GroupScope| conn.stored_group_refs(&scope).map(ids);
+
+            let filters = [
+                None,
+                Some(vec![Allowed]),
+                Some(vec![Denied]),
+                Some(vec![Unknown, Denied]),
+                Some(vec![]),
+            ];
+            for states in filters {
+                // sync_welcomes and barrier Welcome discovery: the listing,
+                // Restored rows kept.
+                let listing = refs(GroupScope::listing(states.clone()))?;
+                let rows = listed(states.clone())?;
+                assert_eq!(listing, rows.iter().map(|g| g.id).collect::<Vec<_>>());
+                assert_eq!(
+                    sorted(listing),
+                    sorted(found(states.clone())?.into_iter().map(|g| g.id))
+                );
+                // sync_all_welcomes_and_groups: the listing without Restored rows.
+                let unrestored = rows
+                    .iter()
+                    .filter(|g| g.membership_state != Restored)
+                    .map(|g| g.id);
+                assert_eq!(
+                    refs(GroupScope::listing(states).without_restored())?,
+                    unrestored.collect::<Vec<_>>()
+                );
+            }
+            let expected = unknown.iter().copied().chain([
+                allowed,
+                recorded_unknown,
+                pending,
+                leaving,
+                rejected,
+                restored,
+                sync,
+                restored_sync,
+                dm,
+                duplicate_dm,
+            ]);
+            assert_eq!(sorted(refs(GroupScope::listing(None))?), sorted(expected));
+            // Newest first.
+            assert_eq!(
+                refs(GroupScope::listing(Some(vec![])))?,
+                vec![restored_sync, sync]
+            );
+
+            // The incoming controller: every group, without Restored rows.
+            let all_groups = refs(GroupScope::every_group().without_restored())?;
+            let selected = found(Some(vec![Allowed, Unknown, Denied]))?
+                .into_iter()
+                .filter(|g| g.membership_state != Restored)
+                .map(|g| g.id);
+            assert_eq!(sorted(all_groups.clone()), sorted(selected));
+            let expected = unknown.iter().copied().chain([
+                allowed,
+                denied,
+                recorded_unknown,
+                pending,
+                leaving,
+                rejected,
+                sync,
+                dm,
+                duplicate_dm,
+            ]);
+            assert_eq!(sorted(all_groups), sorted(expected));
+            assert!(
+                !refs(GroupScope::every_group())?.contains(&oneshot),
+                "a Oneshot group was selected"
+            );
+
+            // The listing query can be row-limited; the projection has no limit.
+            let limited = conn.fetch_conversation_list(GroupQueryArgs {
+                limit: Some(4),
+                include_duplicate_dms: true,
+                ..Default::default()
+            })?;
+            assert_eq!(limited.len(), 4);
+            Ok(())
+        })?;
+    }
+
+    /// The generation changes with each write that can change a gated group
+    /// selection, and with no other write.
+    #[xmtp_common::test(unwrap_try = true)]
+    fn group_set_generation_tracks_selection_changes() {
+        use crate::group_message::tests::generate_message;
+        use crate::prelude::*;
+        use crate::schema::groups::dsl;
+
+        with_connection(|conn| -> Result<(), StorageError> {
+            assert_eq!(conn.group_set_generation()?, 0);
+            let mut last = 0;
+            let mut changed_by = || -> Result<i64, StorageError> {
+                let current = conn.group_set_generation()?;
+                let change = current - last;
+                last = current;
+                Ok(change)
+            };
+
+            let group = generate_group(None);
+            group.store(conn)?;
+            assert_eq!(changed_by()?, 1, "group insert");
+            let removed = generate_group(None);
+            removed.store(conn)?;
+            conn.raw_query(|c| diesel::delete(dsl::groups.find(&removed.id)).execute(c))?;
+            assert_eq!(changed_by()?, 2, "group insert and delete");
+            conn.update_group_membership(group.id, GroupMembershipState::PendingRemove)?;
+            assert_eq!(changed_by()?, 1, "membership state");
+            conn.update_group_membership(group.id, GroupMembershipState::PendingRemove)?;
+            assert_eq!(changed_by()?, 0, "same membership state");
+            conn.raw_query(|c| {
+                diesel::update(dsl::groups.find(&group.id))
+                    .set(dsl::sequence_id.eq(Some(5)))
+                    .execute(c)
+            })?;
+            assert_eq!(changed_by()?, 1, "Welcome cursor");
+            let welcome = |sequence_id| StoredGroup {
+                sequence_id: Some(sequence_id),
+                ..group.clone()
+            };
+            conn.insert_or_replace_group(welcome(7))?;
+            assert_eq!(changed_by()?, 1, "newer Welcome for a stored group");
+            conn.insert_or_replace_group(welcome(3))?;
+            assert_eq!(changed_by()?, 1, "older Welcome for a stored group");
+            conn.raw_query(|c| {
+                diesel::update(dsl::groups.find(&group.id))
+                    .set(dsl::conversation_type.eq(ConversationType::Dm))
+                    .execute(c)
+            })?;
+            assert_eq!(changed_by()?, 1, "conversation type");
+            conn.raw_query(|c| {
+                diesel::update(dsl::groups.find(&group.id))
+                    .set(dsl::dm_id.eq(Some("dm:alix:bo")))
+                    .execute(c)
+            })?;
+            assert_eq!(changed_by()?, 1, "DM id");
+            conn.update_installations_time_checked(&group.id)?;
+            assert_eq!(changed_by()?, 0, "unselected column");
+            generate_message(None, Some(&group.id), None, None, None, None).store(conn)?;
+            assert_eq!(changed_by()?, 0, "message insert");
+
+            let consent = |entity_type, state, entity: String| {
+                use crate::consent_record::{ConsentKey, ConsentWrite, Decision, Owed};
+                let key = ConsentKey {
+                    entity_type,
+                    entity,
+                };
+                let write = ConsentWrite::Decide(Decision::Set(state));
+                crate::consent_record::write_consent(conn, &key, write, Owed::Mark)
+            };
+            let entity = hex::encode(group.id);
+            consent(
+                ConsentType::ConversationId,
+                ConsentState::Denied,
+                entity.clone(),
+            )?;
+            assert_eq!(changed_by()?, 1, "conversation consent insert");
+            consent(
+                ConsentType::ConversationId,
+                ConsentState::Allowed,
+                entity.clone(),
+            )?;
+            assert_eq!(changed_by()?, 1, "conversation consent change");
+            consent(
+                ConsentType::ConversationId,
+                ConsentState::Allowed,
+                entity.clone(),
+            )?;
+            assert_eq!(changed_by()?, 0, "same conversation consent");
+            conn.raw_query(|c| {
+                diesel::delete(
+                    consent_records::table
+                        .filter(consent_records::entity_type.eq(ConsentType::ConversationId))
+                        .filter(consent_records::entity.eq(&entity)),
+                )
+                .execute(c)
+            })?;
+            assert_eq!(changed_by()?, 1, "conversation consent delete");
+            // Inbox consent decides DMs, so it changes the group set.
+            consent(ConsentType::InboxId, ConsentState::Denied, "bo".into())?;
+            assert_eq!(changed_by()?, 1, "inbox consent insert");
+            consent(ConsentType::InboxId, ConsentState::Allowed, "bo".into())?;
+            assert_eq!(changed_by()?, 1, "inbox consent change");
+            crate::sync_outbox::mark_all_owed(conn)?;
+            assert_eq!(changed_by()?, 0, "owed marks only");
+
+            conn.record_welcome_discovery(group.id, Cursor(5))?;
+            assert_eq!(changed_by()?, 1, "Welcome discovery");
+            conn.record_welcome_discovery(group.id, Cursor(6))?;
+            assert_eq!(changed_by()?, 0, "repeated Welcome discovery");
+
+            Ok(())
+        })?;
     }
 }

@@ -21,6 +21,24 @@ fn batch(ids: &[u64]) -> Vec<NewIncomingEnvelope> {
         .collect()
 }
 
+/// Block a pending row so only a new coordinator generation rechecks it.
+fn hold(
+    db: &impl QueryIncomingEnvelope,
+    topic: &StreamTopic,
+    sequence: u64,
+) -> Result<bool, StorageError> {
+    db.set_incoming_retry(
+        topic,
+        Cursor(sequence),
+        &IncomingRetry {
+            retry_at_ns: 200,
+            blocked: true,
+            error_code: Some("TEST_BLOCKED".into()),
+            retry_expires_at_ns: None,
+        },
+    )
+}
+
 fn limits() -> IncomingLimits {
     IncomingLimits {
         batch: PendingBudget { rows: 8, bytes: 32 },
@@ -141,16 +159,7 @@ async fn overlaps_and_sparse_ids_preserve_the_pending_head() {
             StreamStorageError::MissingPrefix { .. }
         ))
     ));
-    db.set_incoming_retry(
-        &group,
-        Cursor(10),
-        &IncomingRetry {
-            retry_at_ns: 500,
-            blocked: true,
-            error_code: Some("unsupported".into()),
-            retry_expires_at_ns: None,
-        },
-    )?;
+    hold(&db, &group, 10)?;
     assert!(matches!(
         db.complete_pending_envelope(&group, Cursor(30)),
         Err(StorageError::Stream(StreamStorageError::HeadChanged))
@@ -220,6 +229,101 @@ async fn bounds_leave_progress_unchanged_and_reserve_dependency_capacity() {
     ));
 }
 
+/// Held work never drains, so it is charged to its own allowance and cannot
+/// stop admission of ready work.
+// verifies: PROC-020
+#[xmtp_common::test(unwrap_try = true)]
+async fn held_work_uses_a_separate_allowance() {
+    enum Hold {
+        Blocked,
+        Pointer,
+        Unreadable,
+    }
+    let deadline = xmtp_common::time::now_ns().saturating_add(xmtp_common::NS_IN_DAY);
+    // One Welcome topic per installation: its topic budget equals the kind budget.
+    let mut limits = limits();
+    limits.topic = limits.kind;
+    let ids = |round: u64| (1..=8).map(|i| round * 80 + i * 10).collect::<Vec<_>>();
+    for (kind, shape) in [
+        (NetworkEntityKind::Group, Hold::Blocked),
+        (NetworkEntityKind::Welcome, Hold::Blocked),
+        (NetworkEntityKind::Welcome, Hold::Pointer),
+        (NetworkEntityKind::Welcome, Hold::Unreadable),
+    ] {
+        let store = TestDb::create_persistent_store(None).await;
+        let db = store.db();
+        let group = kind == NetworkEntityKind::Group;
+        let apply = |held: &StreamTopic, id: u64| match shape {
+            Hold::Blocked => hold(&db, held, id),
+            Hold::Pointer => db.set_incoming_retry(
+                held,
+                Cursor(id),
+                &IncomingRetry {
+                    retry_at_ns: 0,
+                    blocked: false,
+                    error_code: Some("welcome_pointee".into()),
+                    retry_expires_at_ns: Some(deadline),
+                },
+            ),
+            Hold::Unreadable => db
+                .set_unreadable_welcome_deadline(&held.entity_id, Cursor(id), deadline)
+                .map(|deadline| deadline.is_some()),
+        };
+        // Fill the kind budget with held rows: two blocked group heads with 7
+        // tails each, or 16 held Welcomes on one topic.
+        for round in 0..2 {
+            let held = topic(if group { round as u8 + 1 } else { 1 }, kind);
+            let after = db.topic_progress(&held)?.received;
+            db.admit_ordered_batch(&held, after, &batch(&ids(round)), limits)?;
+            for id in &ids(round)[..if group { 1 } else { 8 }] {
+                assert!(apply(&held, *id)?);
+            }
+        }
+        let ready = topic(if group { 3 } else { 1 }, kind);
+        let after = db.topic_progress(&ready)?.received;
+        db.admit_ordered_batch(&ready, after, &batch(&ids(2)), limits)?;
+        if group {
+            let first = topic(1, kind);
+            assert!(matches!(
+                db.admit_ordered_batch(&first, Cursor(80), &batch(&[90]), limits),
+                Err(StorageError::Stream(StreamStorageError::Capacity {
+                    scope: BudgetScope::Kind
+                }))
+            ));
+            db.admit_ordered_batch(&topic(4, kind), Cursor(0), &batch(&[10]), limits)?;
+            // A released head moves its rows to the ready pool.
+            assert!(db.set_incoming_retry(
+                &first,
+                Cursor(10),
+                &IncomingRetry {
+                    retry_at_ns: 0,
+                    blocked: false,
+                    error_code: None,
+                    retry_expires_at_ns: None,
+                },
+            )?);
+            assert!(matches!(
+                db.admit_ordered_batch(&topic(5, kind), Cursor(0), &batch(&[10]), limits),
+                Err(StorageError::Stream(StreamStorageError::Capacity {
+                    scope: BudgetScope::Kind
+                }))
+            ));
+        } else {
+            assert!(db.oldest_held_welcome_over(&ready, limits.kind)?.is_none());
+            // A held Welcome on another topic fills the kind's held bytes.
+            let other = topic(2, kind);
+            db.admit_ordered_batch(&other, Cursor(0), &batch(&[10]), limits)?;
+            assert!(apply(&other, 10)?);
+            let bytes_only = PendingBudget {
+                rows: u64::MAX,
+                ..limits.kind
+            };
+            let oldest = db.oldest_held_welcome_over(&ready, bytes_only)?;
+            assert_eq!(oldest.map(|row| row.sequence_id), Some(10));
+        }
+    }
+}
+
 #[xmtp_common::test(unwrap_try = true)]
 async fn welcome_completion_retains_holes_and_the_first_retry_deadline() {
     let store = TestDb::create_persistent_store(None).await;
@@ -257,6 +361,63 @@ async fn welcome_completion_retains_holes_and_the_first_retry_deadline() {
     assert_eq!(db.topic_progress(&welcome)?.processed, Cursor(79));
 }
 
+/// Pointer fetching and unreadable input have independent, immutable deadlines.
+/// A restart or an intervening retry cause must not reset either retention clock.
+/// Completion must not let a stale Welcome retry modify another queue's row.
+#[xmtp_common::test(unwrap_try = true)]
+async fn unreadable_welcome_deadline_survives_other_holds_and_restarts() {
+    let path = xmtp_common::tmp_path();
+    let store = TestDb::create_persistent_store(Some(path.clone())).await;
+    let db = store.db();
+    let welcome = topic(1, NetworkEntityKind::Welcome);
+    db.admit_ordered_batch(&welcome, Cursor(0), &batch(&[10]), limits())?;
+    let group = topic(1, NetworkEntityKind::Group);
+    db.admit_ordered_batch(&group, Cursor(0), &batch(&[10]), limits())?;
+    let retry = IncomingRetry {
+        retry_at_ns: 100,
+        blocked: false,
+        error_code: Some("welcome_pointee".into()),
+        retry_expires_at_ns: Some(500),
+    };
+    db.set_incoming_retry(&welcome, Cursor(10), &retry)?;
+    assert_eq!(
+        db.set_unreadable_welcome_deadline(&welcome.entity_id, Cursor(10), 900)?,
+        Some(900)
+    );
+    db.set_incoming_retry(
+        &welcome,
+        Cursor(10),
+        &IncomingRetry {
+            error_code: Some("identity_dependency".into()),
+            retry_expires_at_ns: None,
+            ..retry
+        },
+    )?;
+    drop(db);
+    drop(store);
+    let store = TestDb::create_persistent_store(Some(path)).await;
+    let db = store.db();
+    assert_eq!(
+        db.set_unreadable_welcome_deadline(&welcome.entity_id, Cursor(10), 1200)?,
+        Some(900)
+    );
+    let pending = db.pending_envelope(&welcome, Cursor(10))?.unwrap();
+    assert_eq!(pending.retry_expires_at_ns, Some(500));
+    assert_eq!(pending.unreadable_expires_at_ns, Some(900));
+    db.complete_pending_envelope(&welcome, Cursor(10))?;
+    assert_eq!(
+        db.set_unreadable_welcome_deadline(&welcome.entity_id, Cursor(10), 1500)?,
+        None
+    );
+    assert!(!db.has_pending_welcomes()?);
+    assert_eq!(
+        db.pending_envelope(&group, Cursor(10))?
+            .unwrap()
+            .unreadable_expires_at_ns,
+        None
+    );
+}
+
 #[xmtp_common::test(unwrap_try = true)]
 async fn blocked_welcomes_require_a_generation_scan_not_a_timer_retry() {
     let store = TestDb::create_persistent_store(None).await;
@@ -270,12 +431,12 @@ async fn blocked_welcomes_require_a_generation_scan_not_a_timer_retry() {
         retry_expires_at_ns: Some(500),
     };
     db.set_incoming_retry(&welcome, Cursor(10), &retry)?;
-    let ready = db.ready_welcomes_bounded(99, 8, 32)?;
+    let ready = db.ready_welcomes_bounded(99, 8, 32, &[])?;
     assert_eq!(
         ready.iter().map(|row| row.sequence_id).collect::<Vec<_>>(),
         vec![30]
     );
-    let ready = db.ready_welcomes_bounded(100, 8, 32)?;
+    let ready = db.ready_welcomes_bounded(100, 8, 32, &[])?;
     assert_eq!(
         ready.iter().map(|row| row.sequence_id).collect::<Vec<_>>(),
         vec![30]
@@ -322,16 +483,7 @@ async fn pending_states_include_only_actual_topic_ids_through_the_target() {
         &batch(&[30]),
         limits(),
     )?;
-    db.set_incoming_retry(
-        &welcome,
-        Cursor(40),
-        &IncomingRetry {
-            retry_at_ns: 200,
-            blocked: true,
-            error_code: Some("TEST_BLOCKED".into()),
-            retry_expires_at_ns: None,
-        },
-    )?;
+    hold(&db, &welcome, 40)?;
     assert_eq!(
         db.pending_states_through(&welcome, Cursor(40))?,
         vec![
@@ -352,6 +504,42 @@ async fn pending_states_include_only_actual_topic_ids_through_the_target() {
     assert!(db.pending_states_through(&welcome, Cursor(0))?.is_empty());
 }
 
+/// Scheduled Welcomes must not consume ready-read budgets or lose their
+/// retention state, so a slow dependency cannot starve independent joins.
+// verifies: PROC-013
+#[xmtp_common::test(unwrap_try = true)]
+async fn scheduled_welcomes_do_not_consume_ready_read_budgets() {
+    let store = TestDb::create_persistent_store(None).await;
+    let db = store.db();
+    let welcome = topic(1, NetworkEntityKind::Welcome);
+    let mut envelopes = batch(&[10, 30]);
+    envelopes[0].envelope = vec![1; 12];
+    db.admit_ordered_batch(&welcome, Cursor(0), &envelopes, limits())?;
+    db.set_incoming_retry(
+        &welcome,
+        Cursor(10),
+        &IncomingRetry {
+            retry_at_ns: 0,
+            blocked: false,
+            error_code: Some("welcome_pointee".into()),
+            retry_expires_at_ns: Some(500),
+        },
+    )?;
+    db.set_unreadable_welcome_deadline(&welcome.entity_id, Cursor(10), 900)?;
+    let ready = db.ready_welcomes_bounded(0, 1, 4, &[Cursor(10)])?;
+    assert_eq!(ready.len(), 1);
+    assert_eq!(ready[0].sequence_id, 30);
+    let pending = db.pending_envelope(&welcome, Cursor(10))?.unwrap();
+    assert_eq!(pending.envelope, envelopes[0].envelope);
+    assert_eq!(pending.retry_at_ns, 0);
+    assert!(!pending.blocked);
+    assert_eq!(pending.error_code.as_deref(), Some("welcome_pointee"));
+    assert_eq!(pending.retry_expires_at_ns, Some(500));
+    assert_eq!(pending.unreadable_expires_at_ns, Some(900));
+    // A new coordinator has no in-flight exclusions and can recover the row.
+    assert_eq!(db.ready_welcomes_bounded(0, 1, 12, &[])?[0].sequence_id, 10);
+}
+
 #[xmtp_common::test(unwrap_try = true)]
 async fn welcome_read_budget_preserves_the_due_prefix_and_pending_state() {
     let store = TestDb::create_persistent_store(None).await;
@@ -362,7 +550,7 @@ async fn welcome_read_budget_preserves_the_due_prefix_and_pending_state() {
     envelopes[1].envelope = vec![2; 12];
     db.admit_ordered_batch(&first, Cursor(0), &envelopes, limits())?;
     db.admit_ordered_batch(&second, Cursor(0), &batch(&[10, 40]), limits())?;
-    let ready = db.ready_welcomes_bounded(0, 8, 8)?;
+    let ready = db.ready_welcomes_bounded(0, 8, 8, &[])?;
     assert_eq!(
         ready
             .iter()
@@ -374,20 +562,20 @@ async fn welcome_read_budget_preserves_the_due_prefix_and_pending_state() {
         ]
     );
     assert_eq!(ready.iter().map(|row| row.envelope.len()).sum::<usize>(), 8);
-    assert_eq!(db.ready_welcomes_bounded(0, 1, 32)?.len(), 1);
-    assert!(db.ready_welcomes_bounded(0, 0, 0)?.is_empty());
+    assert_eq!(db.ready_welcomes_bounded(0, 1, 32, &[])?.len(), 1);
+    assert!(db.ready_welcomes_bounded(0, 0, 0, &[])?.is_empty());
     db.complete_pending_envelope(&first, Cursor(10))?;
     db.complete_pending_envelope(&second, Cursor(10))?;
     let before = db.topic_progress(&first)?;
     assert!(matches!(
-        db.ready_welcomes_bounded(0, 8, 8),
+        db.ready_welcomes_bounded(0, 8, 8, &[]),
         Err(StorageError::Stream(StreamStorageError::Capacity {
             scope: BudgetScope::Batch
         }))
     ));
     assert_eq!(db.topic_progress(&first)?, before);
     assert_eq!(db.first_pending_envelope(&first)?.unwrap().sequence_id, 30);
-    let ready = db.ready_welcomes_bounded(0, 8, 16)?;
+    let ready = db.ready_welcomes_bounded(0, 8, 16, &[])?;
     assert_eq!(
         ready.iter().map(|row| row.sequence_id).collect::<Vec<_>>(),
         vec![30, 40]

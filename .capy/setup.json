@@ -1,0 +1,20 @@
+{
+  "$schema": "https://api.capy.ai/schemas/setup.v1.json",
+  "format_version": 1,
+  "scripts": {
+    "initialize": "bash .capy/initialize.sh",
+    "refresh": "bash .capy/refresh.sh"
+  },
+  "timeouts": {
+    "initialize": 3600,
+    "refresh": 900
+  },
+  "startup": [
+    {
+      "name": "databases",
+      "command": "bash .capy/startup.sh",
+      "timeout": 300
+    }
+  ],
+  "commands": []
+}

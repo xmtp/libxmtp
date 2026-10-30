@@ -53,6 +53,8 @@ async fn ephemeral_applies_partial_config_and_connects_tester() {
     assert_eq!(backend.config().database.max_connections, 3);
     assert_eq!(backend.config().limits.default_query_limit, 7);
     assert_eq!(backend.config().streams.poll_interval_ms, 100);
+    // The partial configuration sets no `[rate_limits]` table, so limits are off.
+    assert!(!backend.config().rate_limits().enabled);
     tester!(alix, backend: &backend);
     let group = alix.create_group(None, None)?;
     group

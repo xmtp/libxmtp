@@ -55,22 +55,12 @@ pub enum WorkerKind {
 fn worker_event_filter(kind: WorkerKind) -> Option<(EventFilter<InternalEvent>, Option<usize>)> {
     use InternalEvent as I;
     let filter = match kind {
-        WorkerKind::DeviceSync => EventFilter::new([EventKind::IdentityOwnInstallationRevoked])
-            .with_internal(|event| {
-                matches!(
-                    event,
-                    I::GroupJoined {
-                        is_sync: true,
-                        origin: crate::subscriptions::internal::GroupOrigin::Welcomed,
-                        ..
-                    } | I::MessageStored { is_sync: true, .. }
-                        | I::SyncMessagePublished
-                        | I::PreferencesChanged {
-                            origin: crate::subscriptions::internal::PreferenceOrigin::Local,
-                            ..
-                        }
-                )
-            }),
+        WorkerKind::DeviceSync => EventFilter::default().with_internal(|event| {
+            matches!(
+                event,
+                I::MessageStored { is_sync: true, .. } | I::OutboxChanged
+            )
+        }),
         WorkerKind::DisappearingMessages => {
             EventFilter::new([EventKind::ConversationMetadataChanged]).with_internal(|event| {
                 matches!(
@@ -87,6 +77,9 @@ fn worker_event_filter(kind: WorkerKind) -> Option<(EventFilter<InternalEvent>, 
             EventKind::ConversationJoined,
             EventKind::ConversationRemoved,
             EventKind::HmacKeysUpdated,
+            // implements: PUSH-260
+            // An import writes consent without consent.changed.
+            EventKind::ArchiveRestored,
         ])
         .with_internal(|event| {
             matches!(
@@ -447,7 +440,16 @@ pub trait Worker: MaybeSend + MaybeSync + 'static {
                             break;
                         } else {
                             tracing::error!(worker = %worker, "{:?} worker error: {}", kind, err);
-                            xmtp_common::time::sleep(WORKER_RESTART_DELAY).await;
+                            // A restart resends the refused work, so it waits
+                            // out a rate-limit delay first. A delay too large
+                            // for the clock saturates instead of overflowing.
+                            // implements: RATE-041
+                            let delay = err.restart_delay().map_or(WORKER_RESTART_DELAY, |delay| {
+                                delay.max(WORKER_RESTART_DELAY)
+                            });
+                            let now = xmtp_common::time::Instant::now();
+                            let until = xmtp_common::time::saturating_after(now, delay);
+                            xmtp_common::time::sleep(until.saturating_duration_since(now)).await;
                             tracing::info!(worker = %worker, "Restarting {:?} worker...", kind);
                         }
                     }
@@ -471,6 +473,12 @@ pub trait Worker: MaybeSend + MaybeSync + 'static {
 #[cfg_attr(target_arch = "wasm32", trait_variant::make(NeedsDbReconnect: xmtp_common::Wasm))]
 pub trait LocalNeedsDbReconnect: std::error::Error {
     fn needs_db_reconnect(&self) -> bool;
+
+    /// The least time to wait before restarting a worker that failed with
+    /// this error: a rate-limit rejection's delay (RATE-041).
+    fn restart_delay(&self) -> Option<Duration> {
+        None
+    }
 }
 
 pub trait WorkerFactory: MaybeSend + MaybeSync {
@@ -497,68 +505,40 @@ impl MetricsCasting for DynMetrics {
 #[cfg(test)]
 mod event_subscription_tests {
     use super::*;
-    use crate::subscriptions::internal::{GroupOrigin, PreferenceOrigin};
-    use crate::worker::device_sync::preference_sync::PreferenceUpdate;
     use xmtp_events::{EventBus, EventWriter};
 
+    /// The outbox and the sync messages are stored state; the worker wakes
+    /// only for them, and never drops a wake while busy.
+    // verifies: SYNC-029
     #[xmtp_common::test(unwrap_try = true)]
-    async fn device_sync_keeps_all_local_changes_while_busy() {
+    async fn device_sync_wakes_for_sync_messages_and_the_outbox() {
         let (filter, depth) = worker_event_filter(WorkerKind::DeviceSync).unwrap();
         assert_eq!(depth, None);
         let bus = EventBus::new();
         let subscription = bus.subscribe(filter, depth);
-        for value in 0..1_000 {
-            bus.emit(
-                None,
-                Some(InternalEvent::PreferencesChanged {
-                    updates: vec![PreferenceUpdate::Hmac {
-                        key: vec![value as u8].into(),
-                        cycled_at_ns: value,
-                    }],
-                    origin: PreferenceOrigin::Local,
-                }),
-            );
-        }
-        bus.emit(
-            None,
-            Some(InternalEvent::PreferencesChanged {
-                updates: Vec::new(),
-                origin: PreferenceOrigin::Sync,
-            }),
-        );
-        assert_eq!(subscription.drain().len(), 1_000);
-    }
-
-    #[xmtp_common::test(unwrap_try = true)]
-    async fn only_a_welcomed_sync_group_requests_reconciliation() {
-        let (filter, depth) = worker_event_filter(WorkerKind::DeviceSync).unwrap();
-        let bus = EventBus::new();
-        let subscription = bus.subscribe(filter, depth);
         let group_id = xmtp_proto::types::GroupId::from([9; 16]);
-        bus.emit(
-            None,
-            Some(InternalEvent::GroupJoined {
+        let stored = |is_sync| InternalEvent::MessageStored {
+            group_id,
+            message_id: vec![],
+            expires_at_ns: None,
+            is_sync,
+        };
+        for event in [
+            InternalEvent::PreferencesChanged { updates: vec![] },
+            InternalEvent::GroupJoined {
                 group_id,
                 is_sync: true,
-                origin: GroupOrigin::Created,
-            }),
-        );
+            },
+            stored(false),
+        ] {
+            bus.emit(None, Some(event));
+        }
         assert!(subscription.drain().is_empty());
-        bus.emit(
-            None,
-            Some(InternalEvent::GroupJoined {
-                group_id,
-                is_sync: true,
-                origin: GroupOrigin::Welcomed,
-            }),
-        );
-        assert!(matches!(
-            subscription.next().await.unwrap().internal,
-            Some(InternalEvent::GroupJoined {
-                origin: GroupOrigin::Welcomed,
-                ..
-            })
-        ));
+        for _ in 0..1_000 {
+            bus.emit(None, Some(InternalEvent::OutboxChanged));
+        }
+        bus.emit(None, Some(stored(true)));
+        assert_eq!(subscription.drain().len(), 1_001);
     }
 }
 
@@ -640,6 +620,7 @@ mod disconnect_propagation_tests {
                         ),
                     ),
                 ))))),
+                rate_limit_delay: None,
             }
             .needs_db_reconnect()
         );
@@ -695,6 +676,12 @@ mod disconnect_propagation_tests {
         assert!(
             CommitLogError::GroupError(GroupError::Storage(disconnect_storage()))
                 .needs_db_reconnect()
+        );
+        assert!(
+            CommitLogError::SyncError(crate::groups::summary::SyncSummary::other(
+                GroupError::Storage(disconnect_storage()),
+            ))
+            .needs_db_reconnect()
         );
         // A transient (non-disconnect) connection error must not stop the worker.
         assert!(
@@ -823,5 +810,94 @@ mod worker_config_tests {
             cfg.worker_enabled(WorkerKind::CommitLog),
             "absent => enabled"
         );
+    }
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod restart_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    /// A worker whose every turn is refused by a rate limit.
+    struct RateLimited {
+        runs: Arc<AtomicUsize>,
+        /// The rejection each turn fails with.
+        status: tonic::Status,
+    }
+
+    struct NoFactory;
+
+    impl WorkerFactory for NoFactory {
+        fn kind(&self) -> WorkerKind {
+            WorkerKind::CommitLog
+        }
+
+        fn create(&self, _metrics: Option<DynMetrics>) -> (BoxedWorker, Option<DynMetrics>) {
+            unreachable!("the test spawns the worker directly")
+        }
+    }
+
+    #[xmtp_common::async_trait]
+    impl Worker for RateLimited {
+        fn kind(&self) -> WorkerKind {
+            WorkerKind::CommitLog
+        }
+
+        async fn run_tasks(&mut self) -> Result<(), Box<dyn NeedsDbReconnect>> {
+            self.runs.fetch_add(1, Ordering::SeqCst);
+            let refused = xmtp_api::ApiError::Api(xmtp_proto::api::NetworkError::new(
+                xmtp_api_grpc::error::GrpcError::Status(self.status.clone()),
+            ));
+            Err(Box::new(crate::groups::commit_log::CommitLogError::Api(
+                refused,
+            )))
+        }
+
+        fn factory<C>(_context: C) -> impl WorkerFactory + 'static
+        where
+            C: XmtpSharedContext + 'static,
+        {
+            NoFactory
+        }
+    }
+
+    /// A worker that failed with a rate limit restarts after the delay, not
+    /// after the one-second restart delay.
+    // verifies: RATE-041
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn a_rate_limited_worker_restarts_after_the_delay() {
+        tokio::time::pause();
+        let runs = Arc::new(AtomicUsize::new(0));
+        let cancel = CancellationToken::new();
+        let worker = Box::new(RateLimited {
+            runs: runs.clone(),
+            status: xmtp_api_grpc::error::rate_limited_status("request", Duration::from_secs(300)),
+        });
+        let handle = tokio::spawn(worker.spawn(cancel.clone()));
+        tokio::time::sleep(Duration::from_secs(10)).await;
+        assert_eq!(runs.load(Ordering::SeqCst), 1);
+        tokio::time::sleep(Duration::from_secs(300)).await;
+        assert_eq!(runs.load(Ordering::SeqCst), 2);
+        cancel.cancel();
+        handle.await?;
+    }
+
+    /// A delay too large for the clock holds the restart without a panic,
+    /// which a release build would turn into an abort.
+    // verifies: RATE-041
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn an_out_of_range_delay_holds_the_restart_without_panicking() {
+        tokio::time::pause();
+        let runs = Arc::new(AtomicUsize::new(0));
+        let cancel = CancellationToken::new();
+        let worker = Box::new(RateLimited {
+            runs: runs.clone(),
+            status: xmtp_api_grpc::error::rate_limited_status_raw(i64::MAX, 0),
+        });
+        let handle = tokio::spawn(worker.spawn(cancel.clone()));
+        tokio::time::sleep(Duration::from_secs(365 * 24 * 60 * 60)).await;
+        assert_eq!(runs.load(Ordering::SeqCst), 1);
+        cancel.cancel();
+        handle.await?;
     }
 }

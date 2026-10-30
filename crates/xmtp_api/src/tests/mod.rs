@@ -26,7 +26,10 @@ mod handles;
 mod incoming;
 mod integration;
 mod limits;
+mod ordered_fold;
 mod ordered_publish;
+mod rate_limits;
+mod scw_batches;
 
 #[rstest]
 #[case(tonic::Code::InvalidArgument)]
@@ -1008,4 +1011,35 @@ fn auth_codes_and_retryability_survive_api_erasure() {
     let transport = crate::dyn_err(status(tonic::Code::Unavailable));
     assert!(transport.is_retryable());
     assert_eq!(grpc_status(&transport)?.code(), tonic::Code::Unavailable);
+}
+
+/// A welcome pointer resolves from the lowest-sequence row on its destination,
+/// so the read asks for exactly that row and never fetches a later one.
+// verifies: JOIN-032
+#[xmtp_common::test(unwrap_try = true)]
+async fn query_first_welcome_requests_one_envelope() {
+    let destination = InstallationId::from([7; 32]);
+    let topic = Topic::new_welcome_message(destination);
+    let mut mock = MockBackendClient::new();
+    mock.expect_query().times(1).returning(move |request| {
+        assert_eq!(request.limit, 1);
+        let [query] = request.queries.as_slice() else {
+            panic!("expected one topic");
+        };
+        assert_eq!(query.topic.as_ref().unwrap().topic, topic.cloned_vec());
+        assert_eq!(query.cursor.as_ref().unwrap().sequence_id, 0);
+        let mut row = query_row(&topic, 5);
+        row.meta.as_mut().unwrap().message_hash = Some(wire::MessageHash {
+            hash: Some(wire::message_hash::Hash::Sha256(vec![7; 32])),
+        });
+        Ok(wire::QueryResponse {
+            envelopes: vec![row],
+            continuation: Some(wire::Continuation { has_more: true }),
+        })
+    });
+    let first = wrapper(mock)
+        .query_first_welcome(destination, 4096)
+        .await?
+        .unwrap();
+    assert_eq!(first.meta.unwrap().cursor.unwrap().sequence_id, 5);
 }

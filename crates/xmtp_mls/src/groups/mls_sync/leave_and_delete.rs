@@ -12,12 +12,10 @@ where
         storage: &impl XmtpMlsStorageProvider,
         message: &StoredGroupMessage,
     ) -> Result<Option<StoredMessageDeletion>, GroupMessageProcessingError> {
-        let deletions = storage
-            .db()
-            .get_deletions_for_messages(vec![message.id.clone()])?;
-        Ok(deletions.into_iter().find(|deletion| {
-            crate::messages::enrichment::is_deletion_valid(deletion, message, &self.group_id)
-        }))
+        Ok(crate::messages::enrichment::find_valid_deletion(
+            &storage.db(),
+            message,
+        )?)
     }
 
     /// A target stored after its deletion now has a readable deletion state.
@@ -129,40 +127,10 @@ where
         message: &StoredGroupMessage,
         event_writer: &impl xmtp_events::EventWriter<crate::subscriptions::internal::InternalEvent>,
     ) -> Result<(), GroupMessageProcessingError> {
-        let encoded_content =
-            match EncodedContent::decode(message.decrypted_message_bytes.as_slice()) {
-                Ok(content) => content,
-                Err(err) => {
-                    tracing::warn!(
-                        error = ?err,
-                        "Failed to decode EncodedContent for delete message, skipping"
-                    );
-                    return Ok(());
-                }
-            };
-
-        let encoded_content = match xmtp_content_types::compression::decompress(encoded_content) {
-            Ok(content) => content,
-            Err(err) => {
-                tracing::warn!(error = ?err, "Failed to decompress delete message, skipping");
-                return Ok(());
-            }
-        };
-
-        let delete_msg = match DeleteMessage::decode(encoded_content.content.as_slice()) {
-            Ok(msg) => msg,
-            Err(err) => {
-                tracing::warn!(error = ?err, "Failed to decode DeleteMessage, skipping");
-                return Ok(());
-            }
-        };
-
-        let target_message_id = match hex::decode(&delete_msg.message_id) {
-            Ok(id) => id,
-            Err(_) => {
-                tracing::warn!("Invalid delete message_id: {}", delete_msg.message_id);
-                return Ok(());
-            }
+        // Store time already decoded the DeleteMessage and checked its target id.
+        let Some(target_message_id) = message.reference_id.clone() else {
+            tracing::warn!("Delete message names no valid message id, skipping");
+            return Ok(());
         };
 
         let original_msg_opt = storage.db().get_group_message(&target_message_id)?;
@@ -177,7 +145,7 @@ where
             if original_msg.group_id.as_slice() != self.group_id.as_slice() {
                 tracing::warn!(
                     "Cross-group deletion attempt: message {} from group {}",
-                    delete_msg.message_id,
+                    hex::encode(&target_message_id),
                     hex::encode(original_msg.group_id)
                 );
                 return Ok(());
@@ -186,7 +154,7 @@ where
             if !crate::messages::enrichment::is_deletable_stored_message(original_msg) {
                 tracing::warn!(
                     "Non-deletable message {} (kind: {:?}, content_type: {:?})",
-                    delete_msg.message_id,
+                    hex::encode(&target_message_id),
                     original_msg.kind,
                     original_msg.content_type
                 );
@@ -206,7 +174,7 @@ where
                 tracing::warn!(
                     "Unauthorized deletion by {} for message {}",
                     message.sender_inbox_id,
-                    delete_msg.message_id
+                    hex::encode(&target_message_id)
                 );
                 return Ok(());
             }
@@ -245,7 +213,7 @@ where
 
         tracing::info!(
             "Message {} deleted by {} (super_admin: {}, out_of_order: {})",
-            delete_msg.message_id,
+            hex::encode(&target_message_id),
             message.sender_inbox_id,
             is_super_admin_deletion,
             out_of_order

@@ -41,13 +41,9 @@ impl Store {
     pub(crate) async fn commit_publish(
         &self,
         pending: &mut [PendingEnvelope],
-        parse_error: Option<(usize, AdmissionError)>,
         max_duration_ms: u64,
     ) -> Result<Vec<StoredMeta>, Error> {
         if pending.iter().all(|item| item.duplicate.is_some()) {
-            if let Some((index, error)) = parse_error {
-                return Err(Error::Admission { index, error });
-            }
             return pending
                 .iter()
                 .map(|item| {
@@ -72,11 +68,7 @@ impl Store {
                     .err()
                     .map(|error| (item.index, error.clone()))
             });
-        if let Some((index, error)) = validation_error
-            .into_iter()
-            .chain(parse_error)
-            .min_by_key(|(index, _)| *index)
-        {
+        if let Some((index, error)) = validation_error {
             return Err(Error::Admission { index, error });
         }
         let new: Vec<_> = pending
@@ -229,23 +221,23 @@ async fn lock(
 ///
 /// This check runs under the identity lock and compares the stored watermark
 /// with the exact head captured during validation. A mismatch returns a stale
-/// history error instead of silently validating against a newer state.
+/// history error instead of silently validating against a newer state. An
+/// update that failed before its history was read has no head and is not
+/// compared, so its own rejection is reported and never becomes a stale
+/// history.
+// implements: API-303
 async fn check_heads(
     tx: &mut Transaction<'_, Postgres>,
     pending: &[PendingEnvelope],
 ) -> Result<(), Error> {
-    let identities: Vec<_> = pending
+    let (topics, heads): (Vec<_>, Vec<_>) = pending
         .iter()
-        .filter(|item| item.duplicate.is_none() && item.identity.is_some())
-        .collect();
-    if identities.is_empty() {
+        .filter(|item| item.duplicate.is_none())
+        .filter_map(|item| Some((item.topic.clone(), item.identity.as_ref()?.head?)))
+        .unzip();
+    if topics.is_empty() {
         return Ok(());
     }
-    let topics: Vec<_> = identities.iter().map(|item| item.topic.clone()).collect();
-    let heads: Vec<_> = identities
-        .iter()
-        .filter_map(|item| item.identity.as_ref().map(|identity| identity.head))
-        .collect();
     let stale = sqlx::query!(
         r#"SELECT EXISTS (
             SELECT 1 FROM unnest($1::bytea[], $2::bigint[]) AS wanted(topic, head)

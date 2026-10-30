@@ -35,13 +35,59 @@ pub type TestResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>
 pub const DEFAULT_TEST_IDENTIFIER: &str = "org.xmtp.test";
 
 /// The file layer of a configuration that names `database_url` and the
-/// default test identifier, and sets nothing else.
+/// default test identifier, turns rate limits off, and sets nothing else.
+/// Every test client shares one address, so the default per-caller limits
+/// would fail unrelated tests.
 pub fn config_for(database_url: &str) -> Config {
     Config::from_toml_str(&format!(
-        "[database]\nurl = {database_url:?}\n[server]\nidentifier = {DEFAULT_TEST_IDENTIFIER:?}"
+        "[database]\nurl = {database_url:?}\n[server]\nidentifier = {DEFAULT_TEST_IDENTIFIER:?}\n\
+         [rate_limits]\nenabled = false"
     ))
     .expect("the test configuration parses")
 }
+
+/// The file layer `TestServer::from_toml` starts: the partial TOML with a
+/// placeholder database URL, the default identifier, and rate limits off
+/// unless it has a `[rate_limits]` table, validated. The caller sets the
+/// real database URL.
+pub(crate) fn partial_config(toml: &str) -> TestResult<Config> {
+    let mut value: toml::Table =
+        toml::from_str(toml).map_err(|_| crate::config::ConfigError::Parse)?;
+    let database = value
+        .entry("database")
+        .or_insert_with(|| toml::Value::Table(Default::default()));
+    let database = database.as_table_mut().ok_or("database must be a table")?;
+    // Reject rather than overwrite. A silently dropped URL would give the
+    // caller a backend that does not match the configuration it supplied.
+    for field in ["url", "replica_url"] {
+        if database.contains_key(field) {
+            return Err(format!("database.{field} is owned by the fixture").into());
+        }
+    }
+    database.insert("url".into(), "postgres://localhost/ephemeral".into());
+    let server = value
+        .entry("server")
+        .or_insert_with(|| toml::Value::Table(Default::default()));
+    let server = server.as_table_mut().ok_or("server must be a table")?;
+    server
+        .entry("identifier")
+        .or_insert_with(|| DEFAULT_TEST_IDENTIFIER.into());
+    // Every test client shares one address. A test that exercises limits
+    // writes its own `[rate_limits]` table.
+    if !value.contains_key("rate_limits") {
+        let mut rate_limits = toml::Table::new();
+        rate_limits.insert("enabled".into(), false.into());
+        value.insert("rate_limits".into(), rate_limits.into());
+    }
+    // Refuse an invalid file before creating a database. The real URL is
+    // set on the file layer, and `start` validates it again.
+    Ok(Config::from_toml_str(&toml::to_string(&value)?)?
+        .validate()?
+        .into_config())
+}
+
+#[cfg(test)]
+mod tests;
 
 pub struct TestServer {
     running: RunningServer,
@@ -59,6 +105,30 @@ impl std::ops::DerefMut for TestServer {
     }
 }
 
+/// The rate limiter's clock in tests that set the time each spend sees.
+pub use xmtp_rate_limit::ManualClock;
+
+/// One spend a running server's rate limiter decided.
+#[derive(Clone, Debug)]
+pub struct SpendRecord {
+    /// The caller it was charged to.
+    pub caller: crate::config::CallerKey,
+    pub category: crate::config::Category,
+    pub cost: u32,
+    /// The retry delay a denial reported; `None` for an admitted spend. A
+    /// stream step's denial reports the delay of the larger spend a
+    /// replacement stream makes.
+    pub retry_after: Option<std::time::Duration>,
+    /// When the limiter decided it.
+    pub at: std::time::Instant,
+    /// A SHA-256 digest of the encoded request message the spend was for,
+    /// for a handler's spends and a `SubscribeStatic` stream's. `None` for
+    /// the rate-limit layer's `request` unit, which precedes decoding, and
+    /// for every spend of a `Subscribe` stream, whose messages arrive after
+    /// its call.
+    pub request: Option<[u8; 32]>,
+}
+
 pub struct RunningServer {
     pub backend: Backend,
     pub channel: Channel,
@@ -71,7 +141,22 @@ impl TestServer {
     /// Apply `change` to the file layer of a configuration for a new test
     /// database, validate it, and start a server.
     pub async fn new(change: impl FnOnce(&mut Config)) -> TestResult<Self> {
-        Self::start(change, None).await
+        Self::start(change, None, None).await
+    }
+
+    /// `new`, with the rate limiter on `clock`, so a test sets the time each
+    /// spend sees, and every spend recorded. `change` must turn rate limits
+    /// on.
+    pub async fn with_rate_limit_clock(
+        change: impl FnOnce(&mut Config),
+        clock: ManualClock,
+    ) -> TestResult<Self> {
+        Self::start(
+            change,
+            None,
+            Some(server::rate_limit::LimiterClock::Manual(clock)),
+        )
+        .await
     }
 
     /// Apply partial TOML over defaults and resolve environment references.
@@ -79,34 +164,11 @@ impl TestServer {
     /// Validate before creating a database. Bind a loopback port chosen by the OS.
     ///
     /// `server.listen` is accepted and validated but has no effect: the fixture
-    /// always binds a loopback port chosen by the OS.
+    /// always binds a loopback port chosen by the OS. Rate limits are off
+    /// unless the TOML has a `[rate_limits]` table, which then applies as
+    /// written, with the file's defaults for the keys it omits.
     pub async fn from_toml(toml: &str) -> TestResult<Self> {
-        let mut value: toml::Table =
-            toml::from_str(toml).map_err(|_| crate::config::ConfigError::Parse)?;
-        let database = value
-            .entry("database")
-            .or_insert_with(|| toml::Value::Table(Default::default()));
-        let database = database.as_table_mut().ok_or("database must be a table")?;
-        // Reject rather than overwrite. A silently dropped URL would give the
-        // caller a backend that does not match the configuration it supplied.
-        for field in ["url", "replica_url"] {
-            if database.contains_key(field) {
-                return Err(format!("database.{field} is owned by the fixture").into());
-            }
-        }
-        database.insert("url".into(), "postgres://localhost/ephemeral".into());
-        let server = value
-            .entry("server")
-            .or_insert_with(|| toml::Value::Table(Default::default()));
-        let server = server.as_table_mut().ok_or("server must be a table")?;
-        server
-            .entry("identifier")
-            .or_insert_with(|| DEFAULT_TEST_IDENTIFIER.into());
-        // Refuse an invalid file before creating a database. The real URL is
-        // set on the file layer, and `start` validates it again.
-        let config = Config::from_toml_str(&toml::to_string(&value)?)?
-            .validate()?
-            .into_config();
+        let config = partial_config(toml)?;
         Self::start(
             move |defaults| {
                 let url = std::mem::take(&mut defaults.database.url);
@@ -114,6 +176,25 @@ impl TestServer {
                 defaults.database.url = url;
             },
             None,
+            None,
+        )
+        .await
+    }
+
+    /// `from_toml`, with the rate limiter on `clock` and every spend
+    /// recorded. The TOML must turn rate limits on.
+    pub async fn from_toml_with_rate_limit_clock(
+        toml: &str,
+        clock: ManualClock,
+    ) -> TestResult<Self> {
+        let config = partial_config(toml)?;
+        Self::with_rate_limit_clock(
+            move |defaults| {
+                let url = std::mem::take(&mut defaults.database.url);
+                *defaults = config;
+                defaults.database.url = url;
+            },
+            clock,
         )
         .await
     }
@@ -127,6 +208,7 @@ impl TestServer {
         Self::start(
             change,
             Some((Box::new(verifier), std::sync::Arc::new(chain))),
+            None,
         )
         .await
     }
@@ -137,6 +219,7 @@ impl TestServer {
             Box<dyn SmartContractSignatureVerifier>,
             std::sync::Arc<dyn ChainBlocks>,
         )>,
+        limiter_clock: Option<server::rate_limit::LimiterClock>,
     ) -> TestResult<Self> {
         let database = TestDatabase::new()?;
         let mut config = config_for(database.url());
@@ -153,6 +236,12 @@ impl TestServer {
                 backend.config.scw_cache_entries(),
             )?);
         }
+        if let Some(clock) = limiter_clock {
+            let limiter = server::rate_limit::limiter_on(backend.config.rate_limits(), clock)
+                .ok_or("a rate-limit clock needs rate limits on")?;
+            limiter.record_spends();
+            backend.rate_limiter = Some(limiter);
+        }
         let running = RunningServer::from_backend(backend).await?;
         Ok(Self { running, database })
     }
@@ -165,6 +254,32 @@ impl TestServer {
         stopped?;
         removed
     }
+}
+
+/// A `[rate_limits]` table from the TOML a file writes under it.
+#[cfg(test)]
+pub(crate) fn rate_limits(toml: &str) -> crate::config::rate_limits::RateLimitsSection {
+    toml::from_str(toml).expect("the test rate limits parse")
+}
+
+/// The retry delay of a rate-limit rejection in `category`, or `None` for
+/// any other result. The details are read the way any gRPC client reads
+/// them.
+#[cfg(test)]
+pub(crate) fn rate_limit_delay<T>(
+    result: &Result<T, tonic::Status>,
+    category: crate::config::Category,
+) -> Option<std::time::Duration> {
+    use tonic_types::StatusExt;
+    let status = result.as_ref().err()?;
+    let details = status.get_error_details();
+    let info = details.error_info()?;
+    (status.code() == tonic::Code::ResourceExhausted
+        && info.reason == xmtp_configuration::RATE_LIMITED_REASON
+        && info.domain == xmtp_configuration::RATE_LIMITED_DOMAIN
+        && info.metadata.get("category").map(String::as_str) == Some(category.as_str()))
+    .then(|| details.retry_info()?.retry_delay)
+    .flatten()
 }
 
 pub fn query_topic(topic: api::Topic, sequence_id: u64) -> api::TopicQuery {
@@ -182,7 +297,13 @@ pub fn topic(kind: xmtp_proto::types::TopicKind, identifier: &[u8]) -> api::Topi
 
 impl RunningServer {
     /// Start an independent backend instance against an existing test database.
+    /// Refuses a configuration with rate limits on: every test client shares
+    /// one address. Build it from `config_for`. A test that exercises limits
+    /// starts through `TestServer::from_toml` or `restart_with`.
     pub async fn new(config: ValidatedConfig) -> TestResult<Self> {
+        if config.rate_limits().enabled {
+            return Err("a test backend configuration must turn rate limits off".into());
+        }
         Self::from_backend(server::initialize(config).await?).await
     }
 
@@ -192,7 +313,7 @@ impl RunningServer {
     pub async fn restart_with(&self, change: impl FnOnce(&mut Config)) -> TestResult<Self> {
         let mut config = (*self.backend.config).clone().into_config();
         change(&mut config);
-        Self::new(config.validate()?).await
+        Self::from_backend(server::initialize(config.validate()?).await?).await
     }
 
     async fn from_backend(backend: Backend) -> TestResult<Self> {
@@ -210,6 +331,18 @@ impl RunningServer {
             stop: Some(stop),
             task: Some(task),
         })
+    }
+
+    /// Every spend this server's rate limiter decided, in order. Spends are
+    /// recorded only for a server started on a test clock, and none while
+    /// rate limits are off. A test reads which charged steps reached the
+    /// backend, at what cost, for which request, and when.
+    pub fn rate_limit_spends(&self) -> Vec<SpendRecord> {
+        self.backend
+            .rate_limiter
+            .as_ref()
+            .map(|limiter| limiter.spends())
+            .unwrap_or_default()
     }
 
     pub fn configuration(

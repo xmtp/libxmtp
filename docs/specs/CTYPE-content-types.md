@@ -29,7 +29,7 @@ Out of scope: the `PlaintextEnvelope` that carries an `EncodedContent` inside an
 | `PROC-037` | Owns deletion authorization and application. CTYPE-018 owns type and message-kind eligibility. |
 | `PUSH-219` | Owns backend push eligibility. CTYPE-010 owns the default value for catalogue content; PUSH-218 needs to defer to it. |
 | SYNC | Owns the sync message, an `EncodedContent` of its own type whose schema it states. |
-| `GMOD-034`, `GMOD-035` | Own transcript derivation and the publication restriction referenced in section 7; GMOD owns group changes. |
+| `GMOD-034`, `GMOD-054` | Own transcript derivation and the publication restriction referenced in section 7; GMOD owns group changes. |
 | ARCH | Carries a stored message's `EncodedContent` bytes unchanged (ARCH-008), so a type a client does not decode survives export and import. |
 | EVENT | EVENT-020 filters received messages by content type. EVENT-021 tests reply and reaction references. |
 
@@ -110,6 +110,7 @@ message EncodedContent {
 | CTYPE-023 | Compressed content formats | Where the client or an SDK compresses the `content` of an application message it publishes, it MUST set `compression` to `COMPRESSION_DEFLATE` and write `content` in the zlib format ([RFC 1950 §2.2](https://www.rfc-editor.org/rfc/rfc1950.html#section-2.2)), or set it to `COMPRESSION_GZIP` and write `content` in the gzip format ([RFC 1952 §2](https://www.rfc-editor.org/rfc/rfc1952.html#section-2)). | A recipient reads the bytes by the algorithm the envelope names, so any other form is undecodable. |
 | CTYPE-024 | Decompress before decoding | When the client or an SDK decodes an `EncodedContent` whose `compression` is present, including nested content, it MUST decompress `content` before it selects a codec: `COMPRESSION_GZIP` as the gzip format, and `COMPRESSION_DEFLATE` as the zlib format or, when zlib decoding fails, as raw DEFLATE ([RFC 1951 §3](https://www.rfc-editor.org/rfc/rfc1951.html#section-3)). When `compression` holds any other value, or decompression fails, it MUST report a decode failure and preserve the message under CTYPE-008. | Compressed bytes handed to a codec decode as garbage or as the wrong text, and receive paths that differ show one message differently. |
 | CTYPE-025 | Decompressed size limit | If decompressing `content` would produce more than 16777216 bytes, then the client or an SDK MUST stop decompressing at 16777216 bytes, MUST NOT pass the output to a codec, and MUST report a decode failure that preserves the message under CTYPE-008. | A small compressed payload can otherwise expand until the recipient runs out of memory. |
+| CTYPE-033 | Decoded element limit | Before the client or an SDK decodes a reply's nested `EncodedContent` or a `MultiRemoteAttachment`, it MUST count the fields at the top level of the protobuf bytes. Before it decodes TransactionReference, WalletSendCalls, Actions, or Intent content, it MUST count the `[`, `{`, `,`, and `:` characters outside JSON strings. If the field count exceeds 4096 or the character count exceeds 16383, it MUST NOT decode the bytes and MUST report a decode failure that preserves the message under CTYPE-008. | Each decoded element costs tens of times its wire size, so content within CTYPE-025 can otherwise make the recipient allocate gigabytes on every read. |
 | CTYPE-031 | Compression requires opt-in | When an app sends content without requesting compression, the client and SDK MUST publish that content without applying compression. | A default compressed send can be unreadable to an older recipient. |
 
 ## 3. Codecs and undecodable content
@@ -187,12 +188,13 @@ JSON payloads use [RFC 8259 §§4–8](https://www.rfc-editor.org/rfc/rfc8259.ht
 | Delete message | `xmtp.org/deleteMessage:1.0` | Protobuf `DeleteMessage` | none | false | no |
 | Edit message (reserved) | `xmtp.org/editMessage:1.0` | Protobuf `EditMessage` | none | false | no |
 
-Group updated and legacy membership change represent commit transcripts. GMOD-034 requires that the client derives transcript records from validated commits, and GMOD-035 that it does not publish either transcript type as an application message, except the saved bytes of an attempt already prepared.
+Group updated and legacy membership change represent commit transcripts. GMOD-034 requires that the client derives transcript records from validated commits, and GMOD-054 that it does not publish either transcript type as an application message, at the top level or nested in a reply, except the saved bytes of an attempt already prepared.
 
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
 | CTYPE-014 | Catalogue encodings are binding | When the client or an SDK encodes or decodes a catalogue type, it MUST use the identifier, content encoding, parameters, protobuf schemas, Remote attachment parameters table, and JSON member tables in this section, and MUST NOT publish that type under another identifier. On decode, it MUST ignore envelope parameters that the type does not name. | Different encodings under one identifier break interoperability. |
 | CTYPE-015 | Remote attachment payload | When the client or an SDK encodes a remote attachment, including each entry of a multiple attachment, it MUST encrypt a serialized attachment `EncodedContent` with AEAD_AES_256_GCM ([RFC 5116 §5.2](https://www.rfc-editor.org/rfc/rfc5116.html#section-5.2)), a 16-byte appended tag, empty associated data, and a fresh 12-byte random nonce. It MUST derive the 32-byte key with HKDF-SHA256 ([RFC 5869 §2](https://www.rfc-editor.org/rfc/rfc5869.html#section-2)) from a fresh 32-byte random secret and 32-byte random salt with empty info, and set `contentDigest` to lowercase hexadecimal SHA-256 of ciphertext including the tag. Before decryption, it MUST reject a digest mismatch; it MUST reject an authentication failure without returning plaintext. | The digest identifies the encrypted object; GCM authenticates its contents. |
+| CTYPE-032 | In-memory decryption bound | When an app passes a ciphertext longer than 104857600 bytes to an SDK call that decrypts a CTYPE-015 payload from a byte buffer, the SDK MUST fail the call before it hashes or decrypts the ciphertext. | An app that fetches a hostile sender's attachment into memory otherwise holds several full-size copies of it during decryption, which can exhaust the device's memory. |
 | CTYPE-018 | Deletion eligibility | When the client accepts or applies a deletion, it MUST require the target to have application message kind and a catalogue identifier with Deletable `yes`, matched on authority, type, and major version under CTYPE-001. It MUST reject deletion of a transcript, an unknown type, a custom type, a reserved type, or any catalogue type marked `no`, regardless of sender privileges. | A privileged sender must not erase protocol records or content with undefined deletion semantics. |
 | CTYPE-020 | Reserved edits do not mutate | When the client receives the reserved edit type, it MUST preserve it under CTYPE-008 and MUST NOT change the referenced message. | A schema alone does not authorize replacement of message history. |
 
@@ -372,7 +374,7 @@ These JSON member tables define object shapes. All listed members are required u
 | Action | `id`, `label`: strings | `imageUrl`: string; `style`: string, one of `primary`, `secondary`, `danger`; `expiresAt`: string |
 | Intent | `id`, `actionId`: strings | `metadata`: object with arbitrary JSON values |
 
-The validation table states encode and decode behavior separately. A decode error preserves the received message under CTYPE-008. The action-count and metadata-size limits restrict encoding; they do not reject otherwise decodable historical content.
+The validation table states encode and decode behavior separately. A decode error preserves the received message under CTYPE-008. The action-count and metadata-size limits restrict encoding; they do not reject otherwise decodable historical content. CTYPE-033 sets a separate decode ceiling far above these limits.
 
 | Type or field | Encode | Decode |
 | --- | --- | --- |
@@ -394,6 +396,8 @@ Timestamp syntax is defined by [RFC 3339 §5.6](https://www.rfc-editor.org/rfc/r
 ## Known limitations
 
 SDK releases before the Rust decode path decompress no content, or decompress only one DEFLATE form, and some send LZFSE labelled `COMPRESSION_GZIP`; they cannot read content that other clients compress under CTYPE-023.
+
+The client decodes the outer EncodedContent of a received message without the CTYPE-033 count. The envelope size limit bounds those bytes; its parameter map can cost about 20 times the envelope size.
 
 The client's standard dispatch checks type and major version but omits authority. Kotlin, Swift, and TypeScript registries include the minor version in their keys. These are gaps in CTYPE-001, but they do not imply that every standard text message with a later minor fails: the client can decode it before the SDK registry is reached.
 

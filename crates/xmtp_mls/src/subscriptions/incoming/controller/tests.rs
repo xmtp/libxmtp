@@ -30,9 +30,13 @@ async fn internal_interest_does_not_change_client_connection_state() {
     internal.close();
     assert!(events.drain().is_empty());
 }
-use crate::{test::mock::context, tester};
+use crate::{
+    groups::welcome_sync::{HeldReadd, WelcomeService, held_readd},
+    test::mock::context,
+    tester,
+};
 use xmtp_common::Generate;
-use xmtp_db::group::ConversationType;
+use xmtp_db::group::{ConversationType, GroupQueryArgs};
 use xmtp_proto::{
     backend_v1 as wire,
     types::{GroupId, OrderedEnvelopeBatch},
@@ -41,6 +45,10 @@ use xmtp_proto::{
 fn controller<C: XmtpSharedContext + 'static>(context: C) -> Controller<C> {
     let (_, receiver) = mpsc::unbounded_channel();
     Controller::new(context, receiver, Arc::new(SharedState::default()))
+}
+
+fn identity_key(requirement: &IdentityRequirement) -> DependencyKey {
+    DependencyKey::Identity(BTreeSet::from([requirement.clone()]))
 }
 
 fn coordinated_controller<C: XmtpSharedContext + 'static>(
@@ -81,6 +89,21 @@ fn add_scope<C: XmtpSharedContext + 'static>(
         .unwrap()
         .topics
         .insert(topic.clone());
+}
+
+/// Rebuild a tester's client with internal stream limits for one test.
+async fn client_with_policy(
+    tester: &crate::utils::Tester,
+    edit: impl FnOnce(&mut crate::subscriptions::policy::StreamPolicy),
+) -> Result<crate::utils::FullXmtpClient, crate::builder::ClientBuilderError> {
+    let mut settings = tester.context.incoming_runtime().policy().clone();
+    edit(&mut settings);
+    crate::builder::ClientBuilder::from_client(tester.client.clone())
+        .stream_policy(settings)
+        .with_disable_workers(true)
+        .with_allow_offline(Some(true))
+        .build()
+        .await
 }
 
 fn add_barrier_scope<C: XmtpSharedContext + 'static>(
@@ -234,6 +257,222 @@ async fn all_group_network_interest_keeps_a_denied_conversation() {
     assert!(controller.interested().contains(&topic));
 }
 
+/// An unrelated inbox can fill the receiver's all-group scope with valid
+/// invitations. Discovery reads the groups table again only after the stored
+/// group set changes, not on every pass.
+// verifies: PROC-046, PROC-015
+#[xmtp_common::test(unwrap_try = true)]
+async fn all_group_discovery_reruns_only_after_a_group_change() {
+    tester!(sender, disable_workers);
+    tester!(receiver, disable_workers);
+
+    const INVITATIONS: usize = 12;
+    let mut invited_topics = HashSet::new();
+    for _ in 0..INVITATIONS {
+        let group = sender.create_group(None, None)?;
+        group.add_members(&[receiver.inbox_id()]).await?;
+        invited_topics.insert(Topic::new_group_message(group.group_id));
+    }
+    receiver.sync_welcomes().await?;
+
+    let (coordinator, mut controller) = coordinated_controller(receiver.context.clone());
+    let lease = coordinator.acquire_stream(IncomingScope::AllGroups);
+    while let Ok(command) = controller.commands.try_recv() {
+        controller.command(command);
+    }
+    controller.reconcile()?;
+    for topic in &invited_topics {
+        let group_id = GroupId::try_from(topic.identifier())?;
+        assert!(receiver.context.db().find_group(&group_id)?.is_some());
+        assert!(controller.scopes[&lease.id].topics.contains(topic));
+        assert!(controller.interested().contains(topic));
+    }
+    assert!(controller.scopes[&lease.id].topics.len() >= INVITATIONS);
+    controller.reconcile()?;
+    controller.reconcile()?;
+    assert_eq!(
+        controller.discovery_reads, 1,
+        "an idle pass read every group"
+    );
+
+    let group = sender.create_group(None, None)?;
+    group.add_members(&[receiver.inbox_id()]).await?;
+    receiver.sync_welcomes().await?;
+    controller.reconcile()?;
+    assert_eq!(controller.discovery_reads, 2);
+    let topic = Topic::new_group_message(group.group_id);
+    assert!(controller.scopes[&lease.id].topics.contains(&topic));
+    assert!(controller.interested().contains(&topic));
+}
+
+/// A stranger who invites and then removes the user leaves a retired group.
+/// Its stored and MLS state are loaded again only after the group set changes.
+// verifies: PROC-051
+#[xmtp_common::test(unwrap_try = true)]
+async fn retired_groups_are_rechecked_only_after_a_group_change() {
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    let mut groups = Vec::new();
+    for _ in 0..3 {
+        let group = alix
+            .create_group_with_members(&[bo.inbox_id()], None, None)
+            .await?;
+        groups.push(group);
+    }
+    bo.sync_welcomes().await?;
+    for group in &groups {
+        group.remove_members(&[bo.inbox_id()]).await?;
+        let bo_group = bo.group(&group.group_id)?;
+        bo_group.sync().await?;
+        assert!(!bo_group.is_active()?);
+    }
+    let topics: Vec<_> = groups
+        .iter()
+        .map(|group| Topic::new_group_message(group.group_id))
+        .collect();
+    let mut controller = controller(bo.context.clone());
+    controller.command(Command::Acquire {
+        id: 1,
+        scope: IncomingScope::Groups(groups.iter().map(|group| group.group_id).collect()),
+    });
+    controller.reconcile()?;
+    assert!(topics.iter().all(|topic| controller.is_retired(topic)));
+    controller.reconcile()?;
+    controller.reconcile()?;
+    assert_eq!(
+        controller.retired_checks, 0,
+        "an idle pass loaded a retired group"
+    );
+
+    groups[0].add_members(&[bo.inbox_id()]).await?;
+    xmtp_common::wait_for_eq(
+        || async {
+            bo.sync_welcomes().await.unwrap();
+            bo.group(&groups[0].group_id).unwrap().is_active().unwrap()
+        },
+        true,
+    )
+    .await?;
+    controller.reconcile()?;
+    assert_eq!(controller.retired_checks, 3);
+    assert!(!controller.is_retired(&topics[0]));
+    assert!(controller.is_retired(&topics[1]));
+    assert!(controller.is_retired(&topics[2]));
+}
+
+/// Welcome publication order is not epoch order, so a rejoin Welcome can carry
+/// a lower cursor than the one the group's row already holds. Installing it
+/// still changes the group set, so the retired topic is checked again.
+// verifies: PROC-051
+#[xmtp_common::test(unwrap_try = true)]
+async fn an_older_rejoin_welcome_unretires_the_group() {
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    let group = alix
+        .create_group_with_members(&[bo.inbox_id()], None, None)
+        .await?;
+    bo.sync_welcomes().await?;
+    group.remove_members(&[bo.inbox_id()]).await?;
+    let bo_group = bo.group(&group.group_id)?;
+    bo_group.sync().await?;
+    assert!(!bo_group.is_active()?);
+    // A later-published earlier Welcome already advanced the row's cursor.
+    run_raw_sql(
+        &bo.context,
+        &format!(
+            "UPDATE groups SET sequence_id = {} WHERE id = x'{}'",
+            i64::MAX,
+            hex::encode(group.group_id)
+        ),
+    );
+    let topic = Topic::new_group_message(group.group_id);
+    let mut controller = controller(bo.context.clone());
+    controller.command(Command::Acquire {
+        id: 1,
+        scope: IncomingScope::Groups(vec![group.group_id]),
+    });
+    controller.reconcile()?;
+    assert!(controller.is_retired(&topic));
+
+    group.add_members(&[bo.inbox_id()]).await?;
+    xmtp_common::wait_for_eq(
+        || async {
+            bo.sync_welcomes().await.unwrap();
+            bo.group(&group.group_id).unwrap().is_active().unwrap()
+        },
+        true,
+    )
+    .await?;
+    controller.reconcile()?;
+    assert!(!controller.is_retired(&topic));
+    assert!(controller.interested().contains(&topic));
+}
+
+/// A scope opened while no other all-groups scope is open takes the topics of
+/// the last discovery read when the group set has not changed since.
+// verifies: PROC-015
+#[xmtp_common::test(unwrap_try = true)]
+async fn later_all_groups_scope_gets_cached_topics_at_an_unchanged_generation() {
+    tester!(alix, disable_workers);
+    let mut group_topics = HashSet::new();
+    for _ in 0..12 {
+        let group = alix.create_group(None, None)?;
+        group_topics.insert(Topic::new_group_message(group.group_id));
+    }
+    let mut controller = controller(alix.context.clone());
+    controller.command(Command::Acquire {
+        id: 1,
+        scope: IncomingScope::AllGroups,
+    });
+    controller.reconcile()?;
+    assert_eq!(controller.discovery_reads, 1);
+    controller.command(Command::Release(1));
+    controller.reconcile()?;
+
+    controller.command(Command::Acquire {
+        id: 2,
+        scope: IncomingScope::AllGroups,
+    });
+    controller.reconcile()?;
+    assert!(group_topics.is_subset(&controller.scopes[&2].topics));
+    assert_eq!(controller.discovery_reads, 1);
+}
+
+/// Rebuilding the read queue costs one hash lookup per topic, not a scan of
+/// the queue for each interested topic.
+#[xmtp_common::test]
+fn read_queue_merge_uses_one_lookup_per_topic() {
+    use std::cell::Cell;
+    std::thread_local! {
+        static EQUALITY_CHECKS: Cell<usize> = const { Cell::new(0) };
+    }
+    #[derive(Clone, Debug)]
+    struct Key(u64);
+    impl std::hash::Hash for Key {
+        fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+            self.0.hash(state);
+        }
+    }
+    impl PartialEq for Key {
+        fn eq(&self, other: &Self) -> bool {
+            EQUALITY_CHECKS.with(|checks| checks.set(checks.get() + 1));
+            self.0 == other.0
+        }
+    }
+    impl Eq for Key {}
+
+    const QUEUED: u64 = 2_000;
+    let mut queue: VecDeque<_> = (0..QUEUED).rev().map(Key).collect();
+    let interested: HashSet<_> = (0..=QUEUED).map(Key).collect();
+    EQUALITY_CHECKS.with(|checks| checks.set(0));
+    merge_read_queue(&mut queue, &interested, |key| key.0);
+    let checks = EQUALITY_CHECKS.with(Cell::get);
+    assert!(checks <= 16_004, "{checks} equality checks");
+    let order: Vec<_> = queue.iter().map(|key| key.0).collect();
+    let expected: Vec<_> = (0..QUEUED).rev().chain([QUEUED]).collect();
+    assert_eq!(order, expected);
+}
+
 fn meta(topic: &Topic, sequence_id: u64) -> wire::EnvelopeMeta {
     wire::EnvelopeMeta {
         cursor: Some(wire::Cursor { sequence_id }),
@@ -307,12 +546,14 @@ async fn stale_dependency_results_cannot_change_new_heads_or_requirements() {
             };
             controller
                 .dependency_registry
-                .attach(old_parent, DependencyKey::Identity(requirement.clone()));
-            controller.dependency_registry.attach(
-                parent(current),
-                DependencyKey::Identity(next_requirement.clone()),
-            );
-            controller.dependency_finished(DependencyResult::Identity(requirement.clone(), result));
+                .attach(old_parent, identity_key(&requirement));
+            controller
+                .dependency_registry
+                .attach(parent(current), identity_key(&next_requirement));
+            controller.dependency_finished(DependencyResult::Identity(
+                BTreeSet::from([requirement.clone()]),
+                result,
+            ));
             let pending = controller
                 .context
                 .db()
@@ -354,7 +595,7 @@ async fn passive_prefixes_do_not_limit_shared_identity_requests() {
     for parent in [group.clone(), welcome.clone()] {
         controller
             .dependency_registry
-            .attach(parent, DependencyKey::Identity(requirement.clone()));
+            .attach(parent, identity_key(&requirement));
     }
     controller.start_dependencies();
     assert_eq!(controller.dependencies.len(), 1);
@@ -370,7 +611,7 @@ async fn passive_prefixes_do_not_limit_shared_identity_requests() {
     assert_eq!(
         controller
             .dependency_registry
-            .finish(&DependencyKey::Identity(requirement)),
+            .finish(&identity_key(&requirement)),
         HashSet::from([group, welcome])
     );
 }
@@ -978,6 +1219,562 @@ async fn welcome_prefix_fallback_keeps_the_parent_barrier_deadline() {
     )?);
 }
 
+/// A rejoin must wait while the old group is active, then resume after removal
+/// even when the retired group's processed prefix stops before the join anchor.
+/// No newest-position read runs before the hold's deadline; the first pass
+/// after it starts one.
+// verifies: JOIN-042, JOIN-092
+#[xmtp_common::test(unwrap_try = true)]
+async fn removal_wakes_a_welcome_before_its_join_anchor() {
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    let HeldReadd {
+        alix_group,
+        bo_group,
+        welcome,
+        removal,
+    } = held_readd(&alix, &bo).await;
+    let group_topic = Topic::new_group_message(bo_group.group_id);
+    let mut controller = controller(bo.context.clone());
+    let welcome_topic = Topic::new_welcome_message(bo.context.installation_id());
+    let welcome_key = topic_key(&welcome_topic)?;
+    controller.read_queue.push_back(welcome_topic);
+    controller.welcome_blocked_scan = None;
+    assert!(!controller.process_ready());
+    assert!(controller.dependencies.is_empty());
+    assert!(bo_group.is_active()?);
+    assert!(
+        bo.context
+            .db()
+            .pending_envelope(&welcome_key, welcome.cursor)?
+            .is_some()
+    );
+    assert_eq!(controller.dependency_registry.prefixes().count(), 1);
+    let (cursor, group, anchor) = controller.dependency_registry.prefixes().next().unwrap();
+    assert_eq!(cursor, welcome.cursor);
+    assert_eq!(group, bo_group.group_id);
+    assert!(removal.received < anchor);
+    // The deadline passes while the controller runs: the next pass reads.
+    controller
+        .prefix_holds
+        .get_mut(&welcome.cursor)
+        .unwrap()
+        .deadline_ns = 0;
+    assert!(!controller.process_ready());
+    assert_eq!(controller.dependencies.len(), 1);
+
+    controller.read_queue.push_front(group_topic);
+    for _ in 0..removal.inserted {
+        assert!(controller.process_ready());
+    }
+    assert!(
+        bo.context
+            .db()
+            .pending_envelope(&welcome_key, welcome.cursor)?
+            .is_none()
+    );
+    assert_eq!(controller.dependency_registry.prefixes().count(), 0);
+    assert!(bo_group.is_active()?);
+    assert_eq!(
+        bo_group.epoch_authenticator().await?,
+        alix_group.epoch_authenticator().await?
+    );
+}
+
+/// A held re-add (`held_readd`) whose stored deadline has passed, as for a
+/// client restarted after it.
+struct PrefixDeadlineRestart {
+    /// The restarted controller after its first pass, with live work suspended
+    /// when the caller asked for it.
+    controller: Controller<crate::utils::TestXmtpMlsContext>,
+    alix_group: crate::utils::TestMlsGroup,
+    bo_group: crate::utils::TestMlsGroup,
+    welcome: Cursor,
+    anchor: Cursor,
+    removal: xmtp_db::incoming_envelope::AdmissionResult,
+}
+
+async fn restart_after_prefix_deadline(
+    alix: &crate::utils::FullXmtpClient,
+    bo: &crate::utils::FullXmtpClient,
+    suspended: bool,
+) -> PrefixDeadlineRestart {
+    use diesel::{ExpressionMethods, QueryDsl, RunQueryDsl};
+    use xmtp_db::{ConnectionExt, refresh_state::EntityKind, schema::incoming_envelopes};
+
+    let HeldReadd {
+        alix_group,
+        bo_group,
+        welcome,
+        removal,
+    } = held_readd(alix, bo).await;
+    // The first classification stores the hold's deadline.
+    WelcomeService::new(bo.context.clone())
+        .process_pending_welcomes_once(&[])
+        .unwrap();
+    // The deadline passes while the client is stopped.
+    bo.context
+        .db()
+        .raw_query(|conn| {
+            diesel::update(incoming_envelopes::table.find((
+                bo.context.installation_id().to_vec(),
+                EntityKind::Welcome,
+                welcome.cursor.0 as i64,
+            )))
+            .set((
+                incoming_envelopes::retry_expires_at_ns.eq(Some(1i64)),
+                incoming_envelopes::retry_at_ns.eq(0i64),
+            ))
+            .execute(conn)
+        })
+        .unwrap();
+
+    // A restarted controller attempts the Welcome again on its first pass.
+    let mut controller = controller(bo.context.clone());
+    controller
+        .read_queue
+        .push_back(Topic::new_welcome_message(bo.context.installation_id()));
+    controller.welcome_blocked_scan = None;
+    if suspended {
+        controller.transport.factory = Some(Arc::new(SuspendedFactory));
+    }
+    assert!(!controller.process_ready());
+    let (cursor, group, anchor) = controller.dependency_registry.prefixes().next().unwrap();
+    assert_eq!((cursor, group), (welcome.cursor, bo_group.group_id));
+    assert!(removal.received < anchor);
+    PrefixDeadlineRestart {
+        controller,
+        alix_group,
+        bo_group,
+        welcome: welcome.cursor,
+        anchor,
+        removal,
+    }
+}
+
+/// A coordinator restarted after a group-prefix deadline must read the group
+/// topic's newest position before it decides, once live work resumes, and keep
+/// receiving the topic meanwhile. A topic that reaches the anchor keeps the
+/// Welcome until the removal is processed, and the re-add joins.
+// verifies: JOIN-092
+#[xmtp_common::test(unwrap_try = true)]
+async fn expired_prefix_wait_catches_up_before_deciding() {
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    let PrefixDeadlineRestart {
+        mut controller,
+        alix_group,
+        bo_group,
+        welcome,
+        anchor,
+        removal,
+    } = restart_after_prefix_deadline(&alix, &bo, true).await;
+    let welcome_key = topic_key(&Topic::new_welcome_message(bo.context.installation_id()))?;
+    let group_topic = Topic::new_group_message(bo_group.group_id);
+    let pending = || bo.context.db().pending_envelope(&welcome_key, welcome);
+    assert!(pending()?.is_some());
+    assert!(bo_group.is_active()?);
+    assert!(controller.dependencies.is_empty(), "suspended: no read");
+    // After resuming, one newest-position read runs; a later pass does not
+    // repeat it, and the group topic keeps its network interest.
+    controller.transport.factory = None;
+    assert!(!controller.process_ready());
+    assert_eq!(controller.dependencies.len(), 1);
+    assert!(!controller.process_ready());
+    assert_eq!(controller.dependencies.len(), 1);
+    controller.reconcile()?;
+    assert!(controller.interested().contains(&group_topic));
+
+    let result =
+        xmtp_common::time::timeout(Duration::from_secs(10), controller.dependencies.next())
+            .await?
+            .unwrap();
+    let DependencyResult::PrefixTarget(cursor, _, Ok(target)) = &result else {
+        panic!("expected the group prefix target");
+    };
+    assert_eq!(*cursor, welcome);
+    assert!(*target >= anchor);
+    controller.dependency_finished(result);
+    // The Welcome waits while processing approaches the removal, with no
+    // further read, and joins on the pass that processes it.
+    for _ in 1..removal.inserted {
+        assert!(controller.process_ready());
+        assert!(pending()?.is_some());
+    }
+    assert!(controller.process_ready());
+    assert!(controller.dependencies.is_empty());
+    assert!(pending()?.is_none());
+    assert!(bo_group.is_active()?);
+    assert_eq!(
+        bo_group.epoch_authenticator().await?,
+        alix_group.epoch_authenticator().await?
+    );
+}
+
+/// After the deadline, a newest read below the anchor that processing has
+/// reached rejects the Welcome and leaves the held group unchanged. A failed
+/// read, or a target processing has not reached, keeps the Welcome. The read
+/// results are injected; the rejecting one models a lagging copy of the store.
+// verifies: JOIN-092
+#[xmtp_common::test(unwrap_try = true)]
+async fn expired_prefix_wait_rejects_below_a_reached_final_target() {
+    use super::processing::PrefixTarget;
+
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    let PrefixDeadlineRestart {
+        mut controller,
+        bo_group,
+        welcome,
+        anchor,
+        removal,
+        ..
+    } = restart_after_prefix_deadline(&alix, &bo, false).await;
+    let welcome_topic = Topic::new_welcome_message(bo.context.installation_id());
+    let welcome_key = topic_key(&welcome_topic)?;
+    let group_topic = Topic::new_group_message(bo_group.group_id);
+    let held = || -> Result<bool, xmtp_db::StorageError> {
+        Ok(bo
+            .context
+            .db()
+            .pending_envelope(&welcome_key, welcome)?
+            .is_some()
+            && bo.context.db().read_last_rejection(&welcome_key)?.is_none())
+    };
+    let epoch = bo_group.epoch().await?;
+    let processed = bo
+        .context
+        .db()
+        .topic_progress(&StreamTopic::group(bo_group.group_id))?
+        .processed;
+    assert!(processed < removal.received && removal.received < anchor);
+
+    // A failed read keeps the Welcome and is issued again once due.
+    controller.dependencies.clear();
+    controller.dependency_finished(DependencyResult::PrefixTarget(
+        welcome,
+        group_topic.clone(),
+        Err(xmtp_api::ApiError::InvalidResponse("newest metadata")),
+    ));
+    assert!(!controller.process_ready());
+    assert!(held()?);
+    assert!(controller.dependencies.is_empty());
+    if let PrefixTarget::Unrequested { retry_at } =
+        &mut controller.prefix_holds.get_mut(&welcome).unwrap().target
+    {
+        *retry_at = Some(Instant::now());
+    }
+    assert!(!controller.process_ready());
+    assert_eq!(controller.dependencies.len(), 1);
+
+    // Processing has not reached this target, and the removal at or below it
+    // could still let the re-add join: the watch stays.
+    controller.dependency_finished(DependencyResult::PrefixTarget(
+        welcome,
+        group_topic.clone(),
+        Ok(removal.received),
+    ));
+    assert!(!controller.process_ready());
+    assert!(held()?);
+    assert_eq!(controller.dependency_registry.prefixes().count(), 1);
+
+    controller.dependency_finished(DependencyResult::PrefixTarget(
+        welcome,
+        group_topic,
+        Ok(processed),
+    ));
+    assert!(controller.process_ready());
+    assert!(
+        bo.context
+            .db()
+            .pending_envelope(&welcome_key, welcome)?
+            .is_none()
+    );
+    let rejection = bo.context.db().read_last_rejection(&welcome_key)?.unwrap();
+    assert_eq!(rejection.code, "group_prefix_expired");
+    assert_eq!(rejection.sequence_id, welcome);
+    assert_eq!(controller.dependency_registry.prefixes().count(), 0);
+    assert!(bo_group.is_active()?);
+    assert_eq!(bo_group.epoch().await?, epoch);
+    assert_eq!(
+        bo.context
+            .db()
+            .topic_progress(&StreamTopic::group(bo_group.group_id))?
+            .processed,
+        processed
+    );
+}
+
+/// Another process has already processed the removal, so this controller has
+/// not retired the group. A newest read below the anchor that processing has
+/// reached must not reject the re-add: the group is no longer active. The
+/// controller releases the hold and joins on a later attempt.
+// verifies: JOIN-092
+#[xmtp_common::test(unwrap_try = true)]
+async fn expired_prefix_wait_keeps_a_welcome_for_an_inactive_group() {
+    use diesel::{ExpressionMethods, QueryDsl, RunQueryDsl};
+    use xmtp_db::{ConnectionExt, refresh_state::EntityKind, schema::incoming_envelopes};
+
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    let PrefixDeadlineRestart {
+        mut controller,
+        alix_group,
+        bo_group,
+        welcome,
+        removal,
+        ..
+    } = restart_after_prefix_deadline(&alix, &bo, false).await;
+    let welcome_key = topic_key(&Topic::new_welcome_message(bo.context.installation_id()))?;
+    for _ in 0..removal.inserted {
+        bo_group.process_pending_group_head(None)?;
+    }
+    assert!(!bo_group.is_active()?);
+    let processed = bo
+        .context
+        .db()
+        .topic_progress(&StreamTopic::group(bo_group.group_id))?
+        .processed;
+
+    controller.dependency_finished(DependencyResult::PrefixTarget(
+        welcome,
+        Topic::new_group_message(bo_group.group_id),
+        Ok(processed),
+    ));
+    assert!(!controller.process_ready());
+    assert!(
+        bo.context
+            .db()
+            .pending_envelope(&welcome_key, welcome)?
+            .is_some()
+    );
+    assert!(bo.context.db().read_last_rejection(&welcome_key)?.is_none());
+
+    // Once its retry time comes, the next pass attempts the Welcome again.
+    bo.context.db().raw_query(|conn| {
+        diesel::update(incoming_envelopes::table.find((
+            bo.context.installation_id().to_vec(),
+            EntityKind::Welcome,
+            welcome.0 as i64,
+        )))
+        .set(incoming_envelopes::retry_at_ns.eq(0i64))
+        .execute(conn)
+    })?;
+    assert!(controller.process_ready());
+    assert!(
+        bo.context
+            .db()
+            .pending_envelope(&welcome_key, welcome)?
+            .is_none()
+    );
+    assert!(bo.context.db().read_last_rejection(&welcome_key)?.is_none());
+    assert_eq!(
+        bo_group.epoch_authenticator().await?,
+        alix_group.epoch_authenticator().await?
+    );
+}
+
+/// A pointer whose fetch is still running must not occupy every ready batch;
+/// an independent later Welcome must join without rewriting the held row.
+// verifies: PROC-013
+#[xmtp_common::test(unwrap_try = true)]
+async fn an_in_flight_pointer_does_not_starve_a_later_welcome() {
+    use crate::groups::welcome_sync::pending_welcome_for_test;
+
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    tester!(_bo2, from: bo, disable_workers);
+    tester!(_bo3, from: bo, disable_workers);
+    let first = alix.create_group(None, None)?;
+    first.add_members(&[bo.inbox_id()]).await?;
+    let later = alix.create_group(None, None)?;
+    later.add_members(&[bo.inbox_id()]).await?;
+    let mut welcomes = bo
+        .context
+        .api()
+        .query_welcome_messages(bo.context.installation_id())
+        .await?;
+    welcomes.sort_by_key(|welcome| welcome.cursor);
+    assert_eq!(welcomes.len(), 2);
+    assert!(matches!(
+        welcomes[0].variant,
+        xmtp_proto::types::WelcomeMessageType::WelcomePointer(_)
+    ));
+    pending_welcome_for_test(&bo.context, &welcomes[1]).await?;
+    let client = client_with_policy(&bo, |settings| settings.max_fetched_rows = 1).await?;
+    let mut controller = controller(client.context.clone());
+    let topic = Topic::new_welcome_message(client.context.installation_id());
+    let key = topic_key(&topic)?;
+    controller.read_queue.push_back(topic);
+    controller.welcome_blocked_scan = None;
+    controller.dependency_registry.attach(
+        DependencyParent::Welcome(welcomes[0].cursor),
+        DependencyKey::Welcome(welcomes[0].cursor),
+    );
+    // Keep the first fetch in flight without resolving it or advancing time.
+    assert_eq!(controller.dependency_registry.start_queued(1).len(), 1);
+    controller.process_ready();
+    assert!(
+        controller
+            .dependency_registry
+            .contains(&DependencyParent::Welcome(welcomes[1].cursor))
+    );
+    let result =
+        xmtp_common::time::timeout(Duration::from_secs(10), controller.dependencies.next())
+            .await?
+            .unwrap();
+    controller.dependency_finished(result);
+    assert!(client.context.db().find_group(&later.group_id)?.is_some());
+    assert!(client.context.db().find_group(&first.group_id)?.is_none());
+    let pending = client
+        .context
+        .db()
+        .pending_envelope(&key, welcomes[0].cursor)?
+        .unwrap();
+    assert_eq!(pending.retry_at_ns, 0);
+    assert!(!pending.blocked);
+    assert!(pending.error_code.is_none());
+    assert!(pending.retry_expires_at_ns.is_none());
+    assert!(pending.unreadable_expires_at_ns.is_none());
+}
+
+/// One attempt names every member proof the joiner lacks, one request fetches
+/// them, and the next attempt joins. An inline Welcome resolves them through
+/// the controller; a pointer resolves them inside its Welcome dependency.
+// verifies: JOIN-051
+#[rstest::rstest]
+#[case::inline(false)]
+#[case::pointer(true)]
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_welcome_fetches_missing_member_proofs_in_one_request(#[case] pointer: bool) {
+    use crate::groups::welcome_sync::pending_welcome_for_test;
+
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    tester!(caro, disable_workers);
+    tester!(dave, disable_workers);
+    tester!(eve, disable_workers);
+    let others = [caro.inbox_id(), dave.inbox_id(), eve.inbox_id()];
+    let group = alix.create_group(None, None).unwrap();
+    if pointer {
+        // More than two recipient installations receive a welcome pointer.
+        group
+            .add_members(&[
+                caro.inbox_id(),
+                dave.inbox_id(),
+                eve.inbox_id(),
+                bo.inbox_id(),
+            ])
+            .await
+            .unwrap();
+    } else {
+        group.add_members(&others).await.unwrap();
+        group.add_members(&[bo.inbox_id()]).await.unwrap();
+    }
+    let welcome = bo
+        .context
+        .api()
+        .query_welcome_messages(bo.context.installation_id())
+        .await
+        .unwrap()
+        .pop()
+        .unwrap();
+    assert_eq!(
+        matches!(
+            welcome.variant,
+            xmtp_proto::types::WelcomeMessageType::WelcomePointer(_)
+        ),
+        pointer
+    );
+    pending_welcome_for_test(&bo.context, &welcome)
+        .await
+        .unwrap();
+    let mut controller = controller(bo.context.clone());
+    controller
+        .read_queue
+        .push_back(Topic::new_welcome_message(bo.context.installation_id()));
+    controller.welcome_blocked_scan = None;
+    controller.process_ready();
+    assert_eq!(controller.dependencies.len(), 1);
+
+    let queries = bo.api_stats().query.get_count();
+    let result = controller.dependencies.next().await.unwrap();
+    if let DependencyResult::Identity(requirements, _) = &result {
+        let inboxes: HashSet<_> = requirements
+            .iter()
+            .map(|requirement| requirement.inbox_id.as_str())
+            .collect();
+        assert!(inboxes.contains(alix.inbox_id()));
+        assert!(others.iter().all(|inbox_id| inboxes.contains(inbox_id)));
+    } else {
+        assert!(pointer);
+    }
+    controller.dependency_finished(result);
+    // A pointer also fetches its pointee.
+    assert_eq!(
+        bo.api_stats().query.get_count() - queries,
+        1 + usize::from(pointer)
+    );
+    assert!(
+        bo.context
+            .db()
+            .find_group(&group.group_id)
+            .unwrap()
+            .is_some()
+    );
+    assert!(controller.dependencies.is_empty());
+}
+
+/// One attempt names every proof a multi-inbox add lacks, one request fetches
+/// them, and the next attempt applies the commit.
+// verifies: GMOD-013
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_commit_fetches_missing_proofs_for_added_inboxes_in_one_request() {
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    tester!(caro, disable_workers);
+    tester!(dave, disable_workers);
+    tester!(eve, disable_workers);
+    let alix_group = alix.create_group(None, None)?;
+    alix_group.add_members(&[bo.inbox_id()]).await?;
+    bo.sync_welcomes().await?;
+    let bo_group = bo.find_groups(GroupQueryArgs::default())?.remove(0);
+    bo_group.receive().await?;
+    let added = [caro.inbox_id(), dave.inbox_id(), eve.inbox_id()];
+    alix_group.add_members(&added).await?;
+    let topic = Topic::new_group_message(bo_group.group_id);
+    MlsStore::new(bo.context.clone())
+        .receive_topics_once(
+            std::slice::from_ref(&topic),
+            bo.context
+                .incoming_runtime()
+                .policy()
+                .incoming_limits(NetworkEntityKind::Group),
+        )
+        .await?;
+    let mut controller = controller(bo.context.clone());
+    controller.read_queue.push_back(topic);
+    // Earlier heads from the add need no proofs. The commit then waits on one batch.
+    while controller.process_ready() {}
+    assert_eq!(controller.dependencies.len(), 1);
+
+    let queries = bo.api_stats().query.get_count();
+    let result = controller.dependencies.next().await.unwrap();
+    let DependencyResult::Identity(requirements, Ok(())) = &result else {
+        panic!("the commit must wait on one resolved identity batch");
+    };
+    let inboxes: HashSet<_> = requirements
+        .iter()
+        .map(|requirement| requirement.inbox_id.as_str())
+        .collect();
+    assert_eq!(inboxes, HashSet::from(added));
+    controller.dependency_finished(result);
+    assert_eq!(bo.api_stats().query.get_count() - queries, 1);
+    assert!(controller.process_ready());
+    assert!(controller.dependencies.is_empty());
+    assert_eq!(bo_group.members().await?.len(), 5);
+}
+
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_welcome_failure_keeps_independent_pending_parents_runnable() {
     use crate::identity_updates::IdentityDependencyError;
@@ -1014,10 +1811,10 @@ async fn a_welcome_failure_keeps_independent_pending_parents_runnable() {
     };
     controller.dependency_registry.attach(
         DependencyParent::Welcome(Cursor(10)),
-        DependencyKey::Identity(requirement.clone()),
+        identity_key(&requirement),
     );
     controller.dependency_finished(DependencyResult::Identity(
-        requirement,
+        BTreeSet::from([requirement]),
         Err(IdentityDependencyError::InvalidSequence(0)),
     ));
     controller.refresh_statuses();
@@ -2633,19 +3430,15 @@ async fn each_kind_keeps_its_budget_and_only_committed_chunks_are_acknowledged()
     use xmtp_db::{TransactionOutcome, XmtpMlsStorageProvider};
 
     tester!(alix, disable_workers);
-    let mut settings = alix.context.incoming_runtime().policy().clone();
-    settings.max_fetched_rows = 8;
-    settings.max_fetched_bytes = 4096;
-    settings.max_admission_rows = 1;
-    settings.max_admission_bytes = 1024;
-    settings.group_pending.rows = 2;
-    settings.welcome_pending.bytes = 1;
-    let client = crate::builder::ClientBuilder::from_client(alix.client.clone())
-        .stream_policy(settings)
-        .with_disable_workers(true)
-        .with_allow_offline(Some(true))
-        .build()
-        .await?;
+    let client = client_with_policy(&alix, |settings| {
+        settings.max_fetched_rows = 8;
+        settings.max_fetched_bytes = 4096;
+        settings.max_admission_rows = 1;
+        settings.max_admission_bytes = 1024;
+        settings.group_pending.rows = 2;
+        settings.welcome_pending.bytes = 1;
+    })
+    .await?;
     let topic = Topic::new_group_message(GroupId::generate());
     let welcome = Topic::new_welcome_message(client.installation_public_key());
     let key = topic_key(&topic)?;
@@ -2653,8 +3446,13 @@ async fn each_kind_keeps_its_budget_and_only_committed_chunks_are_acknowledged()
     add_scope(&mut controller, 1, &topic);
     add_scope(&mut controller, 2, &welcome);
     controller.transport.requested = [topic.clone(), welcome.clone()].into();
-    assert_eq!(controller.fetched_limits().max_rows, 8);
-    assert_eq!(controller.fetched_limits().max_bytes, 4096);
+    let limits = controller
+        .context
+        .incoming_runtime()
+        .policy()
+        .fetched_limits();
+    assert_eq!(limits.max_rows, 8);
+    assert_eq!(limits.max_bytes, 4096);
     let acknowledged = Arc::new(Mutex::new(Vec::new()));
     let observed = acknowledged.clone();
     controller.transport.state = TransportState::Streaming(IncomingSubscription::new(
@@ -2725,18 +3523,14 @@ async fn each_kind_keeps_its_budget_and_only_committed_chunks_are_acknowledged()
 
     tester!(receiver, disable_workers);
     let group = receiver.create_group(None, None)?;
-    let mut settings = receiver.context.incoming_runtime().policy().clone();
-    settings.max_fetched_rows = 8;
-    settings.max_admission_rows = 8;
-    settings.max_pending_rows_per_topic = 8;
-    settings.active_database_poll_interval = Duration::from_millis(10);
-    settings.receiver_fallback_interval = Duration::from_millis(100);
-    let client = crate::builder::ClientBuilder::from_client(receiver.client.clone())
-        .stream_policy(settings)
-        .with_disable_workers(true)
-        .with_allow_offline(Some(true))
-        .build()
-        .await?;
+    let client = client_with_policy(&receiver, |settings| {
+        settings.max_fetched_rows = 8;
+        settings.max_admission_rows = 8;
+        settings.max_pending_rows_per_topic = 8;
+        settings.active_database_poll_interval = Duration::from_millis(10);
+        settings.receiver_fallback_interval = Duration::from_millis(100);
+    })
+    .await?;
     let topic = Topic::new_group_message(group.group_id);
     let key = topic_key(&topic)?;
     let before = client.context.db().topic_progress(&key)?;
@@ -2899,6 +3693,86 @@ async fn each_kind_keeps_its_budget_and_only_committed_chunks_are_acknowledged()
     task.join().await?;
 }
 
+/// Held group heads cannot drain, so they are charged to the held allowance
+/// and neither stop nor keep paused the receipt of unrelated groups.
+// verifies: PROC-020
+#[xmtp_common::test(unwrap_try = true)]
+async fn held_group_heads_do_not_pause_unrelated_groups() {
+    use xmtp_db::incoming_envelope::IncomingRetry;
+
+    tester!(alix, disable_workers);
+    let client = client_with_policy(&alix, |settings| settings.group_pending.rows = 2).await?;
+    let first = Topic::new_group_message(GroupId::generate());
+    let second = Topic::new_group_message(GroupId::generate());
+    let third = Topic::new_group_message(GroupId::generate());
+    let mut controller = controller(client.context.clone());
+    for (id, topic) in [&first, &second, &third].into_iter().enumerate() {
+        add_scope(&mut controller, id as u64 + 1, topic);
+    }
+    controller.transport.requested = [first.clone(), second.clone(), third.clone()].into();
+    controller.transport.state = TransportState::Streaming(IncomingSubscription::new(
+        Box::pin(futures::stream::pending()),
+        |_| {},
+    ));
+    let admit = |controller: &mut Controller<_>, topic: &Topic, sequence: u64| {
+        controller.incoming(Some(Ok(IncomingEvent::OrderedBatch(
+            OrderedEnvelopeBatch {
+                topic: topic.clone(),
+                after: Cursor(sequence - 10),
+                envelopes: vec![wire::ServerEnvelope {
+                    meta: Some(meta(topic, sequence)),
+                    envelope: Some(wire::ClientEnvelope::default()),
+                }],
+            },
+        ))));
+    };
+    admit(&mut controller, &first, 10);
+    admit(&mut controller, &second, 10);
+    admit(&mut controller, &third, 10);
+    assert!(
+        controller.receipt(&third).paused,
+        "ready work fills the budget"
+    );
+    // Both heads become held, like commits that cannot be processed.
+    for topic in [&first, &second] {
+        assert!(client.context.db().set_incoming_retry(
+            &topic_key(topic)?,
+            Cursor(10),
+            &IncomingRetry {
+                retry_at_ns: 0,
+                blocked: true,
+                error_code: Some("group_head_blocked".into()),
+                retry_expires_at_ns: None,
+            },
+        )?);
+    }
+    controller.reconcile()?;
+    assert!(
+        !controller.receipt(&third).paused,
+        "held heads do not keep an unrelated group paused"
+    );
+    admit(&mut controller, &third, 10);
+    assert!(!controller.receipt(&third).paused);
+    assert_eq!(
+        client
+            .context
+            .db()
+            .topic_progress(&topic_key(&third)?)?
+            .received,
+        Cursor(10)
+    );
+    admit(&mut controller, &first, 20);
+    assert!(
+        controller.receipt(&first).paused,
+        "a held topic pauses when the held allowance is full"
+    );
+    controller.reconcile()?;
+    assert!(
+        controller.receipt(&first).paused,
+        "a held topic stays paused while the held allowance is full"
+    );
+}
+
 // verifies: PROC-001
 #[xmtp_common::test(unwrap_try = true)]
 async fn byte_chunks_validate_the_complete_input_before_receipt() {
@@ -2908,15 +3782,11 @@ async fn byte_chunks_validate_the_complete_input_before_receipt() {
         meta: Some(meta(&topic, sequence)),
         envelope: Some(wire::ClientEnvelope::default()),
     };
-    let mut settings = alix.context.incoming_runtime().policy().clone();
-    settings.max_admission_rows = 8;
-    settings.max_admission_bytes = envelope(10).encoded_len() as u64;
-    let client = crate::builder::ClientBuilder::from_client(alix.client.clone())
-        .stream_policy(settings)
-        .with_disable_workers(true)
-        .with_allow_offline(Some(true))
-        .build()
-        .await?;
+    let client = client_with_policy(&alix, |settings| {
+        settings.max_admission_rows = 8;
+        settings.max_admission_bytes = envelope(10).encoded_len() as u64;
+    })
+    .await?;
     let mut controller = controller(client.context.clone());
     let key = topic_key(&topic)?;
     assert!(
@@ -3670,4 +4540,333 @@ async fn a_failed_reconcile_opens_no_new_network_interest() {
     pass(&mut controller);
     assert!(controller.storage_error.is_none());
     assert!(controller.transport.requested.contains(&added));
+}
+
+fn rate_limited(category: &str, delay: Duration) -> NetworkError {
+    NetworkError::new(xmtp_api::ApiError::Api(NetworkError::new(
+        xmtp_api_grpc::error::GrpcError::Status(xmtp_api_grpc::error::rate_limited_status(
+            category, delay,
+        )),
+    )))
+}
+
+/// A replacement controller cannot open inside the delay an earlier one was given.
+// verifies: RATE-041
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_replacement_controller_waits_out_a_rate_limited_open() {
+    tester!(alix, disable_workers);
+    let topic = Topic::new_group_message(GroupId::generate());
+    let mut original = controller(alix.context.clone());
+    original.transport.factory = Some(Arc::new(PendingFactory));
+    add_scope(&mut original, 1, &topic);
+    original.start_open();
+    assert_eq!(original.transport.generation, 1);
+    original.opened(Err(rate_limited("stream_rent", Duration::from_secs(30))));
+    drop(original);
+
+    let mut recreated = controller(alix.context.clone());
+    recreated.transport.factory = Some(Arc::new(PendingFactory));
+    add_scope(&mut recreated, 1, &topic);
+    recreated.transport.wake();
+    recreated.start_open();
+    assert_eq!(
+        recreated.transport.generation, 0,
+        "no open inside the delay"
+    );
+}
+
+/// A rate-limited read leaves the live stream open, and only that topic's
+/// read waits out the delay: another topic still reads.
+// verifies: RATE-041
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_rate_limited_read_keeps_the_stream_and_waits_only_its_topic() {
+    tester!(alix, disable_workers);
+    let (coordinator, mut controller) = coordinated_controller(alix.context.clone());
+    let refused = Topic::new_group_message(GroupId::generate());
+    let other = Topic::new_group_message(GroupId::generate());
+    let stream =
+        coordinator.acquire_stream(IncomingScope::Topics(vec![refused.clone(), other.clone()]));
+    while let Ok(command) = controller.commands.try_recv() {
+        controller.command(command);
+    }
+    let scope = controller.scopes.get_mut(&stream.id).unwrap();
+    for topic in [&refused, &other] {
+        scope.topics.insert(topic.clone());
+        scope.targets.insert(topic.clone(), Cursor(5));
+    }
+    controller.transport.requested.insert(refused.clone());
+    controller.transport.state = TransportState::Streaming(IncomingSubscription::new(
+        Box::pin(futures::stream::pending()),
+        |_| {},
+    ));
+    controller.read_queue.push_back(refused.clone());
+    controller.read_queue.push_back(other.clone());
+    controller.read_finished((
+        refused.clone(),
+        Some(Cursor(0)),
+        ReadOutcome::Fetched(Err(crate::mls_store::MlsStoreError::Api(rate_limited_api(
+            "request",
+            Duration::from_secs(300),
+        )))),
+    ));
+    assert!(
+        matches!(controller.transport.state, TransportState::Streaming(_)),
+        "a refused read must not end the stream"
+    );
+    // Due again by the poll interval; only the delay holds it now.
+    controller
+        .topics
+        .get_mut(&refused)
+        .unwrap()
+        .receipt
+        .last_read = None;
+    controller.start_read();
+    assert!(controller.read.is_some(), "another topic still reads");
+    assert!(
+        controller.receipt(&refused).last_read.is_none(),
+        "no read of the refused topic inside the delay"
+    );
+    assert!(controller.receipt(&other).last_read.is_some());
+}
+
+/// A topic refused with a rate limit reads again once its delay ends.
+// verifies: RATE-041
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_rate_limited_topic_reads_again_after_its_delay() {
+    tester!(alix, disable_workers);
+    let (coordinator, mut controller) = coordinated_controller(alix.context.clone());
+    let refused = Topic::new_group_message(GroupId::generate());
+    let stream = coordinator.acquire_stream(IncomingScope::Topics(vec![refused.clone()]));
+    while let Ok(command) = controller.commands.try_recv() {
+        controller.command(command);
+    }
+    let scope = controller.scopes.get_mut(&stream.id).unwrap();
+    scope.topics.insert(refused.clone());
+    scope.targets.insert(refused.clone(), Cursor(5));
+    controller.transport.requested.insert(refused.clone());
+    controller.transport.state = TransportState::Streaming(IncomingSubscription::new(
+        Box::pin(futures::stream::pending()),
+        |_| {},
+    ));
+    controller.read_queue.push_back(refused.clone());
+    controller.read_finished((
+        refused.clone(),
+        Some(Cursor(0)),
+        ReadOutcome::Fetched(Err(crate::mls_store::MlsStoreError::Api(rate_limited_api(
+            "request",
+            Duration::from_millis(50),
+        )))),
+    ));
+    xmtp_common::time::sleep(Duration::from_millis(60)).await;
+    controller
+        .topics
+        .get_mut(&refused)
+        .unwrap()
+        .receipt
+        .last_read = None;
+    controller.start_read();
+    assert!(
+        controller.receipt(&refused).last_read.is_some(),
+        "the topic reads again after the delay"
+    );
+}
+
+/// A stream that ends with a rate limit, as the bidi transport reports it,
+/// holds the next open.
+// verifies: RATE-041
+#[cfg(not(target_arch = "wasm32"))]
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_rate_limited_stream_end_holds_the_next_open() {
+    use xmtp_api_backend::{ConnectionFailure, TransportError};
+    tester!(alix, disable_workers);
+    let topic = Topic::new_group_message(GroupId::generate());
+    let mut controller = controller(alix.context.clone());
+    controller.transport.factory = Some(Arc::new(PendingFactory));
+    add_scope(&mut controller, 1, &topic);
+    controller.start_open();
+    assert_eq!(controller.transport.generation, 1);
+    controller.transport.state = TransportState::Streaming(IncomingSubscription::new(
+        Box::pin(futures::stream::pending()),
+        |_| {},
+    ));
+    let end = NetworkError::new(TransportError::Wire(std::sync::Arc::new(
+        ConnectionFailure::Wire(rate_limited("stream_rent", Duration::from_secs(30))),
+    )));
+    controller.incoming(Some(Err(end)));
+    controller.transport.wake();
+    controller.start_open();
+    assert_eq!(
+        controller.transport.generation, 1,
+        "no reopen inside the delay"
+    );
+}
+
+fn rate_limited_api(category: &str, delay: Duration) -> xmtp_api::ApiError {
+    xmtp_api::ApiError::Api(NetworkError::new(xmtp_api_grpc::error::GrpcError::Status(
+        xmtp_api_grpc::error::rate_limited_status(category, delay),
+    )))
+}
+
+/// The head that needed a refused identity proof retries after the delay,
+/// and other dependency fetches still start: the hold is per request.
+// verifies: RATE-041
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_rate_limited_identity_proof_floors_only_its_head() {
+    use xmtp_db::incoming_envelope::{NetworkEntityKind, NewIncomingEnvelope};
+    tester!(alix, disable_workers);
+    let mut controller = controller(alix.context.clone());
+    let topic = Topic::new_group_message(GroupId::generate());
+    let key = topic_key(&topic)?;
+    alix.context.db().admit_ordered_batch(
+        &key,
+        Cursor(0),
+        &[NewIncomingEnvelope {
+            sequence_id: Cursor(1),
+            envelope: vec![1],
+        }],
+        alix.context
+            .incoming_runtime()
+            .policy()
+            .incoming_limits(NetworkEntityKind::Group),
+    )?;
+    let requirement = IdentityRequirement {
+        inbox_id: alix.inbox_id().to_string(),
+        sequence_id: 1,
+    };
+    let refused = identity_key(&requirement);
+    controller.dependency_registry.attach(
+        DependencyParent::GroupHead(topic, Cursor(1)),
+        refused.clone(),
+    );
+    let other = IdentityRequirement {
+        inbox_id: "other".into(),
+        sequence_id: 1,
+    };
+    controller.dependency_registry.attach(
+        DependencyParent::IdentityHead(Topic::new_group_message(GroupId::generate()), Cursor(1)),
+        identity_key(&other),
+    );
+    let DependencyKey::Identity(requirements) = refused else {
+        unreachable!()
+    };
+    let delay = Duration::from_secs(300);
+    let before = xmtp_common::time::now_ns();
+    controller.dependency_finished(DependencyResult::Identity(
+        requirements,
+        Err(crate::identity_updates::IdentityDependencyError::Client(
+            Box::new(crate::client::ClientError::Api(rate_limited_api(
+                "request", delay,
+            ))),
+        )),
+    ));
+    let head = alix.context.db().first_pending_envelope(&key)?.unwrap();
+    assert!(head.retry_at_ns >= before + delay.as_nanos() as i64);
+    controller.start_dependencies();
+    assert_eq!(
+        controller.dependencies.len(),
+        1,
+        "other fetches still start"
+    );
+}
+
+/// A refused target read is not sent again before its delay, and the delay
+/// holds only its own topics: once the fallback interval has passed, a
+/// capture for another topic still starts.
+// verifies: RATE-041
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_rate_limited_target_read_waits_its_delay() {
+    tester!(alix, disable_workers);
+    let (coordinator, mut controller) = coordinated_controller(alix.context.clone());
+    let refused = Topic::new_group_message(GroupId::generate());
+    let other = Topic::new_group_message(GroupId::generate());
+    let stream =
+        coordinator.acquire_stream(IncomingScope::Topics(vec![refused.clone(), other.clone()]));
+    while let Ok(command) = controller.commands.try_recv() {
+        controller.command(command);
+    }
+    let scope = controller.scopes.get_mut(&stream.id).unwrap();
+    scope.topics.extend([refused.clone(), other.clone()]);
+    let generation = scope.generation;
+    controller.transport.state = TransportState::Streaming(IncomingSubscription::new(
+        Box::pin(futures::stream::pending()),
+        |_| {},
+    ));
+    let delay = Duration::from_secs(300);
+    let before = Instant::now();
+    controller.targets_request = Some(std::collections::HashSet::from([refused.clone()]));
+    controller.targets_finished((
+        vec![(stream.id, generation)],
+        Err(NetworkError::new(rate_limited_api("request", delay))),
+    ));
+    assert!(
+        controller.targets_retry_at? < before + delay,
+        "the delay holds only the refused topics"
+    );
+    // The fallback interval has passed; only the delay holds the refused topic.
+    controller.targets_retry_at = None;
+    controller
+        .transport
+        .registered
+        .extend([refused.clone(), other.clone()]);
+    controller.start_targets();
+    assert_eq!(
+        controller.targets_request,
+        Some(std::collections::HashSet::from([other.clone()]))
+    );
+}
+
+/// A refused prefix target read is not sent again before its delay.
+// verifies: RATE-041
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_rate_limited_prefix_target_read_waits_its_delay() {
+    use super::processing::PrefixTarget;
+    tester!(alix, disable_workers);
+    let mut controller = controller(alix.context.clone());
+    controller.prefix_holds.insert(
+        Cursor(1),
+        PrefixHold {
+            deadline_ns: 0,
+            target: PrefixTarget::Requested,
+        },
+    );
+    let delay = Duration::from_secs(300);
+    let before = Instant::now();
+    controller.dependency_finished(DependencyResult::PrefixTarget(
+        Cursor(1),
+        Topic::new_group_message(GroupId::generate()),
+        Err(rate_limited_api("request", delay)),
+    ));
+    let PrefixTarget::Unrequested {
+        retry_at: Some(retry_at),
+    } = controller.prefix_holds[&Cursor(1)].target
+    else {
+        panic!("the read retries later");
+    };
+    assert!(retry_at >= before + delay);
+}
+
+/// A rate limit says nothing about a topic, so it keeps the topic's
+/// permanent-error backoff.
+// verifies: RATE-041
+#[xmtp_common::test(unwrap_try = true)]
+fn a_rate_limited_read_keeps_the_topic_failure_backoff() {
+    let mut controller = controller(context());
+    let topic = Topic::new_group_message(GroupId::generate());
+    for _ in 0..3 {
+        controller.receive_error(
+            topic.clone(),
+            IncomingError::Store(crate::mls_store::MlsStoreError::Api(
+                xmtp_api::ApiError::InvalidResponse("cursor order"),
+            )),
+        );
+    }
+    assert_eq!(controller.receipt(&topic).blocked_failures, 3);
+    controller.receive_error(
+        topic.clone(),
+        IncomingError::Store(crate::mls_store::MlsStoreError::Api(rate_limited_api(
+            "request",
+            Duration::from_secs(1),
+        ))),
+    );
+    assert_eq!(controller.receipt(&topic).blocked_failures, 3);
 }

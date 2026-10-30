@@ -89,8 +89,9 @@ async fn handle_kind_outside_lookups_is_invalid_identity_update() {
         .build();
     add_wallet_signature(&mut create, &wallet).await;
     let create: IdentityUpdate = create.build_identity_update()?.into();
+    // Recovery moves only to a member, so the change names the wallet itself.
     let mut change = SignatureRequestBuilder::new(&inbox_id)
-        .change_recovery_address(wallet.identifier().into(), Identifier::rand_ethereum())
+        .change_recovery_address(wallet.identifier().into(), wallet.identifier())
         .build();
     add_wallet_signature(&mut change, &wallet).await;
     let change: IdentityUpdate = change.build_identity_update()?.into();

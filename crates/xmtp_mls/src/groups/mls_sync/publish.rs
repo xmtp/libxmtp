@@ -18,28 +18,40 @@ pub(crate) use prepared::{
     OutgoingPreparationError, PreparedAttempt, PreparedBase, PreparedProposal, Unsettled,
 };
 
+/// The status the backend returned for a publish. A failed configuration
+/// check before dispatch sent nothing, so its status is not the backend's.
+fn backend_status(error: &xmtp_api::ApiError) -> Option<tonic::Code> {
+    if xmtp_api::preflight::failure(error).is_some() {
+        return None;
+    }
+    xmtp_proto::api::grpc_status(error).map(|status| status.code())
+}
+
 /// Only `INVALID_ARGUMENT` proves that an atomic publish stored nothing.
 /// Every other failure, including `OUT_OF_RANGE`, can follow a commit.
-fn definite_refusal(error: &xmtp_api::ApiError) -> bool {
-    xmtp_proto::api::grpc_status(error)
-        .is_some_and(|status| status.code() == tonic::Code::InvalidArgument)
+pub(crate) fn definite_refusal(error: &xmtp_api::ApiError) -> bool {
+    backend_status(error) == Some(tonic::Code::InvalidArgument)
 }
 
 /// `OUT_OF_RANGE` can follow a committed publish, and the same request cannot
 /// be sent again, so only a recovery read can settle the bytes it carried.
 fn out_of_range(error: &xmtp_api::ApiError) -> bool {
-    xmtp_proto::api::grpc_status(error)
-        .is_some_and(|status| status.code() == tonic::Code::OutOfRange)
+    backend_status(error) == Some(tonic::Code::OutOfRange)
 }
 
 /// An `AppDataUpdate` that cannot apply to the current component value, such
 /// as adding an existing admin or removing a non-admin, fails every attempt.
-/// Two admins promoting the same member at once reach this state.
+/// Two admins promoting the same member at once reach this state. So does a
+/// commit that would grow the dictionary past its total.
 fn inapplicable_app_data(error: &GroupError) -> bool {
     let source = match error {
         GroupError::AppDataCommit(GroupAppDataError::ApplyPayload(source)) => source,
         GroupError::AppDataCommit(GroupAppDataError::Upkeep(inner)) => match inner.as_ref() {
             GroupError::ComponentSource(source) => source,
+            // implements: META-077
+            GroupError::CommitValidation(CommitValidationError::Rule(
+                CommitRuleError::InsufficientPermissions,
+            )) => return true,
             _ => return false,
         },
         _ => return false,
@@ -54,6 +66,8 @@ fn inapplicable_app_data(error: &GroupError) -> bool {
 enum NextPublish {
     Prepared(StoredGroupIntent, PreparedAttempt),
     Resolve(PublishRequirements),
+    /// A message behind a deferred message. It stays as it is.
+    Behind(ID),
 }
 
 impl<Context: XmtpSharedContext> MlsGroup<Context> {
@@ -69,11 +83,15 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
         let mut sent = HashSet::new();
         let mut after = None;
         let mut rejected_request = None;
+        // A message waits behind a pending proposal. Every later message
+        // waits behind it, and this pass commits the proposal at most once.
+        let mut deferred_message = false;
+        let mut queued_commit = false;
         let upper_id = self
             .context
             .db()
             .last_publish_intent_id(self.group_id.as_ref())?;
-        let Some(upper_id) = upper_id else {
+        let Some(mut upper_id) = upper_id else {
             return Ok(());
         };
 
@@ -90,6 +108,13 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                     };
                     if sent.contains(&intent.id) {
                         return Ok(Continue(None));
+                    }
+                    // implements: SEND-022
+                    // Once a message is deferred, no later message publishes
+                    // in this pass, whether or not it holds a saved attempt.
+                    // Another member's commit can clear the proposal meanwhile.
+                    if deferred_message && intent.kind == IntentKind::SendMessage {
+                        return Ok(Continue(Some(NextPublish::Behind(intent.id))));
                     }
                     if intent.state == IntentState::Published {
                         let bytes = storage
@@ -109,21 +134,74 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
             })?
             .into_continued();
             let Some(next) = next else {
+                // implements: SEND-022
+                // No later intent committed the proposal. Commit it now; the
+                // deferred messages publish in the next epoch.
+                if deferred_message && !queued_commit {
+                    queued_commit = true;
+                    upper_id = QueueIntent::commit_pending_proposals().queue(self)?.id;
+                    continue;
+                }
                 return rejected_request.map_or(Ok(()), Err);
             };
             let (intent, attempt) = match next {
                 NextPublish::Prepared(intent, attempt) => (intent, attempt),
-                NextPublish::Resolve(requirements) => {
-                    let result = match self.resolve_publish_dependencies(&requirements).await {
-                        Ok(mut dependencies) => {
-                            self.prepare_publish_attempt(&requirements, &mut dependencies)
+                NextPublish::Behind(id) => {
+                    after = Some(id);
+                    continue;
+                }
+                NextPublish::Resolve(mut requirements) => {
+                    let result = loop {
+                        let mut dependencies =
+                            match self.resolve_publish_dependencies(&requirements).await {
+                                Ok(dependencies) => dependencies,
+                                Err(error) => break Err(error),
+                            };
+                        let result = self.prepare_publish_attempt(&requirements, &mut dependencies);
+                        if matches!(
+                            result,
+                            Err(GroupError::WrappedApi(xmtp_api::ApiError::EnvelopeTooLarge))
+                        ) {
+                            match self.smaller_membership_refresh(&requirements) {
+                                Ok(Some(smaller)) => {
+                                    requirements = smaller;
+                                    continue;
+                                }
+                                Ok(None) => {}
+                                Err(error) => break Err(error),
+                            }
                         }
-                        Err(error) => Err(error),
+                        break result.map(|attempt| {
+                            attempt.map(|attempt| {
+                                (
+                                    dependencies
+                                        .prepared_intent
+                                        .unwrap_or_else(|| requirements.intent.clone()),
+                                    attempt,
+                                )
+                            })
+                        });
                     };
                     match result {
                         Err(GroupError::OutgoingPreparation(
                             OutgoingPreparationError::StateChanged,
                         )) => {
+                            continue;
+                        }
+                        // implements: SEND-022
+                        // No message can be built while a proposal is pending.
+                        // Leave it queued and prepare the later state changes:
+                        // one of them can commit the proposal. Each skip
+                        // advances past the intent, so this loop still ends.
+                        Err(GroupError::CreateMessage(
+                            openmls::prelude::CreateMessageError::GroupStateError(
+                                openmls::prelude::MlsGroupStateError::PendingProposal,
+                            ),
+                        )) if requirements.intent.kind == IntentKind::SendMessage => {
+                            deferred_message = true;
+                            after = Some(requirements.intent.id);
+                            #[cfg(test)]
+                            tests::after_deferral(self.group_id.as_ref()).await;
                             continue;
                         }
                         Err(error)
@@ -169,7 +247,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                             after = Some(requirements.intent.id);
                             continue;
                         }
-                        Ok(Some(attempt)) => (requirements.intent, attempt),
+                        Ok(Some(prepared)) => prepared,
                     }
                 }
             };
@@ -318,10 +396,29 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                     return Ok(Continue(false));
                 }
                 self.fail_intent(&db, &current, event_writer)?;
+                Self::fail_membership_parent(&db, &current, &saved)?;
                 Ok::<_, GroupError>(Continue(true))
             },
         )
         .map(TransactionOutcome::into_continued)
+    }
+
+    /// A terminal failure of a split part also fails its requested target.
+    /// Called under the same writer that records the child's failure.
+    fn fail_membership_parent(
+        db: &impl DbQuery,
+        child: &StoredGroupIntent,
+        attempt: &PreparedAttempt,
+    ) -> Result<(), GroupError> {
+        if let Some(parent_id) = attempt.parent_intent
+            && let Some(parent) = Fetch::<StoredGroupIntent>::fetch(db, &parent_id)?
+            && parent.group_id == child.group_id
+            && parent.kind == IntentKind::UpdateGroupMembership
+            && parent.state == IntentState::ToPublish
+        {
+            db.set_group_intent_error(parent.id)?;
+        }
+        Ok(())
     }
 
     /// Mark the intent `Error` and its application message `Failed` under the
@@ -360,12 +457,13 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
         requirements: &PublishRequirements,
         dependencies: &mut PublishDependencies,
     ) -> Result<Option<PreparedAttempt>, GroupError> {
-        crate::state_tx::state_write(self.context.mls_storage(), |tx| {
+        let (storage, bus) = (self.context.mls_storage(), self.context.events());
+        crate::state_tx::state_write_with_events_durable(storage, bus, |tx, events| {
             let mut no_op = None;
             let result = tx.savepoint(|tx| {
                 tx.with_group(self.group_id, |group, storage| {
                     let db = storage.db();
-                    let Some(intent) =
+                    let Some(mut intent) =
                         Fetch::<StoredGroupIntent>::fetch(&db, &requirements.intent.id)?
                     else {
                         return Ok(Continue(None));
@@ -392,12 +490,19 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                         return Err(OutgoingPreparationError::StateChanged.into());
                     }
                     dependencies.validate_local(storage)?;
+                    if let Some(data) = &requirements.membership_update {
+                        intent.data = Vec::from(data.clone()).into();
+                    }
                     let original_proposals = group.pending_proposals().cloned().collect::<Vec<_>>();
                     let replacement_payloads = dependencies.selection.apply(
                         group,
                         storage,
                         &self.context.identity().installation_keys,
                     )?;
+                    // Receivers still judge the rest on read-back, so no
+                    // pre-publish check runs for an omission alone.
+                    dependencies.omitted_uncommittable = selection::commits_proposals(intent.kind)
+                        && selection::omit_uncommittable_proposals(group, storage)?;
                     let Some(mut data) =
                         self.get_publish_intent_data(storage, group, &intent, dependencies)?
                     else {
@@ -456,7 +561,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                             })
                         })
                         .collect::<Result<Vec<_>, GroupError>>()?;
-                    selection::restore_proposals(group, storage, &original_proposals)?;
+                    selection::replace_proposals(group, storage, &original_proposals)?;
                     let payload = data
                         .payloads_to_publish
                         .last()
@@ -465,6 +570,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                     // saved, so every saved envelope carries its signature.
                     let envelopes = self.prepare_group_envelopes_in(
                         &db,
+                        events,
                         group,
                         data.payloads_to_publish
                             .iter()
@@ -474,6 +580,9 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                     let attempt = PreparedAttempt {
                         version: prepared::PREPARED_ATTEMPT_VERSION,
                         base: requirements.base.clone(),
+                        parent_intent: requirements
+                            .partial_membership_update
+                            .then_some(requirements.intent.id),
                         payload_hash: sha256(payload).to_vec(),
                         envelopes: envelopes
                             .iter()
@@ -487,6 +596,16 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                     };
                     // Validate size and shape before any ratchet writes can commit.
                     attempt.publish_unit(self.context.api().limits())?;
+                    if requirements.partial_membership_update {
+                        // Leave the original desired target pending. Its next
+                        // diff against the advanced group contains only the
+                        // unfinished inboxes. The published child preempts it.
+                        intent = QueueIntent::update_group_membership()
+                            .data(intent.data.as_slice().to_vec())
+                            .should_push(intent.should_push)
+                            .queue_in(&db, self)?;
+                        dependencies.prepared_intent = Some(intent.clone());
+                    }
                     let encoded = xmtp_db::db_serialize(&attempt)?;
                     if !db.compare_and_set_prepared_envelopes(intent.id, None, Some(&encoded))? {
                         return Err(OutgoingPreparationError::StateChanged.into());
@@ -554,7 +673,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                 // We can safely assume all SendMessage intents have data
                 let intent_data = SendMessageIntentData::from_bytes(intent.data.as_slice())?;
                 // An older build queued this intent before the creation check.
-                // implements: GMOD-035
+                // implements: GMOD-054
                 // The envelope content can hold a device-sync HMAC root key;
                 // the decoded envelope wipes it on drop.
                 if let Ok(PlaintextEnvelope {
@@ -960,8 +1079,11 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                     CommitPendingProposalsIntentData::try_from(intent.data.as_slice())?;
 
                 // Check if there are any pending proposals to commit
+                // An omitted proposal expires with the epoch, so a commit
+                // that carries no proposal is still valid work.
                 if openmls_group.pending_proposals().next().is_none()
                     && !dependencies.selection.active
+                    && !dependencies.omitted_uncommittable
                 {
                     tracing::debug!("No pending proposals to commit");
                     return Ok(None);

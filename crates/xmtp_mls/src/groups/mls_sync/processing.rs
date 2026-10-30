@@ -5,6 +5,7 @@ use crate::{
     identity_updates::{IdentityDependencyError, IdentityRequirement},
     state_tx::{state_write, state_write_with_events},
 };
+use std::collections::BTreeSet;
 use xmtp_api_backend::envelope::decode_group_message;
 use xmtp_db::incoming_envelope::{
     IncomingRetry, QueryIncomingEnvelope, StoredIncomingEnvelope, StreamTopic,
@@ -22,9 +23,10 @@ pub(crate) enum GroupHeadOutcome {
         code: String,
         blocked: bool,
     },
+    /// Every exact proof the attempt lacked, resolved together before a retry.
     Need {
         cursor: Cursor,
-        requirement: IdentityRequirement,
+        requirements: BTreeSet<IdentityRequirement>,
     },
     Progress {
         cursor: Cursor,
@@ -97,7 +99,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
             Err(GroupMessageProcessingError::IncomingHeadChanged) => Ok(GroupHeadOutcome::Idle),
             Err(GroupMessageProcessingError::CommitValidation(
                 CommitValidationError::IdentityDependency(IdentityDependencyError::Need(
-                    requirement,
+                    requirements,
                 )),
             )) => {
                 self.context.db().set_incoming_retry(
@@ -112,7 +114,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                 )?;
                 Ok(GroupHeadOutcome::Need {
                     cursor,
-                    requirement,
+                    requirements,
                 })
             }
             Err(error) if error.is_safe_rejection() => Ok(GroupHeadOutcome::Progress {
@@ -230,7 +232,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                             ),
                         ),
                         Some(missing),
-                    ) if required == missing => GroupMessageProcessingError::CommitValidation(
+                    ) if required.contains(missing) => GroupMessageProcessingError::CommitValidation(
                         CommitValidationError::IdentityDependency(
                             IdentityDependencyError::MissingReference(missing.clone()),
                         ),
@@ -245,6 +247,8 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                 } else {
                     error
                 };
+                // implements: PROC-055
+                let error = error.classify_application_sender(envelope.message.content_type());
                 if let GroupMessageProcessingError::CommitValidation(CommitValidationError::Rule(
                     CommitRuleError::ProtocolVersionTooLow(version),
                 )) = &error

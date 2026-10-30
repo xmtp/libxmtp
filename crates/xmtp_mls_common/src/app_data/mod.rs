@@ -11,6 +11,7 @@ pub mod component_registry;
 pub mod component_source;
 pub mod components;
 pub mod creation;
+pub mod dm_registry_profile;
 pub mod fields;
 pub mod group_root;
 pub mod migration;

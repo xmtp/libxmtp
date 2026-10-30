@@ -1,15 +1,17 @@
 use super::ConnectionExt;
-use crate::consent_record::{ConsentState, ConsentType};
+use crate::consent_record::ConsentState;
 use crate::group::{ConversationType, GroupMembershipState, GroupQueryArgs, GroupQueryOrderBy};
-use crate::group_message::{ContentType, DeliveryStatus, GroupMessageKind};
+use crate::group_message::{ContentType, GroupMessageKind};
 use crate::{DbConnection, StorageError};
 use diesel::query_builder::{BoxedSqlQuery, SqlQuery};
-use diesel::sql_types::{BigInt, Integer};
+use diesel::sql_types::{BigInt, Binary, Integer};
 use diesel::sqlite::Sqlite;
 use diesel::{QueryableByName, RunQueryDsl, sql_query};
 use serde::{Deserialize, Serialize};
+use xmtp_proto::types::GroupId;
 
-/// Content types eligible for the latest conversation message.
+/// Content types whose application messages set a conversation's activity
+/// time.
 pub const CONVERSATION_LIST_CONTENT_TYPES: &[ContentType] = &[
     ContentType::Unknown,
     ContentType::Text,
@@ -22,11 +24,12 @@ pub const CONVERSATION_LIST_CONTENT_TYPES: &[ContentType] = &[
 ];
 
 #[derive(QueryableByName, Debug, Clone, Deserialize, Serialize)]
-/// A group and its latest app-visible message, when one exists.
+/// One row of a conversation list page. A row carries no message content,
+/// because each message is a payload of a size that a peer chooses.
 pub struct ConversationListItem {
     /// Group ID.
     #[diesel(sql_type = diesel::sql_types::Binary)]
-    pub id: xmtp_proto::types::GroupId,
+    pub id: GroupId,
     /// Time of the Welcome.
     #[diesel(sql_type = BigInt)]
     pub created_at_ns: i64,
@@ -54,106 +57,44 @@ pub struct ConversationListItem {
     /// Whether the remote commit log is forked.
     #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Bool>)]
     pub is_commit_log_forked: Option<bool>,
-    /// Message ID, absent when no eligible live message exists.
-    #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Binary>)]
-    pub message_id: Option<Vec<u8>>,
-    /// Decrypted message content.
-    #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Binary>)]
-    pub decrypted_message_bytes: Option<Vec<u8>>,
-    /// Message send time.
-    #[diesel(sql_type = diesel::sql_types::Nullable<BigInt>)]
-    pub sent_at_ns: Option<i64>,
-    /// Message kind.
-    #[diesel(sql_type = diesel::sql_types::Nullable<Integer>)]
-    pub kind: Option<GroupMessageKind>,
-    /// Sender installation.
-    #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Binary>)]
-    pub sender_installation_id: Option<Vec<u8>>,
-    /// Sender inbox.
-    #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Text>)]
-    pub sender_inbox_id: Option<String>,
-    /// Delivery state.
-    #[diesel(sql_type = diesel::sql_types::Nullable<Integer>)]
-    pub delivery_status: Option<DeliveryStatus>,
-    /// Content type.
-    #[diesel(sql_type = diesel::sql_types::Nullable<Integer>)]
-    pub content_type: Option<ContentType>,
-    /// Content type major version.
-    #[diesel(sql_type = diesel::sql_types::Nullable<Integer>)]
-    pub version_major: Option<i32>,
-    /// Content type minor version.
-    #[diesel(sql_type = diesel::sql_types::Nullable<Integer>)]
-    pub version_minor: Option<i32>,
-    /// Content type authority.
-    #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Text>)]
-    pub authority_id: Option<String>,
-    /// Message sequence ID.
-    #[diesel(sql_type = diesel::sql_types::Nullable<BigInt>)]
-    pub sequence_id: Option<i64>,
-    /// Backend retention deadline, separate from disappearing-message expiry.
-    #[diesel(sql_type = diesel::sql_types::Nullable<BigInt>)]
-    pub expiry_ns: Option<i64>,
-    /// Disappearing-message deadline.
-    #[diesel(sql_type = diesel::sql_types::Nullable<BigInt>)]
-    pub expire_at_ns: Option<i64>,
+    /// The time the list orders by: the creation time in creation order, and
+    /// the activity time in activity order. Requested sync groups follow the
+    /// regular rows and always carry their creation time.
+    #[diesel(sql_type = BigInt)]
+    pub listing_time_ns: i64,
 }
 
-/// Group columns of a list row. A list query selects a page of groups first
-/// and only then reads one latest message for each group on that page, so a
-/// page never ranks every stored message.
+/// Group columns of a list row.
 const PAGE_COLUMNS: &str = "g.id, g.created_at_ns, g.membership_state,
     g.installations_last_checked, g.added_by_inbox_id,
     g.sequence_id AS welcome_sequence_id, g.dm_id, g.rotated_at_ns,
     g.conversation_type, g.is_commit_log_forked";
 
-/// A scalar subquery for one column of the latest message that the app can see
-/// in `{group}`: an application message of a listed content type whose
-/// disappearing deadline is after the bound time. The expiry predicate stays
-/// inside the lookup, so an expired message never hides an older live one.
-/// Equal send times go to the greater message id. One seek of
-/// `group_messages_sent_at_id_sort` answers it without a table read.
+/// The activity time of group `g`: the send time of its latest application
+/// message of a listed content type whose disappearing deadline is after the
+/// bound time, or its creation time when it has none. The expiry predicate
+/// stays inside the lookup, so an expired message never hides an older live
+/// one. One seek of `group_messages_sent_at_id_sort` answers the lookup
+/// without a table read. `last_activity_ns` applies the same rule to one group.
 ///
 /// Binds: the current time.
-fn latest_live_message(column: &str, group: &str) -> String {
+// implements: CONS-048
+fn activity_time() -> String {
     let content_types = CONVERSATION_LIST_CONTENT_TYPES
         .iter()
         .map(|value| (*value as i32).to_string())
         .collect::<Vec<_>>()
         .join(", ");
     format!(
-        "(SELECT gm.{column} FROM group_messages gm
-          WHERE gm.group_id = {group}.id
+        "COALESCE((SELECT gm.sent_at_ns FROM group_messages gm
+          WHERE gm.group_id = g.id
             AND gm.kind = {application_kind}
             AND gm.content_type IN ({content_types})
             AND (gm.expire_at_ns IS NULL OR gm.expire_at_ns > ?)
           ORDER BY gm.sent_at_ns DESC, gm.id DESC
-          LIMIT 1)",
+          LIMIT 1), g.created_at_ns)",
         application_kind = GroupMessageKind::Application as i32,
     )
-}
-
-/// Close the `page` CTE and join each page row to its latest live message.
-/// The rows keep the page order: `list_order_ns`, then the greater group id.
-///
-/// Binds: the current time.
-fn with_latest_message(query: ListQuery, current_time_ns: i64) -> ListQuery {
-    query
-        .sql(format!(
-            ") SELECT p.id, p.created_at_ns, p.membership_state,
-                   p.installations_last_checked, p.added_by_inbox_id,
-                   p.welcome_sequence_id, p.dm_id, p.rotated_at_ns,
-                   p.conversation_type, p.is_commit_log_forked,
-                   m.id AS message_id, m.decrypted_message_bytes, m.sent_at_ns,
-                   m.kind, m.sender_installation_id, m.sender_inbox_id,
-                   m.delivery_status, m.content_type, m.version_major,
-                   m.version_minor, m.authority_id, m.sequence_id,
-                   m.expiry_ns, m.expire_at_ns
-            FROM page p
-            LEFT JOIN group_messages m ON m.rowid = {}
-            ORDER BY p.list_order_ns DESC, p.id DESC",
-            latest_live_message("rowid", "p")
-        ))
-        .bind::<BigInt, _>(current_time_ns)
 }
 
 fn enum_values<T>(values: &[T], to_i32: impl Fn(&T) -> i32) -> String {
@@ -181,15 +122,15 @@ fn explain_regular_list_query(args: &GroupQueryArgs, current_time_ns: i64) -> Li
     build_regular_list_query(EXPLAIN_QUERY_PLAN, args, current_time_ns)
 }
 
-/// Every sync group with its latest live message, newest group first.
-fn sync_list_query(current_time_ns: i64) -> ListQuery {
-    build_sync_list_query("", current_time_ns)
+/// Every sync group, newest group first.
+fn sync_list_query() -> ListQuery {
+    build_sync_list_query("")
 }
 
 /// The plan of `sync_list_query`.
 #[cfg(all(test, not(target_arch = "wasm32")))]
-fn explain_sync_list_query(current_time_ns: i64) -> ListQuery {
-    build_sync_list_query(EXPLAIN_QUERY_PLAN, current_time_ns)
+fn explain_sync_list_query() -> ListQuery {
+    build_sync_list_query(EXPLAIN_QUERY_PLAN)
 }
 
 /// `head` is SQL placed before the statement.
@@ -199,37 +140,37 @@ fn build_regular_list_query(head: &str, args: &GroupQueryArgs, current_time_ns: 
         .clone()
         .unwrap_or_else(|| vec![ConsentState::Allowed, ConsentState::Unknown]);
     let includes_unknown = effective_consent_states.contains(&ConsentState::Unknown);
-    let includes_all = effective_consent_states.len() == 3;
+    // "All states requested" means the request covers every distinct
+    // ConsentState, not merely that it has three elements — a caller passing
+    // duplicates (e.g. `[Allowed, Allowed, Allowed]`) must not be treated as
+    // an unfiltered query and leak Denied/Unknown conversations.
+    let includes_all = [
+        ConsentState::Allowed,
+        ConsentState::Denied,
+        ConsentState::Unknown,
+    ]
+    .iter()
+    .all(|state| effective_consent_states.contains(state));
     let filtered_states: Vec<_> = effective_consent_states
         .iter()
         .filter(|state| **state != ConsentState::Unknown)
         .copied()
         .collect();
-    // Activity is the send time of the latest live message, or the creation
-    // time of a group without one. Only activity order and activity filters
-    // read it, so a creation-order page seeks messages for its own rows only.
-    // Binds: the current time.
-    let activity = format!(
-        "COALESCE({}, g.created_at_ns)",
-        latest_live_message("sent_at_ns", "g")
-    );
+    // Only activity order and activity filters read messages, so a
+    // creation-order page reads no message at all.
+    let activity = activity_time();
 
-    let mut query =
-        sql_query(format!("{head}WITH page AS (SELECT {PAGE_COLUMNS}, ")).into_boxed::<Sqlite>();
+    let mut query = sql_query(format!("{head}SELECT {PAGE_COLUMNS}, ")).into_boxed::<Sqlite>();
     query = match args.order_by.clone().unwrap_or_default() {
         GroupQueryOrderBy::CreatedAt => query.sql("g.created_at_ns"),
         GroupQueryOrderBy::LastActivity => query.sql(&activity).bind::<BigInt, _>(current_time_ns),
     };
-    query = query.sql(" AS list_order_ns FROM groups g");
+    query = query.sql(" AS listing_time_ns FROM groups g");
 
     if !includes_all {
-        // A keyed group's 64-hex id has the shape of an inbox id, so the join
-        // also matches the record's kind.
         query = query.sql(format!(
-            " LEFT JOIN consent_records consent
-              ON consent.entity_type = {}
-              AND consent.entity = lower(hex(g.id))",
-            ConsentType::ConversationId as i32
+            " LEFT JOIN consent_records ON {}",
+            crate::group::consent_join_sql("g")
         ));
     }
     query = query.sql(format!(
@@ -271,16 +212,22 @@ fn build_regular_list_query(head: &str, args: &GroupQueryArgs, current_time_ns: 
             .sql(" AND g.created_at_ns > ?")
             .bind::<BigInt, _>(after);
     }
+    // `before_id` breaks ties only at the before time of the list order.
+    let order = args.order_by.clone().unwrap_or_default();
     if let Some(before) = args.last_activity_before_ns {
+        let before_id = matches!(order, GroupQueryOrderBy::LastActivity)
+            .then_some(args.before_id)
+            .flatten();
         query = query
-            .sql(format!(" AND {activity} < ?"))
-            .bind::<BigInt, _>(current_time_ns)
-            .bind::<BigInt, _>(before);
+            .sql(format!(" AND ({activity}"))
+            .bind::<BigInt, _>(current_time_ns);
+        query = before_cursor(query, before, before_id);
     }
     if let Some(before) = args.created_before_ns {
-        query = query
-            .sql(" AND g.created_at_ns < ?")
-            .bind::<BigInt, _>(before);
+        let before_id = matches!(order, GroupQueryOrderBy::CreatedAt)
+            .then_some(args.before_id)
+            .flatten();
+        query = before_cursor(query.sql(" AND (g.created_at_ns"), before, before_id);
     }
     if let Some(conversation_type) = args.conversation_type {
         query = query
@@ -290,38 +237,57 @@ fn build_regular_list_query(head: &str, args: &GroupQueryArgs, current_time_ns: 
 
     if !includes_all {
         if includes_unknown {
-            query = query.sql(" AND (consent.state IS NULL OR consent.state = 0");
+            query = query.sql(" AND (consent_records.state IS NULL OR consent_records.state = 0");
             if !filtered_states.is_empty() {
                 query = query.sql(format!(
-                    " OR consent.state IN ({})",
+                    " OR consent_records.state IN ({})",
                     enum_values(&filtered_states, |state| *state as i32)
                 ));
             }
             query = query.sql(")");
         } else {
             query = query.sql(format!(
-                " AND consent.state IN ({})",
+                " AND consent_records.state IN ({})",
                 enum_values(&filtered_states, |state| *state as i32)
             ));
         }
     }
 
-    query = query.sql(" ORDER BY list_order_ns DESC, g.id DESC");
+    // implements: CONS-049
+    query = query.sql(" ORDER BY listing_time_ns DESC, g.id DESC");
     if let Some(limit) = args.limit {
         query = query.sql(" LIMIT ?").bind::<BigInt, _>(limit);
     }
-    with_latest_message(query, current_time_ns)
+    query
+}
+
+/// Close a before condition whose open parenthesis and time expression
+/// `query` ends with. Without `before_id` it admits a time less than `before`.
+/// With it, it also admits a time equal to `before` with a group id lower in
+/// byte order, so a page resumes after the last row of the previous page even
+/// when other groups share that row's time.
+///
+/// Binds: `before`, then `before_id`.
+// implements: CONS-047
+fn before_cursor(query: ListQuery, before: i64, before_id: Option<GroupId>) -> ListQuery {
+    match before_id {
+        None => query.sql(") < ?").bind::<BigInt, _>(before),
+        Some(before_id) => query
+            .sql(", g.id) < (?, ?)")
+            .bind::<BigInt, _>(before)
+            .bind::<Binary, _>(before_id),
+    }
 }
 
 /// `head` is SQL placed before the statement.
-fn build_sync_list_query(head: &str, current_time_ns: i64) -> ListQuery {
-    let query = sql_query(format!(
-        "{head}WITH page AS (SELECT {PAGE_COLUMNS}, g.created_at_ns AS list_order_ns
-         FROM groups g WHERE g.conversation_type = ?"
+fn build_sync_list_query(head: &str) -> ListQuery {
+    sql_query(format!(
+        "{head}SELECT {PAGE_COLUMNS}, g.created_at_ns AS listing_time_ns
+         FROM groups g WHERE g.conversation_type = ?
+         ORDER BY listing_time_ns DESC, g.id DESC"
     ))
     .into_boxed::<Sqlite>()
-    .bind::<Integer, _>(ConversationType::Sync as i32);
-    with_latest_message(query, current_time_ns)
+    .bind::<Integer, _>(ConversationType::Sync as i32)
 }
 
 pub trait QueryConversationList {
@@ -353,8 +319,7 @@ impl<C: ConnectionExt> QueryConversationList for DbConnection<C> {
 }
 
 impl<C: ConnectionExt> DbConnection<C> {
-    // implements: CONS-030
-    // implements: META-051
+    // implements: CONS-060
     fn fetch_conversation_list_at(
         &self,
         args: &GroupQueryArgs,
@@ -362,13 +327,13 @@ impl<C: ConnectionExt> DbConnection<C> {
     ) -> Result<Vec<ConversationListItem>, StorageError> {
         args.validate()?;
         if matches!(&args.consent_states, Some(states) if states.is_empty()) {
-            return self.requested_sync_groups(args, current_time_ns);
+            return self.requested_sync_groups(args);
         }
 
         let query = regular_list_query(args, current_time_ns);
         let mut conversations = self.raw_query(|conn| query.load::<ConversationListItem>(conn))?;
 
-        conversations.append(&mut self.requested_sync_groups(args, current_time_ns)?);
+        conversations.append(&mut self.requested_sync_groups(args)?);
         Ok(conversations)
     }
 
@@ -380,12 +345,11 @@ impl<C: ConnectionExt> DbConnection<C> {
     fn requested_sync_groups(
         &self,
         args: &GroupQueryArgs,
-        current_time_ns: i64,
     ) -> Result<Vec<ConversationListItem>, StorageError> {
         if !args.requests_sync_groups() {
             return Ok(Vec::new());
         }
-        let sync = sync_list_query(current_time_ns);
+        let sync = sync_list_query();
         Ok(self.raw_query(|conn| sync.load::<ConversationListItem>(conn))?)
     }
 }
@@ -395,7 +359,8 @@ pub(crate) mod tests {
     use crate::Store;
     use crate::consent_record::{ConsentState, ConsentType};
     use crate::group::tests::{
-        generate_consent_record, generate_dm, generate_group, generate_group_with_created_at,
+        dm_peer_consent, generate_consent_record, generate_dm, generate_group,
+        generate_group_with_created_at,
     };
     use crate::group::{ConversationType, GroupMembershipState, GroupQueryArgs, GroupQueryOrderBy};
     use crate::group_message::ContentType;
@@ -403,12 +368,13 @@ pub(crate) mod tests {
     use crate::prelude::*;
     use crate::test_utils::with_connection;
 
-    /// A page reads one latest message for each listed group through the
-    /// message index. It never scans or sorts every stored message. The plan
-    /// text belongs to the native SQLite build.
+    /// A creation-order page and the sync list read no message. An
+    /// activity-order page reads one latest message for each group through
+    /// the message index; it never scans or sorts every stored message. The
+    /// plan text belongs to the native SQLite build.
     #[cfg(not(target_arch = "wasm32"))]
     #[xmtp_common::test(unwrap_try = true)]
-    fn list_plans_seek_the_latest_message_for_each_group() {
+    fn list_plans_read_messages_only_for_activity() {
         use crate::ConnectionExt;
         use diesel::RunQueryDsl;
 
@@ -423,36 +389,108 @@ pub(crate) mod tests {
                 let steps = conn.raw_query(|conn| query.load::<PlanStep>(conn))?;
                 Ok(steps.into_iter().map(|step| step.detail).collect())
             };
-            let mut plans = Vec::new();
+            let page = |order_by| GroupQueryArgs {
+                limit: Some(50),
+                order_by: Some(order_by),
+                ..Default::default()
+            };
+            for plan in [
+                query_plan(super::explain_regular_list_query(
+                    &page(GroupQueryOrderBy::CreatedAt),
+                    1,
+                ))?,
+                query_plan(super::explain_sync_list_query())?,
+            ] {
+                assert!(
+                    plan.iter().all(|step| !step.contains(" gm")),
+                    "a creation-order list query reads group_messages: {plan:#?}"
+                );
+            }
+            let plan = query_plan(super::explain_regular_list_query(
+                &page(GroupQueryOrderBy::LastActivity),
+                1,
+            ))?;
+            assert!(
+                plan.iter().all(|step| !step.starts_with("SCAN gm")),
+                "an activity-order list query scans group_messages: {plan:#?}"
+            );
+            assert!(
+                plan.iter().any(|step| step
+                    == "SEARCH gm USING COVERING INDEX group_messages_sent_at_id_sort (group_id=?)"),
+                "an activity-order list query does not seek the latest message index: {plan:#?}"
+            );
+            Ok(())
+        })?
+    }
+
+    /// Internal callers that name no limit need every group, so neither query
+    /// applies a default page size.
+    #[xmtp_common::test(unwrap_try = true)]
+    fn group_queries_without_limit_return_every_group() {
+        const GROUPS: usize = 150;
+        with_connection(|conn| -> Result<(), crate::StorageError> {
+            for _ in 0..GROUPS {
+                generate_group(None).store(conn)?;
+            }
+            assert_eq!(conn.find_groups(GroupQueryArgs::default())?.len(), GROUPS);
+            assert_eq!(
+                conn.fetch_conversation_list(GroupQueryArgs::default())?
+                    .len(),
+                GROUPS
+            );
+            Ok(())
+        })?
+    }
+
+    /// A list row carries no message content, so a page's size does not grow
+    /// with the messages that peers send.
+    #[xmtp_common::test(unwrap_try = true)]
+    fn conversation_list_rows_carry_no_message_content() {
+        use xmtp_proto::types::GroupId;
+
+        const GROUPS: u8 = 16;
+        const MESSAGE_BYTES: usize = 32 * 1024;
+        /// Far above 16 rows of group columns, far below one message.
+        const MAX_LIST_BYTES: usize = 16 * 1024;
+
+        with_connection(|conn| -> Result<(), crate::StorageError> {
+            for index in 1..=GROUPS {
+                let mut group = generate_group_with_created_at(None, i64::from(index));
+                group.id = GroupId::from([index; 16]);
+                group.store(conn)?;
+                let mut message = generate_message(
+                    None,
+                    Some(&group.id),
+                    Some(i64::from(index) + 100),
+                    Some(ContentType::Text),
+                    None,
+                    None,
+                );
+                message.decrypted_message_bytes = vec![index; MESSAGE_BYTES];
+                message.store(conn)?;
+            }
+
             for order_by in [
                 GroupQueryOrderBy::CreatedAt,
                 GroupQueryOrderBy::LastActivity,
             ] {
-                let args = GroupQueryArgs {
-                    limit: Some(50),
+                let listed = conn.fetch_conversation_list(GroupQueryArgs {
                     order_by: Some(order_by),
                     ..Default::default()
-                };
-                plans.push(query_plan(super::explain_regular_list_query(&args, 1))?);
-            }
-            plans.push(query_plan(super::explain_sync_list_query(1))?);
-            for plan in plans {
+                })?;
+                assert_eq!(listed.len(), usize::from(GROUPS));
+                let encoded = serde_json::to_vec(&listed).expect("encode the list");
                 assert!(
-                    plan.iter()
-                        .all(|step| !step.starts_with("SCAN gm") && !step.starts_with("SCAN m")),
-                    "a list query scans group_messages: {plan:#?}"
-                );
-                assert!(
-                    plan.iter().any(|step| step
-                        == "SEARCH gm USING COVERING INDEX group_messages_sent_at_id_sort (group_id=?)"),
-                    "a list query does not seek the latest message index: {plan:#?}"
+                    encoded.len() < MAX_LIST_BYTES,
+                    "a list of {GROUPS} rows encodes to {} bytes",
+                    encoded.len()
                 );
             }
             Ok(())
         })?
     }
 
-    // verifies: META-051
+    // verifies: CONS-048
     #[xmtp_common::test(unwrap_try = true)]
     fn latest_conversation_preview_uses_live_rows_before_ranking() {
         let now = 1_000_000;
@@ -510,23 +548,21 @@ pub(crate) mod tests {
                 ..Default::default()
             };
             let listed = conn.fetch_conversation_list_at(&args, now)?;
-            assert_eq!(listed.len(), 4);
-            assert_eq!(listed[0].id, persistent.id);
+            // An expired message sets no listing time; a group with no live
+            // message lists at its creation time.
+            let order: Vec<_> = listed
+                .iter()
+                .map(|item| (item.id, item.listing_time_ns))
+                .collect();
             assert_eq!(
-                listed[0].message_id.as_deref(),
-                Some(no_deadline.id.as_slice())
+                order,
+                [
+                    (persistent.id, no_deadline.sent_at_ns),
+                    (mixed.id, older_live.sent_at_ns),
+                    (all_expired.id, all_expired.created_at_ns),
+                    (empty.id, empty.created_at_ns),
+                ]
             );
-            assert_eq!(listed[1].id, mixed.id);
-            assert_eq!(
-                listed[1].message_id.as_deref(),
-                Some(older_live.id.as_slice())
-            );
-            assert_eq!(listed[1].expire_at_ns, older_live.expire_at_ns);
-            assert_eq!(listed[1].expiry_ns, older_live.expiry_ns);
-            assert_eq!(listed[2].id, all_expired.id);
-            assert!(listed[2].message_id.is_none());
-            assert_eq!(listed[3].id, empty.id);
-            assert!(listed[3].message_id.is_none());
 
             let after = conn.fetch_conversation_list_at(
                 &GroupQueryArgs {
@@ -552,58 +588,44 @@ pub(crate) mod tests {
         })?;
     }
 
-    /// The latest message skips membership changes, excluded content types,
-    /// and expired rows, and equal send times go to the greater message id.
-    /// Regular conversations and requested sync groups follow the same rule.
-    // verifies: META-051
+    /// The activity time skips membership changes, excluded content types,
+    /// and expired rows. A creation-order list and requested sync groups
+    /// list at the creation time.
     #[xmtp_common::test(unwrap_try = true)]
-    fn latest_message_skips_ineligible_rows_and_prefers_the_greater_id() {
+    fn activity_time_skips_ineligible_messages() {
         use crate::group_message::GroupMessageKind;
         let now = 1_000_000;
         with_connection(|conn| -> Result<(), crate::StorageError> {
             let group = generate_group_with_created_at(None, 100);
-            let mut sync_group = generate_group_with_created_at(None, 100);
+            group.store(conn)?;
+            let mut sync_group = generate_group_with_created_at(None, 50);
             sync_group.conversation_type = ConversationType::Sync;
-            // Message ids are unique across groups.
-            for (group, base) in [(&group, 0u8), (&sync_group, 10)] {
-                group.store(conn)?;
-                // The greater id is stored first, so insertion order cannot
-                // pick it.
-                for id in [base + 2, base + 1] {
-                    let mut tie = generate_message(
-                        None,
-                        Some(&group.id),
-                        Some(500),
-                        Some(ContentType::Text),
-                        None,
-                        None,
-                    );
-                    tie.id = vec![id; 32];
-                    tie.store(conn)?;
-                }
-                for (kind, sent_at_ns, content_type, expire_at_ns) in [
-                    (
-                        GroupMessageKind::MembershipChange,
-                        600,
-                        ContentType::Text,
-                        None,
-                    ),
-                    (
-                        GroupMessageKind::Application,
-                        700,
-                        ContentType::ReadReceipt,
-                        None,
-                    ),
-                    (
-                        GroupMessageKind::Application,
-                        800,
-                        ContentType::Text,
-                        Some(now),
-                    ),
-                ] {
+            sync_group.store(conn)?;
+            for (kind, sent_at_ns, content_type, expire_at_ns) in [
+                (GroupMessageKind::Application, 500, ContentType::Text, None),
+                (
+                    GroupMessageKind::MembershipChange,
+                    600,
+                    ContentType::Text,
+                    None,
+                ),
+                (
+                    GroupMessageKind::Application,
+                    700,
+                    ContentType::ReadReceipt,
+                    None,
+                ),
+                (
+                    GroupMessageKind::Application,
+                    800,
+                    ContentType::Text,
+                    Some(now),
+                ),
+            ] {
+                for group_id in [&group.id, &sync_group.id] {
                     generate_message(
                         Some(kind),
-                        Some(&group.id),
+                        Some(group_id),
                         Some(sent_at_ns),
                         Some(content_type),
                         expire_at_ns,
@@ -613,9 +635,9 @@ pub(crate) mod tests {
                 }
             }
 
-            for order_by in [
-                GroupQueryOrderBy::CreatedAt,
-                GroupQueryOrderBy::LastActivity,
+            for (order_by, group_time) in [
+                (GroupQueryOrderBy::CreatedAt, 100),
+                (GroupQueryOrderBy::LastActivity, 500),
             ] {
                 let listed = conn.fetch_conversation_list_at(
                     &GroupQueryArgs {
@@ -625,17 +647,11 @@ pub(crate) mod tests {
                     },
                     now,
                 )?;
-                let previews: Vec<_> = listed
+                let times: Vec<_> = listed
                     .into_iter()
-                    .map(|item| (item.id, item.message_id, item.sent_at_ns))
+                    .map(|item| (item.id, item.listing_time_ns))
                     .collect();
-                assert_eq!(
-                    previews,
-                    [
-                        (group.id, Some(vec![2; 32]), Some(500)),
-                        (sync_group.id, Some(vec![12; 32]), Some(500)),
-                    ]
-                );
+                assert_eq!(times, [(group.id, group_time), (sync_group.id, 50)]);
             }
             Ok(())
         })?
@@ -702,7 +718,10 @@ pub(crate) mod tests {
 
             // Fetch the conversation list
             let conversation_list = conn
-                .fetch_conversation_list(GroupQueryArgs::default())
+                .fetch_conversation_list(GroupQueryArgs {
+                    order_by: Some(GroupQueryOrderBy::LastActivity),
+                    ..Default::default()
+                })
                 .unwrap();
             assert_eq!(conversation_list.len(), 1, "Should return one group");
             assert_eq!(
@@ -710,9 +729,8 @@ pub(crate) mod tests {
                 "Returned group ID should match the created group"
             );
             assert_eq!(
-                conversation_list[0].sent_at_ns.unwrap(),
-                4000,
-                "Last message should be the most recent one"
+                conversation_list[0].listing_time_ns, 4000,
+                "Activity time should be the most recent message"
             );
         })
     }
@@ -778,15 +796,16 @@ pub(crate) mod tests {
             );
             first_message.store(conn).unwrap();
 
-            // Fetch the conversation list and check last message
-            let mut conversation_list = conn
-                .fetch_conversation_list(GroupQueryArgs::default())
-                .unwrap();
+            // Fetch the conversation list and check the activity time
+            let activity_order = GroupQueryArgs {
+                order_by: Some(GroupQueryOrderBy::LastActivity),
+                ..Default::default()
+            };
+            let mut conversation_list = conn.fetch_conversation_list(&activity_order).unwrap();
             assert_eq!(conversation_list.len(), 1, "Should return one group");
             assert_eq!(
-                conversation_list[0].sent_at_ns.unwrap(),
-                1000,
-                "Last message should match the first message"
+                conversation_list[0].listing_time_ns, 1000,
+                "Activity time should match the first message"
             );
 
             // Add a newer message
@@ -800,14 +819,11 @@ pub(crate) mod tests {
             );
             second_message.store(conn).unwrap();
 
-            // Fetch the conversation list again and validate the last message is updated
-            conversation_list = conn
-                .fetch_conversation_list(GroupQueryArgs::default())
-                .unwrap();
+            // Fetch the conversation list again and validate the activity time is updated
+            conversation_list = conn.fetch_conversation_list(&activity_order).unwrap();
             assert_eq!(
-                conversation_list[0].sent_at_ns.unwrap(),
-                2000,
-                "Last message should now match the second (newest) message"
+                conversation_list[0].listing_time_ns, 2000,
+                "Activity time should now match the second (newest) message"
             );
         })
     }
@@ -841,8 +857,8 @@ pub(crate) mod tests {
         })
     }
 
-    // verifies: CONS-030
-    #[xmtp_common::test]
+    // verifies: CONS-060, CONS-031
+    #[xmtp_common::test(unwrap_try = true)]
     fn test_find_conversations_by_consent_state() {
         with_connection(|conn| {
             let test_group_1 = generate_group(Some(GroupMembershipState::Allowed));
@@ -866,71 +882,47 @@ pub(crate) mod tests {
                 hex::encode(test_group_2.id),
             );
             test_group_2_consent.store(conn).unwrap();
-            let test_group_3_consent = generate_consent_record(
-                ConsentType::ConversationId,
-                ConsentState::Allowed,
-                hex::encode(test_group_3.id),
-            );
+            // A DM's consent is its peer's inbox record.
+            let test_group_3_consent = dm_peer_consent(conn, &test_group_3, ConsentState::Allowed);
             test_group_3_consent.store(conn).unwrap();
 
-            let all_results = conn
-                .fetch_conversation_list(GroupQueryArgs {
-                    consent_states: Some(vec![
-                        ConsentState::Allowed,
-                        ConsentState::Unknown,
-                        ConsentState::Denied,
-                    ]),
-                    ..Default::default()
-                })
-                .unwrap();
-            assert_eq!(all_results.len(), 4);
-
-            let default_results = conn
-                .fetch_conversation_list(GroupQueryArgs::default())
-                .unwrap();
-            assert_eq!(default_results.len(), 3);
-
-            let allowed_results = conn
-                .fetch_conversation_list(GroupQueryArgs {
-                    consent_states: Some(vec![ConsentState::Allowed]),
-                    ..Default::default()
-                })
-                .unwrap();
-            assert_eq!(allowed_results.len(), 2);
-
-            let allowed_unknown_results = conn
-                .fetch_conversation_list(GroupQueryArgs {
-                    consent_states: Some(vec![ConsentState::Allowed, ConsentState::Unknown]),
-                    ..Default::default()
-                })
-                .unwrap();
-            assert_eq!(allowed_unknown_results.len(), 3);
-
-            let denied_results = conn
-                .fetch_conversation_list(GroupQueryArgs {
-                    consent_states: Some(vec![ConsentState::Denied]),
-                    ..Default::default()
-                })
-                .unwrap();
-            assert_eq!(denied_results.len(), 1);
-            assert_eq!(denied_results[0].id, test_group_2.id);
-
-            let unknown_results = conn
-                .fetch_conversation_list(GroupQueryArgs {
-                    consent_states: Some(vec![ConsentState::Unknown]),
-                    ..Default::default()
-                })
-                .unwrap();
-            assert_eq!(unknown_results.len(), 1);
-            assert_eq!(unknown_results[0].id, test_group_4.id);
-
-            let empty_array_results = conn
-                .fetch_conversation_list(GroupQueryArgs {
-                    consent_states: Some(vec![]),
-                    ..Default::default()
-                })
-                .unwrap();
-            assert!(empty_array_results.is_empty());
+            use ConsentState::{Allowed, Denied, Unknown};
+            let (g1, g2, g3, g4) = (
+                &test_group_1.id,
+                &test_group_2.id,
+                &test_group_3.id,
+                &test_group_4.id,
+            );
+            // Repeats do not count toward naming every state.
+            let cases = [
+                (Some(vec![Allowed, Unknown, Denied]), vec![g1, g2, g3, g4]),
+                (None, vec![g1, g3, g4]),
+                (Some(vec![Allowed]), vec![g1, g3]),
+                (Some(vec![Allowed, Unknown]), vec![g1, g3, g4]),
+                (Some(vec![Denied]), vec![g2]),
+                (Some(vec![Unknown]), vec![g4]),
+                (Some(vec![]), vec![]),
+                (Some(vec![Allowed, Allowed, Allowed]), vec![g1, g3]),
+                (Some(vec![Allowed, Denied, Denied]), vec![g1, g2, g3]),
+                (Some(vec![Unknown, Unknown, Allowed]), vec![g1, g3, g4]),
+            ];
+            for (consent_states, mut expected) in cases {
+                let mut ids: Vec<_> = conn
+                    .fetch_conversation_list(GroupQueryArgs {
+                        consent_states: consent_states.clone(),
+                        ..Default::default()
+                    })?
+                    .into_iter()
+                    .map(|group| group.id)
+                    .collect();
+                ids.sort();
+                expected.sort();
+                assert_eq!(
+                    ids.iter().collect::<Vec<_>>(),
+                    expected,
+                    "{consent_states:?}"
+                );
+            }
 
             let mut sync_group = generate_group(Some(GroupMembershipState::Allowed));
             sync_group.conversation_type = ConversationType::Sync;
@@ -1051,48 +1043,6 @@ pub(crate) mod tests {
         })
     }
 
-    #[xmtp_common::test]
-    fn test_find_conversations_default_excludes_denied() {
-        with_connection(|conn| {
-            // Create three groups: one allowed, one denied, one unknown (no consent)
-            let allowed_group = generate_group(Some(GroupMembershipState::Allowed));
-            allowed_group.store(conn).unwrap();
-
-            let denied_group = generate_group(Some(GroupMembershipState::Allowed));
-            denied_group.store(conn).unwrap();
-
-            let unknown_group = generate_group(Some(GroupMembershipState::Allowed));
-            unknown_group.store(conn).unwrap();
-
-            // Create consent records for allowed and denied; leave unknown_group without one
-            let allowed_consent = generate_consent_record(
-                ConsentType::ConversationId,
-                ConsentState::Allowed,
-                hex::encode(allowed_group.id),
-            );
-            allowed_consent.store(conn).unwrap();
-
-            let denied_consent = generate_consent_record(
-                ConsentType::ConversationId,
-                ConsentState::Denied,
-                hex::encode(denied_group.id),
-            );
-            denied_consent.store(conn).unwrap();
-
-            // Query using default args (no consent_states specified)
-            let default_results = conn
-                .fetch_conversation_list(GroupQueryArgs::default())
-                .unwrap();
-
-            // Expect to include only: allowed_group and unknown_group (2 total)
-            assert_eq!(default_results.len(), 2);
-            let returned_ids: Vec<_> = default_results.iter().map(|g| &g.id).collect();
-            assert!(returned_ids.contains(&&allowed_group.id));
-            assert!(returned_ids.contains(&&unknown_group.id));
-            assert!(!returned_ids.contains(&&denied_group.id));
-        })
-    }
-
     #[xmtp_common::test(unwrap_try = true)]
     fn test_unknown_content_type_is_present() {
         with_connection(|conn| {
@@ -1110,11 +1060,12 @@ pub(crate) mod tests {
             m.store(conn)?;
 
             let conv = conn.fetch_conversation_list(GroupQueryArgs {
+                order_by: Some(GroupQueryOrderBy::LastActivity),
                 ..Default::default()
             })?;
 
-            // Message id should be present
-            assert!(conv[0].message_id.is_some());
+            // A message of unknown content type sets the activity time
+            assert_eq!(conv[0].listing_time_ns, 5000);
         })
     }
 
@@ -1322,13 +1273,11 @@ pub(crate) mod tests {
 
             // Results should be ordered by activity (latest first)
             assert_eq!(
-                results[0].sent_at_ns.unwrap(),
-                100_000,
+                results[0].listing_time_ns, 100_000,
                 "First should be most recent"
             );
             assert_eq!(
-                results[1].sent_at_ns.unwrap(),
-                99_000,
+                results[1].listing_time_ns, 99_000,
                 "Second should be second most recent"
             );
         })

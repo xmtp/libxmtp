@@ -39,12 +39,12 @@ Out of scope: durable message delivery and acknowledgement (PROC section 7), int
 | `SEND` | Owns message delivery status (SEND-003, SEND-009, SEND-013, SEND-016, SEND-018). |
 | `CTYPE` | Owns content type ids (CTYPE-001), deletion eligibility (CTYPE-018), and the reply and reaction encodings. |
 | `IDENT` | Owns installation keys (section 8), installation addition and revocation (section 5, IDENT-044), and handle claims and the handles of the association state (IDENT-082). |
-| `FORK` | Owns the fork state (FORK-040). |
+| `FORK` | Owns the fork state (FORK-082). |
 | `CONF` | Owns the blocked connection and the two conditions that set it (CONF-030, CONF-036). CONF-075 closes streams with network interest while EVENT-016 keeps event subscriptions open. |
 | `AUTH` | Owns credential lockout (AUTH-023) and replacing the credential (AUTH-024). |
-| `PUSH` | Owns the notification state (PUSH-262). |
-| `SYNC` | Owns the HMAC root key (SYNC-015, SYNC-022) and SYNC-005, which hides sync groups from an app. |
-| `ARCH` | Owns archive import (section 4, ARCH-021). |
+| `PUSH` | Owns the notification state (PUSH-267). |
+| `SYNC` | Owns the HMAC root key (SYNC-026, SYNC-032) and SYNC-005, which hides sync groups from an app. |
+| `ARCH` | Owns archive import (section 4, ARCH-027). |
 | `ATCH` | Owns pending attachment status (ATCH-034), downloads (section 6), local deletion (ATCH-047), attachment keys (ATCH-041), and the failure causes (ATCH-060). |
 
 ## Terms
@@ -81,16 +81,16 @@ One act can produce events of more than one kind. A commit that removes the own 
 | `message.status_changed` | The status of a message this installation sent changes between `Unpublished`, `Published`, and `Failed` (`SEND`) | Message | `message_status_changed` |
 | `message.deleted` | The client applies a deletion under PROC-037, or deletes a message locally at an app's request | Message | `message_deleted` |
 | `message.expired` | The client deletes a message under META-063 | Message | `message_expired` |
-| `consent.changed` | The stored state of a consent record changes | Record | `consent_changed` |
-| `hmac_keys.updated` | The client stores a new HMAC root key under SYNC-015 or SYNC-022, or an open client observes an HMAC epoch increase under EVENT-026 | Stored key or observed epoch increase | `hmac_keys_updated` |
+| `consent.changed` | The state CONS-001 reports for an inbox or a conversation changes | Inbox, or conversation as CONS-059 names it | `consent_changed` |
+| `hmac_keys.updated` | The client stores a new HMAC root key under SYNC-026 or SYNC-032, or an open client observes an HMAC epoch increase under EVENT-026 | Stored key or observed epoch increase | `hmac_keys_updated` |
 | `identity.registered` | The client reports this installation's registration complete under IDENT-072 | Registration | `identity_registered` |
 | `identity.own_installation_added` | The client applies an identity update of the own inbox that adds an installation | Installation | `own_installation_added` |
 | `identity.own_installation_revoked` | The client applies an identity update of the own inbox that revokes an installation, including one IDENT-044 revokes with an identifier | Installation | `own_installation_revoked` |
 | `client.rejected_by_server` | The server rejects the client and blocks its connection: its backend does not match the stored one, or its version is below the server's minimum (CONF-075) | Rejection | `rejected_by_server` |
 | `client.lockout_changed` | The client enters lockout under AUTH-023, or leaves it: when the first request after the cool-down proceeds, or under AUTH-024 | Entry or exit | `lockout_changed` |
-| `conversation.fork_detected` | A conversation's fork state becomes `forked` under FORK-040 | Group | `conversation_fork_detected` |
-| `notifications.failed` | The notification state becomes failed under PUSH-262 | Failure | `notifications_failed` |
-| `archive.restored` | An archive import ends, with or without an error, after it stored at least one element (ARCH-021) | Import | `archive_restored` |
+| `conversation.fork_detected` | A conversation's fork state becomes `forked` under FORK-082 | Group | `conversation_fork_detected` |
+| `notifications.failed` | The notification state becomes failed under PUSH-267 | Failure | `notifications_failed` |
+| `archive.restored` | An archive import ends, with or without an error, after it stored at least one element (ARCH-027) | Import | `archive_restored` |
 | `connection.state_changed` | The client-wide state of open app streams that hold network interest changes under EVENT-027 | Transition | `connection_state_changed` |
 | `attachment.upload_started` | A pending attachment's status becomes `uploading` (ATCH-034) | Transition | `attachment_upload_started` |
 | `attachment.upload_completed` | A pending attachment's status becomes `complete` (ATCH-025) | Transition | `attachment_upload_completed` |
@@ -205,7 +205,7 @@ dictionary MessageDeleted {
 };
 dictionary ConsentChanged {
   required ConsentEntityKind entity_kind;
-  required DOMString entity;                      // EVENT-009
+  required DOMString entity;                      // EVENT-059
   required ConsentState state;
 };
 dictionary HmacKeysUpdated {};
@@ -223,7 +223,7 @@ dictionary ClientRejectedByServer {
   DOMString min_libxmtp_version;                  // EVENT-008
 };
 dictionary LockoutChanged { required LockoutChange change; };
-dictionary NotificationsFailed { required DOMString cause; };                 // the failure cause PUSH-262 records
+dictionary NotificationsFailed { required DOMString cause; };                 // the failure cause PUSH-267 records
 dictionary ArchiveRestored { required boolean complete; };                    // EVENT-017
 dictionary ConnectionStateChanged {
   required ConnectionState previous;
@@ -263,7 +263,7 @@ The member source table, which EVENT-024 makes binding. Members that other rows 
 | `inbox_id` in `IdentityRegistered` | The own inbox's id |
 | `installation_key` | The installation key of the installation registered, added, or revoked (IDENT section 8) |
 | `is_this_installation` | Whether `installation_key` equals this installation's key |
-| `cause` in `NotificationsFailed` | The failure cause PUSH-262 records |
+| `cause` in `NotificationsFailed` | The failure cause PUSH-267 records |
 | `change` in `LockoutChanged` | `entered` or `left`, per the kind table's trigger |
 | `discarded` in `Lagged` | The count EVENT-031 names |
 | `attachment_key`, `url`, `content_digest` in `AttachmentRef` and `AttachmentFailed` | The attachment key under ATCH-041, the `url`, and the `content_digest` of the remote attachment the transition, download, or deletion is about |
@@ -279,7 +279,7 @@ The member source table, which EVENT-024 makes binding. Members that other rows 
 | EVENT-006 | Removal cause | The client MUST set `RemovalCause` to `left` exactly when the own inbox had a published leave request under GMOD-031. | An app that branches on the cause takes the wrong branch. |
 | EVENT-007 | Deletion cause | The client MUST set `DeletionCause` to `deleted_locally` exactly for a local deletion at an app's request. | |
 | EVENT-008 | Minimum version on rejection | The client MUST set `min_libxmtp_version` exactly when `RejectionCause` is `version_too_old`, to the minimum under CONF-036. | |
-| EVENT-009 | Consent values | The client MUST set `entity_kind` and `entity` to the record's entity as CONS-002 encodes it, and `state` to the record's new stored state. | |
+| EVENT-059 | Consent values | The client MUST set `entity_kind` to inbox or conversation, `entity` to the lowercase inbox id or to the lowercase hexadecimal group id that CONS-059 names, and `state` to the new reported state. | An app keys conversations by group id. |
 | EVENT-017 | Import completion | The client MUST set `complete` to false exactly when the import ended with an error. | |
 | EVENT-018 | Received message group | The client MUST set a `message.received` event's `group_id` to the group the message is stored in, including for a stitched DM. | A DM screen misattributes a message. |
 | EVENT-019 | Changed metadata names | The client MUST set a `conversation.metadata_changed` event's `changed` to one entry per changed item: its `field_name` under META-074 where it has one; otherwise its component name in META section 2; otherwise `component:` followed by its component id as four lowercase hexadecimal digits, as for an application component. | An app re-reads the wrong fields, or cannot name an application component. |
@@ -370,7 +370,7 @@ A client instance emits events only for changes it makes itself. Another process
 
 `message.expired` is emitted when the cleanup pass deletes the message under META-063, which can be later than the expiry itself. META-051 hides the message from the expiry on, whether or not the event has been emitted.
 
-Filters do not read consent. A conversation whose consent is denied still produces events; an app that hides denied conversations applies CONS-030 to events itself.
+Filters do not read consent. A conversation whose consent is denied still produces events; an app that hides denied conversations applies CONS-060 to events itself.
 
 In a stitched DM, a reply or reaction in one group can arrive before the message it names in another group. It then does not pass `references_own_messages`, and no later event reports it.
 

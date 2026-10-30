@@ -1,9 +1,12 @@
 import type { RemoteAttachment } from "@xmtp/react-native-sdk";
 
-import type { ChatMessage } from "@/core/chatMessages.ts";
+import { type ChatMessage, messageDate } from "@/core/chatMessages.ts";
+import { timeOfDay } from "@/core/dates.ts";
 import { AttachmentCard } from "@/features/attachments/AttachmentCard";
 import { useChatAttachments } from "@/features/attachments/chatAttachments";
+import { attachmentPresentationCopy } from "@/features/attachments/copy";
 import { useChatContext } from "@/features/chat/ChatContext";
+import { useStore } from "@/ui/useStore";
 
 export interface AttachmentContentProps {
   readonly row: ChatMessage;
@@ -22,6 +25,10 @@ export function ChatAttachmentCard({
 }: AttachmentContentProps) {
   const { runtime } = useChatContext();
   const store = useChatAttachments(runtime);
+  const identities = useStore(runtime.session.identities);
+  const sender = isOutgoing
+    ? attachmentPresentationCopy.you
+    : (identities.get(row.sender)?.handle ?? row.sender.slice(0, 12));
   return (
     <AttachmentCard
       store={store}
@@ -29,6 +36,7 @@ export function ChatAttachmentCard({
       file={file}
       allowed={allowed}
       appearance={isOutgoing ? "outgoing" : "incoming"}
+      metadata={`${sender} · ${timeOfDay(messageDate(row))}`}
     />
   );
 }

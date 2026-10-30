@@ -224,17 +224,21 @@ fn print_kps(kps: &xmtp_api::KeyPackageMap, keys: HashSet<InstallationId>) -> Re
             println!("    key_package: absent");
             continue;
         };
-        let verified = xmtp_id::key_package::VerifiedKeyPackageV2::from_bytes(
+        // A package stored before a verification rule existed is still served,
+        // so report it and keep listing the others.
+        let verified = match xmtp_id::key_package::VerifiedKeyPackageV2::from_bytes(
             &RustCrypto::default(),
             package.key_package_tls_serialized.as_slice(),
-        )?;
+        ) {
+            Ok(verified) => verified,
+            Err(error) => {
+                println!("  installation_id: {key}");
+                println!("    key_package: fails verification: {error}");
+                continue;
+            }
+        };
         let installation_id = verified.installation_id();
         let is_verified = keys.contains(&InstallationId::try_from(installation_id.clone())?);
-        let wrapper_encryption = verified
-            .wrapper_encryption()
-            .ok()
-            .flatten()
-            .map(|e| e.algorithm);
 
         let lifetime = verified.life_time().unwrap();
         let not_before = lifetime.not_before;
@@ -245,12 +249,7 @@ fn print_kps(kps: &xmtp_api::KeyPackageMap, keys: HashSet<InstallationId>) -> Re
 
         println!("  installation_id: {}", hex::encode(installation_id));
         println!("    verified: {is_verified}");
-        println!(
-            "    wrapper_encryption: {:?}",
-            wrapper_encryption
-                .map(|e| format!("{e:?}"))
-                .unwrap_or_else(|| "Unknown".into())
-        );
+        println!("    wrapper_encryption: {:?}", verified.wrapper.algorithm);
         println!("    not_before: {not_before_date}");
         println!("    not_after: {not_after_date}");
         println!("    last_resort: {last_resort}");

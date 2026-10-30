@@ -2,14 +2,16 @@ use crate::context::XmtpSharedContext;
 use crate::groups::{GroupError, GroupMembership};
 use crate::identity::parse_credential;
 use crate::identity_updates::{
-    IdentityDependencyError, IdentityRequirement, InstallationDiffError, require_association_state,
+    IdentityDependencyError, IdentityRequirement, InstallationDiffError, MissingProofs,
     resolve_identity_requirements,
 };
 use openmls::prelude::{BasicCredential, StagedWelcome};
 use std::collections::{HashMap, HashSet};
 use xmtp_common::snippet::Snippet;
 use xmtp_db::DbQuery;
-use xmtp_mls_validation::commit::extract_group_membership;
+use xmtp_mls_validation::{
+    commit::extract_group_membership_with_failures, group_membership::FailedInstallations,
+};
 
 /// Validate public trial membership, then recheck exact proofs under the writer.
 #[allow(async_fn_in_trait)]
@@ -33,6 +35,7 @@ pub trait ValidateGroupMembership {
 pub struct WelcomeMembership {
     /// Authenticated inbox membership and exact identity sequence references.
     membership: GroupMembership,
+    failed: FailedInstallations,
     /// Tree members as inbox IDs and installation signature keys.
     members: Vec<(String, Vec<u8>)>,
 }
@@ -41,8 +44,8 @@ impl WelcomeMembership {
     /// Copy public data from a trial without retaining staged MLS state.
     pub(crate) fn from_staged(welcome: &StagedWelcome) -> Result<Self, GroupError> {
         let extensions = welcome.group_context().extensions();
-        let membership =
-            extract_group_membership(extensions).map_err(|_| GroupError::InvalidWelcomeMetadata)?;
+        let (membership, failed) = extract_group_membership_with_failures(extensions)
+            .map_err(|_| GroupError::InvalidWelcomeMetadata)?;
         let members = welcome
             .members()
             .map(|member| {
@@ -55,6 +58,7 @@ impl WelcomeMembership {
             .collect::<Result<_, GroupError>>()?;
         Ok(Self {
             membership,
+            failed,
             members,
         })
     }
@@ -106,30 +110,34 @@ where
         &self,
         welcome: &WelcomeMembership,
     ) -> Result<(), GroupError> {
-        for (_, result) in
-            resolve_identity_requirements(&self.context, welcome.requirements()).await
-        {
-            result.map_err(InstallationDiffError::from)?;
-        }
+        resolve_identity_requirements(&self.context, &welcome.requirements().collect())
+            .await
+            .map_err(InstallationDiffError::from)?;
         self.check_verified_membership(welcome, &self.context.db())
     }
 
+    /// Name every missing proof in one `Need`, so one resolution fetches them all.
     // implements: JOIN-052, JOIN-053
     fn check_verified_membership(
         &self,
         welcome: &WelcomeMembership,
         db: &impl DbQuery,
     ) -> Result<(), GroupError> {
-        let membership = &welcome.membership;
         let mut expected_members = HashMap::<String, HashSet<Vec<u8>>>::new();
+        let mut missing = MissingProofs::default();
         for requirement in welcome.requirements() {
-            let association_state =
-                require_association_state(db, &requirement).map_err(InstallationDiffError::from)?;
+            let Some(association_state) = missing
+                .read(db, &requirement)
+                .map_err(InstallationDiffError::from)?
+            else {
+                continue;
+            };
             expected_members.insert(
                 association_state.inbox_id().to_string(),
                 HashSet::from_iter(association_state.installation_ids()),
             );
         }
+        missing.check().map_err(InstallationDiffError::from)?;
 
         for (claimed_inbox_id, signature_key) in &welcome.members {
             let Some(installation_ids) = expected_members.get_mut(claimed_inbox_id) else {
@@ -148,11 +156,12 @@ where
             }
             installation_ids.remove(signature_key);
         }
-        for installation_set in expected_members.values() {
+        for (inbox, installation_set) in &expected_members {
             for remaining_installation_id in installation_set {
-                if !membership
-                    .failed_installations
-                    .contains(remaining_installation_id)
+                if !welcome
+                    .failed
+                    .of(inbox)
+                    .is_some_and(|keys| keys.contains(remaining_installation_id))
                 {
                     tracing::error!(
                         installation_id = %remaining_installation_id.as_slice().snippet(),
@@ -162,7 +171,6 @@ where
                 }
             }
         }
-        // TODO: Is it an error if there are 'failed installations' that are not in the expected members list?
 
         tracing::info!("Group membership validated");
 
@@ -183,6 +191,83 @@ pub mod test {
             _welcome: &WelcomeMembership,
         ) -> Result<(), GroupError> {
             Ok(())
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tester;
+    use std::collections::BTreeMap;
+    use xmtp_db::identity_update::QueryIdentityUpdates;
+    use xmtp_mls_common::{app_data::migration::encode_group_membership_dict, inbox_id::InboxId};
+    use xmtp_mls_validation::commit::membership_entries;
+    use xmtp_proto::xmtp::mls::message_contents::{
+        GroupMembershipEntry,
+        group_membership_entry::{V1, Version},
+    };
+
+    // verifies: JOIN-053
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn misattributed_failed_installation_is_rejected() {
+        tester!(alix, disable_workers);
+        tester!(bo, disable_workers);
+        tester!(caro, disable_workers);
+        tester!(bo2, from: bo, disable_workers);
+        for client in [&*alix, &*bo, &*caro] {
+            client.inbox_state(true).await?;
+        }
+        let sequence = |client: &crate::utils::FullXmtpClient| -> u64 {
+            client
+                .context
+                .db()
+                .get_latest_sequence_id_for_inbox(client.inbox_id())
+                .unwrap() as u64
+        };
+        let absent_id = bo2.context.installation_id().to_vec();
+        let members = [&*alix, &*bo, &*caro]
+            .into_iter()
+            .map(|client| {
+                (
+                    client.inbox_id().to_string(),
+                    client.context.installation_id().to_vec(),
+                )
+            })
+            .collect::<Vec<_>>();
+        let validator = InitialMembershipValidator::new(caro.context.clone());
+        for owner in [alix.inbox_id(), bo.inbox_id()] {
+            let entries = [&*alix, &*bo, &*caro]
+                .into_iter()
+                .map(|client| {
+                    (
+                        InboxId::from_hex(client.inbox_id()).unwrap(),
+                        GroupMembershipEntry {
+                            version: Some(Version::V1(V1 {
+                                sequence_id: sequence(client),
+                                failed_installations: if client.inbox_id() == owner {
+                                    vec![absent_id.clone()]
+                                } else {
+                                    vec![]
+                                },
+                            })),
+                        },
+                    )
+                })
+                .collect::<BTreeMap<_, _>>();
+            let (membership, failed) =
+                membership_entries(&encode_group_membership_dict(&entries)?)?;
+            let welcome = WelcomeMembership {
+                membership,
+                failed,
+                members: members.clone(),
+            };
+            let result = validator.check_initial_membership(&welcome).await;
+            if owner == bo.inbox_id() {
+                result?;
+            } else {
+                assert!(matches!(result, Err(GroupError::InvalidGroupMembership)));
+            }
         }
     }
 }

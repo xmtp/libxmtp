@@ -52,33 +52,23 @@ type LocationStoreOpener<Db> = Box<
     ) -> xmtp_common::BoxDynFuture<'static, Result<Db, ClientBuilderError>>,
 >;
 
+#[cfg(not(target_arch = "wasm32"))]
 fn open_location_store(
     paths: crate::storage_location::ResolvedPaths,
     key: xmtp_db::EncryptionKey,
 ) -> xmtp_common::BoxDynFuture<'static, Result<xmtp_db::DefaultStore, ClientBuilderError>> {
     Box::pin(async move {
-        #[cfg(not(target_arch = "wasm32"))]
-        let db = {
-            let parent = paths
-                .db_path
-                .parent()
-                .ok_or(crate::storage_location::StorageLocationError::InboxId)?;
-            xmtp_attachments::create_private_directory(parent)
-                .await
-                .map_err(crate::storage_location::StorageLocationError::from)?;
-            xmtp_db::NativeDb::builder()
-                .persistent(paths.db_path.to_string_lossy().into_owned())
-                .key(key)
-                .build()?
-        };
-        #[cfg(target_arch = "wasm32")]
-        let db = xmtp_db::WasmDb::new(&xmtp_db::StorageOption::Persistent(
-            paths.db_path.to_string_lossy().into_owned(),
-        ))
-        .await
-        .map_err(xmtp_db::StorageError::from)?;
-        #[cfg(target_arch = "wasm32")]
-        let _ = key;
+        let parent = paths
+            .db_path
+            .parent()
+            .ok_or(crate::storage_location::StorageLocationError::InboxId)?;
+        xmtp_attachments::create_private_directory(parent)
+            .await
+            .map_err(crate::storage_location::StorageLocationError::from)?;
+        let db = xmtp_db::NativeDb::builder()
+            .persistent(paths.db_path.to_string_lossy().into_owned())
+            .key(key)
+            .build()?;
         Ok(xmtp_db::EncryptedMessageStore::new(db)?)
     })
 }
@@ -199,9 +189,6 @@ pub struct ClientBuilder<ApiClient, S, Db = xmtp_db::DefaultStore> {
         Option<Arc<dyn crate::subscriptions::incoming::SubscriptionFactory>>,
     pub(crate) version_info: VersionInfo,
     pub(crate) allow_offline: bool,
-    /// Whether the strategy's identifier must belong to the inbox of the
-    /// identity the build loads.
-    pub(crate) require_identifier_in_inbox: bool,
     pub(crate) disable_commit_log_worker: bool,
     pub(crate) mls_storage: Option<S>,
     pub(crate) disable_workers: bool,
@@ -289,7 +276,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             incoming_factory: None,
             version_info: VersionInfo::default(),
             allow_offline: false,
-            require_identifier_in_inbox: false,
             disable_commit_log_worker: false,
             mls_storage: None,
             disable_workers: false,
@@ -334,7 +320,6 @@ where
             incoming_factory: client.context.incoming_runtime.original_factory.clone(),
             version_info: client.context.version_info.clone(),
             allow_offline: false,
-            require_identifier_in_inbox: false,
             disable_commit_log_worker: false,
             mls_storage: Some(client.context.mls_storage.clone()),
             disable_workers: false,
@@ -400,6 +385,15 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             .flatten()
     }
 
+    /// Build the client. When the identity strategy carries an identifier,
+    /// the build requires it to belong to the inbox of the identity it loads,
+    /// including a stored one: it checks the newest association state after
+    /// it loads the inbox's identity updates and before it starts any worker.
+    /// An offline build loads none and checks the newest state the database
+    /// stores, which can predate a revocation. Before the inbox's first
+    /// identity update, only the identifier whose inbox at the strategy's
+    /// nonce is that inbox belongs to it. A failure is
+    /// [`IdentityError::IdentifierNotInInbox`](crate::identity::IdentityError::IdentifierNotInInbox).
     #[tracing::instrument(err, skip_all, fields(operation = "mls.build_client"))]
     pub async fn build(self) -> Result<Client<ContextParts<ApiClient, S, Db>>, ClientBuilderError>
     where
@@ -429,7 +423,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             incoming_factory,
             version_info,
             allow_offline,
-            require_identifier_in_inbox,
             disable_commit_log_worker,
             mut mls_storage,
             disable_workers,
@@ -618,9 +611,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
         if server_configuration.requires_preflight() {
             api_client.api_client.require_preflight();
         }
-        if !custom_scw_verifier {
-            scw_verifier = Box::new(api_client.clone());
-        }
         if let Some(recorder) = deployment_recorder {
             if !has_config_provider && !server_configuration.configuration().identifier.is_empty() {
                 recorder
@@ -635,14 +625,21 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             server_configuration.configuration(),
             version_info.pkg_semver().semver(),
         )?;
+        // A shared backend can admit a different snapshot for another client.
+        // Keep this client's receiving limits before its first lazy stream opens.
+        let incoming_factory = incoming_factory
+            .map(|factory| factory.bind_limits(api_client.limits()).unwrap_or(factory));
+        // Clone after admission, so the default verifier sizes its verify
+        // requests by the published limits.
+        if !custom_scw_verifier {
+            scw_verifier = Box::new(api_client.clone());
+        }
 
         let identifier_check = match &identity_strategy {
             IdentityStrategy::CreateIfNotFound {
                 identifier, nonce, ..
             }
-            | IdentityStrategy::CreateForIdentifier { identifier, nonce }
-                if require_identifier_in_inbox =>
-            {
+            | IdentityStrategy::CreateForIdentifier { identifier, nonce } => {
                 Some((identifier.clone(), *nonce))
             }
             _ => None,
@@ -679,15 +676,22 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
         // The identity store trusts a stored identity of the same inbox. The
         // check runs on the identity updates loaded above and before any
         // worker, so a rejected identifier makes no request as the stored
-        // installation.
+        // installation. Offline, it reads only the database.
+        // implements: IDENT-096
         if let Some((identifier, nonce)) = identifier_check {
-            let membership = crate::identity_updates::identifier_membership(
-                &conn,
-                &identity.inbox_id,
-                &identifier,
-                &scw_verifier,
-            )
-            .await?;
+            let inbox_id = identity.inbox_id.as_str();
+            let membership = if allow_offline {
+                crate::identity_updates::stored_identifier_membership(&conn, inbox_id, &identifier)
+                    .await?
+            } else {
+                crate::identity_updates::identifier_membership(
+                    &conn,
+                    inbox_id,
+                    &identifier,
+                    &scw_verifier,
+                )
+                .await?
+            };
             if !crate::identity_updates::identifier_opens_inbox(
                 membership,
                 &identifier,
@@ -700,6 +704,14 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
                 .into());
             }
         }
+
+        // Own-installation events start after the own-inbox updates stored
+        // now, including any the load above stored.
+        let own_inbox_stored_through = conn
+            .get_latest_sequence_id(&[identity.inbox_id.as_str()])
+            .map_err(StorageError::from)?
+            .get(identity.inbox_id.as_str())
+            .copied();
 
         // Fold the legacy single-worker toggles into the unified enable map so
         // there is one source of truth for "is worker X enabled" that code paths
@@ -778,7 +790,11 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             #[cfg(any(test, target_arch = "wasm32"))]
             message_clock: Default::default(),
             delivery_owner: Default::default(),
-            identity_resolutions: Default::default(),
+            identity_resolutions: Arc::new(
+                crate::identity_updates::IdentityResolutionRegistry::starting_after(
+                    own_inbox_stored_through,
+                ),
+            ),
         });
 
         crate::server_configuration::bind_preflight(&context);
@@ -926,6 +942,10 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
     }
 
     /// Save a deployment-scoped location. `build` resolves it after all options are set.
+    ///
+    /// Native only. Browser builds have no encrypted storage; call `data_location_with`
+    /// and open the store with `WasmDb::new_strict`.
+    #[cfg(not(target_arch = "wasm32"))]
     pub async fn data_location(
         self,
         location: crate::storage_location::StorageLocation,
@@ -978,7 +998,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             version_info: self.version_info,
             allow_offline: self.allow_offline,
             disable_commit_log_worker: self.disable_commit_log_worker,
-            require_identifier_in_inbox: self.require_identifier_in_inbox,
             mls_storage: self.mls_storage,
             disable_workers: self.disable_workers,
             worker_config: self.worker_config,
@@ -1026,7 +1045,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             version_info: self.version_info,
             allow_offline: self.allow_offline,
             disable_commit_log_worker: self.disable_commit_log_worker,
-            require_identifier_in_inbox: self.require_identifier_in_inbox,
             mls_storage: self.mls_storage,
             disable_workers: self.disable_workers,
             worker_config: self.worker_config,
@@ -1068,7 +1086,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             version_info: self.version_info,
             allow_offline: self.allow_offline,
             disable_commit_log_worker: self.disable_commit_log_worker,
-            require_identifier_in_inbox: self.require_identifier_in_inbox,
             mls_storage: self
                 .store
                 .as_ref()
@@ -1108,7 +1125,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             version_info: self.version_info,
             allow_offline: self.allow_offline,
             disable_commit_log_worker: self.disable_commit_log_worker,
-            require_identifier_in_inbox: self.require_identifier_in_inbox,
             mls_storage: Some(mls_storage),
             disable_workers: self.disable_workers,
             worker_config: self.worker_config,
@@ -1201,7 +1217,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             version_info: self.version_info,
             allow_offline: self.allow_offline,
             disable_commit_log_worker: self.disable_commit_log_worker,
-            require_identifier_in_inbox: self.require_identifier_in_inbox,
             mls_storage: self.mls_storage,
             disable_workers: self.disable_workers,
             worker_config: self.worker_config,
@@ -1272,27 +1287,15 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
         }
     }
 
-    /// Skip network calls when building a client
+    /// Skip network calls when building a client. An offline build loads no
+    /// identity update, so its identifier check (see [`Self::build`]) uses
+    /// the newest state the database stores, which can predate a revocation.
     pub fn with_allow_offline(
         self,
         allow_offline: Option<bool>,
     ) -> ClientBuilder<ApiClient, S, Db> {
         Self {
             allow_offline: allow_offline.unwrap_or(false),
-            ..self
-        }
-    }
-
-    /// Require the identity strategy's identifier to belong to the inbox of
-    /// the identity the build loads, including a stored one. The build checks
-    /// the association state after it loads the inbox's identity updates and
-    /// before it starts any worker. Before the inbox's first identity update,
-    /// only the identifier whose inbox at the strategy's nonce is that inbox
-    /// belongs to it. A failure is
-    /// [`IdentityError::IdentifierNotInInbox`](crate::identity::IdentityError::IdentifierNotInInbox).
-    pub fn require_identifier_in_inbox(self) -> Self {
-        Self {
-            require_identifier_in_inbox: true,
             ..self
         }
     }
@@ -1352,7 +1355,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             version_info: self.version_info,
             allow_offline: self.allow_offline,
             disable_commit_log_worker: self.disable_commit_log_worker,
-            require_identifier_in_inbox: self.require_identifier_in_inbox,
             mls_storage: self.mls_storage,
             disable_workers: self.disable_workers,
             worker_config: self.worker_config,
@@ -1390,7 +1392,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             version_info: self.version_info,
             allow_offline: self.allow_offline,
             disable_commit_log_worker: self.disable_commit_log_worker,
-            require_identifier_in_inbox: self.require_identifier_in_inbox,
             mls_storage: self.mls_storage,
             disable_workers: self.disable_workers,
             worker_config: self.worker_config,
@@ -1439,7 +1440,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             version_info: self.version_info,
             allow_offline: self.allow_offline,
             disable_commit_log_worker: self.disable_commit_log_worker,
-            require_identifier_in_inbox: self.require_identifier_in_inbox,
             mls_storage: self.mls_storage,
             disable_workers: self.disable_workers,
             worker_config: self.worker_config,

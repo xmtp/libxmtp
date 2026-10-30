@@ -282,6 +282,7 @@ where
                             sequence_id: cursor.0 as i64,
                             envelope_hash: None,
                             expiry_ns: None,
+                            expiry_unknown: false,
                             expire_at_ns: Self::get_message_expire_at_ns(
                                 mls_group,
                                 envelope_timestamp_ns,

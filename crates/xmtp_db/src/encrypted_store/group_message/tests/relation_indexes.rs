@@ -77,13 +77,26 @@ fn sparse_history_relations_seek_selected_ids() {
                         .unwrap(),
                 )
                 .unwrap();
-            assert!(reactions.is_empty() && replies.is_empty());
+            // The reaction summary keeps a window of each parent's latest rows.
+            let summary = conn
+                .get_inbound_relations(
+                    &group.id,
+                    &references,
+                    RelationQuery::builder()
+                        .content_types(Some(vec![ContentType::Reaction]))
+                        .limit(Some(50))
+                        .build()
+                        .unwrap(),
+                )
+                .unwrap();
+            assert!(reactions.is_empty() && replies.is_empty() && summary.is_empty());
             let captured = queries.lock().unwrap().clone();
-            assert_eq!(captured.len(), 2);
-            for (query, content_type) in captured
-                .into_iter()
-                .zip([ContentType::Reaction, ContentType::Reply])
-            {
+            assert_eq!(captured.len(), 3);
+            for (query, (content_type, limit)) in captured.into_iter().zip([
+                (ContentType::Reaction, None),
+                (ContentType::Reply, None),
+                (ContentType::Reaction, Some(50)),
+            ]) {
                 let sql = query.split(" -- binds: ").next().unwrap();
                 let mut explain = diesel::sql_query(format!("EXPLAIN QUERY PLAN {sql}"))
                     .into_boxed::<Sqlite>()
@@ -92,13 +105,14 @@ fn sparse_history_relations_seek_selected_ids() {
                 for id in &ids {
                     explain = explain.bind::<Binary, _>(id);
                 }
+                explain = explain
+                    .bind::<BigInt, _>(now_ns())
+                    .bind::<Integer, _>(content_type as i32);
+                if let Some(limit) = limit {
+                    explain = explain.bind::<BigInt, _>(limit);
+                }
                 let plan = conn
-                    .raw_query(|raw| {
-                        explain
-                            .bind::<BigInt, _>(now_ns())
-                            .bind::<Integer, _>(content_type as i32)
-                            .load::<QueryPlan>(raw)
-                    })
+                    .raw_query(|raw| explain.load::<QueryPlan>(raw))
                     .unwrap()
                     .into_iter()
                     .map(|row| row.detail)

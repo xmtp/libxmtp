@@ -1,15 +1,34 @@
 use super::*;
+use crate::client::ConsentAct;
+use crate::utils::test::crafted_welcome::assert_welcome_rejected;
 use crate::{groups::send_message_opts::SendMessageOpts, tester};
+use xmtp_common::NS_IN_HOUR;
 use xmtp_db::{
     ConnectionExt,
-    consent_record::{ConsentState, ConsentType, StoredConsentRecord},
+    consent_record::{
+        ConsentKey, ConsentState, ConsentType, ConsentValue, ConsentWrite, MAX_AHEAD_NS, Owed,
+        StoredConsentRecord, write_consent,
+    },
     group::{ConversationType, GroupMembershipState, StoredGroup},
+    sync_outbox::has_owed,
+    user_preferences::StoredUserPreferences,
 };
+#[cfg(not(target_arch = "wasm32"))]
+use xmtp_logging::{LogRecord, LogSinkTarget, SinkError};
 
-// verifies: PROC-036
+#[cfg(not(target_arch = "wasm32"))]
+struct Capture(parking_lot::Mutex<Vec<LogRecord>>);
+#[cfg(not(target_arch = "wasm32"))]
+impl LogSinkTarget for Capture {
+    fn on_record(&self, record: LogRecord) -> Result<(), SinkError> {
+        self.0.lock().push(record);
+        Ok(())
+    }
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 #[xmtp_common::test(unwrap_try = true)]
-async fn device_sync_creation_logs_omit_full_private_ids() {
+async fn device_sync_creation_logs_omit_full_group_id() {
     use tracing::instrument::WithSubscriber;
     use xmtp_logging::{Level, test_logging::LogCapture};
 
@@ -27,304 +46,225 @@ async fn device_sync_creation_logs_omit_full_private_ids() {
         .find(|line| line.contains("Creating sync group:"))
         .expect("group creation emitted its INFO event");
     assert!(
-        !event.contains(&hex::encode(alix.context.installation_id())),
-        "group creation log contains the full installation ID"
-    );
-    assert!(
         !event.contains(&hex::encode(group.group_id)),
         "group creation log contains the full sync group ID"
     );
 }
 
+/// Store `state` at `at` and mark it owed, as an installation whose clock read
+/// `at` when the user decided.
+fn decide_at(
+    client: &crate::utils::Tester,
+    key: &ConsentKey,
+    state: ConsentState,
+    at: i64,
+) -> Result<(), StorageError> {
+    let value = ConsentValue {
+        state,
+        consented_at_ns: at,
+    };
+    let write = ConsentWrite::Merge {
+        value,
+        bound_ns: i64::MAX,
+    };
+    write_consent(&client.context.db(), key, write, Owed::Mark)?;
+    Ok(())
+}
+
+/// The value `client` holds for `key`.
+fn held(client: &crate::utils::Tester, key: &ConsentKey) -> Option<ConsentValue> {
+    client
+        .context
+        .db()
+        .consent_row(key)
+        .unwrap()
+        .map(|row| row.value())
+}
+
+/// Read every sync group, then apply what arrived.
+async fn receive(client: &crate::utils::Tester) -> Result<(), DeviceSyncError> {
+    client.sync_all_welcomes_and_device_sync_groups().await?;
+    client
+        .device_sync_client()
+        .process_sync_group_messages()
+        .await
+}
+
+/// Publish everything `client` owes.
+async fn publish(client: &crate::utils::Tester) -> Result<(), DeviceSyncError> {
+    client.device_sync_client().publish_outbox().await
+}
+
+/// `newer` creates a sync group that holds every installation of the inbox.
+/// Each of `others` installs its Welcome and sends what it owes there, and
+/// every installation applies what arrived.
+async fn join_sync_group(
+    newer: &crate::utils::Tester,
+    others: &[&crate::utils::Tester],
+) -> Result<GroupId, DeviceSyncError> {
+    let group = newer.device_sync_client().get_sync_group().await?;
+    for other in others {
+        other.sync_welcomes().await?;
+        publish(other).await?;
+    }
+    publish(newer).await?;
+    for client in others.iter().copied().chain([newer]) {
+        receive(client).await?;
+    }
+    Ok(group.group_id)
+}
+
+fn consent_update(
+    entity_type: ConsentType,
+    state: ConsentState,
+    entity: &str,
+) -> PreferenceUpdateMessage {
+    PreferenceUpdateMessage {
+        update: Some(PreferenceUpdateProto::Consent(
+            StoredConsentRecord::new(entity_type, state, entity.into()).into(),
+        )),
+    }
+}
+
+fn root_key_update(key: Vec<u8>, cycled_at_ns: i64) -> PreferenceUpdateMessage {
+    PreferenceUpdateMessage {
+        update: Some(PreferenceUpdateProto::Hmac(HmacKeyUpdate {
+            key,
+            cycled_at_ns,
+        })),
+    }
+}
+
+fn sync_bytes(updates: Vec<PreferenceUpdateMessage>) -> Zeroizing<Vec<u8>> {
+    sync_message_bytes(ContentProto::PreferenceUpdates(PreferenceUpdates {
+        updates,
+    }))
+}
+
 // verifies: PROC-036
 #[cfg(not(target_arch = "wasm32"))]
 #[xmtp_common::test(unwrap_try = true)]
-async fn device_sync_logs_omit_installation_id_and_message_payload() {
-    use futures::FutureExt;
-    use preference_sync::PreferenceUpdate;
+async fn device_sync_logs_omit_message_payload() {
+    use tracing::instrument::WithSubscriber;
     use xmtp_logging::{Level, test_logging::LogCapture};
 
     tester!(alix, disable_workers);
-    let sync = alix.context.device_sync_client();
-    sync.get_sync_group().await?;
+    xmtp_db::user_preferences::ensure_root_key(&alix.context.db())?;
     let capture = LogCapture::new(Level::Trace);
-    tracing::dispatcher::with_default(&capture.dispatch(), || {
-        let content = ContentProto::PreferenceUpdates(
-            xmtp_proto::xmtp::device_sync::content::PreferenceUpdates {
-                updates: vec![
-                    PreferenceUpdate::Hmac {
-                        key: vec![93; 32].into(),
-                        cycled_at_ns: 1,
-                    }
-                    .into(),
-                ],
-            },
-        );
-        let _ = sync.send_device_sync_message(content).now_or_never();
-    });
+    alix.device_sync_client()
+        .publish_outbox()
+        .with_subscriber(capture.dispatch())
+        .await?;
     let output = capture.output();
-    let event = output
-        .lines()
-        .find(|line| line.contains("Sending sync message to group"))
-        .expect("send emitted its INFO event");
     assert!(
-        !event.contains(&alix.context.installation_id().to_string()),
-        "send log contains the full installation ID"
+        output.contains("publishing owed preferences"),
+        "publish emitted its INFO event"
     );
     assert!(
         !output.contains("\"content\":"),
-        "send span records the message payload"
+        "publish span records the message payload"
     );
 }
 
-// verifies: EVENT-024, SYNC-020
+/// A thousand decisions are each published once, and the receiver, which got
+/// them from the selected sync group, does not send them back.
+// verifies: EVENT-024, SYNC-020, SYNC-027
 #[rstest::rstest]
-#[timeout(std::time::Duration::from_secs(180))]
+#[timeout(std::time::Duration::from_secs(240))]
 #[xmtp_common::test(unwrap_try = true)]
 #[cfg_attr(target_arch = "wasm32", ignore)]
 async fn thousand_local_consent_changes_publish_once_without_echo() {
-    use super::preference_sync::PreferenceUpdate;
-    use crate::subscriptions::internal::PreferenceOrigin;
-    use std::sync::Arc;
-    use tokio::sync::Notify;
-
+    use std::time::Duration;
+    async fn until(done: impl AsyncFn() -> bool) {
+        xmtp_common::time::timeout(Duration::from_secs(200), async {
+            while !done().await {
+                xmtp_common::time::sleep(Duration::from_millis(100)).await;
+            }
+        })
+        .await
+        .expect("condition holds in time");
+    }
     tester!(alix1, sync_worker);
     tester!(alix2, from: alix1);
     alix1.test_has_same_sync_group_as(&alix2).await?;
-    use worker::test_hooks::{PreferenceCapture, PreferenceStage};
-
-    // These clients initialize in order. The second creates the shared group
-    // and welcomes the first. The helper above waits for that adoption.
-    // Welcome and marker writes use the same event lock and FIFO worker queue,
-    // so marker completion follows the welcome's consent replay.
-    {
-        let ready = [
-            StoredConsentRecord::new(
-                ConsentType::InboxId,
-                ConsentState::Allowed,
-                "consent-ready-source".into(),
-            ),
-            StoredConsentRecord::new(
-                ConsentType::InboxId,
-                ConsentState::Allowed,
-                "consent-ready-receiver".into(),
-            ),
-        ];
-        let capture =
-            PreferenceCapture::new(vec![alix1.installation_id, alix2.installation_id], &ready);
-        alix1.set_consent_states(&ready[..1]).await?;
-        alix2.set_consent_states(&ready[1..]).await?;
-        xmtp_common::time::timeout(std::time::Duration::from_secs(160), async {
-            loop {
-                let observations = capture.snapshot();
-                let ready_on_both = [alix1.installation_id, alix2.installation_id]
-                    .iter()
-                    .enumerate()
-                    .all(|(index, installation)| {
-                        observations.iter().any(|event| {
-                            event.installation == *installation
-                                && matches!(event.stage, PreferenceStage::Completed)
-                                && event.record.entity == ready[index].entity
-                        }) && observations.iter().any(|event| {
-                            event.installation != *installation
-                                && matches!(event.stage, PreferenceStage::Received)
-                                && event.record.entity == ready[index].entity
-                        })
-                    });
-                if ready_on_both {
-                    break;
-                }
-                capture.changed().await;
-            }
-        })
-        .await?;
-    }
+    let drained =
+        async || !has_owed(&alix1.context.db()).unwrap() && !has_owed(&alix2.context.db()).unwrap();
+    until(drained).await;
     alix1.worker().clear_metric(SyncMetric::ConsentSent);
     alix2.worker().clear_metric(SyncMetric::ConsentSent);
-    alix2.worker().clear_metric(SyncMetric::ConsentReceived);
 
-    let entered = Arc::new(Notify::new());
-    let release = Arc::new(Notify::new());
-    *worker::test_hooks::BLOCK_NEXT_PREFERENCE_PUBLISH.lock() = Some((
-        alix1.installation_id.to_vec(),
-        entered.clone(),
-        release.clone(),
-    ));
-    use std::collections::HashMap;
-
-    let records: Vec<_> = (0..1_000)
-        .map(|index| {
-            StoredConsentRecord::new(
-                ConsentType::InboxId,
-                ConsentState::Allowed,
-                format!("consent-burst-{index}"),
-            )
-        })
+    let keys: Vec<_> = (0..1_000)
+        .map(|i| ConsentKey::inbox(&format!("consent-burst-{i}")))
         .collect();
-    let control = StoredConsentRecord::new(
-        ConsentType::InboxId,
-        ConsentState::Allowed,
-        "consent-unrelated-control".into(),
-    );
-    let mut observed_records = records.clone();
-    observed_records.push(control.clone());
-    let expected: HashMap<_, usize> = observed_records
-        .iter()
-        .map(|record| ((record.entity_type as i32, record.entity.clone()), 1))
-        .collect();
-    let capture = PreferenceCapture::new(
-        vec![alix1.installation_id, alix2.installation_id],
-        &observed_records,
-    );
-    let receiver_local = alix2.context.events().subscribe(
-        xmtp_events::EventFilter::default().with_internal(|event| {
-            matches!(
-                event,
-                InternalEvent::PreferencesChanged {
-                    origin: PreferenceOrigin::Local,
-                    ..
-                }
-            )
-        }),
-        None,
-    );
-    alix1.set_consent_states(&records[..1]).await?;
-    xmtp_common::time::timeout(std::time::Duration::from_secs(10), entered.notified()).await?;
-    for record in &records[1..] {
-        alix1
-            .set_consent_states(std::slice::from_ref(record))
-            .await?;
+    for key in &keys {
+        let act = ConsentAct::new(
+            ConsentType::InboxId,
+            ConsentState::Allowed,
+            key.entity.clone(),
+        );
+        alix1.set_consent_states(&[act]).await?;
     }
-    // A separate consent change must not alter the count for the burst.
-    alix1.set_consent_states(&[control]).await?;
-    release.notify_one();
-    xmtp_common::time::timeout(std::time::Duration::from_secs(160), async {
-        loop {
-            let mut sent = HashMap::new();
-            let mut received = HashMap::new();
-            let mut completed = HashMap::new();
-            for observation in capture.snapshot() {
-                assert_eq!(observation.record.state, ConsentState::Allowed);
-                let key = (
-                    observation.record.entity_type as i32,
-                    observation.record.entity,
-                );
-                let counts = match observation.stage {
-                    PreferenceStage::Published => {
-                        assert_eq!(
-                            observation.installation, alix1.installation_id,
-                            "receiver must not publish observed consent"
-                        );
-                        &mut sent
-                    }
-                    PreferenceStage::Received
-                        if observation.installation == alix2.installation_id =>
-                    {
-                        &mut received
-                    }
-                    PreferenceStage::Completed
-                        if observation.installation == alix1.installation_id =>
-                    {
-                        &mut completed
-                    }
-                    _ => continue,
-                };
-                let count = counts.entry(key.clone()).or_insert(0);
-                *count += 1;
-                assert_eq!(
-                    *count, 1,
-                    "consent record {key:?} must occur once at {:?}",
-                    observation.stage
-                );
-            }
-            assert!(
-                !receiver_local.is_closed(),
-                "receiver subscription must stay open"
-            );
-            for event in receiver_local.drain() {
-                assert!(
-                    !matches!(event.client, Some(xmtp_events::ClientEvent::Lagged(_))),
-                    "receiver subscription must not lose events"
-                );
-                if let Some(InternalEvent::PreferencesChanged { updates, .. }) = event.internal {
-                    for update in updates {
-                        if let PreferenceUpdate::Consent(record) = update {
-                            assert!(
-                                !expected.contains_key(&(record.entity_type as i32, record.entity)),
-                                "received consent must not have local origin"
-                            );
-                        }
-                    }
-                }
-            }
-            if sent == expected && received == expected && completed == expected {
-                break;
-            }
-            capture.changed().await;
-        }
-    })
-    .await?;
+    until(async || keys.iter().all(|key| held(&alix2, key).is_some())).await;
+    until(drained).await;
+    assert_eq!(alix1.worker().get(SyncMetric::ConsentSent), 1_000);
+    assert_eq!(
+        alix2.worker().get(SyncMetric::ConsentSent),
+        0,
+        "the receiver echoed"
+    );
+    for key in &keys {
+        assert_eq!(held(&alix2, key), held(&alix1, key));
+    }
 }
 
-#[rstest::rstest]
+/// Changes are owed in the database: fifty acts on one key are one record,
+/// failed passes never drop it, and a client opened later on the same
+/// database publishes it.
+// verifies: SYNC-027, SYNC-029, SYNC-033
 #[xmtp_common::test(unwrap_try = true)]
 #[cfg_attr(target_arch = "wasm32", ignore)]
-async fn failed_preference_publish_is_retried_after_worker_restart() {
-    use std::sync::Arc;
-    use tokio::sync::Notify;
-
-    tester!(alix, sync_worker);
-    alix.client.wait_for_sync_worker_init().await;
-    alix.worker().clear_metric(SyncMetric::ConsentSent);
-    let failed = Arc::new(Notify::new());
-    *worker::test_hooks::FAIL_NEXT_PREFERENCE_PUBLISH.lock() =
-        Some((alix.installation_id.to_vec(), failed.clone()));
-
-    alix.set_consent_states(&[StoredConsentRecord::new(
-        ConsentType::InboxId,
-        ConsentState::Allowed,
-        "retry-after-failed-publish".into(),
-    )])
-    .await?;
-    xmtp_common::time::timeout(std::time::Duration::from_secs(10), failed.notified()).await?;
-    alix.worker()
-        .register_interest(SyncMetric::ConsentSent, 1)
-        .wait()
+async fn outbox_is_durable_and_coalesced() {
+    tester!(alix1, disable_workers);
+    tester!(alix2, from: alix1, disable_workers);
+    let group_id = join_sync_group(&alix2, &[&alix1]).await?;
+    let key = ConsentKey::inbox("durable");
+    // The own identity state is unreadable, so every publish waits.
+    let restore = hide_own_identity_updates(alix1.context.db(), alix1.inbox_id())?;
+    for state in [ConsentState::Denied, ConsentState::Allowed]
+        .into_iter()
+        .cycle()
+        .take(50)
+    {
+        let act = ConsentAct::new(ConsentType::InboxId, state, key.entity.clone());
+        alix1.set_consent_states(&[act]).await?;
+    }
+    for _ in 0..25 {
+        assert!(publish(&alix1).await.is_err());
+    }
+    assert!(alix1.context.db().consent_row(&key)?.unwrap().owed_seq > 0);
+    restore()?;
+    // A client opened later on the same database holds no state in memory.
+    let reopened = crate::builder::ClientBuilder::from_client(alix1.client.clone())
+        .with_disable_workers(true)
+        .build()
         .await?;
-    assert_eq!(alix.worker().get(SyncMetric::ConsentSent), 1);
-}
-
-#[rstest::rstest]
-#[xmtp_common::test(unwrap_try = true)]
-#[cfg_attr(target_arch = "wasm32", ignore)]
-async fn reconnect_retries_preference_publish_aborted_in_flight() {
-    use std::sync::Arc;
-    use tokio::sync::Notify;
-
-    tester!(alix, persistent_db, sync_worker);
-    alix.client.wait_for_sync_worker_init().await;
-    alix.worker().clear_metric(SyncMetric::ConsentSent);
-    let entered = Arc::new(Notify::new());
-    let release = Arc::new(Notify::new());
-    *worker::test_hooks::BLOCK_NEXT_PREFERENCE_PUBLISH.lock() = Some((
-        alix.installation_id.to_vec(),
-        entered.clone(),
-        release.clone(),
-    ));
-    alix.set_consent_states(&[StoredConsentRecord::new(
-        ConsentType::InboxId,
-        ConsentState::Allowed,
-        "reconnect-in-flight-publish".into(),
-    )])
-    .await?;
-    xmtp_common::time::timeout(std::time::Duration::from_secs(10), entered.notified()).await?;
-    assert_eq!(alix.worker().get(SyncMetric::ConsentSent), 0);
-    alix.client.reconnect_db()?;
-    alix.worker()
-        .register_interest(SyncMetric::ConsentSent, 1)
-        .wait()
-        .await?;
-    assert_eq!(alix.worker().get(SyncMetric::ConsentSent), 1);
+    reopened.device_sync_client().publish_outbox().await?;
+    receive(&alix2).await?;
+    assert_eq!(held(&alix2, &key), held(&alix1, &key));
+    assert_eq!(held(&alix2, &key).unwrap().state, ConsentState::Allowed);
+    let carried = alix2
+        .context
+        .db()
+        .sync_group_messages_paged(0, 100)?
+        .iter()
+        .filter(|message| message.group_id == group_id)
+        .filter_map(|message| decode_sync_message(&message.decrypted_message_bytes))
+        .filter(|content| {
+            matches!(&content.0, ContentProto::PreferenceUpdates(p) if p.updates.iter().any(|u|
+                matches!(&u.update, Some(PreferenceUpdateProto::Consent(c)) if c.entity == "durable")))
+        })
+        .count();
+    assert_eq!(carried, 1, "fifty acts on one key are one published record");
 }
 
 // verifies: SYNC-023
@@ -335,7 +275,7 @@ fn unknown_device_sync_content_is_ignored() {
     assert!(decode_supported_content(&[0x0a, 0x00]).is_none());
 }
 
-// verifies: SYNC-021
+// verifies: SYNC-027, SYNC-029, SYNC-033
 #[rstest::rstest]
 #[xmtp_common::test(unwrap_try = true)]
 #[cfg_attr(target_arch = "wasm32", ignore)]
@@ -384,21 +324,12 @@ async fn test_hmac_and_consent_preference_sync() {
 
     // Stream consent
     alix1.worker().clear_metric(SyncMetric::ConsentSent);
-    let published = alix1.context.events().subscribe(
-        xmtp_events::EventFilter::default()
-            .with_internal(|event| matches!(event, InternalEvent::SyncMessagePublished)),
-        None,
-    );
     dm.update_consent_state(ConsentState::Denied)?;
     alix1
         .worker()
         .register_interest(SyncMetric::ConsentSent, 1)
         .wait()
         .await?;
-    assert!(matches!(
-        published.next().await.unwrap().internal,
-        Some(InternalEvent::SyncMessagePublished)
-    ));
 
     // Wait for the state, not for a ConsentReceived count: the count is
     // cumulative, and alix2 may already have received alix1's earlier
@@ -485,12 +416,6 @@ async fn test_only_added_to_correct_groups() {
         .await?;
 
     tester!(alix2, from: alix1);
-
-    alix1
-        .worker()
-        .register_interest(SyncMetric::SyncGroupWelcomesProcessed, 1)
-        .wait()
-        .await?;
 
     // The adds are durable TaskRunner work now — the metric above fires when
     // the tasks are scheduled, not when the commits land. Poll until alix2
@@ -714,53 +639,39 @@ async fn test_welcome_schedules_add_installation_tasks() {
 #[xmtp_common::test(unwrap_try = true)]
 #[cfg_attr(target_arch = "wasm32", ignore)]
 async fn sync_welcome_naming_another_inbox_is_rejected(#[case] own_adder: bool) {
-    tester!(alix1);
-    tester!(eve);
-    let sync_group = |context| {
-        MlsGroup::create_and_insert(
-            context,
-            ConversationType::Sync,
-            PreconfiguredPolicies::default().to_policy_set(),
-            GroupMetadataOptions::default(),
-            None,
-        )
-    };
-    // The adder is always a leaf, so no Welcome names only a foreign adder.
-    // alix1 creates its group before alix2 registers, so one commit adds
-    // alix2 and eve together and alix2's Welcome names eve as a leaf.
-    let alix1_group = own_adder
-        .then(|| sync_group(alix1.context.clone()))
-        .transpose()
-        .unwrap();
-    tester!(alix2, from: alix1);
-    let foreign_id = match alix1_group {
-        Some(group) => {
-            group.add_members(&[eve.inbox_id()]).await.unwrap();
-            group.group_id
-        }
-        None => {
-            let group = sync_group(eve.context.clone()).unwrap();
-            group.add_members(&[alix1.inbox_id()]).await.unwrap();
-            group.group_id
-        }
-    };
+    use crate::utils::test::crafted_welcome::{CraftedWelcome, send_crafted_welcome_with};
+    use xmtp_mls_common::group_keys::{GroupKeys, GroupRoot};
+    use xmtp_proto::types::Cursor;
 
-    alix2.sync_welcomes().await.unwrap();
-
-    let db = alix2.context.db();
-    assert!(db.find_group(&foreign_id).unwrap().is_none());
-    let topic = xmtp_db::incoming_envelope::StreamTopic {
-        entity_id: alix2.context.installation_id().to_vec(),
-        kind: xmtp_db::incoming_envelope::NetworkEntityKind::Welcome,
+    tester!(alix1, disable_workers);
+    tester!(eve, disable_workers);
+    let alix2 = if own_adder {
+        tester!(alix2, from: alix1, disable_workers);
+        Some(alix2)
+    } else {
+        None
     };
-    let rejected = db.read_last_rejection(&topic).unwrap().unwrap();
-    assert_eq!(rejected.code, "invalid_welcome");
-    assert!(
-        db.pending_envelope(&topic, rejected.sequence_id)
-            .unwrap()
-            .is_none()
-    );
-    let target = alix2.device_sync_client().get_sync_group().await.unwrap();
+    let root = GroupRoot::generate();
+    let group_id = GroupKeys::derive(&root).group_id();
+    // A current client rejects its own commit that adds eve to a sync group,
+    // so the Welcome is crafted. The adder is always a leaf, so no Welcome
+    // names only a foreign adder.
+    let (adder, other_member) = match &alix2 {
+        Some(alix2) => (alix2, Some(&*eve)),
+        None => (&eve, None),
+    };
+    let options = CraftedWelcome {
+        conversation_type: ConversationType::Sync,
+        other_member,
+        ..Default::default()
+    };
+    send_crafted_welcome_with(adder, &alix1, &group_id, Some(&root), options).await;
+
+    alix1.wait_for_newest_welcome_rejected(Cursor(0)).await;
+
+    let foreign_id = GroupId::from(group_id);
+    assert_welcome_rejected(&alix1, &foreign_id);
+    let target = alix1.device_sync_client().get_sync_group().await.unwrap();
     assert_ne!(target.group_id, foreign_id);
 }
 
@@ -779,6 +690,35 @@ async fn sync_welcome_from_own_installation_is_joined() {
     assert_eq!(stored.added_by_inbox_id, alix1.inbox_id());
     let target = alix1.device_sync_client().get_sync_group().await?;
     assert_eq!(target.group_id, alix2_group.group_id);
+}
+
+// verifies: SYNC-010
+#[xmtp_common::test(unwrap_try = true)]
+#[cfg_attr(target_arch = "wasm32", ignore)]
+async fn sync_group_commit_adding_another_inbox_is_rejected() {
+    tester!(alix1, disable_workers);
+    tester!(alix2, from: alix1, disable_workers);
+    tester!(eve);
+    let group = alix1.device_sync_client().get_sync_group().await?;
+    alix2.sync_welcomes().await?;
+    let alix2_group = alix2.group(&group.group_id)?;
+    let epoch = alix2_group.epoch().await?;
+
+    // alix1's own check rejects the commit after it is published.
+    assert!(group.add_members(&[eve.inbox_id()]).await.is_err());
+    let topic = xmtp_db::incoming_envelope::StreamTopic::group(group.group_id);
+    let db = alix2.context.db();
+    let rejection = xmtp_common::wait_for_some(|| async {
+        let _ = alix2_group.sync().await;
+        db.read_last_rejection(&topic).unwrap()
+    })
+    .await
+    .expect("alix2 did not reject the commit");
+    assert_eq!(rejection.code, "commit_validation_failure");
+
+    let members = alix2_group.members().await?;
+    assert!(members.iter().all(|m| m.inbox_id != eve.inbox_id()));
+    assert_eq!(alix2_group.epoch().await?, epoch);
 }
 
 /// The part of a stored sync group that names another inbox.
@@ -847,15 +787,12 @@ async fn stored_sync_group_naming_another_inbox_is_never_the_target(#[case] fore
     assert_eq!(target.group_id, own_id);
 }
 
-// verifies: SYNC-011
+// verifies: SYNC-030, SYNC-010
 #[xmtp_common::test(unwrap_try = true)]
 #[cfg_attr(target_arch = "wasm32", ignore)]
 async fn sync_message_from_another_inbox_is_not_applied() {
     use diesel::prelude::*;
-    use preference_sync::PreferenceUpdate;
     use xmtp_db::schema::groups::dsl;
-    use xmtp_db::user_preferences::StoredUserPreferences;
-    use xmtp_proto::xmtp::device_sync::content::PreferenceUpdates;
 
     tester!(alix1);
     tester!(alix2, from: alix1);
@@ -874,25 +811,20 @@ async fn sync_message_from_another_inbox_is_not_applied() {
 
     // Eve's key has the later cycle time, so it wins if it is applied.
     let update = |entity: &str, key: u8, cycled_at_ns: i64| {
-        let updates = vec![
-            PreferenceUpdate::Consent(StoredConsentRecord::new(
-                ConsentType::InboxId,
-                ConsentState::Denied,
-                entity.to_string(),
-            )),
-            PreferenceUpdate::Hmac {
-                key: vec![key; 42].into(),
-                cycled_at_ns,
-            },
-        ];
-        sync_message_bytes(ContentProto::PreferenceUpdates(PreferenceUpdates {
-            updates: updates.into_iter().map(Into::into).collect(),
-        }))
+        let mut bad = consent_update(ConsentType::InboxId, ConsentState::Denied, entity);
+        if let Some(PreferenceUpdateProto::Consent(record)) = &mut bad.update {
+            record.entity_type = 3; // Retired ADDRESS record.
+        }
+        sync_bytes(vec![
+            bad,
+            consent_update(ConsentType::InboxId, ConsentState::Denied, entity),
+            root_key_update(vec![key; 42], cycled_at_ns),
+        ])
     };
     let now = now_ns();
     eve_group
         .send_message(
-            &update("from-eve", 1, now + NS_IN_DAY),
+            &update("from-eve", 1, now + NS_IN_HOUR),
             SendMessageOpts::default(),
         )
         .await?;
@@ -903,25 +835,199 @@ async fn sync_message_from_another_inbox_is_not_applied() {
     alix1.group(&eve_group.group_id)?.sync().await?;
 
     let db = alix1.context.db();
-    let pending = db.unprocessed_sync_group_messages()?;
+    let pending = db.unprocessed_sync_group_messages(None)?;
     assert!(
         pending
             .iter()
             .any(|message| message.sender_inbox_id == eve.inbox_id())
     );
-    let client = alix1.device_sync_client();
-    client
-        .process_sync_group_messages(&client.metrics, pending)
+    alix1
+        .device_sync_client()
+        .process_sync_group_messages()
         .await?;
 
-    let consent = |entity: &str| db.get_consent_record(entity.to_string(), ConsentType::InboxId);
-    assert!(consent("from-eve")?.is_none());
-    assert_eq!(consent("from-alix2")??.state, ConsentState::Denied);
+    assert!(held(&alix1, &ConsentKey::inbox("from-eve")).is_none());
+    assert_eq!(
+        held(&alix1, &ConsentKey::inbox("from-alix2"))
+            .unwrap()
+            .state,
+        ConsentState::Denied
+    );
     assert_eq!(
         StoredUserPreferences::load(&db)?.hmac_key,
         Some(vec![2; 42].into())
     );
-    assert!(db.unprocessed_sync_group_messages()?.is_empty());
+    assert!(
+        db.unprocessed_sync_group_messages(None)?
+            .iter()
+            .all(|message| message.sender_inbox_id != eve.inbox_id())
+    );
+}
+
+/// Fails the own-state read like an unreachable verifier until the returned fn runs.
+pub(super) fn hide_own_identity_updates<'a>(
+    db: impl ConnectionExt + 'a,
+    inbox_id: &'a str,
+) -> Result<impl FnOnce() -> Result<usize, xmtp_db::ConnectionError> + 'a, xmtp_db::ConnectionError>
+{
+    use diesel::RunQueryDsl;
+    let set = move |from: &str, to: &str| {
+        let sql =
+            format!("UPDATE identity_updates SET inbox_id = '{to}' WHERE inbox_id = '{from}'");
+        db.raw_query(|conn| diesel::sql_query(sql).execute(conn))
+    };
+    set(inbox_id, &format!("{inbox_id}-hidden"))?;
+    Ok(move || set(&format!("{inbox_id}-hidden"), inbox_id))
+}
+
+// verifies: SYNC-016
+#[xmtp_common::test(unwrap_try = true)]
+#[cfg_attr(target_arch = "wasm32", ignore)]
+async fn failing_sync_message_stays_pending() {
+    use diesel::RunQueryDsl;
+    use xmtp_db::processed_device_sync_messages::SYNC_MESSAGE_PAGE;
+    tester!(alix1, disable_workers);
+    tester!(alix2, from: alix1, disable_workers);
+    join_sync_group(&alix2, &[&alix1]).await?;
+    let db = alix1.context.db();
+    db.raw_query(|conn| {
+        diesel::sql_query(
+            "CREATE TRIGGER fail_sync_consent BEFORE INSERT ON consent_records \
+         WHEN NEW.entity = 'retry' BEGIN SELECT RAISE(ABORT, 'injected sync failure'); END",
+        )
+        .execute(conn)
+    })?;
+    let retry = ConsentKey::inbox("retry");
+    decide_at(&alix2, &retry, ConsentState::Denied, now_ns())?;
+    publish(&alix2).await?;
+    // Later rows still apply in the same pass while `retry` stays Pending.
+    let more: Vec<_> = (0..SYNC_MESSAGE_PAGE)
+        .map(|i| ConsentKey::inbox(&format!("more-{i}")))
+        .collect();
+    for key in &more {
+        decide_at(&alix2, key, ConsentState::Allowed, now_ns())?;
+        publish(&alix2).await?;
+    }
+    receive(&alix1).await?;
+    for key in &more {
+        assert!(held(&alix1, key).is_some());
+    }
+    for _ in 0..4 {
+        receive(&alix1).await?;
+    }
+    assert_eq!(db.unprocessed_sync_group_messages(None)?.len(), 1);
+    assert!(held(&alix1, &retry).is_none());
+    db.raw_query(|conn| diesel::sql_query("DROP TRIGGER fail_sync_consent").execute(conn))?;
+    receive(&alix1).await?;
+    assert_eq!(held(&alix1, &retry), held(&alix2, &retry));
+    assert!(db.unprocessed_sync_group_messages(None)?.is_empty());
+}
+
+/// A message an own installation sent before its revocation is applied, also
+/// when the receiver processes it after the revocation. One sent after it is
+/// dropped.
+// verifies: SYNC-030
+#[xmtp_common::test(unwrap_try = true)]
+#[cfg_attr(target_arch = "wasm32", ignore)]
+async fn sender_judged_at_envelope_time() {
+    tester!(alix1, disable_workers);
+    tester!(alix2, from: alix1, disable_workers);
+    tester!(alix3, from: alix1, disable_workers);
+    let group = alix1.device_sync_client().get_sync_group().await?;
+    alix2.sync_welcomes().await?;
+    alix3.sync_welcomes().await?;
+    let before = ConsentKey::inbox("sent-before-revocation");
+    decide_at(&alix2, &before, ConsentState::Denied, now_ns())?;
+    publish(&alix2).await?;
+    revoke(&alix3, &alix2).await?;
+    let after = sync_bytes(vec![consent_update(
+        ConsentType::InboxId,
+        ConsentState::Denied,
+        "sent-after-revocation",
+    )]);
+    alix2
+        .group(&group.group_id)?
+        .send_message(&after, SendMessageOpts::default())
+        .await?;
+
+    receive(&alix1).await?;
+    assert_eq!(held(&alix1, &before), held(&alix2, &before));
+    assert!(held(&alix1, &ConsentKey::inbox("sent-after-revocation")).is_none());
+    assert!(
+        alix1
+            .context
+            .db()
+            .unprocessed_sync_group_messages(None)?
+            .is_empty()
+    );
+}
+
+/// Revoke `revoked`'s installation with `owner`'s wallet signature.
+pub(super) async fn revoke(
+    owner: &crate::utils::Tester,
+    revoked: &crate::utils::Tester,
+) -> Result<(), ClientError> {
+    use xmtp_id::associations::test_utils::add_wallet_signature;
+
+    let identity = owner.identity_updates();
+    let mut request = identity
+        .revoke_installations(vec![revoked.context.installation_id().to_vec()])
+        .await?;
+    add_wallet_signature(&mut request, &owner.builder.owner).await;
+    identity.apply_signature_request(request).await
+}
+
+/// After a revocation the revoker cycles the root key; its next publish
+/// removes the revoked leaf first, so only current installations read it.
+// verifies: SYNC-024, SYNC-026
+#[xmtp_common::test(unwrap_try = true)]
+#[cfg_attr(target_arch = "wasm32", ignore)]
+async fn publish_removes_revoked_leaf_and_adds_no_newcomer() {
+    use xmtp_mls_validation::commit::extract_group_membership;
+
+    tester!(alix1, disable_workers);
+    tester!(alix2, from: alix1, disable_workers);
+    tester!(alix3, from: alix1, disable_workers);
+    let group = alix1.device_sync_client().get_sync_group().await?;
+    // Registers after the group exists; with no worker it makes no group.
+    tester!(alix4, from: alix1, disable_workers);
+    alix2.sync_welcomes().await?;
+    alix3.sync_welcomes().await?;
+    revoke(&alix1, &alix2).await?;
+    let cycled = StoredUserPreferences::load(alix1.context.db())?;
+    assert!(
+        cycled.hmac_key_owed_seq > 0,
+        "the revocation cycled an owed key"
+    );
+    publish(&alix1).await?;
+
+    let (leaves, failed) = group.with_group_snapshot(|mls_group| {
+        let membership = extract_group_membership(mls_group.extensions())?;
+        let leaves: Vec<_> = mls_group.members().map(|m| m.signature_key).collect();
+        Ok((leaves, membership.failed_installations))
+    })?;
+    let alix4_key = alix4.context.installation_id().to_vec();
+    assert!(!leaves.contains(&alix2.context.installation_id().to_vec()));
+    assert!(
+        !leaves.contains(&alix4_key),
+        "a newer installation was added"
+    );
+    // A later joiner checks the skipped newcomer against this list.
+    assert!(failed.contains(&alix4_key));
+
+    // alix3 accepts the removal-only commit and cycles on the revocation too;
+    // the two converge on the greater key, which the revoked alix2 never reads.
+    receive(&alix3).await?;
+    publish(&alix3).await?;
+    receive(&alix1).await?;
+    let key = |alix: &crate::utils::Tester| {
+        StoredUserPreferences::load(alix.context.db())
+            .unwrap()
+            .hmac_key
+    };
+    assert_eq!(key(&alix1), key(&alix3));
+    let _ = receive(&alix2).await;
+    assert_ne!(key(&alix2), key(&alix1));
 }
 
 // A root HMAC key that another installation syncs is a `hmac_keys.updated`
@@ -931,11 +1037,8 @@ async fn sync_message_from_another_inbox_is_not_applied() {
 #[cfg_attr(target_arch = "wasm32", ignore)]
 async fn synced_hmac_key_emits_hmac_keys_updated_once() {
     use diesel::prelude::*;
-    use preference_sync::PreferenceUpdate;
     use xmtp_db::schema::groups::dsl;
-    use xmtp_db::user_preferences::StoredUserPreferences;
     use xmtp_events::{ClientEvent, EventEnvelope, EventFilter, EventKind};
-    use xmtp_proto::xmtp::device_sync::content::PreferenceUpdates;
 
     tester!(alix1, disable_workers);
     tester!(alix2, from: alix1);
@@ -953,13 +1056,10 @@ async fn synced_hmac_key_emits_hmac_keys_updated_once() {
     })?;
 
     let now = now_ns();
-    let hmac = |key: u8, cycled_at_ns| PreferenceUpdate::Hmac {
-        key: vec![key; 42].into(),
-        cycled_at_ns,
-    };
-    let updates = sync_message_bytes(ContentProto::PreferenceUpdates(PreferenceUpdates {
-        updates: vec![hmac(1, now).into(), hmac(2, now + 1).into()],
-    }));
+    let updates = sync_bytes(vec![
+        root_key_update(vec![1; 42], now),
+        root_key_update(vec![2; 42], now + 1),
+    ]);
     alix2
         .group(&group.group_id)?
         .send_message(&updates, SendMessageOpts::default())
@@ -971,9 +1071,9 @@ async fn synced_hmac_key_emits_hmac_keys_updated_once() {
         .events()
         .subscribe_app(EventFilter::new([EventKind::HmacKeysUpdated]))?;
     let db = alix1.context.db();
-    let client = alix1.device_sync_client();
-    client
-        .process_sync_group_messages(&client.metrics, db.unprocessed_sync_group_messages()?)
+    alix1
+        .device_sync_client()
+        .process_sync_group_messages()
         .await?;
 
     assert_eq!(
@@ -994,30 +1094,13 @@ async fn synced_hmac_key_emits_hmac_keys_updated_once() {
 #[cfg(not(target_arch = "wasm32"))]
 fn incoming_preference_logs_omit_secret_material() {
     use std::sync::Arc;
-    use xmtp_logging::{Level, LogRecord, LogSinkTarget, SinkError, test_logging::LogCapture};
-
-    struct Capture(parking_lot::Mutex<Vec<LogRecord>>);
-    impl LogSinkTarget for Capture {
-        fn on_record(&self, record: LogRecord) -> Result<(), SinkError> {
-            self.0.lock().push(record);
-            Ok(())
-        }
-    }
+    use xmtp_logging::{Level, test_logging::LogCapture};
 
     let key = b"synthetic-private-sync-key-e7a619c3".to_vec();
     let entity = "synthetic-private-consent-identity";
     let updates = vec![
-        preference_sync::PreferenceUpdate::Hmac {
-            key: key.clone().into(),
-            cycled_at_ns: 9_007_199_254_740_993,
-        }
-        .into(),
-        preference_sync::PreferenceUpdate::Consent(StoredConsentRecord::new(
-            ConsentType::InboxId,
-            ConsentState::Denied,
-            entity.to_string(),
-        ))
-        .into(),
+        root_key_update(key.clone(), 9_007_199_254_740_993),
+        consent_update(ConsentType::InboxId, ConsentState::Denied, entity),
     ];
     let sink = Arc::new(Capture(parking_lot::Mutex::new(Vec::new())));
     let capture = LogCapture::with_sink(Level::Info, Some(sink.clone()));
@@ -1028,7 +1111,6 @@ fn incoming_preference_logs_omit_secret_material() {
     assert!(json.contains("Incoming preference updates"));
     let records = sink.0.lock();
     assert_eq!(records.len(), 1);
-    assert!(records[0].message.contains("Incoming preference updates"));
     for sensitive in [
         format!("{key:?}"),
         entity.to_string(),
@@ -1061,20 +1143,10 @@ fn incoming_preference_logs_omit_secret_material() {
 // verifies: PROC-036
 #[xmtp_common::test(unwrap_try = true)]
 #[cfg(not(target_arch = "wasm32"))]
-async fn stored_preference_logs_omit_installation_id_and_secret_material() {
+async fn stored_preference_logs_omit_secret_material() {
     use std::sync::Arc;
     use tracing::instrument::WithSubscriber;
-    use xmtp_db::user_preferences::StoredUserPreferences;
-    use xmtp_logging::{Level, LogRecord, LogSinkTarget, SinkError, test_logging::LogCapture};
-    use xmtp_proto::xmtp::device_sync::content::PreferenceUpdates;
-
-    struct Capture(parking_lot::Mutex<Vec<LogRecord>>);
-    impl LogSinkTarget for Capture {
-        fn on_record(&self, record: LogRecord) -> Result<(), SinkError> {
-            self.0.lock().push(record);
-            Ok(())
-        }
-    }
+    use xmtp_logging::{Level, test_logging::LogCapture};
 
     tester!(alix, disable_workers);
     let client = alix.device_sync_client();
@@ -1083,44 +1155,28 @@ async fn stored_preference_logs_omit_installation_id_and_secret_material() {
     key.resize(42, 0xa7);
     let entity = "synthetic-private-consent-identifier";
     let updates = vec![
-        preference_sync::PreferenceUpdate::Hmac {
-            key: key.clone().into(),
-            cycled_at_ns: i64::MAX - 1,
-        }
-        .into(),
-        preference_sync::PreferenceUpdate::Consent(StoredConsentRecord::new(
-            ConsentType::InboxId,
-            ConsentState::Denied,
-            entity.into(),
-        ))
-        .into(),
+        root_key_update(key.clone(), now_ns() + xmtp_common::NS_IN_HOUR),
+        consent_update(ConsentType::InboxId, ConsentState::Denied, entity),
     ];
     group
-        .send_message(
-            &sync_message_bytes(ContentProto::PreferenceUpdates(PreferenceUpdates {
-                updates,
-            })),
-            SendMessageOpts::default(),
-        )
+        .send_message(&sync_bytes(updates), SendMessageOpts::default())
         .await?;
     let db = alix.context.db();
-    let messages = db.unprocessed_sync_group_messages()?;
-    assert_eq!(messages.len(), 1);
+    assert_eq!(db.unprocessed_sync_group_messages(None)?.len(), 1);
     let sink = Arc::new(Capture(parking_lot::Mutex::new(Vec::new())));
     let capture = LogCapture::with_sink(Level::Info, Some(sink.clone()));
     client
-        .process_sync_group_messages(&client.metrics, messages)
+        .process_sync_group_messages()
         .with_subscriber(capture.dispatch())
         .await?;
 
-    assert!(db.unprocessed_sync_group_messages()?.is_empty());
+    assert!(db.unprocessed_sync_group_messages(None)?.is_empty());
     assert_eq!(
         StoredUserPreferences::load(&db)?.hmac_key,
         Some(key.clone().into())
     );
     assert_eq!(
-        db.get_consent_record(entity.into(), ConsentType::InboxId)??
-            .state,
+        held(&alix, &ConsentKey::inbox(entity)).unwrap().state,
         ConsentState::Denied
     );
     let json = capture.output();
@@ -1131,13 +1187,7 @@ async fn stored_preference_logs_omit_installation_id_and_secret_material() {
             .iter()
             .any(|record| record.message.contains("storing preference updates"))
     );
-    for sensitive in [
-        alix.context.installation_id().to_string(),
-        hex::encode(alix.context.installation_id()),
-        format!("{key:?}"),
-        hex::encode(&key),
-        entity.into(),
-    ] {
+    for sensitive in [format!("{key:?}"), hex::encode(&key), entity.into()] {
         assert!(
             !json.contains(&sensitive),
             "sensitive preference data reached JSON"
@@ -1153,4 +1203,323 @@ async fn stored_preference_logs_omit_installation_id_and_secret_material() {
             "sensitive preference data reached the log sink"
         );
     }
+}
+
+/// A peer marks everything owed in the transaction that installs a
+/// newcomer's sync Welcome, and schedules the adds there, so a peer that
+/// stops before its worker runs still sends it all when it runs again: a
+/// time-0 record, an inbox record for a DM the newcomer holds no group for,
+/// and the root key.
+// verifies: SYNC-014, SYNC-028
+#[xmtp_common::test(unwrap_try = true)]
+#[cfg_attr(target_arch = "wasm32", ignore)]
+async fn newcomer_gets_everything_after_peer_restart() {
+    use prost::Message;
+    use xmtp_db::tasks::QueryTasks;
+    use xmtp_proto::xmtp::mls::database::{Task as TaskProto, task::Task as TaskKind};
+
+    tester!(alix1, disable_workers);
+    tester!(bo, disable_workers);
+    let group = alix1
+        .create_group_with_members(&[bo.inbox_id()], None, None)
+        .await?;
+    let records = [
+        (ConsentKey::inbox("time-zero"), ConsentState::Allowed, 0),
+        (ConsentKey::inbox(bo.inbox_id()), ConsentState::Denied, 5),
+    ];
+    for (key, state, at) in &records {
+        decide_at(&alix1, key, *state, *at)?;
+    }
+    xmtp_db::user_preferences::ensure_root_key(&alix1.context.db())?;
+    publish(&alix1).await?;
+    assert!(!has_owed(&alix1.context.db())?);
+
+    tester!(alix2, from: alix1, disable_workers);
+    alix2.device_sync_client().get_sync_group().await?;
+    alix1.sync_welcomes().await?;
+    // The Welcome's transaction marked everything owed and scheduled the adds.
+    assert!(has_owed(&alix1.context.db())?);
+    let adds: Vec<_> = alix1
+        .context
+        .db()
+        .get_tasks()?
+        .iter()
+        .filter_map(|t| match TaskProto::decode(t.data.as_slice()).ok()?.task {
+            Some(TaskKind::AddMissingInstallations(add)) => Some(add.group_id),
+            _ => None,
+        })
+        .collect();
+    assert!(adds.contains(&group.group_id.to_vec()));
+
+    // A client opened later on the same database holds nothing in memory.
+    let reopened = crate::builder::ClientBuilder::from_client(alix1.client.clone())
+        .with_disable_workers(true)
+        .build()
+        .await?;
+    reopened.device_sync_client().publish_outbox().await?;
+    receive(&alix2).await?;
+    for (key, ..) in &records {
+        assert_eq!(held(&alix2, key), held(&alix1, key), "{}", key.entity);
+    }
+    let group_key = ConsentKey::group(group.group_id.as_ref());
+    assert_eq!(held(&alix2, &group_key), held(&alix1, &group_key));
+    // The newcomer may have made its own root key first; the greater one
+    // becomes the account key once both have published.
+    publish(&alix2).await?;
+    receive(&alix1).await?;
+    publish(&alix1).await?;
+    receive(&alix2).await?;
+    assert_eq!(
+        StoredUserPreferences::load(alix2.context.db())?.hmac_key,
+        StoredUserPreferences::load(alix1.context.db())?.hmac_key
+    );
+}
+
+/// A peer that holds no root key makes one when it installs a newcomer's
+/// sync Welcome, owes it, and reports it.
+// verifies: SYNC-028, SYNC-026, EVENT-001
+#[xmtp_common::test(unwrap_try = true)]
+#[cfg_attr(target_arch = "wasm32", ignore)]
+async fn sync_welcome_makes_a_root_key_when_none_is_held() {
+    use xmtp_events::{ClientEvent, EventFilter, EventKind};
+    tester!(alix1, disable_workers);
+    assert!(
+        StoredUserPreferences::load(alix1.context.db())?
+            .hmac_key
+            .is_none()
+    );
+    let events = alix1
+        .context
+        .events()
+        .subscribe_app(EventFilter::new([EventKind::HmacKeysUpdated]))?;
+    tester!(alix2, from: alix1, disable_workers);
+    alix2.device_sync_client().get_sync_group().await?;
+    alix1.sync_welcomes().await?;
+    let preferences = StoredUserPreferences::load(alix1.context.db())?;
+    assert!(preferences.hmac_key.is_some());
+    assert!(preferences.hmac_key_owed_seq > 0);
+    assert!(
+        events
+            .drain()
+            .iter()
+            .any(|event| matches!(event.client, Some(ClientEvent::HmacKeysUpdated(_))))
+    );
+}
+
+/// A root key made in a write that rolls back is not reported: its events
+/// go out only when the write that stores it commits.
+// verifies: EVENT-001, SYNC-026
+#[xmtp_common::test(unwrap_try = true)]
+async fn root_key_made_in_a_rolled_back_write_is_not_reported() {
+    use xmtp_db::TransactionOutcome;
+    use xmtp_events::{EventFilter, EventKind};
+    tester!(alix, disable_workers);
+    let group = alix.create_group(None, None)?;
+    let db = alix.context.db();
+    assert!(StoredUserPreferences::load(&db)?.hmac_key.is_none());
+    let events = alix
+        .context
+        .events()
+        .subscribe_app(EventFilter::new([EventKind::HmacKeysUpdated]))?;
+    crate::state_tx::state_write_with_events(
+        alix.context.mls_storage(),
+        alix.context.events(),
+        |tx, events| {
+            group.hmac_keys_in(tx.storage().db(), events, 0..=0)?;
+            Ok::<_, StorageError>(TransactionOutcome::<()>::Rollback)
+        },
+    )?;
+    assert!(StoredUserPreferences::load(&db)?.hmac_key.is_none());
+    assert!(events.drain().is_empty());
+    // The same write, committed, reports the key once.
+    group.hmac_keys(0..=0)?;
+    assert!(StoredUserPreferences::load(&db)?.hmac_key.is_some());
+    assert_eq!(events.drain().len(), 1);
+}
+
+/// A value learned from an older sync group is passed on to the selected
+/// one, so it reaches a newcomer whose replay was already sent.
+// verifies: SYNC-027
+#[xmtp_common::test(unwrap_try = true)]
+#[cfg_attr(target_arch = "wasm32", ignore)]
+async fn older_group_value_reaches_newcomer() {
+    tester!(alix1, disable_workers);
+    tester!(alix2, from: alix1, disable_workers);
+    join_sync_group(&alix2, &[&alix1]).await?;
+    // alix2 blocks X in the older group and never runs again.
+    let x = ConsentKey::inbox("x");
+    decide_at(&alix2, &x, ConsentState::Denied, now_ns())?;
+    publish(&alix2).await?;
+
+    tester!(alix3, from: alix1, disable_workers);
+    let newer = alix3.device_sync_client().get_sync_group().await?;
+    alix1.sync_welcomes().await?;
+    let selected = alix1.device_sync_client().primary_sync_group()?.unwrap();
+    assert_eq!(selected.group_id, newer.group_id);
+    publish(&alix1).await?;
+    receive(&alix3).await?;
+    assert!(held(&alix3, &x).is_none());
+
+    // alix1 reads the older group and passes the value on.
+    receive(&alix1).await?;
+    assert!(alix1.context.db().consent_row(&x)?.unwrap().owed_seq > 0);
+    publish(&alix1).await?;
+    receive(&alix3).await?;
+    assert_eq!(held(&alix3, &x), held(&alix2, &x));
+}
+
+/// After the clock is set back, a newcomer's sync group is still stored
+/// after every held group and selected, so the replay reaches it.
+// verifies: SYNC-031, SYNC-002
+#[xmtp_common::test(unwrap_try = true)]
+#[cfg_attr(target_arch = "wasm32", ignore)]
+async fn clock_set_back_still_selects_newcomer_group() {
+    use diesel::prelude::*;
+    use xmtp_db::schema::groups::dsl;
+    tester!(alix1, disable_workers);
+    let older = alix1.device_sync_client().get_sync_group().await?;
+    let ahead = now_ns() + 2 * NS_IN_HOUR;
+    alix1.context.db().raw_query(|conn| {
+        diesel::update(dsl::groups.find(&older.group_id))
+            .set(dsl::created_at_ns.eq(ahead))
+            .execute(conn)
+    })?;
+    tester!(alix2, from: alix1, disable_workers);
+    let newer = alix2.device_sync_client().get_sync_group().await?;
+    alix1.sync_welcomes().await?;
+    let stored = alix1.context.db().find_group(&newer.group_id)?.unwrap();
+    assert!(stored.created_at_ns > ahead);
+    let selected = alix1.device_sync_client().primary_sync_group()?.unwrap();
+    assert_eq!(selected.group_id, newer.group_id);
+    let key = ConsentKey::inbox("set-back");
+    decide_at(&alix1, &key, ConsentState::Allowed, now_ns())?;
+    publish(&alix1).await?;
+    receive(&alix2).await?;
+    assert_eq!(held(&alix2, &key), held(&alix1, &key));
+}
+
+/// A page whose read-back is not published, because its confirmation failed
+/// or the deployment refused it, clears no mark: the pass fails, and a later
+/// pass sends the values again and only then clears them.
+// verifies: SYNC-033
+#[xmtp_common::test(unwrap_try = true)]
+#[cfg_attr(target_arch = "wasm32", ignore)]
+async fn unpublished_page_stays_owed_until_sent_again() {
+    tester!(alix1, disable_workers);
+    tester!(alix2, from: alix1, disable_workers);
+    join_sync_group(&alix2, &[&alix1]).await?;
+    let x = ConsentKey::inbox("unconfirmed");
+    decide_at(&alix1, &x, ConsentState::Denied, now_ns())?;
+    let owed = || {
+        alix1
+            .context
+            .db()
+            .consent_row(&x)
+            .unwrap()
+            .unwrap()
+            .owed_seq
+    };
+    *UNCONFIRMED_NEXT_PAGE.lock() = Some(alix1.context.installation_id().to_vec());
+    assert!(matches!(
+        publish(&alix1).await,
+        Err(DeviceSyncError::OutboxPageUnpublished)
+    ));
+    assert!(owed() > 0, "an unconfirmed page clears nothing");
+    publish(&alix1).await?;
+    assert_eq!(owed(), 0);
+    receive(&alix2).await?;
+    assert_eq!(held(&alix2, &x), held(&alix1, &x));
+}
+
+/// The revocation's root key is timed a day after the revocation's server
+/// time, so a key the revoked installation sent before it, timed far ahead,
+/// never replaces it, in either processing order.
+// verifies: SYNC-026, SYNC-030, SYNC-032
+#[xmtp_common::test(unwrap_try = true)]
+#[cfg_attr(target_arch = "wasm32", ignore)]
+async fn revocation_key_beats_delayed_pre_revocation_key() {
+    use crate::identity_updates::load_identity_updates_for_client;
+    use xmtp_db::user_preferences::{RootKeyWrite, write_root_key};
+    // alix1 cycles, then applies; alix2 is revoked; alix3 revokes; alix4
+    // applies, then cycles.
+    tester!(alix1, disable_workers);
+    tester!(alix2, from: alix1, disable_workers);
+    tester!(alix3, from: alix1, disable_workers);
+    tester!(alix4, from: alix1, disable_workers);
+    alix1.device_sync_client().get_sync_group().await?;
+    for client in [&alix2, &alix3, &alix4] {
+        client.sync_welcomes().await?;
+    }
+    let k = [0x4c; 42];
+    let ahead = RootKeyWrite::Received {
+        key: &k,
+        cycled_at_ns: now_ns() + 2 * NS_IN_DAY,
+        bound_ns: i64::MAX,
+    };
+    write_root_key(&alix2.context.db(), ahead, Owed::Mark)?;
+    publish(&alix2).await?;
+    receive(&alix4).await?;
+    let key_of =
+        |client: &crate::utils::Tester| StoredUserPreferences::load(client.context.db()).unwrap();
+    assert_eq!(key_of(&alix4).hmac_key, Some(k.to_vec().into()));
+
+    revoke(&alix3, &alix2).await?;
+    let revoked_at = alix3
+        .context
+        .db()
+        .get_identity_updates(alix3.inbox_id(), None, None)?
+        .last()
+        .unwrap()
+        .server_timestamp_ns;
+    let db = alix1.context.db();
+    load_identity_updates_for_client(&alix1.context, &db, &[alix1.inbox_id()]).await?;
+    let cycled = key_of(&alix1);
+    assert!(cycled.hmac_key_cycled_at_ns.unwrap() >= revoked_at + MAX_AHEAD_NS);
+    receive(&alix1).await?;
+    assert_eq!(key_of(&alix1).hmac_key, cycled.hmac_key);
+    assert_ne!(cycled.hmac_key, Some(k.to_vec().into()));
+
+    // alix4 applied C's key first, then loads the revocation and cycles past it.
+    let db = alix4.context.db();
+    load_identity_updates_for_client(&alix4.context, &db, &[alix4.inbox_id()]).await?;
+    let after = key_of(&alix4);
+    assert_ne!(after.hmac_key, Some(k.to_vec().into()));
+    assert!(after.hmac_key_cycled_at_ns.unwrap() >= revoked_at + MAX_AHEAD_NS);
+    // The revoked installation does not cycle on its own revocation.
+    let db = alix2.context.db();
+    load_identity_updates_for_client(&alix2.context, &db, &[alix2.inbox_id()]).await?;
+    assert_eq!(key_of(&alix2).hmac_key, Some(k.to_vec().into()));
+}
+
+/// A reconcile task armed after a rate-limited add is due only once the
+/// add's delay has passed, so the runner does not resend it at once.
+// verifies: RATE-041
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_rate_limited_add_arms_its_reconcile_after_the_delay() {
+    tester!(alix, disable_workers);
+    let sync = alix.context.device_sync_client();
+    let group = alix.create_group(None, None)?;
+    // Longer than a task's default three-day expiry.
+    let delay = xmtp_common::time::Duration::from_secs(4 * 24 * 60 * 60);
+    let before = xmtp_common::time::now_ns();
+    sync.schedule_add_missing_installations_task(group.group_id, Some(delay))?;
+    let task = alix
+        .context
+        .db()
+        .get_tasks()?
+        .into_iter()
+        .find(|task| {
+            matches!(
+                xmtp_proto::xmtp::mls::database::Task::decode(task.data.as_slice())
+                    .ok()
+                    .and_then(|task| task.task),
+                Some(TaskKindProto::AddMissingInstallations(_))
+            )
+        })
+        .expect("the reconcile task");
+    assert!(task.next_attempt_at_ns >= before + delay.as_nanos() as i64);
+    assert!(
+        task.expires_at_ns > task.next_attempt_at_ns,
+        "the task does not expire before it is due"
+    );
 }

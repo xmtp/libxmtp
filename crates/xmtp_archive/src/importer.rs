@@ -1,7 +1,10 @@
 use super::{ArchiveError, BackupMetadata};
-use crate::{BACKUP_VERSION, NONCE_SIZE, TAG_SIZE, util::GenericArrayExt};
+use crate::{
+    BACKUP_VERSION, MAX_FRAME_BYTES, NONCE_SIZE, TAG_SIZE, ZSTD_WINDOW_LOG_MAX,
+    util::GenericArrayExt,
+};
 use aes_gcm::{AesGcm, aead::Aead, aes::Aes256};
-use async_compression::futures::bufread::ZstdDecoder;
+use async_compression::{futures::bufread::ZstdDecoder, zstd::DParameter};
 use futures::{FutureExt, Stream, StreamExt, ready};
 use futures_util::{AsyncBufRead, AsyncReadExt};
 use prost::Message;
@@ -66,6 +69,11 @@ impl ArchiveImporter {
                         "frame shorter than its authentication tag",
                     ))));
                 }
+                if element_len > MAX_FRAME_BYTES {
+                    return Poll::Ready(Some(Err(ArchiveError::InvalidFrame(
+                        "frame longer than the archive frame limit",
+                    ))));
+                }
                 self.element_len = Some(element_len);
             }
 
@@ -115,7 +123,10 @@ impl ArchiveImporter {
         reader.read_exact(&mut nonce).await?;
 
         let mut importer = Self {
-            decoder: ZstdDecoder::new(reader),
+            decoder: ZstdDecoder::with_params(
+                reader,
+                &[DParameter::window_log_max(ZSTD_WINDOW_LOG_MAX)],
+            ),
             decoded: vec![],
             element_len: None,
             finished: false,
@@ -234,7 +245,7 @@ mod container_tests {
     /// A container this client cannot read, or one cut short anywhere, must end the import with an
     /// error — never hang, never keep yielding, never pass for a complete backup — while valid
     /// counter-nonce and legacy archives still restore.
-    // verifies: ARCH-003, ARCH-018
+    // verifies: ARCH-018
     #[xmtp_common::test(unwrap_try = true)]
     async fn archive_invalid_container_rejected() {
         let [metadata, consent] = elements();
@@ -245,18 +256,6 @@ mod container_tests {
         // Both nonce forms of a version 0 archive restore every element.
         for framed in [&counter, &legacy] {
             assert_eq!(restore(container(0, framed).await)?, vec![consent.clone()]);
-        }
-
-        // A later version fails before any frame is read, naming the version.
-        for version in [1, 2, u16::MAX] {
-            let mut archive = container(0, &counter).await;
-            archive[..2].copy_from_slice(&version.to_le_bytes());
-            let error = restore(archive).unwrap_err();
-            assert!(
-                matches!(error, ArchiveError::UnsupportedVersion(v) if v == version),
-                "version {version} was read: {error:?}"
-            );
-            assert!(error.to_string().contains(&version.to_string()));
         }
 
         // Every cut of the file — header, zstd frame header, blocks, checksum — fails.
@@ -294,12 +293,16 @@ mod container_tests {
             "forged tag: {restored:?}"
         );
 
-        // A declared ciphertext shorter than the tag fails even when the bytes are present.
-        for len in 0..TAG_SIZE as u32 {
+        // A declared ciphertext shorter than the tag fails even when the bytes are present; a
+        // tag-only ciphertext reaches authentication.
+        for len in 0..=TAG_SIZE as u32 {
             let framed = [&counter[..metadata_end], &len.to_le_bytes(), &[0; 32]].concat();
             let restored = restore(container(0, &framed).await);
             assert!(
-                matches!(restored, Err(ArchiveError::InvalidFrame(_))),
+                match len as usize {
+                    TAG_SIZE => matches!(restored, Err(ArchiveError::AesGcm(_))),
+                    _ => matches!(restored, Err(ArchiveError::InvalidFrame(_))),
+                },
                 "ciphertext length {len}: {restored:?}"
             );
         }

@@ -33,7 +33,7 @@ resolver = "3"
 
 [workspace.package]
 license = "MIT"
-version = "1.12.0-dev"
+version = "1.12.0-dev.1"
 rust-version = "1.94.1"
 publish = false
 edition = "2024"
@@ -123,6 +123,7 @@ http-body = "1"
 hyper = { version = "1.11", default-features = false }
 hyper-util = "0.1"
 indicatif = "0.18"
+ipnet = "2.12"
 itertools = "0.15"
 js-sys = "0.3"
 libc = "0.2"
@@ -131,20 +132,20 @@ lru = "0.18"
 mockall = { version = "0.15" }
 mockall_double = "0.3.1"
 once_cell = "1.21.4"
-openmls = { git = "https://github.com/xmtp/openmls", rev = "c2bad9f5653d4123c2b677aff0fff73398f7b6e5", default-features = false, features = [
+openmls = { git = "https://github.com/xmtp/openmls", rev = "39cddd5c7fd8db2b6c5f47a0a6672d8dbd122f0b", default-features = false, features = [
   "extensions-draft",
   "draft-ietf-mls-pq-ciphersuites",
 ] }
-openmls_basic_credential = { git = "https://github.com/xmtp/openmls", rev = "c2bad9f5653d4123c2b677aff0fff73398f7b6e5" }
-openmls_libcrux_crypto = { git = "https://github.com/xmtp/openmls", rev = "c2bad9f5653d4123c2b677aff0fff73398f7b6e5", features = [
+openmls_basic_credential = { git = "https://github.com/xmtp/openmls", rev = "39cddd5c7fd8db2b6c5f47a0a6672d8dbd122f0b" }
+openmls_libcrux_crypto = { git = "https://github.com/xmtp/openmls", rev = "39cddd5c7fd8db2b6c5f47a0a6672d8dbd122f0b", features = [
   "extensions-draft",
   "draft-ietf-mls-pq-ciphersuites",
 ] }
-openmls_rust_crypto = { git = "https://github.com/xmtp/openmls", rev = "c2bad9f5653d4123c2b677aff0fff73398f7b6e5", features = [
+openmls_rust_crypto = { git = "https://github.com/xmtp/openmls", rev = "39cddd5c7fd8db2b6c5f47a0a6672d8dbd122f0b", features = [
   "extensions-draft",
   "draft-ietf-mls-pq-ciphersuites",
 ] }
-openmls_traits = { git = "https://github.com/xmtp/openmls", rev = "c2bad9f5653d4123c2b677aff0fff73398f7b6e5", features = [
+openmls_traits = { git = "https://github.com/xmtp/openmls", rev = "39cddd5c7fd8db2b6c5f47a0a6672d8dbd122f0b", features = [
   "extensions-draft",
   "draft-ietf-mls-pq-ciphersuites",
 ] }
@@ -204,6 +205,9 @@ sha2 = "0.10.9"
 sha2-zeroize = { package = "sha2", version = "0.11", default-features = false, features = [
   "zeroize",
 ] }
+# Test-only: runs lock code under every thread schedule.
+shuttle = "0.9"
+siphasher = "1.0"
 strum = { version = "0.28", features = ["derive"] }
 subtle = "2.6.1"
 syn = { version = "2.0", features = [
@@ -305,6 +309,7 @@ xmtp_mls_common = { path = "crates/xmtp_mls_common" }
 xmtp_mls_validation = { path = "crates/xmtp_mls_validation" }
 xmtp_proto = { path = "crates/xmtp_proto" }
 xmtp_push_types = { path = "crates/xmtp_push_types" }
+xmtp_rate_limit = { path = "crates/xmtp_rate_limit" }
 
 [profile.dbg]
 debug = true

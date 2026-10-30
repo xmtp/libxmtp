@@ -9,6 +9,7 @@ use crate::{
 use sqlx::Row;
 use tonic::Code;
 
+mod charges;
 mod transport;
 
 #[xmtp_common::test(unwrap_try = true)]
@@ -23,7 +24,7 @@ async fn a_thousand_topic_batch_and_key_only_renewal_preserve_the_count() {
                 .create([(id as u128).to_be_bytes(), [0; 16]].concat())
                 .to_vec(),
             hmac_epoch_base: 10,
-            hmac_keys: vec![vec![1; HMAC_KEY_BYTES]; MAX_HMAC_KEYS],
+            hmac_keys: vec![vec![1; HMAC_KEY_BYTES]; MAX_SUBSCRIPTION_HMAC_KEYS],
             include_commits: false,
         })
         .collect();

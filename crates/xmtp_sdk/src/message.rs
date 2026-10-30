@@ -129,12 +129,12 @@ impl MessageContent {
                 XmtpError::CodecDecodeFailed(details)
             });
         }
-        Self::from_core(body, Some(content), raw_bytes)
+        Self::from_core(body, received_encoded(Some(content)).as_ref(), raw_bytes)
     }
 
     fn from_core(
         body: xmtp_mls::messages::decoded_message::MessageBody,
-        content: Option<EncodedContent>,
+        content: Option<&SdkEncodedContent>,
         raw_bytes: &[u8],
     ) -> Result<Self, XmtpError> {
         use xmtp_mls::messages::decoded_message::MessageBody as CoreBody;
@@ -154,9 +154,8 @@ impl MessageContent {
                 })
             }
             CoreBody::Reply(value) => {
-                let outer: SdkEncodedContent = content
-                    .ok_or_else(|| XmtpError::malformed_envelope("reply has no envelope"))?
-                    .try_into()?;
+                let outer = content
+                    .ok_or_else(|| XmtpError::malformed_envelope("reply has no envelope"))?;
                 let nested = EncodedContent::decode(outer.content.as_slice()).ok();
                 Ok(Self::Reply {
                     reference_id: MessageId::try_from(value.reference_id)?,
@@ -188,12 +187,12 @@ impl MessageContent {
                 raw_bytes: value.raw_bytes,
             }),
             CoreBody::Undecodable(value) => Ok(Self::Unknown {
-                encoded: received_encoded(value.encoded),
+                encoded: content.cloned(),
                 raw_bytes: value.raw_bytes,
                 error: failure_details(value.failure),
             }),
             _ => Ok(Self::Unknown {
-                encoded: received_encoded(content),
+                encoded: content.cloned(),
                 raw_bytes: raw_bytes.to_vec(),
                 error: XmtpError::codec_not_found("content type has no SDK decoder")
                     .content_details(),
@@ -277,6 +276,8 @@ pub struct MessageData {
     pub sent_at: Timestamp,
     pub inserted_at: Timestamp,
     pub expires_at: Option<Timestamp>,
+    #[uniffi(default = false)]
+    pub expiry_unknown: bool,
     pub kind: MessageKind,
     pub delivery_status: DeliveryStatus,
     /// The original received serialization. Empty after deletion.
@@ -288,7 +289,13 @@ pub struct MessageData {
     pub encoded: Option<SdkEncodedContent>,
     pub content: MessageContent,
     pub reply_count: u64,
+    /// At most the 50 latest reaction messages, oldest first, that decode as
+    /// reactions. Read the rest with `message_reactions`.
     pub reactions: Vec<ReactionMessage>,
+    /// Unexpired reaction messages to this message, including removals and
+    /// ones that do not decode. It is not a reaction tally.
+    #[uniffi(default = 0)]
+    pub reaction_message_count: u64,
     pub in_reply_to: Option<ReplyParent>,
 }
 
@@ -375,11 +382,16 @@ impl Message {
             .as_ref()
             .and_then(|content| content.fallback.clone());
         let body = decoded.unwrap_or_else(|| {
-            xmtp_mls::messages::decoded_message::MessageBody::from_received_bytes(message_bytes)
+            xmtp_mls::messages::decoded_message::MessageBody::from_stored_bytes(
+                message_bytes,
+                value.kind,
+            )
         });
-        let content = MessageContent::from_core(body, encoded.clone(), message_bytes)
+        // Decompress the outer envelope once for the content and the message.
+        let encoded = received_encoded(encoded);
+        let content = MessageContent::from_core(body, encoded.as_ref(), message_bytes)
             .unwrap_or_else(|error| MessageContent::Unknown {
-                encoded: received_encoded(encoded.clone()),
+                encoded: encoded.clone(),
                 raw_bytes: message_bytes.to_vec(),
                 error: error.content_details(),
             });
@@ -402,15 +414,17 @@ impl Message {
             sent_at: Timestamp(value.sent_at_ns),
             inserted_at: Timestamp(value.inserted_at_ns),
             expires_at: value.expire_at_ns.map(Timestamp),
+            expiry_unknown: value.expiry_unknown,
             kind,
             delivery_status,
             raw_bytes: message_bytes.to_vec(),
             content_type,
             fallback,
-            encoded: received_encoded(encoded),
+            encoded,
             content,
             reply_count: 0,
             reactions: Vec::new(),
+            reaction_message_count: 0,
             in_reply_to: None,
         }))
     }
@@ -428,29 +442,9 @@ impl Message {
         message.0.reactions = enriched
             .reactions
             .into_iter()
-            .filter_map(|reaction| {
-                let CoreBody::Reaction(value) = reaction.content else {
-                    return None;
-                };
-                let reaction_id = hex::encode(&reaction.metadata.id);
-                let converted: Result<ReactionMessage, XmtpError> = (|| {
-                    Ok(ReactionMessage {
-                        id: MessageId::from_bytes(&reaction.metadata.id)?,
-                        sender_inbox_id: InboxId::try_from(reaction.metadata.sender_inbox_id)?,
-                        sent_at: Timestamp(reaction.metadata.sent_at_ns),
-                        delivery_status: reaction.metadata.delivery_status.into(),
-                        reaction: crate::Reaction::from_proto(value),
-                    })
-                })();
-                match converted {
-                    Ok(reaction) => Some(reaction),
-                    Err(error) => {
-                        tracing::warn!(%reaction_id, %error, "skipping stored reaction");
-                        None
-                    }
-                }
-            })
+            .filter_map(ReactionMessage::from_decoded)
             .collect();
+        message.0.reaction_message_count = enriched.num_reaction_messages as u64;
         if let CoreBody::Reply(reply) = &enriched.content
             && let Some(parent) = &reply.in_reply_to
         {
@@ -494,6 +488,36 @@ impl Message {
             }
         }
         Ok(message)
+    }
+}
+
+impl ReactionMessage {
+    /// A reaction message the app can read, or none when it does not decode
+    /// as a reaction or its ids do not convert.
+    pub(crate) fn from_decoded(
+        reaction: xmtp_mls::messages::decoded_message::DecodedMessage,
+    ) -> Option<Self> {
+        let xmtp_mls::messages::decoded_message::MessageBody::Reaction(value) = reaction.content
+        else {
+            return None;
+        };
+        let reaction_id = hex::encode(&reaction.metadata.id);
+        let converted: Result<Self, XmtpError> = (|| {
+            Ok(Self {
+                id: MessageId::from_bytes(&reaction.metadata.id)?,
+                sender_inbox_id: InboxId::try_from(reaction.metadata.sender_inbox_id)?,
+                sent_at: Timestamp(reaction.metadata.sent_at_ns),
+                delivery_status: reaction.metadata.delivery_status.into(),
+                reaction: crate::Reaction::from_proto(value),
+            })
+        })();
+        match converted {
+            Ok(reaction) => Some(reaction),
+            Err(error) => {
+                tracing::warn!(%reaction_id, %error, "skipping stored reaction");
+                None
+            }
+        }
     }
 }
 

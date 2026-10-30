@@ -44,7 +44,8 @@ sets shared priorities within that scope.
 - **Keys, secrets, and privacy.** A key deleted too early loses a Welcome in
   flight; one kept too long widens the compromise window (JOIN). Keys,
   credentials, and auth headers stay out of logs, `Debug` output, errors, and
-  telemetry. Logs also carry no payloads or full ids.
+  telemetry. Logs also carry no payloads or full ids; client logs may carry
+  full inbox and installation ids. Backend telemetry follows OPS-014.
 - **Wire, stored data, and SDK contracts (`proto/`, API, ARCH, CTYPE).**
   Supported clients, backends, and SDKs upgrade at different times. CI runs
   `buf lint`, not `buf breaking`, so only a reviewer catches a reused or

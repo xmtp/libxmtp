@@ -7,6 +7,13 @@ pub const LEGACY_GROUP_ID_BYTES: usize = 16;
 /// Most envelopes one publish request may carry, duplicates included (API
 /// section 7). Clients chunk to it, and the backend refuses more.
 pub const MAX_PUBLISH_ENVELOPES: usize = 1_000;
+/// Most identity updates one publish request may carry, duplicates included
+/// (API section 7). Admission replays one stored log for each, one at a time.
+pub const MAX_PUBLISH_IDENTITY_UPDATES: usize = 5;
+/// Most identity actions one publish request may carry across all its
+/// identity updates: every identity update at the action limit.
+pub const MAX_PUBLISH_IDENTITY_ACTIONS: usize =
+    MAX_PUBLISH_IDENTITY_UPDATES * super::MAX_IDENTITY_UPDATE_ACTIONS;
 /// Welcome, key-package, and identity topic identifier length, in bytes.
 pub const BACKEND_INSTALLATION_ID_BYTES: usize = 32;
 

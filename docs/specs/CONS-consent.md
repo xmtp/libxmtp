@@ -4,60 +4,66 @@ status: draft
 ---
 # Consent
 
-Consent decides what a user sees. A conversation the user allowed is listed and streamed; one the user denied is not; one the user has not decided on is listed so that it can be decided. Consent is set on more than one installation and merged without coordination, so the merge rule has to be deterministic or two devices disagree about the same conversation.
+Consent decides what a user sees. An allowed conversation is listed, streamed, and pushed. A denied one is hidden. An unknown one is listed as a request, so the user can decide on it.
 
-A consent record names an entity, a state, and the time the state was set. The merge is a total order on records: the greater time wins, and on an equal time the greater state wins, so every installation that has seen the same records holds the same one whatever order they arrived in. A default is a record that carries no decision; it sits at time 0, so any decision replaces it and it replaces nothing. A DM inherits the decision made for an earlier DM with the same other party (`DMS`).
+Every installation of the user's inbox can decide, and installations never coordinate. They exchange records over the sync group (`SYNC`) and through archives (`ARCH`). Four rules give every installation the same answer, in any order:
+
+1. **One record per conversation.** A group's record is keyed by its group id. A DM's record is the other member's inbox record, so one decision covers every DM with that person (CONS-052).
+2. **The greater record wins.** Records compare by consent time, then by state: denied over allowed over unknown (CONS-053).
+3. **A received time is capped** at one day after the envelope time of the sync message that carries it, or, from an archive, one day after the current time (CONS-054).
+4. **A decision comes after what this installation has seen**, so the newest decision wins even on a slow clock (CONS-055).
+
+Only the user stores allowed or denied: by deciding, by creating a conversation, or by sending in one. A join stores nothing, and that includes a join after a removal (CONS-058).
 
 ```mermaid
 flowchart LR
-  A[App sets a state] -->|now| R[(Consent record)]
-  C[Create or send] -->|allowed, now| R
-  W[Join from a Welcome] -->|creator and adder own: allowed at 0<br/>otherwise: no state| R
-  P[Peer installation's record] -->|total order| R
-  R --> L[Listing and streams]
-  R --> S[Published to peers, SYNC]
+  D[App sets, creates, or sends] -->|decision, CONS-055| R[(One record per key)]
+  P[Peer installation or archive] -->|capped, greater wins| R
+  R --> L[Listing, streams, push]
+  R -->|every change| S[Other installations, SYNC]
 ```
+
+Non-goal: a backend that falsifies envelope times. CONS-054 uses them as given.
 
 ## Scope
 
-In scope: the consent states, the two entities a record names, the wire form of a record, the merge rule, the records a client stores on creation, on send, and on join, the precedence between a join default and an inherited record, how consent filters listings and streams, and what an SDK exposes to an app.
+In scope: consent states, keys, the wire form, which record wins, what the client stores on its own, how consent filters listings and streams, and what an SDK exposes.
 
-Out of scope: how records travel between installations (`SYNC`), the DM identifier and how a record carries across the groups of one DM (`DMS`), how a stream is delivered (`PROC`), push suppression by consent (`PUSH`), readd requests gated by consent (FORK-053, FORK-060), and archive import (`ARCH`).
+Out of scope: how records travel and when they are published (`SYNC`), the dm id and the peer of a DM (`DMS`), stream delivery (`PROC`), push (`PUSH`), readd requests (FORK-053, FORK-080), and the archive container (`ARCH`).
+
+A device clock that is more than a day off is out of scope.
 
 | Related | Relation |
 | --- | --- |
-| `SYNC` | Owns the message that carries a record to a peer installation and when one is published. This spec owns the record and the merge. |
-| `JOIN` | Owns the join itself. This spec owns the record a conversation starts with when the join completes. |
-| `DMS` | Owns the DM identifier and DMS-010, which carries a record across the groups of one DM. CONS-024 owns only its precedence against a join default. |
-| `META` | Owns `CREATOR_INBOX_ID` and `CONVERSATION_TYPE`, which CONS-023 reads, and META-075, which binds the creator to write its own inbox id. |
+| `SYNC` | Carries records between installations. SYNC-027 marks the changes to publish. |
+| `DMS` | Owns the dm id (DMS-001), the peer of a DM (DMS-017), and the group an app sees for a DM (DMS-007). |
+| `JOIN` | Owns the join. CONS-058 owns what a join stores: nothing. |
 | `PUSH` | Owns which conversations produce push notifications. It reads conversation consent. |
-| FORK-053, FORK-060 | Own acceptance and response to readd requests, including consent checks. |
-| `ARCH` | Owns the archive. An imported record is merged under CONS-010. |
+| FORK-053, FORK-080 | Own acceptance and response to readd requests, including consent checks. |
+| `ARCH` | Owns the archive. An imported record is merged under CONS-053. |
+| `MIG` | Converts a pre-8.0 database. MIG-009 writes a peer's DM rows as one inbox record under CONS-061. |
 | `EVENT` | EVENT-001 owns `consent.changed` emission. EVENT-030 and EVENT-031 own queue loss and the `lagged` report. |
 
 ## Terms
 
 | Term | Meaning |
 | --- | --- |
-| Consent record | One stored decision: an entity, a state, and a consent time. |
-| Entity | What a record is about: a conversation, named by its group id, or an inbox, named by its inbox id. |
-| Conversation consent | The record whose entity is the conversation's group id. |
-| Inbox consent | The record whose entity is an inbox id. |
-| Consent time | The `consented_at_ns` of a record: the clock of the installation that set the state, in nanoseconds since the Unix epoch, or 0 for a default. |
-| App act | An app setting a state through an SDK. |
-| Default | A record the client stores without a decision, at consent time 0. |
+| Consent record | A key, a state, and a consent time. |
+| Key | What a record is about: a group or an inbox. CONS-052 defines it. |
+| Conversation consent | The record CONS-052 assigns to a conversation. For a DM, it is the other member's inbox record. |
+| Consent time | When the state was decided, in nanoseconds since the Unix epoch. |
+| Decision | A record the client stores because the user acted: CONS-055, CONS-056, or CONS-057. |
+| Merge | Storing a record that carries its own time, under CONS-053. |
 | Consent filter | The set of states an app passes when it lists or streams conversations or messages. An absent filter and an empty filter are different things. |
+| Listing time | The time a conversation listing orders by: a conversation's creation time when the app orders by creation, and its last-activity time under CONS-048 otherwise. |
 
-## 1. States and entities
+## 1. Records and keys
 
-A record is in one of three states. Unknown is both a stored state and the state of an entity with no record; the two are indistinguishable to an app and to a filter. Allowed and denied are decisions.
+A record is unknown, allowed, or denied. Unknown is both a stored state and the state of a key with no record; an app and a filter cannot tell them apart. Conversation consent gates listing and streaming (section 4), push (`PUSH`), and readd requests (FORK-053, FORK-080). An inbox record is also the consent of every DM with that inbox.
 
-A record names one of two entities. Conversation consent is what the client acts on: it gates listing and streaming (section 4), push notifications (`PUSH`), and readd requests (FORK-053, FORK-060). Inbox consent is state an app reads and sets, and that the client reports for each member of a group; the client does not derive conversation consent from it, and no listing or stream reads it (Known limitations).
-
-The record has one wire form. A peer installation reads it (`SYNC`) and an archive stores it (`ARCH`), so its encoding is a compatibility contract between installations and between versions.
+Peers (`SYNC`) and archives (`ARCH`) share one wire form:
 
 ```proto
-// Proto representation of a consent record save
 message ConsentSave {
   ConsentTypeSave entity_type = 1;
   ConsentStateSave state = 2;
@@ -65,7 +71,6 @@ message ConsentSave {
   int64 consented_at_ns = 4;
 }
 
-// Consent record type
 enum ConsentTypeSave {
   CONSENT_TYPE_SAVE_UNSPECIFIED = 0;
   CONSENT_TYPE_SAVE_CONVERSATION_ID = 1;
@@ -73,7 +78,6 @@ enum ConsentTypeSave {
   CONSENT_TYPE_SAVE_ADDRESS = 3 [deprecated = true];
 }
 
-// Consent record state
 enum ConsentStateSave {
   CONSENT_STATE_SAVE_UNSPECIFIED = 0;
   CONSENT_STATE_SAVE_UNKNOWN = 1;
@@ -82,45 +86,38 @@ enum ConsentStateSave {
 }
 ```
 
-`CONSENT_TYPE_SAVE_ADDRESS` is the entity type of a retired record kind. A current client never writes it and rejects it on read (CONS-003).
-
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
 | CONS-001 | No record is unknown | When an app reads the consent of an entity, or a consent filter is applied to a conversation, the client MUST report and filter an entity with no record as unknown. | |
-| CONS-002 | One wire form | When the client encodes a consent record for a peer installation or an archive, it MUST encode it as the `ConsentSave` above, with `entity` set to the lowercase hexadecimal group id for a conversation or the inbox id for an inbox, `state` set to the value named for the record's state, and `consented_at_ns` set to the record's consent time. | Two installations that encode the same conversation differently hold two records for it and never merge them. |
-| CONS-003 | Reject an unusable record | When a received `ConsentSave` carries `entity_type` `CONSENT_TYPE_SAVE_UNSPECIFIED` or `CONSENT_TYPE_SAVE_ADDRESS`, or `state` `CONSENT_STATE_SAVE_UNSPECIFIED`, the client MUST NOT store it. | |
+| CONS-050 | One wire form | When the client encodes a record for a peer installation or an archive, it MUST encode it as the `ConsentSave` above, with `entity_type` conversation for a group key and inbox for an inbox key, `entity` set to the key under CONS-052, and `state` and `consented_at_ns` set to the record's values. | Two installations that encode one key differently hold two records and never merge them. |
+| CONS-051 | Skip an unusable record | When a received or imported `ConsentSave` has `entity_type` `CONSENT_TYPE_SAVE_UNSPECIFIED` or `CONSENT_TYPE_SAVE_ADDRESS`, `state` `CONSENT_STATE_SAVE_UNSPECIFIED`, or an `entity` longer than 256 bytes, the client MUST NOT store it and MUST go on with the other records. | An archive from early 2025 can hold address records, and failing on one loses every record after it. A record too large for a sync message would stop every publish behind it. |
+| CONS-052 | One record per conversation | The client MUST key the consent of a group by its group id in lowercase hexadecimal, of an inbox by its inbox id in lowercase, and of a DM by the inbox id of its other member under DMS-017, as an inbox record; a DM whose dm id does not name the own inbox has no key. When an app sets the consent of a conversation by group id, the client MUST use the key of the conversation it holds under that id, and MUST return an error and store nothing when it holds none. Any other record MUST be stored under the key it names, except as CONS-061 moves it. | Either inbox can start another group for a DM at any time, and a block stored per group leaves the new group unblocked. A record stored under a group id the client does not hold is never read by a DM that arrives later. Moving it then would let a former member of a group, who can build a DM with that group's id (JOIN Known limitations), take over the user's decision about the group. |
 
-## 2. Merging records
+## 2. Which record wins
 
-Every installation of an inbox sets consent, and the records meet without coordination: over the sync group, from an archive, and from the app on this installation. Records for one entity are totally ordered: by consent time, and on an equal time by state, with denied above allowed above unknown, which is the order of the `ConsentStateSave` values. The greater record is stored; the lesser changes nothing. A record for an entity with no record is stored. Applied in any order, and any number of times, a set of records leaves the same record on every installation that has seen them all.
-
-An app act is the user's decision on this installation now. It is stored with the current time, whatever the stored record's time or state, and whether or not the state differs: a repeated decision moves the record's time forward, and that is what lets it win against a decision another installation made in between. Clock skew between installations can make one installation's "now" older than another's stored time (Known limitations).
-
-| ID | Title | Requirement | Why |
-| --- | --- | --- | --- |
-| CONS-010 | The greater record wins | When the client receives a consent record for an entity from a peer installation or an archive, it MUST store the received state and `consented_at_ns` when the entity has no record, or when the received `consented_at_ns` is greater than the stored consent time, or when they are equal and the received state is greater under the `ConsentStateSave` order; otherwise it MUST leave the stored record unchanged. | A stored time that is not replaced with the winner's lets a third record, older than the winner, replace it later; a tie left to arrival order leaves two devices with two states. |
-| CONS-011 | An app act is now | When an app sets the consent of an entity, the client MUST store that state with the client's current time as the consent time, whatever record is stored for the entity and whether or not the state differs from the stored one. | A repeated decision that does not move the time loses to a decision made elsewhere in between. |
-
-## 3. Defaults and inherited consent
-
-Consent is implied for conversations started by the user, and conversations the user has chosen to send messages in. Creating a group or a DM sets it to allowed, and sending a message in a conversation that is not allowed sets it to allowed. Each is a decision, stored with the current time.
-
-A conversation the user is added to starts with an unknown consent state. The exception is a group whose creator and adder both name the user's own inbox. The group states its creator in `CREATOR_INBOX_ID` (`META`), and META-075 binds an honest creator to write its own inbox id; nothing binds a dishonest one, so the field alone is a claim by whoever created the group. The evidence the joiner has is the adder under JOIN-025: the inbox whose installation signed the `GroupInfo` in the Welcome, which an attacker cannot forge. Allowed is stored only when both name the own inbox. That proves an installation of the own inbox was a member and added this one; it does not prove the own inbox created the group (Known limitations).
-
-A default carries no decision. It is stored at consent time 0, so under CONS-010 any record with a time replaces it, and it is stored only when the conversation has no record, because a record that arrived over the sync group before the Welcome is a decision. Neither `SYNC` nor an archive needs to carry a default: every installation derives it from its own Welcome.
-
-A DM has one identifier for the pair of inboxes, and a client can hold more than one group for it. DMS-010 carries the record with the greatest consent time across those groups to a new one. Where a join qualifies for DMS-010 and for a rule in this section, the inherited record is the record this section's rules test (CONS-024).
-
-Leaving a group and being added back replaces previously set consent state with `unknown`. The reset is stored at the backend's timestamp on the Welcome, the time of the re-add, so a decision the user makes after the re-add on any installation wins, and the decision that preceded the leave does not. GMOD-031 through GMOD-033 own the leave request and the removal that follows it.
+Applied in any order, and any number of times, a set of records leaves the same record on every installation that has seen them all.
 
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
-| CONS-020 | Creating allows | When the client creates a group or a DM at an app's request, it MUST store allowed for that conversation with the current time as the consent time. | |
-| CONS-021 | Sending allows | When the client publishes a message an app sent in a conversation whose conversation consent is not allowed, it MUST store allowed for that conversation with the current time as the consent time. | A conversation the user replied in that stays unknown drops out of the listing on the next filter. |
-| CONS-022 | Joining stores no decision | When the client completes a join from a Welcome, it MUST NOT store a record with a consent time other than 0 for that conversation, except under CONS-025 and DMS-010. | A conversation the user did not ask for that starts allowed is presented as wanted, on every installation at once. |
-| CONS-023 | The own inbox's group is allowed | When the client completes a join from a Welcome whose `CREATOR_INBOX_ID` is the own inbox and whose adder under JOIN-025 is the own inbox, and the conversation has no record, it MUST store allowed for it at consent time 0. When either names another inbox, it MUST NOT store allowed. | `CREATOR_INBOX_ID` alone is the creator's claim; a group that names the recipient as its creator and is added by a stranger is a stranger's group. |
-| CONS-024 | Inherited beats a default | When a join qualifies for DMS-010 and for CONS-023, the client MUST store the inherited record and MUST NOT store the default; when it qualifies for DMS-010 and for CONS-025, the client MUST apply CONS-025 to the inherited record. | An inherited record is the user's decision about the pair; a default replacing it undoes a block. |
-| CONS-025 | Re-added after leaving | When the client completes a join from a Welcome for a group it holds a published leave request for, and the stored record's consent time is less than the backend's timestamp on the Welcome, it MUST store unknown for that conversation with that timestamp as the consent time. | A user who left is added back without asking. Allowed carried over lists the group as if they had agreed. |
+| CONS-053 | The greater record wins | When the client merges a record, it MUST store it when the key has no record, or when its consent time is greater than the stored one, or when the times are equal and its state is greater, with denied over allowed over unknown; otherwise it MUST leave the stored record unchanged. | One order on records gives every installation the same answer whatever order records arrive in. |
+| CONS-054 | A received time is capped | When the client merges a record whose consent time is more than one day after the envelope time of the sync message that carries it, or, from an archive, more than one day after the client's current time, it MUST merge it with that limit as its consent time. | A time far ahead would beat every later decision. Measured from the envelope time, the limit gives every receiver the same value whatever its clock. A record that is capped, not refused, still arrives. |
+| CONS-055 | A decision comes after what was seen | When an app sets the consent of a key, or the client stores allowed under CONS-056 or CONS-057, the client MUST store the state at the greater of its current time and the stored consent time plus one nanosecond, even when the state is unchanged. | A decision must beat every record its installation saw, even on a slow clock. A repeated decision must move the time forward, or it loses to one made elsewhere in between. |
+
+## 3. What the client writes
+
+| When | The client stores | Rule |
+| --- | --- | --- |
+| The app sets a state | That state, as a decision | CONS-055 |
+| The app creates a group or a DM | Allowed, as a decision, unless the user already decided | CONS-056 |
+| The app sends a message, other than a deletion or a leave request | Allowed, as a decision, unless it already reads allowed | CONS-057 |
+| A Welcome adds the user, for the first time or again | Nothing | CONS-058 |
+| A peer or an archive sends a record | The record, capped and merged | CONS-053, CONS-054 |
+
+| ID | Title | Requirement | Why |
+| --- | --- | --- | --- |
+| CONS-056 | Creating allows | When the client creates a group or a DM at an app's request and the conversation's record is absent or unknown, it MUST store allowed for it under CONS-055. | A conversation the user started must not be a request. A DM with a person the user blocked stays blocked when the app opens it again. |
+| CONS-057 | Sending allows | When the client queues a message an app sent, other than a message deletion or a leave request, in a conversation that does not read allowed, it MUST store allowed for it under CONS-055, in the transaction that queues the message. When it reads allowed, the client MUST NOT store a record. | A conversation the user replied in must not stay a request. An allow stored after the send is lost if the process ends first. A record stored on every send is published on every send. Leaving is not a reply. |
+| CONS-058 | Joining stores nothing | When the client completes a join from a Welcome, including a join to a group it was removed from or left, it MUST NOT store a consent record. | Another inbox chooses whom to add and whom to add back, and a group can name anyone as its creator. A removed installation cannot tell a re-add from a second MLS group that a former member built under the same id (JOIN-083), so a re-add changes nothing the user decided. |
 
 ## 4. Gating listing and streaming
 
@@ -130,28 +127,47 @@ A message listing within one conversation is not filtered: the app named the con
 
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
-| CONS-030 | The filter is on conversation consent | When an app lists or streams conversations, or streams messages across conversations, with a consent filter, the client MUST include only conversations whose conversation consent is in the filter, so that an empty filter includes none, and MUST NOT read inbox consent to decide. | |
+| CONS-060 | The filter is on conversation consent | When an app lists or streams conversations, or streams messages across conversations, with a consent filter, the client MUST include only conversations whose conversation consent under CONS-052 is in the filter, so that an empty filter includes none. | A DM's consent is its peer's inbox record. A filter that reads only group records would list a blocked person's DMs. |
 | CONS-031 | Default listing excludes denied | When an app lists conversations with no consent filter, the client MUST return the conversations whose conversation consent is allowed or unknown and MUST NOT return one whose consent is denied. | A denied conversation that appears is the block failing; an unknown one that disappears can never be decided on. |
 | CONS-042 | Default all-message stream | When an app streams messages across all its conversations with no consent filter, the client MUST deliver only messages from conversations whose conversation consent is allowed or unknown, as CONS-031 does for listings. | Messages from a denied conversation must not reach an app that used the default consent choice. |
 | CONS-043 | One conversation stream | When an app streams messages from one named conversation with no consent filter, the client MUST NOT filter that stream by the conversation's consent state. | The app has selected that conversation explicitly. |
 | CONS-044 | Default conversation stream | When an app streams conversations with no consent filter, the client MUST deliver new conversations of every consent state. | An app that hides a new denied conversation cannot show it in a blocked list. |
+| CONS-046 | Conversation page size | When an app lists conversations, an SDK MUST return at most the `limit` the app names, or at most 100 conversations when the app names none, and MUST fail the call with an invalid-argument error when `limit` is less than 1 or greater than 1000. | The default listing includes unknown conversations (CONS-031), so without a page size one call returns every conversation that any stranger creates for the user. |
+| CONS-047 | Pages resume after ties | When an app lists conversations with a before time and a conversation id, an SDK MUST return only conversations whose listing time is less than that time, or equal to it with a group id lower in byte order than that conversation's group id. | A cursor of time alone skips every conversation that shares the boundary time, and a sender can give many conversations the same last-activity time. |
+| CONS-049 | Pages are ordered | When an app lists conversations, an SDK MUST return the matching conversations in order of descending listing time and then descending group id in byte order, starting with the first that CONS-047 admits, up to the page size of CONS-046, where the listing time is the creation time in creation order and the CONS-048 time in activity order; when the app names a before conversation id without a before time, the SDK MUST fail the call with an invalid-argument error. | A page that may hold any matching subset, or that orders ties by ascending id, skips or repeats every conversation that shares the boundary time, even with the CONS-047 cursor. |
+| CONS-048 | Activity time matches the listing | When an app reads a conversation's last-activity time without naming content types, an SDK MUST return the greatest send time among the conversation's unexpired application messages that an activity-ordered listing counts, or its creation time when there is none. An activity-ordered listing MUST use that same time as its listing time under CONS-049. | An app pages an activity-ordered listing with this time, and a time that counts an expired message names a later boundary than the listing used and returns the same conversations again. |
 
 ## 5. What an app can read and set
 
-An app reads consent to build its inbox and its request list, sets it when the user decides, and follows changes that arrive from the user's other installations. A `consent.changed` event tells the app to read the record again. If the event queue discards a change, EVENT-031 reports it through `lagged`.
+An app reads consent to build its inbox and its request list, sets it when the user decides, and follows changes that arrive from the user's other installations. A `consent.changed` event tells the app to read the record again. If the event queue discards a change, EVENT-031 reports it through `lagged`. An app names conversations by group id, so a DM is also reported under the group the app lists.
 
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
 | CONS-041 | Read set and follow consent | An SDK MUST let an app read and set the consent of a conversation and of an inbox, and subscribe to `consent.changed` events under EVENT-001, subject to EVENT-030 and EVENT-031. | An app cannot update its view after a change on another installation without a change signal. |
+| CONS-059 | Apps see group ids | When an SDK reports a change to an inbox record in an event or a stream, it MUST also report it for the DM with that inbox, named by the group id that DMS-007 returns, when the client holds one. It MUST NOT report a change to a group record as a change to a conversation whose CONS-052 key is a different record. When it reports a DM's consent in a read, it MUST report the conversation consent of CONS-052. | An app keys conversations by group id and redraws a DM only when its group id is reported. An event must agree with the read that follows it. |
+
+## 6. Records written before 8.0
+
+Before 8.0, a DM's consent was its group's record, and inbox records decided no DM. The time of a pre-8.0 record is when the row was first created, not when its state was last set. So the time of a DM record and the time of an inbox record cannot say which decision is newer.
+
+| ID | Title | Requirement | Why |
+| --- | --- | --- | --- |
+| CONS-061 | Pre-8.0 DM records | When the client receives or imports a record that names a 16-byte group id held as a DM, it MUST store the record under that DM's key under CONS-052. When an archive carries a 16-byte DM group that the client holds, whether or not its import stored it, the client MUST combine the archive's records for every 16-byte DM it holds with that DM's peer and the archive's inbox record for the peer into one inbox record whose state is the strongest of theirs, denied over allowed over unknown, and whose consent time is the greatest of their times. When the client restores a 16-byte DM while it holds a record under that DM's group id, it MUST merge the record into the DM's key under CONS-053 and remove it. | An archive written before 8.0 names a DM by its 16-byte group id, which no Welcome can activate (JOIN-083), so moving it cannot give another inbox control of the record. Pre-8.0 times are first-insert times, so they cannot order the rows; the strongest state never weakens a block the user saw, in either the DM or the inbox read. The greatest time lets the combined record replace each of its sources, and the same archive imported twice gives the same record. |
 
 ## Known limitations
 
-The consent time is the setting installation's clock. An installation whose clock is behind loses every merge against one whose clock is ahead, including for a decision the user made later. The client does not correct for skew.
+Two installations that decide on one key without seeing each other's decision are ordered by their clocks. The decision made later in real time loses when its installation's clock is behind.
 
-CONS-023 proves that an installation of the own inbox added this one to a group that names the own inbox as creator, not that the own inbox created it. A stranger's group that names the recipient as creator is unknown on the installation the stranger added, and allowed on a second installation that the first one adds under GMOD-029. The window closes when the user decides on either.
+A compromised own installation can store a record up to a day after its message's envelope time before it is revoked; the user's next decision replaces it. An archive carrying a time more than a day ahead of the import is capped at the importing clock, so importing it again later can raise that record above a decision made in between.
 
-Inbox consent gates nothing. Denying an inbox does not hide its DM or block its group invitations; only the conversation's own consent does. An app that offers "block this person" sets the conversation consent of every conversation with that inbox itself.
+A join stores nothing. When another inbox removes the user from a group and adds the user back, or a former member builds a second MLS group under its id (JOIN-083), the conversation keeps the user's earlier decision, including an allow.
 
-A join default is derived on each installation and not published. Two installations converge because each applies the same rule to the same Welcome, and because a default sits at time 0 under every decision, not because either tells the other.
+An archive written before 8.0 stores each record at the time its row was first created, not the time of its latest state, and rows older than 2025 at time 0. Between two such group records, or two such inbox records, for one key, the later-created row wins. CONS-061 combines a peer's DM records only within one archive; across two archives, they merge by time. The combined record keeps the strongest state, so a DM the user allowed reads denied when another DM with that person, or that person's inbox, read denied. When such an archive leaves out a DM's group, the DM's record names a 16-byte group id that nothing reads until that DM is restored. Those clients also allowed a group whose creator field named the user, and the archive carries that allow as a decision.
 
-Two groups for one DM identifier can hold different consent after an app act, because the act names one group. A listing presents one group per DM identifier (DMS-007), so the app sees one state, and a further duplicate inherits the greatest under DMS-010.
+An app cannot set the consent of a conversation the client does not hold yet. It can set the consent of the other member's inbox, which covers every DM with that person.
+
+Inbox consent decides DMs only. Denying an inbox hides its DMs but not the groups it adds the user to; only a group's own record does.
+
+A DM restored from another inbox's archive has a dm id that does not name the own inbox (DMS-017). It has no key, reads unknown, and cannot be set.
+
+In activity order, a conversation whose last-activity time changes between two pages, because a message arrives or expires, can be returned twice or skipped. In creation order, a group's creation time does not change, so each conversation is returned once, with two exceptions. A DM whose listed group changes between two pages, because a message arrives in another group for the same DM identifier (DMS-007, DMS-013), is then listed with that group's id and creation time, so it can be returned twice or skipped. A restored group whose Welcome arrives between two pages takes the Welcome's processing time as its creation time, so it can be skipped.

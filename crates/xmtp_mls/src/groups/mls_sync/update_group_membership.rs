@@ -6,6 +6,7 @@ use crate::groups::{
     intents::{PostCommitAction, UpdateGroupMembershipIntentData},
 };
 use crate::identity::parse_credential;
+use crate::identity_updates::required_leaf_removals;
 use openmls::{
     credentials::BasicCredential,
     key_packages::KeyPackage,
@@ -28,7 +29,10 @@ use xmtp_mls_common::{
     inbox_id::InboxId,
     tls_map::TlsMapDelta,
 };
-use xmtp_mls_validation::commit::{CommitRuleError, extract_group_membership};
+use xmtp_mls_validation::commit::{
+    CommitRuleError, extract_group_membership, inbox_id_from_credential, leaf_owners,
+    membership_entries,
+};
 use xmtp_proto::xmtp::mls::message_contents::{GroupMembershipEntry, group_membership_entry};
 
 /// Inbox ids that received at least one Add proposal in this commit.
@@ -93,12 +97,12 @@ pub(super) fn build_membership_delta(
     let prior =
         GroupMembershipComponent::decode_value(old_bytes).map_err(ComponentSourceError::from)?;
     let wanted: HashSet<_> = new.failed_installations.iter().cloned().collect();
-    let mut owners: HashMap<Vec<u8>, InboxId> = HashMap::new();
+    let mut owners: HashMap<Vec<u8>, HashSet<InboxId>> = HashMap::new();
     for (inbox, bytes) in prior.iter() {
         let value = GroupMembershipEntry::decode(bytes.as_slice())?;
         if let Some(group_membership_entry::Version::V1(value)) = value.version {
             for installation in value.failed_installations {
-                owners.insert(installation, *inbox);
+                owners.entry(installation).or_default().insert(*inbox);
             }
         }
     }
@@ -117,7 +121,7 @@ pub(super) fn build_membership_delta(
             .map_err(crate::groups::validated_commit::CommitValidationError::from)?;
             let inbox = InboxId::from_hex(inbox).map_err(ComponentSourceError::from)?;
             for installation in state.installation_ids() {
-                owners.insert(installation, inbox);
+                owners.entry(installation).or_default().insert(inbox);
             }
         }
     }
@@ -128,7 +132,11 @@ pub(super) fn build_membership_delta(
         let inbox = InboxId::from_hex(inbox_id_str).map_err(ComponentSourceError::from)?;
         let mut failed_installations: Vec<_> = wanted
             .iter()
-            .filter(|installation| owners.get(*installation) == Some(&inbox))
+            .filter(|installation| {
+                owners
+                    .get(*installation)
+                    .is_some_and(|inboxes| inboxes.contains(&inbox))
+            })
             .cloned()
             .collect();
         failed_installations.sort_unstable();
@@ -178,6 +186,31 @@ pub(super) fn build_membership_delta(
             xmtp_mls_common::app_data::component_source::ComponentSourceError::from(e),
         )
     })
+}
+
+/// The failed installations a commit writes, sorted and without duplicates.
+/// A failed installation never has a leaf, so drop every id that has a leaf
+/// before the commit or that the commit adds. A leafless id stays listed, even
+/// when this commit removes its inbox: it explains a removal the commit cannot
+/// make.
+// implements: GMOD-044
+pub(super) fn leafless_failures(
+    failed: impl IntoIterator<Item = Vec<u8>>,
+    leaves: &HashSet<Vec<u8>>,
+    added: &[KeyPackage],
+) -> Vec<Vec<u8>> {
+    let added: HashSet<&[u8]> = added
+        .iter()
+        .map(|package| package.leaf_node().signature_key().as_slice())
+        .collect();
+    let mut failed: Vec<_> = failed
+        .into_iter()
+        .filter(|id| !leaves.contains(id) && !added.contains(id.as_slice()))
+        .collect();
+    // `PartialEq` compares this field as an ordered `Vec`.
+    failed.sort_unstable();
+    failed.dedup();
+    failed
 }
 
 /// Super admins stay members. Receivers reject both the Remove proposal and
@@ -233,6 +266,17 @@ pub(crate) fn apply_update_group_membership_intent(
 
     let membership_diff = old_group_membership.diff(&new_group_membership);
 
+    changes_with_kps.removed_installations.extend(
+        required_leaf_removals(
+            &storage.db(),
+            &old_group_membership,
+            &new_group_membership,
+            &changes_with_kps.removed_installations,
+            &leaf_owners(openmls_group.members())?,
+        )
+        .map_err(crate::identity_updates::InstallationDiffError::from)?,
+    );
+
     let leaf_nodes_to_remove: Vec<LeafNodeIndex> =
         get_removed_leaf_nodes(openmls_group, &changes_with_kps.removed_installations);
 
@@ -255,19 +299,19 @@ pub(crate) fn apply_update_group_membership_intent(
 
     // The publish-time fetch decides which Add proposals exist. The intent's
     // list is older, so it can be wrong. Union the two lists; do not assign.
-    // The fetch drops ids that this commit also removes.
-    // `expected_diff_matches_commit` needs those ids. They explain a removal
-    // that the commit could not make. Assign breaks
-    // `test_remove_inbox_with_bad_installation_from_group`.
-    let mut failed_installations: HashSet<Vec<u8>> =
+    // Either list can name an installation that now has a leaf, or that this
+    // commit adds. Selection builds its target with the same filter.
+    let leaves: HashSet<Vec<u8>> = openmls_group
+        .members()
+        .map(|member| member.signature_key)
+        .collect();
+    new_group_membership.failed_installations = leafless_failures(
         std::mem::take(&mut new_group_membership.failed_installations)
             .into_iter()
-            .collect();
-    failed_installations.extend(std::mem::take(&mut changes_with_kps.failed_installations));
-    let mut failed_installations: Vec<Vec<u8>> = failed_installations.into_iter().collect();
-    // `PartialEq` compares this field as an ordered `Vec`.
-    failed_installations.sort_unstable();
-    new_group_membership.failed_installations = failed_installations;
+            .chain(std::mem::take(&mut changes_with_kps.failed_installations)),
+        &leaves,
+        &changes_with_kps.new_key_packages,
+    );
 
     // New members must support the AppData dictionary that stores all group data.
     let app_data_ext_type = openmls::prelude::ExtensionType::AppDataDictionary;
@@ -297,28 +341,23 @@ pub(crate) fn apply_update_group_membership_intent(
         changes_with_kps.new_key_packages,
         leaf_nodes_to_remove,
         app_data_payload,
-        false,
         catalogue,
         signer,
     )?;
     Ok(Some(publish_intent_data))
 }
 
-/// Creates MLS proposals (Add/Remove + AppDataUpdate) and a commit that references them.
+/// Creates a commit with inline identity leaf changes and referenced inbox additions.
+// implements: GMOD-050
 /// All payloads are returned together so they can be published in a single
 /// `send_group_messages` call, eliminating multiple network roundtrips.
 #[tracing::instrument(level = "trace", skip_all)]
-#[expect(
-    clippy::too_many_arguments,
-    reason = "the catalogue is the client's fixed snapshot, threaded explicitly"
-)]
 fn compute_publish_data_for_proposal_based_update(
     storage: &impl XmtpMlsStorageProvider,
     openmls_group: &mut OpenMlsGroup,
     key_packages_to_add: Vec<KeyPackage>,
     leaf_nodes_to_remove: Vec<LeafNodeIndex>,
     app_data_membership_payload: Vec<u8>,
-    inline_membership: bool,
     catalogue: &[ApplicationComponentDefinition],
     signer: impl Signer,
 ) -> Result<PublishIntentData, GroupError> {
@@ -360,20 +399,18 @@ fn compute_publish_data_for_proposal_based_update(
                 .filter(|leaf| !pending_removals.contains(leaf))
                 .collect();
 
-            // 1. Create Add proposals
-            for kp in key_packages_to_add.iter().filter(|_| !inline_membership) {
-                let (msg, _) = group
-                    .propose_add_member(provider, &signer, kp)
-                    .map_err(GroupError::ProposeAddMember)?;
-                proposal_payloads.push(msg.tls_serialize_detached()?);
-            }
-
-            // 2. Create Remove proposals
-            for &leaf_index in leaf_nodes_to_remove.iter().filter(|_| !inline_membership) {
-                let (msg, _) = group
-                    .propose_remove_member(provider, &signer, leaf_index)
-                    .map_err(GroupError::ProposeRemoveMember)?;
-                proposal_payloads.push(msg.tls_serialize_detached()?);
+            let membership = extract_group_membership(group.extensions())?;
+            let mut inline_adds = Vec::new();
+            for kp in key_packages_to_add {
+                let inbox = inbox_id_from_credential(kp.leaf_node().credential())?;
+                if membership.get(&inbox).is_some() {
+                    inline_adds.push(kp);
+                } else {
+                    let (msg, _) = group
+                        .propose_add_member(provider, &signer, &kp)
+                        .map_err(GroupError::ProposeAddMember)?;
+                    proposal_payloads.push(msg.tls_serialize_detached()?);
+                }
             }
 
             // 3. Emit the AppDataUpdate(GROUP_MEMBERSHIP) proposal carrying the delta.
@@ -405,18 +442,8 @@ fn compute_publish_data_for_proposal_based_update(
                     builder
                         .consume_proposal_store(true)
                         .add_proposals(upkeep)
-                        .propose_adds(
-                            key_packages_to_add
-                                .iter()
-                                .filter(|_| inline_membership)
-                                .cloned(),
-                        )
-                        .propose_removals(
-                            leaf_nodes_to_remove
-                                .iter()
-                                .filter(|_| inline_membership)
-                                .copied(),
-                        )
+                        .propose_adds(inline_adds)
+                        .propose_removals(leaf_nodes_to_remove)
                 },
             )
             .map_err(CommitToPendingProposalsError::from)?;
@@ -467,7 +494,7 @@ pub(super) fn has_pending_membership_delta(
     .ok_or(GroupError::InvalidGroupMembership)?;
     let desired = GroupMembershipComponent::apply_update_payload(payload, Some(prior))
         .map_err(xmtp_mls_common::app_data::component_source::ComponentSourceError::from)?;
-    let desired = membership_from_app_data_bytes(&desired)?;
+    let (desired, desired_failed) = membership_entries(&desired)?;
     for proposal in group.pending_proposals() {
         if let Proposal::AppDataUpdate(update) = proposal.proposal()
             && update.component_id() == ComponentId::GROUP_MEMBERSHIP.as_u16()
@@ -478,7 +505,8 @@ pub(super) fn has_pending_membership_delta(
                     .map_err(
                         xmtp_mls_common::app_data::component_source::ComponentSourceError::from,
                     )?;
-            if membership_from_app_data_bytes(&retained)? == desired {
+            let (retained, retained_failed) = membership_entries(&retained)?;
+            if retained.members == desired.members && retained_failed == desired_failed {
                 return Ok(true);
             }
         }
@@ -494,11 +522,19 @@ pub(crate) fn installations_for_staged_adds(
     staged_commit
         .add_proposals()
         .map(|proposal| {
-            let key_package = xmtp_id::key_package::VerifiedKeyPackageV2::try_from(
-                proposal.add_proposal().key_package().clone(),
-            )
-            .map_err(crate::groups::intents::IntentError::from)?;
-            Installation::from_verified_key_package(&key_package).map_err(Into::into)
+            let key_package = proposal.add_proposal().key_package();
+            #[cfg(any(test, feature = "test-utils"))]
+            if let Some(unchecked) =
+                crate::utils::test_mocks_helpers::test_mode_unchecked_key_package(
+                    key_package.leaf_node().signature_key().as_slice(),
+                )
+            {
+                return Ok(Installation::from_verified_key_package(&unchecked));
+            }
+            let key_package =
+                xmtp_id::key_package::VerifiedKeyPackageV2::try_from(key_package.clone())
+                    .map_err(crate::groups::intents::IntentError::from)?;
+            Ok(Installation::from_verified_key_package(&key_package))
         })
         .collect()
 }
@@ -520,6 +556,7 @@ pub(crate) fn welcome_post_commit_action(
 }
 
 #[xmtp_common::mls_span]
+// implements: FORK-062
 pub(crate) fn apply_readd_installations_intent(
     storage: &impl XmtpMlsStorageProvider,
     openmls_group: &mut OpenMlsGroup,
@@ -531,13 +568,17 @@ pub(crate) fn apply_readd_installations_intent(
     let readded_installations: HashSet<Vec<u8>> =
         intent_data.readded_installations.into_iter().collect();
 
-    // Filter out installations not in the ratchet tree. Do not readd installations:
-    // 1. That have since been removed
-    // 2. Are in the failed installations list (these should be retried by group members some other way)
+    let usable: HashSet<Vec<u8>> = changes_with_kps
+        .new_key_packages
+        .iter()
+        .map(|package| package.leaf_node().signature_key().as_slice().to_vec())
+        .collect();
+    // A missing key package must leave the installation's existing leaf intact.
     let mut installations_to_readd = HashSet::new();
     let mut leaf_indices_to_remove = Vec::new();
     for member in openmls_group.members() {
         if readded_installations.contains(&member.signature_key)
+            && usable.contains(&member.signature_key)
             && member.index != openmls_group.own_leaf_index()
         {
             installations_to_readd.insert(member.signature_key);
@@ -555,92 +596,18 @@ pub(crate) fn apply_readd_installations_intent(
             installations_to_readd.contains(key_package.leaf_node().signature_key().as_slice())
         })
         .collect();
-    let failed_installations = changes_with_kps
-        .failed_installations
-        .into_iter()
-        .filter(|installation| installations_to_readd.contains(installation));
-
-    // Update group membership to reflect any failed installations.
-    let extensions = openmls_group.extensions().clone();
-    let old_group_membership = extract_group_membership(&extensions)?;
-    let failed_installations: HashSet<Vec<u8>> = old_group_membership
-        .failed_installations
-        .clone()
-        .into_iter()
-        .chain(failed_installations)
-        .collect();
-    let mut failed_installations: Vec<_> = failed_installations.into_iter().collect();
-    failed_installations.sort_unstable();
-    let new_group_membership = GroupMembership {
-        members: old_group_membership.members.clone(),
-        failed_installations,
-    };
-    let payload = build_readd_membership_payload(openmls_group, &new_group_membership)?;
+    let payload = TlsMapDelta::<InboxId, VLBytes>::new().tls_serialize_detached()?;
     let publish_intent_data = compute_publish_data_for_proposal_based_update(
         storage,
         openmls_group,
         key_packages_to_welcome,
         leaf_indices_to_remove,
         payload,
-        // A super-admin re-add must be checked as one commit. Its Remove
-        // alone is forbidden; the matching Add keeps the inbox present.
-        true,
         catalogue,
         signer,
     )?;
 
     Ok(Some(publish_intent_data))
-}
-
-/// Keep existing failures in their inbox entries. Attribute new failures with
-/// the current ratchet tree, before the readd removes those installations.
-fn build_readd_membership_payload(
-    group: &OpenMlsGroup,
-    membership: &GroupMembership,
-) -> Result<Vec<u8>, GroupError> {
-    use xmtp_mls_common::app_data::component_source::{ComponentSourceError, read_component_bytes};
-
-    let malformed = |reason: &str| ComponentSourceError::MalformedComponentValue {
-        component_id: ComponentId::GROUP_MEMBERSHIP,
-        reason: reason.to_string(),
-    };
-    let bytes = read_component_bytes(ComponentId::GROUP_MEMBERSHIP, group.extensions())?
-        .ok_or_else(|| malformed("missing membership component"))?;
-    let entries =
-        GroupMembershipComponent::decode_value(bytes).map_err(ComponentSourceError::from)?;
-    let failed: HashSet<_> = membership.failed_installations.iter().collect();
-    let mut failures_by_inbox: HashMap<InboxId, Vec<Vec<u8>>> = HashMap::new();
-    for member in group.members() {
-        if failed.contains(&member.signature_key) {
-            let credential = BasicCredential::try_from(member.credential)?;
-            let inbox = InboxId::from_hex(&parse_credential(credential.identity())?)
-                .map_err(ComponentSourceError::from)?;
-            failures_by_inbox
-                .entry(inbox)
-                .or_default()
-                .push(member.signature_key);
-        }
-    }
-
-    let mut delta = TlsMapDelta::<InboxId, VLBytes>::new();
-    for (inbox, failures) in failures_by_inbox {
-        let prior = entries
-            .get(&inbox)
-            .ok_or_else(|| malformed("failed installation inbox is absent from membership"))?;
-        let mut entry = GroupMembershipEntry::decode(prior.as_slice())?;
-        let Some(group_membership_entry::Version::V1(value)) = &mut entry.version else {
-            return Err(malformed("membership entry has no version").into());
-        };
-        value.failed_installations.extend(failures);
-        value.failed_installations.sort_unstable();
-        value.failed_installations.dedup();
-        let updated = entry.encode_to_vec();
-        if updated != prior.as_slice() {
-            delta = delta.update(inbox, VLBytes::new(updated));
-        }
-    }
-    GroupMembershipComponent::encode_mutation(&delta)
-        .map_err(|error| ComponentSourceError::from(error).into())
 }
 
 #[cfg(test)]
@@ -669,6 +636,7 @@ mod tests {
             &group.group_id,
             &new,
             &old,
+            None,
         )
         .await?;
         let outcome: TransactionOutcome<()> =
@@ -703,7 +671,6 @@ mod tests {
                         changes.new_key_packages.clone(),
                         vec![],
                         payload,
-                        false,
                         &[],
                         group.context.identity().installation_keys.clone(),
                     )?;
