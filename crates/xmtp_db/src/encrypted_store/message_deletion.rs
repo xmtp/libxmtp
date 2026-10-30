@@ -1,6 +1,7 @@
 use super::ConnectionExt;
 use crate::schema::message_deletions::dsl;
 use crate::{DbConnection, impl_store, impl_store_or_ignore, schema::message_deletions};
+use crate::{group_message::DeliveryStatus, schema::group_messages};
 use diesel::prelude::*;
 use serde::{Deserialize, Serialize};
 
@@ -52,7 +53,7 @@ pub trait QueryMessageDeletion {
         deleted_message_id: &[u8],
     ) -> Result<Option<StoredMessageDeletion>, crate::ConnectionError>;
 
-    /// Get all deletions for a list of message IDs
+    /// Get deletion candidates whose DeleteMessage has not failed.
     fn get_deletions_for_messages(
         &self,
         message_ids: Vec<Vec<u8>>,
@@ -141,7 +142,10 @@ impl<C: ConnectionExt> QueryMessageDeletion for DbConnection<C> {
 
         self.raw_query(|conn| {
             dsl::message_deletions
+                .inner_join(group_messages::table.on(group_messages::id.eq(dsl::id)))
                 .filter(dsl::deleted_message_id.eq_any(message_ids))
+                .filter(group_messages::delivery_status.ne(DeliveryStatus::Failed))
+                .select(message_deletions::all_columns)
                 .load(conn)
         })
     }
@@ -238,87 +242,63 @@ mod tests {
     }
 
     #[xmtp_common::test(unwrap_try = true)]
-    fn test_store_and_get_deletion() {
-        with_connection(|conn| {
-            let group_id = GroupId::ONE;
-            let message_id = vec![4, 5, 6];
-            let delete_message_id = vec![7, 8, 9];
-
-            create_test_group(conn, group_id);
-            create_test_message(conn, message_id.clone(), group_id);
-            create_test_message(conn, delete_message_id.clone(), group_id);
-
-            assert!(!conn.is_message_deleted(&message_id)?);
-
-            let deletion = StoredMessageDeletion {
-                id: delete_message_id.clone(),
-                group_id,
-                deleted_message_id: message_id.clone(),
-                deleted_by_inbox_id: "sender".to_string(),
-                is_super_admin_deletion: false,
-                deleted_at_ns: 2000,
-            };
-
-            deletion.store(conn)?;
-            assert!(conn.is_message_deleted(&message_id)?);
-
-            // Test get by ID
-            let retrieved = conn.get_message_deletion(&delete_message_id)?;
-            assert!(retrieved.is_some());
-            assert_eq!(retrieved.unwrap().deleted_message_id, message_id);
-
-            // Test get by deleted_message_id
-            let by_deleted_id = conn.get_deletion_by_deleted_message_id(&message_id)?;
-            assert!(by_deleted_id.is_some());
-            assert_eq!(by_deleted_id.unwrap().id, delete_message_id);
-        })
-    }
-
-    #[xmtp_common::test(unwrap_try = true)]
     fn test_get_deletions_for_messages() {
         with_connection(|conn| {
+            use crate::schema::group_messages;
             let group_id = GroupId::ONE;
-            let msg1 = vec![4, 5, 6];
-            let msg2 = vec![7, 8, 9];
-            let msg3 = vec![10, 11, 12];
-            let del1 = vec![13, 14, 15];
-            let del2 = vec![16, 17, 18];
-
             create_test_group(conn, group_id);
-            create_test_message(conn, msg1.clone(), group_id);
-            create_test_message(conn, msg2.clone(), group_id);
-            create_test_message(conn, msg3.clone(), group_id);
-            create_test_message(conn, del1.clone(), group_id);
-            create_test_message(conn, del2.clone(), group_id);
-
-            // Delete msg1 and msg2
-            StoredMessageDeletion {
-                id: del1.clone(),
-                group_id,
-                deleted_message_id: msg1.clone(),
-                deleted_by_inbox_id: "sender".to_string(),
-                is_super_admin_deletion: false,
-                deleted_at_ns: 2000,
+            for id in 1..=6 {
+                create_test_message(conn, vec![id], group_id);
+                assert!(!conn.is_message_deleted(&[id])?);
             }
-            .store(conn)?;
-
-            StoredMessageDeletion {
-                id: del2.clone(),
-                group_id,
-                deleted_message_id: msg2.clone(),
-                deleted_by_inbox_id: "admin".to_string(),
-                is_super_admin_deletion: true,
-                deleted_at_ns: 3000,
+            // Target 4 failed, but its published deletion still takes effect.
+            conn.raw_query(|db| {
+                diesel::update(group_messages::table.find(vec![4]))
+                    .set(group_messages::delivery_status.eq(DeliveryStatus::Failed))
+                    .execute(db)
+            })?;
+            for (carrier, target, status) in [
+                (11, 1, DeliveryStatus::Published),
+                (12, 2, DeliveryStatus::Unpublished),
+                (13, 3, DeliveryStatus::Failed),
+                (14, 4, DeliveryStatus::Published),
+                (15, 5, DeliveryStatus::Published), // Unrequested target.
+                (16, 1, DeliveryStatus::Failed),    // Mixed valid and failed deletions.
+            ] {
+                create_test_message(conn, vec![carrier], group_id);
+                conn.raw_query(|db| {
+                    diesel::update(group_messages::table.find(vec![carrier]))
+                        .set(group_messages::delivery_status.eq(status))
+                        .execute(db)
+                })?;
+                let deletion = StoredMessageDeletion {
+                    id: vec![carrier],
+                    group_id,
+                    deleted_message_id: vec![target],
+                    deleted_by_inbox_id: "sender".to_string(),
+                    is_super_admin_deletion: false,
+                    deleted_at_ns: 2000,
+                };
+                deletion.store(conn)?;
+                // These are raw presence lookups, even for a Failed carrier.
+                assert!(conn.is_message_deleted(&[target])?);
+                assert_eq!(conn.get_message_deletion(&[carrier])?, Some(deletion));
+                if carrier != 16 {
+                    let by_target = conn.get_deletion_by_deleted_message_id(&[target])?.unwrap();
+                    assert_eq!(by_target.deleted_message_id, vec![target]);
+                    assert_eq!(by_target.id, vec![carrier]);
+                }
             }
-            .store(conn)?;
-
-            // Query for all three messages
-            let deletions =
-                conn.get_deletions_for_messages(vec![msg1.clone(), msg2.clone(), msg3.clone()])?;
-            assert_eq!(deletions.len(), 2);
-
-            // msg3 should not be deleted
-            assert!(!conn.is_message_deleted(&msg3)?);
+            let mut ids: Vec<_> = conn
+                .get_deletions_for_messages((1..=4).map(|id| vec![id]).collect())?
+                .into_iter()
+                .map(|deletion| deletion.id)
+                .collect();
+            ids.sort();
+            assert_eq!(ids, vec![vec![11], vec![12], vec![14]]);
+            assert!(conn.get_deletions_for_messages(vec![])?.is_empty());
+            assert!(conn.get_deletions_for_messages(vec![vec![6]])?.is_empty());
+            assert!(!conn.is_message_deleted(&[6])?);
         })
     }
 

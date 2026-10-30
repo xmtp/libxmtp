@@ -5,8 +5,15 @@ use super::faults::{Fault, FaultyApi, faulty_group, group_message, refusing_grou
 use super::membership_recovery::receive_completed_prefix;
 use super::*;
 use crate::groups::send_message_opts::SendMessageOpts;
+use crate::messages::decoded_message::MessageBody;
 use std::sync::atomic::Ordering;
+use xmtp_content_types::{
+    ContentCodec, encoded_content_to_bytes,
+    reply::{Reply, ReplyCodec},
+    text::TextCodec,
+};
 use xmtp_db::group_message::DeliveryStatus;
+use xmtp_db::message_deletion::QueryMessageDeletion;
 
 pub(super) fn intents_in<C: XmtpSharedContext>(
     group: &MlsGroup<C>,
@@ -166,18 +173,71 @@ async fn send_state_transitions_publish_stored_message_returns_failed_message_to
 /// nothing, so no echo can arrive. The refused intent must end as `Error`, its
 /// message as `Failed`, and later intents must publish in the same round,
 /// including after a refused state change that would otherwise block the group.
-// verifies: SEND-009
+// verifies: SEND-009, PROC-037, PROC-056
 #[rstest::rstest]
-#[case::message(IntentKind::SendMessage)]
-#[case::state_change(IntentKind::KeyUpdate)]
+#[case::message(IntentKind::SendMessage, None)]
+#[case::state_change(IntentKind::KeyUpdate, None)]
+#[case::deletion_retry(IntentKind::SendMessage, Some(true))]
+#[case::deletion_again(IntentKind::SendMessage, Some(false))]
 #[xmtp_common::test(unwrap_try = true)]
 async fn send_state_transitions_definite_refusal_fails_both_records_and_releases_later_work(
     #[case] refused: IntentKind,
+    #[case] retry_deletion: Option<bool>,
 ) -> Result<(), GroupError> {
     tester!(alix, disable_workers);
     let group = alix.create_group(None, None)?;
     group.key_update().await?;
+    let deletion = if retry_deletion.is_some() {
+        let bytes = encoded_content_to_bytes(TextCodec::encode("original text".into())?);
+        let target = group.send_message(&bytes, Default::default()).await?;
+        let reply = encoded_content_to_bytes(ReplyCodec::encode(Reply {
+            reference: hex::encode(&target),
+            reference_inbox_id: None,
+            content: TextCodec::encode("reply".into())?,
+        })?);
+        let reply_id = group.send_message(&reply, Default::default()).await?;
+        Some((target, reply_id, bytes))
+    } else {
+        None
+    };
+    let assert_deletion_view = |hidden: bool| -> Result<(), GroupError> {
+        let (target, reply, bytes) = deletion.as_ref().unwrap();
+        let messages = group
+            .find_messages_v2(&Default::default())
+            .expect("history read");
+        let target_view = messages.iter().find(|m| &m.metadata.id == target).unwrap();
+        let reply_view = messages.iter().find(|m| &m.metadata.id == reply).unwrap();
+        let MessageBody::Reply(reply_body) = &reply_view.content else {
+            panic!("expected reply")
+        };
+        for content in [
+            &target_view.content,
+            &reply_body.in_reply_to.as_ref().unwrap().content,
+        ] {
+            if hidden {
+                assert!(matches!(content, MessageBody::DeletedMessage { .. }));
+            } else {
+                assert!(
+                    matches!(content, MessageBody::Text(text) if text.content == "original text"),
+                    "refused deletion must restore target and quoted parent: {content:?}"
+                );
+            }
+        }
+        let stored = group.context.db().get_group_message(target)?.unwrap();
+        assert_eq!(&stored.decrypted_message_bytes, bytes);
+        assert_eq!(stored.delivery_status, DeliveryStatus::Published);
+        Ok(())
+    };
+    let events = alix.context.events().subscribe(
+        xmtp_events::EventFilter::new([xmtp_events::EventKind::MessageStatusChanged]),
+        Some(20),
+    );
     let refused_message = match refused {
+        _ if deletion.is_some() => {
+            let id = group.delete_message(deletion.as_ref().unwrap().0.clone())?;
+            assert_deletion_view(true)?;
+            Some(id)
+        }
         IntentKind::SendMessage => {
             Some(group.send_message_optimistic(b"refused", Default::default())?)
         }
@@ -188,6 +248,10 @@ async fn send_state_transitions_definite_refusal_fails_both_records_and_releases
     };
     let later_id = group.send_message_optimistic(b"later work", Default::default())?;
     let refusing = refusing_group(&alix, &group.group_id, [tonic::Code::InvalidArgument]).await;
+    let failure_events = refusing.context.events().subscribe(
+        xmtp_events::EventFilter::new([xmtp_events::EventKind::MessageStatusChanged]),
+        Some(20),
+    );
 
     assert!(matches!(
         refusing.publish_intents().await,
@@ -221,6 +285,49 @@ async fn send_state_transitions_definite_refusal_fails_both_records_and_releases
     );
     group.sync_until_last_intent_resolved().await?;
     assert_eq!(status(&group, &later_id), DeliveryStatus::Published);
+    if let Some((target, _, _)) = &deletion {
+        let id = refused_message.as_ref().unwrap();
+        let changes = failure_events.drain();
+        assert!(changes.iter().any(|event| matches!(&event.client,
+            Some(xmtp_events::ClientEvent::MessageStatusChanged(change))
+                if &change.message_id == id
+                    && change.previous == xmtp_events::MessageStatus::Unpublished
+                    && change.current == xmtp_events::MessageStatus::Failed)));
+        events.drain();
+        assert_deletion_view(false)?;
+        assert!(group.context.db().get_message_deletion(id)?.is_some());
+        let retried = if retry_deletion == Some(true) {
+            // Retry only the original carrier: a new tombstone must not mask its loss.
+            let carrier = group.context.db().get_group_message(id)?.unwrap();
+            let retried = group.send_message_optimistic(
+                &carrier.decrypted_message_bytes,
+                SendMessageOpts {
+                    idempotency_key: Some(carrier.idempotency_key),
+                    ..Default::default()
+                },
+            )?;
+            assert_eq!(&retried, id);
+            assert!(matches!(events.drain().as_slice(),
+                [xmtp_events::EventEnvelope {
+                    client: Some(xmtp_events::ClientEvent::MessageStatusChanged(change)), ..
+                }] if &change.message_id == id
+                    && change.previous == xmtp_events::MessageStatus::Failed
+                    && change.current == xmtp_events::MessageStatus::Unpublished));
+            retried
+        } else {
+            group.delete_message(target.clone())?
+        };
+        assert_eq!(status(&group, &retried), DeliveryStatus::Unpublished);
+        assert_deletion_view(true)?;
+        group.publish_messages().await?;
+        assert_eq!(status(&group, &retried), DeliveryStatus::Published);
+        assert!(events.drain().iter().any(|event| matches!(&event.client,
+            Some(xmtp_events::ClientEvent::MessageStatusChanged(change))
+                if change.message_id == retried
+                    && change.previous == xmtp_events::MessageStatus::Unpublished
+                    && change.current == xmtp_events::MessageStatus::Published)));
+        assert_deletion_view(true)?;
+    }
     Ok(())
 }
 
