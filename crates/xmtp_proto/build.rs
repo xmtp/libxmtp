@@ -90,6 +90,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let mut config = Config::new();
     config.enable_type_names().include_file("mod.rs");
+    config.skip_debug([".xmtp.mls.message_contents.content_types.RemoteAttachmentInfo"]);
     config.btree_map([".xmtp.mls.message_contents.EncodedContent.parameters"]);
 
     codegen_configure(

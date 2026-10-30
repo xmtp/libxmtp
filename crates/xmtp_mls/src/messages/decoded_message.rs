@@ -769,7 +769,8 @@ mod tests {
                 salt: vec![2; 32],
                 nonce: vec![3; 12],
                 scheme: "https://".into(),
-                ..Default::default()
+                filename: None,
+                content_length: None,
             })?,
             MessageBody::RemoteAttachment(_)
         );

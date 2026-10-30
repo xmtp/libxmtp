@@ -61,16 +61,16 @@ impl RemoteAttachment {
 }
 
 impl From<xmtp_content_types::remote_attachment::RemoteAttachment> for RemoteAttachment {
-    fn from(value: xmtp_content_types::remote_attachment::RemoteAttachment) -> Self {
+    fn from(mut value: xmtp_content_types::remote_attachment::RemoteAttachment) -> Self {
         Self {
-            url: value.url,
-            content_digest: value.content_digest,
-            secret: value.secret,
-            salt: value.salt,
-            nonce: value.nonce,
-            scheme: value.scheme,
+            url: std::mem::take(&mut value.url),
+            content_digest: std::mem::take(&mut value.content_digest),
+            secret: std::mem::take(&mut value.secret),
+            salt: std::mem::take(&mut value.salt),
+            nonce: std::mem::take(&mut value.nonce),
+            scheme: std::mem::take(&mut value.scheme),
             content_length: value.content_length,
-            filename: value.filename,
+            filename: std::mem::take(&mut value.filename),
         }
     }
 }

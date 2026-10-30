@@ -105,12 +105,13 @@ pub(crate) struct Verifier {
     jwt_configured: bool,
 }
 impl Verifier {
-    pub fn new(keys: Arc<KeySet>, config: AuthConfig) -> Self {
+    pub fn new(keys: Arc<KeySet>, mut config: AuthConfig) -> Self {
         let api_keys = config
             .api_keys
             .iter()
             .map(|(name, value)| (name.clone(), Sha256::digest(value.as_bytes()).into()))
             .collect();
+        config.clear_api_keys();
         let jwt_configured = config.jwks_url.is_some() || config.keys.is_some();
         Self {
             keys,

@@ -676,3 +676,67 @@ fn signing_a_group_message_wipes_the_root_and_its_keys() {
         "freed heap blocks held the root or a group key"
     );
 }
+
+#[xmtp_common::test(unwrap_try = true)]
+fn boxed_attachment_key_material_wipes_its_copies() {
+    use xmtp_attachments::KeyMaterial;
+    let ((), hits) = scan(
+        &[Canary::new(&INSTALLATION_KEY), Canary::new(&GROUP_ROOT)],
+        || {
+            let material = Box::new(KeyMaterial {
+                secret: INSTALLATION_KEY,
+                salt: GROUP_ROOT,
+                nonce: [7; 12],
+            });
+            drop((material.clone(), material));
+        },
+    );
+    assert_eq!(hits, [0, 0], "boxed KeyMaterial was not wiped");
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+fn attachment_message_debug_redacts_secret_fields() {
+    use xmtp_mls::messages::decoded_message::{
+        DecodedMessage, DecodedMessageMetadata, MessageBody, Reply,
+    };
+    use xmtp_proto::xmtp::mls::message_contents::content_types::{
+        MultiRemoteAttachment, RemoteAttachmentInfo,
+    };
+    let mut attachment = RemoteAttachmentInfo::default();
+    attachment.secret = INSTALLATION_KEY.to_vec();
+    attachment.salt = GROUP_ROOT.to_vec();
+    attachment.nonce = vec![7; 12];
+    let single = MessageBody::RemoteAttachment(attachment.clone());
+    let multi = MessageBody::MultiRemoteAttachment(MultiRemoteAttachment {
+        attachments: vec![attachment.clone(), attachment.clone()],
+    });
+    let reply = MessageBody::Reply(Reply {
+        in_reply_to: None,
+        content: Box::new(multi.clone()),
+        reference_id: "reference".into(),
+    });
+    let decoded = DecodedMessage {
+        metadata: DecodedMessageMetadata {
+            id: vec![],
+            group_id: [0; 32].into(),
+            sent_at_ns: 0,
+            kind: GroupMessageKind::Application,
+            sender_installation_id: vec![],
+            sender_inbox_id: String::new(),
+            delivery_status: DeliveryStatus::Published,
+            content_type: None,
+            inserted_at_ns: 0,
+            expires_at_ns: None,
+        },
+        content: single.clone(),
+        fallback_text: None,
+        reactions: vec![],
+        num_replies: 0,
+        num_reaction_messages: 0,
+    };
+    let debug = format!("{single:?} {multi:?} {reply:?} {decoded:?}");
+    for bytes in [&attachment.secret, &attachment.salt, &attachment.nonce] {
+        assert!(!debug.contains(&format!("{bytes:?}")), "decimal");
+        assert!(!debug.contains(&hex::encode(bytes)), "hex");
+    }
+}

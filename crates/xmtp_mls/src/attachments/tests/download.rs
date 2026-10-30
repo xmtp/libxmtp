@@ -369,8 +369,8 @@ async fn failed_download_waits_for_same_key_publication_event() {
     assert_eq!(
         terminal,
         [
-            (published.url, None),
-            (failed.url, Some(failure.cause.as_str().to_owned())),
+            (published.url.clone(), None),
+            (failed.url.clone(), Some(failure.cause.as_str().to_owned())),
         ]
     );
 }

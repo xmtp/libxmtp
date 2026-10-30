@@ -14,12 +14,10 @@ fn absent_inline_signing_keys_load_an_empty_set() {
 fn every_key_requires_exp_and_each_configured_audience_and_issuer() {
     let es = TestKey::es256();
     let ed = TestKey::eddsa();
-    let config = AuthConfig {
-        keys: Some(vec![es.config(), ed.config()]),
-        audiences: Some(vec!["backend".into()]),
-        issuers: Some(vec!["issuer".into()]),
-        ..AuthConfig::default()
-    };
+    let mut config = AuthConfig::default();
+    config.keys = Some(vec![es.config(), ed.config()]);
+    config.audiences = Some(vec!["backend".into()]);
+    config.issuers = Some(vec!["issuer".into()]);
     let keys = inline(&config)?;
     for (key, signer) in keys.iter().zip([es, ed]) {
         assert_eq!(key.validation.algorithms, vec![signer.alg]);
@@ -92,10 +90,8 @@ fn key_count_tracks_loaded_and_replaced_snapshots() {
         let key = TestKey::es256();
         let set = KeySet::new(inline(&key.auth_config()).unwrap());
         assert!(handle.render().contains("xmtp_auth_keys 1"));
-        let config = AuthConfig {
-            keys: Some(vec![key.config(), TestKey::eddsa().config()]),
-            ..AuthConfig::default()
-        };
+        let mut config = AuthConfig::default();
+        config.keys = Some(vec![key.config(), TestKey::eddsa().config()]);
         set.replace(inline(&config).unwrap());
         assert!(handle.render().contains("xmtp_auth_keys 2"));
     });
@@ -170,15 +166,13 @@ async fn startup_refuses_the_first_inline_key_that_does_not_parse() {
     let rsa = TestKey::rsa();
     let mut mismatched = rsa.config();
     mismatched.alg = "ES256".into();
-    let auth = AuthConfig {
-        enabled: Some(true),
-        keys: Some(vec![
-            TestKey::es256().config(),
-            mismatched,
-            TestKey::eddsa().config(),
-        ]),
-        ..AuthConfig::default()
-    };
+    let mut auth = AuthConfig::default();
+    auth.enabled = Some(true);
+    auth.keys = Some(vec![
+        TestKey::es256().config(),
+        mismatched,
+        TestKey::eddsa().config(),
+    ]);
     let error = inline(&auth).err()?;
     assert!(
         matches!(&error, ConfigError::Auth { reason, .. }

@@ -23,6 +23,7 @@ use xmtp_proto::xmtp::mls::database::{
 };
 use xmtp_proto::xmtp::mls::message_contents::{
     GroupMutableMetadataV1, PlaintextEnvelope,
+    content_types::{MultiRemoteAttachment, RemoteAttachmentInfo},
     plaintext_envelope::{Content as EnvelopeContent, V1 as EnvelopeV1},
 };
 
@@ -199,4 +200,62 @@ fn a_failed_send_intent_decode_wipes_the_payload() {
     drop((envelope, intent));
 
     assert_eq!(hits, [0], "freed heap blocks held the HMAC key");
+}
+
+fn remote_attachment() -> RemoteAttachmentInfo {
+    let mut attachment = RemoteAttachmentInfo::default();
+    attachment.secret = RECIPIENT_SECRET.to_vec();
+    attachment.salt = SIGNING_KEY.to_vec();
+    // The canary needs 16 bytes; normal 12-byte nonces are reviewed in Drop.
+    attachment.nonce = HMAC_KEY[..16].to_vec();
+    attachment
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+fn remote_attachment_owners_wipe_originals_and_clones() {
+    let ((), hits) = scan(&attachment_canaries(), || {
+        let original = remote_attachment();
+        let multi = MultiRemoteAttachment {
+            attachments: vec![original.clone(), original.clone()],
+        };
+        drop((original.clone(), original, multi.clone(), multi));
+    });
+    assert_eq!(hits, [0, 0, 0], "attachment fields were not wiped");
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+fn failed_remote_attachment_decode_wipes_populated_fields() {
+    let mut single = remote_attachment().encode_to_vec();
+    single.extend_from_slice(&TRUNCATED_FIELD);
+    let single = bytes::Bytes::from(single);
+    let mut multi = MultiRemoteAttachment {
+        attachments: vec![remote_attachment()],
+    }
+    .encode_to_vec();
+    multi.extend_from_slice(&TRUNCATED_FIELD);
+    let multi = bytes::Bytes::from(multi);
+    let ((), hits) = scan(&attachment_canaries(), || {
+        assert!(RemoteAttachmentInfo::decode(single.clone()).is_err());
+        assert!(MultiRemoteAttachment::decode(multi.clone()).is_err());
+    });
+    drop((single, multi));
+    assert_eq!(hits, [0, 0, 0], "partial decode fields were not wiped");
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+fn remote_attachment_debug_redacts_secret_fields() {
+    let value = remote_attachment();
+    let debug = format!("{value:?} {:?}", value.clone());
+    for bytes in [&value.secret, &value.salt, &value.nonce] {
+        assert!(!debug.contains(&format!("{bytes:?}")), "decimal");
+        assert!(!debug.contains(&hex::encode(bytes)), "hex");
+    }
+}
+
+fn attachment_canaries() -> [Canary; 3] {
+    [
+        Canary::new(&RECIPIENT_SECRET),
+        Canary::new(&SIGNING_KEY),
+        Canary::new(&HMAC_KEY[..16]),
+    ]
 }
