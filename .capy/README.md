@@ -6,7 +6,10 @@ and snapshot activation remain project settings, not fields in this file.
 - Initialize configures the public XMTP Nix cache without credentials, warms
   the default development shell, fetches locked Rust dependencies, and runs
   `just install-js` with the frozen pnpm workspace lockfile. It runs Clippy for
-  every `xmtp_mls` target to prime Cargo's debug artifacts and Kache.
+  every `xmtp_mls` target to prime Cargo's debug artifacts and Kache, then
+  builds the library test binary and runs the backend-free
+  `storage_location::tests::deployment_dirs_do_not_collide` test. Both debug
+  and test artifacts stay in the snapshot.
 - Update-after-checkout hashes manifests, lockfiles, package-manager settings,
   patches, runtime pins, Nix shell inputs, and the Setup files. It repeats the
   dependency install only when those inputs change or `node_modules` is missing.
