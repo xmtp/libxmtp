@@ -29,6 +29,7 @@ use xmtp_db::{
     sync_outbox::{OwedPage, clear_owed, has_owed, settle_sent},
 };
 use xmtp_events::Subscription;
+use xmtp_id::associations::AssociationState;
 use xmtp_macro::log_event;
 use xmtp_proto::xmtp::device_sync::content::{
     DeviceSyncAcknowledge, PreferenceUpdates as PreferenceUpdatesProto,
@@ -303,9 +304,16 @@ impl OwnTimeline {
         let identity = IdentityUpdates::new(context);
         let mut steps = vec![];
         for update in db.get_identity_updates(inbox_id, None, None)? {
-            let state = identity
-                .get_association_state(&db, inbox_id, Some(update.sequence_id))
-                .await?;
+            // A cached state is one read. A miss verifies that prefix once and
+            // caches its state.
+            let state = match db.read_from_cache(inbox_id, update.sequence_id)? {
+                Some(cached) => AssociationState::try_from(cached).map_err(StorageError::from)?,
+                None => {
+                    identity
+                        .get_association_state(&db, inbox_id, Some(update.sequence_id))
+                        .await?
+                }
+            };
             let installations = state.installation_ids().into_iter().collect();
             steps.push((update.server_timestamp_ns, installations));
         }
@@ -319,8 +327,13 @@ impl OwnTimeline {
             return Sender::Gone;
         }
         let id = &msg.sender_installation_id;
-        // The steps whose update the backend timed at or before the message.
-        let n = self.steps.partition_point(|(at, _)| *at <= msg.sent_at_ns);
+        // Up to the last update, in sequence order, that the backend timed at
+        // or before the message. Server times need not grow with sequence.
+        let n = self
+            .steps
+            .iter()
+            .rposition(|(at, _)| *at <= msg.sent_at_ns)
+            .map_or(0, |last| last + 1);
         if n > 0 && self.steps[n - 1].1.contains(id) {
             Sender::Member
         } else if self.steps[..n].iter().any(|(_, set)| set.contains(id)) {
@@ -553,6 +566,19 @@ mod startup_tests {
                 xmtp_proto::types::GroupId::from([1; 16]),
             )
         };
+        // The backend's clock stepped back: 3 is revoked at 60, then an
+        // update is timed at 50.
+        let stepped_back = OwnTimeline {
+            steps: vec![(40, set(&[3])), (60, set(&[4])), (50, set(&[4]))],
+        };
+        for (at, expected) in [(45, "member"), (55, "gone")] {
+            let status = match stepped_back.sender_status("me", &message("me", 3, at)) {
+                Sender::Member => "member",
+                Sender::Gone => "gone",
+                Sender::NotYetKnown => "not yet known",
+            };
+            assert_eq!(status, expected, "3 at {at} after the step back");
+        }
         for (inbox, installation, at, expected) in [
             ("me", 1, 15, "member"),
             // Sent before its revocation at 30: applied, whenever it is processed.
