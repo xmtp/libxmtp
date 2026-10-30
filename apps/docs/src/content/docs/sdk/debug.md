@@ -22,7 +22,7 @@ Read `state().common.pausedForVersion` for a group or `state().pausedForVersion`
 
 ## File logging
 
-File logging is available on Node, React Native, Kotlin, and Swift. Call `initLogging` first, then `enterDebugWriter` with a directory, rotation schedule, maximum file count, log level, and process type. Call `exitDebugWriter` to stop file output. Browser can send records to a log sink. Do not log encryption keys, message content, or full installation IDs.
+File logging is available on Node, React Native, Kotlin, and Swift. Call `initLogging` first, then `enterDebugWriter` with a directory, rotation schedule, maximum file count, log level, and process type. Call `exitDebugWriter` to stop file output. Browser can send records to a log sink. Do not log encryption keys or message content. Full inbox and installation IDs may appear in logs; they help with debugging and are not secrets.
 
 ### Multi-process logging
 
