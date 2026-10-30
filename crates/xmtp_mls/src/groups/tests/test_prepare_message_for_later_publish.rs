@@ -1,7 +1,10 @@
-use crate::groups::DeliveryStatus;
+use crate::context::XmtpSharedContext;
 use crate::groups::send_message_opts::SendMessageOpts;
+use crate::groups::{DeliveryStatus, GroupError};
 use crate::tester;
 use crate::utils::id::calculate_message_id;
+use xmtp_common::RetryableError;
+use xmtp_db::group_intent::{IntentKind, IntentState, QueryGroupIntent};
 use xmtp_db::group_message::{GroupMessageKind, MsgQueryArgs};
 
 /// Prepared messages stay local until an explicit publish. Repeated publish is idempotent.
@@ -84,30 +87,8 @@ async fn test_selective_publish_of_prepared_messages() {
     assert_eq!(unpublished[0].decrypted_message_bytes, b"message three");
 }
 
-/// A caller-supplied idempotency key fully determines the message id (instead of
-/// a timestamp) and is persisted on the stored message.
-// verifies: SEND-002
-#[xmtp_common::test(unwrap_try = true)]
-async fn test_explicit_idempotency_key_produces_deterministic_id() {
-    tester!(alix);
-    let group = alix.create_group(None, None)?;
-
-    let key = "stable-key-123".to_string();
-    let content = b"hello idempotent";
-    let id = group.prepare_message_for_later_publish(content, true, Some(key.clone()))?;
-
-    // The id is derived from the supplied key, not from a timestamp.
-    assert_eq!(id, calculate_message_id(group.group_id, content, &key));
-
-    // The resolved key is persisted alongside the message.
-    let stored = group.find_messages(&MsgQueryArgs::default())?;
-    assert_eq!(stored.len(), 1);
-    assert_eq!(stored[0].id, id);
-    assert_eq!(stored[0].idempotency_key, key);
-}
-
 /// Without an explicit key, two identical-content sends still get distinct ids
-/// (the timestamp default), preserving the historical always-unique behavior.
+/// (the random default), preserving the historical always-unique behavior.
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_default_idempotency_key_is_unique_per_send() {
     tester!(alix);
@@ -118,7 +99,7 @@ async fn test_default_idempotency_key_is_unique_per_send() {
 
     assert_ne!(
         id_1, id_2,
-        "default (timestamp) keys must yield unique message ids"
+        "default (random) keys must yield unique message ids"
     );
 }
 
@@ -126,35 +107,46 @@ async fn test_default_idempotency_key_is_unique_per_send() {
 /// returns the existing message id instead of erroring on the PK conflict, and
 /// does not create a duplicate row. This is the sender side of
 /// at-least-once-with-dedup (e.g. a crash-recovery retry).
+// verifies: SEND-002, SEND-003
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_duplicate_idempotency_key_is_idempotent() {
     tester!(alix);
     let group = alix.create_group(None, None)?;
 
     let key = "retry-key".to_string();
-    let id_1 = group.prepare_message_for_later_publish(b"retry me", true, Some(key.clone()))?;
+    let content = b"retry me";
+    let id_1 = group.prepare_message_for_later_publish(content, true, Some(key.clone()))?;
+    assert_eq!(id_1, calculate_message_id(group.group_id, content, &key));
     // Second identical prepare must not error and must return the same id.
-    let id_2 = group.prepare_message_for_later_publish(b"retry me", true, Some(key))?;
+    let id_2 = group.prepare_message_for_later_publish(content, true, Some(key.clone()))?;
 
     assert_eq!(id_1, id_2);
 
-    // Only one row was stored.
-    let messages = group.find_messages(&MsgQueryArgs {
-        kind: Some(GroupMessageKind::Application),
-        ..Default::default()
-    })?;
-    assert_eq!(messages.len(), 1);
-    assert_eq!(messages[0].id, id_1);
+    // Both query paths return the one row with its supplied key.
+    for kind in [None, Some(GroupMessageKind::Application)] {
+        let messages = group.find_messages(&MsgQueryArgs {
+            kind,
+            ..Default::default()
+        })?;
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].id, id_1);
+        assert_eq!(messages[0].idempotency_key, key);
+    }
 }
 
 /// End-to-end: the idempotency key rides the wire so the receiver recomputes the
 /// exact same message id. This is the foundation of at-least-once-with-dedup:
 /// a retry of identical content with the same key collapses to one message id.
-// verifies: SEND-002
+// verifies: SEND-002, SEND-003
+#[rstest::rstest]
+#[case::prepare("prepare")]
+#[case::optimistic("optimistic")]
+#[case::normal("normal")]
 #[xmtp_common::test(unwrap_try = true)]
-async fn test_idempotency_key_crosses_the_wire() {
-    tester!(alix);
-    tester!(bo);
+async fn test_idempotency_key_crosses_the_wire(#[case] mode: &str) -> Result<(), GroupError> {
+    tester!(alix, disable_workers);
+    tester!(alix2, from: alix, disable_workers);
+    tester!(bo, disable_workers);
     let group = alix.create_group(None, None)?;
     group.add_members(&[bo.inbox_id()]).await?;
 
@@ -190,4 +182,60 @@ async fn test_idempotency_key_crosses_the_wire() {
         calculate_message_id(bo_group.group_id, content, &key)
     );
     assert_eq!(received.idempotency_key, key);
+    assert_eq!(received.sender_inbox_id, alix.inbox_id());
+    assert_eq!(received.delivery_status, DeliveryStatus::Published);
+
+    let alix2_groups = alix2.wait_for_welcomes().await?;
+    let alix2_group = &alix2_groups[0];
+    alix2_group.sync().await?;
+    assert_ne!(alix.installation_id, alix2.installation_id);
+    let opts = || SendMessageOpts {
+        should_push: true,
+        idempotency_key: Some(key.clone()),
+    };
+    for peer in [alix2_group, bo_group] {
+        let pending = || {
+            peer.context
+                .db()
+                .find_group_intents(
+                    peer.group_id,
+                    Some(vec![
+                        IntentState::ToPublish,
+                        IntentState::Published,
+                        IntentState::Committed,
+                    ]),
+                    Some(vec![IntentKind::SendMessage]),
+                )
+                .unwrap()
+        };
+        let before = pending();
+        assert!(before.is_empty());
+        let result = match mode {
+            "prepare" => peer.prepare_message_for_later_publish(content, true, Some(key.clone())),
+            "optimistic" => peer.send_message_optimistic(content, opts()),
+            "normal" => peer.send_message(content, opts()).await,
+            _ => unreachable!(),
+        };
+        if peer.context.inbox_id() == alix.inbox_id() {
+            assert_eq!(result?, sent_id);
+        } else {
+            let error = result.expect_err("another inbox must not reuse a stored send");
+            assert!(
+                matches!(error, GroupError::MessageSenderConflict),
+                "{error:?}"
+            );
+            assert!(!error.is_retryable());
+        }
+        assert!(pending() == before, "send intents must remain unchanged");
+        let messages = peer.find_messages(&MsgQueryArgs {
+            kind: Some(GroupMessageKind::Application),
+            ..Default::default()
+        })?;
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].id, sent_id);
+        assert_eq!(messages[0].sender_inbox_id, received.sender_inbox_id);
+        assert_eq!(messages[0].decrypted_message_bytes, content);
+        assert_eq!(messages[0].delivery_status, received.delivery_status);
+    }
+    Ok(())
 }

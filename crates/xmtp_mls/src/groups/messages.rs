@@ -186,7 +186,11 @@ where
         // Idempotent: a retry with the same key + content resolves to the same id.
         // Return the existing message rather than failing on the PK conflict, so
         // crash-recovery retries are at-least-once-with-dedup instead of an error.
-        if let Some(existing) = db.get_group_message(&message_id)? {
+        if let Some(mut existing) = db.get_group_message(&message_id)? {
+            if existing.sender_inbox_id != self.context.inbox_id() {
+                existing.decrypted_message_bytes.zeroize();
+                return Err(GroupError::MessageSenderConflict);
+            }
             return Ok(existing);
         }
 
