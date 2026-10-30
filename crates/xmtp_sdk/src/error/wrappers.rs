@@ -71,6 +71,7 @@ transparent_wrappers! {
     ],
     xmtp_archive::ArchiveError => [Storage],
     xmtp_mls::subscriptions::catch_up::CatchUpError => [Group],
+    xmtp_db::consent_record::ConsentActError => [Storage],
 }
 
 /// A core error type that `XmtpError::from_core` maps. Every type passed to

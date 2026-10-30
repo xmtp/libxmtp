@@ -1,40 +1,34 @@
 use anyhow::Result;
-use xmtp_common::time::now_ns;
 use xmtp_db::{
     ConnectionExt, DbConnection,
-    consent_record::{ConsentState, ConsentType, QueryConsentRecord, StoredConsentRecord},
+    consent_record::{ConsentKey, ConsentState, ConsentWrite, Decision, Owed, write_consent},
 };
+
+/// Set each group's consent as the user would, as a decision.
+fn set_groups<C: ConnectionExt>(
+    conn: &DbConnection<C>,
+    group_ids: &[&[u8]],
+    state: ConsentState,
+) -> Result<()> {
+    for group_id in group_ids {
+        let decide = ConsentWrite::Decide(Decision::Set(state));
+        write_consent(conn, &ConsentKey::group(group_id), decide, Owed::Mark)?;
+    }
+    Ok(())
+}
 
 pub fn enable_groups<C>(conn: &DbConnection<C>, group_ids: &[&[u8]]) -> Result<()>
 where
     C: ConnectionExt,
 {
-    for group_id in group_ids {
-        conn.insert_newer_consent_record(StoredConsentRecord {
-            consented_at_ns: now_ns(),
-            entity: hex::encode(group_id),
-            entity_type: ConsentType::ConversationId,
-            state: ConsentState::Allowed,
-        })?;
-    }
-
-    Ok(())
+    set_groups(conn, group_ids, ConsentState::Allowed)
 }
 
 pub fn disable_groups<C>(conn: &DbConnection<C>, group_ids: &[&[u8]]) -> Result<()>
 where
     C: ConnectionExt,
 {
-    for group_id in group_ids {
-        conn.insert_newer_consent_record(StoredConsentRecord {
-            consented_at_ns: now_ns(),
-            entity: hex::encode(group_id),
-            entity_type: ConsentType::ConversationId,
-            state: ConsentState::Denied,
-        })?;
-    }
-
-    Ok(())
+    set_groups(conn, group_ids, ConsentState::Denied)
 }
 
 #[cfg(test)]
