@@ -146,6 +146,7 @@ mock! {
     }
 
     impl QueryGroup for DbQuery {
+        fn delete_oneshot_group(&self, group_id: &GroupId) -> Result<(), ConnectionError>;
         #[mockall::concretize]
         fn find_groups<A: AsRef<crate::group::GroupQueryArgs>>(
             &self,

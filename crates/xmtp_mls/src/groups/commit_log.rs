@@ -959,10 +959,6 @@ where
             "Sending readd request to {:?}",
             readders
         );
-        Oneshot::send_message(self.context.clone(), readders, oneshot_message).await?;
-
-        tracing::debug!(group_id = %group_id, "Sent readd request",);
-
         // Mark readd as requested
         conn.update_requested_at_sequence_id(
             &group_id,
@@ -970,6 +966,19 @@ where
             latest_commit_sequence_id,
         )?;
 
+        if let Err((error, definitely_unsent)) =
+            Oneshot::send_message_with_outcome(self.context.clone(), readders, oneshot_message)
+                .await
+        {
+            if definitely_unsent {
+                conn.delete_readd_statuses(
+                    &group_id,
+                    HashSet::from([self.context.installation_id().to_vec()]),
+                )?;
+            }
+            return Err(error.into());
+        }
+        tracing::debug!(group_id = %group_id, "Sent readd request",);
         tracing::debug!(
             group_id = %group_id,
             sequence_id = latest_commit_sequence_id,

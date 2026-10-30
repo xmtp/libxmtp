@@ -123,12 +123,13 @@ async fn test_readd_installation_succeeds() {
     b_group.test_can_talk_with(&a_group).await?;
 }
 
-#[xmtp_common::test]
+// verifies: FORK-051, FORK-064
+#[xmtp_common::test(unwrap_try = true)]
 async fn test_readd_bookkeeping() {
-    tester!(alix, enable_fork_recovery_requests);
-    tester!(bo);
-    tester!(caro);
-    tester!(devon);
+    tester!(alix, disable_workers, enable_fork_recovery_requests);
+    tester!(bo, disable_workers);
+    tester!(caro, disable_workers);
+    tester!(devon, disable_workers);
     let group = alix
         .create_group_with_members(
             &[bo.inbox_id(), caro.inbox_id(), devon.inbox_id()],
@@ -219,7 +220,27 @@ async fn test_readd_bookkeeping() {
 
     caro.sync_all_welcomes_and_groups(None).await.unwrap();
     devon.sync_all_welcomes_and_groups(None).await.unwrap();
-    alix.sync_welcomes().await.unwrap();
+    // Apply the removal, but withhold the Welcome that completes our request.
+    group.sync_with_conn().await?;
+    assert!(!group.is_active()?);
+    assert_awaiting(&[
+        (&a_conn, &alix_installation[..], true),
+        (&b_conn, &alix_installation[..], false),
+        (&c_conn, &alix_installation[..], false),
+        (&d_conn, &alix_installation[..], false),
+    ]);
+    a_worker._tick().await?; // Drain the removal's log upload.
+    let published = alix.api_stats().publish.get_count();
+    for _ in 0..2 {
+        a_worker._tick().await?;
+        assert_eq!(alix.api_stats().publish.get_count(), published);
+    }
+    alix.sync_welcomes().await?;
+    assert!(group.is_active()?);
+    assert_eq!(
+        group.epoch_authenticator().await?,
+        b_group.epoch_authenticator().await?
+    );
 
     // Everyone should see that Alix is no longer awaiting readd
     assert_awaiting(&[
@@ -228,6 +249,16 @@ async fn test_readd_bookkeeping() {
         (&c_conn, &alix_installation[..], false),
         (&d_conn, &alix_installation[..], false),
     ]);
+
+    b_group.key_update().await?;
+    group.sync_with_conn().await?;
+    b_worker._tick().await?;
+    a_worker._tick().await?;
+    let published = alix.api_stats().publish.get_count();
+    a_conn.set_group_commit_log_forked_status(&group.group_id, Some(true))?;
+    a_worker._tick().await?;
+    assert!(alix.api_stats().publish.get_count() > published);
+    assert!(a_conn.is_awaiting_readd(&group.group_id, alix_installation.as_slice())?);
 }
 
 #[xmtp_common::test]

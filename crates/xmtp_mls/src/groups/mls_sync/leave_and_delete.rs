@@ -401,9 +401,13 @@ where
         storage: &impl XmtpMlsStorageProvider,
         group_id: &GroupId,
         readded_installations: &HashSet<Vec<u8>>,
+        own_installation_id: &[u8],
         cursor: i64,
     ) -> Result<(), StorageError> {
         for installation_id in readded_installations {
+            if installation_id.as_slice() == own_installation_id {
+                continue;
+            }
             storage.db().update_responded_at_sequence_id(
                 group_id,
                 installation_id.as_slice(),

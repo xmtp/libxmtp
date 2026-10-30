@@ -1,8 +1,6 @@
 //! XMTP Welcome Processing
 //! Processes a new welcome from the network
 
-use std::collections::HashSet;
-
 use crate::groups::MetadataPermissionsError;
 use crate::groups::mls_ext::CommitLogStorer;
 use crate::groups::mls_ext::ResolvedWelcome;
@@ -743,10 +741,9 @@ where
         // State, progress, and removal of pre-join work commit together.
         db.install_group_anchor(group.group_id, anchor, anchor_mode)?;
         db.record_welcome_discovery(group.group_id, welcome.cursor)?;
-        MlsGroup::<C>::mark_readd_requests_as_responded(
-            &storage,
+        db.update_responded_at_sequence_id(
             &group.group_id,
-            &HashSet::from([context.installation_id().to_vec()]),
+            context.installation_id().as_slice(),
             cursor,
         )?;
         event_buffer.emit_with_context(
