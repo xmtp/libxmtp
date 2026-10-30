@@ -311,27 +311,3 @@ fn a_full_table_admits_fresh_callers_and_forgets_others() {
         Decision::Denied { .. }
     ));
 }
-
-/// A spend that leaves the caller at full allowance records nothing, so it
-/// forgets no one.
-#[xmtp_common::test]
-fn a_spend_that_stays_at_full_allowance_takes_no_slot() {
-    let limits = [Limit {
-        count: 1,
-        window: Duration::from_secs(3600),
-    }];
-    let free = [Limit {
-        count: 10,
-        window: Duration::from_nanos(1),
-    }];
-    let table = one_set();
-    for caller in 0..WAYS {
-        assert_eq!(
-            spend(&table, 0, &key(caller), 0, &limits, 1),
-            Decision::Allowed
-        );
-    }
-    assert_eq!(spend(&table, 0, b"cheap", 0, &free, 1), Decision::Allowed);
-    assert_eq!(table.tats(0, b"cheap"), None);
-    assert_eq!(table.evictions(), 0);
-}

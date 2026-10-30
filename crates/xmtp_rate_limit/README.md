@@ -11,7 +11,7 @@ use xmtp_rate_limit::{Decision, Limit, Limits, MemoryLimiter, RateLimiter, Spend
 
 const PUBLISH: u8 = 1;
 let limiter = MemoryLimiter::new(100 << 20);
-// At most three limits, each with a nonzero window; the backend builds these
+// At most three limits, each of at most one unit per nanosecond; the backend builds these
 // once, when it starts.
 let limits = Limits::new(&[
     Limit { count: 1000, window: Duration::from_secs(60) },
@@ -41,8 +41,8 @@ match limiter.try_spend(spend).await {
   position, so a caller key is always spent in a category with the same limits
   in the same order.
 - **Validated limits.** A spend carries a `Limits`, which `Limits::new`
-  builds from at most three limits, each with a nonzero window, and refuses
-  otherwise. A list the table cannot record fails where it is built, such as
+  builds from at most three limits, each of at most one unit per nanosecond,
+  and refuses otherwise. A list the table cannot record fails where it is built, such as
   when a server starts, not at a spend.
 - **A fixed table.** One 8-way set-associative table, allocated once from the
   memory budget. A slot is 32 bytes: a SipHash-1-3 hash of (category, caller

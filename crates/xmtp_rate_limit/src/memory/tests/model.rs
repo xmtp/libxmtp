@@ -91,7 +91,8 @@ fn limit_table_strategy() -> impl Strategy<Value = Vec<Vec<Limit>>> {
             .into_iter()
             .map(|(count, window)| Limit {
                 count,
-                window: Duration::from_nanos(window),
+                // `Limits::new` refuses more than one unit per nanosecond.
+                window: Duration::from_nanos(window.max(u64::from(count))),
             })
             .collect()
     });

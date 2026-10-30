@@ -36,15 +36,16 @@ pub const SLOT_BYTES: usize = size_of::<table::Slot>();
 
 /// A sustained rate of `count` units per `window`, with a burst of up to `count`.
 ///
-/// A `count` of 0 is treated as 1. [`Limits::new`] refuses a zero `window`.
+/// A `count` of 0 is treated as 1. [`Limits::new`] refuses a `window` shorter
+/// than `count` nanoseconds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Limit {
     pub count: u32,
     pub window: Duration,
 }
 
-/// The limits of one category: at most [`MAX_LIMITS`], each with a window of
-/// at least 1 ns. An empty list admits every spend.
+/// The limits of one category: at most [`MAX_LIMITS`], each earning back one
+/// unit over at least 1 ns. An empty list admits every spend.
 ///
 /// The limiter matches its stored state to these limits by position, so a
 /// caller key must always be spent in a category with the same limits in the
@@ -76,9 +77,15 @@ impl Limits {
         let mut list = Self::NONE.list;
         let mut index = 0;
         while index < limits.len() {
-            // A zero window earns back any cost at once: it would admit every spend.
-            if limits[index].window.is_zero() {
-                return Err(LimitsError::ZeroWindow { index });
+            // A unit costs `window / count` nanoseconds, rounded down. Under
+            // 1 ns that is 0, so the limit would admit every spend.
+            let count = if limits[index].count == 0 {
+                1
+            } else {
+                limits[index].count
+            };
+            if limits[index].window.as_nanos() < count as u128 {
+                return Err(LimitsError::TooFast { index });
             }
             list[index] = limits[index];
             index += 1;
@@ -106,8 +113,9 @@ pub enum LimitsError {
     /// A table slot records [`MAX_LIMITS`] limits per category.
     #[error("a category carries at most {MAX_LIMITS} limits, not {len}")]
     TooMany { len: usize },
-    #[error("limit {index} has a zero window")]
-    ZeroWindow { index: usize },
+    /// A unit's share of the window is under 1 ns, which RATE rounds to 0.
+    #[error("limit {index} admits more than one unit per nanosecond")]
+    TooFast { index: usize },
 }
 
 /// One charge of `cost` units in `category` to the caller named by `key`.

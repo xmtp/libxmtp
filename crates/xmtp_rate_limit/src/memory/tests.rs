@@ -70,7 +70,8 @@ fn limits_strategy(lengths: std::ops::RangeInclusive<usize>) -> impl Strategy<Va
             .into_iter()
             .map(|(count, window)| Limit {
                 count,
-                window: Duration::from_nanos(window),
+                // `Limits::new` refuses more than one unit per nanosecond.
+                window: Duration::from_nanos(window.max(u64::from(count))),
             })
             .collect()
     })

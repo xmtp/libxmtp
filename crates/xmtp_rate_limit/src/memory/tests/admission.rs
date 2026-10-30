@@ -231,11 +231,12 @@ fn extreme_values_saturate() {
     );
 }
 
-/// A slot records three limits per category, and a zero window would earn
-/// back any cost at once and admit every spend. `Limits::new` refuses both, so
-/// such a list fails where it is built, before any spend.
+/// A slot records three limits per category, and a limit of more than one
+/// unit per nanosecond charges 0 ns per unit and admits every spend.
+/// `Limits::new` refuses both, so such a list fails where it is built, before
+/// any spend.
 #[xmtp_common::test]
-fn limits_refuse_a_fourth_limit_and_a_zero_window() {
+fn limits_refuse_a_fourth_limit_and_more_than_one_unit_per_nanosecond() {
     let three = [limit(5, 60), limit(5, 120), limit(5, 180)];
     assert_eq!(
         Limits::new(&three).map(|limits| limits.as_slice().to_vec()),
@@ -245,14 +246,30 @@ fn limits_refuse_a_fourth_limit_and_a_zero_window() {
         Limits::new(&[three[0], three[1], three[2], limit(1, 240)]),
         Err(LimitsError::TooMany { len: 4 })
     );
-    let zero = Limit {
-        count: 1,
-        window: Duration::ZERO,
+    let per_nanos = |count, nanos| Limit {
+        count,
+        window: Duration::from_nanos(nanos),
     };
-    assert_eq!(
-        Limits::new(&[limit(1, 60), zero]),
-        Err(LimitsError::ZeroWindow { index: 1 })
-    );
+    for fits in [
+        per_nanos(1, 1),
+        per_nanos(0, 1),
+        per_nanos(u32::MAX, u64::from(u32::MAX)),
+    ] {
+        assert_eq!(
+            Limits::new(&[fits]).map(|limits| limits.as_slice()[0]),
+            Ok(fits)
+        );
+    }
+    for too_fast in [
+        per_nanos(1, 0),
+        per_nanos(2, 1),
+        per_nanos(u32::MAX, u64::from(u32::MAX) - 1),
+    ] {
+        assert_eq!(
+            Limits::new(&[limit(1, 60), too_fast]),
+            Err(LimitsError::TooFast { index: 1 })
+        );
+    }
 }
 
 /// A count of 0 behaves as a count of 1 instead of dividing by zero.
