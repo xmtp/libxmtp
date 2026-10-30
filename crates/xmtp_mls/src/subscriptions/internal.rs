@@ -150,10 +150,11 @@ fn app_entities(
             db.find_dm_by_dm_id(&dm_id.to_string())?
         }
         ConsentType::ConversationId => {
-            let Some(id) = key.group_id() else {
-                return Ok(entities);
+            // A conversation entity that names no group id is reported as named.
+            let held = match key.group_id() {
+                Some(id) => db.find_group(&id)?,
+                None => None,
             };
-            let held = db.find_group(&id)?;
             if held.is_none() {
                 entities.push((
                     ConsentType::ConversationId,
@@ -463,6 +464,14 @@ mod tests {
                 vec![change(ConsentKey::inbox("new"), Unknown, Unknown)],
                 vec![],
             ),
+            (
+                vec![change(
+                    ConsentKey::parse(ConsentType::ConversationId, "opaque").unwrap(),
+                    Unknown,
+                    Denied,
+                )],
+                vec!["opaque".to_string()],
+            ),
         ] {
             emit_consent_changes(&alix.context, &bus, &db, &changes)?;
             assert_eq!(named(public.drain()), expected, "{changes:?}");
@@ -489,6 +498,7 @@ mod tests {
                 vec!["peer-one".to_string()],
                 vec!["peer-two".to_string(), hex::encode(restored)],
                 vec!["new".to_string()],
+                vec!["opaque".to_string()],
             ]
         );
     }
