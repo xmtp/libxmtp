@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 use crate::{CodecError, ContentCodec, text::TextCodec, utils::get_param_or_default};
 use prost::Message;
@@ -51,7 +51,7 @@ impl ContentCodec<Reply> for ReplyCodec {
             .ok_or(CodecError::InvalidContentType)?;
         let fallback = Self::fallback(&data);
         // Set the reference and reference inbox ID as parameters.
-        let mut parameters = HashMap::new();
+        let mut parameters = BTreeMap::new();
         parameters.insert("reference".to_string(), data.reference);
         parameters.insert(
             "contentType".to_string(),
@@ -122,18 +122,31 @@ pub(crate) mod tests {
 
     use super::*;
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), test)]
+    #[xmtp_common::test(unwrap_try = true)]
     // verifies: CTYPE-007
     fn test_encode_decode_reply() {
-        let text_message = TextCodec::encode("This is a reply".to_string()).unwrap();
-        let reply = Reply {
-            reference: "msg_123".to_string(),
-            reference_inbox_id: Some("inbox_456".to_string()),
-            content: text_message,
+        let make_reply = || {
+            let mut text_message = TextCodec::encode("This is a reply".to_string()).unwrap();
+            text_message
+                .parameters
+                .extend(["alpha", "beta", "gamma"].map(|key| (key.into(), key.into())));
+            Reply {
+                reference: "msg_123".to_string(),
+                reference_inbox_id: Some("inbox_456".to_string()),
+                content: text_message,
+            }
         };
-
+        let reply = make_reply();
         let encoded = ReplyCodec::encode(reply.clone()).unwrap();
+        for _ in 0..16 {
+            let retry = ReplyCodec::encode(make_reply()).unwrap();
+            assert_eq!(retry.content, encoded.content, "nested Reply bytes");
+            assert_eq!(
+                retry.encode_to_vec(),
+                encoded.encode_to_vec(),
+                "Reply envelope bytes"
+            );
+        }
         let decoded = ReplyCodec::decode(encoded).unwrap();
 
         assert_eq!(decoded.reference, reply.reference);

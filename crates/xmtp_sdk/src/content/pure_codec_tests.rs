@@ -26,6 +26,24 @@ fn encoded_content_requires_complete_type_and_preserves_custom_bytes() {
         assert!(!details.retryable);
     }
     let content = sample("custom.example", "opaque");
+    for _ in 0..16 {
+        let make_reply = || -> Result<_, crate::XmtpError> {
+            let mut nested = sample("custom.example", "opaque");
+            nested
+                .parameters
+                .extend(["alpha", "beta", "gamma"].map(|key| (key.into(), key.into())));
+            encode_standard(StandardContent::Reply {
+                reference: crate::MessageId::from_bytes(&[0xaa; 32])?,
+                reference_inbox_id: Some(crate::InboxId::try_from("inbox".to_string())?),
+                content: nested,
+            })
+        };
+        assert_eq!(
+            encode_encoded_content(make_reply()?)?,
+            encode_encoded_content(make_reply()?)?,
+            "SDK Reply envelope bytes"
+        );
+    }
     let decoded = decode_encoded_content(encode_encoded_content(content.clone())?)?;
     assert_eq!(decoded.r#type.authority_id, content.r#type.authority_id);
     assert_eq!(decoded.r#type.type_id, content.r#type.type_id);

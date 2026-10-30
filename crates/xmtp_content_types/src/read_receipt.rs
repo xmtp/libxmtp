@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use crate::{CodecError, ContentCodec};
 use serde::{Deserialize, Serialize};
 
@@ -28,7 +26,7 @@ impl ContentCodec<ReadReceipt> for ReadReceiptCodec {
     fn encode(_: ReadReceipt) -> Result<EncodedContent, CodecError> {
         Ok(EncodedContent {
             r#type: Some(Self::content_type()),
-            parameters: HashMap::new(),
+            parameters: Default::default(),
             fallback: None,
             compression: None,
             content: vec![],

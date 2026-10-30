@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 use crate::{CodecError, ContentCodec, utils::get_param_or_default};
 use serde::{Deserialize, Serialize};
@@ -42,7 +42,7 @@ impl ContentCodec<Attachment> for AttachmentCodec {
         let mut parameters = [("mimeType", data.mime_type)]
             .into_iter()
             .map(|(k, v)| (k.to_string(), v))
-            .collect::<HashMap<_, _>>();
+            .collect::<BTreeMap<_, _>>();
 
         if let Some(filename) = data.filename {
             parameters.insert("filename".to_string(), filename);
@@ -58,7 +58,7 @@ impl ContentCodec<Attachment> for AttachmentCodec {
     }
 
     fn decode(encoded: EncodedContent) -> Result<Attachment, CodecError> {
-        let parameters: &HashMap<String, String> = &encoded.parameters;
+        let parameters: &BTreeMap<String, String> = &encoded.parameters;
 
         Ok(Attachment {
             filename: parameters.get("filename").map(|f| f.to_string()),

@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use crate::{CodecError, ContentCodec};
 use prost::Message;
 use xmtp_proto::xmtp::mls::message_contents::{
@@ -45,7 +43,7 @@ impl ContentCodec<MultiRemoteAttachment> for MultiRemoteAttachmentCodec {
 
         Ok(EncodedContent {
             r#type: Some(MultiRemoteAttachmentCodec::content_type()),
-            parameters: HashMap::new(),
+            parameters: Default::default(),
             fallback: Self::fallback(&data),
             compression: None,
             content: buf,

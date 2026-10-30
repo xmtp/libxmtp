@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use prost::Message;
 
 use super::{CodecError, ContentCodec};
@@ -36,7 +34,7 @@ impl ContentCodec<LeaveRequest> for LeaveRequestCodec {
 
         Ok(EncodedContent {
             r#type: Some(LeaveRequestCodec::content_type()),
-            parameters: HashMap::new(),
+            parameters: Default::default(),
             fallback: Some("A member has requested leaving the group".to_string()),
             compression: None,
             content: buf,

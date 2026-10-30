@@ -28,7 +28,7 @@ impl From<EncodedContent> for ProtoEncodedContent {
                 version_major: value.r#type.version_major,
                 version_minor: value.r#type.version_minor,
             }),
-            parameters: value.parameters,
+            parameters: value.parameters.into_iter().collect(),
             fallback: value.fallback,
             compression: None,
             content: value.content,
@@ -61,7 +61,7 @@ impl TryFrom<ProtoEncodedContent> for EncodedContent {
             .map_err(|error| crate::XmtpError::codec_decode_failed(error.to_string()))?;
         Ok(Self {
             r#type: kind,
-            parameters: value.parameters,
+            parameters: value.parameters.into_iter().collect(),
             fallback: value.fallback,
             content: value.content,
         })

@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use crate::{CodecError, ContentCodec};
 use prost::Message;
 
@@ -50,7 +48,7 @@ impl ContentCodec<ReactionV2> for ReactionCodec {
 
         Ok(EncodedContent {
             r#type: Some(ReactionCodec::content_type()),
-            parameters: HashMap::new(),
+            parameters: Default::default(),
             fallback: Self::fallback(&data),
             compression: None,
             content: buf,
@@ -164,7 +162,7 @@ impl ContentCodec<LegacyReaction> for LegacyReactionCodec {
         let json = serde_json::to_string(&data).map_err(|e| CodecError::Encode(e.to_string()))?;
         Ok(EncodedContent {
             r#type: Some(LegacyReactionCodec::content_type()),
-            parameters: std::collections::HashMap::new(),
+            parameters: Default::default(),
             fallback: Self::fallback(&data),
             compression: None,
             content: json.into_bytes(),
