@@ -1561,8 +1561,9 @@ where
     }
 
     /// Reports whether the backend names an inbox for each identifier.
-    /// This is an unverified availability hint. It checks neither current
-    /// association state nor key packages and does not promise delivery.
+    /// This is an unverified availability hint. The client does not independently
+    /// verify the lookup against current association state or check
+    /// key packages. This is not a delivery guarantee.
     ///
     /// Arguments:
     /// - account_identifier: a list of account identifiers to check
