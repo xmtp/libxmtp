@@ -582,8 +582,9 @@ fn dictionary<C: XmtpSharedContext>(group: &MlsGroup<C>) -> Result<AppDataDictio
 }
 
 /// A DM participant fills application maps until the next one would grow
-/// the dictionary past 4 MiB: that write is refused as a field write and as a
-/// payload, nothing is published, and the peer's dictionary is unchanged.
+/// the dictionary past 4 MiB: that write is refused, nothing is published,
+/// and the peer's dictionary is unchanged. A commit that also empties a map
+/// is judged by the total it leaves.
 // verifies: META-077
 #[xmtp_common::test(unwrap_try = true)]
 // Dozens of multi-MiB commits outlast the wasm job's time limit.
@@ -593,7 +594,7 @@ async fn test_dictionary_growth_is_bounded() {
     tester!(alix, configured: |c| {
         c.application_components = (0..FIELDS)
             .map(|n| {
-                definition(0xFD10 + n, ComponentType::TlsMapBytesBytes, MetadataBasePolicy::Allow, false, true)
+                definition(0xC110 + n, ComponentType::TlsMapBytesBytes, MetadataBasePolicy::Allow, false, true)
             })
             .collect()
     });
@@ -613,7 +614,7 @@ async fn test_dictionary_growth_is_bounded() {
             })
             .collect(),
     );
-    let mut fields = (0..FIELDS).map(|n| MetadataFieldRef::new(ComponentId::new(0xFD10 + n)));
+    let mut fields = (0..FIELDS).map(|n| MetadataFieldRef::new(ComponentId::new(0xC110 + n)));
     // Fill `count` maps in one commit, so the test reaches the limit in a
     // few commits.
     let mut fill_maps = |count: usize| {
@@ -646,16 +647,21 @@ async fn test_dictionary_growth_is_bounded() {
         fill_maps(1).await,
         Err(GroupError::MetadataField(FieldError::Denied(_)))
     ));
-    // The same map as a payload intent is refused before it is published.
-    let payload = (0..8u8).fold(TlsMapDelta::<VLBytes, VLBytes>::new(), |delta, k| {
-        delta.insert(VLBytes::new(vec![k]), VLBytes::new(vec![k; 8000]))
-    });
-    let unused = ComponentId::new(0xFD10 + FIELDS - 1);
-    let payload = payload.tls_serialize_detached()?;
-    assert!(write(&dm, unused, payload).await.is_err());
     bo_dm.sync().await?;
     assert_eq!(last_rejection(&bo_dm)?, None);
     assert_eq!(dictionary(&bo_dm)?, expected);
+
+    // The same map is accepted when the commit also empties another, even
+    // though the map comes first.
+    let unused = ComponentId::new(0xC110 + FIELDS - 1);
+    let [unused, first] = [unused, ComponentId::new(0xC110)].map(MetadataFieldRef::new);
+    let empty = (0..8u8).map(|k| MapMutation::Delete(FieldKey::Bytes(vec![k])));
+    let empty = ComponentMutation::MapDelta(empty.collect());
+    dm.write_fields(|snapshot| {
+        let emptied = snapshot.field_write(&first, &empty)?;
+        Ok(vec![snapshot.field_write(&unused, &fill)?, emptied])
+    })
+    .await?;
 }
 
 /// Publish `operation` on `id` as a signed standalone proposal with no

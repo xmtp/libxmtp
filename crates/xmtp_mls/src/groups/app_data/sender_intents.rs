@@ -397,10 +397,13 @@ fn authorize_updates(
         )
         .map_err(|_| FieldError::Denied(*id))?;
         states.extend(post);
-        validate_post_dictionary_size(Some(values), &states)
-            .map_err(|_| FieldError::Denied(*id))?;
     }
-    Ok(())
+    // Receivers judge the total the whole commit leaves.
+    match updates.last() {
+        Some((id, _)) => validate_post_dictionary_size(Some(values), &states)
+            .map_err(|_| FieldError::Denied(*id).into()),
+        None => Ok(()),
+    }
 }
 
 /// Propose `updates` and stage one commit of them, publishing the

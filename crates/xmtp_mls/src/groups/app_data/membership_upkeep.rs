@@ -32,7 +32,7 @@ use xmtp_mls_common::{
     tls_set::{TlsSet, TlsSetDelta},
 };
 use xmtp_mls_validation::commit::{
-    AppDataPostStates, AppDataUpdateInCommit, extract_commit_participant, read_committed_metadata,
+    AppDataUpdateInCommit, extract_commit_participant, read_committed_metadata,
     validate_app_data_update_sequence,
 };
 use xmtp_proto::{types::ConversationType, xmtp::mls::message_contents::ComponentType};
@@ -152,8 +152,6 @@ pub(crate) fn membership_upkeep(
             }
         }
     }
-    // An intent's own proposals are pending too, so check the whole commit.
-    batch.fits(&AppDataPostStates::new())?;
     Ok((proposals, batch.updates()))
 }
 
