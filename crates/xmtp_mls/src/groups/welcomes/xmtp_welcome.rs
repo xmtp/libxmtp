@@ -648,7 +648,7 @@ where
         db.set_commit_log_reader_epoch_floor(&group_id, 0)?;
         stored_group.should_publish_commit_log = should_publish;
         // No join stores consent, for any conversation type.
-        // implements: SYNC-014, SYNC-028
+        // implements: SYNC-014, SYNC-035
         // A sync Welcome means a new installation. In this transaction, owe it
         // every record and the root key, and schedule its adds.
         if stored_group.conversation_type == ConversationType::Sync {

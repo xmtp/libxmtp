@@ -722,7 +722,7 @@ async fn an_applied_split_child_does_not_hide_an_ambiguous_parent_echo() {
 }
 
 /// Each part split from a removal-only refresh, at every depth, adds no leaf.
-// verifies: SYNC-024
+// verifies: SYNC-034
 #[xmtp_common::test(unwrap_try = true)]
 async fn every_split_part_of_a_removal_only_refresh_adds_no_leaf() {
     tester!(alix, disable_workers);

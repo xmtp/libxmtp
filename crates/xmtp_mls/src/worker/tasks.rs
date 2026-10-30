@@ -2,13 +2,16 @@ use crate::{
     context::XmtpSharedContext,
     subscriptions::internal::InternalEvent,
     worker::{
-        NeedsDbReconnect, Worker, WorkerFactory, WorkerKind, device_sync::DeviceSyncError,
+        NeedsDbReconnect, Worker, WorkerFactory, WorkerKind,
+        device_sync::{DeviceSyncClient, DeviceSyncError},
         key_package_maintenance as kp,
+        metrics::WorkerMetrics,
     },
 };
 use prost::Message;
 use std::sync::Arc;
-use xmtp_configuration::KEY_PACKAGE_ROTATION_INTERVAL_NS;
+use xmtp_configuration::{KEY_PACKAGE_ROTATION_INTERVAL_NS, SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS};
+use xmtp_db::group::ConversationType;
 use xmtp_db::prelude::{QueryIdentity, QueryKeyPackageHistory};
 use xmtp_db::tasks::{QueryTasks, Task as DbTask, TaskDataHash};
 use xmtp_db::{StorageError, diesel};
@@ -555,7 +558,7 @@ where
                 return Ok(TaskOutcome::RescheduleAt(next));
             }
             Some(xmtp_proto::xmtp::mls::database::task::Task::AddMissingInstallations(add)) => {
-                Self::run_add_missing_installations(task, add, context).await?;
+                return Self::run_add_missing_installations(task, add, context).await;
             }
             // A kind this build cannot run: `KpLiveness` has no handler yet,
             // and `None` is a newer build's kind (prost drops an unknown
@@ -627,12 +630,14 @@ where
     /// Run an `AddMissingInstallations` task: load the group and reconcile its
     /// membership with the inbox's latest identity state. Idempotent — the
     /// underlying group method no-ops when membership is already current, so
-    /// retries and duplicate rows are safe.
+    /// retries and duplicate rows are safe. The selected sync group's task
+    /// runs again after the retry interval while an own installation it can
+    /// retry has no leaf there.
     async fn run_add_missing_installations(
         task: &DbTask,
         add: xmtp_proto::xmtp::mls::database::AddMissingInstallations,
         context: &Context,
-    ) -> Result<(), TaskWorkerError> {
+    ) -> Result<TaskOutcome, TaskWorkerError> {
         // A malformed group_id can never succeed — drop the task, don't retry.
         let Ok(group_id) = xmtp_proto::types::GroupId::try_from(add.group_id.as_slice()) else {
             tracing::warn!(
@@ -640,12 +645,23 @@ where
                 task.id
             );
             context.db().delete_task(task.id)?;
-            return Ok(());
+            return Ok(TaskOutcome::Done);
         };
         match crate::mls_store::MlsStore::new(context.clone()).group(&group_id) {
+            // implements: SYNC-034, GMOD-055
+            Ok(group) if group.conversation_type == ConversationType::Sync => {
+                let metrics = Arc::new(WorkerMetrics::new(context.installation_id()));
+                let sync = DeviceSyncClient::new(context.clone(), metrics);
+                if sync.retry_own_installations(&group).await? {
+                    return Ok(TaskOutcome::RescheduleAt(
+                        xmtp_common::time::now_ns() + SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS,
+                    ));
+                }
+                Ok(TaskOutcome::Done)
+            }
             Ok(group) => {
                 group.add_missing_installations().await?;
-                Ok(())
+                Ok(TaskOutcome::Done)
             }
             Err(crate::mls_store::MlsStoreError::NotFound(_)) => {
                 tracing::debug!(
@@ -653,7 +669,7 @@ where
                     task.id
                 );
                 context.db().delete_task(task.id)?;
-                Ok(())
+                Ok(TaskOutcome::Done)
             }
             // A DB/connection error is transient — let it retry.
             Err(e) => Err(e.into()),

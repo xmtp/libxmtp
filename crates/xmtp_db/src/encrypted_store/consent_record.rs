@@ -828,7 +828,7 @@ mod tests {
 
     /// A published page clears only the marks it read; a key marked again
     /// while the page was in flight stays owed, with its value unchanged.
-    // verifies: SYNC-033, SYNC-028
+    // verifies: SYNC-033, SYNC-035
     #[xmtp_common::test(unwrap_try = true)]
     fn published_page_clears_only_marks_it_read() {
         with_connection(|conn| {

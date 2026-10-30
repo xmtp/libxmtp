@@ -9,7 +9,7 @@ use xmtp_db::{
         ConsentKey, ConsentState, ConsentType, ConsentValue, ConsentWrite, MAX_AHEAD_NS, Owed,
         StoredConsentRecord, write_consent,
     },
-    group::{ConversationType, GroupMembershipState, StoredGroup},
+    group::{ConversationType, GroupMembershipState},
     sync_outbox::has_owed,
     user_preferences::StoredUserPreferences,
 };
@@ -442,43 +442,29 @@ async fn test_only_added_to_correct_groups() {
     assert!(alix2_bo_group_denied.is_err());
 }
 
-#[xmtp_common::timeout(std::time::Duration::from_secs(15))]
-#[rstest::rstest]
+/// The periodic membership refresh skips sync groups, so it adds no newer
+/// installation to an older one.
 #[xmtp_common::test(unwrap_try = true)]
 #[cfg_attr(target_arch = "wasm32", ignore)]
-async fn test_new_devices_not_added_to_old_sync_groups() {
-    use diesel::prelude::*;
-    use xmtp_db::schema::groups::dsl;
-
-    tester!(alix1, sync_worker);
-    tester!(alix2, from: alix1);
-
-    alix1.test_has_same_sync_group_as(&alix2).await?;
-    let groups = alix1.find_groups(GroupQueryArgs {
-        include_sync_groups: true,
-        ..Default::default()
-    })?;
-    for group in groups {
-        group.maybe_update_installations(None).await?;
+async fn periodic_refresh_adds_no_installation_to_a_sync_group() {
+    tester!(alix1, disable_workers);
+    let old = alix1.device_sync_client().get_sync_group().await?;
+    tester!(alix2, from: alix1, disable_workers);
+    alix2.device_sync_client().get_sync_group().await?;
+    alix1.sync_welcomes().await?;
+    let alix1_sync_groups = alix1.context.db().all_sync_groups()?;
+    assert_eq!(alix1_sync_groups.len(), 2);
+    for group in &alix1_sync_groups {
+        alix1
+            .group(&group.id)?
+            .maybe_update_installations(Some(0))
+            .await?;
     }
 
-    // alix1 should have it's own created sync group and alix2's sync group
-    let alix1_sync_groups: Vec<StoredGroup> = alix1.context.db().raw_query(|conn| {
-        dsl::groups
-            .filter(dsl::conversation_type.eq(ConversationType::Sync))
-            .load(conn)
-    })?;
-    assert_eq!(alix1_sync_groups.len(), 2);
-
-    // alix2 should not be added to alix1's old sync group
-
     alix2.sync_welcomes().await?;
-    let alix2_sync_groups: Vec<StoredGroup> = alix2.context.db().raw_query(|conn| {
-        dsl::groups
-            .filter(dsl::conversation_type.eq(ConversationType::Sync))
-            .load(conn)
-    })?;
+    let alix2_sync_groups = alix2.context.db().all_sync_groups()?;
     assert_eq!(alix2_sync_groups.len(), 1);
+    assert!(alix2_sync_groups.iter().all(|g| g.id != old.group_id));
 }
 
 #[xmtp_common::timeout(std::time::Duration::from_secs(60))]
@@ -977,46 +963,99 @@ pub(super) async fn revoke(
     identity.apply_signature_request(request).await
 }
 
-/// After a revocation the revoker cycles the root key; its next publish
-/// removes the revoked leaf first, so only current installations read it.
-// verifies: SYNC-024, SYNC-026
+/// After a revocation the revoker cycles the root key. A removal-only refresh
+/// drops the revoked leaf and adds no newcomer. The selected group lacks
+/// alix4, so the next publish adds it, or a peer's commit already did; the
+/// commit that adds it owes alix4 every record alix1 had already sent.
+// verifies: SYNC-034, SYNC-035, SYNC-026
+#[rstest::rstest]
+#[case::local_adder(false)]
+#[case::peer_adder(true)]
 #[xmtp_common::test(unwrap_try = true)]
 #[cfg_attr(target_arch = "wasm32", ignore)]
-async fn publish_removes_revoked_leaf_and_adds_no_newcomer() {
+async fn publish_adds_the_installation_the_selected_group_lacks(
+    #[case] peer_adds: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use diesel::prelude::*;
+    use xmtp_db::schema::groups::dsl;
+    use xmtp_db::sync_outbox::{clear_owed, owed_page};
     use xmtp_mls_validation::commit::extract_group_membership;
 
     tester!(alix1, disable_workers);
     tester!(alix2, from: alix1, disable_workers);
     tester!(alix3, from: alix1, disable_workers);
     let group = alix1.device_sync_client().get_sync_group().await?;
-    // Registers after the group exists; with no worker it makes no group.
-    tester!(alix4, from: alix1, disable_workers);
     alix2.sync_welcomes().await?;
     alix3.sync_welcomes().await?;
+    tester!(alix4, from: alix1, disable_workers);
+    alix4.device_sync_client().get_sync_group().await?;
+    alix1.sync_welcomes().await?;
+    // As when the older group's Welcome is installed after alix4's.
+    alix1.context.db().raw_query(|conn| {
+        diesel::update(dsl::groups.find(&group.group_id))
+            .set(dsl::created_at_ns.eq(now_ns()))
+            .execute(conn)
+    })?;
+    let selected = alix1.device_sync_client().primary_sync_group()?.unwrap();
+    assert_eq!(selected.group_id, group.group_id);
+    // Already sent, so not owed: records that alix3 lacks, and the root key.
+    let records = [
+        (ConsentKey::inbox("time-zero"), ConsentState::Allowed, 0),
+        (ConsentKey::inbox("sent-before"), ConsentState::Denied, 5),
+    ];
+    for (key, state, at) in &records {
+        decide_at(&alix1, key, *state, *at)?;
+    }
+    let db = alix1.context.db();
+    clear_owed(&db, &owed_page(&db, PAGE_UPDATES, PAGE_BYTES)?)?;
+    assert!(!has_owed(&db)?);
     revoke(&alix1, &alix2).await?;
-    let cycled = StoredUserPreferences::load(alix1.context.db())?;
+    let cycled = StoredUserPreferences::load(&db)?;
     assert!(
         cycled.hmac_key_owed_seq > 0,
         "the revocation cycled an owed key"
     );
-    publish(&alix1).await?;
 
-    let (leaves, failed) = group.with_group_snapshot(|mls_group| {
-        let membership = extract_group_membership(mls_group.extensions())?;
-        let leaves: Vec<_> = mls_group.members().map(|m| m.signature_key).collect();
-        Ok((leaves, membership.failed_installations))
-    })?;
+    let snapshot = || {
+        group.with_group_snapshot(|mls_group| {
+            let membership = extract_group_membership(mls_group.extensions())?;
+            let leaves: Vec<_> = mls_group.members().map(|m| m.signature_key).collect();
+            Ok::<_, GroupError>((leaves, membership.failed_installations))
+        })
+    };
+    let alix2_key = alix2.context.installation_id().to_vec();
     let alix4_key = alix4.context.installation_id().to_vec();
-    assert!(!leaves.contains(&alix2.context.installation_id().to_vec()));
-    assert!(
-        !leaves.contains(&alix4_key),
-        "a newer installation was added"
-    );
-    // A later joiner checks the skipped newcomer against this list.
-    assert!(failed.contains(&alix4_key));
+    if peer_adds {
+        // One commit swaps alix2's leaf for alix4's and adds no inbox.
+        alix3
+            .group(&group.group_id)?
+            .add_missing_installations()
+            .await?;
+        group.sync().await?;
+        let (leaves, _) = snapshot()?;
+        assert_eq!(leaves.len(), 3);
+        assert!(!leaves.contains(&alix2_key) && leaves.contains(&alix4_key));
+    } else {
+        group.remove_revoked_installations().await?;
+        let (leaves, failed) = snapshot()?;
+        assert!(!leaves.contains(&alix2_key));
+        assert!(
+            !leaves.contains(&alix4_key),
+            "a removal-only refresh added a newer installation"
+        );
+        // A later joiner checks the skipped newcomer against this list.
+        assert!(failed.contains(&alix4_key));
+    }
+    // A client opened later on the same database holds nothing in memory.
+    let reopened = crate::builder::ClientBuilder::from_client(alix1.client.clone())
+        .with_disable_workers(true)
+        .build()
+        .await?;
+    reopened.device_sync_client().publish_outbox().await?;
+    assert!(snapshot()?.0.contains(&alix4_key));
 
-    // alix3 accepts the removal-only commit and cycles on the revocation too;
-    // the two converge on the greater key, which the revoked alix2 never reads.
+    // alix3 accepts the commits and cycles on the revocation too; the two
+    // converge on the greater key, which the revoked alix2 never reads.
     receive(&alix3).await?;
     publish(&alix3).await?;
     receive(&alix1).await?;
@@ -1028,6 +1067,136 @@ async fn publish_removes_revoked_leaf_and_adds_no_newcomer() {
     assert_eq!(key(&alix1), key(&alix3));
     let _ = receive(&alix2).await;
     assert_ne!(key(&alix2), key(&alix1));
+    receive(&alix4).await?;
+    for (record, ..) in &records {
+        assert_eq!(
+            held(&alix4, record),
+            held(&alix1, record),
+            "{}",
+            record.entity
+        );
+    }
+    Ok(())
+}
+
+/// While an own installation has no usable key package, a publish still
+/// reaches the leaves the selected group holds and arms a durable retry.
+/// After a restart, once the package is usable, the retry adds the
+/// installation without an identity change, and the add's replay reaches it.
+// verifies: SYNC-034, SYNC-035, GMOD-055
+#[xmtp_common::test(unwrap_try = true)]
+#[cfg_attr(target_arch = "wasm32", ignore)]
+async fn publish_reaches_present_leaves_and_retries_a_missing_one() {
+    use crate::utils::test_mocks_helpers::{
+        RestoreKeyPackages, set_test_mode_upload_malformed_keypackage,
+    };
+    use crate::worker::tasks::TaskWorker;
+    use xmtp_db::tasks::QueryTasks;
+
+    tester!(alix1, disable_workers);
+    tester!(alix2, from: alix1, disable_workers);
+    let group = alix1.device_sync_client().get_sync_group().await?;
+    alix2.sync_welcomes().await?;
+    tester!(alix3, from: alix1, disable_workers);
+    alix1.inbox_state(true).await?;
+    let alix3_key = alix3.context.installation_id().to_vec();
+    let has_alix3 = || {
+        group.with_group_snapshot(|mls_group| {
+            Ok::<_, GroupError>(mls_group.members().any(|m| m.signature_key == alix3_key))
+        })
+    };
+    let x = ConsentKey::inbox("x");
+    decide_at(&alix1, &x, ConsentState::Denied, now_ns())?;
+    let restore = RestoreKeyPackages;
+    set_test_mode_upload_malformed_keypackage(true, Some(vec![alix3_key.clone()]));
+    let published_at = now_ns();
+    publish(&alix1).await?;
+    receive(&alix2).await?;
+    assert_eq!(held(&alix2, &x), held(&alix1, &x));
+    assert!(!has_alix3()?);
+
+    // The retry is a task row, kept while alix3 has no leaf.
+    let db = alix1.context.db();
+    let add_task = || {
+        db.get_tasks().unwrap().into_iter().find(|task| {
+            matches!(
+                xmtp_proto::xmtp::mls::database::Task::decode(task.data.as_slice())
+                    .ok()
+                    .and_then(|task| task.task),
+                Some(TaskKindProto::AddMissingInstallations(_))
+            )
+        })
+    };
+    let task = add_task().expect("a retry task");
+    let interval = xmtp_configuration::SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS;
+    assert!(task.next_attempt_at_ns >= published_at + interval);
+    assert_eq!(
+        (task.expires_at_ns, task.max_attempts),
+        (i64::MAX, i32::MAX)
+    );
+    xmtp_common::time::sleep(std::time::Duration::from_nanos(interval as u64)).await;
+    TaskWorker::run_and_reschedule_task(task.clone(), &alix1.context).await?;
+    let kept = add_task().expect("the retry task is kept");
+    assert!(kept.next_attempt_at_ns > task.next_attempt_at_ns);
+    assert!(!has_alix3()?);
+
+    drop(restore);
+    let sequence = db.get_latest_sequence_id_for_inbox(alix1.inbox_id())?;
+    let _restarted = crate::builder::ClientBuilder::from_client(alix1.client.clone())
+        .with_disable_workers(false)
+        .worker_config(crate::worker::WorkerConfig::default())
+        .device_sync_worker_mode(crate::builder::DeviceSyncMode::Enabled)
+        .build()
+        .await?;
+    xmtp_common::wait_for_eq(
+        || async {
+            let _ = receive(&alix3).await;
+            held(&alix3, &x)
+        },
+        held(&alix1, &x),
+    )
+    .await?;
+    assert!(has_alix3()?);
+    assert_eq!(
+        db.get_latest_sequence_id_for_inbox(alix1.inbox_id())?,
+        sequence
+    );
+}
+/// A sync group whose creation add failed is completed by its task even
+/// after another sync group became selected, so the peer still receives
+/// the newcomer's Welcome.
+// verifies: SYNC-014, SYNC-034
+#[xmtp_common::test(unwrap_try = true)]
+#[cfg_attr(target_arch = "wasm32", ignore)]
+async fn creation_task_adds_peers_after_its_group_loses_selection() {
+    use crate::worker::tasks::TaskWorker;
+    use xmtp_db::tasks::QueryTasks;
+
+    tester!(alix1, disable_workers);
+    let older = alix1.device_sync_client().get_sync_group().await?;
+    tester!(alix2, from: alix1, disable_workers);
+    // As when the creation add failed: the group holds only alix2.
+    let newer = MlsGroup::create_and_insert(
+        alix2.context.clone(),
+        ConversationType::Sync,
+        PreconfiguredPolicies::default().to_policy_set(),
+        GroupMetadataOptions::default(),
+        None,
+    )?;
+    let sync = alix2.device_sync_client();
+    sync.schedule_add_missing_installations_task(newer.group_id, None)?;
+    // alix1's reconcile adds alix2 to the older group; alix2 installs that
+    // Welcome later, so the older group is selected.
+    alix1.inbox_state(true).await?;
+    older.add_missing_installations().await?;
+    alix2.sync_welcomes().await?;
+    assert_eq!(sync.primary_sync_group()?.unwrap().group_id, older.group_id);
+
+    for task in alix2.context.db().get_tasks()? {
+        TaskWorker::run_and_reschedule_task(task, &alix2.context).await?;
+    }
+    alix1.sync_welcomes().await?;
+    assert!(alix1.group(&newer.group_id).is_ok());
 }
 
 // A root HMAC key that another installation syncs is a `hmac_keys.updated`
@@ -1210,7 +1379,7 @@ async fn stored_preference_logs_omit_secret_material() {
 /// stops before its worker runs still sends it all when it runs again: a
 /// time-0 record, an inbox record for a DM the newcomer holds no group for,
 /// and the root key.
-// verifies: SYNC-014, SYNC-028
+// verifies: SYNC-014, SYNC-035
 #[xmtp_common::test(unwrap_try = true)]
 #[cfg_attr(target_arch = "wasm32", ignore)]
 async fn newcomer_gets_everything_after_peer_restart() {
@@ -1277,7 +1446,7 @@ async fn newcomer_gets_everything_after_peer_restart() {
 
 /// A peer that holds no root key makes one when it installs a newcomer's
 /// sync Welcome, owes it, and reports it.
-// verifies: SYNC-028, SYNC-026, EVENT-001
+// verifies: SYNC-035, SYNC-026, EVENT-001
 #[xmtp_common::test(unwrap_try = true)]
 #[cfg_attr(target_arch = "wasm32", ignore)]
 async fn sync_welcome_makes_a_root_key_when_none_is_held() {
