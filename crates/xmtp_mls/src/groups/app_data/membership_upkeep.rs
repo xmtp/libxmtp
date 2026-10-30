@@ -9,7 +9,8 @@
 //! Each one passes the receiver's own validation against the post-commit
 //! membership before it is kept; a change the committer may not make is
 //! dropped, so upkeep never blocks the commit it rides on. Receivers require
-//! none of it.
+//! none of it. A commit whose own proposals would grow the dictionary past
+//! its total (META-077) is refused here.
 
 use std::collections::{BTreeSet, HashSet};
 
@@ -32,7 +33,7 @@ use xmtp_mls_common::{
     tls_set::{TlsSet, TlsSetDelta},
 };
 use xmtp_mls_validation::commit::{
-    AppDataUpdateInCommit, extract_commit_participant, read_committed_metadata,
+    AppDataPostStates, AppDataUpdateInCommit, extract_commit_participant, read_committed_metadata,
     validate_app_data_update_sequence,
 };
 use xmtp_proto::{types::ConversationType, xmtp::mls::message_contents::ComponentType};
@@ -42,7 +43,8 @@ use crate::groups::GroupError;
 
 /// The inline `AppDataUpdate` proposals this client adds to a commit, in
 /// addition to the group's pending proposals, and the dictionary updates
-/// of a commit that carries both, in the order OpenMLS applies them.
+/// of a commit that carries both, in the order OpenMLS applies them. Fails
+/// when the whole commit would grow the dictionary past its total.
 // implements: META-067, GMOD-039, META-077
 pub(crate) fn membership_upkeep(
     group: &OpenMlsGroup,
@@ -152,6 +154,8 @@ pub(crate) fn membership_upkeep(
             }
         }
     }
+    // An intent's own proposals are pending too, so check the whole commit.
+    batch.fits(&AppDataPostStates::new())?;
     Ok((proposals, batch.updates()))
 }
 

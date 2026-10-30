@@ -17,6 +17,8 @@ use tls_codec::VLBytes;
 use tls_codec::{Deserialize, Serialize};
 use xmtp_db::{
     TransactionOutcome::Continue,
+    group_intent::IntentState,
+    group_message::MsgQueryArgs,
     incoming_envelope::{StreamTopic, TerminalRejection},
     prelude::*,
 };
@@ -582,9 +584,10 @@ fn dictionary<C: XmtpSharedContext>(group: &MlsGroup<C>) -> Result<AppDataDictio
 }
 
 /// A DM participant fills application maps until the next one would grow
-/// the dictionary past 4 MiB: that write is refused, nothing is published,
-/// and the peer's dictionary is unchanged. A commit that also empties a map
-/// is judged by the total it leaves.
+/// the dictionary past 4 MiB: that write is refused as a field write and as a
+/// payload intent, which fails without blocking the next intent. Nothing of
+/// it is published, and the peer's dictionary is unchanged. A commit that
+/// also empties a map is judged by the total it leaves.
 // verifies: META-077
 #[xmtp_common::test(unwrap_try = true)]
 // Dozens of multi-MiB commits outlast the wasm job's time limit.
@@ -647,13 +650,34 @@ async fn test_dictionary_growth_is_bounded() {
         fill_maps(1).await,
         Err(GroupError::MetadataField(FieldError::Denied(_)))
     ));
+    // The same map as a payload intent fails at once, without publishing,
+    // and the message queued after it is still sent.
+    let payload = (0..8u8).fold(TlsMapDelta::<VLBytes, VLBytes>::new(), |delta, k| {
+        delta.insert(VLBytes::new(vec![k]), VLBytes::new(vec![k; 8000]))
+    });
+    let unused = ComponentId::new(0xC110 + FIELDS - 1);
+    let payload = AppDataUpdateIntentData::new(unused.as_u16(), payload.tls_serialize_detached()?);
+    let refused = QueueIntent::app_data_update()
+        .data(Vec::<u8>::from(payload))
+        .queue(&dm)?;
+    dm.send_message(b"after", Default::default()).await?;
+    let failed =
+        dm.context
+            .db()
+            .find_group_intents(dm.group_id, Some(vec![IntentState::Error]), None)?;
+    assert!(failed.iter().any(|intent| intent.id == refused.id));
     bo_dm.sync().await?;
     assert_eq!(last_rejection(&bo_dm)?, None);
     assert_eq!(dictionary(&bo_dm)?, expected);
+    let messages = bo_dm.find_messages(&MsgQueryArgs::default())?;
+    assert!(
+        messages
+            .iter()
+            .any(|m| m.decrypted_message_bytes == b"after")
+    );
 
     // The same map is accepted when the commit also empties another, even
     // though the map comes first.
-    let unused = ComponentId::new(0xC110 + FIELDS - 1);
     let [unused, first] = [unused, ComponentId::new(0xC110)].map(MetadataFieldRef::new);
     let empty = (0..8u8).map(|k| MapMutation::Delete(FieldKey::Bytes(vec![k])));
     let empty = ComponentMutation::MapDelta(empty.collect());

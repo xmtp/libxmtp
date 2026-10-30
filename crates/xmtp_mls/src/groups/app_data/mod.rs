@@ -591,7 +591,8 @@ pub enum GroupAppDataError<StorageError: std::error::Error> {
     /// tag mismatch on the wire if it ever escaped.
     #[error("apply payload error: {0}")]
     ApplyPayload(#[from] xmtp_mls_common::app_data::component_source::ComponentSourceError),
-    /// Computing the removed-member cleanup for a swept removal failed.
+    /// Computing the removed-member cleanup for a swept removal failed, or
+    /// the commit would grow the dictionary past its total.
     #[error("membership upkeep error: {0}")]
     Upkeep(#[source] Box<crate::groups::GroupError>),
 }
