@@ -849,7 +849,7 @@ pub(crate) mod tests {
 
         // The epoch comes from the clock, so ask for the fixed one by its delta.
         let delta = EPOCH - hmac_epoch();
-        let keys = group.hmac_keys_in(&db, delta..=delta)?;
+        let keys = group.hmac_keys_in(&db, alix.context.events(), delta..=delta)?;
         assert_eq!(keys.len(), 1);
         assert_eq!(keys[0].epoch, EPOCH);
         assert_eq!(hex::encode(keys[0].key), DERIVED_KEY);

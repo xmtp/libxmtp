@@ -1307,6 +1307,37 @@ async fn sync_welcome_makes_a_root_key_when_none_is_held() {
     );
 }
 
+/// A root key made in a write that rolls back is not reported: its events
+/// go out only when the write that stores it commits.
+// verifies: EVENT-001, SYNC-026
+#[xmtp_common::test(unwrap_try = true)]
+async fn root_key_made_in_a_rolled_back_write_is_not_reported() {
+    use xmtp_db::TransactionOutcome;
+    use xmtp_events::{EventFilter, EventKind};
+    tester!(alix, disable_workers);
+    let group = alix.create_group(None, None)?;
+    let db = alix.context.db();
+    assert!(StoredUserPreferences::load(&db)?.hmac_key.is_none());
+    let events = alix
+        .context
+        .events()
+        .subscribe_app(EventFilter::new([EventKind::HmacKeysUpdated]))?;
+    crate::state_tx::state_write_with_events(
+        alix.context.mls_storage(),
+        alix.context.events(),
+        |tx, events| {
+            group.hmac_keys_in(tx.storage().db(), events, 0..=0)?;
+            Ok::<_, StorageError>(TransactionOutcome::<()>::Rollback)
+        },
+    )?;
+    assert!(StoredUserPreferences::load(&db)?.hmac_key.is_none());
+    assert!(events.drain().is_empty());
+    // The same write, committed, reports the key once.
+    group.hmac_keys(0..=0)?;
+    assert!(StoredUserPreferences::load(&db)?.hmac_key.is_some());
+    assert_eq!(events.drain().len(), 1);
+}
+
 /// A value learned from an older sync group is passed on to the selected
 /// one, so it reaches a newcomer whose replay was already sent.
 // verifies: SYNC-027

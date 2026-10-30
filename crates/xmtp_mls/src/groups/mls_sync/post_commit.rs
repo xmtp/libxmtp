@@ -254,32 +254,34 @@ where
         &self,
         epoch_delta_range: RangeInclusive<i64>,
     ) -> Result<Zeroizing<Vec<HmacKey>>, StorageError> {
-        crate::state_tx::state_write(self.context.mls_storage(), |tx| {
-            self.hmac_keys_in(tx.storage().db(), epoch_delta_range)
-                .map(Continue)
-        })
+        crate::state_tx::state_write_with_events(
+            self.context.mls_storage(),
+            self.context.events(),
+            |tx, events| {
+                self.hmac_keys_in(tx.storage().db(), events, epoch_delta_range)
+                    .map(Continue)
+            },
+        )
         .map(TransactionOutcome::into_continued)
     }
 
     /// Derive the group's HMAC key for each epoch in `epoch_delta_range`,
     /// relative to the current HMAC epoch. Generates and stores a root key
-    /// when none is stored.
+    /// when none is stored, and reports it to `events`, which the caller
+    /// emits once its transaction commits.
     ///
     /// The vector is wiped on drop, including slots that `pop()` vacated.
     // implements: PUSH-258
     pub(crate) fn hmac_keys_in(
         &self,
         conn: impl xmtp_db::DbQuery,
+        events: &impl xmtp_events::EventWriter<crate::subscriptions::internal::InternalEvent>,
         epoch_delta_range: RangeInclusive<i64>,
     ) -> Result<Zeroizing<Vec<HmacKey>>, StorageError> {
         // implements: SYNC-026
         let (root_key, made) = ensure_root_key(&conn)?;
         if made {
-            crate::subscriptions::internal::emit_root_key_changed(
-                self.context.events(),
-                &conn,
-                true,
-            )?;
+            crate::subscriptions::internal::emit_root_key_changed(events, &conn, true)?;
         }
         let root_key = root_key.as_slice();
         let group_id = self.group_id.as_ref();
@@ -315,12 +317,17 @@ where
         &self,
         payloads: Vec<(&[u8], bool)>,
     ) -> Result<Vec<PublishUnit>, GroupError> {
-        crate::state_tx::state_write(self.context.mls_storage(), |tx| {
-            tx.with_group(self.group_id, |group, storage| {
-                let envelopes = self.prepare_group_envelopes_in(storage.db(), group, payloads)?;
-                Ok::<_, GroupError>(Continue(vec![PublishUnit::new(envelopes)?]))
-            })
-        })
+        crate::state_tx::state_write_with_events(
+            self.context.mls_storage(),
+            self.context.events(),
+            |tx, events| {
+                tx.with_group(self.group_id, |group, storage| {
+                    let envelopes =
+                        self.prepare_group_envelopes_in(storage.db(), events, group, payloads)?;
+                    Ok::<_, GroupError>(Continue(vec![PublishUnit::new(envelopes)?]))
+                })
+            },
+        )
         .map(TransactionOutcome::into_continued)
     }
 
@@ -332,6 +339,7 @@ where
     pub(super) fn prepare_group_envelopes_in(
         &self,
         conn: impl xmtp_db::DbQuery,
+        events: &impl xmtp_events::EventWriter<crate::subscriptions::internal::InternalEvent>,
         group: &OpenMlsGroup,
         payloads: Vec<(&[u8], bool)>,
     ) -> Result<Vec<ClientEnvelope>, GroupError> {
@@ -340,7 +348,7 @@ where
             group.group_id().as_slice(),
         )
         .map_err(OutgoingPreparationError::GroupKeys)?;
-        let hmac_keys = self.hmac_keys_in(conn, 0..=0)?;
+        let hmac_keys = self.hmac_keys_in(conn, events, 0..=0)?;
         let hmac_key = hmac_keys.last().expect("Range of count 1 was provided.");
         let signed = group_message_envelopes(hmac_key, &keys, payloads);
         #[cfg(test)]
