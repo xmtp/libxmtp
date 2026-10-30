@@ -440,10 +440,10 @@ impl<Context: XmtpSharedContext> Client<Context> {
         }
     }
 
-    /// Create a group with `targets` as its members, in one commit. Every
-    /// target resolves before the group exists, so a target with no inbox
-    /// leaves no group: a handle fails with [`HandleError::NotFound`], an
-    /// account with [`GroupError::AddressNotFound`].
+    /// Create a group with `targets` as its members, in one commit. Targets,
+    /// member identities, and key packages resolve before the group is stored.
+    /// A target with no inbox leaves no group: a handle fails with
+    /// [`HandleError::NotFound`], an account with [`GroupError::AddressNotFound`].
     pub async fn create_group_with_targets(
         &self,
         targets: &[IdentityTarget],

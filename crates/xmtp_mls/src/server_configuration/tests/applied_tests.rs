@@ -7,6 +7,7 @@
 //! against the shared backend.
 
 use std::sync::Arc;
+use xmtp_db::group::GroupQueryArgs;
 
 use xmtp_configuration::{
     AttachmentsConfiguration, BACKEND_DEFAULT_MAX_UPLOAD_BYTES, ConfigProvider,
@@ -139,7 +140,7 @@ async fn provider_attachment_valid_offer_and_default_limit_are_kept() {
 
 // The deployment's ceiling is checked before the commit is built and
 // before anything is published.
-// verifies: CONF-043
+// verifies: CONF-043, GMOD-056
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_lowered_group_member_limit_refuses_the_addition() {
     crate::tester!(bo);
@@ -165,6 +166,14 @@ async fn a_lowered_group_member_limit_refuses_the_addition() {
     // first commit and so is invisible to `members()`. Two invitees would make
     // three, and are refused; one fits exactly.
     crate::tester!(dana, config_provider: provider(|c| c.mls.max_group_members = 2));
+    let error = dana
+        .create_group_with_members(&[bo.inbox_id(), caro.inbox_id()], None, None)
+        .await
+        .map(|_| ())
+        .expect_err("creation must respect the ceiling");
+    assert!(matches!(error, crate::client::ClientError::Group(error)
+        if matches!(*error, GroupError::UserLimitExceeded)));
+    assert!(dana.find_groups(GroupQueryArgs::default())?.is_empty());
     let group = dana.create_group(None, None)?;
     let error = group.add_members_by_identity(&invitees).await.unwrap_err();
     assert!(

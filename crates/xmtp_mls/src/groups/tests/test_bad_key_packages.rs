@@ -213,17 +213,16 @@ async fn test_create_from_welcome_validation() {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-#[tokio::test(flavor = "current_thread")]
+// verifies: GMOD-056
+#[xmtp_common::test(unwrap_try = true)]
 async fn test_create_group_with_member_all_malformed_installations() {
     use crate::utils::test_mocks_helpers::set_test_mode_upload_malformed_keypackage;
-    // 1) Prepare clients
     tester!(alix);
 
     // bola has two installations
     tester!(bola_1);
     tester!(bola_2, from: bola_1);
 
-    // 2) Mark both installations as malformed
     set_test_mode_upload_malformed_keypackage(
         true,
         Some(vec![
@@ -232,22 +231,20 @@ async fn test_create_group_with_member_all_malformed_installations() {
         ]),
     );
 
-    // 3) Attempt to create the group, which should fail
     let result = alix
         .create_group_with_identifiers(&[bola_1.identifier()], None, None)
         .await;
-    // 4) Ensure group creation failed
     assert!(
         result.is_err(),
         "Group creation should fail when all installations have bad key packages"
     );
 
-    // 5) Ensure Bola does not have any groups on either installation
-    bola_1.sync_welcomes().await.unwrap();
-    bola_2.sync_welcomes().await.unwrap();
+    assert!(alix.find_groups(GroupQueryArgs::default())?.is_empty());
+    bola_1.sync_welcomes().await?;
+    bola_2.sync_welcomes().await?;
 
-    let bola_1_groups = bola_1.find_groups(GroupQueryArgs::default()).unwrap();
-    let bola_2_groups = bola_2.find_groups(GroupQueryArgs::default()).unwrap();
+    let bola_1_groups = bola_1.find_groups(GroupQueryArgs::default())?;
+    let bola_2_groups = bola_2.find_groups(GroupQueryArgs::default())?;
 
     assert_eq!(
         bola_1_groups.len(),

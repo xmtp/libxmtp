@@ -1,5 +1,6 @@
 //! Construction, loading, proposal capability, and insertion.
 
+use super::intents::UpdateGroupMembershipIntentData;
 use super::*;
 use crate::subscriptions::internal::{dm_event_context, emit_consent_changes};
 use xmtp_db::consent_record::{
@@ -14,7 +15,7 @@ use xmtp_mls_common::group_keys::{GroupKeys, GroupRoot};
 
 /// The MLS group id of a group being inserted.
 #[derive(Clone, Copy)]
-enum NewGroupId {
+pub(crate) enum NewGroupId {
     /// A new group, named by the group signing key of its root, with the
     /// commit-log id the same root derives.
     Keyed {
@@ -384,21 +385,48 @@ where
         oneshot_message: Option<OneshotMessage>,
         emit_created_event: bool,
     ) -> Result<StoredGroup, GroupError> {
+        let draft = Self::prepare_new(
+            context,
+            existing_group_id,
+            conversation_type,
+            permissions_policy_set,
+            &opts,
+            oneshot_message.as_ref(),
+        )?;
+        Self::store_new(
+            context,
+            draft,
+            membership_state,
+            conversation_type,
+            opts,
+            emit_created_event,
+            None,
+        )
+        .map(|(group, _)| group)
+    }
+
+    pub(crate) fn prepare_new(
+        context: &Context,
+        existing_group_id: Option<&[u8]>,
+        conversation_type: ConversationType,
+        permissions_policy_set: PolicySet,
+        opts: &GroupMetadataOptions,
+        oneshot_message: Option<&OneshotMessage>,
+    ) -> Result<(NewGroupId, MlsGroupCreateConfig), GroupError> {
         assert!(conversation_type != ConversationType::Dm);
 
         let creator_inbox_id = context.inbox_id();
-        let commit_log_enabled = context.server_configuration().commit_log_enabled();
         let (group_id, root) = NewGroupId::draw(existing_group_id)?;
         let dictionary = initial_dictionary(
             InitialGroupKind::Group {
                 conversation_type,
-                oneshot_message: oneshot_message.as_ref(),
+                oneshot_message,
             },
             &permissions_policy_set
                 .to_proto()
                 .map_err(group_permissions::GroupMutablePermissionsError::from)
                 .map_err(MetadataPermissionsError::from)?,
-            &opts,
+            opts,
             creator_inbox_id,
             root.as_ref(),
             &context
@@ -411,6 +439,20 @@ where
         drop(root);
         let group_config = build_group_config(dictionary)?;
 
+        Ok((group_id, group_config))
+    }
+
+    pub(crate) fn store_new(
+        context: &Context,
+        draft: (NewGroupId, MlsGroupCreateConfig),
+        membership_state: GroupMembershipState,
+        conversation_type: ConversationType,
+        opts: GroupMetadataOptions,
+        emit_created_event: bool,
+        add: Option<UpdateGroupMembershipIntentData>,
+    ) -> Result<(StoredGroup, Option<StoredGroupIntent>), GroupError> {
+        let (group_id, group_config) = draft;
+        let commit_log_enabled = context.server_configuration().commit_log_enabled();
         if !emit_created_event || conversation_type.is_virtual() {
             if emit_created_event && conversation_type == ConversationType::Sync {
                 return crate::state_tx::state_write_with_events(
@@ -440,7 +482,7 @@ where
                         Ok::<_, GroupError>(Continue(stored_group))
                     },
                 )
-                .map(TransactionOutcome::into_continued);
+                .map(|outcome| (outcome.into_continued(), None));
             }
             return state_write(context.mls_storage(), |tx| {
                 let (stored_group, _) = Self::insert_group_row(
@@ -455,7 +497,7 @@ where
                 )?;
                 Ok::<_, GroupError>(Continue(stored_group))
             })
-            .map(TransactionOutcome::into_continued);
+            .map(|outcome| (outcome.into_continued(), None));
         }
 
         let result = crate::state_tx::state_write_with_events(
@@ -473,7 +515,7 @@ where
                     commit_log_enabled,
                 )?;
                 if !created {
-                    return Ok::<_, GroupError>(Continue(stored_group));
+                    return Ok::<_, GroupError>(Continue((stored_group, None)));
                 }
                 let storage = tx.storage();
                 let db = storage.db();
@@ -484,6 +526,20 @@ where
                     .into_iter()
                     .collect();
                 emit_consent_changes(context, events, &db, &changes)?;
+                let intent = add
+                    .map(|data| {
+                        let group = Self::new(
+                            context.clone(),
+                            stored_group.id,
+                            None,
+                            conversation_type,
+                            stored_group.created_at_ns,
+                        );
+                        QueueIntent::update_group_membership()
+                            .data(data)
+                            .queue_in(&db, &group)
+                    })
+                    .transpose()?;
                 context.task_channels().mark_notification_changed();
                 events.emit(
                     Some(xmtp_events::ClientEvent::ConversationJoined(
@@ -499,7 +555,7 @@ where
                         is_sync: false,
                     }),
                 );
-                Ok::<_, GroupError>(Continue(stored_group))
+                Ok::<_, GroupError>(Continue((stored_group, intent)))
             },
         )?
         .into_continued();
