@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
-// SwiftPM and CocoaPods read the same archive receipt.
+// SwiftPM reads the versioned archive receipt.
 export function updateSpmChecksum(
   packageSwiftPath: string,
   url: string,
