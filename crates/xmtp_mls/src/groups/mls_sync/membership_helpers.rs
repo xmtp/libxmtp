@@ -51,6 +51,12 @@ pub(super) fn extract_message_sender(
     if let Sender::Member(leaf_node_index) = decrypted_message.sender()
         && let Some(member) = openmls_group.member_at(*leaf_node_index)
         && member.credential.eq(decrypted_message.credential())
+        // implements: PROC-059
+        // All installations of an inbox share a credential, so a past-epoch
+        // signer must also hold the same key at its leaf today.
+        && openmls_group
+            .member_at_epoch(decrypted_message.epoch(), *leaf_node_index)
+            .is_some_and(|signer| signer.signature_key == member.signature_key)
     {
         let basic_credential = BasicCredential::try_from(member.credential)?;
         let sender_inbox_id = parse_credential(basic_credential.identity())?;
