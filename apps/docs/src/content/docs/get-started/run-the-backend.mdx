@@ -277,7 +277,7 @@ how callers are named, and how proxies affect the client address.
 | Key               | Type                 | Default | Purpose                                                                                                                            |
 | ----------------- | -------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------- |
 | `enabled`         | boolean              | `true`  | `false` admits every request and allocates no limiter.                                                                             |
-| `max_memory_mib`  | integer, 1 to 65536  | `100`   | Memory for the per-caller counts, allocated at startup. When it is full, the least-spent callers are forgotten.                    |
+| `max_memory_mib`  | integer, 1 to 65536  | `100`   | Memory for the per-caller counts, allocated at startup. When a caller's part of it is full, the least-spent caller there is forgotten.                    |
 | `trusted_proxies` | array of IP networks | `[]`    | Proxies whose `X-Forwarded-For` entries name the client. List only proxies that append the address they received the request from. |
 | `categories`      | table of categories  | `{}`    | Limits by category and tier. A category left out gets the defaults in the deployment overview.                                     |
 | `overrides`       | array of tables      | `[]`    | Limits for one caller, which replace every other limit of the categories they name.                                                |
@@ -286,7 +286,7 @@ Under `categories.<category>`, set a list of limits for the tier `default`, or
 for one auth type: `ip`, `jwt`, or `api_key`. An auth type without its own list
 uses `default`, and a category without `default` uses the built-in defaults.
 Each limit is `{ count = N, window_seconds = S }`: a burst of N, then N per S
-seconds. A list holds at most three limits, each with its own window, and a
+seconds, with N at most 1,000,000,000 × S. A list holds at most three limits, each with its own window, and a
 request must fit all of them. An empty list admits every request in that
 category.
 

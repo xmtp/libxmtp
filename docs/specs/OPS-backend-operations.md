@@ -152,7 +152,7 @@ In the catalogue, "RPC" means the three labels of the route table. `grpc_code` i
 | `xmtp_auth_jwks_refresh_total` | counter | `result` (`ok`, `error`) | One per JWKS refresh attempt, by the fetch's own result. |
 | `xmtp_auth_keys` | gauge | none | Keys in the key set. |
 | `xmtp_rate_limit_rejections_total` | counter | `category` (the categories of the RATE category table), `auth_type` (`api_key`, `jwt`, `ip`) | One per denied spend (RATE-010). |
-| `xmtp_rate_limit_evictions_total` | counter | none | Rate-limit entries forgotten while not at full allowance, because the state was full (RATE-051). |
+| `xmtp_rate_limit_evictions_total` | counter | none | Rate-limit entries forgotten while not at full allowance, because a new caller key had no room where it can be recorded (RATE-051). |
 | `xmtp_push_recipients_total` | counter | `action` (`registered`, `unregistered`, `expired`, `dead`) | Push recipient changes. |
 | `xmtp_push_deliveries_total` | counter | `channel` (`apns`, `fcm`, `http`), `outcome` (`delivered`, `failed`, `rejected`, `mismatch`, `dead`, `suppressed`) | Completed push delivery attempts. |
 | `xmtp_push_dispatcher` | gauge | none | 1 while this instance holds the push dispatcher lock. |

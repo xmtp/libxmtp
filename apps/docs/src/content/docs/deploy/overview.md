@@ -323,8 +323,10 @@ across them. A restart forgets every caller's spending. The counts take
 `rate_limits.max_memory_mib` of memory, 100 MiB by default, allocated at
 startup; include it when you size the instance. On 2026-10-29 the backend
 image measured about 115 MiB resident at startup with the defaults, and about
-12.5 MiB with `rate_limits.enabled = false`. When the table is full, the
-backend forgets the callers that have spent least rather than refuse anyone.
+12.5 MiB with `rate_limits.enabled = false`. A caller can be recorded in
+only a small part of the table. When that part is full, the backend forgets
+the caller there that has spent least rather than refuse anyone, which can
+start well before the whole table is full.
 A rising `xmtp_rate_limit_evictions_total` means it is too small.
 `xmtp_rate_limit_rejections_total` counts refusals by category and auth type.
 
