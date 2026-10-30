@@ -41,12 +41,17 @@ fn out_of_range(error: &xmtp_api::ApiError) -> bool {
 
 /// An `AppDataUpdate` that cannot apply to the current component value, such
 /// as adding an existing admin or removing a non-admin, fails every attempt.
-/// Two admins promoting the same member at once reach this state.
+/// Two admins promoting the same member at once reach this state. So does a
+/// commit that would grow the dictionary past its total.
 fn inapplicable_app_data(error: &GroupError) -> bool {
     let source = match error {
         GroupError::AppDataCommit(GroupAppDataError::ApplyPayload(source)) => source,
         GroupError::AppDataCommit(GroupAppDataError::Upkeep(inner)) => match inner.as_ref() {
             GroupError::ComponentSource(source) => source,
+            // implements: META-077
+            GroupError::CommitValidation(CommitValidationError::Rule(
+                CommitRuleError::InsufficientPermissions,
+            )) => return true,
             _ => return false,
         },
         _ => return false,
