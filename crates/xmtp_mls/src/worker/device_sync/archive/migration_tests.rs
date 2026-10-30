@@ -19,7 +19,7 @@ const DM: &str = "a06859a4aebe75c970b8875698fbeddb";
 /// stored.
 const APPDATA_GROUP: &str = "f23017122a085cf60892ae13ae53412c";
 
-// verifies: MIG-001, MIG-003, MIG-005, MIG-006, ARCH-007, ARCH-010, CONS-002
+// verifies: MIG-001, MIG-003, MIG-005, MIG-006, ARCH-007, ARCH-010, CONS-050, CONS-061, MIG-009
 #[xmtp_common::test(unwrap_try = true)]
 async fn legacy_migration_imports_into_empty_and_populated_stores_and_retries() {
     let directory = tempfile::tempdir()?;
@@ -195,7 +195,9 @@ async fn legacy_migration_imports_into_empty_and_populated_stores_and_retries() 
             ] {
                 let consent = destination
                     .db()
-                    .get_consent_record(prefix.repeat(32), ConsentType::InboxId)?
+                    .consent_row(&xmtp_db::consent_record::ConsentKey::inbox(
+                        &prefix.repeat(32),
+                    ))?
                     .expect("imported consent record");
                 assert_eq!(consent.state, state);
                 assert_eq!(consent.consented_at_ns, 1700000000000000009);
@@ -362,9 +364,11 @@ async fn react_native_5_7_0_database_imports_into_a_client() {
             Some("denied") => ConsentState::Denied,
             other => panic!("unexpected fixture state {other:?}"),
         };
+        let key =
+            xmtp_db::consent_record::ConsentKey::parse(kind, &text(&record["entity"])).unwrap();
         let consent = destination
             .db()
-            .get_consent_record(text(&record["entity"]), kind)?
+            .consent_row(&key)?
             .expect("imported consent record");
         assert_eq!(consent.state, state);
     }

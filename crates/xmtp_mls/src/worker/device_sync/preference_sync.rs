@@ -1,291 +1,95 @@
 use super::*;
-use std::collections::{HashMap, HashSet};
-use xmtp_common::time::now_ns;
 use xmtp_cryptography::secret::Secret;
-use xmtp_db::beyond_received_bound;
-use xmtp_db::consent_record::StoredConsentRecord;
-use xmtp_db::user_preferences::{HMAC_ROOT_KEY_LEN, HmacKey, StoredUserPreferences};
-use xmtp_proto::ConversionError;
-use xmtp_proto::xmtp::device_sync::content::HmacKeyUpdate as HmacKeyUpdateProto;
+use xmtp_db::consent_record::{
+    ConsentChange, ConsentWrite, MAX_AHEAD_NS, Owed, StoredConsentRecord, parse_consent_save,
+    write_consent,
+};
+use xmtp_db::group_message::StoredGroupMessage;
+use xmtp_db::user_preferences::{RootKeyWrite, write_root_key};
 use xmtp_proto::xmtp::device_sync::content::{
-    PreferenceUpdate as PreferenceUpdateProto, PreferenceUpdates,
-    device_sync_content::Content as ContentProto, preference_update::Update as UpdateProto,
+    PreferenceUpdate as PreferenceUpdateProto, preference_update::Update as UpdateProto,
 };
 
-/// `Debug` shows the HMAC root key only as its length: `Secret` redacts it.
+/// A stored preference change, for the legacy in-process streams. `Debug`
+/// shows the HMAC root key only as its length: `Secret` redacts it.
 #[derive(Clone, Debug)]
 pub enum PreferenceUpdate {
     Consent(StoredConsentRecord),
     Hmac { key: Secret, cycled_at_ns: i64 },
 }
 
-impl<Context> DeviceSyncClient<Context>
-where
-    Context: XmtpSharedContext,
-{
-    // implements: SYNC-020
-    pub(crate) async fn sync_preferences(
-        &self,
-        updates: Vec<PreferenceUpdate>,
-    ) -> Result<Vec<PreferenceUpdate>, DeviceSyncError> {
-        self.send_device_sync_message(ContentProto::PreferenceUpdates(PreferenceUpdates {
-            updates: updates.clone().into_iter().map(From::from).collect(),
-        }))
-        .await?;
-
-        updates.iter().for_each(|update| match update {
-            PreferenceUpdate::Consent(_) => self.metrics.increment_metric(SyncMetric::ConsentSent),
-            PreferenceUpdate::Hmac { .. } => self.metrics.increment_metric(SyncMetric::HmacSent),
-        });
-
-        #[cfg(test)]
-        worker::test_hooks::observe_preferences(
-            self.context.installation_id(),
-            worker::test_hooks::PreferenceStage::Published,
-            &updates,
-        );
-        Ok(updates)
-    }
-
-    // implements: SYNC-015
-    pub(crate) async fn cycle_hmac(&self) -> Result<(), DeviceSyncError> {
-        tracing::info!("Sending new HMAC key to sync group.");
-
-        self.sync_preferences(vec![PreferenceUpdate::Hmac {
-            key: HmacKey::random_key(),
-            cycled_at_ns: now_ns(),
-        }])
-        .await?;
-
-        Ok(())
-    }
+/// What one sync message changed.
+#[derive(Default)]
+pub(super) struct Applied {
+    pub consent: Vec<ConsentChange>,
+    /// Set when the root key changed: whether the change was marked owed.
+    pub root_key: Option<bool>,
 }
 
-// implements: SYNC-023
-pub(super) struct StoredPreferenceUpdates {
-    pub legacy: Vec<PreferenceUpdate>,
-    pub public: Vec<PreferenceUpdate>,
-}
-
-/// Store synced preference updates. `updates` is borrowed, so a transaction
+/// Merge a peer's sync message. `updates` is borrowed, so a transaction
 /// retry copies no HMAC root key; the caller wipes the keys.
-// implements: SYNC-017, CONS-003, SYNC-022, CONS-010
-pub(super) fn store_preference_updates(
+// implements: CONS-051, CONS-061, SYNC-023, SYNC-027, SYNC-032
+pub(super) fn apply_preference_updates(
+    db: &impl DbQuery,
+    own_inbox: &str,
+    msg: &StoredGroupMessage,
     updates: &[PreferenceUpdateProto],
-    conn: &impl DbQuery,
-    handle: &WorkerMetrics<SyncMetric>,
-) -> Result<StoredPreferenceUpdates, StorageError> {
-    // Validate before reducing so an unusable entry cannot displace a usable one.
-    let mut reduced = HashMap::new();
-    for (index, update) in updates.iter().filter_map(|u| u.update.as_ref()).enumerate() {
-        let key = match update {
-            UpdateProto::Consent(consent) => {
-                if let Err(error) = StoredConsentRecord::try_from(consent.clone()) {
-                    tracing::warn!(%error, "skipping an unusable synced consent record");
+) -> Result<Applied, StorageError> {
+    // A value from the selected sync group keeps the mark; one from
+    // an older group is passed on.
+    let selected = db.all_sync_groups()?.into_iter().next();
+    let owed = match selected {
+        Some(group) if group.id == msg.group_id => Owed::Keep,
+        _ => Owed::Mark,
+    };
+    let mut applied = Applied::default();
+    for update in updates.iter().filter_map(|update| update.update.as_ref()) {
+        match update {
+            UpdateProto::Consent(save) => {
+                let Some((key, value)) = parse_consent_save(save) else {
+                    tracing::warn!("skipping an unusable synced consent record");
                     continue;
-                }
-                if beyond_received_bound(consent.consented_at_ns) {
-                    tracing::warn!("skipping a synced consent record timed more than a day ahead");
-                    continue;
-                }
-                Some((consent.entity_type, consent.entity.as_str()))
+                };
+                // A 16-byte DM id is its peer's record.
+                let key = key.pre8_dm(db, own_inbox)?.map_or(key, |(peer, _)| peer);
+                let write = ConsentWrite::from_peer(value, msg.sent_at_ns);
+                applied
+                    .consent
+                    .extend(write_consent(db, &key, write, owed)?);
             }
             UpdateProto::Hmac(hmac) => {
-                if hmac.key.len() != HMAC_ROOT_KEY_LEN {
-                    tracing::warn!(
-                        len = hmac.key.len(),
-                        "skipping a synced root key that is not 42 bytes"
-                    );
-                    continue;
+                let write = RootKeyWrite::Received {
+                    key: &hmac.key,
+                    cycled_at_ns: hmac.cycled_at_ns,
+                    bound_ns: msg.sent_at_ns.saturating_add(MAX_AHEAD_NS),
+                };
+                if write_root_key(db, write, owed)? {
+                    applied.root_key = Some(owed == Owed::Mark);
                 }
-                if beyond_received_bound(hmac.cycled_at_ns) {
-                    tracing::warn!("skipping a synced root key timed more than a day ahead");
-                    continue;
-                }
-                None
-            }
-        };
-        let winner = reduced.entry(key).or_insert((index, update));
-        let newer = match (update, winner.1) {
-            (UpdateProto::Consent(a), UpdateProto::Consent(b)) => {
-                (a.consented_at_ns, a.state) > (b.consented_at_ns, b.state)
-            }
-            (UpdateProto::Hmac(a), UpdateProto::Hmac(b)) => {
-                (a.cycled_at_ns, &a.key) > (b.cycled_at_ns, &b.key)
-            }
-            _ => false,
-        };
-        if newer {
-            *winner = (index, update);
-        }
-    }
-    let mut reduced: Vec<_> = reduced.into_values().collect();
-    // Keep winners in message order for the legacy batch and public events.
-    reduced.sort_unstable_by_key(|(index, _)| *index);
-    let mut changed = vec![];
-    let mut initial_consents = HashMap::new();
-    let initial_hmac = StoredUserPreferences::load(conn)?;
-    for (_, update) in reduced {
-        match update {
-            UpdateProto::Consent(consent_save) => {
-                tracing::info!(
-                    "Storing consent update from sync group. State: {:?}",
-                    consent_save.state
-                );
-
-                let consent_record: StoredConsentRecord = consent_save.clone().try_into()?;
-                let key = (
-                    consent_record.entity_type as i32,
-                    consent_record.entity.clone(),
-                );
-                if let std::collections::hash_map::Entry::Vacant(entry) =
-                    initial_consents.entry(key)
-                {
-                    let initial = conn
-                        .get_consent_record(
-                            consent_record.entity.clone(),
-                            consent_record.entity_type,
-                        )?
-                        .map(|record| record.state);
-                    entry.insert(initial);
-                }
-                let updated = conn
-                    .insert_newer_consent_record(consent_record.clone())?
-                    .state_changed;
-
-                if updated {
-                    changed.push(PreferenceUpdate::Consent(consent_record));
-                }
-
-                handle.increment_metric(SyncMetric::ConsentReceived);
-            }
-            UpdateProto::Hmac(HmacKeyUpdateProto { key, cycled_at_ns }) => {
-                tracing::info!("Storing new HMAC key from sync group");
-                let before = StoredUserPreferences::load(conn)?;
-                StoredUserPreferences::store_hmac_key(conn, key, Some(*cycled_at_ns))?;
-                let after = StoredUserPreferences::load(conn)?;
-                if before.hmac_key != after.hmac_key
-                    || before.hmac_key_cycled_at_ns != after.hmac_key_cycled_at_ns
-                {
-                    changed.push(PreferenceUpdate::Hmac {
-                        key: Secret::new(key.clone()),
-                        cycled_at_ns: *cycled_at_ns,
-                    });
-                }
-                handle.increment_metric(SyncMetric::HmacReceived);
             }
         }
     }
-
-    let final_hmac = StoredUserPreferences::load(conn)?;
-    let hmac_changed = initial_hmac.hmac_key != final_hmac.hmac_key
-        || initial_hmac.hmac_key_cycled_at_ns != final_hmac.hmac_key_cycled_at_ns;
-    let mut seen_consents = HashSet::new();
-    let mut seen_hmac = false;
-    let mut public: Vec<_> = changed
-        .iter()
-        .rev()
-        .filter(|update| match update {
-            PreferenceUpdate::Consent(record) => {
-                seen_consents.insert((record.entity_type as i32, record.entity.clone()))
-                    && initial_consents
-                        .get(&(record.entity_type as i32, record.entity.clone()))
-                        .copied()
-                        .flatten()
-                        != Some(record.state)
-            }
-            PreferenceUpdate::Hmac { .. } => {
-                !std::mem::replace(&mut seen_hmac, true) && hmac_changed
-            }
-        })
-        .cloned()
-        .collect();
-    public.reverse();
-    Ok(StoredPreferenceUpdates {
-        legacy: changed,
-        public,
-    })
-}
-
-impl TryFrom<PreferenceUpdateProto> for PreferenceUpdate {
-    type Error = ConversionError;
-    fn try_from(update: PreferenceUpdateProto) -> Result<Self, Self::Error> {
-        let Some(update) = update.update else {
-            return Err(ConversionError::Unspecified("update"));
-        };
-        update.try_into()
-    }
-}
-impl TryFrom<UpdateProto> for PreferenceUpdate {
-    type Error = ConversionError;
-    fn try_from(update: UpdateProto) -> Result<Self, Self::Error> {
-        let update = match update {
-            UpdateProto::Consent(consent) => Self::Consent(consent.try_into()?),
-            UpdateProto::Hmac(mut hmac) => Self::Hmac {
-                // Moves the decoded buffer; no copy is made.
-                key: Secret::from(std::mem::take(&mut hmac.key)),
-                cycled_at_ns: hmac.cycled_at_ns,
-            },
-        };
-        Ok(update)
-    }
-}
-
-/// The proto holds a plain copy of an HMAC root key. Encode it with
-/// `sync_message_bytes`, which wipes that copy.
-impl From<PreferenceUpdate> for PreferenceUpdateProto {
-    fn from(update: PreferenceUpdate) -> Self {
-        PreferenceUpdateProto {
-            update: Some(match update {
-                PreferenceUpdate::Consent(consent) => UpdateProto::Consent(consent.into()),
-                PreferenceUpdate::Hmac { key, cycled_at_ns } => {
-                    UpdateProto::Hmac(HmacKeyUpdateProto {
-                        key: key.as_slice().to_vec(),
-                        cycled_at_ns,
-                    })
-                }
-            }),
-        }
-    }
+    Ok(applied)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        tester,
-        worker::{device_sync::worker::SyncMetric, metrics::WorkerMetrics},
-    };
-    use xmtp_db::consent_record::{ConsentState, ConsentType};
+    use crate::tester;
+    use xmtp_db::consent_record::{ConsentKey, ConsentState, ConsentType, ConsentValue};
+    use xmtp_db::group::{ConversationType, GroupMembershipState, StoredGroup};
     use xmtp_db::user_preferences::StoredUserPreferences;
+    use xmtp_proto::types::GroupId;
+    use xmtp_proto::xmtp::device_sync::{consent_backup::ConsentSave, content::HmacKeyUpdate};
 
-    /// The fields a test compares: the consent state or the HMAC key, and the time.
-    fn fields<'a>(
-        updates: impl IntoIterator<Item = &'a PreferenceUpdate>,
-    ) -> Vec<(Option<ConsentState>, Option<Secret>, i64)> {
-        let fields = |update: &PreferenceUpdate| match update {
-            PreferenceUpdate::Consent(r) => (Some(r.state), None, r.consented_at_ns),
-            PreferenceUpdate::Hmac { key, cycled_at_ns } => {
-                (None, Some(key.clone()), *cycled_at_ns)
-            }
-        };
-        updates.into_iter().map(fields).collect()
-    }
-
-    /// `Debug` of an HMAC update, and of the update decoded from its proto,
-    /// shows no root key bytes.
-    #[xmtp_common::test(unwrap_try = true)]
+    /// `Debug` of an HMAC update shows no root key bytes.
+    #[xmtp_common::test]
     fn hmac_update_debug_omits_the_root_key() {
         let key: Vec<u8> = (0..42).map(|i| 0x80 | i).collect();
-        let decoded = PreferenceUpdate::try_from(UpdateProto::Hmac(HmacKeyUpdateProto {
-            key: key.clone(),
-            cycled_at_ns: 5,
-        }))?;
         let built = PreferenceUpdate::Hmac {
             key: key.clone().into(),
             cycled_at_ns: 5,
         };
-        assert_eq!(fields([&decoded]), fields([&built]));
         let forms = [
             hex::encode(&key),
             hex::encode_upper(&key),
@@ -294,112 +98,55 @@ mod tests {
                 .trim_matches(['[', ']'])
                 .to_owned(),
         ];
-        for debug in [format!("{decoded:?}"), format!("{:?}", vec![built])] {
-            for form in &forms {
-                assert!(
-                    !debug.contains(form.as_str()),
-                    "PreferenceUpdate Debug shows the key as {form}: {debug}"
-                );
-            }
+        let debug = format!("{:?}", vec![built]);
+        for form in &forms {
+            assert!(
+                !debug.contains(form.as_str()),
+                "PreferenceUpdate Debug shows the key as {form}: {debug}"
+            );
         }
     }
 
-    // verifies: PROC-036
-    #[cfg(not(target_arch = "wasm32"))]
-    #[xmtp_common::test(unwrap_try = true)]
-    async fn cycle_hmac_log_omits_installation_id() {
-        use futures::FutureExt;
-        use xmtp_logging::{Level, test_logging::LogCapture};
-
-        tester!(alix, disable_workers);
-        let capture = LogCapture::new(Level::Info);
-        let sync = alix.context.device_sync_client();
-        tracing::dispatcher::with_default(&capture.dispatch(), || {
-            // Poll the real call through its log emission, before network completion.
-            let _ = sync.cycle_hmac().now_or_never();
-        });
-        let output = capture.output();
-        let event = output
-            .lines()
-            .find(|line| line.contains("Sending new HMAC key to sync group."))
-            .expect("cycle_hmac emitted its INFO event");
-        assert!(
-            !event.contains(&alix.context.installation_id().to_string()),
-            "cycle_hmac log contains the full installation ID"
-        );
+    fn consent(entity_type: i32, state: i32, entity: &str, at: i64) -> PreferenceUpdateProto {
+        PreferenceUpdateProto {
+            update: Some(UpdateProto::Consent(ConsentSave {
+                entity_type,
+                state,
+                entity: entity.into(),
+                consented_at_ns: at,
+            })),
+        }
     }
 
-    // verifies: SYNC-015, SYNC-024
-    #[rstest::rstest]
-    #[xmtp_common::test(unwrap_try = true)]
-    async fn test_hmac_sync() {
-        use crate::worker::device_sync::tests::revoke;
-
-        tester!(amal_a, sync_worker);
-        tester!(amal_b, from: amal_a);
-
-        amal_a.test_has_same_sync_group_as(&amal_b).await?;
-
-        xmtp_common::wait_for_eq(
-            || async {
-                amal_a.worker().get(SyncMetric::HmacSent)
-                    + amal_b.worker().get(SyncMetric::HmacSent)
-                    >= 1
-            },
-            true,
-        )
-        .await?;
-
-        amal_a.sync_all_welcomes_and_device_sync_groups().await?;
-        amal_a
-            .worker()
-            .register_interest(SyncMetric::HmacReceived, 1)
-            .wait()
-            .await?;
-
-        // Wait for a to process the new hmac key
-        amal_b
-            .context
-            .device_sync_client()
-            .get_sync_group()
-            .await?
-            .sync()
-            .await?;
-        amal_b
-            .worker()
-            .register_interest(SyncMetric::HmacReceived, 1)
-            .wait()
-            .await?;
-
-        let pref_a = StoredUserPreferences::load(amal_a.context.db())?;
-        let pref_b = StoredUserPreferences::load(amal_b.context.db())?;
-
-        assert_eq!(pref_a.hmac_key, pref_b.hmac_key);
-
-        let sent_before_revoke = amal_a.worker().get(SyncMetric::HmacSent);
-        let received_before_revoke = amal_a.worker().get(SyncMetric::HmacReceived);
-        revoke(&amal_a, &amal_b).await?;
-        amal_a
-            .worker()
-            .register_interest(SyncMetric::HmacSent, sent_before_revoke + 1)
-            .wait()
-            .await?;
-        let sync_group = amal_a.device_sync_client().get_sync_group().await?;
-        let revoked = amal_b.context.installation_id().to_vec();
-        let leaves = sync_group.with_group_snapshot(|g| Ok(g.members().collect::<Vec<_>>()))?;
-        assert!(leaves.iter().all(|leaf| leaf.signature_key != revoked));
-
-        amal_a.sync_all_welcomes_and_device_sync_groups().await?;
-        amal_a
-            .worker()
-            .register_interest(SyncMetric::HmacReceived, received_before_revoke + 1)
-            .wait()
-            .await?;
-        let new_pref_a = StoredUserPreferences::load(amal_a.context.db())?;
-        assert_ne!(pref_a.hmac_key, new_pref_a.hmac_key);
+    fn root_key(key: Vec<u8>, cycled_at_ns: i64) -> PreferenceUpdateProto {
+        PreferenceUpdateProto {
+            update: Some(UpdateProto::Hmac(HmacKeyUpdate { key, cycled_at_ns })),
+        }
     }
 
-    // verifies: SYNC-017, CONS-003, SYNC-022
+    /// A sync message stored in `group_id` at envelope time `sent_at_ns`.
+    fn message(group_id: GroupId, sent_at_ns: i64) -> StoredGroupMessage {
+        StoredGroupMessage {
+            sent_at_ns,
+            ..crate::test::mock::generate_stored_msg(xmtp_proto::types::Cursor(1), group_id)
+        }
+    }
+
+    fn sync_group(db: &impl DbQuery, id: u8, created_at_ns: i64) -> Result<GroupId, StorageError> {
+        use xmtp_db::Store;
+        let id = GroupId::from([id; 16]);
+        StoredGroup::builder()
+            .id(id)
+            .created_at_ns(created_at_ns)
+            .membership_state(GroupMembershipState::Allowed)
+            .added_by_inbox_id("me")
+            .conversation_type(ConversationType::Sync)
+            .build()?
+            .store(db)?;
+        Ok(id)
+    }
+
+    // verifies: SYNC-023, CONS-051, SYNC-032
     #[rstest::rstest]
     #[case::address(3, 2)]
     #[case::unspecified_state(2, 0)]
@@ -410,178 +157,117 @@ mod tests {
         #[case] entity_type: i32,
         #[case] state: i32,
     ) {
-        use xmtp_proto::xmtp::device_sync::consent_backup::ConsentSave;
         tester!(alix, disable_workers);
         let db = alix.context.db();
-        let soon = now_ns() + xmtp_common::NS_IN_HOUR;
+        let now = now_ns();
         let bad = if (entity_type, state) == (2, 2) {
-            UpdateProto::Hmac(HmacKeyUpdateProto {
-                key: vec![1; 41],
-                cycled_at_ns: soon + 1,
-            })
+            root_key(vec![1; 41], now + 1)
         } else {
-            UpdateProto::Consent(ConsentSave {
-                entity_type,
-                state,
-                entity: "bad".into(),
-                consented_at_ns: soon + 1,
-            })
+            consent(entity_type, state, "bad", now + 1)
         };
-        let good =
-            StoredConsentRecord::new(ConsentType::InboxId, ConsentState::Allowed, "good".into());
-        let updates = vec![
-            PreferenceUpdateProto { update: Some(bad) },
-            PreferenceUpdate::Consent(good.clone()).into(),
-            PreferenceUpdate::Hmac {
-                key: vec![2; 42].into(),
-                cycled_at_ns: soon,
-            }
-            .into(),
-        ];
-        let metrics = WorkerMetrics::new(alix.context.installation_id());
-        let result = store_preference_updates(&updates, &db, &metrics);
-        assert!(result.is_ok(), "{:?}", result.err());
-        let stored = db.consent_records().unwrap();
-        let stored: Vec<_> = stored
+        let updates = vec![bad, consent(2, 2, "good", now), root_key(vec![2; 42], now)];
+        let group = sync_group(&db, 1, now).unwrap();
+        let applied = apply_preference_updates(&db, "me", &message(group, now), &updates).unwrap();
+        assert_eq!(applied.consent.len(), 1);
+        let stored: Vec<_> = db
+            .consent_records()
+            .unwrap()
             .iter()
-            .map(|r| (r.state, r.consented_at_ns))
+            .map(|r| (r.entity.clone(), r.state))
             .collect();
-        assert_eq!(stored, vec![(good.state, good.consented_at_ns)]);
-        let prefs = StoredUserPreferences::load(&db).unwrap();
-        assert_eq!(prefs.hmac_key, Some(vec![2; 42].into()));
-    }
-
-    // verifies: EVENT-001, EVENT-010, CONS-010, CONS-003, SYNC-022
-    #[xmtp_common::test(unwrap_try = true)]
-    async fn sync_batch_reduces_legacy_updates() {
-        use xmtp_proto::xmtp::device_sync::consent_backup::ConsentSave;
-        tester!(alix, disable_workers);
-        let metrics = WorkerMetrics::new(alix.context.installation_id());
-        let db = alix.context.db();
-        let soon = now_ns() + xmtp_common::NS_IN_HOUR;
-        let hmac = |key: u8, cycled_at_ns| PreferenceUpdate::Hmac {
-            key: vec![key; 42].into(),
-            cycled_at_ns,
-        };
-        let first: Vec<_> = [hmac(1, soon), hmac(2, soon), hmac(9, i64::MAX)]
-            .into_iter()
-            .map(Into::into)
-            .collect();
-        let first = store_preference_updates(&first, &db, &metrics)?;
+        assert_eq!(stored, vec![("good".to_string(), ConsentState::Allowed)]);
         assert_eq!(
-            StoredUserPreferences::load(&db)?.hmac_key,
+            StoredUserPreferences::load(&db).unwrap().hmac_key,
             Some(vec![2; 42].into())
         );
-        assert_eq!(fields(&first.legacy), fields(&[hmac(2, soon)]));
-        assert_eq!(fields(&first.public), fields(&[hmac(2, soon)]));
-        let no_change: Vec<_> = [hmac(2, soon), hmac(3, soon - 2)]
-            .into_iter()
-            .map(Into::into)
-            .collect();
-        let no_change = store_preference_updates(&no_change, &db, &metrics)?;
-        assert!(no_change.legacy.is_empty());
-        assert!(no_change.public.is_empty());
-
-        let mut allowed = StoredConsentRecord::new(
-            ConsentType::InboxId,
-            ConsentState::Allowed,
-            "one-entity".into(),
-        );
-        allowed.consented_at_ns = 101;
-        let mut denied = StoredConsentRecord::new(
-            ConsentType::InboxId,
-            ConsentState::Denied,
-            "one-entity".into(),
-        );
-        denied.consented_at_ns = 101;
-        let updates = vec![
-            PreferenceUpdate::Consent(allowed.clone()).into(),
-            PreferenceUpdate::Consent(denied.clone()).into(),
-        ];
-        let changed = store_preference_updates(&updates, &db, &metrics)?;
-        let stored = db.get_consent_record(denied.entity.clone(), denied.entity_type)?;
-        let denied = (denied.state, denied.consented_at_ns);
-        assert_eq!(stored.map(|r| (r.state, r.consented_at_ns)), Some(denied));
-        assert_eq!(fields(&changed.legacy), [(Some(denied.0), None, denied.1)]);
-        assert_eq!(fields(&changed.public), [(Some(denied.0), None, denied.1)]);
-
-        let mut denied_again = StoredConsentRecord::new(
-            ConsentType::InboxId,
-            ConsentState::Denied,
-            "one-entity".into(),
-        );
-        denied_again.consented_at_ns = 103;
-        let mut allowed_again = StoredConsentRecord::new(
-            ConsentType::InboxId,
-            ConsentState::Allowed,
-            "one-entity".into(),
-        );
-        allowed_again.consented_at_ns = 102;
-        let round_trip = vec![
-            PreferenceUpdate::Consent(allowed_again.clone()).into(),
-            PreferenceUpdate::Consent(denied_again.clone()).into(),
-        ];
-        // The final state is Denied, which matches the state before this batch.
-        let round_trip = store_preference_updates(&round_trip, &db, &metrics)?;
-        assert!(round_trip.legacy.is_empty());
-        assert!(round_trip.public.is_empty());
-
-        let mut unknown = StoredConsentRecord::new(
-            ConsentType::InboxId,
-            ConsentState::Unknown,
-            "new-unknown".into(),
-        );
-        unknown.consented_at_ns = 104;
-        let mut unusable: ConsentSave = unknown.clone().into();
-        unusable.state = 0;
-        unusable.consented_at_ns = 105;
-        let inserted = store_preference_updates(
-            &[
-                PreferenceUpdateProto {
-                    update: Some(UpdateProto::Consent(unusable)),
-                },
-                PreferenceUpdate::Consent(unknown.clone()).into(),
-            ],
-            &db,
-            &metrics,
-        )?;
-        let stored = db.get_consent_record(unknown.entity.clone(), unknown.entity_type)?;
-        let unknown = (unknown.state, unknown.consented_at_ns);
-        assert_eq!(stored.map(|r| (r.state, r.consented_at_ns)), Some(unknown));
-        assert_eq!(
-            fields(&inserted.public),
-            [(Some(unknown.0), None, unknown.1)]
-        );
     }
 
-    // verifies: CONS-010
+    /// A received time is capped at a day after its envelope; a 16-byte DM id
+    /// moves to its peer's record; a value from the selected sync group keeps
+    /// its mark and one from an older group is marked to pass it on.
+    // verifies: CONS-054, CONS-061, SYNC-027, SYNC-032
     #[xmtp_common::test(unwrap_try = true)]
-    async fn peer_sync_consent_keeps_the_latest_record() {
+    async fn received_values_are_capped_keyed_and_marked() {
+        use xmtp_db::Store;
         tester!(alix, disable_workers);
-        let metrics = WorkerMetrics::new(alix.context.installation_id());
         let db = alix.context.db();
-        let updates = [
-            (ConsentState::Allowed, 10),
-            (ConsentState::Allowed, 30),
-            (ConsentState::Denied, 20),
-            (ConsentState::Denied, i64::MAX),
-        ]
-        .map(|(state, consented_at_ns)| {
-            PreferenceUpdate::Consent(StoredConsentRecord {
-                entity_type: ConsentType::InboxId,
-                state,
-                entity: "peer-inbox".into(),
-                consented_at_ns,
-            })
-            .into()
-        });
-        let changed = store_preference_updates(&updates, &db, &metrics)?;
-        // Reduction keeps Allowed@30; the older records are not written.
-        assert_eq!(changed.legacy.len(), 1);
-        let stored = db
-            .get_consent_record("peer-inbox".into(), ConsentType::InboxId)?
-            .unwrap();
-        assert_eq!(stored.state, ConsentState::Allowed);
-        assert_eq!(stored.consented_at_ns, 30);
+        let own = alix.inbox_id();
+        let envelope = now_ns();
+        let older = sync_group(&db, 1, envelope - 10)?;
+        let selected = sync_group(&db, 2, envelope)?;
+        let peer = "ab".repeat(32);
+        let dm = GroupId::from([7; 16]);
+        StoredGroup::builder()
+            .id(dm)
+            .created_at_ns(1)
+            .membership_state(GroupMembershipState::Restored)
+            .added_by_inbox_id(own)
+            .conversation_type(ConversationType::Dm)
+            .dm_id(Some(format!("dm:{}", {
+                let mut pair = [own.to_string(), peer.clone()];
+                pair.sort();
+                pair.join(":")
+            })))
+            .build()?
+            .store(&db)?;
+        // A 32-byte DM never moves: a former member can build one.
+        let forged = GroupId::from([8; 32]);
+        StoredGroup::builder()
+            .id(forged)
+            .created_at_ns(1)
+            .membership_state(GroupMembershipState::Allowed)
+            .added_by_inbox_id(own)
+            .conversation_type(ConversationType::Dm)
+            .dm_id(Some(format!("dm:{}", {
+                let mut pair = [own.to_string(), "cd".repeat(32)];
+                pair.sort();
+                pair.join(":")
+            })))
+            .build()?
+            .store(&db)?;
+        let far = envelope + 2 * xmtp_common::NS_IN_DAY;
+        let updates = vec![
+            consent(1, 2, &hex::encode(forged), 5),
+            consent(1, 3, &hex::encode(dm).to_uppercase(), 5),
+            consent(2, 2, "far", far),
+            root_key(vec![3; 42], far),
+        ];
+        let applied = apply_preference_updates(&db, own, &message(selected, envelope), &updates)?;
+        assert_eq!(applied.root_key, Some(false));
+        let cap = envelope + MAX_AHEAD_NS;
+        let row = |key: &ConsentKey| db.consent_row(key).unwrap().unwrap();
+        assert_eq!(
+            row(&ConsentKey::inbox("far")).value(),
+            ConsentValue {
+                state: ConsentState::Allowed,
+                consented_at_ns: cap
+            }
+        );
+        assert_eq!(row(&ConsentKey::inbox(&peer)).state, ConsentState::Denied);
+        assert!(db.consent_row(&ConsentKey::group(dm.as_ref()))?.is_none());
+        assert_eq!(
+            row(&ConsentKey::group(forged.as_ref())).state,
+            ConsentState::Allowed
+        );
+        assert!(
+            db.consent_row(&ConsentKey::inbox(&"cd".repeat(32)))?
+                .is_none()
+        );
+        let prefs = StoredUserPreferences::load(&db)?;
+        assert_eq!(prefs.hmac_key_cycled_at_ns, Some(cap));
+        // From the selected group: nothing is owed.
+        for key in [
+            ConsentKey::inbox("far"),
+            ConsentKey::inbox(&peer),
+            ConsentKey::group(forged.as_ref()),
+        ] {
+            assert_eq!(row(&key).owed_seq, 0);
+        }
+        assert_eq!(prefs.hmac_key_owed_seq, 0);
+        // From an older group: a change is passed on.
+        let later = vec![consent(ConsentType::InboxId as i32, 3, "far", cap + 1)];
+        let applied = apply_preference_updates(&db, own, &message(older, envelope), &later)?;
+        assert!(applied.consent[0].marked);
+        assert!(row(&ConsentKey::inbox("far")).owed_seq > 0);
     }
 }

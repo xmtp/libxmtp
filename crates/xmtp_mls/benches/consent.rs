@@ -8,7 +8,6 @@ use std::{hint::black_box, sync::Arc, time::Duration};
 use tokio::runtime::{Builder, Runtime};
 use tracing::{Instrument, trace_span};
 use xmtp_common::bench::{self, BENCH_ROOT_SPAN};
-use xmtp_db::prelude::QueryConsentRecord;
 use xmtp_mls::utils::bench::{ConsentBenchSetup, create_dm_with_consent, new_client};
 
 pub const CONSENT_COUNTS: &[usize] = &[10, 100, 1000, 10000, 50000];
@@ -29,9 +28,9 @@ async fn setup_benchmark(total_consents: usize) -> Arc<ConsentBenchSetup> {
     create_dm_with_consent(client, total_consents).await
 }
 
-fn bench_find_consent_by_dm_id(c: &mut Criterion) {
+fn bench_dm_consent(c: &mut Criterion) {
     bench::logger();
-    let mut benchmark_group = c.benchmark_group("find_consent_by_dm_id");
+    let mut benchmark_group = c.benchmark_group("dm_consent");
     benchmark_group.sample_size(SAMPLE_SIZE);
     benchmark_group.measurement_time(Duration::from_secs(10));
     benchmark_group.warm_up_time(Duration::from_secs(1));
@@ -45,32 +44,30 @@ fn bench_find_consent_by_dm_id(c: &mut Criterion) {
         let setup = runtime.block_on(setup_benchmark(total_consents));
         let runtime_clone = runtime.clone();
 
-        benchmark_group.bench_function(
-            BenchmarkId::new("find_consent_by_dm_id", total_consents),
-            move |b| {
-                let span = trace_span!(BENCH_ROOT_SPAN, total_consents);
-                let setup = setup.clone();
-                let runtime = runtime_clone.clone();
+        benchmark_group.bench_function(BenchmarkId::new("dm_consent", total_consents), move |b| {
+            let span = trace_span!(BENCH_ROOT_SPAN, total_consents);
+            let setup = setup.clone();
+            let runtime = runtime_clone.clone();
 
-                b.iter(|| {
-                    runtime.block_on(
-                        async {
-                            let dm_id = &setup.dm_ids[rand::rng().random_range(0..total_consents)];
-                            let consent = setup.client.db().find_consent_by_dm_id(dm_id).unwrap();
-
-                            assert_eq!(
-                                consent.len(),
-                                1,
-                                "Expected exactly 1 consent, got {}",
-                                consent.len()
-                            );
-                            black_box(consent);
-                        }
-                        .instrument(span.clone()),
-                    )
-                });
-            },
-        );
+            b.iter(|| {
+                runtime.block_on(
+                    async {
+                        let group_id =
+                            &setup.group_ids[rand::rng().random_range(0..total_consents)];
+                        // A DM reads its peer's inbox record.
+                        let consent = xmtp_db::consent_record::conversation_consent(
+                            &setup.client.db(),
+                            setup.client.inbox_id(),
+                            group_id,
+                        )
+                        .unwrap();
+                        assert_eq!(consent, xmtp_db::consent_record::ConsentState::Allowed);
+                        black_box(consent);
+                    }
+                    .instrument(span.clone()),
+                )
+            });
+        });
     }
 
     benchmark_group.finish();
@@ -82,7 +79,7 @@ criterion_group!(
         .sample_size(SAMPLE_SIZE)
         .measurement_time(Duration::from_secs(30))
         .warm_up_time(Duration::from_secs(3));
-    targets = bench_find_consent_by_dm_id
+    targets = bench_dm_consent
 
 );
 criterion_main!(consent);

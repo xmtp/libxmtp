@@ -32,7 +32,7 @@ use xmtp_db::{
     group_intent::{IntentKind, QueryGroupIntent},
     identity::StoredIdentity,
     sql_key_store::{KEY_PACKAGE_WRAPPER_PRIVATE_KEY, codec::encode_key},
-    user_preferences::StoredUserPreferences,
+    user_preferences::{RootKeyWrite, StoredUserPreferences, write_root_key},
 };
 use xmtp_id::{InboxOwner, associations::test_utils::MockSmartContractSignatureVerifier};
 use xmtp_mls::{
@@ -45,7 +45,6 @@ use xmtp_mls::{
     identity::{Identity, IdentityStrategy},
     tester,
     utils::{FullXmtpClient, register_client},
-    worker::device_sync::preference_sync::PreferenceUpdate,
 };
 use xmtp_mls_common::{
     app_data::{
@@ -287,7 +286,15 @@ async fn welcome_keys_are_wiped_when_joining() {
 async fn hmac_keys_are_wiped_on_load_derive_send_and_sync() {
     tester!(alix, disable_workers);
     let db = alix.context.db();
-    StoredUserPreferences::store_hmac_key(&db, &HMAC_ROOT_KEY, None)?;
+    write_root_key(
+        &db,
+        RootKeyWrite::Received {
+            key: &HMAC_ROOT_KEY,
+            cycled_at_ns: 1,
+            bound_ns: i64::MAX,
+        },
+        xmtp_db::consent_record::Owed::Keep,
+    )?;
     let group = alix.create_group(None, None)?;
     // A stack copy of the current epoch's derived key, made before arming.
     let current_key: [u8; 42] = group.hmac_keys(0..=0)?[0].key;
@@ -311,13 +318,23 @@ async fn hmac_keys_are_wiped_on_load_derive_send_and_sync() {
                 .await
                 .unwrap();
 
-            let update = PreferenceUpdate::try_from(synced).unwrap();
-            let PreferenceUpdate::Hmac { key, cycled_at_ns } = &update else {
-                panic!("an HMAC proto converts to an HMAC update");
+            // As the receive path does: borrow the decoded key, then wipe it.
+            let mut synced = synced;
+            let UpdateProto::Hmac(hmac) = &mut synced else {
+                panic!("an HMAC update");
             };
-            StoredUserPreferences::store_hmac_key(&db, key.as_slice(), Some(*cycled_at_ns))
-                .unwrap();
-            drop(update);
+            write_root_key(
+                &db,
+                RootKeyWrite::Received {
+                    key: &hmac.key,
+                    cycled_at_ns: hmac.cycled_at_ns,
+                    bound_ns: i64::MAX,
+                },
+                xmtp_db::consent_record::Owed::Keep,
+            )
+            .unwrap();
+            xmtp_cryptography::secret::Zeroize::zeroize(&mut hmac.key);
+            drop(synced);
         }),
     )
     .await;

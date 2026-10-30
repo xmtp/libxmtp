@@ -8,7 +8,9 @@ use std::sync::Arc;
 use xmtp_common::time::now_ns;
 use xmtp_content_types::test_utils::TestContentGenerator;
 use xmtp_db::Store;
-use xmtp_db::consent_record::{ConsentState, ConsentType, StoredConsentRecord};
+use xmtp_db::consent_record::{
+    ConsentKey, ConsentState, ConsentWrite, Decision, Owed, write_consent,
+};
 use xmtp_db::encrypted_store::group_message::{MsgQueryArgs, SortDirection};
 use xmtp_db::group::{ConversationType, GroupMembershipState, StoredGroup};
 use xmtp_id::associations::Identifier;
@@ -85,7 +87,7 @@ pub async fn setup_clients_from_identities(identities: &[Identity]) -> Vec<Bench
 
 pub struct ConsentBenchSetup {
     pub client: BenchClient,
-    pub dm_ids: Vec<String>,
+    pub group_ids: Vec<GroupId>,
 }
 
 pub async fn create_dm_with_consent(
@@ -97,7 +99,7 @@ pub async fn create_dm_with_consent(
     let bar = ProgressBar::new(total_consents as u64).with_style(style.unwrap());
     bar.set_message("Creating dms");
 
-    let mut dm_ids = Vec::new();
+    let mut group_ids = Vec::new();
     for _ in 0..total_consents {
         let ident = Identifier::rand_ethereum();
         let inbox_id = ident.inbox_id(0).unwrap();
@@ -108,7 +110,6 @@ pub async fn create_dm_with_consent(
         .to_string();
 
         let group_id = xmtp_common::rand_array::<16>();
-        let consent_entity = hex::encode(group_id);
         let group = StoredGroup {
             id: GroupId::from(group_id),
             dm_id: Some(dm_id.clone()),
@@ -134,21 +135,23 @@ pub async fn create_dm_with_consent(
         };
         group.store(&client.db()).unwrap();
 
-        let consent = StoredConsentRecord {
-            consented_at_ns: now_ns(),
-            entity: consent_entity,
-            entity_type: ConsentType::ConversationId,
-            state: ConsentState::Allowed,
-        };
-        consent.store(&client.db()).unwrap();
+        // A DM's consent is its peer's inbox record.
+        let decide = ConsentWrite::Decide(Decision::Set(ConsentState::Allowed));
+        write_consent(
+            &client.db(),
+            &ConsentKey::inbox(&inbox_id),
+            decide,
+            Owed::Mark,
+        )
+        .unwrap();
 
-        dm_ids.push(dm_id);
+        group_ids.push(GroupId::from(group_id));
         bar.inc(1);
     }
 
     bar.finish_with_message("Dms created");
 
-    Arc::new(ConsentBenchSetup { client, dm_ids })
+    Arc::new(ConsentBenchSetup { client, group_ids })
 }
 
 /// Setup data for message benchmarks
