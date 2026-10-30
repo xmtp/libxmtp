@@ -115,8 +115,10 @@ pub async fn sleep(duration: Duration) {
     wasm_or_native! {
         native => {tokio::time::sleep(duration).await},
         wasm => {
-            let deadline = saturating_after(Instant::now(), duration);
-            for piece in timer_pieces(duration) {
+            // A wait too long for the clock saturates, and so do its timers.
+            let now = Instant::now();
+            let deadline = saturating_after(now, duration);
+            for piece in timer_pieces(deadline.saturating_duration_since(now)) {
                 gloo_timers::future::sleep(piece).await;
             }
             // A browser timer drops the part of a wait below 1 ms, and Node
