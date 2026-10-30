@@ -7,11 +7,13 @@
 
 ## Never log
 
-Raw key material, database encryption keys, user file paths, full installation
-ids, message payloads. Not even truncated keys or payloads. `skip_all` is
-mandatory on instrumented functions; the span macros below set it.
+Raw key material, database encryption keys, credentials, user file paths,
+message payloads. Not even truncated keys or payloads. `skip_all` is mandatory
+on instrumented functions; the span macros below set it.
 
-Truncate ids:
+Client logs may carry full inbox and installation ids. Backend telemetry
+follows [OPS-014](../../../docs/specs/OPS-backend-operations.md) instead.
+Truncate other ids:
 
 ```rust
 use xmtp_proto::ShortHex;                           // first 4 bytes as hex
