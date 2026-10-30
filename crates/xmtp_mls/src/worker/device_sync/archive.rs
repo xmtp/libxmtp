@@ -126,9 +126,9 @@ fn insert(
 
     match element {
         Element::Consent(save) => import.consent.push(save),
-        // An archive carries no sync or one-shot conversation (ARCH-010), so
-        // an import makes none and adds no message to one: device sync
-        // applies only what the backend delivered.
+        // The exporter writes no sync or one-shot conversation, so an import
+        // makes none and adds no message to one: device sync applies only
+        // what the backend delivered.
         Element::Group(save)
             if ConversationType::try_from(save.conversation_type())
                 .is_ok_and(|kind| kind.is_virtual()) => {}

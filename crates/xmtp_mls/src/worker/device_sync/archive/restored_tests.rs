@@ -415,10 +415,10 @@ async fn restored_history_export_excludes_groups_and_messages_but_keeps_consent(
     }
 }
 
-/// An archive carries no sync or one-shot conversation (ARCH-010), so an
-/// import makes none and adds no message to a held one. A crafted root key
-/// from this installation, timed far ahead, never reaches device sync.
-// verifies: ARCH-010, SYNC-032
+/// The exporter writes no sync or one-shot conversation, so an import makes
+/// none and adds no message to a held one. A crafted root key from this
+/// installation, timed far ahead, never reaches device sync.
+// verifies: SYNC-032
 #[xmtp_common::test(unwrap_try = true)]
 async fn import_skips_internal_conversations() {
     use xmtp_db::user_preferences::StoredUserPreferences;
