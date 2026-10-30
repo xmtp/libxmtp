@@ -18,7 +18,7 @@ export async function exercise(): Promise<void> {
     identifier: account.address.toLowerCase(),
     kind: "ethereum",
   };
-  const backend: sdk.BackendOptions = { url: `${location.origin}/backend` };
+  const backend: sdk.BackendOptions = { url: location.origin };
   const signer = (beforeSign?: () => Promise<void>): sdk.Signer => ({
     async identity() {
       return identity;
