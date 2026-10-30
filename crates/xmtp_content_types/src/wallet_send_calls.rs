@@ -36,7 +36,7 @@ impl ContentCodec<WalletSendCalls> for WalletSendCallsCodec {
 
         Ok(EncodedContent {
             r#type: Some(Self::content_type()),
-            parameters: HashMap::new(),
+            parameters: Default::default(),
             fallback: Self::fallback(&content),
             compression: None,
             content: json,
@@ -62,6 +62,7 @@ pub struct WalletSendCalls {
     pub from: String,
     pub calls: Vec<WalletCall>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(serialize_with = "crate::utils::serialize_sorted_optional_map")]
     pub capabilities: Option<HashMap<String, String>>,
 }
 
@@ -84,6 +85,7 @@ pub struct WalletCallMetadata {
     pub description: String,
     #[serde(rename = "transactionType")]
     pub transaction_type: String,
+    #[serde(serialize_with = "crate::utils::serialize_sorted_map")]
     #[serde(flatten)]
     pub extra: HashMap<String, String>,
 }
@@ -93,8 +95,7 @@ pub(crate) mod tests {
     use super::*;
     use crate::ContentCodec;
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), test)]
+    #[xmtp_common::test(unwrap_try = true)]
     // verifies: CTYPE-007
     fn test_encode_decode_wallet_send_calls() {
         let params = WalletSendCalls {
@@ -116,6 +117,32 @@ pub(crate) mod tests {
         };
 
         let encoded = WalletSendCallsCodec::encode(params.clone()).unwrap();
+        let make_params = || {
+            let mut fresh = params.clone();
+            fresh.capabilities = Some(
+                ["alpha", "beta", "gamma"]
+                    .map(|key| (key.into(), key.into()))
+                    .into_iter()
+                    .collect(),
+            );
+            fresh.calls[0].metadata.as_mut().unwrap().extra = ["note", "other", "third"]
+                .map(|key| (key.into(), key.into()))
+                .into_iter()
+                .collect();
+            fresh
+        };
+        let expected = WalletSendCallsCodec::encode(make_params()).unwrap();
+        for _ in 0..16 {
+            use prost::Message as _;
+            let retry = WalletSendCallsCodec::encode(make_params()).unwrap();
+            assert_eq!(retry.fallback, expected.fallback, "wallet fallback JSON");
+            assert_eq!(retry.content, expected.content, "wallet body JSON");
+            assert_eq!(
+                retry.encode_to_vec(),
+                expected.encode_to_vec(),
+                "wallet envelope bytes"
+            );
+        }
         let decoded = WalletSendCallsCodec::decode(encoded).unwrap();
 
         assert_eq!(decoded.version, params.version);

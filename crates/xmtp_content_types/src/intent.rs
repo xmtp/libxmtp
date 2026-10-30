@@ -31,7 +31,7 @@ impl ContentCodec<Intent> for IntentCodec {
     }
 
     // implements: CTYPE-019
-    fn encode(intent: Intent) -> Result<EncodedContent, CodecError> {
+    fn encode(mut intent: Intent) -> Result<EncodedContent, CodecError> {
         if let Some(metadata) = &intent.metadata {
             let intent_json = serde_json::to_vec(metadata).map_err(|e| {
                 CodecError::Encode(format!("Unable to serialize intent metadata. {e:?}"))
@@ -42,6 +42,10 @@ impl ContentCodec<Intent> for IntentCodec {
                     INTENT_METADATA_LIMIT / 1024
                 )));
             }
+        }
+
+        if let Some(metadata) = &mut intent.metadata {
+            metadata.values_mut().for_each(Value::sort_all_objects);
         }
 
         let intent_json = serde_json::to_vec(&intent)
@@ -74,6 +78,7 @@ pub struct Intent {
     #[serde(rename = "actionId", alias = "action_id")]
     pub action_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(serialize_with = "crate::utils::serialize_sorted_optional_map")]
     pub metadata: Option<HashMap<String, Value>>,
 }
 
@@ -96,6 +101,10 @@ mod tests {
                         Value::String("7lbs".to_string()),
                     ),
                     ("hugs_from_grandma".to_string(), Value::Bool(true)),
+                    (
+                        "nested".into(),
+                        serde_json::from_str(r#"[{"a":{"b":2,"y":1},"z":0},2,1]"#)?,
+                    ),
                 ]
                 .into_iter()
                 .collect(),
@@ -107,6 +116,33 @@ mod tests {
             encoded.fallback(),
             "User selected action: the_turkey_of_course"
         );
+        for reverse in [false, true].into_iter().cycle().take(16) {
+            use prost::Message as _;
+            let mut retry = intent.clone();
+            retry.metadata = Some(
+                intent
+                    .metadata
+                    .as_ref()
+                    .unwrap()
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v.clone()))
+                    .collect(),
+            );
+            let object = if reverse {
+                r#"{"z":0,"a":{"y":1,"b":2}}"#
+            } else {
+                r#"{"a":{"b":2,"y":1},"z":0}"#
+            };
+            retry.metadata.as_mut().unwrap().insert(
+                "nested".into(),
+                serde_json::from_str(&format!("[{object},2,1]"))?,
+            );
+            assert_eq!(
+                IntentCodec::encode(retry)?.encode_to_vec(),
+                encoded.encode_to_vec(),
+                "Intent nested objects in arrays"
+            );
+        }
         let decoded = IntentCodec::decode(encoded)?;
 
         assert_eq!(decoded, intent);

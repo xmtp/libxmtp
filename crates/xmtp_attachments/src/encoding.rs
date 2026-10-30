@@ -65,10 +65,8 @@ pub fn encoded_prefix(filename: Option<&str>, mime_type: &str, content_len: u64)
         ..Default::default()
     };
     let mut prefix = field.encode_to_vec();
-    let mut parameters = envelope.parameters.drain().collect::<Vec<_>>();
-    parameters.sort_unstable_by(|left, right| left.0.cmp(&right.0));
     field.r#type = None;
-    for (key, value) in parameters {
+    for (key, value) in envelope.parameters {
         field.parameters.insert(key, value);
         prefix.extend_from_slice(&field.encode_to_vec());
         field.parameters.clear();

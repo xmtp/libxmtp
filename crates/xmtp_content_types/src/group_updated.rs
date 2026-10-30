@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use prost::Message;
 
 use xmtp_proto::xmtp::mls::message_contents::{ContentTypeId, EncodedContent, GroupUpdated};
@@ -32,7 +30,7 @@ impl ContentCodec<GroupUpdated> for GroupUpdatedCodec {
 
         Ok(EncodedContent {
             r#type: Some(GroupUpdatedCodec::content_type()),
-            parameters: HashMap::new(),
+            parameters: Default::default(),
             fallback: None,
             compression: None,
             content: buf,

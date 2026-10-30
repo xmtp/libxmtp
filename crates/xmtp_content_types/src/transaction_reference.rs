@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use crate::{CodecError, ContentCodec};
 use serde::{Deserialize, Deserializer, Serialize};
 
@@ -44,7 +42,7 @@ impl ContentCodec<TransactionReference> for TransactionReferenceCodec {
 
         Ok(EncodedContent {
             r#type: Some(Self::content_type()),
-            parameters: HashMap::new(),
+            parameters: Default::default(),
             fallback: Self::fallback(&data),
             compression: None,
             content: json,

@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 use xmtp_proto::xmtp::mls::message_contents::{ContentTypeId, EncodedContent};
 
@@ -28,7 +28,7 @@ impl ContentCodec<String> for MarkdownCodec {
     fn encode(markdown: String) -> Result<EncodedContent, CodecError> {
         Ok(EncodedContent {
             r#type: Some(MarkdownCodec::content_type()),
-            parameters: HashMap::from([(
+            parameters: BTreeMap::from([(
                 MarkdownCodec::ENCODING_KEY.to_string(),
                 MarkdownCodec::ENCODING_UTF8.to_string(),
             )]),

@@ -90,6 +90,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let mut config = Config::new();
     config.enable_type_names().include_file("mod.rs");
+    config.btree_map([".xmtp.mls.message_contents.EncodedContent.parameters"]);
 
     codegen_configure(
         configure()
@@ -105,6 +106,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let descriptors = fs::read(&descriptor_path)?;
     pbjson_build::Builder::new()
+        .btree_map([".xmtp.mls.message_contents.EncodedContent"])
         .out_dir(&out_dir)
         .register_descriptors(&descriptors)?
         .ignore_unknown_fields()

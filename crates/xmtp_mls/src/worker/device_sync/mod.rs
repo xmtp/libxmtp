@@ -13,7 +13,7 @@ use crate::{
 };
 use openmls::prelude::{BasicCredential, Member};
 use prost::Message;
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 use thiserror::Error;
 use tokio::sync::broadcast::error::RecvError;
 use tracing::instrument;
@@ -83,7 +83,7 @@ fn sync_message_bytes(content: ContentProto) -> Zeroizing<Vec<u8>> {
             version_major: 1,
             version_minor: 0,
         }),
-        parameters: HashMap::new(),
+        parameters: Default::default(),
         fallback: None,
         compression: None,
         content: inner,

@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 use crate::{
     CodecError, ContentCodec,
@@ -195,7 +195,7 @@ impl ContentCodec<RemoteAttachment> for RemoteAttachmentCodec {
         ]
         .into_iter()
         .map(|(k, v)| (k.to_string(), v))
-        .collect::<HashMap<_, _>>();
+        .collect::<BTreeMap<_, _>>();
 
         if let Some(content_length) = data.content_length {
             parameters.insert("contentLength".to_string(), content_length.to_string());
@@ -216,7 +216,7 @@ impl ContentCodec<RemoteAttachment> for RemoteAttachmentCodec {
 
     fn decode(encoded: EncodedContent) -> Result<RemoteAttachment, CodecError> {
         // Extract parameters
-        let parameters: &HashMap<String, String> = &encoded.parameters;
+        let parameters: &BTreeMap<String, String> = &encoded.parameters;
         let required = |name| {
             parameters
                 .get(name)
@@ -293,8 +293,7 @@ pub(crate) mod tests {
     use super::*;
     use crate::encryption::SECRET_SIZE;
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), test)]
+    #[xmtp_common::test(unwrap_try = true)]
     // verifies: CTYPE-007
     fn test_encode_decode_remote_attachment() {
         let remote_attachment = RemoteAttachment {
@@ -309,16 +308,17 @@ pub(crate) mod tests {
         };
 
         let encoded = RemoteAttachmentCodec::encode(remote_attachment.clone()).unwrap();
+        for _ in 0..16 {
+            use prost::Message as _;
+            let retry = RemoteAttachmentCodec::encode(remote_attachment.clone()).unwrap();
+            assert_eq!(
+                retry.encode_to_vec(),
+                encoded.encode_to_vec(),
+                "RemoteAttachment envelope bytes"
+            );
+        }
         let decoded = RemoteAttachmentCodec::decode(encoded).unwrap();
-
-        assert_eq!(decoded.filename, remote_attachment.filename);
-        assert_eq!(decoded.scheme, remote_attachment.scheme);
-        assert_eq!(decoded.content_length, remote_attachment.content_length);
-        assert_eq!(decoded.url, remote_attachment.url);
-        assert_eq!(decoded.content_digest, remote_attachment.content_digest);
-        assert_eq!(decoded.secret, remote_attachment.secret);
-        assert_eq!(decoded.nonce, remote_attachment.nonce);
-        assert_eq!(decoded.salt, remote_attachment.salt);
+        assert_eq!(decoded, remote_attachment);
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
@@ -628,7 +628,7 @@ pub(crate) mod tests {
         };
         let raw = |value: &RemoteAttachment| EncodedContent {
             r#type: Some(RemoteAttachmentCodec::content_type()),
-            parameters: HashMap::from([
+            parameters: BTreeMap::from([
                 ("contentDigest".into(), value.content_digest.clone()),
                 ("secret".into(), hex::encode(&value.secret)),
                 ("salt".into(), hex::encode(&value.salt)),
