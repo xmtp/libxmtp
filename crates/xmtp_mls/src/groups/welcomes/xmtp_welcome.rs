@@ -26,6 +26,7 @@ use xmtp_common::{snippet::Snippet, time::now_ns};
 use xmtp_content_types::ContentCodec;
 use xmtp_content_types::group_updated::GroupUpdatedCodec;
 use xmtp_db::TransactionOutcome::{Continue, Rollback};
+use xmtp_db::pending_remove::QueryPendingRemove;
 use xmtp_db::{
     TransactionOutcome, XmtpOpenMlsProviderRef,
     group::{ConversationType, GroupMembershipState, StoredGroup},
@@ -548,10 +549,13 @@ where
                 })?;
         }
 
-        // Determine the membership state
-        // If the user is being re-added after leaving, set to ALLOWED
-        // Otherwise, new members start in PENDING state
-        let membership_state = if is_readd_after_leaving {
+        // implements: GMOD-032
+        // A readd that never removed the inbox leaves its leave request pending.
+        let leave_pending = is_readd_after_leaving
+            && db.get_user_pending_remove_status(&group_id, context.inbox_id())?;
+        let membership_state = if leave_pending {
+            GroupMembershipState::PendingRemove
+        } else if is_readd_after_leaving {
             tracing::info!(
                 group_id = %group_id,
                 "User is being re-added after leaving/removal, setting membership state to ALLOWED"
@@ -614,9 +618,9 @@ where
         if is_readd_after_leaving && let Some(ref existing) = existing_group {
             tracing::info!(
                 group_id = %existing.id,
-                "Updating existing group membership state from PENDING_REMOVE to ALLOWED"
+                "Updating existing group membership state after readd"
             );
-            db.update_group_membership(existing.id, GroupMembershipState::Allowed)?;
+            db.update_group_membership(existing.id, membership_state)?;
         }
 
         // implements: FORK-041

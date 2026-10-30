@@ -86,6 +86,9 @@ message UpdateGroupMembershipData {
     // Raise entries and make removals, but add no leaf. Each installation
     // the raise would add is recorded as failed. Used for sync groups.
     bool removal_only = 5;
+    // Inboxes in removed_members removed for their leave request. Each is
+    // removed only while no commit has removed it since that request.
+    repeated string leave_removals = 6;
   }
 
   oneof version {
