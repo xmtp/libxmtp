@@ -389,7 +389,7 @@ const RELEASES: &[(&str, &str)] = &[("1.12.0", include_str!("releases/1.12.0.tom
 
 /// The example file of every earlier release still loads, as written and with
 /// each of its commented alternatives.
-// verifies: CONF-086
+// verifies: CONF-097
 #[xmtp_common::test(unwrap_try = true)]
 fn every_release_example_still_loads() {
     if std::env::var_os(CHILD).is_some() {

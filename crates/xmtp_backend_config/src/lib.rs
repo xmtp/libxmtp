@@ -937,7 +937,7 @@ pub struct LimitsConfig {
 
 impl LimitsConfig {
     /// Check positive limits, downstream integer ranges, and related capacities.
-    // implements: CONF-008
+    // implements: CONF-096
     fn validate(&self) -> Result<(), ConfigError> {
         positive(self.max_push_topics, "limits.max_push_topics")?;
         positive(self.max_query_topics, "limits.max_query_topics")?;

@@ -23,7 +23,7 @@ Out of scope: platform and deployment choices such as the database engine, the p
 | Related | Relation |
 | --- | --- |
 | `API` | Owns the expiry formula and every other metadata field (API-212), the per-topic prefix every read returns (API-201), and read-your-writes on `Query` (API-202). This spec owns what happens after an expiry passes and which reads may lag. |
-| `CONF` | Owns the retention values (CONF-069, section 3), the request and response budgets (CONF-008), and the deployment identifier (CONF-002) this spec carries into telemetry. It also owns the configuration keys, with their types and checks other than OPS-020, OPS-021, and OPS-022 (section 1.2). |
+| `CONF` | Owns the retention values (CONF-069, section 3), the request and response budgets (CONF-096), and the deployment identifier (CONF-002) this spec carries into telemetry. It also owns the configuration keys, with their types and checks other than OPS-020, OPS-021, and OPS-022 (section 1.2). |
 | `AUTH` | Owns admission, which runs before the drain admission of section 3, and the auth rejection reasons that label `xmtp_auth_rejections_total`; triggers the drain when its key set goes stale (AUTH-019). |
 | [PUSH section 5](PUSH-push-subscriptions.md#5-dispatch) | Owns push dispatch and recipient expiry (PUSH-226). This spec lists the push metric families only. |
 | [RATE](RATE-backend-rate-limits.md) | Owns the categories and auth types that label the rate-limit families. |
@@ -61,7 +61,7 @@ Deletion of an envelope after its expiry is not performed today (Known limitatio
 
 The backend serves the gRPC Health Checking Protocol ([health-checking.md](https://github.com/grpc/grpc/blob/master/doc/health-checking.md)) on the gRPC port, without a credential (AUTH-002). Every named service and the empty service name report one status, so a balancer probing one name and an orchestrator probing another cannot disagree about an instance. `SERVING` means the instance can take any request: its configuration passed its checks, its migrations are applied, its key set is loaded, and stream recovery has completed once. Unary requests do not depend on stream recovery, so a later recovery keeps health at `SERVING` and refuses only streams.
 
-One configuration check belongs here rather than with the published limits: an envelope the backend would accept must fit every path that delivers it. The backend adds at most 256 bytes of metadata and framing to an envelope in a stream frame, and a frame is 2 MiB. CONF-008 bounds the request and response budgets to the transport; this check bounds the envelope to those budgets and to the frame.
+One configuration check belongs here rather than with the published limits: an envelope the backend would accept must fit every path that delivers it. The backend adds at most 256 bytes of metadata and framing to an envelope in a stream frame, and a frame is 2 MiB. CONF-096 bounds the request and response budgets to the transport; this check bounds the envelope to those budgets and to the frame.
 
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |

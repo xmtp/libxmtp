@@ -971,7 +971,7 @@ fn the_minimum_client_version_is_optional_and_semantic() {
 /// The transport ceiling is fixed, so a budget above it would promise a client
 /// something the transport cannot carry.
 #[xmtp_common::test(unwrap_try = true)]
-// verifies: CONF-008
+// verifies: CONF-096
 fn request_and_response_budgets_stop_at_the_transport_ceiling() {
     for field in ["limits.max_request_bytes", "limits.max_response_bytes"] {
         let mut config: Config = toml::from_str(MINIMAL)?;
@@ -996,7 +996,7 @@ fn subscription_topic(id: usize) -> xmtp_proto::xmtp::backend::v1::Topic {
     xmtp_proto::xmtp::backend::v1::Topic { topic: bytes }
 }
 
-// verifies: CONF-008
+// verifies: CONF-096
 #[xmtp_common::test(unwrap_try = true)]
 fn request_budget_fits_a_full_notification_batch() {
     use prost::Message;
@@ -1051,7 +1051,7 @@ fn catchup_targets(count: usize) -> Vec<xmtp_proto::xmtp::backend::v1::CatchupTa
         .collect()
 }
 
-// verifies: CONF-008
+// verifies: CONF-096
 #[xmtp_common::test(unwrap_try = true)]
 fn response_budget_fits_a_complete_applied() {
     use prost::Message;
@@ -1070,7 +1070,7 @@ fn response_budget_fits_a_complete_applied() {
     assert_control_budget(limits.max_update_adds, limits.max_static_topics, required);
 }
 
-// verifies: CONF-008
+// verifies: CONF-096
 #[xmtp_common::test(unwrap_try = true)]
 fn response_budget_fits_a_complete_static_started() {
     use prost::Message;
