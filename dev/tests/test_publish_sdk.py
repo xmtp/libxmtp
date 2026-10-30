@@ -30,10 +30,19 @@ class PublishNpmTest(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.tarball = Path(self.temp.name) / "package.tgz"
 
-    def pack(self, name="@xmtp/node-sdk", version="8.0.0-rc5", node="8.0.0-rc5"):
-        payload = json.dumps(
-            dict(name=name, version=version, dependencies={"@xmtp/node-sdk": node})
-        ).encode()
+    def pack(
+        self,
+        name="@xmtp/node-sdk",
+        version="8.0.0-rc5",
+        node="8.0.0-rc5",
+        registry=None,
+    ):
+        package = dict(
+            name=name, version=version, dependencies={"@xmtp/node-sdk": node}
+        )
+        if registry is not None:
+            package["publishConfig"] = {"registry": registry}
+        payload = json.dumps(package).encode()
         with tarfile.open(self.tarball, "w:gz") as archive:
             info = tarfile.TarInfo("package/package.json")
             info.size = len(payload)
@@ -64,6 +73,48 @@ class PublishNpmTest(unittest.TestCase):
                         )
                 self.assertEqual(run.call_count, 1)
 
+    def test_retry_uses_the_manifest_registry_for_package_and_node_identity(self):
+        registry = "https://registry.npmjs.org/"
+        for sdk in ("node-sdk", "agent-sdk", "cli"):
+            with self.subTest(sdk=sdk):
+                integrity = self.pack(name="@xmtp/" + sdk, registry=registry)
+                calls = []
+
+                def transport(args, **kwargs):
+                    calls.append(args)
+                    destination = (
+                        "--registry" in args
+                        and args[args.index("--registry") + 1] == registry
+                        and f"--@xmtp:registry={registry}" in args
+                    )
+                    if args[1] == "publish":
+                        return subprocess.CompletedProcess(args, 0, "", "")
+                    if args[3] == "version":
+                        return subprocess.CompletedProcess(
+                            args, 0, json.dumps("8.0.0-rc5"), ""
+                        )
+                    return subprocess.CompletedProcess(
+                        args,
+                        1 if destination else 0,
+                        json.dumps({"error": {"code": "E404"}})
+                        if destination
+                        else json.dumps(integrity),
+                        "",
+                    )
+
+                with (
+                    patch.dict(
+                        os.environ,
+                        {"NPM_CONFIG_REGISTRY": "https://mirror.example.invalid/"},
+                    ),
+                    patch.object(module.subprocess, "run", side_effect=transport),
+                ):
+                    module.publish(self.tarball, "8.0.0-rc5", "prerelease", sdk)
+                self.assertEqual(sum(args[1] == "publish" for args in calls), 1)
+                for args in calls:
+                    self.assertEqual(args[args.index("--registry") + 1], registry)
+                    self.assertIn(f"--@xmtp:registry={registry}", args)
+
     def test_only_registry_absence_allows_publication(self):
         self.pack()
         for code in ("E404", "E401", "E500"):
@@ -83,6 +134,9 @@ class PublishNpmTest(unittest.TestCase):
                             "--ignore-scripts",
                             "--tag",
                             "prerelease",
+                            "--registry",
+                            "https://registry.npmjs.org/",
+                            "--@xmtp:registry=https://registry.npmjs.org/",
                         ],
                     )
                     self.assertTrue(run.call_args.kwargs["check"])

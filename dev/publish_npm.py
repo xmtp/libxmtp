@@ -28,9 +28,21 @@ def check_package(tarball, version, sdk):
 
 def publish(tarball, version, tag, sdk):
     package = check_package(tarball, version, sdk)
+    config = package.get("publishConfig", {})
+    registry = config.get(
+        "@xmtp:registry", config.get("registry", "https://registry.npmjs.org/")
+    )
+    destination = ["--registry", registry, f"--@xmtp:registry={registry}"]
     if sdk in ("agent-sdk", "cli"):
         node = subprocess.run(
-            ["npm", "view", "@xmtp/node-sdk@" + version, "version", "--json"],
+            [
+                "npm",
+                "view",
+                "@xmtp/node-sdk@" + version,
+                "version",
+                "--json",
+                *destination,
+            ],
             capture_output=True,
             text=True,
         )
@@ -42,7 +54,7 @@ def publish(tarball, version, tag, sdk):
     )
     spec = package["name"] + "@" + version
     result = subprocess.run(
-        ["npm", "view", spec, "dist.integrity", "--json"],
+        ["npm", "view", spec, "dist.integrity", "--json", *destination],
         capture_output=True,
         text=True,
     )
@@ -66,6 +78,7 @@ def publish(tarball, version, tag, sdk):
             "--ignore-scripts",
             "--tag",
             tag,
+            *destination,
         ],
         check=True,
     )
