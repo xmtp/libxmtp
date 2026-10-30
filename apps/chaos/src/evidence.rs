@@ -64,7 +64,7 @@ pub(crate) fn write_bundle(
         ledger.enforce_bounds()?;
         let destination = directory.join(format!("{}.db3", database.name));
         let mut files = Vec::new();
-        for suffix in ["", "-wal", "-shm", "-journal", ".sqlcipher_salt"] {
+        for suffix in &xmtp_db::DATABASE_FILE_SUFFIXES[..5] {
             let source = with_suffix(&source, suffix);
             if regular_size(&source)?.is_none() {
                 ensure!(!suffix.is_empty(), "database is missing");
