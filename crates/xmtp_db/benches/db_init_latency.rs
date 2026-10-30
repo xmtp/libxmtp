@@ -42,7 +42,7 @@ fn fresh_db_path() -> String {
     let dir = bench_base_dir().join(format!("xmtp-latbench-{}", std::process::id()));
     std::fs::create_dir_all(&dir).expect("create temp bench dir");
     let path = dir.join(format!("inbox-{n}.db3"));
-    for suffix in ["", "-wal", "-shm", "-journal", ".sqlcipher_salt"] {
+    for suffix in &xmtp_db::DATABASE_FILE_SUFFIXES[..5] {
         let _ = std::fs::remove_file(format!("{}{suffix}", path.display()));
     }
     path.to_string_lossy().into_owned()

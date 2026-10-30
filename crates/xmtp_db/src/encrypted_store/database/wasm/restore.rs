@@ -226,7 +226,8 @@ async fn restored_bytes(data: &[u8]) -> Result<Vec<u8>, StorageError> {
 }
 
 fn database_family(path: &str) -> [String; 4] {
-    ["", "-journal", "-wal", "-shm"].map(|suffix| format!("{path}{suffix}"))
+    let [main, wal, shm, journal, ..] = crate::DATABASE_FILE_SUFFIXES;
+    [main, journal, wal, shm].map(|suffix| format!("{path}{suffix}"))
 }
 
 /// Import a whole database to an absent path after all target handles close.

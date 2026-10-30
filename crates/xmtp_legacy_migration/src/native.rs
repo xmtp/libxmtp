@@ -13,7 +13,7 @@ mod windows;
 #[cfg(windows)]
 use windows::{check_locks, same_file};
 
-const SIDECARS: &[&str] = &["", "-wal", "-shm", "-journal", ".sqlcipher_salt"];
+const SIDECARS: &[&str] = xmtp_db::DATABASE_FILE_SUFFIXES.split_at(5).0;
 const KEY_BYTES: usize = 32;
 const SALT_BYTES: usize = 16;
 

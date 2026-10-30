@@ -18,6 +18,16 @@ pub use native_exports::*;
 
 use super::ConnectionExt;
 
+/// Main file, WAL, SHM, rollback journal, salt, and temporary salt, in native cleanup order.
+pub const DATABASE_FILE_SUFFIXES: [&str; 6] = [
+    "",
+    "-wal",
+    "-shm",
+    "-journal",
+    ".sqlcipher_salt",
+    ".sqlcipher_salt.tmp",
+];
+
 #[cfg(all(target_family = "wasm", target_os = "unknown"))]
 pub mod wasm_exports {
     pub type RawDbConnection = diesel::prelude::SqliteConnection;
