@@ -63,8 +63,10 @@ gates are named `Lint (draft)` and `Test (not run on drafts)`, so a draft run
 cannot satisfy the required checks. The Nix evaluation suite (`nix_eval`)
 skips drafts. A merge to `main` runs every suite with `merge` in `run_on`. The
 daily run at 09:17 UTC runs every suite, subject to `covered_by`, without path
-detection. Its gates notify Slack on failure. Scheduled jobs never write the
-trusted caches. A
+detection. Its gates notify Slack on failure. Nightly suites use mode `ci`:
+they may write the CI-only `xmtp-pr` cache with `CACHIX_PR_AUTH_TOKEN`, but
+never write trusted Cachix `xmtp`, Kache S3, or the saved pnpm store. Gradle
+caches remain read-only on schedules. A
 manual run takes a `suites` input, a comma-separated list of suite keys, and
 runs those suites; an empty input runs every suite, and an unknown key fails
 `Select suites`. A run of a subset names its gates `Lint (manual subset)` and
