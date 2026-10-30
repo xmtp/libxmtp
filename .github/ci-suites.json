@@ -687,8 +687,11 @@
       ],
       "workflow_tier": "blocking",
       "paths": [
+        "crates/**/*opfs*.rs",
         "crates/**/wasm*.rs",
         "crates/**/wasm/**",
+        "crates/**/web.rs",
+        "crates/*/Cargo.toml",
         "crates/xmtp_sdk/dev/*wasm*",
         "nix/lib/packages/wasm-bindgen-cli.nix",
         "sdks/browser/**",

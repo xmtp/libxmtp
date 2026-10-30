@@ -537,6 +537,9 @@ suites:
     pr_filters:
       - "crates/**/wasm*.rs"
       - "crates/**/wasm/**"
+      - "crates/**/*opfs*.rs"
+      - "crates/**/web.rs"
+      - "crates/*/Cargo.toml"
       - "crates/xmtp_sdk/dev/*wasm*"
       - "sdks/browser/**"
       - "{Cargo.toml,Cargo.lock}"
