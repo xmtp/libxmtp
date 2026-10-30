@@ -310,20 +310,73 @@ async fn test_self_removal_simple() {
     );
 }
 
-// verifies: EVENT-006, GMOD-031
+// verifies: GMOD-033
 #[xmtp_common::test(unwrap_try = true)]
-async fn leave_request_emits_left_cause_after_explicit_sync() {
+async fn a_stale_leave_removal_spares_a_readded_member() {
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    tester!(caro, disable_workers);
+    let group = alix
+        .create_group_with_members(&[bo.inbox_id(), caro.inbox_id()], None, None)
+        .await?;
+    group
+        .update_admin_list(UpdateAdminListType::AddSuper, bo.inbox_id().to_string())
+        .await?;
+    let bo_group = bo.wait_for_welcomes().await?.pop()?;
+    bo_group.sync().await?;
+    let caro_group = caro.wait_for_welcomes().await?.pop()?;
+    caro_group.sync().await?;
+    caro_group.leave_group().await?;
+    bo_group.sync().await?;
+    group.sync().await?;
+    group.process_pending_self_removals().await?;
+    caro.rotate_and_upload_key_package().await?;
+    group.add_members(&[caro.inbox_id()]).await?;
+
+    // Bo queues from the old epoch, then rebuilds after applying both commits.
+    bo_group.remove_members_pending_removal().await?;
+    assert!(
+        bo_group
+            .members()
+            .await?
+            .iter()
+            .any(|m| m.inbox_id == caro.inbox_id())
+    );
+
+    caro_group.sync().await?;
+    caro.sync_welcomes().await?;
+    caro_group.leave_group().await?;
+    bo_group.sync().await?;
+    bo_group.remove_members_pending_removal().await?;
+    assert!(
+        !bo_group
+            .members()
+            .await?
+            .iter()
+            .any(|m| m.inbox_id == caro.inbox_id())
+    );
+}
+
+// verifies: EVENT-006, GMOD-031, GMOD-032
+#[rstest]
+#[case::direct(false)]
+#[case::after_single_commit_readd(true)]
+#[xmtp_common::test(unwrap_try = true)]
+async fn leave_request_emits_left_cause_after_explicit_sync(
+    #[case] readd: bool,
+) -> Result<(), xmtp_common::BoxDynError> {
     tester!(amal, disable_workers);
     tester!(bola, disable_workers);
     let amal_group = amal.create_group(None, None)?;
     amal_group.add_members(&[bola.inbox_id()]).await?;
-    let bola_group = bola.wait_for_welcomes().await?.pop()?;
+    let bola_group = bola.wait_for_welcomes().await?.pop().unwrap();
     let removed = bola
         .context
         .events()
         .subscribe_app(xmtp_events::EventFilter::new([
             xmtp_events::EventKind::ConversationRemoved,
-        ]))?;
+        ]))
+        .unwrap();
 
     bola_group.leave_group().await?;
     assert_eq!(
@@ -331,6 +384,22 @@ async fn leave_request_emits_left_cause_after_explicit_sync() {
         GroupMembershipState::PendingRemove
     );
     amal_group.sync().await?;
+    if readd {
+        amal_group
+            .readd_installations(vec![bola.context.installation_id().to_vec()])
+            .await?;
+        bola_group.sync().await?;
+        bola.sync_welcomes().await?;
+        assert_eq!(
+            bola_group.membership_state()?,
+            GroupMembershipState::PendingRemove
+        );
+        assert!(
+            bola.db()
+                .get_user_pending_remove_status(&bola_group.group_id, bola.inbox_id())?
+        );
+        removed.drain();
+    }
     amal_group.process_pending_self_removals().await?;
     bola_group.sync().await?;
 
@@ -344,6 +413,7 @@ async fn leave_request_emits_left_cause_after_explicit_sync() {
     ));
     bola_group.sync().await?;
     assert!(removed.drain().is_empty());
+    Ok(())
 }
 
 #[xmtp_common::test(flavor = "current_thread", unwrap_try = true)]
@@ -380,8 +450,7 @@ async fn test_membership_state_after_readd() {
     // Amal syncs to process the leave request
     amal_group.sync().await.unwrap();
 
-    // Wait for admin worker to process the removal
-    xmtp_common::time::sleep(std::time::Duration::from_secs(2)).await;
+    amal_group.process_pending_self_removals().await?;
 
     // Bola syncs to get the final removal
     bola_group.sync().await.unwrap();

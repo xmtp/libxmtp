@@ -128,7 +128,8 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                     if storage.db().prepared_envelopes(intent.id)?.is_some() {
                         return Err(OutgoingPreparationError::InvalidPreparedAttempt.into());
                     }
-                    let requirements = PublishRequirements::capture(group, &intent)?;
+                    let requirements =
+                        PublishRequirements::capture_settled(group, &storage.db(), &intent)?;
                     Ok::<_, GroupError>(Continue(Some(NextPublish::Resolve(requirements))))
                 })
             })?
@@ -491,7 +492,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                     }
                     dependencies.validate_local(storage)?;
                     if let Some(data) = &requirements.membership_update {
-                        intent.data = Vec::from(data.clone()).into();
+                        intent.data = Vec::from(data.as_ref().clone()).into();
                     }
                     let original_proposals = group.pending_proposals().cloned().collect::<Vec<_>>();
                     let replacement_payloads = dependencies.selection.apply(

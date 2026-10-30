@@ -12,7 +12,7 @@ pub(super) struct PublishRequirements {
     /// Committed MLS state that must still match after dependency resolution.
     pub base: PreparedBase,
     /// The part of a membership refresh being tried against the envelope limit.
-    pub membership_update: Option<UpdateGroupMembershipIntentData>,
+    pub membership_update: Option<Box<UpdateGroupMembershipIntentData>>,
     pub partial_membership_update: bool,
     pub fail_refresh_additions: bool,
     old_membership: Option<GroupMembership>,
@@ -27,6 +27,29 @@ pub(super) struct PublishRequirements {
 }
 
 impl PublishRequirements {
+    /// Plan from settled leave removals; recheck against the stored bytes.
+    pub(super) fn capture_settled(
+        group: &OpenMlsGroup,
+        db: &impl QueryPendingRemove,
+        intent: &StoredGroupIntent,
+    ) -> Result<Self, GroupError> {
+        let mut planned = intent.clone();
+        if intent.kind == IntentKind::UpdateGroupMembership {
+            let mut data = UpdateGroupMembershipIntentData::try_from(intent.data.as_slice())?;
+            if !data.leave_removals.is_empty() {
+                let pending = db
+                    .get_pending_remove_users(&GroupId::try_from(group.group_id())?)?
+                    .into_iter()
+                    .collect();
+                data.settle_leave_removals(&pending);
+                planned.data = Vec::from(data).into();
+            }
+        }
+        let mut requirements = Self::capture(group, &planned)?;
+        requirements.intent = intent.clone();
+        Ok(requirements)
+    }
+
     /// Copy requirements without retaining the mutable group outside its transaction.
     pub(super) fn capture(
         group: &OpenMlsGroup,
@@ -53,7 +76,7 @@ impl PublishRequirements {
                 requirements.fail_refresh_additions = data.removal_only;
                 requirements.retry_leaves = retry_leaves(group.extensions(), group.members());
                 requirements.new_membership = Some(data.apply_to_group_membership(&old));
-                requirements.membership_update = Some(data);
+                requirements.membership_update = Some(Box::new(data));
                 requirements.old_membership = Some(old);
             }
             IntentKind::ProposeMemberUpdate => {
@@ -129,7 +152,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
         &self,
         requirements: &PublishRequirements,
     ) -> Result<Option<PublishRequirements>, GroupError> {
-        let Some(mut data) = requirements.membership_update.clone() else {
+        let Some(mut data) = requirements.membership_update.as_deref().cloned() else {
             return Ok(None);
         };
         let Some(old) = &requirements.old_membership else {

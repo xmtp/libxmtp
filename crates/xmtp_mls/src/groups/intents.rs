@@ -385,6 +385,8 @@ pub(crate) struct UpdateGroupMembershipIntentData {
     pub refreshed_members: Vec<String>,
     /// Add no leaf; record each installation the raise would add as failed.
     pub removal_only: bool,
+    /// Removals made for leave requests. Empty on older intents.
+    pub leave_removals: Vec<String>,
 }
 
 impl UpdateGroupMembershipIntentData {
@@ -399,6 +401,7 @@ impl UpdateGroupMembershipIntentData {
             failed_installations,
             refreshed_members: Vec::new(),
             removal_only: false,
+            leave_removals: Vec::new(),
         }
     }
 
@@ -409,6 +412,20 @@ impl UpdateGroupMembershipIntentData {
         refreshed_members.dedup();
         self.refreshed_members = refreshed_members;
         self
+    }
+
+    pub fn with_leave_removals(mut self, leave_removals: Vec<String>) -> Self {
+        self.leave_removals = leave_removals;
+        self
+    }
+
+    // implements: GMOD-033
+    /// Drop each leave removal whose request is no longer pending.
+    pub fn settle_leave_removals(&mut self, pending: &HashSet<String>) {
+        let leaves = &self.leave_removals;
+        self.removed_members
+            .retain(|i| !leaves.contains(i) || pending.contains(i));
+        self.leave_removals.retain(|i| pending.contains(i));
     }
 
     pub fn is_empty(&self) -> bool {
@@ -462,6 +479,7 @@ impl From<UpdateGroupMembershipIntentData> for Vec<u8> {
                 failed_installations: intent.failed_installations,
                 refreshed_members: intent.refreshed_members,
                 removal_only: intent.removal_only,
+                leave_removals: intent.leave_removals,
             })),
         }
         .encode(&mut buf)
@@ -485,6 +503,7 @@ impl TryFrom<Vec<u8>> for UpdateGroupMembershipIntentData {
                 failed_installations: v1.failed_installations,
                 refreshed_members: v1.refreshed_members,
                 removal_only: v1.removal_only,
+                leave_removals: v1.leave_removals,
             })
         } else {
             Err(IntentError::MissingPayload)
@@ -506,6 +525,7 @@ impl<'a> TryFrom<&'a [u8]> for UpdateGroupMembershipIntentData {
                 failed_installations: v1.failed_installations,
                 refreshed_members: v1.refreshed_members,
                 removal_only: v1.removal_only,
+                leave_removals: v1.leave_removals,
             })
         } else {
             Err(IntentError::MissingPayload)

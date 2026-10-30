@@ -394,7 +394,15 @@ where
             "Removing pending members from group"
         );
 
-        match self.remove_members(&valid_removals).await {
+        self.ensure_not_paused().await?;
+        let data = self
+            .get_membership_update_intent(&[], &valid_removals)
+            .await?
+            .with_leave_removals(valid_removals.iter().map(|s| s.to_string()).collect());
+        let intent = QueueIntent::update_group_membership()
+            .data(data)
+            .queue(self)?;
+        match self.sync_until_intent_resolved(intent.id).await {
             Ok(_) => {
                 tracing::info!(
                     group_id = %self.group_id,
