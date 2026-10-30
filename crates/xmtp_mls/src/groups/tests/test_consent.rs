@@ -3,6 +3,7 @@ use xmtp_db::consent_record::ConsentState;
 
 use crate::tester;
 
+// verifies: CONS-056, CONS-058
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_auto_consent_to_own_group() {
     tester!(alix1);
@@ -30,6 +31,9 @@ async fn test_auto_consent_to_own_group() {
     g.send_message(b"hello", SendMessageOpts::default()).await?;
     alix2.sync_welcomes().await?;
 
+    // Joining stores nothing, even for a group this inbox created;
+    // the creator's allow reaches alix2 through device sync.
     let g2 = alix2.group(&g.group_id)?;
-    assert_eq!(g2.consent_state()?, ConsentState::Allowed);
+    assert_eq!(g2.consent_state()?, ConsentState::Unknown);
+    assert_eq!(g.consent_state()?, ConsentState::Allowed);
 }

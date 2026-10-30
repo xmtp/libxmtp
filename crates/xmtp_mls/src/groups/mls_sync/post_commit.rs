@@ -272,16 +272,16 @@ where
         conn: impl xmtp_db::DbQuery,
         epoch_delta_range: RangeInclusive<i64>,
     ) -> Result<Zeroizing<Vec<HmacKey>>, StorageError> {
-        let preferences = StoredUserPreferences::load(&conn)?;
-        let generated;
-        let root_key = match &preferences.hmac_key {
-            Some(key) => key.as_slice(),
-            None => {
-                generated = HmacKey::random_key();
-                StoredUserPreferences::store_hmac_key(&conn, generated.as_slice(), None)?;
-                generated.as_slice()
-            }
-        };
+        // implements: SYNC-026
+        let (root_key, made) = ensure_root_key(&conn)?;
+        if made {
+            crate::subscriptions::internal::emit_root_key_changed(
+                self.context.events(),
+                &conn,
+                true,
+            )?;
+        }
+        let root_key = root_key.as_slice();
         let group_id = self.group_id.as_ref();
         // Sized up front: growing would free an unwiped partial copy.
         let mut ikm = Zeroizing::new(Vec::with_capacity(root_key.len() + group_id.len()));

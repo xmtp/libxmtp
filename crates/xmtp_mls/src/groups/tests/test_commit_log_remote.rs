@@ -1066,11 +1066,12 @@ async fn a_restored_placeholder_is_skipped_by_publish_and_read() {
             None,
             false,
         )?;
-        db.record_app_act(&[StoredConsentRecord::new(
+        StoredConsentRecord::new(
             ConsentType::ConversationId,
             ConsentState::Allowed,
             hex::encode(&archived_id),
-        )])?;
+        )
+        .merge_into(&db)?;
         NewLocalCommitLog {
             group_id: row.id,
             commit_sequence_id: 7,

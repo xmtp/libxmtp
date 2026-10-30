@@ -373,7 +373,18 @@ where
         self.get_association_state(conn, inbox_id, None).await
     }
 
-    fn emit_own_installation_changes(&self, before: &AssociationState, after: &AssociationState) {
+    /// Emit the installation changes of one own identity update. When it
+    /// revokes another installation, cycle the root key. The
+    /// revoked installation does not cycle on its own revocation.
+    fn emit_own_installation_changes(
+        &self,
+        conn: &impl DbQuery,
+        before: &AssociationState,
+        after: &AssociationState,
+        revoked_at_ns: i64,
+    ) -> Result<(), ClientError> {
+        use xmtp_db::consent_record::Owed;
+        use xmtp_db::user_preferences::{RootKeyWrite, write_root_key};
         use xmtp_events::{ClientEvent, EventWriter, InstallationRef, InstallationRevoked};
         let old: HashSet<_> = before.installation_ids().into_iter().collect();
         let new: HashSet<_> = after.installation_ids().into_iter().collect();
@@ -397,6 +408,19 @@ where
                 None,
             );
         }
+        // implements: SYNC-026
+        let me = self.context.installation_id().to_vec();
+        if new.contains(&me)
+            && old.difference(&new).next().is_some()
+            && write_root_key(conn, RootKeyWrite::revocation(revoked_at_ns), Owed::Mark)?
+        {
+            crate::subscriptions::internal::emit_root_key_changed(
+                self.context.events(),
+                conn,
+                true,
+            )?;
+        }
+        Ok(())
     }
 
     /// Run `load`, which can store updates of this client's own inbox, with
@@ -470,7 +494,7 @@ where
             let next = self
                 .get_association_state(conn, inbox_id, Some(update.sequence_id))
                 .await?;
-            self.emit_own_installation_changes(&state, &next);
+            self.emit_own_installation_changes(conn, &state, &next, update.server_timestamp_ns)?;
             events.emitted_through = Some(update.sequence_id);
             state = next;
         }

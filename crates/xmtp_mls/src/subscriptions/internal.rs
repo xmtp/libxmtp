@@ -1,13 +1,18 @@
 //! Facts used by this client's internal subscribers.
 
-use std::collections::HashSet;
-use xmtp_db::{ConnectionError, DbQuery, group_message::StoredGroupMessage};
+use xmtp_db::{
+    ConnectionError, DbQuery,
+    consent_record::{
+        ConsentChange, ConsentKey, ConsentState as StoredConsentState, ConsentType, ConsentValue,
+        StoredConsentRecord,
+    },
+    group_message::StoredGroupMessage,
+    user_preferences::StoredUserPreferences,
+};
+use xmtp_mls_common::group_metadata::DmMembers;
 use xmtp_proto::types::GroupId;
 
 use crate::worker::device_sync::preference_sync::PreferenceUpdate;
-use xmtp_db::consent_record::{
-    ConsentState as StoredConsentState, ConsentType, StoredConsentRecord,
-};
 use xmtp_events::{
     ClientEvent, ConsentChanged, ConsentEntityKind, ConsentState, DeletionCause, EventContext,
     EventWriter, HmacKeysUpdated, MessageDeleted, MessageRef,
@@ -26,12 +31,13 @@ pub enum InternalEvent {
         expires_at_ns: Option<i64>,
         is_sync: bool,
     },
-    SyncMessagePublished,
+    /// A consent record or the root key was marked owed.
+    OutboxChanged,
     TaskScheduled,
     NotificationSettingsChanged,
+    /// Stored consent and root-key changes, for the legacy in-process streams.
     PreferencesChanged {
         updates: Vec<PreferenceUpdate>,
-        origin: PreferenceOrigin,
     },
     /// Deleted rows whose expiry had not passed when the event was emitted.
     /// A row can expire before delivery, so a reader checks it again.
@@ -63,116 +69,141 @@ pub enum GroupOrigin {
     Welcomed,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum PreferenceOrigin {
-    /// A decision made on this installation. Device sync publishes it.
-    Local,
-    /// Received from another installation or an archive.
-    Sync,
-    /// Stored by rule when joining or creating. Every installation derives its own, so
-    /// device sync does not publish it when it is stored. (Joining a new sync
-    /// group republishes every stored record; see the waivers file.)
-    Derived,
-}
-
-pub(crate) fn emit_preference_updates(
-    writer: &impl EventWriter<InternalEvent>,
-    updates: Vec<PreferenceUpdate>,
-    origin: PreferenceOrigin,
-    db: &impl DbQuery,
-) -> Result<(), ConnectionError> {
-    emit_preference_updates_with_public(writer, updates.clone(), updates, origin, db)
-}
-
-/// Publish every app act; report it and wake notifications only when it
-/// changes the stored state.
-pub(crate) fn emit_consent_acts(
+/// Report stored consent changes: one event per changed key and entity the
+/// app names it by, the legacy stream, and a wake for the outbox when a change
+/// is owed. This is the only consent event emitter.
+// implements: CONS-059, EVENT-001, EVENT-059
+pub(crate) fn emit_consent_changes(
     ctx: &impl crate::context::XmtpSharedContext,
-    writer: &impl EventWriter<InternalEvent>,
-    written: Vec<(StoredConsentRecord, bool)>,
+    events: &impl EventWriter<InternalEvent>,
     db: &impl DbQuery,
+    changes: &[ConsentChange],
 ) -> Result<(), ConnectionError> {
-    let public: Vec<_> = written
-        .iter()
-        .filter(|(_, changed)| *changed)
-        .map(|(record, _)| PreferenceUpdate::Consent(record.clone()))
-        .collect();
-    if !public.is_empty() {
-        ctx.task_channels().mark_notification_changed();
+    // One entry per key: the reported state before the first change, the value after the last.
+    let mut net: Vec<(&ConsentKey, StoredConsentState, ConsentValue)> = vec![];
+    for change in changes {
+        match net.iter_mut().find(|(key, ..)| **key == change.key) {
+            Some(entry) => entry.2 = change.value,
+            None => net.push((&change.key, change.before, change.value)),
+        }
     }
-    let all = written
-        .into_iter()
-        .map(|(record, _)| PreferenceUpdate::Consent(record))
-        .collect();
-    emit_preference_updates_with_public(writer, public, all, PreferenceOrigin::Local, db)
-}
-
-pub(crate) fn emit_preference_updates_with_public(
-    writer: &impl EventWriter<InternalEvent>,
-    public_updates: Vec<PreferenceUpdate>,
-    updates: Vec<PreferenceUpdate>,
-    origin: PreferenceOrigin,
-    db: &impl DbQuery,
-) -> Result<(), ConnectionError> {
-    if updates.is_empty() {
-        return Ok(());
-    }
-    // Only the final value of each key is readable after the transaction.
-    let mut seen_consents = HashSet::new();
-    let mut seen_hmac = false;
-    let mut public_updates: Vec<_> = public_updates
-        .iter()
-        .rev()
-        .filter(|update| match update {
-            PreferenceUpdate::Consent(record) => {
-                seen_consents.insert((record.entity_type as i32, record.entity.clone()))
-            }
-            PreferenceUpdate::Hmac { .. } => !std::mem::replace(&mut seen_hmac, true),
-        })
-        .collect();
-    public_updates.reverse();
-    for update in public_updates {
-        let mut context = EventContext::default();
-        let client = match update {
-            PreferenceUpdate::Consent(record) => {
-                let group = if record.entity_type == ConsentType::ConversationId {
-                    hex::decode(&record.entity)
-                        .ok()
-                        .and_then(|raw| GroupId::try_from(raw.as_slice()).ok())
-                        .map(|id| db.find_group(&id))
-                        .transpose()?
-                        .flatten()
-                } else {
-                    None
+    let mut legacy = vec![];
+    let mut state_changed = false;
+    for (key, before, value) in net {
+        let changed = before != value.state;
+        state_changed |= changed;
+        for (entity_type, entity, context) in app_entities(db, ctx.inbox_id(), key)? {
+            if changed {
+                let kind = match entity_type {
+                    ConsentType::ConversationId => ConsentEntityKind::Conversation,
+                    ConsentType::InboxId => ConsentEntityKind::Inbox,
                 };
-                if group
-                    .as_ref()
-                    .is_some_and(|group| group.conversation_type.is_virtual())
-                {
-                    continue;
-                }
-                context.dm_identifier = group.and_then(|group| group.dm_id.map(String::into_bytes));
-                ClientEvent::ConsentChanged(ConsentChanged {
-                    entity_kind: match record.entity_type {
-                        ConsentType::ConversationId => ConsentEntityKind::Conversation,
-                        ConsentType::InboxId => ConsentEntityKind::Inbox,
-                    },
-                    entity: record.entity.clone(),
-                    state: match record.state {
+                let event = ClientEvent::ConsentChanged(ConsentChanged {
+                    entity_kind: kind,
+                    entity: entity.clone(),
+                    state: match value.state {
                         StoredConsentState::Unknown => ConsentState::Unknown,
                         StoredConsentState::Allowed => ConsentState::Allowed,
                         StoredConsentState::Denied => ConsentState::Denied,
                     },
-                })
+                });
+                events.emit_with_context(Some(event), None, context);
             }
-            PreferenceUpdate::Hmac { .. } => ClientEvent::HmacKeysUpdated(HmacKeysUpdated),
-        };
-        writer.emit_with_context(Some(client), None, context);
+            legacy.push(PreferenceUpdate::Consent(StoredConsentRecord {
+                entity_type,
+                state: value.state,
+                entity,
+                consented_at_ns: value.consented_at_ns,
+                owed_seq: 0,
+            }));
+        }
     }
-    writer.emit(
-        None,
-        Some(InternalEvent::PreferencesChanged { updates, origin }),
+    if state_changed {
+        // implements: PUSH-260
+        ctx.task_channels().mark_notification_changed();
+    }
+    if !legacy.is_empty() {
+        events.emit(
+            None,
+            Some(InternalEvent::PreferencesChanged { updates: legacy }),
+        );
+    }
+    if changes.iter().any(|change| change.marked) {
+        events.emit(None, Some(InternalEvent::OutboxChanged));
+    }
+    Ok(())
+}
+
+/// The entities an app names for one changed key: an inbox, and
+/// the DM the app lists with that inbox; a conversation only when
+/// no held group reads another key. Never a virtual group.
+fn app_entities(
+    db: &impl DbQuery,
+    own_inbox: &str,
+    key: &ConsentKey,
+) -> Result<Vec<(ConsentType, String, EventContext)>, ConnectionError> {
+    let mut entities = vec![];
+    let held = match key.entity_type {
+        ConsentType::InboxId => {
+            entities.push((
+                ConsentType::InboxId,
+                key.entity.clone(),
+                EventContext::default(),
+            ));
+            let dm_id = DmMembers {
+                member_one_inbox_id: own_inbox,
+                member_two_inbox_id: key.entity.as_str(),
+            };
+            db.find_dm_by_dm_id(&dm_id.to_string())?
+        }
+        ConsentType::ConversationId => {
+            let Some(id) = key.group_id() else {
+                return Ok(entities);
+            };
+            let held = db.find_group(&id)?;
+            if held.is_none() {
+                entities.push((
+                    ConsentType::ConversationId,
+                    key.entity.clone(),
+                    EventContext::default(),
+                ));
+            }
+            held
+        }
+    };
+    if let Some(group) = held
+        && !group.conversation_type.is_virtual()
+        && ConsentKey::of_group(&group, own_inbox).as_ref() == Some(key)
+    {
+        let context = dm_event_context(group.dm_id.as_deref());
+        entities.push((ConsentType::ConversationId, hex::encode(group.id), context));
+    }
+    Ok(entities)
+}
+
+/// Report a stored root-key change: push re-registers, the legacy stream
+/// receives the key, and the outbox wakes when the key is owed.
+pub(crate) fn emit_root_key_changed(
+    events: &impl EventWriter<InternalEvent>,
+    db: &impl DbQuery,
+    marked: bool,
+) -> Result<(), xmtp_db::StorageError> {
+    let preferences = StoredUserPreferences::load(db)?;
+    let updates = preferences
+        .hmac_key
+        .map(|key| PreferenceUpdate::Hmac {
+            key: key.as_slice().to_vec().into(),
+            cycled_at_ns: preferences.hmac_key_cycled_at_ns.unwrap_or_default(),
+        })
+        .into_iter()
+        .collect();
+    events.emit(
+        Some(ClientEvent::HmacKeysUpdated(HmacKeysUpdated)),
+        Some(InternalEvent::PreferencesChanged { updates }),
     );
+    if marked {
+        events.emit(None, Some(InternalEvent::OutboxChanged));
+    }
     Ok(())
 }
 
@@ -290,7 +321,6 @@ mod tests {
     use super::*;
     use crate::{context::XmtpSharedContext, tester};
     use xmtp_db::{
-        consent_record::StoredConsentRecord,
         group::{GroupMembershipState, StoredGroup},
         prelude::*,
     };
@@ -346,78 +376,127 @@ mod tests {
             if expired.group_id == gb.to_vec()));
     }
 
-    // verifies: EVENT-003, EVENT-001
+    /// One event per changed key and app entity: an inbox change is also
+    /// reported under the DM the app lists with that inbox, Restored too; a
+    /// group record that a held DM does not read, a virtual group, and a new
+    /// unknown record report nothing; the legacy stream gets every entity.
+    // verifies: CONS-059, EVENT-001, EVENT-059
     #[xmtp_common::test(unwrap_try = true)]
-    async fn sync_group_consent_reaches_workers_but_not_public_subscriptions() {
+    async fn consent_events() {
+        use xmtp_db::consent_record::{ConsentChange, ConsentKey, ConsentValue};
         tester!(alix, disable_workers);
         let db = alix.context.db();
-        let group_id = GroupId::from([71; 16]);
-        StoredGroup::builder()
-            .id(group_id)
-            .created_at_ns(xmtp_common::time::now_ns())
-            .membership_state(GroupMembershipState::Allowed)
-            .added_by_inbox_id(alix.inbox_id().to_string())
-            .conversation_type(ConversationType::Sync)
-            .build()?
-            .store(&db)?;
-
-        let bus = EventBus::<InternalEvent>::new();
-        let public = bus.subscribe(EventFilter::new([EventKind::ConsentChanged]), Some(10));
-        let worker = bus.subscribe(
-            EventFilter::default()
-                .with_internal(|event| matches!(event, InternalEvent::PreferencesChanged { .. })),
-            Some(10),
+        let own = alix.inbox_id();
+        let store = |id: u8, peer: Option<&str>, kind, state| {
+            let mut pair = peer.map(|peer| [own.to_string(), peer.to_string()]);
+            if let Some(pair) = &mut pair {
+                pair.sort();
+            }
+            StoredGroup::builder()
+                .id(GroupId::from([id; 16]))
+                .created_at_ns(1)
+                .membership_state(state)
+                .added_by_inbox_id(own)
+                .conversation_type(kind)
+                .dm_id(pair.map(|pair| format!("dm:{}", pair.join(":"))))
+                .build()
+                .unwrap()
+                .store(&db)
+                .unwrap();
+            GroupId::from([id; 16])
+        };
+        let restored = store(
+            1,
+            Some("peer-two"),
+            ConversationType::Dm,
+            GroupMembershipState::Restored,
         );
-        let record = StoredConsentRecord::new(
-            ConsentType::ConversationId,
-            StoredConsentState::Allowed,
-            hex::encode(group_id),
+        let held_dm = store(
+            2,
+            Some("peer-three"),
+            ConversationType::Dm,
+            GroupMembershipState::Allowed,
         );
-        emit_preference_updates(
-            &bus,
-            vec![PreferenceUpdate::Consent(record)],
-            PreferenceOrigin::Local,
-            &db,
-        )?;
-        assert!(public.drain().is_empty());
-        assert_eq!(worker.drain().len(), 1);
-    }
-
-    // verifies: EVENT-010
-    #[xmtp_common::test(unwrap_try = true)]
-    async fn public_preference_events_use_final_values_without_changing_legacy_batch() {
-        tester!(alix, disable_workers);
+        let sync = store(
+            3,
+            None,
+            ConversationType::Sync,
+            GroupMembershipState::Allowed,
+        );
+        let change = |key: ConsentKey, before, state| ConsentChange {
+            key,
+            before,
+            value: ConsentValue {
+                state,
+                consented_at_ns: 1,
+            },
+            marked: false,
+        };
         let bus = EventBus::<InternalEvent>::new();
-        let public = bus.subscribe(EventFilter::new([EventKind::ConsentChanged]), Some(10));
+        let public = bus.subscribe(EventFilter::new([EventKind::ConsentChanged]), Some(16));
         let legacy = bus.subscribe(
             EventFilter::default()
                 .with_internal(|event| matches!(event, InternalEvent::PreferencesChanged { .. })),
-            Some(10),
+            Some(16),
         );
-        let updates = vec![
-            PreferenceUpdate::Consent(StoredConsentRecord::new(
-                ConsentType::InboxId,
-                StoredConsentState::Denied,
-                "same-inbox".into(),
-            )),
-            PreferenceUpdate::Consent(StoredConsentRecord::new(
-                ConsentType::InboxId,
-                StoredConsentState::Allowed,
-                "same-inbox".into(),
-            )),
-        ];
-        emit_preference_updates(&bus, updates, PreferenceOrigin::Sync, &alix.context.db())?;
-        assert!(matches!(
-            public.drain().as_slice(),
-            [xmtp_events::EventEnvelope {
-                client: Some(ClientEvent::ConsentChanged(change)), ..
-            }] if change.state == ConsentState::Allowed
-        ));
-        assert!(matches!(
-            legacy.drain().as_slice(),
-            [xmtp_events::EventEnvelope {
-                internal: Some(InternalEvent::PreferencesChanged { updates, .. }), ..
-            }] if updates.len() == 2
-        ));
+        let named = |events: Vec<xmtp_events::EventEnvelope<InternalEvent>>| -> Vec<String> {
+            events
+                .into_iter()
+                .filter_map(|event| match event.client {
+                    Some(ClientEvent::ConsentChanged(change)) => Some(change.entity),
+                    _ => None,
+                })
+                .collect()
+        };
+        use StoredConsentState::*;
+        for (changes, expected) in [
+            (
+                vec![change(ConsentKey::inbox("peer-one"), Unknown, Denied)],
+                vec!["peer-one".to_string()],
+            ),
+            (
+                vec![change(ConsentKey::inbox("peer-two"), Unknown, Denied)],
+                vec!["peer-two".to_string(), hex::encode(restored)],
+            ),
+            (
+                vec![change(ConsentKey::group(held_dm.as_ref()), Unknown, Denied)],
+                vec![],
+            ),
+            (
+                vec![change(ConsentKey::group(sync.as_ref()), Unknown, Denied)],
+                vec![],
+            ),
+            (
+                vec![change(ConsentKey::inbox("new"), Unknown, Unknown)],
+                vec![],
+            ),
+        ] {
+            emit_consent_changes(&alix.context, &bus, &db, &changes)?;
+            assert_eq!(named(public.drain()), expected, "{changes:?}");
+        }
+        let entities: Vec<Vec<String>> = legacy
+            .drain()
+            .into_iter()
+            .filter_map(|event| match event.internal {
+                Some(InternalEvent::PreferencesChanged { updates }) => Some(
+                    updates
+                        .into_iter()
+                        .filter_map(|update| match update {
+                            PreferenceUpdate::Consent(record) => Some(record.entity),
+                            PreferenceUpdate::Hmac { .. } => None,
+                        })
+                        .collect(),
+                ),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            entities,
+            vec![
+                vec!["peer-one".to_string()],
+                vec!["peer-two".to_string(), hex::encode(restored)],
+                vec!["new".to_string()],
+            ]
+        );
     }
 }

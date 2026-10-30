@@ -14,7 +14,7 @@ use crate::{
     mls_store::{MlsStore, MlsStoreError},
     subscriptions::{
         LocalEventError,
-        internal::{emit_consent_acts, emit_deleted_messages},
+        internal::{emit_consent_changes, emit_deleted_messages},
     },
     utils::VersionInfo,
     worker::device_sync::{DeviceSyncClient, worker::SyncMetric},
@@ -31,7 +31,7 @@ use crate::{
 };
 use openmls::prelude::tls_codec::Error as TlsCodecError;
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     sync::{Arc, atomic::Ordering},
 };
 use thiserror::Error;
@@ -45,7 +45,10 @@ use xmtp_cryptography::signature::IdentifierValidationError;
 use xmtp_db::TransactionOutcome::Continue;
 use xmtp_db::{
     ConnectionExt, NotFound, StorageError, TransactionOutcome, XmtpDb,
-    consent_record::{ConsentState, ConsentType, StoredConsentRecord},
+    consent_record::{
+        ConsentActError, ConsentKey, ConsentState, ConsentType, ConsentWrite, Decision, Owed,
+        conversation_consent, write_consent,
+    },
     db_connection::DbConnection,
     encrypted_store::conversation_list::ConversationListItem as DbConversationListItem,
     group::{ConversationType, GroupMembershipState, GroupQueryArgs},
@@ -97,6 +100,25 @@ const REGISTRATION_MAX_BACKOFF: std::time::Duration = std::time::Duration::from_
 impl Default for VisibilityConfirmationOptions {
     fn default() -> Self {
         Self { timeout_ms: 30_000 }
+    }
+}
+
+/// An app's consent decision about one entity. It carries no
+/// time: the client times it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ConsentAct {
+    pub entity_type: ConsentType,
+    pub entity: String,
+    pub state: ConsentState,
+}
+
+impl ConsentAct {
+    pub fn new(entity_type: ConsentType, state: ConsentState, entity: String) -> Self {
+        Self {
+            entity_type,
+            entity,
+            state,
+        }
     }
 }
 
@@ -267,12 +289,21 @@ pub enum ClientError {
     /// order, or sync or one-shot groups. Not retryable — fix the options.
     #[error("invalid list options: {0}")]
     InvalidListOptions(&'static str),
+    /// Consent act refused.
+    ///
+    /// The consent entity cannot be stored, or names a conversation the
+    /// client does not hold. Not retryable.
+    #[error("consent act: {0}")]
+    #[error_code(inherit)]
+    ConsentAct(#[from] ConsentActError),
 }
 
 impl ClientError {
     pub fn db_needs_connection(&self) -> bool {
         match self {
-            Self::Storage(s) => s.db_needs_connection(),
+            Self::Storage(s) | Self::ConsentAct(ConsentActError::Storage(s)) => {
+                s.db_needs_connection()
+            }
             Self::Db(c) => c.db_needs_connection(),
             _ => false,
         }
@@ -682,29 +713,27 @@ where
         Ok(signature_kind)
     }
 
-    /// Set a consent record in the local database.
-    /// If the consent record is an address set the consent state for both the address and `inbox_id`
-    pub async fn set_consent_states(
-        &self,
-        records: &[StoredConsentRecord],
-    ) -> Result<(), ClientError> {
-        // One transaction exposes only each entity's final state.
-        let mut seen = HashSet::new();
-        let mut final_records: Vec<_> = records
+    /// Store the app's consent decisions in one transaction. An
+    /// act on a group id the client does not hold fails the whole call, and
+    /// nothing is stored.
+    pub async fn set_consent_states(&self, acts: &[ConsentAct]) -> Result<(), ClientError> {
+        let own = self.context.inbox_id();
+        let keys = acts
             .iter()
-            .rev()
-            .filter(|record| seen.insert((record.entity_type as i32, record.entity.as_str())))
-            .cloned()
-            .collect();
-        final_records.reverse();
+            .map(|act| ConsentKey::for_app(&self.context.db(), own, act.entity_type, &act.entity))
+            .collect::<Result<Vec<_>, _>>()?;
         crate::state_tx::state_write_with_events(
             self.context.mls_storage(),
             self.context.events(),
             |tx, events| {
                 let storage = tx.storage();
                 let db = storage.db();
-                let written = db.record_app_act(&final_records)?;
-                emit_consent_acts(&self.context, events, written, &db)?;
+                let mut changes = vec![];
+                for (key, act) in keys.iter().zip(acts) {
+                    let decision = ConsentWrite::Decide(Decision::Set(act.state));
+                    changes.extend(write_consent(&db, key, decision, Owed::Mark)?);
+                }
+                emit_consent_changes(&self.context, events, &db, &changes)?;
                 Ok::<_, StorageError>(Continue(()))
             },
         )?
@@ -713,19 +742,24 @@ where
         Ok(())
     }
 
-    /// Get the consent state for a given entity
+    /// The consent an app reads for an entity: a conversation's under
+    /// its key, held or not, or an inbox's record.
+    // implements: CONS-001
     pub async fn get_consent_state(
         &self,
         entity_type: ConsentType,
         entity: String,
     ) -> Result<ConsentState, ClientError> {
-        let conn = self.context.db();
-        let record = conn.get_consent_record(entity, entity_type)?;
-
-        match record {
-            Some(rec) => Ok(rec.state),
-            None => Ok(ConsentState::Unknown),
-        }
+        let db = self.context.db();
+        let Some(key) = ConsentKey::parse(entity_type, &entity) else {
+            return Ok(ConsentState::Unknown);
+        };
+        Ok(match key.group_id() {
+            Some(id) => conversation_consent(&db, self.context.inbox_id(), &id)?,
+            None => db
+                .consent_row(&key)?
+                .map_or(ConsentState::Unknown, |r| r.state),
+        })
     }
 
     /// Release the client's database connection

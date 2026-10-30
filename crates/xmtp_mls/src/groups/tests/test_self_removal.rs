@@ -1186,36 +1186,15 @@ async fn creator_readd_preserves_welcome_stream_cursor() {
     drop(stream);
 }
 
-/// Where a stored consent decision sits relative to the re-add Welcome.
-#[derive(Clone, Copy, PartialEq)]
-enum PriorDecision {
-    None,
-    Older,
-    AtReadd,
-    Newer,
-}
-
-/// A re-add after leaving resets consent to unknown at the re-add Welcome's
-/// backend time, with or without a record, but only a decision older than that
-/// Welcome. An equal or newer decision stays as it is, and an older decision
-/// synced in after the join does not replace the result.
-/// Another installation of the inbox leaves, so this one holds the leave
-/// without the allowed record that sending the leave request stores.
-// verifies: CONS-025, CONS-022
+/// A re-add after a removal or a leave keeps the consent the user gave
+/// earlier, on every installation, because a join stores nothing.
+// verifies: CONS-058
 #[rstest]
-#[case::no_record(PriorDecision::None, false)]
-#[case::older_allowed(PriorDecision::Older, false)]
-#[case::allowed_at_readd(PriorDecision::AtReadd, false)]
-#[case::newer_denied(PriorDecision::Newer, false)]
-#[case::removed_no_record(PriorDecision::None, true)]
-#[case::removed_older_allowed(PriorDecision::Older, true)]
+#[case::allowed(ConsentState::Allowed, false)]
+#[case::denied_removed(ConsentState::Denied, false)]
+#[case::denied_left(ConsentState::Denied, true)]
 #[xmtp_common::test(unwrap_try = true)]
-async fn readd_after_leave_resets_only_an_older_decision(
-    #[case] prior: PriorDecision,
-    #[case] removed: bool,
-) {
-    use xmtp_db::consent_record::{ConsentType, StoredConsentRecord};
-
+async fn readd_keeps_consent(#[case] state: ConsentState, #[case] leave: bool) {
     tester!(amal, disable_workers);
     tester!(bola, disable_workers);
     tester!(bola2, from: bola, disable_workers);
@@ -1233,90 +1212,81 @@ async fn readd_after_leave_resets_only_an_older_decision(
         .unwrap()
         .pop()
         .expect("Bola2 joined");
-    let entity = hex::encode(bola_group.group_id);
-    let decision = || {
-        bola.db()
-            .get_consent_record(entity.clone(), ConsentType::ConversationId)
-            .map(|record| record.map(|record| (record.state, record.consented_at_ns)))
-    };
-    if prior == PriorDecision::Older {
-        bola_group
-            .update_consent_state(ConsentState::Allowed)
-            .unwrap();
-    }
 
-    if removed {
-        amal_group.remove_members(&[bola.inbox_id()]).await.unwrap();
-    } else {
+    bola_group.update_consent_state(state).unwrap();
+    assert_eq!(bola_group.consent_state().unwrap(), state);
+    let decided_at = bola
+        .db()
+        .consent_row(&xmtp_db::consent_record::ConsentKey::group(
+            bola_group.group_id.as_ref(),
+        ))
+        .unwrap()
+        .unwrap()
+        .consented_at_ns;
+
+    if leave {
         leaver.leave_group().await.unwrap();
         amal_group.sync().await.unwrap();
         amal_group.process_pending_self_removals().await.unwrap();
+    } else {
+        amal_group.remove_members(&[bola.inbox_id()]).await.unwrap();
     }
     bola_group.sync().await.unwrap();
     assert!(!bola_group.is_active().unwrap());
-    assert_eq!(
-        bola_group.membership_state().unwrap(),
-        if removed {
-            GroupMembershipState::Pending
-        } else {
-            GroupMembershipState::PendingRemove
-        }
-    );
 
     amal_group.add_members(&[bola.inbox_id()]).await.unwrap();
-    let readd_ns = bola
-        .context
-        .api()
-        .query_welcome_messages(bola.context.installation_id())
-        .await
-        .unwrap()
-        .into_iter()
-        .max_by_key(|welcome| welcome.cursor)
-        .expect("the re-add Welcome")
-        .timestamp();
-    // A decision another installation made at or after the re-add.
-    let synced = match prior {
-        PriorDecision::AtReadd => Some((ConsentState::Allowed, readd_ns)),
-        PriorDecision::Newer => Some((ConsentState::Denied, readd_ns + xmtp_common::NS_IN_HOUR)),
-        PriorDecision::None | PriorDecision::Older => None,
-    };
-    if let Some((state, consented_at_ns)) = synced {
-        bola.db()
-            .insert_newer_consent_record(StoredConsentRecord {
-                entity_type: ConsentType::ConversationId,
-                state,
-                entity: entity.clone(),
-                consented_at_ns,
-            })
-            .unwrap();
-    }
-    let before = decision().unwrap();
-    match prior {
-        PriorDecision::None => assert_eq!(before, None),
-        PriorDecision::Older => assert!(before.is_some_and(|(_, at)| at < readd_ns)),
-        PriorDecision::AtReadd | PriorDecision::Newer => assert_eq!(before, synced),
-    }
-
     bola.sync_welcomes().await.unwrap();
+    bola2.sync_welcomes().await.unwrap();
     assert!(
         bola.group(&bola_group.group_id)
             .unwrap()
             .is_active()
             .unwrap()
     );
-    let expected = match prior {
-        PriorDecision::None | PriorDecision::Older => Some((ConsentState::Unknown, readd_ns)),
-        PriorDecision::AtReadd | PriorDecision::Newer => before,
-    };
-    assert_eq!(decision().unwrap(), expected);
-    // A decision made before the re-add that syncs in after the join.
-    bola.db()
-        .insert_newer_consent_record(StoredConsentRecord {
-            entity_type: ConsentType::ConversationId,
-            state: ConsentState::Denied,
-            entity: entity.clone(),
-            consented_at_ns: readd_ns - 1,
-        })
+
+    // The re-add wrote no consent on either installation: bola keeps its
+    // decision and bola2, which never decided, still has no record.
+    let key = xmtp_db::consent_record::ConsentKey::group(bola_group.group_id.as_ref());
+    assert_eq!(
+        bola.group(&bola_group.group_id)
+            .unwrap()
+            .consent_state()
+            .unwrap(),
+        state
+    );
+    assert_eq!(
+        bola.db()
+            .consent_row(&key)
+            .unwrap()
+            .unwrap()
+            .consented_at_ns,
+        decided_at
+    );
+    assert!(bola2.db().consent_row(&key).unwrap().is_none());
+}
+
+/// A leave request is not a reply: leaving a denied group stores no allow.
+// verifies: CONS-057
+#[xmtp_common::test(unwrap_try = true)]
+async fn leaving_does_not_allow() {
+    use xmtp_db::consent_record::ConsentKey;
+    tester!(amal, disable_workers);
+    tester!(bola, disable_workers);
+    let amal_group = amal.create_group(None, None).unwrap();
+    amal_group.add_members(&[bola.inbox_id()]).await.unwrap();
+    let bola_group = bola
+        .sync_welcomes()
+        .await
+        .unwrap()
+        .pop()
+        .expect("Bola joined");
+    bola_group
+        .update_consent_state(ConsentState::Denied)
         .unwrap();
-    assert_eq!(decision().unwrap(), expected);
+    let key = ConsentKey::group(bola_group.group_id.as_ref());
+    let denied = bola.db().consent_row(&key).unwrap().unwrap();
+    bola_group.leave_group().await.unwrap();
+    let after = bola.db().consent_row(&key).unwrap().unwrap();
+    assert_eq!(after.state, ConsentState::Denied);
+    assert_eq!(after.consented_at_ns, denied.consented_at_ns);
 }

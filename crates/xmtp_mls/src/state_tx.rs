@@ -207,14 +207,11 @@ pub(crate) mod precommit_test_hook {
 #[cfg(test)]
 mod event_tests {
     use super::*;
-    use crate::worker::device_sync::preference_sync::PreferenceUpdate;
     use crate::{
-        context::XmtpSharedContext,
-        subscriptions::internal::{PreferenceOrigin, emit_preference_updates},
-        tester,
+        context::XmtpSharedContext, subscriptions::internal::emit_consent_changes, tester,
     };
     use xmtp_db::{
-        consent_record::{ConsentState, ConsentType, StoredConsentRecord},
+        consent_record::{ConsentKey, ConsentState, ConsentWrite, Decision, Owed, write_consent},
         prelude::*,
     };
     use xmtp_events::{ClientEvent, EventFilter, EventKind};
@@ -309,11 +306,7 @@ mod event_tests {
         let subscription = bus.subscribe(EventFilter::new([EventKind::ConsentChanged]), Some(10));
         #[cfg(not(target_arch = "wasm32"))]
         let before_commit = bus.subscribe(EventFilter::new([EventKind::ConsentChanged]), Some(10));
-        let committed = StoredConsentRecord::new(
-            ConsentType::InboxId,
-            ConsentState::Allowed,
-            "committed".into(),
-        );
+        let committed = ConsentKey::inbox("committed");
         #[cfg(not(target_arch = "wasm32"))]
         let hook = precommit_test_hook::install(move |_| {
             assert!(before_commit.drain().is_empty());
@@ -321,13 +314,11 @@ mod event_tests {
         state_write_with_events(alix.context.mls_storage(), bus, |tx, events| {
             let storage = tx.storage();
             let db = storage.db();
-            db.record_app_act(std::slice::from_ref(&committed))?;
-            emit_preference_updates(
-                events,
-                vec![PreferenceUpdate::Consent(committed.clone())],
-                PreferenceOrigin::Local,
-                &db,
-            )?;
+            let decide = ConsentWrite::Decide(Decision::Set(ConsentState::Allowed));
+            let changes: Vec<_> = write_consent(&db, &committed, decide, Owed::Mark)?
+                .into_iter()
+                .collect();
+            emit_consent_changes(&alix.context, events, &db, &changes)?;
             Ok::<_, StorageError>(TransactionOutcome::Continue(()))
         })?;
         #[cfg(not(target_arch = "wasm32"))]
@@ -335,7 +326,7 @@ mod event_tests {
         assert_eq!(
             alix.context
                 .db()
-                .get_consent_record("committed".into(), ConsentType::InboxId)?
+                .consent_row(&committed)?
                 .map(|record| record.state),
             Some(ConsentState::Allowed)
         );
@@ -343,33 +334,22 @@ mod event_tests {
             matches!(subscription.drain().pop().and_then(|item| item.client), Some(ClientEvent::ConsentChanged(change)) if change.entity == "committed")
         );
 
-        let rolled_back = StoredConsentRecord::new(
-            ConsentType::InboxId,
-            ConsentState::Denied,
-            "rolled_back".into(),
-        );
+        let rolled_back = ConsentKey::inbox("rolled_back");
         state_write_with_events::<_, (), StorageError>(
             alix.context.mls_storage(),
             bus,
             |tx, events| {
                 let storage = tx.storage();
                 let db = storage.db();
-                db.record_app_act(std::slice::from_ref(&rolled_back))?;
-                emit_preference_updates(
-                    events,
-                    vec![PreferenceUpdate::Consent(rolled_back.clone())],
-                    PreferenceOrigin::Local,
-                    &db,
-                )?;
+                let decide = ConsentWrite::Decide(Decision::Set(ConsentState::Denied));
+                let changes: Vec<_> = write_consent(&db, &rolled_back, decide, Owed::Mark)?
+                    .into_iter()
+                    .collect();
+                emit_consent_changes(&alix.context, events, &db, &changes)?;
                 Ok(TransactionOutcome::Rollback)
             },
         )?;
-        assert!(
-            alix.context
-                .db()
-                .get_consent_record("rolled_back".into(), ConsentType::InboxId)?
-                .is_none()
-        );
+        assert!(alix.context.db().consent_row(&rolled_back)?.is_none());
         assert!(subscription.drain().is_empty());
     }
 }

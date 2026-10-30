@@ -41,6 +41,7 @@ use self::{
 #[cfg(test)]
 use crate::GroupCommitLock;
 use crate::context::XmtpSharedContext;
+use crate::groups::send_message_opts::SendMessageOpts;
 use crate::groups::{
     intents::{QueueIntent, ReaddInstallationsIntentData},
     mls_ext::CommitLogStorer,
@@ -49,10 +50,6 @@ use crate::state_tx::state_write;
 use crate::{
     client::ClientError,
     utils::id::{calculate_message_id, decode_message_reference},
-};
-use crate::{
-    groups::send_message_opts::SendMessageOpts,
-    worker::device_sync::preference_sync::PreferenceUpdate,
 };
 pub use error::*;
 use intents::SendMessageIntentData;
@@ -87,11 +84,11 @@ use xmtp_content_types::{
 };
 use xmtp_cryptography::configuration::CIPHERSUITE;
 use xmtp_cryptography::secret::Zeroize;
+use xmtp_db::Fetch;
 use xmtp_db::message_deletion::StoredMessageDeletion;
 use xmtp_db::pending_remove::QueryPendingRemove;
 use xmtp_db::prelude::*;
 use xmtp_db::user_preferences::HmacKey;
-use xmtp_db::{Fetch, consent_record::ConsentType};
 use xmtp_db::{
     NotFound, StorageError,
     group_intent::{IntentState, StoredGroupIntent},
@@ -105,7 +102,10 @@ use xmtp_db::{
     remote_commit_log::{RemoteCommitLog, RemoteCommitLogOrder},
 };
 use xmtp_db::{
-    consent_record::{ConsentState, StoredConsentRecord},
+    consent_record::{
+        ConsentActError, ConsentKey, ConsentState, ConsentWrite, Decision, Owed,
+        conversation_consent, write_consent,
+    },
     group::{ConversationType, GroupMembershipState, StoredGroup},
     group_message::{DeliveryStatus, GroupMessageKind, MsgQueryArgs, StoredGroupMessage},
 };

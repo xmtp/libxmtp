@@ -83,7 +83,7 @@ use xmtp_db::{
     group_message::{ContentType, DeliveryStatus, GroupMessageKind, StoredGroupMessage},
     remote_commit_log::CommitResult,
     sql_key_store,
-    user_preferences::StoredUserPreferences,
+    user_preferences::ensure_root_key,
 };
 use xmtp_db::{NotFound, group_intent::IntentKind::MetadataUpdate};
 use xmtp_db::{XmtpOpenMlsProviderRef, prelude::*};
@@ -820,7 +820,7 @@ pub(crate) mod tests {
     #[xmtp_common::test(unwrap_try = true)]
     async fn hmac_derivation_matches_known_answer() {
         use crate::tester;
-        use xmtp_db::{group::ConversationType, user_preferences::StoredUserPreferences};
+        use xmtp_db::group::ConversationType;
 
         const ROOT_KEY: &str =
             "0b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186abd0f51a3f6489aed3f8";
@@ -834,7 +834,11 @@ pub(crate) mod tests {
 
         tester!(alix, disable_workers);
         let db = alix.context.db();
-        StoredUserPreferences::store_hmac_key(&db, &hex::decode(ROOT_KEY)?, None)?;
+        xmtp_db::user_preferences::store_test_root_key(
+            &db,
+            &hex::decode(ROOT_KEY)?,
+            xmtp_common::time::now_ns() + xmtp_common::NS_IN_DAY,
+        )?;
         let group = MlsGroup::new(
             alix.context.clone(),
             GroupId::try_from(hex::decode(GROUP_ID)?.as_slice())?,

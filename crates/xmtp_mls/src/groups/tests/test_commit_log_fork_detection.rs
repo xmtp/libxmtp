@@ -58,6 +58,7 @@ async fn fork_checks_select_only_allowed_conversations() {
                 entity: hex::encode(group_id),
                 state: ConsentState::Denied,
                 consented_at_ns: i64::from(marker),
+                owed_seq: 0,
             }
             .store(&db)?;
         }

@@ -437,7 +437,7 @@ pub(super) async fn create_membership_update_no_sync(group: &TestMlsGroup) {
  * intents that do the same thing, leading to conflicts
  */
 
-// verifies: CONS-021
+// verifies: CONS-057
 #[cfg_attr(target_arch = "wasm32", ignore)]
 #[rstest]
 #[xmtp_common::test]
