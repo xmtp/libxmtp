@@ -123,6 +123,7 @@ async fn test_readd_installation_succeeds() {
     b_group.test_can_talk_with(&a_group).await?;
 }
 
+// verifies: FORK-051, FORK-064
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_readd_bookkeeping() {
     tester!(alix, disable_workers, enable_fork_recovery_requests);

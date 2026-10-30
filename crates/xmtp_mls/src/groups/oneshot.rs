@@ -274,11 +274,8 @@ mod tests {
         } else {
             vec![]
         };
-        let api = FaultyApi::new(
-            &alix,
-            if published { welcome } else { group_message },
-            faults,
-        );
+        let target = if published { welcome } else { group_message };
+        let api = FaultyApi::new(&alix, target, faults);
         let faulty = faulty_group(&alix, &group.group_id, api.clone()).await;
         let db = faulty.context.db();
         db.set_group_commit_log_forked_status(&group.group_id, Some(true))
@@ -287,6 +284,7 @@ mod tests {
     }
     use xmtp_proto::xmtp::mls::message_contents::{ReaddRequest, oneshot_message::MessageType};
 
+    // verifies: FORK-051, SEND-007, SEND-015
     #[rstest::rstest]
     #[case::success(false, false, false)]
     #[case::intent_insert(false, false, true)]
@@ -337,7 +335,9 @@ mod tests {
             assert_eq!(db.prepared_envelopes(intent.id)?.unwrap(), bytes);
             let temporary = MlsGroup::new_cached(context.clone(), &id)?.0;
             temporary.sync().await?;
-            delete_oneshot_if_settled(&temporary, false)?;
+            // A settled send can still have later queued input.
+            db.raw_query(|conn| diesel::sql_query("INSERT INTO incoming_envelopes (entity_id, entity_kind, sequence_id, envelope, blocked, retry_at_ns, envelope_bytes) VALUES (?, 2, 999999999, X'01', 1, 9223372036854775807, 1)").bind::<diesel::sql_types::Binary, _>(id.as_slice()).execute(conn))?;
+            assert!(delete_oneshot_if_settled(&temporary, false).is_ok());
             assert_eq!(send_state(context), before);
         } else {
             assert_eq!(send_state(context), before);
@@ -346,15 +346,12 @@ mod tests {
             }
             sleep(DELAY).await;
             worker._tick().await?;
-            assert_eq!(
-                api.requests.lock().len() > sent,
-                fail || trigger,
-                "refusal retries, success waits"
-            );
+            assert_eq!(api.requests.lock().len() > sent, fail || trigger);
         }
         Ok(())
     }
 
+    // verifies: FORK-052
     #[xmtp_common::test(unwrap_try = true)]
     async fn test_receive_oneshot_message_via_syncing() {
         tester!(alix, disable_workers);
@@ -399,6 +396,7 @@ mod tests {
         assert_eq!(send_state(&alix.context), before);
         for recipient in [&bo, &caro] {
             recipient.sync_welcomes().await?;
+            assert_eq!(recipient.find_groups(Default::default())?.len(), 1);
             let db = recipient.context.db();
             let status = db.get_readd_status(&group_id, own.as_slice())?.unwrap();
             assert_eq!(status.requested_at_sequence_id, Some(42));
@@ -406,10 +404,10 @@ mod tests {
         }
     }
 
+    // verifies: FORK-052
     #[xmtp_common::test(unwrap_try = true)]
     async fn test_oneshot_groups_not_in_find_groups() {
         tester!(alix);
-        tester!(bo);
 
         // Keep a stored one-shot: sender cleanup must not bypass the listing filter.
         MlsGroup::create_and_insert(
@@ -420,14 +418,11 @@ mod tests {
             None,
         )?;
         let normal = alix.create_group(None, None)?;
-        // Check that neither Alix nor Bo has any oneshot groups in find_groups
         let alix_groups = alix.find_groups(Default::default()).unwrap();
-        let bo_groups = bo.find_groups(Default::default()).unwrap();
 
         // Oneshot groups should not appear in the regular groups list
         assert_eq!(alix_groups.len(), 1);
         assert_eq!(alix_groups[0].group_id, normal.group_id);
-        assert_eq!(bo_groups.len(), 0, "Bo should have no groups");
     }
 
     #[tokio::test]

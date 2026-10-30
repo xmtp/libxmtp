@@ -847,7 +847,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
                 )* };
             }
             delete_rows!(group_intents.group_id, group_messages.group_id, local_commit_log.group_id,
-                remote_commit_log.group_id, refresh_state.entity_id, incoming_envelopes.entity_id,
+                remote_commit_log.group_id, incoming_envelopes.entity_id, refresh_state.entity_id,
                 pending_remove.group_id, readd_status.group_id);
             diesel::delete(dsl::groups.filter(dsl::id.eq(group_id)).filter(dsl::conversation_type.eq(ConversationType::Oneshot))).execute(conn)?;
             Ok(())
