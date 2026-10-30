@@ -25,10 +25,9 @@ workflows in `.github/workflows` call the other commands; run
 
 Compute a backend release label. Backend uses `--base-version` for its branch label. This command accepts only `libxmtp`; SDK and CLI releases use the frozen `dev/sdk_version.py` plan.
 
-
 | Flag             | Type                     | Required | Description                                                                 |
 | ---------------- | ------------------------ | -------- | --------------------------------------------------------------------------- |
-| `--sdk`          | `libxmtp`       | yes      | Backend                                                     |
+| `--sdk`          | `libxmtp`                | yes      | Backend                                                                     |
 | `--release-type` | `dev` \| `rc` \| `final` | yes      | Release type                                                                |
 | `--rc-number`    | number                   | for `rc` | RC number                                                                   |
 | `--base-version` | string                   | no       | Override the manifest base; backend releases use the release branch version |
