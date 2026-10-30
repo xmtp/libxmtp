@@ -89,7 +89,7 @@ use xmtp_db::{
     prelude::*,
 };
 use xmtp_id::associations::Identifier;
-use xmtp_id::associations::test_utils::WalletTestExt;
+use xmtp_id::associations::test_utils::add_wallet_signature;
 use xmtp_mls_common::group_metadata::GroupMetadata;
 use xmtp_mls_common::group_mutable_metadata::{MessageDisappearingSettings, MetadataField};
 use xmtp_proto::xmtp::mls::message_contents::{EncodedContent, PlaintextEnvelope};
@@ -153,6 +153,21 @@ pub(super) async fn get_latest_message(group: &TestMlsGroup) -> StoredGroupMessa
     group.sync().await.unwrap();
     let mut messages = group.find_messages(&MsgQueryArgs::default()).unwrap();
     messages.pop().unwrap()
+}
+
+/// Revoke the installation `key` from `member`'s inbox.
+pub(in crate::groups) async fn revoke(member: &ClientTester, key: &[u8]) {
+    let mut request = member
+        .identity_updates()
+        .revoke_installations(vec![key.to_vec()])
+        .await
+        .unwrap();
+    add_wallet_signature(&mut request, &member.builder.owner).await;
+    member
+        .identity_updates()
+        .apply_signature_request(request)
+        .await
+        .unwrap();
 }
 
 // Adds a member to the group without the usual validations on group membership
@@ -502,82 +517,6 @@ async fn test_get_and_set_consent(
     // Deleting a message does not allow.
     caro_group.delete_message(message_id).unwrap();
     assert_eq!(caro_group.consent_state().unwrap(), ConsentState::Denied);
-}
-
-#[xmtp_common::test]
-// TODO(rich): Generalize the test once fixed - test messages that are 0, 1, 2, 3, 4, 5 epochs behind
-async fn test_max_past_epochs() {
-    // Create group with two members
-    let bo_wallet = generate_local_wallet();
-    let alix = ClientBuilder::new_test_client_vanilla(&generate_local_wallet()).await;
-    let bo = ClientBuilder::new_test_client_vanilla(&bo_wallet).await;
-    let alix_group = alix
-        .create_group_with_identifiers(&[bo_wallet.identifier()], None, None)
-        .await
-        .unwrap();
-
-    bo.sync_welcomes().await.unwrap();
-    let bo_groups = bo.find_groups(GroupQueryArgs::default()).unwrap();
-    let bo_group = bo_groups.first().unwrap();
-
-    // Both members see the same amount of messages to start
-    alix_group
-        .send_message("alix 1".as_bytes(), SendMessageOpts::default())
-        .await
-        .unwrap();
-    bo_group
-        .send_message("bo 1".as_bytes(), SendMessageOpts::default())
-        .await
-        .unwrap();
-    alix_group.sync().await.unwrap();
-    bo_group.sync().await.unwrap();
-
-    let alix_messages = alix_group
-        .find_messages(&MsgQueryArgs {
-            kind: Some(GroupMessageKind::Application),
-            ..Default::default()
-        })
-        .unwrap();
-    let bo_messages = bo_group
-        .find_messages(&MsgQueryArgs {
-            kind: Some(GroupMessageKind::Application),
-            ..Default::default()
-        })
-        .unwrap();
-
-    assert_eq!(alix_messages.len(), 2);
-    assert_eq!(bo_messages.len(), 2);
-
-    // Alix moves the group forward by 1 epoch
-    alix_group
-        .update_group_name("new name".to_string())
-        .await
-        .unwrap();
-
-    // Bo sends a message while 1 epoch behind
-    bo_group
-        .send_message("bo 2".as_bytes(), SendMessageOpts::default())
-        .await
-        .unwrap();
-
-    // If max_past_epochs is working, Alix should be able to decrypt Bo's message
-    alix_group.sync().await.unwrap();
-    bo_group.sync().await.unwrap();
-
-    let alix_messages = alix_group
-        .find_messages(&MsgQueryArgs {
-            kind: Some(GroupMessageKind::Application),
-            ..Default::default()
-        })
-        .unwrap();
-    let bo_messages = bo_group
-        .find_messages(&MsgQueryArgs {
-            kind: Some(GroupMessageKind::Application),
-            ..Default::default()
-        })
-        .unwrap();
-    assert_eq!(bo_messages.len(), 3);
-    assert_eq!(alix_messages.len(), 3); // Fails here, 2 != 3
 }
 
 // verifies: DMS-021

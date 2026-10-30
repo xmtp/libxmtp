@@ -57,16 +57,7 @@ async fn revoked_installation_refresh_reaches_every_member(
             peer.sync().await?;
         }
         let device_group = receive_group_invite(&device).await;
-        let mut revoke = owner
-            .identity_updates()
-            .revoke_installations(vec![device_id.clone()])
-            .await?;
-        xmtp_id::associations::test_utils::add_wallet_signature(&mut revoke, &owner.builder.owner)
-            .await;
-        owner
-            .identity_updates()
-            .apply_signature_request(revoke)
-            .await?;
+        revoke(owner, &device_id).await;
         Some(device_group)
     };
     let refresher = if matches!(case, RefreshCase::Member) {
@@ -353,14 +344,7 @@ async fn revoked_installation_emits_removal_without_inbox_membership_change() {
         Some(10),
     );
 
-    let mut revoke = bo
-        .identity_updates()
-        .revoke_installations(vec![bo2.installation_id.to_vec()])
-        .await?;
-    xmtp_id::associations::test_utils::add_wallet_signature(&mut revoke, &bo.builder.owner).await;
-    bo.identity_updates()
-        .apply_signature_request(revoke)
-        .await?;
+    revoke(&bo, bo2.installation_id.as_slice()).await;
     group.add_members(&[] as &[&str]).await?;
     let _ = bo2_group.sync().await;
     bo_group.sync().await?;
@@ -1321,4 +1305,73 @@ async fn same_millisecond_optimistic_sends_keep_recovery_order() {
     // An idempotent retry retains the original message and timestamp.
     assert_eq!(send(keys[0])?, first);
     assert_eq!(db.get_group_message(&first)?.unwrap().sent_at_ns, wall_ns);
+}
+
+#[derive(Clone, Copy, Debug)]
+enum PastEpochSender {
+    Present,
+    Removed,
+    LeafReusedBySibling,
+}
+
+// verifies: PROC-059
+#[rstest::rstest]
+#[case::present_member_one_epoch_behind(PastEpochSender::Present)]
+#[case::removed_member(PastEpochSender::Removed)]
+#[case::revoked_installation_leaf_reused_by_sibling(PastEpochSender::LeafReusedBySibling)]
+#[xmtp_common::test(unwrap_try = true)]
+async fn retained_epoch_sender_must_still_hold_its_leaf(
+    #[case] case: PastEpochSender,
+) -> Result<(), Box<dyn std::error::Error>> {
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    let group = alix.create_group(None, None)?;
+    group.add_members(&[bo.inbox_id()]).await?;
+    let bo_group = receive_group_invite(&bo).await;
+    // Rotate now so the old-epoch send below queues no key update commit.
+    bo_group.key_update().await?;
+    group.sync().await?;
+    match case {
+        PastEpochSender::Present => group.update_group_name("renamed".into()).await?,
+        PastEpochSender::Removed => group.remove_members(&[bo.inbox_id()]).await?,
+        PastEpochSender::LeafReusedBySibling => {
+            tester!(bo2, from: bo, disable_workers);
+            revoke(&bo, bo.installation_id.as_slice()).await;
+            // One refresh commit removes bo and adds bo2 into bo's freed leaf.
+            group.add_missing_installations().await?;
+            let leaf_of = |key: Vec<u8>| {
+                group.with_group_snapshot(|mls| {
+                    Ok::<_, GroupError>(
+                        mls.members()
+                            .find(|member| member.signature_key == key)
+                            .map(|member| member.index),
+                    )
+                })
+            };
+            assert!(leaf_of(bo.installation_id.to_vec())?.is_none());
+            let bo_leaf =
+                bo_group.with_group_snapshot(|mls| Ok::<_, GroupError>(mls.own_leaf_index()))?;
+            assert_eq!(leaf_of(bo2.installation_id.to_vec())?, Some(bo_leaf));
+        }
+    }
+
+    let message_id = bo_group.send_message_optimistic(b"old epoch", SendMessageOpts::default())?;
+    bo_group.publish_intents().await?;
+    assert!(bo_group.epoch().await? < group.epoch().await?);
+    let sent = group.test_get_last_message_from_network().await?;
+    assert!(!sent.is_commit());
+    group.sync().await?;
+
+    let sender = group
+        .find_messages(&MsgQueryArgs::default())?
+        .into_iter()
+        .find(|message| message.id == message_id)
+        .map(|message| message.sender_installation_id);
+    if matches!(case, PastEpochSender::Present) {
+        assert_eq!(sender, Some(bo.installation_id.to_vec()));
+    } else {
+        assert_eq!(sender, None);
+        assert_eq!(group.cursor().await?, sent.cursor);
+    }
+    Ok(())
 }

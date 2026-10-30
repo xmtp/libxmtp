@@ -5,6 +5,7 @@ use super::membership_recovery::{
 };
 use super::*;
 use crate::groups::send_message_opts::SendMessageOpts;
+use crate::groups::tests::revoke;
 use crate::utils::{ClientTester, TestMlsGroup};
 use openmls::messages::proposals::AppDataUpdateOperation;
 use tls_codec::{Serialize, VLBytes};
@@ -54,20 +55,6 @@ async fn associate(member: &ClientTester, installation: &ClientTester) {
             UnverifiedSignature::new_installation_key(signature, key.verifying_key()),
             &member.context.scw_verifier(),
         )
-        .await
-        .unwrap();
-    add_wallet_signature(&mut request, &member.builder.owner).await;
-    member
-        .identity_updates()
-        .apply_signature_request(request)
-        .await
-        .unwrap();
-}
-
-async fn revoke(member: &ClientTester, key: &[u8]) {
-    let mut request = member
-        .identity_updates()
-        .revoke_installations(vec![key.to_vec()])
         .await
         .unwrap();
     add_wallet_signature(&mut request, &member.builder.owner).await;
