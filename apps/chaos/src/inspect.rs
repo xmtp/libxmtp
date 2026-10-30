@@ -22,6 +22,9 @@ const LOG_TAIL_BYTES: u64 = 512 * 1024;
 const LOG_RECORD_BYTES: usize = 64 * 1024;
 const RECENT_OPERATION_ROWS: usize = 32;
 const RECENT_ERROR_ROWS: usize = 24;
+const ERROR_BYTES: usize = 256;
+const ERROR_HEAD_BYTES: usize = 96;
+const ERROR_TAIL_BYTES: usize = 128;
 const ROUND_DIRECTORY_CAP: usize = 256;
 
 pub(crate) struct BoundedOutput {
@@ -172,6 +175,8 @@ fn render_status(output: &mut BoundedOutput, value: &Value) {
         "round",
         "phase",
         "verdict",
+        "termination",
+        "termination_reason",
         "counters",
         "contention",
         "ops",
@@ -469,7 +474,7 @@ pub(crate) fn render_findings(output: &mut BoundedOutput, value: &Value, group: 
 
 /// Keep error causes, but omit quoted values, key fields, and long encoded data.
 fn safe_error(text: &str) -> String {
-    let text = clipped(text, 1024);
+    let text = clipped(text, LOG_RECORD_BYTES);
     let lower = text.to_ascii_lowercase();
     if [
         "private_key",
@@ -515,11 +520,21 @@ fn safe_error(text: &str) -> String {
         } else {
             output.push_str(word);
         }
-        if output.len() >= 256 {
-            break;
-        }
     }
-    clipped(&output, 256).to_string()
+    if output.len() <= ERROR_BYTES {
+        return output;
+    }
+    // Nested sync summaries can fill the prefix before the underlying cause.
+    // Redact the entire error before retaining its head and tail.
+    let mut tail = output.len().saturating_sub(ERROR_TAIL_BYTES);
+    while !output.is_char_boundary(tail) {
+        tail += 1;
+    }
+    format!(
+        "{} ... {}",
+        clipped(&output, ERROR_HEAD_BYTES),
+        &output[tail..]
+    )
 }
 
 /// Free-form diagnostics can contain messages or keys. Emit only known categories.
@@ -832,6 +847,23 @@ mod tests {
     }
 
     #[xmtp_common::test(unwrap_try = true)]
+    async fn incomplete_run_reason_is_visible_in_bounded_status() {
+        let temp = tempfile::tempdir()?;
+        std::fs::write(
+            temp.path().join("status.json"),
+            serde_json::to_vec(&json!({
+                "verdict": "STALL",
+                "termination": "INCONCLUSIVE",
+                "termination_reason": "Run limit reached with unresolved obligations"
+            }))?,
+        )?;
+        let output = status(temp.path());
+        assert!(output.contains("INCONCLUSIVE"));
+        assert!(output.contains("Run limit reached with unresolved obligations"));
+        assert_bounded(&output);
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
     async fn violations_precede_warnings_and_replace_stale_summary() {
         let temp = tempfile::tempdir()?;
         let mut findings = vec![json!({"verdict":"WARN","detail":"warning"}); 200];
@@ -904,5 +936,18 @@ mod tests {
         assert_bounded(&output);
         assert!(output.contains("[private]"));
         assert!(!output.contains("secret-key"));
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn nested_error_keeps_redacted_root_cause_within_limit() {
+        let prefix = "Sync failed: errors publishing intents; ".repeat(30);
+        let message = format!("{prefix}: SequenceIdDecreased inbox=\"private-inbox\"");
+        let result = safe_error(&message);
+        assert!(result.contains("SequenceIdDecreased"));
+        assert!(!result.contains("private-inbox"));
+        assert!(result.len() <= ERROR_BYTES);
+        let sensitive = safe_error(&format!("{prefix}: wallet_key=super-secret"));
+        assert!(sensitive.contains("sensitive error detail omitted"));
+        assert!(!sensitive.contains("super-secret"));
     }
 }

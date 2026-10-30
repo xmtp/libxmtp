@@ -112,21 +112,61 @@ impl Scheduler {
         }
         let mut hot: Vec<_> = groups
             .iter()
-            .filter(|group| members(population, group).len() >= 2)
+            .filter(|group| members(population, group, round).len() >= 2)
             .collect();
         hot.shuffle(&mut self.rng);
         let hot_count = self.rng.random_range(1..=2);
         hot.truncate(hot_count);
         let mut bursts = Vec::new();
+        if hot.is_empty() {
+            // Churn can leave every capped group with one active inbox. Restore
+            // a second member before the round falls back to sync-only work.
+            let recovery = groups
+                .iter()
+                .filter_map(|group| {
+                    let actors = members(population, group, round);
+                    let actor = actors
+                        .iter()
+                        .copied()
+                        .find(|actor| group.is_admin(&actor.inbox_id))
+                        .or_else(|| actors.first().copied())?;
+                    let joiner = population
+                        .iter()
+                        .find(|candidate| !group.members.contains(&candidate.inbox_id))?;
+                    Some((
+                        group.is_admin(&actor.inbox_id),
+                        scheduled(
+                            actor,
+                            Operation::Add {
+                                group: group.id.clone(),
+                                inbox: joiner.inbox_id.clone(),
+                            },
+                        ),
+                    ))
+                })
+                .max_by_key(|(admin, _)| *admin);
+            if let Some((_, operation)) = recovery {
+                bursts.push(Burst {
+                    recipe: "repopulate_group".into(),
+                    operations: vec![operation],
+                });
+            }
+        }
         for index in 0..SAME_EPOCH_BURSTS {
             if let Some(group) = hot.get(index % hot.len().max(1)) {
-                let mut actors = members(population, group);
+                let mut actors = members(population, group, round);
                 actors.shuffle(&mut self.rng);
-                bursts.push(recipes::same_epoch(round, index, group, &actors));
+                if index == 0
+                    && let Some(burst) = recipes::same_inbox(round, group, population)
+                {
+                    bursts.push(burst);
+                } else {
+                    bursts.push(recipes::same_epoch(round, index, group, &actors));
+                }
             }
         }
         if let Some(group) = hot.first() {
-            let mut actors = members(population, group);
+            let mut actors = members(population, group, round);
             actors.shuffle(&mut self.rng);
             bursts.extend(recipes::recipe(
                 round,
@@ -241,7 +281,7 @@ impl Scheduler {
         let Some(group) = group else {
             return scheduled(any, Operation::SyncAll);
         };
-        let actors = members(population, group);
+        let actors = members(population, group, round);
         // Privileged operations prefer actors that hold the role, so most of
         // them commit. Without one, the permission rejection is still tested.
         let privileged: Vec<_> = actors
@@ -359,23 +399,31 @@ impl Scheduler {
     }
 }
 
-/// One local installation for each member inbox participates in a commit burst.
+/// Rotate the local writer for each member inbox without counting devices as members.
 pub(crate) fn members<'a>(
     population: &'a [InstanceView],
     group: &GroupView,
+    round: u64,
 ) -> Vec<&'a InstanceView> {
-    let mut actors = Vec::new();
+    let mut by_inbox = std::collections::BTreeMap::<&str, Vec<&InstanceView>>::new();
     for instance in population {
-        if instance.groups.contains(&group.id)
+        if instance.slot != crate::population::SHARED_SLOT
+            && instance.groups.contains(&group.id)
             && group.members.contains(&instance.inbox_id)
-            && !actors
-                .iter()
-                .any(|actor: &&InstanceView| actor.inbox_id == instance.inbox_id)
         {
-            actors.push(instance);
+            by_inbox
+                .entry(&instance.inbox_id)
+                .or_default()
+                .push(instance);
         }
     }
-    actors
+    by_inbox
+        .into_values()
+        .map(|mut devices| {
+            devices.sort_by_key(|device| device.slot);
+            devices[(round % devices.len() as u64) as usize]
+        })
+        .collect()
 }
 
 pub(crate) fn scheduled(instance: &InstanceView, operation: Operation) -> ScheduledOperation {
@@ -415,6 +463,149 @@ mod tests {
             })
             .collect();
         (population, groups)
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn capped_population_repopulates_cold_groups_before_more_syncs() {
+        let groups = (0..MAX_GROUPS)
+            .map(|index| {
+                let owner = format!("inbox-{}", index % crate::population::INBOXES);
+                GroupView {
+                    id: format!("group-{index}"),
+                    members: vec![owner.clone()],
+                    admins: Vec::new(),
+                    super_admins: vec![owner],
+                }
+            })
+            .collect::<Vec<_>>();
+        let population = (0..MAX_INSTALLATIONS)
+            .map(|slot| {
+                let inbox_index = if slot == crate::population::SHARED_SLOT {
+                    0
+                } else if slot < crate::population::INBOXES {
+                    slot
+                } else {
+                    (slot - 7) % crate::population::INBOXES
+                };
+                let inbox_id = format!("inbox-{inbox_index}");
+                InstanceView {
+                    slot,
+                    inbox_index,
+                    groups: groups
+                        .iter()
+                        .filter(|group| group.members.contains(&inbox_id))
+                        .map(|group| group.id.clone())
+                        .collect(),
+                    inbox_id,
+                }
+            })
+            .collect::<Vec<_>>();
+        let mut scheduler = Scheduler::new(1340);
+        let schedule = scheduler.next(55, &population, &groups);
+        let operations = schedule
+            .bursts
+            .iter()
+            .flat_map(|burst| &burst.operations)
+            .collect::<Vec<_>>();
+        assert_eq!(operations.len(), OPERATIONS_PER_ROUND);
+        assert!(!operations.iter().any(|scheduled| matches!(
+            scheduled.operation,
+            Operation::Create { .. } | Operation::NewInstallation { .. }
+        )));
+        let add = operations
+            .iter()
+            .find(|scheduled| matches!(scheduled.operation, Operation::Add { .. }))?;
+        let Operation::Add { group, inbox } = &add.operation else {
+            unreachable!()
+        };
+        let target = groups.iter().find(|candidate| candidate.id == *group)?;
+        let actor = population
+            .iter()
+            .find(|candidate| candidate.slot == add.instance)?;
+        assert!(actor.groups.contains(group));
+        assert!(target.is_admin(&actor.inbox_id));
+        assert!(!target.members.contains(inbox));
+
+        // A successful add must make the next round perform concurrent group work.
+        let mut recovered_groups = groups.clone();
+        recovered_groups
+            .iter_mut()
+            .find(|candidate| candidate.id == *group)?
+            .members
+            .push(inbox.clone());
+        let mut recovered_population = population.clone();
+        for device in recovered_population
+            .iter_mut()
+            .filter(|device| device.inbox_id == *inbox)
+        {
+            device.groups.push(group.clone());
+        }
+        assert!(
+            scheduler
+                .next(56, &recovered_population, &recovered_groups)
+                .bursts
+                .iter()
+                .any(|burst| burst.recipe == "same_epoch_contention")
+        );
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn secondary_devices_originate_group_writes_without_duplicate_members() {
+        let (mut population, groups) = population();
+        let mut secondary = population[0].clone();
+        secondary.slot = 7;
+        population.push(secondary);
+        let mut shared = population[0].clone();
+        shared.slot = crate::population::SHARED_SLOT;
+        population.push(shared);
+        let first = members(&population, &groups[0], 0);
+        let second = members(&population, &groups[0], 1);
+        assert_eq!(first.len(), 3);
+        assert_eq!(second.len(), 3);
+        assert_eq!(first[0].slot, 0);
+        assert_eq!(second[0].slot, 7);
+        assert!(
+            !second
+                .iter()
+                .any(|actor| actor.slot == crate::population::SHARED_SLOT)
+        );
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn schedules_concurrent_writes_from_two_devices_of_one_inbox() {
+        let (mut population, mut groups) = population();
+        groups.truncate(1);
+        let mut shared = population[0].clone();
+        shared.slot = crate::population::SHARED_SLOT;
+        population.push(shared);
+        let mut secondary = population[0].clone();
+        secondary.slot = 7;
+        population.push(secondary);
+        let schedule = Scheduler::new(42).next(1, &population, &groups);
+        let burst = schedule
+            .bursts
+            .iter()
+            .find(|burst| burst.recipe == "same_inbox_contention")?;
+        assert_eq!(burst.operations.len(), 2);
+        let slots = burst
+            .operations
+            .iter()
+            .map(|operation| operation.instance)
+            .collect::<BTreeSet<_>>();
+        assert_eq!(slots, BTreeSet::from([0, 7]));
+        for operation in &burst.operations {
+            assert!(
+                matches!(&operation.operation, Operation::Metadata { group, .. } if group == "first")
+            );
+        }
+        assert_eq!(
+            schedule
+                .bursts
+                .iter()
+                .map(|burst| burst.operations.len())
+                .sum::<usize>(),
+            OPERATIONS_PER_ROUND
+        );
     }
 
     #[xmtp_common::test(unwrap_try = true)]
