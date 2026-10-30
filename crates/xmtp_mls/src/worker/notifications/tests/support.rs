@@ -61,6 +61,7 @@ pub(crate) struct Server {
     pub(crate) limit: Option<usize>,
     pub(crate) calls: Vec<Call>,
     pub(crate) pause_next: bool,
+    pub(crate) lose_update_reply: bool,
     pub(crate) next_error: Option<tonic::Code>,
     /// Refuse the next request of this kind with a rate limit of this delay.
     pub(crate) rate_limit: Option<(Call, xmtp_common::time::Duration)>,
@@ -242,6 +243,11 @@ impl XmtpBackendClient for ScriptedApi {
                 return Err(status(tonic::Code::ResourceExhausted));
             }
             state.subscriptions = next;
+        }
+        let lose_reply = std::mem::take(&mut self.peer.state.lock().lose_update_reply);
+        if lose_reply {
+            self.peer.entered.notify_one();
+            std::future::pending::<()>().await;
         }
         Ok(self.peer.response())
     }
