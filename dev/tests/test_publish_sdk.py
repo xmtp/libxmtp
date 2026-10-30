@@ -36,12 +36,15 @@ class PublishNpmTest(unittest.TestCase):
         version="8.0.0-rc5",
         node="8.0.0-rc5",
         registry=None,
+        scoped_registry=None,
     ):
         package = dict(
             name=name, version=version, dependencies={"@xmtp/node-sdk": node}
         )
         if registry is not None:
             package["publishConfig"] = {"registry": registry}
+        if scoped_registry is not None:
+            package.setdefault("publishConfig", {})["@xmtp:registry"] = scoped_registry
         payload = json.dumps(package).encode()
         with tarfile.open(self.tarball, "w:gz") as archive:
             info = tarfile.TarInfo("package/package.json")
@@ -74,10 +77,24 @@ class PublishNpmTest(unittest.TestCase):
                 self.assertEqual(run.call_count, 1)
 
     def test_retry_uses_the_manifest_registry_for_package_and_node_identity(self):
-        registry = "https://registry.npmjs.org/"
-        for sdk in ("node-sdk", "agent-sdk", "cli"):
-            with self.subTest(sdk=sdk):
-                integrity = self.pack(name="@xmtp/" + sdk, registry=registry)
+        cases = [
+            (sdk, ordinary, scoped)
+            for sdk in ("node-sdk", "agent-sdk", "cli")
+            for ordinary, scoped in (
+                ("https://registry.npmjs.org/", None),
+                ("https://declared.example.invalid/", None),
+                (
+                    "https://declared.example.invalid/",
+                    "https://scoped.example.invalid/",
+                ),
+            )
+        ]
+        for sdk, ordinary, scoped in cases:
+            with self.subTest(sdk=sdk, registry=ordinary, scoped=scoped):
+                registry = scoped or ordinary
+                integrity = self.pack(
+                    name="@xmtp/" + sdk, registry=ordinary, scoped_registry=scoped
+                )
                 calls = []
 
                 def transport(args, **kwargs):
@@ -105,7 +122,10 @@ class PublishNpmTest(unittest.TestCase):
                 with (
                     patch.dict(
                         os.environ,
-                        {"NPM_CONFIG_REGISTRY": "https://mirror.example.invalid/"},
+                        {
+                            "NPM_CONFIG_REGISTRY": "https://mirror.example.invalid/",
+                            "npm_config_@xmtp:registry": "https://scope-mirror.example.invalid/",
+                        },
                     ),
                     patch.object(module.subprocess, "run", side_effect=transport),
                 ):
