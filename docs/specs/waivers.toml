@@ -56,13 +56,6 @@ issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "Recovery can discard the old receiver before the replacement is ready, and retries failures that a terminal authentication or request-size error excludes from general recovery."
 
 [[waiver]]
-id = "PROC-036"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "Client processing logs still contain full installation identifiers."
-
-[[waiver]]
 id = "PROC-043"
 kind = "gap"
 owner = "protocol"
