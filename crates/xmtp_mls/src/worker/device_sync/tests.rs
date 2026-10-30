@@ -1162,23 +1162,25 @@ async fn publish_reaches_present_leaves_and_retries_a_missing_one() {
         sequence
     );
 }
-/// A retry row that an older build stored with the three-day lifetime is
-/// replaced by one that never expires before any attempt that could fail.
+/// When a publish arms the retry, a row that an older build stored for the
+/// group with the three-day lifetime is kept, and becomes one that never
+/// expires.
 // verifies: SYNC-034
 #[xmtp_common::test(unwrap_try = true)]
 #[cfg_attr(target_arch = "wasm32", ignore)]
-async fn an_expiring_retry_row_is_replaced_by_a_durable_one() {
-    use crate::worker::tasks::TaskWorker;
+async fn arming_a_retry_makes_an_older_expiring_row_durable() {
     use xmtp_db::tasks::QueryTasks;
 
     tester!(alix1, disable_workers);
-    let group = alix1.device_sync_client().get_sync_group().await?;
+    let sync = alix1.device_sync_client();
+    let group = sync.get_sync_group().await?;
     let db = alix1.context.db();
     schedule_add_missing_installations(&db, alix1.context.events(), group.group_id, None, false)?;
     let [old] = db.get_tasks()?.try_into().unwrap();
     assert_ne!(old.expires_at_ns, i64::MAX);
-    TaskWorker::run_and_reschedule_task(old, &alix1.context).await?;
+    sync.schedule_add_missing_installations_task(group.group_id, None)?;
     let [row] = db.get_tasks()?.try_into().unwrap();
+    assert_eq!(row.id, old.id);
     assert_eq!((row.expires_at_ns, row.max_attempts), (i64::MAX, i32::MAX));
 }
 

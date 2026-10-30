@@ -728,7 +728,22 @@ fn schedule_add_missing_installations(
             },
         )),
     })?;
+    let hash = task.data_hash.clone();
     db.create_or_ignore_task(task)?;
+    if until_done {
+        // A row an older build stored for this group is kept instead of the
+        // new one, so it must not expire either.
+        use xmtp_db::{diesel, diesel::prelude::*, schema::tasks::dsl};
+        db.raw_query(|c| {
+            diesel::update(dsl::tasks.filter(dsl::data_hash.eq(&hash)))
+                .set((
+                    dsl::expires_at_ns.eq(i64::MAX),
+                    dsl::max_attempts.eq(i32::MAX),
+                    dsl::max_backoff_duration_ns.eq(SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS),
+                ))
+                .execute(c)
+        })?;
+    }
     events.emit(None, Some(InternalEvent::TaskScheduled));
     Ok(())
 }

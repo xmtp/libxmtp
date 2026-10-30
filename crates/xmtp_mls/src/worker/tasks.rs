@@ -652,13 +652,6 @@ where
             Ok(group) if group.conversation_type == ConversationType::Sync => {
                 let metrics = Arc::new(WorkerMetrics::new(context.installation_id()));
                 let sync = DeviceSyncClient::new(context.clone(), metrics);
-                // A row an older build stored can expire; replace it, due
-                // now, before any attempt that could fail.
-                if task.expires_at_ns != i64::MAX {
-                    context.db().delete_task(task.id)?;
-                    sync.schedule_add_missing_installations_task(group_id, None)?;
-                    return Ok(TaskOutcome::Done);
-                }
                 if sync.retry_own_installations(&group).await? {
                     return Ok(TaskOutcome::RescheduleAt(
                         xmtp_common::time::now_ns() + SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS,
