@@ -14,9 +14,8 @@ and snapshot activation remain project settings, not fields in this file.
   patches, runtime pins, Nix shell inputs, and the Setup files. It repeats the
   dependency install only when those inputs change or `node_modules` is missing.
 - Startup runs `just backend db-up`, which waits for PostgreSQL and its replica
-  to become healthy. Their test data is ephemeral. The full backend and
-  observability stack are on demand through `backend-up`; `test` starts the
-  full stack before running the workspace tests.
+  to become healthy. Their test data is ephemeral. Routine development commands
+  stay in Just and `AGENTS.md`, rather than being duplicated in Capy.
 
 Every language command runs through `dev/nix-shell`; the pinned Nix toolchain
 takes precedence over the VM's host runtimes. Setup installs upstream Nix
