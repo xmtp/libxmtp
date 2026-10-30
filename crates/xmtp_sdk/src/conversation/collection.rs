@@ -281,8 +281,6 @@ impl Conversations {
         .await
     }
 
-    /// Returns the stored group if its first add is still pending when the wait
-    /// ends. A later sync completes the add.
     #[uniffi::method(default(options = None))]
     pub async fn create_group(
         &self,

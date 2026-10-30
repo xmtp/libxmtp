@@ -836,6 +836,8 @@ where
         .await
     }
 
+    /// Returns the stored group if its first add is still pending when the wait
+    /// ends. A later sync completes the add.
     #[tracing::instrument(level = "debug", skip_all, fields(size = inbox_ids.len()))]
     pub async fn create_group_with_members(
         &self,
