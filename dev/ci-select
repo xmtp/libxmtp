@@ -164,6 +164,8 @@ def json_strings(value):
 def event_kind(event_name, event):
     if event_name == "workflow_dispatch":
         return "manual"
+    if event_name == "schedule":
+        return "nightly"
     if event_name == "push":
         return "merge"
     if event.get("pull_request", {}).get("draft"):
@@ -234,9 +236,11 @@ def select_suites(
     if kind == "manual":
         requested = requested_suites(event)
         reasons.append("explicit_request")
+    elif kind == "nightly":
+        reasons.append("nightly")
     elif kind == "merge":
         reasons.append("merge")
-    if kind != "manual":
+    if kind not in ("manual", "nightly"):
         if metadata_error:
             details.append(metadata_error)
         if event_name == "pull_request":
@@ -267,7 +271,7 @@ def select_suites(
     eligible = {
         name
         for name, suite in SUITES.items()
-        if (kind == "manual" or kind in suite["run_on"])
+        if (kind in ("manual", "nightly") or kind in suite["run_on"])
         and not (fork and suite["disable_on_forks"])
     }
     # Detection failed, or the PR has more files than the list holds: any file
@@ -279,7 +283,7 @@ def select_suites(
         selected = eligible
         # A full run of a pull request runs a suite with skip_full_runs only
         # when its own filters or labels matched.
-        if kind not in ("merge", "manual") and not unseen:
+        if kind not in ("merge", "manual", "nightly") and not unseen:
             selected = {
                 name
                 for name in selected
@@ -292,7 +296,7 @@ def select_suites(
     def tier(name):
         # A suite is advisory only on a pull request where no blocking filter
         # matched it: an advisory filter selected it, or a full run did.
-        if kind in ("merge", "manual") or name in matched:
+        if kind in ("merge", "manual", "nightly") or name in matched:
             return "blocking"
         if unseen and has_blocking_tier(SUITES[name]):
             return "blocking"

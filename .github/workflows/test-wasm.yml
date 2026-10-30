@@ -6,6 +6,10 @@ on:
         description: The runner label. ci.yml passes it from .github/ci-suites.yml (runners).
         type: string
         required: true
+      scope:
+        description: full runs all partitions; sample rotates one partition on pull requests only.
+        type: string
+        default: full
 env:
   NIX_DEVSHELL: wasm
 jobs:
@@ -16,7 +20,22 @@ jobs:
     name: Build test archive
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 60
+    outputs:
+      partitions: ${{ steps.partitions.outputs.partitions }}
     steps:
+      - name: Select test partitions
+        id: partitions
+        env:
+          SCOPE: ${{ inputs.scope }}
+          EVENT_NAME: ${{ github.event_name }}
+          RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          case "$SCOPE" in full|sample) ;; *) echo "::error::Unknown WASM scope: $SCOPE"; exit 1 ;; esac
+          if [[ "$SCOPE" == sample && "$EVENT_NAME" == pull_request ]]; then
+            echo "partitions=[$((RUN_NUMBER % 4 + 1))]" >> "$GITHUB_OUTPUT"
+          else
+            echo 'partitions=[1,2,3,4]' >> "$GITHUB_OUTPUT"
+          fi
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - name: Set up Nix
@@ -29,8 +48,8 @@ jobs:
         run: >-
           nix build --print-build-logs --no-link
           .#wasm-nextest-archive.x86_64-linux .#services-test
-  # Each partition runs one slice of the archive and starts its own test
-  # services inside the build, so the job needs no Docker stack.
+  # Each selected partition runs one slice of the archive and starts its own
+  # test services inside the build, so the job needs no Docker stack.
   # nix/ci-checks.nix (`wasmPartitions`) and dev/wasm.just name the same 4
   # slices.
   partition:
@@ -41,7 +60,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        part: [1, 2, 3, 4]
+        part: ${{ fromJSON(needs.archive.outputs.partitions) }}
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6

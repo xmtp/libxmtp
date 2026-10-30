@@ -27,8 +27,8 @@ JOBS = yaml.safe_load((ROOT / ".github/workflows/post-merge.yml").read_text())["
 NIX = shutil.which("nix")
 # The jobs that warm and check the non-RN sets and publish the docs.
 NON_RN_JOBS = ("build", "closure", "docs-swift", "docs-kotlin", "docs", "deploy")
-# The RN jobs that cache and test; rn-alert checks the RN sets and reports.
-RN_CHAIN = ("rn-components", "rn-package", "rn-consumers", "rn-smoke")
+# The RN jobs that cache; rn-alert checks the RN sets and reports.
+RN_CHAIN = ("rn-components", "rn-package", "rn-consumers")
 STATUS_FUNCTION = re.compile(r"\b(?:success|failure|cancelled|always)\(\)")
 # The RN JavaScript layer: the SDK's JavaScript product and its build inputs.
 # The JavaScript suites and the docs read it through the Linux product group
@@ -511,9 +511,9 @@ class PostMergeOrderTests(unittest.TestCase):
             (None, True, True, True),
             # One rn-consumers leg failed: the other leg's set is checked.
             ({"rn-consumers": "failure"}, False, True, True),
-            ({"rn-smoke": "failure"}, False, True, True),
+            ({"rn-consumers": "cancelled"}, False, True, True),
             # A job that hits its timeout ends as cancelled.
-            ({"rn-smoke": "cancelled"}, False, True, True),
+            ({"rn-components": "cancelled"}, False, False, True),
             ({"rn-package": "failure"}, False, False, True),
         ):
             with self.subTest(broken=broken, check_fails=check_fails):
@@ -537,6 +537,24 @@ class PostMergeOrderTests(unittest.TestCase):
         # A cancelled run checks and alerts on nothing.
         finished = set(RN_CHAIN) | {"build"}
         self.assertEqual(run_graph({}, finished=finished)["rn-alert"], "skipped")
+
+    def test_rn_cache_alert_ignores_non_rn_failures(self):
+        check = step("rn-alert", "Dry-run the pushed RN sets in an empty store")
+        notify = step("rn-alert", "Notify Slack")
+        for broken in (*NON_RN_JOBS, "pnpm-store"):
+            for result in ("failure", "cancelled"):
+                with self.subTest(job=broken, result=result):
+                    results = run_graph({broken: result})
+                    self.assertEqual(results["rn-alert"], "success")
+                    needs = {name: results[name] for name in direct_needs("rn-alert")}
+                    self.assertTrue(evaluate(check["if"], needs=needs))
+                    self.assertFalse(
+                        evaluate(
+                            notify["if"],
+                            needs=needs,
+                            values={"steps.check.outcome": "success"},
+                        )
+                    )
 
 
 class WarmSetTests(unittest.TestCase):

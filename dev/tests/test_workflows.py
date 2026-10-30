@@ -109,7 +109,7 @@ class GateTests(unittest.TestCase):
                         self.assertEqual(set(needs), ci_gate_needs(jobs, name))
                     else:
                         self.assertEqual(set(needs), set(jobs) - {name})
-                    (step,) = gate["steps"]
+                    (step,) = (step for step in gate["steps"] if "run" in step)
                     passing = {job: "success" for job in needs}
                     self.assertEqual(run_gate(step, passing), 0)
                     for job in needs:

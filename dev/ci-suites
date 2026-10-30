@@ -812,6 +812,17 @@ def gate_job(manifest, phase):
         "      run: |",
     ]
     lines += [f"        {line}" if line else "" for line in GATE_SCRIPT.splitlines()]
+    lines += [
+        "    - name: Check out the notification action",
+        "      if: ${{ failure() && github.event_name == 'schedule' }}",
+        f"      uses: {CHECKOUT}",
+        "    - name: Notify on nightly failure",
+        "      if: ${{ failure() && github.event_name == 'schedule' }}",
+        "      uses: ./.github/actions/slack-notify",
+        "      with:",
+        f'        message: "Nightly CI {name} failed: ${{{{ github.server_url }}}}/${{{{ github.repository }}}}/actions/runs/${{{{ github.run_id }}}}"',
+        "        webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}",
+    ]
     return lines
 
 
@@ -863,6 +874,8 @@ name: CI
     - main
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review, converted_to_draft, labeled, unlabeled]
+  schedule:
+    - cron: '17 9 * * *'
   workflow_dispatch:
     inputs:
       suites:
@@ -902,7 +915,7 @@ SELECT_JOB = """\
         fetch-depth: 2
     - name: List changed paths
       id: paths
-      if: github.event_name != 'workflow_dispatch'
+      if: github.event_name != 'workflow_dispatch' && github.event_name != 'schedule'
       continue-on-error: true
       uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4
       with:

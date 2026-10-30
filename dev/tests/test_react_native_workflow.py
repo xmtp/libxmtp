@@ -474,25 +474,30 @@ class ReactNativeWorkflowTests(unittest.TestCase):
                     self.assertIn(inputs["cache-mode"], ("read", "trusted"))
                     self.assertNotEqual(inputs.get("package-kind"), "test")
 
-    def test_post_merge_smoke_reads_the_trusted_cache_without_a_token(self):
-        smoke = workflow("post-merge.yml")["jobs"]["rn-smoke"]
-        self.assertNotIn("environment", smoke)
-        self.assertNotIn("secrets.", json.dumps(smoke))
-        self.assertEqual(smoke["env"]["XMTP_RN_JOURNEYS"], "full")
-        ((_, _, inputs),) = (
-            call
-            for call in product_calls(workflow("post-merge.yml"))
-            if call[0] == "rn-smoke"
-        )
-        self.assertEqual(
-            (inputs["cache-mode"], inputs["exchange"], inputs["substitute-only"]),
-            ("read", "false", "true"),
-        )
-        alert = workflow("post-merge.yml")["jobs"]["rn-alert"]
-        self.assertIn("rn-smoke", alert["needs"])
-        # The smoke substitutes the backend and the test services that
-        # `build` pushes. test_warm_sets.py checks when it runs.
-        self.assertIn("build", smoke["needs"])
+    def test_post_merge_executes_no_rn_devices(self):
+        pending = [WORKFLOWS / "post-merge.yml"]
+        visited = set()
+        while pending:
+            path = pending.pop()
+            if path in visited:
+                continue
+            visited.add(path)
+            document = yaml.safe_load(path.read_text())
+            jobs = document.get("jobs", {})
+            nodes = list(jobs.values())
+            nodes.extend(document.get("runs", {}).get("steps", []))
+            for job in jobs.values():
+                nodes.extend(job.get("steps", []))
+            for node in nodes:
+                with self.subTest(path=path, name=node.get("name")):
+                    self.assertNotRegex(
+                        node.get("run", ""),
+                        r"test-installed|run-test-emulator|simctl\s+boot",
+                    )
+                use = node.get("uses", "")
+                if use.startswith("./"):
+                    target = ROOT / use
+                    pending.append(target / "action.yml" if target.is_dir() else target)
 
     def test_release_consumers_test_the_exchanged_full_package(self):
         document = workflow("release-react-native-sdk.yml")
