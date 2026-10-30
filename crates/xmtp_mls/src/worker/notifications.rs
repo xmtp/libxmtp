@@ -246,6 +246,7 @@ pub(crate) async fn register<Context: XmtpSharedContext>(
                 &response,
                 &[],
                 &[],
+                false,
             )?),
             Err(error) => {
                 if record_error(context, record.push_generation, &error, None)? {
@@ -278,6 +279,7 @@ pub(crate) fn confirm<Context: XmtpSharedContext>(
     response: &RecipientState,
     adds: &[UploadedTopic],
     removes: &[Vec<u8>],
+    adds_new_topic: bool,
 ) -> Result<bool, StorageError> {
     state_write(context.mls_storage(), |tx| {
         let storage = tx.storage();
@@ -293,7 +295,7 @@ pub(crate) fn confirm<Context: XmtpSharedContext>(
         if record.push_generation != generation {
             return Ok(Continue(false));
         }
-        if !adds.is_empty() || !removes.is_empty() {
+        if adds_new_topic || !removes.is_empty() {
             record.push_suppressed = None;
         }
         let uploaded = db.uploaded_topics()?;
@@ -373,9 +375,9 @@ pub(crate) fn record_error<Context: XmtpSharedContext>(
     context: &Context,
     generation: i64,
     error: &NotificationError,
-    desired_fingerprint: Option<&[u8]>,
+    update: Option<(&[u8], &mut [UploadedTopic])>,
 ) -> Result<bool, StorageError> {
-    match store_error(context, generation, error, desired_fingerprint) {
+    match store_error(context, generation, error, update) {
         // implements: RATE-041
         Err(storage) if error.rate_limit_delay().is_some() => {
             tracing::warn!(%storage, "could not store a notification rate-limit hold");
@@ -389,12 +391,28 @@ fn store_error<Context: XmtpSharedContext>(
     context: &Context,
     generation: i64,
     error: &NotificationError,
-    desired_fingerprint: Option<&[u8]>,
+    mut update: Option<(&[u8], &mut [UploadedTopic])>,
 ) -> Result<bool, StorageError> {
     state_write_with_events(context.mls_storage(), context.events(), |tx, events| {
         let storage = tx.storage();
         let db = storage.db();
         let mut record = db.notification_record()?;
+        // Retain uncertain adds even when an enabled generation changed in flight.
+        // Never confirm removes without a successful response.
+        // implements: PUSH-267
+        if record.push_state == 1
+            && matches!(
+                error,
+                NotificationError::RequestTimeout | NotificationError::Api(_)
+            )
+            && let Some((_, adds)) = update.as_mut()
+        {
+            for row in adds.iter_mut() {
+                row.stale = true;
+            }
+            db.confirm_uploaded_topics(adds, &[])?;
+        }
+        let desired_fingerprint = update.as_ref().map(|(fingerprint, _)| *fingerprint);
         // The delay binds this recipient's requests whatever the configuration.
         // implements: PUSH-267, RATE-041
         // Only an update carries the desired set; any other is a registration.
@@ -496,7 +514,7 @@ pub(crate) fn diff(
     epoch: i64,
     fingerprint: &[u8],
     suppress_adds: bool,
-) -> (Vec<Vec<u8>>, Vec<Vec<u8>>) {
+) -> (Vec<Vec<u8>>, Vec<Vec<u8>>, bool) {
     let uploaded: BTreeMap<_, _> = uploaded
         .iter()
         .map(|row| (row.topic.as_slice(), row))
@@ -518,24 +536,25 @@ pub(crate) fn diff(
             }
             adds.push(topic.clone());
         }
-        for (topic, rule) in desired {
-            if adds.len() + removes.len() == REQUEST_TOPICS {
-                break;
-            }
-            let Some(row) = uploaded.get(topic.as_slice()) else {
-                continue;
-            };
-            let keys_outdated = rule.group_id.is_some()
-                && (row
-                    .hmac_epoch_base
-                    .is_none_or(|base| base > epoch + 1 || base.saturating_add(2) < epoch + 1)
-                    || row.root_key_fingerprint != fingerprint);
-            if row.stale || row.include_commits != rule.include_commits || keys_outdated {
-                adds.push(topic.clone());
-            }
+    }
+    let adds_new_topic = !adds.is_empty();
+    for (topic, rule) in desired {
+        if adds.len() + removes.len() == REQUEST_TOPICS {
+            break;
+        }
+        let Some(row) = uploaded.get(topic.as_slice()) else {
+            continue;
+        };
+        let keys_outdated = rule.group_id.is_some()
+            && (row
+                .hmac_epoch_base
+                .is_none_or(|base| base > epoch + 1 || base.saturating_add(2) < epoch + 1)
+                || row.root_key_fingerprint != fingerprint);
+        if row.stale || row.include_commits != rule.include_commits || keys_outdated {
+            adds.push(topic.clone());
         }
     }
-    (adds, removes)
+    (adds, removes, adds_new_topic)
 }
 
 /// A subscription update and the uploads it confirms. The request holds the
@@ -544,6 +563,7 @@ struct Batch {
     request: UpdateSubscriptionsRequest,
     uploaded: Vec<UploadedTopic>,
     fingerprint: Vec<u8>,
+    adds_new_topic: bool,
 }
 
 fn prepare_batch<Context: XmtpSharedContext>(
@@ -568,7 +588,7 @@ fn prepare_batch<Context: XmtpSharedContext>(
             None => Vec::new(),
         };
         let epoch = crate::utils::time::hmac_epoch();
-        let (adds, removes) = diff(
+        let (adds, removes, adds_new_topic) = diff(
             desired,
             &db.uploaded_topics()?,
             epoch,
@@ -585,6 +605,7 @@ fn prepare_batch<Context: XmtpSharedContext>(
             },
             uploaded: Vec::with_capacity(adds.len()),
             fingerprint,
+            adds_new_topic,
         };
         for topic in adds {
             let rule = &desired[&topic];
@@ -736,6 +757,7 @@ pub(crate) async fn run<Context: XmtpSharedContext>(
                 &response,
                 &batch.uploaded,
                 &removes,
+                batch.adds_new_topic,
             )?;
             Ok(())
         }
@@ -744,8 +766,13 @@ pub(crate) async fn run<Context: XmtpSharedContext>(
                 context,
                 record.push_generation,
                 &error,
-                Some(&batch.fingerprint),
+                Some((&batch.fingerprint, &mut batch.uploaded)),
             )? {
+                // A refused replacement may actually be missing remotely.
+                // Use the durable task's backoff rather than another immediate turn.
+                if !batch.adds_new_topic && matches!(error, NotificationError::ResourceExhausted) {
+                    return Err(error);
+                }
                 Err(error)
             } else {
                 Ok(())

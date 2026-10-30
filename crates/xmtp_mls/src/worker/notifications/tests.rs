@@ -191,13 +191,14 @@ async fn notification_repair_stale_marks_survive_database_restore() {
         },
         &rows[..1000],
         &[],
+        false,
     )?;
     let snapshot = Arc::new(alix.db_snapshot());
     tester!(restored, snapshot: snapshot, disable_workers);
     assert!(restored.db().notification_record()?.push_repairing);
     let uploaded = restored.db().uploaded_topics()?;
     assert_eq!(uploaded.iter().filter(|row| row.stale).count(), 1500);
-    let (next, _) = diff(
+    let (next, _, _) = diff(
         &desired,
         &uploaded,
         crate::utils::time::hmac_epoch(),
@@ -209,6 +210,79 @@ async fn notification_repair_stale_marks_survive_database_restore() {
         next.iter()
             .all(|topic| uploaded.iter().any(|row| &row.topic == topic && row.stale))
     );
+}
+
+xmtp_common::if_native! {
+    // verifies: PUSH-267
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn notification_uncertain_update_survives_restore_and_generation_change() {
+        use xmtp_db::ConnectionExt;
+        for applied in [false, true] {
+            for (kept, disabled) in [(false, false), (true, false), (false, true)] {
+                let (client, peer) = support::client().await;
+                let removed = client.create_group(None, None)?;
+                let removed_topic = Topic::new_group_message(removed.group_id).cloned_vec();
+                let mut config = config();
+                config.include_welcomes = false;
+                client.enable_notifications(config.clone()).await?;
+                run(&client.context).await?;
+                removed.set_notifications(NotificationOverride::Disabled)?;
+                let added = client.create_group(None, None)?;
+                let added_topic = Topic::new_group_message(added.group_id).cloned_vec();
+                // Fixture networking must finish before native timers are paused.
+                tokio::time::pause();
+                peer.state.lock().pause_next = !applied;
+                peer.state.lock().lose_update_reply = applied;
+                let context = client.context.clone();
+                let upload = xmtp_common::spawn(None, async move { run(&context).await });
+                peer.entered.notified().await;
+                assert_eq!(peer.state.lock().subscriptions.contains_key(&added_topic), applied);
+                assert_eq!(peer.state.lock().subscriptions.contains_key(&removed_topic), !applied);
+                // Enabling saves a newer generation before waiting on the request lock.
+                let generation = client.db().notification_record()?.push_generation;
+                let mut enable = std::pin::pin!(client.enable_notifications(config));
+                let mut disable = std::pin::pin!(client.disable_notifications());
+                if disabled { assert!(futures::poll!(disable.as_mut()).is_pending()); }
+                let changed_generation = applied && kept;
+                if changed_generation {
+                    assert!(futures::poll!(enable.as_mut()).is_pending());
+                    assert_eq!(client.db().notification_record()?.push_generation, generation + 1);
+                }
+                tokio::time::advance(Duration::from_secs(31)).await;
+                let result = upload.join().await?;
+                if disabled {
+                    assert_eq!(result?, TaskOutcome::Done);
+                    assert!(client.db().uploaded_topics()?.is_empty());
+                    disable.await?;
+                    tokio::time::resume();
+                    assert!(peer.state.lock().subscriptions.is_empty());
+                    assert_eq!(run(&client.context).await?, TaskOutcome::Done);
+                    continue;
+                }
+                if changed_generation { result?; } else { assert!(result.is_err()); }
+                let rows = client.db().uploaded_topics()?;
+                assert!(rows.iter().any(|row| row.topic == added_topic && row.stale), "uncertain add must be stale");
+                assert!(rows.iter().any(|row| row.topic == removed_topic), "unconfirmed remove must remain");
+                enable.await?;
+                tokio::time::resume();
+                if !kept {
+                    added.set_notifications(NotificationOverride::Disabled)?;
+                }
+                let snapshot = client.db().raw_query(|conn| Ok(conn.serialize_database_to_buffer().to_vec()))?;
+                let restored = support::client_from_snapshot(Arc::new(snapshot), peer.clone()).await;
+                run(&restored.context).await?;
+                let expected = if kept { vec![added_topic] } else { vec![] };
+                assert_eq!(peer.state.lock().subscriptions.keys().cloned().collect::<Vec<_>>(), expected);
+                assert_eq!(restored.db().uploaded_topics()?.iter().map(|row| row.topic.clone()).collect::<Vec<_>>(), expected);
+                assert!(restored.db().uploaded_topics()?.iter().all(|row| !row.stale));
+                assert!(!restored.db().notification_record()?.push_repairing);
+                let calls = peer.calls(Call::Update);
+                for _ in 0..3 { run(&restored.context).await?; }
+                assert_eq!(peer.calls(Call::Update), calls, "convergence must not restart full repairs");
+                assert_eq!(peer.state.lock().batches.last(), Some(&(usize::from(kept), 1 + usize::from(!kept))));
+            }
+        }
+    }
 }
 
 #[xmtp_common::test(unwrap_try = true)]
@@ -304,6 +378,34 @@ async fn notification_reuploads_keys_flags_and_root_from_request_snapshot() {
     client.enable_notifications(config).await?;
     run(&client.context).await?;
     assert!(peer.state.lock().subscriptions[&topic].include_commits);
+
+    peer.state.lock().limit = Some(1);
+    let extra = client.create_group(None, None)?;
+    let extra_topic = Topic::new_group_message(extra.group_id).cloned_vec();
+    run(&client.context).await?;
+    assert!(client.db().notification_record()?.push_suppressed.is_some());
+    let keys = peer.state.lock().subscriptions[&topic].hmac_keys.clone();
+    xmtp_db::user_preferences::store_test_root_key(
+        &client.db(),
+        &[9; 42],
+        time::now_ns() + 2 * xmtp_common::NS_IN_DAY,
+    )?;
+    let calls = peer.calls(Call::Update);
+    run(&client.context).await?;
+    assert_eq!(
+        peer.calls(Call::Update),
+        calls + 1,
+        "cap must permit key-only repair"
+    );
+    assert_ne!(peer.state.lock().subscriptions[&topic].hmac_keys, keys);
+    assert!(!peer.state.lock().subscriptions.contains_key(&extra_topic));
+    assert!(client.db().notification_record()?.push_suppressed.is_some());
+    run(&client.context).await?;
+    assert_eq!(
+        peer.calls(Call::Update),
+        calls + 1,
+        "key-only success must not release new topics"
+    );
 }
 
 #[xmtp_common::test(unwrap_try = true)]
@@ -477,15 +579,19 @@ async fn notification_task_is_durable_coalesced_and_retries_after_sixty_seconds(
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].expires_at_ns, i64::MAX);
     assert_eq!(rows[0].max_attempts, i32::MAX);
+    let task = || {
+        client
+            .db()
+            .get_tasks()
+            .unwrap()
+            .into_iter()
+            .find(|row| row.data_hash == task_hash().as_ref())
+            .unwrap()
+    };
     peer.state.lock().next_error = Some(tonic::Code::Unavailable);
     let before = time::now_ns();
     TaskWorker::run_and_reschedule_task(rows[0].clone(), &client.context).await?;
-    let row = client
-        .db()
-        .get_tasks()?
-        .into_iter()
-        .find(|row| row.data_hash == task_hash().as_ref())
-        .unwrap();
+    let row = task();
     assert_eq!(row.attempts, 1);
     assert!(row.next_attempt_at_ns >= before + RETRY_NS);
     assert!(row.next_attempt_at_ns <= time::now_ns() + RETRY_NS);
@@ -494,12 +600,7 @@ async fn notification_task_is_durable_coalesced_and_retries_after_sixty_seconds(
     for _ in 0..20 {
         wake(&client.context)?;
     }
-    let row = client
-        .db()
-        .get_tasks()?
-        .into_iter()
-        .find(|row| row.data_hash == task_hash().as_ref())
-        .unwrap();
+    let row = task();
     assert_eq!(row.next_attempt_at_ns, retry_at);
     TaskWorker::run_and_reschedule_task(row.clone(), &client.context).await?;
     assert_eq!(peer.calls(Call::Update), calls);
@@ -510,12 +611,7 @@ async fn notification_task_is_durable_coalesced_and_retries_after_sixty_seconds(
     let mut due = row;
     due.next_attempt_at_ns = before;
     TaskWorker::run_and_reschedule_task(due, &client.context).await?;
-    let row = client
-        .db()
-        .get_tasks()?
-        .into_iter()
-        .find(|row| row.data_hash == task_hash().as_ref())
-        .unwrap();
+    let row = task();
     assert_eq!(row.attempts, 0);
     let calls = peer.calls(Call::Update);
     let before = time::now_ns();
@@ -526,17 +622,45 @@ async fn notification_task_is_durable_coalesced_and_retries_after_sixty_seconds(
     assert!(next >= before + NS_IN_HOUR);
     client.db().update_task(row.id, 0, before, next)?;
     wake(&client.context)?;
-    let advanced = client
-        .db()
-        .get_tasks()?
-        .into_iter()
-        .find(|task| task.data_hash == task_hash().as_ref())
-        .unwrap();
+    let advanced = task();
     assert!(advanced.next_attempt_at_ns < next);
     // A missed hint is repaired by the same local scan when the task next runs.
     client.create_group(None, None)?;
     run(&client.context).await?;
     assert_eq!(peer.calls(Call::Update), calls + 1);
+
+    // A presumed replacement can still exceed the cap when the remote lost it.
+    let group = client.create_group(None, None)?;
+    run(&client.context).await?;
+    {
+        let mut state = peer.state.lock();
+        state
+            .subscriptions
+            .remove(&Topic::new_group_message(group.group_id).cloned_vec());
+        state.limit = Some(state.subscriptions.len());
+    }
+    client.db().mark_uploaded_topics_stale()?;
+    wake(&client.context)?;
+    let before = time::now_ns();
+    TaskWorker::run_and_reschedule_task(task(), &client.context).await?;
+    let refused = task();
+    assert_eq!(
+        refused.attempts, 1,
+        "refused repair must use durable backoff"
+    );
+    assert!(refused.next_attempt_at_ns >= before + RETRY_NS);
+    let calls = peer.calls(Call::Update);
+    group.set_notifications(NotificationOverride::Disabled)?;
+    wake(&client.context)?;
+    assert_eq!(task().next_attempt_at_ns, refused.next_attempt_at_ns);
+    TaskWorker::run_and_reschedule_task(task(), &client.context).await?;
+    assert_eq!(peer.calls(Call::Update), calls);
+    peer.state.lock().limit = None;
+    client
+        .db()
+        .update_task(refused.id, refused.attempts, before, before)?;
+    TaskWorker::run_and_reschedule_task(task(), &client.context).await?;
+    assert_eq!(task().attempts, 0);
 }
 
 /// A rate-limited add is not the topic limit: the state stays enabled, adds
@@ -1515,10 +1639,14 @@ fn diff_keeps_adds_and_removes_within_the_batch_bound() {
     let keys: Vec<_> = topics.keys().collect();
     // (desired and not uploaded, desired and uploaded stale, uploaded and not
     // desired) -> (adds, removes)
-    for (new, stale, unwanted, expected) in [
-        (700, 0, 700, (300, 700)),
-        (0, 0, 1500, (0, REQUEST_TOPICS)),
-        (0, 600, 600, (400, 600)),
+    for (new, stale, unwanted, suppress, repair, expected) in [
+        (700, 0, 700, false, "stale", (300, 700)),
+        (0, 0, 1500, false, "stale", (0, REQUEST_TOPICS)),
+        (0, 600, 600, false, "stale", (400, 600)),
+        (700, 600, 600, true, "stale", (400, 600)),
+        (700, 600, 600, true, "root", (400, 600)),
+        (700, 600, 600, true, "epoch", (400, 600)),
+        (700, 600, 600, true, "flags", (400, 600)),
     ] {
         let (new_topics, rest) = keys.split_at(new);
         let (stale_topics, rest) = rest.split_at(stale);
@@ -1527,12 +1655,35 @@ fn diff_keeps_adds_and_removes_within_the_batch_bound() {
             .chain(stale_topics)
             .map(|&topic| (topic.clone(), topics[topic].clone()))
             .collect();
-        let mut rows = uploaded(stale_topics, true);
+        let mut rows = uploaded(stale_topics, repair == "stale");
+        for row in &mut rows {
+            match repair {
+                "root" => row.root_key_fingerprint = vec![4; 32],
+                "epoch" => row.hmac_epoch_base = Some(epoch - 2),
+                "flags" => row.include_commits = true,
+                _ => {}
+            }
+        }
         rows.extend(uploaded(&rest[..unwanted], false));
-        let (adds, removes) = diff(&desired, &rows, epoch, &[3; 32], false);
+        let (adds, removes, adds_new_topic) = diff(&desired, &rows, epoch, &[3; 32], suppress);
         assert_eq!((adds.len(), removes.len()), expected);
-        assert!(adds.iter().all(|topic| desired.contains_key(topic)));
-        assert!(removes.iter().all(|topic| !desired.contains_key(topic)));
+        assert_eq!(adds_new_topic, !suppress && new > 0 && expected.0 > 0);
+        let expected_adds: Vec<_> = new_topics
+            .iter()
+            .take(if suppress { 0 } else { new })
+            .chain(stale_topics)
+            .take(expected.0)
+            .map(|topic| (*topic).clone())
+            .collect();
+        assert_eq!(adds, expected_adds, "{repair}, suppress={suppress}");
+        assert_eq!(
+            removes,
+            rest[..expected.1]
+                .iter()
+                .map(|topic| (*topic).clone())
+                .collect::<Vec<_>>()
+        );
+        assert!(adds.len() + removes.len() <= REQUEST_TOPICS);
     }
 }
 
