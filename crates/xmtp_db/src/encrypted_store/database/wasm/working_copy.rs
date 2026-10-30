@@ -56,8 +56,7 @@ impl OpfsWorkingCopy {
             return Err(OpfsWorkingCopyError::SourceIo(ffi::SQLITE_CANTOPEN));
         }
         closed_target(None).map_err(source)?;
-        let [_, wal, shm, journal, ..] = crate::DATABASE_FILE_SUFFIXES;
-        for suffix in [journal, wal, shm] {
+        for suffix in crate::OPFS_SIDECAR_SUFFIXES {
             if source_pool
                 .exists(&format!("{path}{suffix}"))
                 .map_err(|error| source(error.into()))?

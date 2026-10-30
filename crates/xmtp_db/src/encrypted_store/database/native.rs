@@ -31,7 +31,7 @@ use super::PersistentOrMem;
 // implements: STORE-018
 pub fn delete_database_files(path: &str) -> std::io::Result<()> {
     remove_if_present(std::path::Path::new(path))?;
-    for suffix in &super::DATABASE_FILE_SUFFIXES[1..4] {
+    for suffix in super::SQLITE_SIDECAR_SUFFIXES {
         remove_if_present(std::path::Path::new(&format!("{path}{suffix}")))?;
     }
     let salt = EncryptedConnection::salt_file(path)?;
@@ -48,7 +48,7 @@ pub fn delete_database_files(path: &str) -> std::io::Result<()> {
         Err(error) => return Err(error),
     }
     remove_if_present(&salt)?;
-    remove_if_present(&salt.with_extension(&super::DATABASE_FILE_SUFFIXES[5][1..]))
+    remove_if_present(&salt.with_extension(super::SALT_TMP_SUFFIX.trim_start_matches('.')))
 }
 
 fn remove_if_present(path: &std::path::Path) -> std::io::Result<()> {

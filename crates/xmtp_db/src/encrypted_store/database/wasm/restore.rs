@@ -226,8 +226,7 @@ async fn restored_bytes(data: &[u8]) -> Result<Vec<u8>, StorageError> {
 }
 
 fn database_family(path: &str) -> [String; 4] {
-    let [main, wal, shm, journal, ..] = crate::DATABASE_FILE_SUFFIXES;
-    [main, journal, wal, shm].map(|suffix| format!("{path}{suffix}"))
+    crate::OPFS_DATABASE_FILE_SUFFIXES.map(|suffix| format!("{path}{suffix}"))
 }
 
 /// Import a whole database to an absent path after all target handles close.
@@ -265,15 +264,15 @@ pub async fn delete_opfs_database(path: &str) -> Result<bool, StorageError> {
     let _lifecycle = PoolChange::acquire()?;
     let _transition = POOL_TRANSITION.lock().await;
     let util = resume_sqlite(true).await?;
-    let family = database_family(path);
-    let mut states = Vec::new();
-    for member in &family {
+    let sidecars = crate::OPFS_SIDECAR_SUFFIXES.map(|suffix| format!("{path}{suffix}"));
+    let mut states = closed_target(Some(path))?;
+    for member in &sidecars {
         states.extend(closed_target(Some(member))?);
     }
     fence(states);
     let failure = VfsTransitionFailure(true);
     let result = util.delete_db(path).map_err(PlatformStorageError::from)?;
-    for member in &family[1..] {
+    for member in &sidecars {
         util.delete_db(member).map_err(PlatformStorageError::from)?;
     }
     failure.complete();
