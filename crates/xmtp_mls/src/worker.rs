@@ -55,22 +55,12 @@ pub enum WorkerKind {
 fn worker_event_filter(kind: WorkerKind) -> Option<(EventFilter<InternalEvent>, Option<usize>)> {
     use InternalEvent as I;
     let filter = match kind {
-        WorkerKind::DeviceSync => EventFilter::new([EventKind::IdentityOwnInstallationRevoked])
-            .with_internal(|event| {
-                matches!(
-                    event,
-                    I::GroupJoined {
-                        is_sync: true,
-                        origin: crate::subscriptions::internal::GroupOrigin::Welcomed,
-                        ..
-                    } | I::MessageStored { is_sync: true, .. }
-                        | I::SyncMessagePublished
-                        | I::PreferencesChanged {
-                            origin: crate::subscriptions::internal::PreferenceOrigin::Local,
-                            ..
-                        }
-                )
-            }),
+        WorkerKind::DeviceSync => EventFilter::default().with_internal(|event| {
+            matches!(
+                event,
+                I::MessageStored { is_sync: true, .. } | I::OutboxChanged
+            )
+        }),
         WorkerKind::DisappearingMessages => {
             EventFilter::new([EventKind::ConversationMetadataChanged]).with_internal(|event| {
                 matches!(
@@ -515,68 +505,40 @@ impl MetricsCasting for DynMetrics {
 #[cfg(test)]
 mod event_subscription_tests {
     use super::*;
-    use crate::subscriptions::internal::{GroupOrigin, PreferenceOrigin};
-    use crate::worker::device_sync::preference_sync::PreferenceUpdate;
     use xmtp_events::{EventBus, EventWriter};
 
+    /// The outbox and the sync messages are stored state; the worker wakes
+    /// only for them, and never drops a wake while busy.
+    // verifies: SYNC-029
     #[xmtp_common::test(unwrap_try = true)]
-    async fn device_sync_keeps_all_local_changes_while_busy() {
+    async fn device_sync_wakes_for_sync_messages_and_the_outbox() {
         let (filter, depth) = worker_event_filter(WorkerKind::DeviceSync).unwrap();
         assert_eq!(depth, None);
         let bus = EventBus::new();
         let subscription = bus.subscribe(filter, depth);
-        for value in 0..1_000 {
-            bus.emit(
-                None,
-                Some(InternalEvent::PreferencesChanged {
-                    updates: vec![PreferenceUpdate::Hmac {
-                        key: vec![value as u8].into(),
-                        cycled_at_ns: value,
-                    }],
-                    origin: PreferenceOrigin::Local,
-                }),
-            );
-        }
-        bus.emit(
-            None,
-            Some(InternalEvent::PreferencesChanged {
-                updates: Vec::new(),
-                origin: PreferenceOrigin::Sync,
-            }),
-        );
-        assert_eq!(subscription.drain().len(), 1_000);
-    }
-
-    #[xmtp_common::test(unwrap_try = true)]
-    async fn only_a_welcomed_sync_group_requests_reconciliation() {
-        let (filter, depth) = worker_event_filter(WorkerKind::DeviceSync).unwrap();
-        let bus = EventBus::new();
-        let subscription = bus.subscribe(filter, depth);
         let group_id = xmtp_proto::types::GroupId::from([9; 16]);
-        bus.emit(
-            None,
-            Some(InternalEvent::GroupJoined {
+        let stored = |is_sync| InternalEvent::MessageStored {
+            group_id,
+            message_id: vec![],
+            expires_at_ns: None,
+            is_sync,
+        };
+        for event in [
+            InternalEvent::PreferencesChanged { updates: vec![] },
+            InternalEvent::GroupJoined {
                 group_id,
                 is_sync: true,
-                origin: GroupOrigin::Created,
-            }),
-        );
+            },
+            stored(false),
+        ] {
+            bus.emit(None, Some(event));
+        }
         assert!(subscription.drain().is_empty());
-        bus.emit(
-            None,
-            Some(InternalEvent::GroupJoined {
-                group_id,
-                is_sync: true,
-                origin: GroupOrigin::Welcomed,
-            }),
-        );
-        assert!(matches!(
-            subscription.next().await.unwrap().internal,
-            Some(InternalEvent::GroupJoined {
-                origin: GroupOrigin::Welcomed,
-                ..
-            })
-        ));
+        for _ in 0..1_000 {
+            bus.emit(None, Some(InternalEvent::OutboxChanged));
+        }
+        bus.emit(None, Some(stored(true)));
+        assert_eq!(subscription.drain().len(), 1_001);
     }
 }
 

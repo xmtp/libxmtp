@@ -23,7 +23,7 @@ flowchart LR
 
 In scope: the proposal types and senders a client accepts; the membership component and the rule for writing it; how a commit's leaf changes are checked against identity state; how a change is published, read back, and applied; the order and outcome of the checks on a received commit; commit validation against the protocol-version floor; committing another member's proposals; keeping installations current; leaving a group; and group id generation, the group root, and the keys derived from it.
 
-Out of scope: which member may make a given change (`PERM`), component identifiers, encodings, byte limits, and update ordering (`META`), joining and what a Welcome carries (`JOIN`), the association log and exact association state (IDENT-070 and IDENT-071), fork detection, the commit log's use of those keys, and re-add requests (`FORK`), ordered processing and positions (`PROC`), application-message publication (`SEND`), leave-request encoding (CTYPE-014), and consent after rejoin (CONS-025).
+Out of scope: which member may make a given change (`PERM`), component identifiers, encodings, byte limits, and update ordering (`META`), joining and what a Welcome carries (`JOIN`), the association log and exact association state (IDENT-070 and IDENT-071), fork detection, the commit log's use of those keys, and re-add requests (`FORK`), ordered processing and positions (`PROC`), application-message publication (`SEND`), leave-request encoding (CTYPE-014), and consent, which a rejoin does not change (CONS-058).
 
 | Related | Relation |
 | --- | --- |
@@ -265,7 +265,7 @@ A refresh is built from the membership at one moment and published later, after 
 
 A leave request is an authenticated application message in the group. CTYPE-014 owns its content type and `LeaveRequest` encoding. Its sender asks for removal of the sender's inbox; the note carries no authority over another inbox. Sending the request does not publish a self-removal commit. The requesting inbox is pending removal until another member commits the removal.
 
-PERM-025 owns authority to act on a leave request. The removal still passes PERM-003 and PERM-015 and the membership checks here. A request can remain pending while no authorized super-admin client can publish the removal. CONS-025 owns consent if the inbox later rejoins.
+PERM-025 owns authority to act on a leave request. The removal still passes PERM-003 and PERM-015 and the membership checks here. A request can remain pending while no authorized super-admin client can publish the removal. A later rejoin leaves consent unchanged (CONS-058).
 
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |

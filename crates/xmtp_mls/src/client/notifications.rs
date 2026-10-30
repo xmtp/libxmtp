@@ -9,7 +9,7 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use xmtp_common::{ErrorCode, RetryableError};
 use xmtp_cryptography::secret::{Secret, Zeroizing};
-use xmtp_db::consent_record::{ConsentState, ConsentType};
+use xmtp_db::consent_record::{ConsentState, conversation_consent};
 use xmtp_db::{
     StorageError, StoredSecret, TransactionOutcome::Continue, XmtpMlsStorageProvider,
     notifications::StoredNotification, prelude::*,
@@ -499,10 +499,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
         let group = db
             .find_group(&self.group_id)?
             .ok_or(xmtp_db::NotFound::GroupById(self.group_id))?;
-        let consent = db
-            .get_consent_record(hex::encode(self.group_id), ConsentType::ConversationId)?
-            .map(|row| row.state)
-            .unwrap_or(ConsentState::Unknown);
+        let consent = conversation_consent(&db, self.context.inbox_id(), &self.group_id)?;
         enabled_from_record(&record, &group, consent)
     }
 }

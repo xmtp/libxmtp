@@ -18,7 +18,7 @@ use xmtp_common::toxiproxy_test;
 use xmtp_content_types::ContentCodec;
 use xmtp_content_types::text::TextCodec;
 use xmtp_cryptography::utils::generate_local_wallet;
-use xmtp_db::consent_record::{ConsentType, StoredConsentRecord};
+use xmtp_db::consent_record::ConsentType;
 use xmtp_db::identity::StoredIdentity;
 use xmtp_db::prelude::*;
 use xmtp_db::{

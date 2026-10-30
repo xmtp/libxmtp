@@ -12,10 +12,8 @@ use crate::identity_updates::{
     IdentityDependencyError, IdentityRequirement, InstallationDiffError, require_association_state,
 };
 use crate::state_tx::{state_write, state_write_with_events};
-use crate::subscriptions::internal::{
-    InternalEvent, PreferenceOrigin, dm_event_context, emit_preference_updates,
-};
-use crate::worker::device_sync::is_own_sync_group;
+use crate::subscriptions::internal::{InternalEvent, dm_event_context, emit_root_key_changed};
+use crate::worker::device_sync::{is_own_sync_group, schedule_newcomer_adds};
 use crate::{
     context::XmtpSharedContext,
     groups::{
@@ -32,7 +30,6 @@ use xmtp_content_types::group_updated::GroupUpdatedCodec;
 use xmtp_db::TransactionOutcome::{Continue, Rollback};
 use xmtp_db::{
     TransactionOutcome, XmtpOpenMlsProviderRef,
-    consent_record::{ConsentState, ConsentType, StoredConsentRecord},
     group::{ConversationType, GroupMembershipState, StoredGroup},
     group_message::{ContentType, DeliveryStatus, GroupMessageKind, StoredGroupMessage},
     incoming_envelope::{JoinAnchorMode, NetworkEntityKind, StoredIncomingEnvelope, StreamTopic},
@@ -441,8 +438,8 @@ where
         if metadata.conversation_type == ConversationType::Oneshot {
             Oneshot::process_welcome(
                 &provider,
+                context.inbox_id(),
                 welcome.cursor,
-                added_by_inbox_id,
                 added_by_installation_id,
                 metadata,
             )?;
@@ -450,7 +447,6 @@ where
         }
 
         let mut anchor_mode = JoinAnchorMode::Advance;
-        let mut replaced_after_removal = false;
 
         if let Some(existing) = &existing_group
             && existing.membership_state != GroupMembershipState::Restored
@@ -488,10 +484,6 @@ where
                     anchor: anchor.0,
                 });
             }
-            // implements: CONS-025
-            // A later anchor cannot be tied to the branch this installation left.
-            replaced_after_removal = anchor_mode == JoinAnchorMode::Advance
-                && metadata.conversation_type == ConversationType::Group;
             // A replacement Welcome starts a new membership generation.
             // Clear the old proposals in memory and storage before installing
             // it. OpenMLS stores proposal references by group ID, not epoch.
@@ -575,10 +567,16 @@ where
             GroupMembershipState::Pending
         };
 
+        // implements: SYNC-031
+        let joined_at_ns = if conversation_type == ConversationType::Sync {
+            xmtp_db::group::next_sync_join_time(&db)?
+        } else {
+            now_ns()
+        };
         let mut group = StoredGroup::builder();
         group
             .id(group_id)
-            .created_at_ns(now_ns())
+            .created_at_ns(joined_at_ns)
             .added_by_inbox_id(&added_by_inbox_id)
             .cursor(welcome.cursor)
             .conversation_type(conversation_type)
@@ -649,18 +647,17 @@ where
         // This membership has an authenticated Welcome boundary instead of a legacy floor.
         db.set_commit_log_reader_epoch_floor(&group_id, 0)?;
         stored_group.should_publish_commit_log = should_publish;
-        let consent_entity = hex::encode(stored_group.id);
-        let prior_consent =
-            db.get_consent_record(consent_entity.clone(), ConsentType::ConversationId)?;
-        resolve_join_consent(
-            &db,
-            &stored_group,
-            context.inbox_id(),
-            &metadata.creator_inbox_id,
-            &added_by_inbox_id,
-            is_readd_after_leaving || replaced_after_removal,
-            welcome.timestamp(),
-        )?;
+        // No join stores consent, for any conversation type.
+        // implements: SYNC-014, SYNC-028
+        // A sync Welcome means a new installation. In this transaction, owe it
+        // every record and the root key, and schedule its adds.
+        if stored_group.conversation_type == ConversationType::Sync {
+            schedule_newcomer_adds(&db, event_buffer)?;
+            if xmtp_db::sync_outbox::mark_all_owed(&db)? {
+                emit_root_key_changed(event_buffer, &db, true)?;
+            }
+            event_buffer.emit(None, Some(InternalEvent::OutboxChanged));
+        }
 
         // Create a GroupUpdated payload
         let current_inbox_id = context.inbox_id().to_string();
@@ -743,28 +740,6 @@ where
             stored_group.created_at_ns,
         );
 
-        if !stored_group.conversation_type.is_virtual() {
-            let final_consent =
-                db.get_consent_record(consent_entity, ConsentType::ConversationId)?;
-            if prior_consent.as_ref().map(|record| record.state)
-                != final_consent.as_ref().map(|record| record.state)
-                && let Some(record) = final_consent
-            {
-                // implements: SYNC-021
-                // Apps see the change. Origin Derived keeps device sync from publishing it.
-                emit_preference_updates(
-                    event_buffer,
-                    vec![
-                        crate::worker::device_sync::preference_sync::PreferenceUpdate::Consent(
-                            record,
-                        ),
-                    ],
-                    PreferenceOrigin::Derived,
-                    &db,
-                )?;
-            }
-        }
-
         // State, progress, and removal of pre-join work commit together.
         db.install_group_anchor(group.group_id, anchor, anchor_mode)?;
         db.record_welcome_discovery(group.group_id, welcome.cursor)?;
@@ -790,7 +765,6 @@ where
             Some(InternalEvent::GroupJoined {
                 group_id: group.group_id,
                 is_sync: stored_group.conversation_type == ConversationType::Sync,
-                origin: crate::subscriptions::internal::GroupOrigin::Welcomed,
             }),
             dm_event_context(group.dm_id.as_deref()),
         );
@@ -807,40 +781,6 @@ where
 
         Ok(Some(group))
     }
-}
-
-/// Store the consent a join derives by rule. Every write is a merge or an
-/// insert-if-absent, so a join never replaces a decision newer than the
-/// record it writes.
-// implements: CONS-022, CONS-045, CONS-024, CONS-025
-fn resolve_join_consent(
-    db: &impl DbQuery,
-    group: &StoredGroup,
-    own_inbox_id: &str,
-    creator_inbox_id: &str,
-    added_by_inbox_id: &str,
-    readd_after_leaving: bool,
-    welcome_ns: i64,
-) -> Result<(), GroupError> {
-    // Inherit first, so the rules below apply to the inherited record.
-    StoredConsentRecord::stitch_dm_consent(db, group)?;
-    let entity = hex::encode(group.id);
-    let record = |state, consented_at_ns| StoredConsentRecord {
-        entity_type: ConsentType::ConversationId,
-        state,
-        entity: entity.clone(),
-        consented_at_ns,
-    };
-    // A re-add stores unknown at its Welcome's time even with no record, so a
-    // decision older than the re-add that syncs in later cannot replace it.
-    if readd_after_leaving {
-        db.insert_newer_consent_record(record(ConsentState::Unknown, welcome_ns))?;
-    }
-    // The creator field is the sender's claim, so the adder must be this inbox too.
-    if creator_inbox_id == own_inbox_id && added_by_inbox_id == own_inbox_id {
-        db.maybe_insert_consent_record_return_existing(&record(ConsentState::Allowed, 0))?;
-    }
-    Ok(())
 }
 
 #[cfg(test)]
@@ -1146,7 +1086,7 @@ mod tests {
         );
         assert_welcome_rejected(&alix1, &group_id);
         let consent = db
-            .get_consent_record(hex::encode(group_id), ConsentType::ConversationId)
+            .consent_row(&xmtp_db::consent_record::ConsentKey::group(&group_id))
             .unwrap();
         assert!(consent.is_none(), "{consent:?}");
     }
@@ -1450,13 +1390,14 @@ mod tests {
     /// Another inbox can add this installation to a group whose creator field
     /// names this inbox. The join keeps a decision that reached this
     /// installation first, and stores no decision when there was none.
-    // verifies: CONS-045, CONS-022
+    // verifies: CONS-058
     #[rstest::rstest]
     #[case::prior_denied(true)]
     #[case::no_record(false)]
     #[xmtp_common::test(unwrap_try = true)]
     async fn forged_creator_claim_keeps_prior_consent(#[case] prior_denied: bool) {
         use crate::utils::test::crafted_welcome::{CraftedWelcome, send_crafted_welcome_with};
+        use xmtp_db::consent_record::{ConsentKey, ConsentState, ConsentType, StoredConsentRecord};
         use xmtp_mls_common::group_keys::{GroupKeys, GroupRoot};
 
         tester!(alix, disable_workers);
@@ -1473,10 +1414,7 @@ mod tests {
             )
         });
         if let Some(prior) = &prior {
-            bo.context
-                .db()
-                .insert_newer_consent_record(prior.clone())
-                .unwrap();
+            prior.merge_into(&bo.context.db()).unwrap();
         }
 
         let options = CraftedWelcome {
@@ -1492,7 +1430,7 @@ mod tests {
         let stored = bo
             .context
             .db()
-            .get_consent_record(entity, ConsentType::ConversationId)
+            .consent_row(&ConsentKey::group(&group_id))
             .unwrap();
         assert_eq!(
             stored.map(|record| (record.state, record.consented_at_ns)),
@@ -1500,49 +1438,100 @@ mod tests {
         );
     }
 
-    /// A group this inbox created, joined from a Welcome another installation
-    /// of this inbox sent, is allowed at consent time 0. Apps see one consent
-    /// change, and device sync is not asked to publish it.
-    // verifies: CONS-045, SYNC-021
+    /// No join stores consent: a stranger's group that names this inbox as
+    /// its creator, joined by one installation from the stranger and by
+    /// another from the first, reads unknown on both, and a group this inbox
+    /// created, joined by another of its installations, gets no record there.
+    // verifies: CONS-058
     #[xmtp_common::test(unwrap_try = true)]
-    async fn own_inbox_join_default_is_allowed_at_time_zero_and_unpublished() {
-        use xmtp_events::{EventFilter, EventKind};
+    async fn joining_stores_no_state() {
+        use crate::utils::test::crafted_welcome::{CraftedWelcome, send_crafted_welcome_with};
+        use xmtp_db::consent_record::{ConsentKey, ConsentState};
+        use xmtp_mls_common::group_keys::{GroupKeys, GroupRoot};
 
-        tester!(alix1, disable_workers);
-        let group = alix1.create_group(None, None)?;
-        tester!(alix2, from: alix1, disable_workers);
-        group.update_installations().await?;
-        let events = alix2.context.events().subscribe(
-            EventFilter::new([EventKind::ConsentChanged])
-                .with_internal(|event| matches!(event, InternalEvent::PreferencesChanged { .. })),
-            None,
+        tester!(alix, disable_workers);
+        tester!(bo1, disable_workers);
+        tester!(bo2, from: bo1, disable_workers);
+        let root = GroupRoot::generate();
+        let group_id = GroupKeys::derive(&root).group_id().to_vec();
+        let options = CraftedWelcome {
+            claimed_creator: Some(bo1.inbox_id()),
+            ..Default::default()
+        };
+        send_crafted_welcome_with(&alix, &bo1, &group_id, Some(&root), options).await;
+        let joined = process_newest_welcome(&bo1).await?.expect("valid Welcome");
+        // bo1 adds its other installation, as a member may.
+        joined.update_installations().await?;
+        bo2.sync_welcomes().await?;
+        let own = bo1.create_group(None, None)?;
+        own.update_installations().await?;
+        bo2.sync_welcomes().await?;
+        for bo in [&bo1, &bo2] {
+            assert_eq!(
+                bo.group(&joined.group_id)?.consent_state()?,
+                ConsentState::Unknown
+            );
+            assert!(
+                bo.db()
+                    .consent_row(&ConsentKey::group(&group_id))?
+                    .is_none()
+            );
+        }
+        assert_eq!(
+            bo1.group(&own.group_id)?.consent_state()?,
+            ConsentState::Allowed
         );
+        let own_key = ConsentKey::group(own.group_id.as_ref());
+        assert!(
+            bo2.db().consent_row(&own_key)?.is_none(),
+            "the join stored nothing"
+        );
+    }
 
-        alix2.sync_welcomes().await?;
-        let record = alix2
-            .context
-            .db()
-            .get_consent_record(hex::encode(group.group_id), ConsentType::ConversationId)?
-            .expect("the join default");
+    /// A former member of group G holds G's root and can build a DM under
+    /// G's id. The DM reads its builder's inbox record; the user's decision
+    /// about G stays under G's id and nothing is moved or owed.
+    // verifies: CONS-052, CONS-058
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn forged_dm_with_group_id_reads_its_builder() {
+        use crate::utils::test::crafted_welcome::{CraftedWelcome, send_crafted_welcome_with};
+        use xmtp_db::consent_record::{ConsentKey, ConsentState, ConsentType, StoredConsentRecord};
+        use xmtp_mls_common::app_data::group_root::read_group_root;
+
+        tester!(alix, disable_workers);
+        tester!(bo2, disable_workers);
+        let group = alix.create_group(None, None)?;
+        let root = read_group_root(group.load_group_context()?.extensions())?
+            .expect("a new group carries its root");
+        // bo2 holds the user's allow of G from sync, but not G.
+        let g = ConsentKey::group(group.group_id.as_ref());
+        StoredConsentRecord::new(
+            ConsentType::ConversationId,
+            ConsentState::Allowed,
+            g.entity.clone(),
+        )
+        .merge_into(&bo2.db())?;
+        let options = CraftedWelcome {
+            conversation_type: ConversationType::Dm,
+            ..Default::default()
+        };
+        send_crafted_welcome_with(&alix, &bo2, group.group_id.as_slice(), Some(&root), options)
+            .await;
+        let dm = process_newest_welcome(&bo2)
+            .await?
+            .expect("the forged DM joins");
+        assert_eq!(dm.group_id, group.group_id);
+        assert_eq!(dm.consent_state()?, ConsentState::Unknown);
         assert_eq!(
-            (record.state, record.consented_at_ns),
-            (ConsentState::Allowed, 0)
+            bo2.db().consent_row(&g)?.map(|r| r.state),
+            Some(ConsentState::Allowed)
         );
-        let events = events.drain();
-        assert_eq!(
-            events
-                .iter()
-                .filter(|event| matches!(event.client, Some(ClientEvent::ConsentChanged(_))))
-                .count(),
-            1
+        assert!(
+            bo2.db()
+                .consent_row(&ConsentKey::inbox(alix.inbox_id()))?
+                .is_none()
         );
-        assert!(!events.iter().any(|event| matches!(
-            event.internal,
-            Some(InternalEvent::PreferencesChanged {
-                origin: PreferenceOrigin::Local,
-                ..
-            })
-        )));
+        assert!(!xmtp_db::sync_outbox::has_owed(&bo2.db())?);
     }
 
     // verifies: JOIN-044

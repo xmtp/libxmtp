@@ -428,7 +428,12 @@ impl XmtpError {
     }
 
     fn classify_one(error: &(dyn std::error::Error + 'static)) -> Option<Self> {
+        use xmtp_db::consent_record::ConsentActError as Act;
         use xmtp_mls::groups::GroupError;
+        if let Some(act @ (Act::ConversationNotHeld(_) | Act::InvalidEntity)) = error.downcast_ref()
+        {
+            return Some(Self::invalid_argument(act.to_string()));
+        }
         if let Some(xmtp_mls::identity::IdentityError::IdentifierNotInInbox { .. }) =
             error.downcast_ref::<xmtp_mls::identity::IdentityError>()
         {

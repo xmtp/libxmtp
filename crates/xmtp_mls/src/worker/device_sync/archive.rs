@@ -1,20 +1,51 @@
 use super::DeviceSyncError;
-use crate::{context::XmtpSharedContext, groups::MlsGroup};
+use crate::{
+    context::XmtpSharedContext, groups::MlsGroup, state_tx::state_write,
+    subscriptions::internal::InternalEvent, worker::NeedsDbReconnect,
+};
 use futures::{Stream, StreamExt};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 pub use xmtp_archive::*;
+use xmtp_configuration::LEGACY_GROUP_ID_BYTES;
 use xmtp_db::{
-    consent_record::StoredConsentRecord, group::GroupMembershipState,
-    group_message::StoredGroupMessage, prelude::*,
+    StorageError,
+    TransactionOutcome::Continue,
+    consent_record::{ConsentKey, ConsentWrite, Owed, parse_consent_save, write_consent},
+    group::ConversationType,
+    group_message::StoredGroupMessage,
+    prelude::*,
 };
 use xmtp_proto::types::GroupId;
-use xmtp_proto::xmtp::device_sync::{BackupElement, backup_element::Element};
+use xmtp_proto::xmtp::device_sync::{
+    BackupElement, backup_element::Element, consent_backup::ConsentSave,
+};
 
 use xmtp_events::{ArchiveRestored, ClientEvent, EventWriter};
 #[derive(Default)]
 struct ImportContext {
     changed: bool,
-    /// The archive's DMs, to inherit their pair's consent after the import.
-    dms: Vec<GroupId>,
+    /// The archive's usable consent records, applied after all its elements.
+    /// Archive frames are ciphertext and do not compress, so these grow with
+    /// the archive's own size.
+    consent: Vec<ConsentSave>,
+    /// The archive's 16-byte DM groups, whatever their restore did.
+    dm_groups: HashSet<GroupId>,
+    /// Whether the client holds each group the archive's messages name as a
+    /// sync or one-shot conversation.
+    internal: HashMap<GroupId, bool>,
+}
+
+impl ImportContext {
+    fn is_internal(&mut self, db: &impl DbQuery, group_id: GroupId) -> Result<bool, StorageError> {
+        if let Some(internal) = self.internal.get(&group_id) {
+            return Ok(*internal);
+        }
+        let internal = db
+            .find_group(&group_id)?
+            .is_some_and(|group| group.conversation_type.is_virtual());
+        self.internal.insert(group_id, internal);
+        Ok(internal)
+    }
 }
 
 pub async fn insert_importer(
@@ -24,6 +55,7 @@ pub async fn insert_importer(
     insert_elements(importer, context).await
 }
 
+// implements: ARCH-027
 async fn insert_elements<S, E>(
     elements: &mut S,
     context: &impl XmtpSharedContext,
@@ -32,27 +64,54 @@ where
     S: Stream<Item = Result<BackupElement, E>> + Unpin,
     DeviceSyncError: From<E>,
 {
-    let mut import_ctx = ImportContext::default();
-    let result = async {
-        while let Some(element) = elements.next().await {
-            let element = element.map_err(DeviceSyncError::from)?;
-            // Propagate insert failures to the supervisor rather than skipping the record.
-            insert(element, context, &mut import_ctx)?;
+    let mut import = ImportContext::default();
+    let mut first_error = None;
+    while let Some(element) = elements.next().await {
+        let element = match element {
+            Ok(element) => element,
+            // A broken stream ends the import.
+            Err(e) => {
+                first_error.get_or_insert(DeviceSyncError::from(e));
+                break;
+            }
+        };
+        // A failed element does not stop the rest: a pre-8.0 archive lists
+        // consent and later groups after a message whose group it left out.
+        if let Err(e) = insert(element, context, &mut import) {
+            if e.needs_db_reconnect() {
+                return Err(e);
+            }
+            first_error.get_or_insert(e);
         }
-        Ok(())
     }
-    .await;
-    // An archive lists consent after every group, so a DM restored before
-    // its pair's record inherits it here, even after a failed element.
-    let stitched = stitch_restored_dms(context, &mut import_ctx);
-    let result = result.and(stitched);
-    if import_ctx.changed {
+    // Consent after groups, even after a failed element.
+    let consent = state_write(context.mls_storage(), |tx| {
+        let storage = tx.storage();
+        let db = storage.db();
+        let changed = import_consent(
+            &db,
+            context.inbox_id(),
+            &import,
+            xmtp_common::time::now_ns(),
+        )?;
+        Ok::<_, StorageError>(Continue(changed))
+    });
+    match consent {
+        Ok(changed) => import.changed |= changed.into_continued(),
+        Err(e) if e.db_needs_connection() => return Err(e.into()),
+        Err(e) => {
+            first_error.get_or_insert(e.into());
+        }
+    }
+    let result = first_error.map_or(Ok(()), Err);
+    if import.changed {
         context.task_channels().mark_notification_changed();
         context.events().emit(
             Some(ClientEvent::ArchiveRestored(ArchiveRestored {
                 complete: result.is_ok(),
             })),
-            None,
+            // Imported records are owed to the other installations.
+            Some(InternalEvent::OutboxChanged),
         );
     }
     result
@@ -61,34 +120,42 @@ where
 fn insert(
     element: BackupElement,
     context: &impl XmtpSharedContext,
-    import_context: &mut ImportContext,
+    import: &mut ImportContext,
 ) -> Result<(), DeviceSyncError> {
     let Some(element) = element.element else {
         return Ok(());
     };
 
     match element {
-        Element::Consent(consent) => {
-            let consent: StoredConsentRecord = consent.try_into()?;
-            // implements: CONS-010
-            if xmtp_db::beyond_received_bound(consent.consented_at_ns) {
-                tracing::warn!("skipping an archived consent record timed more than a day ahead");
-                return Ok(());
+        // An unusable record is dropped here, so each held record is small.
+        Element::Consent(save) => {
+            if parse_consent_save(&save).is_some() {
+                import.consent.push(save);
             }
-            // A stored element counts as a restore even when only its time moved.
-            import_context.changed |= context.db().insert_newer_consent_record(consent)?.applied;
         }
+        // The exporter writes no sync or one-shot conversation, so an import
+        // makes none and adds no message to one: device sync applies only
+        // what the backend delivered.
+        Element::Group(save)
+            if ConversationType::try_from(save.conversation_type())
+                .is_ok_and(|kind| kind.is_virtual()) => {}
         Element::Group(save) => {
-            import_context.changed |= MlsGroup::restore_from_archive(context, &save)?;
-            if save.dm_id.is_some() {
-                import_context
-                    .dms
-                    .push(GroupId::try_from(save.id.as_slice())?);
+            // Registered before the restore, so a re-import that finds the
+            // group held combines the same rows.
+            if save.dm_id.is_some()
+                && save.id.len() == LEGACY_GROUP_ID_BYTES
+                && let Ok(id) = GroupId::try_from(save.id.as_slice())
+            {
+                import.dm_groups.insert(id);
             }
+            import.changed |= MlsGroup::restore_from_archive(context, &save)?;
         }
         Element::GroupMessage(message) => {
             let message: StoredGroupMessage = message.try_into()?;
-            import_context.changed |= message.store_or_ignore_changed(&context.db())?;
+            let db = context.db();
+            if !import.is_internal(&db, message.group_id)? {
+                import.changed |= message.store_or_ignore_changed(&db)?;
+            }
         }
         _ => {}
     }
@@ -96,23 +163,57 @@ fn insert(
     Ok(())
 }
 
-/// Give each of the archive's DMs still restored the greatest consent record
-/// of its pair. Only the restored DM is written.
-// implements: DMS-010
-fn stitch_restored_dms(
-    context: &impl XmtpSharedContext,
-    import_context: &mut ImportContext,
-) -> Result<(), DeviceSyncError> {
-    let db = context.db();
-    for id in &import_context.dms {
-        if let Some(group) = db.find_group(id)?
-            && group.membership_state == GroupMembershipState::Restored
-        {
-            let stitched = StoredConsentRecord::stitch_dm_consent(&db, &group)?;
-            import_context.changed |= stitched.is_some();
+/// Apply one archive's consent records, after its groups. When the archive
+/// carries a 16-byte DM with a peer, its records for every 16-byte DM held
+/// with that peer and its inbox record for the peer become one record. For
+/// any other peer, a record naming a 16-byte DM held from elsewhere moves to
+/// the peer and merges by time. Every other record merges as named. Returns
+/// whether anything changed.
+// implements: CONS-051, CONS-054, CONS-061
+fn import_consent(
+    db: &impl DbQuery,
+    own_inbox: &str,
+    import: &ImportContext,
+    now_ns: i64,
+) -> Result<bool, StorageError> {
+    // The peers of the 16-byte DMs this archive carries.
+    let mut carried = BTreeSet::new();
+    for id in &import.dm_groups {
+        if let Some((peer, _)) = ConsentKey::group(id.as_ref()).pre8_dm(db, own_inbox)? {
+            carried.insert(peer);
         }
     }
-    Ok(())
+    let mut plain: BTreeMap<ConsentKey, Vec<ConsentSave>> = BTreeMap::new();
+    let mut pre8: BTreeMap<ConsentKey, Vec<ConsentSave>> = BTreeMap::new();
+    for save in &import.consent {
+        // An unusable record is skipped.
+        let Some((key, _)) = parse_consent_save(save) else {
+            continue;
+        };
+        // A record naming a held 16-byte DM is its peer's.
+        let key = key.pre8_dm(db, own_inbox)?.map_or(key, |(peer, _)| peer);
+        let rows = if carried.contains(&key) {
+            pre8.entry(key)
+        } else {
+            plain.entry(key)
+        };
+        rows.or_default().push(save.clone());
+    }
+    for (peer, rows) in pre8 {
+        let combined = pre8::pre8_peer_consent(&peer.entity, &rows);
+        plain.insert(peer, combined.into_iter().collect());
+    }
+    let mut changed = false;
+    for (key, saves) in plain {
+        for save in saves {
+            let Some((_, value)) = parse_consent_save(&save) else {
+                continue;
+            };
+            let write = ConsentWrite::from_archive(value, now_ns);
+            changed |= write_consent(db, &key, write, Owed::Mark)?.is_some();
+        }
+    }
+    Ok(changed)
 }
 
 #[cfg(test)]
@@ -368,8 +469,7 @@ mod tests {
         let consent = |entity: &str, state| {
             StoredConsentRecord::new(ConsentType::InboxId, state, entity.to_string())
         };
-        alix.db()
-            .record_app_act(&[consent("carol", ConsentState::Allowed)])?;
+        consent("carol", ConsentState::Allowed).merge_into(&alix.db())?;
 
         let opts = ArchiveOptions {
             elements: vec![
@@ -385,10 +485,9 @@ mod tests {
         let mut sink = WriteDuringExport {
             archive: vec![],
             on_first: Some(|| {
-                let written = writer.record_app_act(&[
-                    consent("carol", ConsentState::Denied),
-                    consent("dave", ConsentState::Allowed),
-                ]);
+                let written = consent("carol", ConsentState::Denied)
+                    .merge_into(&writer)
+                    .and_then(|_| consent("dave", ConsentState::Allowed).merge_into(&writer));
                 // Native writers on other connections commit during the export;
                 // wasm's single connection is held by the export and refuses
                 // them, so neither can reach the snapshot.
@@ -473,10 +572,7 @@ mod tests {
         assert!(insert_elements(&mut elements, &alix.context).await.is_err());
         assert!(
             alix.db()
-                .get_consent_record(
-                    "failed-import".into(),
-                    xmtp_db::consent_record::ConsentType::InboxId,
-                )?
+                .consent_row(&xmtp_db::consent_record::ConsentKey::inbox("failed-import"))?
                 .is_some()
         );
         assert!(matches!(
@@ -494,11 +590,12 @@ mod tests {
         tester!(bo, disable_workers);
         let group = alix.create_group(None, None)?;
         let message_id = group.send_message_optimistic(b"archive message", Default::default())?;
-        alix.db().record_app_act(&[StoredConsentRecord::new(
+        StoredConsentRecord::new(
             xmtp_db::consent_record::ConsentType::InboxId,
             xmtp_db::consent_record::ConsentState::Denied,
             bo.inbox_id().into(),
-        )])?;
+        )
+        .merge_into(&alix.db())?;
         let key = vec![9; 32];
         let mut archive = vec![];
         exporter::export(
@@ -542,17 +639,16 @@ mod tests {
         assert!(
             restored
                 .db()
-                .get_consent_record(
-                    bo.inbox_id().into(),
-                    xmtp_db::consent_record::ConsentType::InboxId
-                )?
+                .consent_row(&xmtp_db::consent_record::ConsentKey::inbox(bo.inbox_id()))?
                 .is_some()
         );
         assert!(
             matches!(events.drain().as_slice(), [xmtp_events::EventEnvelope { client: Some(ClientEvent::ArchiveRestored(restored)), .. }] if !restored.complete)
         );
     }
-    // verifies: CONS-010
+    /// The greater record wins, and a time more than a day past the import
+    /// is stored at that limit.
+    // verifies: CONS-053, CONS-054
     #[xmtp_common::test(unwrap_try = true)]
     async fn archived_consent_keeps_the_latest_record() {
         tester!(alix, disable_workers);
@@ -569,21 +665,22 @@ mod tests {
                 state,
                 entity: "archived-inbox".into(),
                 consented_at_ns,
+                owed_seq: 0,
             };
             Ok::<_, std::io::Error>(BackupElement {
                 element: Some(Element::Consent(record.into())),
             })
         }));
         insert_elements(&mut elements, &alix.context).await?;
+        let limit = xmtp_common::time::now_ns() + xmtp_common::NS_IN_DAY;
         let stored = alix
             .db()
-            .get_consent_record(
-                "archived-inbox".into(),
-                xmtp_db::consent_record::ConsentType::InboxId,
-            )?
+            .consent_row(&xmtp_db::consent_record::ConsentKey::inbox(
+                "archived-inbox",
+            ))?
             .unwrap();
-        assert_eq!(stored.state, xmtp_db::consent_record::ConsentState::Allowed);
-        assert_eq!(stored.consented_at_ns, soon);
+        assert_eq!(stored.state, xmtp_db::consent_record::ConsentState::Denied);
+        assert!(stored.consented_at_ns > soon && stored.consented_at_ns <= limit);
     }
 
     /// An import that only moves a stored record's time still stored an
@@ -601,18 +698,16 @@ mod tests {
             state: xmtp_db::consent_record::ConsentState::Allowed,
             entity: "time-move".into(),
             consented_at_ns,
+            owed_seq: 0,
         };
-        assert!(alix.db().insert_newer_consent_record(record(10))?.applied);
+        assert!(record(10).merge_into(&alix.db())?.is_some());
         let mut elements = futures::stream::iter([Ok::<_, std::io::Error>(BackupElement {
             element: Some(Element::Consent(record(30).into())),
         })]);
         insert_elements(&mut elements, &alix.context).await?;
         let stored = alix
             .db()
-            .get_consent_record(
-                "time-move".into(),
-                xmtp_db::consent_record::ConsentType::InboxId,
-            )?
+            .consent_row(&xmtp_db::consent_record::ConsentKey::inbox("time-move"))?
             .unwrap();
         assert_eq!(stored.consented_at_ns, 30);
         assert!(matches!(
@@ -655,6 +750,7 @@ mod tests {
             state: xmtp_db::consent_record::ConsentState::Denied,
             entity: hex::encode(group.group_id),
             consented_at_ns: xmtp_common::time::now_ns(),
+            owed_seq: 0,
         };
         let mut elements = futures::stream::iter([Ok::<_, std::io::Error>(BackupElement {
             element: Some(Element::Consent(denied.into())),
@@ -986,11 +1082,12 @@ mod tests {
         assert!(!restored.is_active()?);
         let db = charlie.db();
         // Even an allowed archived DM has no authority for remote recovery.
-        db.record_app_act(&[StoredConsentRecord::new(
+        StoredConsentRecord::new(
             ConsentType::ConversationId,
             ConsentState::Allowed,
             hex::encode(source.group_id),
-        )])?;
+        )
+        .merge_into(&db)?;
         let excludes_publish = db
             .get_conversation_ids_for_remote_log_publish()?
             .iter()
@@ -1246,7 +1343,7 @@ mod tests {
     /// A DM restored before a failing element is a completed element. Its
     /// archived activity must survive the failed import, even when no
     /// retained message carries that timestamp.
-    // verifies: ARCH-021
+    // verifies: ARCH-027
     #[xmtp_common::test(unwrap_try = true)]
     async fn failed_import_keeps_archived_activity_of_restored_prefix() {
         use xmtp_mls_common::group_metadata::DmMembers;
@@ -1317,7 +1414,7 @@ mod tests {
         ));
     }
 
-    // verifies: DMS-001, ARCH-021
+    // verifies: DMS-001, ARCH-027
     #[xmtp_common::test(unwrap_try = true)]
     async fn malformed_archived_dm_id_fails_before_group_insert() {
         tester!(alix, disable_workers);
@@ -1471,12 +1568,15 @@ mod tests {
         assert_eq!(groups.len(), 2);
         let old_group = groups.pop()?;
 
+        // The sync group's messages vary with what the outbox owed; only the
+        // conversation's messages are archived.
         let old_messages: Vec<StoredGroupMessage> = alix.context.db().raw_query(|conn| {
             group_messages::table
                 .select(StoredGroupMessage::as_select())
+                .filter(group_messages::group_id.eq(&alix_group.group_id))
                 .load(conn)
         })?;
-        assert_eq!(old_messages.len(), 4);
+        assert!(!old_messages.is_empty());
 
         let opts = ArchiveOptions {
             start_ns: None,
@@ -1766,6 +1866,9 @@ mod tests {
         assert_eq!(restored_second.group_name()?, "second group name");
     }
 }
+
+#[cfg(test)]
+mod pre8_tests;
 
 #[cfg(test)]
 mod restored_tests;

@@ -457,7 +457,8 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
         requirements: &PublishRequirements,
         dependencies: &mut PublishDependencies,
     ) -> Result<Option<PreparedAttempt>, GroupError> {
-        crate::state_tx::state_write_durable(self.context.mls_storage(), |tx| {
+        let (storage, bus) = (self.context.mls_storage(), self.context.events());
+        crate::state_tx::state_write_with_events_durable(storage, bus, |tx, events| {
             let mut no_op = None;
             let result = tx.savepoint(|tx| {
                 tx.with_group(self.group_id, |group, storage| {
@@ -569,6 +570,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                     // saved, so every saved envelope carries its signature.
                     let envelopes = self.prepare_group_envelopes_in(
                         &db,
+                        events,
                         group,
                         data.payloads_to_publish
                             .iter()

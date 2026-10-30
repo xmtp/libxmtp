@@ -574,32 +574,28 @@ where
         Ok(Some(intent.id))
     }
 
-    /// Store allowed for a conversation that is not allowed when the app
-    /// queues a message other than a deletion.
-    // implements: CONS-021
+    /// Store allowed for a conversation that does not read allowed when the
+    /// app queues a message other than a deletion or a leave request.
+    // implements: CONS-057
     fn allow_after_send(
         &self,
         db: &impl DbQuery,
         events: &impl xmtp_events::EventWriter<crate::subscriptions::internal::InternalEvent>,
         message: &StoredGroupMessage,
     ) -> Result<(), GroupError> {
-        if self.conversation_type.is_virtual() || message.content_type == ContentType::DeleteMessage
-        {
+        let Some(decision) = Decision::on_send(self.conversation_type, message.content_type) else {
             return Ok(());
-        }
-        let entity = hex::encode(self.group_id);
-        if db
-            .get_consent_record(entity.clone(), ConsentType::ConversationId)?
-            .is_some_and(|record| record.state == ConsentState::Allowed)
-        {
+        };
+        let Some(group) = db.find_group(&self.group_id)? else {
             return Ok(());
-        }
-        let written = db.record_app_act(&[StoredConsentRecord::new(
-            ConsentType::ConversationId,
-            ConsentState::Allowed,
-            entity,
-        )])?;
-        crate::subscriptions::internal::emit_consent_acts(&self.context, events, written, db)?;
+        };
+        let Some(key) = ConsentKey::of_group(&group, self.context.inbox_id()) else {
+            return Ok(());
+        };
+        let changes: Vec<_> = write_consent(db, &key, ConsentWrite::Decide(decision), Owed::Mark)?
+            .into_iter()
+            .collect();
+        crate::subscriptions::internal::emit_consent_changes(&self.context, events, db, &changes)?;
         Ok(())
     }
 

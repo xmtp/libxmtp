@@ -1,20 +1,5 @@
 use super::*;
 
-impl TryFrom<ConsentSave> for StoredConsentRecord {
-    type Error = ConversionError;
-    fn try_from(value: ConsentSave) -> Result<Self, Self::Error> {
-        let entity_type = value.entity_type().try_into()?;
-        let state = value.state().try_into()?;
-
-        Ok(Self {
-            entity_type,
-            state,
-            entity: value.entity,
-            consented_at_ns: value.consented_at_ns,
-        })
-    }
-}
-
 impl From<StoredConsentRecord> for ConsentSave {
     fn from(value: StoredConsentRecord) -> Self {
         let entity_type: ConsentTypeSave = value.entity_type.into();

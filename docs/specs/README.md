@@ -29,7 +29,7 @@ A requirement without a proving test needs a waiver under SPEC-055, SPEC-094, an
 | `PROC` | [Message processing](PROC-message-processing.md) | Streams and queries into one ordered processor, durable positions, retry and rejection | draft |
 | `SEND` | [Message sending](SEND-message-sending.md) | Intents, message ids, publish retries, per-group ordering, failed sends | draft |
 | `FORK` | [Fork recovery and commit log](FORK-fork-recovery.md) | Commit-log entries, fork detection, readd requests, one-shot groups | draft |
-| `CONS` | [Consent](CONS-consent.md) | Consent states, precedence, defaults, gating of listing and streaming | draft |
+| `CONS` | [Consent](CONS-consent.md) | Consent states and keys, which record wins, what the client stores, gating of listing and streaming | draft |
 | `SYNC` | [Device sync](SYNC-device-sync.md) | The sync group, preference updates, trust of sync invitations | draft |
 | `ARCH` | [Archive format](ARCH-archive-format.md) | The backup export and import format and its compatibility promise | draft |
 | `MIG` | [Legacy database migration](MIG-legacy-database-migration.md) | Closed legacy source conversion, source preservation, metadata fallback, and atomic local archives | draft |

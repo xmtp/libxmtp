@@ -325,7 +325,7 @@ async fn event_filter_selects_before_queueing() {
 // verifies: EVENT-020
 #[xmtp_common::test(unwrap_try = true)]
 async fn stitched_dm_events_reach_group_filter() {
-    use xmtp_db::consent_record::{ConsentState, ConsentType, StoredConsentRecord};
+    use xmtp_db::consent_record::{ConsentState, ConsentType};
 
     let client = Client::create(crate::generate_local_signer().await, options()).await?;
     let other = Client::create(crate::generate_local_signer().await, options()).await?;
@@ -365,13 +365,14 @@ async fn stitched_dm_events_reach_group_filter() {
         .is_ok(),
         "stitched DM Welcome must reach the group-filtered reader"
     );
-    let entity = hex::encode(dm_b.group_id);
+    // The DM's change is reported under the group the app lists.
+    let pair = [hex::encode(dm_a.group_id), hex::encode(dm_b.group_id)];
     client
         .inner
-        .set_consent_states(&[StoredConsentRecord::new(
+        .set_consent_states(&[xmtp_mls::client::ConsentAct::new(
             ConsentType::ConversationId,
             ConsentState::Denied,
-            entity.clone(),
+            pair[1].clone(),
         )])
         .await?;
     assert!(
@@ -379,7 +380,7 @@ async fn stitched_dm_events_reach_group_filter() {
             loop {
                 let event = reader.next().await?.expect("event reader is open");
                 if matches!(event, ClientEvent::ConsentChanged { consent_changed }
-                    if consent_changed.entity == entity && consent_changed.state == crate::events::EventConsentState::Denied)
+                    if pair.contains(&consent_changed.entity) && consent_changed.state == crate::events::EventConsentState::Denied)
                 {
                     break;
                 }
@@ -439,11 +440,10 @@ async fn event_filter_reports_storage_error_when_resolving_dm() {
 }
 
 // The device-sync path of the first installation. A second installation of
-// the inbox creates its sync group, which welcomes the first. The first
-// installation's worker cycles the HMAC root key into that group and stores
-// the key when it reads its own sync message. The second installation runs
-// no worker, so it does not cycle a second key when the first adds it to
-// the first's sync group.
+// the inbox creates its sync group, which welcomes the first, and makes its
+// own root key for the commits that need one. Its key is the newest, so its
+// worker publishes it and the first installation stores it: one
+// stored change, one event.
 // verifies: EVENT-001
 #[xmtp_common::test(unwrap_try = true)]
 async fn new_installation_hmac_root_key_emits_one_event() {
@@ -470,7 +470,9 @@ async fn new_installation_hmac_root_key_emits_one_event() {
         ]))
         .await?;
 
-    let second = Client::create(signer, options()).await?;
+    let mut second_settings = options();
+    second_settings.device_sync = true;
+    let second = Client::create(signer, second_settings).await?;
     second.inner.device_sync_client().get_sync_group().await?;
     let stored = xmtp_common::wait_for_some(|| async {
         first.conversations().sync_all(None).await.ok()?;

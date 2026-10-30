@@ -187,21 +187,17 @@ async fn one_consent_batch_emits_only_the_final_state_for_an_entity() {
         xmtp_events::EventFilter::new([xmtp_events::EventKind::ConsentChanged]),
         Some(10),
     );
-    let denied = StoredConsentRecord::new(
-        ConsentType::InboxId,
-        ConsentState::Denied,
-        "duplicate-consent".into(),
-    );
-    let allowed = StoredConsentRecord::new(
-        ConsentType::InboxId,
-        ConsentState::Allowed,
-        "duplicate-consent".into(),
-    );
-    alix.set_consent_states(&[denied, allowed]).await?;
+    let act = |state| {
+        crate::client::ConsentAct::new(ConsentType::InboxId, state, "duplicate-consent".into())
+    };
+    alix.set_consent_states(&[act(ConsentState::Denied), act(ConsentState::Allowed)])
+        .await?;
     assert_eq!(
         alix.context
             .db()
-            .get_consent_record("duplicate-consent".into(), ConsentType::InboxId)?
+            .consent_row(&xmtp_db::consent_record::ConsentKey::inbox(
+                "duplicate-consent"
+            ))?
             .map(|record| record.state),
         Some(ConsentState::Allowed)
     );
@@ -214,12 +210,12 @@ async fn one_consent_batch_emits_only_the_final_state_for_an_entity() {
     ));
 }
 
-// verifies: EVENT-001, EVENT-009, CONS-011
+// verifies: EVENT-001, EVENT-059, CONS-055
 #[xmtp_common::test(unwrap_try = true)]
 async fn app_consent_acts_emit_once_per_change_and_store_every_repeat() {
-    use crate::subscriptions::internal::{InternalEvent, PreferenceOrigin};
+    use crate::subscriptions::internal::InternalEvent;
     use crate::worker::device_sync::preference_sync::PreferenceUpdate;
-    use xmtp_db::consent_record::{ConsentState::*, ConsentType::*};
+    use xmtp_db::consent_record::{ConsentKey, ConsentState::*, ConsentType::*};
     use xmtp_events::{ConsentEntityKind::*, ConsentState as Event, EventEnvelope};
     tester!(alix, disable_workers);
     let group = alix.create_group(None, None)?;
@@ -242,35 +238,33 @@ async fn app_consent_acts_emit_once_per_change_and_store_every_repeat() {
         (ConversationId, id, Denied, Conversation, Event::Denied),
         (ConversationId, id, Unknown, Conversation, Event::Unknown),
     ] {
-        let record = StoredConsentRecord::new(entity_type, state, entity.into());
-        alix.set_consent_states(std::slice::from_ref(&record))
-            .await?;
+        let key = ConsentKey {
+            entity_type,
+            entity: entity.into(),
+        };
+        let act = crate::client::ConsentAct::new(entity_type, state, entity.into());
+        alix.set_consent_states(std::slice::from_ref(&act)).await?;
         assert!(matches!(
             events.drain().as_slice(),
             [EventEnvelope { client: Some(xmtp_events::ClientEvent::ConsentChanged(change)), .. }]
                 if change.entity_kind == kind && change.entity == entity && change.state == expected
         ));
         preferences.drain();
+        let first = alix.context.db().consent_row(&key)?.unwrap();
 
-        // A same-state repeat emits no app event but is stored and published.
-        let mut repeat = record;
-        repeat.consented_at_ns += 1;
-        alix.set_consent_states(std::slice::from_ref(&repeat))
-            .await?;
+        // A same-state repeat emits no app event; it moves the time
+        // and is owed again.
+        alix.set_consent_states(std::slice::from_ref(&act)).await?;
         assert!(events.drain().is_empty());
-        let stored = alix
-            .context
-            .db()
-            .get_consent_record(entity.into(), entity_type)?;
-        let stored = stored.map(|r| (r.state, r.consented_at_ns));
-        assert_eq!(stored, Some((state, repeat.consented_at_ns)));
+        let stored = alix.context.db().consent_row(&key)?.unwrap();
+        assert_eq!(stored.state, state);
+        assert!(stored.consented_at_ns > first.consented_at_ns);
+        assert!(stored.owed_seq > first.owed_seq);
         assert!(matches!(
             preferences.drain().as_slice(),
-            [EventEnvelope { internal: Some(InternalEvent::PreferencesChanged {
-                updates,
-                origin: PreferenceOrigin::Local,
-            }), .. }] if matches!(updates.as_slice(), [PreferenceUpdate::Consent(published)]
-                if published.consented_at_ns == repeat.consented_at_ns)
+            [EventEnvelope { internal: Some(InternalEvent::PreferencesChanged { updates }), .. }]
+                if matches!(updates.as_slice(), [PreferenceUpdate::Consent(published)]
+                if published.consented_at_ns == stored.consented_at_ns)
         ));
     }
 }
@@ -305,24 +299,22 @@ async fn should_stream_consent() {
     xmtp_common::time::sleep(std::time::Duration::from_millis(500)).await;
 
     // second is allowing consent for the group
-    alix.set_consent_states(&[StoredConsentRecord {
-        entity: hex::encode(group.group_id),
-        state: ConsentState::Allowed,
-        entity_type: ConsentType::ConversationId,
-        consented_at_ns: now_ns(),
-    }])
+    alix.set_consent_states(&[crate::client::ConsentAct::new(
+        ConsentType::ConversationId,
+        ConsentState::Allowed,
+        hex::encode(group.group_id),
+    )])
     .await
     .unwrap();
 
     xmtp_common::time::sleep(std::time::Duration::from_millis(500)).await;
 
     // third allowing consent for bo inbox id
-    alix.set_consent_states(&[StoredConsentRecord {
-        entity: bo.inbox_id().to_string(),
-        entity_type: ConsentType::InboxId,
-        state: ConsentState::Allowed,
-        consented_at_ns: now_ns(),
-    }])
+    alix.set_consent_states(&[crate::client::ConsentAct::new(
+        ConsentType::InboxId,
+        ConsentState::Allowed,
+        bo.inbox_id().to_string(),
+    )])
     .await
     .unwrap();
 
@@ -735,7 +727,7 @@ async fn clients_sharing_a_database_receive_only_their_own_events() {
         .events()
         .subscribe(EventFilter::new([EventKind::ConsentChanged]), Some(10));
 
-    alix.set_consent_states(&[StoredConsentRecord::new(
+    alix.set_consent_states(&[crate::client::ConsentAct::new(
         ConsentType::InboxId,
         ConsentState::Allowed,
         "from-first-client".into(),
@@ -745,7 +737,7 @@ async fn clients_sharing_a_database_receive_only_their_own_events() {
     assert!(second_events.drain().is_empty());
 
     second
-        .set_consent_states(&[StoredConsentRecord::new(
+        .set_consent_states(&[crate::client::ConsentAct::new(
             ConsentType::InboxId,
             ConsentState::Denied,
             "from-second-client".into(),

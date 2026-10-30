@@ -35,6 +35,7 @@ pub const BACKUP_VERSION: u16 = 0;
 pub mod archive_options;
 pub mod exporter;
 pub mod importer;
+pub mod pre8;
 mod snapshot;
 mod util;
 

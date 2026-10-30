@@ -77,6 +77,12 @@ pub enum GroupError {
     /// Group membership state is invalid. Not retryable.
     #[error("invalid group membership")]
     InvalidGroupMembership,
+    /// Consent act refused.
+    ///
+    /// The consent of this conversation cannot be set. Not retryable.
+    #[error("consent act: {0}")]
+    #[error_code(inherit)]
+    ConsentAct(#[from] xmtp_db::consent_record::ConsentActError),
     /// Leave cannot be processed.
     ///
     /// Group leave validation failed. Not retryable.
@@ -624,6 +630,7 @@ impl RetryableError for GroupError {
             // that raced a new installation's identity propagation.
             Self::MissingSequenceId => true,
             Self::NotFound(_)
+            | Self::ConsentAct(_)
             | Self::InvalidWelcomeMetadata
             | Self::WelcomeGroupRoot(_)
             | Self::UserLimitExceeded

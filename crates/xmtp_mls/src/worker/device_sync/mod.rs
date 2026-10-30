@@ -1,3 +1,4 @@
+use crate::state_tx::StateTx;
 use crate::{
     client::ClientError,
     context::XmtpSharedContext,
@@ -11,7 +12,6 @@ use crate::{
     worker::{NeedsDbReconnect, metrics::WorkerMetrics},
 };
 use openmls::prelude::{BasicCredential, Member};
-use owo_colors::OwoColorize;
 use prost::Message;
 use std::{collections::HashMap, sync::Arc};
 use thiserror::Error;
@@ -22,19 +22,26 @@ use xmtp_archive::ArchiveError;
 use xmtp_common::ErrorCode;
 use xmtp_common::{NS_IN_DAY, RetryableError, time::now_ns};
 use xmtp_cryptography::secret::{Zeroize, Zeroizing};
+use xmtp_db::TransactionalKeyStore;
 use xmtp_db::tasks::NewTask;
 use xmtp_db::{
     NotFound, StorageError,
     consent_record::ConsentState,
     group::{GroupMembershipState, GroupQueryArgs},
+    group_message::{DeliveryStatus, StoredGroupMessage},
+    sync_outbox::{OwedPage, clear_owed, owed_page},
 };
 use xmtp_db::{XmtpDb, group::ConversationType, prelude::*};
+use xmtp_events::EventWriter;
 use xmtp_id::{InboxIdRef, associations::DeserializationError};
 use xmtp_mls_common::group::GroupMetadataOptions;
+use xmtp_proto::ShortHex;
 use xmtp_proto::types::{GroupId, InstallationId};
 use xmtp_proto::xmtp::{
     device_sync::content::{
-        DeviceSyncContent as DeviceSyncContentProto, device_sync_content::Content as ContentProto,
+        DeviceSyncContent as DeviceSyncContentProto, HmacKeyUpdate,
+        PreferenceUpdate as PreferenceUpdateMessage, PreferenceUpdates,
+        device_sync_content::Content as ContentProto,
         preference_update::Update as PreferenceUpdateProto,
     },
     mls::{
@@ -97,6 +104,23 @@ fn wipe_hmac_keys(content: &mut ContentProto) {
     }
 }
 
+/// Move a stored sync message's plaintext into a buffer wiped on drop. It
+/// can hold an HMAC root key, so it moves as the row loads, before any
+/// path out can drop it.
+fn take_plaintext(msg: &mut StoredGroupMessage) -> Zeroizing<Vec<u8>> {
+    Zeroizing::new(std::mem::take(&mut msg.decrypted_message_bytes))
+}
+
+/// [`take_plaintext`] for every loaded row.
+fn with_plaintext(rows: Vec<StoredGroupMessage>) -> Vec<(StoredGroupMessage, Zeroizing<Vec<u8>>)> {
+    rows.into_iter()
+        .map(|mut msg| {
+            let plaintext = take_plaintext(&mut msg);
+            (msg, plaintext)
+        })
+        .collect()
+}
+
 /// Sync content decoded from a received message. Its HMAC root keys are wiped
 /// on drop, on every path out of processing.
 pub(super) struct ReceivedContent(pub(super) ContentProto);
@@ -105,6 +129,29 @@ impl Drop for ReceivedContent {
     fn drop(&mut self) {
         wipe_hmac_keys(&mut self.0);
     }
+}
+
+/// The id of the group [`DeviceSyncClient::primary_sync_group`] selects,
+/// read in the caller's write.
+// implements: SYNC-002, SYNC-010
+pub(super) fn selected_sync_group_in<T: TransactionalKeyStore>(
+    tx: &mut StateTx<'_, T>,
+    own_inbox_id: &str,
+) -> Result<Option<GroupId>, GroupError> {
+    let groups = tx.storage().db().all_sync_groups()?;
+    for stored in groups {
+        let own = tx.with_group(stored.id, |group, _| {
+            Ok::<_, GroupError>(is_own_sync_group(
+                own_inbox_id,
+                &stored.added_by_inbox_id,
+                group.members(),
+            ))
+        })?;
+        if own {
+            return Ok(Some(stored.id));
+        }
+    }
+    Ok(None)
 }
 
 /// A sync group belongs to the own inbox only when that inbox added this
@@ -221,6 +268,12 @@ pub enum DeviceSyncError {
     #[error("own identity state unavailable: {0}")]
     #[error_code(inherit)]
     OwnStateUnavailable(#[source] ClientError),
+    /// Outbox page unpublished.
+    ///
+    /// A queued sync message is not published yet; its values stay owed and
+    /// the outbox retries. Retryable.
+    #[error("a queued sync message is not published yet")]
+    OutboxPageUnpublished,
 }
 
 #[derive(Debug)]
@@ -323,54 +376,77 @@ where
         self.metrics.wait_for_init().await
     }
 
-    /// Sends a device sync message.
-    /// If the `group_id` is `None`, the message will be sent
-    /// to the primary sync group ID.
-    #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(level = "info", fields(inbox_id = self.context.inbox_id()), skip(self, content)))]
-    #[cfg_attr(
-        not(any(test, feature = "test-utils")),
-        tracing::instrument(level = "trace", skip(self, content))
-    )]
-    // implements: SYNC-004
-    async fn send_device_sync_message(
-        &self,
-        content: ContentProto,
-    ) -> Result<Vec<u8>, DeviceSyncError> {
-        // Encode first: the content can hold an HMAC root key, and only the
-        // encoding wipes it, so every later return drops wiped bytes.
-        let content_bytes = sync_message_bytes(content);
-        let sync_group = self.get_sync_group().await?;
-        // implements: SYNC-024
-        if self.has_revoked_leaf(&sync_group).await? {
-            sync_group.remove_revoked_installations().await?;
-            if self.has_revoked_leaf(&sync_group).await? {
-                return Err(GroupError::InvalidGroupMembership.into());
+    /// Publish every owed value to the selected sync group, a page at
+    /// a time. A page's marks clear only after the message carrying it is
+    /// published.
+    // implements: SYNC-004, SYNC-024, SYNC-029, SYNC-033
+    #[tracing::instrument(level = "debug", skip_all, fields(operation = "publish_outbox"))]
+    pub(super) async fn publish_outbox(&self) -> Result<(), DeviceSyncError> {
+        // A quarter of the deployment's envelope, so MLS and envelope framing fit.
+        let max_bytes = (self.context.api().limits().max_envelope_bytes / 4).min(PAGE_BYTES);
+        self.get_sync_group().await?;
+        loop {
+            // Values first, target second. A sync Welcome that commits after
+            // this read marks every key again, so the clear below skips them.
+            // One that committed before it is already the selected group.
+            let page = owed_page(&self.db(), PAGE_UPDATES, max_bytes)?;
+            if page.is_empty() {
+                return Ok(());
+            }
+            let group = self
+                .primary_sync_group()?
+                .ok_or(DeviceSyncError::MissingSyncGroup)?;
+            // implements: SYNC-024
+            if self.has_revoked_leaf(&group).await? {
+                group.remove_revoked_installations().await?;
+                if self.has_revoked_leaf(&group).await? {
+                    return Err(GroupError::InvalidGroupMembership.into());
+                }
+            }
+            // One intent at a time: a page an earlier pass queued is
+            // published, or fails for good, before this one is queued.
+            group.sync_until_last_intent_resolved().await?;
+            tracing::info!(
+                group_id = group.group_id.short_hex(),
+                "publishing owed preferences"
+            );
+            let id = group.prepare_message(
+                &sync_message_bytes(page_content(&page)),
+                send_message_opts::SendMessageOpts {
+                    should_push: false,
+                    idempotency_key: None,
+                },
+            )?;
+            group.sync_until_last_intent_resolved().await?;
+            // Only a published page clears its marks. Otherwise they stay
+            // owed, the pass backs off, and a later pass sends them again.
+            let status = self.db().get_group_message(&id)?.map(|mut sent| {
+                drop(take_plaintext(&mut sent));
+                sent.delivery_status
+            });
+            #[cfg(test)]
+            let status = UNCONFIRMED_NEXT_PAGE
+                .lock()
+                .take_if(|installation| *installation == self.installation_id().as_slice())
+                .map_or(status, |_| None);
+            if status != Some(DeliveryStatus::Published) {
+                return Err(DeviceSyncError::OutboxPageUnpublished);
+            }
+            clear_owed(&self.db(), &page)?;
+            for _ in &page.consent {
+                self.metrics.increment_metric(SyncMetric::ConsentSent);
+            }
+            if page.root_key.is_some() {
+                self.metrics.increment_metric(SyncMetric::HmacSent);
             }
         }
+    }
 
-        let msg = format!(
-            "Sending sync message to group {:?}",
-            xmtp_common::fmt::debug_hex(sync_group.group_id)
-        );
-        tracing::info!("{}", msg.yellow());
-
-        let message_id = sync_group.prepare_message(
-            &content_bytes,
-            send_message_opts::SendMessageOpts {
-                should_push: false,
-                idempotency_key: None,
-            },
-        )?;
-
-        sync_group.sync_until_last_intent_resolved().await?;
-
-        xmtp_events::EventWriter::emit(
-            self.context.events(),
-            None,
-            Some(InternalEvent::SyncMessagePublished),
-        );
-
-        Ok(message_id)
+    /// One outbox pass, then one receive pass, as the worker runs them.
+    #[cfg(any(test, feature = "test-utils"))]
+    pub async fn sync_passes_for_test(&self) -> Result<(), DeviceSyncError> {
+        self.publish_outbox().await?;
+        self.process_sync_group_messages().await
     }
 
     /// Whether a leaf other than this installation's names an installation
@@ -463,72 +539,121 @@ where
         Ok(sync_group)
     }
 
-    /// This should be triggered when a new sync group appears,
-    /// indicating the presence of a new installation.
-    ///
-    /// Schedules one durable AddMissingInstallations task per eligible group
-    /// on the TaskRunner (deduped by payload hash) so the membership add is
-    /// retried with backoff instead of being lost if a single inline attempt
-    /// fails (e.g. identity propagation lag → MissingSequenceId).
-    #[cfg_attr(
-        any(test, feature = "test-utils"),
-        tracing::instrument(level = "info", skip_all)
-    )]
-    // implements: SYNC-014
-    pub fn schedule_add_installations_to_groups(&self) -> Result<usize, DeviceSyncError> {
-        let groups = self.mls_store.find_groups(GroupQueryArgs {
-            last_activity_after_ns: Some(now_ns() - NS_IN_DAY * 90),
-            consent_states: Some(vec![ConsentState::Allowed, ConsentState::Unknown]),
-            // A Restored placeholder takes no commit until a Welcome activates
-            // it, so its task could never finish.
-            // implements: ARCH-015
-            allowed_states: Some(vec![
-                GroupMembershipState::Allowed,
-                GroupMembershipState::Rejected,
-                GroupMembershipState::Pending,
-                GroupMembershipState::PendingRemove,
-            ]),
-            ..Default::default()
-        })?;
-
-        for group in &groups {
-            self.schedule_add_missing_installations_task(group.group_id, None)?;
-        }
-        Ok(groups.len())
-    }
-
-    /// Durably enqueue one AddMissingInstallations task for `group_id`
-    /// (deduped by payload hash against any pending row for the same group)
-    /// and wake the TaskRunner.
-    /// Arm the reconcile task, due once `delay`, a rate-limit delay, has passed.
+    /// Arm the reconcile task for `group_id`, due once `delay`, a rate-limit
+    /// delay, has passed.
     pub(crate) fn schedule_add_missing_installations_task(
         &self,
         group_id: GroupId,
         delay: Option<xmtp_common::time::Duration>,
     ) -> Result<(), DeviceSyncError> {
-        let due = xmtp_common::time::now_ns().saturating_add(delay.map_or(0, |delay| {
-            i64::try_from(delay.as_nanos()).unwrap_or(i64::MAX)
-        }));
-        // The usual three days to succeed count from when the task is due.
-        let task = NewTask::builder()
-            .originating_message_sequence_id(0)
-            .next_attempt_at_ns(due)
-            .expires_at_ns(due.saturating_add(xmtp_common::NS_IN_DAY * 3))
-            .build(TaskProto {
-                task: Some(TaskKindProto::AddMissingInstallations(
-                    AddMissingInstallationsProto {
-                        group_id: group_id.to_vec(),
-                    },
-                )),
-            })?;
-        self.context.db().create_or_ignore_task(task)?;
-        xmtp_events::EventWriter::emit(
+        Ok(schedule_add_missing_installations(
+            &self.context.db(),
             self.context.events(),
-            None,
-            Some(InternalEvent::TaskScheduled),
-        );
-        Ok(())
+            group_id,
+            delay,
+        )?)
     }
+
+    /// Schedule the adds to the user's conversations for a new installation.
+    #[cfg(test)]
+    pub(crate) fn schedule_add_installations_to_groups(&self) -> Result<usize, DeviceSyncError> {
+        Ok(schedule_newcomer_adds(
+            &self.context.db(),
+            self.context.events(),
+        )?)
+    }
+}
+
+/// Test-only fault: the next outbox page of this installation reads back as
+/// not published, as when its confirmation fails after the backend took it.
+#[cfg(test)]
+pub(super) static UNCONFIRMED_NEXT_PAGE: parking_lot::Mutex<Option<Vec<u8>>> =
+    parking_lot::Mutex::new(None);
+
+/// Records per sync message the outbox sends.
+const PAGE_UPDATES: usize = 1_000;
+/// Bytes of encoded updates per sync message.
+const PAGE_BYTES: usize = 256 * 1024;
+
+/// The sync content of an outbox page. It holds a plain copy of the root key;
+/// `sync_message_bytes` wipes it.
+fn page_content(page: &OwedPage) -> ContentProto {
+    let root_key = page.root_key.iter().map(|root| {
+        PreferenceUpdateProto::Hmac(HmacKeyUpdate {
+            key: root.key.as_slice().to_vec(),
+            cycled_at_ns: root.cycled_at_ns,
+        })
+    });
+    let consent = page
+        .consent
+        .iter()
+        .map(|record| PreferenceUpdateProto::Consent(record.clone().into()));
+    ContentProto::PreferenceUpdates(PreferenceUpdates {
+        updates: root_key
+            .chain(consent)
+            .map(|update| PreferenceUpdateMessage {
+                update: Some(update),
+            })
+            .collect(),
+    })
+}
+
+/// A new sync group from a Welcome means a new installation: schedule one
+/// durable AddMissingInstallations task per eligible group (deduped by
+/// payload hash), in the transaction that installs the Welcome, so a restart
+/// cannot lose them.
+// implements: SYNC-014
+pub(crate) fn schedule_newcomer_adds(
+    db: &impl DbQuery,
+    events: &impl EventWriter<InternalEvent>,
+) -> Result<usize, StorageError> {
+    let groups = db.find_groups(GroupQueryArgs {
+        last_activity_after_ns: Some(now_ns() - NS_IN_DAY * 90),
+        consent_states: Some(vec![ConsentState::Allowed, ConsentState::Unknown]),
+        // A Restored placeholder takes no commit until a Welcome activates
+        // it, so its task could never finish.
+        // implements: ARCH-015
+        allowed_states: Some(vec![
+            GroupMembershipState::Allowed,
+            GroupMembershipState::Rejected,
+            GroupMembershipState::Pending,
+            GroupMembershipState::PendingRemove,
+        ]),
+        ..Default::default()
+    })?;
+    for group in &groups {
+        schedule_add_missing_installations(db, events, group.id, None)?;
+    }
+    Ok(groups.len())
+}
+
+/// Durably enqueue one AddMissingInstallations task for `group_id` (deduped
+/// by payload hash against any pending row for the same group) and wake the
+/// TaskRunner. The task is due once `delay`, a rate-limit delay, has passed.
+fn schedule_add_missing_installations(
+    db: &impl DbQuery,
+    events: &impl EventWriter<InternalEvent>,
+    group_id: GroupId,
+    delay: Option<xmtp_common::time::Duration>,
+) -> Result<(), StorageError> {
+    let due = now_ns().saturating_add(delay.map_or(0, |delay| {
+        i64::try_from(delay.as_nanos()).unwrap_or(i64::MAX)
+    }));
+    // The usual three days to succeed count from when the task is due.
+    let task = NewTask::builder()
+        .originating_message_sequence_id(0)
+        .next_attempt_at_ns(due)
+        .expires_at_ns(due.saturating_add(NS_IN_DAY * 3))
+        .build(TaskProto {
+            task: Some(TaskKindProto::AddMissingInstallations(
+                AddMissingInstallationsProto {
+                    group_id: group_id.to_vec(),
+                },
+            )),
+        })?;
+    db.create_or_ignore_task(task)?;
+    events.emit(None, Some(InternalEvent::TaskScheduled));
+    Ok(())
 }
 
 /// The payload of a sync message's outer `EncodedContent`, the only field the
@@ -549,8 +674,15 @@ impl Drop for SyncPayload {
 /// Decode a received sync message: the outer `EncodedContent`, then the
 /// supported device-sync content inside it.
 pub(super) fn decode_sync_message(plaintext: &[u8]) -> Option<ReceivedContent> {
-    let payload = SyncPayload::decode(plaintext).ok()?;
+    let payload = SyncPayload::decode(decode_buffer(plaintext)).ok()?;
     decode_supported_content(&payload.content)
+}
+
+/// A copy of `bytes` for prost to decode. prost decodes a bytes field of a
+/// `&[u8]` through a temporary copy that it frees unwiped; from `Bytes` it
+/// takes a slice instead. This copy is wiped on drop.
+fn decode_buffer(bytes: &[u8]) -> bytes::Bytes {
+    bytes::Bytes::from_owner(Zeroizing::new(bytes.to_vec()))
 }
 
 /// Decode only device-sync content that this client supports.
@@ -562,7 +694,7 @@ pub(super) fn decode_sync_message(plaintext: &[u8]) -> Option<ReceivedContent> {
 /// `bytes` can hold an HMAC root key: the caller wipes them, and the content
 /// wipes its keys on drop.
 fn decode_supported_content(bytes: &[u8]) -> Option<ReceivedContent> {
-    DeviceSyncContentProto::decode(bytes)
+    DeviceSyncContentProto::decode(decode_buffer(bytes))
         .ok()?
         .content
         .map(ReceivedContent)

@@ -3,7 +3,9 @@ use std::{cmp::Ordering, collections::HashMap};
 use xmtp_db::{
     ConnectionError, ConnectionExt, XmtpDb,
     association_state::QueryAssociationStateCache,
-    consent_record::{ConsentState, ConsentType, QueryConsentRecord, StoredConsentRecord},
+    consent_record::{
+        ConsentKey, ConsentState, ConsentWrite, Decision, Owed, QueryConsentRecord, write_consent,
+    },
     conversation_list::QueryConversationList,
     diesel::Connection,
     group::{ConversationType, GroupQueryArgs, QueryGroup, StoredGroup},
@@ -340,32 +342,15 @@ where
         let Some(group) = self.group_or_dm() else {
             bail!("No group to lookup DMs on");
         };
-        let group_id = hex::encode(group.id);
+        let key = ConsentKey::group(group.id.as_ref());
 
-        let new_consent = StoredConsentRecord {
-            consented_at_ns: 0,
-            entity: group_id.clone(),
-            entity_type: ConsentType::ConversationId,
-            state: ConsentState::Allowed,
-        };
-
-        bench!(
-            self,
-            get_consent_record(group_id.clone(), ConsentType::ConversationId)
-        )?;
+        bench!(self, consent_row(&key))?;
         bench!(self, consent_records())?;
-        bench!(self, consent_records_paged(100, 0))?;
-        bench!(self, insert_newer_consent_record(new_consent.clone()))?;
-        bench!(self, record_app_act(std::slice::from_ref(&new_consent)))?;
-        bench!(
-            self,
-            maybe_insert_consent_record_return_existing(&new_consent.clone())
-        )?;
-        if let Some(dm) = &self.rand_dm
-            && let Some(dm_id) = dm.dm_id.clone()
-        {
-            bench!(self, find_consent_by_dm_id(&dm_id))?;
-        }
+        let store = self.store.clone();
+        let decide = ConsentWrite::Decide(Decision::Set(ConsentState::Allowed));
+        self.bench_with_key("write_consent(decide)", || {
+            write_consent(&store.db(), &key, decide, Owed::Mark)
+        })?;
 
         Ok(())
     }

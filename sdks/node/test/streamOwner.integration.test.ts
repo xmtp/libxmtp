@@ -111,7 +111,7 @@ it("stream methods use the receiver owner for create, get, list, and streamed va
   }
 });
 
-// verifies: CONS-030, CONS-042, CONS-043, CONS-044
+// verifies: CONS-060, CONS-042, CONS-043, CONS-044
 it("stream options preserve consent defaults, empty selection, and the replay cursor", async () => {
   const client = await makeClient(codec("selection"));
   const allowed = await client.conversations.createGroup([]);

@@ -24,7 +24,7 @@ use xmtp_db::{
     notifications::{StoredNotification, UploadedTopic},
     prelude::*,
     tasks::{NewTask, TaskDataHash, data_hash_for},
-    user_preferences::{HmacKey, StoredUserPreferences},
+    user_preferences::{StoredUserPreferences, ensure_root_key},
 };
 use xmtp_events::{ClientEvent, EventWriter, NotificationsFailed};
 use xmtp_proto::{
@@ -552,14 +552,17 @@ fn prepare_batch<Context: XmtpSharedContext>(
     desired: &Desired,
 ) -> Result<Batch, NotificationError> {
     let fingerprint = desired_fingerprint(desired)?;
-    state_write(context.mls_storage(), |tx| {
+    state_write_with_events(context.mls_storage(), context.events(), |tx, events| {
         let storage = tx.storage();
         let db = storage.db();
         let root_fingerprint = match StoredUserPreferences::load(&db)?.hmac_key {
             Some(key) => xmtp_common::sha256_array(key.as_slice()).to_vec(),
+            // implements: SYNC-026
             None if desired.values().any(|topic| topic.group_id.is_some()) => {
-                let key = HmacKey::random_key();
-                StoredUserPreferences::store_hmac_key(&db, key.as_slice(), None)?;
+                let (key, made) = ensure_root_key(&db)?;
+                if made {
+                    crate::subscriptions::internal::emit_root_key_changed(events, &db, true)?;
+                }
                 xmtp_common::sha256_array(key.as_slice()).to_vec()
             }
             None => Vec::new(),
@@ -602,7 +605,7 @@ fn prepare_batch<Context: XmtpSharedContext>(
                     row.conversation_type,
                     row.created_at_ns,
                 );
-                let keys = group.hmac_keys_in(&db, -1..=1)?;
+                let keys = group.hmac_keys_in(&db, events, -1..=1)?;
                 subscription.hmac_epoch_base =
                     keys.first().map(|key| key.epoch).unwrap_or(epoch - 1);
                 // The request goes to the transport, which holds these copies.

@@ -635,7 +635,7 @@ async fn legacy_migration_timestamps_do_not_remove_null_expiry_history() {
     }
 }
 
-// verifies: MIG-003, CONS-002
+// verifies: MIG-003, CONS-050
 #[xmtp_common::test(unwrap_try = true)]
 async fn consent_states_match_the_archive_wire_contract() {
     use xmtp_proto::xmtp::device_sync::consent_backup::ConsentStateSave;
@@ -665,6 +665,85 @@ async fn consent_states_match_the_archive_wire_contract() {
         assert_eq!(consent.consented_at_ns, 1700000000000000009);
     }
     assert_eq!(consents.len(), 3);
+}
+
+/// With an identity row, a DM's consent rows and its peer's inbox row become
+/// one inbox record with the strongest state at the greatest time, including a
+/// DM whose group the archive leaves out. Without one, rows are written as stored.
+// verifies: MIG-009, CONS-061, CONS-050
+#[xmtp_common::test(unwrap_try = true)]
+async fn dm_consent_rows_are_written_as_their_peer() {
+    use xmtp_proto::xmtp::device_sync::consent_backup::{ConsentStateSave, ConsentTypeSave};
+    let restored_dm = "99".repeat(16);
+    let consents = |identity: bool, inbox_state: i32, dm_state: i32| {
+        let (directory, args) = fixture("stable.db3");
+        let mut sql = format!(
+            "UPDATE consent_records SET state = {inbox_state}; \
+             INSERT INTO consent_records VALUES (1, {dm_state}, '{}', 10); \
+             INSERT INTO groups (id, created_at_ns, membership_state, installations_last_checked, \
+               added_by_inbox_id, conversation_type, dm_id) \
+               VALUES (x'{restored_dm}', 1, 4, 0, '{OWNER}', 2, 'dm:{OWNER}:{PEER}'); \
+             INSERT INTO consent_records VALUES (1, 1, '{restored_dm}', 20);",
+            GROUP.to_uppercase()
+        );
+        if identity {
+            sql += &format!(
+                "INSERT INTO identity (inbox_id, installation_keys, credential_bytes, rowid) \
+                 VALUES ('{OWNER}', x'00', x'00', 1);"
+            );
+        }
+        edit(&args, &sql);
+        async move {
+            let report = prepare_migration_archive(args).await.unwrap();
+            let records: Vec<_> = elements(&report.archive_path)
+                .await
+                .into_iter()
+                .filter_map(|element| match element {
+                    Element::Consent(consent) => Some((
+                        consent.entity_type(),
+                        consent.entity.to_lowercase(),
+                        consent.state(),
+                        consent.consented_at_ns,
+                    )),
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(report.consent_count, records.len() as u64);
+            drop(directory);
+            records
+        }
+    };
+    let inbox = |state| {
+        (
+            ConsentTypeSave::InboxId,
+            PEER.to_string(),
+            state,
+            1700000000000000009,
+        )
+    };
+    // A DM deny beats a later-created inbox allow.
+    assert_eq!(
+        consents(true, 1, 2).await,
+        [inbox(ConsentStateSave::Denied)]
+    );
+    // An inbox deny is kept over a DM allow.
+    assert_eq!(
+        consents(true, 2, 1).await,
+        [inbox(ConsentStateSave::Denied)]
+    );
+    assert_eq!(
+        consents(true, 0, 1).await,
+        [inbox(ConsentStateSave::Allowed)]
+    );
+    // Without an identity row no row moves.
+    let stored = consents(false, 1, 2).await;
+    assert_eq!(stored.len(), 3, "{stored:?}");
+    assert!(stored.contains(&(
+        ConsentTypeSave::ConversationId,
+        GROUP.into(),
+        ConsentStateSave::Denied,
+        10
+    )));
 }
 
 // verifies: MIG-002, MIG-005

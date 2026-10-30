@@ -1,4 +1,3 @@
-use xmtp_db::consent_record::StoredConsentRecord;
 use xmtp_db::consent_record::{ConsentState, ConsentType};
 use xmtp_db::group_message::{ContentType, MsgQueryArgs};
 use xmtp_db::prelude::*;
@@ -236,14 +235,16 @@ async fn test_dm_welcome_with_preexisting_consent() {
 
     tester!(bo2, from: bo1);
 
-    // Mock device sync - the consent record is processed on Bo2 before
-    // the welcome is processed.
-    let cr = StoredConsentRecord::new(
-        ConsentType::ConversationId,
-        ConsentState::Allowed,
-        hex::encode(a_group.group_id),
-    );
-    bo2.context.db().insert_newer_consent_record(cr)?;
+    // Mock device sync - the DM's record, alix's inbox record, is
+    // processed on Bo2 before the welcome is processed.
+    xmtp_db::consent_record::write_consent(
+        &bo2.context.db(),
+        &xmtp_db::consent_record::ConsentKey::inbox(alix.inbox_id()),
+        xmtp_db::consent_record::ConsentWrite::Decide(xmtp_db::consent_record::Decision::Set(
+            ConsentState::Allowed,
+        )),
+        xmtp_db::consent_record::Owed::Mark,
+    )?;
     // Now bo2 processes the welcome
     bo1.find_or_create_dm(alix.inbox_id(), None)
         .await?

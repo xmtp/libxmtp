@@ -1,5 +1,5 @@
 use super::ConnectionExt;
-use crate::consent_record::{ConsentState, ConsentType};
+use crate::consent_record::ConsentState;
 use crate::group::{ConversationType, GroupMembershipState, GroupQueryArgs, GroupQueryOrderBy};
 use crate::group_message::{ContentType, GroupMessageKind};
 use crate::{DbConnection, StorageError};
@@ -168,13 +168,9 @@ fn build_regular_list_query(head: &str, args: &GroupQueryArgs, current_time_ns: 
     query = query.sql(" AS listing_time_ns FROM groups g");
 
     if !includes_all {
-        // A keyed group's 64-hex id has the shape of an inbox id, so the join
-        // also matches the record's kind.
         query = query.sql(format!(
-            " LEFT JOIN consent_records consent
-              ON consent.entity_type = {}
-              AND consent.entity = lower(hex(g.id))",
-            ConsentType::ConversationId as i32
+            " LEFT JOIN consent_records ON {}",
+            crate::group::consent_join_sql("g")
         ));
     }
     query = query.sql(format!(
@@ -241,17 +237,17 @@ fn build_regular_list_query(head: &str, args: &GroupQueryArgs, current_time_ns: 
 
     if !includes_all {
         if includes_unknown {
-            query = query.sql(" AND (consent.state IS NULL OR consent.state = 0");
+            query = query.sql(" AND (consent_records.state IS NULL OR consent_records.state = 0");
             if !filtered_states.is_empty() {
                 query = query.sql(format!(
-                    " OR consent.state IN ({})",
+                    " OR consent_records.state IN ({})",
                     enum_values(&filtered_states, |state| *state as i32)
                 ));
             }
             query = query.sql(")");
         } else {
             query = query.sql(format!(
-                " AND consent.state IN ({})",
+                " AND consent_records.state IN ({})",
                 enum_values(&filtered_states, |state| *state as i32)
             ));
         }
@@ -323,7 +319,7 @@ impl<C: ConnectionExt> QueryConversationList for DbConnection<C> {
 }
 
 impl<C: ConnectionExt> DbConnection<C> {
-    // implements: CONS-030
+    // implements: CONS-060
     fn fetch_conversation_list_at(
         &self,
         args: &GroupQueryArgs,
@@ -363,7 +359,8 @@ pub(crate) mod tests {
     use crate::Store;
     use crate::consent_record::{ConsentState, ConsentType};
     use crate::group::tests::{
-        generate_consent_record, generate_dm, generate_group, generate_group_with_created_at,
+        dm_peer_consent, generate_consent_record, generate_dm, generate_group,
+        generate_group_with_created_at,
     };
     use crate::group::{ConversationType, GroupMembershipState, GroupQueryArgs, GroupQueryOrderBy};
     use crate::group_message::ContentType;
@@ -860,7 +857,7 @@ pub(crate) mod tests {
         })
     }
 
-    // verifies: CONS-030, CONS-031
+    // verifies: CONS-060, CONS-031
     #[xmtp_common::test(unwrap_try = true)]
     fn test_find_conversations_by_consent_state() {
         with_connection(|conn| {
@@ -885,11 +882,8 @@ pub(crate) mod tests {
                 hex::encode(test_group_2.id),
             );
             test_group_2_consent.store(conn).unwrap();
-            let test_group_3_consent = generate_consent_record(
-                ConsentType::ConversationId,
-                ConsentState::Allowed,
-                hex::encode(test_group_3.id),
-            );
+            // A DM's consent is its peer's inbox record.
+            let test_group_3_consent = dm_peer_consent(conn, &test_group_3, ConsentState::Allowed);
             test_group_3_consent.store(conn).unwrap();
 
             use ConsentState::{Allowed, Denied, Unknown};

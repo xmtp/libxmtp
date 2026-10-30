@@ -171,33 +171,18 @@ where
         Ok(group.added_by_inbox_id)
     }
 
-    /// Find the `consent_state` of the group
+    /// The conversation consent of the group: a DM's is its peer's inbox record.
+    // implements: CONS-001, CONS-052
     pub fn consent_state(&self) -> Result<ConsentState, GroupError> {
-        let conn = self.context.db();
-        let record =
-            conn.get_consent_record(hex::encode(self.group_id), ConsentType::ConversationId)?;
-
-        match record {
-            Some(rec) => Ok(rec.state),
-            None => Ok(ConsentState::Unknown),
-        }
+        let db = self.context.db();
+        Ok(conversation_consent(
+            &db,
+            self.context.inbox_id(),
+            &self.group_id,
+        )?)
     }
 
-    // Returns new consent records. Does not broadcast changes.
-    pub fn quietly_update_consent_state(
-        &self,
-        state: ConsentState,
-        db: &impl DbQuery,
-    ) -> Result<Vec<(StoredConsentRecord, bool)>, GroupError> {
-        let consent_record = StoredConsentRecord::new(
-            ConsentType::ConversationId,
-            state,
-            hex::encode(self.group_id),
-        );
-
-        Ok(db.record_app_act(std::slice::from_ref(&consent_record))?)
-    }
-
+    /// Set the consent of this conversation, as a decision.
     #[tracing::instrument(skip_all, level = "trace")]
     pub fn update_consent_state(&self, state: ConsentState) -> Result<(), GroupError> {
         crate::state_tx::state_write_with_events(
@@ -206,12 +191,20 @@ where
             |tx, events| {
                 let storage = tx.storage();
                 let db = storage.db();
-                let written = self.quietly_update_consent_state(state, &db)?;
-                crate::subscriptions::internal::emit_consent_acts(
+                let group = db
+                    .find_group(&self.group_id)?
+                    .ok_or(NotFound::GroupById(self.group_id))?;
+                let key = ConsentKey::of_group(&group, self.context.inbox_id())
+                    .ok_or(ConsentActError::InvalidEntity)?;
+                let decision = ConsentWrite::Decide(Decision::Set(state));
+                let changes: Vec<_> = write_consent(&db, &key, decision, Owed::Mark)?
+                    .into_iter()
+                    .collect();
+                crate::subscriptions::internal::emit_consent_changes(
                     &self.context,
                     events,
-                    written,
                     &db,
+                    &changes,
                 )?;
                 Ok::<_, GroupError>(Continue(()))
             },

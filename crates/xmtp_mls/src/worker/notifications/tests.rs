@@ -290,7 +290,11 @@ async fn notification_reuploads_keys_flags_and_root_from_request_snapshot() {
     let old_root = client.db().uploaded_topics()?[0]
         .root_key_fingerprint
         .clone();
-    StoredUserPreferences::store_hmac_key(&client.db(), &[8; 42], None)?;
+    xmtp_db::user_preferences::store_test_root_key(
+        &client.db(),
+        &[8; 42],
+        xmtp_common::time::now_ns() + xmtp_common::NS_IN_DAY,
+    )?;
     run(&client.context).await?;
     assert_ne!(
         client.db().uploaded_topics()?[0].root_key_fingerprint,
@@ -1371,7 +1375,11 @@ async fn notification_request_keeps_the_root_key_snapshot() {
     let upload = xmtp_common::spawn(None, async move { run(&context).await });
     timeout(Duration::from_secs(5), peer.entered.notified()).await?;
     let previous = StoredUserPreferences::load(client.db())?.hmac_key.unwrap();
-    StoredUserPreferences::store_hmac_key(&client.db(), &[9; 42], None)?;
+    xmtp_db::user_preferences::store_test_root_key(
+        &client.db(),
+        &[9; 42],
+        xmtp_common::time::now_ns() + xmtp_common::NS_IN_DAY,
+    )?;
     peer.release.notify_one();
     upload.join().await??;
     let topic = Topic::new_group_message(group.group_id).cloned_vec();

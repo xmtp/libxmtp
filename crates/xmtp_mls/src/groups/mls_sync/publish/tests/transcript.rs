@@ -478,6 +478,7 @@ async fn publish_raw_application<Context: XmtpSharedContext>(
             group
                 .prepare_group_envelopes_in(
                     storage.db(),
+                    group.context.events(),
                     mls_group,
                     vec![(payload.as_slice(), false)],
                 )
