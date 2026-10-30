@@ -25,7 +25,7 @@ jobs:
     environment: release
     steps:
       - name: Download release tag
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8 # v8
         with:
           name: release-tag-${{ inputs.sdk }}
           path: ${{ runner.temp }}/release-tag
@@ -66,7 +66,7 @@ jobs:
               > "$RUNNER_TEMP/release-paths"
             while IFS= read -r -d '' path; do
               case "$path" in
-                Package.swift|sdks/ios/XMTP.podspec|sdks/ios/ReleaseArtifacts.json|sdks/ios/Sources/XmtpSdk/*) ;;
+                Package.swift|sdks/ios/ReleaseArtifacts.json|sdks/ios/Sources/XmtpSdk/*) ;;
                 *) echo "::error::iOS release commit changes a file outside the release paths"; exit 1 ;;
               esac
             done < "$RUNNER_TEMP/release-paths"

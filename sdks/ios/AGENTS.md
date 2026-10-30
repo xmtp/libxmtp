@@ -12,12 +12,13 @@ dev/nix-shell 'just ios lint'
 - `Sources/XmtpSdk/xmtp_sdk.swift` and `runtime` are generated. Change Rust or
   bindgen, regenerate, and commit tracked sources. Never commit the XCFramework.
 - Read [build/test procedures](DEVELOPMENT.md) for Xcode/cache issues, simulator,
-  lifecycle, podspec, and minimum-deployment checks. Host debug passes do not
+  lifecycle and minimum-deployment checks. Host debug passes do not
   replace release/simulator checks.
 - Tests need the worktree backend. Create clients with `withClients` or
   `withLiveClients`; end them on every exit. Use `pause(seconds:)`, not newer
   APIs such as `Task.sleep(for:)`: `swift test` raises the deployment target.
 - Streams own reader/callback lifetimes; Rust owns durable cursors and replay.
   Close/cancel/release must not acknowledge a pending message.
-- Release SwiftPM and CocoaPods use the same URL/SHA256 in `ReleaseArtifacts.json`;
-  never invent checksums.
+- SwiftPM reads the versioned archive URL/SHA256 in `ReleaseArtifacts.json`;
+  never invent checksums. Standalone CocoaPods distribution is retired;
+  React Native retains its npm-shipped podspec.

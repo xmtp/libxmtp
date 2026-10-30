@@ -65,9 +65,12 @@ export function handler(
   // even used: a malformed one always means broken plumbing.
   const runTimestamp = validateTimestamp(argv.timestamp);
 
-  const config = getSdkConfig(argv.sdk);
+  getSdkConfig(argv.sdk);
   const baseVersion =
-    argv.baseVersion ?? config.manifest.readVersion(argv.repoRoot);
+    argv.baseVersion ??
+    getSdkConfig(argv.sdk === "cli" ? "cli" : "libxmtp").manifest.readVersion(
+      argv.repoRoot,
+    );
   const shortSha =
     argv.releaseType === "dev" ? getShortSha(argv.repoRoot) : undefined;
   const fromMain =

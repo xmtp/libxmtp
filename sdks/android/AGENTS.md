@@ -3,6 +3,8 @@
 Kotlin `uniffi.xmtp_sdk` wraps generated Rust bindings; handwritten code owns
 Android storage, lifecycle, and file logging.
 
+The SDK version is generated from root `Cargo.toml`.
+
 ```sh
 dev/nix-shell 'just android check'
 dev/nix-shell 'just android test-host' # debug host loop

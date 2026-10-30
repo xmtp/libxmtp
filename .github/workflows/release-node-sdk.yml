@@ -15,6 +15,11 @@ on:
         required: false
         type: boolean
         default: false
+      build-only:
+        description: Retain checked products without publication
+        required: false
+        type: boolean
+        default: false
     outputs:
       version:
         description: "The published version string"
@@ -38,6 +43,7 @@ jobs:
     uses: ./.github/workflows/build-sdk-node-platforms.yml
     with:
       ref: ${{ needs.check-push-permissions.outputs.source-sha }}
+      sdk-release: true
     secrets: inherit
 
   publish:
@@ -53,4 +59,5 @@ jobs:
       artifact-path: target/sdk-packages/node
       ignore-scripts: true
       dry-run: ${{ inputs.dry-run }}
+      prepare-only: ${{ inputs.build-only }}
     secrets: inherit

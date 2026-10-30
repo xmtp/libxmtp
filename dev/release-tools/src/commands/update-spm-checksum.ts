@@ -7,8 +7,7 @@ import { updateSpmChecksum as updateSpmChecksumFn } from "@/lib/spm";
 import type { GlobalArgs } from "@/types";
 
 export const command = "update-spm-checksum";
-export const describe =
-  "Record the shared SwiftPM and CocoaPods archive URL and checksum";
+export const describe = "Record the SwiftPM archive URL and checksum";
 
 export function builder(yargs: Argv<GlobalArgs>) {
   return yargs

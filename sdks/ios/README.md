@@ -5,19 +5,16 @@ attachment transfers. Swift provides app storage paths, streams, callbacks, and
 Apple system logging.
 
 Add this repository as a Swift package in Xcode. Select the `XmtpSdk` product.
-Use `import XmtpSdk`. The package has one static native XCFramework. CocoaPods
-uses the same archive and SHA256 receipt. The pod name is `XMTP`; its module is
-`XmtpSdk`. This change starts at version `8.0.0`.
+Use `import XmtpSdk`. The package has one static native XCFramework.
+Standalone CocoaPods distribution is retired; new iOS releases use SwiftPM.
 
 The native framework has ARM64 slices for iOS devices, the iOS simulator, and
 macOS. Intel macOS hosts are not supported.
 
-For a local CocoaPods checkout, first run `dev/nix-shell 'just ios build'`.
-Point the Podfile at `sdks/ios` with `:path`. When no release receipt exists,
-the podspec selects `Artifacts/XmtpSdkFFI.xcframework`. A released pod uses the
-archive URL and checksum in `ReleaseArtifacts.json`. An invalid receipt fails
-evaluation. The `ios-<version>` tag is a release source template. It does not
-mean that an unpublished version has an available tag or archive.
+For a local checkout, first run `dev/nix-shell 'just ios build'` and use the
+root Swift package. A released package uses the versioned archive URL and
+checksum in `ReleaseArtifacts.json`. Existing published tags and archives
+remain available. React Native keeps its separate npm-shipped podspec.
 
 Create a local signer with `let signer = await SDKClient.generateKeys()`.
 Save `signer.toHex()` securely and restore it with

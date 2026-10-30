@@ -65,7 +65,7 @@ try {
   assert.ok(!existsSync(join(packageRoot, "sdk-contract-check.js")));
   assert.ok(!existsSync(join(packageRoot, "sdk-pure-contract-check.js")));
   if (target === "node") {
-    const proof = `import assert from 'node:assert/strict';\nimport { TextCodec } from '${manifest.name}';\nconst codec = new TextCodec(); assert.equal(codec.decode(codec.encode('installed')), 'installed');\nconsole.log('Installed SDK ESM codec round trip passed');\n`;
+    const proof = `import assert from 'node:assert/strict';\nimport { TextCodec, sdkVersion } from '${manifest.name}';\nassert.equal(sdkVersion(), ${JSON.stringify(manifest.version)});\nconst codec = new TextCodec(); assert.equal(codec.decode(codec.encode('installed')), 'installed');\nconsole.log('Installed SDK ESM codec round trip passed');\n`;
     writeFileSync(join(consumer, "smoke.mjs"), proof);
     execFileSync(process.execPath, ["smoke.mjs"], {
       cwd: consumer,

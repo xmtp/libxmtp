@@ -20,6 +20,10 @@ describe("compute-version --source-ref / --timestamp", () => {
       path.join(tmpDir, "sdks/node/package.json"),
       `${JSON.stringify({ name: "@xmtp/node-sdk", version: "6.2.0" }, null, 2)}\n`,
     );
+    fs.writeFileSync(
+      path.join(tmpDir, "Cargo.toml"),
+      '[workspace.package]\nversion = "6.2.0"\n',
+    );
     execSync("git init", { cwd: tmpDir });
     execSync("git config user.email test@test.com", { cwd: tmpDir });
     execSync("git config user.name Test", { cwd: tmpDir });
@@ -80,36 +84,37 @@ describe("compute-version --source-ref / --timestamp", () => {
     { releaseType: "final" as const, expected: "8.0.0" },
     { releaseType: "rc" as const, expected: "8.0.0-rc2" },
     { releaseType: "dev" as const, expected: "dev" },
-  ])(
-    "selects the RN manifest for $releaseType",
-    ({ releaseType, expected }) => {
-      fs.mkdirSync(path.join(tmpDir, "sdks/react-native"), { recursive: true });
-      fs.writeFileSync(
-        path.join(tmpDir, "sdks/react-native/package.json"),
-        '{"name":"@xmtp/react-native-sdk","version":"8.0.0"}',
+  ])("reads Cargo for the RN $releaseType", ({ releaseType, expected }) => {
+    fs.writeFileSync(
+      path.join(tmpDir, "Cargo.toml"),
+      '[workspace.package]\nversion = "8.0.0"\n',
+    );
+    fs.mkdirSync(path.join(tmpDir, "sdks/react-native"), { recursive: true });
+    fs.writeFileSync(
+      path.join(tmpDir, "sdks/react-native/package.json"),
+      '{"name":"@xmtp/react-native-sdk","version":"7.0.0"}',
+    );
+    const spy = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      handler({
+        _: [],
+        $0: "test",
+        repoRoot: tmpDir,
+        sdk: "react-native-sdk",
+        releaseType,
+        rcNumber: 2,
+        sourceRef: "main",
+        timestamp: "20261016060000",
+      });
+      expect(spy).toHaveBeenLastCalledWith(
+        releaseType === "dev"
+          ? `8.0.0-pre.20261016060000.dev.${shortSha}`
+          : expected,
       );
-      const spy = vi.spyOn(console, "log").mockImplementation(() => {});
-      try {
-        handler({
-          _: [],
-          $0: "test",
-          repoRoot: tmpDir,
-          sdk: "react-native-sdk",
-          releaseType,
-          rcNumber: 2,
-          sourceRef: "main",
-          timestamp: "20261016060000",
-        });
-        expect(spy).toHaveBeenLastCalledWith(
-          releaseType === "dev"
-            ? `8.0.0-pre.20261016060000.dev.${shortSha}`
-            : expected,
-        );
-      } finally {
-        spy.mockRestore();
-      }
-    },
-  );
+    } finally {
+      spy.mockRestore();
+    }
+  });
 
   it("emits the ordered pre.* shape for a main-cut dev", () => {
     const version = run("refs/heads/main");

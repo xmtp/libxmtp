@@ -2,6 +2,9 @@
 
 pnpm package using the in-tree generated Node SDK. Recipes stage it first.
 
+The CLI shares the root Cargo target with the SDKs. Release through
+`release.yml` with `cli=true`, which also selects the matching Node SDK.
+
 ```sh
 dev/nix-shell 'just cli check'
 dev/nix-shell 'just cli lint'
