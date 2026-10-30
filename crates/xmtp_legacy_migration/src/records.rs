@@ -2,6 +2,7 @@
 use crate::{MigrationError, MigrationReport, RecordError};
 use diesel::{connection::DefaultLoadingMode, prelude::*, sql_types::*};
 use prost::Message;
+use std::collections::{BTreeMap, HashMap};
 use xmtp_proto::xmtp::{
     device_sync::{
         BackupMetadataSave,
@@ -100,6 +101,20 @@ struct Consent {
     entity: String,
     #[diesel(sql_type = BigInt)]
     consented_at_ns: i64,
+}
+
+#[derive(QueryableByName)]
+struct DmGroup {
+    #[diesel(sql_type = Binary)]
+    id: Vec<u8>,
+    #[diesel(sql_type = Text)]
+    dm_id: String,
+}
+
+#[derive(QueryableByName)]
+struct OwnInbox {
+    #[diesel(sql_type = Text)]
+    inbox_id: String,
 }
 
 #[derive(QueryableByName)]
@@ -268,6 +283,34 @@ pub(crate) fn export(
     if oversized.count != 0 {
         return Err(invalid("stored consent row exceeds the 64 MiB byte limit"));
     }
+    // implements: MIG-009
+    // A DM's consent names its peer. A database that never finished
+    // registration has no identity row, and then every row is written as stored.
+    let own = diesel::sql_query("SELECT inbox_id FROM identity LIMIT 1")
+        .get_result::<OwnInbox>(conn)
+        .optional()?;
+    let mut dm_peers = HashMap::new();
+    if let Some(own) = &own {
+        let oversized = diesel::sql_query(
+            "SELECT EXISTS(SELECT 1 FROM groups WHERE dm_id IS NOT NULL AND \
+             COALESCE(length(CAST(id AS BLOB)), 0) + length(CAST(dm_id AS BLOB)) > ?) AS count",
+        )
+        .bind::<BigInt, _>(MAX_ROW_BYTES)
+        .get_result::<Count>(conn)?;
+        if oversized.count != 0 {
+            return Err(invalid("stored DM id exceeds the 64 MiB byte limit"));
+        }
+        let groups = diesel::sql_query("SELECT id, dm_id FROM groups WHERE dm_id IS NOT NULL")
+            .load_iter::<DmGroup, DefaultLoadingMode>(conn)?;
+        for group in groups {
+            let group = group?;
+            if let Some(peer) = xmtp_archive::pre8::dm_peer(&group.dm_id, &own.inbox_id) {
+                dm_peers.insert(hex::encode(group.id), peer.to_ascii_lowercase());
+            }
+        }
+    }
+    // Conversation rows sort first, so a peer's DM rows are known before its inbox row.
+    let mut by_peer: BTreeMap<String, Vec<ConsentSave>> = BTreeMap::new();
     for consent in diesel::sql_query("SELECT entity_type, state, entity, consented_at_ns FROM consent_records ORDER BY entity_type, entity")
         .load_iter::<Consent, DefaultLoadingMode>(conn)?
     {
@@ -275,7 +318,8 @@ pub(crate) fn export(
         if !matches!(consent.entity_type, 1 | 2) || consent.entity.is_empty() {
             return Err(invalid("invalid required consent identity or enum"));
         }
-        emit(Element::Consent(ConsentSave {
+        let entity = consent.entity.to_ascii_lowercase();
+        let save = ConsentSave {
             entity_type: consent.entity_type,
             state: match consent.state {
                 0 => ConsentStateSave::Unknown,
@@ -285,8 +329,24 @@ pub(crate) fn export(
             } as i32,
             entity: consent.entity,
             consented_at_ns: consent.consented_at_ns,
-        }))?;
-        report.consent_count += 1;
+        };
+        let peer = match consent.entity_type {
+            1 => dm_peers.get(&entity).cloned(),
+            _ => by_peer.contains_key(&entity).then_some(entity),
+        };
+        match peer {
+            Some(peer) => by_peer.entry(peer).or_default().push(save),
+            None => {
+                emit(Element::Consent(save))?;
+                report.consent_count += 1;
+            }
+        }
+    }
+    for (peer, rows) in &by_peer {
+        if let Some(save) = xmtp_archive::pre8::pre8_peer_consent(peer, rows) {
+            emit(Element::Consent(save))?;
+            report.consent_count += 1;
+        }
     }
     Ok(report)
 }
