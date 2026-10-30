@@ -67,6 +67,20 @@ fn lists_and_overrides_that_disagree_are_refused() {
             ),
             "rate_limits.overrides[0].limits.upload[2].window_seconds",
         ),
+        // More than one unit per nanosecond.
+        (
+            "[rate_limits.categories.request]\n\
+             default = [{ count = 1000000001, window_seconds = 1 }]\n"
+                .to_string(),
+            "rate_limits.categories.request.default[0].count",
+        ),
+        (
+            "[[rate_limits.overrides]]\napi_key = 'bot'\n[rate_limits.overrides.limits]\n\
+             publish = [{ count = 10, window_seconds = 60 }, \
+             { count = 4294967295, window_seconds = 4 }]\n"
+                .to_string(),
+            "rate_limits.overrides[0].limits.publish[1].count",
+        ),
         // No caller, or more than one.
         (caller_override(""), "rate_limits.overrides[0]"),
         (
@@ -119,6 +133,12 @@ fn lists_and_overrides_that_disagree_are_refused() {
     ] {
         assert_invalid(load(&document), field);
     }
+    // One unit per nanosecond at most.
+    load(
+        "[rate_limits.categories.request]\n\
+         default = [{ count = 1000000000, window_seconds = 1 }, \
+         { count = 4294967295, window_seconds = 5 }]\n",
+    )?;
     // Different caller keys: other issuers, other /64s, other auth types.
     load(
         &[

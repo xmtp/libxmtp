@@ -21,6 +21,8 @@ const MAX_MEMORY_MIB: u32 = 65_536;
 const MAX_WINDOW_SECONDS: u32 = 2_592_000;
 /// A limiter slot records three limits for each category.
 const MAX_LIMITS_PER_LIST: usize = 3;
+/// A faster limit earns a unit back in under 1 ns, which RATE rounds to 0.
+const MAX_COUNT_PER_SECOND: u64 = 1_000_000_000;
 
 /// A kind of work with its own unit and limits (RATE section 2).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -536,6 +538,12 @@ fn validate_limits(path: &str, limits: &[LimitConfig]) -> Result<(), ConfigError
             return Err(invalid(
                 key_path(&entry, Step::Key("window_seconds")),
                 "must be between 1 and 2592000",
+            ));
+        }
+        if u64::from(limit.count) > MAX_COUNT_PER_SECOND * u64::from(limit.window_seconds) {
+            return Err(invalid(
+                key_path(&entry, Step::Key("count")),
+                "must be at most 1000000000 times window_seconds",
             ));
         }
     }
