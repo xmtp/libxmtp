@@ -123,12 +123,12 @@ async fn test_readd_installation_succeeds() {
     b_group.test_can_talk_with(&a_group).await?;
 }
 
-#[xmtp_common::test]
+#[xmtp_common::test(unwrap_try = true)]
 async fn test_readd_bookkeeping() {
-    tester!(alix, enable_fork_recovery_requests);
-    tester!(bo);
-    tester!(caro);
-    tester!(devon);
+    tester!(alix, disable_workers, enable_fork_recovery_requests);
+    tester!(bo, disable_workers);
+    tester!(caro, disable_workers);
+    tester!(devon, disable_workers);
     let group = alix
         .create_group_with_members(
             &[bo.inbox_id(), caro.inbox_id(), devon.inbox_id()],
@@ -219,7 +219,31 @@ async fn test_readd_bookkeeping() {
 
     caro.sync_all_welcomes_and_groups(None).await.unwrap();
     devon.sync_all_welcomes_and_groups(None).await.unwrap();
-    alix.sync_welcomes().await.unwrap();
+    // Apply the removal, but withhold the Welcome that completes our request.
+    group.sync_with_conn().await?;
+    assert!(!group.is_active()?);
+    assert_awaiting(&[
+        (&a_conn, &alix_installation[..], true),
+        (&b_conn, &alix_installation[..], false),
+        (&c_conn, &alix_installation[..], false),
+        (&d_conn, &alix_installation[..], false),
+    ]);
+    a_worker._tick().await?; // Drain the removal's log upload.
+    let published = alix.api_stats().publish.get_count();
+    for _ in 0..2 {
+        a_worker._tick().await?;
+        assert_eq!(
+            alix.api_stats().publish.get_count(),
+            published,
+            "pending recovery must not publish again"
+        );
+    }
+    alix.sync_welcomes().await?;
+    assert!(group.is_active()?);
+    assert_eq!(
+        group.epoch_authenticator().await?,
+        b_group.epoch_authenticator().await?
+    );
 
     // Everyone should see that Alix is no longer awaiting readd
     assert_awaiting(&[
@@ -228,6 +252,14 @@ async fn test_readd_bookkeeping() {
         (&c_conn, &alix_installation[..], false),
         (&d_conn, &alix_installation[..], false),
     ]);
+
+    a_conn.set_group_commit_log_forked_status(&group.group_id, Some(true))?;
+    a_worker._tick().await?;
+    assert!(
+        alix.api_stats().publish.get_count() > published,
+        "a later fork can request again"
+    );
+    assert!(a_conn.is_awaiting_readd(&group.group_id, &alix_installation)?);
 }
 
 #[xmtp_common::test]
@@ -1016,4 +1048,36 @@ async fn a_claim_at_the_processed_cursor_is_answered_once() {
         worker._tick().await?;
         assert_eq!(group.epoch().await?, epoch_before + 1);
     }
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_definitely_unsent_readd_is_cleaned_and_can_retry() {
+    use xmtp_db::{ConnectionExt, diesel::RunQueryDsl};
+    tester!(alix, disable_workers, enable_fork_recovery_requests);
+    tester!(bo, disable_workers);
+    let group = alix
+        .create_group_with_members(&[bo.inbox_id()], None, None)
+        .await?;
+    let mut worker = CommitLogWorker::new(alix.context.clone());
+    worker._tick().await?;
+    let db = alix.context.db();
+    db.set_group_commit_log_forked_status(&group.group_id, Some(true))?;
+    let before = crate::groups::oneshot::send_state(&alix.context);
+    db.raw_query(|conn| diesel::sql_query("CREATE TRIGGER fail_intent BEFORE INSERT ON group_intents BEGIN SELECT RAISE(ABORT, 'injected intent failure'); END").execute(conn))?;
+    assert!(
+        worker._tick().await.is_err(),
+        "the send error must be returned"
+    );
+    assert!(
+        !db.is_awaiting_readd(&group.group_id, alix.context.installation_id().as_slice())?,
+        "definite failure must not latch the requester"
+    );
+    assert_eq!(
+        crate::groups::oneshot::send_state(&alix.context),
+        before,
+        "failed sender state must be removed"
+    );
+    db.raw_query(|conn| diesel::sql_query("DROP TRIGGER fail_intent").execute(conn))?;
+    worker._tick().await?;
+    assert!(db.is_awaiting_readd(&group.group_id, alix.context.installation_id().as_slice())?);
 }

@@ -154,119 +154,216 @@ impl Oneshot {
 }
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
+#[allow(dead_code)]
+#[path = "mls_sync/publish/tests/faults.rs"]
+mod send_faults;
+#[cfg(all(test, not(target_arch = "wasm32")))]
+use xmtp_proto::backend_v1::client_envelope::Payload;
+
+#[cfg(test)]
+pub(crate) fn send_state(context: &impl XmtpSharedContext) -> Vec<(String, i64)> {
+    use xmtp_db::{
+        ConnectionExt,
+        diesel::{prelude::*, sql_types::BigInt},
+    };
+    #[derive(QueryableByName)]
+    struct Count {
+        #[diesel(sql_type = BigInt)]
+        n: i64,
+    }
+    context
+        .db()
+        .raw_query(|conn| {
+            [
+                "groups",
+                "group_intents",
+                "group_messages",
+                "local_commit_log",
+                "remote_commit_log",
+                "refresh_state",
+                "incoming_envelopes",
+                "openmls_key_value",
+            ]
+            .into_iter()
+            .map(|table| {
+                diesel::sql_query(format!("SELECT COUNT(*) AS n FROM {table}"))
+                    .get_result::<Count>(conn)
+                    .map(|count| (table.to_string(), count.n))
+            })
+            .collect()
+        })
+        .unwrap()
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use super::*;
     use crate::tester;
     use futures::stream::StreamExt;
     use xmtp_proto::xmtp::mls::message_contents::{ReaddRequest, oneshot_message::MessageType};
 
-    #[tokio::test]
+    #[rstest::rstest]
+    #[case::refused(false)]
+    #[case::published_but_unconfirmed(true)]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn oneshot_readd_send_outcomes(#[case] published: bool) {
+        use super::send_faults::{Fault, FaultyApi, faulty_group, group_message, welcome};
+        use crate::groups::commit_log::CommitLogWorker;
+        use xmtp_common::{
+            RetryableError,
+            time::{Duration, sleep},
+        };
+        use xmtp_db::prelude::{QueryGroup, QueryGroupIntent, QueryPreparedEnvelope};
+        tester!(alix, disable_workers, enable_fork_recovery_requests);
+        tester!(bo, disable_workers);
+        let group = alix
+            .create_group_with_members(&[bo.inbox_id()], None, None)
+            .await?;
+        CommitLogWorker::new(alix.context.clone())._tick().await?;
+        let before = send_state(&alix.context);
+        let delay = Duration::from_millis(10);
+        let api = FaultyApi::new(
+            &alix,
+            if published { welcome } else { group_message },
+            [Fault::RateLimit(delay); 18],
+        );
+        let faulty = faulty_group(&alix, &group.group_id, api.clone()).await;
+        let db = faulty.context.db();
+        db.set_group_commit_log_forked_status(&group.group_id, Some(true))?;
+        let mut worker = CommitLogWorker::new(faulty.context.clone());
+        let error = worker._tick().await.unwrap_err();
+        assert_eq!(error.rate_limit_delay(), Some(delay));
+        assert_eq!(
+            db.is_awaiting_readd(&group.group_id, alix.context.installation_id().as_slice())?,
+            published,
+            "only an unknown outcome keeps the latch"
+        );
+        if !published {
+            assert_eq!(
+                send_state(&alix.context),
+                before,
+                "a refused send leaves no temporary state"
+            );
+            let sent = api.requests.lock().len();
+            sleep(delay).await;
+            worker._tick().await?;
+            assert!(
+                api.requests.lock().len() > sent,
+                "a refused request must retry after its delay"
+            );
+        } else {
+            use xmtp_db::{ConnectionExt, diesel::prelude::*, schema::groups};
+            let id = db.raw_query(|conn| {
+                groups::table
+                    .filter(groups::conversation_type.eq(ConversationType::Oneshot))
+                    .select(groups::id)
+                    .first::<GroupId>(conn)
+            })?;
+            let intent = db.find_group_intents(id, None, None)?.pop().unwrap();
+            let bytes = db.prepared_envelopes(intent.id)?.unwrap();
+            let sent = api.requests.lock().len();
+            worker._tick().await?;
+            assert_eq!(
+                api.requests.lock().len(),
+                sent,
+                "an unknown outcome must not send another request"
+            );
+            assert_eq!(
+                db.prepared_envelopes(intent.id)?.unwrap(),
+                bytes,
+                "unknown-outcome bytes must survive"
+            );
+        }
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
     async fn test_receive_oneshot_message_via_syncing() {
-        use xmtp_db::prelude::QueryReaddStatus;
-
-        tester!(alix);
-        tester!(bo);
-        tester!(caro);
-
+        tester!(alix, disable_workers);
+        tester!(bo, disable_workers);
+        tester!(caro, disable_workers);
         let a_group = alix
             .create_group_with_members(&[bo.inbox_id(), caro.inbox_id()], None, None)
-            .await
-            .unwrap();
+            .await?;
         let group_id = a_group.group_id;
-        let group_id_typed: GroupId = group_id;
-        bo.sync_all_welcomes_and_groups(None).await.unwrap();
-        caro.sync_all_welcomes_and_groups(None).await.unwrap();
-        let b_group = bo.group(&group_id).unwrap();
-        b_group.update_consent_state(ConsentState::Allowed).unwrap();
-        let c_group = caro.group(&group_id).unwrap();
-        c_group.update_consent_state(ConsentState::Allowed).unwrap();
-        let latest_commit_sequence_id = 42;
-
-        // Verify that Bo and Caro have no readd status for Alix initially
-        let bo_initial_status = bo
-            .context
-            .db()
-            .get_readd_status(&group_id_typed, alix.context.installation_id().as_slice())
-            .expect("Failed to query readd status");
-        assert!(
-            bo_initial_status.is_none(),
-            "Bo should not have readd status for Alix initially"
-        );
-
-        let caro_initial_status = caro
-            .context
-            .db()
-            .get_readd_status(&group_id_typed, alix.context.installation_id().as_slice())
-            .expect("Failed to query readd status");
-        assert!(
-            caro_initial_status.is_none(),
-            "Caro should not have readd status for Alix initially"
-        );
-
-        // Create a test oneshot message (using ReaddRequest as example)
-        let readd_request = ReaddRequest {
-            group_id: group_id.to_vec(),
-            latest_commit_sequence_id,
-        };
-        let oneshot_message = OneshotMessage {
-            message_type: Some(MessageType::ReaddRequest(readd_request.clone())),
-        };
-
-        // Send the oneshot message
+        for recipient in [&bo, &caro] {
+            recipient.sync_all_welcomes_and_groups(None).await?;
+            recipient
+                .group(&group_id)?
+                .update_consent_state(ConsentState::Allowed)?;
+            assert!(
+                recipient
+                    .context
+                    .db()
+                    .get_readd_status(&group_id, alix.context.installation_id().as_slice())?
+                    .is_none()
+            );
+        }
+        let before = send_state(&alix.context);
         Oneshot::send_message(
             alix.context.clone(),
-            vec![bo.inbox_id(), caro.inbox_id()],
-            oneshot_message.clone(),
+            [bo.inbox_id(), caro.inbox_id()],
+            OneshotMessage {
+                message_type: Some(MessageType::ReaddRequest(ReaddRequest {
+                    group_id: group_id.to_vec(),
+                    latest_commit_sequence_id: 42,
+                })),
+            },
         )
-        .await
-        .expect("Failed to send oneshot message");
-
-        // Bo syncs welcomes
-        bo.sync_welcomes().await.expect("Failed to sync welcomes");
-
-        // Verify that Bo now has readd status for Alix with the correct sequence ID
-        let bo_status = bo
-            .context
-            .db()
-            .get_readd_status(&group_id_typed, alix.context.installation_id().as_slice())
-            .expect("Failed to query readd status")
-            .expect("Bo should have readd status for Alix after syncing");
-
+        .await?;
         assert_eq!(
-            bo_status.requested_at_sequence_id,
-            Some(latest_commit_sequence_id as i64),
-            "Bo should have requested_at_sequence_id set to {}",
-            latest_commit_sequence_id
+            send_state(&alix.context),
+            before,
+            "temporary sender state must be removed"
         );
+        for recipient in [&bo, &caro] {
+            recipient.sync_welcomes().await?;
+            let status = recipient
+                .context
+                .db()
+                .get_readd_status(&group_id, alix.context.installation_id().as_slice())?
+                .unwrap();
+            assert_eq!(status.requested_at_sequence_id, Some(42));
+            assert_eq!(status.responded_at_sequence_id, None);
+        }
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn oneshot_without_explicit_recipients_cleans_up() {
+        tester!(alix, disable_workers);
+        tester!(phone, from: alix, disable_workers);
+        let group = alix.create_group(None, None)?;
+        group.add_missing_installations().await?;
+        phone.sync_all_welcomes_and_groups(None).await?;
+        let before = send_state(&alix.context);
+        Oneshot::send_message(
+            alix.context.clone(),
+            Vec::<String>::new(),
+            OneshotMessage {
+                message_type: Some(MessageType::ReaddRequest(ReaddRequest {
+                    group_id: group.group_id.to_vec(),
+                    latest_commit_sequence_id: 42,
+                })),
+            },
+        )
+        .await?;
         assert_eq!(
-            bo_status.responded_at_sequence_id, None,
-            "Bo should not have responded_at_sequence_id set"
+            send_state(&alix.context),
+            before,
+            "empty-recipient sender state must be removed"
         );
-
-        // Caro syncs welcomes
-        caro.sync_welcomes().await.expect("Failed to sync welcomes");
-
-        // Verify that Caro now has readd status for Alix with the correct sequence ID
-        let caro_status = caro
-            .context
-            .db()
-            .get_readd_status(&group_id_typed, alix.context.installation_id().as_slice())
-            .expect("Failed to query readd status")
-            .expect("Caro should have readd status for Alix after syncing");
-
+        phone.sync_welcomes().await?;
         assert_eq!(
-            caro_status.requested_at_sequence_id,
-            Some(latest_commit_sequence_id as i64),
-            "Caro should have requested_at_sequence_id set to {}",
-            latest_commit_sequence_id
-        );
-        assert_eq!(
-            caro_status.responded_at_sequence_id, None,
-            "Caro should not have responded_at_sequence_id set"
+            phone
+                .context
+                .db()
+                .get_readd_status(&group.group_id, alix.context.installation_id().as_slice())?
+                .unwrap()
+                .requested_at_sequence_id,
+            Some(42)
         );
     }
 
-    #[tokio::test]
+    #[xmtp_common::test(unwrap_try = true)]
     async fn test_oneshot_groups_not_in_find_groups() {
         tester!(alix);
         tester!(bo);
@@ -288,12 +385,22 @@ mod tests {
         // Bo syncs welcomes to receive any oneshot groups
         bo.sync_welcomes().await.expect("Failed to sync welcomes");
 
+        // Keep a stored one-shot: sender cleanup must not bypass the listing filter.
+        MlsGroup::create_and_insert(
+            alix.context.clone(),
+            ConversationType::Oneshot,
+            PreconfiguredPolicies::default().to_policy_set(),
+            GroupMetadataOptions::default(),
+            None,
+        )?;
+        let normal = alix.create_group(None, None)?;
         // Check that neither Alix nor Bo has any oneshot groups in find_groups
         let alix_groups = alix.find_groups(Default::default()).unwrap();
         let bo_groups = bo.find_groups(Default::default()).unwrap();
 
         // Oneshot groups should not appear in the regular groups list
-        assert_eq!(alix_groups.len(), 0, "Alix should have no groups");
+        assert_eq!(alix_groups.len(), 1);
+        assert_eq!(alix_groups[0].group_id, normal.group_id);
         assert_eq!(bo_groups.len(), 0, "Bo should have no groups");
     }
 
