@@ -9,6 +9,7 @@ Rust MLS workspace; platform SDKs live in `sdks/`.
   docs. Update instructions when commands change. `CLAUDE.md` is only `@AGENTS.md`.
 - Use `.agents/skills/writing-typescript` for TypeScript and JavaScript work.
 - For agent instruction changes, use the [writing-agent-docs](.agents/skills/writing-agent-docs/SKILL.md) skill.
+- For requested full-repo security audits, use the [security-hardening](.agents/skills/security-hardening/SKILL.md) skill.
 - Branch from `origin/main`; target `main`.
 - Spec requirement changes need an approved Ref plan before implementation;
   routine docs, CI, and tooling changes do not. Required plans describe public

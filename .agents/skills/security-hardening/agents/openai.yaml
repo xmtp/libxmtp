@@ -1,0 +1,6 @@
+interface:
+  display_name: "Security Hardening"
+  short_description: "Run a sandboxed multi-model security audit"
+
+policy:
+  allow_implicit_invocation: false
