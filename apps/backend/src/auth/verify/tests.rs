@@ -673,18 +673,19 @@ xmtp_cryptography::install_heap_canary!();
 
 #[cfg(unix)]
 #[xmtp_common::test(unwrap_try = true)]
-fn verifier_discards_plaintext_api_keys_after_digesting() {
+fn verifier_wipes_runtime_keys() {
+    use crate::test_support::metrics::isolated;
     use xmtp_cryptography::secret::heap_canary::{Canary, scan};
+    if isolated("auth::verify::tests::verifier_wipes_runtime_keys").is_none() {
+        return;
+    }
     const KEY: &str = "verifier-key-unique-sentinel-123456789";
     let (verifier, hits) = scan(&[Canary::new(KEY.as_bytes())], || {
         let mut config = AuthConfig::default();
         config.api_keys.insert("operator".into(), KEY.into());
         verifier(config)
     });
-    assert!(
-        verifier.config.api_keys.is_empty(),
-        "Verifier retained plaintext API keys"
-    );
+    assert!(verifier.config.api_keys.is_empty());
     assert_eq!(hits, [0], "Verifier freed an unwiped API key");
     assert_eq!(
         verifier.verify(&headers(KEY))?,

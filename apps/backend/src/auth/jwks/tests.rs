@@ -381,8 +381,12 @@ async fn a_successful_refresh_moves_the_stale_deadline() {
 
 #[cfg(unix)]
 #[xmtp_common::test(unwrap_try = true)]
-fn jwks_source_discards_api_keys_on_construction_and_error() {
+fn jwks_wipes_runtime_keys() {
+    use crate::test_support::metrics::isolated;
     use xmtp_cryptography::secret::heap_canary::{Canary, scan};
+    if isolated("auth::jwks::tests::jwks_wipes_runtime_keys").is_none() {
+        return;
+    }
     const KEY: &str = "jwks-key-unique-sentinel-123456789";
     let (source, hits) = scan(&[Canary::new(KEY.as_bytes())], || {
         let mut config = AuthConfig::default();
@@ -390,10 +394,7 @@ fn jwks_source_discards_api_keys_on_construction_and_error() {
         assert!(JwksSource::new("not a URL", config.clone()).is_err());
         JwksSource::new("https://issuer.example/keys", config).unwrap()
     });
-    assert!(
-        source.config.api_keys.is_empty(),
-        "JwksSource retained plaintext API keys"
-    );
+    assert!(source.config.api_keys.is_empty());
     assert_eq!(hits, [0], "JwksSource freed an unwiped API key");
     assert!(source.clone().config.api_keys.is_empty());
 }
