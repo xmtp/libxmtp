@@ -1,5 +1,6 @@
 use crate::builder::ForkRecoveryPolicy;
 use crate::groups::MlsGroup;
+use crate::groups::mls_sync::retry_due;
 use crate::groups::oneshot::Oneshot;
 use crate::groups::summary::SyncSummary;
 use crate::subscriptions::internal::dm_event_context;
@@ -11,6 +12,7 @@ use xmtp_api::ApiError;
 use xmtp_common::RetryableError;
 use xmtp_common::hex::NormalizeHex;
 use xmtp_common::snippet::Snippet;
+use xmtp_common::time::now_ns;
 use xmtp_db::TransactionOutcome::Continue;
 use xmtp_db::consent_record::ConsentState;
 use xmtp_db::group::StoredGroupForRespondingReadds;
@@ -1106,12 +1108,14 @@ where
                 &[xmtp_db::refresh_state::EntityKind::ApplicationMessage],
             )?
             .0;
+        let now = now_ns();
         // Unsigned wire claims above i64::MAX are stored as negative values.
         // Keep them pending instead of treating them as an earlier position.
         Ok(readd_statuses
             .into_iter()
             .filter(|status| {
                 verified.contains(&status.installation_id)
+                    && retry_due(&status.installation_id, now)
                     && status.requested_at_sequence_id.is_some_and(|requested| {
                         u64::try_from(requested).is_ok_and(|requested| requested <= processed)
                     })

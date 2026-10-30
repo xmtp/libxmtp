@@ -326,24 +326,24 @@ async fn test_request_readd_with_allowlisted_groups() {
 async fn a_readd_without_a_usable_key_package_waits(
     #[case] prior_failure: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    use crate::groups::{GroupError, intents::QueueIntent};
-    use crate::utils::test_mocks_helpers::set_test_mode_upload_malformed_keypackage;
+    use crate::groups::{
+        GroupError,
+        intents::{QueueIntent, ReaddInstallationsIntentData},
+        mls_sync::{note_retries, retry_due},
+    };
+    use crate::utils::test_mocks_helpers::{
+        RestoreKeyPackages, set_test_mode_upload_malformed_keypackage,
+    };
     use openmls::prelude::{AppDataUpdateOperation, Proposal};
     use tls_codec::Serialize;
     use xmtp_db::{
         TransactionOutcome::Continue, XmtpOpenMlsProviderRef, prelude::QueryRefreshState,
         refresh_state::EntityKind,
     };
+    use xmtp_db::{group_intent::IntentKind, prelude::QueryGroupIntent};
     use xmtp_mls_common::app_data::component_id::ComponentId;
     use xmtp_mls_validation::commit::extract_group_membership;
     use xmtp_proto::types::Topic;
-
-    struct RestoreKeyPackages;
-    impl Drop for RestoreKeyPackages {
-        fn drop(&mut self) {
-            set_test_mode_upload_malformed_keypackage(false, None);
-        }
-    }
 
     tester!(alix, disable_workers);
     tester!(bo, disable_workers);
@@ -479,6 +479,7 @@ async fn a_readd_without_a_usable_key_package_waits(
     })?;
     set_test_mode_upload_malformed_keypackage(true, Some(vec![installation.to_vec()]));
     let restore = RestoreKeyPackages;
+    let failed_at = xmtp_common::time::now_ns();
     worker._tick().await?;
     assert_eq!(
         group.epoch().await?,
@@ -511,6 +512,10 @@ async fn a_readd_without_a_usable_key_package_waits(
         None
     );
     assert!(!db.is_awaiting_readd(&group.group_id, caro.context.installation_id().as_slice())?);
+    assert!(
+        !retry_due(installation.as_slice(), failed_at),
+        "the failed fetch is recorded"
+    );
     caro_group.sync_with_conn().await?;
     caro.sync_welcomes().await?;
     assert_eq!(
@@ -520,14 +525,41 @@ async fn a_readd_without_a_usable_key_package_waits(
     bo_group.sync().await?;
     assert!(bo_group.is_active()?);
 
-    // With only the unusable requester left, publish nothing and keep waiting.
+    // A backed-off requester waits; another requester is still answered.
+    let bo_key = [installation.to_vec()];
+    note_retries(&bo_key.clone().into(), &bo_key, i64::MAX);
+    let cursor = db
+        .latest_cursor_for_id(group.group_id, &[EntityKind::ApplicationMessage])?
+        .0;
+    Oneshot::send_message(
+        caro.context.clone(),
+        vec![alix.inbox_id()],
+        OneshotMessage {
+            message_type: Some(MessageType::ReaddRequest(ReaddRequest {
+                group_id: group.group_id.to_vec(),
+                latest_commit_sequence_id: cursor,
+            })),
+        },
+    )
+    .await?;
+    alix.sync_welcomes().await?;
+    // Each readd commit takes one tick to reach the remote commit log.
     worker._tick().await?;
     assert_eq!(group.epoch().await?, before_epoch + 1);
+    worker._tick().await?;
+    assert_eq!(group.epoch().await?, before_epoch + 2);
+    let kinds = Some(vec![IntentKind::ReaddInstallations]);
+    let intents = db.find_group_intents(group.group_id, None, kinds)?;
+    let intent = ReaddInstallationsIntentData::try_from(intents.last().unwrap().data.as_slice())?;
+    let caro_key = caro.context.installation_id().to_vec();
+    assert_eq!(intent.readded_installations, vec![caro_key]);
     assert!(db.is_awaiting_readd(&group.group_id, installation.as_slice())?);
+    note_retries(&bo_key.into(), &[], 0);
     drop(restore);
     bo.rotate_and_upload_key_package().await?;
     worker._tick().await?;
-    assert_eq!(group.epoch().await?, before_epoch + 2);
+    worker._tick().await?;
+    assert_eq!(group.epoch().await?, before_epoch + 3);
     assert!(!db.is_awaiting_readd(&group.group_id, installation.as_slice())?);
     bo_group.sync_with_conn().await?;
     bo.sync_welcomes().await?;
@@ -536,7 +568,7 @@ async fn a_readd_without_a_usable_key_package_waits(
         group.epoch_authenticator().await?
     );
     worker._tick().await?;
-    assert_eq!(group.epoch().await?, before_epoch + 2);
+    assert_eq!(group.epoch().await?, before_epoch + 3);
     Ok(())
 }
 

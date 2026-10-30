@@ -59,6 +59,14 @@ pub fn set_test_mode_upload_malformed_keypackage(
     *MALFORMED_INSTALLATIONS.lock() = enable.then(|| installations.unwrap_or_default());
 }
 
+/// Resets the malformed-package list when dropped, even on panic.
+pub struct RestoreKeyPackages;
+impl Drop for RestoreKeyPackages {
+    fn drop(&mut self) {
+        set_test_mode_upload_malformed_keypackage(false, None);
+    }
+}
+
 #[inline]
 pub fn is_test_mode_upload_malformed_keypackage() -> bool {
     MALFORMED_INSTALLATIONS.lock().is_some()

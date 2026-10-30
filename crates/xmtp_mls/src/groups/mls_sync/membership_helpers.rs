@@ -7,19 +7,19 @@ use xmtp_configuration::INSTALLATION_RETRY_MIN_PROTOCOL_VERSION;
 use xmtp_cryptography::configuration::CIPHERSUITE;
 use xmtp_mls_common::app_data::protocol_floor::committed_floor_at_least;
 
-/// When each own-inbox key's last retry fetch failed. A restart forgets it.
+/// When each key's last retry or readd fetch failed. A restart forgets it.
 static FAILED_RETRIES: LazyLock<Mutex<HashMap<Vec<u8>, i64>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// Whether `key` may be fetched again for a retry at `now_ns`.
-fn retry_due(key: &[u8], now_ns: i64) -> bool {
+pub(in crate::groups) fn retry_due(key: &[u8], now_ns: i64) -> bool {
     FAILED_RETRIES.lock().get(key).is_none_or(|failed_at| {
         now_ns.saturating_sub(*failed_at) >= SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS
     })
 }
 
 /// Record which retried keys failed at `now_ns`; a fetched key is cleared.
-fn note_retries(retried: &HashSet<Vec<u8>>, failed: &[Vec<u8>], now_ns: i64) {
+pub(in crate::groups) fn note_retries(retried: &HashSet<Vec<u8>>, failed: &[Vec<u8>], now_ns: i64) {
     let mut failed_retries = FAILED_RETRIES.lock();
     for key in retried {
         if failed.contains(key) {
