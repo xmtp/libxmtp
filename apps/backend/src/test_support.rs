@@ -111,15 +111,21 @@ pub use xmtp_rate_limit::ManualClock;
 /// One spend a running server's rate limiter decided.
 #[derive(Clone, Debug)]
 pub struct SpendRecord {
+    /// The caller it was charged to.
+    pub caller: crate::config::CallerKey,
     pub category: crate::config::Category,
     pub cost: u32,
-    /// The retry delay of a denied spend; `None` for an admitted one.
+    /// The retry delay a denial reported; `None` for an admitted spend. A
+    /// stream step's denial reports the delay of the larger spend a
+    /// replacement stream makes.
     pub retry_after: Option<std::time::Duration>,
     /// When the limiter decided it.
     pub at: std::time::Instant,
     /// A SHA-256 digest of the encoded request message the spend was for,
-    /// for a handler's spends; `None` for the rate-limit layer's `request`
-    /// unit, which precedes decoding.
+    /// for a handler's spends and a `SubscribeStatic` stream's. `None` for
+    /// the rate-limit layer's `request` unit, which precedes decoding, and
+    /// for every spend of a `Subscribe` stream, whose messages arrive after
+    /// its call.
     pub request: Option<[u8; 32]>,
 }
 

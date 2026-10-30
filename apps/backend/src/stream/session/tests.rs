@@ -1,5 +1,8 @@
 use super::*;
-use crate::stream::{OUTBOUND_QUEUE_BYTES, Registry, StreamEnd};
+use crate::{
+    stream::{OUTBOUND_QUEUE_BYTES, Registry, StreamEnd},
+    test_support::TestResult,
+};
 use futures::stream;
 
 const CONFIG: &str =
@@ -60,6 +63,9 @@ fn idle_session(
         challenge: None,
         nonce: 0,
         outbound_wait: None,
+        charger: Charger::unlimited(),
+        rent: None,
+        reads_resume_at: None,
     };
     (session, registry, mailbox, receiver, id, topic)
 }
@@ -261,8 +267,8 @@ async fn buffered_input_rejects_malformed_frames_before_half_close() {
                     topics: vec![],
                     heads: pending().boxed(),
                 });
-                session.input(first)?;
-                session.input(invalid.clone())
+                session.input(first).await?;
+                session.input(invalid.clone()).await
             } else {
                 let (_sent, handed) = tokio::sync::oneshot::channel();
                 session.challenge = Some(Challenge {
@@ -350,11 +356,13 @@ async fn queued_ping_ends_the_stream_when_the_transport_never_takes_it() {
         );
         assert!(session.challenge.as_ref().unwrap().stall >= before + Duration::from_millis(200));
         // The nonce is a counter: a Pong before handoff must not answer the Ping.
-        session.input(api::SubscribeRequest {
-            request: Some(api::subscribe_request::Request::Pong(api::Pong {
-                nonce: session.nonce,
-            })),
-        })?;
+        session
+            .input(api::SubscribeRequest {
+                request: Some(api::subscribe_request::Request::Pong(api::Pong {
+                    nonce: session.nonce,
+                })),
+            })
+            .await?;
         assert!(session.challenge.is_some());
         let task = tokio::spawn(pending());
         let mut output = SessionOutput::new(receiver, mailbox.terminal.clone(), task);
@@ -399,4 +407,140 @@ async fn failed_session_frees_queued_output_without_a_transport_poll() {
         let delivered = std::iter::from_fn(|| receiver.lock().try_recv().ok()).count();
         assert_eq!(delivered, if failed { 0 } else { 3 });
     }
+}
+
+/// A native session on an empty registry, charging through `charger`, with
+/// its registry and output queue.
+fn session_with(
+    config: Arc<ValidatedConfig>,
+    charger: Charger,
+) -> TestResult<(Session, Arc<Registry>, Queue)> {
+    let registry = Arc::new(Registry::default());
+    registry.ready();
+    let mailbox = Arc::new(Mailbox::default());
+    let id = registry.connect(mailbox.clone(), StreamKind::Bidi)?;
+    let hub = Arc::new(StreamHub {
+        registry: registry.clone(),
+        read: sqlx::postgres::PgPoolOptions::new().connect_lazy("postgres://localhost/test")?,
+        fetches: Arc::new(tokio::sync::Semaphore::new(super::super::FETCH_WORKERS)),
+        maintenance: Arc::new(tokio::sync::Notify::new()),
+        worker: tokio::spawn(pending()),
+    });
+    let (output, receiver) = mpsc::channel(OUTBOUND_FRAMES);
+    let receiver = Arc::new(Mutex::new(receiver));
+    let session = Session {
+        static_subscription: false,
+        hub,
+        id,
+        request_id: uuid::Uuid::new_v4(),
+        config: config.clone(),
+        mailbox,
+        output,
+        queue: receiver.clone(),
+        topics: HashMap::new(),
+        ready: VecDeque::new(),
+        fetching: None,
+        update_id: 0,
+        pending_update: None,
+        deferred_updates: VecDeque::new(),
+        deferred_bytes: 0,
+        updates: Bucket::new(
+            config.limits.max_update_frames_per_second,
+            config.limits.max_update_burst,
+        ),
+        pings: Bucket::new(
+            config.limits.max_ping_frames_per_second,
+            config.limits.max_ping_burst,
+        ),
+        send_idle: Instant::now(),
+        challenge: None,
+        nonce: 0,
+        outbound_wait: None,
+        charger,
+        rent: None,
+        reads_resume_at: None,
+    };
+    Ok((session, registry, receiver))
+}
+
+/// A native session whose spends go to a fresh limiter with `limits` under
+/// `[rate_limits]`, and its charger, to spend for the same caller.
+fn limited_session(limits: &str) -> TestResult<(Session, Arc<Registry>, Queue, Charger)> {
+    let config = Arc::new(ValidatedConfig::load_str(&format!(
+        "[database]\nurl = 'postgres://localhost/test'\n[server]\nidentifier = 'org.xmtp.test'\n\
+         [rate_limits]\nmax_memory_mib = 1\n{limits}"
+    ))?);
+    let limiter = crate::server::rate_limit::limiter_on(
+        config.rate_limits(),
+        crate::server::rate_limit::LimiterClock::Manual(xmtp_rate_limit::ManualClock::new()),
+    )
+    .ok_or("rate limits are on")?;
+    let charger = Charger::for_test(&limiter, crate::config::CallerKey::Ipv4([127, 0, 0, 1]));
+    let (session, registry, output) = session_with(config, charger.clone())?;
+    Ok((session, registry, output, charger))
+}
+
+/// An update adding `count` new welcome topics.
+fn adding(count: u64) -> api::subscribe_request::Update {
+    let adds = (0..count)
+        .map(|index| {
+            let mut identifier = [0; 32];
+            identifier[..8].copy_from_slice(&index.to_be_bytes());
+            api::TopicQuery {
+                topic: Some(api::Topic {
+                    topic: xmtp_proto::types::TopicKind::WelcomeMessagesV1
+                        .create(identifier)
+                        .to_vec(),
+                }),
+                cursor: None,
+            }
+        })
+        .collect();
+    api::subscribe_request::Update {
+        id: 1,
+        adds,
+        removes: vec![],
+    }
+}
+
+/// A refused update registers nothing and leaves no update pending, so no
+/// `Applied` follows it.
+fn assert_nothing_registered(session: &Session, registry: &Registry) {
+    assert_eq!(session.mailbox.terminal.reason(), StreamEnd::RateLimited);
+    assert!(session.topics.is_empty());
+    assert_eq!(registry.registered(session.id), 0);
+    assert!(session.pending_update.is_none());
+}
+
+// verifies: RATE-031, RATE-032
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_denied_top_up_registers_no_topic_and_leaves_no_applied_pending() {
+    let (mut session, registry, _output, _) = limited_session(
+        "[rate_limits.categories.stream_rent]\ndefault = [{ count = 2, window_seconds = 60 }]",
+    )?;
+    session.open(None).await?;
+    // 1001 topics need 3 units, and the open left 1 in the minute.
+    let denied = session.update(adding(1001)).await;
+    // The whole rent of 3 is more than the count of 2, so the delay runs to
+    // full allowance, when one spend of 3 is admitted. A replacement that
+    // opens for 1 unit and then tops up can never pay it.
+    assert_eq!(
+        crate::test_support::rate_limit_delay(&denied, Category::StreamRent),
+        Some(Duration::from_secs(30))
+    );
+    assert_nothing_registered(&session, &registry);
+}
+
+// verifies: RATE-034
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_denied_catch_up_target_registers_no_topic_and_leaves_no_applied_pending() {
+    let (mut session, registry, _output, charger) = limited_session(
+        "[rate_limits.categories.request]\ndefault = [{ count = 1, window_seconds = 60 }]",
+    )?;
+    session.open(None).await?;
+    // The `Subscribe` spent the caller's one unit.
+    charger.charge(Category::Request, 1).await?;
+    let denied = session.update(adding(1)).await;
+    assert!(crate::test_support::rate_limit_delay(&denied, Category::Request).is_some());
+    assert_nothing_registered(&session, &registry);
 }

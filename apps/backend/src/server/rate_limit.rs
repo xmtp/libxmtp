@@ -105,16 +105,19 @@ impl Charger {
         )
     }
 
+    /// A charger that admits every spend, as one is while rate limits are
+    /// off, for tests that run a stream session without the layer.
+    #[cfg(test)]
+    pub(crate) fn unlimited() -> Self {
+        Self::off()
+    }
+
     /// The charger the layer gave `request`. A request without one was not
     /// charged by the layer, because rate limits are off, so it admits every
     /// spend.
     pub(crate) fn of<T: prost::Message>(request: &tonic::Request<T>) -> Self {
         #[allow(unused_mut)]
-        let mut charger = request
-            .extensions()
-            .get::<Self>()
-            .cloned()
-            .unwrap_or_else(Self::off);
+        let mut charger = Self::of_stream(request);
         #[cfg(any(test, feature = "test-utils"))]
         if charger
             .caller
@@ -128,12 +131,53 @@ impl Charger {
         charger
     }
 
+    /// [`of`](Self::of) for a streaming request, whose messages arrive after
+    /// it: its spends record no request digest.
+    pub(crate) fn of_stream<T>(request: &tonic::Request<T>) -> Self {
+        request
+            .extensions()
+            .get::<Self>()
+            .cloned()
+            .unwrap_or_else(Self::off)
+    }
+
+    /// The time on the limiter's clock, which retry delays count on, or
+    /// `None` while rate limits are off. A stream times its rent periods and
+    /// paused reads on it.
+    pub(crate) fn now(&self) -> Option<Duration> {
+        self.caller.as_ref().map(|caller| caller.limiter.now())
+    }
+
     /// Spend `cost` units of `category` for the request's caller. A cost of 0
     /// is admitted without a spend. A denial charges nothing, counts once in
     /// `xmtp_rate_limit_rejections_total`, logs one `debug` event that names
     /// no caller, and returns the rejection to send.
-    // implements: RATE-010
     pub(crate) async fn charge(&self, category: Category, cost: usize) -> Result<(), Status> {
+        self.charge_covering(category, cost, cost)
+            .await
+            .map_err(|denied| denied.status)
+    }
+
+    /// [`charge`](Self::charge) `cost` units of `category` for a step whose
+    /// retry spends `covered` units, at least `cost`: a stream that ends on
+    /// the denial makes its replacement pay its open again (RATE-032,
+    /// RATE-034). A denial reports the delay after which one spend of
+    /// `covered` units is admitted. It reads that delay from a second spend
+    /// of `covered` units, which every limit that denied `cost` also denies,
+    /// and a denied spend charges nothing (RATE-022). The second spend is
+    /// admitted only when the caller's state changed in between, as when
+    /// the clock passed the first denial's delay; the step then goes ahead,
+    /// having paid `covered` units. When `covered` is more than a limit's
+    /// count, the delay runs to full allowance, when one spend of `covered`
+    /// is admitted (RATE-020), which a replacement stream that opens before
+    /// it tops up never makes.
+    // implements: RATE-010
+    pub(crate) async fn charge_covering(
+        &self,
+        category: Category,
+        cost: usize,
+        covered: usize,
+    ) -> Result<(), Denied> {
         let Some(caller) = &self.caller else {
             return Ok(());
         };
@@ -145,15 +189,16 @@ impl Charger {
             "the charge table does not give this path {}",
             category.as_str()
         );
-        let cost = u32::try_from(cost).unwrap_or(u32::MAX);
-        let decision = caller
-            .limiter
-            .spend(&caller.key, &caller.bytes, category, cost)
-            .await;
+        debug_assert!(covered >= cost, "a retry covers the denied spend");
+        let mut decision = caller.spend(category, cost).await;
+        if matches!(decision, Decision::Denied { .. }) && covered > cost {
+            decision = caller.spend(category, covered).await;
+        }
         #[cfg(any(test, feature = "test-utils"))]
         caller.limiter.record(crate::test_support::SpendRecord {
+            caller: caller.key.clone(),
             category,
-            cost,
+            cost: u32::try_from(cost).unwrap_or(u32::MAX),
             retry_after: match decision {
                 Decision::Allowed => None,
                 Decision::Denied { retry_after } => Some(retry_after),
@@ -173,10 +218,28 @@ impl Charger {
                     auth_type = auth_type.as_str(),
                     "rate limit exceeded"
                 );
-                Err(rejection(category, retry_after))
+                Err(Denied {
+                    status: rejection(category, retry_after),
+                    retry_after,
+                })
             }
         }
     }
+}
+
+impl Caller {
+    async fn spend(&self, category: Category, cost: usize) -> Decision {
+        let cost = u32::try_from(cost).unwrap_or(u32::MAX);
+        self.limiter
+            .spend(&self.key, &self.bytes, category, cost)
+            .await
+    }
+}
+
+/// A denied spend: the rejection to send and the retry delay it carries.
+pub(crate) struct Denied {
+    pub status: Status,
+    pub retry_after: Duration,
 }
 
 /// The rejection of a denied spend: the category and the retry delay, in the

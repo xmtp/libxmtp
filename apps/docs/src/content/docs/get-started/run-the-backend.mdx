@@ -512,7 +512,8 @@ calls keep working and only subscriptions break.
 
 Optional API key and JWT authentication is available. Configure [`[auth]`](#auth)
 to require valid bearer credentials. [Rate limits](#rate_limits) bound the
-requests each caller can make. A valid token does not prove group membership.
+work each caller can make an instance do. A valid token does not prove group
+membership.
 
 Without `[auth]`, the service is unauthenticated. Do not expose an unauthenticated
 service to untrusted traffic. Put it on a private network, or behind a trusted

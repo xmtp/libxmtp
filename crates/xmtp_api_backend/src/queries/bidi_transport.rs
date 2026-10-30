@@ -135,9 +135,12 @@ pub fn chunk_mutate_adds<C>(adds: Vec<(Topic, C)>) -> Vec<Vec<(Topic, C)>> {
     })
 }
 
-const RECONNECT_INITIAL_DELAY: std::time::Duration = std::time::Duration::from_millis(100);
+/// The first reconnect backoff, and the one a healthy wire's end resets to.
+/// Each other end doubles the backoff, and a reconnect waits up to twice it.
+pub const RECONNECT_INITIAL_DELAY: std::time::Duration = std::time::Duration::from_millis(100);
 const RECONNECT_MAX_DELAY: std::time::Duration = std::time::Duration::from_secs(30);
-const MIN_STABLE_UPTIME: std::time::Duration = std::time::Duration::from_secs(10);
+/// A wire up this long ended healthy, unless a rate limit ended it.
+pub const MIN_STABLE_UPTIME: std::time::Duration = std::time::Duration::from_secs(10);
 /// Bound the background drain after request half-close.
 const GRACEFUL_CLOSE_BUDGET: std::time::Duration = std::time::Duration::from_secs(5);
 

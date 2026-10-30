@@ -53,6 +53,11 @@ impl<C: Clock> MemoryLimiter<C> {
     pub fn evictions(&self) -> u64 {
         self.table.evictions()
     }
+
+    /// The clock the limiter decides on.
+    pub fn clock(&self) -> &C {
+        &self.clock
+    }
 }
 
 impl<C: Clock> RateLimiter for MemoryLimiter<C> {

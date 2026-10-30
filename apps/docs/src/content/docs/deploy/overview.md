@@ -236,26 +236,27 @@ the trailers that carry error details.
 
 ## Rate limits
 
-The backend limits the requests each caller can make. Rate limits are in
-backend releases after `8.0.0-rc4`, and in `:self-hosted` and `sha-` images
+The backend limits the work each caller can make an instance do. Rate limits are
+in backend releases after `8.0.0-rc4`, and in `:self-hosted` and `sha-` images
 built from a commit that includes them. An older image charges nothing and
 refuses a `[rate_limits]` table at startup, naming `rate_limits` as "not a
 configuration key"; start the image you plan to deploy with your configuration
-before you deploy it. Limits are on by default, with values sized well above
-one client's normal use; `rate_limits.enabled = false` turns them off. See
+before you deploy it. Limits are on by default, with values sized well above one
+client's normal use; `rate_limits.enabled = false` turns them off. See
 [`[rate_limits]`](/get-started/run-the-backend/#rate_limits) for every key, and
 [RATE](/specs/rate-backend-rate-limits/) for the exact rules.
 
 Each request is charged before the backend does the work, in these categories:
 
-| Category          | What one unit is                                     | Default limits                   |
-| ----------------- | ---------------------------------------------------- | -------------------------------- |
-| `request`         | One RPC, except health checks and `GetConfiguration` | 6000 per minute, 200000 per hour |
-| `publish`         | One published envelope                               | 1000 per minute, 20000 per hour  |
-| `identity_update` | One published identity update                        | 10 per minute, 100 per hour      |
-| `chain_verify`    | One smart contract wallet signature to verify        | 200 per minute, 2000 per hour    |
-| `push`            | One topic added to a push subscription               | 2000 per minute, 20000 per hour  |
-| `upload`          | One attachment upload request                        | 120 per minute, 2000 per hour    |
+| Category          | What one unit is                                                                             | Default limits                   |
+| ----------------- | -------------------------------------------------------------------------------------------- | -------------------------------- |
+| `request`         | One RPC, except health checks and `GetConfiguration`, or one store read a subscription makes | 6000 per minute, 200000 per hour |
+| `publish`         | One published envelope                                                                       | 1000 per minute, 20000 per hour  |
+| `identity_update` | One published identity update                                                                | 10 per minute, 100 per hour      |
+| `chain_verify`    | One smart contract wallet signature to verify                                                | 200 per minute, 2000 per hour    |
+| `push`            | One topic added to a push subscription                                                       | 2000 per minute, 20000 per hour  |
+| `upload`          | One attachment upload request                                                                | 120 per minute, 2000 per hour    |
+| `stream_rent`     | One minute of an open subscription, or of each block of up to 1000 topics it holds           | 120 per minute                   |
 
 A limit admits a burst of its count, then its count per window. A refused
 request gets `RESOURCE_EXHAUSTED` with the category and a retry delay: the
@@ -263,6 +264,9 @@ time after which the refused charge fits, if the caller spends nothing more in
 that category meanwhile. SDK clients wait that delay before they send the
 request again and never split it into smaller requests. The refused charge is not
 counted; charges the request already passed, such as its `request` unit, are.
+A subscription pays its rent for each minute in advance, so a subscription
+whose rent or new topics are refused ends with that status, and SDK clients
+open it again after the delay. A refused store read only pauses its catch-up.
 
 **Older clients.** An SDK client from before rate limits reads
 `RESOURCE_EXHAUSTED` as a request that is too large. It splits a refused read
@@ -295,7 +299,10 @@ an office, a campus, or a carrier-grade NAT, share one allowance in every
 category. If your users share addresses, give them credentials, or raise the
 `ip` tier of each category they reach. Each new installation publishes an
 identity update, so `identity_update` caps how many installations one address
-can register: 10 a minute and 100 an hour by default.
+can register: 10 a minute and 100 an hour by default. Each open subscription
+with topics pays 2 `stream_rent` units a minute, so about 60 subscribed clients
+use up one address's default of 120; past that, their subscriptions end and
+reopen after each refusal.
 
 ```toml
 [rate_limits.categories.request]
@@ -312,6 +319,9 @@ ip = [{ count = 10000, window_seconds = 60 }, { count = 100000, window_seconds =
 
 [rate_limits.categories.upload]
 ip = [{ count = 600, window_seconds = 60 }, { count = 10000, window_seconds = 3600 }]
+
+[rate_limits.categories.stream_rent]
+ip = [{ count = 600, window_seconds = 60 }]
 ```
 
 An override raises or lowers the limits of one API key, one JWT subject, or one
@@ -359,7 +369,7 @@ upgrade:
 
 Optional API key and JWT authentication is available. Configure
 [`[auth]`](/get-started/run-the-backend/#auth) to require valid bearer tokens.
-[Rate limits](#rate-limits) bound the requests each caller can make.
+[Rate limits](#rate-limits) bound the work each caller can make an instance do.
 A valid token does not prove group membership.
 
 Without `[auth]`, the service is unauthenticated. Do not expose an unauthenticated

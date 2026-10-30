@@ -1,4 +1,4 @@
-use crate::{Backend, api};
+use crate::{Backend, api, server::rate_limit::Charger};
 use futures::Stream;
 use std::pin::Pin;
 use tonic::{Request, Response, Status, Streaming};
@@ -13,7 +13,8 @@ impl api::subscription_service_server::SubscriptionService for Backend {
     /// Handle the bidirectional subscription endpoint.
     ///
     /// The session owns ordered interests and delivery until half-close or
-    /// cancellation. Preserve the server-generated request identity and tracing
+    /// cancellation, and spends its rent and reads through the request's
+    /// charger. Preserve the server-generated request identity and tracing
     /// context when the session moves into its background task.
     async fn subscribe(
         &self,
@@ -28,18 +29,24 @@ impl api::subscription_service_server::SubscriptionService for Backend {
             .get::<crate::server::telemetry::RequestId>()
             .map(|id| id.0)
             .unwrap_or_else(uuid::Uuid::new_v4);
-        Ok(Response::new(Box::pin(crate::stream::native(
-            hub,
-            self.config.clone(),
-            request.into_inner(),
-            request_id,
-        )?)))
+        let charger = Charger::of_stream(&request);
+        Ok(Response::new(Box::pin(
+            crate::stream::native(
+                hub,
+                self.config.clone(),
+                request.into_inner(),
+                request_id,
+                charger,
+            )
+            .await?,
+        )))
     }
 
     /// Handle the static subscription endpoint.
     ///
-    /// Static sessions share native ordering and capacity rules. The initial
-    /// fixed targets precede data, and the request ending does not end delivery.
+    /// Static sessions share native ordering, capacity, and charging rules.
+    /// The initial fixed targets precede data, and the request ending does not
+    /// end delivery.
     async fn subscribe_static(
         &self,
         request: Request<api::SubscribeStaticRequest>,
@@ -53,11 +60,16 @@ impl api::subscription_service_server::SubscriptionService for Backend {
             .get::<crate::server::telemetry::RequestId>()
             .map(|id| id.0)
             .unwrap_or_else(uuid::Uuid::new_v4);
-        Ok(Response::new(Box::pin(crate::stream::static_subscription(
-            hub,
-            self.config.clone(),
-            request.into_inner().topics,
-            request_id,
-        )?)))
+        let charger = Charger::of(&request);
+        Ok(Response::new(Box::pin(
+            crate::stream::static_subscription(
+                hub,
+                self.config.clone(),
+                request.into_inner().topics,
+                request_id,
+                charger,
+            )
+            .await?,
+        )))
     }
 }
