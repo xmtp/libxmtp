@@ -39,7 +39,7 @@ impl crate::worker::NeedsDbReconnect for AttachmentClientError {
 use xmtp_events::{AttachmentFailed, AttachmentRef, ClientEvent, EventWriter as _};
 use xmtp_proto::{api::grpc_status, backend_v1::CreateUploadRequest};
 
-use crate::{client::Client, context::XmtpSharedContext};
+use crate::context::XmtpSharedContext;
 
 const DEFAULT_MAX_PENDING_AGE: Duration = Duration::from_secs(86_400);
 const RECONCILE_AGE: Duration = Duration::from_secs(3_600);
@@ -1157,15 +1157,7 @@ impl AttachmentRuntime {
 }
 
 pub struct Attachments<Context> {
-    context: Context,
-}
-
-impl<Context: XmtpSharedContext> Client<Context> {
-    pub fn attachments(&self) -> Attachments<Context> {
-        Attachments {
-            context: self.context.clone(),
-        }
-    }
+    pub(crate) context: Context,
 }
 
 impl<Context: XmtpSharedContext> Attachments<Context> {

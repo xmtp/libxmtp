@@ -8,7 +8,6 @@ pub(crate) use crate::core::notifications::{
     recipient_secret, stored_config,
 };
 use crate::{
-    client::Client,
     context::XmtpSharedContext,
     worker::{WorkerKind, notifications as worker},
 };
@@ -177,120 +176,109 @@ pub(crate) fn state(record: &StoredNotification) -> Result<NotificationState, St
     }
 }
 
-impl<Context: XmtpSharedContext> Client<Context> {
-    /// Store configuration, then register inline. The task retries transient errors.
-    // implements: PUSH-266
-    #[xmtp_common::rpc_span]
-    pub async fn enable_notifications(
-        &self,
-        config: NotificationConfig,
-    ) -> Result<NotificationState, NotificationError> {
-        if !self
-            .context
-            .worker_config()
-            .worker_enabled(WorkerKind::TaskRunner)
-        {
-            return Err(NotificationError::TaskRunnerDisabled);
-        }
-        let valid_channel = match &config.channel {
-            NotificationChannel::Apns { .. } | NotificationChannel::Fcm { .. } => true,
-            NotificationChannel::Http { signing_key, .. } => {
-                (16..=64).contains(&signing_key.as_slice().len())
-            }
-        };
-        if !valid_channel {
-            return Err(NotificationError::InvalidArgument);
-        }
-        let generation = crate::state_tx::state_write(self.context.mls_storage(), |tx| {
-            let storage = tx.storage();
-            let db = storage.db();
-            let mut record = db.notification_record()?;
-            if record.push_recipient_id.is_none() {
-                record.push_recipient_id = Some(xmtp_common::rand_vec::<32>());
-                record.push_recipient_secret =
-                    Some(xmtp_cryptography::rand::rand_secret::<32>().into());
-            }
-            record.push_generation = record
-                .push_generation
-                .checked_add(1)
-                .ok_or(StorageError::DbSerialize)?;
-            record.push_config = Some(encode_config(&config)?);
-            record.push_state = 1;
-            record.push_failed_error = None;
-            // A new configuration does not end a pending rate-limit delay.
-            // Deadlines that cannot be decoded hold nothing, so they never
-            // stop an app from enabling.
-            let hold = worker::rate_limit_hold(&record).unwrap_or_default();
-            record.push_deadlines = Some(encode(&hold)?);
-            record.push_suppressed = None;
-            db.save_notification_record(&record)?;
-            Ok::<_, StorageError>(Continue(record.push_generation))
-        })?
-        .into_continued();
-        notification_settings_changed(&self.context);
-        let _guard = self
-            .context
-            .task_channels()
-            .notification_request
-            .lock()
-            .await;
-        let record = self.context.db().notification_record()?;
-        if record.push_generation == generation && record.push_state == 1 {
-            let result = worker::register(&self.context, &record, &config).await;
-            if let Ok(true) = &result {
-                worker::resume_after_registration(&self.context, generation)?;
-            }
-            drop(_guard);
-            notification_settings_changed(&self.context);
-            result?;
-        }
-        Ok(self.notification_state()?)
+/// Store configuration, then register inline. The task retries transient errors.
+// implements: PUSH-266
+pub(crate) async fn enable_notifications<Context: XmtpSharedContext>(
+    context: &Context,
+    config: NotificationConfig,
+) -> Result<NotificationState, NotificationError> {
+    if !context
+        .worker_config()
+        .worker_enabled(WorkerKind::TaskRunner)
+    {
+        return Err(NotificationError::TaskRunnerDisabled);
     }
-
-    /// Disable locally before unregistering. The recipient identity and overrides stay.
-    /// A failed unregister leaves the client disabled with its recipient reset owed.
-    #[xmtp_common::rpc_span]
-    pub async fn disable_notifications(&self) -> Result<(), NotificationError> {
-        let record = crate::state_tx::state_write(self.context.mls_storage(), |tx| {
-            let storage = tx.storage();
-            let db = storage.db();
-            // Deadlines that cannot be decoded hold nothing, so they never
-            // stop an app from disabling.
-            let hold = worker::rate_limit_hold(&db.notification_record()?).unwrap_or_default();
-            let mut record = db.disable_notifications()?;
-            // The task must not send inside a pending rate-limit delay after a
-            // later enable. App calls themselves are not held (RATE-041 binds
-            // the client's own retries).
-            if hold.rate_limited(xmtp_common::time::now_ns()) {
-                record.push_deadlines = Some(encode(&hold)?);
-                db.save_notification_record(&record)?;
-            }
-            Ok::<_, StorageError>(Continue(record))
-        })?
-        .into_continued();
-        notification_settings_changed(&self.context);
+    let valid_channel = match &config.channel {
+        NotificationChannel::Apns { .. } | NotificationChannel::Fcm { .. } => true,
+        NotificationChannel::Http { signing_key, .. } => {
+            (16..=64).contains(&signing_key.as_slice().len())
+        }
+    };
+    if !valid_channel {
+        return Err(NotificationError::InvalidArgument);
+    }
+    let generation = crate::state_tx::state_write(context.mls_storage(), |tx| {
+        let storage = tx.storage();
+        let db = storage.db();
+        let mut record = db.notification_record()?;
         if record.push_recipient_id.is_none() {
-            return Ok(());
+            record.push_recipient_id = Some(xmtp_common::rand_vec::<32>());
+            record.push_recipient_secret =
+                Some(xmtp_cryptography::rand::rand_secret::<32>().into());
         }
-        let _guard = self
-            .context
-            .task_channels()
-            .notification_request
-            .lock()
-            .await;
-        // A later disable still wants this recipient removed. The request
-        // lock orders any subsequent enable's Register after Unregister.
-        if self.context.db().notification_record()?.push_state != 0 {
-            notification_settings_changed(&self.context);
-            return Ok(());
+        record.push_generation = record
+            .push_generation
+            .checked_add(1)
+            .ok_or(StorageError::DbSerialize)?;
+        record.push_config = Some(encode_config(&config)?);
+        record.push_state = 1;
+        record.push_failed_error = None;
+        // A new configuration does not end a pending rate-limit delay.
+        // Deadlines that cannot be decoded hold nothing, so they never
+        // stop an app from enabling.
+        let hold = worker::rate_limit_hold(&record).unwrap_or_default();
+        record.push_deadlines = Some(encode(&hold)?);
+        record.push_suppressed = None;
+        db.save_notification_record(&record)?;
+        Ok::<_, StorageError>(Continue(record.push_generation))
+    })?
+    .into_continued();
+    notification_settings_changed(context);
+    let _guard = context.task_channels().notification_request.lock().await;
+    let record = context.db().notification_record()?;
+    if record.push_generation == generation && record.push_state == 1 {
+        let result = worker::register(context, &record, &config).await;
+        if let Ok(true) = &result {
+            worker::resume_after_registration(context, generation)?;
         }
-        worker::unregister(&self.context, &record, worker::request_deadline()).await
+        drop(_guard);
+        notification_settings_changed(context);
+        result?;
     }
+    Ok(notification_state(context)?)
+}
 
-    /// Read the locally stored state without a backend call.
-    pub fn notification_state(&self) -> Result<NotificationState, StorageError> {
-        state(&self.context.db().notification_record()?)
+/// Disable locally before unregistering. The recipient identity and overrides stay.
+/// A failed unregister leaves the client disabled with its recipient reset owed.
+pub(crate) async fn disable_notifications<Context: XmtpSharedContext>(
+    context: &Context,
+) -> Result<(), NotificationError> {
+    let record = crate::state_tx::state_write(context.mls_storage(), |tx| {
+        let storage = tx.storage();
+        let db = storage.db();
+        // Deadlines that cannot be decoded hold nothing, so they never
+        // stop an app from disabling.
+        let hold = worker::rate_limit_hold(&db.notification_record()?).unwrap_or_default();
+        let mut record = db.disable_notifications()?;
+        // The task must not send inside a pending rate-limit delay after a
+        // later enable. App calls themselves are not held (RATE-041 binds
+        // the client's own retries).
+        if hold.rate_limited(xmtp_common::time::now_ns()) {
+            record.push_deadlines = Some(encode(&hold)?);
+            db.save_notification_record(&record)?;
+        }
+        Ok::<_, StorageError>(Continue(record))
+    })?
+    .into_continued();
+    notification_settings_changed(context);
+    if record.push_recipient_id.is_none() {
+        return Ok(());
     }
+    let _guard = context.task_channels().notification_request.lock().await;
+    // A later disable still wants this recipient removed. The request
+    // lock orders any subsequent enable's Register after Unregister.
+    if context.db().notification_record()?.push_state != 0 {
+        notification_settings_changed(context);
+        return Ok(());
+    }
+    worker::unregister(context, &record, worker::request_deadline()).await
+}
+
+/// Read the locally stored state without a backend call.
+pub(crate) fn notification_state<Context: XmtpSharedContext>(
+    context: &Context,
+) -> Result<NotificationState, StorageError> {
+    state(&context.db().notification_record()?)
 }
 
 #[cfg(test)]
