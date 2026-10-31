@@ -1307,7 +1307,7 @@ async fn rejected_own_application_echo_fails_atomically_and_survives_restart() {
         &OrderedEnvelopeBatch {
             topic: wire,
             after: before.received,
-            envelopes,
+            envelopes: envelopes.into_iter().map(Into::into).collect(),
         },
         group
             .context

@@ -9,9 +9,10 @@ use xmtp_api_backend::{BackendBinding, BidiConnection, BidiEvent, TransportBindi
 use xmtp_cryptography::utils::generate_local_wallet;
 use xmtp_proto::types::Topic;
 
-fn gm(message: &xmtp_proto::backend_v1::ServerEnvelope) -> (u64, bool) {
-    let message = xmtp_api_backend::envelope::decode_group_message(message.clone())
-        .expect("valid backend group message");
+fn gm(message: &xmtp_proto::types::ReceivedEnvelope) -> (u64, bool) {
+    let message =
+        xmtp_api_backend::envelope::decode_group_message(message.decode().expect("valid envelope"))
+            .expect("valid backend group message");
     // Dictionary-native groups also publish standalone proposals. Count only
     // application content when checking delivery of the messages we sent.
     (

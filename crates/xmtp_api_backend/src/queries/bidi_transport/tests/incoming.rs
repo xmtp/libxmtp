@@ -1,5 +1,10 @@
 use super::*;
 use futures::StreamExt;
+use xmtp_proto::types::ReceivedEnvelope;
+
+fn received(envelopes: &[ServerEnvelope]) -> Vec<ReceivedEnvelope> {
+    envelopes.iter().cloned().map(Into::into).collect()
+}
 
 fn raw_group(sequence: u64) -> ServerEnvelope {
     let mut envelope = group_msg(sequence, &[7; 32]);
@@ -239,9 +244,10 @@ async fn raw_full_delivery_channel_pauses_without_advancing_cursors() {
     // Registered occupies the only slot. Both envelopes must stay pending.
     assert!(
         ledger
-            .demux_incoming(&[raw_group(8), raw_group_on(9, &[8; 32])], |message| {
-                message
-            },)
+            .demux_incoming(
+                &received(&[raw_group(8), raw_group_on(9, &[8; 32])]),
+                |message| message
+            )
             .unwrap()
             .is_empty()
     );
@@ -267,7 +273,7 @@ async fn raw_full_delivery_channel_pauses_without_advancing_cursors() {
     };
     assert_eq!(
         (first.topic, first.after, first.envelopes),
-        (first_topic.clone(), Cursor(0), vec![raw_group(8)])
+        (first_topic.clone(), Cursor(0), received(&[raw_group(8)]))
     );
     assert_eq!(ledger.leases[&id].delivered[&first_topic], 8);
     assert_eq!(ledger.leases[&id].delivered[&second_topic], 0);
@@ -287,7 +293,7 @@ async fn raw_full_delivery_channel_pauses_without_advancing_cursors() {
         (
             second_topic.clone(),
             Cursor(0),
-            vec![raw_group_on(9, &[8; 32])]
+            received(&[raw_group_on(9, &[8; 32])])
         )
     );
     assert_eq!(ledger.leases[&id].delivered[&second_topic], 9);
@@ -317,7 +323,7 @@ async fn raw_incoming_splitter_covers_each_envelope_once_in_order() {
     let source: Vec<_> = (1..=ENVELOPES).map(raw_group).collect();
     assert!(
         ledger
-            .demux_incoming(&source, |message| message)
+            .demux_incoming(&received(&source), |message| message)
             .unwrap()
             .is_empty()
     );
@@ -338,8 +344,7 @@ async fn raw_incoming_splitter_covers_each_envelope_once_in_order() {
             .envelopes
             .last()
             .unwrap()
-            .meta
-            .as_ref()
+            .meta()
             .unwrap()
             .cursor
             .as_ref()
@@ -376,7 +381,7 @@ async fn raw_incoming_byte_splitter_covers_each_envelope_once_in_order() {
 
     assert!(
         ledger
-            .demux_incoming(&source, |message| message)
+            .demux_incoming(&received(&source), |message| message)
             .unwrap()
             .is_empty()
     );
@@ -393,6 +398,60 @@ async fn raw_incoming_byte_splitter_covers_each_envelope_once_in_order() {
         ledger.flush_incoming(xmtp_common::time::Instant::now());
     }
     assert_eq!(received, source);
+}
+
+/// The Subscribe decoder keeps unknown fields, and splitting charges received bytes.
+// verifies: PROC-002, PROC-020
+#[xmtp_common::test(unwrap_try = true)]
+async fn raw_subscription_keeps_unknown_fields_and_charges_their_size() {
+    use xmtp_proto::types::{
+        ReceivedMessages, ReceivedSubscribeFrame, ReceivedSubscribeResponse,
+        future_welcome_envelope,
+    };
+    let topic = welcome_topic(&[5; 32]);
+    let meta = |sequence| {
+        let mut envelope = raw_group(sequence);
+        envelope.meta.as_mut()?.topic = welcome_msg(sequence, &[5; 32]).meta?.topic;
+        envelope.meta
+    };
+    let raw: Vec<_> = (1..=2)
+        .map(|sequence| future_welcome_envelope(&meta(sequence).unwrap(), &[9; 40]))
+        .collect();
+    let decoded = ServerEnvelope::decode(raw[0].clone())?.encoded_len();
+    // Two decoded envelopes fit `2 * decoded` bytes; two received envelopes do not.
+    assert!(decoded < raw[0].len() && raw[0].len() <= 2 * decoded);
+    let (transport, servers) = transport();
+    let limits = IncomingBatchLimits {
+        max_rows: 16,
+        max_bytes: 2 * decoded,
+    };
+    let lease = transport
+        .lease_ordered(vec![(topic.clone(), 0)], 8, limits)
+        .await?;
+    let mut subscription = lease.into_incoming_subscription();
+    let mut server = take_server(&servers);
+    let update = server.next_mutate().await;
+    server.ack(update.id, vec![(topic.clone(), 2)]);
+    assert!(matches!(
+        subscription.events.next().await.transpose()?,
+        Some(IncomingEvent::Registered { .. })
+    ));
+    let frame = ReceivedSubscribeResponse {
+        response: Some(ReceivedSubscribeFrame::Messages(ReceivedMessages {
+            envelopes: raw.clone(),
+        })),
+    };
+    server.send_bytes(frame.encode_to_vec().into());
+    for (sequence, raw) in (1..).zip(&raw) {
+        let Some(IncomingEvent::OrderedBatch(batch)) =
+            subscription.events.next().await.transpose()?
+        else {
+            panic!("one received envelope per batch");
+        };
+        assert_eq!(batch.envelopes.len(), 1);
+        assert_eq!(batch.envelopes[0].raw(), raw);
+        assert_eq!(batch.envelopes[0].meta(), meta(sequence).as_ref());
+    }
 }
 
 #[xmtp_common::test(unwrap_try = true)]
@@ -415,7 +474,7 @@ async fn raw_single_envelope_over_the_byte_limit_fails_loudly() {
     incoming_frame(&mut receiver).await.unwrap(); // Registered.
 
     assert_eq!(
-        ledger.demux_incoming(&[envelope], |message| message)?,
+        ledger.demux_incoming(&received(&[envelope]), |message| message)?,
         vec![id]
     );
     let failure = ledger.leases[&id].incoming_failure.lock();
@@ -566,7 +625,7 @@ async fn raw_incoming_pause_timeout_drops_the_stalled_lease() {
     ledger.applied(update, vec![(topic.clone(), 10)]);
     assert!(
         ledger
-            .demux_incoming(&[raw_group(8)], |message| message)
+            .demux_incoming(&received(&[raw_group(8)]), |message| message)
             .unwrap()
             .is_empty()
     );
@@ -602,7 +661,7 @@ async fn raw_progressing_incoming_backlog_survives_past_the_stall_deadline() {
     let envelopes: Vec<_> = (1..=ROWS).map(raw_group).collect();
     assert!(
         ledger
-            .demux_incoming(&envelopes, |message| message)?
+            .demux_incoming(&received(&envelopes), |message| message)?
             .is_empty()
     );
     let started = ledger.leases[&id].paused_at.unwrap();
@@ -642,7 +701,7 @@ async fn raw_task_wakes_at_an_incoming_pause_deadline() {
     ledger.leases.get_mut(&id).unwrap().incoming = Some((sender, limits()));
     let (update, _) = ledger.prepare_adds(vec![(topic.clone(), 0)]).remove(0);
     ledger.applied(update, vec![(topic, 10)]);
-    ledger.demux_incoming(&[raw_group(8)], |message| message)?;
+    ledger.demux_incoming(&received(&[raw_group(8)]), |message| message)?;
 
     let mut task = ledger_task(ledger, Outbox::default());
     let (commands, receiver) = mpsc::unbounded_channel();
@@ -706,7 +765,7 @@ async fn raw_multi_topic_frame_fits_one_queue_slot() {
         assert!(received.insert(batch.topic, batch.envelopes).is_none());
     }
     for (topic, envelope) in topics.into_iter().zip(envelopes) {
-        assert_eq!(received.remove(&topic), Some(vec![envelope]));
+        assert_eq!(received.remove(&topic), Some(vec![envelope.into()]));
     }
     assert!(received.is_empty());
     assert!(lease.incoming_failure.lock().is_none());
@@ -794,7 +853,7 @@ async fn cancelled_add_waits_for_pending_remove_before_replacement() {
     assert_eq!(starts, [(topic.clone(), Cursor(0))].into());
     assert_eq!(targets, [(topic.clone(), Cursor(8))].into());
     task.wire_event(Event::GroupMessages {
-        messages: vec![raw_group(8)],
+        messages: received(&[raw_group(8)]),
     });
     let IncomingEvent::OrderedBatch(batch) = incoming(&mut replacement).await? else {
         panic!("replacement batch");

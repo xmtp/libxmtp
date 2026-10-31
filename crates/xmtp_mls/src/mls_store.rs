@@ -1,7 +1,6 @@
 //! Higher level queries against the local database
 //! These queries return their mls-typed equivalents after converting
 //! from the data in DB/Api
-use prost::Message;
 use std::collections::HashMap;
 
 use openmls_rust_crypto::RustCrypto;
@@ -147,7 +146,7 @@ where
     ) -> Result<AdmissionResult, MlsStoreError> {
         let topic = stream_topic(&batch.topic)?;
         let bytes = batch.envelopes.iter().try_fold(0u64, |bytes, envelope| {
-            bytes.checked_add(envelope.encoded_len() as u64)
+            bytes.checked_add(envelope.raw().len() as u64)
         });
         if batch.envelopes.len() as u64 > limits.batch.rows
             || bytes.is_none_or(|bytes| bytes > limits.batch.bytes)
@@ -160,8 +159,7 @@ where
         let mut rows = Vec::with_capacity(batch.envelopes.len());
         for envelope in &batch.envelopes {
             let meta = envelope
-                .meta
-                .as_ref()
+                .meta()
                 .ok_or(ApiError::InvalidResponse("incoming metadata"))?;
             let (envelope_topic, sequence_id, _) =
                 xmtp_api_backend::envelope::metadata(meta, batch.topic.kind())
@@ -172,7 +170,7 @@ where
             previous = sequence_id;
             rows.push(NewIncomingEnvelope {
                 sequence_id,
-                envelope: envelope.encode_to_vec(),
+                envelope: envelope.raw().to_vec(),
             });
         }
         let admitted = crate::state_tx::state_write(self.context.mls_storage(), |tx| {

@@ -605,7 +605,7 @@ impl xmtp_proto::api_client::XmtpMlsBidiStreams for FixedHostApi {
     type SubscribeStream = futures::stream::BoxStream<
         'static,
         std::result::Result<
-            xmtp_proto::backend_v1::SubscribeResponse,
+            xmtp_proto::types::ReceivedSubscribeResponse,
             xmtp_proto::api::ApiClientError,
         >,
     >;
@@ -676,7 +676,7 @@ async fn subscription_keeps_transport_shared_after_factory_drop() {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use xmtp_proto::{
         api::ApiClientError,
-        backend_v1::{SubscribeRequest, SubscribeResponse},
+        backend_v1::SubscribeRequest,
         types::{Cursor, IncomingBatchLimits, Topic, TopicCursor},
     };
 
@@ -686,7 +686,10 @@ async fn subscription_keeps_transport_shared_after_factory_drop() {
 
     #[xmtp_common::async_trait]
     impl xmtp_proto::api_client::XmtpMlsBidiStreams for ScriptedApi {
-        type SubscribeStream = BoxStream<'static, Result<SubscribeResponse, ApiClientError>>;
+        type SubscribeStream = BoxStream<
+            'static,
+            Result<xmtp_proto::types::ReceivedSubscribeResponse, ApiClientError>,
+        >;
         type Error = ApiClientError;
 
         fn host(&self) -> &str {
@@ -765,7 +768,10 @@ async fn cached_factory_opens_a_new_stream_after_a_nonretryable_reconnect() {
 
     #[xmtp_common::async_trait]
     impl xmtp_proto::api_client::XmtpMlsBidiStreams for ScriptedApi {
-        type SubscribeStream = BoxStream<'static, Result<SubscribeResponse, ApiClientError>>;
+        type SubscribeStream = BoxStream<
+            'static,
+            Result<xmtp_proto::types::ReceivedSubscribeResponse, ApiClientError>,
+        >;
         type Error = ApiClientError;
 
         fn host(&self) -> &str {
@@ -782,7 +788,8 @@ async fn cached_factory_opens_a_new_stream_after_a_nonretryable_reconnect() {
                     Ok(Box::pin(futures::stream::unfold(
                         receiver,
                         |mut receiver| async move {
-                            receiver.recv().await.map(|event| (event, receiver))
+                            let event = receiver.recv().await?.map(Into::into);
+                            Some((event, receiver))
                         },
                     )))
                 }

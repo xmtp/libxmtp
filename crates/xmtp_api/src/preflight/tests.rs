@@ -15,6 +15,7 @@ async fn preflight_blocks_every_public_dispatch_before_binding() {
     }
     blocked!(api.publish(Default::default()));
     blocked!(api.query(Default::default()));
+    blocked!(api.query_raw_envelopes(Default::default()));
     blocked!(api.query_newest(Default::default()));
     blocked!(api.get_inbox_ids(Default::default()));
     blocked!(api.get_configuration(Default::default()));

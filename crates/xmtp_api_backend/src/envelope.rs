@@ -1,9 +1,11 @@
 //! Decode backend envelopes once for queries and streams.
-use prost::Message;
 use std::collections::HashMap;
 use xmtp_proto::{
     ConversionError, backend_v1 as wire,
-    types::{self, IncomingBatchLimits, OrderedEnvelopeBatch, Topic, TopicCursor, TopicKind},
+    types::{
+        self, IncomingBatchLimits, OrderedEnvelopeBatch, ReceivedEnvelope, Topic, TopicCursor,
+        TopicKind,
+    },
 };
 
 /// A backend envelope cannot be decoded. These errors are not retryable.
@@ -39,16 +41,17 @@ fn invalid(item: &'static str) -> ConversionError {
 }
 
 /// Validate a complete ordered read without parsing or changing MLS bytes.
+/// Charge received sizes and keep each envelope's bytes unchanged.
 /// Preserve each topic's input cursor as `after`; sequence gaps are valid.
 /// Advance only these in-memory cursors on success, never durable receipt `F`.
 // implements: PROC-001
 pub fn ordered_batches(
     cursors: &mut TopicCursor,
-    envelopes: Vec<wire::ServerEnvelope>,
+    envelopes: Vec<ReceivedEnvelope>,
     limits: IncomingBatchLimits,
 ) -> Result<Vec<OrderedEnvelopeBatch>, EnvelopeError> {
     let bytes = envelopes.iter().try_fold(0usize, |bytes, envelope| {
-        bytes.checked_add(envelope.encoded_len())
+        bytes.checked_add(envelope.raw().len())
     });
     if envelopes.len() > limits.max_rows || bytes.is_none_or(|bytes| bytes > limits.max_bytes) {
         return Err(EnvelopeError::Capacity);
@@ -57,7 +60,7 @@ pub fn ordered_batches(
     let mut batches: Vec<OrderedEnvelopeBatch> = Vec::new();
     let mut indices = HashMap::new();
     for envelope in envelopes {
-        let meta = envelope.meta.as_ref().ok_or_else(|| invalid("metadata"))?;
+        let meta = envelope.meta().ok_or_else(|| invalid("metadata"))?;
         let topic = Topic::parse(&meta.topic.as_ref().ok_or_else(|| invalid("topic"))?.topic)?;
         let (_, sequence, _) = metadata(meta, topic.kind())?;
         let cursor = next
@@ -291,6 +294,10 @@ pub fn decode_identity_update(
 mod tests {
     use super::*;
 
+    fn received(envelopes: Vec<wire::ServerEnvelope>) -> Vec<ReceivedEnvelope> {
+        envelopes.into_iter().map(Into::into).collect()
+    }
+
     fn envelope(topic: &Topic, sequence: u64) -> wire::ServerEnvelope {
         wire::ServerEnvelope {
             meta: Some(wire::EnvelopeMeta {
@@ -365,7 +372,7 @@ mod tests {
         let original = envelope(&a, 8);
         let batches = ordered_batches(
             &mut cursors,
-            vec![original.clone(), envelope(&b, 11), envelope(&a, 20)],
+            received(vec![original.clone(), envelope(&b, 11), envelope(&a, 20)]),
             IncomingBatchLimits {
                 max_rows: 3,
                 max_bytes: 4096,
@@ -390,7 +397,7 @@ mod tests {
         assert!(
             ordered_batches(
                 &mut cursors,
-                vec![envelope(&legacy, 8)],
+                received(vec![envelope(&legacy, 8)]),
                 IncomingBatchLimits {
                     max_rows: 1,
                     max_bytes: 4096
@@ -416,7 +423,7 @@ mod tests {
             assert!(
                 ordered_batches(
                     &mut cursors,
-                    envelopes,
+                    received(envelopes),
                     IncomingBatchLimits {
                         max_rows: 2,
                         max_bytes: 4096
@@ -430,7 +437,7 @@ mod tests {
         assert!(matches!(
             ordered_batches(
                 &mut cursors,
-                vec![envelope(&a, 8)],
+                received(vec![envelope(&a, 8)]),
                 IncomingBatchLimits {
                     max_rows: 1,
                     max_bytes: 1

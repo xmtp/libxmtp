@@ -1032,7 +1032,7 @@ async fn missing_proposal_absent_vs_lost() {
         &OrderedEnvelopeBatch {
             topic: wire_topic.clone(),
             after: bo_before,
-            envelopes: prefix,
+            envelopes: prefix.into_iter().map(Into::into).collect(),
         },
         limits,
     )?;
@@ -1085,7 +1085,7 @@ async fn missing_proposal_absent_vs_lost() {
         &OrderedEnvelopeBatch {
             topic: wire_topic,
             after: caro_before,
-            envelopes: vec![commit],
+            envelopes: vec![commit.into()],
         },
         limits,
     )?;

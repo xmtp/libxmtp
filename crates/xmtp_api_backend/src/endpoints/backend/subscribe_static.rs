@@ -9,7 +9,8 @@ use xmtp_proto::{
 pub struct SubscribeStatic(pub backend_v1::SubscribeStaticRequest);
 
 impl Endpoint for SubscribeStatic {
-    type Output = backend_v1::SubscribeStaticResponse;
+    // Keep each envelope as received; see `ReceivedStaticResponse`.
+    type Output = xmtp_proto::types::ReceivedStaticResponse;
     fn grpc_endpoint(&self) -> Cow<'static, str> {
         "/xmtp.backend.v1.SubscriptionService/SubscribeStatic".into()
     }

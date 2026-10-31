@@ -729,7 +729,9 @@ where
                     let entries = batch
                         .envelopes
                         .into_iter()
-                        .map(xmtp_api_backend::envelope::decode_commit_log_entry)
+                        .map(|envelope| {
+                            xmtp_api_backend::envelope::decode_commit_log_entry(envelope.decode()?)
+                        })
                         .collect::<Result<Vec<_>, _>>()
                         .map_err(ApiError::from)?;
                     let (num_entries, held) = self

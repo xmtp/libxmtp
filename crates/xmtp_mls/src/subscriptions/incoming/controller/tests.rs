@@ -1,4 +1,6 @@
 use super::*;
+use prost::Message;
+use xmtp_proto::types::ReceivedEnvelope;
 
 // verifies: EVENT-027
 #[xmtp_common::test(unwrap_try = true)]
@@ -511,6 +513,7 @@ async fn stale_dependency_results_cannot_change_new_heads_or_requirements() {
                     meta: Some(meta(&topic, cursor.0)),
                     envelope: Some(wire::ClientEnvelope::default()),
                 })
+                .map(Into::into)
                 .collect(),
         })?;
         controller.topics.entry(topic.clone()).or_default();
@@ -914,10 +917,10 @@ async fn a_new_barrier_after_an_empty_query_starts_deadline_fallback() {
         OrderedEnvelopeBatch {
             topic: topic.clone(),
             after: Cursor(0),
-            envelopes: vec![wire::ServerEnvelope {
+            envelopes: vec![ReceivedEnvelope::from(wire::ServerEnvelope {
                 meta: Some(meta(&topic, 1)),
                 envelope: Some(wire::ClientEnvelope::default()),
-            }],
+            })],
         },
     ))));
     controller.command(Command::Release(1));
@@ -982,10 +985,10 @@ async fn a_healthy_receiver_gets_one_fixed_barrier_wait() {
         OrderedEnvelopeBatch {
             topic: topic.clone(),
             after: Cursor(0),
-            envelopes: vec![wire::ServerEnvelope {
+            envelopes: vec![ReceivedEnvelope::from(wire::ServerEnvelope {
                 meta: Some(meta(&topic, 10)),
                 envelope: Some(wire::ClientEnvelope::default()),
-            }],
+            })],
         },
     ))));
     assert!(!controller.read_due(&topic, &key, started + interval / 2)?);
@@ -1006,10 +1009,10 @@ async fn a_healthy_receiver_gets_one_fixed_barrier_wait() {
         OrderedEnvelopeBatch {
             topic: topic.clone(),
             after: Cursor(10),
-            envelopes: vec![wire::ServerEnvelope {
+            envelopes: vec![ReceivedEnvelope::from(wire::ServerEnvelope {
                 meta: Some(meta(&topic, 20)),
                 envelope: Some(wire::ClientEnvelope::default()),
-            }],
+            })],
         },
     ))));
     assert!(
@@ -1067,10 +1070,10 @@ async fn suspension_blocks_live_queries_but_allows_an_explicit_barrier() {
         OrderedEnvelopeBatch {
             topic: topic.clone(),
             after: Cursor(0),
-            envelopes: vec![wire::ServerEnvelope {
+            envelopes: vec![ReceivedEnvelope::from(wire::ServerEnvelope {
                 meta: Some(meta(&topic, 1)),
                 envelope: Some(wire::ClientEnvelope::default()),
-            }],
+            })],
         },
     ))));
     assert!(
@@ -1137,10 +1140,10 @@ async fn suspended_welcome_barrier_receives_only_its_required_group_prefixes() {
             OrderedEnvelopeBatch {
                 topic: topic.clone(),
                 after: Cursor(after),
-                envelopes: vec![wire::ServerEnvelope {
+                envelopes: vec![ReceivedEnvelope::from(wire::ServerEnvelope {
                     meta: Some(meta(&topic, received)),
                     envelope: Some(wire::ClientEnvelope::default()),
-                }],
+                })],
             },
         ))));
         assert_eq!(controller.read_due(&topic, &key, now)?, received < 15);
@@ -1802,6 +1805,7 @@ async fn a_welcome_failure_keeps_independent_pending_parents_runnable() {
                     meta: Some(meta(&topic, sequence)),
                     envelope: Some(wire::ClientEnvelope::default()),
                 })
+                .map(Into::into)
                 .collect(),
         },
     ))));
@@ -2271,10 +2275,10 @@ async fn a_changed_durable_cursor_clears_the_rejected_query_backoff() {
         &OrderedEnvelopeBatch {
             topic: topic.clone(),
             after: Cursor(0),
-            envelopes: vec![wire::ServerEnvelope {
+            envelopes: vec![ReceivedEnvelope::from(wire::ServerEnvelope {
                 meta: Some(meta(&topic, 1)),
                 envelope: Some(wire::ClientEnvelope::default()),
-            }],
+            })],
         },
         limits,
     )?;
@@ -2377,10 +2381,10 @@ async fn a_query_uses_the_cursor_checked_inside_its_future() {
         &OrderedEnvelopeBatch {
             topic: topic.clone(),
             after: Cursor(0),
-            envelopes: vec![wire::ServerEnvelope {
+            envelopes: vec![ReceivedEnvelope::from(wire::ServerEnvelope {
                 meta: Some(meta(&topic, 1)),
                 envelope: Some(wire::ClientEnvelope::default()),
-            }],
+            })],
         },
         limits,
     )?;
@@ -2679,10 +2683,10 @@ async fn a_rejected_new_scope_target_does_not_end_an_active_sibling() {
         OrderedEnvelopeBatch {
             topic: topic.clone(),
             after: Cursor(0),
-            envelopes: vec![wire::ServerEnvelope {
+            envelopes: vec![ReceivedEnvelope::from(wire::ServerEnvelope {
                 meta: Some(meta(&topic, 1)),
                 envelope: Some(wire::ClientEnvelope::default()),
-            }],
+            })],
         },
     ))));
     assert_eq!(
@@ -3353,6 +3357,7 @@ async fn receipt_acknowledgement_follows_storage_and_never_uses_the_target() {
                 meta: Some(meta(&topic, sequence)),
                 envelope: Some(wire::ClientEnvelope::default()),
             })
+            .map(Into::into)
             .collect(),
     };
     controller.incoming(Some(Ok(IncomingEvent::OrderedBatch(batch.clone()))));
@@ -3468,6 +3473,7 @@ async fn each_kind_keeps_its_budget_and_only_committed_chunks_are_acknowledged()
                 meta: Some(meta(&topic, sequence)),
                 envelope: Some(wire::ClientEnvelope::default()),
             })
+            .map(Into::into)
             .collect(),
     };
     controller.incoming(Some(Ok(IncomingEvent::OrderedBatch(batch.clone()))));
@@ -3557,7 +3563,7 @@ async fn each_kind_keeps_its_budget_and_only_committed_chunks_are_acknowledged()
         &OrderedEnvelopeBatch {
             topic: topic.clone(),
             after: before.received,
-            envelopes: vec![envelope(retained)],
+            envelopes: vec![envelope(retained).into()],
         },
         limits,
     )?;
@@ -3615,6 +3621,7 @@ async fn each_kind_keeps_its_budget_and_only_committed_chunks_are_acknowledged()
         after: retained,
         envelopes: (1..=8)
             .map(|offset| envelope(Cursor(retained.0 + offset)))
+            .map(Into::into)
             .collect(),
     };
     first.send(Ok(IncomingEvent::OrderedBatch(batch.clone())))?;
@@ -3668,7 +3675,7 @@ async fn each_kind_keeps_its_budget_and_only_committed_chunks_are_acknowledged()
     resumed.send(Ok(IncomingEvent::OrderedBatch(OrderedEnvelopeBatch {
         topic: topic.clone(),
         after: replayed,
-        envelopes: vec![envelope(later)],
+        envelopes: vec![envelope(later).into()],
     })))?;
     wait_for_eq(
         || async { client.context.db().topic_progress(&key).unwrap().processed },
@@ -3719,10 +3726,10 @@ async fn held_group_heads_do_not_pause_unrelated_groups() {
             OrderedEnvelopeBatch {
                 topic: topic.clone(),
                 after: Cursor(sequence - 10),
-                envelopes: vec![wire::ServerEnvelope {
+                envelopes: vec![ReceivedEnvelope::from(wire::ServerEnvelope {
                     meta: Some(meta(topic, sequence)),
                     envelope: Some(wire::ClientEnvelope::default()),
-                }],
+                })],
             },
         ))));
     };
@@ -3773,6 +3780,72 @@ async fn held_group_heads_do_not_pause_unrelated_groups() {
     );
 }
 
+/// Admission stores an unreadable Welcome variant as received and holds it.
+// verifies: PROC-002, JOIN-087
+#[xmtp_common::test(unwrap_try = true)]
+async fn an_unknown_welcome_variant_is_stored_as_received_and_held() {
+    /// A later schema that defines `WelcomeMessage` tag 3.
+    #[derive(Clone, PartialEq, prost::Message)]
+    struct Future {
+        #[prost(message, optional, tag = "2")]
+        envelope: Option<FutureClient>,
+    }
+    #[derive(Clone, PartialEq, prost::Message)]
+    struct FutureClient {
+        #[prost(message, optional, tag = "2")]
+        welcome: Option<FutureWelcome>,
+    }
+    #[derive(Clone, PartialEq, prost::Message)]
+    struct FutureWelcome {
+        #[prost(bytes = "vec", tag = "3")]
+        variant: Vec<u8>,
+    }
+    tester!(alix, persistent_db, disable_workers);
+    let topic = Topic::new_welcome_message(alix.context.installation_id());
+    let key = topic_key(&topic)?;
+    let raw =
+        |sequence| xmtp_proto::types::future_welcome_envelope(&meta(&topic, sequence), &[9; 40]);
+    let decoded = wire::ServerEnvelope::decode(raw(7))?.encoded_len();
+    // Two decoded envelopes fit one chunk; two received envelopes need two.
+    assert!(raw(7).len() <= 2 * decoded && 2 * decoded < raw(7).len() + raw(8).len());
+    let client = client_with_policy(&alix, |settings| {
+        settings.max_admission_bytes = 2 * decoded as u64;
+    })
+    .await?;
+    let mut controller = controller(client.context.clone());
+    controller.admit_received_batch(OrderedEnvelopeBatch {
+        topic: topic.clone(),
+        after: Cursor(0),
+        envelopes: [7, 8]
+            .map(|sequence| ReceivedEnvelope::from_raw(raw(sequence)))
+            .into_iter()
+            .collect::<Result<_, _>>()?,
+    })?;
+    let db = alix.context.db();
+    assert_eq!(db.topic_progress(&key)?.received, Cursor(8));
+    assert_eq!(db.pending_envelope(&key, Cursor(7))??.envelope, raw(7));
+    assert_eq!(db.pending_envelope(&key, Cursor(8))??.envelope, raw(8));
+
+    crate::groups::welcome_sync::WelcomeService::new(alix.context.clone())
+        .process_pending_welcomes_once(&[])?;
+    let held = db.pending_envelope(&key, Cursor(7))??;
+    assert!(held.blocked && held.unreadable_expires_at_ns.is_some());
+    assert_eq!(held.error_code.as_deref(), Some("unsupported_welcome"));
+
+    alix.client.release_db_connection()?;
+    alix.client.reconnect_db()?;
+    let stored = alix
+        .context
+        .db()
+        .pending_envelope(&key, Cursor(7))??
+        .envelope;
+    assert_eq!(stored, raw(7));
+    let stored_meta = wire::ServerEnvelope::decode(stored.as_slice())?.meta?;
+    assert_eq!(stored_meta.message_hash, meta(&topic, 7).message_hash);
+    let future = Future::decode(stored.as_slice())?.envelope?.welcome?;
+    assert_eq!(future.variant, [9; 40]);
+}
+
 // verifies: PROC-001
 #[xmtp_common::test(unwrap_try = true)]
 async fn byte_chunks_validate_the_complete_input_before_receipt() {
@@ -3782,22 +3855,26 @@ async fn byte_chunks_validate_the_complete_input_before_receipt() {
         meta: Some(meta(&topic, sequence)),
         envelope: Some(wire::ClientEnvelope::default()),
     };
+    let max_bytes = envelope(10).encoded_len() + 2;
     let client = client_with_policy(&alix, |settings| {
         settings.max_admission_rows = 8;
-        settings.max_admission_bytes = envelope(10).encoded_len() as u64;
+        settings.max_admission_bytes = max_bytes as u64;
     })
     .await?;
     let mut controller = controller(client.context.clone());
     let key = topic_key(&topic)?;
-    assert!(
-        controller
-            .admit_received_batch(OrderedEnvelopeBatch {
-                topic: topic.clone(),
-                after: Cursor(0),
-                envelopes: vec![envelope(10), envelope(5)],
-            })
-            .is_err()
-    );
+    // Unknown fields that fit when decoded still count at their received size.
+    let unknown = xmtp_proto::types::future_welcome_envelope(&meta(&topic, 10), &[9; 8]);
+    let unknown = ReceivedEnvelope::from_raw(unknown)?;
+    assert!(unknown.decode()?.encoded_len() <= max_bytes && unknown.raw().len() > max_bytes);
+    for envelopes in [vec![envelope(10).into(), envelope(5).into()], vec![unknown]] {
+        let batch = OrderedEnvelopeBatch {
+            topic: topic.clone(),
+            after: Cursor(0),
+            envelopes,
+        };
+        assert!(controller.admit_received_batch(batch).is_err());
+    }
     assert_eq!(
         client.context.db().topic_progress(&key)?.received,
         Cursor(0)
@@ -3805,7 +3882,7 @@ async fn byte_chunks_validate_the_complete_input_before_receipt() {
     controller.admit_received_batch(OrderedEnvelopeBatch {
         topic: topic.clone(),
         after: Cursor(0),
-        envelopes: vec![envelope(10), envelope(20)],
+        envelopes: vec![envelope(10).into(), envelope(20).into()],
     })?;
     assert_eq!(
         client.context.db().topic_progress(&key)?.received,
@@ -3916,7 +3993,11 @@ async fn an_invalid_supported_head_does_not_hold_a_later_valid_message() {
         OrderedEnvelopeBatch {
             topic: topic.clone(),
             after: before.received,
-            envelopes: [invalid, tampered].into_iter().chain(envelopes).collect(),
+            envelopes: [invalid, tampered]
+                .into_iter()
+                .chain(envelopes)
+                .map(Into::into)
+                .collect(),
         },
     ))));
     assert!(controller.process_ready());
@@ -4007,7 +4088,7 @@ async fn an_invalid_supported_head_does_not_hold_a_later_valid_message() {
     controller.admit_received_batch(OrderedEnvelopeBatch {
         topic: topic.clone(),
         after: target,
-        envelopes: rows,
+        envelopes: rows.into_iter().map(Into::into).collect(),
     })?;
     let outcome = bo_group.process_pending_group_head(None)?;
     let GroupHeadOutcome::Progress {

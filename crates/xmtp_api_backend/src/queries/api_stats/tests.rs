@@ -5,7 +5,9 @@ use xmtp_proto::{api::ApiClientError, api_client::XmtpMlsBidiStreams};
 
 #[xmtp_common::async_trait]
 impl XmtpMlsBidiStreams for MockBackendClient {
-    type SubscribeStream = futures::stream::Empty<Result<SubscribeResponse, ApiClientError>>;
+    type SubscribeStream = futures::stream::Empty<
+        Result<xmtp_proto::types::ReceivedSubscribeResponse, ApiClientError>,
+    >;
     type Error = ApiClientError;
     fn host(&self) -> &str {
         "mock://stats"
@@ -40,8 +42,11 @@ async fn seven_rpc_counters_share_and_clear_without_changing_isolated_clients() 
         .times(1)
         .returning(|_| Ok(PublishResponse::default()));
     mock.expect_query()
-        .times(2)
+        .times(1)
         .returning(|_| Ok(QueryResponse::default()));
+    mock.expect_query_raw_envelopes()
+        .times(1)
+        .returning(|_| Ok(Default::default()));
     mock.expect_query_newest()
         .times(3)
         .returning(|_| Ok(QueryNewestResponse::default()));
@@ -68,9 +73,8 @@ async fn seven_rpc_counters_share_and_clear_without_changing_isolated_clients() 
             .await?;
     }
     client.publish(PublishRequest::default()).await?;
-    for _ in 0..2 {
-        shared.query(QueryRequest::default()).await?;
-    }
+    shared.query(QueryRequest::default()).await?;
+    shared.query_raw_envelopes(QueryRequest::default()).await?;
     for _ in 0..3 {
         client.query_newest(QueryNewestRequest::default()).await?;
     }

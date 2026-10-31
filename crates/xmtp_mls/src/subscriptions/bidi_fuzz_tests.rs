@@ -22,7 +22,8 @@ use xmtp_api_backend::{
     BackendBinding, BidiConnection, BidiEvent, BidiTransport, DEFAULT_LEASE_DEPTH, LeaseEvent,
     OpenError, TopicLease, TransportBinding,
 };
-use xmtp_proto::backend_v1::{ServerEnvelope, subscribe_request::Update};
+use xmtp_proto::backend_v1::subscribe_request::Update;
+use xmtp_proto::types::ReceivedEnvelope;
 use xmtp_proto::types::Topic;
 
 /// Wall-clock guard for the settle phases (catch-up completion, sentinel
@@ -77,8 +78,8 @@ async fn joined_groups(
     .expect("producer never received every group welcome")
 }
 
-fn gm_parts(message: &ServerEnvelope) -> Option<(Topic, u64)> {
-    let meta = message.meta.as_ref()?;
+fn gm_parts(message: &ReceivedEnvelope) -> Option<(Topic, u64)> {
+    let meta = message.meta()?;
     Some((
         Topic::parse(&meta.topic.as_ref()?.topic).ok()?,
         meta.cursor.as_ref()?.sequence_id,
@@ -89,8 +90,8 @@ fn mutate(adds: Vec<(Topic, u64)>, id: u64) -> Update {
     BackendBinding::build_mutate(adds, [], id)
 }
 
-fn wm_cursor(message: &ServerEnvelope) -> Option<u64> {
-    Some(message.meta.as_ref()?.cursor.as_ref()?.sequence_id)
+fn wm_cursor(message: &ReceivedEnvelope) -> Option<u64> {
+    Some(message.meta()?.cursor.as_ref()?.sequence_id)
 }
 
 fn remove_mutate(topic: Topic, id: u64) -> Update {

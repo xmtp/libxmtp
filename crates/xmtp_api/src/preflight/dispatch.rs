@@ -24,6 +24,13 @@ impl<A: XmtpBackendClient> XmtpBackendClient for GuardedApi<A> {
         self.check_preflight().await?;
         self.raw.query(request).await.map_err(dyn_err)
     }
+    async fn query_raw_envelopes(
+        &self,
+        request: wire::QueryRequest,
+    ) -> Result<ReceivedQueryResponse> {
+        self.check_preflight().await?;
+        self.raw.query_raw_envelopes(request).await.map_err(dyn_err)
+    }
     async fn query_newest(
         &self,
         request: wire::QueryNewestRequest,
@@ -174,7 +181,7 @@ impl<A> XmtpMlsBidiStreams for GuardedApi<A>
 where A: XmtpMlsBidiStreams + XmtpBackendClient, A::SubscribeStream: 'static,
 {
     type Error = ApiError;
-    type SubscribeStream = xmtp_common::BoxDynStream<'static, Result<wire::SubscribeResponse>>;
+    type SubscribeStream = xmtp_common::BoxDynStream<'static, Result<ReceivedSubscribeResponse>>;
     fn host(&self) -> &str { self.raw.host() }
     fn bidi_limits(&self) -> Arc<xmtp_configuration::LimitsConfiguration> { self.raw.bidi_limits() }
     async fn subscribe_bidi(&self, requests: futures::stream::BoxStream<'static, wire::SubscribeRequest>) -> Result<Self::SubscribeStream> {

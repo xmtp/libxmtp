@@ -1333,16 +1333,9 @@ mod tests {
 
         // Before the deadline the row is retained, not removed.
         service.retry_blocked_welcomes_after(Cursor(0)).unwrap();
-        assert!(
-            db.pending_envelope(&service.topic(), cursor)
-                .unwrap()
-                .is_some()
-        );
+        let retained = db.pending_envelope(&service.topic(), cursor).unwrap();
         assert_eq!(
-            db.pending_envelope(&service.topic(), cursor)
-                .unwrap()
-                .unwrap()
-                .unreadable_expires_at_ns,
+            retained.expect("retained").unreadable_expires_at_ns,
             Some(deadline),
             "a retry must not extend the first deadline"
         );
@@ -2029,11 +2022,12 @@ mod tests {
         // Preserve the real pointer and keys while simulating a replica that
         // temporarily cannot return a pointee the old client had already read.
         let mut api = xmtp_api_backend::MockBackendClient::new();
-        api.expect_query().returning(|_| {
+        api.expect_query_raw_envelopes().returning(|_| {
             Ok(xmtp_proto::backend_v1::QueryResponse {
                 envelopes: vec![],
                 continuation: Some(xmtp_proto::backend_v1::Continuation { has_more: false }),
-            })
+            }
+            .into())
         });
         let missing_client = crate::builder::ClientBuilder::from_client(bo.client.clone())
             .api_client(std::sync::Arc::new(api))
@@ -2212,7 +2206,7 @@ mod tests {
         .unwrap();
 
         let mut api = xmtp_api_backend::MockBackendClient::new();
-        api.expect_query().returning(move |request| {
+        api.expect_query_raw_envelopes().returning(move |request| {
             let status = match failure {
                 PointeeQueryFailure::Unavailable => {
                     tonic::Status::unavailable("pointee query unavailable")
@@ -2235,7 +2229,8 @@ mod tests {
                             envelope: None,
                         }],
                         continuation: Some(wire::Continuation { has_more: false }),
-                    });
+                    }
+                    .into());
                 }
             };
             Err(xmtp_proto::api::ApiClientError::client(

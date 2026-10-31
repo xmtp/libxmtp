@@ -468,7 +468,7 @@ async fn malformed_welcome_pointer_is_rejected_before_retrieval() {
 
     // Resolve through a backend that fails the test on any query.
     let mut api = xmtp_api_backend::MockBackendClient::new();
-    api.expect_query().never();
+    api.expect_query_raw_envelopes().never();
     let offline = crate::builder::ClientBuilder::from_client(bo.client.clone())
         .api_client(std::sync::Arc::new(api))
         .config_provider(std::sync::Arc::new(
@@ -766,11 +766,12 @@ async fn test_welcome_pointer_pending_retry_resolution(#[case] unsupported: bool
         // Keep the real Welcome and keys, but make pointee queries temporarily
         // return no data, as a lagging replica can after a previously good read.
         let mut api = xmtp_api_backend::MockBackendClient::new();
-        api.expect_query().returning(|_| {
+        api.expect_query_raw_envelopes().returning(|_| {
             Ok(xmtp_proto::backend_v1::QueryResponse {
                 envelopes: vec![],
                 continuation: Some(xmtp_proto::backend_v1::Continuation { has_more: false }),
-            })
+            }
+            .into())
         });
         let missing_client = crate::builder::ClientBuilder::from_client(bo.client.clone())
             .api_client(std::sync::Arc::new(api))

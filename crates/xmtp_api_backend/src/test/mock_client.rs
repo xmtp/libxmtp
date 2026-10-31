@@ -12,6 +12,7 @@ mockall::mock! {
 async fn publish(&self, request: PublishRequest) -> Result<PublishResponse, ApiClientError>;
 async fn create_upload(&self, request: CreateUploadRequest) -> Result<CreateUploadResponse, ApiClientError>;
 async fn query(&self, request: QueryRequest) -> Result<QueryResponse, ApiClientError>;
+async fn query_raw_envelopes(&self, request: QueryRequest) -> Result<xmtp_proto::types::ReceivedQueryResponse, ApiClientError>;
 async fn query_newest(&self, request: QueryNewestRequest) -> Result<QueryNewestResponse, ApiClientError>;
 async fn get_inbox_ids(&self, request: GetInboxIdsRequest) -> Result<GetInboxIdsResponse, ApiClientError>;
 async fn get_configuration(&self, request: GetConfigurationRequest) -> Result<GetConfigurationResponse, ApiClientError>;

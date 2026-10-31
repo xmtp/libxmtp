@@ -59,6 +59,12 @@ impl XmtpBackendClient for ScriptedApi {
         );
         Ok(Default::default())
     }
+    async fn query_raw_envelopes(
+        &self,
+        request: wire::QueryRequest,
+    ) -> Result<xmtp_proto::types::ReceivedQueryResponse, Self::Error> {
+        self.query(request).await.map(Into::into)
+    }
     async fn query_newest(
         &self,
         _: wire::QueryNewestRequest,
@@ -193,8 +199,10 @@ impl XmtpBackendClient for ScriptedApi {
 #[xmtp_common::async_trait]
 impl xmtp_proto::api_client::XmtpMlsBidiStreams for ScriptedApi {
     type Error = ApiClientError;
-    type SubscribeStream =
-        futures::stream::BoxStream<'static, Result<wire::SubscribeResponse, ApiClientError>>;
+    type SubscribeStream = futures::stream::BoxStream<
+        'static,
+        Result<xmtp_proto::types::ReceivedSubscribeResponse, ApiClientError>,
+    >;
     fn host(&self) -> &str {
         NEW
     }

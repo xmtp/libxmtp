@@ -352,7 +352,7 @@ impl Driver {
                         }
                         Some(LeaseEvent::GroupMessages(batch)) => {
                             for message in &batch {
-                                let meta = message.meta.as_ref().expect("missing metadata");
+                                let meta = message.meta().expect("missing metadata");
                                 let topic = self.topic_index
                                     [&meta.topic.as_ref().expect("missing topic").topic];
                                 let id = meta.cursor.as_ref().expect("missing cursor").sequence_id;
@@ -600,7 +600,7 @@ async fn run_ordered_backlog(
         assert_eq!(starts.get(topic), Some(&Cursor(*position)));
     }
 
-    let mut expected: HashMap<Topic, Vec<ServerEnvelope>> = HashMap::new();
+    let mut expected: HashMap<Topic, Vec<xmtp_proto::types::ReceivedEnvelope>> = HashMap::new();
     let mut count = 0;
     for frame in 0..3 {
         // Repeated topics guarantee that bypassing the splitter exceeds a
@@ -613,7 +613,7 @@ async fn run_ordered_backlog(
                 expected
                     .entry(Topic::new_group_message(gid(topic)))
                     .or_default()
-                    .push(envelope.clone());
+                    .push(envelope.clone().into());
                 envelope
             })
             .collect();
@@ -621,7 +621,7 @@ async fn run_ordered_backlog(
     }
 
     let mut positions: HashMap<_, _> = subs.into_iter().map(|(t, c)| (t, Cursor(c))).collect();
-    let mut actual: HashMap<Topic, Vec<ServerEnvelope>> = HashMap::new();
+    let mut actual: HashMap<Topic, Vec<xmtp_proto::types::ReceivedEnvelope>> = HashMap::new();
     let mut received = 0;
     let mut chunks = 0;
     while received < count {
@@ -644,7 +644,7 @@ async fn run_ordered_backlog(
             batch
                 .envelopes
                 .iter()
-                .map(Message::encoded_len)
+                .map(|envelope| envelope.raw().len())
                 .sum::<usize>()
                 <= limits.max_bytes,
             "byte limit bypassed"
@@ -655,7 +655,7 @@ async fn run_ordered_backlog(
             "broken cursor chain at chunk {chunks}"
         );
         for envelope in &batch.envelopes {
-            let meta = envelope.meta.as_ref().unwrap();
+            let meta = envelope.meta().unwrap();
             assert_eq!(meta.topic.as_ref().unwrap().topic, batch.topic.cloned_vec());
             let cursor = Cursor(meta.cursor.as_ref().unwrap().sequence_id);
             assert!(cursor > *position, "duplicate or reordered envelope");

@@ -44,7 +44,7 @@ async fn fold_ordered_pages_hands_one_bounded_page_at_a_time(
     let queried_pages = calls.clone();
     let expected_pages = stop_at.unwrap_or(PAGE_COUNT);
     let mut mock = MockBackendClient::new();
-    mock.expect_query()
+    mock.expect_query_raw_envelopes()
         .times(expected_pages)
         .returning(move |request| {
             let page = queried_pages.fetch_add(1, Ordering::SeqCst);
@@ -61,7 +61,8 @@ async fn fold_ordered_pages_hands_one_bounded_page_at_a_time(
                 continuation: Some(wire::Continuation {
                     has_more: page + 1 < PAGE_COUNT,
                 }),
-            })
+            }
+            .into())
         });
 
     let mut folded_pages = 0;
@@ -82,7 +83,7 @@ async fn fold_ordered_pages_hands_one_bounded_page_at_a_time(
                     batch
                         .envelopes
                         .iter()
-                        .map(Message::encoded_len)
+                        .map(|envelope| envelope.raw().len())
                         .sum::<usize>()
                         <= PAGE_BYTES
                 );
@@ -117,7 +118,7 @@ async fn fold_ordered_pages_stops_a_removed_topic(#[case] remove_all: bool) -> c
     let response_b = b.clone();
     let mut queried_pages = 0;
     let mut mock = MockBackendClient::new();
-    mock.expect_query()
+    mock.expect_query_raw_envelopes()
         .times(if remove_all { 1 } else { 3 })
         .returning(move |request| {
             let positions: HashMap<_, _> = request
@@ -144,7 +145,8 @@ async fn fold_ordered_pages_stops_a_removed_topic(#[case] remove_all: bool) -> c
                 continuation: Some(wire::Continuation {
                     has_more: queried_pages < 3,
                 }),
-            })
+            }
+            .into())
         });
 
     let mut folded_pages = 0;

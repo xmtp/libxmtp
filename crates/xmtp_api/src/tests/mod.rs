@@ -1021,22 +1021,25 @@ async fn query_first_welcome_requests_one_envelope() {
     let destination = InstallationId::from([7; 32]);
     let topic = Topic::new_welcome_message(destination);
     let mut mock = MockBackendClient::new();
-    mock.expect_query().times(1).returning(move |request| {
-        assert_eq!(request.limit, 1);
-        let [query] = request.queries.as_slice() else {
-            panic!("expected one topic");
-        };
-        assert_eq!(query.topic.as_ref().unwrap().topic, topic.cloned_vec());
-        assert_eq!(query.cursor.as_ref().unwrap().sequence_id, 0);
-        let mut row = query_row(&topic, 5);
-        row.meta.as_mut().unwrap().message_hash = Some(wire::MessageHash {
-            hash: Some(wire::message_hash::Hash::Sha256(vec![7; 32])),
+    mock.expect_query_raw_envelopes()
+        .times(1)
+        .returning(move |request| {
+            assert_eq!(request.limit, 1);
+            let [query] = request.queries.as_slice() else {
+                panic!("expected one topic");
+            };
+            assert_eq!(query.topic.as_ref().unwrap().topic, topic.cloned_vec());
+            assert_eq!(query.cursor.as_ref().unwrap().sequence_id, 0);
+            let mut row = query_row(&topic, 5);
+            row.meta.as_mut().unwrap().message_hash = Some(wire::MessageHash {
+                hash: Some(wire::message_hash::Hash::Sha256(vec![7; 32])),
+            });
+            Ok(wire::QueryResponse {
+                envelopes: vec![row],
+                continuation: Some(wire::Continuation { has_more: true }),
+            }
+            .into())
         });
-        Ok(wire::QueryResponse {
-            envelopes: vec![row],
-            continuation: Some(wire::Continuation { has_more: true }),
-        })
-    });
     let first = wrapper(mock)
         .query_first_welcome(destination, 4096)
         .await?
