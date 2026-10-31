@@ -178,6 +178,13 @@ reason = "PR 3 (Task 7): DecodedMessage maps GroupError."
 
 [[waivers]]
 from = "server_config"
+to = "core"
+tier = "path"
+count = 1
+reason = "Task 16: server_configuration::worker re-exports the core config refresh worker at its old public path until server_config becomes a crate and the facade keeps the path."
+
+[[waivers]]
+from = "server_config"
 to = "facade"
 tier = "path"
 count = 1
@@ -245,13 +252,6 @@ existing = [
 # Each edge has the same cause and owner as its path waiver.
 
 [[waivers]]
-from = "attachments"
-to = "facade"
-tier = "call"
-count = 3
-reason = "PR 4 (Task 11): attachments reads Client; it moves behind the attachments feature slot."
-
-[[waivers]]
 from = "core"
 to = "attachments"
 tier = "call"
@@ -262,35 +262,35 @@ reason = "PR 4 (Task 11): the context's attachments field becomes a feature slot
 from = "core"
 to = "device_sync"
 tier = "call"
-count = 22
+count = 13
 reason = "PR 4 (Tasks 10-11): the context names DeviceSyncClient; the worker framework opens for the device-sync task and its error."
 
 [[waivers]]
 from = "core"
 to = "engine"
 tier = "call"
-count = 16
+count = 14
 reason = "PR 4 (Task 11): the context's incoming field becomes a feature slot; PR 4 (Task 10): the task runner loads MlsGroup for group tasks."
 
 [[waivers]]
 from = "core"
 to = "facade"
 tier = "call"
-count = 45
+count = 40
 reason = "PR 3 (Tasks 7-9): preflight and the config refresh worker return ClientError; PR 5 (Task 12) moves the test lock."
 
 [[waivers]]
 from = "core"
 to = "identity"
 tier = "call"
-count = 15
+count = 12
 reason = "PR 3 (Task 8): IdentityError wraps IdentityUpdateError; Task 17 moves identity_ext with the identity crate; PR 4 (Task 11) gives identity resolution a feature slot; PR 4 (Task 10) moves key-package maintenance out of the task runner."
 
 [[waivers]]
 from = "core"
 to = "notifications"
 tier = "call"
-count = 10
+count = 5
 reason = "PR 4 (Task 10): the task runner calls the notification handler and hash directly."
 
 [[waivers]]
@@ -311,57 +311,43 @@ reason = "PR 3 (Task 7): DeviceSyncError wraps SubscribeError."
 from = "engine"
 to = "device_sync"
 tier = "call"
-count = 7
+count = 3
 reason = "PR 3 (Task 7): removes GroupError::DeviceSync."
 
 [[waivers]]
 from = "engine"
 to = "facade"
 tier = "call"
-count = 79
+count = 63
 reason = "PR 3 (Tasks 7-9): engine errors wrap ClientError; PR 5 (Task 12) moves the test lock, test hooks and test-only helpers."
 
 [[waivers]]
 from = "engine"
 to = "streams"
 tier = "call"
-count = 25
+count = 16
 reason = "PR 3 (Task 7) and PR 7 (Task 20): engine errors and the receiver name stream types."
 
 [[waivers]]
 from = "identity"
 to = "engine"
 tier = "call"
-count = 19
+count = 6
 reason = "PR 3 (Task 8): inbox_handles errors wrap GroupError."
 
 [[waivers]]
 from = "identity"
 to = "facade"
 tier = "call"
-count = 94
+count = 71
 reason = "PR 3 (Task 8): identity errors wrap ClientError; PR 5 (Task 12) moves the key-package test hook."
 
 [[waivers]]
 from = "messages"
 to = "engine"
 tier = "call"
-count = 6
+count = 4
 reason = "PR 3 (Task 7): DecodedMessage maps GroupError."
-
-[[waivers]]
-from = "notifications"
-to = "facade"
-tier = "call"
-count = 2
-reason = "PR 2 (Task 6): Client notification methods move to the facade file."
-
-[[waivers]]
-from = "server_config"
-to = "core"
-tier = "call"
-count = 2
-reason = "PR 2 (Task 5): preflight binding and refresh move with the core worker."
 
 [[waivers]]
 from = "server_config"
@@ -372,14 +358,7 @@ reason = "PR 3 (Task 7): blocked_or returns ClientError."
 
 [[waivers]]
 from = "streams"
-to = "device_sync"
-tier = "call"
-count = 6
-reason = "PR 2 (Task 5): preference events move to core."
-
-[[waivers]]
-from = "streams"
 to = "facade"
 tier = "call"
-count = 56
+count = 9
 reason = "PR 3 (Task 7): stream errors wrap ClientError; PR 6+ moves the Client entry points."
