@@ -266,7 +266,6 @@ pub fn references(
                 continue;
             };
             let relative = file.strip_prefix(workspace).unwrap_or(file).to_path_buf();
-            let module = krate.module_of(file).cloned().unwrap_or_default();
             let in_tests = |occurrence: &proto::Occurrence| {
                 occurrence
                     .range
@@ -308,7 +307,10 @@ pub fn references(
                     continue;
                 }
                 let from = owner_of(&owners, at).map_or_else(
-                    || target_of(config, &module, &[]),
+                    || {
+                        let module = krate.module_at(file, at.0 as usize + 1);
+                        target_of(config, module.map_or(&[][..], Vec::as_slice), &[])
+                    },
                     |owner| target_of(config, &owner.module, &owner.item),
                 );
                 let to = target_of(config, &symbol.module, &symbol.item);

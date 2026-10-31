@@ -41,6 +41,9 @@ struct Unit {
     items: Vec<syn::Item>,
     /// The builds the module is compiled in.
     builds: BTreeSet<Build>,
+    /// The lines of an inline module in `file`; `None` for a module that is
+    /// its file.
+    lines: Option<std::ops::RangeInclusive<usize>>,
 }
 
 pub struct Crate {
@@ -546,7 +549,7 @@ impl Crate {
             test_lines: BTreeMap::new(),
         };
         let dir = lib.parent().context("the crate root has no directory")?;
-        krate.load_items(parse(lib)?, vec![], lib, dir, Build::ALL.into())?;
+        krate.load_items(parse(lib)?, vec![], lib, dir, Build::ALL.into(), None)?;
         /// Code that neither tier reads as written, by line: modules declared
         /// in a block or in macro arguments, and local macros named like one
         /// that never evaluates its arguments.
@@ -691,6 +694,7 @@ impl Crate {
         file: &Path,
         child_dir: &Path,
         builds: BTreeSet<Build>,
+        lines: Option<std::ops::RangeInclusive<usize>>,
     ) -> Result<()> {
         self.modules.entry(module.clone()).or_default();
         for item in &items {
@@ -728,7 +732,10 @@ impl Crate {
                         .copied()
                         .filter(|build| build.holds_for(&item.attrs))
                         .collect();
-                    self.load_items(children, child, &source, &grandchildren, builds)?;
+                    let lines = item.content.as_ref().map(|(brace, _)| {
+                        item.mod_token.span.start().line..=brace.span.close().end().line
+                    });
+                    self.load_items(children, child, &source, &grandchildren, builds, lines)?;
                 }
                 _ => {}
             }
@@ -738,6 +745,7 @@ impl Crate {
             file: file.to_path_buf(),
             items,
             builds,
+            lines,
         });
         Ok(())
     }
@@ -746,11 +754,18 @@ impl Crate {
         self.modules.entry(module.clone()).or_default()
     }
 
-    /// The module a file's top-level items belong to.
-    pub fn module_of(&self, file: &Path) -> Option<&ModPath> {
+    /// The innermost module that 1-based `line` of `file` lies in.
+    pub fn module_at(&self, file: &Path, line: usize) -> Option<&ModPath> {
         self.units
             .iter()
-            .find(|unit| unit.file == file)
+            .filter(|unit| {
+                unit.file == file
+                    && unit
+                        .lines
+                        .as_ref()
+                        .is_none_or(|lines| lines.contains(&line))
+            })
+            .max_by_key(|unit| unit.module.len())
             .map(|unit| &unit.module)
     }
 
@@ -1214,6 +1229,26 @@ impl Collector<'_> {
         }
     }
 
+    /// Record a relative path of two or more segments written in this
+    /// module: from `crate`, `super` or `self`, or through an imported name.
+    fn record_path(&mut self, segments: Vec<String>) {
+        let first = segments[0].as_str();
+        if ["crate", "super", "self"].contains(&first) {
+            self.record(segments);
+        } else if let Some(binding) = self.bound(first).cloned() {
+            let mut full = binding.clone();
+            full.extend(segments[1..].iter().cloned());
+            self.record_beyond(&binding, full);
+        } else if self
+            .krate
+            .modules
+            .get(self.module)
+            .is_some_and(|info| info.aliases.contains_key(first))
+        {
+            self.record_beyond(&segments[..1], segments.clone());
+        }
+    }
+
     fn scan_tokens(&mut self, tokens: TokenStream) {
         let tokens: Vec<TokenTree> = tokens.into_iter().collect();
         let mut index = 0;
@@ -1223,12 +1258,11 @@ impl Collector<'_> {
                 index += 1;
                 continue;
             }
+            let after_colons = index >= 2
+                && matches!(&tokens[index - 1], TokenTree::Punct(p) if p.as_char() == ':')
+                && matches!(&tokens[index - 2], TokenTree::Punct(p) if p.as_char() == ':');
             let start = match &tokens[index] {
-                TokenTree::Ident(ident)
-                    if ["crate", "super", "self"].contains(&ident.to_string().as_str()) =>
-                {
-                    Some(ident.to_string())
-                }
+                TokenTree::Ident(ident) if !after_colons => Some(ident.to_string()),
                 _ => None,
             };
             let Some(start) = start else {
@@ -1249,8 +1283,13 @@ impl Collector<'_> {
                 segments.push(ident.to_string());
                 next += 3;
             }
-            if segments.len() > 1 {
-                self.record(segments);
+            let root = segments
+                .iter()
+                .take(segments.len().saturating_sub(1))
+                .position(|segment| ["crate", "super", "self"].contains(&segment.as_str()))
+                .unwrap_or(0);
+            if segments.len() > root + 1 {
+                self.record_path(segments[root..].to_vec());
             }
             index = next;
         }
@@ -1331,21 +1370,7 @@ impl<'ast> Visit<'ast> for Collector<'_> {
             .map(|segment| segment.ident.to_string())
             .collect();
         if segments.len() > 1 && path.leading_colon.is_none() {
-            let first = segments[0].as_str();
-            if ["crate", "super", "self"].contains(&first) {
-                self.record(segments);
-            } else if let Some(binding) = self.bound(first).cloned() {
-                let mut full = binding.clone();
-                full.extend(segments[1..].iter().cloned());
-                self.record_beyond(&binding, full);
-            } else if self
-                .krate
-                .modules
-                .get(self.module)
-                .is_some_and(|info| info.aliases.contains_key(first))
-            {
-                self.record_beyond(&segments[..1], segments.clone());
-            }
+            self.record_path(segments);
         }
         syn::visit::visit_path(self, path);
     }

@@ -668,6 +668,47 @@ fn an_uncovered_call_of_a_method_the_crate_defines_is_refused() {
 }
 
 #[xmtp_common::test]
+fn a_path_in_macro_arguments_through_an_imported_name_is_followed() {
+    for low in [
+        "pub struct Low;\nuse crate::low as l;\npub fn engine_part() -> bool { true }\npub fn f() { assert!(l::engine_part()); }\n",
+        "pub struct Low;\nmacro_rules! tagged { ($tag:ident :: $p:path) => { $p }; }\npub fn f() { let _ = tagged!(tag::crate::high::Engine); }\n",
+        "pub struct Low;\nuse crate::low as l;\npub fn engine_part() -> bool { true }\nmacro_rules! invoke { ($m:ident :: $f:ident :: self) => { $m::$f() }; }\npub fn f() { invoke!(l::engine_part::self); }\n",
+    ] {
+        let dir = workspace(low, &[]);
+        assert_one_problem(
+            &problems(dir.path(), CONFIG, None),
+            "edge core -> engine is not allowed (path tier, 1 references)",
+        );
+    }
+}
+
+#[xmtp_common::test]
+fn module_level_code_belongs_to_the_innermost_module_around_it() {
+    let config = CONFIG.replace(
+        "\"high\" = \"engine\"",
+        "\"high\" = \"engine\"\n\"low::inner\" = \"engine\"",
+    );
+    let low = "pub struct Low;\npub mod inner {\n    use crate::high::Engine;\n    pub fn g() {}\n}\nuse crate::high::Engine;\n";
+    let dir = workspace(low, &[]);
+    let occurrences = vec![
+        occurrence(2, "high/Engine#", false),
+        with_body(occurrence(3, "low/inner/g().", true), (3, 4), (3, 17)),
+        occurrence(5, "high/Engine#", false),
+    ];
+    let problems = call_tier(
+        dir.path(),
+        &config,
+        &indexes(dir.path(), &occurrences, &occurrences),
+    )
+    .unwrap();
+    assert!(
+        problems.iter().any(|problem| problem
+            .contains("edge core -> engine is not allowed (call tier, 1 references)")),
+        "{problems:#?}"
+    );
+}
+
+#[xmtp_common::test]
 fn module_level_code_after_an_item_belongs_to_the_module() {
     let low = "pub struct Low;\npub fn engine_part() {}\nuse crate::high::Engine;\n";
     let dir = workspace(low, &[]);

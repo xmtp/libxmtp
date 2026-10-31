@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import sys
 import tempfile
+import time
 import unittest
 from unittest import mock
 
@@ -88,6 +89,65 @@ class TimingRunTests(unittest.TestCase):
                 [sys.executable, "-c", "import time; time.sleep(5)"],
             )
         self.assertEqual(self.file.read_text(), "fn main() {}\n")
+
+    def test_a_stopped_run_stops_the_processes_its_command_started(self):
+        marker = Path(self.temp.name) / "child-ran"
+        child = f"import pathlib, time; time.sleep(0.5); pathlib.Path({str(marker)!r}).write_text('x')"
+        command = [
+            sys.executable,
+            "-c",
+            f"import subprocess, sys, time; subprocess.Popen([sys.executable, '-c', {child!r}]); time.sleep(5)",
+        ]
+        with (
+            mock.patch.object(timing, "other_builds", side_effect=[[], ["42 rustc"]]),
+            mock.patch.object(timing, "POLL_SECONDS", 0.1),
+            self.assertRaisesRegex(SystemExit, "another build started during the run"),
+        ):
+            timing.run_once(self.file, "xmtp_mls", "fn main() {}\n", command)
+        time.sleep(1)
+        self.assertFalse(marker.exists())
+
+    def test_an_interrupted_run_stops_its_processes_and_restores_the_file(self):
+        marker = Path(self.temp.name) / "child-ran"
+        child = f"import pathlib, time; time.sleep(0.5); pathlib.Path({str(marker)!r}).write_text('x')"
+        command = [
+            sys.executable,
+            "-c",
+            f"import subprocess, sys, time; subprocess.Popen([sys.executable, '-c', {child!r}]); time.sleep(5)",
+        ]
+        with (
+            mock.patch.object(
+                timing, "other_builds", side_effect=[[], KeyboardInterrupt()]
+            ),
+            mock.patch.object(timing, "POLL_SECONDS", 0.1),
+            self.assertRaises(KeyboardInterrupt),
+        ):
+            timing.run_once(self.file, "xmtp_mls", "fn main() {}\n", command)
+        time.sleep(1)
+        self.assertFalse(marker.exists())
+        self.assertEqual(self.file.read_text(), "fn main() {}\n")
+
+    def test_processes_left_by_a_finished_command_are_stopped(self):
+        marker = Path(self.temp.name) / "child-ran"
+        child = f"import pathlib, time; time.sleep(0.5); pathlib.Path({str(marker)!r}).write_text('x')"
+        command = [
+            sys.executable,
+            "-c",
+            f"import subprocess, sys; subprocess.Popen([sys.executable, '-c', {child!r}]); sys.stderr.write('   Compiling xmtp_mls v1 (/y)\\n')",
+        ]
+        timing.run_once(self.file, "xmtp_mls", "fn main() {}\n", command)
+        time.sleep(1)
+        self.assertFalse(marker.exists())
+
+    def test_an_edit_made_during_the_run_is_kept(self):
+        command = [
+            sys.executable,
+            "-c",
+            f"import pathlib, sys; pathlib.Path({str(self.file)!r}).write_text('saved'); sys.stderr.write('   Compiling xmtp_mls v1 (/y)\\n')",
+        ]
+        with self.assertRaisesRegex(SystemExit, "changed during the run"):
+            timing.run_once(self.file, "xmtp_mls", "fn main() {}\n", command)
+        self.assertEqual(self.file.read_text(), "saved")
 
     def test_a_build_seen_only_after_the_run_stops_it(self):
         with (

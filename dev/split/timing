@@ -29,6 +29,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import signal
 import statistics
 import subprocess
 import sys
@@ -139,7 +140,9 @@ def run_once(path: Path, package: str, original: str, command: list[str]) -> dic
             f"another build is running ({', '.join(busy)}); time on an idle machine"
         )
     probe = f"split_timing_probe_{uuid.uuid4().hex}"
-    path.write_text(f"{original}\n#[allow(dead_code)]\nfn {probe}() {{}}\n")
+    edited = f"{original}\n#[allow(dead_code)]\nfn {probe}() {{}}\n"
+    path.write_text(edited)
+    process = None
     try:
         before = load()
         start = time.monotonic()
@@ -151,6 +154,7 @@ def run_once(path: Path, package: str, original: str, command: list[str]) -> dic
                 stdout=subprocess.DEVNULL,
                 stderr=stderr,
                 text=True,
+                start_new_session=True,
             )
             while True:
                 try:
@@ -160,8 +164,6 @@ def run_once(path: Path, package: str, original: str, command: list[str]) -> dic
                     pass
                 busy = other_builds(process.pid)
                 if busy:
-                    process.kill()
-                    process.wait()
                     raise SystemExit(
                         f"another build started during the run ({', '.join(busy)}); "
                         "time on an idle machine"
@@ -176,6 +178,14 @@ def run_once(path: Path, package: str, original: str, command: list[str]) -> dic
             stderr.seek(0)
             output = stderr.read()
     finally:
+        if process is not None:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            process.wait()
+        if path.read_text() != edited:
+            raise SystemExit(f"{path} changed during the run; it is left as it is")
         path.write_text(original)
     if process.returncode != 0:
         sys.stderr.write(output)
