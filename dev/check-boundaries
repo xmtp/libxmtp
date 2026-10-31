@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+# Check that crates/xmtp_mls keeps the dependency direction of the planned
+# crate split (crates/xmtp_mls/boundaries.toml).
+#
+#   dev/check-boundaries                 fast path tier
+#   dev/check-boundaries --base <ref>    also refuse waivers raised or added
+#                                        since <ref>'s boundaries.toml
+#   dev/check-boundaries --full          also the rust-analyzer call tier
+#   dev/check-boundaries --report        print every measured edge
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+CONFIG="crates/xmtp_mls/boundaries.toml"
+SCRATCH="$(mktemp -d)"
+trap 'rm -rf "$SCRATCH"' EXIT
+
+args=()
+full=false
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --base)
+      base_ref="$2"
+      shift 2
+      git -C "$ROOT" rev-parse --verify --quiet "$base_ref^{commit}" >/dev/null || {
+        echo "check-boundaries: $base_ref is not a commit" >&2
+        exit 2
+      }
+      if git -C "$ROOT" cat-file -e "$base_ref:$CONFIG" 2>/dev/null; then
+        git -C "$ROOT" show "$base_ref:$CONFIG" >"$SCRATCH/base.toml"
+        args+=(--base-config "$SCRATCH/base.toml")
+      else
+        echo "check-boundaries: $base_ref has no $CONFIG; nothing to compare" >&2
+      fi
+      ;;
+    --full)
+      full=true
+      shift
+      ;;
+    --report)
+      args+=(--report)
+      shift
+      ;;
+    *)
+      echo "check-boundaries: unknown argument $1" >&2
+      exit 2
+      ;;
+  esac
+done
+
+if [[ "$full" == true ]]; then
+  command -v rust-analyzer >/dev/null || {
+    echo "check-boundaries: --full needs rust-analyzer (the default dev/nix-shell has it)" >&2
+    exit 1
+  }
+  # Two builds with every feature on, so feature-gated modules have documents:
+  # native with test on, and wasm32 with test off. The tool counts the method
+  # calls neither build compiles.
+  echo '{"cargo":{"features":"all"}}' >"$SCRATCH/native.json"
+  echo '{"cargo":{"features":"all","target":"wasm32-unknown-unknown"},"cfg":{"setTest":false}}' \
+    >"$SCRATCH/wasm.json"
+  for build in native wasm; do
+    start=$(date +%s)
+    (cd "$ROOT" && rust-analyzer scip . --exclude-vendored-libraries \
+      --config-path "$SCRATCH/$build.json" --output "$SCRATCH/$build.scip")
+    echo "check-boundaries: $build SCIP index took $(($(date +%s) - start)) s" >&2
+  done
+  args+=(--scip "$SCRATCH/native.scip" --scip-wasm "$SCRATCH/wasm.scip")
+fi
+
+cd "$ROOT"
+cargo run --quiet --locked -p xmtp_mls_boundaries --bin check-boundaries -- \
+  --workspace "$ROOT" --config "$CONFIG" "${args[@]}"

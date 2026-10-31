@@ -136,6 +136,16 @@ jobs:
       contents: read
     with:
       runner: ${{ github.event_name == 'pull_request' && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
+  lint_boundaries:
+    name: xmtp_mls boundaries
+    needs:
+    - detect-changes
+    if: contains(fromJSON(needs.detect-changes.outputs.lint_suites), 'lint_boundaries')
+    uses: ./.github/workflows/lint-boundaries.yml
+    permissions:
+      contents: read
+    with:
+      runner: ${{ github.event_name == 'pull_request' && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
   lint_example_react_native:
     name: React Native example app
     needs:
@@ -489,6 +499,7 @@ jobs:
     - detect-changes
     - lint_config
     - nix_eval
+    - lint_boundaries
     - lint_example_react_native
     steps:
     - name: Check detection and the selected blocking lint suites

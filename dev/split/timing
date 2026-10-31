@@ -1,0 +1,309 @@
+#!/usr/bin/env python3.11
+"""Time the steady edit loops that the xmtp_mls split is meant to shorten.
+
+Usage: dev/split/timing [--runs N] [--seed-runs S] [--json FILE] [SCENARIO...]
+
+Each scenario appends a new private function to one file, so every run
+compiles changed code, times one cargo command, and restores the file. A run
+fails unless cargo reports compiling or checking the edited package, and the
+script stops when a cargo, rustc, nextest or rust-analyzer process outside
+the timed command runs before, during or right after a run; it looks once a
+second, so a build shorter than that can go unseen. The first S runs of each
+scenario seed Kache and incremental state and are discarded. Every run
+records the one-minute load average before and after. The report records the
+Cargo, rustc and Kache settings from the environment, every Cargo config file
+Cargo reads from here, and what `kache doctor` reports, with credentials
+redacted. Run it through `dev/nix-shell` on an otherwise idle machine, after
+one full build.
+
+The scenarios name today's paths and packages. A PR that moves the edited
+file or the test target updates SCENARIOS, so each checkpoint times the same
+edit.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+from pathlib import Path
+import re
+import shutil
+import statistics
+import subprocess
+import sys
+import tempfile
+import time
+import tomllib
+import uuid
+
+ROOT = Path(__file__).resolve().parents[2]
+
+# Processes that would share the machine with a timed run.
+BUILD_PROCESSES = ("cargo", "rustc", "cargo-nextest", "rust-analyzer")
+
+# Environment settings that change what a build does or how it caches.
+SETTING_PREFIXES = (
+    "CARGO_",
+    "RUSTC",
+    "RUSTFLAGS",
+    "RUSTDOCFLAGS",
+    "KACHE_",
+    "SCCACHE_",
+)
+SECRET = re.compile(r"KEY|SECRET|TOKEN|PASSWORD|CREDENTIAL|AUTH", re.IGNORECASE)
+# The user and password of a URL.
+URL_CREDENTIALS = re.compile(r"(://)[^/@\s\"']+@")
+
+# How often a timed run looks for other builds.
+POLL_SECONDS = 1.0
+
+# name: (file to edit, package it belongs to, command to time)
+SCENARIOS = {
+    # A production edit in group sync, then the test binary that covers it.
+    "production-edit": (
+        "crates/xmtp_mls/src/groups/mls_sync.rs",
+        "xmtp_mls",
+        ["cargo", "nextest", "run", "--locked", "--no-run", "-p", "xmtp_mls"],
+    ),
+    # A test edit, then its test binary.
+    "test-edit": (
+        "crates/xmtp_mls/src/groups/tests/test_dm.rs",
+        "xmtp_mls",
+        ["cargo", "nextest", "run", "--locked", "--no-run", "-p", "xmtp_mls"],
+    ),
+    # A production edit, then a check of every workspace target.
+    "check-tests": (
+        "crates/xmtp_mls/src/groups/mls_sync.rs",
+        "xmtp_mls",
+        ["cargo", "check", "--locked", "--workspace", "--tests"],
+    ),
+}
+
+
+def load() -> float:
+    return os.getloadavg()[0]
+
+
+def redact(value, key: str = ""):
+    """`value` with every value under a key that names a secret, and the
+    credentials of every URL, replaced."""
+    if SECRET.search(key):
+        return "<redacted>"
+    if isinstance(value, dict):
+        return {name: redact(item, name) for name, item in value.items()}
+    if isinstance(value, list):
+        return [redact(item, key) for item in value]
+    if isinstance(value, str):
+        return URL_CREDENTIALS.sub(r"\1<redacted>@", value)
+    return value
+
+
+def config_file(path: Path):
+    """A TOML config file's settings, redacted."""
+    try:
+        return redact(tomllib.loads(path.read_text()))
+    except tomllib.TOMLDecodeError:
+        return "<not valid TOML; not recorded>"
+
+
+def other_builds(own: int | None = None) -> list[str]:
+    """The build processes running now outside the process tree of `own`,
+    as "pid name"."""
+    listing = subprocess.run(
+        ["ps", "-Ao", "pid=,ppid=,comm="], check=True, stdout=subprocess.PIPE, text=True
+    ).stdout
+    processes = []
+    for line in listing.splitlines():
+        pid, ppid, command = line.split(None, 2)
+        processes.append((int(pid), int(ppid), Path(command.strip()).name))
+    tree = {own} if own is not None else set()
+    grew = True
+    while grew:
+        grew = False
+        for pid, ppid, _ in processes:
+            if ppid in tree and pid not in tree:
+                tree.add(pid)
+                grew = True
+    return [
+        f"{pid} {name}"
+        for pid, _, name in processes
+        if name in BUILD_PROCESSES and pid not in tree
+    ]
+
+
+def run_once(path: Path, package: str, original: str, command: list[str]) -> dict:
+    busy = other_builds()
+    if busy:
+        raise SystemExit(
+            f"another build is running ({', '.join(busy)}); time on an idle machine"
+        )
+    probe = f"split_timing_probe_{uuid.uuid4().hex}"
+    path.write_text(f"{original}\n#[allow(dead_code)]\nfn {probe}() {{}}\n")
+    try:
+        before = load()
+        start = time.monotonic()
+        with tempfile.TemporaryFile("w+") as stderr:
+            process = subprocess.Popen(
+                command,
+                cwd=ROOT,
+                env=dict(os.environ, SQLX_OFFLINE="true", CARGO_TERM_COLOR="never"),
+                stdout=subprocess.DEVNULL,
+                stderr=stderr,
+                text=True,
+            )
+            while True:
+                try:
+                    process.wait(timeout=POLL_SECONDS)
+                    break
+                except subprocess.TimeoutExpired:
+                    pass
+                busy = other_builds(process.pid)
+                if busy:
+                    process.kill()
+                    process.wait()
+                    raise SystemExit(
+                        f"another build started during the run ({', '.join(busy)}); "
+                        "time on an idle machine"
+                    )
+            seconds = time.monotonic() - start
+            after = load()
+            busy = other_builds()
+            if busy:
+                raise SystemExit(
+                    f"another build ran during the run ({', '.join(busy)}); time on an idle machine"
+                )
+            stderr.seek(0)
+            output = stderr.read()
+    finally:
+        path.write_text(original)
+    if process.returncode != 0:
+        sys.stderr.write(output)
+        raise SystemExit(f"{' '.join(command)} failed")
+    compiled = re.findall(r"^\s*(?:Compiling|Checking) (\S+) ", output, re.MULTILINE)
+    if package not in compiled:
+        raise SystemExit(
+            f"{' '.join(command)} did not compile {package}; the edit was not built"
+        )
+    return {
+        "seconds": round(seconds, 2),
+        "load_before": before,
+        "load_after": after,
+        "compiled": len(compiled),
+    }
+
+
+def environment() -> dict:
+    def output(*command: str) -> str:
+        return subprocess.run(
+            command, cwd=ROOT, check=True, stdout=subprocess.PIPE, text=True
+        ).stdout.strip()
+
+    cargo_home = Path(os.environ.get("CARGO_HOME", Path.home() / ".cargo"))
+    config_dirs = [directory / ".cargo" for directory in (ROOT, *ROOT.parents)]
+    config_files = [
+        directory / name
+        for directory in dict.fromkeys([*config_dirs, cargo_home])
+        for name in ("config.toml", "config")
+    ]
+    kache = None
+    if shutil.which("kache"):
+        doctor = subprocess.run(
+            ["kache", "doctor", "--json"],
+            cwd=ROOT,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            timeout=60,
+        )
+        checks = json.loads(doctor.stdout).get("checks", [])
+        files = {}
+        for check in checks:
+            if check.get("label") in ("Config file", "Host config"):
+                words = str(check.get("detail", "")).split(" ")
+                for count in range(len(words), 0, -1):
+                    path = Path(" ".join(words[:count]).rstrip(":")).expanduser()
+                    try:
+                        found = path.is_file()
+                    except OSError:
+                        continue
+                    if found:
+                        files[str(path)] = config_file(path)
+                        break
+        kache = {
+            "checks": {
+                check.get("label"): redact(check.get("detail")) for check in checks
+            },
+            "config": files,
+        }
+    return {
+        "commit": output("git", "rev-parse", "HEAD"),
+        "dirty": bool(output("git", "status", "--porcelain", "--untracked-files=no")),
+        "rustc": output("rustc", "--version"),
+        "cpus": os.cpu_count(),
+        "settings": {
+            name: "<redacted>" if SECRET.search(name) else redact(value)
+            for name, value in sorted(os.environ.items())
+            if name.startswith(SETTING_PREFIXES)
+        },
+        "cargo_config": {
+            str(path): config_file(path) for path in config_files if path.is_file()
+        },
+        "kache_doctor": kache,
+    }
+
+
+def main(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--runs", type=int, default=5)
+    parser.add_argument("--seed-runs", type=int, default=1)
+    parser.add_argument("--json", type=Path)
+    parser.add_argument(
+        "scenarios", nargs="*", metavar="SCENARIO", help=", ".join(SCENARIOS)
+    )
+    args = parser.parse_args(argv)
+    names = args.scenarios or list(SCENARIOS)
+    unknown = [name for name in names if name not in SCENARIOS]
+    if unknown:
+        parser.error(f"unknown scenarios: {', '.join(unknown)}")
+
+    report = {"environment": environment(), "scenarios": {}}
+    for name in names:
+        relative, package, command = SCENARIOS[name]
+        path = ROOT / relative
+        original = path.read_text()
+        runs = [
+            run_once(path, package, original, command)
+            for _ in range(args.seed_runs + args.runs)
+        ]
+        kept = runs[args.seed_runs :]
+        times = [run["seconds"] for run in kept]
+        report["scenarios"][name] = {
+            "file": relative,
+            "command": " ".join(command),
+            "seed": runs[: args.seed_runs],
+            "runs": kept,
+            "median": statistics.median(times),
+            "min": min(times),
+            "max": max(times),
+        }
+
+    setup = report["environment"]
+    print(f"commit {setup['commit']} dirty={setup['dirty']}")
+    print(f"{setup['rustc']}, {setup['cpus']} CPUs")
+    print("| Scenario | Median s | Min s | Max s | Max load |")
+    print("| --- | --- | --- | --- | --- |")
+    for name, result in report["scenarios"].items():
+        peak = max(max(run["load_before"], run["load_after"]) for run in result["runs"])
+        print(
+            f"| {name} | {result['median']:.2f} | {result['min']:.2f} "
+            f"| {result['max']:.2f} | {peak:.2f} |"
+        )
+    if args.json:
+        args.json.write_text(json.dumps(report, indent=2) + "\n")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
