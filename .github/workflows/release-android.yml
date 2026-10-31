@@ -306,8 +306,7 @@ jobs:
         env:
           VERSION: ${{ inputs.version }}
         run: |
-          xmtp-release tag-release --sdk android --version "$VERSION" --no-push
-          git bundle create "$RUNNER_TEMP/release.bundle" "refs/tags/android-$VERSION"
+          dev/nix-shell --shell js-node --command python3.11 dev/prepare_native_release.py android --plan "$RUNNER_TEMP/sdk-release-plan/release-plan.json" --bundle "$RUNNER_TEMP/release.bundle"
       - name: Store release tag
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

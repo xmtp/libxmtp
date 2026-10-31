@@ -700,10 +700,7 @@ class ReleasePushTest(unittest.TestCase):
             with self.subTest(sdk=sdk):
                 mobile = (ROOT / f".github/workflows/release-{sdk}.yml").read_text()
                 self.assertNotIn("GH_APP_PK", mobile)
-                if sdk == "android":
-                    self.assertIn("--no-push", mobile)
-                else:
-                    self.assertIn('git tag "ios-$VERSION"', mobile)
+                self.assertIn(f"dev/prepare_native_release.py {sdk}", mobile)
                 self.assertIn("fetch-depth: 0", mobile)
                 self.assertIn(f"name: release-tag-{sdk}", mobile)
                 self.assertIn("uses: ./.github/workflows/push-release-tag.yml", mobile)
