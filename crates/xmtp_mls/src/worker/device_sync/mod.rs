@@ -674,6 +674,7 @@ pub(crate) fn schedule_newcomer_adds(
     events: &impl EventWriter<InternalEvent>,
 ) -> Result<usize, StorageError> {
     let groups = db.find_groups(GroupQueryArgs {
+        include_duplicate_dms: true,
         last_activity_after_ns: Some(now_ns() - NS_IN_DAY * 90),
         consent_states: Some(vec![ConsentState::Allowed, ConsentState::Unknown]),
         // A Restored placeholder takes no commit until a Welcome activates

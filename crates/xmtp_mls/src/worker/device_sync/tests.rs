@@ -605,33 +605,49 @@ async fn test_welcome_schedules_add_installation_tasks() {
     cfg.enabled.insert(WorkerKind::TaskRunner, false);
     tester!(alix1, worker_config: cfg);
     tester!(bo);
+    tester!(cy);
+    tester!(di);
 
     let group = alix1
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
 
-    // Call the schedule path directly (unit level — no live sync worker needed).
-    let scheduled = alix1
-        .device_sync_client()
-        .schedule_add_installations_to_groups()?;
-    assert!(scheduled >= 1);
+    let mut expected = vec![group.group_id.to_vec()];
+    for (peer, state, contradictory) in [
+        (bo.inbox_id(), ConsentState::Allowed, ConsentState::Denied),
+        (cy.inbox_id(), ConsentState::Unknown, ConsentState::Denied),
+        (di.inbox_id(), ConsentState::Denied, ConsentState::Allowed),
+    ] {
+        for _ in 0..2 {
+            let dm = MlsGroup::create_dm_without_peer(&alix1.context, peer.to_string())?;
+            dm.update_consent_state(state)?;
+            // DM consent comes from the peer inbox, not either physical group id.
+            decide_at(
+                &alix1,
+                &ConsentKey::group(dm.group_id.as_ref()),
+                contradictory,
+                now_ns(),
+            )?;
+            if state != ConsentState::Denied {
+                expected.push(dm.group_id.to_vec());
+            }
+        }
+    }
+    expected.sort();
 
-    let add_tasks = add_task_group_ids(&alix1);
-    assert!(
-        add_tasks.iter().any(|gid| gid == &group.group_id.to_vec()),
-        "expected an AddMissingInstallations task for the conversation group"
-    );
-
-    // Re-scheduling dedups on payload hash: row count stays put.
-    alix1
-        .device_sync_client()
-        .schedule_add_installations_to_groups()?;
-    let after = add_task_group_ids(&alix1);
-    assert_eq!(
-        add_tasks.len(),
-        after.len(),
-        "create_or_ignore must dedup identical payloads"
-    );
+    // Call the schedule path directly; the second pass must dedup by payload hash.
+    for _ in 0..2 {
+        let scheduled = alix1
+            .device_sync_client()
+            .schedule_add_installations_to_groups()?;
+        assert_eq!(scheduled, expected.len());
+        let mut add_tasks = add_task_group_ids(&alix1);
+        add_tasks.sort();
+        assert_eq!(
+            add_tasks, expected,
+            "exact eligible group IDs, without duplicates"
+        );
+    }
 }
 
 // verifies: SYNC-010
