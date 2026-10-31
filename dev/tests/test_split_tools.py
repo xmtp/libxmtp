@@ -4,9 +4,12 @@ import importlib.machinery
 import json
 import importlib.util
 import os
+import signal
+import subprocess
 from pathlib import Path
 import sys
 import tempfile
+import time
 import unittest
 from unittest import mock
 
@@ -89,6 +92,109 @@ class TimingRunTests(unittest.TestCase):
             )
         self.assertEqual(self.file.read_text(), "fn main() {}\n")
 
+    def test_a_stopped_run_stops_the_processes_its_command_started(self):
+        marker = Path(self.temp.name) / "child-ran"
+        child = f"import pathlib, time; time.sleep(0.5); pathlib.Path({str(marker)!r}).write_text('x')"
+        command = [
+            sys.executable,
+            "-c",
+            f"import subprocess, sys, time; subprocess.Popen([sys.executable, '-c', {child!r}]); time.sleep(5)",
+        ]
+        with (
+            mock.patch.object(timing, "other_builds", side_effect=[[], ["42 rustc"]]),
+            mock.patch.object(timing, "POLL_SECONDS", 0.1),
+            self.assertRaisesRegex(SystemExit, "another build started during the run"),
+        ):
+            timing.run_once(self.file, "xmtp_mls", "fn main() {}\n", command)
+        time.sleep(1)
+        self.assertFalse(marker.exists())
+
+    def test_an_interrupted_run_stops_its_processes_and_restores_the_file(self):
+        marker = Path(self.temp.name) / "child-ran"
+        child = f"import pathlib, time; time.sleep(0.5); pathlib.Path({str(marker)!r}).write_text('x')"
+        command = [
+            sys.executable,
+            "-c",
+            f"import subprocess, sys, time; subprocess.Popen([sys.executable, '-c', {child!r}]); time.sleep(5)",
+        ]
+        with (
+            mock.patch.object(
+                timing, "other_builds", side_effect=[[], KeyboardInterrupt()]
+            ),
+            mock.patch.object(timing, "POLL_SECONDS", 0.1),
+            self.assertRaises(KeyboardInterrupt),
+        ):
+            timing.run_once(self.file, "xmtp_mls", "fn main() {}\n", command)
+        time.sleep(1)
+        self.assertFalse(marker.exists())
+        self.assertEqual(self.file.read_text(), "fn main() {}\n")
+
+    def test_a_terminated_run_stops_its_processes_and_restores_the_file(self):
+        started = Path(self.temp.name) / "child-started"
+        marker = Path(self.temp.name) / "child-ran"
+        child = (
+            f"import pathlib, time; pathlib.Path({str(started)!r}).write_text('x'); "
+            f"time.sleep(1.5); pathlib.Path({str(marker)!r}).write_text('x')"
+        )
+        command = [
+            sys.executable,
+            "-c",
+            f"import subprocess, sys, time; subprocess.Popen([sys.executable, '-c', {child!r}]); time.sleep(5)",
+        ]
+        runner = f"""
+import importlib.machinery, importlib.util
+from unittest import mock
+loader = importlib.machinery.SourceFileLoader("timing", {str(ROOT / "dev/split/timing")!r})
+spec = importlib.util.spec_from_loader(loader.name, loader)
+timing = importlib.util.module_from_spec(spec)
+loader.exec_module(timing)
+scenarios = {{"probe": ({str(self.file)!r}, "xmtp_mls", {command!r})}}
+with (
+    mock.patch.object(timing, "other_builds", return_value=[]),
+    mock.patch.object(timing, "environment", return_value={{}}),
+    mock.patch.object(timing, "SCENARIOS", scenarios),
+):
+    timing.main(["--runs", "1", "--seed-runs", "0", "probe"])
+"""
+        process = subprocess.Popen([sys.executable, "-c", runner])
+        deadline = time.monotonic() + 10
+        while not started.exists():
+            self.assertLess(time.monotonic(), deadline, "the command did not start")
+            time.sleep(0.05)
+        process.terminate()
+        self.assertEqual(process.wait(timeout=10), 128 + signal.SIGTERM)
+        time.sleep(2)
+        self.assertFalse(marker.exists())
+        self.assertEqual(self.file.read_text(), "fn main() {}\n")
+
+    def test_processes_left_by_a_finished_command_are_stopped(self):
+        marker = Path(self.temp.name) / "child-ran"
+        child = f"import pathlib, time; time.sleep(0.5); pathlib.Path({str(marker)!r}).write_text('x')"
+        command = [
+            sys.executable,
+            "-c",
+            f"import subprocess, sys; subprocess.Popen([sys.executable, '-c', {child!r}]); sys.stderr.write('   Compiling xmtp_mls v1 (/y)\\n')",
+        ]
+        timing.run_once(self.file, "xmtp_mls", "fn main() {}\n", command)
+        time.sleep(1)
+        self.assertFalse(marker.exists())
+
+    def test_an_edit_made_during_the_run_is_kept(self):
+        command = [
+            sys.executable,
+            "-c",
+            f"import pathlib, sys; pathlib.Path({str(self.file)!r}).write_text('saved'); sys.stderr.write('   Compiling xmtp_mls v1 (/y)\\n')",
+        ]
+        with self.assertRaisesRegex(SystemExit, "changed during the run"):
+            timing.run_once(self.file, "xmtp_mls", "fn main() {}\n", command)
+        self.assertEqual(self.file.read_text(), "saved")
+
+    def test_an_edit_made_between_runs_is_kept(self):
+        self.file.write_text("saved")
+        with self.assertRaisesRegex(SystemExit, "changed since the timing started"):
+            timing.run_once(self.file, "xmtp_mls", "fn main() {}\n", cargo_says(""))
+        self.assertEqual(self.file.read_text(), "saved")
+
     def test_a_build_seen_only_after_the_run_stops_it(self):
         with (
             mock.patch.object(timing, "other_builds", side_effect=[[], ["42 rustc"]]),
@@ -110,6 +216,96 @@ class TimingRunTests(unittest.TestCase):
         with mock.patch.object(timing, "POLL_SECONDS", 5):
             run = timing.run_once(self.file, "xmtp_mls", "fn main() {}\n", command)
         self.assertLess(run["seconds"], 2)
+
+    def test_a_failed_write_leaves_the_file_as_it_was(self):
+        real_open = Path.open
+
+        def fail_part_way(path, mode="r", *args, **kwargs):
+            source = real_open(path, mode, *args, **kwargs)
+            if mode != "ab":
+                return source
+            source.write(b"\n#[allow")
+            source.close()
+            raise OSError("disk full")
+
+        with (
+            mock.patch.object(timing.Path, "open", fail_part_way),
+            self.assertRaisesRegex(OSError, "disk full"),
+        ):
+            timing.run_once(self.file, "xmtp_mls", "fn main() {}\n", cargo_says(""))
+        self.assertEqual(self.file.read_text(), "fn main() {}\n")
+        self.assertEqual(
+            sorted(path.name for path in self.file.parent.iterdir()), ["edited.rs"]
+        )
+
+    def test_an_edit_saved_while_a_write_fails_is_kept(self):
+        real_open = Path.open
+
+        def save_then_fail(path, mode="r", *args, **kwargs):
+            source = real_open(path, mode, *args, **kwargs)
+            if mode != "ab":
+                return source
+            source.write(b"\n#[allow")
+            source.close()
+            path.write_text("saved")
+            raise OSError("disk full")
+
+        with (
+            mock.patch.object(timing.Path, "open", save_then_fail),
+            self.assertRaisesRegex(OSError, "disk full"),
+        ):
+            timing.run_once(self.file, "xmtp_mls", "fn main() {}\n", cargo_says(""))
+        self.assertEqual(self.file.read_text(), "saved")
+
+    def test_an_edit_saved_with_other_line_endings_while_a_write_fails_is_kept(self):
+        real_open = Path.open
+        saved = b"fn main() {}\r\n\r\n#[allow"
+
+        def save_then_fail(path, mode="r", *args, **kwargs):
+            source = real_open(path, mode, *args, **kwargs)
+            if mode != "ab":
+                return source
+            source.write(b"\n#[allow")
+            source.close()
+            path.write_bytes(saved)
+            raise OSError("disk full")
+
+        with (
+            mock.patch.object(timing.Path, "open", save_then_fail),
+            self.assertRaisesRegex(OSError, "disk full"),
+        ):
+            timing.run_once(self.file, "xmtp_mls", "fn main() {}\n", cargo_says(""))
+        self.assertEqual(self.file.read_bytes(), saved)
+
+    def test_an_edit_saved_through_an_open_file_is_kept(self):
+        editor = self.file.open("r+")
+        self.addCleanup(editor.close)
+
+        def save(*_):
+            editor.seek(0)
+            editor.truncate()
+            editor.write("saved")
+            editor.flush()
+            return 0.0
+
+        command = cargo_says("   Compiling xmtp_mls v1 (/y)\n")
+        with (
+            mock.patch.object(timing, "load", side_effect=save),
+            self.assertRaisesRegex(SystemExit, "changed during the run"),
+        ):
+            timing.run_once(self.file, "xmtp_mls", "fn main() {}\n", command)
+        self.assertEqual(self.file.read_text(), "saved")
+
+    def test_runs_must_be_positive_and_seed_runs_not_negative(self):
+        for argv in (["--runs", "0"], ["--seed-runs", "-1"]):
+            with (
+                mock.patch.object(timing, "run_once") as run_once,
+                mock.patch.object(timing, "environment", return_value={}),
+                mock.patch("sys.stderr"),
+                self.assertRaises(SystemExit),
+            ):
+                timing.main(argv)
+            run_once.assert_not_called()
 
     def test_another_build_stops_the_run_before_it_starts(self):
         with (
@@ -159,6 +355,7 @@ class TimingEnvironmentTests(unittest.TestCase):
             KACHE_S3_SECRET_KEY="secret-fixture",
             CARGO_REGISTRY_TOKEN="token-fixture",
             SCCACHE_REDIS="rediss://user:password-fixture@cache:6380/?db=12",
+            CARGO_REGISTRIES_PRIVATE_INDEX="sparse+https://registry.example/index/?token=query-fixture",
             KACHE_CACHE_DIR="/cache",
         )
         text = repr(found)
@@ -167,6 +364,7 @@ class TimingEnvironmentTests(unittest.TestCase):
             "secret-fixture",
             "token-fixture",
             "password-fixture",
+            "query-fixture",
         ):
             self.assertNotIn(value, text)
         self.assertEqual(found["settings"]["KACHE_S3_SECRET_KEY"], "<redacted>")

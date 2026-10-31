@@ -9,7 +9,7 @@
 
 use crate::config::Config;
 use anyhow::{Context, Result, bail};
-use proc_macro2::{TokenStream, TokenTree};
+use proc_macro2::{Spacing, TokenStream, TokenTree};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use syn::visit::Visit;
@@ -32,6 +32,8 @@ struct ModuleInfo {
     aliases: BTreeMap<String, Vec<String>>,
     /// Glob imports, relative to this module.
     globs: Vec<Vec<String>>,
+    /// Each enum's variants, which a glob of the enum imports.
+    variants: BTreeMap<String, BTreeSet<String>>,
 }
 
 /// The items one module's files declare, kept for the reference pass.
@@ -41,6 +43,9 @@ struct Unit {
     items: Vec<syn::Item>,
     /// The builds the module is compiled in.
     builds: BTreeSet<Build>,
+    /// The lines of an inline module in `file`; `None` for a module that is
+    /// its file.
+    lines: Option<std::ops::RangeInclusive<usize>>,
 }
 
 pub struct Crate {
@@ -157,7 +162,10 @@ impl Build {
 fn is_test_attr(attr: &syn::Attribute) -> bool {
     attr.path().segments.last().is_some_and(|segment| {
         let name = segment.ident.to_string();
-        name.ends_with("test") || name == "rstest" || name == "test_case"
+        matches!(
+            name.as_str(),
+            "test" | "rstest" | "test_case" | "wasm_bindgen_test"
+        )
     })
 }
 
@@ -205,10 +213,20 @@ fn item_attrs_mut(item: &mut syn::Item) -> Option<&mut Vec<syn::Attribute>> {
     })
 }
 
-/// The `cfg` that one of xmtp_common's item macros puts on what it holds.
+/// The `cfg` that one of xmtp_common's item macros puts on what it holds,
+/// for a call written `xmtp_common::name!` or `name!`. A local macro, or an
+/// import from elsewhere, with one of these names is refused.
 fn macro_cfg(path: &syn::Path) -> Option<syn::Attribute> {
-    let name = path.segments.last()?.ident.to_string();
-    Some(match name.as_str() {
+    match path.segments.len() {
+        1 => cfg_of(&path.segments[0].ident.to_string()),
+        2 if path.segments[0].ident == "xmtp_common" => cfg_of(&path.segments[1].ident.to_string()),
+        _ => None,
+    }
+}
+
+/// The `cfg` of xmtp_common's item macro `name`.
+fn cfg_of(name: &str) -> Option<syn::Attribute> {
+    Some(match name {
         "if_wasm" => syn::parse_quote!(#[cfg(all(target_family = "wasm", target_os = "unknown"))]),
         "if_native" => {
             syn::parse_quote!(#[cfg(not(all(target_family = "wasm", target_os = "unknown")))])
@@ -546,17 +564,24 @@ impl Crate {
             test_lines: BTreeMap::new(),
         };
         let dir = lib.parent().context("the crate root has no directory")?;
-        krate.load_items(parse(lib)?, vec![], lib, dir, Build::ALL.into())?;
+        krate.load_items(parse(lib)?, vec![], lib, dir, Build::ALL.into(), None)?;
         /// Code that neither tier reads as written, by line: modules declared
         /// in a block or in macro arguments, and local macros named like one
         /// that never evaluates its arguments.
         struct HiddenModules(Vec<(usize, String)>);
         impl HiddenModules {
             fn shadows(&mut self, name: &proc_macro2::Ident) {
+                use syn::ext::IdentExt;
                 if is_non_evaluating(name) {
                     self.0.push((
                         name.span().start().line,
                         format!("defines a macro named {name}, which the checker reads as never evaluating its arguments; rename it"),
+                    ));
+                }
+                if cfg_of(&name.unraw().to_string()).is_some() {
+                    self.0.push((
+                        name.span().start().line,
+                        format!("defines a macro named {name}, which the checker reads as xmtp_common's; rename it"),
                     ));
                 }
             }
@@ -655,6 +680,13 @@ impl Crate {
                             format!("imports {} as {name}, which the checker reads as a macro that never evaluates its arguments; rename it", path.join("::")),
                         ));
                     }
+                    let common = matches!(path.as_slice(), ["xmtp_common", last] if *last == name);
+                    if !common && cfg_of(name).is_some() {
+                        self.0.push((
+                            item.use_token.span.start().line,
+                            format!("imports {} as {name}, which the checker reads as xmtp_common's; rename it", path.join("::")),
+                        ));
+                    }
                 }
                 syn::visit::visit_item_use(self, item);
             }
@@ -691,11 +723,21 @@ impl Crate {
         file: &Path,
         child_dir: &Path,
         builds: BTreeSet<Build>,
+        lines: Option<std::ops::RangeInclusive<usize>>,
     ) -> Result<()> {
         self.modules.entry(module.clone()).or_default();
         for item in &items {
             if let Some(name) = item_ident(item) {
                 self.info(&module).defined.insert(name);
+            }
+            if let syn::Item::Enum(item) = item {
+                self.info(&module).variants.insert(
+                    item.ident.to_string(),
+                    item.variants
+                        .iter()
+                        .map(|variant| variant.ident.to_string())
+                        .collect(),
+                );
             }
             match item {
                 syn::Item::Use(item) => {
@@ -728,7 +770,10 @@ impl Crate {
                         .copied()
                         .filter(|build| build.holds_for(&item.attrs))
                         .collect();
-                    self.load_items(children, child, &source, &grandchildren, builds)?;
+                    let lines = item.content.as_ref().map(|(brace, _)| {
+                        item.mod_token.span.start().line..=brace.span.close().end().line
+                    });
+                    self.load_items(children, child, &source, &grandchildren, builds, lines)?;
                 }
                 _ => {}
             }
@@ -738,6 +783,7 @@ impl Crate {
             file: file.to_path_buf(),
             items,
             builds,
+            lines,
         });
         Ok(())
     }
@@ -746,11 +792,18 @@ impl Crate {
         self.modules.entry(module.clone()).or_default()
     }
 
-    /// The module a file's top-level items belong to.
-    pub fn module_of(&self, file: &Path) -> Option<&ModPath> {
+    /// The innermost module that 1-based `line` of `file` lies in.
+    pub fn module_at(&self, file: &Path, line: usize) -> Option<&ModPath> {
         self.units
             .iter()
-            .find(|unit| unit.file == file)
+            .filter(|unit| {
+                unit.file == file
+                    && unit
+                        .lines
+                        .as_ref()
+                        .is_none_or(|lines| lines.contains(&line))
+            })
+            .max_by_key(|unit| unit.module.len())
             .map(|unit| &unit.module)
     }
 
@@ -1011,8 +1064,9 @@ impl Crate {
     }
 
     /// `segments` written in `from`, made absolute, or `None` when they name
-    /// another crate.
-    fn absolute(&self, from: &[String], segments: &[String]) -> Option<Vec<String>> {
+    /// another crate. A first segment is local when this module defines or
+    /// imports it, or a glob of a local path brings it in.
+    fn absolute(&self, from: &[String], segments: &[String], depth: usize) -> Option<Vec<String>> {
         let (mut base, rest) = match segments.first()?.as_str() {
             "crate" | "$crate" => (vec![], &segments[1..]),
             "self" => (from.to_vec(), &segments[1..]),
@@ -1027,11 +1081,22 @@ impl Crate {
             }
             first => {
                 let info = self.modules.get(from)?;
-                let mut child = from.to_vec();
-                child.push(first.to_string());
-                let local = self.modules.contains_key(&child)
-                    || info.defined.contains(first)
-                    || info.aliases.contains_key(first);
+                let named = |name: &str| {
+                    let mut child = from.to_vec();
+                    child.push(name.to_string());
+                    self.modules.contains_key(&child)
+                        || info.defined.contains(name)
+                        || info.aliases.contains_key(name)
+                };
+                let local = named(first)
+                    || info.globs.iter().any(|glob| {
+                        glob.first().is_some_and(|root| {
+                            ["crate", "$crate", "self", "super"].contains(&root.as_str())
+                                || named(root)
+                        }) && self
+                            .through_glob(from, glob, &[first.to_string()], depth)
+                            .is_some()
+                    });
                 if !local {
                     return None;
                 }
@@ -1053,7 +1118,7 @@ impl Crate {
         if depth > MAX_DEPTH {
             return None;
         }
-        let path = self.absolute(from, segments)?;
+        let path = self.absolute(from, segments, depth)?;
         let mut module: ModPath = vec![];
         for (index, name) in path.iter().enumerate() {
             let mut child = module.clone();
@@ -1070,27 +1135,12 @@ impl Crate {
             if let Some(target) = info.aliases.get(name) {
                 let mut segments = target.clone();
                 segments.extend(path[index + 1..].iter().cloned());
-                if self.absolute(&module, &segments).is_none() {
-                    for glob in &info.globs {
-                        let mut through = glob.clone();
-                        through.extend(segments.iter().cloned());
-                        if let Some(found @ (_, _, Found::Certain)) =
-                            self.resolve(&module, &through, depth + 1)
-                        {
-                            return Some(found);
-                        }
-                    }
-                }
                 return self.resolve(&module, &segments, depth + 1);
             }
             let mut external = false;
             for glob in &info.globs {
-                let mut segments = glob.clone();
-                segments.extend(rest.iter().cloned());
-                external |= self.absolute(&module, glob).is_none();
-                if let Some(found @ (_, _, Found::Certain)) =
-                    self.resolve(&module, &segments, depth + 1)
-                {
+                external |= self.absolute(&module, glob, depth).is_none();
+                if let Some(found) = self.through_glob(&module, glob, &rest, depth) {
                     return Some(found);
                 }
             }
@@ -1100,6 +1150,30 @@ impl Crate {
             return Some((module, rest, Found::Guess));
         }
         Some((module, vec![], Found::Certain))
+    }
+
+    /// What `rest` certainly names through the glob import `glob` written
+    /// in `module`; a glob of an enum brings in only its variants.
+    fn through_glob(
+        &self,
+        module: &[String],
+        glob: &[String],
+        rest: &[String],
+        depth: usize,
+    ) -> Option<(ModPath, Vec<String>, Found)> {
+        if let Some((owner, item, Found::Certain)) = self.resolve(module, glob, depth + 1)
+            && let [name] = item.as_slice()
+            && let Some(variants) = self.modules[&owner].variants.get(name)
+            && !rest.first().is_some_and(|first| variants.contains(first))
+        {
+            return None;
+        }
+        let mut segments = glob.to_vec();
+        segments.extend(rest.iter().cloned());
+        match self.resolve(module, &segments, depth + 1) {
+            found @ Some((_, _, Found::Certain)) => found,
+            _ => None,
+        }
     }
 
     /// Every reference between two different target crates.
@@ -1205,23 +1279,60 @@ impl Collector<'_> {
         });
     }
 
+    /// Whether `name`, written alone in an item mapped away from its
+    /// module, names an item the module defines or imports.
+    fn names_module_item(&self, name: &str) -> bool {
+        !["crate", "super", "self", "Self"].contains(&name)
+            && self.bound(name).is_none()
+            && target_of(self.config, self.module, &self.owner)
+                != target_of(self.config, self.module, &[])
+            && self
+                .krate
+                .absolute(self.module, &[name.to_string()], 0)
+                .is_some()
+    }
+
     /// The path a block-scoped `use` binds to `name`, innermost first.
     fn bound(&self, name: &str) -> Option<&Vec<String>> {
         self.scopes.iter().rev().find_map(|scope| scope.get(name))
     }
 
-    /// Record `full`, a path through an imported name `alias`, when it ends
-    /// in another target crate than the import, which is recorded already.
-    fn record_beyond(&mut self, alias: &[String], full: Vec<String>) {
+    /// Record `full`, a path through a name `alias` that a `use` owned by
+    /// `importer` imports, unless that import already recorded the edge: it
+    /// ends in the import's target crate and is written in the importer's.
+    fn record_beyond(&mut self, alias: &[String], full: Vec<String>, importer: &[String]) {
         let target = |segments: &[String]| {
             self.krate
                 .resolve(self.module, segments, 0)
                 .map(|(module, item, _)| target_of(self.config, &module, &item))
         };
+        let moved = target_of(self.config, self.module, importer)
+            != target_of(self.config, self.module, &self.owner);
         if let (Some(imported), Some(named)) = (target(alias), target(&full))
-            && imported != named
+            && (imported != named || moved)
         {
             self.record(full);
+        }
+    }
+
+    /// Record a relative path of two or more segments written in this
+    /// module: from `crate`, `super` or `self`, or through an imported name.
+    fn record_path(&mut self, segments: Vec<String>) {
+        let first = segments[0].as_str();
+        if ["crate", "super", "self"].contains(&first) {
+            self.record(segments);
+        } else if let Some(binding) = self.bound(first).cloned() {
+            let mut full = binding.clone();
+            full.extend(segments[1..].iter().cloned());
+            let owner = self.owner.clone();
+            self.record_beyond(&binding, full, &owner);
+        } else if self
+            .krate
+            .modules
+            .get(self.module)
+            .is_some_and(|info| info.aliases.contains_key(first))
+        {
+            self.record_beyond(&segments[..1], segments.clone(), &[]);
         }
     }
 
@@ -1230,16 +1341,17 @@ impl Collector<'_> {
         let mut index = 0;
         while index < tokens.len() {
             if let TokenTree::Group(group) = &tokens[index] {
-                self.scan_tokens(group.stream());
+                if !is_unevaluated_arguments(&tokens, index) {
+                    self.scan_tokens(group.stream());
+                }
                 index += 1;
                 continue;
             }
+            let after_colons = index >= 2
+                && matches!(&tokens[index - 1], TokenTree::Punct(p) if p.as_char() == ':')
+                && matches!(&tokens[index - 2], TokenTree::Punct(p) if p.as_char() == ':');
             let start = match &tokens[index] {
-                TokenTree::Ident(ident)
-                    if ["crate", "super", "self"].contains(&ident.to_string().as_str()) =>
-                {
-                    Some(ident.to_string())
-                }
+                TokenTree::Ident(ident) if !after_colons => Some(ident.to_string()),
                 _ => None,
             };
             let Some(start) = start else {
@@ -1260,7 +1372,22 @@ impl Collector<'_> {
                 segments.push(ident.to_string());
                 next += 3;
             }
-            if segments.len() > 1 {
+            let root = segments
+                .iter()
+                .take(segments.len().saturating_sub(1))
+                .position(|segment| ["crate", "super", "self"].contains(&segment.as_str()))
+                .unwrap_or(0);
+            let after_dot = index >= 1
+                && matches!(&tokens[index - 1], TokenTree::Punct(p) if p.as_char() == '.');
+            let label = matches!(tokens.get(next), Some(TokenTree::Punct(p))
+                if matches!(p.as_char(), '=' | ':') && p.spacing() == Spacing::Alone);
+            if segments.len() > root + 1 {
+                self.record_path(segments[root..].to_vec());
+            } else if segments.len() == 1
+                && !after_dot
+                && !label
+                && self.names_module_item(&segments[0])
+            {
                 self.record(segments);
             }
             index = next;
@@ -1342,27 +1469,22 @@ impl<'ast> Visit<'ast> for Collector<'_> {
             .map(|segment| segment.ident.to_string())
             .collect();
         if segments.len() > 1 && path.leading_colon.is_none() {
-            let first = segments[0].as_str();
-            if ["crate", "super", "self"].contains(&first) {
-                self.record(segments);
-            } else if let Some(binding) = self.bound(first).cloned() {
-                let mut full = binding.clone();
-                full.extend(segments[1..].iter().cloned());
-                self.record_beyond(&binding, full);
-            } else if self
-                .krate
-                .modules
-                .get(self.module)
-                .is_some_and(|info| info.aliases.contains_key(first))
-            {
-                self.record_beyond(&segments[..1], segments.clone());
-            }
+            self.record_path(segments);
+        } else if let [name] = segments.as_slice()
+            && path.leading_colon.is_none()
+            && self.names_module_item(name)
+        {
+            self.record(segments);
         }
         syn::visit::visit_path(self, path);
     }
 
     fn visit_macro(&mut self, mac: &'ast syn::Macro) {
         self.visit_path(&mac.path);
-        self.scan_tokens(mac.tokens.clone());
+        if mac.path.segments.last().is_none_or(|segment| {
+            segment.ident == "macro_rules" || !is_non_evaluating(&segment.ident)
+        }) {
+            self.scan_tokens(mac.tokens.clone());
+        }
     }
 }

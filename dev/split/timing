@@ -29,6 +29,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import signal
 import statistics
 import subprocess
 import sys
@@ -54,6 +55,8 @@ SETTING_PREFIXES = (
 SECRET = re.compile(r"KEY|SECRET|TOKEN|PASSWORD|CREDENTIAL|AUTH", re.IGNORECASE)
 # The user and password of a URL.
 URL_CREDENTIALS = re.compile(r"(://)[^/@\s\"']+@")
+# The query of a URL, which can hold a token.
+URL_QUERY = re.compile(r"(://[^\s\"'?#]*\?)[^\s\"'#]*")
 
 # How often a timed run looks for other builds.
 POLL_SECONDS = 1.0
@@ -87,7 +90,7 @@ def load() -> float:
 
 def redact(value, key: str = ""):
     """`value` with every value under a key that names a secret, and the
-    credentials of every URL, replaced."""
+    credentials and query of every URL, replaced."""
     if SECRET.search(key):
         return "<redacted>"
     if isinstance(value, dict):
@@ -95,7 +98,9 @@ def redact(value, key: str = ""):
     if isinstance(value, list):
         return [redact(item, key) for item in value]
     if isinstance(value, str):
-        return URL_CREDENTIALS.sub(r"\1<redacted>@", value)
+        return URL_QUERY.sub(
+            r"\1<redacted>", URL_CREDENTIALS.sub(r"\1<redacted>@", value)
+        )
     return value
 
 
@@ -138,8 +143,23 @@ def run_once(path: Path, package: str, original: str, command: list[str]) -> dic
         raise SystemExit(
             f"another build is running ({', '.join(busy)}); time on an idle machine"
         )
+    expected = original.encode()
+    if path.read_bytes() != expected:
+        raise SystemExit(
+            f"{path} changed since the timing started; it is left as it is"
+        )
     probe = f"split_timing_probe_{uuid.uuid4().hex}"
-    path.write_text(f"{original}\n#[allow(dead_code)]\nfn {probe}() {{}}\n")
+    suffix = f"\n#[allow(dead_code)]\nfn {probe}() {{}}\n".encode()
+    edited = expected + suffix
+    try:
+        with path.open("ab") as source:
+            source.write(suffix)
+    except BaseException:
+        current = path.read_bytes()
+        if current.startswith(expected) and edited.startswith(current):
+            os.truncate(path, len(expected))
+        raise
+    process = None
     try:
         before = load()
         start = time.monotonic()
@@ -151,6 +171,7 @@ def run_once(path: Path, package: str, original: str, command: list[str]) -> dic
                 stdout=subprocess.DEVNULL,
                 stderr=stderr,
                 text=True,
+                start_new_session=True,
             )
             while True:
                 try:
@@ -160,8 +181,6 @@ def run_once(path: Path, package: str, original: str, command: list[str]) -> dic
                     pass
                 busy = other_builds(process.pid)
                 if busy:
-                    process.kill()
-                    process.wait()
                     raise SystemExit(
                         f"another build started during the run ({', '.join(busy)}); "
                         "time on an idle machine"
@@ -176,7 +195,15 @@ def run_once(path: Path, package: str, original: str, command: list[str]) -> dic
             stderr.seek(0)
             output = stderr.read()
     finally:
-        path.write_text(original)
+        if process is not None:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            process.wait()
+        if path.read_bytes() != edited:
+            raise SystemExit(f"{path} changed during the run; it is left as it is")
+        os.truncate(path, len(expected))
     if process.returncode != 0:
         sys.stderr.write(output)
         raise SystemExit(f"{' '.join(command)} failed")
@@ -255,6 +282,7 @@ def environment() -> dict:
 
 
 def main(argv: list[str]) -> int:
+    signal.signal(signal.SIGTERM, lambda signum, _: sys.exit(128 + signum))
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--runs", type=int, default=5)
     parser.add_argument("--seed-runs", type=int, default=1)
@@ -263,6 +291,10 @@ def main(argv: list[str]) -> int:
         "scenarios", nargs="*", metavar="SCENARIO", help=", ".join(SCENARIOS)
     )
     args = parser.parse_args(argv)
+    if args.runs < 1:
+        parser.error("--runs must be at least 1")
+    if args.seed_runs < 0:
+        parser.error("--seed-runs must not be negative")
     names = args.scenarios or list(SCENARIOS)
     unknown = [name for name in names if name not in SCENARIOS]
     if unknown:
@@ -272,7 +304,7 @@ def main(argv: list[str]) -> int:
     for name in names:
         relative, package, command = SCENARIOS[name]
         path = ROOT / relative
-        original = path.read_text()
+        original = path.read_bytes().decode()
         runs = [
             run_once(path, package, original, command)
             for _ in range(args.seed_runs + args.runs)

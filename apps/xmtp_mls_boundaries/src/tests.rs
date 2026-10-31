@@ -145,6 +145,147 @@ fn an_alias_of_a_name_from_a_glob_resolves_through_the_glob() {
 }
 
 #[xmtp_common::test]
+fn a_name_from_a_local_glob_starts_a_local_path() {
+    let dir = workspace(
+        "pub struct Low;\npub fn engine_part() {}\npub mod exports { pub use crate::low as l; }\nuse self::exports::*;\nuse l::engine_part as part;\n",
+        &[],
+    );
+    assert_one_problem(
+        &problems(dir.path(), CONFIG, None),
+        "edge core -> engine is not allowed",
+    );
+    let config = CONFIG.replace("[items]\n", "[items]\n\"high::core_part\" = \"core\"\n");
+    let dir = workspace(
+        "pub struct Low;\n",
+        &[(
+            "crates/demo/src/high/mod.rs",
+            "pub mod sub;\npub struct Engine;\npub enum Choice { A }\nuse self::Choice::*;\npub fn core_part() { use std::fmt::Debug; }\n",
+        )],
+    );
+    assert_eq!(problems(dir.path(), &config, None), Vec::<String>::new());
+    let config = CONFIG.replace("[items]\n", "[items]\n\"core_part\" = \"core\"\n");
+    let dir = workspace(
+        "pub struct Low;\n",
+        &[
+            (
+                "crates/demo/src/lib.rs",
+                "pub mod high;\npub mod low;\nuse self::high::Choice::*;\npub fn core_part() { use A as Alias; }\n",
+            ),
+            (
+                "crates/demo/src/high/mod.rs",
+                "pub mod sub;\npub struct Engine;\npub use crate::low::Low;\npub enum Choice { A }\n",
+            ),
+        ],
+    );
+    assert_one_problem(
+        &problems(dir.path(), &config, None),
+        "edge core -> engine is not allowed",
+    );
+    let dir = workspace(
+        "pub struct Low;\n",
+        &[
+            (
+                "crates/demo/src/lib.rs",
+                "pub mod high;\npub mod low;\nuse self::high::*;\npub fn core_part() { use B as Alias; }\n",
+            ),
+            (
+                "crates/demo/src/high/mod.rs",
+                "pub mod sub;\npub struct Engine;\npub enum First { A }\npub enum Second { B }\npub use self::First::*;\npub use self::Second::*;\n",
+            ),
+        ],
+    );
+    assert_one_problem(
+        &problems(dir.path(), &config, None),
+        "edge core -> engine is not allowed",
+    );
+}
+
+#[xmtp_common::test]
+fn an_associated_item_of_an_enum_through_a_module_glob_keeps_its_module() {
+    let config = CONFIG.replace(
+        "[items]\n",
+        "[items]\n\"low::kinds::Choice\" = \"engine\"\n",
+    );
+    let dir = workspace(
+        "pub struct Low;\npub mod kinds {\n    pub enum Choice { A }\n    impl Choice { pub fn new() -> Self { Self::A } }\n}\npub use self::kinds::*;\npub fn caller() { let _ = self::Choice::new(); }\n",
+        &[],
+    );
+    assert_one_problem(
+        &problems(dir.path(), &config, None),
+        "edge core -> engine is not allowed",
+    );
+}
+
+#[xmtp_common::test]
+fn a_single_name_in_a_moved_item_is_recorded() {
+    let config = CONFIG.replace("[items]\n", "[items]\n\"high::core_part\" = \"core\"\n");
+    for high in [
+        "pub mod sub;\npub struct Engine;\npub fn core_part() -> Engine { todo!() }\n",
+        "pub mod sub;\npub struct Engine;\nuse self::sub::sub;\npub fn core_part() { sub(); }\n",
+        "pub mod sub;\npub struct Engine;\npub fn core_part() { let _ = vec![Engine]; }\n",
+    ] {
+        let dir = workspace(
+            "pub struct Low;\n",
+            &[("crates/demo/src/high/mod.rs", high)],
+        );
+        assert_one_problem(
+            &problems(dir.path(), &config, None),
+            "edge core -> engine is not allowed",
+        );
+    }
+    for high in [
+        "pub mod sub;\npub struct Engine;\npub(crate) fn core_part() -> Self { todo!() }\n",
+        "pub mod sub;\npub struct Engine;\nfn state() {}\npub fn core_part() { let _ = format!(\"{state}\", state = 1u8); }\n",
+        "pub mod sub;\npub struct Engine;\nfn start() {}\npub fn core_part() { let _ = vec![std::ops::Range { start: 1, end: 2 }]; }\n",
+    ] {
+        let dir = workspace(
+            "pub struct Low;\n",
+            &[("crates/demo/src/high/mod.rs", high)],
+        );
+        assert_eq!(problems(dir.path(), &config, None), Vec::<String>::new());
+    }
+}
+
+#[xmtp_common::test]
+fn the_arguments_of_a_macro_that_never_evaluates_them_are_not_read() {
+    for low in [
+        "pub struct Low;\nfn f() { let _ = stringify!(crate::high::Engine); }\n",
+        "pub struct Low;\nfn f() { let _ = format!(\"{}\", stringify!(crate::high::Engine)); }\n",
+    ] {
+        let dir = workspace(low, &[]);
+        assert_eq!(problems(dir.path(), CONFIG, None), Vec::<String>::new());
+    }
+}
+
+#[xmtp_common::test]
+fn a_path_in_a_macro_rules_template_is_recorded() {
+    let dir = workspace(
+        "pub struct Low;\nmacro_rules! engine_value {\n    () => { crate::high::Engine };\n}\nfn f() { let _ = engine_value!(); }\n",
+        &[],
+    );
+    assert_one_problem(
+        &problems(dir.path(), CONFIG, None),
+        "edge core -> engine is not allowed",
+    );
+}
+
+#[xmtp_common::test]
+fn a_path_through_a_module_import_in_a_moved_item_is_recorded() {
+    let config = CONFIG.replace("[items]\n", "[items]\n\"high::core_part\" = \"core\"\n");
+    let dir = workspace(
+        "pub struct Low;\n",
+        &[(
+            "crates/demo/src/high/mod.rs",
+            "pub mod sub;\npub struct Engine;\nuse self::sub as s;\npub fn core_part() { s::sub(); }\n",
+        )],
+    );
+    assert_one_problem(
+        &problems(dir.path(), &config, None),
+        "edge core -> engine is not allowed",
+    );
+}
+
+#[xmtp_common::test]
 fn test_suites_are_not_read_but_test_helpers_and_hooks_are() {
     let suite = "pub struct Low;\n#[cfg(all(test, unix))]\nmod tests { use crate::high::Engine; #[test] fn t() {} }\n";
     let dir = workspace(suite, &[]);
@@ -161,6 +302,7 @@ fn test_suites_are_not_read_but_test_helpers_and_hooks_are() {
     for code in [
         "pub struct Low;\n#[cfg(test)]\nfn helper() -> crate::high::Engine { todo!() }\n",
         "pub struct Low;\n#[cfg(test)]\nmod test_hooks { pub fn hook() -> crate::high::Engine { todo!() } }\n",
+        "pub struct Low;\n#[cfg(test)]\nmod helpers { #[do_not_test] fn helper() -> crate::high::Engine { todo!() } }\n",
     ] {
         let dir = workspace(code, &[]);
         assert_one_problem(
@@ -621,6 +763,37 @@ fn a_helper_before_a_suite_in_one_macro_is_read_by_the_call_tier() {
 }
 
 #[xmtp_common::test]
+fn a_macro_named_like_an_xmtp_common_cfg_macro_is_refused() {
+    for (low, needle) in [
+        (
+            "pub struct Low;\nmacro_rules! if_native { ($($t:tt)*) => {} }\n",
+            "low.rs:2 defines a macro named if_native",
+        ),
+        (
+            "pub struct Low;\nuse other::if_wasm;\n",
+            "low.rs:2 imports other::if_wasm as if_wasm",
+        ),
+        (
+            "pub struct Low;\nuse xmtp_common::if_native as if_wasm;\n",
+            "low.rs:2 imports xmtp_common::if_native as if_wasm",
+        ),
+    ] {
+        let dir = workspace(low, &[]);
+        let config = Config::parse(CONFIG).unwrap();
+        let error = crate::run(dir.path(), &config, None, None)
+            .err()
+            .unwrap()
+            .to_string();
+        assert!(error.contains(needle), "{error}");
+    }
+    let dir = workspace(
+        "pub struct Low;\nuse xmtp_common::{if_native, if_wasm};\n",
+        &[],
+    );
+    assert_eq!(problems(dir.path(), CONFIG, None), Vec::<String>::new());
+}
+
+#[xmtp_common::test]
 fn a_local_macro_named_like_a_non_evaluating_one_is_refused() {
     for (low, needle) in [
         (
@@ -687,6 +860,47 @@ fn an_uncovered_call_of_a_method_the_crate_defines_is_refused() {
     assert!(
         error.contains("low.rs:5 .up() is in code no indexed build compiles, and the checked crate defines low::Low::up"),
         "{error}"
+    );
+}
+
+#[xmtp_common::test]
+fn a_path_in_macro_arguments_through_an_imported_name_is_followed() {
+    for low in [
+        "pub struct Low;\nuse crate::low as l;\npub fn engine_part() -> bool { true }\npub fn f() { assert!(l::engine_part()); }\n",
+        "pub struct Low;\nmacro_rules! tagged { ($tag:ident :: $p:path) => { $p }; }\npub fn f() { let _ = tagged!(tag::crate::high::Engine); }\n",
+        "pub struct Low;\nuse crate::low as l;\npub fn engine_part() -> bool { true }\nmacro_rules! invoke { ($m:ident :: $f:ident :: self) => { $m::$f() }; }\npub fn f() { invoke!(l::engine_part::self); }\n",
+    ] {
+        let dir = workspace(low, &[]);
+        assert_one_problem(
+            &problems(dir.path(), CONFIG, None),
+            "edge core -> engine is not allowed (path tier, 1 references)",
+        );
+    }
+}
+
+#[xmtp_common::test]
+fn module_level_code_belongs_to_the_innermost_module_around_it() {
+    let config = CONFIG.replace(
+        "\"high\" = \"engine\"",
+        "\"high\" = \"engine\"\n\"low::inner\" = \"engine\"",
+    );
+    let low = "pub struct Low;\npub mod inner {\n    use crate::high::Engine;\n    pub fn g() {}\n}\nuse crate::high::Engine;\n";
+    let dir = workspace(low, &[]);
+    let occurrences = vec![
+        occurrence(2, "high/Engine#", false),
+        with_body(occurrence(3, "low/inner/g().", true), (3, 4), (3, 17)),
+        occurrence(5, "high/Engine#", false),
+    ];
+    let problems = call_tier(
+        dir.path(),
+        &config,
+        &indexes(dir.path(), &occurrences, &occurrences),
+    )
+    .unwrap();
+    assert!(
+        problems.iter().any(|problem| problem
+            .contains("edge core -> engine is not allowed (call tier, 1 references)")),
+        "{problems:#?}"
     );
 }
 
