@@ -101,7 +101,9 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
             .batches
             .into_iter()
             .flat_map(|batch| batch.envelopes)
-            .next())
+            .next()
+            .map(|envelope| envelope.decode())
+            .transpose()?)
     }
     pub async fn query_welcome_messages_with_cursors(
         &self,

@@ -491,7 +491,7 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
             };
             let response = match self
                 .retry_call(
-                    || self.api_client.query(request.clone()),
+                    || self.api_client.query_raw_envelopes(request.clone()),
                     requested_limit > 1 || topics.len() > 1,
                 )
                 .await
@@ -520,9 +520,11 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
                 return Err(ApiError::InvalidResponse("query response limit"));
             }
             let mut positions = topics.iter().cloned().collect();
+            let envelopes = xmtp_proto::types::received_envelopes(response.envelopes)
+                .map_err(|error| dyn_err(xmtp_proto::api::ApiClientError::from(error)))?;
             let batches = match xmtp_api_backend::envelope::ordered_batches(
                 &mut positions,
-                response.envelopes,
+                envelopes,
                 remaining,
             ) {
                 Ok(batches) => batches,
@@ -543,7 +545,7 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
                 remaining.max_bytes -= batch
                     .envelopes
                     .iter()
-                    .map(Message::encoded_len)
+                    .map(|envelope| envelope.raw().len())
                     .sum::<usize>();
             }
             page.has_more |= has_more;
@@ -574,7 +576,7 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
                 let cursor = batch
                     .envelopes
                     .last()
-                    .and_then(|envelope| envelope.meta.as_ref())
+                    .and_then(|envelope| envelope.meta())
                     .and_then(|meta| meta.cursor.as_ref())
                     .ok_or(ApiError::InvalidResponse("ordered page cursor"))?;
                 cursors.insert(batch.topic.clone(), Cursor(cursor.sequence_id));

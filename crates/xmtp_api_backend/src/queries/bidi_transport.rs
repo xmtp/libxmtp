@@ -33,7 +33,6 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
 };
 
-use prost::Message;
 use tokio::sync::{mpsc, oneshot};
 use xmtp_common::rate_limit::Bucket;
 use xmtp_common::time::Instant;
@@ -41,12 +40,9 @@ use xmtp_common::{BoxDynFuture, MaybeSend, MaybeSync, RetryableError};
 #[cfg(not(test))]
 use xmtp_configuration::AUTH_LOCKOUT_COOLDOWN;
 use xmtp_proto::api::ApiClientError;
-use xmtp_proto::{
-    backend_v1::ServerEnvelope,
-    types::{
-        Cursor, IncomingBatchLimits, IncomingEvent, IncomingSubscription, OrderedEnvelopeBatch,
-        Topic, TopicCursor,
-    },
+use xmtp_proto::types::{
+    Cursor, IncomingBatchLimits, IncomingEvent, IncomingSubscription, OrderedEnvelopeBatch,
+    ReceivedEnvelope, Topic, TopicCursor,
 };
 
 /// Keep the cool-down wait short in tests. Match the middleware's test value,
@@ -265,8 +261,8 @@ where
 
     fn group_cursor(msg: &Self::GroupMessage) -> Option<Self::Cursor>;
     fn welcome_cursor(msg: &Self::WelcomeMessage) -> Option<Self::Cursor>;
-    fn group_envelope(msg: &Self::GroupMessage) -> &ServerEnvelope;
-    fn welcome_envelope(msg: &Self::WelcomeMessage) -> &ServerEnvelope;
+    fn group_envelope(msg: &Self::GroupMessage) -> &ReceivedEnvelope;
+    fn welcome_envelope(msg: &Self::WelcomeMessage) -> &ReceivedEnvelope;
     fn advance(position: &mut Self::Cursor, delivered: Self::Cursor);
     /// Return true when the position is at or above the delivered cursor.
     fn covers(position: &Self::Cursor, delivered: &Self::Cursor) -> bool;
@@ -750,14 +746,7 @@ where
                     let IncomingEvent::OrderedBatch(batch) = event else {
                         return None;
                     };
-                    let last = batch
-                        .envelopes
-                        .last()?
-                        .meta
-                        .as_ref()?
-                        .cursor
-                        .as_ref()?
-                        .sequence_id;
+                    let last = batch.envelopes.last()?.meta()?.cursor.as_ref()?.sequence_id;
                     Some((batch.topic.clone(), last))
                 })
                 .collect();
@@ -919,12 +908,12 @@ where
     fn demux_incoming<M>(
         &mut self,
         messages: &[M],
-        envelope_of: impl Fn(&M) -> &ServerEnvelope,
+        envelope_of: impl Fn(&M) -> &ReceivedEnvelope,
     ) -> Result<Vec<LeaseId>, &'static str> {
         let mut positions = HashMap::new();
         for message in messages {
             let envelope = envelope_of(message);
-            let meta = envelope.meta.as_ref().ok_or("metadata")?;
+            let meta = envelope.meta().ok_or("metadata")?;
             let topic =
                 Topic::parse(&meta.topic.as_ref().ok_or("topic")?.topic).map_err(|_| "topic")?;
             let (_, cursor, _) =
@@ -952,7 +941,7 @@ where
             let mut impossible = false;
             for message in messages {
                 let envelope = envelope_of(message);
-                let meta = envelope.meta.as_ref().ok_or("metadata")?;
+                let meta = envelope.meta().ok_or("metadata")?;
                 let topic = Topic::parse(&meta.topic.as_ref().ok_or("topic")?.topic)
                     .map_err(|_| "topic")?;
                 let Some(registration) = self.registrations.get(&topic) else {
@@ -969,7 +958,7 @@ where
                 }
                 // Validate every selected envelope before sending any part of the frame.
                 // A zero row budget cannot admit even one envelope either.
-                impossible |= limits.max_rows == 0 || envelope.encoded_len() > limits.max_bytes;
+                impossible |= limits.max_rows == 0 || envelope.raw().len() > limits.max_bytes;
                 selected.push((topic, envelope));
             }
             if impossible {
@@ -993,9 +982,9 @@ where
                 selected,
                 limits.max_rows,
                 limits.max_bytes,
-                |(_, envelope)| envelope.encoded_len(),
+                |(_, envelope)| envelope.raw().len(),
             ) {
-                let mut by_topic: HashMap<Topic, Vec<ServerEnvelope>> = HashMap::new();
+                let mut by_topic: HashMap<Topic, Vec<ReceivedEnvelope>> = HashMap::new();
                 for (topic, envelope) in chunk {
                     by_topic.entry(topic).or_default().push(envelope.clone());
                 }
@@ -1005,7 +994,7 @@ where
                     let after = Cursor((*position).into());
                     let last = envelopes
                         .last()
-                        .and_then(|envelope| envelope.meta.as_ref()?.cursor.as_ref())
+                        .and_then(|envelope| envelope.meta()?.cursor.as_ref())
                         .ok_or("cursor")?
                         .sequence_id;
                     B::advance(position, last.into());

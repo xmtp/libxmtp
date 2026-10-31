@@ -918,7 +918,7 @@ async fn register_identity_waits_until_visible() {
                 .collect(),
         })
     });
-    api.expect_query().returning({
+    api.expect_query_raw_envelopes().returning({
         let published = published.clone();
         move |request| {
             Ok(wire::QueryResponse {
@@ -935,7 +935,8 @@ async fn register_identity_waits_until_visible() {
                     .cloned()
                     .collect(),
                 continuation: Some(Default::default()),
-            })
+            }
+            .into())
         }
     });
     api.expect_publish().times(..=2).returning({

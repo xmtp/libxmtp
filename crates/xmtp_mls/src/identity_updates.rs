@@ -2313,7 +2313,7 @@ mod conflict_tests {
                     }],
                 })
             });
-        mock.expect_query()
+        mock.expect_query_raw_envelopes()
             .times(conflicts.min(3))
             .returning(move |request| {
                 assert_eq!(request.queries.len(), 1);
@@ -2335,7 +2335,8 @@ mod conflict_tests {
                         .cloned()
                         .collect(),
                     continuation: Some(wire::Continuation { has_more: false }),
-                })
+                }
+                .into())
             });
         let api = ApiClientWrapper::new(mock, Default::default());
         let result = publish_with_conflict_retry(

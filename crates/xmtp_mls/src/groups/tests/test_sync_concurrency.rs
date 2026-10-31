@@ -111,7 +111,7 @@ async fn far_forward_application_message_is_rejected_and_later_message_arrives()
         &OrderedEnvelopeBatch {
             topic: wire_topic,
             after: before.received,
-            envelopes,
+            envelopes: envelopes.into_iter().map(Into::into).collect(),
         },
         bo.context
             .incoming_runtime()
@@ -211,7 +211,7 @@ async fn far_forward_proposal_stays_held() {
         &OrderedEnvelopeBatch {
             topic: wire_topic,
             after: before.received,
-            envelopes,
+            envelopes: envelopes.into_iter().map(Into::into).collect(),
         },
         bo.context
             .incoming_runtime()
@@ -271,7 +271,7 @@ async fn process_messages_abort_on_retryable_error() {
         &OrderedEnvelopeBatch {
             topic: wire_topic,
             after: before.received,
-            envelopes,
+            envelopes: envelopes.into_iter().map(Into::into).collect(),
         },
         bo.context
             .incoming_runtime()
@@ -379,7 +379,7 @@ async fn skip_already_processed_messages() {
         let batch = OrderedEnvelopeBatch {
             topic: wire_topic.clone(),
             after: Cursor(0),
-            envelopes,
+            envelopes: envelopes.into_iter().map(Into::into).collect(),
         };
         let admission = bo.mls_store().admit_incoming_batch(&batch, limits)?;
         assert_eq!(admission.inserted, 1);

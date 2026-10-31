@@ -21,6 +21,12 @@ impl<T: XmtpBackendClient + ?Sized> XmtpBackendClient for Box<T> {
     async fn query(&self, request: QueryRequest) -> Result<QueryResponse, Self::Error> {
         (**self).query(request).await
     }
+    async fn query_raw_envelopes(
+        &self,
+        request: QueryRequest,
+    ) -> Result<ReceivedQueryResponse, Self::Error> {
+        (**self).query_raw_envelopes(request).await
+    }
     async fn query_newest(
         &self,
         request: QueryNewestRequest,
@@ -140,6 +146,12 @@ impl<T: XmtpBackendClient + ?Sized> XmtpBackendClient for Arc<T> {
     async fn query(&self, request: QueryRequest) -> Result<QueryResponse, Self::Error> {
         (**self).query(request).await
     }
+    async fn query_raw_envelopes(
+        &self,
+        request: QueryRequest,
+    ) -> Result<ReceivedQueryResponse, Self::Error> {
+        (**self).query_raw_envelopes(request).await
+    }
     async fn query_newest(
         &self,
         request: QueryNewestRequest,
@@ -258,6 +270,12 @@ impl<T: XmtpBackendClient + ?Sized> XmtpBackendClient for &T {
     }
     async fn query(&self, request: QueryRequest) -> Result<QueryResponse, Self::Error> {
         (**self).query(request).await
+    }
+    async fn query_raw_envelopes(
+        &self,
+        request: QueryRequest,
+    ) -> Result<ReceivedQueryResponse, Self::Error> {
+        (**self).query_raw_envelopes(request).await
     }
     async fn query_newest(
         &self,

@@ -120,7 +120,8 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
                 .into_iter()
                 .flat_map(|batch| batch.envelopes)
                 .map(|envelope| {
-                    let update = xmtp_api_backend::envelope::decode_identity_update(envelope)?;
+                    let update =
+                        xmtp_api_backend::envelope::decode_identity_update(envelope.decode()?)?;
                     if !requested.contains(&update.update.inbox_id) {
                         return Err(ApiError::InvalidResponse("unrequested inbox"));
                     }

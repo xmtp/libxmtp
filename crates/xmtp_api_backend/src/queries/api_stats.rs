@@ -2,7 +2,7 @@ use xmtp_proto::{
     api::HasStats,
     api_client::{AggregateStats, ApiStats, IdentityStats, XmtpBackendClient, XmtpMlsStreams},
     backend_v1::*,
-    types::{GroupId, InstallationId, TopicCursor},
+    types::{GroupId, InstallationId, ReceivedQueryResponse, TopicCursor},
 };
 #[derive(Clone, Debug)]
 pub struct TrackedStatsClient<C> {
@@ -51,6 +51,13 @@ impl<C: XmtpBackendClient> XmtpBackendClient for TrackedStatsClient<C> {
     async fn query(&self, request: QueryRequest) -> Result<QueryResponse, Self::Error> {
         self.stats.query.count_request();
         self.inner.query(request).await
+    }
+    async fn query_raw_envelopes(
+        &self,
+        request: QueryRequest,
+    ) -> Result<ReceivedQueryResponse, Self::Error> {
+        self.stats.query.count_request();
+        self.inner.query_raw_envelopes(request).await
     }
     async fn query_newest(
         &self,

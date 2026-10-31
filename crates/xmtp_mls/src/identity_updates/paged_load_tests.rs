@@ -86,7 +86,7 @@ async fn load_identity_updates_stores_each_page() {
     let last_page = vec![identity_envelope(&updates[2], 3)];
     let mut sequence = mockall::Sequence::new();
     let mut mock = xmtp_api_backend::MockBackendClient::new();
-    mock.expect_query()
+    mock.expect_query_raw_envelopes()
         .times(1)
         .in_sequence(&mut sequence)
         .returning(move |request| {
@@ -95,16 +95,17 @@ async fn load_identity_updates_stores_each_page() {
             Ok(wire::QueryResponse {
                 envelopes: first_page.clone(),
                 continuation: Some(wire::Continuation { has_more: true }),
-            })
+            }
+            .into())
         });
-    mock.expect_query()
+    mock.expect_query_raw_envelopes()
         .times(1)
         .in_sequence(&mut sequence)
         .returning(move |request| {
             assert_eq!(queried_after(&request), 2);
             Err(stopped())
         });
-    mock.expect_query()
+    mock.expect_query_raw_envelopes()
         .times(1)
         .in_sequence(&mut sequence)
         .returning(move |request| {
@@ -112,7 +113,8 @@ async fn load_identity_updates_stores_each_page() {
             Ok(wire::QueryResponse {
                 envelopes: last_page.clone(),
                 continuation: Some(wire::Continuation { has_more: false }),
-            })
+            }
+            .into())
         });
     let api = ApiClientWrapper::new(mock, Retry::default());
     let store = xmtp_db::TestDb::create_ephemeral_store().await;
@@ -306,6 +308,12 @@ impl XmtpBackendClient for ScriptedIdentity {
             response.continuation = Some(wire::Continuation { has_more: true });
         }
         Ok(response)
+    }
+    async fn query_raw_envelopes(
+        &self,
+        request: wire::QueryRequest,
+    ) -> Result<xmtp_proto::types::ReceivedQueryResponse, Self::Error> {
+        self.query(request).await.map(Into::into)
     }
     async fn query_newest(
         &self,

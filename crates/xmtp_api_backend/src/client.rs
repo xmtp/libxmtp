@@ -3,9 +3,10 @@ use arc_swap::ArcSwap;
 use std::sync::Arc;
 use xmtp_configuration::LimitsConfiguration;
 use xmtp_proto::{
-    api::{ApiClientError, Client, Query},
+    api::{ApiClientError, Client, Query, QueryRaw},
     api_client::XmtpBackendClient,
     backend_v1::*,
+    types::ReceivedQueryResponse,
 };
 
 /// Sends backend requests through one transport.
@@ -66,6 +67,13 @@ impl<C: Client> XmtpBackendClient for BackendClient<C> {
     }
     async fn query(&self, request: QueryRequest) -> Result<QueryResponse, Self::Error> {
         backend::Query(request).query(&self.client).await
+    }
+    async fn query_raw_envelopes(
+        &self,
+        request: QueryRequest,
+    ) -> Result<ReceivedQueryResponse, Self::Error> {
+        let body = backend::Query(request).query_raw(&self.client).await?;
+        Ok(prost::Message::decode(body)?)
     }
     async fn query_newest(
         &self,

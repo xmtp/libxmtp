@@ -2,13 +2,12 @@ use crate::{
     BackendClient,
     backend::SubscribeStatic,
     envelope::{
-        EnvelopeError, decode_group_message, decode_welcome_message, ordered_batches,
-        registration_targets,
+        decode_group_message, decode_welcome_message, ordered_batches, registration_targets,
     },
     queries::{chunk_by_budget, stream::try_extractor},
 };
 use futures::{StreamExt, stream};
-use prost::Message;
+use prost::bytes::Bytes;
 use std::collections::VecDeque;
 use xmtp_common::{
     BoxDynStream,
@@ -21,7 +20,8 @@ use xmtp_proto::{
     backend_v1 as wire,
     types::{
         Cursor, GroupId, GroupMessage, IncomingBatchLimits, IncomingEvent, IncomingSubscription,
-        InstallationId, OrderedEnvelopeBatch, Topic, TopicCursor, WelcomeMessage,
+        InstallationId, OrderedEnvelopeBatch, ReceivedEnvelope, ReceivedStaticFrame,
+        ReceivedStaticResponse, Topic, TopicCursor, WelcomeMessage,
     },
 };
 
@@ -127,7 +127,14 @@ impl<C: Client> BackendClient<C> {
             .await?;
         Ok(Box::pin(events.filter_map(|event| async move {
             match event {
-                Ok(IncomingEvent::OrderedBatch(batch)) => Some(Ok(batch.envelopes)),
+                Ok(IncomingEvent::OrderedBatch(batch)) => Some(
+                    batch
+                        .envelopes
+                        .iter()
+                        .map(ReceivedEnvelope::decode)
+                        .collect::<Result<_, _>>()
+                        .map_err(Into::into),
+                ),
                 Ok(IncomingEvent::Registered { .. }) => None,
                 Ok(IncomingEvent::Disconnected) => None,
                 Err(error) => Some(Err(error)),
@@ -139,7 +146,7 @@ impl<C: Client> BackendClient<C> {
 /// Require `Started` before data and retain its fixed catch-up targets.
 /// Validate each complete frame before emitting batches; receipt stays external.
 fn normalize_static_stream(
-    stream: BoxDynStream<'static, Result<wire::SubscribeStaticResponse, ApiClientError>>,
+    stream: BoxDynStream<'static, Result<ReceivedStaticResponse, ApiClientError>>,
     starts: TopicCursor,
     limits: IncomingBatchLimits,
 ) -> BoxDynStream<'static, Result<IncomingEvent, ApiClientError>> {
@@ -177,9 +184,7 @@ fn normalize_static_stream(
                     Ok(Some(Ok(frame))) => frame,
                 };
                 match frame.response {
-                    Some(wire::subscribe_static_response::Response::Started(started))
-                        if !registered =>
-                    {
+                    Some(ReceivedStaticFrame::Started(started)) if !registered => {
                         let targets = match registration_targets(&starts, started.targets) {
                             Ok(targets) => targets,
                             Err(error) => break Err(error.into()),
@@ -193,16 +198,13 @@ fn normalize_static_stream(
                             targets,
                         });
                     }
-                    Some(wire::subscribe_static_response::Response::Keepalive(_)) if registered => {
-                    }
-                    Some(wire::subscribe_static_response::Response::Messages(messages))
-                        if registered =>
-                    {
+                    Some(ReceivedStaticFrame::Keepalive(_)) if registered => {}
+                    Some(ReceivedStaticFrame::Messages(messages)) if registered => {
                         match frame_batches(&mut cursors, messages.envelopes, limits) {
                             Ok(batches) => {
                                 pending.extend(batches.into_iter().map(IncomingEvent::OrderedBatch))
                             }
-                            Err(error) => break Err(error.into()),
+                            Err(error) => break Err(error),
                         }
                     }
                     _ => break Err(malformed("static response order")),
@@ -226,17 +228,15 @@ fn normalize_static_stream(
 // implements: PROC-020
 fn frame_batches(
     cursors: &mut TopicCursor,
-    envelopes: Vec<wire::ServerEnvelope>,
+    envelopes: Vec<Bytes>,
     limits: IncomingBatchLimits,
-) -> Result<Vec<OrderedEnvelopeBatch>, EnvelopeError> {
+) -> Result<Vec<OrderedEnvelopeBatch>, ApiClientError> {
+    let envelopes = xmtp_proto::types::received_envelopes(envelopes)?;
     let mut next = cursors.clone();
     let mut batches = Vec::new();
-    for delivery in chunk_by_budget(
-        envelopes,
-        limits.max_rows,
-        limits.max_bytes,
-        Message::encoded_len,
-    ) {
+    for delivery in chunk_by_budget(envelopes, limits.max_rows, limits.max_bytes, |envelope| {
+        envelope.raw().len()
+    }) {
         batches.extend(ordered_batches(&mut next, delivery, limits)?);
     }
     *cursors = next;

@@ -155,6 +155,12 @@ impl XmtpBackendClient for VerifyBackend {
     async fn query(&self, _: wire::QueryRequest) -> Result<wire::QueryResponse, ApiClientError> {
         unimplemented!("verify only")
     }
+    async fn query_raw_envelopes(
+        &self,
+        _: wire::QueryRequest,
+    ) -> Result<xmtp_proto::types::ReceivedQueryResponse, ApiClientError> {
+        unimplemented!("verify only")
+    }
     async fn query_newest(
         &self,
         _: wire::QueryNewestRequest,

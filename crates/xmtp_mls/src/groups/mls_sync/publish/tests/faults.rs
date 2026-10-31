@@ -186,6 +186,12 @@ impl XmtpBackendClient for FaultyApi {
         self.inner.query(request).await
     }
 
+    async fn query_raw_envelopes(
+        &self,
+        request: wire::QueryRequest,
+    ) -> Result<xmtp_proto::types::ReceivedQueryResponse, Self::Error> {
+        self.query(request).await.map(Into::into)
+    }
     async fn query_newest(
         &self,
         request: wire::QueryNewestRequest,

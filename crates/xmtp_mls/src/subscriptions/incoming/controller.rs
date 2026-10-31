@@ -5,7 +5,6 @@ use crate::{
     subscriptions::GroupSetGate,
 };
 use futures::{StreamExt, stream::FuturesUnordered};
-use prost::Message;
 use std::{
     collections::{BTreeSet, HashMap, HashSet, VecDeque},
     hash::Hash,
@@ -1065,7 +1064,7 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                 envelopes: Vec::new(),
             };
             while let Some(envelope) = pending.peek() {
-                let next_bytes = bytes.saturating_add(envelope.encoded_len() as u64);
+                let next_bytes = bytes.saturating_add(envelope.raw().len() as u64);
                 if chunk.envelopes.len() as u64 >= max_rows || next_bytes > max_bytes {
                     break;
                 }
@@ -1080,7 +1079,7 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             after = chunk
                 .envelopes
                 .last()
-                .and_then(|envelope| envelope.meta.as_ref())
+                .and_then(|envelope| envelope.meta())
                 .and_then(|meta| meta.cursor.as_ref())
                 .map(|cursor| Cursor(cursor.sequence_id))
                 .ok_or_else(|| {
