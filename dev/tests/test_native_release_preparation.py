@@ -36,8 +36,15 @@ class NativePreparationTest(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
-        self.env = dict(os.environ, GITHUB_REPOSITORY="xmtp/libxmtp")
+        self.env = dict(
+            os.environ,
+            GITHUB_REPOSITORY="xmtp/libxmtp",
+            GIT_CONFIG_GLOBAL=os.devnull,
+            GIT_CONFIG_NOSYSTEM="1",
+        )
         self.git("init", "--initial-branch=main")
+        self.git("config", "user.name", "Native release fixture")
+        self.git("config", "user.email", "native-release-fixture@example.invalid")
         self.git("config", "commit.gpgSign", "false")
         for name in MIRRORS:
             path = self.root / name
@@ -74,12 +81,14 @@ class NativePreparationTest(unittest.TestCase):
         self.bundle = self.runner / "release.bundle"
 
     def git(self, *args):
-        return subprocess.check_output(
+        result = subprocess.run(
             ["git", "-C", str(self.root), *args],
             env=self.env,
             text=True,
-            stderr=subprocess.PIPE,
-        ).strip()
+            capture_output=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        return result.stdout.strip()
 
     def write(self, name, text, executable=False):
         path = self.root / name
