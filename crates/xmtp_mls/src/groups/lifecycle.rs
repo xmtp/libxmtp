@@ -2,10 +2,12 @@
 
 use super::intents::UpdateGroupMembershipIntentData;
 use super::*;
+use crate::mls_store::MlsStoreError;
 use crate::subscriptions::internal::{dm_event_context, emit_consent_changes};
 use xmtp_db::consent_record::{
     ConsentChange, ConsentKey, ConsentWrite, Decision, Owed, fold_into_inbox, write_consent,
 };
+use xmtp_db::group::GroupQueryArgs;
 
 mod restored;
 use xmtp_db::TransactionalKeyStore;
@@ -105,6 +107,51 @@ where
             tracing::error!("group {} does not exist", hex::encode(group_id));
             Err(NotFound::GroupById(*group_id).into())
         }
+    }
+
+    /// Query for groups with optional filters
+    ///
+    /// Filters:
+    /// - allowed_states: only return groups with the given membership states
+    /// - created_after_ns: only return groups created after the given timestamp (in nanoseconds)
+    /// - created_before_ns: only return groups created before the given timestamp (in nanoseconds)
+    /// - limit: only return the first `limit` groups
+    pub fn find(context: &Context, args: GroupQueryArgs) -> Result<Vec<Self>, MlsStoreError> {
+        Ok(context
+            .db()
+            .find_groups(args)?
+            .into_iter()
+            .map(|stored_group| {
+                Self::new(
+                    context.clone(),
+                    stored_group.id,
+                    stored_group.dm_id,
+                    stored_group.conversation_type,
+                    stored_group.created_at_ns,
+                )
+            })
+            .collect())
+    }
+
+    /// Look up a group by its ID
+    ///
+    /// Returns a [`MlsGroup`] if the group exists, or an error if it does not
+    ///
+    pub fn load_by_id(context: &Context, group_id: &GroupId) -> Result<Self, MlsStoreError> {
+        let conn = context.db();
+        let stored_group: Option<StoredGroup> = conn.fetch(group_id)?;
+        stored_group
+            .map(|g| {
+                Self::new(
+                    context.clone(),
+                    g.id,
+                    g.dm_id,
+                    g.conversation_type,
+                    g.created_at_ns,
+                )
+            })
+            .ok_or(NotFound::GroupById(*group_id))
+            .map_err(Into::into)
     }
 
     pub(crate) fn new_from_arc(
