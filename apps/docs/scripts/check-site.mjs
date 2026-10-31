@@ -112,7 +112,9 @@ export async function checkBuilt({
   const files = (await walkFiles(contentRoot)).filter((file) =>
     /\.mdx?$/.test(file),
   );
-  const routes = new Set(files.map((file) => contentRoute(contentRoot, file)));
+  const routes = new Set();
+  for (const file of files)
+    routes.add(contentRoute(contentRoot, file, await readFile(file, "utf8")));
   const redirects = JSON.parse(await readFile(redirectsPath, "utf8"));
   const known = new Set([...routes, ...Object.keys(redirects)]);
   for (const [from, to] of Object.entries(redirects)) {
