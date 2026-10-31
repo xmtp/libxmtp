@@ -10,16 +10,20 @@ pub use crate::core::change_callbacks;
 pub use builders::*;
 pub use state::{ConversationStateSnapshot, GroupMetadataSnapshot};
 pub mod commit_log;
+#[cfg(any(test, feature = "test-utils"))]
+pub(crate) mod diagnostics;
 mod error;
 pub mod intents;
 pub mod members;
 pub mod message_list;
 pub(super) mod mls_ext;
 pub(super) mod mls_sync;
+mod notifications;
 pub mod oneshot;
 pub mod send_message_opts;
 pub(super) mod subscriptions;
 pub mod summary;
+mod targets;
 #[cfg(test)]
 mod tests;
 mod traits;
