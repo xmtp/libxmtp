@@ -1,6 +1,7 @@
 import { readdir, stat } from "node:fs/promises";
 import { extname, join, relative, resolve, sep } from "node:path";
 
+import { parseFrontmatter } from "@astrojs/markdown-remark";
 import { slug } from "github-slugger";
 
 export function assertTypeDocValidation(logger, label) {
@@ -22,12 +23,15 @@ export async function walkFiles(root) {
   return files.sort();
 }
 
-export function contentRoute(contentRoot, file) {
+export function contentRoute(contentRoot, file, source = "") {
   let route = relative(contentRoot, file)
     .split(sep)
     .join("/")
     .replace(/\.(?:md|mdx)$/, "");
   if (/^reference\/(?:node|browser|agent|react-native)-sdk\//u.test(route)) {
+    const { frontmatter } = parseFrontmatter(source);
+    if (typeof frontmatter.slug === "string" && frontmatter.slug)
+      return `/${frontmatter.slug}/`;
     route = route
       .split("/")
       .map((segment) => slug(segment))

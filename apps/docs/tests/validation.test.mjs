@@ -130,6 +130,40 @@ test("TypeDoc canonical pages do not hide missing pages, anchors or case errors"
   );
 });
 
+test("TypeDoc explicit slugs preserve supported empty-slug symbols", async () => {
+  const root = await fixture();
+  const content = join(root, "content");
+  const output = join(root, "site");
+  await writeFile(join(root, "redirects.json"), "{}");
+  for (const sdk of ["node", "browser", "agent", "react-native"]) {
+    const directory = `reference/${sdk}-sdk/variables`;
+    await mkdir(join(content, directory), { recursive: true });
+    await mkdir(join(output, directory, "$"), { recursive: true });
+    await writeFile(
+      join(content, directory, "$.md"),
+      `---\ntitle: "$"\nslug: ${directory}/$\n---\n`,
+    );
+    await writeFile(join(output, directory, "$/index.html"), "Dollar");
+  }
+  const check = async () =>
+    (
+      await checkBuilt({
+        contentRoot: content,
+        outputRoot: output,
+        redirectsPath: join(root, "redirects.json"),
+      })
+    ).filter((failure) => failure.startsWith("built page is missing:"));
+  assert.deepEqual(await check(), []);
+  await rm(join(output, "reference/node-sdk/variables/$/index.html"));
+  await writeFile(
+    join(output, "reference/node-sdk/variables/index.html"),
+    "Wrong page",
+  );
+  assert.deepEqual(await check(), [
+    "built page is missing: /reference/node-sdk/variables/$/",
+  ]);
+});
+
 test("source validation finds old code groups and broken relative links", async () => {
   const root = await fixture();
   const content = join(root, "content");
