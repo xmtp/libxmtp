@@ -31,7 +31,7 @@ use xmtp_id::{
 /// If the address is already associated with an inbox_id, the existing inbox_id will be used.
 /// If it is not, a new inbox_id is generated from the identifier and nonce.
 /// Either way, the caller must sign with their wallet.
-#[tracing::instrument(level = "trace", skip_all)]
+#[tracing::instrument(name = "new", level = "trace", skip_all)]
 pub(crate) async fn new_identity<ApiClient: XmtpApi, S: XmtpMlsStorageProvider>(
     inbox_id: InboxId,
     identifier: Identifier,
