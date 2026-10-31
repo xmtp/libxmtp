@@ -91,8 +91,7 @@ jobs:
           git config user.email 'github-actions[bot]@users.noreply.github.com'
           git add sdks/ios/ReleaseArtifacts.json sdks/ios/Sources/XmtpSdk
           git -c commit.gpgsign=false commit -m "release: iOS SDK $VERSION"
-          git tag "ios-$VERSION"
-          git bundle create target/release/ios/release.bundle "refs/tags/ios-$VERSION"
+          dev/nix-shell --shell js-node --command python3.11 dev/prepare_native_release.py ios --plan "$RUNNER_TEMP/sdk-release-plan/release-plan.json" --bundle target/release/ios/release.bundle
           dev/nix-shell --shell js-node --command python3.11 dev/sdk_version.py seal target/release/ios --plan "$RUNNER_TEMP/sdk-release-plan/release-plan.json"
       - name: Install the prepared SwiftPM release archive
         run: dev/nix-shell --command python3.11 dev/check_swiftpm_release.py target/release/ios/XmtpSdkFFI.zip "$RUNNER_TEMP/sdk-release-plan/release-plan.json"
