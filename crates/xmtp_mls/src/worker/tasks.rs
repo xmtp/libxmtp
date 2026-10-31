@@ -2,6 +2,7 @@ pub use crate::core::task_channels::TaskWorkerChannels;
 use crate::{
     context::XmtpSharedContext,
     core::events::InternalEvent,
+    groups::MlsGroup,
     worker::{
         NeedsDbReconnect, Worker, WorkerFactory, WorkerKind,
         device_sync::{DeviceSyncClient, DeviceSyncError},
@@ -578,7 +579,7 @@ where
             context.db().delete_task(task.id)?;
             return Ok(());
         };
-        match crate::groups::MlsGroup::load_by_id(context, &group_id) {
+        match MlsGroup::load_by_id(context, &group_id) {
             Ok(group) => {
                 // No-op unless super-admin; idempotent, so retries are safe.
                 group.process_pending_self_removals().await?;
@@ -617,7 +618,7 @@ where
             context.db().delete_task(task.id)?;
             return Ok(TaskOutcome::Done);
         };
-        match crate::groups::MlsGroup::load_by_id(context, &group_id) {
+        match MlsGroup::load_by_id(context, &group_id) {
             // implements: SYNC-034, GMOD-055
             Ok(group) if group.conversation_type == ConversationType::Sync => {
                 let metrics = Arc::new(WorkerMetrics::new(context.installation_id()));
