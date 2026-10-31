@@ -1,7 +1,9 @@
 //! Guard for the error walk (`error/wrappers.rs`). The walk follows
 //! `source()` and opens the core variants marked `#[error(transparent)]`,
 //! which forward `source()` past their inner error. This test reads every
-//! error enum in the core crates and, from every type passed to `from_core`
+//! error enum in every workspace member the root manifest lists, fails when a
+//! root from a workspace crate has no scanned definition, and, from every type
+//! passed to `from_core`
 //! (the `CoreError` implementors), follows every variant the walk can reach:
 //!
 //! - a variant whose field has `#[from]`, `#[source]`, or the name `source`
@@ -22,21 +24,6 @@
 use crate::error::{CORE_ERROR_ROOTS, OPENED_WRAPPERS};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::path::Path;
-
-/// The core crates whose error enums can reach `XmtpError::from_core`.
-const CRATES: &[&str] = &[
-    "xmtp_mls",
-    "xmtp_db",
-    "xmtp_api",
-    "xmtp_api_backend",
-    "xmtp_archive",
-    "xmtp_id",
-    "xmtp_proto",
-    "xmtp_content_types",
-    "xmtp_mls_validation",
-    "xmtp_cryptography",
-    "xmtp_common",
-];
 
 /// Entry points that map an error without `from_core`.
 const EXTRA_ROOTS: &[&str] = &["ApiError", "NotificationError"];
@@ -265,21 +252,19 @@ fn scan(source: &str, index: &mut BTreeMap<String, BTreeSet<Edge>>) {
     }
 }
 
-fn sources(dir: &Path, found: &mut Vec<std::path::PathBuf>) {
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
+fn sources(dir: &Path, found: &mut Vec<std::path::PathBuf>) -> std::io::Result<()> {
+    for entry in std::fs::read_dir(dir)? {
+        let path = entry?.path();
         let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
         if path.is_dir() {
             if name != "tests" && name != "test" {
-                sources(&path, found);
+                sources(&path, found)?;
             }
         } else if name.ends_with(".rs") && name != "tests.rs" && !name.ends_with("_tests.rs") {
             found.push(path);
         }
     }
+    Ok(())
 }
 
 fn short(path: &str) -> &str {
@@ -335,15 +320,65 @@ fn leads_to_classified(
 #[cfg(not(target_arch = "wasm32"))]
 #[xmtp_common::test(unwrap_try = true)]
 fn every_reachable_core_error_cause_is_visible_to_the_walk() {
-    let crates = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+    // Every workspace member the root manifest's `members` and `exclude`
+    // name, so a new crate's error enums are scanned without editing this
+    // test. A crate without a readable src/ fails the read instead of being
+    // skipped.
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let manifest = std::fs::read_to_string(root.join("Cargo.toml"))?;
+    let listed = |key: &str| -> Vec<String> {
+        manifest
+            .lines()
+            .skip_while(|line| line.trim() != format!("{key} = ["))
+            .skip(1)
+            .take_while(|line| line.trim() != "]")
+            .filter_map(|line| {
+                line.trim()
+                    .strip_prefix('"')
+                    .and_then(|line| line.split_once('"'))
+            })
+            .map(|(entry, _)| entry.to_string())
+            .collect()
+    };
+    let excluded: BTreeSet<_> = listed("exclude")
+        .into_iter()
+        .map(|entry| root.join(entry))
+        .collect();
+    let mut members = Vec::new();
+    for entry in listed("members") {
+        match entry.strip_suffix("/*") {
+            Some(parent) => {
+                for dir in std::fs::read_dir(root.join(parent))? {
+                    members.push(dir?.path());
+                }
+            }
+            None => members.push(root.join(entry)),
+        }
+    }
+    members.retain(|dir| !excluded.contains(dir) && dir.join("Cargo.toml").is_file());
+    assert!(
+        members.iter().any(|dir| dir.ends_with("crates/xmtp_mls")),
+        "the root manifest lists no workspace members: {members:?}"
+    );
     let mut index = BTreeMap::new();
-    for krate in CRATES {
+    for dir in &members {
         let mut files = Vec::new();
-        sources(&crates.join(krate).join("src"), &mut files);
+        sources(&dir.join("src"), &mut files)?;
         for file in files {
             scan(&std::fs::read_to_string(file)?, &mut index);
         }
     }
+    let unscanned: Vec<_> = CORE_ERROR_ROOTS
+        .iter()
+        .filter(|root| {
+            let krate = root.split("::").next().unwrap_or("").trim();
+            members.iter().any(|dir| dir.ends_with(krate)) && !index.contains_key(short(root))
+        })
+        .collect();
+    assert!(
+        unscanned.is_empty(),
+        "roots from workspace crates that no scanned source defines: {unscanned:?}"
+    );
     let opened: BTreeSet<(String, String)> = OPENED_WRAPPERS
         .iter()
         .map(|(ty, variant)| (short(ty).to_string(), variant.to_string()))
