@@ -11,6 +11,7 @@ mod definitions;
 pub mod diagnostics;
 pub mod groups;
 pub mod identity;
+pub mod identity_lifecycle;
 pub mod identity_updates;
 pub mod inbox_handles;
 mod intents;

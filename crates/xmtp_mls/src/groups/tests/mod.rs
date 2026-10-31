@@ -192,10 +192,12 @@ pub(super) async fn force_add_member(
     use openmls::prelude::tls_codec::Serialize;
     let new_member_provider = new_member_client.context.mls_provider();
 
-    let key_package_result = new_member_client
-        .identity()
-        .new_key_package(&new_member_provider, CREATE_PQ_KEY_PACKAGE_EXTENSION)
-        .unwrap();
+    let key_package_result = crate::identity_lifecycle::new_key_package(
+        new_member_client.identity(),
+        &new_member_provider,
+        CREATE_PQ_KEY_PACKAGE_EXTENSION,
+    )
+    .unwrap();
     let wrapper =
         WrapperEncryptionExtension::advertised_by(&key_package_result.key_package).unwrap();
     let (commit, welcome, _) = sender_mls_group

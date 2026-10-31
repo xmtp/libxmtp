@@ -274,10 +274,14 @@ async fn test_welcome_pointer_round_trip(
 async fn classical_pointee_recipient_gets_an_inline_welcome(#[case] pq_recipients: usize) {
     tester!(alix, disable_workers);
     tester!(bo, disable_workers);
-    bo.identity()
-        .rotate_and_upload_key_package(bo.context.api(), bo.context.mls_storage(), false)
-        .await
-        .unwrap();
+    crate::identity_lifecycle::rotate_and_upload_key_package(
+        bo.identity(),
+        bo.context.api(),
+        bo.context.mls_storage(),
+        false,
+    )
+    .await
+    .unwrap();
     let mut pq = Vec::new();
     for _ in 0..pq_recipients {
         tester!(recipient, disable_workers);
@@ -1028,11 +1032,12 @@ async fn publish_pointer(
     use xmtp_proto::backend_v1::welcome_message::{Version, WelcomePointer};
     use xmtp_proto::xmtp::mls::message_contents::welcome_pointer::Version as PointerVersion;
 
-    let package = recipient
-        .context
-        .identity()
-        .new_key_package(&recipient.context.mls_provider(), true)
-        .unwrap();
+    let package = crate::identity_lifecycle::new_key_package(
+        recipient.context.identity(),
+        &recipient.context.mls_provider(),
+        true,
+    )
+    .unwrap();
     let public_key = package.pq_pub_key.as_deref().unwrap();
     let plaintext = WelcomePointerProto {
         version: Some(PointerVersion::WelcomeV1Pointer(pointer.clone())),
@@ -1161,11 +1166,12 @@ async fn welcome_wrapper_matches_advertisement(
     let group = alix.create_group(None, None).unwrap();
     let (welcome_message, join_anchor) =
         publish_commit_without_welcome(&group, bo.inbox_id()).await;
-    let package = bo
-        .context
-        .identity()
-        .new_key_package(&bo.context.mls_provider(), post_quantum_package)
-        .unwrap();
+    let package = crate::identity_lifecycle::new_key_package(
+        bo.context.identity(),
+        &bo.context.mls_provider(),
+        post_quantum_package,
+    )
+    .unwrap();
     let key = |key| match key {
         PackageKey::Init => package.key_package.hpke_init_key().as_slice().to_vec(),
         PackageKey::PostQuantum => package.pq_pub_key.clone().unwrap(),

@@ -393,10 +393,14 @@ async fn inline_only_tester() -> crate::utils::ClientTester {
 /// inline Welcome is smaller than one wrapped for a post-quantum key.
 async fn classical_tester() -> crate::utils::ClientTester {
     tester!(fred, disable_workers);
-    fred.identity()
-        .rotate_and_upload_key_package(fred.context.api(), fred.context.mls_storage(), false)
-        .await
-        .unwrap();
+    crate::identity_lifecycle::rotate_and_upload_key_package(
+        fred.identity(),
+        fred.context.api(),
+        fred.context.mls_storage(),
+        false,
+    )
+    .await
+    .unwrap();
     fred
 }
 
