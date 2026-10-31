@@ -25,7 +25,7 @@ jobs:
       load: ${{ steps.matrix.outputs.load }}
     steps:
       - name: Check out the platform list
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.ref }}
           sparse-checkout: nix/sdk-platforms.json
@@ -145,7 +145,7 @@ jobs:
         include: ${{ fromJSON(needs.plan.outputs.build) }}
     steps:
       - name: Check out the release source
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.ref }}
       - name: Set up Nix
@@ -197,7 +197,7 @@ jobs:
         include: ${{ fromJSON(needs.plan.outputs.cargo) }}
     steps:
       - name: Check out the release source
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.ref }}
       # The pair is cached by the source key of its SDK inputs, build recipe
@@ -229,7 +229,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
       - name: Restore the built pair
         id: restore
-        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: target/sdk-node-platforms/${{ matrix.target }}
           key: sdk-node-pair-${{ matrix.target }}-${{ steps.key.outputs.key }}
@@ -296,7 +296,7 @@ jobs:
           python crates/xmtp_sdk/dev/record-node-platform.py "$TARGET" --library target/sdk-node-windows/native/"$LIBRARY" --addon target/sdk-node-runtime-source/target/"$RUST_TARGET"/release/uniffi_runtime_napi.dll --native-artifacts target/sdk-node-windows/artifacts.json --runtime-provenance target/sdk-node-windows/runtime-provenance.json --runtime-source target/sdk-node-runtime-source --source-key "$RUNNER_TEMP/source-key.json"
       - name: Save the built pair
         if: steps.restore.outputs.cache-hit != 'true'
-        uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: target/sdk-node-platforms/${{ matrix.target }}
           key: ${{ steps.restore.outputs.cache-primary-key }}
@@ -318,7 +318,7 @@ jobs:
       XMTP_SDK_BUILD: nix
     steps:
       - name: Check out the release source
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.ref }}
       - name: Set up Nix
@@ -362,7 +362,7 @@ jobs:
         include: ${{ fromJSON(needs.plan.outputs.load) }}
     steps:
       - name: Check out the release source
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.ref }}
       - name: Download the package
@@ -371,7 +371,7 @@ jobs:
           name: sdk_node_public
           path: target/sdk-packages/node
       - name: Install Node.js 22.23.4
-        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22.23.4"
       # Each Linux target loads in the pinned image of its libc.
