@@ -9,7 +9,6 @@ use crate::groups::summary::SyncSummary;
 use crate::identity::create_credential;
 use crate::worker::device_sync::worker::SyncMetric;
 use crate::worker::tasks::TaskWorkerChannels;
-use crate::worker::{MetricsCasting, WorkerKind};
 use crate::{
     context::XmtpMlsLocalContext, identity::Identity, mutex_registry::MutexRegistry,
     utils::VersionInfo,
@@ -186,10 +185,7 @@ impl XmtpSharedContext for NewMockContext {
     }
 
     fn sync_metrics(&self) -> Option<Arc<crate::worker::metrics::WorkerMetrics<SyncMetric>>> {
-        self.worker_metrics
-            .lock()
-            .get(&WorkerKind::DeviceSync)?
-            .as_sync_metrics()
+        self.worker_metrics.lock().clone()
     }
 
     fn cancellation_token(&self) -> &CancellationToken {

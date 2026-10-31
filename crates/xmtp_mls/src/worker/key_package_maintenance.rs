@@ -37,10 +37,19 @@ pub enum KeyPackageMaintenanceError {
     Rotation(IdentityError),
 }
 
-impl KeyPackageMaintenanceError {
+impl xmtp_common::RetryableError for KeyPackageMaintenanceError {
+    #[deny(clippy::wildcard_enum_match_arm)]
+    fn is_retryable(&self) -> bool {
+        match self {
+            Self::Identity(e) | Self::DeleteKeyPackage(e) | Self::Rotation(e) => e.is_retryable(),
+            Self::Storage(e) | Self::Metadata(e) | Self::Fetch(e) | Self::Deletion(e) => {
+                e.is_retryable()
+            }
+        }
+    }
+
     /// The delay of a rate-limit rejection that failed this maintenance step.
-    pub(crate) fn rate_limit_delay(&self) -> Option<xmtp_common::time::Duration> {
-        use xmtp_common::RetryableError;
+    fn rate_limit_delay(&self) -> Option<xmtp_common::time::Duration> {
         match self {
             Self::Identity(e) | Self::DeleteKeyPackage(e) | Self::Rotation(e) => {
                 e.rate_limit_delay()
@@ -282,8 +291,8 @@ pub(crate) fn seed_and_reconcile_kp_tasks<Context: XmtpSharedContext>(
 mod tests {
     use super::*;
     use crate::tester;
-    use crate::worker::tasks::TaskWorker;
     use crate::worker::{WorkerConfig, WorkerKind};
+    use crate::{task_handlers::MlsTaskHandlers, worker::tasks::TaskWorker};
     use openmls_traits::storage::StorageProvider;
     use prost::Message;
     use xmtp_db::ConnectionExt;
@@ -320,8 +329,8 @@ mod tests {
 
     #[xmtp_common::test]
     fn kp_errors_forward_db_reconnect() {
+        use crate::task_handlers::TaskWorkerError;
         use crate::worker::NeedsDbReconnect;
-        use crate::worker::tasks::TaskWorkerError;
         let e = TaskWorkerError::from(KeyPackageMaintenanceError::Storage(disconnect_storage()));
         assert!(
             e.needs_db_reconnect(),
@@ -433,7 +442,9 @@ mod tests {
         make_rotation_due(&db).await;
 
         let row = row_by_hash(&db, kp_rotation_hash()).unwrap();
-        TaskWorker::run_and_reschedule_task(row, &alix.context).await?;
+        TaskWorker::new(alix.context.clone(), MlsTaskHandlers)
+            .run_and_reschedule_task(row)
+            .await?;
 
         assert!(
             !db.is_identity_needs_rotation()?,
@@ -458,7 +469,9 @@ mod tests {
         make_rotation_due(&db).await;
 
         let row = row_by_hash(&db, kp_rotation_hash()).unwrap();
-        TaskWorker::run_and_reschedule_task(row, &alix.context).await?;
+        TaskWorker::new(alix.context.clone(), MlsTaskHandlers)
+            .run_and_reschedule_task(row)
+            .await?;
 
         assert!(
             row_by_hash(&db, kp_deletion_hash()).is_some(),
@@ -487,7 +500,9 @@ mod tests {
         xmtp_common::time::sleep(std::time::Duration::from_secs(4)).await; // pass the grace
 
         let row = row_by_hash(&db, kp_deletion_hash()).unwrap();
-        TaskWorker::run_and_reschedule_task(row, &alix.context).await?;
+        TaskWorker::new(alix.context.clone(), MlsTaskHandlers)
+            .run_and_reschedule_task(row)
+            .await?;
 
         assert!(
             db.get_expired_key_packages()?.is_empty(),
@@ -537,7 +552,9 @@ mod tests {
                 )
             })
             .expect("reconcile must enqueue a rotation pull-in");
-        TaskWorker::run_and_reschedule_task(pull_in, &alix.context).await?;
+        TaskWorker::new(alix.context.clone(), MlsTaskHandlers)
+            .run_and_reschedule_task(pull_in)
+            .await?;
 
         let after = row_by_hash(&db, kp_rotation_hash()).unwrap();
         let col = db.next_key_package_rotation_ns()?.unwrap();
@@ -554,7 +571,9 @@ mod tests {
         db.create_or_ignore_task(kp_seed(kp_rotation_proto(), now)?)?;
         // Post-registration column is ~now+30d: not due.
         let row = row_by_hash(&db, kp_rotation_hash()).unwrap();
-        TaskWorker::run_and_reschedule_task(row, &alix.context).await?;
+        TaskWorker::new(alix.context.clone(), MlsTaskHandlers)
+            .run_and_reschedule_task(row)
+            .await?;
 
         assert!(
             row_by_hash(&db, kp_deletion_hash()).is_none(),
@@ -631,7 +650,9 @@ mod tests {
         db.create_or_ignore_task(kp_seed(kp_rotation_proto(), now)?)?;
         // Simulate the seed having already dispatched not-due: park it on the column (~+30d).
         let parked = row_by_hash(&db, kp_rotation_hash()).unwrap();
-        TaskWorker::run_and_reschedule_task(parked, &alix.context).await?;
+        TaskWorker::new(alix.context.clone(), MlsTaskHandlers)
+            .run_and_reschedule_task(parked)
+            .await?;
         let parked_at = row_by_hash(&db, kp_rotation_hash())
             .unwrap()
             .next_attempt_at_ns;
@@ -652,7 +673,9 @@ mod tests {
                 )
             })
             .expect("nudge must enqueue a durable pull-in");
-        TaskWorker::run_and_reschedule_task(pull_in, &alix.context).await?;
+        TaskWorker::new(alix.context.clone(), MlsTaskHandlers)
+            .run_and_reschedule_task(pull_in)
+            .await?;
 
         let after = row_by_hash(&db, kp_rotation_hash()).unwrap();
         let col = db.next_key_package_rotation_ns()?.unwrap();

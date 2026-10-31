@@ -723,12 +723,13 @@ mod tests {
     // verifies: PUSH-260
     #[xmtp_common::test(unwrap_try = true)]
     async fn archived_consent_wakes_notification_sync() {
+        use crate::task_handlers::MlsTaskHandlers;
         use crate::worker::{notifications::task_hash, notifications::tests::*, tasks::TaskWorker};
         use xmtp_common::{StreamHandle, time::Duration, time::timeout, wait_for_eq};
         let (client, peer) = support::client().await;
         let group = client.create_group(None, None)?;
         client.enable_notifications(config()).await?;
-        let mut task_worker = TaskWorker::new(client.context.clone());
+        let mut task_worker = TaskWorker::new(client.context.clone(), MlsTaskHandlers);
         let runner = xmtp_common::spawn(None, async move { task_worker.run().await });
         // Wait until the runner is idle, so only a wake runs it within the hour.
         let idle = || async {

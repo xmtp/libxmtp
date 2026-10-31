@@ -542,7 +542,7 @@ fn add_task_group_ids(client: &crate::utils::Tester) -> Vec<Vec<u8>> {
 #[xmtp_common::test(unwrap_try = true)]
 #[cfg_attr(target_arch = "wasm32", ignore)]
 async fn sync_group_creation_add_survives_exit_and_spent_attempts() {
-    use crate::worker::tasks::TaskWorker;
+    use crate::{task_handlers::MlsTaskHandlers, worker::tasks::TaskWorker};
     tester!(alix1, disable_workers);
     tester!(alix2, from: alix1, disable_workers);
     // Stop after the insert, before get_sync_group's inline add.
@@ -563,7 +563,9 @@ async fn sync_group_creation_add_survives_exit_and_spent_attempts() {
     );
     assert!(task.next_attempt_at_ns >= before + 60 * xmtp_common::NS_IN_SEC);
     let task = db.update_task(task.id, 25, now_ns(), now_ns())?;
-    TaskWorker::run_and_reschedule_task(task, &alix1.context).await?;
+    TaskWorker::new(alix1.context.clone(), MlsTaskHandlers)
+        .run_and_reschedule_task(task)
+        .await?;
     assert!(group.with_group_snapshot(|mls| {
         Ok(mls
             .members()
@@ -576,7 +578,7 @@ async fn sync_group_creation_add_survives_exit_and_spent_attempts() {
 #[cfg_attr(target_arch = "wasm32", ignore)]
 async fn sync_group_inline_add_keeps_retry_until_membership_complete() {
     use crate::utils::test_mocks_helpers as kp;
-    use crate::worker::tasks::TaskWorker;
+    use crate::{task_handlers::MlsTaskHandlers, worker::tasks::TaskWorker};
 
     tester!(alix1, disable_workers);
     tester!(alix2, from: alix1, disable_workers);
@@ -590,7 +592,9 @@ async fn sync_group_inline_add_keeps_retry_until_membership_complete() {
     let db = alix1.context.db();
     let [task] = db.get_tasks()?.try_into().unwrap();
     let task = db.update_task(task.id, 0, now_ns(), now_ns())?;
-    TaskWorker::run_and_reschedule_task(task, &alix1.context).await?;
+    TaskWorker::new(alix1.context.clone(), MlsTaskHandlers)
+        .run_and_reschedule_task(task)
+        .await?;
     alix2.sync_welcomes().await?;
     assert!(alix2.group(&group.group_id).is_ok());
     assert!(add_task_group_ids(&alix1).is_empty());
@@ -1181,7 +1185,7 @@ async fn publish_reaches_present_leaves_and_retries_a_missing_one() {
     use crate::utils::test_mocks_helpers::{
         RestoreKeyPackages, set_test_mode_upload_malformed_keypackage,
     };
-    use crate::worker::tasks::TaskWorker;
+    use crate::{task_handlers::MlsTaskHandlers, worker::tasks::TaskWorker};
     use xmtp_db::tasks::QueryTasks;
 
     tester!(alix1, disable_workers);
@@ -1227,7 +1231,9 @@ async fn publish_reaches_present_leaves_and_retries_a_missing_one() {
     );
     let task = db.update_task(task.id, 0, now_ns(), published_at + interval)?;
     xmtp_common::time::sleep(std::time::Duration::from_nanos(interval as u64)).await;
-    TaskWorker::run_and_reschedule_task(task.clone(), &alix1.context).await?;
+    TaskWorker::new(alix1.context.clone(), MlsTaskHandlers)
+        .run_and_reschedule_task(task.clone())
+        .await?;
     let kept = add_task().expect("the retry task is kept");
     assert!(kept.next_attempt_at_ns > task.next_attempt_at_ns);
     assert!(!has_alix3()?);
@@ -1237,7 +1243,9 @@ async fn publish_reaches_present_leaves_and_retries_a_missing_one() {
         .lock()
         .unwrap() = true;
     let failed_at = now_ns();
-    TaskWorker::run_and_reschedule_task(kept, &alix1.context).await?;
+    TaskWorker::new(alix1.context.clone(), MlsTaskHandlers)
+        .run_and_reschedule_task(kept)
+        .await?;
     let after = add_task().expect("the retry task is kept");
     assert_eq!(
         (
@@ -1300,7 +1308,7 @@ async fn arming_a_retry_makes_an_older_expiring_row_durable() {
 #[xmtp_common::test(unwrap_try = true)]
 #[cfg_attr(target_arch = "wasm32", ignore)]
 async fn newcomer_added_by_a_publish_joins_quiet_conversations() {
-    use crate::worker::tasks::TaskWorker;
+    use crate::{task_handlers::MlsTaskHandlers, worker::tasks::TaskWorker};
     use xmtp_db::tasks::QueryTasks;
 
     tester!(alix1, disable_workers);
@@ -1320,7 +1328,9 @@ async fn newcomer_added_by_a_publish_joins_quiet_conversations() {
     publish(&alix1).await?;
 
     for task in alix1.context.db().get_tasks()? {
-        TaskWorker::run_and_reschedule_task(task, &alix1.context).await?;
+        TaskWorker::new(alix1.context.clone(), MlsTaskHandlers)
+            .run_and_reschedule_task(task)
+            .await?;
     }
     alix2.sync_welcomes().await?;
     assert_eq!(alix2.context.db().all_sync_groups()?.len(), 1);
@@ -1334,7 +1344,7 @@ async fn newcomer_added_by_a_publish_joins_quiet_conversations() {
 #[xmtp_common::test(unwrap_try = true)]
 #[cfg_attr(target_arch = "wasm32", ignore)]
 async fn creation_task_adds_peers_after_its_group_loses_selection() {
-    use crate::worker::tasks::TaskWorker;
+    use crate::{task_handlers::MlsTaskHandlers, worker::tasks::TaskWorker};
     use xmtp_db::tasks::QueryTasks;
 
     tester!(alix1, disable_workers);
@@ -1363,7 +1373,9 @@ async fn creation_task_adds_peers_after_its_group_loses_selection() {
             .context
             .db()
             .update_task(task.id, 0, now_ns(), now_ns())?;
-        TaskWorker::run_and_reschedule_task(task, &alix2.context).await?;
+        TaskWorker::new(alix2.context.clone(), MlsTaskHandlers)
+            .run_and_reschedule_task(task)
+            .await?;
     }
     alix1.sync_welcomes().await?;
     assert!(alix1.group(&newer.group_id).is_ok());
@@ -1895,6 +1907,7 @@ async fn an_own_state_disconnect_keeps_the_reconnect_signal(
 ) {
     use crate::{
         identity_updates::IdentityUpdateError,
+        task_handlers::MlsTaskHandlers,
         test::builder_native_only::{HookedVerifier, register_scw_client},
         worker::{NeedsDbReconnect, tasks::TaskWorker},
     };
@@ -1986,7 +1999,8 @@ async fn an_own_state_disconnect_keeps_the_reconnect_signal(
         "the retry task is not due"
     );
     let verified = calls.load(Ordering::SeqCst);
-    let error = TaskWorker::run_and_reschedule_task(task, &alix.context)
+    let error = TaskWorker::new(alix.context.clone(), MlsTaskHandlers)
+        .run_and_reschedule_task(task)
         .await
         .unwrap_err();
     assert!(
@@ -2015,8 +2029,8 @@ async fn an_own_state_disconnect_keeps_the_reconnect_signal(
 #[xmtp_common::test(unwrap_try = true)]
 async fn device_sync_publish_failures_keep_reconnect_signal() {
     use crate::{
-        groups::GroupError, identity_updates::IdentityUpdateError, worker::NeedsDbReconnect,
-        worker::tasks::TaskWorkerError,
+        groups::GroupError, identity_updates::IdentityUpdateError, task_handlers::TaskWorkerError,
+        worker::NeedsDbReconnect,
     };
     use xmtp_db::PlatformStorageError;
     tester!(alix, persistent_db, disable_workers);

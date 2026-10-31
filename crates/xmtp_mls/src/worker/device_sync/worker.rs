@@ -14,8 +14,8 @@ use crate::{
         internal::{InternalEvent, emit_consent_changes, emit_root_key_changed},
     },
     worker::{
-        BoxedWorker, DynMetrics, MetricsCasting, NeedsDbReconnect, Worker, WorkerFactory,
-        WorkerKind, WorkerResult, metrics::WorkerMetrics,
+        BoxedWorker, NeedsDbReconnect, NewWorker, Worker, WorkerFactory, WorkerKind, WorkerResult,
+        metrics::WorkerMetrics,
     },
 };
 use futures::TryFutureExt;
@@ -28,7 +28,7 @@ use xmtp_db::group_message::{DeliveryStatus, StoredGroupMessage};
 use xmtp_db::prelude::*;
 use xmtp_db::processed_device_sync_messages::SyncMessageKey;
 use xmtp_db::{StorageError, TransactionOutcome::Continue, sync_outbox::has_owed};
-use xmtp_events::Subscription;
+use xmtp_events::{EventFilter, Subscription};
 use xmtp_id::associations::{AssociationState, IdentityAction, verify_updates};
 use xmtp_macro::log_event;
 use xmtp_proto::ShortHex;
@@ -123,10 +123,13 @@ impl<Context> SyncWorker<Context>
 where
     Context: XmtpSharedContext + 'static,
 {
-    fn new(context: Context, metrics: Option<DynMetrics>, passes: SharedPasses) -> Self {
-        let metrics = metrics
-            .and_then(|m| m.as_sync_metrics())
-            .unwrap_or(Arc::new(WorkerMetrics::new(context.installation_id())));
+    fn new(
+        context: Context,
+        metrics: Option<Arc<WorkerMetrics<SyncMetric>>>,
+        passes: SharedPasses,
+    ) -> Self {
+        let metrics =
+            metrics.unwrap_or_else(|| Arc::new(WorkerMetrics::new(context.installation_id())));
         let client = DeviceSyncClient::new(context, metrics.clone());
 
         Self {
@@ -142,21 +145,46 @@ where
 struct Factory<Context> {
     context: Context,
     passes: SharedPasses,
+    metrics: Arc<WorkerMetrics<SyncMetric>>,
 }
 
 impl<Context> WorkerFactory for Factory<Context>
 where
     Context: XmtpSharedContext + 'static,
 {
-    fn create(&self, metrics: Option<DynMetrics>) -> (BoxedWorker, Option<DynMetrics>) {
-        let worker = SyncWorker::new(self.context.clone(), metrics, self.passes.clone());
-        let metrics = worker.metrics.clone();
-
-        (Box::new(worker) as Box<_>, Some(metrics as Arc<_>))
+    fn create(&self) -> BoxedWorker {
+        Box::new(SyncWorker::new(
+            self.context.clone(),
+            Some(self.metrics.clone()),
+            self.passes.clone(),
+        ))
     }
 
     fn kind(&self) -> WorkerKind {
         WorkerKind::DeviceSync
+    }
+
+    fn event_interest(&self) -> Option<(EventFilter<InternalEvent>, Option<usize>)> {
+        let filter = EventFilter::default().with_internal(|event| {
+            matches!(
+                event,
+                InternalEvent::MessageStored { is_sync: true, .. } | InternalEvent::OutboxChanged
+            )
+        });
+        Some((filter, None))
+    }
+}
+
+impl<Context> NewWorker<Context> for SyncWorker<Context>
+where
+    Context: XmtpSharedContext + 'static,
+{
+    fn factory(context: Context) -> impl WorkerFactory + 'static {
+        Factory {
+            metrics: Arc::new(WorkerMetrics::new(context.installation_id())),
+            context,
+            passes: SharedPasses::default(),
+        }
     }
 }
 
@@ -173,18 +201,8 @@ where
         self.subscription = Some(subscription);
     }
 
-    fn metrics(&self) -> Option<DynMetrics> {
+    fn sync_metrics(&self) -> Option<Arc<WorkerMetrics<SyncMetric>>> {
         Some(self.metrics.clone())
-    }
-
-    fn factory<C>(context: C) -> impl WorkerFactory + 'static
-    where
-        C: XmtpSharedContext + 'static,
-    {
-        Factory {
-            context,
-            passes: SharedPasses::default(),
-        }
     }
 
     async fn run_tasks(&mut self) -> WorkerResult<()> {
@@ -594,6 +612,7 @@ mod startup_tests {
         let factory = Factory {
             context: alix.context.clone(),
             passes: SharedPasses::default(),
+            metrics: Arc::new(WorkerMetrics::new(alix.context.installation_id())),
         };
         let before = Instant::now();
         {
@@ -601,7 +620,7 @@ mod startup_tests {
             passes.outbox.finish("publish", Err(publish))?;
             passes.inbox.finish("receive", Err(identity))?;
         }
-        let (_rebuilt, _) = factory.create(None);
+        let _rebuilt = factory.create();
         assert_eq!(
             Arc::strong_count(&factory.passes),
             2,
@@ -710,7 +729,9 @@ mod startup_tests {
     async fn closing_subscription_stops_worker() {
         tester!(alix, disable_workers);
         let mut worker = idle_worker(alix.context.clone());
-        let (filter, depth) = crate::worker::worker_event_filter(WorkerKind::DeviceSync).unwrap();
+        let (filter, depth) =
+            crate::worker::event_subscription_tests::worker_event_filter(WorkerKind::DeviceSync)
+                .unwrap();
         let subscription = Arc::new(alix.context.events().subscribe(filter, depth));
         worker.set_subscription(subscription.clone());
         subscription.close();

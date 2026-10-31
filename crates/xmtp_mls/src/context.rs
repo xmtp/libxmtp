@@ -10,13 +10,12 @@ use crate::core::task_channels::TaskWorkerChannels;
 use crate::core::version::VersionInfo;
 use crate::server_configuration::ServerConfigurationHandle;
 use crate::worker::metrics::WorkerMetrics;
-use crate::worker::{DynMetrics, MetricsCasting, WorkerConfig, WorkerKind};
+use crate::worker::{SyncMetricsSlot, WorkerConfig, WorkerKind};
 use crate::{
     identity::{Identity, IdentityError},
     mutex_registry::MutexRegistry,
 };
 use parking_lot::Mutex;
-use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tokio_util::sync::CancellationToken;
@@ -136,7 +135,7 @@ pub struct XmtpMlsLocalContext<ApiClient, Db, S> {
     pub(crate) identity_resolutions: Arc<crate::identity_updates::IdentityResolutionRegistry>,
     pub(crate) worker_config: WorkerConfig,
     // pub(crate) workers: Arc<WorkerRunner>,
-    pub(crate) worker_metrics: Arc<Mutex<HashMap<WorkerKind, DynMetrics>>>,
+    pub(crate) worker_metrics: SyncMetricsSlot,
     pub(crate) task_channels: TaskWorkerChannels,
     pub(crate) cancellation_token: CancellationToken,
     // Set only after a successful `Client::close` (workers stopped + DB
@@ -263,10 +262,7 @@ impl<ApiClient, Db, S> XmtpMlsLocalContext<ApiClient, Db, S> {
     }
 
     pub fn sync_metrics(&self) -> Option<Arc<WorkerMetrics<SyncMetric>>> {
-        self.worker_metrics
-            .lock()
-            .get(&WorkerKind::DeviceSync)?
-            .as_sync_metrics()
+        self.worker_metrics.lock().clone()
     }
 
     pub fn cancellation_token(&self) -> &CancellationToken {
@@ -499,10 +495,7 @@ where
     }
 
     fn sync_metrics(&self) -> Option<Arc<WorkerMetrics<SyncMetric>>> {
-        self.worker_metrics
-            .lock()
-            .get(&WorkerKind::DeviceSync)?
-            .as_sync_metrics()
+        self.worker_metrics.lock().clone()
     }
 
     fn mutexes(&self) -> &MutexRegistry {

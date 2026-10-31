@@ -15,7 +15,7 @@ use xmtp_configuration::{
 use crate::context::XmtpSharedContext;
 use crate::server_configuration::ServerConfigError;
 use crate::worker::{
-    BoxedWorker, NeedsDbReconnect, Worker, WorkerFactory, WorkerKind, WorkerResult,
+    BoxedWorker, NeedsDbReconnect, NewWorker, Worker, WorkerFactory, WorkerKind, WorkerResult,
 };
 
 use super::preflight::refresh;
@@ -33,14 +33,8 @@ where
         WorkerKind::ConfigurationRefresh
     }
 
-    fn create(
-        &self,
-        metrics: Option<crate::worker::DynMetrics>,
-    ) -> (BoxedWorker, Option<crate::worker::DynMetrics>) {
-        (
-            Box::new(ConfigurationWorker::new(self.context.clone())) as Box<_>,
-            metrics,
-        )
+    fn create(&self) -> BoxedWorker {
+        Box::new(ConfigurationWorker::new(self.context.clone()))
     }
 }
 
@@ -80,11 +74,13 @@ where
         self.run().await;
         Ok(())
     }
+}
 
-    fn factory<C>(context: C) -> impl WorkerFactory + 'static
-    where
-        C: XmtpSharedContext + 'static,
-    {
+impl<Context> NewWorker<Context> for ConfigurationWorker<Context>
+where
+    Context: XmtpSharedContext + 'static,
+{
+    fn factory(context: Context) -> impl WorkerFactory + 'static {
         Factory { context }
     }
 }

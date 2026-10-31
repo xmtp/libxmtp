@@ -49,7 +49,6 @@ source = "crates/xmtp_mls/src"
 "identity::XmtpKeyPackage" = "identity"
 "identity::XmtpKeyPackageBuilder" = "identity"
 "worker::device_sync::is_own_sync_group" = "engine"
-"worker::tasks::TaskWorkerError" = "facade"
 
 # The Target crates table: each crate and the crates it may depend on.
 [allowed]

@@ -17,13 +17,13 @@ use metrics::WorkerMetrics;
 use parking_lot::Mutex;
 use std::fmt::Debug;
 use std::pin::Pin;
-use std::{any::Any, collections::HashMap, hash::Hash, sync::Arc};
+use std::{collections::HashMap, hash::Hash, sync::Arc};
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
 use tracing::instrument::Instrumented;
 use xmtp_common::{MaybeSend, MaybeSync, StreamHandle, if_native, if_wasm, time::Duration};
 use xmtp_configuration::WORKER_RESTART_DELAY;
-use xmtp_events::{EventFilter, EventKind, Subscription};
+use xmtp_events::{EventFilter, Subscription};
 
 /// Hard cap on how long `WorkerRunner::shutdown` waits for the supervisor
 /// task to drain after cancellation. Anything beyond this gets logged and
@@ -53,55 +53,9 @@ pub enum WorkerKind {
     HmacEpoch,
 }
 
-fn worker_event_filter(kind: WorkerKind) -> Option<(EventFilter<InternalEvent>, Option<usize>)> {
-    use InternalEvent as I;
-    let filter = match kind {
-        WorkerKind::DeviceSync => EventFilter::default().with_internal(|event| {
-            matches!(
-                event,
-                I::MessageStored { is_sync: true, .. } | I::OutboxChanged
-            )
-        }),
-        WorkerKind::DisappearingMessages => {
-            EventFilter::new([EventKind::ConversationMetadataChanged]).with_internal(|event| {
-                matches!(
-                    event,
-                    I::MessageStored {
-                        expires_at_ns: Some(_),
-                        ..
-                    }
-                )
-            })
-        }
-        WorkerKind::TaskRunner => EventFilter::new([
-            EventKind::ConsentChanged,
-            EventKind::ConversationJoined,
-            EventKind::ConversationRemoved,
-            EventKind::HmacKeysUpdated,
-            // implements: PUSH-260
-            // An import writes consent without consent.changed.
-            EventKind::ArchiveRestored,
-        ])
-        .with_internal(|event| {
-            matches!(
-                event,
-                I::TaskScheduled
-                    | I::NotificationSettingsChanged
-                    | I::GroupJoined { .. }
-                    | I::PreferencesChanged { .. }
-            )
-        }),
-        _ => return None,
-    };
-    Some((
-        filter,
-        if kind == WorkerKind::DeviceSync {
-            None
-        } else {
-            Some(10)
-        },
-    ))
-}
+/// Buffer depth of a worker subscription that may drop events: each wake only
+/// makes the worker read its stored state again.
+pub(crate) const EVENT_BUFFER: usize = 10;
 
 /// Configuration for the cadence and enablement of background workers.
 ///
@@ -161,7 +115,7 @@ impl WorkerConfig {
 pub struct WorkerRunner {
     // When this is cloned into the Context this is empty, so the Context and Client have different views
     factories: Vec<DynFactory>,
-    metrics: Arc<Mutex<HashMap<WorkerKind, DynMetrics>>>,
+    sync_metrics: SyncMetricsSlot,
     task_channels: TaskWorkerChannels,
     handle: Mutex<Option<Box<dyn StreamHandle<StreamOutput = ()>>>>,
     // Per-worker abort handles. `shutdown` calls `abort()` on each so the
@@ -182,7 +136,7 @@ impl WorkerRunner {
     pub fn new() -> Self {
         Self {
             factories: Vec::new(),
-            metrics: Arc::default(),
+            sync_metrics: SyncMetricsSlot::default(),
             task_channels: TaskWorkerChannels::default(),
             handle: Mutex::default(),
             abort_handles: Mutex::default(),
@@ -190,15 +144,13 @@ impl WorkerRunner {
         }
     }
 
-    pub fn metrics(&self) -> &Arc<Mutex<HashMap<WorkerKind, DynMetrics>>> {
-        &self.metrics
+    /// The slot the device-sync worker's metrics land in, shared with the context.
+    pub fn sync_metrics_slot(&self) -> &SyncMetricsSlot {
+        &self.sync_metrics
     }
 
     pub fn sync_metrics(&self) -> Option<Arc<WorkerMetrics<SyncMetric>>> {
-        self.metrics
-            .lock()
-            .get(&WorkerKind::DeviceSync)?
-            .as_sync_metrics()
+        self.sync_metrics.lock().clone()
     }
 
     pub fn task_channels(&self) -> &TaskWorkerChannels {
@@ -234,14 +186,14 @@ impl WorkerRunner {
 }
 
 impl WorkerRunner {
-    pub fn register_new_worker<W: Worker, C>(&mut self, ctx: C)
+    pub fn register_new_worker<W: NewWorker<C>, C>(&mut self, ctx: C)
     where
         C: XmtpSharedContext + 'static,
     {
         let events = ctx.events().clone();
         let factory = W::factory(ctx);
         let kind = factory.kind();
-        if let Some((filter, depth)) = worker_event_filter(kind) {
+        if let Some((filter, depth)) = factory.event_interest() {
             self.subscriptions
                 .insert(kind, Arc::new(events.subscribe(filter, depth)));
         }
@@ -298,19 +250,13 @@ impl WorkerRunner {
                 let mut new_handles = Vec::with_capacity(this.factories.len());
 
                 for factory in &this.factories {
-                    let metric = this.metrics.lock().get(&factory.kind()).cloned();
-                    let (mut worker, metrics) = factory.create(metric);
+                    let mut worker = factory.create();
                     if let Some(subscription) = this.subscriptions.get(&factory.kind()) {
                         worker.set_subscription(subscription.clone());
                     }
 
-                    if let Some(metrics) = metrics {
-                        this.metrics.lock().insert(factory.kind(), metrics);
-                    }
-
-                    if let Some(metrics) = worker.metrics() {
-                        let mut m = this.metrics.lock();
-                        m.insert(worker.kind(), metrics);
+                    if let Some(metrics) = worker.sync_metrics() {
+                        *this.sync_metrics.lock() = Some(metrics);
                     }
                     let (abort_handle, reg) = AbortHandle::new_pair();
                     new_handles.push(abort_handle);
@@ -371,12 +317,7 @@ impl WorkerRunner {
     }
 
     pub async fn wait_for_sync_worker_init(&self) {
-        let handle = self
-            .metrics
-            .lock()
-            .get(&WorkerKind::DeviceSync)
-            .cloned()
-            .and_then(|h| h.as_sync_metrics());
+        let handle = self.sync_metrics.lock().clone();
         if let Some(handle) = handle {
             let _ = handle.wait_for_init().await;
         }
@@ -399,14 +340,10 @@ pub trait Worker: MaybeSend + MaybeSync + 'static {
 
     async fn run_tasks(&mut self) -> Result<(), Box<dyn NeedsDbReconnect>>;
 
-    fn metrics(&self) -> Option<DynMetrics> {
+    /// The metrics of the device-sync worker; no other worker has any.
+    fn sync_metrics(&self) -> Option<Arc<WorkerMetrics<SyncMetric>>> {
         None
     }
-
-    fn factory<C>(context: C) -> impl WorkerFactory + 'static
-    where
-        Self: Sized,
-        C: XmtpSharedContext + 'static;
 
     /// Box the worker, erasing its type
     fn boxed(self) -> Box<dyn Worker>
@@ -470,33 +407,74 @@ pub trait Worker: MaybeSend + MaybeSync + 'static {
     }
 }
 
+/// A worker that can be built on contexts of type `C`.
+pub trait NewWorker<C> {
+    /// The factory the runner rebuilds this worker with after a restart.
+    fn factory(context: C) -> impl WorkerFactory + 'static;
+}
+
 pub trait WorkerFactory: MaybeSend + MaybeSync {
     fn kind(&self) -> WorkerKind;
+
+    /// The events that wake the worker: public event kinds plus an internal
+    /// predicate, and the subscription's buffer depth (`None` drops nothing).
+    /// `None` when no event wakes it.
+    fn event_interest(&self) -> Option<(EventFilter<InternalEvent>, Option<usize>)> {
+        None
+    }
+
     /// Create a new worker
-    fn create(&self, metrics: Option<DynMetrics>) -> (BoxedWorker, Option<DynMetrics>);
+    fn create(&self) -> BoxedWorker;
 }
 
 pub type BoxedWorker = Box<dyn Worker>;
 pub type DynFactory = Arc<dyn WorkerFactory>;
 
-pub type DynMetrics = Arc<dyn Any + Send + Sync>;
-
-pub trait MetricsCasting {
-    fn as_sync_metrics(&self) -> Option<Arc<WorkerMetrics<SyncMetric>>>;
-}
-
-impl MetricsCasting for DynMetrics {
-    fn as_sync_metrics(&self) -> Option<Arc<WorkerMetrics<SyncMetric>>> {
-        self.clone().downcast().ok()
-    }
-}
+/// Where the device-sync worker's metrics land once the runner first builds
+/// that worker. Empty while no device-sync worker has started.
+pub type SyncMetricsSlot = Arc<Mutex<Option<Arc<WorkerMetrics<SyncMetric>>>>>;
 
 #[cfg(test)]
-mod event_subscription_tests {
+pub(crate) mod event_subscription_tests {
     use super::*;
     use crate::subscriptions::internal::DeletedMessages;
     use crate::worker::device_sync::preference_sync::PreferenceUpdate;
-    use xmtp_events::{EventBus, EventWriter};
+    use xmtp_events::{EventBus, EventKind, EventWriter};
+
+    /// The factory of every worker the builder can register, on a mock context.
+    fn factories() -> Vec<DynFactory> {
+        use crate::test::mock::{NewMockContext, context};
+        fn factory<W: NewWorker<NewMockContext>>() -> DynFactory {
+            Arc::new(W::factory(context()))
+        }
+        vec![
+            factory::<crate::attachments::cleanup::AttachmentCleanup<NewMockContext>>(),
+            factory::<crate::worker::device_sync::worker::SyncWorker<NewMockContext>>(),
+            factory::<
+                crate::worker::disappearing_messages::DisappearingMessagesWorker<NewMockContext>,
+            >(),
+            factory::<crate::groups::commit_log::CommitLogWorker<NewMockContext>>(),
+            factory::<
+                crate::worker::tasks::TaskWorker<
+                    NewMockContext,
+                    crate::task_handlers::MlsTaskHandlers,
+                >,
+            >(),
+            factory::<crate::core::config_refresh::ConfigurationWorker<NewMockContext>>(),
+            factory::<hmac_epoch::HmacEpochWorker<NewMockContext>>(),
+        ]
+    }
+
+    /// The event interest of the worker of `kind`; `None` when no worker of
+    /// that kind exists or no event wakes it.
+    pub(crate) fn worker_event_filter(
+        kind: WorkerKind,
+    ) -> Option<(EventFilter<InternalEvent>, Option<usize>)> {
+        factories()
+            .into_iter()
+            .find(|factory| factory.kind() == kind)?
+            .event_interest()
+    }
 
     /// What a worker of `kind` subscribes to: its public kinds, its buffer
     /// depth, and the labels of the `events` its internal predicate admits.
@@ -822,7 +800,7 @@ mod disconnect_propagation_tests {
 
     #[xmtp_common::test]
     fn task_worker_load_group_forwards_disconnect() {
-        use crate::worker::tasks::TaskWorkerError;
+        use crate::task_handlers::TaskWorkerError;
         // Self-remove tasks load the MLS group (MlsStoreError) and remove members
         // (GroupError); a dropped pool must bubble through both paths.
         assert!(
@@ -889,7 +867,7 @@ mod disconnect_propagation_tests {
         use crate::messages::enrichment::EnrichMessageError;
         use crate::server_configuration::ConfigurationFetchError;
         use crate::subscriptions::{incoming::IncomingError, local_delivery::LocalDeliveryError};
-        use crate::worker::tasks::TaskWorkerError;
+        use crate::task_handlers::TaskWorkerError;
         use std::sync::Arc;
         use xmtp_db::{consent_record::ConsentActError, sql_key_store::SqlKeyStoreError};
 
@@ -1342,18 +1320,6 @@ mod restart_tests {
         status: tonic::Status,
     }
 
-    struct NoFactory;
-
-    impl WorkerFactory for NoFactory {
-        fn kind(&self) -> WorkerKind {
-            WorkerKind::CommitLog
-        }
-
-        fn create(&self, _metrics: Option<DynMetrics>) -> (BoxedWorker, Option<DynMetrics>) {
-            unreachable!("the test spawns the worker directly")
-        }
-    }
-
     #[xmtp_common::async_trait]
     impl Worker for RateLimited {
         fn kind(&self) -> WorkerKind {
@@ -1368,13 +1334,6 @@ mod restart_tests {
             Err(Box::new(crate::groups::commit_log::CommitLogError::Api(
                 refused,
             )))
-        }
-
-        fn factory<C>(_context: C) -> impl WorkerFactory + 'static
-        where
-            C: XmtpSharedContext + 'static,
-        {
-            NoFactory
         }
     }
 

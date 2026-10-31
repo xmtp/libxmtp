@@ -2613,7 +2613,7 @@ impl<Context: XmtpSharedContext> PendingAttachment<Context> {
 
 pub(crate) mod cleanup {
     use super::*;
-    use crate::worker::{BoxedWorker, DynMetrics, Worker, WorkerFactory, WorkerKind, WorkerResult};
+    use crate::worker::{BoxedWorker, NewWorker, Worker, WorkerFactory, WorkerKind, WorkerResult};
 
     pub struct AttachmentCleanup<Context> {
         context: Context,
@@ -2626,13 +2626,16 @@ pub(crate) mod cleanup {
         fn kind(&self) -> WorkerKind {
             WorkerKind::AttachmentCleanup
         }
-        fn create(&self, metrics: Option<DynMetrics>) -> (BoxedWorker, Option<DynMetrics>) {
-            (
-                Box::new(AttachmentCleanup {
-                    context: self.context.clone(),
-                }),
-                metrics,
-            )
+        fn create(&self) -> BoxedWorker {
+            Box::new(AttachmentCleanup {
+                context: self.context.clone(),
+            })
+        }
+    }
+
+    impl<Context: XmtpSharedContext + 'static> NewWorker<Context> for AttachmentCleanup<Context> {
+        fn factory(context: Context) -> impl WorkerFactory + 'static {
+            Factory { context }
         }
     }
 
@@ -2640,13 +2643,6 @@ pub(crate) mod cleanup {
     impl<Context: XmtpSharedContext + 'static> Worker for AttachmentCleanup<Context> {
         fn kind(&self) -> WorkerKind {
             WorkerKind::AttachmentCleanup
-        }
-        fn factory<C>(context: C) -> impl WorkerFactory + 'static
-        where
-            Self: Sized,
-            C: XmtpSharedContext + 'static,
-        {
-            Factory { context }
         }
         async fn run_tasks(&mut self) -> WorkerResult<()> {
             loop {

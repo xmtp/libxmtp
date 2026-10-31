@@ -757,7 +757,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             incoming_runtime: Arc::new(incoming_runtime),
             worker_config,
 
-            worker_metrics: workers.metrics().clone(),
+            worker_metrics: workers.sync_metrics_slot().clone(),
             task_channels: workers.task_channels().clone(),
             cancellation_token: CancellationToken::new(),
             shutdown_complete: Arc::new(AtomicBool::new(false)),
@@ -823,9 +823,10 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
                 >, _>(context.clone());
             }
             if enabled(WorkerKind::TaskRunner) {
-                workers.register_new_worker::<TaskWorker<ContextParts<ApiClient, S, Db>>, _>(
-                    context.clone(),
-                );
+                workers.register_new_worker::<TaskWorker<
+                    ContextParts<ApiClient, S, Db>,
+                    crate::task_handlers::MlsTaskHandlers,
+                >, _>(context.clone());
                 // KP maintenance is deliberately coupled to the TaskRunner (no
                 // standalone fallback): disabling the TaskRunner — per-kind via
                 // WorkerConfig or globally via disable_workers — disables KP

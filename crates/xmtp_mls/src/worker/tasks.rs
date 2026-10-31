@@ -2,33 +2,21 @@ pub use crate::core::task_channels::TaskWorkerChannels;
 use crate::{
     context::XmtpSharedContext,
     core::events::InternalEvent,
-    groups::MlsGroup,
     worker::{
-        NeedsDbReconnect, Worker, WorkerFactory, WorkerKind,
-        device_sync::{DeviceSyncClient, DeviceSyncError},
-        key_package_maintenance as kp,
-        metrics::WorkerMetrics,
+        BoxedWorker, EVENT_BUFFER, NeedsDbReconnect, NewWorker, Worker, WorkerFactory, WorkerKind,
     },
 };
-use prost::Message;
-use std::sync::Arc;
-use xmtp_configuration::{KEY_PACKAGE_ROTATION_INTERVAL_NS, SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS};
-use xmtp_db::group::ConversationType;
-use xmtp_db::prelude::{QueryIdentity, QueryKeyPackageHistory};
+use std::{marker::PhantomData, sync::Arc};
+use xmtp_common::{MaybeSend, MaybeSync, RetryableError};
 use xmtp_db::tasks::{QueryTasks, Task as DbTask, TaskDataHash};
 use xmtp_db::{StorageError, diesel};
-use xmtp_events::Subscription;
-use xmtp_proto::xmtp::mls::database::Task as TaskProto;
-
-/// How far out to push a task whose kind this build does not understand. Long
-/// enough that an old client sharing the database does not spin on it, short
-/// enough that a newer client picks it up soon after it starts.
-const UNKNOWN_TASK_DEFER_NS: i64 = 60 * 60 * 1_000_000_000;
+use xmtp_events::{EventEnvelope, EventFilter, EventKind, Subscription};
+use xmtp_proto::xmtp::mls::database::PullInDeadline;
 
 /// `Done` = one-shot, row deleted. `RescheduleAt(ns)` = recurring, row kept and
 /// advanced to that absolute deadline.
 #[derive(Debug, PartialEq, Eq)]
-pub(crate) enum TaskOutcome {
+pub enum TaskOutcome {
     Done,
     RescheduleAt(i64),
 }
@@ -36,11 +24,12 @@ pub(crate) enum TaskOutcome {
 #[cfg(test)]
 pub(crate) mod test_hooks {
     use std::sync::Mutex;
-    /// `(target_data_hash, deadline)` → `run_task` returns `RescheduleAt(deadline)`
-    /// for the matching task. Reset at test end; assumes process-per-test isolation.
+    /// `(target_data_hash, deadline)` → the client's task dispatch returns
+    /// `RescheduleAt(deadline)` for the matching task. Reset at test end;
+    /// assumes process-per-test isolation.
     pub(crate) static RESCHEDULE_OVERRIDE: Mutex<Option<(Vec<u8>, i64)>> = Mutex::new(None);
-    /// `(target_data_hash, work, delay)` → `run_task` works for `work`, then
-    /// fails with a rate limit of `delay`, for the matching task.
+    /// `(target_data_hash, work, delay)` → the client's task dispatch works for
+    /// `work`, then fails with a rate limit of `delay`, for the matching task.
     pub(crate) static RATE_LIMIT_OVERRIDE: Mutex<
         Option<(
             Vec<u8>,
@@ -57,83 +46,38 @@ pub(crate) mod test_hooks {
     > = Mutex::new(None);
 }
 
-#[derive(thiserror::Error, Debug)]
-pub enum TaskWorkerError {
-    #[error("generic storage error: {0}")]
-    Storage(#[from] xmtp_db::StorageError),
-    #[error("group error: {0}")]
-    Group(#[from] crate::groups::GroupError),
-    #[error("device sync error: {0}")]
-    DeviceSync(#[from] DeviceSyncError),
-    #[error("failed to load MLS group from store: {0}")]
-    LoadGroup(#[from] crate::mls_store::MlsStoreError),
-    #[error("invalid task data for {id}: {error}")]
-    InvalidTaskData { id: i64, error: prost::DecodeError },
-    #[error("invalid hash for {id}, expected: {expected}, got: {got}")]
-    InvalidHash {
-        id: i64,
-        expected: String,
-        got: String,
-    },
-    #[error(transparent)]
-    Conversion(#[from] xmtp_proto::ConversionError),
-    #[error("identity error: {0}")]
-    Identity(#[from] crate::identity::IdentityError),
-    #[error("key package maintenance error: {0}")]
-    KeyPackageMaintenance(
-        #[from] crate::worker::key_package_maintenance::KeyPackageMaintenanceError,
-    ),
-    #[error("notification task failed")]
-    Notification(#[from] crate::client::notifications::NotificationError),
-}
+/// The handlers a [`TaskWorker`] runs. The runner owns each task's schedule:
+/// expiry, attempts, backoff and rate-limit holds. The handlers run one row.
+#[xmtp_common::async_trait]
+pub trait TaskHandlers<Context>: MaybeSend + MaybeSync {
+    /// The error of a failed run. The runner reads its rate-limit delay and
+    /// its reconnect signal, and reports its own storage failures as this type.
+    type Error: RetryableError
+        + NeedsDbReconnect
+        + From<StorageError>
+        + std::error::Error
+        + MaybeSend
+        + MaybeSync
+        + 'static;
 
-impl TaskWorkerError {
-    /// The delay of a rate-limit rejection that failed this task turn.
-    pub(crate) fn rate_limit_delay(&self) -> Option<xmtp_common::time::Duration> {
-        use xmtp_common::RetryableError;
-        match self {
-            Self::Group(e) => e.rate_limit_delay(),
-            Self::DeviceSync(e) => e.rate_limit_delay(),
-            Self::LoadGroup(e) => e.rate_limit_delay(),
-            Self::Identity(e) => e.rate_limit_delay(),
-            Self::KeyPackageMaintenance(e) => e.rate_limit_delay(),
-            Self::Notification(e) => e.rate_limit_delay(),
-            Self::Storage(_)
-            | Self::Conversion(_)
-            | Self::InvalidTaskData { .. }
-            | Self::InvalidHash { .. } => None,
-        }
-    }
-}
+    /// Run one due task. Gets the whole row: handlers use `task.id`, for
+    /// example to delete it.
+    async fn dispatch(&self, context: &Context, task: &DbTask) -> Result<TaskOutcome, Self::Error>;
 
-impl NeedsDbReconnect for TaskWorkerError {
-    fn restart_delay(&self) -> Option<xmtp_common::time::Duration> {
-        self.rate_limit_delay()
+    /// Runs when the runner starts, before it reads a task.
+    fn on_start(&self, _context: &Context) -> Result<(), Self::Error> {
+        Ok(())
     }
 
-    #[deny(clippy::wildcard_enum_match_arm)]
-    fn needs_db_reconnect(&self) -> bool {
-        match self {
-            TaskWorkerError::Storage(s) => s.db_needs_connection(),
-            TaskWorkerError::LoadGroup(e) => e.needs_db_reconnect(),
-            // Forward through GroupError's own classifier so a dropped pool hiding
-            // in a `Db`/`MlsStore` (not just `Storage`) variant still restarts the
-            // worker instead of being retried on a dead connection.
-            TaskWorkerError::Group(e) => e.needs_db_reconnect(),
-            TaskWorkerError::DeviceSync(e) => e.needs_db_reconnect(),
-            TaskWorkerError::InvalidTaskData { .. } => false,
-            TaskWorkerError::InvalidHash { .. } => false,
-            TaskWorkerError::Conversion(_) => false,
-            TaskWorkerError::Identity(e) => e.needs_db_reconnect(),
-            TaskWorkerError::KeyPackageMaintenance(e) => e.needs_db_reconnect(),
-            TaskWorkerError::Notification(
-                crate::client::notifications::NotificationError::Storage(e),
-            ) => e.db_needs_connection(),
-            TaskWorkerError::Notification(
-                crate::client::notifications::NotificationError::Group(e),
-            ) => e.needs_db_reconnect(),
-            TaskWorkerError::Notification(_) => false,
-        }
+    /// Runs once for each batch of events the runner reads that holds an
+    /// event other than its own `TaskScheduled`, and gets the whole batch.
+    /// Public events such as `ConsentChanged` and `ArchiveRestored` arrive here.
+    fn on_events(
+        &self,
+        _context: &Context,
+        _events: &[EventEnvelope<InternalEvent>],
+    ) -> Result<(), Self::Error> {
+        Ok(())
     }
 }
 
@@ -157,7 +101,7 @@ pub(crate) fn enqueue_pull_in<Context: XmtpSharedContext>(
         .max_attempts(i32::MAX) // lifetime bounded by expires_at_ns, not retries
         .build(xmtp_proto::xmtp::mls::database::Task {
             task: Some(xmtp_proto::xmtp::mls::database::task::Task::PullInDeadline(
-                xmtp_proto::xmtp::mls::database::PullInDeadline {
+                PullInDeadline {
                     target_data_hash: target_data_hash.to_vec(),
                     not_later_than_ns,
                 },
@@ -171,39 +115,118 @@ pub(crate) fn enqueue_pull_in<Context: XmtpSharedContext>(
     Ok(())
 }
 
-pub struct Factory<Context> {
-    context: Context,
+/// Run a `PullInDeadline` task: lower its target's deadline to the ceiling.
+pub(crate) fn apply_pull_in<Context: XmtpSharedContext>(
+    context: &Context,
+    task: &DbTask,
+    pull_in: PullInDeadline,
+) -> Result<(), StorageError> {
+    // Runs on the worker thread — the sole rescheduler of existing
+    // rows' `next_attempt_at_ns` — so no transaction is needed
+    // (inserts happen off-thread; only deadline mutation is guarded).
+    let matched = match TaskDataHash::try_from(pull_in.target_data_hash.as_slice()) {
+        Ok(h) => {
+            // A target in failure backoff keeps its stored schedule,
+            // which holds any rate-limit delay, across restarts too.
+            // implements: RATE-041
+            let backing_off = context
+                .db()
+                .get_tasks()?
+                .iter()
+                .any(|target| target.data_hash == h.as_ref() && target.attempts > 0);
+            backing_off
+                || context
+                    .db()
+                    .pull_in_task_deadline(&h, pull_in.not_later_than_ns)?
+        }
+        Err(_) => false, // malformed length: fall through to the miss log
+    };
+    if !matched {
+        // Completed one-shot target, or a producer broke the
+        // commit-target-first contract. Drop either way (retrying
+        // would spin forever on never-expiring nudges). warn: every
+        // in-tree pull-in targets a never-deleted singleton, so a
+        // miss is always anomalous today.
+        tracing::warn!(
+            target_data_hash = hex::encode(&pull_in.target_data_hash),
+            "pull-in target missing; dropping nudge for task {}",
+            task.id
+        );
+    }
+    Ok(())
 }
 
-impl<Context> WorkerFactory for Factory<Context>
+/// What wakes the runner: its own `TaskScheduled`, and the changes the
+/// notification task follows.
+fn event_interest() -> (EventFilter<InternalEvent>, Option<usize>) {
+    let filter = EventFilter::new([
+        EventKind::ConsentChanged,
+        EventKind::ConversationJoined,
+        EventKind::ConversationRemoved,
+        EventKind::HmacKeysUpdated,
+        // implements: PUSH-260
+        // An import writes consent without consent.changed.
+        EventKind::ArchiveRestored,
+    ])
+    .with_internal(|event| {
+        matches!(
+            event,
+            InternalEvent::TaskScheduled
+                | InternalEvent::NotificationSettingsChanged
+                | InternalEvent::GroupJoined { .. }
+                | InternalEvent::PreferencesChanged { .. }
+        )
+    });
+    (filter, Some(EVENT_BUFFER))
+}
+
+pub struct Factory<Context, Handlers> {
+    context: Context,
+    handlers: PhantomData<fn() -> Handlers>,
+}
+
+impl<Context, Handlers> WorkerFactory for Factory<Context, Handlers>
 where
     Context: XmtpSharedContext + 'static,
+    Handlers: TaskHandlers<Context> + Default + 'static,
 {
     fn kind(&self) -> WorkerKind {
         WorkerKind::TaskRunner
     }
 
-    fn create(
-        &self,
-        _metrics: Option<crate::worker::DynMetrics>,
-    ) -> (
-        crate::worker::BoxedWorker,
-        Option<crate::worker::DynMetrics>,
-    ) {
-        let worker = TaskWorker::new(self.context.clone());
-        (Box::new(worker) as Box<_>, None)
+    fn event_interest(&self) -> Option<(EventFilter<InternalEvent>, Option<usize>)> {
+        Some(event_interest())
+    }
+
+    fn create(&self) -> BoxedWorker {
+        Box::new(TaskWorker::new(self.context.clone(), Handlers::default()))
     }
 }
 
-pub struct TaskWorker<Context> {
+pub struct TaskWorker<Context, Handlers> {
     context: Context,
+    handlers: Handlers,
     subscription: Option<Arc<Subscription<InternalEvent>>>,
 }
 
-#[xmtp_common::async_trait]
-impl<Context> Worker for TaskWorker<Context>
+impl<Context, Handlers> NewWorker<Context> for TaskWorker<Context, Handlers>
 where
     Context: XmtpSharedContext + 'static,
+    Handlers: TaskHandlers<Context> + Default + 'static,
+{
+    fn factory(context: Context) -> impl WorkerFactory + 'static {
+        Factory::<Context, Handlers> {
+            context,
+            handlers: PhantomData,
+        }
+    }
+}
+
+#[xmtp_common::async_trait]
+impl<Context, Handlers> Worker for TaskWorker<Context, Handlers>
+where
+    Context: XmtpSharedContext + 'static,
+    Handlers: TaskHandlers<Context> + 'static,
 {
     fn kind(&self) -> WorkerKind {
         WorkerKind::TaskRunner
@@ -216,23 +239,17 @@ where
     async fn run_tasks(&mut self) -> Result<(), Box<dyn NeedsDbReconnect>> {
         self.run().await.map_err(|e| Box::new(e) as _)
     }
-
-    fn factory<C>(context: C) -> impl WorkerFactory + 'static
-    where
-        Self: Sized,
-        C: XmtpSharedContext + 'static,
-    {
-        Factory { context }
-    }
 }
 
-impl<Context> TaskWorker<Context>
+impl<Context, Handlers> TaskWorker<Context, Handlers>
 where
-    Context: XmtpSharedContext + 'static,
+    Context: XmtpSharedContext,
+    Handlers: TaskHandlers<Context>,
 {
-    pub fn new(context: Context) -> Self {
+    pub fn new(context: Context, handlers: Handlers) -> Self {
         Self {
             context,
+            handlers,
             subscription: None,
         }
     }
@@ -257,10 +274,9 @@ where
         }
     }
 
-    pub async fn run(&mut self) -> Result<(), TaskWorkerError> {
+    pub async fn run(&mut self) -> Result<(), Handlers::Error> {
         if self.subscription.is_none() {
-            let (filter, depth) = crate::worker::worker_event_filter(WorkerKind::TaskRunner)
-                .expect("task runner has an event filter");
+            let (filter, depth) = event_interest();
             self.subscription = Some(Arc::new(self.context.events().subscribe(filter, depth)));
         }
         let subscription = self
@@ -268,19 +284,14 @@ where
             .as_ref()
             .expect("subscription is initialized")
             .clone();
-        crate::worker::notifications::wake(&self.context)?;
+        self.handlers.on_start(&self.context)?;
         loop {
             let drained = subscription.drain();
             #[cfg(test)]
             for event in &drained {
                 self.record_task_fact(event);
             }
-            if drained
-                .into_iter()
-                .any(|event| !matches!(event.internal, Some(InternalEvent::TaskScheduled)))
-            {
-                crate::worker::notifications::wake(&self.context)?;
-            }
+            self.forward_events(&drained)?;
             let next_task = self.context.db().get_next_task()?;
             let next_wakeup = Self::next_wakeup(
                 next_task.as_ref().map(|t| t.next_attempt_at_ns),
@@ -291,28 +302,40 @@ where
                     let Some(event) = event else { break Ok(()); };
                     #[cfg(test)]
                     self.record_task_fact(&event);
-                    let more_notification_changes = subscription.drain().into_iter().any(|event| {
-                            !matches!(event.internal, Some(InternalEvent::TaskScheduled))
-                        });
-                    let notification_changed = !matches!(event.internal, Some(InternalEvent::TaskScheduled))
-                        || more_notification_changes;
-                    if notification_changed {
-                        crate::worker::notifications::wake(&self.context)?;
-                    }
+                    let mut events = vec![event];
+                    events.extend(subscription.drain());
+                    self.forward_events(&events)?;
                 }
                 () = xmtp_common::time::sleep(next_wakeup) => {
                     if let Some(task) = next_task {
-                        Self::run_and_reschedule_task(task, &self.context).await?;
+                        self.run_and_reschedule_task(task).await?;
                     }
                 }
             }
         }
     }
+
+    /// Hand a batch of events to the handlers, unless it holds only the
+    /// runner's own `TaskScheduled` facts.
+    fn forward_events(
+        &self,
+        events: &[EventEnvelope<InternalEvent>],
+    ) -> Result<(), Handlers::Error> {
+        if events
+            .iter()
+            .any(|event| !matches!(event.internal, Some(InternalEvent::TaskScheduled)))
+        {
+            self.handlers.on_events(&self.context, events)?;
+        }
+        Ok(())
+    }
+
     #[tracing::instrument(skip_all, fields(worker = "TaskRunner", operation = "worker_turn"))]
     pub(crate) async fn run_and_reschedule_task(
+        &self,
         task: DbTask,
-        context: &Context,
-    ) -> Result<(), TaskWorkerError> {
+    ) -> Result<(), Handlers::Error> {
+        let context = &self.context;
         let now = xmtp_common::time::now_ns();
         if task.expires_at_ns < now || task.attempts >= task.max_attempts {
             context.db().delete_task(task.id)?;
@@ -329,7 +352,7 @@ where
             );
             return Ok(());
         }
-        match Self::run_task(&task, context).await {
+        match self.handlers.dispatch(context, &task).await {
             Ok(TaskOutcome::Done) => {
                 context.db().delete_task(task.id)?;
             }
@@ -345,18 +368,15 @@ where
                 }
             }
             Err(error) => {
+                // Every kind backs off from when its run finished, so a long
+                // run does not use up its own backoff.
+                let finished = xmtp_common::time::now_ns();
                 let mut attempts = task.attempts + 1;
                 let attempt_scaling_factor = (task.backoff_scaling_factor as f64).powi(attempts);
                 let next_attempt_duration = (((task.initial_backoff_duration_ns as f64)
                     * attempt_scaling_factor) as i64)
                     .min(task.max_backoff_duration_ns);
-                let retry_from =
-                    if task.data_hash == crate::worker::notifications::task_hash().as_ref() {
-                        xmtp_common::time::now_ns()
-                    } else {
-                        now
-                    };
-                let backoff_at_ns = retry_from.saturating_add(next_attempt_duration);
+                let backoff_at_ns = finished.saturating_add(next_attempt_duration);
                 let mut next_attempt_at_ns = backoff_at_ns;
                 let mut expires_at_ns = task.expires_at_ns;
                 // A rate-limited request waits at least the delay, counted from
@@ -369,13 +389,13 @@ where
                 // implements: RATE-041
                 if let Some(delay) = error.rate_limit_delay() {
                     attempts = task.attempts.max(1);
-                    let until = xmtp_common::time::now_ns()
+                    let until = finished
                         .saturating_add(i64::try_from(delay.as_nanos()).unwrap_or(i64::MAX));
                     next_attempt_at_ns = next_attempt_at_ns.max(until);
                     expires_at_ns = expires_at_ns
                         .saturating_add(next_attempt_at_ns.saturating_sub(backoff_at_ns));
                 }
-                let next_attempt_duration = next_attempt_at_ns.saturating_sub(retry_from);
+                let next_attempt_duration = next_attempt_at_ns.saturating_sub(finished);
                 tracing::warn!(%error, "Task {} retry failed. Retrying in {next_attempt_duration}ns", task.id);
                 #[cfg(test)]
                 let stored = if std::mem::take(&mut *test_hooks::FAIL_RESCHEDULE.lock().unwrap()) {
@@ -421,133 +441,7 @@ where
         }
         Ok(())
     }
-    async fn run_task(task: &DbTask, context: &Context) -> Result<TaskOutcome, TaskWorkerError> {
-        #[cfg(test)]
-        if let Some((hash, t)) = test_hooks::RESCHEDULE_OVERRIDE.lock().unwrap().clone()
-            && task.data_hash == hash
-        {
-            return Ok(TaskOutcome::RescheduleAt(t));
-        }
-        #[cfg(test)]
-        let hook = test_hooks::RATE_LIMIT_OVERRIDE.lock().unwrap().clone();
-        #[cfg(test)]
-        if let Some((hash, work, delay)) = hook
-            && task.data_hash == hash
-        {
-            xmtp_common::time::sleep(work).await;
-            return Err(TaskWorkerError::Identity(
-                crate::identity::IdentityError::ApiClient(xmtp_api::ApiError::Api(
-                    xmtp_proto::api::NetworkError::new(xmtp_api_grpc::error::GrpcError::Status(
-                        xmtp_api_grpc::error::rate_limited_status("publish", delay),
-                    )),
-                )),
-            ));
-        }
-        let data_hash = xmtp_common::sha256_bytes(&task.data);
-        if task.data_hash != data_hash {
-            let expected = hex::encode(&data_hash);
-            let got = hex::encode(&task.data_hash);
-            tracing::warn!(
-                "Task {} data hash mismatch. Expected {expected}, got {got}",
-                task.id,
-            );
-        }
-        let task_proto = match TaskProto::decode(task.data.as_slice()) {
-            Ok(task_proto) => task_proto,
-            Err(e) => {
-                context.db().delete_task(task.id)?;
-                tracing::warn!("Task {} data decode error: {}", task.id, e);
-                return Ok(TaskOutcome::Done);
-            }
-        };
-        match task_proto.task {
-            Some(xmtp_proto::xmtp::mls::database::task::Task::NotificationSync(_)) => {
-                return Ok(crate::worker::notifications::run(context).await?);
-            }
-            Some(xmtp_proto::xmtp::mls::database::task::Task::ProcessPendingSelfRemove(
-                pending,
-            )) => {
-                Self::process_pending_self_remove(task, pending, context).await?;
-            }
-            Some(xmtp_proto::xmtp::mls::database::task::Task::PullInDeadline(p)) => {
-                // Runs on the worker thread — the sole rescheduler of existing
-                // rows' `next_attempt_at_ns` — so no transaction is needed
-                // (inserts happen off-thread; only deadline mutation is guarded).
-                let matched = match TaskDataHash::try_from(p.target_data_hash.as_slice()) {
-                    Ok(h) => {
-                        // A target in failure backoff keeps its stored schedule,
-                        // which holds any rate-limit delay, across restarts too.
-                        // implements: RATE-041
-                        let backing_off =
-                            context.db().get_tasks()?.iter().any(|target| {
-                                target.data_hash == h.as_ref() && target.attempts > 0
-                            });
-                        backing_off
-                            || context
-                                .db()
-                                .pull_in_task_deadline(&h, p.not_later_than_ns)?
-                    }
-                    Err(_) => false, // malformed length: fall through to the miss log
-                };
-                if !matched {
-                    // Completed one-shot target, or a producer broke the
-                    // commit-target-first contract. Drop either way (retrying
-                    // would spin forever on never-expiring nudges). warn: every
-                    // in-tree pull-in targets a never-deleted singleton, so a
-                    // miss is always anomalous today.
-                    tracing::warn!(
-                        target_data_hash = hex::encode(&p.target_data_hash),
-                        "pull-in target missing; dropping nudge for task {}",
-                        task.id
-                    );
-                }
-            }
-            Some(xmtp_proto::xmtp::mls::database::task::Task::KpRotation(_)) => {
-                let now = xmtp_common::time::now_ns();
-                kp::rotate_if_needed(context).await?;
-                // Unconditional (no-op when nothing is marked): a backoff retry
-                // after rotate-succeeded/nudge-failed must still re-nudge.
-                kp::nudge_deletion(context)?;
-                // Advance to the LIVE rotation column (rotate reset it to +30d; a
-                // welcome nudge may have re-lowered it). Do NOT hardcode +30d.
-                let next = context
-                    .db()
-                    .next_key_package_rotation_ns()?
-                    .unwrap_or(now + KEY_PACKAGE_ROTATION_INTERVAL_NS);
-                return Ok(TaskOutcome::RescheduleAt(next));
-            }
-            Some(xmtp_proto::xmtp::mls::database::task::Task::KpDeletion(_)) => {
-                kp::sweep_expired(context)?;
-                let now = xmtp_common::time::now_ns();
-                // Nothing pending: park one rotation interval out (deletions only
-                // arise from rotations; same constant as the KpRotation arm — the
-                // exact value isn't load-bearing, nudges pull the task in sooner).
-                let next = context
-                    .db()
-                    .min_key_package_delete_at_ns()?
-                    .unwrap_or(now + KEY_PACKAGE_ROTATION_INTERVAL_NS);
-                return Ok(TaskOutcome::RescheduleAt(next));
-            }
-            Some(xmtp_proto::xmtp::mls::database::task::Task::AddMissingInstallations(add)) => {
-                return Self::run_add_missing_installations(task, add, context).await;
-            }
-            // A kind this build cannot run: `KpLiveness` has no handler yet,
-            // and `None` is a newer build's kind (prost drops an unknown
-            // `oneof task` field). Deleting would drop work a newer client
-            // sharing this database still owes. `expires_at_ns` bounds an
-            // unclaimed row.
-            Some(xmtp_proto::xmtp::mls::database::task::Task::KpLiveness(_)) | None => {
-                tracing::warn!(
-                    "Task {} has a kind this version does not handle. Deferring.",
-                    task.id
-                );
-                return Ok(TaskOutcome::RescheduleAt(
-                    xmtp_common::time::now_ns() + UNKNOWN_TASK_DEFER_NS,
-                ));
-            }
-        }
-        Ok(TaskOutcome::Done)
-    }
+
     fn next_wakeup(
         next_attempt_at_ns: Option<i64>,
         // these are passed in for testing
@@ -562,118 +456,16 @@ where
             std::time::Duration::from_nanos((next_task_wakeup - now) as u64)
         }
     }
-
-    /// Run a `ProcessPendingSelfRemove` task: load the group and remove members
-    /// who requested to leave (a no-op unless this client is super-admin).
-    async fn process_pending_self_remove(
-        task: &DbTask,
-        pending: xmtp_proto::xmtp::mls::database::ProcessPendingSelfRemove,
-        context: &Context,
-    ) -> Result<(), TaskWorkerError> {
-        // A malformed group_id can never succeed — drop the task, don't retry.
-        let Ok(group_id) = xmtp_proto::types::GroupId::try_from(pending.group_id.as_slice()) else {
-            tracing::warn!(
-                "Task {} has a malformed group_id for ProcessPendingSelfRemove. Deleting.",
-                task.id
-            );
-            context.db().delete_task(task.id)?;
-            return Ok(());
-        };
-        match MlsGroup::load_by_id(context, &group_id) {
-            Ok(group) => {
-                // No-op unless super-admin; idempotent, so retries are safe.
-                group.process_pending_self_removals().await?;
-                Ok(())
-            }
-            Err(crate::mls_store::MlsStoreError::NotFound(_)) => {
-                tracing::debug!(
-                    "Task {} targets a group that no longer exists. Deleting.",
-                    task.id
-                );
-                context.db().delete_task(task.id)?;
-                Ok(())
-            }
-            // A DB/connection error is transient — let it retry.
-            Err(e) => Err(e.into()),
-        }
-    }
-
-    /// Run an `AddMissingInstallations` task: load the group and reconcile its
-    /// membership with the inbox's latest identity state. Idempotent — the
-    /// underlying group method no-ops when membership is already current, so
-    /// retries and duplicate rows are safe. The selected sync group's task
-    /// runs again after the retry interval while an own installation it can
-    /// retry has no leaf there.
-    async fn run_add_missing_installations(
-        task: &DbTask,
-        add: xmtp_proto::xmtp::mls::database::AddMissingInstallations,
-        context: &Context,
-    ) -> Result<TaskOutcome, TaskWorkerError> {
-        // A malformed group_id can never succeed — drop the task, don't retry.
-        let Ok(group_id) = xmtp_proto::types::GroupId::try_from(add.group_id.as_slice()) else {
-            tracing::warn!(
-                "Task {} has a malformed group_id for AddMissingInstallations. Deleting.",
-                task.id
-            );
-            context.db().delete_task(task.id)?;
-            return Ok(TaskOutcome::Done);
-        };
-        match MlsGroup::load_by_id(context, &group_id) {
-            // implements: SYNC-034, GMOD-055
-            Ok(group) if group.conversation_type == ConversationType::Sync => {
-                let metrics = Arc::new(WorkerMetrics::new(context.installation_id()));
-                let sync = DeviceSyncClient::new(context.clone(), metrics);
-                let retried = sync.retry_own_installations(&group).await;
-                #[cfg(test)]
-                let retried =
-                    match std::mem::take(&mut *test_hooks::FAIL_SYNC_RETRY.lock().unwrap()) {
-                        true => Err(DeviceSyncError::Conversion),
-                        false => retried,
-                    };
-                // A failed attempt also waits the retry interval, unless the
-                // runner must honor a rate limit or reconnect.
-                // implements: RATE-041
-                match retried {
-                    Ok(false) => Ok(TaskOutcome::Done),
-                    Err(e)
-                        if xmtp_common::RetryableError::rate_limit_delay(&e).is_some()
-                            || e.needs_db_reconnect() =>
-                    {
-                        Err(e.into())
-                    }
-                    result => {
-                        if let Err(e) = result {
-                            tracing::warn!(error = %e, "sync group retry failed");
-                        }
-                        Ok(TaskOutcome::RescheduleAt(
-                            xmtp_common::time::now_ns() + SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS,
-                        ))
-                    }
-                }
-            }
-            Ok(group) => {
-                group.add_missing_installations().await?;
-                Ok(TaskOutcome::Done)
-            }
-            Err(crate::mls_store::MlsStoreError::NotFound(_)) => {
-                tracing::debug!(
-                    "Task {} targets a group that no longer exists. Deleting.",
-                    task.id
-                );
-                context.db().delete_task(task.id)?;
-                Ok(TaskOutcome::Done)
-            }
-            // A DB/connection error is transient — let it retry.
-            Err(e) => Err(e.into()),
-        }
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::task_handlers::{MlsTaskHandlers, TaskWorkerError, UNKNOWN_TASK_DEFER_NS};
     use crate::tester;
+    use crate::worker::device_sync::DeviceSyncError;
     use crate::worker::{WorkerConfig, WorkerKind};
+    use prost::Message;
     use xmtp_db::tasks::{NewTask, data_hash_for};
     use xmtp_proto::xmtp::mls::database::{Task as TaskProto, task::Task as TaskKind};
 
@@ -841,7 +633,9 @@ mod tests {
             let row = seed_raw(&db, data, expires);
             let id = row.id;
             let before = xmtp_common::time::now_ns();
-            TaskWorker::run_and_reschedule_task(row, &alix.context).await?;
+            TaskWorker::new(alix.context.clone(), MlsTaskHandlers)
+                .run_and_reschedule_task(row)
+                .await?;
             let after = db.get_tasks()?.into_iter().find(|t| t.id == id);
             if expires < now {
                 assert!(after.is_none(), "expired unknown kind must be reaped");
@@ -863,8 +657,64 @@ mod tests {
         let db = alix.context.db();
         let now = xmtp_common::time::now_ns();
         let row = seed(&db, unique_proto(), now - 1, i64::MAX, 0, i32::MAX);
-        TaskWorker::run_and_reschedule_task(row, &alix.context).await?;
+        TaskWorker::new(alix.context.clone(), MlsTaskHandlers)
+            .run_and_reschedule_task(row)
+            .await?;
         assert!(db.get_tasks()?.is_empty(), "Done task must be deleted");
+    }
+
+    /// Handlers whose every run works for the given time, then fails.
+    struct FailAfter(xmtp_common::time::Duration);
+
+    #[xmtp_common::async_trait]
+    impl<Context: XmtpSharedContext> TaskHandlers<Context> for FailAfter {
+        type Error = TaskWorkerError;
+
+        async fn dispatch(
+            &self,
+            _context: &Context,
+            task: &DbTask,
+        ) -> Result<TaskOutcome, TaskWorkerError> {
+            xmtp_common::time::sleep(self.0).await;
+            Err(TaskWorkerError::InvalidHash {
+                id: task.id.into(),
+                expected: String::new(),
+                got: String::new(),
+            })
+        }
+    }
+
+    /// A failed task backs off from when its run finished, so a long run
+    /// does not use up its own backoff.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn failed_task_backs_off_from_run_finish() {
+        use xmtp_common::time::Duration;
+        tester!(alix, worker_config: no_runner_cfg());
+        let db = alix.context.db();
+        let proto = unique_proto();
+        let hash = data_hash_for(&proto);
+        let row = seed(
+            &db,
+            proto,
+            xmtp_common::time::now_ns() - 1,
+            i64::MAX,
+            0,
+            i32::MAX,
+        );
+        let backoff = (row.initial_backoff_duration_ns as f64
+            * (row.backoff_scaling_factor as f64).powi(1)) as i64;
+        let work = Duration::from_secs(2);
+        let started = xmtp_common::time::now_ns();
+        TaskWorker::new(alix.context.clone(), FailAfter(work))
+            .run_and_reschedule_task(row)
+            .await?;
+        let failed = db
+            .get_tasks()?
+            .into_iter()
+            .find(|t| t.data_hash == hash.as_ref())
+            .expect("the failed task is kept");
+        assert_eq!(failed.attempts, 1);
+        assert!(failed.next_attempt_at_ns >= started + work.as_nanos() as i64 + backoff);
     }
 
     #[xmtp_common::test(unwrap_try = true)]
@@ -880,7 +730,9 @@ mod tests {
             )),
         };
         let row = seed(&db, proto, now - 1, i64::MAX, 0, 3);
-        TaskWorker::run_and_reschedule_task(row, &alix.context).await?;
+        TaskWorker::new(alix.context.clone(), MlsTaskHandlers)
+            .run_and_reschedule_task(row)
+            .await?;
         assert!(
             db.get_tasks()?.is_empty(),
             "task for a nonexistent group must be deleted, not retried"
@@ -904,7 +756,9 @@ mod tests {
         let delay = Duration::from_secs(5);
         *test_hooks::RATE_LIMIT_OVERRIDE.lock().unwrap() =
             Some((hash.to_vec(), Duration::from_millis(300), delay));
-        TaskWorker::run_and_reschedule_task(row, &alix.context).await?;
+        TaskWorker::new(alix.context.clone(), MlsTaskHandlers)
+            .run_and_reschedule_task(row)
+            .await?;
         *test_hooks::RATE_LIMIT_OVERRIDE.lock().unwrap() = None;
         let refused = xmtp_common::time::now_ns();
         let task = || {
@@ -926,7 +780,9 @@ mod tests {
             .into_iter()
             .find(|t| t.data_hash != hash.as_ref())
             .expect("the pull-in task");
-        TaskWorker::run_and_reschedule_task(pull_in, &alix.context).await?;
+        TaskWorker::new(alix.context.clone(), MlsTaskHandlers)
+            .run_and_reschedule_task(pull_in)
+            .await?;
         let after = task().expect("a held task does not run");
         assert_eq!(after.attempts, 1);
         assert_eq!(after.next_attempt_at_ns, held.next_attempt_at_ns);
@@ -949,7 +805,9 @@ mod tests {
         let delay = Duration::from_secs(2 * 60 * 60);
         *test_hooks::RATE_LIMIT_OVERRIDE.lock().unwrap() =
             Some((hash.to_vec(), Duration::ZERO, delay));
-        TaskWorker::run_and_reschedule_task(row, &alix.context).await?;
+        TaskWorker::new(alix.context.clone(), MlsTaskHandlers)
+            .run_and_reschedule_task(row)
+            .await?;
         *test_hooks::RATE_LIMIT_OVERRIDE.lock().unwrap() = None;
         let held = db
             .get_tasks()?
@@ -977,7 +835,9 @@ mod tests {
         let row = seed(&db, proto, now - 1, i64::MAX, 19, 20);
         *test_hooks::RATE_LIMIT_OVERRIDE.lock().unwrap() =
             Some((hash.to_vec(), Duration::ZERO, Duration::from_millis(1)));
-        TaskWorker::run_and_reschedule_task(row, &alix.context).await?;
+        TaskWorker::new(alix.context.clone(), MlsTaskHandlers)
+            .run_and_reschedule_task(row)
+            .await?;
         let task = || {
             db.get_tasks()
                 .unwrap()
@@ -987,7 +847,9 @@ mod tests {
         let mut held = task().expect("the refused task is kept");
         assert_eq!(held.attempts, 19);
         held.next_attempt_at_ns = xmtp_common::time::now_ns() - 1;
-        TaskWorker::run_and_reschedule_task(held, &alix.context).await?;
+        TaskWorker::new(alix.context.clone(), MlsTaskHandlers)
+            .run_and_reschedule_task(held)
+            .await?;
         *test_hooks::RATE_LIMIT_OVERRIDE.lock().unwrap() = None;
         let held = task().expect("a second refusal keeps it too");
         assert_eq!(held.attempts, 19);
@@ -1011,7 +873,9 @@ mod tests {
         *test_hooks::RATE_LIMIT_OVERRIDE.lock().unwrap() =
             Some((hash.to_vec(), Duration::ZERO, delay));
         *test_hooks::FAIL_RESCHEDULE.lock().unwrap() = true;
-        let result = TaskWorker::run_and_reschedule_task(row, &alix.context).await;
+        let result = TaskWorker::new(alix.context.clone(), MlsTaskHandlers)
+            .run_and_reschedule_task(row)
+            .await;
         *test_hooks::RATE_LIMIT_OVERRIDE.lock().unwrap() = None;
         let error = result.expect_err("the write failed");
         assert_eq!(error.restart_delay(), Some(delay));
@@ -1030,7 +894,9 @@ mod tests {
         *test_hooks::RESCHEDULE_OVERRIDE.lock().unwrap() =
             Some((data_hash_for(&proto).to_vec(), target));
 
-        TaskWorker::run_and_reschedule_task(row, &alix.context).await?;
+        TaskWorker::new(alix.context.clone(), MlsTaskHandlers)
+            .run_and_reschedule_task(row)
+            .await?;
 
         *test_hooks::RESCHEDULE_OVERRIDE.lock().unwrap() = None;
         let after = db.get_tasks()?.pop().expect("recurring row must survive");
@@ -1053,7 +919,9 @@ mod tests {
         *test_hooks::RESCHEDULE_OVERRIDE.lock().unwrap() =
             Some((data_hash_for(&proto).to_vec(), now));
 
-        TaskWorker::run_and_reschedule_task(row, &alix.context).await?;
+        TaskWorker::new(alix.context.clone(), MlsTaskHandlers)
+            .run_and_reschedule_task(row)
+            .await?;
 
         *test_hooks::RESCHEDULE_OVERRIDE.lock().unwrap() = None;
         let after = db.get_tasks()?.pop().unwrap();
@@ -1085,7 +953,9 @@ mod tests {
             .find(|t| t.data_hash != target_hash.as_ref())
             .expect("pull-in row exists");
 
-        TaskWorker::run_and_reschedule_task(pull_in_row, &alix.context).await?;
+        TaskWorker::new(alix.context.clone(), MlsTaskHandlers)
+            .run_and_reschedule_task(pull_in_row)
+            .await?;
 
         let rows = db.get_tasks()?;
         let target = rows

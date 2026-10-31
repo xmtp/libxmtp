@@ -23,6 +23,7 @@ use crate::core::state_tx;
 pub mod storage_location;
 pub use client::VisibilityConfirmationOptions;
 pub mod subscriptions;
+pub mod task_handlers;
 pub mod utils;
 pub mod worker;
 pub use definitions::*;
