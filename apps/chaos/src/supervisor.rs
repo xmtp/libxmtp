@@ -763,6 +763,7 @@ async fn run_rounds(s: &Arc<Supervisor>, args: &RunArgs, seed: u64) -> Result<i3
             .faults
             .retain(|f| fault_selected(&args.faults, &f.kind));
         let recovering = !oracle.pending_rollcalls().is_empty();
+        let restoring = !has_hot_group(&snapshots);
         if recovering {
             // A new crash could erase an acknowledged stream receipt before it is observed.
             schedule.bursts.clear();
@@ -846,11 +847,17 @@ async fn run_rounds(s: &Arc<Supervisor>, args: &RunArgs, seed: u64) -> Result<i3
         let at_limit = deadline.map_or(round >= args.rounds, |d| run_start.elapsed() >= d);
         let incomplete_at_limit = !result.violation
             && at_limit
-            && result.incomplete_at_limit(oracle.pending_rollcalls().len());
+            && run_incomplete_at_limit(
+                &result,
+                oracle.pending_rollcalls().len(),
+                restoring,
+                &snapshots,
+            );
         if incomplete_at_limit {
             summary["termination"] = json!("INCONCLUSIVE");
-            summary["termination_reason"] =
-                json!("Run limit reached with unresolved checkpoint or delivery obligations");
+            summary["termination_reason"] = json!(
+                "Run limit reached with unresolved obligations or without restored contention"
+            );
         }
         {
             let ledger = s.ledger.lock().expect("ledger mutex");
@@ -901,7 +908,9 @@ async fn run_rounds(s: &Arc<Supervisor>, args: &RunArgs, seed: u64) -> Result<i3
             )?;
             println!("bundle={}", path.display());
             if incomplete_at_limit {
-                println!("termination=INCONCLUSIVE: run limit reached with unresolved obligations");
+                println!(
+                    "termination=INCONCLUSIVE: unresolved obligations or unrestored contention"
+                );
             }
             return Ok(if result.violation { 2 } else { 3 });
         }
@@ -909,6 +918,33 @@ async fn run_rounds(s: &Arc<Supervisor>, args: &RunArgs, seed: u64) -> Result<i3
             return Ok(0);
         }
     }
+}
+
+pub(crate) fn run_incomplete_at_limit(
+    result: &crate::check::CheckResult,
+    pending_rollcalls: usize,
+    restoring: bool,
+    snapshots: &[InstanceSnapshot],
+) -> bool {
+    result.incomplete_at_limit(pending_rollcalls) || restoring || !has_hot_group(snapshots)
+}
+
+fn has_hot_group(snapshots: &[InstanceSnapshot]) -> bool {
+    snapshots.iter().any(|instance| {
+        instance.groups.iter().any(|group| {
+            group.active
+                && snapshots.iter().any(|other| {
+                    other.inbox_id != instance.inbox_id
+                        && group
+                            .members
+                            .iter()
+                            .any(|member| member.inbox_id == other.inbox_id)
+                        && other.groups.iter().any(|candidate| {
+                            candidate.active && candidate.group_id == group.group_id
+                        })
+                })
+        })
+    })
 }
 
 fn validate_workload(schedule: &crate::schedule::RoundSchedule, recovering: bool) -> Result<()> {

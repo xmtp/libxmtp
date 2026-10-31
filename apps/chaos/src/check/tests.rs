@@ -64,6 +64,24 @@ fn oracle() -> Oracle {
     Oracle::new(false, RetryBudgets::default())
 }
 
+#[xmtp_common::test(unwrap_try = true)]
+fn run_limit_requires_restored_contention_and_completed_obligations() {
+    use crate::supervisor::run_incomplete_at_limit;
+
+    let mut instances = population();
+    let complete = oracle().evaluate(1, 0, &instances, &[]);
+    assert!(!complete.violation);
+    assert!(!run_incomplete_at_limit(&complete, 0, false, &instances));
+    assert!(run_incomplete_at_limit(&complete, 0, true, &instances));
+    assert!(run_incomplete_at_limit(&complete, 1, false, &instances));
+    instances[1].groups[0].active = false;
+    assert!(run_incomplete_at_limit(&complete, 0, false, &instances));
+    assert!(run_incomplete_at_limit(&complete, 0, true, &instances));
+    instances[1].groups[0].active = true;
+    instances[1].inbox_id = instances[0].inbox_id.clone();
+    assert!(run_incomplete_at_limit(&complete, 0, false, &instances));
+}
+
 fn missing_stream_call() -> RollCall {
     RollCall {
         group_id: group().group_id,

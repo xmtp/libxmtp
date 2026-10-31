@@ -29,8 +29,11 @@ from admins, and leaves from members who are not super admins. Without such
 an actor, the operation runs as any actor and checks the refusal path.
 
 When churn leaves no group with two active inboxes, the scheduler adds an
-available inbox to an existing group. This restores concurrent work within
-the group cap. A normal round with no group writes stops as a harness error;
+available inbox to an existing group. Scheduling this repair is not proof that
+it succeeded: a passing final round must start and end with an active group
+shared by distinct inboxes. A repair-only final round is inconclusive even if
+the Add succeeds, because contention has not resumed. This keeps restoration
+within the group cap. A normal round with no group writes stops as a harness error;
 recovery rounds may still wait for existing obligations without new writes.
 
 Recipes are `same_epoch_contention`, `join_race`, `remove_and_readd`,
