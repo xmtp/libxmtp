@@ -362,7 +362,7 @@ The deadline in JOIN-092 does not bound a Welcome whose group topic holds `messa
 
 An upgrade after terminal rejection under JOIN-087 cannot recover that Welcome; the installation needs a new Welcome to join. Unknown protobuf fields already stripped from pending rows by an older client cannot be reconstructed locally. Upgrading preserves the existing storage format but does not refetch those rows; if the stripped fields are needed to read the Welcome, the installation needs a new Welcome to join.
 
-The existing upgrade limitation now states that pre-fix rows with stripped fields are not repaired. No schema or data migration is needed: the blob remains a serialized ServerEnvelope (`crates/xmtp_db/src/encrypted_store/incoming_envelope.rs:80`, `crates/xmtp_mls/src/groups/welcome_sync.rs:339`).
+A Welcome pointer whose fetched pointee carries an unknown `WelcomeMessage.version` variant is rejected rather than held under JOIN-087. The client keeps unknown fields only for Welcomes it stores, and it reads a pointee during processing without storing it.
 
 The missing-key window in JOIN-084 cannot distinguish keys that will be restored later from keys the installation never held. Restoring keys after terminal rejection does not recover that Welcome; the installation needs a new Welcome to join.
 
