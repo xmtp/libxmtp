@@ -533,5 +533,7 @@ pub(crate) fn check_minimum_version(
     Ok(())
 }
 
+pub use crate::core::config_refresh as worker;
+
 #[cfg(test)]
 mod tests;
