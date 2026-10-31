@@ -124,7 +124,7 @@ export default defineConfig({
           label: "Deploy",
           items: guidePages(
             "deploy",
-            "overview local-tailscale fly railway aws-ecs kubernetes push-configuration",
+            "overview local-tailscale fly railway digitalocean aws-ecs kubernetes push-configuration",
           ),
           collapsed: true,
         },

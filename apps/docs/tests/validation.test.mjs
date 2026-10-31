@@ -120,6 +120,35 @@ test("built validation rejects incomplete llms exports and allows growth", async
   );
 });
 
+test("built validation checks downloads without accepting empty directories", async () => {
+  const root = await fixture();
+  const content = join(root, "content");
+  const output = join(root, "site");
+  await mkdir(content);
+  await mkdir(join(output, "page"), { recursive: true });
+  await mkdir(join(output, "examples"));
+  await mkdir(join(output, "empty"));
+  await writeFile(
+    join(content, "page.md"),
+    "[Terraform](/examples/main.tf)\n[Missing](/examples/missing.tf)\n[Empty](/empty/)",
+  );
+  await writeFile(join(output, "page/index.html"), "ok");
+  await writeFile(join(output, "examples/main.tf"), "terraform {}\n");
+  await writeFile(join(root, "redirects.json"), "{}");
+  const failures = await checkBuilt({
+    contentRoot: content,
+    outputRoot: output,
+    redirectsPath: join(root, "redirects.json"),
+  });
+  assert.deepEqual(
+    failures.filter((failure) => failure.startsWith("page.md:")),
+    [
+      "page.md: built link target is missing: /examples/missing.tf",
+      "page.md: built link target is missing: /empty/",
+    ],
+  );
+});
+
 test("built validation checks focused exports and their index links", async () => {
   const root = await fixture();
   const content = join(root, "content");

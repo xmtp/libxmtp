@@ -32,7 +32,11 @@ export function contentRoute(contentRoot, file) {
 export function outputCandidates(outputRoot, route) {
   const clean = route.replace(/^\//, "").replace(/\/$/, "");
   return clean
-    ? [join(outputRoot, clean, "index.html"), join(outputRoot, `${clean}.html`)]
+    ? [
+        join(outputRoot, clean, "index.html"),
+        join(outputRoot, `${clean}.html`),
+        join(outputRoot, clean),
+      ]
     : [join(outputRoot, "index.html")];
 }
 
@@ -67,10 +71,9 @@ export function resolveMarkdownLink(contentRoot, sourceFile, link) {
 export async function firstExisting(paths) {
   for (const path of paths) {
     try {
-      await stat(path);
-      return path;
+      if ((await stat(path)).isFile()) return path;
     } catch (error) {
-      if (error.code !== "ENOENT") throw error;
+      if (error.code !== "ENOENT" && error.code !== "ENOTDIR") throw error;
     }
   }
   return undefined;
