@@ -622,6 +622,7 @@ mod content_validation;
 mod create_adoption;
 mod create_cleanup;
 mod error_records;
+mod error_routes;
 mod event_listeners;
 mod event_readers;
 mod foreign_callbacks;

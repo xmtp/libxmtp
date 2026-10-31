@@ -163,3 +163,184 @@ async fn smart_contract_wallet_signer_creates_builds_and_messages() {
     peer.end().await?;
     std::fs::remove_dir_all(root)?;
 }
+
+const VERIFY_SCW: &str = "/xmtp.backend.v1.IdentityService/VerifySmartContractWalletSignatures";
+
+/// Forwards every request to the shared backend. While `failing` is set,
+/// smart contract wallet verification fails with a retryable transport error
+/// and each such request is counted.
+struct FlakyVerifierTransport {
+    inner: xmtp_proto::api::ArcClient,
+    failing: Arc<std::sync::atomic::AtomicBool>,
+    failed: Arc<std::sync::atomic::AtomicUsize>,
+}
+
+#[xmtp_common::async_trait]
+impl xmtp_proto::api::Client for FlakyVerifierTransport {
+    fn host(&self) -> &str {
+        self.inner.host()
+    }
+
+    fn has_credential_source(&self) -> bool {
+        self.inner.has_credential_source()
+    }
+
+    async fn request(
+        &self,
+        request: http::request::Builder,
+        path: http::uri::PathAndQuery,
+        body: prost::bytes::Bytes,
+    ) -> Result<http::Response<prost::bytes::Bytes>, xmtp_proto::api::ApiClientError> {
+        use std::sync::atomic::Ordering;
+        if path.path() == VERIFY_SCW && self.failing.load(Ordering::SeqCst) {
+            self.failed.fetch_add(1, Ordering::SeqCst);
+            return Err(xmtp_proto::api::ApiClientError::Expired(
+                xmtp_common::time::Expired,
+            ));
+        }
+        self.inner.request(request, path, body).await
+    }
+
+    async fn stream(
+        &self,
+        request: http::request::Builder,
+        path: http::uri::PathAndQuery,
+        body: prost::bytes::Bytes,
+    ) -> Result<http::Response<xmtp_proto::api::BytesStream>, xmtp_proto::api::ApiClientError> {
+        self.inner.stream(request, path, body).await
+    }
+
+    async fn bidi_stream(
+        &self,
+        request: http::request::Builder,
+        path: http::uri::PathAndQuery,
+        body: xmtp_common::BoxDynStream<'static, prost::bytes::Bytes>,
+    ) -> Result<http::Response<xmtp_proto::api::BytesStream>, xmtp_proto::api::ApiClientError> {
+        self.inner.bidi_stream(request, path, body).await
+    }
+}
+
+#[xmtp_common::async_trait]
+impl xmtp_proto::api::IsConnectedCheck for FlakyVerifierTransport {
+    async fn is_connected(&self) -> bool {
+        self.inner.is_connected().await
+    }
+}
+
+/// Inbox lookups that need a smart contract wallet proof stay retryable when
+/// the verifier fails transiently. The wallet's cached state is dropped and
+/// the viewer has none, so every lookup must call the failing verifier.
+#[xmtp_common::test(unwrap_try = true)]
+async fn inbox_lookups_stay_retryable_on_transient_verifier_failure() {
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use xmtp_db::ConnectionExt;
+    use xmtp_db::diesel::{RunQueryDsl, sql_query};
+    use xmtp_proto::api::ToBoxedClient;
+
+    let SmartWalletContext {
+        factory,
+        sw,
+        owner0,
+        ..
+    } = docker_smart_wallet::default().await;
+    let chain_id = factory.provider().get_chain_id().await?;
+    let signer = Arc::new(ContractWalletSigner {
+        owner: owner0,
+        wallet: sw,
+        chain_id,
+    });
+    let identity = signer.identity().await?;
+
+    let failing = Arc::new(AtomicBool::new(false));
+    let failed = Arc::new(AtomicUsize::new(0));
+    let Some(BackendSource::Options { options: backend }) = options().backend else {
+        panic!("test options name backend options");
+    };
+    let honest = crate::Backend::connect(backend).await?;
+    let backend_client = honest.api.inner();
+    let transport = FlakyVerifierTransport {
+        inner: backend_client.inner().clone(),
+        failing: failing.clone(),
+        failed: failed.clone(),
+    };
+    let api = xmtp_api_backend::BackendClient::new(transport.arced())
+        .with_auth_handle(backend_client.auth_handle());
+    let flaky = ClientOptions {
+        backend: Some(BackendSource::Connected {
+            backend: Arc::new(crate::Backend {
+                api: Arc::new(xmtp_api_backend::TrackedStatsClient::new(api)),
+                auth_handle: honest.auth_handle,
+                options: honest.options,
+            }),
+        }),
+        ..options()
+    };
+    let wallet = Client::create(signer.clone(), flaky.clone()).await?;
+    let viewer = Client::create(crate::generate_local_signer().await, flaky).await?;
+    wallet
+        .inner
+        .context
+        .db()
+        .raw_query(|conn| sql_query("DELETE FROM association_state").execute(conn))?;
+    failing.store(true, Ordering::SeqCst);
+
+    let mut routes = vec![];
+    let before = failed.load(Ordering::SeqCst);
+    routes.push((
+        "inbox_state",
+        wallet.inbox_state(true).await.err(),
+        failed.load(Ordering::SeqCst) > before,
+    ));
+    let before = failed.load(Ordering::SeqCst);
+    routes.push((
+        "inbox_states",
+        viewer
+            .inbox_states(vec![wallet.inbox_id()], true)
+            .await
+            .err(),
+        failed.load(Ordering::SeqCst) > before,
+    ));
+    let before = failed.load(Ordering::SeqCst);
+    routes.push((
+        "inbox_id_for",
+        viewer.inbox_id_for(identity).await.err(),
+        failed.load(Ordering::SeqCst) > before,
+    ));
+    let mut observed = vec![];
+    for (route, error, verified) in routes {
+        assert!(verified, "{route} did not call the verifier");
+        let error = error.unwrap_or_else(|| panic!("{route} succeeded"));
+        let (kind, details) = match &error {
+            XmtpError::Unknown(details) => ("Unknown", details),
+            XmtpError::RequestTimeout(details) => ("RequestTimeout", details),
+            other => panic!("{route}: {other:?}"),
+        };
+        observed.push((
+            route,
+            kind,
+            details.code.clone(),
+            format!("{:?}", details.category),
+            details.retryable,
+        ));
+    }
+    let unknown = |route| {
+        (
+            route,
+            "Unknown",
+            "Unknown".to_owned(),
+            "Unknown".to_owned(),
+            true,
+        )
+    };
+    assert_eq!(
+        observed,
+        vec![
+            unknown("inbox_state"),
+            unknown("inbox_states"),
+            unknown("inbox_id_for"),
+        ]
+    );
+    failing.store(false, Ordering::SeqCst);
+    viewer.end().await?;
+    wallet.end().await?;
+}

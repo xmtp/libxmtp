@@ -546,6 +546,97 @@ async fn a_blocked_connection_keeps_its_code_on_sync_and_later_calls() {
     std::fs::remove_file(path)?;
 }
 
+/// A persisted deployment mismatch keeps `BackendMismatch`, never retried, on
+/// every route a blocked client can take: a stream opened before the check
+/// fails on its first item, and one opened after it fails to open.
+// verifies: CONF-064, CONF-077
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_blocked_connection_keeps_its_code_on_every_route() {
+    use crate::conversation::Conversation;
+    use xmtp_db::prelude::QueryServerConfiguration;
+
+    let path = std::env::temp_dir().join(format!(
+        "sdk-blocked-routes-{}-{}.db3",
+        std::process::id(),
+        xmtp_common::time::now_ns(),
+    ));
+    let signer = crate::generate_local_signer().await;
+    let peer = Client::create(crate::generate_local_signer().await, options()).await?;
+    let mut settings = options();
+    settings.storage.location = explicit_location(&path);
+    let online = Client::create(signer.clone(), settings.clone()).await?;
+    let inbox_id = online.inbox_id();
+    let group_id = online
+        .conversations()
+        .create_group(vec![], None)
+        .await?
+        .id();
+    {
+        let db = online.inner.context.db();
+        let stored = db.server_configuration()?.expect("stored configuration");
+        db.store_server_configuration(
+            "org.example.other-deployment",
+            "http://moved.example",
+            &stored.response,
+            stored.fetched_at_ns,
+        )?;
+    }
+    online.end().await?;
+
+    settings.allow_offline = true;
+    let identity = signer::identity(signer).await?;
+    let offline = Client::build(identity, settings, Some(inbox_id)).await?;
+    let Some(Conversation::Group { group }) = offline.conversations().get_by_id(group_id).await?
+    else {
+        panic!("the stored group opens offline");
+    };
+    let messages = offline.conversations().message_reader(None).await?;
+    let conversations = offline.conversations().conversation_reader(None).await?;
+
+    fn read<T>(result: Result<T, XmtpError>) -> XmtpError {
+        result.err().expect("a blocked route fails")
+    }
+    async fn first_item<T>(future: impl Future<Output = T>) -> T {
+        tokio::time::timeout(Duration::from_secs(10), future)
+            .await
+            .expect("a blocked reader returns its cause")
+    }
+    let mut routes = vec![
+        ("group sync", read(group.sync().await)),
+        (
+            "add members",
+            read(group.add_members(vec![peer.inbox_id()]).await),
+        ),
+        ("first message", read(first_item(messages.next()).await)),
+        (
+            "first conversation",
+            read(first_item(conversations.next()).await),
+        ),
+    ];
+    routes.push((
+        "message stream",
+        read(offline.conversations().message_reader(None).await),
+    ));
+    routes.push((
+        "conversation stream",
+        read(offline.conversations().conversation_reader(None).await),
+    ));
+    routes.push(("catch-up", read(offline.catch_up_to_live(None).await)));
+    routes.push((
+        "configuration refresh",
+        read(offline.refresh_server_configuration().await),
+    ));
+    for (route, error) in routes {
+        let XmtpError::BackendMismatch(details) = &error else {
+            panic!("{route}: {error:?}");
+        };
+        assert!(!details.retryable, "{route}");
+    }
+    offline.end().await?;
+    peer.end().await?;
+    std::fs::remove_file(path)?;
+}
+
 #[xmtp_common::test(unwrap_try = true)]
 async fn concurrent_create_keeps_one_inbox_id() {
     let signer = crate::generate_local_signer().await;
