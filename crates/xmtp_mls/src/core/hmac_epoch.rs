@@ -9,6 +9,11 @@ use std::sync::{
 use xmtp_common::time::{self, Duration};
 use xmtp_events::{ClientEvent, EventWriter, HmacKeysUpdated};
 
+/// Current hmac epoch. HMAC keys change every 30 days
+pub fn hmac_epoch() -> i64 {
+    xmtp_push_types::hmac_epoch(xmtp_common::time::now_secs())
+}
+
 pub struct HmacEpochWorker<Context> {
     context: Context,
     last_epoch: Arc<AtomicI64>,
@@ -125,7 +130,7 @@ impl<Context: XmtpSharedContext + 'static> Worker for HmacEpochWorker<Context> {
         Self: Sized,
         C: XmtpSharedContext + 'static,
     {
-        Factory::new(context, crate::utils::time::hmac_epoch())
+        Factory::new(context, hmac_epoch())
     }
 
     async fn run_tasks(&mut self) -> WorkerResult<()> {

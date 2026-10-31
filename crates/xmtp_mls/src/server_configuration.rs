@@ -100,9 +100,9 @@ impl From<&BlockedConnection> for ClientError {
 /// refresh sets it.
 #[derive(Clone)]
 pub struct ServerConfigurationHandle {
-    admission: Arc<tokio::sync::Mutex<()>>,
-    pending: Arc<AtomicBool>,
-    fetch: Arc<OnceLock<Arc<dyn xmtp_api::preflight::ConfigurationFetch>>>,
+    pub(crate) admission: Arc<tokio::sync::Mutex<()>>,
+    pub(crate) pending: Arc<AtomicBool>,
+    pub(crate) fetch: Arc<OnceLock<Arc<dyn xmtp_api::preflight::ConfigurationFetch>>>,
     deployment_recorder: Arc<RwLock<Option<crate::storage_location::DeploymentRecorder>>>,
     provider: Arc<dyn ConfigProvider>,
     blocked_connection: Arc<RwLock<Option<BlockedConnection>>>,
@@ -252,7 +252,7 @@ impl ServerConfigurationHandle {
         *self.deployment_recorder.write() = Some(recorder);
     }
 
-    async fn record_deployment(&self, identifier: &str) -> Result<(), ClientError> {
+    pub(crate) async fn record_deployment(&self, identifier: &str) -> Result<(), ClientError> {
         let recorder = self.deployment_recorder.read().clone();
         if let Some(recorder) = recorder {
             recorder.record(identifier).await.map_err(|error| {
@@ -367,7 +367,7 @@ where
     Ok(configuration)
 }
 
-fn commit_configuration(
+pub(crate) fn commit_configuration(
     response: backend_v1::GetConfigurationResponse,
     backend_url: Option<&str>,
     db: &impl DbQuery,
@@ -533,10 +533,5 @@ pub(crate) fn check_minimum_version(
     Ok(())
 }
 
-pub mod worker;
-
 #[cfg(test)]
 mod tests;
-
-mod preflight;
-pub(crate) use preflight::{bind_preflight, refresh};

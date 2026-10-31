@@ -2,6 +2,7 @@ use super::{
     DeviceSyncClient, DeviceSyncError, ReceivedContent, decode_sync_message,
     preference_sync::apply_preference_updates, selected_sync_group_in, with_plaintext,
 };
+pub use crate::core::metrics::SyncMetric;
 use crate::{
     client::ClientError,
     context::XmtpSharedContext,
@@ -530,22 +531,6 @@ where
             }
         }
         Ok(())
-    }
-}
-
-#[derive(PartialEq, Eq, Hash, Clone, Copy, Debug)]
-pub enum SyncMetric {
-    Init,
-    SyncGroupCreated,
-    HmacSent,
-    HmacReceived,
-    ConsentSent,
-    ConsentReceived,
-}
-
-impl WorkerMetrics<SyncMetric> {
-    pub async fn wait_for_init(&self) -> Result<(), xmtp_common::time::Expired> {
-        self.register_interest(SyncMetric::Init, 1).wait().await
     }
 }
 

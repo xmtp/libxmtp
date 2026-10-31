@@ -6,6 +6,7 @@ use crate::{
         tests::{config, support},
     },
 };
+use xmtp_db::consent_record::ConsentState;
 
 #[xmtp_common::test(unwrap_try = true)]
 fn notification_error_debug_does_not_expose_backend_text() {

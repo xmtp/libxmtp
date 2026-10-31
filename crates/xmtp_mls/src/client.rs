@@ -1,5 +1,4 @@
 use crate::{
-    builder::DeviceSyncMode,
     context::XmtpSharedContext,
     groups::{
         ConversationListItem, GroupError, MlsGroup, group_permissions::PolicySet,
@@ -21,6 +20,7 @@ use crate::{
     worker::{WorkerRunner, metrics::WorkerMetrics},
 };
 pub mod notifications;
+pub use crate::core::config::DeviceSync;
 use crate::{
     groups::welcome_sync::GroupSyncSummary,
     identity_updates::{batch_get_association_state_with_verifier, get_creation_signature_kind},
@@ -389,11 +389,6 @@ impl<Context> Drop for Client<Context> {
     }
 }
 
-#[derive(Clone)]
-pub struct DeviceSync {
-    pub(crate) mode: DeviceSyncMode,
-}
-
 // most of these things are `Arc`'s
 impl<Context: Clone> Clone for Client<Context> {
     fn clone(&self) -> Self {
@@ -555,7 +550,7 @@ where
     pub async fn refresh_server_configuration(
         &self,
     ) -> Result<xmtp_configuration::ServerConfiguration, ClientError> {
-        crate::server_configuration::refresh(&self.context).await
+        crate::core::preflight::refresh(&self.context).await
     }
 
     /// Retrieves the client's installation public key, sometimes also called `installation_id`

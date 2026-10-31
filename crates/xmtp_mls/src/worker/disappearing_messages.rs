@@ -1,5 +1,5 @@
 use crate::context::XmtpSharedContext;
-use crate::subscriptions::internal::InternalEvent;
+use crate::core::events::InternalEvent;
 use crate::worker::{BoxedWorker, NeedsDbReconnect, Worker, WorkerFactory};
 use crate::worker::{WorkerKind, WorkerResult};
 use futures::TryFutureExt;
@@ -161,7 +161,7 @@ where
                     let db = storage.db();
                     let deleted = db.delete_expired_messages(pass_start)?;
                     let n = deleted.len();
-                    crate::subscriptions::internal::emit_expired_messages(events, deleted, &db)?;
+                    crate::core::events::emit_expired_messages(events, deleted, &db)?;
                     Ok::<_, StorageError>(xmtp_db::TransactionOutcome::Continue(n))
                 },
             )

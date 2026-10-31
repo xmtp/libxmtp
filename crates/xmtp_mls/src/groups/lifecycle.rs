@@ -471,7 +471,7 @@ where
                         )?;
                         if created {
                             // implements: SYNC-001
-                            crate::worker::device_sync::schedule_add_missing_installations(
+                            crate::core::sync_tasks::schedule_add_missing_installations(
                                 &tx.storage().db(),
                                 events,
                                 stored_group.id,

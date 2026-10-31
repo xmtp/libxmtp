@@ -1,16 +1,15 @@
 #[cfg(test)]
 use crate::GroupCommitLock;
-use crate::builder::{DeviceSyncMode, ForkRecoveryOpts};
 #[cfg(any(test, target_arch = "wasm32"))]
 mod message_clock;
-use crate::client::DeviceSync;
-use crate::groups::change_callbacks::UnstableChangeCallbacks;
+use crate::core::change_callbacks::UnstableChangeCallbacks;
+use crate::core::config::{DeviceSync, DeviceSyncMode, ForkRecoveryOpts};
+use crate::core::events::InternalEvent;
+use crate::core::metrics::SyncMetric;
+use crate::core::task_channels::TaskWorkerChannels;
+use crate::core::version::VersionInfo;
 use crate::server_configuration::ServerConfigurationHandle;
-use crate::subscriptions::internal::InternalEvent;
-use crate::utils::VersionInfo;
-use crate::worker::device_sync::worker::SyncMetric;
 use crate::worker::metrics::WorkerMetrics;
-use crate::worker::tasks::TaskWorkerChannels;
 use crate::worker::{DynMetrics, MetricsCasting, WorkerConfig, WorkerKind};
 use crate::{
     identity::{Identity, IdentityError},
