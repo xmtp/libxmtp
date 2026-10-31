@@ -535,4 +535,44 @@ mod tests {
             "a present reference should not wait for a permit, took {present_elapsed:?}"
         );
     }
+
+    /// A requirement on an update its inbox has not published waits out the
+    /// absence window, then fails as a missing reference that is not retried
+    /// and needs no reconnect.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn dependency_resolution_waits_on_missing_identity_update() {
+        use crate::worker::NeedsDbReconnect;
+        use xmtp_common::RetryableError;
+        tester!(alix, disable_workers);
+        tester!(bo, disable_workers);
+        let wait = Duration::from_secs(1);
+        let mut settings = alix.context.incoming_runtime().policy().clone();
+        settings.identity_reference_wait = wait;
+        let client = crate::builder::ClientBuilder::from_client(alix.client.clone())
+            .with_disable_workers(true)
+            .stream_policy(settings)
+            .build()
+            .await?;
+        let latest = bo.context.db().get_latest_sequence_id(&[bo.inbox_id()])?[bo.inbox_id()];
+        let unpublished = IdentityRequirement {
+            inbox_id: bo.inbox_id().to_owned(),
+            sequence_id: latest as u64 + 1_000,
+        };
+        let start = Instant::now();
+        let error =
+            resolve_identity_requirements(&client.context, &BTreeSet::from([unpublished.clone()]))
+                .await
+                .unwrap_err();
+        assert!(
+            start.elapsed() >= wait,
+            "resolved after {:?}",
+            start.elapsed()
+        );
+        assert!(
+            matches!(&error, IdentityDependencyError::MissingReference(found) if *found == unpublished),
+            "{error:?}"
+        );
+        assert!(!error.is_retryable());
+        assert!(!error.needs_db_reconnect());
+    }
 }

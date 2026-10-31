@@ -663,3 +663,234 @@ async fn offline_build_asks_no_verifier(#[future] docker_smart_wallet: SmartWall
         offline.err()
     );
 }
+
+/// A verifier whose every smart contract wallet check fails with `leaf`,
+/// counting the checks in `calls`.
+pub(crate) struct FailingVerifier {
+    leaf: fn() -> xmtp_id::scw_verifier::VerifierError,
+    calls: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+}
+
+impl FailingVerifier {
+    pub(crate) fn new(
+        leaf: fn() -> xmtp_id::scw_verifier::VerifierError,
+        calls: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    ) -> Self {
+        Self { leaf, calls }
+    }
+}
+
+#[xmtp_common::async_trait]
+impl xmtp_id::scw_verifier::SmartContractSignatureVerifier for FailingVerifier {
+    async fn is_valid_signature(
+        &self,
+        _account_id: AccountId,
+        _hash: [u8; 32],
+        _signature: alloy::primitives::Bytes,
+        _block_number: Option<alloy::primitives::BlockNumber>,
+    ) -> Result<xmtp_id::scw_verifier::ValidationResponse, xmtp_id::scw_verifier::VerifierError>
+    {
+        self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Err((self.leaf)())
+    }
+}
+
+/// A verifier that checks smart contract wallet signatures on the chain of a
+/// `docker_smart_wallet` context, first running the hook set in `before`,
+/// such as a disconnect of the client's store, and counting checks in `calls`.
+pub(crate) struct HookedVerifier {
+    chain: xmtp_id::scw_verifier::RpcSmartContractWalletVerifier,
+    before: std::sync::Arc<std::sync::OnceLock<Box<dyn Fn() + Send + Sync>>>,
+    calls: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+}
+
+impl HookedVerifier {
+    pub(crate) fn new(
+        context: &SmartWalletContext,
+        before: std::sync::Arc<std::sync::OnceLock<Box<dyn Fn() + Send + Sync>>>,
+        calls: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    ) -> Self {
+        let chain = xmtp_id::scw_verifier::RpcSmartContractWalletVerifier::new_from_provider(
+            context.factory.provider().clone(),
+        );
+        Self {
+            chain,
+            before,
+            calls,
+        }
+    }
+}
+
+#[xmtp_common::async_trait]
+impl xmtp_id::scw_verifier::SmartContractSignatureVerifier for HookedVerifier {
+    async fn is_valid_signature(
+        &self,
+        account_id: AccountId,
+        hash: [u8; 32],
+        signature: alloy::primitives::Bytes,
+        block_number: Option<alloy::primitives::BlockNumber>,
+    ) -> Result<xmtp_id::scw_verifier::ValidationResponse, xmtp_id::scw_verifier::VerifierError>
+    {
+        self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        if let Some(before) = self.before.get() {
+            before();
+        }
+        self.chain
+            .is_valid_signature(account_id, hash, signature, block_number)
+            .await
+    }
+}
+
+/// Register an inbox created by the smart contract wallet of `context` on the
+/// local backend, returning its inbox id and the wallet's identifier.
+pub(crate) async fn register_scw_inbox(context: SmartWalletContext) -> (String, Identifier) {
+    let (client, ident) = register_scw_client(context, None::<FailingVerifier>).await;
+    (client.inbox_id().to_string(), ident)
+}
+
+/// Register the smart contract wallet of `context` on the local backend and
+/// return its client, on a persistent store with workers off, and the
+/// wallet's identifier. The client checks signatures with `verifier`, or the
+/// backend's without one.
+#[allow(clippy::unwrap_used)]
+pub(crate) async fn register_scw_client(
+    context: SmartWalletContext,
+    verifier: Option<impl xmtp_id::scw_verifier::SmartContractSignatureVerifier + 'static>,
+) -> (crate::utils::FullXmtpClient, Identifier) {
+    let SmartWalletContext {
+        factory,
+        owner0: wallet,
+        sw,
+        sw_address,
+        ..
+    } = context;
+    let chain_id = factory.provider().get_chain_id().await.unwrap();
+    let account_address = format!("{sw_address}");
+    let ident = Identifier::eth(&account_address).unwrap();
+    let account_id = AccountId::new_evm(chain_id, account_address.clone());
+    let scw_client = Client::builder(IdentityStrategy::new(
+        ident.inbox_id(0).unwrap(),
+        ident.clone(),
+        0,
+    ))
+    .temp_store()
+    .await
+    .local()
+    .default_mls_store()
+    .unwrap()
+    .with_disable_workers(true);
+    let scw_client = match verifier {
+        Some(verifier) => scw_client.with_scw_verifier(verifier),
+        None => scw_client.with_remote_verifier().unwrap(),
+    }
+    .build()
+    .await
+    .unwrap();
+    let mut signature_request = scw_client.context.signature_request().unwrap();
+    let hash_to_sign = alloy::primitives::eip191_hash_message(signature_request.signature_text());
+    let rsh = sw.replaySafeHash(hash_to_sign).call().await.unwrap();
+    let signed_hash = wallet.sign_hash(&rsh).await.unwrap().as_bytes().to_vec();
+    signature_request
+        .add_new_unverified_smart_contract_signature(
+            NewUnverifiedSmartContractWalletSignature::new(
+                SignatureWithNonce::abi_encode(&(U256::from(0), signed_hash)).to_vec(),
+                account_id,
+                None,
+            ),
+            &scw_client.scw_verifier(),
+        )
+        .await
+        .unwrap();
+    scw_client
+        .register_identity(signature_request)
+        .await
+        .unwrap();
+    (scw_client, ident)
+}
+
+/// Membership reads map an inbox with no identity log to `None`, a smart
+/// contract wallet log they cannot verify offline to `Some(false)`, and a
+/// verifier failure online to that failure with its own retryability. A
+/// handle lookup that finds no inbox fails with `HandleError::NotFound`.
+#[rstest::rstest]
+#[xmtp_common::timeout(Duration::from_secs(60))]
+#[tokio::test]
+async fn membership_reads_map_missing_updates_and_scw_failures(
+    #[future] docker_smart_wallet: SmartWalletContext,
+) {
+    use crate::client::ClientError;
+    use crate::identity_updates::{
+        identifier_membership, load_identity_updates, stored_identifier_membership,
+    };
+    use crate::inbox_handles::{HandleError, IdentityTarget, resolve_verified_with_verifier};
+    use xmtp_common::RetryableError;
+    use xmtp_id::associations::Handle;
+    use xmtp_id::associations::SignatureError;
+    use xmtp_id::scw_verifier::VerifierError;
+
+    let (scw_inbox_id, ident) = register_scw_inbox(docker_smart_wallet.await).await;
+
+    let viewer = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+    let db = viewer.context.db();
+    load_identity_updates(viewer.context.api(), &db, &[scw_inbox_id.as_str()])
+        .await
+        .unwrap();
+
+    let unknown = generate_local_wallet().identifier();
+    let unknown_inbox = unknown.inbox_id(0).unwrap();
+    assert_eq!(
+        identifier_membership(&db, &unknown_inbox, &unknown, &viewer.scw_verifier())
+            .await
+            .unwrap(),
+        None
+    );
+    assert_eq!(
+        stored_identifier_membership(&db, &scw_inbox_id, &ident)
+            .await
+            .unwrap(),
+        Some(false)
+    );
+
+    let no_verifier = || VerifierError::NoVerifier("eip155:1".into());
+    let malformed = || VerifierError::MalformedEipUrl;
+    for (leaf, retryable) in [(no_verifier as fn() -> _, true), (malformed, false)] {
+        let membership = identifier_membership(
+            &db,
+            &scw_inbox_id,
+            &ident,
+            &FailingVerifier::new(leaf, Default::default()),
+        )
+        .await
+        .unwrap_err();
+        let lookup = resolve_verified_with_verifier(
+            viewer.context.api(),
+            &db,
+            &[IdentityTarget::Account(ident.clone())],
+            &FailingVerifier::new(leaf, Default::default()),
+        )
+        .await
+        .unwrap_err();
+        for (route, error) in [("membership", membership), ("lookup", lookup)] {
+            assert!(
+                matches!(
+                    error,
+                    ClientError::SignatureValidation(SignatureError::VerifierError(_))
+                ),
+                "{route}: {error:?}"
+            );
+            assert_eq!(error.is_retryable(), retryable, "{route}: {error:?}");
+        }
+    }
+
+    let unclaimed =
+        Handle::parse(&format!("t{}", hex::encode(xmtp_common::rand_vec::<10>()))).unwrap();
+    let error = viewer
+        .resolve_targets(&[IdentityTarget::Handle(unclaimed)])
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(error, ClientError::Handle(HandleError::NotFound)),
+        "{error:?}"
+    );
+    assert!(!error.is_retryable());
+}
