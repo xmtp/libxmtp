@@ -48,6 +48,8 @@ pub(crate) mod test_hooks {
     > = Mutex::new(None);
     /// When set, the next retry schedule write fails, once.
     pub(crate) static FAIL_RESCHEDULE: Mutex<bool> = Mutex::new(false);
+    /// When set, the next sync-group retry fails without a rate limit, once.
+    pub(crate) static FAIL_SYNC_RETRY: Mutex<bool> = Mutex::new(false);
     pub(crate) static TASK_SCHEDULED_CONSUMED: Mutex<
         Option<(Vec<u8>, tokio::sync::oneshot::Sender<()>)>,
     > = Mutex::new(None);
@@ -652,12 +654,33 @@ where
             Ok(group) if group.conversation_type == ConversationType::Sync => {
                 let metrics = Arc::new(WorkerMetrics::new(context.installation_id()));
                 let sync = DeviceSyncClient::new(context.clone(), metrics);
-                if sync.retry_own_installations(&group).await? {
-                    return Ok(TaskOutcome::RescheduleAt(
-                        xmtp_common::time::now_ns() + SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS,
-                    ));
+                let retried = sync.retry_own_installations(&group).await;
+                #[cfg(test)]
+                let retried =
+                    match std::mem::take(&mut *test_hooks::FAIL_SYNC_RETRY.lock().unwrap()) {
+                        true => Err(DeviceSyncError::Conversion),
+                        false => retried,
+                    };
+                // A failed attempt also waits the retry interval, unless the
+                // runner must honor a rate limit or reconnect.
+                // implements: RATE-041
+                match retried {
+                    Ok(false) => Ok(TaskOutcome::Done),
+                    Err(e)
+                        if xmtp_common::RetryableError::rate_limit_delay(&e).is_some()
+                            || e.needs_db_reconnect() =>
+                    {
+                        Err(e.into())
+                    }
+                    result => {
+                        if let Err(e) = result {
+                            tracing::warn!(error = %e, "sync group retry failed");
+                        }
+                        Ok(TaskOutcome::RescheduleAt(
+                            xmtp_common::time::now_ns() + SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS,
+                        ))
+                    }
                 }
-                Ok(TaskOutcome::Done)
             }
             Ok(group) => {
                 group.add_missing_installations().await?;

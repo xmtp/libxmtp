@@ -1139,6 +1139,21 @@ async fn publish_reaches_present_leaves_and_retries_a_missing_one() {
     let kept = add_task().expect("the retry task is kept");
     assert!(kept.next_attempt_at_ns > task.next_attempt_at_ns);
     assert!(!has_alix3()?);
+    // A failed attempt waits the interval too, not the runner's backoff.
+    xmtp_common::time::sleep(std::time::Duration::from_nanos(interval as u64)).await;
+    *crate::worker::tasks::test_hooks::FAIL_SYNC_RETRY
+        .lock()
+        .unwrap() = true;
+    let failed_at = now_ns();
+    TaskWorker::run_and_reschedule_task(kept, &alix1.context).await?;
+    let after = add_task().expect("the retry task is kept");
+    assert_eq!(
+        (
+            after.attempts,
+            after.next_attempt_at_ns >= failed_at + interval
+        ),
+        (0, true)
+    );
 
     drop(restore);
     let sequence = db.get_latest_sequence_id_for_inbox(alix1.inbox_id())?;
