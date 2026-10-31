@@ -977,9 +977,7 @@ where
     /// Returns a [`MlsGroup`] if the group exists, or an error if it does not
     ///
     pub fn group(&self, group_id: &GroupId) -> Result<MlsGroup<Context>, ClientError> {
-        MlsStore::new(self.context.clone())
-            .group(group_id)
-            .map_err(Into::into)
+        MlsGroup::load_by_id(&self.context, group_id).map_err(Into::into)
     }
 
     /// Look up a group by its ID while stitching DMs
@@ -1136,9 +1134,7 @@ where
     /// - created_before_ns: only return groups created before the given timestamp (in nanoseconds)
     /// - limit: only return the first `limit` groups
     pub fn find_groups(&self, args: GroupQueryArgs) -> Result<Vec<MlsGroup<Context>>, ClientError> {
-        MlsStore::new(self.context.clone())
-            .find_groups(args)
-            .map_err(Into::into)
+        MlsGroup::find(&self.context, args).map_err(Into::into)
     }
 
     /// List one page of the app's conversations, in activity order unless

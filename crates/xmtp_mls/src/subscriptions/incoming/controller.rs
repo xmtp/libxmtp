@@ -1,5 +1,6 @@
 use super::*;
 use crate::{
+    groups::MlsGroup,
     identity_updates::IdentityRequirement,
     mls_store::{MlsStore, ReceivedPage},
     subscriptions::GroupSetGate,
@@ -452,7 +453,7 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                     let topic = Topic::new_group_message(group_id);
                     if !scope.topics.contains(&topic) {
                         // An empty pending queue cannot report an already inactive group.
-                        let group = match MlsStore::new(self.context.clone()).group(group_id) {
+                        let group = match MlsGroup::load_by_id(&self.context, group_id) {
                             Ok(group) => group,
                             Err(crate::mls_store::MlsStoreError::NotFound(_)) => {
                                 self.missing_group_topics.insert(topic);
@@ -661,10 +662,7 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                 .identifier()
                 .try_into()
                 .map_err(|_| IncomingError::UnsupportedTopic)?;
-            if !MlsStore::new(self.context.clone())
-                .group(&group_id)?
-                .is_active()?
-            {
+            if !MlsGroup::load_by_id(&self.context, &group_id)?.is_active()? {
                 continue;
             }
             self.dependency_registry

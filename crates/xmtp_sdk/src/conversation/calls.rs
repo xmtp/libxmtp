@@ -123,9 +123,7 @@ pub(super) async fn deletion_group(
                 "message belongs to another conversation",
             ));
         }
-        MlsStore::new(group.context.clone())
-            .group(&stored.group_id)
-            .map_err(XmtpError::from_core)?
+        MlsGroup::load_by_id(&group.context, &stored.group_id).map_err(XmtpError::from_core)?
     };
     // implements: DMS-020
     group

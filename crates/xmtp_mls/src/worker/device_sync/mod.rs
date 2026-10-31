@@ -8,7 +8,7 @@ use crate::{
     },
     identity::parse_credential,
     identity_updates::IdentityUpdates,
-    mls_store::{MlsStore, MlsStoreError},
+    mls_store::MlsStoreError,
     subscriptions::SubscribeError,
     worker::{NeedsDbReconnect, metrics::WorkerMetrics},
 };
@@ -337,17 +337,12 @@ impl From<NotFound> for DeviceSyncError {
 #[derive(Clone)]
 pub struct DeviceSyncClient<Context> {
     pub(crate) context: Context,
-    pub(crate) mls_store: MlsStore<Context>,
     pub(crate) metrics: Arc<WorkerMetrics<SyncMetric>>,
 }
 
 impl<Context: XmtpSharedContext> DeviceSyncClient<Context> {
     pub fn new(context: Context, metrics: Arc<WorkerMetrics<SyncMetric>>) -> Self {
-        Self {
-            context: context.clone(),
-            mls_store: MlsStore::new(context),
-            metrics,
-        }
+        Self { context, metrics }
     }
 }
 
@@ -529,7 +524,7 @@ where
     pub(crate) fn primary_sync_group(&self) -> Result<Option<MlsGroup<Context>>, GroupError> {
         let own_inbox_id = self.context.inbox_id();
         for stored in self.context.db().all_sync_groups()? {
-            let group = self.mls_store.group(&stored.id)?;
+            let group = MlsGroup::load_by_id(&self.context, &stored.id)?;
             let own = group.with_group_snapshot(|mls_group| {
                 Ok(is_own_sync_group(
                     own_inbox_id,

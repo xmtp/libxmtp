@@ -578,7 +578,7 @@ where
             context.db().delete_task(task.id)?;
             return Ok(());
         };
-        match crate::mls_store::MlsStore::new(context.clone()).group(&group_id) {
+        match crate::groups::MlsGroup::load_by_id(context, &group_id) {
             Ok(group) => {
                 // No-op unless super-admin; idempotent, so retries are safe.
                 group.process_pending_self_removals().await?;
@@ -617,7 +617,7 @@ where
             context.db().delete_task(task.id)?;
             return Ok(TaskOutcome::Done);
         };
-        match crate::mls_store::MlsStore::new(context.clone()).group(&group_id) {
+        match crate::groups::MlsGroup::load_by_id(context, &group_id) {
             // implements: SYNC-034, GMOD-055
             Ok(group) if group.conversation_type == ConversationType::Sync => {
                 let metrics = Arc::new(WorkerMetrics::new(context.installation_id()));
