@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -35,6 +35,99 @@ test("TypeDoc validation rejects warnings and errors", () => {
 test("content routes support index pages", () => {
   assert.equal(contentRoute("/docs", "/docs/sdk/index.mdx"), "/sdk/");
   assert.equal(contentRoute("/docs", "/docs/quickstart.md"), "/quickstart/");
+});
+
+test("TypeDoc source routes follow Astro slugs without changing other routes", () => {
+  for (const sdk of ["node", "browser", "agent", "react-native"]) {
+    assert.equal(
+      contentRoute("/docs", `/docs/reference/${sdk}-sdk/classes/Client.md`),
+      `/reference/${sdk}-sdk/classes/client/`,
+    );
+  }
+  assert.equal(
+    contentRoute("/docs", "/docs/reference/agent-sdk/README.md"),
+    "/reference/agent-sdk/readme/",
+  );
+  assert.equal(
+    contentRoute("/docs", "/docs/reference/node-sdk/Some Group/Index.md"),
+    "/reference/node-sdk/some-group/",
+  );
+  assert.equal(contentRoute("/docs", "/docs/guide/Case.md"), "/guide/Case/");
+  assert.equal(
+    contentRoute("/docs", "/docs/reference/kotlin/Client.md"),
+    "/reference/kotlin/Client/",
+  );
+});
+
+test("TypeDoc canonical pages do not hide missing pages, anchors or case errors", async () => {
+  const root = await fixture();
+  const content = join(root, "content");
+  const output = join(root, "site");
+  const source = join(content, "reference/node-sdk/classes/Client.md");
+  const page = join(output, "reference/node-sdk/classes/client/index.html");
+  await mkdir(join(content, "reference/node-sdk/classes"), { recursive: true });
+  await mkdir(join(output, "reference/node-sdk/classes/client"), {
+    recursive: true,
+  });
+  await mkdir(join(content, "guide"), { recursive: true });
+  await mkdir(join(output, "guide/case"), { recursive: true });
+  await mkdir(join(output, "rust"), { recursive: true });
+  await mkdir(join(output, "assets"), { recursive: true });
+  await writeFile(join(root, "redirects.json"), "{}");
+  await writeFile(
+    source,
+    "[method](/reference/node-sdk/classes/client/#method)",
+  );
+  await writeFile(page, '<h2 id="method">Method</h2>');
+  const check = () =>
+    checkBuilt({
+      contentRoot: content,
+      outputRoot: output,
+      redirectsPath: join(root, "redirects.json"),
+    });
+  assert.deepEqual(
+    (await check()).filter((failure) =>
+      /built page is missing|built link target is missing|built anchor is missing|referenced asset is missing/u.test(
+        failure,
+      ),
+    ),
+    [],
+  );
+  await rm(page);
+  assert.ok(
+    (await check()).includes(
+      "built page is missing: /reference/node-sdk/classes/client/",
+    ),
+  );
+  await writeFile(page, '<h2 id="method">Method</h2>');
+  await writeFile(
+    source,
+    "[wrong page](/reference/node-sdk/classes/Client/)\n[wrong anchor](/reference/node-sdk/classes/client/#Method)",
+  );
+  await writeFile(join(content, "guide/Case.md"), "# Case");
+  await writeFile(join(output, "guide/case/index.html"), "Wrong route case");
+  await writeFile(
+    join(output, "rust/index.html"),
+    '<link href="/assets/Styles.css">',
+  );
+  await writeFile(join(output, "assets/styles.css"), "body {}");
+  const failures = await check();
+  assert.ok(
+    failures.includes(
+      "reference/node-sdk/classes/Client.md: built link target is missing: /reference/node-sdk/classes/Client/",
+    ),
+  );
+  assert.ok(
+    failures.includes(
+      "reference/node-sdk/classes/Client.md: built anchor is missing: /reference/node-sdk/classes/client/#Method",
+    ),
+  );
+  assert.ok(failures.includes("built page is missing: /guide/Case/"));
+  assert.ok(
+    failures.includes(
+      "rust/index.html: referenced asset is missing: /assets/Styles.css",
+    ),
+  );
 });
 
 test("source validation finds old code groups and broken relative links", async () => {
