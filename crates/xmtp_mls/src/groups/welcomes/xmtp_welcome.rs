@@ -683,7 +683,7 @@ where
         encoded_added_payload.encode(&mut encoded_added_payload_bytes)?;
 
         let added_idempotency_key = format!("{}_welcome_added", welcome.created_ns);
-        let added_message_id = crate::utils::id::calculate_message_id(
+        let added_message_id = crate::groups::message_id::calculate_message_id(
             stored_group.id,
             encoded_added_payload_bytes.as_slice(),
             &added_idempotency_key,

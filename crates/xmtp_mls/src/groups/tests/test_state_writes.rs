@@ -285,7 +285,7 @@ async fn removal_supersedes_pending_intents_and_a_readd_can_publish() {
 // verifies: SEND-018
 #[xmtp_common::test(unwrap_try = true)]
 async fn removal_fails_unconfirmed_message_intents_and_preserves_confirmed_message() {
-    use crate::utils::id::calculate_message_id_for_intent;
+    use crate::groups::message_id::calculate_message_id_for_intent;
     use xmtp_db::group_intent::{IntentKind, IntentState};
     use xmtp_db::group_message::DeliveryStatus;
     use xmtp_db::prelude::QueryGroupIntent;
@@ -371,7 +371,7 @@ async fn removal_fails_unconfirmed_message_intents_and_preserves_confirmed_messa
 #[xmtp_common::test(unwrap_try = true)]
 async fn inactive_group_rejects_optimistic_and_prepared_messages_before_storage() {
     use crate::groups::GroupError;
-    use crate::utils::id::calculate_message_id;
+    use crate::groups::message_id::calculate_message_id;
     use xmtp_db::group_intent::{IntentKind, IntentState};
     use xmtp_db::prelude::QueryGroupIntent;
 

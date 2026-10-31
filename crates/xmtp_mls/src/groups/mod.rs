@@ -1,4 +1,7 @@
 pub mod app_data;
+pub mod hash {
+    pub use xmtp_cryptography::hash::sha256_bytes as sha256;
+}
 mod builders;
 mod lifecycle;
 mod membership;
@@ -15,6 +18,7 @@ pub(crate) mod diagnostics;
 mod error;
 pub mod intents;
 pub mod members;
+pub mod message_id;
 pub mod message_list;
 pub(super) mod mls_ext;
 pub(super) mod mls_sync;
@@ -54,7 +58,7 @@ use crate::groups::{
 use crate::state_tx::state_write;
 use crate::{
     client::ClientError,
-    utils::id::{calculate_message_id, decode_message_reference},
+    groups::message_id::{calculate_message_id, decode_message_reference},
 };
 pub use error::*;
 use intents::SendMessageIntentData;
@@ -268,20 +272,6 @@ impl Default for QueryableContentFields {
             reference_id: None,
         }
     }
-}
-
-/// Decode only the content type of encoded content. prost skips the other
-/// fields without copying them, so a payload that holds a device-sync HMAC
-/// root key is never copied.
-pub(crate) fn encoded_content_type(
-    message: &[u8],
-) -> Result<Option<ContentTypeId>, prost::DecodeError> {
-    #[derive(Clone, PartialEq, prost::Message)]
-    struct TypeOnly {
-        #[prost(message, optional, tag = "1")]
-        r#type: Option<ContentTypeId>,
-    }
-    Ok(TypeOnly::decode(message)?.r#type)
 }
 
 impl QueryableContentFields {
