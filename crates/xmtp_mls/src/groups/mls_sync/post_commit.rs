@@ -199,7 +199,7 @@ where
     }
 
     /// Refresh membership, removing revoked installations but adding none.
-    // implements: SYNC-024
+    // implements: SYNC-034
     pub(crate) async fn remove_revoked_installations(&self) -> Result<(), GroupError> {
         let mut intent_data = self.get_membership_update_intent(&[], &[]).await?;
         if intent_data.is_empty() {

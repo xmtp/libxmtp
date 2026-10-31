@@ -4,6 +4,8 @@ use super::*;
 use crate::{
     identity_updates::{IdentityDependencyError, IdentityRequirement},
     state_tx::{state_write, state_write_with_events},
+    subscriptions::internal::{InternalEvent, emit_root_key_changed},
+    worker::device_sync::schedule_newcomer_adds,
 };
 use std::collections::BTreeSet;
 use xmtp_api_backend::envelope::decode_group_message;
@@ -185,12 +187,36 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                             let before = watch_app_data
                                 .then(|| Self::read_app_data_slot(group))
                                 .flatten();
+                            let leaves_before = (self.conversation_type == ConversationType::Sync
+                                && envelope.is_commit())
+                            .then(|| {
+                                group
+                                    .members()
+                                    .map(|member| member.signature_key)
+                                    .collect::<HashSet<_>>()
+                            });
                             let mut outcome = self.process_message_inner(
                                 group,
                                 storage,
                                 envelope,
                                 event_buffer,
                             )?;
+                            // implements: SYNC-014, SYNC-035
+                            // A new leaf is owed every record and the root key,
+                            // and the adds to conversations, stored with this
+                            // commit so a restart keeps them.
+                            if leaves_before.is_some_and(|leaves| {
+                                group
+                                    .members()
+                                    .any(|member| !leaves.contains(&member.signature_key))
+                            }) {
+                                let db = storage.db();
+                                schedule_newcomer_adds(&db, event_buffer)?;
+                                if xmtp_db::sync_outbox::mark_all_owed(&db)? {
+                                    emit_root_key_changed(event_buffer, &db, true)?;
+                                }
+                                event_buffer.emit(None, Some(InternalEvent::OutboxChanged));
+                            }
                             if watch_app_data
                                 && let (Some(before), Some(after)) =
                                     (before, Self::read_app_data_slot(group))

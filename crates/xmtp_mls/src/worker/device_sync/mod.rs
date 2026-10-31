@@ -21,6 +21,9 @@ use worker::SyncMetric;
 use xmtp_archive::ArchiveError;
 use xmtp_common::ErrorCode;
 use xmtp_common::{NS_IN_DAY, RetryableError, time::now_ns};
+use xmtp_configuration::{
+    INSTALLATION_RETRY_MIN_PROTOCOL_VERSION, SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS,
+};
 use xmtp_cryptography::secret::{Zeroize, Zeroizing};
 use xmtp_db::TransactionalKeyStore;
 use xmtp_db::tasks::NewTask;
@@ -34,7 +37,9 @@ use xmtp_db::{
 use xmtp_db::{XmtpDb, group::ConversationType, prelude::*};
 use xmtp_events::EventWriter;
 use xmtp_id::{InboxIdRef, associations::DeserializationError};
+use xmtp_mls_common::app_data::protocol_floor::committed_floor_at_least;
 use xmtp_mls_common::group::GroupMetadataOptions;
+use xmtp_mls_common::libxmtp_version::LibXMTPVersion;
 use xmtp_proto::ShortHex;
 use xmtp_proto::types::{GroupId, InstallationId};
 use xmtp_proto::xmtp::{
@@ -379,12 +384,14 @@ where
     /// Publish every owed value to the selected sync group, a page at
     /// a time. A page's marks clear only after the message carrying it is
     /// published.
-    // implements: SYNC-004, SYNC-024, SYNC-029, SYNC-033
+    // implements: SYNC-004, SYNC-034, SYNC-029, SYNC-033
     #[tracing::instrument(level = "debug", skip_all, fields(operation = "publish_outbox"))]
     pub(super) async fn publish_outbox(&self) -> Result<(), DeviceSyncError> {
         // A quarter of the deployment's envelope, so MLS and envelope framing fit.
         let max_bytes = (self.context.api().limits().max_envelope_bytes / 4).min(PAGE_BYTES);
         self.get_sync_group().await?;
+        // One add per pass; the stored retry repeats it after the interval.
+        let mut add_tried = false;
         loop {
             // Values first, target second. A sync Welcome that commits after
             // this read marks every key again, so the clear below skips them.
@@ -396,11 +403,33 @@ where
             let group = self
                 .primary_sync_group()?
                 .ok_or(DeviceSyncError::MissingSyncGroup)?;
-            // implements: SYNC-024
-            if self.has_revoked_leaf(&group).await? {
+            // implements: SYNC-034
+            let gap = self.own_membership_gap(&group).await?;
+            if gap.missing && !add_tried {
+                add_tried = true;
+                // A failed add holds no page back, unless a revoked leaf may
+                // stay or the add must wait out a rate limit.
+                // implements: RATE-041
+                if let Err(e) = group.add_missing_installations().await {
+                    if gap.revoked || e.needs_db_reconnect() || e.rate_limit_delay().is_some() {
+                        return Err(e.into());
+                    }
+                    tracing::warn!(error = %e, "adding own installations failed");
+                }
+            } else if gap.revoked {
                 group.remove_revoked_installations().await?;
-                if self.has_revoked_leaf(&group).await? {
+            }
+            if gap.missing || gap.revoked {
+                let gap = self.own_membership_gap(&group).await?;
+                if gap.revoked {
                     return Err(GroupError::InvalidGroupMembership.into());
+                }
+                // The leaves present still get this page; the task retries
+                // the add once the retry interval has passed.
+                if gap.retriable {
+                    let interval = SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS as u64;
+                    let delay = xmtp_common::time::Duration::from_nanos(interval);
+                    self.schedule_add_missing_installations_task(group.group_id, Some(delay))?;
                 }
             }
             // One intent at a time: a page an earlier pass queued is
@@ -449,10 +478,14 @@ where
         self.process_sync_group_messages().await
     }
 
-    /// Whether a leaf other than this installation's names an installation
-    /// that the newest own association state held locally does not associate.
-    async fn has_revoked_leaf(&self, group: &MlsGroup<Context>) -> Result<bool, DeviceSyncError> {
-        // implements: SYNC-024. An unreadable own state, such as a smart-wallet
+    /// How `group`'s leaves differ from the newest own association state held
+    /// locally: an associated installation without a leaf, or a leaf other
+    /// than this installation's that the state does not associate.
+    async fn own_membership_gap(
+        &self,
+        group: &MlsGroup<Context>,
+    ) -> Result<MembershipGap, DeviceSyncError> {
+        // implements: SYNC-034. An unreadable own state, such as a smart-wallet
         // signature that needs the verifier, means not yet (as the receive path does).
         let own = match IdentityUpdates::new(&self.context)
             .get_association_state(&self.db(), self.inbox_id(), None)
@@ -464,10 +497,39 @@ where
         };
         let me = self.installation_id();
         Ok(group.with_group_snapshot(|mls_group| {
-            Ok(mls_group.members().any(|member| {
-                member.signature_key != me.as_slice() && !own.contains(&member.signature_key)
-            }))
+            let missing = own.iter().any(|installation| {
+                !mls_group
+                    .members()
+                    .any(|member| member.signature_key == *installation)
+            });
+            let gate = LibXMTPVersion::parse(INSTALLATION_RETRY_MIN_PROTOCOL_VERSION).ok();
+            Ok(MembershipGap {
+                missing,
+                revoked: mls_group.members().any(|member| {
+                    member.signature_key != me.as_slice() && !own.contains(&member.signature_key)
+                }),
+                retriable: missing
+                    && gate.is_some_and(|gate| {
+                        committed_floor_at_least(mls_group.extensions(), &gate)
+                    }),
+            })
         })?)
+    }
+
+    /// Add the own installations that sync group `group` lacks. `true` while
+    /// it is the selected group and one it can retry still has no leaf.
+    pub(crate) async fn retry_own_installations(
+        &self,
+        group: &MlsGroup<Context>,
+    ) -> Result<bool, DeviceSyncError> {
+        group.add_missing_installations().await?;
+        if self
+            .primary_sync_group()?
+            .is_none_or(|selected| selected.group_id != group.group_id)
+        {
+            return Ok(false);
+        }
+        Ok(self.own_membership_gap(group).await?.retriable)
     }
 
     /// The newest sync group that only the own inbox is in.
@@ -539,8 +601,8 @@ where
         Ok(sync_group)
     }
 
-    /// Arm the reconcile task for `group_id`, due once `delay`, a rate-limit
-    /// delay, has passed.
+    /// Arm the sync group's reconcile task for `group_id`, due once `delay`
+    /// has passed. It is kept until it finishes, whatever its failures.
     pub(crate) fn schedule_add_missing_installations_task(
         &self,
         group_id: GroupId,
@@ -551,6 +613,7 @@ where
             self.context.events(),
             group_id,
             delay,
+            true,
         )?)
     }
 
@@ -562,6 +625,14 @@ where
             self.context.events(),
         )?)
     }
+}
+
+/// How a sync group's leaves differ from the own inbox's installations.
+struct MembershipGap {
+    missing: bool,
+    revoked: bool,
+    /// Missing, and the group's floor admits own-installation retries.
+    retriable: bool,
 }
 
 /// Test-only fault: the next outbox page of this installation reads back as
@@ -622,7 +693,7 @@ pub(crate) fn schedule_newcomer_adds(
         ..Default::default()
     })?;
     for group in &groups {
-        schedule_add_missing_installations(db, events, group.id, None)?;
+        schedule_add_missing_installations(db, events, group.id, None, false)?;
     }
     Ok(groups.len())
 }
@@ -630,28 +701,52 @@ pub(crate) fn schedule_newcomer_adds(
 /// Durably enqueue one AddMissingInstallations task for `group_id` (deduped
 /// by payload hash against any pending row for the same group) and wake the
 /// TaskRunner. The task is due once `delay`, a rate-limit delay, has passed.
+/// A task `until_done` never expires, and a failing one backs off to at most
+/// one run an interval.
 fn schedule_add_missing_installations(
     db: &impl DbQuery,
     events: &impl EventWriter<InternalEvent>,
     group_id: GroupId,
     delay: Option<xmtp_common::time::Duration>,
+    until_done: bool,
 ) -> Result<(), StorageError> {
     let due = now_ns().saturating_add(delay.map_or(0, |delay| {
         i64::try_from(delay.as_nanos()).unwrap_or(i64::MAX)
     }));
-    // The usual three days to succeed count from when the task is due.
-    let task = NewTask::builder()
-        .originating_message_sequence_id(0)
-        .next_attempt_at_ns(due)
-        .expires_at_ns(due.saturating_add(NS_IN_DAY * 3))
-        .build(TaskProto {
-            task: Some(TaskKindProto::AddMissingInstallations(
-                AddMissingInstallationsProto {
-                    group_id: group_id.to_vec(),
-                },
-            )),
-        })?;
+    let mut task = NewTask::builder();
+    task.originating_message_sequence_id(0)
+        .next_attempt_at_ns(due);
+    if until_done {
+        task.expires_at_ns(i64::MAX)
+            .max_attempts(i32::MAX)
+            .max_backoff_duration_ns(SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS);
+    } else {
+        // The usual three days to succeed count from when the task is due.
+        task.expires_at_ns(due.saturating_add(NS_IN_DAY * 3));
+    }
+    let task = task.build(TaskProto {
+        task: Some(TaskKindProto::AddMissingInstallations(
+            AddMissingInstallationsProto {
+                group_id: group_id.to_vec(),
+            },
+        )),
+    })?;
+    let hash = task.data_hash.clone();
     db.create_or_ignore_task(task)?;
+    if until_done {
+        // A row an older build stored for this group is kept instead of the
+        // new one, so it must not expire either.
+        use xmtp_db::{diesel, diesel::prelude::*, schema::tasks::dsl};
+        db.raw_query(|c| {
+            diesel::update(dsl::tasks.filter(dsl::data_hash.eq(&hash)))
+                .set((
+                    dsl::expires_at_ns.eq(i64::MAX),
+                    dsl::max_attempts.eq(i32::MAX),
+                    dsl::max_backoff_duration_ns.eq(SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS),
+                ))
+                .execute(c)
+        })?;
+    }
     events.emit(None, Some(InternalEvent::TaskScheduled));
     Ok(())
 }

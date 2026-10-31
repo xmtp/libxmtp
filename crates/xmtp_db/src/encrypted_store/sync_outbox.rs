@@ -118,7 +118,7 @@ pub fn has_owed(db: &impl ConnectionExt) -> Result<bool, ConnectionError> {
 /// A new installation joined: owe it every record and the root key, under
 /// one fresh mark. `true` when no root key was held and one was made; the
 /// caller emits its events.
-// implements: SYNC-028
+// implements: SYNC-035
 pub fn mark_all_owed(db: &impl DbQuery) -> Result<bool, StorageError> {
     let seq = next_owed_seq(db)?;
     db.raw_query(|c| {
