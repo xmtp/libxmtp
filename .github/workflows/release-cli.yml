@@ -24,7 +24,6 @@ on:
         value: ${{ jobs.publish.outputs.version }}
 permissions:
   contents: read
-  id-token: write
 jobs:
   check-push-permissions:
     name: Source
@@ -70,7 +69,7 @@ jobs:
   publish:
     name: Publish
     needs: [build, check-push-permissions]
-    uses: ./.github/workflows/npm-publish.yml
+    uses: ./.github/workflows/npm-prepare.yml
     with:
       source-sha: ${{ needs.check-push-permissions.outputs.source-sha }}
       package-dir: apps/cli
