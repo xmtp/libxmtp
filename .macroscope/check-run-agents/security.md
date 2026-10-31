@@ -23,6 +23,12 @@ do not retain or log callback error text or credentials. In delivery paths,
 check that a message is acknowledged only after the app accepts it and that
 stale tokens cannot acknowledge a new delivery.
 
+Apply `REVIEW.md`'s disposable-test-data exception to disclosure findings:
+generated throwaway identities and synthetic payloads in tests and chaos runs
+are not real secrets. Identify a concrete source of real user, production,
+CI, service, cloud, or registry credentials before flagging their disclosure;
+running under a test path does not exempt those credentials.
+
 Read the owning spec's Known limitations and `docs/specs/waivers.toml`. A risk
 that a Known limitation accepts is an advisory note, not a blocker, unless
 this PR widens it. A `gap` waiver records behavior that is still wrong, not an

@@ -10,6 +10,46 @@ const RECIPE_COUNT: u64 = 8;
 const INSTALLATIONS_PER_INBOX: usize = 3;
 const MAX_RECIPE_COMMITTERS: usize = 4;
 
+/// Two independent databases of one inbox contend on the same group epoch.
+pub(crate) fn same_inbox(
+    round: u64,
+    group: &GroupView,
+    population: &[InstanceView],
+) -> Option<Burst> {
+    let first = population.iter().find(|first| {
+        first.slot != crate::population::SHARED_SLOT
+            && first.groups.contains(&group.id)
+            && group.members.contains(&first.inbox_id)
+            && population.iter().any(|other| {
+                other.slot != first.slot
+                    && other.slot != crate::population::SHARED_SLOT
+                    && other.inbox_id == first.inbox_id
+                    && other.groups.contains(&group.id)
+            })
+    })?;
+    let second = population.iter().find(|other| {
+        other.slot != first.slot
+            && other.slot != crate::population::SHARED_SLOT
+            && other.inbox_id == first.inbox_id
+            && other.groups.contains(&group.id)
+    })?;
+    Some(Burst {
+        recipe: "same_inbox_contention".into(),
+        operations: [first, second]
+            .into_iter()
+            .map(|actor| {
+                scheduled(
+                    actor,
+                    Operation::Metadata {
+                        group: group.id.clone(),
+                        value: format!("same-inbox-{round}-{}", actor.slot),
+                    },
+                )
+            })
+            .collect(),
+    })
+}
+
 pub(crate) fn same_epoch(
     round: u64,
     burst: usize,
