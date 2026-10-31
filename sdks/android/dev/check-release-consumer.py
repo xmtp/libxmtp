@@ -69,6 +69,7 @@ def main():
                     f"-PxmtpMetadata={metadata}",
                     "assembleDebug",
                     "assembleDebugAndroidTest",
+                    "checkConnectedTestInputs",
                     *([] if args.build_only else ["connectedDebugAndroidTest"]),
                     "--dependency-verification=strict",
                     "--no-daemon",
