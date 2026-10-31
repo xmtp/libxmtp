@@ -67,3 +67,11 @@ def verifyRetainedArtifact = tasks.register('verifyRetainedArtifact') {
     }
 }
 tasks.named('preBuild').configure { dependsOn verifyRetainedArtifact }
+
+tasks.register('checkConnectedTestInputs') {
+    dependsOn 'assembleDebug', 'assembleDebugAndroidTest'
+    doLast {
+        def connected = tasks.named('connectedDebugAndroidTest').get()
+        logger.lifecycle("Resolved connectedDebugAndroidTest inputs: ${connected.inputs.files.files.size()} files, ${connected.inputs.properties.size()} properties")
+    }
+}

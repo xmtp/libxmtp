@@ -21,6 +21,32 @@ VERSION = "8.0.0-rc1"
 
 
 class AndroidReleaseConsumerTest(unittest.TestCase):
+    def test_retained_consumer_locks_empty_android_test_util(self):
+        lock = (SDK / "dev/release-consumer/gradle.lockfile").read_text()
+        empty = next(line for line in lock.splitlines() if line.startswith("empty="))
+        self.assertIn("androidTestUtil", empty.split("=", 1)[1].split(","))
+
+    def test_build_only_resolves_connected_task_inputs(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            sdk, repository, _ = self.make_sdk(root)
+            result = self.invoke_consumer(root, sdk, repository, "--build-only")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            calls = [
+                json.loads(line)
+                for line in (root / "gradle.jsonl").read_text().splitlines()
+            ]
+            self.assertEqual(len(calls), 2)
+            for call in calls:
+                self.assertIn("checkConnectedTestInputs", call["args"])
+                self.assertNotIn("connectedDebugAndroidTest", call["args"])
+        build = (SDK / "dev/release-consumer/build.gradle").read_text()
+        self.assertIn("tasks.register('checkConnectedTestInputs')", build)
+        self.assertIn("dependsOn 'assembleDebug', 'assembleDebugAndroidTest'", build)
+        self.assertIn("tasks.named('connectedDebugAndroidTest').get()", build)
+        self.assertIn("connected.inputs.files.files", build)
+        self.assertIn("connected.inputs.properties", build)
+
     def test_release_gates_sealing_on_retained_consumer_and_keeps_minimum_sdk(self):
         steps = yaml.safe_load(WORKFLOW.read_text())["jobs"]["build"]["steps"]
         consumer = next(
