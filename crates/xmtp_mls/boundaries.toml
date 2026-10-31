@@ -104,7 +104,7 @@ from = "core"
 to = "facade"
 tier = "path"
 count = 3
-reason = "PR 3 (Tasks 7-9): preflight and the config refresh worker return ClientError; PR 5 (Task 12) moves the test lock."
+reason = "PR 3 (Tasks 7-9): preflight and the config refresh worker return ClientError, and the test lock's get_lock_sync gets a core-owned error so the lock can leave the facade."
 
 [[waivers]]
 from = "core"
@@ -146,7 +146,7 @@ from = "engine"
 to = "facade"
 tier = "path"
 count = 24
-reason = "PR 3 (Tasks 7-9): engine errors wrap ClientError; PR 5 (Task 12) moves the test lock, test hooks and test-only helpers."
+reason = "PR 3 (Tasks 7-9): engine errors wrap ClientError, and the test lock's get_lock_sync gets a core-owned error; PR 5 (Task 12) moves test hooks and test-only helpers."
 
 [[waivers]]
 from = "engine"
@@ -277,7 +277,7 @@ from = "core"
 to = "facade"
 tier = "call"
 count = 40
-reason = "PR 3 (Tasks 7-9): preflight and the config refresh worker return ClientError; PR 5 (Task 12) moves the test lock."
+reason = "PR 3 (Tasks 7-9): preflight and the config refresh worker return ClientError, and the test lock's get_lock_sync gets a core-owned error so the lock can leave the facade."
 
 [[waivers]]
 from = "core"
@@ -319,7 +319,7 @@ from = "engine"
 to = "facade"
 tier = "call"
 count = 63
-reason = "PR 3 (Tasks 7-9): engine errors wrap ClientError; PR 5 (Task 12) moves the test lock, test hooks and test-only helpers."
+reason = "PR 3 (Tasks 7-9): engine errors wrap ClientError, and the test lock's get_lock_sync gets a core-owned error; PR 5 (Task 12) moves test hooks and test-only helpers."
 
 [[waivers]]
 from = "engine"
