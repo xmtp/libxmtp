@@ -169,7 +169,7 @@ impl Client {
             .identity_updates()
             .associate_identity(identifier)
             .await
-            .map_err(XmtpError::from_client)?;
+            .map_err(XmtpError::from_core)?;
         Ok(self.request(request))
     }
 
@@ -183,7 +183,7 @@ impl Client {
             .identity_updates()
             .revoke_identities(vec![identity.to_core()?])
             .await
-            .map_err(XmtpError::from_client)?;
+            .map_err(XmtpError::from_core)?;
         Ok(self.request(request))
     }
 
@@ -198,7 +198,7 @@ impl Client {
             .identity_updates()
             .revoke_installations(bytes)
             .await
-            .map_err(XmtpError::from_client)?;
+            .map_err(XmtpError::from_core)?;
         Ok(self.request(request))
     }
 
@@ -225,7 +225,7 @@ impl Client {
             .identity_updates()
             .revoke_installations(ids)
             .await
-            .map_err(XmtpError::from_client)?;
+            .map_err(XmtpError::from_core)?;
         Ok(Some(self.request(request)))
     }
 
@@ -254,7 +254,7 @@ impl Client {
             .identity_updates()
             .change_recovery_identifier(identifier)
             .await
-            .map_err(XmtpError::from_client)?;
+            .map_err(XmtpError::from_core)?;
         Ok(self.request(request))
     }
 
@@ -274,7 +274,7 @@ impl Client {
                 .identity_updates()
                 .apply_signature_request(inner)
                 .await
-                .map_err(XmtpError::from_client)
+                .map_err(XmtpError::from_core)
         } else {
             self.inner
                 .register_identity(inner)
@@ -660,6 +660,6 @@ pub async fn fetch_server_configuration(
     let api = xmtp_api::ApiClientWrapper::new(backend.api.clone(), Default::default());
     let value = xmtp_mls::server_configuration::fetch_server_configuration(&api)
         .await
-        .map_err(XmtpError::from_client)?;
+        .map_err(|error| XmtpError::from_client(error.into()))?;
     Ok((&value).into())
 }

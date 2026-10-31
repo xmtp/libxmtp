@@ -17,7 +17,7 @@ use xmtp_mls_common::{
 /// receiver of the commit.
 // verifies: GMOD-047
 #[xmtp_common::test(unwrap_try = true)]
-async fn a_repeated_reference_counts_once() -> Result<(), GroupError> {
+async fn a_repeated_reference_counts_once() -> Result<(), Box<dyn std::error::Error>> {
     tester!(alix, disable_workers);
     let group = alix.create_group(None, None)?;
     let owner = InboxId::from_hex(alix.inbox_id()).unwrap();
@@ -71,7 +71,9 @@ async fn a_repeated_reference_counts_once() -> Result<(), GroupError> {
 #[case::member_removal(true)]
 #[xmtp_common::test(unwrap_try = true)]
 #[cfg_attr(target_arch = "wasm32", ignore)]
-async fn a_proposal_flood_does_not_block_commits(#[case] removal: bool) -> Result<(), GroupError> {
+async fn a_proposal_flood_does_not_block_commits(
+    #[case] removal: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
     const ENVELOPE_LIMIT: usize = 64 * 1024;
     const FLOOD: usize = 2_500;
     const BATCH: usize = 200;
@@ -154,7 +156,8 @@ async fn a_proposal_flood_does_not_block_commits(#[case] removal: bool) -> Resul
 // verifies: GMOD-047, SYNC-010
 #[xmtp_common::test(unwrap_try = true)]
 #[cfg_attr(target_arch = "wasm32", ignore)]
-async fn a_pending_add_of_another_inbox_to_a_sync_group_is_omitted() -> Result<(), GroupError> {
+async fn a_pending_add_of_another_inbox_to_a_sync_group_is_omitted()
+-> Result<(), Box<dyn std::error::Error>> {
     use crate::groups::intents::{ProposeMemberUpdateIntentData, QueueIntent};
 
     tester!(alix1, disable_workers);

@@ -103,15 +103,15 @@ reason = "PR 4 (Task 11): the context's incoming field becomes a feature slot; P
 from = "core"
 to = "facade"
 tier = "path"
-count = 3
-reason = "PR 3 (Tasks 7-9): preflight and the config refresh worker return ClientError, and the test lock's get_lock_sync gets a core-owned error so the lock can leave the facade."
+count = 1
+reason = "PR 5 (Task 12): the test lock, whose get_lock_sync returns the core-owned CommitLockUnavailable, leaves the facade with the test hooks."
 
 [[waivers]]
 from = "core"
 to = "identity"
 tier = "path"
-count = 7
-reason = "PR 3 (Task 8): IdentityError wraps IdentityUpdateError; Task 17 moves identity_ext with the identity crate; PR 4 (Task 11) gives identity resolution a feature slot; PR 4 (Task 10) moves key-package maintenance out of the task runner."
+count = 6
+reason = "Task 17 moves identity_ext with the identity crate; PR 4 (Task 11) gives identity resolution a feature slot; PR 4 (Task 10) moves key-package maintenance out of the task runner."
 
 [[waivers]]
 from = "core"
@@ -121,60 +121,25 @@ count = 5
 reason = "PR 4 (Task 10): the task runner calls the notification handler and hash directly."
 
 [[waivers]]
-from = "device_sync"
-to = "facade"
-tier = "path"
-count = 2
-reason = "PR 3 (Task 7): device-sync errors wrap ClientError."
-
-[[waivers]]
-from = "device_sync"
-to = "streams"
-tier = "path"
-count = 1
-reason = "PR 3 (Task 7): DeviceSyncError wraps SubscribeError."
-
-[[waivers]]
-from = "engine"
-to = "device_sync"
-tier = "path"
-count = 1
-reason = "PR 3 (Task 7): removes GroupError::DeviceSync."
-
-[[waivers]]
 from = "engine"
 to = "facade"
 tier = "path"
-count = 24
-reason = "PR 3 (Tasks 7-9): engine errors wrap ClientError, and the test lock's get_lock_sync gets a core-owned error; PR 5 (Task 12) moves test hooks and test-only helpers."
+count = 18
+reason = "PR 5 (Task 12) moves test hooks, test-only helpers and the test lock."
 
 [[waivers]]
 from = "engine"
 to = "streams"
-tier = "path"
-count = 6
-reason = "PR 3 (Task 7) and PR 7 (Task 20): engine errors and the receiver name stream types."
-
-[[waivers]]
-from = "identity"
-to = "engine"
-tier = "path"
-count = 1
-reason = "PR 3 (Task 8): inbox_handles errors wrap GroupError."
-
-[[waivers]]
-from = "identity"
-to = "facade"
 tier = "path"
 count = 5
-reason = "PR 3 (Task 8): identity errors wrap ClientError; PR 5 (Task 12) moves the key-package test hook."
+reason = "PR 7 (Task 20): the receiver and the group stream entry points name stream types."
 
 [[waivers]]
-from = "messages"
-to = "engine"
+from = "identity"
+to = "facade"
 tier = "path"
 count = 1
-reason = "PR 3 (Task 7): DecodedMessage maps GroupError."
+reason = "PR 5 (Task 12) moves the key-package test hook."
 
 [[waivers]]
 from = "server_config"
@@ -182,20 +147,6 @@ to = "core"
 tier = "path"
 count = 1
 reason = "Task 16: server_configuration::worker re-exports the core config refresh worker at its old public path until server_config becomes a crate and the facade keeps the path."
-
-[[waivers]]
-from = "server_config"
-to = "facade"
-tier = "path"
-count = 1
-reason = "PR 3 (Task 7): blocked_or returns ClientError."
-
-[[waivers]]
-from = "streams"
-to = "facade"
-tier = "path"
-count = 6
-reason = "PR 3 (Task 7): stream errors wrap ClientError; PR 6+ moves the Client entry points."
 
 # Method calls in code that neither indexed build (native with test on, wasm32
 # with test off, every feature on) compiles; only the path tier reads them.

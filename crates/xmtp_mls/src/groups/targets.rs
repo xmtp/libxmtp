@@ -2,8 +2,28 @@
 
 use super::{GroupError, MlsGroup, UpdateGroupMembershipResult};
 use crate::context::XmtpSharedContext;
-use crate::inbox_handles::{IdentityTarget, require_account_inboxes, resolve_targets_in};
+use crate::inbox_handles::{IdentityTarget, resolve_targets_in};
 use xmtp_id::InboxId;
+
+/// The inboxes of `targets`, failing with [`GroupError::AddressNotFound`],
+/// which names each account with no inbox in request order.
+pub(crate) fn require_account_inboxes(
+    targets: &[IdentityTarget],
+    inboxes: Vec<Option<InboxId>>,
+) -> Result<Vec<InboxId>, GroupError> {
+    let missing: Vec<String> = targets
+        .iter()
+        .zip(&inboxes)
+        .filter_map(|(target, inbox)| match (target, inbox) {
+            (IdentityTarget::Account(identifier), None) => Some(identifier.to_string()),
+            _ => None,
+        })
+        .collect();
+    if !missing.is_empty() {
+        return Err(GroupError::AddressNotFound(missing));
+    }
+    Ok(inboxes.into_iter().flatten().collect())
+}
 
 impl<Context: XmtpSharedContext> MlsGroup<Context> {
     /// Add `targets` to the group in one commit. Every target resolves first,

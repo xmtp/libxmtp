@@ -238,7 +238,7 @@ async fn joiner_accepts_welcome_with_publish_time_failed_installation() {
 #[xmtp_common::test(unwrap_try = true)]
 async fn leafless_inbox_removal_uses_delete_proposer(
     #[case] pending: bool,
-) -> Result<(), GroupError> {
+) -> Result<(), Box<dyn std::error::Error>> {
     use xmtp_db::incoming_envelope::QueryIncomingEnvelope;
     tester!(alix);
     tester!(bo);

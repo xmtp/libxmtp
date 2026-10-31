@@ -1,7 +1,8 @@
 //! Resolving and storing association states. A client stores each state it
 //! computes through one write that also reports a changed display handle.
 
-use crate::{client::ClientError, context::XmtpSharedContext};
+use super::IdentityUpdateError;
+use crate::context::XmtpSharedContext;
 use xmtp_db::{
     StorageError, TransactionOutcome, identity_update::StoredIdentityUpdate, prelude::*,
 };
@@ -33,11 +34,11 @@ pub(super) async fn resolve_association_state(
     inbox_id: &str,
     to_sequence_id: Option<i64>,
     scw_verifier: &impl SmartContractSignatureVerifier,
-) -> Result<ResolvedState, ClientError> {
+) -> Result<ResolvedState, IdentityUpdateError> {
     let updates = conn.get_identity_updates(inbox_id, None, to_sequence_id)?;
     let last_sequence_id = updates
         .last()
-        .ok_or::<ClientError>(AssociationError::MissingIdentityUpdate.into())?
+        .ok_or::<IdentityUpdateError>(AssociationError::MissingIdentityUpdate.into())?
         .sequence_id;
     if let Some(to_sequence_id) = to_sequence_id
         && to_sequence_id != last_sequence_id
@@ -72,7 +73,7 @@ pub(crate) async fn get_association_state_for_client(
     conn: &impl DbQuery,
     inbox_id: &str,
     to_sequence_id: Option<i64>,
-) -> Result<AssociationState, ClientError> {
+) -> Result<AssociationState, IdentityUpdateError> {
     let verifier = context.scw_verifier();
     match resolve_association_state(conn, inbox_id, to_sequence_id, &verifier).await? {
         ResolvedState::Cached(state) => Ok(state),
@@ -92,7 +93,7 @@ pub(crate) fn store_association_state(
     context: &impl XmtpSharedContext,
     sequence_id: i64,
     state: &AssociationState,
-) -> Result<(), ClientError> {
+) -> Result<(), IdentityUpdateError> {
     use xmtp_events::{ClientEvent, EventWriter};
     let inbox_id = state.inbox_id();
     crate::state_tx::state_write_with_events(

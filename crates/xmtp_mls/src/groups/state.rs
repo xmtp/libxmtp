@@ -473,7 +473,7 @@ where
     }
 
     /// Find all the duplicate dms for this group
-    pub fn find_duplicate_dms(&self) -> Result<Vec<MlsGroup<Context>>, ClientError> {
+    pub fn find_duplicate_dms(&self) -> Result<Vec<MlsGroup<Context>>, GroupError> {
         let duplicates = self.context.db().other_dms(&self.group_id)?;
 
         let mls_groups = duplicates

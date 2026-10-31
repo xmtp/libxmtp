@@ -141,12 +141,20 @@ impl RetryableError for BarrierError {
 }
 
 impl crate::worker::NeedsDbReconnect for BarrierError {
+    #[deny(clippy::wildcard_enum_match_arm)]
     fn needs_db_reconnect(&self) -> bool {
         let Self::Incomplete { unfinished, .. } = self;
         unfinished.iter().any(|topic| match &topic.cause {
             Some(BarrierCause::Storage(error)) => error.db_needs_connection(),
             Some(BarrierCause::Receiver(error)) => error.needs_db_reconnect(),
-            _ => false,
+            Some(
+                BarrierCause::TargetPending
+                | BarrierCause::ReceiptPending
+                | BarrierCause::ProcessingPending
+                | BarrierCause::Blocked(_)
+                | BarrierCause::InvalidTopic,
+            )
+            | None => false,
         })
     }
 }

@@ -61,7 +61,7 @@ async fn wait_for_rotated_package(
 #[xmtp_common::test(unwrap_try = true)]
 async fn requested_add_cannot_succeed_after_its_last_package_becomes_unusable(
     #[case] independent_add: bool,
-) -> Result<(), GroupError> {
+) -> Result<(), Box<dyn std::error::Error>> {
     tester!(alix, disable_workers);
     tester!(bo, disable_workers);
     tester!(caro, disable_workers);
@@ -139,7 +139,8 @@ async fn requested_add_cannot_succeed_after_its_last_package_becomes_unusable(
 }
 
 #[xmtp_common::test(unwrap_try = true)]
-async fn repeated_membership_proposal_reuses_accepted_references() -> Result<(), GroupError> {
+async fn repeated_membership_proposal_reuses_accepted_references()
+-> Result<(), Box<dyn std::error::Error>> {
     tester!(alix, disable_workers);
     tester!(bo, disable_workers);
     tester!(caro, disable_workers);
@@ -228,7 +229,7 @@ async fn guarded_noop_rolls_back_replacement_keys_and_commit_welcomes_selected_a
     #[case] kind: IntentKind,
     #[case] rotate: bool,
     #[case] remove: bool,
-) -> Result<(), GroupError> {
+) -> Result<(), Box<dyn std::error::Error>> {
     tester!(alix, disable_workers);
     tester!(bo, disable_workers);
     tester!(caro, disable_workers);
@@ -415,7 +416,7 @@ async fn guarded_noop_rolls_back_replacement_keys_and_commit_welcomes_selected_a
 #[xmtp_common::test(unwrap_try = true)]
 async fn revoked_pending_add_does_not_block_publication(
     #[case] refresh_membership: bool,
-) -> Result<(), GroupError> {
+) -> Result<(), Box<dyn std::error::Error>> {
     tester!(alix, disable_workers);
     tester!(bo, disable_workers);
     tester!(caro, disable_workers);
@@ -509,7 +510,7 @@ async fn non_admin_commits_valid_subset_without_resigning_admin_add(
     #[case] rotate: bool,
     #[case] missing: bool,
     #[case] fresh_reference: bool,
-) -> Result<(), GroupError> {
+) -> Result<(), Box<dyn std::error::Error>> {
     use crate::groups::group_permissions::PreconfiguredPolicies;
     tester!(alix, disable_workers);
     tester!(bo, disable_workers);
@@ -775,7 +776,7 @@ async fn send_after_rejected_membership_refreshes_pending_adds_immediately() {
 async fn rejected_removal_with_new_installation_does_not_block_publication(
     #[case] reopen: bool,
     #[case] concurrent_adds: bool,
-) -> Result<(), GroupError> {
+) -> Result<(), Box<dyn std::error::Error>> {
     tester!(alix, persistent_db, disable_workers);
     tester!(bo, disable_workers);
     tester!(caro, disable_workers);
@@ -1116,7 +1117,7 @@ async fn rejected_removal_with_new_installation_does_not_block_publication(
 // verifies: GMOD-038, JOIN-008
 #[xmtp_common::test(unwrap_try = true)]
 async fn accepted_add_that_expires_before_commit_does_not_block_publication()
--> Result<(), GroupError> {
+-> Result<(), Box<dyn std::error::Error>> {
     const PACKAGE_LIFETIME_SECS: u64 = 10;
     tester!(alix, disable_workers);
     tester!(bo, disable_workers);
@@ -1127,7 +1128,8 @@ async fn accepted_add_that_expires_before_commit_does_not_block_publication()
     let bo_group = xmtp_common::wait_for_ok(|| async {
         bo.sync_welcomes()
             .await
-            .and_then(|_| bo.group(&group.group_id).map_err(GroupError::from))
+            .map_err(crate::client::ClientError::from)
+            .and_then(|_| bo.group(&group.group_id))
     })
     .await
     .expect("Bo must process the initial Welcome");
@@ -1237,7 +1239,7 @@ async fn accepted_add_that_expires_before_commit_does_not_block_publication()
 #[xmtp_common::test(unwrap_try = true)]
 async fn own_membership_delta_and_pending_removal_use_the_same_selected_state(
     #[case] already_satisfied: bool,
-) -> Result<(), GroupError> {
+) -> Result<(), Box<dyn std::error::Error>> {
     tester!(alix, disable_workers);
     tester!(bo, disable_workers);
     tester!(caro, disable_workers);
@@ -1247,14 +1249,16 @@ async fn own_membership_delta_and_pending_removal_use_the_same_selected_state(
     let bo_group = xmtp_common::wait_for_ok(|| async {
         bo.sync_welcomes()
             .await
-            .and_then(|_| bo.group(&group.group_id).map_err(GroupError::from))
+            .map_err(crate::client::ClientError::from)
+            .and_then(|_| bo.group(&group.group_id))
     })
     .await
     .expect("Bo must join the initial group");
     let caro_group = xmtp_common::wait_for_ok(|| async {
         caro.sync_welcomes()
             .await
-            .and_then(|_| caro.group(&group.group_id).map_err(GroupError::from))
+            .map_err(crate::client::ClientError::from)
+            .and_then(|_| caro.group(&group.group_id))
     })
     .await
     .expect("Caro must join the initial group");
@@ -1364,7 +1368,7 @@ async fn group_of_three(
     alix: &crate::utils::FullXmtpClient,
     bo: &crate::utils::FullXmtpClient,
     caro: &crate::utils::FullXmtpClient,
-) -> Result<[crate::utils::TestMlsGroup; 3], GroupError> {
+) -> Result<[crate::utils::TestMlsGroup; 3], Box<dyn std::error::Error>> {
     let group = alix
         .create_group_with_members(&[bo.inbox_id(), caro.inbox_id()], None, None)
         .await?;
@@ -1449,7 +1453,8 @@ async fn send_on_every_member(
 }
 
 #[xmtp_common::test(unwrap_try = true)]
-async fn stale_refresh_does_not_lower_committed_sequence() -> Result<(), GroupError> {
+async fn stale_refresh_does_not_lower_committed_sequence() -> Result<(), Box<dyn std::error::Error>>
+{
     tester!(alix, disable_workers);
     tester!(bo, disable_workers);
     tester!(caro, disable_workers);
@@ -1577,7 +1582,8 @@ pub(super) fn propose_membership_payload(
 
 // verifies: GMOD-038
 #[xmtp_common::test(unwrap_try = true)]
-async fn stored_stale_membership_proposal_does_not_block_sends() -> Result<(), GroupError> {
+async fn stored_stale_membership_proposal_does_not_block_sends()
+-> Result<(), Box<dyn std::error::Error>> {
     tester!(alix, disable_workers);
     tester!(bo, disable_workers);
     tester!(caro, disable_workers);
@@ -1712,7 +1718,7 @@ enum UncommittableDelta {
 #[xmtp_common::test(unwrap_try = true)]
 async fn uncommittable_membership_delta_is_omitted_whole(
     #[case] uncommittable: UncommittableDelta,
-) -> Result<(), GroupError> {
+) -> Result<(), Box<dyn std::error::Error>> {
     use tls_codec::VLBytes;
     use xmtp_cryptography::{CredentialSign, XmtpInstallationCredential};
     use xmtp_id::associations::{
@@ -1874,7 +1880,8 @@ async fn uncommittable_membership_delta_is_omitted_whole(
 // delta to find an equivalent accepted one. It must skip an omitted delta too.
 // verifies: GMOD-038
 #[xmtp_common::test(unwrap_try = true)]
-async fn undecodable_membership_delta_does_not_block_own_refresh() -> Result<(), GroupError> {
+async fn undecodable_membership_delta_does_not_block_own_refresh()
+-> Result<(), Box<dyn std::error::Error>> {
     use tls_codec::VLBytes;
     use xmtp_mls_common::{inbox_id::InboxId, tls_map::TlsMapDelta};
     tester!(alix, disable_workers);
@@ -1907,7 +1914,8 @@ async fn undecodable_membership_delta_does_not_block_own_refresh() -> Result<(),
 // published. The committer resolves it, finds nothing, and omits the delta.
 // verifies: GMOD-038
 #[xmtp_common::test(unwrap_try = true)]
-async fn membership_delta_with_absent_reference_is_omitted() -> Result<(), GroupError> {
+async fn membership_delta_with_absent_reference_is_omitted()
+-> Result<(), Box<dyn std::error::Error>> {
     use xmtp_mls_common::{inbox_id::InboxId, tls_map::TlsMapDelta};
     tester!(alix, disable_workers);
     tester!(bo, disable_workers);

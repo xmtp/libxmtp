@@ -50,6 +50,7 @@ fn group_read_write_and_builder_keep_published_failure_details() {
         XmtpError::from_core(xmtp_mls::builder::ClientBuilderError::GroupError(Box::new(
             core(),
         ))),
+        XmtpError::from_client(xmtp_mls::client::ClientError::Group(Box::new(core()))),
     ] {
         let XmtpError::PublishedButUnconfirmed(details) = error else {
             panic!("published failure lost its recovery action");

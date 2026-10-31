@@ -111,16 +111,16 @@ impl NeedsDbReconnect for TaskWorkerError {
         self.rate_limit_delay()
     }
 
+    #[deny(clippy::wildcard_enum_match_arm)]
     fn needs_db_reconnect(&self) -> bool {
         match self {
-            TaskWorkerError::Storage(s)
-            | TaskWorkerError::DeviceSync(DeviceSyncError::Storage(s)) => s.db_needs_connection(),
+            TaskWorkerError::Storage(s) => s.db_needs_connection(),
             TaskWorkerError::LoadGroup(e) => e.needs_db_reconnect(),
             // Forward through GroupError's own classifier so a dropped pool hiding
             // in a `Db`/`MlsStore` (not just `Storage`) variant still restarts the
             // worker instead of being retried on a dead connection.
             TaskWorkerError::Group(e) => e.needs_db_reconnect(),
-            TaskWorkerError::DeviceSync(_) => false,
+            TaskWorkerError::DeviceSync(e) => e.needs_db_reconnect(),
             TaskWorkerError::InvalidTaskData { .. } => false,
             TaskWorkerError::InvalidHash { .. } => false,
             TaskWorkerError::Conversion(_) => false,
@@ -704,14 +704,14 @@ mod tests {
     #[xmtp_common::test(unwrap_try = true)]
     fn rate_limit_delays_reach_the_task_runner_through_each_wrapper() {
         use crate::{
-            client::ClientError, groups::GroupError, identity::IdentityError,
+            groups::GroupError, identity::IdentityError, identity_updates::IdentityUpdateError,
             worker::key_package_maintenance::KeyPackageMaintenanceError,
         };
         use xmtp_common::RetryableError;
         use xmtp_id::{associations::SignatureError, scw_verifier::VerifierError};
         let delay = xmtp_common::time::Duration::from_secs(300);
         let scw = || {
-            ClientError::from(SignatureError::from(VerifierError::Other(Box::new(
+            IdentityUpdateError::from(SignatureError::from(VerifierError::Other(Box::new(
                 rate_limited(delay),
             ))))
         };
@@ -722,11 +722,11 @@ mod tests {
                 IdentityError::ApiClient(rate_limited(delay)),
             )),
             TaskWorkerError::Identity(IdentityError::ApiClient(rate_limited(delay))),
-            TaskWorkerError::Group(GroupError::Client(scw())),
+            TaskWorkerError::Group(GroupError::IdentityUpdate(scw())),
             TaskWorkerError::Group(GroupError::SyncFailedToWait(Box::new(summary))),
-            TaskWorkerError::DeviceSync(DeviceSyncError::Client(ClientError::Api(rate_limited(
-                delay,
-            )))),
+            TaskWorkerError::DeviceSync(DeviceSyncError::IdentityUpdate(IdentityUpdateError::Api(
+                rate_limited(delay),
+            ))),
             TaskWorkerError::LoadGroup(crate::mls_store::MlsStoreError::Api(rate_limited(delay))),
         ];
         for error in errors {
@@ -738,9 +738,9 @@ mod tests {
             DeviceSyncError::Sync(Box::new(summary)).rate_limit_delay(),
             DeviceSyncError::MlsStore(crate::mls_store::MlsStoreError::Api(rate_limited(delay)))
                 .rate_limit_delay(),
-            crate::groups::mls_sync::GroupMessageProcessingError::Client(ClientError::Api(
-                rate_limited(delay),
-            ))
+            crate::groups::mls_sync::GroupMessageProcessingError::IdentityUpdate(
+                IdentityUpdateError::Api(rate_limited(delay)),
+            )
             .rate_limit_delay(),
             crate::subscriptions::SubscribeError::LocalDelivery(
                 crate::subscriptions::local_delivery::LocalDeliveryError::NetworkFailure(Arc::new(
@@ -764,9 +764,9 @@ mod tests {
             Some(delay)
         );
         assert_eq!(
-            NeedsDbReconnect::restart_delay(&DeviceSyncError::Client(ClientError::Api(
-                rate_limited(delay)
-            ))),
+            NeedsDbReconnect::restart_delay(&DeviceSyncError::IdentityUpdate(
+                IdentityUpdateError::Api(rate_limited(delay))
+            )),
             Some(delay)
         );
         assert_eq!(

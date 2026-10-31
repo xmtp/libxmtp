@@ -1,9 +1,10 @@
 //! Exact, verified identity proofs for synchronous MLS state changes.
 
+use super::IdentityUpdateError;
 #[cfg(test)]
 use super::load_identity_updates;
 use super::{get_association_state_for_client, load_identity_updates_for_client};
-use crate::{client::ClientError, context::XmtpSharedContext};
+use crate::context::XmtpSharedContext;
 use futures::{StreamExt, stream};
 use std::{
     collections::{BTreeSet, HashSet},
@@ -44,15 +45,15 @@ pub enum IdentityDependencyError {
     MissingReference(IdentityRequirement),
     /// A proof or its retrieval failed. Invalid identity history blocks dependents.
     #[error(transparent)]
-    Client(#[from] Box<ClientError>),
+    IdentityUpdate(#[from] Box<IdentityUpdateError>),
     /// A local proof could not be read. Retryability follows the storage error.
     #[error(transparent)]
     Storage(#[from] StorageError),
 }
 
-impl From<ClientError> for IdentityDependencyError {
-    fn from(error: ClientError) -> Self {
-        Self::Client(Box::new(error))
+impl From<IdentityUpdateError> for IdentityDependencyError {
+    fn from(error: IdentityUpdateError) -> Self {
+        Self::IdentityUpdate(Box::new(error))
     }
 }
 
@@ -60,7 +61,7 @@ impl RetryableError for IdentityDependencyError {
     fn is_retryable(&self) -> bool {
         match self {
             Self::Need(_) => true,
-            Self::Client(error) => retryable!(error),
+            Self::IdentityUpdate(error) => retryable!(error),
             Self::Storage(error) => retryable!(error),
             Self::InvalidSequence(_) | Self::MissingReference(_) => false,
         }
@@ -68,16 +69,17 @@ impl RetryableError for IdentityDependencyError {
 
     fn rate_limit_delay(&self) -> Option<xmtp_common::time::Duration> {
         match self {
-            Self::Client(error) => error.rate_limit_delay(),
+            Self::IdentityUpdate(error) => error.rate_limit_delay(),
             _ => None,
         }
     }
 }
 
 impl crate::worker::NeedsDbReconnect for IdentityDependencyError {
+    #[deny(clippy::wildcard_enum_match_arm)]
     fn needs_db_reconnect(&self) -> bool {
         match self {
-            Self::Client(error) => error.db_needs_connection(),
+            Self::IdentityUpdate(error) => error.needs_db_reconnect(),
             Self::Storage(error) => error.db_needs_connection(),
             Self::Need(_) | Self::InvalidSequence(_) | Self::MissingReference(_) => false,
         }
@@ -272,12 +274,12 @@ async fn check_identity_requirement(
         .await
     {
         Ok(_) => Ok(()),
-        Err(ClientError::Association(AssociationError::MissingIdentityUpdate)) => {
+        Err(IdentityUpdateError::Association(AssociationError::MissingIdentityUpdate)) => {
             // An invalid earlier update blocks this dependency. Absence
             // alone must not bypass verification of the available prefix.
             let last = conn
                 .get_identity_updates(&requirement.inbox_id, None, Some(sequence))
-                .map_err(ClientError::from)?
+                .map_err(IdentityUpdateError::from)?
                 .last()
                 .map(|update| update.sequence_id);
             if let Some(last) = last {

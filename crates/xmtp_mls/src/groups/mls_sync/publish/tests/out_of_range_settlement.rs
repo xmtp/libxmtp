@@ -346,7 +346,8 @@ async fn publish_out_of_range_settlement_completes_a_mixed_topic_welcome_batch()
             member
                 .sync_welcomes()
                 .await
-                .and_then(|_| member.group(&group.group_id).map_err(GroupError::from))
+                .map_err(crate::client::ClientError::from)
+                .and_then(|_| member.group(&group.group_id))
         })
         .await
         .expect("every new member must receive its Welcome");
@@ -521,7 +522,7 @@ async fn smaller_limit_fails_an_unstored_welcome_batch() {
 #[xmtp_common::test(unwrap_try = true)]
 async fn smaller_limit_republishes_the_pointers_of_a_stored_pointee(
     #[case] fault: Option<Fault>,
-) -> Result<(), GroupError> {
+) -> Result<(), Box<dyn std::error::Error>> {
     tester!(alix, disable_workers);
     tester!(bo, disable_workers);
     tester!(caro, disable_workers);
@@ -599,7 +600,7 @@ async fn smaller_limit_publishes_pointers_whose_pointee_is_stored(
     #[case] pointee_fits: bool,
     #[case] fault: Option<Fault>,
     #[case] pointers_sent: bool,
-) -> Result<(), GroupError> {
+) -> Result<(), Box<dyn std::error::Error>> {
     tester!(alix, disable_workers);
     tester!(bo, disable_workers);
     tester!(caro, disable_workers);
@@ -665,7 +666,8 @@ async fn smaller_limit_publishes_pointers_whose_pointee_is_stored(
                 member
                     .sync_welcomes()
                     .await
-                    .and_then(|_| member.group(&group.group_id).map_err(GroupError::from))
+                    .map_err(crate::client::ClientError::from)
+                    .and_then(|_| member.group(&group.group_id))
             })
             .await
             .expect("a recipient with a pointer to a stored pointee must join");
@@ -753,7 +755,7 @@ async fn smaller_limit_fails_a_fresh_welcome_batch() {
 #[xmtp_common::test(unwrap_try = true)]
 async fn follow_up_errors_are_reported_from_the_earliest_intent(
     #[case] earlier_fits: bool,
-) -> Result<(), GroupError> {
+) -> Result<(), Box<dyn std::error::Error>> {
     tester!(alix, disable_workers);
     tester!(bo, disable_workers);
     // Fred's Welcome is classical and small; Bo's is post-quantum and larger.
@@ -829,7 +831,7 @@ async fn follow_up_errors_are_reported_from_the_earliest_intent(
 #[xmtp_common::test(unwrap_try = true)]
 async fn refused_welcome_publish_ends_the_batch(
     #[case] faults: Vec<Fault>,
-) -> Result<(), GroupError> {
+) -> Result<(), Box<dyn std::error::Error>> {
     tester!(alix, disable_workers);
     tester!(bo, disable_workers);
     let group = alix.create_group(None, None)?;

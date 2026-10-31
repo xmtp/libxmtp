@@ -115,7 +115,7 @@ fn rewrite_group_root<C: XmtpSharedContext>(group: &MlsGroup<C>, root: Option<[u
 #[xmtp_common::test(unwrap_try = true)]
 async fn saved_group_messages_carry_a_valid_signature(
     #[case] kind: IntentKind,
-) -> Result<(), GroupError> {
+) -> Result<(), Box<dyn std::error::Error>> {
     tester!(alix, disable_workers);
     let group = alix.create_group(None, None)?;
     group.key_update().await?;
@@ -170,7 +170,7 @@ async fn saved_group_messages_carry_a_valid_signature(
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_group_without_its_root_fails_every_queued_intent(
     #[case] root: Option<[u8; 32]>,
-) -> Result<(), GroupError> {
+) -> Result<(), Box<dyn std::error::Error>> {
     tester!(alix, disable_workers);
     let group = alix.create_group(None, None)?;
     group.key_update().await?;
@@ -226,7 +226,7 @@ enum SignFailure {
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_local_signing_failure_fails_only_its_intent(
     #[case] failure: SignFailure,
-) -> Result<(), GroupError> {
+) -> Result<(), Box<dyn std::error::Error>> {
     tester!(alix, disable_workers);
     let group = alix.create_group(None, None)?;
     group.key_update().await?;

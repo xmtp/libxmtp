@@ -130,10 +130,7 @@ async fn deferred_preflight_public_reader_reports_first_failure_and_replacement_
                     }
                 })
                 .await?;
-            assert!(matches!(
-                cause(&error),
-                ClientError::ConfigurationUnavailable(_)
-            ));
+            assert!(matches!(cause(&error), ServerConfigError::Unavailable(_)));
             assert_eq!(error.is_retryable(), retryable);
             assert!(
                 client

@@ -270,7 +270,7 @@ pub enum SubscribeError {
     /// closed with it and every later call fails with it. Not retryable.
     #[error(transparent)]
     #[error_code(inherit)]
-    Configuration(Box<crate::client::ClientError>),
+    Blocked(#[from] crate::server_configuration::BlockedConnection),
     /// Stream liveness watchdog tripped.
     ///
     /// No activity arrived within the idle timeout, so the stream was terminated to force
@@ -316,7 +316,7 @@ impl RetryableError for SubscribeError {
             Conversion(c) => retryable!(c),
             Envelope(c) => retryable!(c),
             Enriched(c) => retryable!(c),
-            Configuration(_) => false,
+            Blocked(_) => false,
             StreamStale => true,
         }
     }
@@ -339,21 +339,21 @@ impl RetryableError for SubscribeError {
 impl crate::worker::NeedsDbReconnect for SubscribeError {
     /// Forwards a dropped-pool signal so the device-sync worker stops on
     /// disconnect. `BoxError` wraps an opaque error we can't introspect → `false`.
+    #[deny(clippy::wildcard_enum_match_arm)]
     fn needs_db_reconnect(&self) -> bool {
         use SubscribeError::*;
         match self {
             Group(e) => e.needs_db_reconnect(),
             Storage(e) => e.db_needs_connection(),
-            LocalDelivery(local_delivery::LocalDeliveryError::Storage(e)) => {
-                e.db_needs_connection()
-            }
-            LocalDelivery(_) => false,
+            LocalDelivery(e) => e.needs_db_reconnect(),
             Db(c) => c.db_needs_connection(),
+            ReceiveGroup(e) => e.needs_db_reconnect(),
+            Enriched(EnrichMessageError::Storage(e)) => e.db_needs_connection(),
+            Enriched(EnrichMessageError::DbConnection(c)) => c.db_needs_connection(),
             #[cfg(not(target_arch = "wasm32"))]
-            Transport(_) => false,
-            GroupMessageNotFound | ReceiveGroup(_) | Decode(_) | NotFound(_) | ApiClient(_)
-            | BoxError(_) | Conversion(_) | Envelope(_) | Enriched(_) | Configuration(_)
-            | StreamStale => false,
+            Transport(..) => false,
+            NotFound(..) | GroupMessageNotFound | Decode(..) | ApiClient(..) | BoxError(..)
+            | Conversion(..) | Envelope(..) | Blocked(..) | StreamStale => false,
         }
     }
 }

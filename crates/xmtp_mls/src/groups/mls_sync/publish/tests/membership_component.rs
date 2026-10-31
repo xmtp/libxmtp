@@ -13,7 +13,7 @@ use xmtp_mls_common::app_data::component_id::ComponentId;
 #[xmtp_common::test(unwrap_try = true)]
 async fn accepted_membership_component_remove_does_not_block_publication(
     #[case] kind: IntentKind,
-) -> Result<(), GroupError> {
+) -> Result<(), Box<dyn std::error::Error>> {
     tester!(alix, disable_workers);
     tester!(bo, disable_workers);
     let group = alix
@@ -22,7 +22,8 @@ async fn accepted_membership_component_remove_does_not_block_publication(
     let bo_group = xmtp_common::wait_for_ok(|| async {
         bo.sync_welcomes()
             .await
-            .and_then(|_| bo.group(&group.group_id).map_err(GroupError::from))
+            .map_err(crate::client::ClientError::from)
+            .and_then(|_| bo.group(&group.group_id))
     })
     .await
     .expect("the published Welcome must become visible");

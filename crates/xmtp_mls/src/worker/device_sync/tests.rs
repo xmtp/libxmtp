@@ -85,12 +85,13 @@ fn held(client: &crate::utils::Tester, key: &ConsentKey) -> Option<ConsentValue>
 }
 
 /// Read every sync group, then apply what arrived.
-async fn receive(client: &crate::utils::Tester) -> Result<(), DeviceSyncError> {
+async fn receive(client: &crate::utils::Tester) -> Result<(), Box<dyn std::error::Error>> {
     client.sync_all_welcomes_and_device_sync_groups().await?;
     client
         .device_sync_client()
         .process_sync_group_messages()
-        .await
+        .await?;
+    Ok(())
 }
 
 /// Publish everything `client` owes.
@@ -104,7 +105,7 @@ async fn publish(client: &crate::utils::Tester) -> Result<(), DeviceSyncError> {
 async fn join_sync_group(
     newer: &crate::utils::Tester,
     others: &[&crate::utils::Tester],
-) -> Result<GroupId, DeviceSyncError> {
+) -> Result<GroupId, Box<dyn std::error::Error>> {
     let group = newer.device_sync_client().get_sync_group().await?;
     for other in others {
         other.sync_welcomes().await?;
@@ -1042,7 +1043,7 @@ async fn sender_judged_at_envelope_time() {
 pub(super) async fn revoke(
     owner: &crate::utils::Tester,
     revoked: &crate::utils::Tester,
-) -> Result<(), ClientError> {
+) -> Result<(), crate::identity_updates::IdentityUpdateError> {
     use xmtp_id::associations::test_utils::add_wallet_signature;
 
     let identity = owner.identity_updates();
@@ -1893,7 +1894,7 @@ async fn an_own_state_disconnect_keeps_the_reconnect_signal(
     #[future] docker_smart_wallet: xmtp_id::utils::test::SmartWalletContext,
 ) {
     use crate::{
-        client::ClientError,
+        identity_updates::IdentityUpdateError,
         test::builder_native_only::{HookedVerifier, register_scw_client},
         worker::{NeedsDbReconnect, tasks::TaskWorker},
     };
@@ -1946,7 +1947,10 @@ async fn an_own_state_disconnect_keeps_the_reconnect_signal(
         "publish did not verify"
     );
     assert!(
-        matches!(&error, DeviceSyncError::Client(ClientError::Storage(_))),
+        matches!(
+            &error,
+            DeviceSyncError::IdentityUpdate(IdentityUpdateError::Storage(_))
+        ),
         "{error:?}"
     );
     assert!(error.needs_db_reconnect());
@@ -2000,22 +2004,21 @@ async fn an_own_state_disconnect_keeps_the_reconnect_signal(
 /// A dropped pool reached through an outbox publish stops the worker for a
 /// reconnect. The publish fails in the sync-group read, so it arrives as
 /// `Group(Db)`; `an_own_state_disconnect_keeps_the_reconnect_signal` reaches
-/// `Client(Storage)` through the own-state read. The other wrappers in the
-/// table have no route to a dropped pool that a test can reach today: an
-/// own-state disconnect is returned before `OwnStateUnavailable` wraps it, the
-/// retry task that returns `TaskWorkerError::DeviceSync` records its failure on
-/// the same dropped pool first and fails as `Storage`, and no route was found
-/// that wraps a group's store error in `Client`. They are pinned by building
-/// the error (disclosed helper exception) so the errors PR shows the change it
-/// makes.
+/// `IdentityUpdate(Storage)` through the own-state read. The other wrappers in
+/// the table have no route to a dropped pool that a test can reach today: an
+/// own-state disconnect is returned before `OwnStateUnavailable` wraps it, and
+/// the retry task that returns `TaskWorkerError::DeviceSync` records its
+/// failure on the same dropped pool first and fails as `Storage`. They are
+/// pinned by building the error (disclosed helper exception); each forwards
+/// the disconnect.
 #[cfg(not(target_arch = "wasm32"))]
 #[xmtp_common::test(unwrap_try = true)]
 async fn device_sync_publish_failures_keep_reconnect_signal() {
     use crate::{
-        client::ClientError, groups::GroupError, worker::NeedsDbReconnect,
+        groups::GroupError, identity_updates::IdentityUpdateError, worker::NeedsDbReconnect,
         worker::tasks::TaskWorkerError,
     };
-    use xmtp_db::{ConnectionError, PlatformStorageError};
+    use xmtp_db::PlatformStorageError;
     tester!(alix, persistent_db, disable_workers);
     alix.device_sync_client().get_sync_group().await?;
     decide_at(
@@ -2034,26 +2037,24 @@ async fn device_sync_publish_failures_keep_reconnect_signal() {
     alix.context.db().reconnect()?;
 
     let storage = || StorageError::Platform(PlatformStorageError::PoolNeedsConnection);
-    let connection = || ConnectionError::Platform(PlatformStorageError::PoolNeedsConnection);
-    let client_group = || ClientError::Group(Box::new(GroupError::Db(connection())));
-    let own_state = || DeviceSyncError::OwnStateUnavailable(ClientError::Storage(storage()));
+    let own_state =
+        || DeviceSyncError::OwnStateUnavailable(IdentityUpdateError::Storage(storage()));
     let observed = [
         (
-            "Client(Storage)",
-            DeviceSyncError::Client(ClientError::Storage(storage())).needs_db_reconnect(),
-        ),
-        (
-            "Client(Group(Db))",
-            DeviceSyncError::Client(client_group()).needs_db_reconnect(),
+            "IdentityUpdate(Storage)",
+            DeviceSyncError::IdentityUpdate(IdentityUpdateError::Storage(storage()))
+                .needs_db_reconnect(),
         ),
         (
             "OwnStateUnavailable(Storage)",
             own_state().needs_db_reconnect(),
         ),
         (
-            "TaskWorkerError::DeviceSync(Client(Storage))",
-            TaskWorkerError::DeviceSync(DeviceSyncError::Client(ClientError::Storage(storage())))
-                .needs_db_reconnect(),
+            "TaskWorkerError::DeviceSync(IdentityUpdate(Storage))",
+            TaskWorkerError::DeviceSync(DeviceSyncError::IdentityUpdate(
+                IdentityUpdateError::Storage(storage()),
+            ))
+            .needs_db_reconnect(),
         ),
         (
             "TaskWorkerError::DeviceSync(OwnStateUnavailable)",
@@ -2063,11 +2064,10 @@ async fn device_sync_publish_failures_keep_reconnect_signal() {
     assert_eq!(
         observed,
         [
-            ("Client(Storage)", true),
-            ("Client(Group(Db))", false),
-            ("OwnStateUnavailable(Storage)", false),
-            ("TaskWorkerError::DeviceSync(Client(Storage))", false),
-            ("TaskWorkerError::DeviceSync(OwnStateUnavailable)", false),
+            ("IdentityUpdate(Storage)", true),
+            ("OwnStateUnavailable(Storage)", true),
+            ("TaskWorkerError::DeviceSync(IdentityUpdate(Storage))", true),
+            ("TaskWorkerError::DeviceSync(OwnStateUnavailable)", true),
         ]
     );
 }

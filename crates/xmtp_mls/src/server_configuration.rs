@@ -18,6 +18,7 @@ use std::sync::{
 use parking_lot::RwLock;
 use prost::Message;
 use xmtp_api::{ApiClientWrapper, ApiError};
+use xmtp_common::{ErrorCode, RetryableError};
 use xmtp_configuration::{
     BACKEND_DEFAULT_MAX_UPLOAD_BYTES, ConfigProvider, ServerConfiguration,
     ServerConfigurationError, StoredConfigProvider,
@@ -29,11 +30,9 @@ use xmtp_events::{ClientEvent, ClientRejectedByServer, EventWriter, RejectionCau
 use xmtp_proto::api_client::XmtpBackendClient;
 use xmtp_proto::backend_v1;
 
-use crate::client::ClientError;
-
 /// Why a configuration read could not produce a usable copy.
 ///
-/// Carried by [`ClientError::ConfigurationUnavailable`] so a caller can tell a
+/// Carried by [`ServerConfigError::Unavailable`] so a caller can tell a
 /// backend that refused from a database that would not accept the answer.
 #[derive(Debug, thiserror::Error)]
 pub enum ConfigurationFetchError {
@@ -65,31 +64,86 @@ impl xmtp_common::RetryableError for ConfigurationFetchError {
     }
 }
 
+impl ConfigurationFetchError {
+    #[deny(clippy::wildcard_enum_match_arm)]
+    pub fn db_needs_connection(&self) -> bool {
+        match self {
+            Self::Storage(error) => error.db_needs_connection(),
+            Self::StorageLocation(_) | Self::Api(_) => false,
+        }
+    }
+}
+
 /// A condition that, once observed, fails later network work for the life of
-/// the client.
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// the client. Every call it fails returns it. Not retryable.
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error, ErrorCode)]
 pub enum BlockedConnection {
+    /// Backend mismatch.
+    ///
     /// This database is bound to one deployment and another one answered.
+    /// Not retryable — use a database created for the backend this app now
+    /// points at.
+    #[error("this database is bound to backend {stored}, but {received} answered")]
     BackendMismatch { stored: String, received: String },
-    /// The deployment now requires a newer client than this build.
+    /// Client version too old.
+    ///
+    /// The deployment now requires a newer client than this build. Not
+    /// retryable — ship an updated client.
+    #[error("client version {client} is below the {minimum} this backend requires")]
     ClientVersionTooOld { client: String, minimum: String },
 }
 
-impl From<&BlockedConnection> for ClientError {
-    fn from(blocked_connection: &BlockedConnection) -> Self {
-        match blocked_connection {
-            BlockedConnection::BackendMismatch { stored, received } => {
-                ClientError::BackendMismatch {
-                    stored: stored.clone(),
-                    received: received.clone(),
-                }
-            }
-            BlockedConnection::ClientVersionTooOld { client, minimum } => {
-                ClientError::ClientVersionTooOld {
-                    client: client.clone(),
-                    minimum: minimum.clone(),
-                }
-            }
+impl RetryableError for BlockedConnection {
+    fn is_retryable(&self) -> bool {
+        false
+    }
+}
+
+/// Why resolving, fetching, or storing the server configuration failed.
+#[derive(Debug, thiserror::Error, ErrorCode)]
+pub enum ServerConfigError {
+    /// Server configuration unavailable.
+    ///
+    /// The backend did not serve its configuration, or the answer could not be
+    /// stored. Retryable exactly when the wrapped failure is.
+    #[error("server configuration unavailable: {0}")]
+    Unavailable(#[source] Box<ConfigurationFetchError>),
+    /// Server configuration invalid.
+    ///
+    /// The backend published a configuration this client cannot use. Not
+    /// retryable.
+    #[error("server configuration invalid: {0}")]
+    Invalid(#[from] ServerConfigurationError),
+    /// The connection is blocked. Not retryable.
+    #[error(transparent)]
+    #[error_code(inherit)]
+    Blocked(#[from] BlockedConnection),
+    /// Client is closed.
+    ///
+    /// The client shut down before a deferred configuration check or an
+    /// explicit refresh finished. Not retryable.
+    #[error("client is closed")]
+    Closed,
+}
+
+impl From<ConfigurationFetchError> for ServerConfigError {
+    fn from(error: ConfigurationFetchError) -> Self {
+        Self::Unavailable(Box::new(error))
+    }
+}
+
+impl RetryableError for ServerConfigError {
+    fn is_retryable(&self) -> bool {
+        match self {
+            Self::Unavailable(error) => error.is_retryable(),
+            Self::Invalid(_) | Self::Blocked(_) | Self::Closed => false,
+        }
+    }
+
+    fn rate_limit_delay(&self) -> Option<xmtp_common::time::Duration> {
+        match self {
+            Self::Unavailable(error) => error.rate_limit_delay(),
+            Self::Invalid(_) | Self::Blocked(_) | Self::Closed => None,
         }
     }
 }
@@ -252,14 +306,16 @@ impl ServerConfigurationHandle {
         *self.deployment_recorder.write() = Some(recorder);
     }
 
-    pub(crate) async fn record_deployment(&self, identifier: &str) -> Result<(), ClientError> {
+    pub(crate) async fn record_deployment(
+        &self,
+        identifier: &str,
+    ) -> Result<(), ServerConfigError> {
         let recorder = self.deployment_recorder.read().clone();
         if let Some(recorder) = recorder {
-            recorder.record(identifier).await.map_err(|error| {
-                ClientError::ConfigurationUnavailable(Box::new(
-                    ConfigurationFetchError::StorageLocation(error),
-                ))
-            })?;
+            recorder
+                .record(identifier)
+                .await
+                .map_err(ConfigurationFetchError::StorageLocation)?;
         }
         Ok(())
     }
@@ -267,9 +323,9 @@ impl ServerConfigurationHandle {
     /// Fail when the connection is blocked. Every call that reaches the network goes
     /// through here.
     // implements: CONF-075
-    pub fn check(&self) -> Result<(), ClientError> {
+    pub fn check(&self) -> Result<(), BlockedConnection> {
         match self.blocked_connection.read().as_ref() {
-            Some(blocked_connection) => Err(blocked_connection.into()),
+            Some(blocked_connection) => Err(blocked_connection.clone()),
             None => Ok(()),
         }
     }
@@ -279,7 +335,7 @@ impl ServerConfigurationHandle {
     /// request check, cancels the client's streams, so the stopped work
     /// would otherwise report a close or an incomplete barrier instead of why.
     // implements: CONF-075, CONF-077
-    pub(crate) fn blocked_or<E: From<ClientError>>(&self, error: E) -> E {
+    pub(crate) fn blocked_or<E: From<BlockedConnection>>(&self, error: E) -> E {
         match self.check() {
             Err(blocked) => blocked.into(),
             Ok(()) => error,
@@ -288,12 +344,12 @@ impl ServerConfigurationHandle {
 
     /// Block the connection on the first failure. A later one does not displace it: the
     /// first cause is the one worth reporting.
-    pub(crate) fn block_connection(&self, reason: BlockedConnection) -> ClientError {
+    pub(crate) fn block_connection(&self, reason: BlockedConnection) -> BlockedConnection {
         let mut guard = self.blocked_connection.write();
         if let Some(held) = guard.as_ref() {
-            return held.into();
+            return held.clone();
         }
-        let error = ClientError::from(&reason);
+        let error = reason.clone();
         let event = match &reason {
             BlockedConnection::BackendMismatch { .. } => ClientRejectedByServer {
                 cause: RejectionCause::BackendMismatch,
@@ -353,15 +409,16 @@ pub(crate) async fn fetch_and_store<ApiClient>(
     api: &ApiClientWrapper<ApiClient>,
     db: &impl DbQuery,
     handle: &ServerConfigurationHandle,
-) -> Result<ServerConfiguration, ClientError>
+) -> Result<ServerConfiguration, ServerConfigError>
 where
     ApiClient: XmtpBackendClient,
 {
     handle.check()?;
 
-    let response = api.get_configuration().await.map_err(|error| {
-        ClientError::ConfigurationUnavailable(Box::new(ConfigurationFetchError::Api(error)))
-    })?;
+    let response = api
+        .get_configuration()
+        .await
+        .map_err(ConfigurationFetchError::Api)?;
     let configuration = commit_configuration(response, api.backend_url(), db, handle)?;
     handle.record_deployment(&configuration.identifier).await?;
     Ok(configuration)
@@ -372,7 +429,7 @@ pub(crate) fn commit_configuration(
     backend_url: Option<&str>,
     db: &impl DbQuery,
     handle: &ServerConfigurationHandle,
-) -> Result<ServerConfiguration, ClientError> {
+) -> Result<ServerConfiguration, ServerConfigError> {
     let configuration = validated(&response)?;
 
     // The identifier, not the URL, is the binding. A row with an
@@ -392,10 +449,12 @@ pub(crate) fn commit_configuration(
         if let Err(error) = db.record_server_configuration_conflict(&configuration.identifier) {
             tracing::error!(%error, "could not record the conflicting backend identifier");
         }
-        return Err(handle.block_connection(BlockedConnection::BackendMismatch {
-            stored: stored.identifier.clone(),
-            received: configuration.identifier.clone(),
-        }));
+        return Err(handle
+            .block_connection(BlockedConnection::BackendMismatch {
+                stored: stored.identifier.clone(),
+                received: configuration.identifier.clone(),
+            })
+            .into());
     }
 
     db.store_server_configuration(
@@ -417,13 +476,14 @@ pub(crate) fn commit_configuration(
 /// stored and no identifier binding is applied: there is no database to bind to.
 pub async fn fetch_server_configuration<ApiClient>(
     api: &ApiClientWrapper<ApiClient>,
-) -> Result<ServerConfiguration, ClientError>
+) -> Result<ServerConfiguration, ServerConfigError>
 where
     ApiClient: XmtpBackendClient,
 {
-    let response = api.get_configuration().await.map_err(|error| {
-        ClientError::ConfigurationUnavailable(Box::new(ConfigurationFetchError::Api(error)))
-    })?;
+    let response = api
+        .get_configuration()
+        .await
+        .map_err(ConfigurationFetchError::Api)?;
     Ok(validated(&response)?)
 }
 
@@ -436,8 +496,8 @@ pub(crate) fn normalized_url(url: &str) -> &str {
     url.trim_end_matches('/')
 }
 
-fn storage_unavailable(error: StorageError) -> ClientError {
-    ClientError::ConfigurationUnavailable(Box::new(ConfigurationFetchError::Storage(error)))
+fn storage_unavailable(error: StorageError) -> ServerConfigError {
+    ConfigurationFetchError::Storage(error).into()
 }
 
 /// Resolve the snapshot `build` will hold.
@@ -453,7 +513,7 @@ pub(crate) async fn resolve<ApiClient>(
     api: &ApiClientWrapper<ApiClient>,
     db: &impl DbQuery,
     allow_offline: bool,
-) -> Result<ServerConfigurationHandle, ClientError>
+) -> Result<ServerConfigurationHandle, ServerConfigError>
 where
     ApiClient: XmtpBackendClient,
 {
@@ -465,10 +525,11 @@ where
         .as_ref()
         .and_then(|row| row.conflicting_identifier.clone())
     {
-        return Err(ClientError::BackendMismatch {
+        return Err(BlockedConnection::BackendMismatch {
             stored: stored.map(|row| row.identifier).unwrap_or_default(),
             received: conflicting,
-        });
+        }
+        .into());
     }
 
     let pending = allow_offline
@@ -520,15 +581,16 @@ where
 pub(crate) fn check_minimum_version(
     configuration: &ServerConfiguration,
     client_version: &semver::Version,
-) -> Result<(), ClientError> {
+) -> Result<(), ServerConfigError> {
     let Some(minimum) = configuration.minimum_version()? else {
         return Ok(());
     };
     if xmtp_configuration::version_is_below(client_version, &minimum) {
-        return Err(ClientError::ClientVersionTooOld {
+        return Err(BlockedConnection::ClientVersionTooOld {
             client: client_version.to_string(),
             minimum: minimum.to_string(),
-        });
+        }
+        .into());
     }
     Ok(())
 }

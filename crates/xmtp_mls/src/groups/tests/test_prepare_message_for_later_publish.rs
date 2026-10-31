@@ -143,7 +143,9 @@ async fn test_duplicate_idempotency_key_is_idempotent() {
 #[case::optimistic("optimistic")]
 #[case::normal("normal")]
 #[xmtp_common::test(unwrap_try = true)]
-async fn test_idempotency_key_crosses_the_wire(#[case] mode: &str) -> Result<(), GroupError> {
+async fn test_idempotency_key_crosses_the_wire(
+    #[case] mode: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
     tester!(alix, disable_workers);
     tester!(alix2, from: alix, disable_workers);
     tester!(bo, disable_workers);

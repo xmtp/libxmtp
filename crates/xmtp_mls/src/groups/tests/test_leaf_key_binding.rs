@@ -969,7 +969,7 @@ async fn dictionary_delete_cannot_hide_a_live_leaf() {
 #[xmtp_common::test(unwrap_try = true)]
 async fn misattributed_pending_delta_is_omitted(
     #[case] propose_correct_request: bool,
-) -> Result<(), GroupError> {
+) -> Result<(), Box<dyn std::error::Error>> {
     use crate::{
         groups::intents::{ProposeMemberUpdateIntentData, QueueIntent},
         mls_store::MlsStore,

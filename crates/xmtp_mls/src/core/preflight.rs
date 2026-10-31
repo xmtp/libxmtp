@@ -1,10 +1,10 @@
 //! Deferred admission and refresh share one client lifetime and commit lock.
 
 use crate::{
-    client::ClientError,
     context::{XmtpMlsLocalContext, XmtpSharedContext},
     server_configuration::{
-        BlockedConnection, ConfigurationFetchError, check_minimum_version, commit_configuration,
+        BlockedConnection, ConfigurationFetchError, ServerConfigError, check_minimum_version,
+        commit_configuration,
     },
 };
 use std::sync::{Arc, Weak, atomic::Ordering};
@@ -42,7 +42,7 @@ where
         let context = self
             .context
             .upgrade()
-            .ok_or_else(|| PreflightError::new(ClientError::AlreadyClosed))?;
+            .ok_or_else(|| PreflightError::new(ServerConfigError::Closed))?;
         run(&context, fetch, false)
             .await
             .map(|_| ())
@@ -50,17 +50,17 @@ where
     }
 }
 
-fn check<C: XmtpSharedContext>(context: &C) -> Result<(), ClientError> {
+fn check<C: XmtpSharedContext>(context: &C) -> Result<(), ServerConfigError> {
     context.server_configuration().check()?;
     if context.is_closed() {
-        return Err(ClientError::AlreadyClosed);
+        return Err(ServerConfigError::Closed);
     }
     Ok(())
 }
 
 pub(crate) async fn refresh<C: XmtpSharedContext>(
     context: &C,
-) -> Result<ServerConfiguration, ClientError> {
+) -> Result<ServerConfiguration, ServerConfigError> {
     let handle = context.server_configuration();
     // Mock contexts do not bind a request adapter. Production builds always do.
     let fetched = if let Some(fetch) = handle.fetch.get() {
@@ -87,7 +87,7 @@ async fn run<C: XmtpSharedContext>(
     context: &C,
     fetch: &dyn ConfigurationFetch,
     refresh: bool,
-) -> Result<Option<ServerConfiguration>, ClientError> {
+) -> Result<Option<ServerConfiguration>, ServerConfigError> {
     let handle = context.server_configuration();
     handle.check()?;
     // Ready calls retain the caller's existing lifetime admission. Only a
@@ -99,11 +99,11 @@ async fn run<C: XmtpSharedContext>(
     let _foreground = context
         .foreground_calls()
         .enter()
-        .ok_or(ClientError::AlreadyClosed)?;
+        .ok_or(ServerConfigError::Closed)?;
     let cancelled = context.cancellation_token();
     let _admission = tokio::select! {
         biased;
-        _ = cancelled.cancelled() => { check(context)?; return Err(ClientError::AlreadyClosed); },
+        _ = cancelled.cancelled() => { check(context)?; return Err(ServerConfigError::Closed); },
         pending = handle.admission.lock() => pending,
     };
     check(context)?;
@@ -112,8 +112,8 @@ async fn run<C: XmtpSharedContext>(
     }
     let response = tokio::select! {
         biased;
-        _ = cancelled.cancelled() => { check(context)?; return Err(ClientError::AlreadyClosed); },
-        response = fetch.fetch() => response.map_err(|error| ClientError::ConfigurationUnavailable(Box::new(ConfigurationFetchError::Api(error))))?,
+        _ = cancelled.cancelled() => { check(context)?; return Err(ServerConfigError::Closed); },
+        response = fetch.fetch() => response.map_err(ConfigurationFetchError::Api)?,
     };
     check(context)?;
     // No await from the binding read through the ready transition. The
@@ -130,13 +130,12 @@ async fn run<C: XmtpSharedContext>(
     };
     // Store, then record the answer for its backend URL.
     handle.record_deployment(&fetched.identifier).await?;
-    if let Err(ClientError::ClientVersionTooOld { client, minimum }) =
+    if let Err(ServerConfigError::Blocked(reason @ BlockedConnection::ClientVersionTooOld { .. })) =
         check_minimum_version(&fetched, context.version_info().pkg_semver().semver())
     {
-        let error =
-            handle.block_connection(BlockedConnection::ClientVersionTooOld { client, minimum });
+        let error = handle.block_connection(reason);
         cancelled.cancel();
-        return Err(error);
+        return Err(error.into());
     }
     handle.pending.store(false, Ordering::Release);
     Ok(Some(fetched))

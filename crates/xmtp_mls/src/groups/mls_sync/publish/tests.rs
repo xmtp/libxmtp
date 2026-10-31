@@ -54,7 +54,7 @@ pub(super) async fn after_deferral(group_id: &[u8]) {
 #[xmtp_common::test(unwrap_try = true)]
 async fn competing_metadata_attempts_from_one_epoch_preserve_both_updates(
     #[case] name_first: bool,
-) -> Result<(), GroupError> {
+) -> Result<(), Box<dyn std::error::Error>> {
     use crate::groups::send_message_opts::SendMessageOpts;
     use xmtp_db::group_message::MsgQueryArgs;
 
@@ -67,14 +67,16 @@ async fn competing_metadata_attempts_from_one_epoch_preserve_both_updates(
     let bo_group = xmtp_common::wait_for_ok(|| async {
         bo.sync_welcomes()
             .await
-            .and_then(|_| bo.group(&group.group_id).map_err(GroupError::from))
+            .map_err(crate::client::ClientError::from)
+            .and_then(|_| bo.group(&group.group_id))
     })
     .await
     .expect("the published Welcome must become visible");
     let caro_group = xmtp_common::wait_for_ok(|| async {
         caro.sync_welcomes()
             .await
-            .and_then(|_| caro.group(&group.group_id).map_err(GroupError::from))
+            .map_err(crate::client::ClientError::from)
+            .and_then(|_| caro.group(&group.group_id))
     })
     .await
     .expect("the published Welcome must become visible");
@@ -880,7 +882,8 @@ async fn malformed_admin_list_intent_does_not_block_later_intents() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
-async fn preparation_rejects_changed_proposal_refs_at_the_same_epoch() -> Result<(), GroupError> {
+async fn preparation_rejects_changed_proposal_refs_at_the_same_epoch()
+-> Result<(), Box<dyn std::error::Error>> {
     tester!(alix, disable_workers);
     tester!(bo, disable_workers);
     let group = alix.create_group(None, None)?;
@@ -1153,8 +1156,10 @@ async fn pending_adds_welcome_every_new_leaf_after_commit_readback() {
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
     let bo_group = xmtp_common::wait_for_ok(|| async {
-        bo.sync_welcomes().await?;
-        bo.group(&group.group_id).map_err(GroupError::from)
+        bo.sync_welcomes()
+            .await
+            .map_err(crate::client::ClientError::from)?;
+        bo.group(&group.group_id)
     })
     .await?;
     bo_group.receive().await?;
@@ -1210,8 +1215,11 @@ async fn pending_adds_welcome_every_new_leaf_after_commit_readback() {
     );
     for joiner in [&bo2, &caro, &caro2] {
         let joined = xmtp_common::wait_for_ok(|| async {
-            joiner.sync_welcomes().await?;
-            joiner.group(&group.group_id).map_err(GroupError::from)
+            joiner
+                .sync_welcomes()
+                .await
+                .map_err(crate::client::ClientError::from)?;
+            joiner.group(&group.group_id)
         })
         .await?;
         assert_eq!(

@@ -12,8 +12,8 @@ use xmtp_configuration::{
     CONFIGURATION_REFRESH_JITTER,
 };
 
-use crate::client::ClientError;
 use crate::context::XmtpSharedContext;
+use crate::server_configuration::ServerConfigError;
 use crate::worker::{
     BoxedWorker, NeedsDbReconnect, Worker, WorkerFactory, WorkerKind, WorkerResult,
 };
@@ -171,7 +171,7 @@ where
     }
 
     // implements: CONF-036
-    async fn attempt(&mut self) -> Result<(), ClientError> {
+    async fn attempt(&mut self) -> Result<(), ServerConfigError> {
         refresh(&self.context).await.map(|_| ())
     }
 }

@@ -73,6 +73,7 @@ impl RetryableError for MlsStoreError {
 impl crate::worker::NeedsDbReconnect for MlsStoreError {
     /// Forwards a dropped-pool signal from the storage/connection variants so a
     /// worker loading groups can stop on disconnect. `Api`/`NotFound` return `false`.
+    #[deny(clippy::wildcard_enum_match_arm)]
     fn needs_db_reconnect(&self) -> bool {
         match self {
             Self::Storage(s) => s.db_needs_connection(),

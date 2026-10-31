@@ -61,7 +61,10 @@ async fn deferred_preflight_stays_per_client_on_an_existing_native_wire() {
     );
     send.send(()).unwrap();
     let error = b_open.await.err().expect("mismatch must refuse B");
-    assert!(matches!(cause(&error), ClientError::BackendMismatch { .. }));
+    assert!(matches!(
+        cause(&error),
+        ServerConfigError::Blocked(BlockedConnection::BackendMismatch { .. })
+    ));
     assert!(
         futures::poll!(wire.next()).is_pending(),
         "rejected client sent interest"

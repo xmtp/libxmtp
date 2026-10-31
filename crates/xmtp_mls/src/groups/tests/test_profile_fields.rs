@@ -147,7 +147,7 @@ enum Sweep {
 /// Carol, a named admin, is removed by a pending proposal that `sweep`
 /// commits. The commit must delete her display name and admin-list entry,
 /// for the committer and for a receiver.
-async fn assert_sweep_cleans_up(sweep: Sweep) -> Result<(), GroupError> {
+async fn assert_sweep_cleans_up(sweep: Sweep) -> Result<(), Box<dyn std::error::Error>> {
     tester!(alix);
     tester!(bo);
     tester!(carol);
@@ -764,7 +764,7 @@ enum Uncommittable {
 async fn test_uncommittable_pending_app_data_does_not_block_the_group(
     #[case] uncommittable: Uncommittable,
     #[values(false, true)] field_write: bool,
-) -> Result<(), GroupError> {
+) -> Result<(), Box<dyn std::error::Error>> {
     tester!(alix);
     tester!(bo);
     let group = alix
@@ -918,7 +918,8 @@ async fn test_uncommittable_pending_app_data_does_not_block_the_group(
 /// reloading the group failed and no member could send again. The
 /// selection rebuilds the store instead.
 #[xmtp_common::test(unwrap_try = true)]
-async fn test_membership_delta_stored_twice_does_not_block_the_group() -> Result<(), GroupError> {
+async fn test_membership_delta_stored_twice_does_not_block_the_group()
+-> Result<(), Box<dyn std::error::Error>> {
     tester!(alix);
     tester!(bo);
     tester!(carol);
@@ -958,7 +959,8 @@ async fn test_membership_delta_stored_twice_does_not_block_the_group() -> Result
 /// Update, so a commit never carries one.
 // verifies: GMOD-047
 #[xmtp_common::test(unwrap_try = true)]
-async fn test_pending_leaf_update_does_not_block_the_group() -> Result<(), GroupError> {
+async fn test_pending_leaf_update_does_not_block_the_group()
+-> Result<(), Box<dyn std::error::Error>> {
     use openmls::prelude::{CredentialWithKey, LeafNodeParameters, NewSignerBundle};
     use xmtp_cryptography::XmtpInstallationCredential;
     tester!(alix);
@@ -1018,7 +1020,7 @@ async fn test_pending_leaf_update_does_not_block_the_group() -> Result<(), Group
 /// the membership the kept proposals leave, so it omits the Delete.
 // verifies: GMOD-047
 #[xmtp_common::test(unwrap_try = true)]
-async fn test_pending_readd_omits_a_delete_it_forbids() -> Result<(), GroupError> {
+async fn test_pending_readd_omits_a_delete_it_forbids() -> Result<(), Box<dyn std::error::Error>> {
     tester!(alix);
     tester!(bo);
     tester!(carol);
@@ -1088,7 +1090,7 @@ enum Orphan {
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_orphan_membership_delta_does_not_block_the_group(
     #[case] orphan: Orphan,
-) -> Result<(), GroupError> {
+) -> Result<(), Box<dyn std::error::Error>> {
     use prost::Message as _;
     use xmtp_mls_common::app_data::{
         components::tls_map_components::GroupMembershipComponent, typed::Component,
@@ -1152,7 +1154,8 @@ async fn test_orphan_membership_delta_does_not_block_the_group(
 /// to retry forever, so every later intent of that member waited behind it.
 // verifies: GMOD-047
 #[xmtp_common::test(unwrap_try = true)]
-async fn test_omission_does_not_stall_a_conflicting_intent() -> Result<(), GroupError> {
+async fn test_omission_does_not_stall_a_conflicting_intent()
+-> Result<(), Box<dyn std::error::Error>> {
     tester!(alix);
     tester!(bo);
     let group = alix

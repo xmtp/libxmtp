@@ -226,7 +226,7 @@ mod event_tests {
     #[xmtp_common::test(unwrap_try = true)]
     async fn publication_prepare_points_are_durable(
         #[case] site: &'static str,
-    ) -> Result<(), crate::groups::GroupError> {
+    ) -> Result<(), Box<dyn std::error::Error>> {
         use crate::groups::mls_sync::publish::PreparedAttempt;
         use std::{cell::Cell, rc::Rc};
         use xmtp_db::{

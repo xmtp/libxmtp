@@ -52,13 +52,10 @@ fn terminal_source(error: &(dyn std::error::Error + 'static)) -> bool {
             AuthError::MissingCredential | AuthError::CredentialRejected { retryable: false }
         );
     }
-    if matches!(
-        error.downcast_ref::<crate::client::ClientError>(),
-        Some(
-            crate::client::ClientError::BackendMismatch { .. }
-                | crate::client::ClientError::ClientVersionTooOld { .. }
-        )
-    ) {
+    if error
+        .downcast_ref::<crate::server_configuration::BlockedConnection>()
+        .is_some()
+    {
         return true;
     }
     // Transparent variants and boxed errors can omit their inner source.
@@ -414,11 +411,11 @@ mod tests {
             }
         }
         for error in [
-            crate::client::ClientError::BackendMismatch {
+            crate::server_configuration::BlockedConnection::BackendMismatch {
                 stored: "first".into(),
                 received: "second".into(),
             },
-            crate::client::ClientError::ClientVersionTooOld {
+            crate::server_configuration::BlockedConnection::ClientVersionTooOld {
                 client: "1.0.0".into(),
                 minimum: "2.0.0".into(),
             },
@@ -433,7 +430,7 @@ mod tests {
     /// retried and needs no reconnect. The table records, per route, whether
     /// stream recovery treats the returned error as a terminal source. The
     /// stream and local-delivery wrappers forward `source()` past the
-    /// `ClientError`, so they are not terminal sources today and end recovery
+    /// `BlockedConnection`, so they are not terminal sources and end recovery
     /// only because they are not retryable.
     // verifies: CONF-075
     #[xmtp_common::test(unwrap_try = true)]

@@ -45,6 +45,6 @@ async fn deferred_preflight_resolution_preserves_ready_and_conflict_controls() {
         .record_server_configuration_conflict("org.example.other")?;
     let result = crate::server_configuration::resolve(&api, &db.db(), true).await;
     assert!(
-        matches!(result, Err(ClientError::BackendMismatch { stored, received }) if stored == IDENTIFIER && received == "org.example.other")
+        matches!(result, Err(ServerConfigError::Blocked(BlockedConnection::BackendMismatch { stored, received })) if stored == IDENTIFIER && received == "org.example.other")
     );
 }
