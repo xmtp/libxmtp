@@ -1,6 +1,8 @@
 import { readdir, stat } from "node:fs/promises";
 import { extname, join, relative, resolve, sep } from "node:path";
 
+import { slug } from "github-slugger";
+
 export function assertTypeDocValidation(logger, label) {
   if (logger.hasErrors() || logger.hasWarnings()) {
     throw new Error(`${label} TypeDoc validation failed.`);
@@ -25,6 +27,12 @@ export function contentRoute(contentRoot, file) {
     .split(sep)
     .join("/")
     .replace(/\.(?:md|mdx)$/, "");
+  if (/^reference\/(?:node|browser|agent|react-native)-sdk\//u.test(route)) {
+    route = route
+      .split("/")
+      .map((segment) => slug(segment))
+      .join("/");
+  }
   route = route.replace(/(?:^|\/)index$/, "");
   return route ? `/${route.replace(/\/+$/, "")}/` : "/";
 }
