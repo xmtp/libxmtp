@@ -1,5 +1,6 @@
 use super::*;
 use crate::{
+    groups::MlsGroup,
     tester,
     worker::notifications::{
         self,
