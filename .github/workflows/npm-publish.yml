@@ -219,6 +219,12 @@ jobs:
         run: |
           dev/nix-shell --shell js-node --command python3.11 dev/sdk_version.py verify "$RUNNER_TEMP/checked-node" --plan "$RUNNER_TEMP/sdk-release-plan/release-plan.json"
           dev/nix-shell --shell js-node --command node dev/release-tools/check-agent-package.mjs "$PACKAGE_TARBALL" "$RUNNER_TEMP/checked-node/package.tgz" "$SDK"
+      - name: Set up Browser publication consumer
+        if: inputs.sdk == 'browser-sdk' && inputs.prepare-only
+        uses: ./.github/actions/setup-js
+        with:
+          cache-mode: read
+          filter: '@xmtp/browser-sdk...'
       - name: Verify the exact Browser publication archive
         if: inputs.sdk == 'browser-sdk' && inputs.prepare-only
         run: dev/nix-shell --shell docs --command node crates/xmtp_sdk/dev/package-smoke.mjs browser "$PACKAGE_TARBALL"
