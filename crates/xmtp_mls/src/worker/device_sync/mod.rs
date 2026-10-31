@@ -1,3 +1,4 @@
+use crate::core::sync_tasks::schedule_add_missing_installations;
 use crate::state_tx::StateTx;
 use crate::{
     client::ClientError,
@@ -8,7 +9,7 @@ use crate::{
     identity::parse_credential,
     identity_updates::IdentityUpdates,
     mls_store::{MlsStore, MlsStoreError},
-    subscriptions::{SubscribeError, internal::InternalEvent},
+    subscriptions::SubscribeError,
     worker::{NeedsDbReconnect, metrics::WorkerMetrics},
 };
 use openmls::prelude::{BasicCredential, Member};
@@ -20,22 +21,18 @@ use tracing::instrument;
 use worker::SyncMetric;
 use xmtp_archive::ArchiveError;
 use xmtp_common::ErrorCode;
-use xmtp_common::{NS_IN_DAY, RetryableError, time::now_ns};
+use xmtp_common::RetryableError;
 use xmtp_configuration::{
     INSTALLATION_RETRY_MIN_PROTOCOL_VERSION, SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS,
 };
 use xmtp_cryptography::secret::{Zeroize, Zeroizing};
 use xmtp_db::TransactionalKeyStore;
-use xmtp_db::tasks::NewTask;
 use xmtp_db::{
     NotFound, StorageError,
-    consent_record::ConsentState,
-    group::{GroupMembershipState, GroupQueryArgs},
     group_message::{DeliveryStatus, StoredGroupMessage},
     sync_outbox::{OwedPage, clear_owed, owed_page},
 };
 use xmtp_db::{XmtpDb, group::ConversationType, prelude::*};
-use xmtp_events::EventWriter;
 use xmtp_id::{InboxIdRef, associations::DeserializationError};
 use xmtp_mls_common::app_data::protocol_floor::committed_floor_at_least;
 use xmtp_mls_common::group::GroupMetadataOptions;
@@ -49,13 +46,7 @@ use xmtp_proto::xmtp::{
         device_sync_content::Content as ContentProto,
         preference_update::Update as PreferenceUpdateProto,
     },
-    mls::{
-        database::{
-            AddMissingInstallations as AddMissingInstallationsProto, Task as TaskProto,
-            task::Task as TaskKindProto,
-        },
-        message_contents::{ContentTypeId, EncodedContent},
-    },
+    mls::message_contents::{ContentTypeId, EncodedContent},
 };
 
 pub mod archive;
@@ -620,7 +611,7 @@ where
     /// Schedule the adds to the user's conversations for a new installation.
     #[cfg(test)]
     pub(crate) fn schedule_add_installations_to_groups(&self) -> Result<usize, DeviceSyncError> {
-        Ok(schedule_newcomer_adds(
+        Ok(crate::core::sync_tasks::schedule_newcomer_adds(
             &self.context.db(),
             self.context.events(),
         )?)
@@ -667,88 +658,6 @@ fn page_content(page: &OwedPage) -> ContentProto {
             })
             .collect(),
     })
-}
-
-/// A new sync group from a Welcome means a new installation: schedule one
-/// durable AddMissingInstallations task per eligible group (deduped by
-/// payload hash), in the transaction that installs the Welcome, so a restart
-/// cannot lose them.
-// implements: SYNC-014
-pub(crate) fn schedule_newcomer_adds(
-    db: &impl DbQuery,
-    events: &impl EventWriter<InternalEvent>,
-) -> Result<usize, StorageError> {
-    let groups = db.find_groups(GroupQueryArgs {
-        last_activity_after_ns: Some(now_ns() - NS_IN_DAY * 90),
-        consent_states: Some(vec![ConsentState::Allowed, ConsentState::Unknown]),
-        // A Restored placeholder takes no commit until a Welcome activates
-        // it, so its task could never finish.
-        // implements: ARCH-015
-        allowed_states: Some(vec![
-            GroupMembershipState::Allowed,
-            GroupMembershipState::Rejected,
-            GroupMembershipState::Pending,
-            GroupMembershipState::PendingRemove,
-        ]),
-        ..Default::default()
-    })?;
-    for group in &groups {
-        schedule_add_missing_installations(db, events, group.id, None, false)?;
-    }
-    Ok(groups.len())
-}
-
-/// Durably enqueue one AddMissingInstallations task for `group_id` (deduped
-/// by payload hash against any pending row for the same group) and wake the
-/// TaskRunner. The task is due once `delay`, a rate-limit delay, has passed.
-/// A task `until_done` never expires, and a failing one backs off to at most
-/// one run an interval.
-fn schedule_add_missing_installations(
-    db: &impl DbQuery,
-    events: &impl EventWriter<InternalEvent>,
-    group_id: GroupId,
-    delay: Option<xmtp_common::time::Duration>,
-    until_done: bool,
-) -> Result<(), StorageError> {
-    let due = now_ns().saturating_add(delay.map_or(0, |delay| {
-        i64::try_from(delay.as_nanos()).unwrap_or(i64::MAX)
-    }));
-    let mut task = NewTask::builder();
-    task.originating_message_sequence_id(0)
-        .next_attempt_at_ns(due);
-    if until_done {
-        task.expires_at_ns(i64::MAX)
-            .max_attempts(i32::MAX)
-            .max_backoff_duration_ns(SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS);
-    } else {
-        // The usual three days to succeed count from when the task is due.
-        task.expires_at_ns(due.saturating_add(NS_IN_DAY * 3));
-    }
-    let task = task.build(TaskProto {
-        task: Some(TaskKindProto::AddMissingInstallations(
-            AddMissingInstallationsProto {
-                group_id: group_id.to_vec(),
-            },
-        )),
-    })?;
-    let hash = task.data_hash.clone();
-    db.create_or_ignore_task(task)?;
-    if until_done {
-        // A row an older build stored for this group is kept instead of the
-        // new one, so it must not expire either.
-        use xmtp_db::{diesel, diesel::prelude::*, schema::tasks::dsl};
-        db.raw_query(|c| {
-            diesel::update(dsl::tasks.filter(dsl::data_hash.eq(&hash)))
-                .set((
-                    dsl::expires_at_ns.eq(i64::MAX),
-                    dsl::max_attempts.eq(i32::MAX),
-                    dsl::max_backoff_duration_ns.eq(SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS),
-                ))
-                .execute(c)
-        })?;
-    }
-    events.emit(None, Some(InternalEvent::TaskScheduled));
-    Ok(())
 }
 
 /// The payload of a sync message's outer `EncodedContent`, the only field the

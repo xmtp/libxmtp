@@ -8,7 +8,7 @@ use xmtp_db::{
 use xmtp_events::{EventBuffer, EventBus};
 use xmtp_proto::types::GroupId;
 
-use crate::subscriptions::internal::InternalEvent;
+use crate::core::events::InternalEvent;
 
 /// A capability created only after an immediate write transaction starts.
 ///

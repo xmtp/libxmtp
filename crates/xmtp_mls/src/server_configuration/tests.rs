@@ -769,7 +769,7 @@ in_dms = false
             catalogue(context.server_configuration.configuration()),
             DISTINCT_CATALOGUE
         );
-        crate::server_configuration::worker::ConfigurationWorker::new(context.clone())
+        crate::core::config_refresh::ConfigurationWorker::new(context.clone())
             .tick()
             .await;
 
@@ -827,7 +827,7 @@ in_dms = false
         assert!(store.db().server_configuration()?.is_none());
 
         let mut worker =
-            crate::server_configuration::worker::ConfigurationWorker::new(client.context.clone());
+            crate::core::config_refresh::ConfigurationWorker::new(client.context.clone());
         worker.tick().await;
 
         // The run rewrote the stored copy.
@@ -898,7 +898,7 @@ in_dms = false
         )?;
 
         let mut worker =
-            crate::server_configuration::worker::ConfigurationWorker::new(client.context.clone());
+            crate::core::config_refresh::ConfigurationWorker::new(client.context.clone());
         worker.tick().await;
 
         // The conflict is recorded, and the bound identifier is kept.

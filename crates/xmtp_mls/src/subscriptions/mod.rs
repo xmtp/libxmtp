@@ -29,10 +29,10 @@ mod group_set_gate;
 pub(crate) use group_set_gate::GroupSetGate;
 pub mod incoming;
 #[doc(hidden)]
-pub mod internal;
+pub use crate::core::events as internal;
 pub mod local_delivery;
 pub mod message_reader;
-pub(crate) mod policy;
+pub(crate) use crate::core::policy;
 pub(crate) mod recovery;
 mod stream_all;
 pub mod stream_conversations;

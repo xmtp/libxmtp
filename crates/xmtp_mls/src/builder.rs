@@ -35,6 +35,8 @@ use xmtp_proto::xmtp::mls::database::{
     ProcessPendingSelfRemove, Task as TaskProto, task::Task as TaskKind,
 };
 
+pub use crate::core::config::{DeviceSyncMode, ForkRecoveryOpts, ForkRecoveryPolicy};
+
 type ContextParts<Api, S, Db> = Arc<XmtpMlsLocalContext<Api, Db, S>>;
 /// Opens the store at the paths `build` resolves for a storage location.
 #[cfg(not(target_arch = "wasm32"))]
@@ -200,38 +202,6 @@ pub struct ClientBuilder<ApiClient, S, Db = xmtp_db::DefaultStore> {
     #[cfg(any(test, feature = "test-utils"))]
     application_components_for_test:
         Option<Vec<xmtp_configuration::ApplicationComponentDefinition>>,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum DeviceSyncMode {
-    Disabled,
-    Enabled,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub enum ForkRecoveryPolicy {
-    None,
-    AllowlistedGroups,
-    All,
-}
-
-#[derive(Clone, Debug)]
-pub struct ForkRecoveryOpts {
-    pub enable_recovery_requests: ForkRecoveryPolicy,
-    pub groups_to_request_recovery: Vec<String>,
-    pub disable_recovery_responses: bool,
-    pub worker_interval_ns: Option<u64>,
-}
-
-impl Default for ForkRecoveryOpts {
-    fn default() -> Self {
-        Self {
-            enable_recovery_requests: ForkRecoveryPolicy::None,
-            groups_to_request_recovery: Vec::new(),
-            disable_recovery_responses: false,
-            worker_interval_ns: None,
-        }
-    }
 }
 
 impl Client<()> {
@@ -797,7 +767,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             ),
         });
 
-        crate::server_configuration::bind_preflight(&context);
+        crate::core::preflight::bind_preflight(&context);
 
         // register workers
         if let Err(error) = context.attachments.sweep(&context).await {
@@ -843,10 +813,9 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             // Only a client that reads its configuration refreshes it.
             // A caller-supplied provider owns its own values.
             if enabled(WorkerKind::ConfigurationRefresh) && !has_config_provider {
-                workers
-                    .register_new_worker::<crate::server_configuration::worker::ConfigurationWorker<
-                        ContextParts<ApiClient, S, Db>,
-                    >, _>(context.clone());
+                workers.register_new_worker::<crate::core::config_refresh::ConfigurationWorker<
+                    ContextParts<ApiClient, S, Db>,
+                >, _>(context.clone());
             }
             if enabled(WorkerKind::TaskRunner) {
                 workers.register_new_worker::<TaskWorker<ContextParts<ApiClient, S, Db>>, _>(

@@ -12,6 +12,7 @@ use super::{
 use crate::{
     client::ClientError,
     context::XmtpSharedContext,
+    groups::traits::IntoWith,
     groups::{
         group_membership::GroupMembership,
         intents::MembershipDiffWithKeyPackages,
@@ -25,7 +26,6 @@ use crate::{
     intents::ProcessIntentError,
     messages::{decoded_message::MessageBody, enrichment::EnrichMessageError},
     mls_store::MlsStore,
-    traits::IntoWith,
     utils::{
         hash::sha256,
         id::{calculate_message_id, calculate_message_id_for_intent},

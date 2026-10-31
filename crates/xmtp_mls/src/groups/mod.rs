@@ -6,9 +6,9 @@ mod messages;
 mod metadata;
 mod metadata_fields;
 mod state;
+pub use crate::core::change_callbacks;
 pub use builders::*;
 pub use state::{ConversationStateSnapshot, GroupMetadataSnapshot};
-pub mod change_callbacks;
 pub mod commit_log;
 mod error;
 pub mod intents;
@@ -22,6 +22,7 @@ pub(super) mod subscriptions;
 pub mod summary;
 #[cfg(test)]
 mod tests;
+mod traits;
 pub mod validated_commit;
 pub mod welcome_pointer;
 pub mod welcome_sync;

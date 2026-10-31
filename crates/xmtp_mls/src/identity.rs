@@ -3,7 +3,7 @@ mod identity_ext;
 pub use identity_ext::*;
 
 use crate::XmtpApi;
-use crate::groups::mls_sync::publish::definite_refusal;
+use crate::core::api_status::definite_refusal;
 use crate::identity_updates::{get_association_state_with_verifier, load_identity_updates};
 use crate::mls_store::verify_served_key_package;
 use crate::worker::NeedsDbReconnect;
