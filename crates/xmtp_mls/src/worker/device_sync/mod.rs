@@ -390,6 +390,8 @@ where
         // A quarter of the deployment's envelope, so MLS and envelope framing fit.
         let max_bytes = (self.context.api().limits().max_envelope_bytes / 4).min(PAGE_BYTES);
         self.get_sync_group().await?;
+        // One add per pass; the stored retry repeats it after the interval.
+        let mut add_tried = false;
         loop {
             // Values first, target second. A sync Welcome that commits after
             // this read marks every key again, so the clear below skips them.
@@ -403,7 +405,8 @@ where
                 .ok_or(DeviceSyncError::MissingSyncGroup)?;
             // implements: SYNC-034
             let gap = self.own_membership_gap(&group).await?;
-            if gap.missing {
+            if gap.missing && !add_tried {
+                add_tried = true;
                 // A failed add holds no page back, unless a revoked leaf may
                 // stay or the add must wait out a rate limit.
                 // implements: RATE-041
