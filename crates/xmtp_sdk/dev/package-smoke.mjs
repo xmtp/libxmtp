@@ -30,21 +30,25 @@ try {
     join(consumer, "package.json"),
     '{"private":true,"type":"module"}\n',
   );
-  const result = JSON.parse(
-    execFileSync(
-      process.execPath,
-      [
-        npmCli,
-        "pack",
-        staged,
-        "--pack-destination",
-        consumer,
-        "--json",
-        "--ignore-scripts",
-      ],
-      { encoding: "utf8" },
-    ),
-  );
+  let archive = process.argv[3] ? resolve(process.argv[3]) : undefined;
+  if (!archive) {
+    const result = JSON.parse(
+      execFileSync(
+        process.execPath,
+        [
+          npmCli,
+          "pack",
+          staged,
+          "--pack-destination",
+          consumer,
+          "--json",
+          "--ignore-scripts",
+        ],
+        { encoding: "utf8" },
+      ),
+    );
+    archive = join(consumer, result[0].filename);
+  }
   execFileSync(
     process.execPath,
     [
@@ -54,7 +58,7 @@ try {
       "--no-audit",
       "--no-fund",
       "--package-lock=false",
-      join(consumer, result[0].filename),
+      archive,
     ],
     { cwd: consumer, stdio: "inherit" },
   );

@@ -26,6 +26,37 @@ SDKS = [
 
 
 class ReleaseGraphTest(unittest.TestCase):
+    def test_browser_installs_the_final_archive_before_sealing(self):
+        workflow = yaml.safe_load(
+            (ROOT / ".github/workflows/npm-publish.yml").read_text()
+        )
+        steps = workflow["jobs"]["publish"]["steps"]
+        check = next(
+            (
+                step
+                for step in steps
+                if step.get("name") == "Verify the exact Browser publication archive"
+            ),
+            None,
+        )
+        self.assertIsNotNone(check)
+        self.assertIn('package-smoke.mjs browser "$PACKAGE_TARBALL"', check["run"])
+        self.assertNotIn("continue-on-error", check)
+        retain = next(
+            step
+            for step in steps
+            if step.get("name") == "Retain the exact checked package"
+        )
+        self.assertLess(steps.index(check), steps.index(retain))
+        for sdk in SDKS:
+            for prepare in (False, True):
+                self.assertEqual(
+                    expression(
+                        check["if"], {"inputs.sdk": sdk, "inputs.prepare-only": prepare}
+                    ),
+                    sdk == "browser-sdk" and prepare,
+                )
+
     def test_dry_run_does_not_save_windows_release_caches(self):
         release = yaml.safe_load((ROOT / ".github/workflows/release.yml").read_text())
         node = yaml.safe_load(

@@ -101,4 +101,34 @@ describe("shared release branch", () => {
     expect(prepare).toThrow("clean working tree");
     expect(git("branch", "--show-current")).not.toBe("release/8.1.0");
   });
+  it("resolves a relative repository root before starting child commands", () => {
+    const previous = process.cwd();
+    fs.mkdirSync(path.join(root, "dev/release-tools"), { recursive: true });
+    try {
+      process.chdir(path.join(root, "dev/release-tools"));
+      handler({
+        _: [],
+        $0: "test",
+        repoRoot: "../..",
+        version: "8.1.0",
+        base: "HEAD",
+      });
+    } finally {
+      process.chdir(previous);
+    }
+    expect(git("branch", "--show-current")).toBe("release/8.1.0");
+    expect(git("status", "--porcelain")).toBe("");
+  });
+  it.each(["v8.1.0", "8.1.0+build.1", "8.1.0-rc1"])(
+    "rejects %s before creating a branch",
+    (version) => {
+      const branch = git("branch", "--show-current");
+      expect(() =>
+        handler({ _: [], $0: "test", repoRoot: root, version, base: "HEAD" }),
+      ).toThrow("--version must be a stable semver version");
+      expect(git("branch", "--show-current")).toBe(branch);
+      expect(git("branch", "--list", `release/${version}`)).toBe("");
+      expect(git("status", "--porcelain")).toBe("");
+    },
+  );
 });

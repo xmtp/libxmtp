@@ -85,6 +85,15 @@ jobs:
     outputs:
       version: ${{ inputs.version }}
     steps:
+      - name: Require the all-SDK release orchestrator
+        if: ${{ inputs.dry-run != true && inputs.prepare-only != true }}
+        env:
+          CALLER_WORKFLOW_REF: ${{ github.workflow_ref }}
+        run: |
+          case "$CALLER_WORKFLOW_REF" in
+            "$GITHUB_REPOSITORY/.github/workflows/release.yml@"*) ;;
+            *) echo "::error::SDK publication requires the all-six release.yml validation barrier"; exit 1 ;;
+          esac
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
@@ -210,6 +219,9 @@ jobs:
         run: |
           dev/nix-shell --shell js-node --command python3.11 dev/sdk_version.py verify "$RUNNER_TEMP/checked-node" --plan "$RUNNER_TEMP/sdk-release-plan/release-plan.json"
           dev/nix-shell --shell js-node --command node dev/release-tools/check-agent-package.mjs "$PACKAGE_TARBALL" "$RUNNER_TEMP/checked-node/package.tgz" "$SDK"
+      - name: Verify the exact Browser publication archive
+        if: inputs.sdk == 'browser-sdk' && inputs.prepare-only
+        run: dev/nix-shell --shell docs --command node crates/xmtp_sdk/dev/package-smoke.mjs browser "$PACKAGE_TARBALL"
       - name: Retain the exact checked package
         if: inputs.prepare-only
         run: |

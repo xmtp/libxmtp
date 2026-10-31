@@ -30,6 +30,15 @@ jobs:
     outputs:
       source-sha: ${{ steps.source.outputs.sha }}
     steps:
+      - name: Require the all-SDK release orchestrator
+        if: ${{ inputs.dry-run != true }}
+        env:
+          CALLER_WORKFLOW_REF: ${{ github.workflow_ref }}
+        run: |
+          case "$CALLER_WORKFLOW_REF" in
+            "$GITHUB_REPOSITORY/.github/workflows/release.yml@"*) ;;
+            *) echo "::error::SDK publication requires the all-six release.yml validation barrier"; exit 1 ;;
+          esac
       - name: Check out the release source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:

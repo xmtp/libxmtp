@@ -154,12 +154,19 @@ jobs:
         run: |
           set -euo pipefail
           dev/nix-shell --shell js-node --command python3.11 dev/sdk_version.py verify target/release/ios --plan "$RUNNER_TEMP/sdk-release-plan/release-plan.json"
+          test "$(jq -r .version "$RUNNER_TEMP/sdk-release-plan/release-plan.json")" = "$VERSION"
+          test "$(jq -r .sourceSha "$RUNNER_TEMP/sdk-release-plan/release-plan.json")" = "$SOURCE_SHA"
           TAG="libxmtp-ios-$VERSION"
+          TAG_SHA=$(gh api --method GET "repos/$GITHUB_REPOSITORY/git/matching-refs/tags/$TAG" --jq ".[] | select(.ref == \"refs/tags/$TAG\") | .object.sha")
+          if [ -n "$TAG_SHA" ] && [ "$TAG_SHA" != "$SOURCE_SHA" ]; then
+            echo "Existing iOS binary tag does not match the frozen source" >&2
+            exit 1
+          fi
           if gh release view "$TAG" >/dev/null 2>&1; then
+            test "$TAG_SHA" = "$SOURCE_SHA"
             mkdir -p "$RUNNER_TEMP/existing-ios"
             gh release download "$TAG" --pattern XmtpSdkFFI.zip --dir "$RUNNER_TEMP/existing-ios"
             cmp target/release/ios/XmtpSdkFFI.zip "$RUNNER_TEMP/existing-ios/XmtpSdkFFI.zip"
-            test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" --jq .object.sha)" = "$SOURCE_SHA"
           else
             gh release create "$TAG" target/release/ios/XmtpSdkFFI.zip --target "$SOURCE_SHA" --prerelease --title "iOS binaries $VERSION" --notes "SwiftPM binary archive for $SOURCE_SHA"
           fi
