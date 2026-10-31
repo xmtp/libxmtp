@@ -76,6 +76,23 @@ class SdkVersionTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "gradle.properties"):
             version.check(self.root)
 
+    def test_node_consumers_require_the_exact_local_node_workspace(self):
+        for name in ("sdks/agent/package.json", "apps/cli/package.json"):
+            path = self.root / name
+            original = path.read_text()
+            for dependency in ("workspace:^", "workspace:~", "8.0.0", "^8.0.0", None):
+                with self.subTest(dependency=dependency):
+                    package = json.loads(original)
+                    if dependency is None:
+                        del package["dependencies"]["@xmtp/node-sdk"]
+                    else:
+                        package["dependencies"]["@xmtp/node-sdk"] = dependency
+                    path.write_text(json.dumps(package))
+                    with self.assertRaisesRegex(ValueError, "must be workspace"):
+                        version.check(self.root)
+            path.write_text(original)
+            self.assertEqual(version.check(self.root), "8.0.0")
+
     def test_crate_cannot_opt_out_of_inheritance(self):
         path = self.root / "crates/xmtp_sdk/Cargo.toml"
         path.write_text(

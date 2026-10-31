@@ -7,10 +7,8 @@ import * as computeVersion from "./commands/compute-version";
 import * as createReleaseBranch from "./commands/create-release-branch";
 import * as publishBackend from "./commands/publish-backend";
 import * as setDependencyVersion from "./commands/set-dependency-version";
-import * as setManifestVersion from "./commands/set-manifest-version";
 import * as stampPackage from "./commands/stamp-package";
 import * as tagRelease from "./commands/tag-release";
-import * as updateSpmChecksum from "./commands/update-spm-checksum";
 import { getRepoRoot } from "./lib/git";
 
 await yargs(hideBin(process.argv))
@@ -20,9 +18,7 @@ await yargs(hideBin(process.argv))
     default: getRepoRoot(),
     describe: "Repository root directory",
   })
-  .command(setManifestVersion)
   .command(computeVersion)
-  .command(updateSpmChecksum)
   .command(createReleaseBranch)
   .command(classifyNotes)
   .command(tagRelease)
