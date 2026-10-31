@@ -1242,7 +1242,8 @@ where
         }
 
         // Step 1: Generate key package and store locally (not uploaded yet)
-        let (kp_bytes, history_id) = self.identity().generate_and_store_key_package(
+        let (kp_bytes, history_id) = crate::identity_lifecycle::generate_and_store_key_package(
+            self.identity(),
             self.context.mls_storage(),
             CREATE_PQ_KEY_PACKAGE_EXTENSION,
         )?;
@@ -1420,13 +1421,13 @@ where
         // reaches `Identity` directly instead of going through a group or the
         // publish path, so it carries its own gate.
         self.ensure_identity_ready()?;
-        self.identity()
-            .rotate_and_upload_key_package(
-                self.context.api(),
-                self.context.mls_storage(),
-                CREATE_PQ_KEY_PACKAGE_EXTENSION,
-            )
-            .await?;
+        crate::identity_lifecycle::rotate_and_upload_key_package(
+            self.identity(),
+            self.context.api(),
+            self.context.mls_storage(),
+            CREATE_PQ_KEY_PACKAGE_EXTENSION,
+        )
+        .await?;
         // The rotation marked superseded KPs delete_at=now+grace; without this
         // the parked KpDeletion task would sweep them up to ~30d late.
         crate::worker::key_package_maintenance::nudge_deletion(&self.context)?;

@@ -289,9 +289,11 @@ mod event_tests {
                 group.add_members(&[bo.inbox_id()]).await?;
             }
             _ => {
-                alix.context
-                    .identity()
-                    .generate_and_store_key_package(alix.context.mls_storage(), false)?;
+                crate::identity_lifecycle::generate_and_store_key_package(
+                    alix.context.identity(),
+                    alix.context.mls_storage(),
+                    false,
+                )?;
             }
         }
         assert_eq!(observed.get(), Some(2), "{site}");

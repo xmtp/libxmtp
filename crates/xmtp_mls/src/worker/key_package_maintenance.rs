@@ -107,15 +107,14 @@ pub(crate) async fn rotate_if_needed<Context: XmtpSharedContext>(
     {
         return Ok(false);
     }
-    context
-        .identity()
-        .rotate_and_upload_key_package(
-            context.api(),
-            context.mls_storage(),
-            CREATE_PQ_KEY_PACKAGE_EXTENSION,
-        )
-        .await
-        .map_err(KeyPackageMaintenanceError::Rotation)?;
+    crate::identity_lifecycle::rotate_and_upload_key_package(
+        context.identity(),
+        context.api(),
+        context.mls_storage(),
+        CREATE_PQ_KEY_PACKAGE_EXTENSION,
+    )
+    .await
+    .map_err(KeyPackageMaintenanceError::Rotation)?;
     Ok(true)
 }
 
