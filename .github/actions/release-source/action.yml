@@ -23,11 +23,10 @@ runs:
         SNAPSHOT: ${{ inputs.snapshot }}
       run: |
         set -euo pipefail
-        FLAGS=()
-        if [ "$SNAPSHOT" = true ]; then FLAGS+=(--snapshot); fi
+        set -- materialize --plan "$RUNNER_TEMP/sdk-release-plan/release-plan.json"
+        if [ "$SNAPSHOT" = true ]; then set -- "$@" --snapshot; fi
         if [ "$RUNNER_OS" = Windows ]; then
-          python dev/sdk_version.py materialize --plan "$RUNNER_TEMP/sdk-release-plan/release-plan.json" "${FLAGS[@]}"
+          python dev/sdk_version.py "$@"
         else
-          dev/nix-shell --shell js-node --command python3.11 dev/sdk_version.py materialize \
-            --plan "$RUNNER_TEMP/sdk-release-plan/release-plan.json" "${FLAGS[@]}"
+          dev/nix-shell --shell js-node --command python3.11 dev/sdk_version.py "$@"
         fi
