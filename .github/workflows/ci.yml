@@ -46,7 +46,7 @@ jobs:
       products: ${{ steps.select.outputs.products }}
     steps:
     - name: Check out the source
-      uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
         fetch-depth: 2
     - name: List changed paths
@@ -89,7 +89,7 @@ jobs:
     timeout-minutes: ${{ github.event_name == 'pull_request' && 60 || 120 }}
     steps:
     - name: Check out the source
-      uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
     - name: Set up Nix
       uses: ./.github/actions/setup-nix
       with:
@@ -107,7 +107,7 @@ jobs:
     timeout-minutes: ${{ github.event_name == 'pull_request' && 60 || 120 }}
     steps:
     - name: Check out the source
-      uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
     - name: Set up Nix
       uses: ./.github/actions/setup-nix
       with:
@@ -517,7 +517,7 @@ jobs:
             ($broken + $failed == [])'
     - name: Check out the notification action
       if: ${{ failure() && github.event_name == 'schedule' }}
-      uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
     - name: Notify on nightly failure
       if: ${{ failure() && github.event_name == 'schedule' }}
       uses: ./.github/actions/slack-notify
@@ -583,7 +583,7 @@ jobs:
             ($broken + $failed == [])'
     - name: Check out the notification action
       if: ${{ failure() && github.event_name == 'schedule' }}
-      uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
     - name: Notify on nightly failure
       if: ${{ failure() && github.event_name == 'schedule' }}
       uses: ./.github/actions/slack-notify
