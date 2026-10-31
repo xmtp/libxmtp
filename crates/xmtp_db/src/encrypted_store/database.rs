@@ -18,6 +18,31 @@ pub use native_exports::*;
 
 use super::ConnectionExt;
 
+pub const WAL_SUFFIX: &str = "-wal";
+pub const SHM_SUFFIX: &str = "-shm";
+pub const JOURNAL_SUFFIX: &str = "-journal";
+pub const SALT_SUFFIX: &str = ".sqlcipher_salt";
+pub const SALT_TMP_SUFFIX: &str = ".sqlcipher_salt.tmp";
+
+/// SQLite sidecars in native cleanup order.
+pub const SQLITE_SIDECAR_SUFFIXES: [&str; 3] = [WAL_SUFFIX, SHM_SUFFIX, JOURNAL_SUFFIX];
+/// OPFS retains its journal-first checks and deletion order.
+pub const OPFS_SIDECAR_SUFFIXES: [&str; 3] = [JOURNAL_SUFFIX, WAL_SUFFIX, SHM_SUFFIX];
+/// The OPFS main file and its sidecars; browser stores have no SQLCipher salt.
+pub const OPFS_DATABASE_FILE_SUFFIXES: [&str; 4] = ["", JOURNAL_SUFFIX, WAL_SUFFIX, SHM_SUFFIX];
+/// Main file and all sidecars, in native cleanup order.
+pub const DATABASE_FILE_SUFFIXES: [&str; 6] = [
+    "",
+    WAL_SUFFIX,
+    SHM_SUFFIX,
+    JOURNAL_SUFFIX,
+    SALT_SUFFIX,
+    SALT_TMP_SUFFIX,
+];
+/// Migration, evidence copies, and benchmarks retain their five-file set.
+pub const DATABASE_FILE_SUFFIXES_WITHOUT_TEMP_SALT: [&str; 5] =
+    ["", WAL_SUFFIX, SHM_SUFFIX, JOURNAL_SUFFIX, SALT_SUFFIX];
+
 #[cfg(all(target_family = "wasm", target_os = "unknown"))]
 pub mod wasm_exports {
     pub type RawDbConnection = diesel::prelude::SqliteConnection;

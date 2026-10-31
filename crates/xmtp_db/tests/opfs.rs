@@ -227,6 +227,19 @@ xmtp_common::if_wasm! {
         assert!(matches!(xmtp_db::import_opfs_database(&path, &original).await,
             Err(StorageError::Platform(PlatformStorageError::RestoreDestinationExists))));
         assert_eq!(get_sqlite().unwrap().as_ref().unwrap().export_db(&path)?, before);
+        for suffix in ["-journal", "-wal", "-shm"] {
+            let orphan_target = xmtp_common::tmp_path();
+            let orphan = format!("{orphan_target}{suffix}");
+            let util = get_sqlite().unwrap().unwrap();
+            util.import_db(&orphan, &original)?;
+            let before = util.export_db(&orphan)?;
+            assert!(matches!(xmtp_db::import_opfs_database(&orphan_target, &original).await,
+                Err(StorageError::Platform(PlatformStorageError::RestoreDestinationExists))),
+                "orphan sidecar must block restore: {suffix}");
+            assert_eq!(util.export_db(&orphan)?, before, "restore changed {suffix}");
+            assert!(!util.exists(&orphan_target)?);
+            util.delete_db(&orphan)?;
+        }
         existing.reconnect()?;
         existing.release_connection()?;
         xmtp_db::delete_opfs_database(&path).await?;

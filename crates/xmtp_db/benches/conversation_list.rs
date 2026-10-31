@@ -79,7 +79,7 @@ fn bench_conversation_list(c: &mut Criterion) {
     group.finish();
     drop(db);
     drop(store);
-    for suffix in ["", "-wal", "-shm", "-journal", ".sqlcipher_salt"] {
+    for suffix in xmtp_db::DATABASE_FILE_SUFFIXES_WITHOUT_TEMP_SALT {
         let file = format!("{}{suffix}", path.display());
         if std::path::Path::new(&file).exists() {
             std::fs::remove_file(file).expect("remove benchmark file");

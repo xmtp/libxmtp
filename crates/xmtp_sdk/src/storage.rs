@@ -49,6 +49,12 @@ impl Storage {
         if !self.client.context.shutdown_complete() {
             end_client(&self.client, &self.listeners, &self.event_readers).await?;
         }
-        std::fs::remove_file(path).map_err(XmtpError::storage)
+        xmtp_db::delete_database_files(&path).map_err(XmtpError::storage)?;
+        self.client
+            .context
+            .attachment_runtime()
+            .delete_local_files()
+            .await
+            .map_err(XmtpError::storage)
     }
 }

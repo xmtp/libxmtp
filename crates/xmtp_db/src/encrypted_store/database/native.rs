@@ -27,6 +27,38 @@ use crate::{EncryptionKey, StorageOption, XmtpDb};
 
 use super::PersistentOrMem;
 
+/// Remove the closed database family in order; retries skip only absent files.
+// implements: STORE-018
+pub fn delete_database_files(path: &str) -> std::io::Result<()> {
+    remove_if_present(std::path::Path::new(path))?;
+    for suffix in super::SQLITE_SIDECAR_SUFFIXES {
+        remove_if_present(std::path::Path::new(&format!("{path}{suffix}")))?;
+    }
+    let salt = EncryptedConnection::salt_file(path)?;
+    // SQLCipher publishes its salt read-only. Windows refuses to unlink it
+    // until this attribute is cleared; Unix uses the parent permissions.
+    #[cfg(windows)]
+    match std::fs::metadata(&salt) {
+        Ok(metadata) => {
+            let mut permissions = metadata.permissions();
+            permissions.set_readonly(false);
+            std::fs::set_permissions(&salt, permissions)?;
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error),
+    }
+    remove_if_present(&salt)?;
+    remove_if_present(&salt.with_extension(super::SALT_TMP_SUFFIX.trim_start_matches('.')))
+}
+
+fn remove_if_present(path: &std::path::Path) -> std::io::Result<()> {
+    match std::fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error),
+    }
+}
+
 trait XmtpConnection:
     ValidatedConnection
     + ConnectionOptions

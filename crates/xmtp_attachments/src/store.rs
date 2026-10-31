@@ -208,6 +208,9 @@ pub trait LocalStore: xmtp_common::wasm::MaybeSend + xmtp_common::wasm::MaybeSyn
     /// Remove a directory and every entry below it. A removal can fail after
     /// it deleted some entries; the error then reports that it did.
     async fn remove_dir_all(&self, path: &str) -> Result<(), StoreRemoveError>;
+    /// Remove managed attachment directories, retaining the root and app entries.
+    #[cfg(not(target_arch = "wasm32"))]
+    async fn delete_local_files(&self) -> Result<(), AttachmentError>;
     /// Check a managed directory before its related record is removed.
     /// Return false when nothing is at the path. Fail when the entry is not a
     /// directory.

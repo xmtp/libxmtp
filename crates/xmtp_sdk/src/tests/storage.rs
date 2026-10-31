@@ -58,11 +58,7 @@ async fn storage_path_keeps_opened_relative_file_after_chdir() {
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn storage_delete_ends_event_reader_and_listener() {
-    let directory = std::env::temp_dir().join(format!(
-        "xmtp-sdk-delete-events-{}-{}",
-        std::process::id(),
-        xmtp_common::time::now_ns()
-    ));
+    let directory = temp_root("delete-events");
     std::fs::create_dir_all(&directory)?;
     let path = directory.join("client.sqlite");
     let mut settings = options();
@@ -92,11 +88,7 @@ async fn storage_delete_ends_event_reader_and_listener() {
 // verifies: STORE-017
 #[xmtp_common::test(unwrap_try = true)]
 async fn storage_delete_waits_for_running_call() {
-    let directory = std::env::temp_dir().join(format!(
-        "xmtp-sdk-delete-running-{}-{}",
-        std::process::id(),
-        xmtp_common::time::now_ns()
-    ));
+    let directory = temp_root("delete-running");
     std::fs::create_dir_all(&directory)?;
     let path = directory.join("client.sqlite");
     let mut settings = options();
@@ -201,11 +193,7 @@ async fn storage_delete_can_retry_after_file_removal_fails() {
         }
     }
 
-    let directory = std::env::temp_dir().join(format!(
-        "xmtp-sdk-delete-retry-{}-{}",
-        std::process::id(),
-        xmtp_common::time::now_ns()
-    ));
+    let directory = temp_root("delete-retry");
     std::fs::create_dir_all(&directory)?;
     let path = directory.join("client.sqlite");
     let mut settings = options();
@@ -236,6 +224,167 @@ async fn storage_delete_can_retry_after_file_removal_fails() {
     assert!(!details.retryable);
     assert!(!details.message.is_empty());
 }
+
+// verifies: STORE-018, ATCH-046
+async fn check_storage_delete_files(
+    directory_layout: bool,
+    missing_main: bool,
+    blocked_phase: Option<usize>,
+) -> Result<(), xmtp_common::BoxDynError> {
+    let root = temp_root("delete-family");
+    std::fs::create_dir_all(&root)?;
+    let signer = crate::generate_local_signer().await;
+    let mut settings = options();
+    settings.storage.single_connection = true;
+    settings.storage.encryption_key = Some(vec![7; 32]);
+    settings.storage.location = if directory_layout {
+        StorageLocation::Directory {
+            directory: root.to_string_lossy().into_owned(),
+        }
+    } else {
+        explicit_location(&root.join("client.sqlite"))
+    };
+    let client = Client::create(signer.clone(), settings.clone()).await?;
+    let path = std::path::PathBuf::from(client.storage().path().await?.unwrap());
+    let attachments = if directory_layout {
+        path.with_file_name("attachments")
+    } else {
+        path.with_extension("attachments")
+    };
+    client.end().await?;
+    let salt = std::path::PathBuf::from(format!("{}.sqlcipher_salt", path.display()));
+    let original_salt = std::fs::read(&salt)?;
+    assert!(std::fs::metadata(&salt)?.permissions().readonly());
+    let mut files = vec![path.clone()];
+    for suffix in ["-wal", "-shm", "-journal"] {
+        let sidecar = std::path::PathBuf::from(format!("{}{suffix}", path.display()));
+        std::fs::write(&sidecar, suffix)?;
+        files.push(sidecar);
+    }
+    files.push(salt.clone());
+    files.push(salt.with_extension("sqlcipher_salt.tmp"));
+    std::fs::write(&files[5], b"unfinished salt")?;
+    let key = attachments.join("a".repeat(64));
+    for dir in [
+        &key,
+        &attachments.join(".staged"),
+        &attachments.join(".tmp"),
+    ] {
+        std::fs::create_dir_all(dir)?;
+        std::fs::write(dir.join("file"), b"local attachment bytes")?;
+    }
+    std::fs::create_dir_all(attachments.join("app"))?;
+    let sentinel = attachments.join("app/sentinel");
+    std::fs::write(&sentinel, b"keep")?;
+    std::fs::write(attachments.join("A".repeat(64)), b"not a key")?;
+    if missing_main {
+        std::fs::remove_file(&path)?;
+    }
+    if let Some(phase) = blocked_phase {
+        let blocked = if phase < files.len() {
+            files[phase].clone()
+        } else {
+            key.clone()
+        };
+        let saved = blocked.with_extension("saved");
+        std::fs::rename(&blocked, &saved)?;
+        if phase < files.len() {
+            std::fs::create_dir(&blocked)?;
+        } else {
+            std::fs::write(&blocked, b"not a directory")?;
+        }
+        let error = client
+            .storage()
+            .delete()
+            .await
+            .expect_err("required removal must fail");
+        assert!(matches!(error, XmtpError::Storage(ref details)
+            if matches!(details.category, crate::ErrorCategory::Storage) && !details.retryable));
+        for later in files.iter().skip(phase + 1) {
+            assert!(
+                later.is_file(),
+                "later file removed before retry: {}",
+                later.display()
+            );
+        }
+        assert_eq!(std::fs::read(&sentinel)?, b"keep");
+        if phase < files.len() {
+            assert!(
+                key.join("file").is_file(),
+                "attachments removed before database cleanup"
+            );
+            std::fs::remove_dir(&blocked)?;
+        } else {
+            std::fs::remove_file(&blocked)?;
+        }
+        std::fs::rename(saved, blocked)?;
+    }
+    let result = client.storage().delete().await;
+    assert!(
+        result.is_ok(),
+        "deletion must continue past absent files: {result:?}"
+    );
+    for file in &files {
+        assert!(
+            !file.exists(),
+            "database family remains: {}",
+            file.display()
+        );
+    }
+    for dir in [
+        &key,
+        &attachments.join(".staged"),
+        &attachments.join(".tmp"),
+    ] {
+        assert!(
+            !dir.exists(),
+            "managed attachment directory remains: {}",
+            dir.display()
+        );
+    }
+    assert_eq!(std::fs::read(&sentinel)?, b"keep");
+    assert_eq!(
+        std::fs::read(attachments.join("A".repeat(64)))?,
+        b"not a key"
+    );
+    assert!(attachments.is_dir());
+    assert!(path.parent().unwrap().is_dir());
+    client.storage().delete().await?;
+    let recreated = Client::create(signer, settings).await?;
+    assert_ne!(
+        std::fs::read(salt)?,
+        original_salt,
+        "recreation reused the salt"
+    );
+    recreated.storage().delete().await?;
+    std::fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+macro_rules! storage_delete_case {
+    ($name:ident, $missing:expr, $blocked:expr) => {
+        mod $name {
+            use super::*;
+            #[xmtp_common::test(unwrap_try = true)]
+            async fn explicit() {
+                check_storage_delete_files(false, $missing, $blocked).await?;
+            }
+            #[xmtp_common::test(unwrap_try = true)]
+            async fn directory() {
+                check_storage_delete_files(true, $missing, $blocked).await?;
+            }
+        }
+    };
+}
+storage_delete_case!(storage_delete_complete_family, false, None);
+storage_delete_case!(storage_delete_missing_main, true, None);
+storage_delete_case!(storage_delete_failed_main, false, Some(0));
+storage_delete_case!(storage_delete_failed_wal, false, Some(1));
+storage_delete_case!(storage_delete_failed_shm, false, Some(2));
+storage_delete_case!(storage_delete_failed_journal, false, Some(3));
+storage_delete_case!(storage_delete_failed_salt, false, Some(4));
+storage_delete_case!(storage_delete_failed_temporary_salt, false, Some(5));
+storage_delete_case!(storage_delete_failed_attachments, false, Some(6));
 
 #[cfg(unix)]
 #[xmtp_common::test(unwrap_try = true)]
