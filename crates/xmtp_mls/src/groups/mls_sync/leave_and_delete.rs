@@ -37,25 +37,34 @@ where
         Ok(())
     }
 
+    /// Best-effort follow-up for our own just-published leave request.
+    ///
+    /// Returns `Result` so retryable storage failures roll the sync back and
+    /// retry, matching the rest of `process_message_inner`. A missing row or a
+    /// non-leave content type remains a benign `Ok(())` (correct early return,
+    /// not an error).
     pub(super) fn process_own_leave_request_message(
         &self,
         mls_group: &OpenMlsGroup,
         storage: &impl XmtpMlsStorageProvider,
         message_id: &[u8],
         event_writer: &impl xmtp_events::EventWriter<crate::subscriptions::internal::InternalEvent>,
-    ) {
-        if let Ok(Some(message)) = storage.db().get_group_message(message_id)
-            && message.content_type == ContentType::LeaveRequest
-        {
-            match self.process_leave_request_message(mls_group, storage, &message, event_writer) {
-                Ok(()) => {
-                    debug!("Successfully processed leave request message");
-                }
-                Err(e) => {
-                    debug!("Failed to process leave request message: {}", e);
-                }
-            }
+    ) -> Result<(), GroupMessageProcessingError> {
+        #[cfg(any(test, feature = "test-utils"))]
+        crate::utils::test_mocks_helpers::maybe_mock_own_reaction_retryable_error()?;
+
+        // Propagate read failures (`?`) instead of dropping them: a retryable
+        // storage error here must roll the sync back and retry. A missing row is
+        // still a benign no-op.
+        let Some(message) = storage.db().get_group_message(message_id)? else {
+            return Ok(());
+        };
+        // Not a leave request: correct early return, not an error.
+        if message.content_type != ContentType::LeaveRequest {
+            return Ok(());
         }
+
+        self.process_leave_request_message(mls_group, storage, &message, event_writer)
     }
 
     // implements: GMOD-032

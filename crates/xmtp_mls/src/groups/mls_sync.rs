@@ -1003,4 +1003,80 @@ pub(crate) mod tests {
             "wire-format violations must not be retriable"
         );
     }
+
+    /// Own leave-reaction must surface retryable storage failures instead of
+    /// silently swallowing them. Regression guard for #3747 (leave-only scope;
+    /// `process_own_delete_message` was removed in #4220).
+    ///
+    /// Not on wasm: the fault injection uses an env-var flag, and wasm targets
+    /// cannot set environment variables (same gating as the other
+    /// `test_mocks_helpers` based tests).
+    #[cfg(not(target_arch = "wasm32"))]
+    #[xmtp_common::test(flavor = "current_thread", unwrap_try = true)]
+    async fn test_own_leave_reaction_surfaces_retryable_errors() {
+        use crate::tester;
+        use crate::utils::test_mocks_helpers::set_test_mode_own_reaction_retryable_error;
+        use xmtp_common::RetryableError;
+
+        tester!(alix);
+        let alix_group = alix.create_group(None, None)?;
+        let storage = alix.context.mls_storage();
+        let message_id = vec![1, 2, 3];
+
+        // Inject a transient (retryable) storage error.
+        set_test_mode_own_reaction_retryable_error(true);
+
+        let leave_result = alix_group.load_mls_group_with_lock(storage, |mls_group| {
+            Ok::<_, crate::groups::GroupError>(alix_group.process_own_leave_request_message(
+                &mls_group,
+                storage,
+                &message_id,
+                alix_group.context.events(),
+            ))
+        })?;
+        assert!(
+            matches!(&leave_result, Err(e) if e.is_retryable()),
+            "own leave-request handler should surface the retryable error, got {leave_result:?}"
+        );
+
+        // Retryable must propagate as IntentResolutionError (rollback + retry),
+        // matching the rest of process_message_inner. Note: IntentResolutionError
+        // is now { processing_error } only (no next_intent_state).
+        let resolved = alix_group.resolve_own_reaction(leave_result, &message_id, "leave request");
+        assert!(
+            matches!(&resolved, Err(e) if e.is_retryable()),
+            "resolve_own_reaction should propagate retryable errors, got {resolved:?}"
+        );
+
+        // Non-retryable is logged at warn and swallowed: the message was already
+        // published and re-running won't help.
+        let non_retryable: Result<(), GroupMessageProcessingError> =
+            Err(GroupMessageProcessingError::MessageIdentifierNotFound);
+        assert!(
+            !non_retryable.as_ref().unwrap_err().is_retryable(),
+            "test precondition: MessageIdentifierNotFound must be non-retryable"
+        );
+        let resolved = alix_group.resolve_own_reaction(non_retryable, &message_id, "leave request");
+        assert!(
+            resolved.is_ok(),
+            "non-retryable own-reaction errors should be swallowed, got {resolved:?}"
+        );
+
+        // With the fault cleared, a message id with no stored row is a benign
+        // no-op (Ok), not an error — the missing-row guard still holds.
+        set_test_mode_own_reaction_retryable_error(false);
+
+        let leave_ok = alix_group.load_mls_group_with_lock(storage, |mls_group| {
+            Ok::<_, crate::groups::GroupError>(alix_group.process_own_leave_request_message(
+                &mls_group,
+                storage,
+                &message_id,
+                alix_group.context.events(),
+            ))
+        })?;
+        assert!(
+            leave_ok.is_ok(),
+            "expected benign no-op for missing leave-request row, got {leave_ok:?}"
+        );
+    }
 }
