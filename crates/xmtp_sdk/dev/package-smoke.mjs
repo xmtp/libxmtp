@@ -63,6 +63,17 @@ try {
     { cwd: consumer, stdio: "inherit" },
   );
   const packageRoot = join(consumer, "node_modules", manifest.name);
+  const installedManifest = JSON.parse(
+    readFileSync(join(packageRoot, "package.json")),
+  );
+  assert.equal(installedManifest.version, manifest.version);
+  assert.equal(installedManifest.type, manifest.type);
+  assert.equal(installedManifest.engines?.node, manifest.engines.node);
+  assert.deepEqual(
+    installedManifest.exports,
+    manifest.exports,
+    "Retained package public exports differ from the staged contract",
+  );
   const metadataFile = join(packageRoot, "sdk-contract.json");
   // Build receipts must not be a runtime dependency.
   rmSync(metadataFile);

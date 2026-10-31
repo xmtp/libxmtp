@@ -157,10 +157,14 @@ jobs:
           test "$(jq -r .version "$RUNNER_TEMP/sdk-release-plan/release-plan.json")" = "$VERSION"
           test "$(jq -r .sourceSha "$RUNNER_TEMP/sdk-release-plan/release-plan.json")" = "$SOURCE_SHA"
           TAG="libxmtp-ios-$VERSION"
-          TAG_SHA=$(gh api --method GET "repos/$GITHUB_REPOSITORY/git/matching-refs/tags/$TAG" --jq ".[] | select(.ref == \"refs/tags/$TAG\") | .object.sha")
-          if [ -n "$TAG_SHA" ] && [ "$TAG_SHA" != "$SOURCE_SHA" ]; then
-            echo "Existing iOS binary tag does not match the frozen source" >&2
-            exit 1
+          TAG_REF=$(gh api --method GET "repos/$GITHUB_REPOSITORY/git/matching-refs/tags/$TAG" --jq ".[] | select(.ref == \"refs/tags/$TAG\") | .ref")
+          TAG_SHA=
+          if [ -n "$TAG_REF" ]; then
+            TAG_SHA=$(gh api --method GET "repos/$GITHUB_REPOSITORY/commits/$TAG_REF" --jq .sha)
+            if [ "$TAG_SHA" != "$SOURCE_SHA" ]; then
+              echo "Existing iOS binary tag does not match the frozen source" >&2
+              exit 1
+            fi
           fi
           if gh release view "$TAG" >/dev/null 2>&1; then
             test "$TAG_SHA" = "$SOURCE_SHA"

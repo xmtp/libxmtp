@@ -73,18 +73,25 @@ with Path(os.environ['GH_TEST_LOG']).open('a') as log:
     log.write(json.dumps(args) + '\\n')
 tag = 'libxmtp-ios-8.0.0-rc5'
 if args[0] == 'api':
+    assert args[args.index('--method') + 1] == 'GET'
     if state['lookup_exit']:
         sys.exit(state['lookup_exit'])
     endpoint = next(arg for arg in args if arg.startswith('repos/'))
     if endpoint == f'repos/xmtp/libxmtp/git/matching-refs/tags/{tag}':
-        assert args[args.index('--method') + 1] == 'GET'
         refs = state['neighbors'][:]
         if state['tag_sha']:
             refs.append(dict(ref='refs/tags/' + tag,
-                             object=dict(sha=state['tag_sha'], type='commit')))
+                             object=dict(sha=state['tag_sha'], type=state['tag_type'])))
         payload = refs
-    elif endpoint == f'repos/xmtp/libxmtp/git/ref/tags/{tag}':
-        payload = dict(object=dict(sha=state['tag_sha']))
+    elif endpoint in (f'repos/xmtp/libxmtp/commits/refs/tags/{tag}',
+                      f'repos/xmtp/libxmtp/commits/{tag}'):
+        if state['commit_lookup_exit']:
+            print('Commit lookup failed', file=sys.stderr)
+            sys.exit(state['commit_lookup_exit'])
+        sha = state['tag_commit'] if state['tag_type'] == 'tag' else state['tag_sha']
+        if endpoint == f'repos/xmtp/libxmtp/commits/{tag}':
+            sha = state['branch_sha']
+        payload = dict(sha=sha)
     else:
         sys.exit('Unexpected tag lookup: ' + endpoint)
     result = subprocess.run(['jq', '-r', args[args.index('--jq') + 1]],
@@ -141,8 +148,12 @@ sys.exit('Unexpected GitHub operation: ' + str(args))
     def set_remote(self, **overrides):
         state = dict(
             tag_sha=None,
+            tag_type="commit",
+            tag_commit=None,
+            branch_sha="c" * 40,
             release_exists=False,
             lookup_exit=0,
+            commit_lookup_exit=0,
             neighbors=[],
             archive="retained archive bytes",
         )
@@ -210,6 +221,64 @@ sys.exit('Unexpected GitHub operation: ' + str(args))
         self.assertTrue(any(call[:2] == ["release", "download"] for call in calls))
         self.assertFalse(any(call[:2] == ["release", "create"] for call in calls))
 
+    def test_correct_annotated_tag_resumes_orphan_and_existing_release_retries(self):
+        for release_exists in (False, True):
+            self.set_remote(
+                tag_sha="d" * 40,
+                tag_type="tag",
+                tag_commit=self.record["sourceSha"],
+                branch_sha="a" * 40,
+                release_exists=release_exists,
+            )
+            for attempt in range(2):
+                with self.subTest(release_exists=release_exists, attempt=attempt):
+                    result, calls = self.publish()
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    creates = sum(call[:2] == ["release", "create"] for call in calls)
+                    self.assertEqual(creates, int(not release_exists and attempt == 0))
+                    if release_exists or attempt:
+                        self.assertTrue(
+                            any(call[:2] == ["release", "download"] for call in calls)
+                        )
+
+    def test_wrong_annotated_target_rejects_even_with_a_correct_same_name_branch(self):
+        for release_exists in (False, True):
+            self.set_remote(
+                tag_sha="d" * 40,
+                tag_type="tag",
+                tag_commit="a" * 40,
+                branch_sha=self.record["sourceSha"],
+                release_exists=release_exists,
+            )
+            for attempt in range(2):
+                with self.subTest(release_exists=release_exists, attempt=attempt):
+                    result, calls = self.publish()
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn("does not match the frozen source", result.stderr)
+                    self.assertTrue(calls)
+                    self.assertTrue(all(call[0] == "api" for call in calls), calls)
+
+    def test_commit_lookup_failures_reject_lightweight_and_annotated_tags(self):
+        for tag_type in ("commit", "tag"):
+            for release_exists in (False, True):
+                for status in (1, 4, 22):
+                    with self.subTest(
+                        tag_type=tag_type, release_exists=release_exists, status=status
+                    ):
+                        self.set_remote(
+                            tag_sha=self.record["sourceSha"]
+                            if tag_type == "commit"
+                            else "d" * 40,
+                            tag_type=tag_type,
+                            tag_commit=self.record["sourceSha"],
+                            release_exists=release_exists,
+                            commit_lookup_exit=status,
+                        )
+                        result, calls = self.publish()
+                        self.assertNotEqual(result.returncode, 0)
+                        self.assertIn("Commit lookup failed", result.stderr)
+                        self.assertTrue(all(call[0] == "api" for call in calls), calls)
+
     def test_absent_exact_tag_ignores_prefix_neighbors(self):
         for neighbors in (
             [],
@@ -243,15 +312,25 @@ sys.exit('Unexpected GitHub operation: ' + str(args))
                 self.assertTrue(all(call[0] == "api" for call in calls), calls)
 
     def test_existing_archive_conflict_is_never_overwritten(self):
-        self.set_remote(
-            tag_sha=self.record["sourceSha"],
-            release_exists=True,
-            archive="different public archive bytes",
-        )
-        result, calls = self.publish()
-        self.assertNotEqual(result.returncode, 0)
-        self.assertTrue(any(call[:2] == ["release", "download"] for call in calls))
-        self.assertFalse(any(call[:2] == ["release", "create"] for call in calls))
+        for tag_type in ("commit", "tag"):
+            with self.subTest(tag_type=tag_type):
+                self.set_remote(
+                    tag_sha=self.record["sourceSha"]
+                    if tag_type == "commit"
+                    else "d" * 40,
+                    tag_type=tag_type,
+                    tag_commit=self.record["sourceSha"],
+                    release_exists=True,
+                    archive="different public archive bytes",
+                )
+                result, calls = self.publish()
+                self.assertNotEqual(result.returncode, 0)
+                self.assertTrue(
+                    any(call[:2] == ["release", "download"] for call in calls)
+                )
+                self.assertFalse(
+                    any(call[:2] == ["release", "create"] for call in calls)
+                )
 
 
 if __name__ == "__main__":
