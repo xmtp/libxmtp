@@ -35,9 +35,12 @@ interface CreateReleaseBranchArgs extends GlobalArgs {
 }
 
 export function handler(argv: ArgumentsCamelCase<CreateReleaseBranchArgs>) {
-  const cwd = argv.repoRoot;
+  const cwd = path.resolve(argv.repoRoot);
   const branchName = `release/${argv.version}`;
-  if (!semver.valid(argv.version) || semver.prerelease(argv.version)) {
+  if (
+    semver.valid(argv.version) !== argv.version ||
+    semver.prerelease(argv.version)
+  ) {
     throw new Error("--version must be a stable semver version, such as 8.0.0");
   }
   const git = (args: string[]) =>

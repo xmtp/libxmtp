@@ -17,6 +17,10 @@ publication destinations, never this validation barrier. Agent and CLI publicati
 also select Node and require its exact matching version. Backend version labels
 remain independent.
 
+Reusable SDK publishers are internal to `release.yml`. Real publication rejects
+any other calling workflow, so invoking a product wrapper cannot bypass the
+all-six barrier. Dry builds do not require this publication origin.
+
 Publishers consume retained checked bytes and reject conflicting retries. Node
 builds use deterministic local materialization commits for cache and provenance
 identities; the frozen plan continues to name the original source. SwiftPM uses a
