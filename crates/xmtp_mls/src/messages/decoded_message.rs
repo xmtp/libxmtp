@@ -1,4 +1,5 @@
-use crate::groups::{GroupError, encoded_content_type};
+use super::encoded_content_type;
+use crate::groups::GroupError;
 use prost::Message;
 use xmtp_content_types::actions::{Actions, ActionsCodec};
 use xmtp_content_types::group_updated::GroupUpdatedCodec;

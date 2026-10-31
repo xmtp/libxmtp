@@ -451,7 +451,7 @@ where
             Some(vec![IntentState::Published]),
             Some(vec![xmtp_db::group_intent::IntentKind::SendMessage]),
         )? {
-            if crate::utils::id::calculate_message_id_for_intent(&intent)?.as_deref()
+            if crate::groups::message_id::calculate_message_id_for_intent(&intent)?.as_deref()
                 == Some(message_id)
                 && db.prepared_envelopes(intent.id)?.is_some()
             {
@@ -483,9 +483,11 @@ where
         message: &[u8],
     ) -> QueryableContentFields {
         // Return early with default if decoding fails or type is missing
-        let Ok(content_type_id) = encoded_content_type(message).inspect_err(|_| {
-            tracing::debug!("No queryable content fields, msg not formatted as encoded content")
-        }) else {
+        let Ok(content_type_id) =
+            crate::messages::encoded_content_type(message).inspect_err(|_| {
+                tracing::debug!("No queryable content fields, msg not formatted as encoded content")
+            })
+        else {
             return QueryableContentFields::default();
         };
         let content_type_id = content_type_id.unwrap_or_default();
