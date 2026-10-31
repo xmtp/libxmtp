@@ -483,8 +483,18 @@ fn safe_error(text: &str) -> String {
         "encryption_key",
         "authorization",
         "bearer",
-        "token",
+        "access_token",
+        "refresh_token",
+        "auth_token",
+        "api_token",
+        "session_token",
+        "token=",
+        "token:",
+        "token =",
+        "token :",
         "credential",
+        "password",
+        "api_key",
         "payload",
         "message content",
     ]
@@ -963,10 +973,27 @@ mod tests {
             "Bearer abc123",
             "access_token=abc123",
             "credential: abc123",
+            "token = abc123",
+            "token: abc123",
+            "password=abc123",
+            "api_key=abc123",
         ] {
             let output = safe_error(&format!("{prefix}: {credential}"));
             assert!(!output.contains("abc123"));
             assert!(output.contains("sensitive error detail omitted"));
+            assert!(output.len() <= ERROR_BYTES);
+        }
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn disposable_rollcall_token_diagnostics_remain_visible() {
+        let prefix = "Sync failed: errors publishing intents; ".repeat(30);
+        for detail in [
+            "Roll-call token xchaos:1337:2:0 from test-device is missing by stream",
+            "token query cap exceeded",
+        ] {
+            let output = safe_error(&format!("{prefix}: {detail}"));
+            assert!(output.contains(detail));
             assert!(output.len() <= ERROR_BYTES);
         }
     }

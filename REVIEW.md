@@ -46,6 +46,11 @@ sets shared priorities within that scope.
   credentials, and auth headers stay out of logs, `Debug` output, errors, and
   telemetry. Logs also carry no payloads or full ids; client logs may carry
   full inbox and installation ids. Backend telemetry follows OPS-014.
+  Generated disposable test identities and synthetic test payloads are not
+  real-secret disclosures; prioritize debugging that test data, including in
+  chaos runs. Establish the data's provenance rather than exempting a path.
+  Real user or production secrets and CI, service, cloud, or registry
+  credentials remain protected even when a test uses them.
 - **Wire, stored data, and SDK contracts (`proto/`, API, ARCH, CTYPE).**
   Supported clients, backends, and SDKs upgrade at different times. CI runs
   `buf lint`, not `buf breaking`, so only a reviewer catches a reused or
