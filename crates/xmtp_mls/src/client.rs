@@ -1,5 +1,5 @@
 use crate::{
-    builder::DeviceSyncMode,
+    attachments::Attachments,
     context::XmtpSharedContext,
     groups::{
         ConversationListItem, GroupError, MlsGroup, group_permissions::PolicySet,
@@ -10,7 +10,7 @@ use crate::{
         IdentityUpdateError, IdentityUpdates, load_identity_updates,
         load_identity_updates_for_client,
     },
-    inbox_handles::{IdentityTarget, account_targets, resolve_verified_in},
+    inbox_handles::{self, HandleError, IdentityTarget, account_targets, resolve_verified_in},
     mls_store::{MlsStore, MlsStoreError},
     subscriptions::{
         LocalEventError,
@@ -21,6 +21,16 @@ use crate::{
     worker::{WorkerRunner, metrics::WorkerMetrics},
 };
 pub mod notifications;
+pub use crate::core::config::DeviceSync;
+use crate::subscriptions::catch_up::{CatchUpError, CatchUpSummary};
+#[cfg(not(target_arch = "wasm32"))]
+use crate::subscriptions::router_callbacks::{self, ApiClientIdentity};
+#[cfg(any(test, feature = "test-utils"))]
+use crate::subscriptions::stream_messages::stream_stats::StreamWithStats;
+use crate::{
+    core::events::PreferenceUpdate,
+    subscriptions::{self, SubscribeError},
+};
 use crate::{
     groups::welcome_sync::GroupSyncSummary,
     identity_updates::{batch_get_association_state_with_verifier, get_creation_signature_kind},
@@ -29,6 +39,8 @@ use crate::{
         enrichment::{EnrichMessageError, enrich_messages},
     },
 };
+use futures::Stream;
+use notifications::{NotificationConfig, NotificationError, NotificationState};
 use openmls::prelude::tls_codec::Error as TlsCodecError;
 use std::{
     collections::HashMap,
@@ -37,12 +49,14 @@ use std::{
 use thiserror::Error;
 use xmtp_api::{ApiClientWrapper, XmtpApi};
 use xmtp_common::{ErrorCode, Event, Retry, retry_async, retryable};
+use xmtp_common::{MaybeSend, StreamHandle};
 use xmtp_configuration::{
     CONVERSATION_LIST_DEFAULT_LIMIT, CREATE_PQ_KEY_PACKAGE_EXTENSION,
     KEY_PACKAGE_ROTATION_INTERVAL_NS, LOCAL_PAGE_MAX_LIMIT,
 };
 use xmtp_cryptography::signature::IdentifierValidationError;
 use xmtp_db::TransactionOutcome::Continue;
+use xmtp_db::consent_record::StoredConsentRecord;
 use xmtp_db::{
     ConnectionExt, NotFound, StorageError, TransactionOutcome, XmtpDb,
     consent_record::{
@@ -57,6 +71,7 @@ use xmtp_db::{
 };
 use xmtp_db::{group::GroupQueryOrderBy, prelude::*};
 use xmtp_events::DeletionCause;
+use xmtp_id::associations::handle::Handle;
 use xmtp_id::key_package::{KeyPackageVerificationError, VerifiedKeyPackageV2};
 use xmtp_id::{
     AsIdRef, InboxId, InboxIdRef, InboxOwner,
@@ -72,6 +87,9 @@ use xmtp_mls_common::{
     group_metadata::DmMembers,
     group_mutable_metadata::MessageDisappearingSettings,
 };
+#[cfg(not(target_arch = "wasm32"))]
+use xmtp_proto::api_client::XmtpMlsBidiStreams;
+use xmtp_proto::api_client::XmtpMlsStreams;
 use xmtp_proto::types::InstallationId;
 use xmtp_proto::{
     api::HasStats,
@@ -389,11 +407,6 @@ impl<Context> Drop for Client<Context> {
     }
 }
 
-#[derive(Clone)]
-pub struct DeviceSync {
-    pub(crate) mode: DeviceSyncMode,
-}
-
 // most of these things are `Arc`'s
 impl<Context: Clone> Clone for Client<Context> {
     fn clone(&self) -> Self {
@@ -555,7 +568,7 @@ where
     pub async fn refresh_server_configuration(
         &self,
     ) -> Result<xmtp_configuration::ServerConfiguration, ClientError> {
-        crate::server_configuration::refresh(&self.context).await
+        crate::core::preflight::refresh(&self.context).await
     }
 
     /// Retrieves the client's installation public key, sometimes also called `installation_id`
@@ -982,9 +995,7 @@ where
     /// Returns a [`MlsGroup`] if the group exists, or an error if it does not
     ///
     pub fn group(&self, group_id: &GroupId) -> Result<MlsGroup<Context>, ClientError> {
-        MlsStore::new(self.context.clone())
-            .group(group_id)
-            .map_err(Into::into)
+        MlsGroup::load_by_id(&self.context, group_id).map_err(Into::into)
     }
 
     /// Look up a group by its ID while stitching DMs
@@ -1141,9 +1152,7 @@ where
     /// - created_before_ns: only return groups created before the given timestamp (in nanoseconds)
     /// - limit: only return the first `limit` groups
     pub fn find_groups(&self, args: GroupQueryArgs) -> Result<Vec<MlsGroup<Context>>, ClientError> {
-        MlsStore::new(self.context.clone())
-            .find_groups(args)
-            .map_err(Into::into)
+        MlsGroup::find(&self.context, args).map_err(Into::into)
     }
 
     /// List one page of the app's conversations, in activity order unless
@@ -1247,7 +1256,8 @@ where
         }
 
         // Step 1: Generate key package and store locally (not uploaded yet)
-        let (kp_bytes, history_id) = self.identity().generate_and_store_key_package(
+        let (kp_bytes, history_id) = crate::identity_lifecycle::generate_and_store_key_package(
+            self.identity(),
             self.context.mls_storage(),
             CREATE_PQ_KEY_PACKAGE_EXTENSION,
         )?;
@@ -1425,13 +1435,13 @@ where
         // reaches `Identity` directly instead of going through a group or the
         // publish path, so it carries its own gate.
         self.ensure_identity_ready()?;
-        self.identity()
-            .rotate_and_upload_key_package(
-                self.context.api(),
-                self.context.mls_storage(),
-                CREATE_PQ_KEY_PACKAGE_EXTENSION,
-            )
-            .await?;
+        crate::identity_lifecycle::rotate_and_upload_key_package(
+            self.identity(),
+            self.context.api(),
+            self.context.mls_storage(),
+            CREATE_PQ_KEY_PACKAGE_EXTENSION,
+        )
+        .await?;
         // The rotation marked superseded KPs delete_at=now+grace; without this
         // the parked KpDeletion task would sweep them up to ~30d late.
         crate::worker::key_package_maintenance::nudge_deletion(&self.context)?;
@@ -1586,6 +1596,365 @@ where
             .cloned()
             .zip(results.into_iter().map(|inbox_id| inbox_id.is_some()))
             .collect())
+    }
+}
+
+impl<Context: XmtpSharedContext> Client<Context> {
+    pub fn attachments(&self) -> Attachments<Context> {
+        Attachments {
+            context: self.context.clone(),
+        }
+    }
+}
+
+impl<Context: XmtpSharedContext> Client<Context> {
+    /// Store configuration, then register inline. The task retries transient errors.
+    #[xmtp_common::rpc_span]
+    pub async fn enable_notifications(
+        &self,
+        config: NotificationConfig,
+    ) -> Result<NotificationState, NotificationError> {
+        notifications::enable_notifications(&self.context, config).await
+    }
+
+    /// Disable locally before unregistering. The recipient identity and overrides stay.
+    /// A failed unregister leaves the client disabled with its recipient reset owed.
+    #[xmtp_common::rpc_span]
+    pub async fn disable_notifications(&self) -> Result<(), NotificationError> {
+        notifications::disable_notifications(&self.context).await
+    }
+
+    /// Read the locally stored state without a backend call.
+    pub fn notification_state(&self) -> Result<NotificationState, StorageError> {
+        notifications::notification_state(&self.context)
+    }
+}
+
+impl<Context: XmtpSharedContext> Client<Context> {
+    /// The inbox that holds each handle, in order, or `None`. An answer from
+    /// the backend counts only when the newest state the client derives for
+    /// the answered inbox holds the handle. An old handle of an inbox still
+    /// resolves to it.
+    pub async fn resolve_handles(
+        &self,
+        handles: &[Handle],
+    ) -> Result<Vec<Option<InboxId>>, ClientError> {
+        inbox_handles::resolve_verified_in(&self.context, &inbox_handles::handle_targets(handles))
+            .await
+    }
+
+    /// Whether the backend names an inbox for each handle, in order. This
+    /// checks no association state: use it only where a wrong answer costs a
+    /// candidate, never to reach an inbox.
+    pub async fn handles_have_owner(&self, handles: &[Handle]) -> Result<Vec<bool>, ClientError> {
+        inbox_handles::handles_have_owner(&self.context, handles).await
+    }
+
+    /// The handles for `input` that no inbox holds. `input` is a handle as a
+    /// user typed it; its ASCII capitals become lowercase. Input with a code
+    /// checks only that handle. A name without a code checks the name and
+    /// [`HANDLE_SEARCH_CODES`](inbox_handles::HANDLE_SEARCH_CODES) distinct random codes in one lookup, and the
+    /// name comes first in the result. Text outside the handle grammar fails
+    /// before any request. No policy applies here, so a returned handle can
+    /// still be refused when it is claimed.
+    pub async fn available_handles(&self, input: &str) -> Result<Vec<Handle>, ClientError> {
+        inbox_handles::available_handles(&self.context, input).await
+    }
+
+    /// Claim `handle` for this client's inbox, signed by this installation's
+    /// key. A claim of a handle the inbox already holds makes it the display
+    /// handle again. The backend refuses a taken, reserved, short, or too
+    /// frequent claim with `ApiError::HandleRejected`. After the publish, the
+    /// client has stored the inbox's new identity update.
+    pub async fn claim_handle(&self, handle: &Handle) -> Result<(), ClientError> {
+        self.ensure_identity_ready()?;
+        inbox_handles::claim_handle(&self.context, handle).await
+    }
+
+    /// The inbox of each target, in order, from one call. Fails when any
+    /// target has no inbox: an account as `find_or_create_dm_by_identity`
+    /// does, and a handle with [`HandleError::NotFound`].
+    pub async fn resolve_targets(
+        &self,
+        targets: &[IdentityTarget],
+    ) -> Result<Vec<InboxId>, ClientError> {
+        inbox_handles::resolve_targets(&self.context, targets).await
+    }
+
+    /// The active DM with `target`, or `None`. A target that no inbox holds
+    /// has no DM.
+    pub async fn find_dm_by_target(
+        &self,
+        target: &IdentityTarget,
+    ) -> Result<Option<MlsGroup<Context>>, ClientError> {
+        let Some(peer) =
+            inbox_handles::resolve_verified_in(&self.context, std::slice::from_ref(target))
+                .await?
+                .pop()
+                .flatten()
+        else {
+            return Ok(None);
+        };
+        let stored = self.context.db().find_active_dm_group(&DmMembers {
+            member_one_inbox_id: self.inbox_id(),
+            member_two_inbox_id: peer.as_str(),
+        })?;
+        stored.map(|stored| self.group(&stored.id)).transpose()
+    }
+
+    /// Find the DM with `target`, or create it. A handle resolves before the
+    /// existing DM is looked up.
+    pub async fn find_or_create_dm_by_target(
+        &self,
+        target: &IdentityTarget,
+        opts: DMMetadataOptions,
+    ) -> Result<MlsGroup<Context>, ClientError> {
+        match target {
+            IdentityTarget::Account(identifier) => {
+                self.find_or_create_dm_by_identity(identifier.clone(), Some(opts))
+                    .await
+            }
+            IdentityTarget::Handle(handle) => {
+                let peer = self
+                    .resolve_handles(std::slice::from_ref(handle))
+                    .await?
+                    .pop()
+                    .flatten()
+                    .ok_or(HandleError::NotFound)?;
+                self.find_or_create_dm(peer, Some(opts)).await
+            }
+        }
+    }
+
+    /// Create a group with `targets` as its members, in one commit. Targets,
+    /// member identities, and key packages resolve before the group is stored.
+    /// A target with no inbox leaves no group: a handle fails with
+    /// [`HandleError::NotFound`], an account with [`GroupError::AddressNotFound`].
+    pub async fn create_group_with_targets(
+        &self,
+        targets: &[IdentityTarget],
+        permissions_policy_set: Option<PolicySet>,
+        opts: Option<GroupMetadataOptions>,
+    ) -> Result<MlsGroup<Context>, ClientError> {
+        let inboxes = inbox_handles::resolve_targets_in(&self.context, targets).await?;
+        let inbox_ids = inbox_handles::require_account_inboxes(targets, inboxes)?;
+        self.create_group_with_members(&inbox_ids, permissions_policy_set, opts)
+            .await
+    }
+}
+
+impl<Context> Client<Context>
+where
+    Context: XmtpSharedContext + 'static,
+{
+    /// Use push metadata as a target. Fetch its complete prefix before processing.
+    pub async fn process_streamed_welcome_message(
+        &self,
+        envelope_bytes: Vec<u8>,
+    ) -> Result<Vec<MlsGroup<Context>>, SubscribeError> {
+        subscriptions::process_streamed_welcome_message(&self.context, envelope_bytes).await
+    }
+
+    pub async fn stream_conversations(
+        &self,
+        conversation_type: Option<ConversationType>,
+        include_duplicate_dms: bool,
+    ) -> Result<
+        impl Stream<Item = Result<MlsGroup<Context>, SubscribeError>> + use<'_, Context>,
+        SubscribeError,
+    >
+    where
+        Context::ApiClient: XmtpMlsStreams,
+    {
+        subscriptions::stream_conversations(&self.context, conversation_type, include_duplicate_dms)
+            .await
+    }
+
+    /// Stream conversations but decouple the lifetime of 'self' from the stream.
+    pub async fn stream_conversations_owned(
+        &self,
+        conversation_type: Option<ConversationType>,
+        include_duplicate_dms: bool,
+    ) -> Result<
+        impl Stream<Item = Result<MlsGroup<Context>, SubscribeError>> + 'static + use<Context>,
+        SubscribeError,
+    >
+    where
+        Context::ApiClient: XmtpMlsStreams,
+    {
+        subscriptions::stream_conversations_owned(
+            self.context.clone(),
+            conversation_type,
+            include_duplicate_dms,
+        )
+        .await
+    }
+}
+
+impl<Context> Client<Context>
+where
+    Context: XmtpSharedContext + 'static,
+    Context::ApiClient: XmtpMlsStreams + 'static,
+    Context::MlsStorage: 'static,
+{
+    pub fn stream_conversations_with_callback(
+        client: Arc<Client<Context>>,
+        conversation_type: Option<ConversationType>,
+        convo_callback: impl FnMut(Result<MlsGroup<Context>, SubscribeError>) + MaybeSend + 'static,
+        on_close: impl FnOnce() + MaybeSend + 'static,
+        include_duplicate_dms: bool,
+    ) -> impl StreamHandle<StreamOutput = Result<(), SubscribeError>> {
+        subscriptions::stream_conversations_with_callback(
+            client.context.clone(),
+            client,
+            conversation_type,
+            convo_callback,
+            on_close,
+            include_duplicate_dms,
+        )
+    }
+
+    pub async fn stream_all_messages(
+        &self,
+        conversation_type: Option<ConversationType>,
+        consent_state: Option<Vec<ConsentState>>,
+    ) -> Result<impl Stream<Item = Result<StoredGroupMessage, SubscribeError>> + '_, SubscribeError>
+    {
+        subscriptions::stream_all_messages(&self.context, conversation_type, consent_state).await
+    }
+
+    pub async fn stream_all_messages_owned(
+        &self,
+        conversation_type: Option<ConversationType>,
+        consent_state: Option<Vec<ConsentState>>,
+    ) -> Result<
+        impl Stream<Item = Result<StoredGroupMessage, SubscribeError>> + 'static + use<Context>,
+        SubscribeError,
+    > {
+        subscriptions::stream_all_messages_owned(
+            self.context.clone(),
+            conversation_type,
+            consent_state,
+        )
+        .await
+    }
+
+    pub fn stream_consent_with_callback(
+        client: Arc<Client<Context>>,
+        callback: impl FnMut(Result<Vec<StoredConsentRecord>, SubscribeError>) + MaybeSend + 'static,
+        on_close: impl FnOnce() + MaybeSend + 'static,
+    ) -> impl StreamHandle<StreamOutput = Result<(), SubscribeError>> {
+        subscriptions::stream_consent_with_callback(
+            client.context.clone(),
+            client,
+            callback,
+            on_close,
+        )
+    }
+
+    pub fn stream_preferences_with_callback(
+        client: Arc<Client<Context>>,
+        callback: impl FnMut(Result<Vec<PreferenceUpdate>, SubscribeError>) + MaybeSend + 'static,
+        on_close: impl FnOnce() + MaybeSend + 'static,
+    ) -> impl StreamHandle<StreamOutput = Result<(), SubscribeError>> {
+        subscriptions::stream_preferences_with_callback(
+            client.context.clone(),
+            client,
+            callback,
+            on_close,
+        )
+    }
+
+    pub fn stream_message_deletions_with_callback(
+        client: Arc<Client<Context>>,
+        callback: impl FnMut(Result<DecodedMessage, SubscribeError>) + MaybeSend + 'static,
+        on_close: impl FnOnce() + MaybeSend + 'static,
+    ) -> impl StreamHandle<StreamOutput = Result<(), SubscribeError>> {
+        subscriptions::stream_message_deletions_with_callback(
+            client.context.clone(),
+            client,
+            callback,
+            on_close,
+        )
+    }
+}
+
+impl<Context> Client<Context>
+where
+    Context: XmtpSharedContext + 'static,
+    Context::ApiClient: XmtpMlsStreams + 'static,
+    Context::MlsStorage: 'static,
+    <Context::ApiClient as XmtpMlsStreams>::GroupMessageStream: Unpin,
+    <Context::ApiClient as XmtpMlsStreams>::WelcomeMessageStream: Unpin,
+{
+    #[cfg(any(test, feature = "test-utils"))]
+    pub async fn stream_all_messages_owned_with_stats(
+        &self,
+        conversation_type: Option<ConversationType>,
+        consent_state: Option<Vec<ConsentState>>,
+    ) -> Result<
+        impl StreamWithStats<Item = Result<StoredGroupMessage, SubscribeError>> + 'static,
+        SubscribeError,
+    > {
+        subscriptions::stream_all_messages_owned_with_stats(
+            self.context.clone(),
+            conversation_type,
+            consent_state,
+        )
+        .await
+    }
+}
+
+impl<C: XmtpSharedContext + 'static> Client<C> {
+    /// Process fixed starting targets and only the discoveries from the enrolled Welcomes.
+    pub async fn catch_up_to_live(
+        &self,
+        timeout: Option<xmtp_common::time::Duration>,
+    ) -> Result<CatchUpSummary, CatchUpError> {
+        subscriptions::catch_up::catch_up_to_live(&self.context, timeout).await
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl<C> Client<C>
+where
+    C: XmtpSharedContext + 'static,
+    C::ApiClient:
+        XmtpMlsBidiStreams + XmtpMlsStreams + ApiClientIdentity + Clone + Send + Sync + 'static,
+    <C::ApiClient as XmtpMlsBidiStreams>::SubscribeStream: 'static,
+{
+    pub fn stream_all_messages_with_callback_dispatch(
+        client: Arc<Client<C>>,
+        conversation_type: Option<ConversationType>,
+        consent_states: Option<Vec<ConsentState>>,
+        callback: impl FnMut(Result<StoredGroupMessage, SubscribeError>) + MaybeSend + 'static,
+        on_close: impl FnOnce() + MaybeSend + 'static,
+    ) -> impl StreamHandle<StreamOutput = Result<(), SubscribeError>> {
+        router_callbacks::stream_all_messages_with_callback_dispatch(
+            client.context.clone(),
+            client,
+            conversation_type,
+            consent_states,
+            callback,
+            on_close,
+        )
+    }
+
+    pub fn stream_conversations_with_callback_dispatch(
+        client: Arc<Client<C>>,
+        conversation_type: Option<ConversationType>,
+        include_duplicate_dms: bool,
+        callback: impl FnMut(Result<MlsGroup<C>, SubscribeError>) + MaybeSend + 'static,
+        on_close: impl FnOnce() + MaybeSend + 'static,
+    ) -> impl StreamHandle<StreamOutput = Result<(), SubscribeError>> {
+        router_callbacks::stream_conversations_with_callback_dispatch(
+            client.context.clone(),
+            client,
+            conversation_type,
+            include_duplicate_dms,
+            callback,
+            on_close,
+        )
     }
 }
 

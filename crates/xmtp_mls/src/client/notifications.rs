@@ -1,114 +1,22 @@
 //! Local notification settings and the native notification API.
 
+pub use crate::core::notifications::{
+    NotificationChannel, NotificationConfig, NotificationOverride,
+};
+pub(crate) use crate::core::notifications::{
+    decode, effective, enabled_from_record, encode, encode_config, notification_settings_changed,
+    recipient_secret, stored_config,
+};
 use crate::{
-    client::Client,
     context::XmtpSharedContext,
-    groups::MlsGroup,
     worker::{WorkerKind, notifications as worker},
 };
 use serde::{Deserialize, Serialize};
 use xmtp_common::{ErrorCode, RetryableError};
-use xmtp_cryptography::secret::{Secret, Zeroizing};
-use xmtp_db::consent_record::{ConsentState, conversation_consent};
 use xmtp_db::{
-    StorageError, StoredSecret, TransactionOutcome::Continue, XmtpMlsStorageProvider,
+    StorageError, TransactionOutcome::Continue, XmtpMlsStorageProvider,
     notifications::StoredNotification, prelude::*,
 };
-use xmtp_proto::backend_v1::{self, register_request::Delivery};
-
-fn notification_settings_changed(context: &impl XmtpSharedContext) {
-    context.task_channels().mark_notification_changed();
-    xmtp_events::EventWriter::emit(
-        context.events(),
-        None,
-        Some(crate::subscriptions::internal::InternalEvent::NotificationSettingsChanged),
-    );
-}
-
-/// The delivery endpoint. Credentials are omitted from debug output.
-///
-/// The HTTP signing key serializes as a `Vec<u8>` does, so stored
-/// configurations do not change.
-#[derive(Clone, Serialize, Deserialize)]
-pub enum NotificationChannel {
-    Apns { token: String },
-    Fcm { token: String },
-    Http { url: String, signing_key: Secret },
-}
-
-impl std::fmt::Debug for NotificationChannel {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(match self {
-            Self::Apns { .. } => "Apns",
-            Self::Fcm { .. } => "Fcm",
-            Self::Http { .. } => "Http",
-        })
-    }
-}
-
-/// Delivery details and rules used to compute the desired subscriptions.
-#[derive(Clone, Serialize, Deserialize)]
-pub struct NotificationConfig {
-    pub channel: NotificationChannel,
-    pub consent_states: Vec<ConsentState>,
-    pub include_welcomes: bool,
-    pub include_sync_groups: bool,
-    pub include_commits: bool,
-}
-
-impl NotificationConfig {
-    /// Use the standard rules with the supplied delivery endpoint.
-    pub fn new(channel: NotificationChannel) -> Self {
-        Self {
-            channel,
-            consent_states: vec![ConsentState::Allowed],
-            include_welcomes: true,
-            include_sync_groups: false,
-            include_commits: false,
-        }
-    }
-
-    pub(crate) fn channel_id(&self) -> i32 {
-        match self.channel {
-            NotificationChannel::Apns { .. } => backend_v1::Channel::Apns as i32,
-            NotificationChannel::Fcm { .. } => backend_v1::Channel::Fcm as i32,
-            NotificationChannel::Http { .. } => backend_v1::Channel::Http as i32,
-        }
-    }
-
-    /// The request copies the signing key and the recipient secret. Each copy
-    /// of the request wipes them on drop.
-    pub(crate) fn registration(&self, record: &StoredNotification) -> backend_v1::RegisterRequest {
-        let delivery = match &self.channel {
-            NotificationChannel::Apns { token } => Delivery::Apns(backend_v1::ApnsDelivery {
-                token: token.clone(),
-            }),
-            NotificationChannel::Fcm { token } => Delivery::Fcm(backend_v1::FcmDelivery {
-                token: token.clone(),
-            }),
-            NotificationChannel::Http { url, signing_key } => {
-                Delivery::Http(backend_v1::HttpDelivery {
-                    url: url.clone(),
-                    signing_key: signing_key.as_slice().to_vec(),
-                })
-            }
-        };
-        backend_v1::RegisterRequest {
-            recipient_id: record.push_recipient_id.clone().unwrap_or_default(),
-            recipient_secret: recipient_secret(record),
-            delivery: Some(delivery),
-        }
-    }
-}
-
-/// A copy of the stored recipient secret for a request, which wipes it on drop.
-pub(crate) fn recipient_secret(record: &StoredNotification) -> Vec<u8> {
-    record
-        .push_recipient_secret
-        .as_ref()
-        .map(|secret| secret.as_slice().to_vec())
-        .unwrap_or_default()
-}
 
 /// The locally stored notification state. This getter does not make a request.
 #[derive(Debug)]
@@ -116,14 +24,6 @@ pub enum NotificationState {
     Disabled,
     Enabled,
     Failed(NotificationError),
-}
-
-/// A conversation rule. Sync groups use the client rule only.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum NotificationOverride {
-    Enabled,
-    Disabled,
-    Default,
 }
 
 /// Errors use fixed messages and never include notification credentials.
@@ -259,50 +159,6 @@ impl From<Failure> for NotificationError {
     }
 }
 
-pub(crate) fn encode<T: Serialize>(value: &T) -> Result<Vec<u8>, StorageError> {
-    serde_json::to_vec(value).map_err(|_| StorageError::DbSerialize)
-}
-
-pub(crate) fn decode<T: serde::de::DeserializeOwned>(value: &[u8]) -> Result<T, StorageError> {
-    serde_json::from_slice(value).map_err(|_| StorageError::DbDeserialize)
-}
-
-/// Encode a configuration, which holds the HTTP signing key, for storage.
-///
-/// The same JSON as [`encode`]. A first pass measures it, so the zeroizing
-/// buffer never grows and frees a partial copy of the key.
-pub(crate) fn encode_config(config: &NotificationConfig) -> Result<StoredSecret, StorageError> {
-    struct Measure(usize);
-    impl std::io::Write for Measure {
-        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
-            self.0 += bytes.len();
-            Ok(bytes.len())
-        }
-        fn flush(&mut self) -> std::io::Result<()> {
-            Ok(())
-        }
-    }
-    let mut measure = Measure(0);
-    serde_json::to_writer(&mut measure, config).map_err(|_| StorageError::DbSerialize)?;
-    let mut bytes = Zeroizing::new(Vec::with_capacity(measure.0));
-    serde_json::to_writer(&mut *bytes, config).map_err(|_| StorageError::DbSerialize)?;
-    Ok(bytes.into())
-}
-
-/// Decode the stored configuration. The stored bytes stay in their
-/// `StoredSecret`, and the signing key decodes straight into a `Secret`.
-pub(crate) fn stored_config(
-    record: &StoredNotification,
-) -> Result<NotificationConfig, StorageError> {
-    decode(
-        record
-            .push_config
-            .as_ref()
-            .ok_or(StorageError::DbDeserialize)?
-            .as_slice(),
-    )
-}
-
 pub(crate) fn state(record: &StoredNotification) -> Result<NotificationState, StorageError> {
     match record.push_state {
         0 => Ok(NotificationState::Disabled),
@@ -320,188 +176,109 @@ pub(crate) fn state(record: &StoredNotification) -> Result<NotificationState, St
     }
 }
 
-impl<Context: XmtpSharedContext> Client<Context> {
-    /// Store configuration, then register inline. The task retries transient errors.
-    // implements: PUSH-266
-    #[xmtp_common::rpc_span]
-    pub async fn enable_notifications(
-        &self,
-        config: NotificationConfig,
-    ) -> Result<NotificationState, NotificationError> {
-        if !self
-            .context
-            .worker_config()
-            .worker_enabled(WorkerKind::TaskRunner)
-        {
-            return Err(NotificationError::TaskRunnerDisabled);
-        }
-        let valid_channel = match &config.channel {
-            NotificationChannel::Apns { .. } | NotificationChannel::Fcm { .. } => true,
-            NotificationChannel::Http { signing_key, .. } => {
-                (16..=64).contains(&signing_key.as_slice().len())
-            }
-        };
-        if !valid_channel {
-            return Err(NotificationError::InvalidArgument);
-        }
-        let generation = crate::state_tx::state_write(self.context.mls_storage(), |tx| {
-            let storage = tx.storage();
-            let db = storage.db();
-            let mut record = db.notification_record()?;
-            if record.push_recipient_id.is_none() {
-                record.push_recipient_id = Some(xmtp_common::rand_vec::<32>());
-                record.push_recipient_secret =
-                    Some(xmtp_cryptography::rand::rand_secret::<32>().into());
-            }
-            record.push_generation = record
-                .push_generation
-                .checked_add(1)
-                .ok_or(StorageError::DbSerialize)?;
-            record.push_config = Some(encode_config(&config)?);
-            record.push_state = 1;
-            record.push_failed_error = None;
-            // A new configuration does not end a pending rate-limit delay.
-            // Deadlines that cannot be decoded hold nothing, so they never
-            // stop an app from enabling.
-            let hold = worker::rate_limit_hold(&record).unwrap_or_default();
-            record.push_deadlines = Some(encode(&hold)?);
-            record.push_suppressed = None;
-            db.save_notification_record(&record)?;
-            Ok::<_, StorageError>(Continue(record.push_generation))
-        })?
-        .into_continued();
-        notification_settings_changed(&self.context);
-        let _guard = self
-            .context
-            .task_channels()
-            .notification_request
-            .lock()
-            .await;
-        let record = self.context.db().notification_record()?;
-        if record.push_generation == generation && record.push_state == 1 {
-            let result = worker::register(&self.context, &record, &config).await;
-            if let Ok(true) = &result {
-                worker::resume_after_registration(&self.context, generation)?;
-            }
-            drop(_guard);
-            notification_settings_changed(&self.context);
-            result?;
-        }
-        Ok(self.notification_state()?)
+/// Store configuration, then register inline. The task retries transient errors.
+// implements: PUSH-266
+pub(crate) async fn enable_notifications<Context: XmtpSharedContext>(
+    context: &Context,
+    config: NotificationConfig,
+) -> Result<NotificationState, NotificationError> {
+    if !context
+        .worker_config()
+        .worker_enabled(WorkerKind::TaskRunner)
+    {
+        return Err(NotificationError::TaskRunnerDisabled);
     }
-
-    /// Disable locally before unregistering. The recipient identity and overrides stay.
-    /// A failed unregister leaves the client disabled with its recipient reset owed.
-    #[xmtp_common::rpc_span]
-    pub async fn disable_notifications(&self) -> Result<(), NotificationError> {
-        let record = crate::state_tx::state_write(self.context.mls_storage(), |tx| {
-            let storage = tx.storage();
-            let db = storage.db();
-            // Deadlines that cannot be decoded hold nothing, so they never
-            // stop an app from disabling.
-            let hold = worker::rate_limit_hold(&db.notification_record()?).unwrap_or_default();
-            let mut record = db.disable_notifications()?;
-            // The task must not send inside a pending rate-limit delay after a
-            // later enable. App calls themselves are not held (RATE-041 binds
-            // the client's own retries).
-            if hold.rate_limited(xmtp_common::time::now_ns()) {
-                record.push_deadlines = Some(encode(&hold)?);
-                db.save_notification_record(&record)?;
-            }
-            Ok::<_, StorageError>(Continue(record))
-        })?
-        .into_continued();
-        notification_settings_changed(&self.context);
+    let valid_channel = match &config.channel {
+        NotificationChannel::Apns { .. } | NotificationChannel::Fcm { .. } => true,
+        NotificationChannel::Http { signing_key, .. } => {
+            (16..=64).contains(&signing_key.as_slice().len())
+        }
+    };
+    if !valid_channel {
+        return Err(NotificationError::InvalidArgument);
+    }
+    let generation = crate::state_tx::state_write(context.mls_storage(), |tx| {
+        let storage = tx.storage();
+        let db = storage.db();
+        let mut record = db.notification_record()?;
         if record.push_recipient_id.is_none() {
-            return Ok(());
+            record.push_recipient_id = Some(xmtp_common::rand_vec::<32>());
+            record.push_recipient_secret =
+                Some(xmtp_cryptography::rand::rand_secret::<32>().into());
         }
-        let _guard = self
-            .context
-            .task_channels()
-            .notification_request
-            .lock()
-            .await;
-        // A later disable still wants this recipient removed. The request
-        // lock orders any subsequent enable's Register after Unregister.
-        if self.context.db().notification_record()?.push_state != 0 {
-            notification_settings_changed(&self.context);
-            return Ok(());
+        record.push_generation = record
+            .push_generation
+            .checked_add(1)
+            .ok_or(StorageError::DbSerialize)?;
+        record.push_config = Some(encode_config(&config)?);
+        record.push_state = 1;
+        record.push_failed_error = None;
+        // A new configuration does not end a pending rate-limit delay.
+        // Deadlines that cannot be decoded hold nothing, so they never
+        // stop an app from enabling.
+        let hold = worker::rate_limit_hold(&record).unwrap_or_default();
+        record.push_deadlines = Some(encode(&hold)?);
+        record.push_suppressed = None;
+        db.save_notification_record(&record)?;
+        Ok::<_, StorageError>(Continue(record.push_generation))
+    })?
+    .into_continued();
+    notification_settings_changed(context);
+    let _guard = context.task_channels().notification_request.lock().await;
+    let record = context.db().notification_record()?;
+    if record.push_generation == generation && record.push_state == 1 {
+        let result = worker::register(context, &record, &config).await;
+        if let Ok(true) = &result {
+            worker::resume_after_registration(context, generation)?;
         }
-        worker::unregister(&self.context, &record, worker::request_deadline()).await
+        drop(_guard);
+        notification_settings_changed(context);
+        result?;
     }
-
-    /// Read the locally stored state without a backend call.
-    pub fn notification_state(&self) -> Result<NotificationState, StorageError> {
-        state(&self.context.db().notification_record()?)
-    }
+    Ok(notification_state(context)?)
 }
 
-/// Resolve only local rules. Active membership is checked separately by the task.
-pub(crate) fn effective(
-    config: &NotificationConfig,
-    group: &xmtp_db::group::StoredGroup,
-    consent: ConsentState,
-) -> bool {
-    use xmtp_proto::types::ConversationType;
-    if group.conversation_type == ConversationType::Sync {
-        return config.include_sync_groups;
-    }
-    if !matches!(
-        group.conversation_type,
-        ConversationType::Group | ConversationType::Dm
-    ) {
-        return false;
-    }
-    match group.push_override {
-        Some(1) => true,
-        Some(0) => false,
-        _ => config.consent_states.contains(&consent),
-    }
-}
-
-pub(crate) fn enabled_from_record(
-    record: &StoredNotification,
-    group: &xmtp_db::group::StoredGroup,
-    consent: ConsentState,
-) -> Result<bool, StorageError> {
-    if record.push_state != 1 {
-        return Ok(false);
-    }
-    let config = stored_config(record)?;
-    Ok(effective(&config, group, consent))
-}
-
-impl<Context: XmtpSharedContext> MlsGroup<Context> {
-    /// Set an override after which the task recomputes the desired set.
-    pub fn set_notifications(&self, value: NotificationOverride) -> Result<(), StorageError> {
-        crate::state_tx::state_write(self.context.mls_storage(), |tx| {
-            tx.storage().db().set_notification_override(
-                &self.group_id,
-                match value {
-                    NotificationOverride::Enabled => Some(1),
-                    NotificationOverride::Disabled => Some(0),
-                    NotificationOverride::Default => None,
-                },
-            )?;
-            Ok::<_, StorageError>(Continue(()))
-        })?;
-        notification_settings_changed(&self.context);
-        Ok(())
-    }
-
-    /// Return the effective local rule for this conversation.
-    pub fn notifications_enabled(&self) -> Result<bool, StorageError> {
-        let db = self.context.db();
-        let record = db.notification_record()?;
-        if record.push_state != 1 {
-            return Ok(false);
+/// Disable locally before unregistering. The recipient identity and overrides stay.
+/// A failed unregister leaves the client disabled with its recipient reset owed.
+pub(crate) async fn disable_notifications<Context: XmtpSharedContext>(
+    context: &Context,
+) -> Result<(), NotificationError> {
+    let record = crate::state_tx::state_write(context.mls_storage(), |tx| {
+        let storage = tx.storage();
+        let db = storage.db();
+        // Deadlines that cannot be decoded hold nothing, so they never
+        // stop an app from disabling.
+        let hold = worker::rate_limit_hold(&db.notification_record()?).unwrap_or_default();
+        let mut record = db.disable_notifications()?;
+        // The task must not send inside a pending rate-limit delay after a
+        // later enable. App calls themselves are not held (RATE-041 binds
+        // the client's own retries).
+        if hold.rate_limited(xmtp_common::time::now_ns()) {
+            record.push_deadlines = Some(encode(&hold)?);
+            db.save_notification_record(&record)?;
         }
-        let group = db
-            .find_group(&self.group_id)?
-            .ok_or(xmtp_db::NotFound::GroupById(self.group_id))?;
-        let consent = conversation_consent(&db, self.context.inbox_id(), &self.group_id)?;
-        enabled_from_record(&record, &group, consent)
+        Ok::<_, StorageError>(Continue(record))
+    })?
+    .into_continued();
+    notification_settings_changed(context);
+    if record.push_recipient_id.is_none() {
+        return Ok(());
     }
+    let _guard = context.task_channels().notification_request.lock().await;
+    // A later disable still wants this recipient removed. The request
+    // lock orders any subsequent enable's Register after Unregister.
+    if context.db().notification_record()?.push_state != 0 {
+        notification_settings_changed(context);
+        return Ok(());
+    }
+    worker::unregister(context, &record, worker::request_deadline()).await
+}
+
+/// Read the locally stored state without a backend call.
+pub(crate) fn notification_state<Context: XmtpSharedContext>(
+    context: &Context,
+) -> Result<NotificationState, StorageError> {
+    state(&context.db().notification_record()?)
 }
 
 #[cfg(test)]

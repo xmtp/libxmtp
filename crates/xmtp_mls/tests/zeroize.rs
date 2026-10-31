@@ -44,8 +44,8 @@ use xmtp_mls::{
         intents::{QueueIntent, UpdateMetadataIntentData},
         send_message_opts::SendMessageOpts,
     },
-    identity::{Identity, IdentityStrategy},
-    tester,
+    identity::IdentityStrategy,
+    identity_lifecycle, tester,
     utils::{FullXmtpClient, register_client},
 };
 use xmtp_mls_common::{
@@ -138,8 +138,12 @@ async fn open_client(path: &str, strategy: IdentityStrategy) -> FullXmtpClient {
 async fn installation_key_is_wiped_on_store_and_load() {
     let wallet = generate_local_wallet();
     let credential = XmtpInstallationCredential::from_bytes(&INSTALLATION_KEY)?;
-    let identity =
-        Identity::new_inbox_with_installation_keys(wallet.get_identifier()?, 1, credential).await?;
+    let identity = identity_lifecycle::new_inbox_with_installation_keys(
+        wallet.get_identifier()?,
+        1,
+        credential,
+    )
+    .await?;
     let path = xmtp_common::tmp_path();
 
     let ((), hits) = scan_async(
@@ -180,7 +184,7 @@ async fn installation_key_holders_redact_debug() {
     let serialized = xmtp_db::db_serialize(&credential)?;
     let stored = StoredSecret::from(serialized.clone());
     let row = StoredIdentity::new("inbox".to_owned(), serialized, vec![1, 2, 3]);
-    let identity = Identity::new_inbox_with_installation_keys(
+    let identity = identity_lifecycle::new_inbox_with_installation_keys(
         generate_local_wallet().get_identifier()?,
         1,
         credential.clone(),

@@ -1,6 +1,7 @@
 //! XMTP Welcome Processing
 //! Processes a new welcome from the network
 
+use crate::core::sync_tasks::schedule_newcomer_adds;
 use crate::groups::MetadataPermissionsError;
 use crate::groups::mls_ext::CommitLogStorer;
 use crate::groups::mls_ext::ResolvedWelcome;
@@ -11,7 +12,7 @@ use crate::identity_updates::{
 };
 use crate::state_tx::{state_write, state_write_with_events};
 use crate::subscriptions::internal::{InternalEvent, dm_event_context, emit_root_key_changed};
-use crate::worker::device_sync::{is_own_sync_group, schedule_newcomer_adds};
+use crate::worker::device_sync::is_own_sync_group;
 use crate::{
     context::XmtpSharedContext,
     groups::{
@@ -682,7 +683,7 @@ where
         encoded_added_payload.encode(&mut encoded_added_payload_bytes)?;
 
         let added_idempotency_key = format!("{}_welcome_added", welcome.created_ns);
-        let added_message_id = crate::utils::id::calculate_message_id(
+        let added_message_id = crate::groups::message_id::calculate_message_id(
             stored_group.id,
             encoded_added_payload_bytes.as_slice(),
             &added_idempotency_key,

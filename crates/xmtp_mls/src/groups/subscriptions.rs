@@ -1,14 +1,9 @@
 use super::MlsGroup;
-use crate::{
-    context::XmtpSharedContext,
-    subscriptions::{Result, stream_messages::StreamGroupMessages},
-};
-use futures::Stream;
+use crate::{context::XmtpSharedContext, subscriptions::Result};
 use prost::Message;
 use xmtp_proto::backend_v1::ServerEnvelope;
 
 use xmtp_db::group_message::StoredGroupMessage;
-use xmtp_proto::api_client::XmtpMlsStreams;
 
 impl<Context> MlsGroup<Context>
 where
@@ -53,39 +48,13 @@ where
             .into_iter()
             .collect())
     }
-
-    #[tracing::instrument(err, skip_all, fields(operation = "stream.stream_group_messages"))]
-    pub async fn stream<'a>(
-        &'a self,
-    ) -> Result<impl Stream<Item = Result<StoredGroupMessage>> + use<'a, Context>>
-    where
-        Context::ApiClient: XmtpMlsStreams + 'a,
-    {
-        StreamGroupMessages::new(&self.context, vec![self.group_id]).await
-    }
-
-    /// create a stream that is not attached to any lifetime
-    #[tracing::instrument(
-        err,
-        skip_all,
-        fields(operation = "stream.stream_group_messages_owned")
-    )]
-    pub async fn stream_owned(
-        &self,
-    ) -> Result<impl Stream<Item = Result<StoredGroupMessage>> + 'static>
-    where
-        Context: 'static,
-        Context::ApiClient: XmtpMlsStreams + 'static,
-        Context::Db: 'static,
-    {
-        StreamGroupMessages::new_owned(self.context.clone(), vec![self.group_id]).await
-    }
 }
 
 #[cfg(test)]
 pub(crate) mod tests {
     use crate::context::XmtpSharedContext;
     use crate::groups::send_message_opts::SendMessageOpts;
+    use crate::subscriptions::stream_messages::StreamGroupMessages;
     use futures::StreamExt;
     use std::sync::Arc;
 
@@ -116,7 +85,9 @@ pub(crate) mod tests {
         bola_group.receive().await.unwrap();
         let retained = bola_group.find_messages(&Default::default()).unwrap();
 
-        let stream = bola_group.stream().await.unwrap();
+        let stream = StreamGroupMessages::new(&bola_group.context, vec![bola_group.group_id])
+            .await
+            .unwrap();
         futures::pin_mut!(stream);
         for expected in retained {
             assert_eq!(stream.next().await.unwrap().unwrap(), expected);
@@ -146,7 +117,9 @@ pub(crate) mod tests {
         let amal = Arc::new(ClientBuilder::new_test_client_vanilla(&generate_local_wallet()).await);
         let group = amal.create_group(None, None).unwrap();
 
-        let stream = group.stream().await.unwrap();
+        let stream = StreamGroupMessages::new(&group.context, vec![group.group_id])
+            .await
+            .unwrap();
         futures::pin_mut!(stream);
 
         for i in 0..10 {
@@ -182,7 +155,9 @@ pub(crate) mod tests {
 
         let amal_group = amal.create_group(None, None).unwrap();
 
-        let stream = amal_group.stream().await.unwrap();
+        let stream = StreamGroupMessages::new(&amal_group.context, vec![amal_group.group_id])
+            .await
+            .unwrap();
         futures::pin_mut!(stream);
 
         amal_group.add_members(&[bola.inbox_id()]).await.unwrap();

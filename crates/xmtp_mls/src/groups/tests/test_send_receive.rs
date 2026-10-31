@@ -969,7 +969,7 @@ async fn application_component_commit_names_each_changed_item() {
 // A frozen send clock exercises the WASM path on native as well as WASM.
 #[xmtp_common::test(unwrap_try = true)]
 async fn same_millisecond_optimistic_sends_keep_recovery_order() {
-    use crate::utils::id::calculate_message_id;
+    use crate::groups::message_id::calculate_message_id;
     use xmtp_db::delivery::QueryDelivery;
     use xmtp_db::group_message::{RecoveryQueryArgs, SortDirection};
 

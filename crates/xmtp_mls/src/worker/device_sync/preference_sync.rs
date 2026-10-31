@@ -1,21 +1,13 @@
 use super::*;
-use xmtp_cryptography::secret::Secret;
+pub use crate::core::events::PreferenceUpdate;
 use xmtp_db::consent_record::{
-    ConsentChange, ConsentWrite, Owed, StoredConsentRecord, parse_consent_save, write_consent,
+    ConsentChange, ConsentWrite, Owed, parse_consent_save, write_consent,
 };
 use xmtp_db::group_message::StoredGroupMessage;
 use xmtp_db::user_preferences::{RootKeyWrite, write_root_key};
 use xmtp_proto::xmtp::device_sync::content::{
     PreferenceUpdate as PreferenceUpdateProto, preference_update::Update as UpdateProto,
 };
-
-/// A stored preference change, for the legacy in-process streams. `Debug`
-/// shows the HMAC root key only as its length: `Secret` redacts it.
-#[derive(Clone, Debug)]
-pub enum PreferenceUpdate {
-    Consent(StoredConsentRecord),
-    Hmac { key: Secret, cycled_at_ns: i64 },
-}
 
 /// What one sync message changed.
 #[derive(Default)]
@@ -72,6 +64,7 @@ pub(super) fn apply_preference_updates(
 mod tests {
     use super::*;
     use crate::tester;
+    use xmtp_common::time::now_ns;
     use xmtp_db::consent_record::{
         ConsentKey, ConsentState, ConsentType, ConsentValue, MAX_AHEAD_NS,
     };

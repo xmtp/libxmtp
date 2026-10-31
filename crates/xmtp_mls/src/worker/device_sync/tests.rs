@@ -2,7 +2,7 @@ use super::*;
 use crate::client::ConsentAct;
 use crate::utils::test::crafted_welcome::assert_welcome_rejected;
 use crate::{groups::send_message_opts::SendMessageOpts, tester};
-use xmtp_common::NS_IN_HOUR;
+use xmtp_common::{NS_IN_DAY, NS_IN_HOUR, time::now_ns};
 use xmtp_db::{
     ConnectionExt,
     consent_record::{
@@ -17,6 +17,7 @@ use xmtp_db::{
 use xmtp_id::utils::test::docker_smart_wallet;
 #[cfg(not(target_arch = "wasm32"))]
 use xmtp_logging::{LogRecord, LogSinkTarget, SinkError};
+use xmtp_proto::xmtp::mls::database::task::Task as TaskKindProto;
 
 #[cfg(not(target_arch = "wasm32"))]
 struct Capture(parking_lot::Mutex<Vec<LogRecord>>);

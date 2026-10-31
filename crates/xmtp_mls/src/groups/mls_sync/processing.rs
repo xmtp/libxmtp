@@ -2,10 +2,10 @@
 
 use super::*;
 use crate::{
+    core::sync_tasks::schedule_newcomer_adds,
     identity_updates::{IdentityDependencyError, IdentityRequirement},
     state_tx::{state_write, state_write_with_events},
     subscriptions::internal::{InternalEvent, emit_root_key_changed},
-    worker::device_sync::schedule_newcomer_adds,
 };
 use std::collections::BTreeSet;
 use xmtp_api_backend::envelope::decode_group_message;

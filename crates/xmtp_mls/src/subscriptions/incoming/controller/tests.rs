@@ -205,8 +205,7 @@ async fn inferred_inactive_dm_does_not_request_welcome_recovery(#[case] stored_l
         controller.reconcile().unwrap();
     }
     assert!(
-        !MlsStore::new(alix.context.clone())
-            .group(&sibling.id)
+        !MlsGroup::load_by_id(&alix.context, &sibling.id)
             .unwrap()
             .is_active()
             .unwrap()

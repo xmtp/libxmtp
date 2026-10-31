@@ -1,14 +1,16 @@
 pub mod device_sync;
 pub mod disappearing_messages;
-pub mod hmac_epoch;
+pub use crate::core::hmac_epoch;
 pub mod key_package_maintenance;
 pub mod metrics;
 pub(crate) mod notifications;
 pub mod tasks;
 
 use crate::context::XmtpSharedContext;
-use crate::subscriptions::internal::InternalEvent;
-use device_sync::worker::SyncMetric;
+use crate::core::events::InternalEvent;
+use crate::core::metrics::SyncMetric;
+pub use crate::core::reconnect::{LocalNeedsDbReconnect, NeedsDbReconnect};
+use crate::core::task_channels::TaskWorkerChannels;
 use futures::future::{AbortHandle, Abortable};
 use futures::{StreamExt, stream::FuturesUnordered};
 use metrics::WorkerMetrics;
@@ -16,7 +18,6 @@ use parking_lot::Mutex;
 use std::fmt::Debug;
 use std::pin::Pin;
 use std::{any::Any, collections::HashMap, hash::Hash, sync::Arc};
-use tasks::TaskWorkerChannels;
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
 use tracing::instrument::Instrumented;
@@ -108,7 +109,7 @@ fn worker_event_filter(kind: WorkerKind) -> Option<(EventFilter<InternalEvent>, 
 /// every worker enabled, each using its own compiled-in interval const, no
 /// jitter. All fields are opt-in so existing callers are unaffected.
 ///
-/// Durations are nanoseconds, matching [`crate::builder::ForkRecoveryOpts`].
+/// Durations are nanoseconds, matching [`crate::core::config::ForkRecoveryOpts`].
 #[derive(Clone, Debug, Default)]
 pub struct WorkerConfig {
     /// Global fallback interval (ns) for any worker without a per-kind
@@ -466,18 +467,6 @@ pub trait Worker: MaybeSend + MaybeSync + 'static {
             }
         }) as Pin<Box<SpawnWorkerFut>>;
         fut.instrument(tracing::debug_span!("libxmtp_worker", kind = kind_str))
-    }
-}
-
-#[cfg_attr(not(target_arch = "wasm32"), trait_variant::make(NeedsDbReconnect: Send + Sync))]
-#[cfg_attr(target_arch = "wasm32", trait_variant::make(NeedsDbReconnect: xmtp_common::Wasm))]
-pub trait LocalNeedsDbReconnect: std::error::Error {
-    fn needs_db_reconnect(&self) -> bool;
-
-    /// The least time to wait before restarting a worker that failed with
-    /// this error: a rate-limit rejection's delay (RATE-041).
-    fn restart_delay(&self) -> Option<Duration> {
-        None
     }
 }
 

@@ -12,6 +12,8 @@ use super::{
 use crate::{
     client::ClientError,
     context::XmtpSharedContext,
+    core::hmac_epoch::hmac_epoch,
+    groups::traits::IntoWith,
     groups::{
         group_membership::GroupMembership,
         intents::MembershipDiffWithKeyPackages,
@@ -20,17 +22,15 @@ use crate::{
         mls_sync::update_group_membership::apply_readd_installations_intent,
         validated_commit::ValidatedCommit,
     },
+    groups::{
+        hash::sha256,
+        message_id::{calculate_message_id, calculate_message_id_for_intent},
+    },
     identity::{IdentityError, parse_credential},
     identity_updates::{IdentityUpdates, load_identity_updates_for_client},
     intents::ProcessIntentError,
     messages::{decoded_message::MessageBody, enrichment::EnrichMessageError},
     mls_store::MlsStore,
-    traits::IntoWith,
-    utils::{
-        hash::sha256,
-        id::{calculate_message_id, calculate_message_id_for_intent},
-        time::hmac_epoch,
-    },
 };
 use hkdf::Hkdf;
 use hmac::{Hmac, Mac};
