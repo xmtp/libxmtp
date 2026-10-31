@@ -13,7 +13,7 @@
   },
   "devDependencies": {
     "oxfmt": "catalog:",
-    "oxlint": "1.83.0",
+    "oxlint": "1.89.0",
     "oxlint-tsgolint": "7.0.2001",
     "tsdown": "catalog:",
     "typescript": "catalog:"
