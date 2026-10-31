@@ -1,0 +1,26 @@
+[package]
+name = "xmtp_mls_boundaries"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+description = "Checks that code in crates/xmtp_mls keeps the dependency direction of the planned crate split"
+
+[[bin]]
+name = "check-boundaries"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+proc-macro2 = { workspace = true, features = ["span-locations"] }
+prost = { workspace = true, features = ["derive", "std"] }
+serde.workspace = true
+syn = { workspace = true, features = ["visit"] }
+toml.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+xmtp_common = { workspace = true, features = ["test-utils"] }
+
+[lints]
+workspace = true

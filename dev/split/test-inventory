@@ -1,0 +1,85 @@
+#!/usr/bin/env python3.11
+"""Print the leaf test names of the workspace, native and wasm.
+
+Usage: dev/split/test-inventory [native|wasm|all]
+
+Each line is `<platform>\t<leaf>`, sorted, one per test, duplicates kept, so
+two runs can be compared as multisets with `diff`. A leaf is the last
+segment of a test's path: moving a test to another crate or module keeps its
+leaf. The wasm list uses the packages and profile of `just wasm test`
+(dev/wasm.just). Run it through `dev/nix-shell`; the wasm list needs the wasm
+toolchain of that shell.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+from pathlib import Path
+import re
+import subprocess
+import sys
+
+ROOT = Path(__file__).resolve().parents[2]
+WASM_JUST = ROOT / "dev" / "wasm.just"
+
+
+def wasm_packages() -> list[str]:
+    match = re.search(
+        r'^wasm_packages := "([^"]+)"', WASM_JUST.read_text(), re.MULTILINE
+    )
+    if match is None:
+        raise SystemExit(f"no wasm_packages in {WASM_JUST}")
+    return match.group(1).split()
+
+
+def command(platform: str) -> list[str]:
+    base = ["cargo", "nextest", "list", "--locked", "--message-format", "json"]
+    if platform == "native":
+        return [*base, "--workspace"]
+    return [
+        *base,
+        "--cargo-profile",
+        "wasm-test",
+        "--target",
+        "wasm32-unknown-unknown",
+        *wasm_packages(),
+    ]
+
+
+def leaves(listing: dict) -> list[str]:
+    """The leaf names of every test case in a nextest JSON listing."""
+    found = []
+    for suite in listing["rust-suites"].values():
+        for name in suite["testcases"]:
+            found.append(name.rsplit("::", 1)[-1])
+    return sorted(found)
+
+
+def inventory(platform: str) -> list[str]:
+    env = dict(os.environ, SQLX_OFFLINE="true")
+    output = subprocess.run(
+        command(platform),
+        cwd=ROOT,
+        env=env,
+        check=True,
+        stdout=subprocess.PIPE,
+        text=True,
+    ).stdout
+    return leaves(json.loads(output))
+
+
+def main(argv: list[str]) -> int:
+    choice = argv[0] if argv else "all"
+    if choice not in ("native", "wasm", "all") or len(argv) > 1:
+        print(__doc__, file=sys.stderr)
+        return 2
+    platforms = ["native", "wasm"] if choice == "all" else [choice]
+    for platform in platforms:
+        for leaf in inventory(platform):
+            print(f"{platform}\t{leaf}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

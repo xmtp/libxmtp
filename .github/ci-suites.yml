@@ -362,6 +362,28 @@ suites:
       - "sdks/react-native/test/consumers/**/*.json"
       # The job runs it to evaluate the sets.
       - "dev/ci/rn-isolation"
+  # The fast tier of the xmtp_mls boundaries check (dev/check-boundaries):
+  # no new upward edge between the planned crates, waivers only shrink, and
+  # new crates keep the xmtp_mls_ log prefix.
+  lint_boundaries:
+    title: xmtp_mls boundaries
+    phase: lint
+    workflow: lint-boundaries.yml
+    run_on: [draft_pr_push, ready_pr_push, merge]
+    disable_on_forks: false
+    secrets: none
+    permissions: {contents: read}
+    kache: []
+    products: []
+    runners:
+      runner: {pr: blacksmith-4vcpu-ubuntu-2404, merge: ubuntu-24.04}
+    pr_filters:
+      - "crates/xmtp_mls/src/**"
+      - "crates/xmtp_mls/boundaries.toml"
+      - cargo_package: xmtp_mls_boundaries
+      - "dev/check-boundaries"
+      # The crate-name rule reads every workspace manifest.
+      - "{Cargo.toml,apps/*/Cargo.toml,crates/*/Cargo.toml}"
   # Typecheck, Oxlint, Oxfmt and unit tests of the React Native example. It
   # runs on drafts too: native builds are local (see the app's AGENTS.md).
   lint_example_react_native:

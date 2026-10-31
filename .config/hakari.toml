@@ -44,6 +44,8 @@ workspace-members = [
   "keepalive-probe",
   # The generator uses the fork's build-only dependency graph.
   "xmtp-sdk-bindgen",
+  # Development tooling: its parser dependencies must not enter client builds.
+  "xmtp_mls_boundaries",
 ]
 third-party = [
   { name = "tonic" },
@@ -79,6 +81,7 @@ workspace-members = [
   "error_glossary",
   "keepalive-probe",
   "xmtp-sdk-bindgen",
+  "xmtp_mls_boundaries",
 ]
 third-party = [
   { name = "tonic" },
