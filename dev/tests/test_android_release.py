@@ -19,6 +19,8 @@ WORKFLOW = ROOT / ".github/workflows/release-android.yml"
 
 class AndroidReleaseTest(unittest.TestCase):
     def test_registry_publication_order_and_failure_propagation(self):
+        fixture_environment = os.environ.copy()
+        fixture_environment.pop("GITHUB_STATE", None)
         jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
         self.assertIn("publish", jobs["publish-github"]["needs"])
         self.assertIn("publish-github", jobs["publish-central"]["needs"])
@@ -78,7 +80,7 @@ class AndroidReleaseTest(unittest.TestCase):
                             ["bash", "-euc", command],
                             cwd=root,
                             env=dict(
-                                os.environ,
+                                fixture_environment,
                                 VERSION="8.0.0-rc1",
                                 XMTP_ANDROID_RELEASE_BUNDLE=str(root / "bundle"),
                                 GRADLE_LOG=str(log),
@@ -104,7 +106,7 @@ class AndroidReleaseTest(unittest.TestCase):
                             ["bash", "-euc", command],
                             cwd=root,
                             env=dict(
-                                os.environ,
+                                fixture_environment,
                                 VERSION="8.0.0-rc1",
                                 GRADLE_LOG=str(log),
                                 GRADLE_EXIT="0",
@@ -121,6 +123,19 @@ class AndroidReleaseTest(unittest.TestCase):
                             result.stderr,
                         )
                         self.assertFalse(log.exists())
+
+    def test_registry_publication_ignores_inherited_runner_state(self):
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(Path(__file__).resolve()),
+                "AndroidReleaseTest.test_registry_publication_order_and_failure_propagation",
+            ],
+            env=dict(os.environ, GITHUB_STATE="synthetic-runner-state"),
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_publish_credentials_and_failure_gate(self):
         workflow = yaml.safe_load(WORKFLOW.read_text())
