@@ -342,6 +342,67 @@ describe("ActionWizard", () => {
         expect(actionsMessage?.content.value.actions[1]?.label).toBe("Abort");
       });
     });
+
+    it("cancels from a text step when the cancel command is received", async () => {
+      const cancelHandler = vi.fn();
+      const completeHandler = vi.fn();
+      const wizard = new ActionWizard("setup", {
+        cancel: { command: "/cancel" },
+      });
+      wizard
+        .text("name", { description: "Enter your name" })
+        .onComplete(completeHandler)
+        .onCancel(cancelHandler);
+
+      agent.use(wizard.middleware());
+      await agent.start();
+
+      const otherClient = await createClient();
+      const dm = await otherClient.conversations.createDm(client.inboxId);
+      await dm.sendText("/setup");
+
+      await waitForNetwork(async () => {
+        await dm.sync();
+        const messages = await dm.messages();
+        const textMessages = messages.filter((m) => isText(m));
+        expect(textMessages.map((m) => m.content.value)).toContain(
+          "Enter your name",
+        );
+      });
+
+      await dm.sendText("/cancel");
+
+      await waitForNetwork(() => {
+        expect(cancelHandler).toHaveBeenCalledTimes(1);
+      });
+      expect(completeHandler).not.toHaveBeenCalled();
+    });
+
+    it("passes the cancel command on when no session is active", async () => {
+      const cancelHandler = vi.fn();
+      const nextHandler = vi.fn();
+      const wizard = new ActionWizard("setup", {
+        cancel: { command: "/cancel" },
+      });
+      wizard
+        .text("name", { description: "Enter your name" })
+        .onCancel(cancelHandler);
+
+      agent.use(wizard.middleware(), async (ctx, next) => {
+        if (ctx.isText()) nextHandler(ctx.content);
+        await next();
+      });
+      await agent.start();
+
+      const otherClient = await createClient();
+      const dm = await otherClient.conversations.createDm(client.inboxId);
+      await dm.sendText("/cancel");
+
+      await waitForNetwork(() => {
+        expect(nextHandler).toHaveBeenCalledWith("/cancel");
+      });
+      expect(cancelHandler).not.toHaveBeenCalled();
+    });
   });
 
   describe("restart", () => {
