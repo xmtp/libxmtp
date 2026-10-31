@@ -481,6 +481,10 @@ fn safe_error(text: &str) -> String {
         "wallet_key",
         "database_key",
         "encryption_key",
+        "authorization",
+        "bearer",
+        "token",
+        "credential",
         "payload",
         "message content",
     ]
@@ -949,5 +953,21 @@ mod tests {
         let sensitive = safe_error(&format!("{prefix}: wallet_key=super-secret"));
         assert!(sensitive.contains("sensitive error detail omitted"));
         assert!(!sensitive.contains("super-secret"));
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn nested_error_omits_short_unquoted_credentials() {
+        let prefix = "Sync failed: errors publishing intents; ".repeat(30);
+        for credential in [
+            "Authorization: Basic abc123",
+            "Bearer abc123",
+            "access_token=abc123",
+            "credential: abc123",
+        ] {
+            let output = safe_error(&format!("{prefix}: {credential}"));
+            assert!(!output.contains("abc123"));
+            assert!(output.contains("sensitive error detail omitted"));
+            assert!(output.len() <= ERROR_BYTES);
+        }
     }
 }
