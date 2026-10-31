@@ -33,7 +33,7 @@ resolver = "3"
 
 [workspace.package]
 license = "MIT"
-version = "1.12.0-dev.1"
+version = "8.0.0"
 rust-version = "1.94.1"
 publish = false
 edition = "2024"

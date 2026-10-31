@@ -91,7 +91,7 @@ in
       cp -r ${releaseFramework}/XmtpSdkFFI.xcframework "$out/XmtpSdkFFI/"
       cp ${swiftBindings}/swift/xmtp_sdk.swift "$out/XmtpSdkFFI/Sources/XmtpSdk/"
       cp -r ${swiftBindings}/swift/runtime "$out/XmtpSdkFFI/Sources/XmtpSdk/"
-      cp ${../../sdks/ios/Sources/XmtpSdk/AppleLogSink.swift} "$out/XmtpSdkFFI/Sources/XmtpSdk/"
+      cp ${../../sdks/ios/Sources/XmtpSdk/AppleLogSink.swift} "$out/XmtpSdkFFI/Sources/XmtpSdk/AppleLogSink.swift"
       cp ${../../LICENSE} "$out/XmtpSdkFFI/LICENSE"
     '';
   };

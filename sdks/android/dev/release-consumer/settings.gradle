@@ -1,0 +1,39 @@
+pluginManagement {
+    def pins = new Properties()
+    file('gradle/toolchain.properties').withInputStream { pins.load(it) }
+    resolutionStrategy.eachPlugin {
+        def version = pins.getProperty("plugin.${requested.id.id}")
+        if (version) useVersion(version)
+    }
+    repositories {
+        gradlePluginPortal()
+        google()
+        mavenCentral()
+    }
+}
+
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositories {
+        exclusiveContent {
+            forRepository {
+                maven {
+                    url = uri(providers.gradleProperty('xmtpRepository').get())
+                    metadataSources {
+                        if (providers.gradleProperty('xmtpMetadata').get() == 'pom') {
+                            mavenPom()
+                            ignoreGradleMetadataRedirection()
+                        } else {
+                            gradleMetadata()
+                        }
+                    }
+                }
+            }
+            filter { includeModule('org.xmtp', 'android') }
+        }
+        google()
+        mavenCentral()
+    }
+}
+
+rootProject.name = 'xmtp-release-consumer'

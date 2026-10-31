@@ -31,6 +31,8 @@ dev/nix-shell 'just check crate <name>'
 dev/nix-shell 'just test crate <name>'
 dev/nix-shell 'just test workspace -p <name> <args>' # nextest filters/options
 dev/nix-shell 'just lint'
+dev/nix-shell 'just version check'             # SDK and CLI mirrors
+dev/nix-shell 'just version set <version>'     # shared Cargo target
 ```
 
 Default members are `apps/backend`, `apps/db_tools`, and `crates/*`; other apps need explicit checks.

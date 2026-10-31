@@ -19,6 +19,8 @@ WORKFLOW = ROOT / ".github/workflows/release-android.yml"
 
 class AndroidReleaseTest(unittest.TestCase):
     def test_registry_publication_order_and_failure_propagation(self):
+        fixture_environment = os.environ.copy()
+        fixture_environment.pop("GITHUB_STATE", None)
         jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
         self.assertIn("publish", jobs["publish-github"]["needs"])
         self.assertIn("publish-github", jobs["publish-central"]["needs"])
@@ -28,7 +30,19 @@ class AndroidReleaseTest(unittest.TestCase):
             (root / "sdks/android").mkdir(parents=True)
             (root / "dev").mkdir()
             wrapper = root / "dev/nix-shell"
-            wrapper.write_text('#!/bin/bash\nexec bash -euc "$1"\n')
+            wrapper.write_text(
+                "#!/bin/bash\n"
+                'if [[ "$1" = --shell ]]; then shift 2; fi\n'
+                'if [[ "$1" = --command ]]; then shift; exec "$@"; fi\n'
+                'exec bash -euc "$1"\n'
+            )
+            (root / "dev/check_maven_release.py").write_text(
+                "import os, sys\n"
+                "repository = sys.argv[-1] if '--repository' in sys.argv else 'central'\n"
+                "state = os.environ.get(repository.upper() + '_STATE', 'absent')\n"
+                "if state == 'conflict': sys.exit(43)\n"
+                "print(state)\n"
+            )
             wrapper.chmod(0o755)
             gradle = root / "sdks/android/gradlew"
             gradle.write_text(
@@ -66,8 +80,9 @@ class AndroidReleaseTest(unittest.TestCase):
                             ["bash", "-euc", command],
                             cwd=root,
                             env=dict(
-                                os.environ,
+                                fixture_environment,
                                 VERSION="8.0.0-rc1",
+                                XMTP_ANDROID_RELEASE_BUNDLE=str(root / "bundle"),
                                 GRADLE_LOG=str(log),
                                 GRADLE_EXIT=str(status),
                             ),
@@ -78,6 +93,49 @@ class AndroidReleaseTest(unittest.TestCase):
                         self.assertEqual(
                             json.loads(log.read_text()), ["-Pversion=8.0.0-rc1", *tasks]
                         )
+                for central, github in [
+                    ("existing", "existing"),
+                    ("conflict", "absent"),
+                    ("absent", "conflict"),
+                ]:
+                    if job == "publish-central" and github == "conflict":
+                        continue
+                    with self.subTest(job=job, central=central, github=github):
+                        log.unlink(missing_ok=True)
+                        result = subprocess.run(
+                            ["bash", "-euc", command],
+                            cwd=root,
+                            env=dict(
+                                fixture_environment,
+                                VERSION="8.0.0-rc1",
+                                GRADLE_LOG=str(log),
+                                GRADLE_EXIT="0",
+                                XMTP_ANDROID_RELEASE_BUNDLE=str(root / "bundle"),
+                                CENTRAL_STATE=central,
+                                GITHUB_STATE=github,
+                            ),
+                            capture_output=True,
+                            text=True,
+                        )
+                        self.assertEqual(
+                            result.returncode,
+                            43 if "conflict" in (central, github) else 0,
+                            result.stderr,
+                        )
+                        self.assertFalse(log.exists())
+
+    def test_registry_publication_ignores_inherited_runner_state(self):
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(Path(__file__).resolve()),
+                "AndroidReleaseTest.test_registry_publication_order_and_failure_propagation",
+            ],
+            env=dict(os.environ, GITHUB_STATE="synthetic-runner-state"),
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_publish_credentials_and_failure_gate(self):
         workflow = yaml.safe_load(WORKFLOW.read_text())
@@ -96,13 +154,25 @@ class AndroidReleaseTest(unittest.TestCase):
             if step.get("name") == "Prepare signed Maven bundle"
         )
         with tempfile.TemporaryDirectory() as folder:
-            root = Path(folder)
+            root = Path(folder).resolve()
             sdk = root / "sdks/android"
             sdk.mkdir(parents=True)
             dev = root / "dev"
             dev.mkdir()
             wrapper = dev / "nix-shell"
-            wrapper.write_text('#!/bin/bash\nexec bash -euc "$1"\n')
+            wrapper.write_text(
+                "#!/bin/bash\n"
+                'if [[ "$1" = --shell ]]; then shift 2; fi\n'
+                'if [[ "$1" = --command ]]; then shift; exec "$@"; fi\n'
+                'exec bash -euc "$1"\n'
+            )
+            (dev / "check_maven_release.py").write_text(
+                "import os, sys\n"
+                "repository = sys.argv[-1] if '--repository' in sys.argv else 'central'\n"
+                "state = os.environ.get(repository.upper() + '_STATE', 'absent')\n"
+                "if state == 'conflict': sys.exit(43)\n"
+                "print(state)\n"
+            )
             wrapper.chmod(0o755)
             gradle = sdk / "gradlew"
             gradle.write_text(
@@ -115,7 +185,7 @@ class AndroidReleaseTest(unittest.TestCase):
             gradle.chmod(0o755)
             log = root / "gradle.json"
             credentials = {name: "fixture-secret" for name in publish["env"]}
-            env = dict(os.environ, **credentials, GRADLE_LOG=str(log))
+            env = dict(os.environ, **credentials, GRADLE_LOG=str(log), VERSION="8.0.0")
             for missing in (None, *credentials):
                 for status in (0, 42) if missing is None else (0,):
                     with self.subTest(missing=missing, gradle_exit=status):
@@ -141,6 +211,13 @@ class AndroidReleaseTest(unittest.TestCase):
                             self.assertEqual(
                                 json.loads(log.read_text()),
                                 [
+                                    "-p",
+                                    "sdks/android",
+                                    "-PxmtpPreparedPublication="
+                                    + str(
+                                        root
+                                        / "target/release/android/repository/org/xmtp/android/8.0.0"
+                                    ),
                                     ":library:publishReleasePublicationToReleaseBundleRepository",
                                 ],
                             )
@@ -243,18 +320,16 @@ class AndroidReleaseTest(unittest.TestCase):
         jobs = workflow["jobs"]
         caller = yaml.safe_load((WORKFLOW.parent / "release.yml").read_text())["jobs"]
         self.assertEqual(caller["release-android"]["permissions"]["contents"], "write")
-        steps = jobs["publish"]["steps"]
+        steps = jobs["build"]["steps"]
         names = [item.get("name") for item in steps]
         build = steps[names.index("Build example APK")]
         self.assertEqual(build["run"], "dev/nix-shell 'just example-android apk'")
         self.assertEqual(build["env"]["XMTP_EXAMPLE_VERSION"], "${{ inputs.version }}")
-        self.assertLess(
-            names.index("Build example APK"), names.index("Prepare signed Maven bundle")
-        )
+        self.assertIn("build", jobs["publish"]["needs"])
         upload = steps[names.index("Retain example APK")]
         self.assertLess(
             names.index("Retain example APK"),
-            names.index("Prepare signed Maven bundle"),
+            names.index("Store the checked Maven publication"),
         )
         self.assertEqual(upload["with"]["if-no-files-found"], "error")
         self.assertEqual(
@@ -264,7 +339,8 @@ class AndroidReleaseTest(unittest.TestCase):
         job = jobs["publish-apk"]
         self.assertEqual(job["permissions"]["contents"], "write")
         self.assertEqual(set(job["needs"]), {"publish", "push-tag"})
-        self.assertNotIn("if", job)
+        self.assertIn("needs.publish.result == 'success'", job["if"])
+        self.assertIn("needs.push-tag.result == 'success'", job["if"])
         self.assertNotIn("if", build)
         self.assertEqual(job["steps"][0]["with"]["name"], upload["with"]["name"])
         command = job["steps"][-1]["run"]
@@ -278,7 +354,10 @@ class AndroidReleaseTest(unittest.TestCase):
                 f"#!{sys.executable}\n"
                 "import json, os, sys\n"
                 "with open(os.environ['GH_LOG'], 'a') as log: log.write(json.dumps(sys.argv[1:]) + '\\n')\n"
-                "sys.exit(int(os.environ['VIEW_EXIT']) if sys.argv[2] == 'view' else int(os.environ.get('UPLOAD_EXIT', '0')))\n"
+                "if sys.argv[2] == 'view': sys.exit(int(os.environ['VIEW_EXIT']))\n"
+                "if sys.argv[2] == 'download':\n"
+                " import pathlib; pathlib.Path('existing/xmtp-messenger-8.0.0.apk').write_bytes(os.environ.get('REMOTE_APK', 'APK').encode())\n"
+                "sys.exit(int(os.environ.get('UPLOAD_EXIT', '0')))\n"
             )
             gh.chmod(0o755)
             log = root / "calls.jsonl"
@@ -311,18 +390,27 @@ class AndroidReleaseTest(unittest.TestCase):
                             calls[1][:4],
                             [
                                 "release",
-                                "upload" if existing else "create",
+                                "download" if existing else "create",
                                 "android-8.0.0",
-                                "apk/xmtp-messenger-8.0.0.apk",
+                                "--pattern"
+                                if existing
+                                else "apk/xmtp-messenger-8.0.0.apk",
                             ],
                         )
                         if existing:
-                            self.assertIn("--clobber", calls[1])
+                            self.assertNotIn("--clobber", calls[1])
                         else:
                             self.assertIn("--verify-tag", calls[1])
                             self.assertEqual(
                                 "--prerelease" in calls[1], kind != "final"
                             )
+            env["VIEW_EXIT"] = "0"
+            env["REMOTE_APK"] = "conflicting bytes"
+            result = subprocess.run(
+                ["bash", "-euc", command], cwd=root, env=env, capture_output=True
+            )
+            self.assertNotEqual(result.returncode, 0)
+            del env["REMOTE_APK"]
             env["UPLOAD_EXIT"] = "44"
             result = subprocess.run(
                 ["bash", "-euc", command], cwd=root, env=env, capture_output=True

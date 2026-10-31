@@ -24,8 +24,16 @@ jobs:
     # run then cannot read them.
     environment: release
     steps:
+      - name: Require the all-SDK release orchestrator
+        env:
+          CALLER_WORKFLOW_REF: ${{ github.workflow_ref }}
+        run: |
+          case "$CALLER_WORKFLOW_REF" in
+            "$GITHUB_REPOSITORY/.github/workflows/release.yml@"*) ;;
+            *) echo "::error::SDK publication requires the all-six release.yml validation barrier"; exit 1 ;;
+          esac
       - name: Download release tag
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8 # v8
         with:
           name: release-tag-${{ inputs.sdk }}
           path: ${{ runner.temp }}/release-tag
@@ -66,14 +74,11 @@ jobs:
               > "$RUNNER_TEMP/release-paths"
             while IFS= read -r -d '' path; do
               case "$path" in
-                Package.swift|sdks/ios/XMTP.podspec|sdks/ios/ReleaseArtifacts.json|sdks/ios/Sources/XmtpSdk/*) ;;
+                Package.swift|sdks/ios/ReleaseArtifacts.json|sdks/ios/Sources/XmtpSdk/*) ;;
                 *) echo "::error::iOS release commit changes a file outside the release paths"; exit 1 ;;
               esac
             done < "$RUNNER_TEMP/release-paths"
           fi
-      # Any workflow in the repository can call this one, so check the calling
-      # run before the App token exists: a protected trunk or release branch,
-      # never a pull request, and a source commit on one of those branches.
       - name: Check the calling run
         env:
           EVENT_NAME: ${{ github.event_name }}

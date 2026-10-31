@@ -30,21 +30,25 @@ try {
     join(consumer, "package.json"),
     '{"private":true,"type":"module"}\n',
   );
-  const result = JSON.parse(
-    execFileSync(
-      process.execPath,
-      [
-        npmCli,
-        "pack",
-        staged,
-        "--pack-destination",
-        consumer,
-        "--json",
-        "--ignore-scripts",
-      ],
-      { encoding: "utf8" },
-    ),
-  );
+  let archive = process.argv[3] ? resolve(process.argv[3]) : undefined;
+  if (!archive) {
+    const result = JSON.parse(
+      execFileSync(
+        process.execPath,
+        [
+          npmCli,
+          "pack",
+          staged,
+          "--pack-destination",
+          consumer,
+          "--json",
+          "--ignore-scripts",
+        ],
+        { encoding: "utf8" },
+      ),
+    );
+    archive = join(consumer, result[0].filename);
+  }
   execFileSync(
     process.execPath,
     [
@@ -54,18 +58,29 @@ try {
       "--no-audit",
       "--no-fund",
       "--package-lock=false",
-      join(consumer, result[0].filename),
+      archive,
     ],
     { cwd: consumer, stdio: "inherit" },
   );
   const packageRoot = join(consumer, "node_modules", manifest.name);
+  const installedManifest = JSON.parse(
+    readFileSync(join(packageRoot, "package.json")),
+  );
+  assert.equal(installedManifest.version, manifest.version);
+  assert.equal(installedManifest.type, manifest.type);
+  assert.equal(installedManifest.engines?.node, manifest.engines.node);
+  assert.deepEqual(
+    installedManifest.exports,
+    manifest.exports,
+    "Retained package public exports differ from the staged contract",
+  );
   const metadataFile = join(packageRoot, "sdk-contract.json");
   // Build receipts must not be a runtime dependency.
   rmSync(metadataFile);
   assert.ok(!existsSync(join(packageRoot, "sdk-contract-check.js")));
   assert.ok(!existsSync(join(packageRoot, "sdk-pure-contract-check.js")));
   if (target === "node") {
-    const proof = `import assert from 'node:assert/strict';\nimport { TextCodec } from '${manifest.name}';\nconst codec = new TextCodec(); assert.equal(codec.decode(codec.encode('installed')), 'installed');\nconsole.log('Installed SDK ESM codec round trip passed');\n`;
+    const proof = `import assert from 'node:assert/strict';\nimport { TextCodec, sdkVersion } from '${manifest.name}';\nassert.equal(sdkVersion(), ${JSON.stringify(manifest.version)});\nconst codec = new TextCodec(); assert.equal(codec.decode(codec.encode('installed')), 'installed');\nconsole.log('Installed SDK ESM codec round trip passed');\n`;
     writeFileSync(join(consumer, "smoke.mjs"), proof);
     execFileSync(process.execPath, ["smoke.mjs"], {
       cwd: consumer,

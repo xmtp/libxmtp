@@ -11,9 +11,19 @@ on:
           for CI runs.
         type: string
         default: read
+      sdk-release:
+        type: boolean
+        default: false
+      dry-run:
+        description: Restore caches without saving build outputs
+        type: boolean
+        default: false
     outputs:
       artifact:
         value: sdk_node_public
+permissions:
+  contents: read
+
 jobs:
   plan:
     name: Read Node platform matrix
@@ -154,6 +164,11 @@ jobs:
           cache-mode: ${{ inputs.cache-mode }}
           cachix-pr-auth-token: ${{ inputs.cache-mode == 'ci' && secrets.CACHIX_PR_AUTH_TOKEN || '' }}
           github-token: ${{ github.token }}
+      - name: Materialize the shared SDK version
+        if: inputs.sdk-release
+        uses: ./.github/actions/release-source
+        with:
+          snapshot: 'true'
       - name: Build matched SDK and pinned runtime pairs
         env:
           PAIRS: ${{ matrix.pairs }}
@@ -200,6 +215,11 @@ jobs:
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ inputs.ref }}
+      - name: Materialize the shared SDK version
+        if: inputs.sdk-release
+        uses: ./.github/actions/release-source
+        with:
+          snapshot: 'true'
       # The pair is cached by the source key of its SDK inputs, build recipe
       # (this file), and compiler, not by commit, so a re-dispatch with
       # unchanged SDK sources reuses it. A run restores
@@ -244,6 +264,7 @@ jobs:
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           workspaces: .
+          save-if: ${{ inputs.dry-run != true }}
       # Matches the Nix protobuf of the Linux and macOS builds. The version and
       # hash are part of this file, so a bump changes the pair's cache key.
       - name: Install protoc
@@ -295,7 +316,7 @@ jobs:
           PY
           python crates/xmtp_sdk/dev/record-node-platform.py "$TARGET" --library target/sdk-node-windows/native/"$LIBRARY" --addon target/sdk-node-runtime-source/target/"$RUST_TARGET"/release/uniffi_runtime_napi.dll --native-artifacts target/sdk-node-windows/artifacts.json --runtime-provenance target/sdk-node-windows/runtime-provenance.json --runtime-source target/sdk-node-runtime-source --source-key "$RUNNER_TEMP/source-key.json"
       - name: Save the built pair
-        if: steps.restore.outputs.cache-hit != 'true'
+        if: inputs.dry-run != true && steps.restore.outputs.cache-hit != 'true'
         uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         with:
           path: target/sdk-node-platforms/${{ matrix.target }}
@@ -327,6 +348,11 @@ jobs:
           cache-mode: ${{ inputs.cache-mode }}
           cachix-pr-auth-token: ${{ inputs.cache-mode == 'ci' && secrets.CACHIX_PR_AUTH_TOKEN || '' }}
           github-token: ${{ github.token }}
+      - name: Materialize the shared SDK version
+        if: inputs.sdk-release
+        uses: ./.github/actions/release-source
+        with:
+          snapshot: 'true'
       - name: Set up JavaScript
         uses: ./.github/actions/setup-js
         with:

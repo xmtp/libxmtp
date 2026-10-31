@@ -1,5 +1,9 @@
 # React Native SDK
 
+The package version is generated from root `Cargo.toml`. Release components and
+consumers materialize the frozen version before Nix evaluation. The npm product
+and its shipped `XmtpReactNative.podspec` remain one package.
+
 ```sh
 dev/nix-shell 'just react-native check' # JS/types; no mobile build
 dev/nix-shell 'just react-native test-react'

@@ -15,6 +15,11 @@ on:
         required: false
         type: boolean
         default: false
+      build-only:
+        description: Retain checked products without publication
+        required: false
+        type: boolean
+        default: false
     outputs:
       version:
         description: "The published version string"
@@ -22,6 +27,9 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+
+permissions:
+  contents: read
 
 jobs:
   check-push-permissions:
@@ -53,6 +61,9 @@ jobs:
           cache-mode: read
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Materialize the shared SDK version
+        uses: ./.github/actions/release-source
+
       - name: Set up JavaScript
         uses: ./.github/actions/setup-js
         with:
@@ -71,6 +82,9 @@ jobs:
             fi
           done
 
+      - name: Verify the installed browser package
+        run: dev/nix-shell 'node crates/xmtp_sdk/dev/package-smoke.mjs browser'
+
       - name: Upload build output
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
@@ -83,7 +97,7 @@ jobs:
   publish:
     name: Publish
     needs: [build, check-push-permissions]
-    uses: ./.github/workflows/npm-publish.yml
+    uses: ./.github/workflows/npm-prepare.yml
     with:
       source-sha: ${{ needs.check-push-permissions.outputs.source-sha }}
       package-dir: target/sdk-packages/browser
@@ -93,4 +107,5 @@ jobs:
       artifact-path: target/sdk-packages/browser
       ignore-scripts: true
       dry-run: ${{ inputs.dry-run }}
+      prepare-only: ${{ inputs.build-only }}
     secrets: inherit
