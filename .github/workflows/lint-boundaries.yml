@@ -1,0 +1,37 @@
+name: "Lint: xmtp_mls boundaries"
+on:
+  workflow_call:
+    inputs:
+      runner:
+        description: The runner label. ci.yml passes it from .github/ci-suites.yml (runners).
+        type: string
+        required: true
+env:
+  NIX_DEVSHELL: rust
+jobs:
+  # The fast path tier of the boundaries check, against the waivers of the
+  # base: on a pull request the checkout is the merge commit, and on a merge
+  # the pushed commit, so the first parent is the base either way.
+  boundaries:
+    name: check-boundaries
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 2
+      - name: Set up Nix
+        uses: ./.github/actions/setup-nix
+        with:
+          cache-mode: "ci"
+          github-token: ${{ github.token }}
+      - name: dev/nix-shell 'dev/agent-run cargo test -p xmtp_mls_boundaries'
+        run: dev/nix-shell 'dev/agent-run cargo test --locked -p xmtp_mls_boundaries'
+      # Not a default member, so `just lint-rust` does not cover it.
+      - name: dev/nix-shell 'dev/agent-run cargo clippy -p xmtp_mls_boundaries'
+        if: ${{ !cancelled() }}
+        run: dev/nix-shell 'dev/agent-run cargo clippy --locked -p xmtp_mls_boundaries --all-targets --no-deps -- -Dwarnings'
+      - name: dev/nix-shell 'dev/check-boundaries --base HEAD^1'
+        if: ${{ !cancelled() }}
+        run: dev/nix-shell 'dev/check-boundaries --base HEAD^1'

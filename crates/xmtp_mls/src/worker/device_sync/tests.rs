@@ -14,6 +14,8 @@ use xmtp_db::{
     user_preferences::StoredUserPreferences,
 };
 #[cfg(not(target_arch = "wasm32"))]
+use xmtp_id::utils::test::docker_smart_wallet;
+#[cfg(not(target_arch = "wasm32"))]
 use xmtp_logging::{LogRecord, LogSinkTarget, SinkError};
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -1761,5 +1763,190 @@ async fn a_rate_limited_add_arms_its_reconcile_after_the_delay() {
     assert!(
         task.expires_at_ns > task.next_attempt_at_ns,
         "the task does not expire before it is due"
+    );
+}
+
+/// A pool dropped while an own-state read verifies a smart contract wallet
+/// signature fails an outbox publish as `Client(Storage)`, which stops the
+/// worker for a reconnect. The sync-group retry task reaches the same read,
+/// then records its failure on the dropped pool, so the runner gets that
+/// store error instead of `TaskWorkerError::DeviceSync`.
+#[cfg(not(target_arch = "wasm32"))]
+#[rstest::rstest]
+#[xmtp_common::timeout(std::time::Duration::from_secs(120))]
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
+async fn an_own_state_disconnect_keeps_the_reconnect_signal(
+    #[future] docker_smart_wallet: xmtp_id::utils::test::SmartWalletContext,
+) {
+    use crate::{
+        client::ClientError,
+        test::builder_native_only::{HookedVerifier, register_scw_client},
+        worker::{NeedsDbReconnect, tasks::TaskWorker},
+    };
+    use prost::Message;
+    use std::sync::{Arc, OnceLock, atomic::AtomicUsize, atomic::Ordering};
+    use xmtp_db::{diesel::RunQueryDsl, tasks::QueryTasks};
+    let before = Arc::new(OnceLock::<Box<dyn Fn() + Send + Sync>>::new());
+    let calls = Arc::new(AtomicUsize::new(0));
+    let wallet = docker_smart_wallet.await;
+    let verifier = HookedVerifier::new(&wallet, before.clone(), calls.clone());
+    let (alix, _) = register_scw_client(wallet, Some(verifier)).await;
+    let sync = alix.device_sync_client();
+    let group = sync.get_sync_group().await.unwrap();
+    let write = ConsentWrite::Merge {
+        value: ConsentValue {
+            state: ConsentState::Denied,
+            consented_at_ns: now_ns(),
+        },
+        bound_ns: i64::MAX,
+    };
+    write_consent(
+        &alix.context.db(),
+        &ConsentKey::inbox("owed"),
+        write,
+        Owed::Mark,
+    )
+    .unwrap();
+    let forget_own_state = || {
+        alix.context
+            .db()
+            .raw_query(|c| {
+                xmtp_db::diesel::delete(xmtp_db::schema::association_state::table).execute(c)
+            })
+            .unwrap();
+    };
+    forget_own_state();
+    let db = alix.context.db();
+    assert!(
+        before
+            .set(Box::new(move || {
+                let _ = db.disconnect();
+            }))
+            .is_ok()
+    );
+
+    let verified = calls.load(Ordering::SeqCst);
+    let error = sync.publish_outbox().await.unwrap_err();
+    assert!(
+        calls.load(Ordering::SeqCst) > verified,
+        "publish did not verify"
+    );
+    assert!(
+        matches!(&error, DeviceSyncError::Client(ClientError::Storage(_))),
+        "{error:?}"
+    );
+    assert!(error.needs_db_reconnect());
+
+    alix.context.db().reconnect().unwrap();
+    forget_own_state();
+    sync.schedule_add_missing_installations_task(
+        group.group_id,
+        Some(xmtp_common::time::Duration::ZERO),
+    )
+    .unwrap();
+    let task = alix
+        .context
+        .db()
+        .get_tasks()
+        .unwrap()
+        .into_iter()
+        .find(|task| {
+            matches!(
+                xmtp_proto::xmtp::mls::database::Task::decode(task.data.as_slice())
+                    .ok()
+                    .and_then(|task| task.task),
+                Some(TaskKindProto::AddMissingInstallations(_))
+            )
+        })
+        .expect("the retry task");
+    let verified = calls.load(Ordering::SeqCst);
+    let error = TaskWorker::run_and_reschedule_task(task, &alix.context)
+        .await
+        .unwrap_err();
+    assert!(
+        calls.load(Ordering::SeqCst) > verified,
+        "the task did not verify"
+    );
+    let chain = format!("{error:?}");
+    let chain: Vec<&str> = chain.split('(').take(3).collect();
+    assert_eq!(
+        (chain.join("("), error.needs_db_reconnect()),
+        ("Storage(Connection(Platform".to_string(), true),
+    );
+}
+
+/// A dropped pool reached through an outbox publish stops the worker for a
+/// reconnect. The publish fails in the sync-group read, so it arrives as
+/// `Group(Db)`; `an_own_state_disconnect_keeps_the_reconnect_signal` reaches
+/// `Client(Storage)` through the own-state read. The other wrappers in the
+/// table have no route to a dropped pool that a test can reach today: an
+/// own-state disconnect is returned before `OwnStateUnavailable` wraps it, the
+/// retry task that returns `TaskWorkerError::DeviceSync` records its failure on
+/// the same dropped pool first and fails as `Storage`, and no route was found
+/// that wraps a group's store error in `Client`. They are pinned by building
+/// the error (disclosed helper exception) so the errors PR shows the change it
+/// makes.
+#[cfg(not(target_arch = "wasm32"))]
+#[xmtp_common::test(unwrap_try = true)]
+async fn device_sync_publish_failures_keep_reconnect_signal() {
+    use crate::{
+        client::ClientError, groups::GroupError, worker::NeedsDbReconnect,
+        worker::tasks::TaskWorkerError,
+    };
+    use xmtp_db::{ConnectionError, PlatformStorageError};
+    tester!(alix, persistent_db, disable_workers);
+    alix.device_sync_client().get_sync_group().await?;
+    decide_at(
+        &alix,
+        &ConsentKey::inbox("owed"),
+        ConsentState::Denied,
+        now_ns(),
+    )?;
+    alix.context.db().disconnect()?;
+    let error = publish(&alix).await.unwrap_err();
+    assert!(
+        matches!(&error, DeviceSyncError::Group(GroupError::Db(_))),
+        "{error:?}"
+    );
+    assert!(error.needs_db_reconnect());
+    alix.context.db().reconnect()?;
+
+    let storage = || StorageError::Platform(PlatformStorageError::PoolNeedsConnection);
+    let connection = || ConnectionError::Platform(PlatformStorageError::PoolNeedsConnection);
+    let client_group = || ClientError::Group(Box::new(GroupError::Db(connection())));
+    let own_state = || DeviceSyncError::OwnStateUnavailable(ClientError::Storage(storage()));
+    let observed = [
+        (
+            "Client(Storage)",
+            DeviceSyncError::Client(ClientError::Storage(storage())).needs_db_reconnect(),
+        ),
+        (
+            "Client(Group(Db))",
+            DeviceSyncError::Client(client_group()).needs_db_reconnect(),
+        ),
+        (
+            "OwnStateUnavailable(Storage)",
+            own_state().needs_db_reconnect(),
+        ),
+        (
+            "TaskWorkerError::DeviceSync(Client(Storage))",
+            TaskWorkerError::DeviceSync(DeviceSyncError::Client(ClientError::Storage(storage())))
+                .needs_db_reconnect(),
+        ),
+        (
+            "TaskWorkerError::DeviceSync(OwnStateUnavailable)",
+            TaskWorkerError::DeviceSync(own_state()).needs_db_reconnect(),
+        ),
+    ];
+    assert_eq!(
+        observed,
+        [
+            ("Client(Storage)", true),
+            ("Client(Group(Db))", false),
+            ("OwnStateUnavailable(Storage)", false),
+            ("TaskWorkerError::DeviceSync(Client(Storage))", false),
+            ("TaskWorkerError::DeviceSync(OwnStateUnavailable)", false),
+        ]
     );
 }

@@ -8,3 +8,6 @@ pub mod builder;
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 pub mod builder_native_only;
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod identity_load_failures;

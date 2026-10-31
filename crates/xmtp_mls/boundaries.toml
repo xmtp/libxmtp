@@ -1,0 +1,440 @@
+# Dependency direction for the planned split of xmtp_mls (Ref yrC4OvnlOKmcebA9).
+#
+# dev/check-boundaries maps every module and item of crates/xmtp_mls/src to
+# the crate it moves to, and fails on a reference between two target crates
+# that is neither an allowed edge nor covered by a waiver with the measured
+# count. Waivers may only shrink: CI compares them with the base branch.
+
+source = "crates/xmtp_mls/src"
+
+# Target crate of each module path; the longest matching prefix wins.
+[modules]
+"" = "facade"
+"attachments" = "attachments"
+"builder" = "facade"
+"client" = "facade"
+"client::notifications" = "notifications"
+"context" = "core"
+"definitions" = "facade"
+"diagnostics" = "facade"
+"groups" = "engine"
+"groups::change_callbacks" = "core"
+"identity" = "core"
+"identity::identity_ext" = "identity"
+"identity_updates" = "identity"
+"inbox_handles" = "identity"
+"intents" = "engine"
+"messages" = "messages"
+"mls_store" = "core"
+"mutex_registry" = "core"
+"server_configuration" = "server_config"
+"server_configuration::preflight" = "core"
+"server_configuration::worker" = "core"
+"state_tx" = "core"
+"storage_location" = "server_config"
+"subscriptions" = "streams"
+"subscriptions::barrier" = "engine"
+"subscriptions::connection_state" = "engine"
+"subscriptions::group_set_gate" = "engine"
+"subscriptions::incoming" = "engine"
+"subscriptions::internal" = "core"
+"subscriptions::policy" = "core"
+"subscriptions::recovery" = "engine"
+"test" = "facade"
+"traits" = "engine"
+"utils" = "core"
+"utils::bench" = "facade"
+"utils::cleanup_duplicate_updates" = "engine"
+"utils::hash" = "engine"
+"utils::id" = "engine"
+"utils::test" = "facade"
+"worker" = "core"
+"worker::device_sync" = "device_sync"
+"worker::key_package_maintenance" = "identity"
+"worker::notifications" = "notifications"
+
+# Items that move to a different crate than their module.
+[items]
+"builder::DeviceSyncMode" = "core"
+"client::DeviceSync" = "core"
+"client::notifications::Client" = "facade"
+"client::notifications::effective" = "core"
+"client::notifications::enabled_from_record" = "core"
+"client::notifications::stored_config" = "core"
+"groups::encoded_content_type" = "messages"
+"groups::mls_sync::publish::backend_status" = "core"
+"groups::mls_sync::publish::definite_refusal" = "core"
+"identity::Identity::create_inbox" = "identity"
+"identity::Identity::generate_and_store_key_package" = "identity"
+"identity::Identity::new" = "identity"
+"identity::Identity::new_inbox_with_installation_keys" = "identity"
+"identity::Identity::new_key_package" = "identity"
+"identity::Identity::rotate_and_upload_key_package" = "identity"
+"identity::Identity::settle_unconfirmed_key_packages" = "identity"
+"identity::IdentityStrategy" = "identity"
+"identity::XmtpKeyPackage" = "identity"
+"identity::XmtpKeyPackageBuilder" = "identity"
+"worker::device_sync::is_own_sync_group" = "engine"
+"worker::device_sync::worker::SyncMetric" = "core"
+"worker::tasks::TaskWorkerError" = "facade"
+
+# The Target crates table: each crate and the crates it may depend on.
+[allowed]
+messages = []
+server_config = []
+core = ["server_config"]
+identity = ["core", "server_config"]
+attachments = ["core", "server_config"]
+engine = ["core", "identity", "messages", "server_config"]
+streams = ["core", "engine", "messages", "server_config"]
+device_sync = ["core", "engine", "identity"]
+notifications = ["core", "engine"]
+facade = [
+  "attachments",
+  "core",
+  "device_sync",
+  "engine",
+  "identity",
+  "messages",
+  "notifications",
+  "server_config",
+  "streams",
+]
+
+
+# Edges that exist today. Each count is exact; lower it when a PR removes
+# references, and delete the waiver when none are left.
+
+[[waivers]]
+from = "attachments"
+to = "facade"
+tier = "path"
+count = 1
+reason = "PR 4 (Task 11): attachments reads Client; it moves behind the attachments feature slot."
+
+[[waivers]]
+from = "core"
+to = "attachments"
+tier = "path"
+count = 4
+reason = "PR 4 (Task 11): the context's attachments field becomes a feature slot."
+
+[[waivers]]
+from = "core"
+to = "device_sync"
+tier = "path"
+count = 4
+reason = "PR 2 (Task 5): the context names DeviceSyncClient and preference events; PR 4 (Task 10) opens the worker framework for the device-sync task and its error."
+
+[[waivers]]
+from = "core"
+to = "engine"
+tier = "path"
+count = 5
+reason = "PR 4 (Task 11): the context's incoming field becomes a feature slot; PR 2 (Task 6) moves the MlsGroup lookup out of mls_store."
+
+[[waivers]]
+from = "core"
+to = "facade"
+tier = "path"
+count = 5
+reason = "PR 3 (Tasks 7-9): server-config workers return ClientError; PR 2 (Task 5) moves ForkRecoveryOpts and the test lock; the test helpers move in PR 5 (Task 12)."
+
+[[waivers]]
+from = "core"
+to = "identity"
+tier = "path"
+count = 10
+reason = "PR 2 (Tasks 5-6): Identity constructors become identity free functions; PR 4 (Task 11) gives identity resolution a feature slot; PR 4 (Task 10) moves key-package maintenance out of the task runner."
+
+[[waivers]]
+from = "core"
+to = "notifications"
+tier = "path"
+count = 5
+reason = "PR 4 (Task 10): the task runner calls the notification handler and hash directly."
+
+[[waivers]]
+from = "device_sync"
+to = "facade"
+tier = "path"
+count = 2
+reason = "PR 3 (Task 7): device-sync errors wrap ClientError."
+
+[[waivers]]
+from = "device_sync"
+to = "streams"
+tier = "path"
+count = 1
+reason = "PR 3 (Task 7): DeviceSyncError wraps SubscribeError."
+
+[[waivers]]
+from = "engine"
+to = "device_sync"
+tier = "path"
+count = 3
+reason = "PR 2 (Task 5) moves the storage-only enqueue helper below engine; PR 3 (Task 7) removes GroupError::DeviceSync."
+
+[[waivers]]
+from = "engine"
+to = "facade"
+tier = "path"
+count = 25
+reason = "PR 3 (Tasks 7-9): engine errors wrap ClientError; PR 2 (Task 5) moves fork-recovery policy and the test lock; PR 5 (Task 12) moves test hooks and test-only helpers."
+
+[[waivers]]
+from = "engine"
+to = "streams"
+tier = "path"
+count = 7
+reason = "PR 3 (Task 7) and PR 7 (Task 20): engine errors and the receiver name stream types; MlsGroup::stream is dropped in PR 3."
+
+[[waivers]]
+from = "identity"
+to = "engine"
+tier = "path"
+count = 3
+reason = "PR 2 (Task 6): handle claims update group membership from inbox_handles."
+
+[[waivers]]
+from = "identity"
+to = "facade"
+tier = "path"
+count = 6
+reason = "PR 3 (Task 8): identity errors wrap ClientError; PR 5 (Task 12) moves the key-package test hook."
+
+[[waivers]]
+from = "messages"
+to = "engine"
+tier = "path"
+count = 1
+reason = "PR 3 (Task 7): DecodedMessage maps GroupError."
+
+[[waivers]]
+from = "notifications"
+to = "facade"
+tier = "path"
+count = 1
+reason = "PR 2 (Task 6): Client notification methods move to the facade file."
+
+[[waivers]]
+from = "server_config"
+to = "core"
+tier = "path"
+count = 2
+reason = "PR 2 (Task 5): preflight binding and refresh move with the core worker."
+
+[[waivers]]
+from = "server_config"
+to = "facade"
+tier = "path"
+count = 1
+reason = "PR 3 (Task 7): blocked_or returns ClientError."
+
+[[waivers]]
+from = "streams"
+to = "device_sync"
+tier = "path"
+count = 1
+reason = "PR 2 (Task 5): preference events move to core."
+
+[[waivers]]
+from = "streams"
+to = "facade"
+tier = "path"
+count = 9
+reason = "PR 3 (Task 7): stream errors wrap ClientError; PR 6+ moves the Client entry points."
+
+# Method calls in code that neither indexed build (native with test on, wasm32
+# with test off, every feature on) compiles; only the path tier reads them.
+[[uncovered]]
+file = "crates/xmtp_mls/src/storage_location.rs"
+method = "replace"
+reason = "The wasm OPFS move outside test-utils; the wasm index is built with every feature on."
+
+[[uncovered]]
+file = "crates/xmtp_mls/src/storage_location.rs"
+method = "map_err"
+reason = "The wasm OPFS move outside test-utils; the wasm index is built with every feature on."
+
+[naming]
+prefix = "xmtp_mls_"
+exempt = ["xmtp_integration_tests"]
+existing = [
+  "error_glossary",
+  "keepalive-probe",
+  "xchaos",
+  "xdbg",
+  "xmtp-db-tools",
+  "xmtp-sdk-bindgen",
+  "xmtp-workspace-hack",
+  "xmtp_api",
+  "xmtp_api_backend",
+  "xmtp_api_grpc",
+  "xmtp_archive",
+  "xmtp_attachments",
+  "xmtp_attachments_server",
+  "xmtp_backend",
+  "xmtp_backend_config",
+  "xmtp_common",
+  "xmtp_configuration",
+  "xmtp_content_types",
+  "xmtp_cryptography",
+  "xmtp_db",
+  "xmtp_events",
+  "xmtp_id",
+  "xmtp_legacy_migration",
+  "xmtp_logging",
+  "xmtp_macro",
+  "xmtp_mls",
+  "xmtp_mls_common",
+  "xmtp_mls_validation",
+  "xmtp_proto",
+  "xmtp_push_types",
+  "xmtp_rate_limit",
+  "xmtp_sdk",
+]
+
+# The call tier (dev/check-boundaries --full) counts every reference to an
+# item, method calls and inferred types included, so its counts are larger.
+# Each edge has the same cause and owner as its path waiver.
+
+[[waivers]]
+from = "attachments"
+to = "facade"
+tier = "call"
+count = 3
+reason = "PR 4 (Task 11): attachments reads Client; it moves behind the attachments feature slot."
+
+[[waivers]]
+from = "core"
+to = "attachments"
+tier = "call"
+count = 4
+reason = "PR 4 (Task 11): the context's attachments field becomes a feature slot."
+
+[[waivers]]
+from = "core"
+to = "device_sync"
+tier = "call"
+count = 22
+reason = "PR 2 (Task 5): the context names DeviceSyncClient and preference events; PR 4 (Task 10) opens the worker framework for the device-sync task and its error."
+
+[[waivers]]
+from = "core"
+to = "engine"
+tier = "call"
+count = 16
+reason = "PR 4 (Task 11): the context's incoming field becomes a feature slot; PR 2 (Task 6) moves the MlsGroup lookup out of mls_store."
+
+[[waivers]]
+from = "core"
+to = "facade"
+tier = "call"
+count = 45
+reason = "PR 3 (Tasks 7-9): server-config workers return ClientError; PR 2 (Task 5) moves ForkRecoveryOpts and the test lock; the test helpers move in PR 5 (Task 12)."
+
+[[waivers]]
+from = "core"
+to = "identity"
+tier = "call"
+count = 15
+reason = "PR 2 (Tasks 5-6): Identity constructors become identity free functions; PR 4 (Task 11) gives identity resolution a feature slot; PR 4 (Task 10) moves key-package maintenance out of the task runner."
+
+[[waivers]]
+from = "core"
+to = "notifications"
+tier = "call"
+count = 10
+reason = "PR 4 (Task 10): the task runner calls the notification handler and hash directly."
+
+[[waivers]]
+from = "device_sync"
+to = "facade"
+tier = "call"
+count = 14
+reason = "PR 3 (Task 7): device-sync errors wrap ClientError."
+
+[[waivers]]
+from = "device_sync"
+to = "streams"
+tier = "call"
+count = 4
+reason = "PR 3 (Task 7): DeviceSyncError wraps SubscribeError."
+
+[[waivers]]
+from = "engine"
+to = "device_sync"
+tier = "call"
+count = 7
+reason = "PR 2 (Task 5) moves the storage-only enqueue helper below engine; PR 3 (Task 7) removes GroupError::DeviceSync."
+
+[[waivers]]
+from = "engine"
+to = "facade"
+tier = "call"
+count = 79
+reason = "PR 3 (Tasks 7-9): engine errors wrap ClientError; PR 2 (Task 5) moves fork-recovery policy and the test lock; PR 5 (Task 12) moves test hooks and test-only helpers."
+
+[[waivers]]
+from = "engine"
+to = "streams"
+tier = "call"
+count = 25
+reason = "PR 3 (Task 7) and PR 7 (Task 20): engine errors and the receiver name stream types; MlsGroup::stream is dropped in PR 3."
+
+[[waivers]]
+from = "identity"
+to = "engine"
+tier = "call"
+count = 19
+reason = "PR 2 (Task 6): handle claims update group membership from inbox_handles."
+
+[[waivers]]
+from = "identity"
+to = "facade"
+tier = "call"
+count = 94
+reason = "PR 3 (Task 8): identity errors wrap ClientError; PR 5 (Task 12) moves the key-package test hook."
+
+[[waivers]]
+from = "messages"
+to = "engine"
+tier = "call"
+count = 6
+reason = "PR 3 (Task 7): DecodedMessage maps GroupError."
+
+[[waivers]]
+from = "notifications"
+to = "facade"
+tier = "call"
+count = 2
+reason = "PR 2 (Task 6): Client notification methods move to the facade file."
+
+[[waivers]]
+from = "server_config"
+to = "core"
+tier = "call"
+count = 2
+reason = "PR 2 (Task 5): preflight binding and refresh move with the core worker."
+
+[[waivers]]
+from = "server_config"
+to = "facade"
+tier = "call"
+count = 37
+reason = "PR 3 (Task 7): blocked_or returns ClientError."
+
+[[waivers]]
+from = "streams"
+to = "device_sync"
+tier = "call"
+count = 6
+reason = "PR 2 (Task 5): preference events move to core."
+
+[[waivers]]
+from = "streams"
+to = "facade"
+tier = "call"
+count = 56
+reason = "PR 3 (Task 7): stream errors wrap ClientError; PR 6+ moves the Client entry points."

@@ -206,6 +206,62 @@
         "labels": []
       }
     },
+    "lint_boundaries": {
+      "title": "xmtp_mls boundaries",
+      "phase": "lint",
+      "workflow": "lint-boundaries.yml",
+      "run_on": [
+        "draft_pr_push",
+        "ready_pr_push",
+        "merge"
+      ],
+      "disable_on_forks": false,
+      "secrets": "none",
+      "permissions": {
+        "contents": "read"
+      },
+      "covered_by": null,
+      "skip_full_runs": false,
+      "kache": [],
+      "products": [],
+      "runners": {
+        "runner": {
+          "pr": "blacksmith-4vcpu-ubuntu-2404",
+          "merge": "ubuntu-24.04"
+        }
+      },
+      "with": {},
+      "cargo_roots": [
+        "xmtp_mls_boundaries"
+      ],
+      "crates": [
+        "apps/xmtp_mls_boundaries/**",
+        "crates/xmtp_common/**",
+        "crates/xmtp_cryptography/**",
+        "crates/xmtp_logging/**",
+        "crates/xmtp_macro/**"
+      ],
+      "workflow_files": [
+        ".github/actions/setup-nix/**",
+        ".github/workflows/lint-boundaries.yml"
+      ],
+      "workflow_tier": "blocking",
+      "paths": [
+        "Cargo.lock",
+        "Cargo.toml",
+        "crates/xmtp_mls/boundaries.toml",
+        "crates/xmtp_mls/src/**",
+        "dev/check-boundaries",
+        "{Cargo.toml,apps/*/Cargo.toml,crates/*/Cargo.toml}"
+      ],
+      "labels": [],
+      "advisory": {
+        "cargo_roots": [],
+        "crates": [],
+        "paths": [],
+        "labels": []
+      }
+    },
     "lint_example_react_native": {
       "title": "React Native example app",
       "phase": "lint",

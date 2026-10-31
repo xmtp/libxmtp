@@ -13266,6 +13266,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "xmtp_mls_boundaries"
+version = "1.12.0-dev.1"
+dependencies = [
+ "anyhow",
+ "clap",
+ "proc-macro2",
+ "prost",
+ "serde",
+ "syn 2.0.119",
+ "tempfile",
+ "toml 1.1.3+spec-1.1.0",
+ "xmtp_common",
+]
+
+[[package]]
 name = "xmtp_mls_common"
 version = "1.12.0-dev.1"
 dependencies = [
