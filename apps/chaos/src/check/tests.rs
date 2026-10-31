@@ -82,6 +82,67 @@ fn run_limit_requires_restored_contention_and_completed_obligations() {
     assert!(run_incomplete_at_limit(&complete, 0, false, &instances));
 }
 
+#[xmtp_common::test(unwrap_try = true)]
+fn closeout_requires_contention_after_successful_repair() {
+    use crate::supervisor::{CloseoutDecision, closeout_decision, run_incomplete_at_limit};
+
+    let instances = population();
+    let complete = oracle().evaluate(1, 0, &instances, &[]);
+    let repaired = run_incomplete_at_limit(&complete, 0, true, &instances);
+    assert!(repaired);
+    assert_eq!(
+        closeout_decision(1, 100, repaired, 0),
+        CloseoutDecision::Continue
+    );
+    let contended = run_incomplete_at_limit(&complete, 0, false, &instances);
+    assert_eq!(
+        closeout_decision(2, 200, contended, 2),
+        CloseoutDecision::Pass
+    );
+    assert_eq!(
+        closeout_decision(2, 200, contended, 1),
+        CloseoutDecision::Continue
+    );
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+fn closeout_does_not_pass_failed_repairs_or_unresolved_work() {
+    use crate::supervisor::{
+        CLOSEOUT_BUDGET_MS, CLOSEOUT_MAX_ROUNDS, CloseoutDecision, closeout_decision,
+        run_incomplete_at_limit,
+    };
+
+    let mut instances = population();
+    let complete = oracle().evaluate(1, 0, &instances, &[]);
+    let pending = run_incomplete_at_limit(&complete, 1, false, &instances);
+    assert_eq!(
+        closeout_decision(CLOSEOUT_MAX_ROUNDS, 200, pending, 2),
+        CloseoutDecision::Inconclusive
+    );
+    block_topic(&mut instances[0], false);
+    let stalled = oracle().evaluate(1, 0, &instances, &[]);
+    let incomplete = run_incomplete_at_limit(&stalled, 0, false, &instances);
+    assert!(incomplete);
+    assert_eq!(
+        closeout_decision(CLOSEOUT_MAX_ROUNDS, 200, incomplete, 2),
+        CloseoutDecision::Inconclusive
+    );
+    instances[1].groups[0].active = false;
+    let failed_repair = run_incomplete_at_limit(&complete, 0, true, &instances);
+    assert_eq!(
+        closeout_decision(CLOSEOUT_MAX_ROUNDS, 200, failed_repair, 0),
+        CloseoutDecision::Inconclusive
+    );
+    assert_eq!(
+        closeout_decision(1, CLOSEOUT_BUDGET_MS, false, 2),
+        CloseoutDecision::Inconclusive
+    );
+    assert_eq!(
+        closeout_decision(CLOSEOUT_MAX_ROUNDS, 200, false, 0),
+        CloseoutDecision::Inconclusive
+    );
+}
+
 fn missing_stream_call() -> RollCall {
     RollCall {
         group_id: group().group_id,

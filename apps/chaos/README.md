@@ -31,7 +31,7 @@ an actor, the operation runs as any actor and checks the refusal path.
 When churn leaves no group with two active inboxes, the scheduler adds an
 available inbox to an existing group. Scheduling this repair is not proof that
 it succeeded: a passing final round must start and end with an active group
-shared by distinct inboxes. A repair-only final round is inconclusive even if
+shared by distinct inboxes. A repair-only final round cannot pass even if
 the Add succeeds, because contention has not resumed. This keeps restoration
 within the group cap. A normal round with no group writes stops as a harness error;
 recovery rounds may still wait for existing obligations without new writes.
@@ -113,9 +113,23 @@ completed work; they do not prove that a transaction committed.
 
 Exit codes are 0 for completion with no unresolved obligations, 2 for a violation,
 3 for a harness error or an inconclusive run at its limit,
-and 130 for interruption. A run that reaches its time or round limit with a
-`STALL` or pending delivery obligation preserves a failure bundle and records
-`termination=INCONCLUSIVE`; it does not count as a passing baseline or fault run.
+and 130 for interruption. The configured time or round limit ends the workload
+phase. A separate fault-free closeout then has at most three rounds and a hard
+330-second work budget: the 60-second operation window plus three 90-second
+RPC budgets. Cleanup and evidence copying happen after that budget.
+
+Closeout clears new fault schedules. When a multi-inbox group is available,
+it runs one simultaneous metadata-write burst with one independent device from
+each of two distinct inboxes, without further membership churn. Both inboxes must
+successfully complete their writes in that burst, and the checkpoint, delivery,
+and restored-contention checks must all pass. Recovery-only or repair-only
+rounds cannot pass. Failed repair, unresolved work, or exhausted closeout bounds
+preserve a failure bundle and record `termination=INCONCLUSIVE`; disabling faults
+alone never turns them into a passing run. Fork/brick verdicts still stop the run.
+
+Bounded status reports `workload_rounds`, `workload_elapsed_ms`,
+`closeout_rounds`, `closeout_elapsed_ms`, the closeout bounds, and its successful
+writer count separately. Historical runs that stopped inconclusive remain so.
 Healthy stdout contains the seed and one summary
 line per round. Status includes contention counters.
 

@@ -7,7 +7,7 @@ use crate::{
     ledger::{Limits, RunLedger},
     population::{self, INBOXES, PROXY_SLOTS, SHARED_SLOT},
     process::{ChildLogs, InstanceProcess},
-    protocol::{Command, InstanceConfig, Operation},
+    protocol::{Command, InstanceConfig, Operation, RPC_TIMEOUT_SECS},
     schedule::{FaultWindow, GroupView, InstanceView, Scheduler},
 };
 use anyhow::{Context, Result, bail, ensure};
@@ -24,6 +24,79 @@ use xmtp_mls::diagnostics::{CheckpointSnapshot, RetryBudgets};
 
 const CHAOS_SECONDS: u64 = 60;
 const ROLL_POLL_MS: u64 = 100;
+pub(crate) const CLOSEOUT_MAX_ROUNDS: u64 = 3;
+pub(crate) const CLOSEOUT_BUDGET_MS: u64 = (CHAOS_SECONDS + 3 * RPC_TIMEOUT_SECS) * 1_000;
+
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum CloseoutDecision {
+    Continue,
+    Pass,
+    Inconclusive,
+}
+
+pub(crate) fn closeout_decision(
+    rounds: u64,
+    elapsed_ms: u64,
+    incomplete: bool,
+    successful_writers: usize,
+) -> CloseoutDecision {
+    if elapsed_ms >= CLOSEOUT_BUDGET_MS || rounds > CLOSEOUT_MAX_ROUNDS {
+        CloseoutDecision::Inconclusive
+    } else if !incomplete && successful_writers >= 2 {
+        CloseoutDecision::Pass
+    } else if rounds >= CLOSEOUT_MAX_ROUNDS {
+        CloseoutDecision::Inconclusive
+    } else {
+        CloseoutDecision::Continue
+    }
+}
+
+fn closeout_schedule(
+    schedule: &mut crate::schedule::RoundSchedule,
+    round: u64,
+    population: &[InstanceView],
+    groups: &[GroupView],
+) -> usize {
+    schedule.faults.clear();
+    for group in groups {
+        let mut actors = crate::schedule::members(population, group, round);
+        if actors.len() >= 2 {
+            actors.truncate(2);
+            schedule.bursts = vec![crate::recipes::same_epoch(round, 0, group, &actors)];
+            return actors.len();
+        }
+    }
+    0
+}
+
+async fn save_failure_bundle(s: &Supervisor, summary: &Value) -> Result<()> {
+    let stopped = s.stop().await?;
+    let active = s
+        .processes
+        .read()
+        .await
+        .keys()
+        .copied()
+        .collect::<BTreeSet<_>>();
+    let configs = s.configs.lock().expect("configs mutex");
+    let databases = configs
+        .iter()
+        .filter(|c| active.contains(&c.slot) && c.slot != SHARED_SLOT)
+        .map(|c| DatabaseCopy {
+            source: c.database.clone(),
+            name: format!("instance-{}", c.slot),
+            key: json!(c.database_key),
+        })
+        .collect::<Vec<_>>();
+    let path = crate::evidence::write_bundle(
+        &s.ledger.lock().expect("ledger mutex"),
+        &stopped,
+        summary,
+        &databases,
+    )?;
+    println!("bundle={}", path.display());
+    Ok(())
+}
 
 struct Supervisor {
     network: NetworkController,
@@ -705,8 +778,15 @@ async fn run_rounds(s: &Arc<Supervisor>, args: &RunArgs, seed: u64) -> Result<i3
         .hours
         .map(|hours| Duration::from_secs_f64(hours * 3600.0));
     let mut round = 0;
+    let mut closeout_start: Option<Instant> = None;
+    let mut closeout_rounds = 0;
+    let mut workload_rounds = 0;
+    let mut workload_elapsed_ms = 0;
     loop {
         round += 1;
+        if closeout_start.is_some() {
+            closeout_rounds += 1;
+        }
         {
             let mut ledger = s.ledger.lock().expect("ledger mutex");
             ledger.enforce_healthy_bounds()?;
@@ -717,111 +797,190 @@ async fn run_rounds(s: &Arc<Supervisor>, args: &RunArgs, seed: u64) -> Result<i3
             )?;
             ledger.write_status(&json!({"seed":seed,"round":round,"phase":"chaos"}))?;
         }
-        let population = {
-            let configs = s.configs.lock().expect("configs mutex");
-            snapshots
-                .iter()
-                .map(|i| InstanceView {
-                    slot: i.instance,
-                    inbox_index: configs[i.instance].inbox_index,
-                    inbox_id: i.inbox_id.clone(),
-                    groups: i
-                        .groups
-                        .iter()
-                        .filter(|g| g.active)
-                        .map(|g| g.group_id.clone())
-                        .collect(),
-                })
-                .collect::<Vec<_>>()
-        };
-        let groups = snapshots
-            .iter()
-            .flat_map(|i| i.groups.iter())
-            .filter(|g| g.active)
-            .map(|g| {
-                (
-                    g.group_id.clone(),
-                    GroupView {
-                        id: g.group_id.clone(),
-                        members: g
-                            .members
-                            .iter()
-                            .map(|m| m.inbox_id.clone())
-                            .collect::<BTreeSet<_>>()
-                            .into_iter()
-                            .collect(),
-                        admins: g.admins.clone(),
-                        super_admins: g.super_admins.clone(),
-                    },
-                )
-            })
-            .collect::<BTreeMap<_, _>>()
-            .into_values()
-            .collect::<Vec<_>>();
-        let mut schedule = scheduler.next(round, &population, &groups);
-        schedule
-            .faults
-            .retain(|f| fault_selected(&args.faults, &f.kind));
-        let recovering = !oracle.pending_rollcalls().is_empty();
-        let restoring = !has_hot_group(&snapshots);
-        if recovering {
-            // A new crash could erase an acknowledged stream receipt before it is observed.
-            schedule.bursts.clear();
-            schedule.faults.clear();
-            sleep(Duration::from_millis(ROLL_POLL_MS)).await;
-        }
-        validate_workload(&schedule, recovering)?;
-        s.record("schedule", serde_json::to_value(&schedule)?)?;
-        s.ledger.lock().expect("ledger mutex").write_status(
-            &json!({"seed":seed,"round":round,"phase":if recovering { "recovery" } else { "chaos" },"schedule":schedule}),
-        )?;
         let began = Instant::now();
-        let operations = async {
-            let mut counts = (0, 0);
-            for (index, burst) in schedule.bursts.iter().enumerate() {
-                let (ok, err) = s
-                    .burst(
-                        round,
-                        index,
-                        burst,
-                        began + Duration::from_secs(CHAOS_SECONDS),
+        let work = async {
+            let population = {
+                let configs = s.configs.lock().expect("configs mutex");
+                snapshots
+                    .iter()
+                    .map(|i| InstanceView {
+                        slot: i.instance,
+                        inbox_index: configs[i.instance].inbox_index,
+                        inbox_id: i.inbox_id.clone(),
+                        groups: i
+                            .groups
+                            .iter()
+                            .filter(|g| g.active)
+                            .map(|g| g.group_id.clone())
+                            .collect(),
+                    })
+                    .collect::<Vec<_>>()
+            };
+            let groups = snapshots
+                .iter()
+                .flat_map(|i| i.groups.iter())
+                .filter(|g| g.active)
+                .map(|g| {
+                    (
+                        g.group_id.clone(),
+                        GroupView {
+                            id: g.group_id.clone(),
+                            members: g
+                                .members
+                                .iter()
+                                .map(|m| m.inbox_id.clone())
+                                .collect::<BTreeSet<_>>()
+                                .into_iter()
+                                .collect(),
+                            admins: g.admins.clone(),
+                            super_admins: g.super_admins.clone(),
+                        },
                     )
-                    .await?;
-                counts.0 += ok;
-                counts.1 += err;
+                })
+                .collect::<BTreeMap<_, _>>()
+                .into_values()
+                .collect::<Vec<_>>();
+            let mut schedule = scheduler.next(round, &population, &groups);
+            schedule
+                .faults
+                .retain(|f| fault_selected(&args.faults, &f.kind));
+            let contenders = if closeout_start.is_some() {
+                closeout_schedule(&mut schedule, round, &population, &groups)
+            } else {
+                0
+            };
+            let recovering = !oracle.pending_rollcalls().is_empty();
+            let restoring = !has_hot_group(&snapshots);
+            if recovering {
+                // A new crash could erase an acknowledged stream receipt before it is observed.
+                schedule.bursts.clear();
+                schedule.faults.clear();
+                sleep(Duration::from_millis(ROLL_POLL_MS)).await;
             }
-            Ok::<_, anyhow::Error>(counts)
-        };
-        let faults = async {
-            for result in join_all(schedule.faults.iter().map(|f| s.fault(round, f, began))).await {
-                result?;
+            validate_workload(&schedule, recovering)?;
+            s.record("schedule", serde_json::to_value(&schedule)?)?;
+            s.ledger.lock().expect("ledger mutex").write_status(
+            &json!({"seed":seed,"round":round,"phase":if closeout_start.is_some() { "closeout" } else if recovering { "recovery" } else { "chaos" },"schedule":schedule,"workload_rounds":workload_rounds,"workload_elapsed_ms":workload_elapsed_ms,"closeout_rounds":closeout_rounds,"closeout_max_rounds":CLOSEOUT_MAX_ROUNDS,"closeout_budget_ms":CLOSEOUT_BUDGET_MS}),
+        )?;
+            let operations = async {
+                let mut counts = (0, 0);
+                for (index, burst) in schedule.bursts.iter().enumerate() {
+                    let (ok, err) = s
+                        .burst(
+                            round,
+                            index,
+                            burst,
+                            began + Duration::from_secs(CHAOS_SECONDS),
+                        )
+                        .await?;
+                    counts.0 += ok;
+                    counts.1 += err;
+                }
+                Ok::<_, anyhow::Error>(counts)
+            };
+            let faults = async {
+                for result in
+                    join_all(schedule.faults.iter().map(|f| s.fault(round, f, began))).await
+                {
+                    result?;
+                }
+                Ok::<_, anyhow::Error>(())
+            };
+            let ((ok, errors), ()) = tokio::try_join!(operations, faults)?;
+            if !recovering {
+                s.clear().await?;
             }
-            Ok::<_, anyhow::Error>(())
+            s.network.check_health().await?;
+            for process in s.processes.read().await.values() {
+                process.call(Command::Drain).await?;
+            }
+            if !recovering {
+                s.handover().await?;
+            }
+            snapshots = s.checkpoint().await?;
+            let pending = oracle.pending_rollcalls();
+            let rollcall = s.rollcall(round, seed, &snapshots, &pending).await?;
+            snapshots = s.checkpoint().await?;
+            // Check infrastructure independently before assigning an SDK verdict.
+            s.network.check_health().await?;
+            let observations = s.counters().await?;
+            let result = oracle.evaluate(
+                round,
+                run_start.elapsed().as_millis() as u64,
+                &snapshots,
+                &rollcall,
+            );
+            let successful_writers = if !recovering && errors == 0 && ok == contenders {
+                contenders
+            } else {
+                0
+            };
+            Ok::<_, anyhow::Error>((
+                ok,
+                errors,
+                schedule,
+                recovering,
+                restoring,
+                rollcall,
+                result,
+                observations,
+                successful_writers,
+            ))
         };
-        let ((ok, errors), ()) = tokio::try_join!(operations, faults)?;
-        if !recovering {
-            s.clear().await?;
-        }
-        s.network.check_health().await?;
-        for process in s.processes.read().await.values() {
-            process.call(Command::Drain).await?;
-        }
-        if !recovering {
-            s.handover().await?;
-        }
-        snapshots = s.checkpoint().await?;
-        let pending = oracle.pending_rollcalls();
-        let rollcall = s.rollcall(round, seed, &snapshots, &pending).await?;
-        snapshots = s.checkpoint().await?;
-        // Check infrastructure independently before assigning an SDK verdict.
-        s.network.check_health().await?;
-        let result = oracle.evaluate(
-            round,
-            run_start.elapsed().as_millis() as u64,
-            &snapshots,
-            &rollcall,
-        );
-        let observations = s.counters().await?;
+        let outcome = if let Some(started) = closeout_start {
+            let remaining =
+                Duration::from_millis(CLOSEOUT_BUDGET_MS).saturating_sub(started.elapsed());
+            let completed = if remaining.is_zero() {
+                drop(work);
+                Err(())
+            } else {
+                timeout(remaining, work).await.map_err(|_| ())
+            };
+            match completed {
+                Ok(result) => result,
+                Err(_) => {
+                    let summary = {
+                        let ledger = s.ledger.lock().expect("ledger mutex");
+                        let mut summary: Value =
+                            serde_json::from_slice(&crate::ledger::read_bounded(
+                                &ledger.root().join("status.json"),
+                                4 * 1024 * 1024,
+                            )?)?;
+                        summary["run_phase"] = json!("closeout");
+                        summary["verdict"] = json!("INCONCLUSIVE");
+                        summary["termination"] = json!("INCONCLUSIVE");
+                        summary["termination_reason"] = json!(
+                            "Closeout elapsed-time budget exhausted before a complete checkpoint"
+                        );
+                        summary["workload_rounds"] = json!(workload_rounds);
+                        summary["workload_elapsed_ms"] = json!(workload_elapsed_ms);
+                        summary["closeout_rounds"] = json!(closeout_rounds);
+                        summary["closeout_elapsed_ms"] =
+                            json!(started.elapsed().as_millis() as u64);
+                        summary["closeout_max_rounds"] = json!(CLOSEOUT_MAX_ROUNDS);
+                        summary["closeout_budget_ms"] = json!(CLOSEOUT_BUDGET_MS);
+                        ledger.write_status(&summary)?;
+                        summary
+                    };
+                    save_failure_bundle(s, &summary).await?;
+                    println!("termination=INCONCLUSIVE: closeout elapsed-time budget exhausted");
+                    return Ok(3);
+                }
+            }
+        } else {
+            work.await
+        };
+        let (
+            ok,
+            errors,
+            schedule,
+            recovering,
+            restoring,
+            rollcall,
+            result,
+            observations,
+            successful_writers,
+        ) = outcome?;
         let streams = observations
             .iter()
             .map(|(instance, value)| json!({"instance":instance,"diagnostics":value["stream"]}))
@@ -845,18 +1004,45 @@ async fn run_rounds(s: &Arc<Supervisor>, args: &RunArgs, seed: u64) -> Result<i3
             .count();
         summary["escalated_stalls"] = json!(escalated_stalls);
         let at_limit = deadline.map_or(round >= args.rounds, |d| run_start.elapsed() >= d);
-        let incomplete_at_limit = !result.violation
-            && at_limit
-            && run_incomplete_at_limit(
-                &result,
-                oracle.pending_rollcalls().len(),
-                restoring,
-                &snapshots,
-            );
+        if closeout_start.is_none() {
+            workload_rounds = round;
+            workload_elapsed_ms = run_start.elapsed().as_millis() as u64;
+        }
+        let closeout_elapsed_ms =
+            closeout_start.map_or(0, |started| started.elapsed().as_millis() as u64);
+        let decision = if closeout_start.is_some() {
+            closeout_decision(
+                closeout_rounds,
+                closeout_elapsed_ms,
+                run_incomplete_at_limit(
+                    &result,
+                    oracle.pending_rollcalls().len(),
+                    restoring,
+                    &snapshots,
+                ) || result.violation
+                    || result.verdict == crate::check::Verdict::Harness,
+                successful_writers,
+            )
+        } else {
+            CloseoutDecision::Continue
+        };
+        summary["run_phase"] = json!(if closeout_start.is_some() {
+            "closeout"
+        } else {
+            "workload"
+        });
+        summary["workload_rounds"] = json!(workload_rounds);
+        summary["workload_elapsed_ms"] = json!(workload_elapsed_ms);
+        summary["closeout_rounds"] = json!(closeout_rounds);
+        summary["closeout_elapsed_ms"] = json!(closeout_elapsed_ms);
+        summary["closeout_max_rounds"] = json!(CLOSEOUT_MAX_ROUNDS);
+        summary["closeout_budget_ms"] = json!(CLOSEOUT_BUDGET_MS);
+        summary["closeout_successful_writers"] = json!(successful_writers);
+        let incomplete_at_limit = !result.violation && decision == CloseoutDecision::Inconclusive;
         if incomplete_at_limit {
             summary["termination"] = json!("INCONCLUSIVE");
             summary["termination_reason"] = json!(
-                "Run limit reached with unresolved obligations or without restored contention"
+                "Closeout budget exhausted with unresolved obligations or without restored contention"
             );
         }
         {
@@ -865,7 +1051,7 @@ async fn run_rounds(s: &Arc<Supervisor>, args: &RunArgs, seed: u64) -> Result<i3
             ledger.enforce_bounds()?;
         }
         println!(
-            "round {round} recovery={recovering} ops={} ok={ok} err={errors} faults={} kinds={} bursts={} conflicts={conflicts} wretry={welcome_retries} warn={warnings} escalated={escalated_stalls} check={} {}s",
+            "round {round} closeout={closeout_rounds} recovery={recovering} ops={} ok={ok} err={errors} faults={} kinds={} bursts={} conflicts={conflicts} wretry={welcome_retries} warn={warnings} escalated={escalated_stalls} check={} {}s",
             ok + errors,
             schedule.faults.len(),
             schedule
@@ -882,31 +1068,7 @@ async fn run_rounds(s: &Arc<Supervisor>, args: &RunArgs, seed: u64) -> Result<i3
             bail!("oracle could not produce a verdict: {:?}", result.findings);
         }
         if result.violation || incomplete_at_limit {
-            let stopped = s.stop().await?;
-            let active = s
-                .processes
-                .read()
-                .await
-                .keys()
-                .copied()
-                .collect::<BTreeSet<_>>();
-            let configs = s.configs.lock().expect("configs mutex");
-            let databases = configs
-                .iter()
-                .filter(|c| active.contains(&c.slot) && c.slot != SHARED_SLOT)
-                .map(|c| DatabaseCopy {
-                    source: c.database.clone(),
-                    name: format!("instance-{}", c.slot),
-                    key: json!(c.database_key),
-                })
-                .collect::<Vec<_>>();
-            let path = crate::evidence::write_bundle(
-                &s.ledger.lock().expect("ledger mutex"),
-                &stopped,
-                &summary,
-                &databases,
-            )?;
-            println!("bundle={}", path.display());
+            save_failure_bundle(s, &summary).await?;
             if incomplete_at_limit {
                 println!(
                     "termination=INCONCLUSIVE: unresolved obligations or unrestored contention"
@@ -914,8 +1076,14 @@ async fn run_rounds(s: &Arc<Supervisor>, args: &RunArgs, seed: u64) -> Result<i3
             }
             return Ok(if result.violation { 2 } else { 3 });
         }
-        if at_limit {
+        if decision == CloseoutDecision::Pass {
             return Ok(0);
+        }
+        if closeout_start.is_none() && at_limit {
+            closeout_start = Some(Instant::now());
+            println!(
+                "closeout_start workload_rounds={workload_rounds} workload_elapsed_ms={workload_elapsed_ms} max_rounds={CLOSEOUT_MAX_ROUNDS} budget_ms={CLOSEOUT_BUDGET_MS}"
+            );
         }
     }
 }
@@ -1055,5 +1223,63 @@ mod tests {
             inbox: "available-member".into(),
         }]);
         assert!(validate_workload(&repair, false).is_ok());
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn closeout_runs_only_fault_free_distinct_inbox_writes_when_hot() {
+        let population = ["a", "b", "c", "a"]
+            .into_iter()
+            .enumerate()
+            .map(|(slot, inbox)| InstanceView {
+                slot,
+                inbox_index: match inbox {
+                    "a" => 0,
+                    "b" => 1,
+                    _ => 2,
+                },
+                inbox_id: inbox.into(),
+                groups: vec!["group".into()],
+            })
+            .collect::<Vec<_>>();
+        let groups = vec![GroupView {
+            id: "group".into(),
+            members: vec!["a".into(), "b".into(), "c".into()],
+            admins: Vec::new(),
+            super_admins: Vec::new(),
+        }];
+        let mut schedule = workload(vec![Operation::Leave {
+            group: "group".into(),
+        }]);
+        schedule.faults.push(FaultWindow {
+            instance: 0,
+            kind: "process_kill".into(),
+            start_ms: 0,
+            duration_ms: 1,
+        });
+        assert_eq!(closeout_schedule(&mut schedule, 1, &population, &groups), 2);
+        assert!(schedule.faults.is_empty());
+        assert_eq!(schedule.bursts.len(), 1);
+        let operations = &schedule.bursts[0].operations;
+        assert_eq!(operations.len(), 2);
+        assert!(operations.iter().all(
+            |op| matches!(&op.operation, Operation::Metadata { group, .. } if group == "group")
+        ));
+        let inboxes = operations
+            .iter()
+            .map(|op| &population[op.instance].inbox_id)
+            .collect::<BTreeSet<_>>();
+        assert_eq!(inboxes.len(), 2);
+        let mut repair = workload(vec![Operation::Add {
+            group: "group".into(),
+            inbox: "b".into(),
+        }]);
+        assert_eq!(
+            closeout_schedule(&mut repair, 1, &population[..1], &groups),
+            0
+        );
+        assert!(matches!(
+            repair.bursts[0].operations[0].operation,
+            Operation::Add { .. }
+        ));
     }
 }
