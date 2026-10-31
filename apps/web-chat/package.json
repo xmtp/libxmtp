@@ -47,7 +47,7 @@
     "@types/node": "catalog:node26",
     "@types/react": "^19.2.9",
     "@types/react-dom": "^19.2.3",
-    "@vitejs/plugin-react": "^5.1.2",
+    "@vitejs/plugin-react": "^6.1.2",
     "@vitest/browser": "catalog:",
     "@vitest/browser-playwright": "catalog:",
     "playwright": "catalog:",
@@ -55,7 +55,7 @@
     "postcss-preset-mantine": "^1.18.0",
     "postcss-simple-vars": "^7.0.1",
     "typescript": "catalog:",
-    "vercel": "48.12.1",
+    "vercel": "65.2.0",
     "vite": "catalog:",
     "vitest": "catalog:"
   },
