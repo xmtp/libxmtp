@@ -30,7 +30,6 @@ use super::{
     Result, StreamKind, SubscribeError,
     watchdog::{StreamCancel, close_reason},
 };
-use crate::Client;
 use crate::context::XmtpSharedContext;
 use crate::groups::MlsGroup;
 
@@ -306,51 +305,57 @@ where
     xmtp_common::spawn(Some(rx), xmtp_common::bind_task_hub(task))
 }
 
-impl<C> Client<C>
+/// `keep_alive` lives until the subscription opens.
+pub(crate) fn stream_all_messages_with_callback_dispatch<C>(
+    context: C,
+    keep_alive: impl MaybeSend + 'static,
+    conversation_type: Option<ConversationType>,
+    consent_states: Option<Vec<ConsentState>>,
+    callback: impl FnMut(Result<StoredGroupMessage>) + MaybeSend + 'static,
+    on_close: impl FnOnce() + MaybeSend + 'static,
+) -> impl StreamHandle<StreamOutput = Result<()>>
 where
     C: XmtpSharedContext + 'static,
     C::ApiClient:
         XmtpMlsBidiStreams + XmtpMlsStreams + ApiClientIdentity + Clone + Send + Sync + 'static,
     <C::ApiClient as XmtpMlsBidiStreams>::SubscribeStream: 'static,
 {
-    pub fn stream_all_messages_with_callback_dispatch(
-        client: Arc<Client<C>>,
-        conversation_type: Option<ConversationType>,
-        consent_states: Option<Vec<ConsentState>>,
-        callback: impl FnMut(Result<StoredGroupMessage>) + MaybeSend + 'static,
-        on_close: impl FnOnce() + MaybeSend + 'static,
-    ) -> impl StreamHandle<StreamOutput = Result<()>> {
-        let origin = StreamOrigin::new(StreamKind::All, &client.context);
-        let subscribe = async move {
-            super::stream_all::StreamAllMessages::new_owned(
-                client.context.clone(),
-                conversation_type,
-                consent_states,
-            )
+    let origin = StreamOrigin::new(StreamKind::All, &context);
+    let subscribe = async move {
+        let _keep_alive = keep_alive;
+        super::stream_all::StreamAllMessages::new_owned(context, conversation_type, consent_states)
             .await
-        };
-        pump_stream(origin, subscribe, callback, on_close)
-    }
+    };
+    pump_stream(origin, subscribe, callback, on_close)
+}
 
-    pub fn stream_conversations_with_callback_dispatch(
-        client: Arc<Client<C>>,
-        conversation_type: Option<ConversationType>,
-        include_duplicate_dms: bool,
-        callback: impl FnMut(Result<MlsGroup<C>>) + MaybeSend + 'static,
-        on_close: impl FnOnce() + MaybeSend + 'static,
-    ) -> impl StreamHandle<StreamOutput = Result<()>> {
-        let origin = StreamOrigin::new(StreamKind::Conversations, &client.context);
-        let subscribe = async move {
-            super::stream_conversations::StreamConversations::new_owned(
-                client.context.clone(),
-                conversation_type,
-                include_duplicate_dms,
-                None,
-            )
-            .await
-        };
-        pump_stream(origin, subscribe, callback, on_close)
-    }
+/// `keep_alive` lives until the subscription opens.
+pub(crate) fn stream_conversations_with_callback_dispatch<C>(
+    context: C,
+    keep_alive: impl MaybeSend + 'static,
+    conversation_type: Option<ConversationType>,
+    include_duplicate_dms: bool,
+    callback: impl FnMut(Result<MlsGroup<C>>) + MaybeSend + 'static,
+    on_close: impl FnOnce() + MaybeSend + 'static,
+) -> impl StreamHandle<StreamOutput = Result<()>>
+where
+    C: XmtpSharedContext + 'static,
+    C::ApiClient:
+        XmtpMlsBidiStreams + XmtpMlsStreams + ApiClientIdentity + Clone + Send + Sync + 'static,
+    <C::ApiClient as XmtpMlsBidiStreams>::SubscribeStream: 'static,
+{
+    let origin = StreamOrigin::new(StreamKind::Conversations, &context);
+    let subscribe = async move {
+        let _keep_alive = keep_alive;
+        super::stream_conversations::StreamConversations::new_owned(
+            context,
+            conversation_type,
+            include_duplicate_dms,
+            None,
+        )
+        .await
+    };
+    pump_stream(origin, subscribe, callback, on_close)
 }
 
 pub fn stream_conversation_messages_with_callback_dispatch<C>(
