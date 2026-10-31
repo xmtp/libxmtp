@@ -104,7 +104,7 @@ fn traverses_all_sync_summary_branches_and_transparent_wrappers() {
             BarrierFailure::Blocked,
         )))),
     ));
-    let error = SubscribeError::Group(Box::new(GroupError::Sync(Box::new(summary))));
+    let error = ClientError::Group(Box::new(GroupError::Sync(Box::new(summary))));
     let details = stream_failure_details(&error)?;
     let targets: Vec<_> = details
         .barriers

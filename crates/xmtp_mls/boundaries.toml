@@ -125,7 +125,7 @@ from = "engine"
 to = "facade"
 tier = "path"
 count = 18
-reason = "PR 5 (Task 12) moves test hooks, test-only helpers and the test lock."
+reason = "PR 5 (Task 12) moves test hooks, test-only helpers and the test lock; the engine also records diagnostics counters in the facade diagnostics module."
 
 [[waivers]]
 from = "engine"
@@ -147,6 +147,13 @@ to = "core"
 tier = "path"
 count = 1
 reason = "Task 16: server_configuration::worker re-exports the core config refresh worker at its old public path until server_config becomes a crate and the facade keeps the path."
+
+[[waivers]]
+from = "streams"
+to = "facade"
+tier = "path"
+count = 1
+reason = "Streams extraction (PR 7): stream_failure_details opens the transparent ClientError::Group so a group failure keeps its stream-failure details."
 
 # Method calls in code that neither indexed build (native with test on, wasm32
 # with test off, every feature on) compiles; only the path tier reads them.
@@ -227,15 +234,15 @@ reason = "PR 4 (Task 11): the context's incoming field becomes a feature slot; P
 from = "core"
 to = "facade"
 tier = "call"
-count = 40
-reason = "PR 3 (Tasks 7-9): preflight and the config refresh worker return ClientError, and the test lock's get_lock_sync gets a core-owned error so the lock can leave the facade."
+count = 17
+reason = "PR 4 (Task 10): the task runner names TaskWorkerError, which moves to the facade with the TaskHandlers impl; PR 5 (Task 12): the context test lock leaves the facade."
 
 [[waivers]]
 from = "core"
 to = "identity"
 tier = "call"
-count = 12
-reason = "PR 3 (Task 8): IdentityError wraps IdentityUpdateError; Task 17 moves identity_ext with the identity crate; PR 4 (Task 11) gives identity resolution a feature slot; PR 4 (Task 10) moves key-package maintenance out of the task runner."
+count = 11
+reason = "Task 17 moves identity_ext with the identity crate; PR 4 (Task 11) gives identity resolution a feature slot; PR 4 (Task 10) moves key-package maintenance out of the task runner."
 
 [[waivers]]
 from = "core"
@@ -245,71 +252,36 @@ count = 5
 reason = "PR 4 (Task 10): the task runner calls the notification handler and hash directly."
 
 [[waivers]]
-from = "device_sync"
-to = "facade"
-tier = "call"
-count = 14
-reason = "PR 3 (Task 7): device-sync errors wrap ClientError."
-
-[[waivers]]
-from = "device_sync"
-to = "streams"
-tier = "call"
-count = 4
-reason = "PR 3 (Task 7): DeviceSyncError wraps SubscribeError."
-
-[[waivers]]
-from = "engine"
-to = "device_sync"
-tier = "call"
-count = 3
-reason = "PR 3 (Task 7): removes GroupError::DeviceSync."
-
-[[waivers]]
 from = "engine"
 to = "facade"
 tier = "call"
-count = 63
-reason = "PR 3 (Tasks 7-9): engine errors wrap ClientError, and the test lock's get_lock_sync gets a core-owned error; PR 5 (Task 12) moves test hooks and test-only helpers."
+count = 46
+reason = "PR 5 (Task 12) moves test hooks, test-only helpers and the test lock; the engine also records diagnostics counters in the facade diagnostics module."
 
 [[waivers]]
 from = "engine"
 to = "streams"
 tier = "call"
-count = 16
-reason = "PR 3 (Task 7) and PR 7 (Task 20): engine errors and the receiver name stream types."
+count = 13
+reason = "PR 7 (Task 20): the receiver and the group stream entry points name stream types."
 
 [[waivers]]
 from = "identity"
 to = "engine"
 tier = "call"
-count = 6
-reason = "PR 3 (Task 8): inbox_handles errors wrap GroupError."
+count = 2
+reason = "PR 4 (Task 11): identity resolution calls IncomingRuntime::policy until it gets a feature slot."
 
 [[waivers]]
 from = "identity"
 to = "facade"
 tier = "call"
-count = 71
-reason = "PR 3 (Task 8): identity errors wrap ClientError; PR 5 (Task 12) moves the key-package test hook."
-
-[[waivers]]
-from = "messages"
-to = "engine"
-tier = "call"
-count = 4
-reason = "PR 3 (Task 7): DecodedMessage maps GroupError."
-
-[[waivers]]
-from = "server_config"
-to = "facade"
-tier = "call"
-count = 37
-reason = "PR 3 (Task 7): blocked_or returns ClientError."
+count = 1
+reason = "PR 5 (Task 12) moves the key-package test hook."
 
 [[waivers]]
 from = "streams"
 to = "facade"
 tier = "call"
-count = 9
-reason = "PR 3 (Task 7): stream errors wrap ClientError; PR 6+ moves the Client entry points."
+count = 4
+reason = "Streams extraction (PR 7): stream_failure_details opens the transparent ClientError::Group so a group failure keeps its stream-failure details."

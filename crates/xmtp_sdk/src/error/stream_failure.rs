@@ -290,13 +290,7 @@ impl XmtpError {
     fn with_stream_failure(mut self, error: &(dyn std::error::Error + 'static)) -> Self {
         let mut current = Some(error);
         while let Some(error) = current {
-            // A client error's group error is transparent, so its source()
-            // skips the group level. The walk opens it before reading details.
-            let client_group = matches!(
-                error.downcast_ref::<xmtp_mls::client::ClientError>(),
-                Some(xmtp_mls::client::ClientError::Group(_))
-            );
-            if !client_group && let Some(failure) = wire::stream_failure_details(error) {
+            if let Some(failure) = wire::stream_failure_details(error) {
                 self.details_mut().stream_failure = xmtp_common::optify!(
                     StreamFailureDetails::from_wire(failure),
                     "could not project core stream failure"

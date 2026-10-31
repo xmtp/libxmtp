@@ -12,7 +12,10 @@ use super::{
     barrier::{BarrierCause, BarrierError, BarrierFailure, BarrierTopic},
     incoming::IncomingError,
 };
-use crate::groups::{GroupError, mls_sync::GroupMessageProcessingError, summary::SyncSummary};
+use crate::{
+    client::ClientError,
+    groups::{GroupError, mls_sync::GroupMessageProcessingError, summary::SyncSummary},
+};
 
 /// The suffix version is independent of the normal error message and code.
 pub const STREAM_FAILURE_MARKER: &str = "\n[XMTP_STREAM_FAILURE_V1]";
@@ -291,7 +294,9 @@ pub fn stream_failure_details(error: &(dyn Error + 'static)) -> Option<StreamFai
             }
             continue;
         }
-        if let Some(SubscribeError::Group(error)) = error.downcast_ref::<SubscribeError>() {
+        if let Some(ClientError::Group(error)) = error.downcast_ref::<ClientError>() {
+            push(error.as_ref());
+        } else if let Some(SubscribeError::Group(error)) = error.downcast_ref::<SubscribeError>() {
             push(error.as_ref());
         } else if let Some(IncomingError::Group(error)) = error.downcast_ref::<IncomingError>() {
             push(error);
