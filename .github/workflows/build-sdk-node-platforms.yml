@@ -21,6 +21,9 @@ on:
     outputs:
       artifact:
         value: sdk_node_public
+permissions:
+  contents: read
+
 jobs:
   plan:
     name: Read Node platform matrix

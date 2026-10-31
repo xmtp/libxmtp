@@ -247,7 +247,6 @@ jobs:
     secrets: inherit
     permissions:
       contents: read
-      id-token: write
   build-browser-sdk:
     name: Build and validate browser-sdk
     needs: [validate]
@@ -261,7 +260,6 @@ jobs:
     secrets: inherit
     permissions:
       contents: read
-      id-token: write
   build-agent-sdk:
     name: Build and validate agent-sdk
     needs: [validate, build-node-sdk]
@@ -275,7 +273,6 @@ jobs:
     secrets: inherit
     permissions:
       contents: read
-      id-token: write
   build-cli:
     name: Build and validate cli
     needs: [validate, build-node-sdk]
@@ -289,7 +286,6 @@ jobs:
     secrets: inherit
     permissions:
       contents: read
-      id-token: write
   build-react-native-sdk:
     name: Build and validate react-native-sdk
     needs: [validate]
@@ -303,7 +299,6 @@ jobs:
     secrets: inherit
     permissions:
       contents: read
-      id-token: write
   sdk-ready:
     name: All six SDKs and selected CLI validated
     needs: [validate, build-ios, build-android, build-node-sdk, build-browser-sdk, build-agent-sdk, build-react-native-sdk, build-cli]
@@ -363,8 +358,6 @@ jobs:
       version: ${{ needs.validate.outputs.version-node-sdk }}
       sdk: node-sdk
       prepared: true
-      package-dir: .
-      ignore-scripts: true
     permissions:
       contents: read
       id-token: write
@@ -379,8 +372,6 @@ jobs:
       version: ${{ needs.validate.outputs.version-browser-sdk }}
       sdk: browser-sdk
       prepared: true
-      package-dir: .
-      ignore-scripts: true
     permissions:
       contents: read
       id-token: write
@@ -395,8 +386,6 @@ jobs:
       version: ${{ needs.validate.outputs.version-agent-sdk }}
       sdk: agent-sdk
       prepared: true
-      package-dir: .
-      ignore-scripts: true
     permissions:
       contents: read
       id-token: write
@@ -411,8 +400,6 @@ jobs:
       version: ${{ needs.validate.outputs.version-cli }}
       sdk: cli
       prepared: true
-      package-dir: .
-      ignore-scripts: true
     permissions:
       contents: read
       id-token: write
@@ -427,8 +414,6 @@ jobs:
       version: ${{ needs.validate.outputs.version-react-native-sdk }}
       sdk: react-native-sdk
       prepared: true
-      package-dir: .
-      ignore-scripts: true
     permissions:
       contents: read
       id-token: write

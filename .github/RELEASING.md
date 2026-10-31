@@ -28,8 +28,12 @@ version-keyed archive with a source/version-bound receipt; publish that archive
 before its installable tag. Standalone iOS CocoaPods distribution is retired;
 React Native retains its npm-shipped podspec.
 Each SDK workflow runs `check-release-push.yml` once before it builds.
-`npm-publish.yml` takes the checked `source-sha` from its caller. Its publish
-job authorizes itself as well: a real publish runs in the `release`
+`npm-prepare.yml` packages, checks, retains, and previews npm products with
+read-only permissions. Build and consumer jobs cannot request publication OIDC
+authority through their nested calls. `npm-publish.yml` accepts only retained
+checked bytes after the all-six barrier; only its actual publisher job receives
+`id-token: write`. It takes the checked `source-sha` from its caller and
+authorizes itself as well: a real publish runs in the `release`
 environment (for its branch policy; the job reads no App secret) and checks
 that the source is on main or a release/** branch, so another branch's
 workflow cannot call it to publish.
@@ -39,6 +43,14 @@ that changes only the iOS release files. The push job checks this before it
 creates its token.
 Npm dry runs resolve the source but do not create an App token or push a tag.
 Windows dry runs restore existing build caches but never save new cache entries.
+Native preparation validates existing version tags against the frozen source
+before reusing them. Android tags must peel to that source. iOS permits the
+source or one direct release-only commit; existing generated sources, receipt,
+binary tag, and archive must agree with the intended source/version and fresh
+build. For matching iOS payloads, preparation retains the existing immutable
+archive bytes even if a new ZIP has different container timestamps. These
+checks do not skip native builds or installed-consumer validation, and never
+replace a published tag or artifact.
 `just test dev` checks the tag transfer with a local Git HTTP remote.
 `check-release-push.yml` refuses a source commit that is not on `main`
 or a `release/**` branch; dry runs skip that check.

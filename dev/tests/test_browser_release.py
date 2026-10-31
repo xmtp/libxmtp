@@ -17,8 +17,8 @@ ROOT = Path(__file__).resolve().parents[2]
 class BrowserReleaseTest(unittest.TestCase):
     def setup_step(self):
         steps = yaml.safe_load(
-            (ROOT / ".github/workflows/npm-publish.yml").read_text()
-        )["jobs"]["publish"]["steps"]
+            (ROOT / ".github/workflows/npm-prepare.yml").read_text()
+        )["jobs"]["prepare"]["steps"]
         setup = next(
             (
                 step

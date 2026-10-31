@@ -28,9 +28,9 @@ SDKS = [
 class ReleaseGraphTest(unittest.TestCase):
     def test_browser_installs_the_final_archive_before_sealing(self):
         workflow = yaml.safe_load(
-            (ROOT / ".github/workflows/npm-publish.yml").read_text()
+            (ROOT / ".github/workflows/npm-prepare.yml").read_text()
         )
-        steps = workflow["jobs"]["publish"]["steps"]
+        steps = workflow["jobs"]["prepare"]["steps"]
         check = next(
             (
                 step

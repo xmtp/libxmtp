@@ -32,6 +32,9 @@ env:
 # stay on Blacksmith: they rebuild the versioned RN products on every release
 # (the warm set holds only the default version), and the Android consumer
 # job runs an emulator with native backend services and a Gradle build.
+permissions:
+  contents: read
+
 jobs:
   check-push-permissions:
     name: Source
@@ -179,7 +182,7 @@ jobs:
   publish:
     name: Publish
     needs: [build, consumers, check-push-permissions]
-    uses: ./.github/workflows/npm-publish.yml
+    uses: ./.github/workflows/npm-prepare.yml
     with:
       source-sha: ${{ needs.check-push-permissions.outputs.source-sha }}
       package-dir: target/sdk-packages/react-native-release/package
