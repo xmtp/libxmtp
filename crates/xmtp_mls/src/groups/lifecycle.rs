@@ -470,6 +470,14 @@ where
                             commit_log_enabled,
                         )?;
                         if created {
+                            // implements: SYNC-001
+                            crate::worker::device_sync::schedule_add_missing_installations(
+                                &tx.storage().db(),
+                                events,
+                                stored_group.id,
+                                Some(xmtp_common::time::Duration::from_secs(60)),
+                                true,
+                            )?;
                             context.task_channels().mark_notification_changed();
                             events.emit(
                                 None,

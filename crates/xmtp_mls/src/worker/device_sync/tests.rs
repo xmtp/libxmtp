@@ -523,15 +523,61 @@ async fn test_task_runner_adds_new_installation_to_groups() {
     .expect("alix2 must receive the group via the TaskRunner membership add");
 }
 
+fn add_task_group_ids(client: &crate::utils::Tester) -> Vec<Vec<u8>> {
+    client
+        .context
+        .db()
+        .get_tasks()
+        .unwrap()
+        .iter()
+        .filter_map(
+            |task| match TaskProto::decode(task.data.as_slice()).ok()?.task {
+                Some(TaskKindProto::AddMissingInstallations(add)) => Some(add.group_id),
+                _ => None,
+            },
+        )
+        .collect()
+}
+
+// verifies: SYNC-001
+#[xmtp_common::test(unwrap_try = true)]
+#[cfg_attr(target_arch = "wasm32", ignore)]
+async fn sync_group_creation_add_survives_exit_and_spent_attempts() {
+    use crate::worker::tasks::TaskWorker;
+    tester!(alix1, disable_workers);
+    tester!(alix2, from: alix1, disable_workers);
+    // Stop after the insert, before get_sync_group's inline add.
+    let before = now_ns();
+    let group = MlsGroup::create_and_insert(
+        alix1.context.clone(),
+        ConversationType::Sync,
+        PreconfiguredPolicies::default().to_policy_set(),
+        GroupMetadataOptions::default(),
+        None,
+    )?;
+    assert_eq!(add_task_group_ids(&alix1), vec![group.group_id.to_vec()]);
+    let db = alix1.context.db();
+    let [task] = db.get_tasks()?.try_into().unwrap();
+    assert_eq!(
+        (task.expires_at_ns, task.max_attempts),
+        (i64::MAX, i32::MAX)
+    );
+    assert!(task.next_attempt_at_ns >= before + 60 * xmtp_common::NS_IN_SEC);
+    let task = db.update_task(task.id, 25, now_ns(), now_ns())?;
+    TaskWorker::run_and_reschedule_task(task, &alix1.context).await?;
+    assert!(group.with_group_snapshot(|mls| {
+        Ok(mls
+            .members()
+            .any(|member| member.signature_key == alix2.context.installation_id().as_slice()))
+    })?);
+}
+
 #[xmtp_common::timeout(std::time::Duration::from_secs(30))]
 #[rstest::rstest]
 #[xmtp_common::test(unwrap_try = true)]
 #[cfg_attr(target_arch = "wasm32", ignore)]
 async fn test_sync_group_creation_leaves_no_reconcile_task() {
     use crate::worker::{WorkerConfig, WorkerKind};
-    use prost::Message;
-    use xmtp_db::tasks::QueryTasks;
-    use xmtp_proto::xmtp::mls::database::{Task as TaskProto, task::Task as TaskKind};
 
     // TaskRunner disabled so any enqueued row would be observable (not consumed).
     let mut cfg = WorkerConfig::default();
@@ -540,19 +586,8 @@ async fn test_sync_group_creation_leaves_no_reconcile_task() {
 
     alix.device_sync_client().get_sync_group().await?;
 
-    // The durable reconcile task is armed only from the inline add's error
-    // path. A successful creation must NOT leave one behind — an enqueue-first
-    // version duplicated the reconcile (and its identity fetch) on every
-    // sync-group creation, breaking the pinned network-call-count tests on
-    // mobile bindings.
-    let has_task = alix.context.db().get_tasks()?.iter().any(|t| {
-        matches!(
-            TaskProto::decode(t.data.as_slice())
-                .ok()
-                .and_then(|p| p.task),
-            Some(TaskKind::AddMissingInstallations(_))
-        )
-    });
+    // Successful creation must not duplicate the inline add's identity fetch.
+    let has_task = !add_task_group_ids(&alix).is_empty();
     assert!(
         !has_task,
         "successful sync-group creation must not enqueue a reconcile task"
@@ -566,9 +601,6 @@ async fn test_sync_group_creation_leaves_no_reconcile_task() {
 #[cfg_attr(target_arch = "wasm32", ignore)]
 async fn test_welcome_schedules_add_installation_tasks() {
     use crate::worker::{WorkerConfig, WorkerKind};
-    use prost::Message;
-    use xmtp_db::tasks::QueryTasks;
-    use xmtp_proto::xmtp::mls::database::{Task as TaskProto, task::Task as TaskKind};
 
     // TaskRunner disabled so enqueued rows are observable (not consumed).
     let mut cfg = WorkerConfig::default();
@@ -580,27 +612,13 @@ async fn test_welcome_schedules_add_installation_tasks() {
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
 
-    let count_add_tasks = || -> Vec<Vec<u8>> {
-        alix1
-            .context
-            .db()
-            .get_tasks()
-            .unwrap()
-            .iter()
-            .filter_map(|t| match TaskProto::decode(t.data.as_slice()).ok()?.task {
-                Some(TaskKind::AddMissingInstallations(a)) => Some(a.group_id),
-                _ => None,
-            })
-            .collect()
-    };
-
     // Call the schedule path directly (unit level — no live sync worker needed).
     let scheduled = alix1
         .device_sync_client()
         .schedule_add_installations_to_groups()?;
     assert!(scheduled >= 1);
 
-    let add_tasks = count_add_tasks();
+    let add_tasks = add_task_group_ids(&alix1);
     assert!(
         add_tasks.iter().any(|gid| gid == &group.group_id.to_vec()),
         "expected an AddMissingInstallations task for the conversation group"
@@ -610,7 +628,7 @@ async fn test_welcome_schedules_add_installation_tasks() {
     alix1
         .device_sync_client()
         .schedule_add_installations_to_groups()?;
-    let after = count_add_tasks();
+    let after = add_task_group_ids(&alix1);
     assert_eq!(
         add_tasks.len(),
         after.len(),
@@ -1264,6 +1282,11 @@ async fn creation_task_adds_peers_after_its_group_loses_selection() {
     assert_eq!(sync.primary_sync_group()?.unwrap().group_id, older.group_id);
 
     for task in alix2.context.db().get_tasks()? {
+        // Drive the delayed creation retry without waiting for its deadline.
+        let task = alix2
+            .context
+            .db()
+            .update_task(task.id, 0, now_ns(), now_ns())?;
         TaskWorker::run_and_reschedule_task(task, &alix2.context).await?;
     }
     alix1.sync_welcomes().await?;
@@ -1734,11 +1757,25 @@ async fn revocation_key_beats_delayed_pre_revocation_key() {
 /// A reconcile task armed after a rate-limited add is due only once the
 /// add's delay has passed, so the runner does not resend it at once.
 // verifies: RATE-041
+#[rstest::rstest]
+#[case::new_task(false)]
+#[case::pre_armed(true)]
 #[xmtp_common::test(unwrap_try = true)]
-async fn a_rate_limited_add_arms_its_reconcile_after_the_delay() {
+async fn a_rate_limited_add_arms_its_reconcile_after_the_delay(
+    #[case] pre_armed: bool,
+) -> Result<(), DeviceSyncError> {
     tester!(alix, disable_workers);
     let sync = alix.context.device_sync_client();
     let group = alix.create_group(None, None)?;
+    if pre_armed {
+        schedule_add_missing_installations(
+            &alix.context.db(),
+            alix.context.events(),
+            group.group_id,
+            Some(xmtp_common::time::Duration::from_secs(60)),
+            true,
+        )?;
+    }
     // Longer than a task's default three-day expiry.
     let delay = xmtp_common::time::Duration::from_secs(4 * 24 * 60 * 60);
     let before = xmtp_common::time::now_ns();
@@ -1762,4 +1799,5 @@ async fn a_rate_limited_add_arms_its_reconcile_after_the_delay() {
         task.expires_at_ns > task.next_attempt_at_ns,
         "the task does not expire before it is due"
     );
+    Ok(())
 }

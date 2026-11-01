@@ -575,12 +575,6 @@ where
                     xmtp_common::fmt::debug_hex(sync_group.group_id)
                 );
                 if let Err(inline_err) = sync_group.add_missing_installations().await {
-                    // The group row is already persisted, so this add is never
-                    // re-attempted (later calls take the `Some` branch) — arm
-                    // the durable reconcile task so the TaskRunner heals it,
-                    // then surface the original error. Armed only on failure:
-                    // enqueue-first duplicated the reconcile (and its identity
-                    // fetch) on every sync-group creation.
                     // A rate-limited add is not resent before its delay.
                     // implements: RATE-041
                     self.schedule_add_missing_installations_task(
@@ -589,6 +583,18 @@ where
                     )
                     .map_err(Box::new)?;
                     return Err(inline_err);
+                }
+                let hash = xmtp_db::tasks::data_hash_for(&TaskProto {
+                    task: Some(TaskKindProto::AddMissingInstallations(
+                        AddMissingInstallationsProto {
+                            group_id: sync_group.group_id.to_vec(),
+                        },
+                    )),
+                });
+                for task in self.context.db().get_tasks()? {
+                    if task.data_hash == hash.as_ref() {
+                        self.context.db().delete_task(task.id)?;
+                    }
                 }
                 sync_group.sync_with_conn().await?;
 
@@ -703,7 +709,7 @@ pub(crate) fn schedule_newcomer_adds(
 /// TaskRunner. The task is due once `delay`, a rate-limit delay, has passed.
 /// A task `until_done` never expires, and a failing one backs off to at most
 /// one run an interval.
-fn schedule_add_missing_installations(
+pub(crate) fn schedule_add_missing_installations(
     db: &impl DbQuery,
     events: &impl EventWriter<InternalEvent>,
     group_id: GroupId,
@@ -743,6 +749,11 @@ fn schedule_add_missing_installations(
                     dsl::expires_at_ns.eq(i64::MAX),
                     dsl::max_attempts.eq(i32::MAX),
                     dsl::max_backoff_duration_ns.eq(SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS),
+                    dsl::next_attempt_at_ns.eq(diesel::dsl::sql::<diesel::sql_types::BigInt>(
+                        "MAX(next_attempt_at_ns, ",
+                    )
+                    .bind::<diesel::sql_types::BigInt, _>(due)
+                    .sql(")")),
                 ))
                 .execute(c)
         })?;
