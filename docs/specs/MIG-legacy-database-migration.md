@@ -107,11 +107,13 @@ for implementation. The specification as a whole remains a draft.
 | MIG-005 | Optional metadata degrades independently | When optional legacy metadata cannot be decoded, the converter MUST retain the group and eligible messages and omit only unavailable metadata; unreadable required records MUST fail preparation. | A damaged optional field must not remove readable history. |
 | MIG-006 | Exclude recorded message expiry | When preparing an archive, the converter MUST exclude every otherwise eligible message whose stored `expire_at_ns` value is non-null. A null value, including one added by a legacy schema migration, MUST NOT cause exclusion by itself. | Keep available history while excluding every recorded disappearing deadline. |
 | MIG-007 | Bounded required-record reads | Before loading the retained variable fields of each otherwise eligible message, group, or consent row, the converter MUST validate their combined byte length in SQL against a fixed 64 MiB budget, and after decoding a message's content it MUST count the content type ID and authority ID it copies from that content toward the same budget. It MUST project only retained columns and load at most one admitted group row at a time after bounded ID pagination. A row at the limit MUST remain supported. A row over the limit MUST fail the whole preparation with a typed record error, preserve source and previous output, and leave no incomplete output. | A large stored record must not cause an unbounded allocation or silent loss of history. |
+| MIG-010 | Deleted legacy messages stay deleted | When a legacy tombstone in a message's group names it, records its sender inbox or a super-admin deletion, and the message's encoded `type_id` is `text`, `markdown`, `reply`, `attachment`, `remoteStaticAttachment`, `transactionReference`, `walletSendCalls`, or `multiRemoteStaticAttachment`, the converter MUST write the message with empty content and `deleted_by_inbox_id` set to the deleter of such a tombstone with the lowest `deleted_at_ns`, and MUST NOT leave it out. | An archive cannot otherwise carry a super-admin deletion. |
 
 The retained variable fields are:
 
 - Message row: message ID, group ID, content bytes, sender installation ID,
-  sender inbox ID, authority ID, and optional reference ID.
+  sender inbox ID, authority ID, and optional reference ID, and the deleter
+  inbox ID of a deleted message.
 - Group row: group ID, added-by inbox ID, optional DM ID, and optional paused
   version.
 - Consent row: entity, and the DM id of the group it names.
