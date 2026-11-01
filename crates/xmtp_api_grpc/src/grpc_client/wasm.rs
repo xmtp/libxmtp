@@ -17,7 +17,7 @@ impl GrpcWebService {
     pub fn new(host: url::Url, _limit: Option<u64>) -> Result<Self, GrpcBuilderError> {
         // Remove the trailing slash before adding the RPC path.
         let url = host.as_str().trim_end_matches("/");
-        // implements: CONF-096
+        // implements: CONF-098
         let options = FetchOptions::default()
             .redirect(Redirect::Error)
             .referrer_policy(ReferrerPolicy::StrictOriginWhenCrossOrigin);
@@ -71,7 +71,7 @@ mod tests {
         fn restore_fetch_probe() -> String;
     }
 
-    // verifies: CONF-096
+    // verifies: CONF-098
     #[xmtp_common::test(unwrap_try = true)]
     async fn fetch_uses_error_redirect_mode() {
         let mut service = GrpcWebService::new("https://localhost".parse()?, None)?;

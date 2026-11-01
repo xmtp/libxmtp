@@ -296,7 +296,7 @@ impl ApiBuilder for ClientBuilder {
 
     fn build(self) -> Result<Self::Output, Self::Error> {
         let host = self.host.ok_or(GrpcBuilderError::MissingHostUrl)?;
-        // implements: CONF-096
+        // implements: CONF-098
         if !matches!(host.path(), "" | "/")
             || host.query().is_some()
             || host.fragment().is_some()
@@ -350,7 +350,7 @@ pub mod tests {
     use xmtp_proto::prelude::{NetConnectConfig, XmtpTestClient};
     use xmtp_proto::types::AppVersion;
 
-    // verifies: CONF-096
+    // verifies: CONF-098
     #[xmtp_common::test(unwrap_try = true)]
     async fn backend_url_policy() {
         xmtp_common::if_native! { @ xmtp_cryptography::install_crypto_provider(); }
