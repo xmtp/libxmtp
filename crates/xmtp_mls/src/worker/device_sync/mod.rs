@@ -29,8 +29,6 @@ use xmtp_db::TransactionalKeyStore;
 use xmtp_db::tasks::NewTask;
 use xmtp_db::{
     NotFound, StorageError,
-    consent_record::ConsentState,
-    group::{GroupMembershipState, GroupQueryArgs},
     group_message::{DeliveryStatus, StoredGroupMessage},
     sync_outbox::{OwedPage, clear_owed, owed_page},
 };
@@ -676,49 +674,37 @@ pub(crate) fn schedule_newcomer_adds(
     db: &impl DbQuery,
     events: &impl EventWriter<InternalEvent>,
 ) -> Result<usize, StorageError> {
-    use std::collections::{HashMap, HashSet};
-    use xmtp_db::group::GroupQueryOrderBy;
+    use xmtp_db::diesel::{RunQueryDsl, sql_query, sql_types::BigInt};
+    use xmtp_db::group::{StoredGroup, consent_join_sql};
 
-    let args = GroupQueryArgs {
-        order_by: Some(GroupQueryOrderBy::LastActivity),
-        last_activity_after_ns: Some(now_ns() - NS_IN_DAY * 90),
-        consent_states: Some(vec![ConsentState::Allowed, ConsentState::Unknown]),
-        // A Restored placeholder takes no commit until a Welcome activates
-        // it, so its task could never finish.
-        // implements: ARCH-015
-        allowed_states: Some(vec![
-            GroupMembershipState::Allowed,
-            GroupMembershipState::Rejected,
-            GroupMembershipState::Pending,
-            GroupMembershipState::PendingRemove,
-        ]),
-        ..Default::default()
-    };
-    let winners: HashSet<_> = db
-        .find_groups(args.clone())?
-        .into_iter()
-        .map(|g| g.id)
-        .collect();
-    let groups = db.find_groups(GroupQueryArgs {
-        include_duplicate_dms: true,
-        ..args
+    // implements: ARCH-015
+    let groups = db.raw_query(|conn| {
+        sql_query(format!(
+            "WITH winners AS (
+              SELECT id, dm_id, membership_state, conversation_type, last_message_ns, created_at_ns,
+                ROW_NUMBER() OVER (PARTITION BY dm_id ORDER BY
+                membership_state != 4 DESC, COALESCE(last_message_ns, 0) DESC, id DESC) AS winner_rank
+              FROM groups
+            ), eligible AS (
+              SELECT g.*, ROW_NUMBER() OVER (PARTITION BY dm_id ORDER BY
+                winner_rank = 1 DESC, COALESCE(last_message_ns, created_at_ns) DESC, id DESC) AS selected_rank,
+                MAX(winner_rank = 1) OVER (PARTITION BY dm_id) AS has_winner
+              FROM winners g LEFT JOIN consent_records ON {}
+              WHERE COALESCE(consent_records.state, 0) IN (0, 1)
+                AND COALESCE(last_message_ns, created_at_ns) > ?
+                AND membership_state IN (1, 2, 3, 5) AND conversation_type NOT IN (3, 4)
+            ) SELECT * FROM groups WHERE id IN (
+              SELECT id FROM eligible WHERE dm_id IS NULL OR selected_rank <= ? + has_winner)",
+            consent_join_sql("g"),
+        ))
+        .bind::<BigInt, _>(now_ns() - NS_IN_DAY * 90)
+        .bind::<BigInt, _>(MAX_DM_EXTRA_GROUPS as i64)
+        .load::<StoredGroup>(conn)
     })?;
-    let mut extras = HashMap::new();
-    let mut scheduled = 0;
     for group in &groups {
-        if let Some(dm_id) = &group.dm_id
-            && !winners.contains(&group.id)
-        {
-            let count = extras.entry(dm_id).or_insert(0);
-            if *count == MAX_DM_EXTRA_GROUPS {
-                continue;
-            }
-            *count += 1;
-        }
         schedule_add_missing_installations(db, events, group.id, None, false)?;
-        scheduled += 1;
     }
-    Ok(scheduled)
+    Ok(groups.len())
 }
 
 /// Durably enqueue one AddMissingInstallations task for `group_id` (deduped
