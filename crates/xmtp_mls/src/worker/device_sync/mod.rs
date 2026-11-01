@@ -674,31 +674,36 @@ pub(crate) fn schedule_newcomer_adds(
     db: &impl DbQuery,
     events: &impl EventWriter<InternalEvent>,
 ) -> Result<usize, StorageError> {
-    use xmtp_db::diesel::{RunQueryDsl, sql_query, sql_types::BigInt};
-    use xmtp_db::group::{StoredGroup, consent_join_sql};
+    use xmtp_db::consent_record::ConsentState;
+    use xmtp_db::diesel::{RunQueryDsl, sql_query, sql_types::*};
+    use xmtp_db::group::{GroupMembershipState::*, StoredGroup, consent_join_sql};
 
+    let consent = [ConsentState::Allowed, ConsentState::Unknown].map(|s| s as i32);
+    let membership = [Allowed, Rejected, Pending, PendingRemove].map(|s| s as i32);
+    let types = ConversationType::virtual_types();
+    let virtuals: Vec<_> = types.into_iter().map(|t| t as i32).collect();
     // implements: ARCH-015
     let groups = db.raw_query(|conn| {
         sql_query(format!(
-            "WITH winners AS (
-              SELECT id, dm_id, membership_state, conversation_type, last_message_ns, created_at_ns,
-                ROW_NUMBER() OVER (PARTITION BY dm_id ORDER BY
-                membership_state != 4 DESC, COALESCE(last_message_ns, 0) DESC, id DESC) AS winner_rank
-              FROM groups
-            ), eligible AS (
-              SELECT g.*, ROW_NUMBER() OVER (PARTITION BY dm_id ORDER BY
-                winner_rank = 1 DESC, COALESCE(last_message_ns, created_at_ns) DESC, id DESC) AS selected_rank,
-                MAX(winner_rank = 1) OVER (PARTITION BY dm_id) AS has_winner
-              FROM winners g LEFT JOIN consent_records ON {}
-              WHERE COALESCE(consent_records.state, 0) IN (0, 1)
-                AND COALESCE(last_message_ns, created_at_ns) > ?
-                AND membership_state IN (1, 2, 3, 5) AND conversation_type NOT IN (3, 4)
-            ) SELECT * FROM groups WHERE id IN (
-              SELECT id FROM eligible WHERE dm_id IS NULL OR selected_rank <= ? + has_winner)",
+            "WITH eligible AS (
+              SELECT g.id, g.dm_id, g.last_message_ns, g.created_at_ns FROM groups g LEFT JOIN consent_records ON {}
+              WHERE (state IS NULL OR state IN (SELECT value FROM json_each(?))) AND COALESCE(last_message_ns, created_at_ns) > ?
+                AND membership_state IN (SELECT value FROM json_each(?)) AND conversation_type NOT IN (SELECT value FROM json_each(?))
+            ), winners AS (
+              SELECT *, ROW_NUMBER() OVER (PARTITION BY dm_id ORDER BY
+                COALESCE(last_message_ns, 0) DESC, id DESC) AS winner_rank FROM eligible WHERE dm_id IS NOT NULL
+            ), ranked AS (
+              SELECT id, ROW_NUMBER() OVER (PARTITION BY dm_id ORDER BY
+                winner_rank = 1 DESC, COALESCE(last_message_ns, created_at_ns) DESC, id DESC) AS rank FROM winners
+            ) SELECT * FROM groups WHERE id IN (SELECT id FROM eligible WHERE dm_id IS NULL
+              UNION ALL SELECT id FROM ranked WHERE rank <= ?)",
             consent_join_sql("g"),
         ))
+        .bind::<Text, _>(serde_json::json!(consent).to_string())
         .bind::<BigInt, _>(now_ns() - NS_IN_DAY * 90)
-        .bind::<BigInt, _>(MAX_DM_EXTRA_GROUPS as i64)
+        .bind::<Text, _>(serde_json::json!(membership).to_string())
+        .bind::<Text, _>(serde_json::json!(virtuals).to_string())
+        .bind::<BigInt, _>((MAX_DM_EXTRA_GROUPS + 1) as i64)
         .load::<StoredGroup>(conn)
     })?;
     for group in &groups {

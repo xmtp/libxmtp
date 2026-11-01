@@ -651,9 +651,14 @@ async fn test_welcome_schedules_add_installation_tasks() {
 }
 
 // verifies: SYNC-014
+#[rstest::rstest]
+#[case::active_winner(false)]
+#[case::stale_winner(true)]
 #[xmtp_common::test(unwrap_try = true)]
 #[cfg_attr(target_arch = "wasm32", ignore)]
-async fn test_welcome_limits_duplicate_dm_add_installation_tasks() {
+async fn test_welcome_limits_duplicate_dm_add_installation_tasks(
+    #[case] stale_winner: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
     use diesel::prelude::*;
     use prost::Message;
     use xmtp_db::{schema::groups::dsl, tasks::QueryTasks};
@@ -663,22 +668,29 @@ async fn test_welcome_limits_duplicate_dm_add_installation_tasks() {
     tester!(bo);
     let db = alix.context.db();
     let now = now_ns();
+    let first_activity = now - NS_IN_DAY * if stale_winner { 91 } else { 1 };
     let mut ids = Vec::new();
     for i in 0..13 {
         let dm = MlsGroup::create_dm_without_peer(&alix.context, bo.inbox_id().to_string())?;
-        // Only the first group has a message: it wins even though its activity is oldest.
+        // Only the first group has a message; it wins unless the activity filter drops it.
         db.raw_query(|conn| {
             diesel::update(dsl::groups.find(&dm.group_id))
                 .set((
                     dsl::created_at_ns.eq(now + i),
-                    dsl::last_message_ns.eq((i == 0).then_some(now - NS_IN_DAY)),
+                    dsl::last_message_ns.eq((i == 0).then_some(first_activity)),
                 ))
                 .execute(conn)
         })?;
         ids.push(dm.group_id.to_vec());
     }
-    let mut expected = ids[3..].to_vec();
-    expected.push(ids[0].clone());
+    let mut expected = if stale_winner {
+        ids[2..].to_vec()
+    } else {
+        ids[3..].to_vec()
+    };
+    if !stale_winner {
+        expected.push(ids[0].clone());
+    }
     expected.sort();
     let scheduled = alix
         .device_sync_client()
@@ -699,6 +711,7 @@ async fn test_welcome_limits_duplicate_dm_add_installation_tasks() {
         .collect();
     actual.sort();
     assert_eq!(actual, expected);
+    Ok(())
 }
 
 // verifies: SYNC-010
