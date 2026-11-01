@@ -524,18 +524,13 @@ async fn test_task_runner_adds_new_installation_to_groups() {
 }
 
 fn add_task_group_ids(client: &crate::utils::Tester) -> Vec<Vec<u8>> {
-    client
-        .context
-        .db()
-        .get_tasks()
-        .unwrap()
+    let tasks = client.context.db().get_tasks().unwrap();
+    tasks
         .iter()
-        .filter_map(
-            |task| match TaskProto::decode(task.data.as_slice()).ok()?.task {
-                Some(TaskKindProto::AddMissingInstallations(add)) => Some(add.group_id),
-                _ => None,
-            },
-        )
+        .filter_map(|t| match TaskProto::decode(t.data.as_slice()).ok()?.task {
+            Some(TaskKindProto::AddMissingInstallations(add)) => Some(add.group_id),
+            _ => None,
+        })
         .collect()
 }
 
@@ -572,26 +567,29 @@ async fn sync_group_creation_add_survives_exit_and_spent_attempts() {
     })?);
 }
 
-#[xmtp_common::timeout(std::time::Duration::from_secs(30))]
-#[rstest::rstest]
+// verifies: SYNC-001
 #[xmtp_common::test(unwrap_try = true)]
 #[cfg_attr(target_arch = "wasm32", ignore)]
-async fn test_sync_group_creation_leaves_no_reconcile_task() {
-    use crate::worker::{WorkerConfig, WorkerKind};
+async fn sync_group_inline_add_keeps_retry_until_membership_complete() {
+    use crate::utils::test_mocks_helpers as kp;
+    use crate::worker::tasks::TaskWorker;
 
-    // TaskRunner disabled so any enqueued row would be observable (not consumed).
-    let mut cfg = WorkerConfig::default();
-    cfg.enabled.insert(WorkerKind::TaskRunner, false);
-    tester!(alix, worker_config: cfg);
-
-    alix.device_sync_client().get_sync_group().await?;
-
-    // Successful creation must not duplicate the inline add's identity fetch.
-    let has_task = !add_task_group_ids(&alix).is_empty();
-    assert!(
-        !has_task,
-        "successful sync-group creation must not enqueue a reconcile task"
-    );
+    tester!(alix1, disable_workers);
+    tester!(alix2, from: alix1, disable_workers);
+    let restore = kp::RestoreKeyPackages;
+    kp::set_test_mode_upload_malformed_keypackage(true, Some(vec![alix2.installation_id.to_vec()]));
+    let group = alix1.device_sync_client().get_sync_group().await?;
+    let leaves = group.with_group_snapshot(|mls| Ok(mls.members().count()))?;
+    assert_eq!(leaves, 1);
+    assert_eq!(add_task_group_ids(&alix1), vec![group.group_id.to_vec()]);
+    drop(restore);
+    let db = alix1.context.db();
+    let [task] = db.get_tasks()?.try_into().unwrap();
+    let task = db.update_task(task.id, 0, now_ns(), now_ns())?;
+    TaskWorker::run_and_reschedule_task(task, &alix1.context).await?;
+    alix2.sync_welcomes().await?;
+    assert!(alix2.group(&group.group_id).is_ok());
+    assert!(add_task_group_ids(&alix1).is_empty());
 }
 
 // verifies: SYNC-014
@@ -1152,6 +1150,7 @@ async fn publish_reaches_present_leaves_and_retries_a_missing_one() {
         (task.expires_at_ns, task.max_attempts),
         (i64::MAX, i32::MAX)
     );
+    let task = db.update_task(task.id, 0, now_ns(), published_at + interval)?;
     xmtp_common::time::sleep(std::time::Duration::from_nanos(interval as u64)).await;
     TaskWorker::run_and_reschedule_task(task.clone(), &alix1.context).await?;
     let kept = add_task().expect("the retry task is kept");
@@ -1208,6 +1207,8 @@ async fn arming_a_retry_makes_an_older_expiring_row_durable() {
     let sync = alix1.device_sync_client();
     let group = sync.get_sync_group().await?;
     let db = alix1.context.db();
+    let [creation] = db.get_tasks()?.try_into().unwrap();
+    db.delete_task(creation.id)?;
     schedule_add_missing_installations(&db, alix1.context.events(), group.group_id, None, false)?;
     let [old] = db.get_tasks()?.try_into().unwrap();
     assert_ne!(old.expires_at_ns, i64::MAX);

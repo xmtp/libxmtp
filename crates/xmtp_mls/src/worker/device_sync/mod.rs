@@ -584,18 +584,7 @@ where
                     .map_err(Box::new)?;
                     return Err(inline_err);
                 }
-                let hash = xmtp_db::tasks::data_hash_for(&TaskProto {
-                    task: Some(TaskKindProto::AddMissingInstallations(
-                        AddMissingInstallationsProto {
-                            group_id: sync_group.group_id.to_vec(),
-                        },
-                    )),
-                });
-                for task in self.context.db().get_tasks()? {
-                    if task.data_hash == hash.as_ref() {
-                        self.context.db().delete_task(task.id)?;
-                    }
-                }
+                // The task checks for missing leaves even after an Ok inline add.
                 sync_group.sync_with_conn().await?;
 
                 self.metrics.increment_metric(SyncMetric::SyncGroupCreated);
