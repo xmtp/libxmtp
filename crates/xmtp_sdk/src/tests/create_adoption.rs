@@ -2,7 +2,6 @@ use super::*;
 use crate::client::build_task_probe::{BuildTaskProbe, CURRENT};
 use xmtp_db::ConnectionExt;
 use xmtp_db::diesel::{RunQueryDsl, sql_query};
-use xmtp_mls::prelude::*;
 
 async fn completed_constructor_is_cancelled(build: bool) -> Result<(), xmtp_common::BoxDynError> {
     let directory = std::env::temp_dir().join(format!(

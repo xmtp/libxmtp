@@ -1,5 +1,4 @@
 use super::*;
-use xmtp_mls::prelude::*;
 
 use std::sync::atomic::AtomicUsize;
 

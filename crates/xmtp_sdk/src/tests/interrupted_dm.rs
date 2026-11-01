@@ -2,7 +2,6 @@ use super::*;
 use prost::Message as _;
 use xmtp_content_types::{ContentCodec, text::TextCodec};
 use xmtp_mls::groups::{MlsGroup, send_message_opts::SendMessageOpts};
-use xmtp_mls::prelude::*;
 
 type CoreGroup = MlsGroup<xmtp_mls::MlsContext>;
 

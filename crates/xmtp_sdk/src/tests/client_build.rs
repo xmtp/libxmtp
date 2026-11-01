@@ -2,7 +2,6 @@
 //! admission, offline builds, catch-up, and installation revocation.
 
 use super::*;
-use xmtp_mls::prelude::*;
 
 async fn build_on_new_database_fails_identity_not_found(
     allow_offline: bool,

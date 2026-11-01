@@ -1,5 +1,4 @@
 use super::*;
-use xmtp_mls::prelude::*;
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn backend_only_identity_and_message_queries() {
