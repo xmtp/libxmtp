@@ -660,9 +660,7 @@ async fn test_welcome_limits_duplicate_dm_add_installation_tasks(
     #[case] stale_winner: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     use diesel::prelude::*;
-    use prost::Message;
-    use xmtp_db::{schema::groups::dsl, tasks::QueryTasks};
-    use xmtp_proto::xmtp::mls::database::{Task as TaskProto, task::Task as TaskKind};
+    use xmtp_db::schema::groups::dsl;
 
     tester!(alix, disable_workers);
     tester!(bo);
@@ -683,14 +681,16 @@ async fn test_welcome_limits_duplicate_dm_add_installation_tasks(
         })?;
         ids.push(dm.group_id.to_vec());
     }
-    let mut expected = if stale_winner {
-        ids[2..].to_vec()
+    let mut expected = ids[3..].to_vec();
+    // Reserve the highest-ID eligible winner even when it is the oldest group.
+    let remaining = if !stale_winner {
+        0
+    } else if ids[1] == *ids[1..].iter().max().unwrap() {
+        1
     } else {
-        ids[3..].to_vec()
+        2
     };
-    if !stale_winner {
-        expected.push(ids[0].clone());
-    }
+    expected.push(ids[remaining].clone());
     expected.sort();
     let scheduled = alix
         .device_sync_client()
@@ -699,16 +699,7 @@ async fn test_welcome_limits_duplicate_dm_add_installation_tasks(
         scheduled, 11,
         "winner plus ten most recently active duplicates"
     );
-    let mut actual: Vec<_> = db
-        .get_tasks()?
-        .into_iter()
-        .filter_map(
-            |task| match TaskProto::decode(task.data.as_slice()).unwrap().task {
-                Some(TaskKind::AddMissingInstallations(add)) => Some(add.group_id),
-                _ => None,
-            },
-        )
-        .collect();
+    let mut actual = add_task_group_ids(&alix);
     actual.sort();
     assert_eq!(actual, expected);
     Ok(())
