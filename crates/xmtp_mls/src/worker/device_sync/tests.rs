@@ -650,6 +650,57 @@ async fn test_welcome_schedules_add_installation_tasks() {
     }
 }
 
+// verifies: SYNC-014
+#[xmtp_common::test(unwrap_try = true)]
+#[cfg_attr(target_arch = "wasm32", ignore)]
+async fn test_welcome_limits_duplicate_dm_add_installation_tasks() {
+    use diesel::prelude::*;
+    use prost::Message;
+    use xmtp_db::{schema::groups::dsl, tasks::QueryTasks};
+    use xmtp_proto::xmtp::mls::database::{Task as TaskProto, task::Task as TaskKind};
+
+    tester!(alix, disable_workers);
+    tester!(bo);
+    let db = alix.context.db();
+    let now = now_ns();
+    let mut ids = Vec::new();
+    for i in 0..13 {
+        let dm = MlsGroup::create_dm_without_peer(&alix.context, bo.inbox_id().to_string())?;
+        // Only the first group has a message: it wins even though its activity is oldest.
+        db.raw_query(|conn| {
+            diesel::update(dsl::groups.find(&dm.group_id))
+                .set((
+                    dsl::created_at_ns.eq(now + i),
+                    dsl::last_message_ns.eq((i == 0).then_some(now - NS_IN_DAY)),
+                ))
+                .execute(conn)
+        })?;
+        ids.push(dm.group_id.to_vec());
+    }
+    let mut expected = ids[3..].to_vec();
+    expected.push(ids[0].clone());
+    expected.sort();
+    let scheduled = alix
+        .device_sync_client()
+        .schedule_add_installations_to_groups()?;
+    assert_eq!(
+        scheduled, 11,
+        "winner plus ten most recently active duplicates"
+    );
+    let mut actual: Vec<_> = db
+        .get_tasks()?
+        .into_iter()
+        .filter_map(
+            |task| match TaskProto::decode(task.data.as_slice()).unwrap().task {
+                Some(TaskKind::AddMissingInstallations(add)) => Some(add.group_id),
+                _ => None,
+            },
+        )
+        .collect();
+    actual.sort();
+    assert_eq!(actual, expected);
+}
+
 // verifies: SYNC-010
 #[rstest::rstest]
 #[case::another_inbox_adds(false)]

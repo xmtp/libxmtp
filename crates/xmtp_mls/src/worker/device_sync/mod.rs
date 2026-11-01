@@ -664,8 +664,11 @@ fn page_content(page: &OwedPage) -> ContentProto {
     })
 }
 
+/// Maximum duplicate groups per DM scheduled in addition to its winner.
+const MAX_DM_EXTRA_GROUPS: usize = 10;
+
 /// A new sync group from a Welcome means a new installation: schedule one
-/// durable AddMissingInstallations task per eligible group (deduped by
+/// durable task per eligible group, with bounded DM extras (deduped by
 /// payload hash), in the transaction that installs the Welcome, so a restart
 /// cannot lose them.
 // implements: SYNC-014
@@ -673,8 +676,11 @@ pub(crate) fn schedule_newcomer_adds(
     db: &impl DbQuery,
     events: &impl EventWriter<InternalEvent>,
 ) -> Result<usize, StorageError> {
-    let groups = db.find_groups(GroupQueryArgs {
-        include_duplicate_dms: true,
+    use std::collections::{HashMap, HashSet};
+    use xmtp_db::group::GroupQueryOrderBy;
+
+    let args = GroupQueryArgs {
+        order_by: Some(GroupQueryOrderBy::LastActivity),
         last_activity_after_ns: Some(now_ns() - NS_IN_DAY * 90),
         consent_states: Some(vec![ConsentState::Allowed, ConsentState::Unknown]),
         // A Restored placeholder takes no commit until a Welcome activates
@@ -687,11 +693,32 @@ pub(crate) fn schedule_newcomer_adds(
             GroupMembershipState::PendingRemove,
         ]),
         ..Default::default()
+    };
+    let winners: HashSet<_> = db
+        .find_groups(args.clone())?
+        .into_iter()
+        .map(|g| g.id)
+        .collect();
+    let groups = db.find_groups(GroupQueryArgs {
+        include_duplicate_dms: true,
+        ..args
     })?;
+    let mut extras = HashMap::new();
+    let mut scheduled = 0;
     for group in &groups {
+        if let Some(dm_id) = &group.dm_id
+            && !winners.contains(&group.id)
+        {
+            let count = extras.entry(dm_id).or_insert(0);
+            if *count == MAX_DM_EXTRA_GROUPS {
+                continue;
+            }
+            *count += 1;
+        }
         schedule_add_missing_installations(db, events, group.id, None, false)?;
+        scheduled += 1;
     }
-    Ok(groups.len())
+    Ok(scheduled)
 }
 
 /// Durably enqueue one AddMissingInstallations task for `group_id` (deduped
