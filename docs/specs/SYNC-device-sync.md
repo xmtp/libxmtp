@@ -154,7 +154,7 @@ Both acts survive a restart. The add is a commit the peer retries for three days
 
 SYNC-034 judges revocation by the publisher's local identity state. A publisher that has not yet loaded a revocation still publishes to a group that holds the revoked leaf, and the revoked installation reads that update. A revoked leaf stays in a sync group that no current installation publishes to; nothing new reaches it there. A sync group can keep a revoked leaf that no valid commit can remove, left by a commit made before GMOD-046, until the inbox publishes another identity update; until then, every current installation's sync publish to that group fails under SYNC-034.
 
-A sync group created by a client that predates the durable add in SYNC-001, and whose add was lost, holds only its creator until another installation of the inbox registers. SYNC: groups created before the fix whose add was lost stay creator-only until a new installation registers.
+A sync group created by a client that predates the durable add in SYNC-001, and whose add was lost, holds only its creator until another installation of the inbox registers.
 
 A publication waits while the sync group cannot be reached, or while the own identity state cannot be read (SYNC-034). It is retried with backoff and never dropped. Until it succeeds, the other installations do not hold the change. A message the deployment refuses for good is retried for good, and the owed values behind it wait. After a network failure, the next attempt can send one message twice.
 
