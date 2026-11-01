@@ -68,6 +68,15 @@ pub struct CheckResult {
 }
 
 impl CheckResult {
+    /// A run limit cannot turn unfinished checks into a successful run.
+    pub(crate) fn incomplete_at_limit(&self, pending_rollcalls: usize) -> bool {
+        pending_rollcalls != 0
+            || self
+                .findings
+                .iter()
+                .any(|finding| finding.verdict == Verdict::Stall)
+    }
+
     pub(super) fn new(
         findings: Vec<Finding>,
         membership: Vec<MembershipRecord>,
@@ -88,5 +97,30 @@ impl CheckResult {
             findings,
             membership,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{CheckResult, Finding, Verdict};
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn run_limit_preserves_unresolved_obligations() {
+        let stalled = CheckResult::new(
+            vec![Finding::group(
+                Verdict::Stall,
+                0,
+                "group",
+                "receiver pending",
+            )],
+            Vec::new(),
+            false,
+        );
+        assert!(!stalled.violation, "a fresh stall is not proof of a brick");
+        assert!(stalled.incomplete_at_limit(0));
+
+        let complete = CheckResult::new(Vec::new(), Vec::new(), false);
+        assert!(complete.incomplete_at_limit(1));
+        assert!(!complete.incomplete_at_limit(0));
     }
 }

@@ -28,6 +28,7 @@ const MAX_INSTALLATIONS: usize = 19;
 const MAX_GROUPS: usize = 32;
 const FLAG_ERROR_ROWS: usize = 4;
 const AUTHENTICATOR_BYTES: usize = 64;
+const PUBLICATION_QUEUE_ROWS: i64 = 8;
 
 struct History {
     slot: u64,
@@ -138,6 +139,17 @@ fn inspect_inner(output: &mut BoundedOutput, path: &Path, selector: Option<&str>
                     output.line(&format!("  database={database_slot} rows={} history={} maybe_forked={} commit_log_forked={:?}",
                         history.records.len(), if history.capped { "CAPPED/INCONCLUSIVE" } else { "FULL" }, history.maybe_forked, history.commit_log_forked));
                     explain_flag(output, &history, selector.is_some());
+                    if selector.is_some() {
+                        match read_publication_queue(&root, slot, database_slot, group) {
+                            Ok(queue) => output.line(&format!(
+                                "  database={database_slot} publication_queue={queue}"
+                            )),
+                            Err(error) => output.line(&format!(
+                                "  database={database_slot} publication_queue=INCONCLUSIVE {}",
+                                safe_error(&format!("{error:#}"))
+                            )),
+                        }
+                    }
                     histories.push(history);
                 }
                 Err(error) => {
@@ -282,6 +294,43 @@ fn read_history(root: &Path, slot: u64, database_slot: u64, group: &str) -> Resu
         commit_log_forked,
         fork_details,
     })
+}
+
+fn read_publication_queue(
+    root: &Path,
+    slot: u64,
+    database_slot: u64,
+    group: &str,
+) -> Result<String> {
+    let mut connection = open_database(root, slot, database_slot)?;
+    publication_queue(&mut connection, &hex::decode(group)?)
+}
+
+fn publication_queue(connection: &mut SqliteConnection, group: &[u8]) -> Result<String> {
+    use xmtp_db::{
+        group_intent::{IntentKind, IntentState},
+        schema::group_intents::dsl as intents,
+    };
+    let rows: Vec<(i32, IntentKind, IntentState)> = intents::group_intents
+        .filter(intents::group_id.eq(group))
+        .filter(intents::state.eq_any([IntentState::ToPublish, IntentState::Published]))
+        .order(intents::id.asc())
+        .limit(PUBLICATION_QUEUE_ROWS + 1)
+        .select((intents::id, intents::kind, intents::state))
+        .load(connection)?;
+    let mut summary = rows
+        .iter()
+        .take(PUBLICATION_QUEUE_ROWS as usize)
+        .map(|(id, kind, state)| format!("{id}:{kind}:{state:?}"))
+        .collect::<Vec<_>>()
+        .join(",");
+    if rows.len() > PUBLICATION_QUEUE_ROWS as usize {
+        summary.push_str(",CAPPED");
+    }
+    if summary.is_empty() {
+        summary.push_str("empty");
+    }
+    Ok(summary)
 }
 
 fn comparable(record: &LocalCommitLog) -> bool {
@@ -471,6 +520,37 @@ fn render_rollcall(output: &mut BoundedOutput, status: &Value, group: &str) -> b
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn publication_queue_is_ordered_bounded_and_omits_payloads() {
+        use xmtp_db::diesel::{sql_query, sql_types::Integer};
+        use xmtp_db::group_intent::{IntentKind, IntentState};
+
+        let mut connection = SqliteConnection::establish(":memory:")?;
+        connection.batch_execute("CREATE TABLE group_intents (id INTEGER PRIMARY KEY, group_id BLOB NOT NULL, kind INTEGER NOT NULL, state INTEGER NOT NULL, data BLOB);")?;
+        let group = [7; 32];
+        for id in 0..=PUBLICATION_QUEUE_ROWS as i32 + 1 {
+            let state = if id == 0 {
+                IntentState::Processed
+            } else {
+                IntentState::ToPublish
+            };
+            sql_query("INSERT INTO group_intents (id, group_id, kind, state, data) VALUES (?, ?, ?, ?, 'private message and key')")
+                .bind::<Integer, _>(id)
+                .bind::<Binary, _>(&group[..])
+                .bind::<Integer, _>(IntentKind::CommitPendingProposals as i32)
+                .bind::<Integer, _>(state as i32)
+                .execute(&mut connection)?;
+        }
+        let summary = publication_queue(&mut connection, &group)?;
+        assert!(summary.starts_with("1:CommitPendingProposals:ToPublish,"));
+        assert!(summary.ends_with("8:CommitPendingProposals:ToPublish,CAPPED"));
+        assert!(!summary.contains("9:CommitPendingProposals"));
+        assert!(!summary.contains("private"));
+        assert!(!summary.contains("Processed"));
+        assert!(summary.len() < LINE_BYTES);
+        assert_eq!(publication_queue(&mut connection, &[8; 32])?, "empty");
+    }
 
     #[xmtp_common::test(unwrap_try = true)]
     async fn checkpoint_inspection_uses_welcome_and_inactive_obligations() {

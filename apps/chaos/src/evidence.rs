@@ -121,6 +121,24 @@ pub(crate) fn summary_text(summary: &Value) -> String {
         cell(&summary["round"], 24),
         cell(&summary["verdict"], 80),
     ));
+    for field in [
+        "termination",
+        "termination_reason",
+        "workload_rounds",
+        "workload_elapsed_ms",
+        "closeout_rounds",
+        "closeout_elapsed_ms",
+        "closeout_max_rounds",
+        "closeout_budget_ms",
+        "closeout_successful_writers",
+    ] {
+        if let Some(value) = summary.get(field) {
+            output.line(&format!(
+                "{field}: {}",
+                cell(value, SUMMARY_LINE_BYTES - 64)
+            ));
+        }
+    }
     output.line("");
     output.line("## Findings");
     crate::inspect::render_findings(&mut output, &summary["check"]["findings"], None);
@@ -343,5 +361,35 @@ mod tests {
             DATABASE_BYTES as u64
         );
         ledger.enforce_bounds()?;
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn timeout_summary_reports_inconclusive_reason_and_phase_bounds() {
+        let summary = json!({
+            "seed": 1340,
+            "round": 83,
+            "verdict": "INCONCLUSIVE",
+            "termination": "INCONCLUSIVE",
+            "termination_reason": "Closeout elapsed-time budget exhausted before a complete checkpoint",
+            "workload_rounds": 82,
+            "workload_elapsed_ms": 1800000,
+            "closeout_rounds": 1,
+            "closeout_elapsed_ms": 330000,
+            "closeout_max_rounds": 3,
+            "closeout_budget_ms": 330000
+        });
+        let output = summary_text(&summary);
+        assert!(output.contains("Verdict: INCONCLUSIVE"));
+        assert!(output.contains("before a complete checkpoint"));
+        for field in [
+            "workload_rounds: 82",
+            "workload_elapsed_ms: 1800000",
+            "closeout_rounds: 1",
+            "closeout_elapsed_ms: 330000",
+            "closeout_max_rounds: 3",
+            "closeout_budget_ms: 330000",
+        ] {
+            assert!(output.contains(field));
+        }
     }
 }
