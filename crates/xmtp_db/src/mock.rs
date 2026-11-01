@@ -540,6 +540,12 @@ mock! {
             message_id: MessageId,
         ) -> Result<usize, crate::ConnectionError>;
 
+        fn mark_message_deleted(
+            &self,
+            id: &[u8],
+            deleted_by_inbox_id: &str,
+        ) -> Result<usize, crate::ConnectionError>;
+
         #[mockall::concretize]
         fn get_latest_message_times_by_sender<GroupId: AsRef<[u8]>>(
             &self,
@@ -890,25 +896,15 @@ mock! {
             _id: &[u8],
         ) -> Result<Option<crate::message_deletion::StoredMessageDeletion>, crate::ConnectionError>;
 
-        fn get_deletion_by_deleted_message_id(
+        fn record_deletion(
             &self,
-            _deleted_message_id: &[u8],
+            _record: &crate::message_deletion::StoredMessageDeletion,
+        ) -> Result<crate::message_deletion::StoredMessageDeletion, crate::ConnectionError>;
+
+        fn first_deletion_of(
+            &self,
+            _target: &crate::group_message::StoredGroupMessage,
         ) -> Result<Option<crate::message_deletion::StoredMessageDeletion>, crate::ConnectionError>;
-
-        fn get_deletions_for_messages(
-            &self,
-            _message_ids: Vec<Vec<u8>>,
-        ) -> Result<Vec<crate::message_deletion::StoredMessageDeletion>, crate::ConnectionError>;
-
-        fn get_group_deletions(
-            &self,
-            _group_id: &GroupId,
-        ) -> Result<Vec<crate::message_deletion::StoredMessageDeletion>, crate::ConnectionError>;
-
-        fn is_message_deleted(
-            &self,
-            _message_id: &[u8],
-        ) -> Result<bool, crate::ConnectionError>;
     }
 
 }

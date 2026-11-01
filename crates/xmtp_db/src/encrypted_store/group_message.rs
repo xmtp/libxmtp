@@ -98,6 +98,10 @@ pub struct StoredGroupMessage {
     /// The idempotency key the message id is derived from. Defaults to the send
     /// timestamp, but callers may supply their own to make retries idempotent.
     pub idempotency_key: String,
+    /// The inbox that deleted this message under PROC-037. Set once; the
+    /// content is then empty.
+    #[serde(default)]
+    pub deleted_by_inbox_id: Option<String>,
 }
 
 /// One expiry-cleanup transaction deletes at most this many rows.
@@ -155,6 +159,7 @@ impl From<ExpiredMessageRow> for StoredGroupMessage {
             expiry_unknown: row.expiry_unknown,
             should_push: row.should_push,
             idempotency_key: row.idempotency_key,
+            deleted_by_inbox_id: None,
         }
     }
 }
@@ -177,6 +182,12 @@ impl StoredGroupMessage {
 
     pub fn cursor(&self) -> Cursor {
         Cursor(self.sequence_id as u64)
+    }
+
+    /// Stored by this installation for sending and not yet Published.
+    pub fn is_unsent_from(&self, installation_id: &[u8]) -> bool {
+        self.delivery_status != DeliveryStatus::Published
+            && self.sender_installation_id == installation_id
     }
 }
 
@@ -209,6 +220,7 @@ struct NewStoredGroupMessage {
     pub expiry_unknown: bool,
     pub should_push: bool,
     pub idempotency_key: String,
+    pub deleted_by_inbox_id: Option<String>,
 }
 
 impl From<&StoredGroupMessage> for NewStoredGroupMessage {
@@ -234,6 +246,7 @@ impl From<&StoredGroupMessage> for NewStoredGroupMessage {
             expire_at_ns: msg.expire_at_ns,
             should_push: msg.should_push,
             idempotency_key: msg.idempotency_key.clone(),
+            deleted_by_inbox_id: msg.deleted_by_inbox_id.clone(),
         }
     }
 }
@@ -774,6 +787,14 @@ pub trait QueryGroupMessage {
         message_id: MessageId,
     ) -> Result<usize, crate::ConnectionError>;
 
+    /// Mark a message deleted by `deleted_by_inbox_id` and remove its content,
+    /// once. Returns 0 when the message is absent or already marked.
+    fn mark_message_deleted(
+        &self,
+        id: &[u8],
+        deleted_by_inbox_id: &str,
+    ) -> Result<usize, crate::ConnectionError>;
+
     /// Stored messages above each group's cursor, attributed to their group.
     /// The attribution matters: sequence ids are not scoped per group, so a
     /// caller folding these into per-group state must never mix groups.
@@ -959,6 +980,14 @@ where
         message_id: MessageId,
     ) -> Result<usize, crate::ConnectionError> {
         (**self).delete_message_by_id(message_id)
+    }
+
+    fn mark_message_deleted(
+        &self,
+        id: &[u8],
+        deleted_by_inbox_id: &str,
+    ) -> Result<usize, crate::ConnectionError> {
+        (**self).mark_message_deleted(id, deleted_by_inbox_id)
     }
 
     fn messages_newer_than(
@@ -1674,6 +1703,26 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
             use diesel::prelude::*;
             diesel::delete(dsl::group_messages.filter(dsl::id.eq(message_id.as_ref())))
                 .execute(conn)
+        })
+    }
+
+    // implements: PROC-037
+    fn mark_message_deleted(
+        &self,
+        id: &[u8],
+        deleted_by_inbox_id: &str,
+    ) -> Result<usize, crate::ConnectionError> {
+        self.raw_query(|conn| {
+            diesel::update(
+                dsl::group_messages
+                    .filter(dsl::id.eq(id))
+                    .filter(dsl::deleted_by_inbox_id.is_null()),
+            )
+            .set((
+                dsl::deleted_by_inbox_id.eq(deleted_by_inbox_id),
+                dsl::decrypted_message_bytes.eq(Vec::<u8>::new()),
+            ))
+            .execute(conn)
         })
     }
 

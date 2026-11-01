@@ -855,6 +855,24 @@ mod tests {
                  sender_installation_id, sender_inbox_id, authority_id, sequence_id)
                  VALUES (zeroblob(32), zeroblob(32), x'01', 1, x'01', 'sender', 'xmtp.org', 0)",
             ).execute(conn)?;
+            // A published and an unpublished deletion message with their tombstones.
+            diesel::sql_query(
+                "INSERT INTO group_messages (id, group_id, decrypted_message_bytes, sent_at_ns,
+                 sender_installation_id, sender_inbox_id, authority_id, sequence_id, delivery_status)
+                 VALUES (x'02', zeroblob(32), x'', 2, x'01', 'sender', 'xmtp.org', 0, 2),
+                        (x'03', zeroblob(32), x'', 3, x'01', 'sender', 'xmtp.org', 0, 1)",
+            ).execute(conn)?;
+            diesel::sql_query(
+                "INSERT INTO message_deletions (id, group_id, deleted_message_id,
+                 deleted_by_inbox_id, is_super_admin_deletion, deleted_at_ns)
+                 VALUES (x'02', zeroblob(32), zeroblob(32), 'sender', 0, 2),
+                        (x'03', zeroblob(32), zeroblob(32), 'sender', 0, 3)",
+            ).execute(conn)?;
+            // A finished and a queued SendMessage intent with plaintext.
+            diesel::sql_query(
+                "INSERT INTO group_intents (kind, group_id, data, state)
+                 VALUES (1, zeroblob(32), x'0102', 4), (1, zeroblob(32), x'0304', 1)",
+            ).execute(conn)?;
             diesel::sql_query(
                 "INSERT INTO refresh_state (entity_id, entity_kind, sequence_id) VALUES (x'01', 1, 0)",
             )
@@ -935,6 +953,46 @@ mod tests {
                 .get_result::<Count>(conn)
         })?;
         assert_eq!(expiry.count, 0);
+        // Only the published deletion keeps a record, now authenticated and
+        // without the cascade; the mark column exists and is unset.
+        let records = connection.raw_query(|conn| {
+            diesel::sql_query(
+                "SELECT COUNT(*) AS count FROM message_deletions WHERE id = x'02' AND authenticated = 1",
+            )
+            .get_result::<Count>(conn)
+        })?;
+        assert_eq!(records.count, 1);
+        connection.raw_query(|conn| {
+            diesel::sql_query("DELETE FROM group_messages WHERE id = x'02'").execute(conn)
+        })?;
+        let records = connection.raw_query(|conn| {
+            diesel::sql_query("SELECT COUNT(*) AS count FROM message_deletions")
+                .get_result::<Count>(conn)
+        })?;
+        assert_eq!(records.count, 1);
+        let marks = connection.raw_query(|conn| {
+            diesel::sql_query(
+                "SELECT COUNT(*) AS count FROM group_messages WHERE deleted_by_inbox_id IS NOT NULL",
+            )
+            .get_result::<Count>(conn)
+        })?;
+        assert_eq!(marks.count, 0);
+        assert_eq!(has_index("message_deletions_target")?, 1);
+        // The finished intent's plaintext is wiped; the queued one keeps it
+        // until the trigger wipes it at its terminal state.
+        let plaintext = |state: i32| {
+            connection.raw_query(|conn| {
+                diesel::sql_query("SELECT length(data) AS count FROM group_intents WHERE state = ?")
+                    .bind::<diesel::sql_types::Integer, _>(state)
+                    .get_result::<Count>(conn)
+            })
+        };
+        assert_eq!(plaintext(4)?.count, 0);
+        assert_eq!(plaintext(1)?.count, 2);
+        connection.raw_query(|conn| {
+            diesel::sql_query("UPDATE group_intents SET state = 5 WHERE state = 1").execute(conn)
+        })?;
+        assert_eq!(plaintext(5)?.count, 0);
         let latest = connection.raw_query(|conn| {
             conn.applied_migrations()
                 .map_err(diesel::result::Error::QueryBuilderError)

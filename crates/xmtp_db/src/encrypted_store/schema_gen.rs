@@ -60,6 +60,7 @@ diesel::table! {
         idempotency_key -> Text,
         delivery_sequence -> Nullable<BigInt>,
         expiry_unknown -> Bool,
+        deleted_by_inbox_id -> Nullable<Text>,
     }
 }
 
@@ -189,6 +190,7 @@ diesel::table! {
         deleted_by_inbox_id -> Text,
         is_super_admin_deletion -> Bool,
         deleted_at_ns -> BigInt,
+        authenticated -> Bool,
     }
 }
 
@@ -347,7 +349,6 @@ diesel::table! {
 diesel::joinable!(group_intents -> groups (group_id));
 diesel::joinable!(group_messages -> groups (group_id));
 diesel::joinable!(group_welcome_discovery -> groups (group_id));
-diesel::joinable!(message_deletions -> group_messages (id));
 diesel::joinable!(received_proposals -> groups (group_id));
 
 diesel::allow_tables_to_appear_in_same_query!(
