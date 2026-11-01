@@ -224,6 +224,18 @@ Keep advisory RN failures isolated from other post-merge work:
   `rnBlocking` only when a blocking Linux PR suite builds them. `ciStages`
   derives from the warm sets.
 
+The closure check accepts only a complete, unfiltered fetch-only dry-run plan.
+A zero-exit attempt containing only the exact single-line cache.nixos.org
+narinfo HTTP/2 framing retry warning in addition to an otherwise valid plan
+can trigger a fresh attempt, never success. There are at most three dry runs,
+each limited to 300 seconds with a five-second kill grace, and waits of five
+then ten seconds (at most 930 seconds of Nix execution, kill grace and backoff,
+inside the unchanged 30-minute job limit). Every attempt's mixed output is retained in
+`$RUNNER_TEMP/dry-run-N.txt` and streamed to the job log. Nonzero commands,
+capture failures, unknown output and invalid plans fail immediately. Multiline
+HTTP 502 bodies and terminal HTTP 416 are not retryable here; environment builds
+and deployments acquire no retries.
+
 The test package outputs (`testStages`) are not set members. Warm the test
 packages and bare Android test app only; full-scope Android and iOS test-app
 warm builds are too costly for every merge. `dev/tests/test_warm_sets.py` covers

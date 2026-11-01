@@ -14,8 +14,9 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = (ROOT / "dev/ci/warm-closure").read_text()
-# The parser part of the script: it reads $RUNNER_TEMP/dry-run.txt.
-PARSER = SCRIPT[SCRIPT.index("header=") :]
+# The strict validator, without the command/retry loop.
+START = SCRIPT.index("validate_dry_run() {")
+PARSER = SCRIPT[START : SCRIPT.index("\n}\n", START) + 2]
 PATH_A = "  /nix/store/l8si8gnvvq93yzms1jsgh5aixyf9rl5x-glibc-2.42-67"
 PATH_B = "  /nix/store/c2h2f4cw9p8i8zcfy52fd1dd6g0yhnki-hello-2.12.3"
 
@@ -24,7 +25,13 @@ def parse(text):
     with tempfile.TemporaryDirectory() as temp:
         Path(temp, "dry-run.txt").write_text(text)
         return subprocess.run(
-            ["bash", "-eo", "pipefail", "-c", PARSER],
+            [
+                "bash",
+                "-eo",
+                "pipefail",
+                "-c",
+                PARSER + '\nvalidate_dry_run "$RUNNER_TEMP/dry-run.txt"',
+            ],
             env=os.environ | {"RUNNER_TEMP": temp},
             capture_output=True,
             text=True,
