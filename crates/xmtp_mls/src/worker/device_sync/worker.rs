@@ -556,6 +556,7 @@ where
 #[cfg(test)]
 mod startup_tests {
     use super::*;
+    use crate::prelude::*;
     use crate::tester;
 
     fn idle_worker<C: XmtpSharedContext + 'static>(context: C) -> SyncWorker<C> {

@@ -1,4 +1,4 @@
-use crate::context::XmtpSharedContext;
+use crate::context::CoreContext;
 use crate::core::events::InternalEvent;
 use crate::worker::{
     BoxedWorker, EVENT_BUFFER, NeedsDbReconnect, NewWorker, Worker, WorkerFactory,
@@ -47,7 +47,7 @@ struct Factory<Context> {
 
 impl<Context> WorkerFactory for Factory<Context>
 where
-    Context: XmtpSharedContext + 'static,
+    Context: CoreContext + 'static,
 {
     fn create(&self) -> BoxedWorker {
         Box::new(DisappearingMessagesWorker::new(self.context.clone()))
@@ -75,7 +75,7 @@ where
 #[xmtp_common::async_trait]
 impl<Context> Worker for DisappearingMessagesWorker<Context>
 where
-    Context: XmtpSharedContext + 'static,
+    Context: CoreContext + 'static,
 {
     fn kind(&self) -> WorkerKind {
         WorkerKind::DisappearingMessages
@@ -92,7 +92,7 @@ where
 
 impl<Context> NewWorker<Context> for DisappearingMessagesWorker<Context>
 where
-    Context: XmtpSharedContext + 'static,
+    Context: CoreContext + 'static,
 {
     fn factory(context: Context) -> impl WorkerFactory + 'static {
         Factory { context }
@@ -101,7 +101,7 @@ where
 
 impl<Context> DisappearingMessagesWorker<Context>
 where
-    Context: XmtpSharedContext + 'static,
+    Context: CoreContext + 'static,
 {
     pub fn new(context: Context) -> Self {
         Self {
@@ -113,7 +113,7 @@ where
 
 impl<Context> DisappearingMessagesWorker<Context>
 where
-    Context: XmtpSharedContext + 'static,
+    Context: CoreContext + 'static,
 {
     /// Event-driven loop: sleep until the soonest message expiry, deleting the
     /// batch when the deadline arrives. A stored-message fact makes it read the
@@ -267,7 +267,7 @@ mod tests {
     /// the local send time with the backend's, so the stored value can be
     /// later than the local clock. A skewed backend clock fails the test
     /// instead of hanging it.
-    async fn wait_until_expired(context: &impl XmtpSharedContext, id: &[u8]) {
+    async fn wait_until_expired(context: &impl CoreContext, id: &[u8]) {
         let expire_at = context
             .db()
             .get_group_message(id)
@@ -320,7 +320,7 @@ mod tests {
 
     /// The deletion stream of `context`, not polled until the test reads it.
     fn deletion_stream(
-        context: &impl XmtpSharedContext,
+        context: &impl CoreContext,
     ) -> impl futures::Stream<Item = crate::subscriptions::Result<DecodedMessage>> {
         use crate::subscriptions::StreamMessages;
         context

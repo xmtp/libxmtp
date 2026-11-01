@@ -613,6 +613,7 @@ pub(crate) fn apply_readd_installations_intent(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::prelude::*;
 
     #[xmtp_common::test(unwrap_try = true)]
     async fn membership_delta_reuse_ignores_mutation_order() {

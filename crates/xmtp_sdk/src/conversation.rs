@@ -14,10 +14,10 @@ use xmtp_db::prelude::QueryDms;
 use xmtp_db::prelude::QueryGroup;
 use xmtp_db::prelude::QueryGroupMessage;
 use xmtp_mls::MlsContext;
-use xmtp_mls::context::{ForegroundCall, XmtpSharedContext};
 use xmtp_mls::groups::{MlsGroup, send_message_opts::SendMessageOpts};
 use xmtp_mls::messages::enrichment::EnrichedStoredMessage;
 use xmtp_mls::mls_common::group_mutable_metadata::MetadataField;
+use xmtp_mls::{context::ForegroundCall, prelude::*};
 use xmtp_proto::types::{ConversationType, GroupId};
 
 use crate::{

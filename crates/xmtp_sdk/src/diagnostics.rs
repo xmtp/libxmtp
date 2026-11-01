@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use xmtp_mls::context::XmtpSharedContext;
+use xmtp_mls::prelude::*;
 use xmtp_proto::api::HasStats;
 
 use crate::{XmtpError, client::CoreClient, conversation::on_sdk_worker};

@@ -2,7 +2,7 @@
 //! root, which may leave the client only inside a Welcome.
 
 use crate::{
-    context::XmtpSharedContext,
+    context::CoreContext,
     groups::{
         GroupError, app_data::stage_app_data_proposals_and_commit,
         mls_sync::generate_prepared_commit,

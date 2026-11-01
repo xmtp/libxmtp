@@ -436,7 +436,7 @@ mod tests {
     #[xmtp_common::test(unwrap_try = true)]
     async fn blocked_connection_is_terminal_and_never_retryable() {
         use crate::{
-            context::XmtpSharedContext,
+            context::CoreContext,
             server_configuration::BlockedConnection,
             subscriptions::{
                 local_delivery::{DeliveryScope, LocalDeliveryFilter},

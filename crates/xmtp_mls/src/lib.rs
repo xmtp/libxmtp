@@ -9,6 +9,7 @@ pub mod core;
 mod definitions;
 #[cfg(any(test, feature = "test-utils"))]
 pub mod diagnostics;
+pub mod features;
 pub mod groups;
 pub mod identity;
 pub mod identity_lifecycle;
@@ -18,6 +19,7 @@ mod intents;
 pub mod messages;
 pub mod mls_store;
 mod mutex_registry;
+pub mod prelude;
 pub mod server_configuration;
 use crate::core::state_tx;
 pub mod storage_location;

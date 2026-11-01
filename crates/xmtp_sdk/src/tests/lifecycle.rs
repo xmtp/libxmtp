@@ -1,4 +1,5 @@
 use super::*;
+use xmtp_mls::prelude::*;
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn associated_wallet_uses_existing_inbox() {

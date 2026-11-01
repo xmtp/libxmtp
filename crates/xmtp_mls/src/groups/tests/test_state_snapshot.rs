@@ -1,7 +1,7 @@
 use crate::client::notifications::{
     NotificationChannel, NotificationConfig, NotificationOverride, encode_config,
 };
-use crate::context::XmtpSharedContext;
+use crate::context::CoreContext;
 use crate::groups::{GroupError, SendMessageOpts, UpdateAdminListType};
 use crate::tester;
 use crate::utils::TestMlsGroup;

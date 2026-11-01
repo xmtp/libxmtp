@@ -134,8 +134,12 @@ async fn existing_file_record_cannot_race_another_clients_deletion() {
 
     let entered = Arc::new(tokio::sync::Notify::new());
     let resume = Arc::new(tokio::sync::Notify::new());
-    *second.context.attachments.download_existing_pause.lock() =
-        Some((entered.clone(), resume.clone()));
+    *second
+        .context
+        .features
+        .attachments
+        .download_existing_pause
+        .lock() = Some((entered.clone(), resume.clone()));
     let downloading_client = second.clone();
     let downloading_remote = remote.clone();
     let downloading = tokio::spawn(async move {
@@ -226,8 +230,12 @@ async fn download_completion_keeps_publication_order_for_one_key() {
     ]))?;
     let entered = Arc::new(tokio::sync::Notify::new());
     let resume = Arc::new(tokio::sync::Notify::new());
-    *client.context.attachments.download_completion_pause.lock() =
-        Some((entered.clone(), resume.clone()));
+    *client
+        .context
+        .features
+        .attachments
+        .download_completion_pause
+        .lock() = Some((entered.clone(), resume.clone()));
     let first_client = client.clone();
     let first = first_remote.clone();
     let first_download =
@@ -313,8 +321,12 @@ async fn failed_download_waits_for_same_key_publication_event() {
     ]))?;
     let failed_entered = Arc::new(tokio::sync::Notify::new());
     let failed_resume = Arc::new(tokio::sync::Notify::new());
-    *client.context.attachments.download_failure_pause.lock() =
-        Some((failed_entered.clone(), failed_resume.clone()));
+    *client
+        .context
+        .features
+        .attachments
+        .download_failure_pause
+        .lock() = Some((failed_entered.clone(), failed_resume.clone()));
     let second_client = client.clone();
     let second_remote = failed.clone();
     let mut second_download =
@@ -323,8 +335,12 @@ async fn failed_download_waits_for_same_key_publication_event() {
 
     let entered = Arc::new(tokio::sync::Notify::new());
     let resume = Arc::new(tokio::sync::Notify::new());
-    *client.context.attachments.download_completion_pause.lock() =
-        Some((entered.clone(), resume.clone()));
+    *client
+        .context
+        .features
+        .attachments
+        .download_completion_pause
+        .lock() = Some((entered.clone(), resume.clone()));
     let first_client = client.clone();
     let first_remote = published.clone();
     let first_download =
@@ -441,6 +457,7 @@ async fn failed_metadata_write_with_kept_file_completes_download() {
     })?;
     client
         .context
+        .features
         .attachments
         .fail_next_download_cleanup
         .store(true, Ordering::SeqCst);
@@ -486,8 +503,12 @@ async fn reconcile_waits_for_download_metadata_publication() {
     let relative = plaintext_rel_path(&remote)?;
     let entered = Arc::new(tokio::sync::Notify::new());
     let resume = Arc::new(tokio::sync::Notify::new());
-    *client.context.attachments.download_publish_pause.lock() =
-        Some((entered.clone(), resume.clone()));
+    *client
+        .context
+        .features
+        .attachments
+        .download_publish_pause
+        .lock() = Some((entered.clone(), resume.clone()));
     let downloading_client = client.clone();
     let downloading_remote = remote.clone();
     let download = tokio::spawn(async move {
@@ -506,7 +527,8 @@ async fn reconcile_waits_for_download_metadata_publication() {
             .is_none()
     );
     let context = client.context.clone();
-    let mut reconcile = tokio::spawn(async move { context.attachments.reconcile(&context).await });
+    let mut reconcile =
+        tokio::spawn(async move { context.features.attachments.reconcile(&context).await });
     assert!(
         tokio::time::timeout(Duration::from_millis(200), &mut reconcile)
             .await
@@ -551,8 +573,12 @@ async fn failed_download_publication_cannot_leave_reconciled_row() {
     let path = client.attachments().local_path(&remote)?;
     let entered = Arc::new(tokio::sync::Notify::new());
     let resume = Arc::new(tokio::sync::Notify::new());
-    *client.context.attachments.download_publish_pause.lock() =
-        Some((entered.clone(), resume.clone()));
+    *client
+        .context
+        .features
+        .attachments
+        .download_publish_pause
+        .lock() = Some((entered.clone(), resume.clone()));
     let downloading_client = client.clone();
     let downloading_remote = remote.clone();
     let download = tokio::spawn(async move {
@@ -563,7 +589,8 @@ async fn failed_download_publication_cannot_leave_reconciled_row() {
     });
     tokio::time::timeout(Duration::from_secs(5), entered.notified()).await?;
     let context = client.context.clone();
-    let reconcile = tokio::spawn(async move { context.attachments.reconcile(&context).await });
+    let reconcile =
+        tokio::spawn(async move { context.features.attachments.reconcile(&context).await });
     tokio::time::sleep(Duration::from_millis(200)).await;
     client.context.db().raw_query(|conn| {
         xmtp_db::diesel::sql_query(
@@ -660,7 +687,12 @@ async fn another_client_publishes_plaintext_during_download() {
         .await?;
     let entered = Arc::new(tokio::sync::Notify::new());
     let resume = Arc::new(tokio::sync::Notify::new());
-    *first.context.attachments.download_move_pause.lock() = Some((entered.clone(), resume.clone()));
+    *first
+        .context
+        .features
+        .attachments
+        .download_move_pause
+        .lock() = Some((entered.clone(), resume.clone()));
     let first_remote = remote.clone();
     let first_client = first.clone();
     let first_download =
@@ -713,7 +745,12 @@ async fn published_file_without_record_completes_download() {
     ]))?;
     let entered = Arc::new(tokio::sync::Notify::new());
     let resume = Arc::new(tokio::sync::Notify::new());
-    *first.context.attachments.download_move_pause.lock() = Some((entered.clone(), resume.clone()));
+    *first
+        .context
+        .features
+        .attachments
+        .download_move_pause
+        .lock() = Some((entered.clone(), resume.clone()));
     let first_remote = remote.clone();
     let first_client = first.clone();
     let first_download =
@@ -792,8 +829,13 @@ async fn panicked_download_releases_waiters_and_deletion() {
         ]))?;
     let entered = Arc::new(tokio::sync::Notify::new());
     let resume = Arc::new(tokio::sync::Notify::new());
-    *alix.client.context.attachments.download_panic_pause.lock() =
-        Some((entered.clone(), resume.clone()));
+    *alix
+        .client
+        .context
+        .features
+        .attachments
+        .download_panic_pause
+        .lock() = Some((entered.clone(), resume.clone()));
     let client = alix.client.clone();
     let first_remote = remote.clone();
     let first = tokio::spawn(async move { client.attachments().download(&first_remote).await });
@@ -801,6 +843,7 @@ async fn panicked_download_releases_waiters_and_deletion() {
     let shared = alix
         .client
         .context
+        .features
         .attachments
         .downloads
         .lock()
@@ -820,7 +863,7 @@ async fn panicked_download_releases_waiters_and_deletion() {
     let deleting_remote = remote.clone();
     let delete_entered = Arc::new(tokio::sync::Notify::new());
     let delete_resume = Arc::new(tokio::sync::Notify::new());
-    *alix.client.context.attachments.delete_pause.lock() =
+    *alix.client.context.features.attachments.delete_pause.lock() =
         Some((delete_entered.clone(), delete_resume.clone()));
     let delete =
         tokio::spawn(async move { client.attachments().delete_local(&deleting_remote).await });
@@ -857,6 +900,7 @@ async fn panicked_download_releases_waiters_and_deletion() {
         !alix
             .client
             .context
+            .features
             .attachments
             .downloads
             .lock()
@@ -1053,7 +1097,8 @@ async fn delete_refuses_download_started_during_deletion() {
         .await?;
     let entered = Arc::new(tokio::sync::Notify::new());
     let resume = Arc::new(tokio::sync::Notify::new());
-    *client.context.attachments.delete_pause.lock() = Some((entered.clone(), resume.clone()));
+    *client.context.features.attachments.delete_pause.lock() =
+        Some((entered.clone(), resume.clone()));
     let deleting_client = client.clone();
     let deleting_remote = remote.clone();
     let deletion = xmtp_common::task::spawn(async move {

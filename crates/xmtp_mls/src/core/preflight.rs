@@ -1,7 +1,7 @@
 //! Deferred admission and refresh share one client lifetime and commit lock.
 
 use crate::{
-    context::{XmtpMlsLocalContext, XmtpSharedContext},
+    context::{CoreContext, LocalContext},
     server_configuration::{
         BlockedConnection, ConfigurationFetchError, ServerConfigError, check_minimum_version,
         commit_configuration,
@@ -11,15 +11,16 @@ use std::sync::{Arc, Weak, atomic::Ordering};
 use xmtp_api::preflight::{ConfigurationFetch, PreflightError, RequestPreflight};
 use xmtp_configuration::ServerConfiguration;
 
-struct ClientPreflight<A, Db, S> {
-    context: Weak<XmtpMlsLocalContext<A, Db, S>>,
+struct ClientPreflight<A, Db, S, F> {
+    context: Weak<LocalContext<A, Db, S, F>>,
 }
 
-pub(crate) fn bind_preflight<A, Db, S>(context: &Arc<XmtpMlsLocalContext<A, Db, S>>)
+pub(crate) fn bind_preflight<A, Db, S, F>(context: &Arc<LocalContext<A, Db, S, F>>)
 where
     A: xmtp_proto::api_client::XmtpApi + 'static,
     Db: xmtp_db::XmtpDb + 'static,
     S: xmtp_db::XmtpMlsStorageProvider + 'static,
+    F: xmtp_common::MaybeSend + xmtp_common::MaybeSync + 'static,
 {
     let weak = Arc::downgrade(context);
     assert!(
@@ -32,11 +33,12 @@ where
 }
 
 #[xmtp_common::async_trait]
-impl<A, Db, S> RequestPreflight for ClientPreflight<A, Db, S>
+impl<A, Db, S, F> RequestPreflight for ClientPreflight<A, Db, S, F>
 where
     A: xmtp_proto::api_client::XmtpApi + 'static,
     Db: xmtp_db::XmtpDb + 'static,
     S: xmtp_db::XmtpMlsStorageProvider + 'static,
+    F: xmtp_common::MaybeSend + xmtp_common::MaybeSync + 'static,
 {
     async fn check(&self, fetch: &dyn ConfigurationFetch) -> Result<(), PreflightError> {
         let context = self
@@ -50,7 +52,7 @@ where
     }
 }
 
-fn check<C: XmtpSharedContext>(context: &C) -> Result<(), ServerConfigError> {
+fn check<C: CoreContext>(context: &C) -> Result<(), ServerConfigError> {
     context.server_configuration().check()?;
     if context.is_closed() {
         return Err(ServerConfigError::Closed);
@@ -58,7 +60,7 @@ fn check<C: XmtpSharedContext>(context: &C) -> Result<(), ServerConfigError> {
     Ok(())
 }
 
-pub(crate) async fn refresh<C: XmtpSharedContext>(
+pub(crate) async fn refresh<C: CoreContext>(
     context: &C,
 ) -> Result<ServerConfiguration, ServerConfigError> {
     let handle = context.server_configuration();
@@ -73,7 +75,7 @@ pub(crate) async fn refresh<C: XmtpSharedContext>(
 
 struct UnboundFetch<'a, C>(&'a C);
 #[xmtp_common::async_trait]
-impl<C: XmtpSharedContext> ConfigurationFetch for UnboundFetch<'_, C> {
+impl<C: CoreContext> ConfigurationFetch for UnboundFetch<'_, C> {
     async fn fetch(&self) -> xmtp_api::Result<xmtp_proto::backend_v1::GetConfigurationResponse> {
         self.0.api().get_configuration().await
     }
@@ -83,7 +85,7 @@ impl<C: XmtpSharedContext> ConfigurationFetch for UnboundFetch<'_, C> {
 }
 
 // implements: CONF-077
-async fn run<C: XmtpSharedContext>(
+async fn run<C: CoreContext>(
     context: &C,
     fetch: &dyn ConfigurationFetch,
     refresh: bool,

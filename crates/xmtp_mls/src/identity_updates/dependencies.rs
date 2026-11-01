@@ -4,7 +4,7 @@ use super::IdentityUpdateError;
 #[cfg(test)]
 use super::load_identity_updates;
 use super::{get_association_state_for_client, load_identity_updates_for_client};
-use crate::context::XmtpSharedContext;
+use crate::identity_updates::IdentityContext;
 use futures::{StreamExt, stream};
 use std::{
     collections::{BTreeSet, HashSet},
@@ -196,10 +196,10 @@ impl MissingProofs {
 /// cache entries.
 // implements: PROC-013
 pub(crate) async fn resolve_identity_requirements(
-    context: &impl XmtpSharedContext,
+    context: &impl IdentityContext,
     requirements: &BTreeSet<IdentityRequirement>,
 ) -> Result<(), IdentityDependencyError> {
-    let policy = context.incoming_runtime().policy();
+    let policy = context.stream_policy();
     let limit = policy.max_dependency_requests;
     let permits = context.identity_resolution_registry().permits(limit);
     let mut missing = requirements.clone();
@@ -265,7 +265,7 @@ pub(crate) async fn resolve_identity_requirements(
 /// Verify one exact proof after a primary load. Verify the available prefix
 /// first; invalid history is not an absent reference.
 async fn check_identity_requirement(
-    context: &impl XmtpSharedContext,
+    context: &impl IdentityContext,
     conn: &impl DbQuery,
     requirement: &IdentityRequirement,
 ) -> Result<(), IdentityDependencyError> {
@@ -327,6 +327,7 @@ fn parent_result(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::prelude::*;
     use crate::tester;
     use xmtp_common::time::Duration;
     use xmtp_db::prelude::*;

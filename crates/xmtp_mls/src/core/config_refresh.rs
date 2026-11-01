@@ -12,7 +12,7 @@ use xmtp_configuration::{
     CONFIGURATION_REFRESH_JITTER,
 };
 
-use crate::context::XmtpSharedContext;
+use crate::context::CoreContext;
 use crate::server_configuration::ServerConfigError;
 use crate::worker::{
     BoxedWorker, NeedsDbReconnect, NewWorker, Worker, WorkerFactory, WorkerKind, WorkerResult,
@@ -27,7 +27,7 @@ pub struct Factory<Context> {
 
 impl<Context> WorkerFactory for Factory<Context>
 where
-    Context: XmtpSharedContext + 'static,
+    Context: CoreContext + 'static,
 {
     fn kind(&self) -> WorkerKind {
         WorkerKind::ConfigurationRefresh
@@ -64,7 +64,7 @@ impl<Context> ConfigurationWorker<Context> {
 #[xmtp_common::async_trait]
 impl<Context> Worker for ConfigurationWorker<Context>
 where
-    Context: XmtpSharedContext + 'static,
+    Context: CoreContext + 'static,
 {
     fn kind(&self) -> WorkerKind {
         WorkerKind::ConfigurationRefresh
@@ -78,7 +78,7 @@ where
 
 impl<Context> NewWorker<Context> for ConfigurationWorker<Context>
 where
-    Context: XmtpSharedContext + 'static,
+    Context: CoreContext + 'static,
 {
     fn factory(context: Context) -> impl WorkerFactory + 'static {
         Factory { context }
@@ -87,7 +87,7 @@ where
 
 impl<Context> ConfigurationWorker<Context>
 where
-    Context: XmtpSharedContext + 'static,
+    Context: CoreContext + 'static,
 {
     async fn run(&mut self) {
         loop {

@@ -1,13 +1,13 @@
 //! The local notification settings model and the pure rules over it.
 
-use crate::context::XmtpSharedContext;
+use crate::context::CoreContext;
 use serde::{Deserialize, Serialize};
 use xmtp_cryptography::secret::{Secret, Zeroizing};
 use xmtp_db::consent_record::ConsentState;
 use xmtp_db::{StorageError, StoredSecret, notifications::StoredNotification};
 use xmtp_proto::backend_v1::{self, register_request::Delivery};
 
-pub(crate) fn notification_settings_changed(context: &impl XmtpSharedContext) {
+pub(crate) fn notification_settings_changed(context: &impl CoreContext) {
     context.task_channels().mark_notification_changed();
     xmtp_events::EventWriter::emit(
         context.events(),

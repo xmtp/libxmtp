@@ -3,6 +3,7 @@
 //! and fixed target completion. The transport test checks delivery across
 //! lease changes, slow consumers, and connection failures.
 
+use crate::prelude::*;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};

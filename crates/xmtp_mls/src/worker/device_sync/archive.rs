@@ -221,6 +221,7 @@ mod tests {
     #![allow(unused)]
     use super::*;
     use crate::groups::send_message_opts::SendMessageOpts;
+    use crate::prelude::*;
     use crate::tester;
     use crate::utils::{LocalTester, Tester};
     use crate::worker::device_sync::{ArchiveOptions, BackupElementSelection};

@@ -1,6 +1,6 @@
 pub use crate::core::task_channels::TaskWorkerChannels;
 use crate::{
-    context::XmtpSharedContext,
+    context::CoreContext,
     core::events::InternalEvent,
     worker::{
         BoxedWorker, EVENT_BUFFER, NeedsDbReconnect, NewWorker, Worker, WorkerFactory, WorkerKind,
@@ -87,7 +87,7 @@ pub trait TaskHandlers<Context>: MaybeSend + MaybeSync {
 /// Callers must commit the target row FIRST: a pull-in never waits for its target —
 /// a miss is dropped (debug-logged), since a missing target is normally a completed
 /// one-shot and retrying would spin forever on never-expiring nudges.
-pub(crate) fn enqueue_pull_in<Context: XmtpSharedContext>(
+pub(crate) fn enqueue_pull_in<Context: CoreContext>(
     context: &Context,
     target_data_hash: TaskDataHash,
     not_later_than_ns: i64,
@@ -116,7 +116,7 @@ pub(crate) fn enqueue_pull_in<Context: XmtpSharedContext>(
 }
 
 /// Run a `PullInDeadline` task: lower its target's deadline to the ceiling.
-pub(crate) fn apply_pull_in<Context: XmtpSharedContext>(
+pub(crate) fn apply_pull_in<Context: CoreContext>(
     context: &Context,
     task: &DbTask,
     pull_in: PullInDeadline,
@@ -187,7 +187,7 @@ pub struct Factory<Context, Handlers> {
 
 impl<Context, Handlers> WorkerFactory for Factory<Context, Handlers>
 where
-    Context: XmtpSharedContext + 'static,
+    Context: CoreContext + 'static,
     Handlers: TaskHandlers<Context> + Default + 'static,
 {
     fn kind(&self) -> WorkerKind {
@@ -211,7 +211,7 @@ pub struct TaskWorker<Context, Handlers> {
 
 impl<Context, Handlers> NewWorker<Context> for TaskWorker<Context, Handlers>
 where
-    Context: XmtpSharedContext + 'static,
+    Context: CoreContext + 'static,
     Handlers: TaskHandlers<Context> + Default + 'static,
 {
     fn factory(context: Context) -> impl WorkerFactory + 'static {
@@ -225,7 +225,7 @@ where
 #[xmtp_common::async_trait]
 impl<Context, Handlers> Worker for TaskWorker<Context, Handlers>
 where
-    Context: XmtpSharedContext + 'static,
+    Context: CoreContext + 'static,
     Handlers: TaskHandlers<Context> + 'static,
 {
     fn kind(&self) -> WorkerKind {
@@ -243,7 +243,7 @@ where
 
 impl<Context, Handlers> TaskWorker<Context, Handlers>
 where
-    Context: XmtpSharedContext,
+    Context: CoreContext,
     Handlers: TaskHandlers<Context>,
 {
     pub fn new(context: Context, handlers: Handlers) -> Self {
@@ -667,7 +667,7 @@ mod tests {
     struct FailAfter(xmtp_common::time::Duration);
 
     #[xmtp_common::async_trait]
-    impl<Context: XmtpSharedContext> TaskHandlers<Context> for FailAfter {
+    impl<Context: CoreContext> TaskHandlers<Context> for FailAfter {
         type Error = TaskWorkerError;
 
         async fn dispatch(

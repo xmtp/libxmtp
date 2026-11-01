@@ -3,6 +3,7 @@
 //! client's own installations that those pages make.
 
 use super::*;
+use crate::prelude::*;
 use crate::{builder::ClientBuilder, subscriptions::policy::StreamPolicy, tester};
 use parking_lot::Mutex;
 use std::sync::Arc;

@@ -52,7 +52,7 @@ where
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use crate::context::XmtpSharedContext;
+    use crate::context::CoreContext;
     use crate::groups::send_message_opts::SendMessageOpts;
     use crate::subscriptions::stream_messages::StreamGroupMessages;
     use futures::StreamExt;

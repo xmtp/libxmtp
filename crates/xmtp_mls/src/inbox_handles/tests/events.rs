@@ -2,7 +2,7 @@
 //! state, only when the display handle changes.
 
 use super::{new_inbox_state, random_handle, state_with_handles};
-use crate::{context::XmtpSharedContext, identity_updates::store_association_state, tester};
+use crate::{context::CoreContext, identity_updates::store_association_state, tester};
 use xmtp_events::{ClientEvent, EventEnvelope, EventFilter, EventKind, HandleChanged};
 
 fn handle_events<I>(drained: Vec<EventEnvelope<I>>) -> Vec<HandleChanged> {

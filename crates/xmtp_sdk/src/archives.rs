@@ -4,7 +4,7 @@ use futures::io::{BufReader, Cursor};
 #[cfg(not(target_arch = "wasm32"))]
 use xmtp_mls::worker::device_sync::archive::BACKUP_VERSION;
 use xmtp_mls::{
-    context::XmtpSharedContext,
+    prelude::*,
     worker::device_sync::{
         ArchiveOptions as CoreArchiveOptions, BackupElementSelection as CoreElement,
         archive::{ArchiveImporter, BackupMetadata, ENC_KEY_SIZE, exporter, insert_importer},

@@ -1,4 +1,4 @@
-use crate::context::XmtpSharedContext;
+use crate::context::CoreContext;
 use crate::groups::mls_ext::WelcomePointersExtension;
 use crate::groups::welcome_pointer::resolve_welcome_pointer;
 use crate::identity::ENABLE_WELCOME_POINTERS;

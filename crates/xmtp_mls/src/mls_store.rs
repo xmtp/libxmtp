@@ -15,7 +15,7 @@ use xmtp_proto::types::{
     IncomingBatchLimits, InstallationId, OrderedEnvelopeBatch, Topic, TopicCursor, TopicKind,
 };
 
-use crate::context::XmtpSharedContext;
+use crate::context::CoreContext;
 use xmtp_id::key_package::{KeyPackageVerificationError, VerifiedKeyPackageV2};
 
 use thiserror::Error;
@@ -118,7 +118,7 @@ impl<Context> MlsStore<Context> {
 
 impl<Context> MlsStore<Context>
 where
-    Context: XmtpSharedContext,
+    Context: CoreContext,
 {
     /// Read durable receipt F. Transport delivery alone does not advance it.
     pub fn received_cursors(&self, topics: &[Topic]) -> Result<TopicCursor, MlsStoreError> {
@@ -203,15 +203,13 @@ where
             .rows
             .min(limits.topic.rows)
             .min(limits.kind.rows)
-            .min(u64::from(
-                self.context.incoming_runtime().policy().max_fetched_rows,
-            ));
+            .min(u64::from(self.context.stream_policy().max_fetched_rows));
         let bytes = limits
             .batch
             .bytes
             .min(limits.topic.bytes)
             .min(limits.kind.bytes)
-            .min(self.context.incoming_runtime().policy().max_fetched_bytes);
+            .min(self.context.stream_policy().max_fetched_bytes);
         let page = self
             .context
             .api()

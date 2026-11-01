@@ -7,7 +7,7 @@ use xmtp_common::StreamHandle;
 use xmtp_db::group_message::{GroupMessageKind, StoredGroupMessage};
 
 use crate::Client;
-use crate::context::XmtpSharedContext;
+use crate::context::CoreContext;
 use crate::subscriptions::router_callbacks::{
     resume_bidi_streams, shared_transport, shared_transport_count,
     stream_conversation_messages_with_callback_dispatch, suspend_bidi_streams,
@@ -491,7 +491,7 @@ async fn lifecycle_helpers_are_noops_without_a_transport() {
 /// conversation messages.
 #[xmtp_common::test(unwrap_try = true)]
 async fn sync_group_messages_are_intercepted_not_delivered() {
-    use crate::context::XmtpSharedContext;
+    use crate::context::CoreContext;
     use crate::subscriptions::internal::InternalEvent;
     use xmtp_events::EventFilter;
     tester!(alix, sync_worker);

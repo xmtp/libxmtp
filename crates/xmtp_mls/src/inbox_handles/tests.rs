@@ -2,6 +2,7 @@
 //! most once per inbox, because a claimed handle is permanent there. Tests
 //! that claim more than once use an ephemeral backend.
 
+use crate::prelude::*;
 mod claims;
 mod events;
 #[cfg(not(target_arch = "wasm32"))]

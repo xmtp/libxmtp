@@ -1,6 +1,6 @@
 use crate::{
     XmtpApi,
-    context::XmtpSharedContext,
+    context::CoreContext,
     groups::group_membership::{GroupMembership, MembershipDiff},
     identity::{IdentityError, IdentityExt},
 };
@@ -43,6 +43,21 @@ mod dependencies;
 mod paged_load_tests;
 mod state_store;
 pub use dependencies::{IdentityDependencyError, IdentityRequirement, IdentityResolutionRegistry};
+
+/// Identity's feature slot: the registry that coalesces exact identity lookups.
+pub trait IdentityFeatures {
+    fn identity_resolutions(&self) -> &IdentityResolutionRegistry;
+}
+
+/// A context the identity code runs on: core and identity resolution.
+pub trait IdentityContext: CoreContext<Features: IdentityFeatures> {
+    /// Coalesces exact identity lookups without treating a newer snapshot as the requested one.
+    fn identity_resolution_registry(&self) -> &IdentityResolutionRegistry {
+        self.features().identity_resolutions()
+    }
+}
+
+impl<T: CoreContext<Features: IdentityFeatures>> IdentityContext for T {}
 pub(crate) use dependencies::{
     MissingProofs, OwnInstallationEvents, require_association_state, resolve_identity_requirements,
 };
@@ -468,7 +483,7 @@ pub async fn batch_get_association_state_with_verifier(
 
 impl<'a, Context> IdentityUpdates<Context>
 where
-    Context: XmtpSharedContext,
+    Context: IdentityContext,
 {
     /// Get the association state for all provided `inbox_id`/optional `sequence_id` tuples, using the cache when available
     /// If the association state is not available in the cache, this falls back to reconstructing the association state
@@ -1055,7 +1070,7 @@ pub(crate) fn required_leaf_removals(
 /// Load identity updates. A load that includes this client's own inbox
 /// reports the changes to its own installations of every update it stored,
 /// even when it fails after storing some pages.
-pub(crate) async fn load_identity_updates_for_client<Context: XmtpSharedContext>(
+pub(crate) async fn load_identity_updates_for_client<Context: IdentityContext>(
     context: &Context,
     conn: &impl DbQuery,
     inbox_ids: &[&str],
@@ -1064,7 +1079,7 @@ pub(crate) async fn load_identity_updates_for_client<Context: XmtpSharedContext>
         context.api(),
         conn,
         inbox_ids,
-        context.incoming_runtime().policy().fetched_limits(),
+        context.stream_policy().fetched_limits(),
     ));
     if inbox_ids.contains(&context.inbox_id()) {
         IdentityUpdates::new(context)
@@ -1203,6 +1218,7 @@ pub async fn get_creation_signature_kind(
 #[cfg(test)]
 pub(crate) mod tests {
     #![allow(unused)] // b/c wasm & native
+    use crate::prelude::*;
     use crate::{
         Client, XmtpApi,
         builder::ClientBuilder,

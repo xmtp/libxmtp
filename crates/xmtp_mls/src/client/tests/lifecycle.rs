@@ -1,4 +1,5 @@
 use super::*;
+use crate::prelude::*;
 use crate::utils::test::set_registration_cursor_for_test as set_registration_cursor;
 
 // verifies: EVENT-001, EVENT-010, EVENT-024

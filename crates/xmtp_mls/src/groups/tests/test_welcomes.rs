@@ -1,8 +1,8 @@
 use crate::groups::send_message_opts::SendMessageOpts;
 use std::sync::Arc;
 
+use crate::context::CoreContext;
 use crate::context::XmtpMlsLocalContext;
-use crate::context::XmtpSharedContext;
 use crate::groups::GroupError;
 use crate::groups::MlsGroup;
 use crate::groups::group_permissions::PolicySet;
@@ -297,7 +297,6 @@ async fn test_spoofed_inbox_id() {
     let mut malicious_identity = alix.context.identity.clone();
     malicious_identity.credential = malicious_credential;
     let malicious_context = Arc::new(XmtpMlsLocalContext {
-        attachments: alix.context.attachments.clone(),
         identity: malicious_identity,
         api_client: alix.context.api_client.clone(),
         store: alix.context.store.clone(),
@@ -321,8 +320,8 @@ async fn test_spoofed_inbox_id() {
         foreground_calls: alix.context.foreground_calls.clone(),
         message_clock: Default::default(),
         delivery_owner: alix.context.delivery_owner.clone(),
-        incoming_runtime: alix.context.incoming_runtime.clone(),
-        identity_resolutions: alix.context.identity_resolutions.clone(),
+        stream_policy: alix.context.stream_policy.clone(),
+        features: alix.context.features.clone(),
     });
     let group = MlsGroup::create_and_insert(
         malicious_context,

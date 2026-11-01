@@ -1,4 +1,4 @@
-use crate::{context::XmtpSharedContext, tester, worker::WorkerConfig};
+use crate::{context::CoreContext, tester, worker::WorkerConfig};
 use parking_lot::Mutex;
 use std::{collections::BTreeMap, sync::Arc};
 use tokio::sync::Notify;

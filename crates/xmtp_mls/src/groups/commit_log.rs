@@ -1594,6 +1594,7 @@ mod stored_cursor_tests {
 mod publication_snapshot_tests {
     use super::*;
     use crate::groups::UpdateAdminListType::{AddSuper, RemoveSuper};
+    use crate::prelude::*;
     use crate::tester;
     use std::sync::{Arc, Mutex, mpsc};
     use xmtp_db::mock::MockDbQuery;

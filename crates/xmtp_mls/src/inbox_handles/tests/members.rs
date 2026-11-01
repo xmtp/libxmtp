@@ -1,7 +1,7 @@
 //! Group members carry the handles of the newest association state held.
 
 use super::{PAST_CLAIM_INTERVAL, random_handle};
-use crate::{context::XmtpSharedContext, tester, utils::test::backend::EphemeralBackend};
+use crate::{context::CoreContext, tester, utils::test::backend::EphemeralBackend};
 use xmtp_db::prelude::*;
 use xmtp_mls_validation::commit::extract_group_membership;
 

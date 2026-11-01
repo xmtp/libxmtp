@@ -6,7 +6,7 @@ use super::{
 use crate::{
     builder::ClientBuilderError,
     client::ClientError,
-    context::XmtpSharedContext,
+    context::CoreContext,
     groups::GroupError,
     identity::{IdentityError, IdentityStrategy},
     identity_updates::IdentityUpdateError,

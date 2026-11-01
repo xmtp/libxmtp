@@ -1,4 +1,5 @@
 use super::*;
+use xmtp_mls::prelude::*;
 
 #[cfg(not(target_arch = "wasm32"))]
 #[xmtp_common::test]

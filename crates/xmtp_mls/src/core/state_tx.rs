@@ -207,9 +207,7 @@ pub(crate) mod precommit_test_hook {
 #[cfg(test)]
 mod event_tests {
     use super::*;
-    use crate::{
-        context::XmtpSharedContext, subscriptions::internal::emit_consent_changes, tester,
-    };
+    use crate::{context::CoreContext, subscriptions::internal::emit_consent_changes, tester};
     use xmtp_db::{
         consent_record::{ConsentKey, ConsentState, ConsentWrite, Decision, Owed, write_consent},
         prelude::*,

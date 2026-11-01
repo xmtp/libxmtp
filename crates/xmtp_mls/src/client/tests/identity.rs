@@ -1,4 +1,5 @@
 use super::*;
+use crate::prelude::*;
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn register_with_owner_returns_errors() {

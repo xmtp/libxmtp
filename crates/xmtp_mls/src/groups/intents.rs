@@ -1396,7 +1396,7 @@ mod app_data_update_intent_tests {
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use crate::context::XmtpSharedContext;
+    use crate::context::CoreContext;
     use crate::groups::send_message_opts::SendMessageOpts;
     use openmls::prelude::{ProcessedMessageContent, ProtocolMessage};
     use xmtp_cryptography::utils::generate_local_wallet;

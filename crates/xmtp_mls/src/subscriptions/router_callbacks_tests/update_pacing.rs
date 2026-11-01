@@ -146,7 +146,8 @@ async fn open(client: &Client<Context>, topic: u8) -> IncomingSubscription<Netwo
     };
     client
         .context
-        .incoming_runtime
+        .features
+        .incoming
         .factory
         .as_ref()
         .expect("production factory")

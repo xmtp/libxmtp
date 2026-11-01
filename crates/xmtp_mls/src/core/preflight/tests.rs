@@ -1,5 +1,6 @@
 //! Real builder and SQLite tests with a counted, pausable transport.
 use super::*;
+use crate::prelude::*;
 use crate::{Client, identity::IdentityStrategy};
 use parking_lot::Mutex;
 use prost::Message;

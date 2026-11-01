@@ -5,7 +5,7 @@
 
 use crate::{
     builder::ClientBuilder,
-    context::XmtpSharedContext,
+    context::CoreContext,
     groups::{
         GroupError,
         app_data::{membership_upkeep::membership_upkeep, stage_app_data_proposals_and_commit},

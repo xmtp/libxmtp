@@ -1,6 +1,6 @@
 //! Pause and recovery paths.
 
-use crate::{context::XmtpSharedContext, tester};
+use crate::{context::CoreContext, tester};
 use xmtp_db::prelude::*;
 
 /// A Welcome with a higher AppData version floor remains pending without

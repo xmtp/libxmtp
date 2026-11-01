@@ -39,7 +39,21 @@ impl crate::worker::NeedsDbReconnect for AttachmentClientError {
 use xmtp_events::{AttachmentFailed, AttachmentRef, ClientEvent, EventWriter as _};
 use xmtp_proto::{api::grpc_status, backend_v1::CreateUploadRequest};
 
-use crate::context::XmtpSharedContext;
+use crate::context::CoreContext;
+
+/// The attachments feature slot: the client's attachment runtime.
+pub trait AttachmentFeatures {
+    fn attachments(&self) -> &Arc<AttachmentRuntime>;
+}
+
+/// A context the attachment code runs on: core and the attachment runtime.
+pub trait AttachmentContext: CoreContext<Features: AttachmentFeatures> {
+    fn attachment_runtime(&self) -> &Arc<AttachmentRuntime> {
+        self.features().attachments()
+    }
+}
+
+impl<T: CoreContext<Features: AttachmentFeatures>> AttachmentContext for T {}
 
 const DEFAULT_MAX_PENDING_AGE: Duration = Duration::from_secs(86_400);
 const RECONCILE_AGE: Duration = Duration::from_secs(3_600);
@@ -476,7 +490,7 @@ struct DownloadShared {
     cancel: CancellationToken,
 }
 
-struct DownloadAttemptGuard<Context: XmtpSharedContext + 'static> {
+struct DownloadAttemptGuard<Context: AttachmentContext + 'static> {
     context: Context,
     remote: RemoteAttachment,
     relative: String,
@@ -486,7 +500,7 @@ struct DownloadAttemptGuard<Context: XmtpSharedContext + 'static> {
     finished: bool,
 }
 
-async fn publish_download_outcome<Context: XmtpSharedContext>(
+async fn publish_download_outcome<Context: AttachmentContext>(
     context: &Context,
     remote: &RemoteAttachment,
     relative: &str,
@@ -526,7 +540,7 @@ async fn publish_download_outcome<Context: XmtpSharedContext>(
     shared.outcome.send_replace(Some(result));
 }
 
-impl<Context: XmtpSharedContext + 'static> DownloadAttemptGuard<Context> {
+impl<Context: AttachmentContext + 'static> DownloadAttemptGuard<Context> {
     async fn finish(&mut self, result: Result<DownloadedAttachment, AttachmentClientError>) {
         publish_download_outcome(
             &self.context,
@@ -542,7 +556,7 @@ impl<Context: XmtpSharedContext + 'static> DownloadAttemptGuard<Context> {
     }
 }
 
-impl<Context: XmtpSharedContext + 'static> Drop for DownloadAttemptGuard<Context> {
+impl<Context: AttachmentContext + 'static> Drop for DownloadAttemptGuard<Context> {
     fn drop(&mut self) {
         if self.finished {
             return;
@@ -613,7 +627,7 @@ struct CreateRollbackState {
     pending_row: Option<String>,
 }
 
-async fn rollback_create<Context: XmtpSharedContext>(
+async fn rollback_create<Context: AttachmentContext>(
     context: &Context,
     store: &Arc<dyn LocalStore>,
     state: &CreateRollbackState,
@@ -640,7 +654,7 @@ async fn rollback_create<Context: XmtpSharedContext>(
     }
 }
 
-struct CreateRollbackGuard<Context: XmtpSharedContext + 'static> {
+struct CreateRollbackGuard<Context: AttachmentContext + 'static> {
     context: Context,
     store: Arc<dyn LocalStore>,
     state: CreateRollbackState,
@@ -679,7 +693,7 @@ impl InFlightCreateMove {
     }
 }
 
-impl<Context: XmtpSharedContext + 'static> CreateRollbackGuard<Context> {
+impl<Context: AttachmentContext + 'static> CreateRollbackGuard<Context> {
     #[cfg(not(target_arch = "wasm32"))]
     fn record_move(&mut self, kind: CreateMoveKind, destination: &str) {
         match kind {
@@ -762,7 +776,7 @@ impl<Context: XmtpSharedContext + 'static> CreateRollbackGuard<Context> {
     }
 }
 
-impl<Context: XmtpSharedContext + 'static> Drop for CreateRollbackGuard<Context> {
+impl<Context: AttachmentContext + 'static> Drop for CreateRollbackGuard<Context> {
     fn drop(&mut self) {
         if self.committed {
             return;
@@ -905,7 +919,7 @@ impl Default for AttachmentRuntime {
 }
 
 impl AttachmentRuntime {
-    pub(crate) async fn ensure_reconciled<Context: XmtpSharedContext>(
+    pub(crate) async fn ensure_reconciled<Context: AttachmentContext>(
         &self,
         context: &Context,
     ) -> Result<(), AttachmentClientError> {
@@ -1031,7 +1045,7 @@ impl AttachmentRuntime {
     }
 
     /// Delete expired rows before their staged files. An active upload stays valid.
-    pub(crate) async fn sweep<Context: XmtpSharedContext>(
+    pub(crate) async fn sweep<Context: AttachmentContext>(
         &self,
         context: &Context,
     ) -> Result<(), AttachmentClientError> {
@@ -1069,7 +1083,7 @@ impl AttachmentRuntime {
         Ok(())
     }
 
-    pub(crate) async fn reconcile<Context: XmtpSharedContext>(
+    pub(crate) async fn reconcile<Context: AttachmentContext>(
         &self,
         context: &Context,
     ) -> Result<(), AttachmentClientError> {
@@ -1160,7 +1174,7 @@ pub struct Attachments<Context> {
     pub(crate) context: Context,
 }
 
-impl<Context: XmtpSharedContext> Attachments<Context> {
+impl<Context: AttachmentContext> Attachments<Context> {
     fn runtime(&self) -> &Arc<AttachmentRuntime> {
         self.context.attachment_runtime()
     }
@@ -2031,7 +2045,7 @@ impl<Context: Clone> Clone for PendingAttachment<Context> {
     }
 }
 
-impl<Context: XmtpSharedContext> PendingAttachment<Context> {
+impl<Context: AttachmentContext> PendingAttachment<Context> {
     pub fn remote_attachment(&self) -> &RemoteAttachment {
         &self.remote
     }
@@ -2622,7 +2636,7 @@ pub(crate) mod cleanup {
         context: Context,
     }
 
-    impl<Context: XmtpSharedContext + 'static> WorkerFactory for Factory<Context> {
+    impl<Context: AttachmentContext + 'static> WorkerFactory for Factory<Context> {
         fn kind(&self) -> WorkerKind {
             WorkerKind::AttachmentCleanup
         }
@@ -2633,14 +2647,14 @@ pub(crate) mod cleanup {
         }
     }
 
-    impl<Context: XmtpSharedContext + 'static> NewWorker<Context> for AttachmentCleanup<Context> {
+    impl<Context: AttachmentContext + 'static> NewWorker<Context> for AttachmentCleanup<Context> {
         fn factory(context: Context) -> impl WorkerFactory + 'static {
             Factory { context }
         }
     }
 
     #[xmtp_common::async_trait]
-    impl<Context: XmtpSharedContext + 'static> Worker for AttachmentCleanup<Context> {
+    impl<Context: AttachmentContext + 'static> Worker for AttachmentCleanup<Context> {
         fn kind(&self) -> WorkerKind {
             WorkerKind::AttachmentCleanup
         }

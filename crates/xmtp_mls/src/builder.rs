@@ -4,7 +4,7 @@ use crate::{
     StorageError, XmtpApi,
     attachments::AttachmentRuntime,
     client::{Client, ClientError, DeviceSync},
-    context::{XmtpMlsLocalContext, XmtpSharedContext},
+    context::{CoreContext, XmtpMlsLocalContext, XmtpSharedContext},
     groups::change_callbacks::UnstableChangeCallbacks,
     identity::{Identity, IdentityStrategy},
     identity_updates::load_identity_updates,
@@ -275,8 +275,8 @@ where
             mls_storage_factory: None,
             storage_location_selected: false,
             storage_location_conflict: false,
-            attachments_dir: client.context.attachments.dir.clone(),
-            attachment_options: client.context.attachments.options.clone(),
+            attachments_dir: client.context.features.attachments.dir.clone(),
+            attachment_options: client.context.features.attachments.options.clone(),
             api_client: Some(cloned_api),
             identity: Some(client.context.identity.clone()),
             store: Some(client.context.store.clone()),
@@ -286,8 +286,8 @@ where
             device_sync_worker_mode: client.context.device_sync.mode,
             fork_recovery_opts: Some(client.context.fork_recovery_opts.clone()),
             change_callbacks: client.context.change_callbacks.clone(),
-            stream_policy: client.context.incoming_runtime.policy().clone(),
-            incoming_factory: client.context.incoming_runtime.original_factory.clone(),
+            stream_policy: client.context.features.incoming.policy().clone(),
+            incoming_factory: client.context.features.incoming.original_factory.clone(),
             version_info: client.context.version_info.clone(),
             allow_offline: false,
             disable_commit_log_worker: false,
@@ -729,13 +729,14 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             .api_client
             .register_client_event_writer(&public_event_writer);
         let mut workers = WorkerRunner::new();
-        let incoming_runtime =
-            crate::subscriptions::incoming::IncomingRuntime::new(stream_policy, incoming_factory)
-                .with_preflight(api_client.api_client.clone());
+        let incoming_runtime = crate::subscriptions::incoming::IncomingRuntime::new(
+            stream_policy.clone(),
+            incoming_factory,
+        )
+        .with_preflight(api_client.api_client.clone());
         let attachments =
             Arc::new(AttachmentRuntime::new(attachments_dir, attachment_options).await?);
         let context = Arc::new(XmtpMlsLocalContext {
-            attachments,
             identity,
             mls_storage,
             store,
@@ -754,7 +755,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             },
             fork_recovery_opts: fork_recovery_opts.unwrap_or_default(),
             change_callbacks,
-            incoming_runtime: Arc::new(incoming_runtime),
+            stream_policy,
             worker_config,
 
             worker_metrics: workers.sync_metrics_slot().clone(),
@@ -765,20 +766,29 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             #[cfg(any(test, target_arch = "wasm32"))]
             message_clock: Default::default(),
             delivery_owner: Default::default(),
-            identity_resolutions: Arc::new(
-                crate::identity_updates::IdentityResolutionRegistry::starting_after(
-                    own_inbox_stored_through,
+            features: crate::features::MlsFeatures {
+                attachments,
+                incoming: Arc::new(incoming_runtime),
+                identity_resolutions: Arc::new(
+                    crate::identity_updates::IdentityResolutionRegistry::starting_after(
+                        own_inbox_stored_through,
+                    ),
                 ),
-            ),
+            },
         });
 
         crate::core::preflight::bind_preflight(&context);
 
         // register workers
-        if let Err(error) = context.attachments.sweep(&context).await {
+        if let Err(error) = context.features.attachments.sweep(&context).await {
             tracing::warn!(%error, "attachment cleanup failed during client build");
         }
-        if let Err(error) = context.attachments.ensure_reconciled(&context).await {
+        if let Err(error) = context
+            .features
+            .attachments
+            .ensure_reconciled(&context)
+            .await
+        {
             tracing::warn!(%error, "attachment reconciliation failed during client build");
         }
         if !disable_workers {
@@ -849,7 +859,9 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
                     );
                 }
             }
-            if enabled(WorkerKind::AttachmentCleanup) && context.attachments.store.is_some() {
+            if enabled(WorkerKind::AttachmentCleanup)
+                && context.features.attachments.store.is_some()
+            {
                 workers.register_new_worker::<crate::attachments::cleanup::AttachmentCleanup<
                     ContextParts<ApiClient, S, Db>,
                 >, _>(context.clone());

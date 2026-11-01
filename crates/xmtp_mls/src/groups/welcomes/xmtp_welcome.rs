@@ -789,6 +789,7 @@ where
 mod tests {
     use super::*;
     use crate::groups::InitialMembershipValidator;
+    use crate::prelude::*;
     use crate::tester;
     use crate::utils::test::MlsGroupExt;
 

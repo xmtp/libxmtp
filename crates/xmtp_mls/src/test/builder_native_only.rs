@@ -1,6 +1,6 @@
 use crate::builder::ClientBuilder;
 use crate::client::Client;
-use crate::context::XmtpSharedContext;
+use crate::context::CoreContext;
 use crate::identity::IdentityStrategy;
 use alloy::{dyn_abi::SolType, primitives::U256, providers::Provider, signers::Signer};
 use std::time::Duration;

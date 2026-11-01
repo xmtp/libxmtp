@@ -1,5 +1,5 @@
 use super::EphemeralBackend;
-use crate::{context::XmtpSharedContext, groups::send_message_opts::SendMessageOpts, tester};
+use crate::{context::CoreContext, groups::send_message_opts::SendMessageOpts, tester};
 use futures::{FutureExt, StreamExt};
 use std::{
     panic::AssertUnwindSafe,

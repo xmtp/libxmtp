@@ -1,4 +1,5 @@
 use super::*;
+use xmtp_mls::prelude::*;
 
 // verifies: EVENT-014
 // verifies: EVENT-015

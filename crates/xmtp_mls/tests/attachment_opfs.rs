@@ -62,7 +62,7 @@ fn offline_api() -> xmtp_api_backend::MockBackendClient {
 async fn opfs_client(
     api: xmtp_api_backend::MockBackendClient,
     root: String,
-) -> Client<impl xmtp_mls::context::XmtpSharedContext> {
+) -> Client<impl xmtp_mls::context::XmtpSharedContext + xmtp_mls::attachments::AttachmentContext> {
     Client::builder(identity_setup(generate_local_wallet()))
         .api_client(api)
         .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))

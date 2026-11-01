@@ -1,5 +1,6 @@
 use super::*;
 use crate::client::ConsentAct;
+use crate::prelude::*;
 use crate::utils::test::crafted_welcome::assert_welcome_rejected;
 use crate::{groups::send_message_opts::SendMessageOpts, tester};
 use xmtp_common::{NS_IN_DAY, NS_IN_HOUR, time::now_ns};
@@ -36,7 +37,7 @@ async fn device_sync_creation_logs_omit_full_group_id() {
     use xmtp_logging::{Level, test_logging::LogCapture};
 
     tester!(alix, disable_workers);
-    let sync = alix.context.device_sync_client();
+    let sync = alix.device_sync_client();
     assert!(sync.primary_sync_group()?.is_none());
     let capture = LogCapture::new(Level::Trace);
     let group = sync
@@ -1853,7 +1854,7 @@ async fn a_rate_limited_add_arms_its_reconcile_after_the_delay(
     #[case] pre_armed: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     tester!(alix, disable_workers);
-    let sync = alix.context.device_sync_client();
+    let sync = alix.device_sync_client();
     let group = alix.create_group(None, None)?;
     if pre_armed {
         schedule_add_missing_installations(

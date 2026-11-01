@@ -1,6 +1,6 @@
 //! Report HMAC epoch changes observed while this client is open.
 
-use crate::context::XmtpSharedContext;
+use crate::context::CoreContext;
 use crate::worker::{BoxedWorker, NewWorker, Worker, WorkerFactory, WorkerKind, WorkerResult};
 use std::sync::{
     Arc,
@@ -75,7 +75,7 @@ impl<Context> HmacEpochWorker<Context> {
     }
 }
 
-impl<Context: XmtpSharedContext> HmacEpochWorker<Context> {
+impl<Context: CoreContext> HmacEpochWorker<Context> {
     // implements: EVENT-026
     fn report_epoch(&mut self, observed: i64) {
         if self.observe_epoch(observed) {
@@ -101,7 +101,7 @@ impl<Context> Factory<Context> {
     }
 }
 
-impl<Context: XmtpSharedContext + 'static> WorkerFactory for Factory<Context> {
+impl<Context: CoreContext + 'static> WorkerFactory for Factory<Context> {
     fn kind(&self) -> WorkerKind {
         WorkerKind::HmacEpoch
     }
@@ -116,14 +116,14 @@ impl<Context: XmtpSharedContext + 'static> WorkerFactory for Factory<Context> {
     }
 }
 
-impl<Context: XmtpSharedContext + 'static> NewWorker<Context> for HmacEpochWorker<Context> {
+impl<Context: CoreContext + 'static> NewWorker<Context> for HmacEpochWorker<Context> {
     fn factory(context: Context) -> impl WorkerFactory + 'static {
         Factory::new(context, hmac_epoch())
     }
 }
 
 #[xmtp_common::async_trait]
-impl<Context: XmtpSharedContext + 'static> Worker for HmacEpochWorker<Context> {
+impl<Context: CoreContext + 'static> Worker for HmacEpochWorker<Context> {
     fn kind(&self) -> WorkerKind {
         WorkerKind::HmacEpoch
     }

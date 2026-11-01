@@ -75,7 +75,7 @@ impl InternalEvent {
 /// is owed. This is the only consent event emitter.
 // implements: CONS-059, EVENT-001, EVENT-059
 pub(crate) fn emit_consent_changes(
-    ctx: &impl crate::context::XmtpSharedContext,
+    ctx: &impl crate::context::CoreContext,
     events: &impl EventWriter<InternalEvent>,
     db: &impl DbQuery,
     changes: &[ConsentChange],
@@ -321,7 +321,7 @@ pub(crate) fn emit_expired_messages(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{context::XmtpSharedContext, tester};
+    use crate::{context::CoreContext, tester};
     use xmtp_db::{
         group::{GroupMembershipState, StoredGroup},
         prelude::*,

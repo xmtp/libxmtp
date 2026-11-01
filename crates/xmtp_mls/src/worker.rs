@@ -6,7 +6,7 @@ pub mod metrics;
 pub(crate) mod notifications;
 pub mod tasks;
 
-use crate::context::XmtpSharedContext;
+use crate::context::CoreContext;
 use crate::core::events::InternalEvent;
 use crate::core::metrics::SyncMetric;
 pub use crate::core::reconnect::{LocalNeedsDbReconnect, NeedsDbReconnect};
@@ -188,7 +188,7 @@ impl WorkerRunner {
 impl WorkerRunner {
     pub fn register_new_worker<W: NewWorker<C>, C>(&mut self, ctx: C)
     where
-        C: XmtpSharedContext + 'static,
+        C: CoreContext + 'static,
     {
         let events = ctx.events().clone();
         let factory = W::factory(ctx);
@@ -202,7 +202,7 @@ impl WorkerRunner {
 
     pub fn spawn<C>(self: &Arc<Self>, ctx: C)
     where
-        C: XmtpSharedContext + 'static,
+        C: CoreContext + 'static,
     {
         let mut handle_lock = self.handle.lock();
         if let Some(handle) = handle_lock.take() {

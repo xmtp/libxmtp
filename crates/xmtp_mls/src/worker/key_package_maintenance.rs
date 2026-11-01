@@ -2,8 +2,8 @@
 //! rotate/sweep work the `KpRotation`/`KpDeletion` dispatch arms call into.
 //! Recurrence + nudging come from the generic layer (TaskOutcome, PullInDeadline).
 
-use crate::context::XmtpSharedContext;
 use crate::identity::IdentityError;
+use crate::identity_updates::IdentityContext;
 use crate::state_tx::state_write;
 use crate::worker::NeedsDbReconnect;
 use crate::worker::tasks::enqueue_pull_in;
@@ -107,7 +107,7 @@ pub(crate) fn kp_seed(proto: TaskProto, now: i64) -> Result<NewTask, StorageErro
 
 /// Upload a fresh key package when rotation is due and return whether it occurred.
 /// A confirmed receipt starts retirement of keys published earlier by the backend.
-pub(crate) async fn rotate_if_needed<Context: XmtpSharedContext>(
+pub(crate) async fn rotate_if_needed<Context: IdentityContext>(
     context: &Context,
 ) -> Result<bool, KeyPackageMaintenanceError> {
     if !context
@@ -130,7 +130,7 @@ pub(crate) async fn rotate_if_needed<Context: XmtpSharedContext>(
 
 /// Delete one key package's local material (keystore entry + PQ references).
 #[cfg(test)]
-pub(crate) fn delete_key_package<Context: XmtpSharedContext>(
+pub(crate) fn delete_key_package<Context: IdentityContext>(
     context: &Context,
     hash_ref: Vec<u8>,
     pq_pub_key: Option<Vec<u8>>,
@@ -194,7 +194,7 @@ pub(crate) fn discard_key_package(
 
 /// Keep expired keys while any durable Welcome remains pending.
 /// Otherwise, delete each expired key's material and history in one transaction.
-pub(crate) fn sweep_expired<Context: XmtpSharedContext>(
+pub(crate) fn sweep_expired<Context: IdentityContext>(
     context: &Context,
 ) -> Result<(), KeyPackageMaintenanceError> {
     state_write(context.mls_storage(), |tx| {
@@ -220,7 +220,7 @@ pub(crate) fn sweep_expired<Context: XmtpSharedContext>(
 
 /// Queue rotation within five seconds and persist its task in one transaction.
 /// Create the recurring task before its deadline update, then emit after commit.
-pub(crate) fn queue_key_rotation<Context: XmtpSharedContext>(
+pub(crate) fn queue_key_rotation<Context: IdentityContext>(
     context: &Context,
 ) -> Result<(), StorageError> {
     crate::state_tx::state_write_with_events(
@@ -254,7 +254,7 @@ pub(crate) fn queue_key_rotation_in(
 /// singleton exists (pull-in against a missing target is a no-op), then pull
 /// it in to the earliest pending delete_at. No-op when nothing is marked, so
 /// it is safe (and idempotent) to call on every dispatch.
-pub(crate) fn nudge_deletion<Context: XmtpSharedContext>(
+pub(crate) fn nudge_deletion<Context: IdentityContext>(
     context: &Context,
 ) -> Result<(), StorageError> {
     let db = context.db();
@@ -268,7 +268,7 @@ pub(crate) fn nudge_deletion<Context: XmtpSharedContext>(
 
 /// Idempotent startup seeding + reconcile: pull-ins only LOWER task deadlines to
 /// the live DB columns, repairing rows stranded by a crash mid-nudge.
-pub(crate) fn seed_and_reconcile_kp_tasks<Context: XmtpSharedContext>(
+pub(crate) fn seed_and_reconcile_kp_tasks<Context: IdentityContext>(
     context: &Context,
 ) -> Result<(), StorageError> {
     let db = context.db();
@@ -290,6 +290,7 @@ pub(crate) fn seed_and_reconcile_kp_tasks<Context: XmtpSharedContext>(
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use super::*;
+    use crate::prelude::*;
     use crate::tester;
     use crate::worker::{WorkerConfig, WorkerKind};
     use crate::{task_handlers::MlsTaskHandlers, worker::tasks::TaskWorker};
@@ -613,7 +614,7 @@ mod tests {
     #[cfg(not(target_arch = "wasm32"))]
     #[xmtp_common::test(unwrap_try = true)]
     async fn queued_rotation_is_visible_before_its_task_fact() {
-        use crate::context::XmtpSharedContext;
+        use crate::context::CoreContext;
         use crate::subscriptions::internal::InternalEvent;
         use xmtp_events::EventFilter;
 

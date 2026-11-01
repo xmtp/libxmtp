@@ -11,7 +11,7 @@ use xmtp_db::refresh_state::EntityKind;
 use xmtp_db::remote_commit_log::RemoteCommitLogOrder;
 use xmtp_db::{ConnectionExt, StorageOption, Store, TestDb, XmtpTestDb};
 
-use crate::context::XmtpSharedContext;
+use crate::context::CoreContext;
 use crate::groups::UpdateAdminListType::{AddSuper, RemoveSuper};
 use crate::groups::commit_log::{CommitLogTestFunction, CommitLogWorker};
 use crate::{

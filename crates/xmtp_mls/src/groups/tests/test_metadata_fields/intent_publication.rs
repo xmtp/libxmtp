@@ -1,6 +1,7 @@
 //! Queued metadata intent publication and failure causes.
 
 use super::*;
+use crate::prelude::*;
 
 /// A queued field write is authorized again when its commit is built, so
 /// a write the committed policies deny by then fails its intent instead of
