@@ -1,6 +1,6 @@
 use super::DeviceSyncError;
 use crate::groups::deletion::{
-    DiscardEvents, Imported, Source, apply_deletion, apply_stored_records, import_record,
+    DiscardEvents, Source, apply_deletion, apply_stored_records, import_record,
 };
 use crate::{
     context::XmtpSharedContext, groups::MlsGroup, state_tx::state_write,
@@ -32,9 +32,6 @@ struct ImportContext {
     /// change other installations are owed, but the app hears of
     /// it once through `archive.restored`.
     deletions_stored: bool,
-    /// Which messages this import inserted, which its deletion evidence may
-    /// mark.
-    imported: Imported,
     /// The archive's usable consent records, applied after all its elements.
     /// Archive frames are ciphertext and do not compress, so these grow with
     /// the archive's own size.
@@ -75,10 +72,7 @@ where
     S: Stream<Item = Result<BackupElement, E>> + Unpin,
     DeviceSyncError: From<E>,
 {
-    let mut import = ImportContext {
-        imported: Imported::starting_now(&context.db())?,
-        ..Default::default()
-    };
+    let mut import = ImportContext::default();
     let mut first_error = None;
     while let Some(element) = elements.next().await {
         let element = match element {
@@ -176,12 +170,7 @@ fn insert(
             let record: StoredMessageDeletion = save.try_into()?;
             if !import.is_internal(&context.db(), record.group_id)? {
                 import.deletions_stored |= state_write(context.mls_storage(), |tx| {
-                    let stored = import_record(
-                        &tx.storage().db(),
-                        &DiscardEvents,
-                        &record,
-                        &import.imported,
-                    )?;
+                    let stored = import_record(&tx.storage().db(), &DiscardEvents, &record)?;
                     Ok::<_, StorageError>(Continue(stored))
                 })?
                 .into_continued();
@@ -196,7 +185,6 @@ fn insert(
             if import.is_internal(&context.db(), message.group_id)? {
                 return Ok(());
             }
-            let imported = &import.imported;
             let (inserted, deletions) = state_write(context.mls_storage(), |tx| {
                 let storage = tx.storage();
                 let db = storage.db();
@@ -205,10 +193,9 @@ fn insert(
                 // The evidence is the incoming copy: a stored `Unpublished`
                 // copy of the same id must not hide a later `Published` one.
                 // The stored row itself stays unchanged.
-                let source = Source::Archive { imported };
-                let mut deletions = apply_deletion(&db, &DiscardEvents, &message, source)?;
+                let mut deletions = apply_deletion(&db, &DiscardEvents, &message, Source::Archive)?;
                 if let Some(row) = db.get_group_message(&message.id)? {
-                    deletions |= apply_stored_records(&db, &DiscardEvents, &row, imported)?;
+                    deletions |= apply_stored_records(&db, &DiscardEvents, &row)?;
                 }
                 Ok::<_, StorageError>(Continue((inserted, deletions)))
             })?

@@ -41,45 +41,14 @@ pub(crate) fn may_delete(
 }
 
 /// Where a deletion message came from.
-pub(crate) enum Source<'a> {
+pub(crate) enum Source {
     /// Processed from the group's topic or this installation's own echo.
     Topic {
         super_admin: bool,
         cause: DeletionCause,
     },
     /// Stored by an archive import. Proves no super-admin status.
-    Archive { imported: &'a Imported },
-}
-
-/// What an archive import inserted: every message stored after the insert
-/// position this import started from. Archive evidence (a mark, a record, a
-/// deletion message) marks only these; a message the client held before the
-/// import is marked only by a record from the topic.
-// implements: ARCH-028
-pub(crate) struct Imported {
-    watermark: i64,
-}
-
-/// Counts nothing as inserted, so archive evidence marks nothing.
-impl Default for Imported {
-    fn default() -> Self {
-        Self {
-            watermark: i64::MAX,
-        }
-    }
-}
-
-impl Imported {
-    /// Start an import at the current insert position.
-    pub(crate) fn starting_now(db: &impl DbQuery) -> Result<Self, xmtp_db::ConnectionError> {
-        Ok(Self {
-            watermark: db.message_insert_watermark()?,
-        })
-    }
-
-    fn inserted(&self, db: &impl DbQuery, id: &[u8]) -> Result<bool, xmtp_db::ConnectionError> {
-        db.message_inserted_after(id, self.watermark)
-    }
+    Archive,
 }
 
 /// Discards every event. An archive import emits no per-row event;
@@ -112,9 +81,7 @@ pub(crate) fn apply_deletion(
         return Ok(false);
     }
     // A topic copy is Published by definition. An archived one must say so.
-    if matches!(source, Source::Archive { .. })
-        && deletion.delivery_status != DeliveryStatus::Published
-    {
+    if matches!(source, Source::Archive) && deletion.delivery_status != DeliveryStatus::Published {
         return Ok(false);
     }
     // Store time already decoded the DeleteMessage and checked its target id.
@@ -123,7 +90,7 @@ pub(crate) fn apply_deletion(
     };
     let (super_admin, authenticated) = match source {
         Source::Topic { super_admin, .. } => (super_admin, true),
-        Source::Archive { .. } => (false, false),
+        Source::Archive => (false, false),
     };
     let new = StoredMessageDeletion::of(deletion, target_id, super_admin, authenticated);
     let existed = db.get_message_deletion(&new.id)?;
@@ -135,49 +102,46 @@ pub(crate) fn apply_deletion(
     };
     let marked = match source {
         Source::Topic { cause, .. } => apply_record(db, events, &record, target, cause)?,
-        Source::Archive { imported } => apply_stored_records(db, events, &target, imported)?,
+        // An archived deletion decides nothing: only a record from the topic
+        // marks the target.
+        Source::Archive => apply_stored_records(db, events, &target)?,
     };
     Ok(recorded || marked)
 }
 
-/// Import only: mark a row this import stored or matched from its earliest
-/// authorized record; a row held before the import, only from a record from
-/// the topic. Receive never needs this: the topic orders a target before its
-/// deletion. Returns true when it marked the row.
+/// Import only: mark a row from its earliest authorized record from the
+/// topic. An archived record or deletion message never marks a row by itself;
+/// an archived row is marked only by its own field 19, at its insert. Receive
+/// never needs this: the topic orders a target before its deletion. Returns
+/// true when it marked the row.
 // implements: ARCH-028, PROC-037
 pub(crate) fn apply_stored_records(
     db: &impl DbQuery,
     events: &impl EventWriter<InternalEvent>,
     row: &StoredGroupMessage,
-    imported: &Imported,
 ) -> Result<bool, xmtp_db::ConnectionError> {
     if row.kind != GroupMessageKind::Application || row.deleted_by_inbox_id.is_some() {
         return Ok(false);
     }
-    let held = !imported.inserted(db, &row.id)?;
-    let Some(record) = db.first_deletion_of(row, held)? else {
+    let Some(record) = db.first_deletion_of(row)? else {
         return Ok(false);
     };
     apply_record(db, events, &record, row.clone(), DeletionCause::Deleted)
 }
 
-/// Store an archive's record, then mark a stored target it authorizes.
-/// Returns true when it stored a record or marked a row.
+/// Store an archive's record, then apply the topic's records to a stored
+/// target. Returns true when it stored a record or marked a row.
 // implements: ARCH-028
 pub(crate) fn import_record(
     db: &impl DbQuery,
     events: &impl EventWriter<InternalEvent>,
     record: &StoredMessageDeletion,
-    imported: &Imported,
 ) -> Result<bool, xmtp_db::ConnectionError> {
     let existed = db.get_message_deletion(&record.id)?;
     let stored = db.record_deletion(record)?;
     let recorded = existed.as_ref() != Some(&stored);
-    // Mark from the earliest authorized record stored so far. The export orders
-    // records by time, so one archive attributes to its earliest; a mark never
-    // changes after.
     let marked = match db.get_group_message(&stored.deleted_message_id)? {
-        Some(target) => apply_stored_records(db, events, &target, imported)?,
+        Some(target) => apply_stored_records(db, events, &target)?,
         None => false,
     };
     Ok(recorded || marked)

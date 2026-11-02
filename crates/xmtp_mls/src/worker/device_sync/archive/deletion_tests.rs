@@ -188,8 +188,7 @@ enum Case {
     ConvertedMarkOverKnownTarget,
     ConvertedMarkFresh,
     DeletionOnlyImport,
-    RecordsInExportOrder,
-    RecordsReversed,
+    TopicRecordsEarliestWins,
     KnownTargetWithStoredRecord,
     KnownTargetWithTopicRecord,
     CraftedArchiveKeepsHeldMessage,
@@ -217,19 +216,14 @@ enum Case {
     None,
     1
 )]
-#[case::old_format_target_first(Case::OldFormatTargetFirst, Some(SENDER), 1)]
-#[case::old_format_deletion_first(Case::OldFormatDeletionFirst, Some(SENDER), 1)]
+#[case::old_format_target_first(Case::OldFormatTargetFirst, None, 1)]
+#[case::old_format_deletion_first(Case::OldFormatDeletionFirst, None, 1)]
 #[case::old_format_admin_deletion(Case::OldFormatAdminDeletion, None, 1)]
-#[case::unpublished_then_published_deletion(
-    Case::UnpublishedThenPublishedDeletion,
-    Some(SENDER),
-    1
-)]
+#[case::unpublished_then_published_deletion(Case::UnpublishedThenPublishedDeletion, None, 1)]
 #[case::converted_mark_over_known_target(Case::ConvertedMarkOverKnownTarget, None, 0)]
 #[case::converted_mark_fresh(Case::ConvertedMarkFresh, Some(SENDER), 1)]
 #[case::deletion_only_import_over_held_target(Case::DeletionOnlyImport, None, 1)]
-#[case::records_in_export_order(Case::RecordsInExportOrder, Some(SENDER), 1)]
-#[case::records_reversed(Case::RecordsReversed, Some(SENDER), 1)]
+#[case::topic_records_earliest_wins(Case::TopicRecordsEarliestWins, Some(SENDER), 1)]
 #[case::known_target_with_imported_record(Case::KnownTargetWithStoredRecord, None, 0)]
 #[case::known_target_with_topic_record(Case::KnownTargetWithTopicRecord, Some(SENDER), 1)]
 #[case::old_then_field_nineteen(Case::OldThenFieldNineteen, None, 0)]
@@ -243,7 +237,7 @@ enum Case {
 #[case::admin_record_outlives_its_message(Case::AdminRecordOutlivesItsMessage, Some(ADMIN), 1)]
 #[case::removed_target_reimported(Case::RemovedTargetReimported, Some(SENDER), 1)]
 #[case::replay_is_foreign(Case::ReplayIsForeign, Some(ADMIN), 1)]
-#[case::replay_over_imported_record(Case::ReplayOverImportedRecord, Some(ADMIN), 1)]
+#[case::replay_over_imported_record(Case::ReplayOverImportedRecord, None, 1)]
 #[case::forged_row_is_foreign(Case::ForgedRowIsForeign, None, 1)]
 #[case::forged_unpublished_row_is_foreign(Case::ForgedUnpublishedRowIsForeign, None, 1)]
 #[case::unpublished_import_then_network_copy(
@@ -306,8 +300,8 @@ async fn deletion_survives_storage(
             .await;
         }
         Case::UnpublishedThenPublishedDeletion => {
-            // The stored Unpublished copy of the deletion must not hide its
-            // Published copy later in the same import.
+            // An archived deletion only records: the Published copy adds a
+            // record, the stored Unpublished row stays, nothing is marked.
             last = import(
                 &alix.context,
                 vec![
@@ -322,6 +316,7 @@ async fn deletion_survives_storage(
                 db.get_group_message(D1).unwrap().unwrap().delivery_status,
                 DeliveryStatus::Unpublished
             );
+            assert!(!db.get_message_deletion(&D1).unwrap().unwrap().authenticated);
         }
         Case::ConvertedMarkOverKnownTarget | Case::ConvertedMarkFresh => {
             // The legacy classifier deleted a type the catalogue does not.
@@ -341,18 +336,16 @@ async fn deletion_survives_storage(
             target(g, published).store(&db).unwrap();
             last = import(&alix.context, vec![record(g, D1, SENDER, false, 10)]).await;
         }
-        Case::RecordsInExportOrder | Case::RecordsReversed => {
-            // The earliest authorized record by time marks the imported
-            // target, whatever the record order.
-            let first = record(g, D1, SENDER, false, 10);
-            let second = record(g, D2, ADMIN, true, 20);
-            let mut elements = if matches!(case, Case::RecordsInExportOrder) {
-                vec![first, second]
-            } else {
-                vec![second, first]
+        Case::TopicRecordsEarliestWins => {
+            // Two deletions processed from the topic before the target was
+            // stored: the earlier by envelope time names the deleter.
+            let later = StoredGroupMessage {
+                sent_at_ns: 300,
+                ..deletion(g, D2, ADMIN, published)
             };
-            elements.push(legacy(&target(g, published)));
-            last = import(&alix.context, elements).await;
+            receive(&group, &later, true);
+            receive(&group, &deletion(g, D1, SENDER, published), false);
+            last = import(&alix.context, vec![legacy(&target(g, published))]).await;
         }
         Case::KnownTargetWithStoredRecord => {
             import(&alix.context, vec![record(g, D1, SENDER, false, 10)]).await;
@@ -596,103 +589,86 @@ async fn export_carries_marks_and_every_record() {
             .any(|element| matches!(&element.element, Some(Element::GroupMessage(_))))
     );
     assert_eq!(import(&older.context, window).await, (1, 0));
-    // Archive evidence never marks a message held before the import.
+    // An archived record never marks a message by itself.
     assert_eq!(mark_of(&older.db(), &target_id), None);
     assert!(older.db().get_message_deletion(&deletion_id)?.is_some());
-    // Once removed locally, the old archive does not bring the content back.
-    older.db().delete_message_by_id(&target_id)?;
-    import(&older.context, elements(before).await).await;
-    let stored = older.db().get_group_message(&target_id)?.unwrap();
+    // The deleting installation's own record is from the topic: once the
+    // target is removed locally, the old archive does not bring it back.
+    alix.db().delete_message_by_id(&target_id)?;
+    import(&alix.context, elements(before).await).await;
+    let stored = alix.db().get_group_message(&target_id)?.unwrap();
     assert_eq!(stored.deleted_by_inbox_id.as_deref(), Some(alix.inbox_id()));
     assert!(stored.decrypted_message_bytes.is_empty());
 }
 
-/// Two deletions of one target, the earlier in time with the larger id. A
-/// fresh installation marks the imported target from the earliest record;
-/// one that holds the target keeps it.
+/// An import larger than 10,000 messages: a target far into the archive is
+/// marked by a deletion processed from the topic before it was stored, and
+/// a marked row deep in the archive is stored marked.
 // verifies: ARCH-028, PROC-037
 #[xmtp_common::test(unwrap_try = true)]
-async fn earliest_record_marks_an_imported_target() {
+async fn import_larger_than_ten_thousand_messages() {
     tester!(alix, disable_workers);
     let group = alix.create_group(None, None)?;
     let g = group.group_id;
-    let db = alix.db();
-    let key = vec![5; 32];
-    let export = || {
-        let mut archive = vec![];
-        exporter::export(
-            ArchiveOptions {
-                elements: vec![BackupElementSelection::Messages],
-                start_ns: None,
-                end_ns: None,
-                exclude_disappearing_messages: false,
-            },
-            alix.db(),
-            &key,
-            &mut archive,
-        )
-        .unwrap();
-        archive
-    };
-    let elements = |archive: Vec<u8>| {
-        let key = key.clone();
-        async move {
-            ArchiveImporter::load(Box::pin(BufReader::new(Cursor::new(archive))), &key)
-                .await
-                .unwrap()
-                .map(|element| element.unwrap())
-                .collect::<Vec<_>>()
-                .await
-        }
-    };
-    target(g, DeliveryStatus::Published).store(&db)?;
-    let target_only = export();
-    // Processed records whose target this installation never marked.
-    for (id, by, admin, at) in [(D1, SENDER, false, 10), (D2, ADMIN, true, 20)] {
-        db.record_deletion(&StoredMessageDeletion {
-            id: id.to_vec(),
-            group_id: g,
-            deleted_message_id: TARGET.to_vec(),
-            deleted_by_inbox_id: by.into(),
-            is_super_admin_deletion: admin,
-            deleted_at_ns: at,
-            authenticated: true,
-        })?;
-    }
-    let with_records = elements(export()).await;
-
-    tester!(holder, from: alix, disable_workers);
-    import(&holder.context, elements(target_only).await).await;
-    assert_eq!(mark_of(&holder.db(), &TARGET), None);
-    import(&holder.context, with_records.clone()).await;
-    assert_eq!(mark_of(&holder.db(), &TARGET), None);
-
-    tester!(fresh, from: alix, disable_workers);
-    import(&fresh.context, with_records).await;
-    assert_eq!(mark_of(&fresh.db(), &TARGET).as_deref(), Some(SENDER));
-}
-
-/// A pre-8.0 archive can carry a deletion far after its target. The import
-/// still knows it inserted that target, however many messages lie between.
-// verifies: ARCH-028
-#[xmtp_common::test(unwrap_try = true)]
-async fn deletion_far_after_its_target_in_one_import() {
-    tester!(alix, disable_workers);
-    let group = alix.create_group(None, None)?;
-    let g = group.group_id;
-    let mut elements = vec![legacy(&target(g, DeliveryStatus::Published))];
-    for n in 0..10_050u32 {
+    receive(
+        &group,
+        &deletion(g, D1, SENDER, DeliveryStatus::Published),
+        false,
+    );
+    let filler = |n: u32| {
         let mut id = [0x33; 32];
         id[..4].copy_from_slice(&n.to_be_bytes());
-        elements.push(legacy(&row(
+        row(
             g,
             &id,
             MEMBER,
             text_with_authority("xmtp.org", 1),
             DeliveryStatus::Published,
-        )));
-    }
-    elements.push(legacy(&deletion(g, D1, SENDER, DeliveryStatus::Published)));
+        )
+    };
+    let mut elements: Vec<_> = (0..10_050u32).map(|n| legacy(&filler(n))).collect();
+    elements.push(marked(&filler(20_000), MEMBER));
+    elements.push(legacy(&target(g, DeliveryStatus::Published)));
     assert_eq!(import(&alix.context, elements).await, (1, 0));
     assert_eq!(mark_of(&alix.db(), &TARGET).as_deref(), Some(SENDER));
+    assert_eq!(
+        mark_of(&alix.db(), &filler(20_000).id).as_deref(),
+        Some(MEMBER)
+    );
+    assert_eq!(mark_of(&alix.db(), &filler(0).id), None);
+}
+
+/// A message received from the network while an import runs is not marked
+/// by the archive's records, even with a super-admin bit.
+// verifies: ARCH-028
+#[xmtp_common::test(unwrap_try = true)]
+async fn network_insert_during_import_is_unaffected() {
+    use futures::StreamExt;
+    tester!(alix, disable_workers);
+    let group = alix.create_group(None, None)?;
+    let g = group.group_id;
+    let db = alix.db();
+    let elements = vec![
+        legacy(&row(
+            g,
+            &[0x44; 32],
+            MEMBER,
+            text_with_authority("xmtp.org", 1),
+            DeliveryStatus::Published,
+        )),
+        record(g, D2, ADMIN, true, 10),
+        marked(&target(g, DeliveryStatus::Published), ADMIN),
+    ];
+    // The target arrives from the topic after the import started, just
+    // before the archive's record for it is read.
+    let mut stream = futures::stream::iter(elements.into_iter().enumerate()).map(|(n, element)| {
+        if n == 1 {
+            receive(&group, &target(g, DeliveryStatus::Published), false);
+        }
+        Ok::<_, std::io::Error>(element)
+    });
+    insert_elements(&mut stream, &alix.context).await?;
+    let stored = db.get_group_message(TARGET)?.unwrap();
+    assert_eq!(stored.deleted_by_inbox_id, None);
+    assert!(!stored.decrypted_message_bytes.is_empty());
 }

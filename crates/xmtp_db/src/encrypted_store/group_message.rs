@@ -820,17 +820,6 @@ pub trait QueryGroupMessage {
         deleted_by_inbox_id: &str,
     ) -> Result<usize, crate::ConnectionError>;
 
-    /// The highest insert position (`rowid`) of any stored message, or 0.
-    /// A message inserted later has a higher one.
-    fn message_insert_watermark(&self) -> Result<i64, crate::ConnectionError>;
-
-    /// Whether the stored message `id` was inserted after `watermark`.
-    fn message_inserted_after(
-        &self,
-        id: &[u8],
-        watermark: i64,
-    ) -> Result<bool, crate::ConnectionError>;
-
     /// Stored messages above each group's cursor, attributed to their group.
     /// The attribution matters: sequence ids are not scoped per group, so a
     /// caller folding these into per-group state must never mix groups.
@@ -1024,18 +1013,6 @@ where
         deleted_by_inbox_id: &str,
     ) -> Result<usize, crate::ConnectionError> {
         (**self).mark_message_deleted(id, deleted_by_inbox_id)
-    }
-
-    fn message_insert_watermark(&self) -> Result<i64, crate::ConnectionError> {
-        (**self).message_insert_watermark()
-    }
-
-    fn message_inserted_after(
-        &self,
-        id: &[u8],
-        watermark: i64,
-    ) -> Result<bool, crate::ConnectionError> {
-        (**self).message_inserted_after(id, watermark)
     }
 
     fn messages_newer_than(
@@ -1771,30 +1748,6 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
                 dsl::decrypted_message_bytes.eq(Vec::<u8>::new()),
             ))
             .execute(conn)
-        })
-    }
-
-    fn message_insert_watermark(&self) -> Result<i64, crate::ConnectionError> {
-        self.raw_query(|conn| {
-            dsl::group_messages
-                .select(diesel::dsl::max(diesel_sql::<BigInt>("rowid")))
-                .first::<Option<i64>>(conn)
-                .map(Option::unwrap_or_default)
-        })
-    }
-
-    fn message_inserted_after(
-        &self,
-        id: &[u8],
-        watermark: i64,
-    ) -> Result<bool, crate::ConnectionError> {
-        self.raw_query(|conn| {
-            diesel::select(diesel::dsl::exists(
-                dsl::group_messages
-                    .filter(dsl::id.eq(id))
-                    .filter(diesel_sql::<BigInt>("rowid").gt(watermark)),
-            ))
-            .get_result(conn)
         })
     }
 

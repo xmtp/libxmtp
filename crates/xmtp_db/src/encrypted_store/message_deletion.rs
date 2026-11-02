@@ -85,13 +85,12 @@ pub trait QueryMessageDeletion {
         record: &StoredMessageDeletion,
     ) -> Result<StoredMessageDeletion, crate::ConnectionError>;
 
-    /// The record with the lowest `(deleted_at_ns, id)` for `target` whose
-    /// deleter is the target's sender or was a super admin, in its group;
-    /// with `authenticated_only`, among records from the topic.
+    /// The record from the topic with the lowest `(deleted_at_ns, id)` for
+    /// `target` whose deleter is the target's sender or was a super admin, in
+    /// its group. An archived record never decides alone.
     fn first_deletion_of(
         &self,
         target: &StoredGroupMessage,
-        authenticated_only: bool,
     ) -> Result<Option<StoredMessageDeletion>, crate::ConnectionError>;
 }
 
@@ -116,9 +115,8 @@ where
     fn first_deletion_of(
         &self,
         target: &StoredGroupMessage,
-        authenticated_only: bool,
     ) -> Result<Option<StoredMessageDeletion>, crate::ConnectionError> {
-        (**self).first_deletion_of(target, authenticated_only)
+        (**self).first_deletion_of(target)
     }
 }
 
@@ -168,17 +166,13 @@ impl<C: ConnectionExt> QueryMessageDeletion for DbConnection<C> {
     fn first_deletion_of(
         &self,
         target: &StoredGroupMessage,
-        authenticated_only: bool,
     ) -> Result<Option<StoredMessageDeletion>, crate::ConnectionError> {
         // The SQL mirror of may_delete's deleter-side checks (same group;
         // sender or super admin), applied before LIMIT 1. The other checks
         // depend only on the target, so if the first candidate fails, all fail.
         self.raw_query(|conn| {
-            let mut query = dsl::message_deletions.into_boxed();
-            if authenticated_only {
-                query = query.filter(dsl::authenticated.eq(true));
-            }
-            query
+            dsl::message_deletions
+                .filter(dsl::authenticated.eq(true))
                 .filter(dsl::group_id.eq(target.group_id))
                 .filter(dsl::deleted_message_id.eq(&target.id))
                 .filter(
@@ -323,15 +317,17 @@ mod tests {
     /// comes last. A LIMIT before the authority filter would miss it.
     // verifies: PROC-037
     #[rstest::rstest]
-    #[case::authorized_by_sender("sender", false, GroupId::ONE, true)]
-    #[case::authorized_by_bit("admin", true, GroupId::ONE, true)]
-    #[case::unauthorized("other", false, GroupId::ONE, false)]
-    #[case::other_group("sender", true, GroupId::TWO, false)]
+    #[case::authorized_by_sender("sender", false, GroupId::ONE, true, true)]
+    #[case::authorized_by_bit("admin", true, GroupId::ONE, true, true)]
+    #[case::unauthorized("other", false, GroupId::ONE, true, false)]
+    #[case::other_group("sender", true, GroupId::TWO, true, false)]
+    #[case::archived("sender", true, GroupId::ONE, false, false)]
     #[xmtp_common::test(unwrap_try = true)]
     async fn deletion_lookup_is_bounded(
         #[case] by: &str,
         #[case] admin: bool,
         #[case] group_id: GroupId,
+        #[case] authenticated: bool,
         #[case] found: bool,
     ) {
         with_connection(|conn| {
@@ -341,17 +337,20 @@ mod tests {
                 early.id = n.to_be_bytes().to_vec();
                 conn.record_deletion(&early).unwrap();
             }
-            let case = record(9, group_id, by, admin, 10_000);
+            let case = StoredMessageDeletion {
+                authenticated,
+                ..record(9, group_id, by, admin, 10_000)
+            };
             conn.record_deletion(&case).unwrap();
             assert_eq!(
-                conn.first_deletion_of(&target, false).unwrap(),
+                conn.first_deletion_of(&target).unwrap(),
                 found.then_some(case)
             );
             let plan = conn
                 .raw_query(|raw| {
                     diesel::sql_query(
                         "EXPLAIN QUERY PLAN SELECT * FROM message_deletions \
-                     WHERE group_id = x'01' AND deleted_message_id = x'aa' \
+                     WHERE authenticated = 1 AND group_id = x'01' AND deleted_message_id = x'aa' \
                      AND (deleted_by_inbox_id = 'sender' OR is_super_admin_deletion = 1) \
                      ORDER BY deleted_at_ns, id LIMIT 1",
                     )

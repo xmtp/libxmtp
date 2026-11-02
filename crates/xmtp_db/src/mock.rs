@@ -551,14 +551,6 @@ mock! {
             deleted_by_inbox_id: &str,
         ) -> Result<usize, crate::ConnectionError>;
 
-        fn message_insert_watermark(&self) -> Result<i64, crate::ConnectionError>;
-
-        fn message_inserted_after(
-            &self,
-            id: &[u8],
-            watermark: i64,
-        ) -> Result<bool, crate::ConnectionError>;
-
         #[mockall::concretize]
         fn get_latest_message_times_by_sender<GroupId: AsRef<[u8]>>(
             &self,
@@ -917,7 +909,6 @@ mock! {
         fn first_deletion_of(
             &self,
             _target: &crate::group_message::StoredGroupMessage,
-            _authenticated_only: bool,
         ) -> Result<Option<crate::message_deletion::StoredMessageDeletion>, crate::ConnectionError>;
     }
 
