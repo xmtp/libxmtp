@@ -195,23 +195,44 @@ impl<C: ConnectionExt> QueryMessageDeletion for DbConnection<C> {
 pub(crate) fn backfill_deletion_marks(
     conn: &mut diesel::SqliteConnection,
 ) -> Result<(), diesel::result::Error> {
-    use crate::schema::{deletion_backfill, group_messages};
-    let queued: bool = diesel::select(diesel::dsl::exists(
-        deletion_backfill::table.select(deletion_backfill::target_id),
-    ))
-    .get_result(conn)?;
-    if !queued {
-        return Ok(());
+    use crate::schema::deletion_backfill;
+    // Queued targets marked per write; a batch holds this many target rows.
+    const BATCH: i64 = 500;
+    loop {
+        let done = conn.immediate_transaction(|conn| {
+            let targets: Vec<Vec<u8>> = deletion_backfill::table
+                .select(deletion_backfill::target_id)
+                .order(deletion_backfill::target_id)
+                .limit(BATCH)
+                .load(conn)?;
+            if targets.is_empty() {
+                return Ok::<_, diesel::result::Error>(true);
+            }
+            backfill_batch(conn, &targets)?;
+            diesel::delete(
+                deletion_backfill::table.filter(deletion_backfill::target_id.eq_any(&targets)),
+            )
+            .execute(conn)?;
+            Ok(false)
+        })?;
+        if done {
+            return Ok(());
+        }
     }
-    conn.immediate_transaction(|conn| {
-        let targets: Vec<Vec<u8>> = deletion_backfill::table
-            .select(deletion_backfill::target_id)
-            .load(conn)?;
+}
+
+/// Mark the queued `targets` that the old read-time check hid.
+fn backfill_batch(
+    conn: &mut diesel::SqliteConnection,
+    targets: &[Vec<u8>],
+) -> Result<(), diesel::result::Error> {
+    use crate::schema::group_messages;
+    {
         for id in targets {
             // Only the columns the old check read: other columns of an old
             // row need not load.
             let Some((group_id, kind, sender, bytes, marked)) = group_messages::table
-                .find(&id)
+                .find(id)
                 .select((
                     group_messages::group_id,
                     group_messages::kind,
@@ -233,7 +254,7 @@ pub(crate) fn backfill_deletion_marks(
             }
             let deleter = dsl::message_deletions
                 .filter(dsl::group_id.eq(group_id))
-                .filter(dsl::deleted_message_id.eq(&id))
+                .filter(dsl::deleted_message_id.eq(id))
                 .filter(
                     dsl::deleted_by_inbox_id
                         .eq(&sender)
@@ -246,7 +267,7 @@ pub(crate) fn backfill_deletion_marks(
             if let Some(deleter) = deleter {
                 diesel::update(
                     group_messages::table
-                        .find(&id)
+                        .find(id)
                         .filter(group_messages::deleted_by_inbox_id.is_null()),
                 )
                 .set((
@@ -256,9 +277,8 @@ pub(crate) fn backfill_deletion_marks(
                 .execute(conn)?;
             }
         }
-        diesel::delete(deletion_backfill::table).execute(conn)?;
-        Ok(())
-    })
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -363,6 +383,54 @@ mod tests {
                 "{:?}",
                 plan.iter().map(|row| &row.detail).collect::<Vec<_>>()
             );
+        })
+    }
+
+    /// The upgrade backfill works through a queue larger than one batch and
+    /// leaves it empty.
+    // verifies: PROC-037
+    #[xmtp_common::test(unwrap_try = true)]
+    fn backfill_drains_a_queue_larger_than_a_batch() {
+        use crate::schema::{deletion_backfill, group_messages};
+        use crate::{Store, group::tests::generate_group};
+        with_connection(|conn| {
+            let group = generate_group(None);
+            group.store(conn)?;
+            // `xmtp.org/text:1.0` with the content "hi".
+            let text = hex::decode("0a120a08786d74702e6f7267120474657874180122026869")?;
+            for n in 0..1_201u32 {
+                let id = n.to_be_bytes().to_vec();
+                StoredGroupMessage {
+                    decrypted_message_bytes: text.clone(),
+                    sender_inbox_id: "sender".into(),
+                    ..test_message(id.clone(), group.id)
+                }
+                .store(conn)?;
+                conn.record_deletion(&StoredMessageDeletion {
+                    id: [id.as_slice(), &[0xde]].concat(),
+                    group_id: group.id,
+                    deleted_message_id: id.clone(),
+                    deleted_by_inbox_id: "sender".into(),
+                    is_super_admin_deletion: false,
+                    deleted_at_ns: 1,
+                    authenticated: true,
+                })?;
+                conn.raw_query(|raw| {
+                    diesel::insert_into(deletion_backfill::table)
+                        .values(deletion_backfill::target_id.eq(id))
+                        .execute(raw)
+                })?;
+            }
+            conn.raw_query(backfill_deletion_marks)?;
+            let unmarked: i64 = conn.raw_query(|raw| {
+                group_messages::table
+                    .filter(group_messages::deleted_by_inbox_id.is_null())
+                    .count()
+                    .get_result(raw)
+            })?;
+            let queued: i64 =
+                conn.raw_query(|raw| deletion_backfill::table.count().get_result(raw))?;
+            assert_eq!((unmarked, queued), (0, 0));
         })
     }
 
