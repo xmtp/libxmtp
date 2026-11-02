@@ -12,11 +12,19 @@ use xmtp_db::{
 use xmtp_mls_common::group_metadata::DmMembers;
 use xmtp_proto::types::GroupId;
 
-use crate::worker::device_sync::preference_sync::PreferenceUpdate;
+use xmtp_cryptography::secret::Secret;
 use xmtp_events::{
     ClientEvent, ConsentChanged, ConsentEntityKind, ConsentState, DeletionCause, EventContext,
     EventWriter, HmacKeysUpdated, MessageDeleted, MessageRef,
 };
+
+/// A stored preference change, for the legacy in-process streams. `Debug`
+/// shows the HMAC root key only as its length: `Secret` redacts it.
+#[derive(Clone, Debug)]
+pub enum PreferenceUpdate {
+    Consent(StoredConsentRecord),
+    Hmac { key: Secret, cycled_at_ns: i64 },
+}
 
 #[derive(Clone, Debug)]
 pub enum InternalEvent {

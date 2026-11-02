@@ -204,10 +204,13 @@ async fn rotation_settles_unconfirmed_packages_and_discards_refused_ones(#[case]
         api.lag_newest
             .store(lag, std::sync::atomic::Ordering::SeqCst);
         let context = faulty_group(&alix, &group_id, api.clone()).await.context;
-        let rotated = context
-            .identity()
-            .rotate_and_upload_key_package(context.api(), context.mls_storage(), true)
-            .await;
+        let rotated = crate::identity_lifecycle::rotate_and_upload_key_package(
+            context.identity(),
+            context.api(),
+            context.mls_storage(),
+            true,
+        )
+        .await;
         assert!(rotated.is_err());
         let Some(Payload::KeyPackage(package)) = &api.requests.lock()[0].envelopes[0].payload
         else {

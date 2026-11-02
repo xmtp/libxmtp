@@ -1,8 +1,8 @@
 use crate::context::XmtpSharedContext;
+use crate::groups::message_id::calculate_message_id;
 use crate::groups::send_message_opts::SendMessageOpts;
 use crate::groups::{DeliveryStatus, GroupError};
 use crate::tester;
-use crate::utils::id::calculate_message_id;
 use xmtp_common::RetryableError;
 use xmtp_db::group_intent::{IntentKind, IntentState, QueryGroupIntent};
 use xmtp_db::group_message::{GroupMessageKind, MsgQueryArgs};

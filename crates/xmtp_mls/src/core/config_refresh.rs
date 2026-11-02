@@ -18,7 +18,7 @@ use crate::worker::{
     BoxedWorker, NeedsDbReconnect, Worker, WorkerFactory, WorkerKind, WorkerResult,
 };
 
-use super::refresh;
+use super::preflight::refresh;
 
 #[derive(Clone)]
 pub struct Factory<Context> {

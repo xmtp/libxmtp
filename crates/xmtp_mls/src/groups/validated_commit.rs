@@ -15,7 +15,7 @@ use openmls::{
     prelude::{LeafNodeIndex, Sender},
 };
 
-use crate::traits::FromWith;
+use super::traits::FromWith;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use thiserror::Error;

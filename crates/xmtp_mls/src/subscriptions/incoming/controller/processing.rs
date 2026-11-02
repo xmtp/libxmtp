@@ -54,7 +54,7 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                         Ok(group) => group,
                         Err(_) => continue,
                     };
-                    let group = match MlsStore::new(self.context.clone()).group(&group_id) {
+                    let group = match MlsGroup::load_by_id(&self.context, &group_id) {
                         Ok(group) => group,
                         // A welcome can install this group on a later pass.
                         Err(crate::mls_store::MlsStoreError::NotFound(_)) => continue,

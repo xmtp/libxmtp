@@ -1,6 +1,8 @@
 //! Prepare and publish durable outgoing attempts.
 
 use super::*;
+use crate::core::api_status::backend_status;
+pub(crate) use crate::core::api_status::definite_refusal;
 use crate::groups::app_data::GroupAppDataError;
 use xmtp_db::group_intent::QueryPreparedEnvelope;
 use xmtp_mls_common::app_data::component_source::ComponentSourceError;
@@ -17,21 +19,6 @@ use dependencies::{PublishDependencies, PublishRequirements};
 pub(crate) use prepared::{
     OutgoingPreparationError, PreparedAttempt, PreparedBase, PreparedProposal, Unsettled,
 };
-
-/// The status the backend returned for a publish. A failed configuration
-/// check before dispatch sent nothing, so its status is not the backend's.
-fn backend_status(error: &xmtp_api::ApiError) -> Option<tonic::Code> {
-    if xmtp_api::preflight::failure(error).is_some() {
-        return None;
-    }
-    xmtp_proto::api::grpc_status(error).map(|status| status.code())
-}
-
-/// Only `INVALID_ARGUMENT` proves that an atomic publish stored nothing.
-/// Every other failure, including `OUT_OF_RANGE`, can follow a commit.
-pub(crate) fn definite_refusal(error: &xmtp_api::ApiError) -> bool {
-    backend_status(error) == Some(tonic::Code::InvalidArgument)
-}
 
 /// `OUT_OF_RANGE` can follow a committed publish, and the same request cannot
 /// be sent again, so only a recovery read can settle the bytes it carried.

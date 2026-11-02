@@ -1,3 +1,4 @@
+use crate::core::sync_tasks::schedule_add_missing_installations;
 use crate::state_tx::StateTx;
 use crate::{
     client::ClientError,
@@ -7,8 +8,8 @@ use crate::{
     },
     identity::parse_credential,
     identity_updates::IdentityUpdates,
-    mls_store::{MlsStore, MlsStoreError},
-    subscriptions::{SubscribeError, internal::InternalEvent},
+    mls_store::MlsStoreError,
+    subscriptions::SubscribeError,
     worker::{NeedsDbReconnect, metrics::WorkerMetrics},
 };
 use openmls::prelude::{BasicCredential, Member};
@@ -20,20 +21,18 @@ use tracing::instrument;
 use worker::SyncMetric;
 use xmtp_archive::ArchiveError;
 use xmtp_common::ErrorCode;
-use xmtp_common::{NS_IN_DAY, RetryableError, time::now_ns};
+use xmtp_common::RetryableError;
 use xmtp_configuration::{
     INSTALLATION_RETRY_MIN_PROTOCOL_VERSION, SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS,
 };
 use xmtp_cryptography::secret::{Zeroize, Zeroizing};
 use xmtp_db::TransactionalKeyStore;
-use xmtp_db::tasks::NewTask;
 use xmtp_db::{
     NotFound, StorageError,
     group_message::{DeliveryStatus, StoredGroupMessage},
     sync_outbox::{OwedPage, clear_owed, owed_page},
 };
 use xmtp_db::{XmtpDb, group::ConversationType, prelude::*};
-use xmtp_events::EventWriter;
 use xmtp_id::{InboxIdRef, associations::DeserializationError};
 use xmtp_mls_common::app_data::protocol_floor::committed_floor_at_least;
 use xmtp_mls_common::group::GroupMetadataOptions;
@@ -47,13 +46,7 @@ use xmtp_proto::xmtp::{
         device_sync_content::Content as ContentProto,
         preference_update::Update as PreferenceUpdateProto,
     },
-    mls::{
-        database::{
-            AddMissingInstallations as AddMissingInstallationsProto, Task as TaskProto,
-            task::Task as TaskKindProto,
-        },
-        message_contents::{ContentTypeId, EncodedContent},
-    },
+    mls::message_contents::{ContentTypeId, EncodedContent},
 };
 
 pub mod archive;
@@ -344,17 +337,12 @@ impl From<NotFound> for DeviceSyncError {
 #[derive(Clone)]
 pub struct DeviceSyncClient<Context> {
     pub(crate) context: Context,
-    pub(crate) mls_store: MlsStore<Context>,
     pub(crate) metrics: Arc<WorkerMetrics<SyncMetric>>,
 }
 
 impl<Context: XmtpSharedContext> DeviceSyncClient<Context> {
     pub fn new(context: Context, metrics: Arc<WorkerMetrics<SyncMetric>>) -> Self {
-        Self {
-            context: context.clone(),
-            mls_store: MlsStore::new(context),
-            metrics,
-        }
+        Self { context, metrics }
     }
 }
 
@@ -536,7 +524,7 @@ where
     pub(crate) fn primary_sync_group(&self) -> Result<Option<MlsGroup<Context>>, GroupError> {
         let own_inbox_id = self.context.inbox_id();
         for stored in self.context.db().all_sync_groups()? {
-            let group = self.mls_store.group(&stored.id)?;
+            let group = MlsGroup::load_by_id(&self.context, &stored.id)?;
             let own = group.with_group_snapshot(|mls_group| {
                 Ok(is_own_sync_group(
                     own_inbox_id,
@@ -613,7 +601,7 @@ where
     /// Schedule the adds to the user's conversations for a new installation.
     #[cfg(test)]
     pub(crate) fn schedule_add_installations_to_groups(&self) -> Result<usize, DeviceSyncError> {
-        Ok(schedule_newcomer_adds(
+        Ok(crate::core::sync_tasks::schedule_newcomer_adds(
             &self.context.db(),
             self.context.events(),
         )?)
@@ -660,114 +648,6 @@ fn page_content(page: &OwedPage) -> ContentProto {
             })
             .collect(),
     })
-}
-
-/// Maximum duplicate groups per DM scheduled in addition to its winner.
-const MAX_DM_EXTRA_GROUPS: usize = 10;
-
-/// A new sync group from a Welcome means a new installation: schedule one
-/// durable task per eligible group, with bounded DM extras (deduped by
-/// payload hash), in the transaction that installs the Welcome, so a restart
-/// cannot lose them.
-// implements: SYNC-014
-pub(crate) fn schedule_newcomer_adds(
-    db: &impl DbQuery,
-    events: &impl EventWriter<InternalEvent>,
-) -> Result<usize, StorageError> {
-    use xmtp_db::consent_record::ConsentState;
-    use xmtp_db::diesel::{RunQueryDsl, sql_query, sql_types::*};
-    use xmtp_db::group::{GroupMembershipState::*, StoredGroup, consent_join_sql};
-
-    let consent = [ConsentState::Allowed, ConsentState::Unknown].map(|s| s as i32);
-    let membership = [Allowed, Rejected, Pending, PendingRemove].map(|s| s as i32);
-    let types = ConversationType::virtual_types();
-    let virtuals: Vec<_> = types.into_iter().map(|t| t as i32).collect();
-    // implements: ARCH-015
-    let groups = db.raw_query(|conn| {
-        sql_query(format!(
-            "WITH eligible AS (
-              SELECT g.id, g.dm_id, g.last_message_ns, g.created_at_ns FROM groups g LEFT JOIN consent_records ON {}
-              WHERE (state IS NULL OR state IN (SELECT value FROM json_each(?))) AND COALESCE(last_message_ns, created_at_ns) > ?
-                AND membership_state IN (SELECT value FROM json_each(?)) AND conversation_type NOT IN (SELECT value FROM json_each(?))
-            ), winners AS (
-              SELECT *, ROW_NUMBER() OVER (PARTITION BY dm_id ORDER BY
-                COALESCE(last_message_ns, 0) DESC, id DESC) AS winner_rank FROM eligible WHERE dm_id IS NOT NULL
-            ), ranked AS (
-              SELECT id, ROW_NUMBER() OVER (PARTITION BY dm_id ORDER BY
-                winner_rank = 1 DESC, COALESCE(last_message_ns, created_at_ns) DESC, id DESC) AS rank FROM winners
-            ) SELECT * FROM groups WHERE id IN (SELECT id FROM eligible WHERE dm_id IS NULL
-              UNION ALL SELECT id FROM ranked WHERE rank <= ?)",
-            consent_join_sql("g"),
-        ))
-        .bind::<Text, _>(serde_json::json!(consent).to_string())
-        .bind::<BigInt, _>(now_ns() - NS_IN_DAY * 90)
-        .bind::<Text, _>(serde_json::json!(membership).to_string())
-        .bind::<Text, _>(serde_json::json!(virtuals).to_string())
-        .bind::<BigInt, _>((MAX_DM_EXTRA_GROUPS + 1) as i64)
-        .load::<StoredGroup>(conn)
-    })?;
-    for group in &groups {
-        schedule_add_missing_installations(db, events, group.id, None, false)?;
-    }
-    Ok(groups.len())
-}
-
-/// Durably enqueue one AddMissingInstallations task for `group_id` (deduped
-/// by payload hash against any pending row for the same group) and wake the
-/// TaskRunner. The task is due once `delay`, a rate-limit delay, has passed.
-/// A task `until_done` never expires, and a failing one backs off to at most
-/// one run an interval.
-pub(crate) fn schedule_add_missing_installations(
-    db: &impl DbQuery,
-    events: &impl EventWriter<InternalEvent>,
-    group_id: GroupId,
-    delay: Option<xmtp_common::time::Duration>,
-    until_done: bool,
-) -> Result<(), StorageError> {
-    let due = now_ns().saturating_add(delay.map_or(0, |delay| {
-        i64::try_from(delay.as_nanos()).unwrap_or(i64::MAX)
-    }));
-    let mut task = NewTask::builder();
-    task.originating_message_sequence_id(0)
-        .next_attempt_at_ns(due);
-    if until_done {
-        task.expires_at_ns(i64::MAX)
-            .max_attempts(i32::MAX)
-            .max_backoff_duration_ns(SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS);
-    } else {
-        // The usual three days to succeed count from when the task is due.
-        task.expires_at_ns(due.saturating_add(NS_IN_DAY * 3));
-    }
-    let task = task.build(TaskProto {
-        task: Some(TaskKindProto::AddMissingInstallations(
-            AddMissingInstallationsProto {
-                group_id: group_id.to_vec(),
-            },
-        )),
-    })?;
-    let hash = task.data_hash.clone();
-    db.create_or_ignore_task(task)?;
-    if until_done {
-        // A row an older build stored for this group is kept instead of the
-        // new one, so it must not expire either.
-        use xmtp_db::{diesel, diesel::prelude::*, schema::tasks::dsl};
-        db.raw_query(|c| {
-            diesel::update(dsl::tasks.filter(dsl::data_hash.eq(&hash)))
-                .set((
-                    dsl::expires_at_ns.eq(i64::MAX),
-                    dsl::max_attempts.eq(i32::MAX),
-                    dsl::max_backoff_duration_ns.eq(SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS),
-                    dsl::next_attempt_at_ns.eq(diesel::dsl::sql::<diesel::sql_types::BigInt>(
-                        "MAX(next_attempt_at_ns, ",
-                    )
-                    .bind::<diesel::sql_types::BigInt, _>(due)
-                    .sql(")")),
-                ))
-                .execute(c)
-        })?;
-    }
-    events.emit(None, Some(InternalEvent::TaskScheduled));
-    Ok(())
 }
 
 /// The payload of a sync message's outer `EncodedContent`, the only field the

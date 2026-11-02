@@ -1,11 +1,11 @@
 //! Deferred admission and refresh share one client lifetime and commit lock.
 
-use super::{
-    BlockedConnection, ConfigurationFetchError, check_minimum_version, commit_configuration,
-};
 use crate::{
     client::ClientError,
     context::{XmtpMlsLocalContext, XmtpSharedContext},
+    server_configuration::{
+        BlockedConnection, ConfigurationFetchError, check_minimum_version, commit_configuration,
+    },
 };
 use std::sync::{Arc, Weak, atomic::Ordering};
 use xmtp_api::preflight::{ConfigurationFetch, PreflightError, RequestPreflight};

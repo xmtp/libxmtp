@@ -5,11 +5,13 @@ pub mod attachments;
 pub mod builder;
 pub mod client;
 pub mod context;
+pub mod core;
 mod definitions;
 #[cfg(any(test, feature = "test-utils"))]
 pub mod diagnostics;
 pub mod groups;
 pub mod identity;
+pub mod identity_lifecycle;
 pub mod identity_updates;
 pub mod inbox_handles;
 mod intents;
@@ -17,7 +19,7 @@ pub mod messages;
 pub mod mls_store;
 mod mutex_registry;
 pub mod server_configuration;
-mod state_tx;
+use crate::core::state_tx;
 pub mod storage_location;
 pub use client::VisibilityConfirmationOptions;
 pub mod subscriptions;
@@ -27,7 +29,6 @@ pub use definitions::*;
 
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test;
-mod traits;
 
 #[cfg(test)]
 use crate::groups::GroupError;

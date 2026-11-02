@@ -1,6 +1,5 @@
 use futures::{Stream, StreamExt};
 use prost::Message;
-use std::sync::Arc;
 use tokio::sync::oneshot;
 use xmtp_common::snippet::Snippet;
 use xmtp_proto::backend_v1::ServerEnvelope;
@@ -29,10 +28,10 @@ mod group_set_gate;
 pub(crate) use group_set_gate::GroupSetGate;
 pub mod incoming;
 #[doc(hidden)]
-pub mod internal;
+pub use crate::core::events as internal;
 pub mod local_delivery;
 pub mod message_reader;
-pub(crate) mod policy;
+pub(crate) use crate::core::policy;
 pub(crate) mod recovery;
 mod stream_all;
 pub mod stream_conversations;
@@ -58,7 +57,6 @@ use crate::subscriptions::stream_messages::stream_stats::{StreamStatsWrapper, St
 
 use crate::worker::device_sync::preference_sync::PreferenceUpdate;
 use crate::{
-    Client,
     context::XmtpSharedContext,
     groups::{GroupError, MlsGroup, mls_sync::GroupMessageProcessingError},
     messages::decoded_message::{DecodedMessage, DeletedBy},
@@ -360,272 +358,290 @@ impl crate::worker::NeedsDbReconnect for SubscribeError {
     }
 }
 
-impl<Context> Client<Context>
+/// Use push metadata as a target. Fetch its complete prefix before processing.
+pub(crate) async fn process_streamed_welcome_message<Context>(
+    context: &Context,
+    envelope_bytes: Vec<u8>,
+) -> Result<Vec<MlsGroup<Context>>>
 where
     Context: XmtpSharedContext + 'static,
 {
-    /// Use push metadata as a target. Fetch its complete prefix before processing.
-    pub async fn process_streamed_welcome_message(
-        &self,
-        envelope_bytes: Vec<u8>,
-    ) -> Result<Vec<MlsGroup<Context>>> {
-        let wire = ServerEnvelope::decode(envelope_bytes.as_slice())?;
-        let meta = wire
-            .meta
-            .as_ref()
-            .ok_or(xmtp_api::ApiError::InvalidResponse("welcome metadata"))?;
-        let (topic, cursor, _) = xmtp_api_backend::envelope::metadata(
-            meta,
-            xmtp_proto::types::TopicKind::WelcomeMessagesV1,
-        )?;
-        if topic != xmtp_proto::types::Topic::new_welcome_message(self.context.installation_id()) {
-            return Err(xmtp_api::ApiError::InvalidResponse("welcome installation").into());
-        }
-        barrier::wait_through(&self.context, [(topic, cursor)].into(), None)
-            .await
-            .map_err(|error| {
-                self.context
-                    .server_configuration()
-                    .blocked_or(GroupError::from(error))
-            })?;
-        let Some(group) = self.context.db().find_group_by_sequence_id(cursor)? else {
-            return Ok(Vec::new());
-        };
-        Ok(vec![MlsGroup::new(
-            self.context.clone(),
-            group.id,
-            group.dm_id,
-            group.conversation_type,
-            group.created_at_ns,
-        )])
+    let wire = ServerEnvelope::decode(envelope_bytes.as_slice())?;
+    let meta = wire
+        .meta
+        .as_ref()
+        .ok_or(xmtp_api::ApiError::InvalidResponse("welcome metadata"))?;
+    let (topic, cursor, _) = xmtp_api_backend::envelope::metadata(
+        meta,
+        xmtp_proto::types::TopicKind::WelcomeMessagesV1,
+    )?;
+    if topic != xmtp_proto::types::Topic::new_welcome_message(context.installation_id()) {
+        return Err(xmtp_api::ApiError::InvalidResponse("welcome installation").into());
     }
-
-    #[xmtp_common::span(prefix = "stream")]
-    pub async fn stream_conversations(
-        &self,
-        conversation_type: Option<ConversationType>,
-        include_duplicate_dms: bool,
-    ) -> Result<impl Stream<Item = Result<MlsGroup<Context>>> + use<'_, Context>>
-    where
-        Context::ApiClient: XmtpMlsStreams,
-    {
-        StreamConversations::new(
-            &self.context,
-            conversation_type,
-            include_duplicate_dms,
-            None,
-        )
+    barrier::wait_through(context, [(topic, cursor)].into(), None)
         .await
-    }
-
-    /// Stream conversations but decouple the lifetime of 'self' from the stream.
-    #[xmtp_common::span(prefix = "stream")]
-    pub async fn stream_conversations_owned(
-        &self,
-        conversation_type: Option<ConversationType>,
-        include_duplicate_dms: bool,
-    ) -> Result<impl Stream<Item = Result<MlsGroup<Context>>> + 'static + use<Context>>
-    where
-        Context::ApiClient: XmtpMlsStreams,
-    {
-        StreamConversations::new_owned(
-            self.context.clone(),
-            conversation_type,
-            include_duplicate_dms,
-            None,
-        )
-        .await
-    }
+        .map_err(|error| {
+            context
+                .server_configuration()
+                .blocked_or(GroupError::from(error))
+        })?;
+    let Some(group) = context.db().find_group_by_sequence_id(cursor)? else {
+        return Ok(Vec::new());
+    };
+    Ok(vec![MlsGroup::new(
+        context.clone(),
+        group.id,
+        group.dm_id,
+        group.conversation_type,
+        group.created_at_ns,
+    )])
 }
 
-impl<Context> Client<Context>
+#[xmtp_common::span(prefix = "stream")]
+pub(crate) async fn stream_conversations<'a, Context>(
+    context: &'a Context,
+    conversation_type: Option<ConversationType>,
+    include_duplicate_dms: bool,
+) -> Result<impl Stream<Item = Result<MlsGroup<Context>>> + use<'a, Context>>
+where
+    Context: XmtpSharedContext + 'static,
+    Context::ApiClient: XmtpMlsStreams,
+{
+    StreamConversations::new(context, conversation_type, include_duplicate_dms, None).await
+}
+
+/// Stream conversations but decouple the lifetime of the caller from the stream.
+#[xmtp_common::span(prefix = "stream")]
+pub(crate) async fn stream_conversations_owned<Context>(
+    context: Context,
+    conversation_type: Option<ConversationType>,
+    include_duplicate_dms: bool,
+) -> Result<impl Stream<Item = Result<MlsGroup<Context>>> + 'static + use<Context>>
+where
+    Context: XmtpSharedContext + 'static,
+    Context::ApiClient: XmtpMlsStreams,
+{
+    StreamConversations::new_owned(context, conversation_type, include_duplicate_dms, None).await
+}
+
+/// `keep_alive` lives as long as the subscribe closure.
+pub(crate) fn stream_conversations_with_callback<Context>(
+    context: Context,
+    keep_alive: impl MaybeSend + 'static,
+    conversation_type: Option<ConversationType>,
+    convo_callback: impl FnMut(Result<MlsGroup<Context>>) + MaybeSend + 'static,
+    on_close: impl FnOnce() + MaybeSend + 'static,
+    include_duplicate_dms: bool,
+) -> impl StreamHandle<StreamOutput = Result<()>>
 where
     Context: XmtpSharedContext + 'static,
     Context::ApiClient: XmtpMlsStreams + 'static,
     Context::MlsStorage: 'static,
 {
-    pub fn stream_conversations_with_callback(
-        client: Arc<Client<Context>>,
-        conversation_type: Option<ConversationType>,
-        convo_callback: impl FnMut(Result<MlsGroup<Context>>) + MaybeSend + 'static,
-        on_close: impl FnOnce() + MaybeSend + 'static,
-        include_duplicate_dms: bool,
-    ) -> impl StreamHandle<StreamOutput = Result<()>> {
-        let cancel = watchdog::StreamCancel::new(&client.context);
-        // Re-subscribing recreates the underlying local event subscription, which
-        // has no replay; the watchdog runner establishes the new subscription *before* its
-        // reconnect wait, so the new receiver is attached while we pause. Network welcomes
-        // are caught up from the persisted cursor, so the only residual gap is a *locally*
-        // created group event in the brief window while the new
-        // subscription is being built — bounded, since the caller already holds that group.
-        watchdog::spawn_watchdog_stream(
-            cancel,
-            "stream_conversations",
-            move || {
-                let client = client.clone();
-                async move {
-                    client
-                        .stream_conversations_owned(conversation_type, include_duplicate_dms)
-                        .await
-                }
-            },
-            convo_callback,
-            on_close,
-        )
-    }
-
-    #[xmtp_common::span(prefix = "stream")]
-    pub async fn stream_all_messages(
-        &self,
-        conversation_type: Option<ConversationType>,
-        consent_state: Option<Vec<ConsentState>>,
-    ) -> Result<impl Stream<Item = Result<StoredGroupMessage>> + '_> {
-        tracing::debug!(
-            inbox_id = self.inbox_id(),
-            installation_id = self.context.installation_id().as_slice().snippet(),
-            conversation_type = ?conversation_type,
-            "stream all messages"
-        );
-
-        StreamAllMessages::new(&self.context, conversation_type, consent_state).await
-    }
-
-    #[xmtp_common::span(prefix = "stream")]
-    pub async fn stream_all_messages_owned(
-        &self,
-        conversation_type: Option<ConversationType>,
-        consent_state: Option<Vec<ConsentState>>,
-    ) -> Result<impl Stream<Item = Result<StoredGroupMessage>> + 'static + use<Context>> {
-        tracing::debug!(
-            inbox_id = self.inbox_id(),
-            installation_id = self.context.installation_id().as_slice().snippet(),
-            conversation_type = ?conversation_type,
-            "stream all messages"
-        );
-
-        StreamAllMessages::new_owned(self.context.clone(), conversation_type, consent_state).await
-    }
-
-    pub fn stream_consent_with_callback(
-        client: Arc<Client<Context>>,
-        mut callback: impl FnMut(Result<Vec<StoredConsentRecord>>) + MaybeSend + 'static,
-        on_close: impl FnOnce() + MaybeSend + 'static,
-    ) -> impl StreamHandle<StreamOutput = Result<()>> {
-        let (tx, rx) = oneshot::channel();
-
-        xmtp_common::spawn(
-            Some(rx),
-            xmtp_common::bind_task_hub(async move {
-                // Cancellation can carry a blocked connection cause,
-                // and this stream closes with it rather than silently.
-                let cancel = watchdog::StreamCancel::new(&client.context);
-                let receiver = client.context.events().subscribe(
-                    EventFilter::default().with_internal(|event| {
-                        matches!(event, InternalEvent::PreferencesChanged { .. })
-                    }),
-                    Some(1024),
-                );
-                let stream = receiver.stream_consent_updates();
-
-                futures::pin_mut!(stream);
-                let _ = tx.send(());
-                let cancelled = loop {
-                    tokio::select! {
-                        _ = cancel.cancelled() => break true,
-                        next = stream.next() => match next {
-                            Some(message) => callback(message),
-                            None => break false,
-                        }
-                    }
-                };
-                tracing::debug!("`stream_consent` stream ended, dropping stream");
-                let result = watchdog::close_reason(&cancel, cancelled, &mut callback);
-                on_close();
-                result
-            }),
-        )
-    }
-
-    pub fn stream_preferences_with_callback(
-        client: Arc<Client<Context>>,
-        mut callback: impl FnMut(Result<Vec<PreferenceUpdate>>) + MaybeSend + 'static,
-        on_close: impl FnOnce() + MaybeSend + 'static,
-    ) -> impl StreamHandle<StreamOutput = Result<()>> {
-        let (tx, rx) = oneshot::channel();
-
-        xmtp_common::spawn(
-            Some(rx),
-            xmtp_common::bind_task_hub(async move {
-                // Cancellation can carry a blocked connection cause,
-                // and this stream closes with it rather than silently.
-                let cancel = watchdog::StreamCancel::new(&client.context);
-                let receiver = client.context.events().subscribe(
-                    EventFilter::default().with_internal(|event| {
-                        matches!(event, InternalEvent::PreferencesChanged { .. })
-                    }),
-                    Some(1024),
-                );
-                let stream = receiver.stream_preference_updates();
-
-                futures::pin_mut!(stream);
-                let _ = tx.send(());
-                let cancelled = loop {
-                    tokio::select! {
-                        _ = cancel.cancelled() => break true,
-                        next = stream.next() => match next {
-                            Some(message) => callback(message),
-                            None => break false,
-                        }
-                    }
-                };
-                tracing::debug!("`stream_preferences` stream ended, dropping stream");
-                let result = watchdog::close_reason(&cancel, cancelled, &mut callback);
-                on_close();
-                result
-            }),
-        )
-    }
-
-    pub fn stream_message_deletions_with_callback(
-        client: Arc<Client<Context>>,
-        mut callback: impl FnMut(Result<DecodedMessage>) + MaybeSend + 'static,
-        on_close: impl FnOnce() + MaybeSend + 'static,
-    ) -> impl StreamHandle<StreamOutput = Result<()>> {
-        let (tx, rx) = oneshot::channel();
-
-        xmtp_common::spawn(
-            Some(rx),
-            xmtp_common::bind_task_hub(async move {
-                // Cancellation can carry a blocked connection cause,
-                // and this stream closes with it rather than silently.
-                let cancel = watchdog::StreamCancel::new(&client.context);
-                let receiver = client.context.events().subscribe(
-                    EventFilter::default().with_internal(InternalEvent::is_message_deletion),
-                    Some(1024),
-                );
-                let stream = receiver.stream_message_deletions();
-
-                futures::pin_mut!(stream);
-                let _ = tx.send(());
-                let cancelled = loop {
-                    tokio::select! {
-                        _ = cancel.cancelled() => break true,
-                        next = stream.next() => match next {
-                            Some(message) => callback(message),
-                            None => break false,
-                        }
-                    }
-                };
-                tracing::debug!("`stream_message_deletions` stream ended, dropping stream");
-                let result = watchdog::close_reason(&cancel, cancelled, &mut callback);
-                on_close();
-                result
-            }),
-        )
-    }
+    let cancel = watchdog::StreamCancel::new(&context);
+    // Re-subscribing recreates the underlying local event subscription, which
+    // has no replay; the watchdog runner establishes the new subscription *before* its
+    // reconnect wait, so the new receiver is attached while we pause. Network welcomes
+    // are caught up from the persisted cursor, so the only residual gap is a *locally*
+    // created group event in the brief window while the new
+    // subscription is being built — bounded, since the caller already holds that group.
+    watchdog::spawn_watchdog_stream(
+        cancel,
+        "stream_conversations",
+        move || {
+            let _keep_alive = &keep_alive;
+            stream_conversations_owned(context.clone(), conversation_type, include_duplicate_dms)
+        },
+        convo_callback,
+        on_close,
+    )
 }
 
-impl<Context> Client<Context>
+#[xmtp_common::span(prefix = "stream")]
+pub(crate) async fn stream_all_messages<'a, Context>(
+    context: &'a Context,
+    conversation_type: Option<ConversationType>,
+    consent_state: Option<Vec<ConsentState>>,
+) -> Result<impl Stream<Item = Result<StoredGroupMessage>> + use<'a, Context>>
+where
+    Context: XmtpSharedContext + 'static,
+    Context::ApiClient: XmtpMlsStreams + 'static,
+    Context::MlsStorage: 'static,
+{
+    tracing::debug!(
+        inbox_id = context.inbox_id(),
+        installation_id = context.installation_id().as_slice().snippet(),
+        conversation_type = ?conversation_type,
+        "stream all messages"
+    );
+
+    StreamAllMessages::new(context, conversation_type, consent_state).await
+}
+
+#[xmtp_common::span(prefix = "stream")]
+pub(crate) async fn stream_all_messages_owned<Context>(
+    context: Context,
+    conversation_type: Option<ConversationType>,
+    consent_state: Option<Vec<ConsentState>>,
+) -> Result<impl Stream<Item = Result<StoredGroupMessage>> + 'static + use<Context>>
+where
+    Context: XmtpSharedContext + 'static,
+    Context::ApiClient: XmtpMlsStreams + 'static,
+    Context::MlsStorage: 'static,
+{
+    tracing::debug!(
+        inbox_id = context.inbox_id(),
+        installation_id = context.installation_id().as_slice().snippet(),
+        conversation_type = ?conversation_type,
+        "stream all messages"
+    );
+
+    StreamAllMessages::new_owned(context, conversation_type, consent_state).await
+}
+
+/// `keep_alive` lives as long as the stream task.
+pub(crate) fn stream_consent_with_callback<Context>(
+    context: Context,
+    keep_alive: impl MaybeSend + 'static,
+    mut callback: impl FnMut(Result<Vec<StoredConsentRecord>>) + MaybeSend + 'static,
+    on_close: impl FnOnce() + MaybeSend + 'static,
+) -> impl StreamHandle<StreamOutput = Result<()>>
+where
+    Context: XmtpSharedContext + 'static,
+{
+    let (tx, rx) = oneshot::channel();
+
+    xmtp_common::spawn(
+        Some(rx),
+        xmtp_common::bind_task_hub(async move {
+            let _keep_alive = keep_alive;
+            // Cancellation can carry a blocked connection cause,
+            // and this stream closes with it rather than silently.
+            let cancel = watchdog::StreamCancel::new(&context);
+            let receiver = context.events().subscribe(
+                EventFilter::default().with_internal(|event| {
+                    matches!(event, InternalEvent::PreferencesChanged { .. })
+                }),
+                Some(1024),
+            );
+            let stream = receiver.stream_consent_updates();
+
+            futures::pin_mut!(stream);
+            let _ = tx.send(());
+            let cancelled = loop {
+                tokio::select! {
+                    _ = cancel.cancelled() => break true,
+                    next = stream.next() => match next {
+                        Some(message) => callback(message),
+                        None => break false,
+                    }
+                }
+            };
+            tracing::debug!("`stream_consent` stream ended, dropping stream");
+            let result = watchdog::close_reason(&cancel, cancelled, &mut callback);
+            on_close();
+            result
+        }),
+    )
+}
+
+/// `keep_alive` lives as long as the stream task.
+pub(crate) fn stream_preferences_with_callback<Context>(
+    context: Context,
+    keep_alive: impl MaybeSend + 'static,
+    mut callback: impl FnMut(Result<Vec<PreferenceUpdate>>) + MaybeSend + 'static,
+    on_close: impl FnOnce() + MaybeSend + 'static,
+) -> impl StreamHandle<StreamOutput = Result<()>>
+where
+    Context: XmtpSharedContext + 'static,
+{
+    let (tx, rx) = oneshot::channel();
+
+    xmtp_common::spawn(
+        Some(rx),
+        xmtp_common::bind_task_hub(async move {
+            let _keep_alive = keep_alive;
+            // Cancellation can carry a blocked connection cause,
+            // and this stream closes with it rather than silently.
+            let cancel = watchdog::StreamCancel::new(&context);
+            let receiver = context.events().subscribe(
+                EventFilter::default().with_internal(|event| {
+                    matches!(event, InternalEvent::PreferencesChanged { .. })
+                }),
+                Some(1024),
+            );
+            let stream = receiver.stream_preference_updates();
+
+            futures::pin_mut!(stream);
+            let _ = tx.send(());
+            let cancelled = loop {
+                tokio::select! {
+                    _ = cancel.cancelled() => break true,
+                    next = stream.next() => match next {
+                        Some(message) => callback(message),
+                        None => break false,
+                    }
+                }
+            };
+            tracing::debug!("`stream_preferences` stream ended, dropping stream");
+            let result = watchdog::close_reason(&cancel, cancelled, &mut callback);
+            on_close();
+            result
+        }),
+    )
+}
+
+/// `keep_alive` lives as long as the stream task.
+pub(crate) fn stream_message_deletions_with_callback<Context>(
+    context: Context,
+    keep_alive: impl MaybeSend + 'static,
+    mut callback: impl FnMut(Result<DecodedMessage>) + MaybeSend + 'static,
+    on_close: impl FnOnce() + MaybeSend + 'static,
+) -> impl StreamHandle<StreamOutput = Result<()>>
+where
+    Context: XmtpSharedContext + 'static,
+{
+    let (tx, rx) = oneshot::channel();
+
+    xmtp_common::spawn(
+        Some(rx),
+        xmtp_common::bind_task_hub(async move {
+            let _keep_alive = keep_alive;
+            // Cancellation can carry a blocked connection cause,
+            // and this stream closes with it rather than silently.
+            let cancel = watchdog::StreamCancel::new(&context);
+            let receiver = context.events().subscribe(
+                EventFilter::default().with_internal(InternalEvent::is_message_deletion),
+                Some(1024),
+            );
+            let stream = receiver.stream_message_deletions();
+
+            futures::pin_mut!(stream);
+            let _ = tx.send(());
+            let cancelled = loop {
+                tokio::select! {
+                    _ = cancel.cancelled() => break true,
+                    next = stream.next() => match next {
+                        Some(message) => callback(message),
+                        None => break false,
+                    }
+                }
+            };
+            tracing::debug!("`stream_message_deletions` stream ended, dropping stream");
+            let result = watchdog::close_reason(&cancel, cancelled, &mut callback);
+            on_close();
+            result
+        }),
+    )
+}
+
+#[tracing::instrument(level = "trace", skip_all)]
+#[cfg(any(test, feature = "test-utils"))]
+pub(crate) async fn stream_all_messages_owned_with_stats<Context>(
+    context: Context,
+    conversation_type: Option<ConversationType>,
+    consent_state: Option<Vec<ConsentState>>,
+) -> Result<impl StreamWithStats<Item = Result<StoredGroupMessage>> + 'static>
 where
     Context: XmtpSharedContext + 'static,
     Context::ApiClient: XmtpMlsStreams + 'static,
@@ -633,26 +649,16 @@ where
     <Context::ApiClient as XmtpMlsStreams>::GroupMessageStream: Unpin,
     <Context::ApiClient as XmtpMlsStreams>::WelcomeMessageStream: Unpin,
 {
-    #[tracing::instrument(level = "trace", skip_all)]
-    #[cfg(any(test, feature = "test-utils"))]
-    pub async fn stream_all_messages_owned_with_stats(
-        &self,
-        conversation_type: Option<ConversationType>,
-        consent_state: Option<Vec<ConsentState>>,
-    ) -> Result<impl StreamWithStats<Item = Result<StoredGroupMessage>> + 'static> {
-        tracing::debug!(
-            inbox_id = self.inbox_id(),
-            installation_id = self.context.installation_id().as_slice().snippet(),
-            conversation_type = ?conversation_type,
-            "stream all messages"
-        );
+    tracing::debug!(
+        inbox_id = context.inbox_id(),
+        installation_id = context.installation_id().as_slice().snippet(),
+        conversation_type = ?conversation_type,
+        "stream all messages"
+    );
 
-        let stream =
-            StreamAllMessages::new_owned(self.context.clone(), conversation_type, consent_state)
-                .await?;
+    let stream = StreamAllMessages::new_owned(context, conversation_type, consent_state).await?;
 
-        Ok(StreamStatsWrapper::new(stream))
-    }
+    Ok(StreamStatsWrapper::new(stream))
 }
 
 #[derive(Debug, Clone, Copy)]
