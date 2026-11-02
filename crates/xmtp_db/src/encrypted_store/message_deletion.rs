@@ -328,7 +328,7 @@ mod tests {
     #[case::unauthorized("other", false, GroupId::ONE, false)]
     #[case::other_group("sender", true, GroupId::TWO, false)]
     #[xmtp_common::test(unwrap_try = true)]
-    fn deletion_lookup_is_bounded(
+    async fn deletion_lookup_is_bounded(
         #[case] by: &str,
         #[case] admin: bool,
         #[case] group_id: GroupId,
@@ -375,7 +375,7 @@ mod tests {
     #[case::authenticated_then_imported(true, false, false)]
     #[case::authenticated_then_authenticated(true, true, false)]
     #[xmtp_common::test(unwrap_try = true)]
-    fn record_deletion_keeps_authenticated(
+    async fn record_deletion_keeps_authenticated(
         #[case] first_authenticated: bool,
         #[case] second_authenticated: bool,
         #[case] replaced: bool,

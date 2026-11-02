@@ -32,7 +32,8 @@ struct ImportContext {
     /// change other installations are owed, but the app hears of
     /// it once through `archive.restored`.
     deletions_stored: bool,
-    /// The messages this import inserted, which its deletion evidence may mark.
+    /// The latest messages this import inserted, which its deletion evidence
+    /// may mark.
     imported: Imported,
     /// The archive's usable consent records, applied after all its elements.
     /// Archive frames are ciphertext and do not compress, so these grow with
