@@ -81,6 +81,8 @@ describe("Content types", () => {
       });
       try {
         expect(typeof (await deleted!.delete())).toBe("string");
+        // The deletion applies when it is published.
+        await group.publishMessages();
         // The generated event lift gives the IDs as bytes.
         const next = await events.next();
         if (next.done || next.value.kind !== "message.deleted")

@@ -10,7 +10,7 @@ Message deletion is not a security or privacy feature. It provides a best-effort
 
 ## How message deletion works
 
-When a user deletes a message, a `DeleteMessage` content type containing the target message ID is sent to the conversation. Clients receiving this message validate the deletion request and replace the target content in queries.
+When a user deletes a message, a `DeleteMessage` content type containing the target message ID is sent to the conversation. Each installation, the sender's included, validates the deletion when it processes it from the conversation. It then marks the target as deleted and removes its content from the local database. An archive carries the mark, so a restore does not bring the content back.
 
 When you query messages, the client automatically:
 
@@ -19,9 +19,9 @@ When you query messages, the client automatically:
 
 The deletion mechanism does NOT remove the original message from:
 
-- Local databases
 - The backend
-- Backup systems
+- Copies an app already received or exported
+- Freed pages of the local database file
 
 ## What cannot be deleted
 
@@ -43,7 +43,9 @@ The deletion mechanism does NOT remove the original message from:
 | Kotlin                      | `conversation.deleteMessage(messageId)`     |
 | Swift                       | `conversation.deleteMessage(id: messageId)` |
 
-You can also call `delete()` on a loaded message. Each form returns the ID of the deletion message.
+You can also call `delete()` on a loaded message. Each form queues the deletion and returns the ID of the deletion message. The deletion publishes with the conversation's next publish or sync, and the target changes when it is processed.
+
+A message that this installation stored and has not sent is cancelled instead: it and its queued send are removed, nothing is published, and the call returns the message's own ID. If its send is already in flight, the call throws an `InvalidInput` error with code `MessageInFlight`; retry after the send completes.
 
 The call throws when the message is absent, the caller is not the sender or a super admin, the message is already deleted, or its type cannot be deleted.
 
