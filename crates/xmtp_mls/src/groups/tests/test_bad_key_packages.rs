@@ -129,6 +129,9 @@ async fn commit_adding_unusable_package_is_applied_by_members() {
     });
 
     alix_group.add_members(&[bo.inbox_id()]).await?;
+    assert!(crate::utils::test_mocks_helpers::key_package_injected(
+        &bo.context.installation_id().to_vec()
+    ));
     caro_group.sync().await?;
     let caro_members: Vec<String> = caro_group
         .members()
@@ -439,6 +442,9 @@ async fn test_add_inbox_with_bad_installation_to_group() {
     assert_eq!(caro_groups.len(), 1);
     let alix_groups = alix.find_groups(GroupQueryArgs::default()).unwrap();
     assert_eq!(alix_groups.len(), 1);
+    assert!(crate::utils::test_mocks_helpers::key_package_injected(
+        &bo_1.context.installation_id().to_vec()
+    ));
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -471,6 +477,9 @@ async fn test_add_inbox_with_good_installation_to_group_with_bad_installation() 
     assert_eq!(bo_groups.len(), 1);
     let alix_groups = alix.find_groups(GroupQueryArgs::default()).unwrap();
     assert_eq!(alix_groups.len(), 1);
+    assert!(crate::utils::test_mocks_helpers::key_package_injected(
+        &bo_1.context.installation_id().to_vec()
+    ));
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -509,6 +518,9 @@ async fn test_remove_inbox_with_good_installation_from_group_with_bad_installati
     bo_group.sync().await.unwrap();
     assert_eq!(bo_group.members().await.unwrap().len(), 2);
     assert_eq!(group.members().await.unwrap().len(), 2);
+    assert!(crate::utils::test_mocks_helpers::key_package_injected(
+        &alix_2.context.installation_id().to_vec()
+    ));
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -618,6 +630,9 @@ async fn test_remove_inbox_with_bad_installation_from_group() {
 
     assert_eq!(caro_group.members().await.unwrap().len(), 2);
     assert_eq!(group.members().await.unwrap().len(), 2);
+    assert!(crate::utils::test_mocks_helpers::key_package_injected(
+        &bo_1.context.installation_id().to_vec()
+    ));
 }
 
 #[cfg(not(target_arch = "wasm32"))]

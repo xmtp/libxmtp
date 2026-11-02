@@ -24,8 +24,6 @@ mod unusable_key_packages;
 
 mod transcript;
 
-use super::test_hooks::on_next_deferral;
-
 // verifies: GMOD-036
 #[rstest::rstest]
 #[case::name_first(true)]

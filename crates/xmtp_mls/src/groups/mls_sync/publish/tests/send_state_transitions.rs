@@ -495,7 +495,7 @@ async fn send_state_transitions_later_send_never_overtakes_a_deferred_send() {
     bo_group.sync_until_intent_resolved(commit.id).await?;
     let epoch = group.epoch().await?;
     let (committer, receiver) = (bo_group.clone(), group.clone());
-    super::on_next_deferral(
+    crate::groups::mls_sync::publish::test_hooks::on_next_deferral(
         group.group_id.as_ref(),
         Box::new(move || {
             Box::pin(async move {

@@ -169,12 +169,20 @@ pub(super) fn inject_test_key_packages(
     >,
 ) {
     use crate::identity_lifecycle::test_mocks::{
-        get_test_mode_malformed_installations, test_mode_unchecked_key_package,
+        get_test_mode_malformed_installations, record_injected_key_package,
+        test_mode_unchecked_key_package,
     };
     let malformed = get_test_mode_malformed_installations();
-    key_packages.retain(|id, _| !malformed.contains(id));
+    key_packages.retain(|id, _| {
+        let served = !malformed.contains(id);
+        if !served {
+            record_injected_key_package(id);
+        }
+        served
+    });
     for (id, served) in key_packages.iter_mut() {
         if let Some(package) = test_mode_unchecked_key_package(id) {
+            record_injected_key_package(id);
             *served = Ok(package);
         }
     }
