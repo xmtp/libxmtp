@@ -261,3 +261,53 @@ async fn idempotent_resend_of_a_deleted_message_returns_it(
     assert_eq!(resent, message);
     Ok(())
 }
+
+/// A deletion of this installation's queued message, processed from the
+/// topic (sent by another installation of the same inbox), removes the
+/// queued send in the same write, so the deleted content never publishes.
+// verifies: PROC-037
+#[xmtp_common::test(unwrap_try = true)]
+async fn topic_deletion_of_a_queued_send_removes_it() {
+    use xmtp_content_types::delete_message::DeleteMessageCodec;
+    use xmtp_proto::xmtp::mls::message_contents::content_types::DeleteMessage;
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    let group = alix
+        .create_group_with_members(&[bo.inbox_id()], None, None)
+        .await?;
+    bo.wait_for_welcomes().await?;
+    let bo_group = bo.group(&group.group_id)?;
+    let message = group.send_message_optimistic(&text("queued"), Default::default())?;
+    let queued = alix.context.db().get_group_message(&message)?.unwrap();
+    let deletion = StoredGroupMessage {
+        id: vec![0xdd; 32],
+        decrypted_message_bytes: encoded_content_to_bytes(DeleteMessageCodec::encode(
+            DeleteMessage {
+                message_id: hex::encode(&message),
+            },
+        )?),
+        sender_installation_id: vec![0x02; 32],
+        delivery_status: DeliveryStatus::Published,
+        content_type: ContentType::DeleteMessage,
+        reference_id: Some(message.clone()),
+        sent_at_ns: xmtp_common::time::now_ns(),
+        ..queued
+    };
+    crate::state_tx::state_write_with_events(
+        alix.context.mls_storage(),
+        alix.context.events(),
+        |tx, buffer| {
+            let storage = tx.storage();
+            group.store_external_application_message(&storage, &deletion, false, buffer)?;
+            Ok::<_, crate::groups::mls_sync::GroupMessageProcessingError>(
+                xmtp_db::TransactionOutcome::Continue(()),
+            )
+        },
+    )?;
+    let marked = alix.context.db().get_group_message(&message)?.unwrap();
+    assert_eq!(marked.deleted_by_inbox_id.as_deref(), Some(alix.inbox_id()));
+    assert!(intents_in(&group, &UNRESOLVED, IntentKind::SendMessage).is_empty());
+    group.publish_intents().await?;
+    bo_group.sync().await?;
+    assert!(bo.context.db().get_group_message(&message)?.is_none());
+}

@@ -333,18 +333,7 @@ where
     /// transmission, while the database stores message IDs as raw bytes.
     // implements: PROC-056
     pub fn delete_message(&self, message_id: Vec<u8>) -> Result<Vec<u8>, GroupError> {
-        use error::DeleteMessageError;
-
-        let target = self
-            .context
-            .db()
-            .get_group_message(&message_id)?
-            .ok_or_else(|| DeleteMessageError::MessageNotFound(hex::encode(&message_id)))?;
-        let own = self.context.inbox_id();
-        // The sender needs no super-admin status, so no metadata read.
-        let super_admin = target.sender_inbox_id != own && self.live_is_super_admin(own)?;
-        may_delete(&self.group_id, own, super_admin, &target)?;
-        if self.cancel_unsent_message(&message_id)? {
+        if self.cancel_unsent(&message_id)? {
             return Ok(message_id);
         }
         let mut buf = Vec::new();
@@ -353,6 +342,25 @@ where
         })?
         .encode(&mut buf)?;
         self.send_message_optimistic(&buf, SendMessageOpts::default())
+    }
+
+    /// Check that this installation may delete `message_id`, then cancel it
+    /// when it is this installation's unsent message. Returns false
+    /// when the message is not unsent here; [`Self::delete_message`] then
+    /// queues a deletion. A DM caller repairs the peer between the two.
+    pub fn cancel_unsent(&self, message_id: &[u8]) -> Result<bool, GroupError> {
+        use error::DeleteMessageError;
+
+        let target = self
+            .context
+            .db()
+            .get_group_message(message_id)?
+            .ok_or_else(|| DeleteMessageError::MessageNotFound(hex::encode(message_id)))?;
+        let own = self.context.inbox_id();
+        // The sender needs no super-admin status, so no metadata read.
+        let super_admin = target.sender_inbox_id != own && self.live_is_super_admin(own)?;
+        may_delete(&self.group_id, own, super_admin, &target)?;
+        self.cancel_unsent_message(message_id)
     }
 
     /// Refuse an unsaved reserved row and persist its terminal failure in this write.

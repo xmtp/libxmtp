@@ -93,7 +93,7 @@ impl ArchivedSelfDeletions {
         &self,
         db: &impl DbQuery,
         row: &StoredGroupMessage,
-    ) -> Result<bool, xmtp_db::ConnectionError> {
+    ) -> Result<bool, xmtp_db::StorageError> {
         let key = (row.id.clone(), row.group_id, row.sender_inbox_id.clone());
         if !self.0.contains_key(&key) {
             return Ok(false);
@@ -134,7 +134,7 @@ pub(crate) fn apply_deletion(
     events: &impl EventWriter<InternalEvent>,
     deletion: &StoredGroupMessage,
     source: Source,
-) -> Result<bool, xmtp_db::ConnectionError> {
+) -> Result<bool, xmtp_db::StorageError> {
     if deletion.kind != GroupMessageKind::Application
         || deletion.content_type != ContentType::DeleteMessage
     {
@@ -179,7 +179,7 @@ pub(crate) fn apply_stored_records(
     db: &impl DbQuery,
     events: &impl EventWriter<InternalEvent>,
     row: &StoredGroupMessage,
-) -> Result<bool, xmtp_db::ConnectionError> {
+) -> Result<bool, xmtp_db::StorageError> {
     if row.kind != GroupMessageKind::Application || row.deleted_by_inbox_id.is_some() {
         return Ok(false);
     }
@@ -196,7 +196,7 @@ pub(crate) fn import_record(
     db: &impl DbQuery,
     events: &impl EventWriter<InternalEvent>,
     record: &StoredMessageDeletion,
-) -> Result<bool, xmtp_db::ConnectionError> {
+) -> Result<bool, xmtp_db::StorageError> {
     let existed = db.get_message_deletion(&record.id)?;
     let stored = db.record_deletion(record)?;
     let recorded = existed.as_ref() != Some(&stored);
@@ -213,7 +213,7 @@ fn apply_record(
     record: &StoredMessageDeletion,
     target: StoredGroupMessage,
     cause: DeletionCause,
-) -> Result<bool, xmtp_db::ConnectionError> {
+) -> Result<bool, xmtp_db::StorageError> {
     if let Err(error) = may_delete(
         &record.group_id,
         &record.deleted_by_inbox_id,
@@ -239,7 +239,7 @@ fn mark(
     target: StoredGroupMessage,
     deleted_by: &str,
     cause: DeletionCause,
-) -> Result<bool, xmtp_db::ConnectionError> {
+) -> Result<bool, xmtp_db::StorageError> {
     // `deleted_by_inbox_id IS NULL` in the UPDATE makes the first write win.
     if db.mark_message_deleted(&target.id, deleted_by)? == 0 {
         return Ok(false);
@@ -250,6 +250,25 @@ fn mark(
         decrypted_message_bytes: Vec::new(),
         ..target
     };
+    // A send this installation still has queued would publish the old
+    // content from its intent: remove each one not yet attempted, in this
+    // write. A saved attempt may already be on the backend and stays.
+    // implements: PROC-037
+    if marked.delivery_status != DeliveryStatus::Published {
+        for intent in db.find_group_intents(
+            marked.group_id,
+            Some(vec![IntentState::ToPublish]),
+            Some(vec![IntentKind::SendMessage]),
+        )? {
+            let names_target = crate::groups::message_id::calculate_message_id_for_intent(&intent)
+                .ok()
+                .flatten()
+                .is_some_and(|id| id == marked.id);
+            if names_target && db.prepared_envelopes(intent.id)?.is_none() {
+                db.delete_group_intent(intent.id)?;
+            }
+        }
+    }
     emit_deleted_messages(events, vec![marked], cause, Some(deleted_by.to_owned()), db)?;
     Ok(true)
 }

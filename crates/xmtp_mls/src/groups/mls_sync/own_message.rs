@@ -401,7 +401,7 @@ where
                 },
             )
             .map_err(|err| IntentResolutionError {
-                processing_error: GroupMessageProcessingError::Storage(err.into()),
+                processing_error: GroupMessageProcessingError::Storage(err),
             })?;
         }
         if !self.conversation_type.is_virtual() {
