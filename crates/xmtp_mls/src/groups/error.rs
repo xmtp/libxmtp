@@ -428,7 +428,8 @@ pub enum GroupError {
     UninitializedField(#[from] derive_builder::UninitializedFieldError),
     /// Delete message error.
     ///
-    /// Failed to delete message. Not retryable.
+    /// Failed to delete message. Retryable only while the message is being
+    /// published.
     #[error(transparent)]
     DeleteMessage(#[from] DeleteMessageError),
 }

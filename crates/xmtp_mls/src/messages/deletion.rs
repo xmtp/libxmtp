@@ -75,8 +75,9 @@ pub(crate) enum Source {
     Archive,
 }
 
-/// Discards every event. An archive import emits no per-row event
-/// (EVENT-004); `archive.restored` reports it once.
+/// Discards every event. An archive import emits no per-row event;
+/// `archive.restored` reports it once.
+// implements: EVENT-004
 pub(crate) struct DiscardEvents;
 
 impl EventWriter<InternalEvent> for DiscardEvents {

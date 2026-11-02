@@ -206,7 +206,7 @@ enum Case {
 
 /// Each case ends with an import. `expected` is the mark on the target
 /// afterwards; `restored` is how many `archive.restored` the last import
-/// emits. No import emits `message.deleted` (EVENT-004).
+/// emits. No import emits `message.deleted`.
 // verifies: PROC-037, ARCH-028, ARCH-008, ARCH-013, EVENT-004
 #[rstest::rstest]
 #[case::imported_sender_deletion_of_stored_target(
@@ -266,7 +266,11 @@ async fn deletion_survives_storage(
     match case {
         Case::ImportedSenderDeletionOfStoredTarget => {
             target(g, published).store(&db).unwrap();
-            last = import(&alix.context, vec![legacy(&deletion(g, D1, SENDER, published))]).await;
+            last = import(
+                &alix.context,
+                vec![legacy(&deletion(g, D1, SENDER, published))],
+            )
+            .await;
         }
         Case::OldFormatTargetFirst => {
             last = import(
@@ -304,7 +308,11 @@ async fn deletion_survives_storage(
             let unpublished = deletion(g, D1, SENDER, DeliveryStatus::Unpublished);
             import(&alix.context, vec![legacy(&unpublished)]).await;
             assert_eq!(mark_of(&db, &TARGET), None);
-            last = import(&alix.context, vec![legacy(&deletion(g, D1, SENDER, published))]).await;
+            last = import(
+                &alix.context,
+                vec![legacy(&deletion(g, D1, SENDER, published))],
+            )
+            .await;
             // The stored deletion row stays as it was (ARCH-013).
             assert_eq!(
                 db.get_group_message(D1).unwrap().unwrap().delivery_status,
@@ -359,7 +367,10 @@ async fn deletion_survives_storage(
             target(g, status).store(&db).unwrap();
             last = import(&alix.context, vec![marked(&target(g, status), SENDER)]).await;
             assert_eq!(
-                db.get_group_message(TARGET).unwrap().unwrap().delivery_status,
+                db.get_group_message(TARGET)
+                    .unwrap()
+                    .unwrap()
+                    .delivery_status,
                 status
             );
         }
@@ -400,7 +411,11 @@ async fn deletion_survives_storage(
             // real copy from the topic then changes nothing (the key is the
             // whole trust).
             target(g, published).store(&db).unwrap();
-            last = import(&alix.context, vec![legacy(&deletion(g, D1, ADMIN, published))]).await;
+            last = import(
+                &alix.context,
+                vec![legacy(&deletion(g, D1, ADMIN, published))],
+            )
+            .await;
             receive(&group, &deletion(g, D1, MEMBER, published), true);
             assert!(!db.get_message_deletion(&D1).unwrap().unwrap().authenticated);
         }
@@ -408,7 +423,12 @@ async fn deletion_survives_storage(
             target(g, published).store(&db).unwrap();
             import(
                 &alix.context,
-                vec![legacy(&deletion(g, D1, SENDER, DeliveryStatus::Unpublished))],
+                vec![legacy(&deletion(
+                    g,
+                    D1,
+                    SENDER,
+                    DeliveryStatus::Unpublished,
+                ))],
             )
             .await;
             assert_eq!(mark_of(&db, &TARGET), None);
@@ -501,8 +521,11 @@ async fn export_carries_marks_and_every_record() {
             .position(|element| element.element.as_ref().is_some_and(predicate))
             .unwrap()
     };
-    let record_at = position(&|element| matches!(element, Element::MessageDeletion(save) if save.id == deletion_id));
-    let target_at = position(&|element| matches!(element, Element::GroupMessage(save) if save.id == target_id));
+    let record_at = position(
+        &|element| matches!(element, Element::MessageDeletion(save) if save.id == deletion_id),
+    );
+    let target_at =
+        position(&|element| matches!(element, Element::GroupMessage(save) if save.id == target_id));
     assert!(record_at < target_at, "records come before messages");
     let Some(Element::GroupMessage(save)) = &parsed[target_at].element else {
         unreachable!()
@@ -512,8 +535,15 @@ async fn export_carries_marks_and_every_record() {
 
     tester!(fresh, from: alix, disable_workers);
     assert_eq!(import(&fresh.context, parsed.clone()).await, (1, 0));
-    assert_eq!(mark_of(&fresh.db(), &target_id).as_deref(), Some(alix.inbox_id()));
-    assert_eq!(import(&fresh.context, parsed).await, (0, 0), "a re-import changes nothing");
+    assert_eq!(
+        mark_of(&fresh.db(), &target_id).as_deref(),
+        Some(alix.inbox_id())
+    );
+    assert_eq!(
+        import(&fresh.context, parsed).await,
+        (0, 0),
+        "a re-import changes nothing"
+    );
 
     // An installation holds the target unmarked, then imports an archive
     // whose window holds no message but every record.

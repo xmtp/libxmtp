@@ -126,10 +126,20 @@ async fn received_deletion_rejects_old_cached_text_target() {
     // A wire type that CTYPE-018 refuses keeps its content and no mark.
     for id in [vec![0x11; 32], vec![0x12; 32]] {
         assert_eq!(mark_of(&db, &id), None);
-        assert!(!db.get_group_message(&id)?.unwrap().decrypted_message_bytes.is_empty());
+        assert!(
+            !db.get_group_message(&id)?
+                .unwrap()
+                .decrypted_message_bytes
+                .is_empty()
+        );
     }
     assert_eq!(mark_of(&db, &[0x13; 32]).as_deref(), Some(alix.inbox_id()));
-    assert!(db.get_group_message([0x13; 32])?.unwrap().decrypted_message_bytes.is_empty());
+    assert!(
+        db.get_group_message([0x13; 32])?
+            .unwrap()
+            .decrypted_message_bytes
+            .is_empty()
+    );
 }
 
 /// Test basic message deletion by the original sender
@@ -170,10 +180,16 @@ async fn test_delete_message_by_sender() {
 
     // Verify the message is marked as deleted in the database
     let alix_conn = alix.context.db();
-    assert_eq!(mark_of(&alix_conn, &message_id).as_deref(), Some(alix.inbox_id()));
+    assert_eq!(
+        mark_of(&alix_conn, &message_id).as_deref(),
+        Some(alix.inbox_id())
+    );
 
     let bo_conn = bo.context.db();
-    assert_eq!(mark_of(&bo_conn, &message_id).as_deref(), Some(alix.inbox_id()));
+    assert_eq!(
+        mark_of(&bo_conn, &message_id).as_deref(),
+        Some(alix.inbox_id())
+    );
 
     // Verify deletion record exists
     for conn in [&alix_conn, &bo_conn] {
@@ -258,8 +274,14 @@ async fn test_delete_message_by_super_admin() {
 
     // Verify the message is marked as deleted on both installations
     let alix_conn = alix.context.db();
-    assert_eq!(mark_of(&alix_conn, &message_id).as_deref(), Some(alix.inbox_id()));
-    assert_eq!(mark_of(&bo.context.db(), &message_id).as_deref(), Some(alix.inbox_id()));
+    assert_eq!(
+        mark_of(&alix_conn, &message_id).as_deref(),
+        Some(alix.inbox_id())
+    );
+    assert_eq!(
+        mark_of(&bo.context.db(), &message_id).as_deref(),
+        Some(alix.inbox_id())
+    );
 
     // Verify deletion was done by super admin
     let deletion = alix_conn.get_message_deletion(&deletion_id)?.unwrap();
@@ -406,7 +428,10 @@ async fn test_out_of_order_deletion() {
 
     // The topic orders the message before its deletion.
     let bo_conn = bo.context.db();
-    assert_eq!(mark_of(&bo_conn, &message_id).as_deref(), Some(alix.inbox_id()));
+    assert_eq!(
+        mark_of(&bo_conn, &message_id).as_deref(),
+        Some(alix.inbox_id())
+    );
 }
 
 /// An admin delete of a stored message that has already expired names the
@@ -1344,7 +1369,11 @@ async fn request_queues_and_applies_at_echo() {
     ));
     for id in [&first, &second] {
         assert_eq!(
-            alix.context.db().get_group_message(id)?.unwrap().delivery_status,
+            alix.context
+                .db()
+                .get_group_message(id)?
+                .unwrap()
+                .delivery_status,
             DeliveryStatus::Published
         );
     }

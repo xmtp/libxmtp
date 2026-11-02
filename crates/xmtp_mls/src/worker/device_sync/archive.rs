@@ -1,4 +1,7 @@
 use super::DeviceSyncError;
+use crate::messages::deletion::{
+    DiscardEvents, Source, apply_deletion, apply_stored_records, import_record, merge_archived_mark,
+};
 use crate::{
     context::XmtpSharedContext, groups::MlsGroup, state_tx::state_write,
     subscriptions::internal::InternalEvent, worker::NeedsDbReconnect,
@@ -7,17 +10,13 @@ use futures::{Stream, StreamExt};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 pub use xmtp_archive::*;
 use xmtp_configuration::LEGACY_GROUP_ID_BYTES;
-use crate::messages::deletion::{
-    DiscardEvents, Source, apply_deletion, apply_stored_records, import_record,
-    merge_archived_mark,
-};
 use xmtp_db::{
     StorageError,
     TransactionOutcome::Continue,
-    message_deletion::StoredMessageDeletion,
     consent_record::{ConsentKey, ConsentWrite, Owed, parse_consent_save, write_consent},
     group::ConversationType,
     group_message::StoredGroupMessage,
+    message_deletion::StoredMessageDeletion,
     prelude::*,
 };
 use xmtp_proto::types::GroupId;

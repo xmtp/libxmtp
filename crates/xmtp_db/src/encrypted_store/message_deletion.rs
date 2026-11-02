@@ -261,18 +261,24 @@ mod tests {
             }
             let case = record(9, group_id, by, admin, 10_000);
             conn.record_deletion(&case).unwrap();
-            assert_eq!(conn.first_deletion_of(&target).unwrap(), found.then_some(case));
-            let plan = conn.raw_query(|raw| {
-                diesel::sql_query(
-                    "EXPLAIN QUERY PLAN SELECT * FROM message_deletions \
+            assert_eq!(
+                conn.first_deletion_of(&target).unwrap(),
+                found.then_some(case)
+            );
+            let plan = conn
+                .raw_query(|raw| {
+                    diesel::sql_query(
+                        "EXPLAIN QUERY PLAN SELECT * FROM message_deletions \
                      WHERE group_id = x'01' AND deleted_message_id = x'aa' \
                      AND (deleted_by_inbox_id = 'sender' OR is_super_admin_deletion = 1) \
                      ORDER BY deleted_at_ns, id LIMIT 1",
-                )
-                .load::<QueryPlan>(raw)
-            }).unwrap();
+                    )
+                    .load::<QueryPlan>(raw)
+                })
+                .unwrap();
             assert!(
-                plan.iter().any(|row| row.detail.contains("message_deletions_target")),
+                plan.iter()
+                    .any(|row| row.detail.contains("message_deletions_target")),
                 "{:?}",
                 plan.iter().map(|row| &row.detail).collect::<Vec<_>>()
             );

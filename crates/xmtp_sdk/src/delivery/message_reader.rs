@@ -406,8 +406,7 @@ impl MessageReader {
                         item.acknowledgement.reject();
                         return Ok(false);
                     }
-                    let message = match read_message(&context, item.message.clone(), client_key)
-                    {
+                    let message = match read_message(&context, item.message.clone(), client_key) {
                         Ok(message) => message.with_delivery_cursor(Some(item.cursor)),
                         Err(error) => {
                             state.lock().ended = true;

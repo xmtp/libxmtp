@@ -116,10 +116,15 @@ async fn cancel_unsent_refuses_a_saved_attempt() {
 
     assert!(matches!(
         group.delete_message(message.clone()),
-        Err(GroupError::DeleteMessage(DeleteMessageError::MessageInFlight))
+        Err(GroupError::DeleteMessage(
+            DeleteMessageError::MessageInFlight
+        ))
     ));
     assert_eq!(status(&group, &message), DeliveryStatus::Unpublished);
-    assert_eq!(intents_in(&group, &UNRESOLVED, IntentKind::SendMessage), saved);
+    assert_eq!(
+        intents_in(&group, &UNRESOLVED, IntentKind::SendMessage),
+        saved
+    );
 
     group.sync().await?;
     assert_eq!(status(&group, &message), DeliveryStatus::Published);
@@ -149,7 +154,10 @@ async fn cancel_unsent_races_the_publisher() {
         group.group_id.as_ref(),
         Box::new(move || {
             Box::pin(async move {
-                assert_eq!(cancelling.delete_message(cancelled.clone()).unwrap(), cancelled);
+                assert_eq!(
+                    cancelling.delete_message(cancelled.clone()).unwrap(),
+                    cancelled
+                );
             })
         }),
     );

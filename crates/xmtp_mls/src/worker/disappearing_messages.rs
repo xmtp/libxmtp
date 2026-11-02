@@ -593,7 +593,9 @@ mod tests {
 
         tester!(alix, disable_workers);
         let group = alix.create_group(None, None)?;
-        let target = group.send_message(&secret_text(), Default::default()).await?;
+        let target = group
+            .send_message(&secret_text(), Default::default())
+            .await?;
         let deletion = group.delete_message(target.clone())?;
         group.publish_messages().await?;
         let db = alix.context.db();

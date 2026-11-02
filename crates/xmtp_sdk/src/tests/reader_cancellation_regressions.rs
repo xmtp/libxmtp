@@ -319,9 +319,8 @@ async fn buffered_reader_sees_deletions() {
     let first = group.send_text("first".into(), None).await?;
     let reader = client.conversations().message_reader(None).await?;
     assert_eq!(reader.next().await?.expect("first").0.id, first);
-    let is_placeholder = |message: &crate::Message| {
-        matches!(message.0.content, MessageContent::DeletedMessage(_))
-    };
+    let is_placeholder =
+        |message: &crate::Message| matches!(message.0.content, MessageContent::DeletedMessage(_));
 
     // (a) The held message itself is deleted.
     let held = group.send_text("held".into(), None).await?;

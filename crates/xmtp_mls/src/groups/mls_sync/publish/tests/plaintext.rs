@@ -22,7 +22,9 @@ fn holds_plaintext<C: XmtpSharedContext>(group: &MlsGroup<C>) -> bool {
         .find_group_intents(group.group_id, None, None)
         .unwrap();
     let messages = group.find_messages(&Default::default()).unwrap();
-    intents.iter().any(|intent| contains(intent.data.as_slice()))
+    intents
+        .iter()
+        .any(|intent| contains(intent.data.as_slice()))
         || messages
             .iter()
             .any(|message| contains(&message.decrypted_message_bytes))

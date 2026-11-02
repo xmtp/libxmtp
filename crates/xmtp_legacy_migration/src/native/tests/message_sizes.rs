@@ -159,5 +159,8 @@ async fn deleter_counts_toward_message_row_limit() {
         ExpectedError::RecordRead,
     )
     .await;
-    assert!(failures.is_empty(), "oversized row was accepted: {failures:?}");
+    assert!(
+        failures.is_empty(),
+        "oversized row was accepted: {failures:?}"
+    );
 }

@@ -994,9 +994,8 @@ pub(crate) mod tests {
                 alix.context.events(),
                 |tx, buffer| {
                     let storage = tx.storage();
-                    alix_group.store_external_application_message(
-                        &storage, &message, true, buffer,
-                    )?;
+                    alix_group
+                        .store_external_application_message(&storage, &message, true, buffer)?;
                     Ok::<_, GroupMessageProcessingError>(xmtp_db::TransactionOutcome::Continue(()))
                 },
             );

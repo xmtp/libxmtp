@@ -74,8 +74,8 @@ mod snapshot {
         ConnectionExt, Store, TestDb, XmtpTestDb,
         diesel::{RunQueryDsl, prelude::*},
         group::{ConversationType, GroupMembershipState, StoredGroup},
-        group_message::{SortBy, StoredGroupMessage},
         group_message::QueryGroupMessage,
+        group_message::{SortBy, StoredGroupMessage},
     };
     use xmtp_proto::{
         types::GroupId,

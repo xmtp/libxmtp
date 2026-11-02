@@ -1,7 +1,7 @@
 //! Who may delete which message, and what every installation then shows.
 
-use crate::groups::send_message_opts::SendMessageOpts;
 use crate::groups::UpdateAdminListType;
+use crate::groups::send_message_opts::SendMessageOpts;
 use crate::messages::decoded_message::{DeletedBy, MessageBody};
 use crate::tester;
 use crate::utils::TestMlsGroup as Group;
@@ -96,7 +96,10 @@ async fn deletion_rules(#[case] case: Case) {
             .id
             .clone()
     } else {
-        bo_group.send_message(&text("target"), opts()).await.unwrap()
+        bo_group
+            .send_message(&text("target"), opts())
+            .await
+            .unwrap()
     };
     for group in [&alix_group, &bo_group, &caro_group] {
         group.sync().await.unwrap();
@@ -122,7 +125,10 @@ async fn deletion_rules(#[case] case: Case) {
         Case::MemberDeletesOther => {
             // The request refuses, so the member sends the content directly.
             assert!(caro_group.delete_message(target.clone()).is_err());
-            caro_group.send_message(&raw_delete(&target), opts()).await.unwrap();
+            caro_group
+                .send_message(&raw_delete(&target), opts())
+                .await
+                .unwrap();
             None
         }
         Case::AdminDemotedFirst => {
@@ -157,7 +163,10 @@ async fn deletion_rules(#[case] case: Case) {
                 .create_group_with_members(&[alix.inbox_id(), caro.inbox_id()], None, None)
                 .await
                 .unwrap();
-            other.send_message(&raw_delete(&target), opts()).await.unwrap();
+            other
+                .send_message(&raw_delete(&target), opts())
+                .await
+                .unwrap();
             alix.sync_all_welcomes_and_groups(None).await.unwrap();
             caro.sync_all_welcomes_and_groups(None).await.unwrap();
             None
@@ -175,7 +184,10 @@ async fn deletion_rules(#[case] case: Case) {
             None
         }
         Case::RawDeleteBySender => {
-            bo_group.send_message(&raw_delete(&target), opts()).await.unwrap();
+            bo_group
+                .send_message(&raw_delete(&target), opts())
+                .await
+                .unwrap();
             Some((bo_inbox.clone(), DeletedBy::Sender))
         }
         Case::SenderThenAdmin => {
@@ -195,7 +207,11 @@ async fn deletion_rules(#[case] case: Case) {
     if !matches!(case, Case::OwnDeletionUnpublished) {
         bo_group.sync().await.unwrap();
     }
-    for (name, group) in [("alix", &alix_group), ("bo", &bo_group), ("caro", &caro_group)] {
+    for (name, group) in [
+        ("alix", &alix_group),
+        ("bo", &bo_group),
+        ("caro", &caro_group),
+    ] {
         // A membership change row is local to each installation.
         let Some((mark, empty, placeholder)) = view(group, &target) else {
             assert!(matches!(case, Case::Transcript) && name != "alix");
