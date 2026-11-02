@@ -145,6 +145,8 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                                 Ok(dependencies) => dependencies,
                                 Err(error) => break Err(error),
                             };
+                        #[cfg(test)]
+                        tests::before_prepare(self.group_id.as_ref()).await;
                         let result = self.prepare_publish_attempt(&requirements, &mut dependencies);
                         if matches!(
                             result,

@@ -449,11 +449,15 @@ pub enum DeleteMessageError {
     NonDeletableMessage,
     #[error("Message already deleted")]
     MessageAlreadyDeleted,
+    /// An attempt to send the message is saved and may already be on the
+    /// backend. A retry after its echo deletes it for everyone.
+    #[error("Message is being published")]
+    MessageInFlight,
 }
 
 impl RetryableError for DeleteMessageError {
     fn is_retryable(&self) -> bool {
-        false
+        matches!(self, Self::MessageInFlight)
     }
 }
 

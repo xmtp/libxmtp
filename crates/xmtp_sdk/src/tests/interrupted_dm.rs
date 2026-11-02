@@ -71,15 +71,16 @@ async fn prepare_message_completes_an_interrupted_dm() {
     bo.end().await?;
 }
 
-/// Deleting a message in a DM whose creation stopped before the peer was
-/// added adds the peer before it queues the deletion, so the peer reads the
-/// deletion. Both delete entry points share that step.
+/// Deleting a published message in a DM whose creation stopped before the
+/// peer was added adds the peer before it queues the deletion, so the peer
+/// reads the deletion. Both delete entry points share that step.
 // verifies: DMS-020
 #[xmtp_common::test(unwrap_try = true)]
 async fn delete_message_completes_an_interrupted_dm() {
     for through_dm in [false, true] {
         let (alix, bo, orphan) = interrupted_dm().await;
         let planted = plant(&orphan, "planted");
+        orphan.publish_messages().await?;
 
         let deletion = if through_dm {
             alix.conversations()
@@ -94,6 +95,40 @@ async fn delete_message_completes_an_interrupted_dm() {
         orphan.publish_messages().await?;
 
         assert_bo_received(&alix, &bo, deletion).await;
+        alix.end().await?;
+        bo.end().await?;
+    }
+}
+
+/// Deleting an unsent own message in a DM whose creation stopped before the
+/// peer was added cancels it without adding the peer: a cancel publishes
+/// nothing, so it needs no network.
+// verifies: SEND-026, DMS-020
+#[xmtp_common::test(unwrap_try = true)]
+async fn delete_unsent_message_cancels_without_dm_repair() {
+    for through_dm in [false, true] {
+        let (alix, bo, orphan) = interrupted_dm().await;
+        let planted = plant(&orphan, "never sent");
+        let returned = if through_dm {
+            alix.conversations()
+                .get_dm_by_inbox_id(bo.inbox_id())
+                .await?
+                .expect("stored DM")
+                .delete_message(planted.clone())
+                .await?
+        } else {
+            alix.conversations().delete_message(planted.clone()).await?
+        };
+        assert_eq!(returned, planted);
+        assert!(alix.inner.message(planted.to_bytes()?).is_err());
+        // The peer was never added.
+        assert!(
+            orphan
+                .members()
+                .await?
+                .iter()
+                .all(|member| member.inbox_id != bo.inner.inbox_id())
+        );
         alix.end().await?;
         bo.end().await?;
     }

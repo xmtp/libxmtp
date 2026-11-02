@@ -98,7 +98,8 @@ where
 }
 
 /// The group that holds `stored`, ready to queue its deletion: a DM whose
-/// creation stopped before the peer was added gets the peer first.
+/// creation stopped before the peer was added gets the peer first. An unsent
+/// own message is cancelled and publishes nothing, so it needs no peer.
 pub(super) async fn deletion_group(
     group: MlsGroup<MlsContext>,
     stored: &StoredGroupMessage,
@@ -126,9 +127,11 @@ pub(super) async fn deletion_group(
         MlsGroup::load_by_id(&group.context, &stored.group_id).map_err(XmtpError::from_core)?
     };
     // implements: DMS-020
-    group
-        .ensure_dm_peer()
-        .await
-        .map_err(XmtpError::from_group_write)?;
+    if !stored.is_unsent_from(group.context.installation_id().as_slice()) {
+        group
+            .ensure_dm_peer()
+            .await
+            .map_err(XmtpError::from_group_write)?;
+    }
     Ok(group)
 }

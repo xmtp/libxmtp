@@ -372,6 +372,11 @@ mock! {
             intent: &crate::group_intent::StoredGroupIntent,
             msg_id: Option<Vec<u8>>,
         ) -> Result<(), StorageError>;
+
+        fn delete_group_intent(
+            &self,
+            intent_id: crate::group_intent::ID,
+        ) -> Result<usize, StorageError>;
     }
 
     impl QueryReaddStatus for DbQuery {

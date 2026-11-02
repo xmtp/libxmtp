@@ -498,6 +498,10 @@ impl Conversations {
         .await
     }
 
+    /// Delete a message for everyone. Returns the id of the queued deletion
+    /// message, which publishes with the conversation's next publish. When the
+    /// message is this installation's and was never sent, it is cancelled
+    /// instead and the id names the cancelled message; nothing is published.
     pub async fn delete_message(&self, id: MessageId) -> Result<MessageId, XmtpError> {
         let (stored, group) = self.message_group(&id).await?;
         on_sdk_worker(

@@ -462,6 +462,16 @@ impl XmtpError {
                     false,
                     "message id belongs to another sender inbox",
                 ))),
+                // A retry after the send's echo deletes it for everyone.
+                // implements: SEND-026
+                GroupError::DeleteMessage(
+                    xmtp_mls::groups::DeleteMessageError::MessageInFlight,
+                ) => Some(Self::InvalidInput(Self::details(
+                    "MessageInFlight",
+                    ErrorCategory::Input,
+                    true,
+                    group.to_string(),
+                ))),
                 GroupError::MetadataField(field) => Some(Self::from_field(field)),
                 GroupError::ComponentSource(source) => Some(Self::from_component_source(source)),
                 GroupError::TooManyCharacters { .. } => {
