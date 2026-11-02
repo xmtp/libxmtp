@@ -162,7 +162,12 @@ pub(crate) fn apply_deletion(
         return Ok(recorded);
     };
     let marked = match source {
-        Source::Topic { cause, .. } => apply_record(db, events, &record, target, cause)?,
+        // Mark from the earliest authorized record, not this one: an earlier
+        // record stored while the target was absent must name the deleter.
+        Source::Topic { cause, .. } => match db.first_deletion_of(&target)? {
+            Some(first) => apply_record(db, events, &first, target, cause)?,
+            None => false,
+        },
         // An archived deletion decides nothing: only a record from the topic
         // marks the target.
         Source::Archive => apply_stored_records(db, events, &target)?,

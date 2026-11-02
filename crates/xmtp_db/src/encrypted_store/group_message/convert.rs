@@ -6,7 +6,17 @@ use xmtp_proto::xmtp::device_sync::message_backup::{
 
 impl TryFrom<GroupMessageSave> for StoredGroupMessage {
     type Error = ConversionError;
-    fn try_from(value: GroupMessageSave) -> Result<Self, Self::Error> {
+    fn try_from(mut value: GroupMessageSave) -> Result<Self, Self::Error> {
+        // implements: ARCH-028
+        // Wipe a marked element's content before any fallible conversion, so
+        // a malformed element cannot drop its plaintext into freed memory.
+        if value
+            .deleted_by_inbox_id
+            .as_ref()
+            .is_some_and(|id| !id.is_empty())
+        {
+            zeroize::Zeroize::zeroize(&mut value.decrypted_message_bytes);
+        }
         let kind = value.kind().try_into()?;
         let delivery_status = value.delivery_status().try_into()?;
         let (expire_at_ns, expiry_unknown) = match value.expiry_known {
@@ -29,10 +39,7 @@ impl TryFrom<GroupMessageSave> for StoredGroupMessage {
         // implements: ARCH-028
         // Trust the mark, never its content.
         let deleted_by_inbox_id = value.deleted_by_inbox_id.filter(|id| !id.is_empty());
-        let mut decrypted_message_bytes = value.decrypted_message_bytes;
-        if deleted_by_inbox_id.is_some() {
-            zeroize::Zeroize::zeroize(&mut decrypted_message_bytes);
-        }
+        let decrypted_message_bytes = value.decrypted_message_bytes;
 
         Ok(Self {
             id: value.id,

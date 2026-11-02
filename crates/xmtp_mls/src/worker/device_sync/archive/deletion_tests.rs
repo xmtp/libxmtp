@@ -207,6 +207,7 @@ enum Case {
     AdminRecordOutlivesItsMessage,
     RemovedTargetReimported,
     ReplayIsForeign,
+    EarlierTopicRecordThenPresentTarget,
     ReplayOverImportedRecord,
     TopicDeletionOverForgedRecord,
     ForgedRowDoesNotBlockTopic,
@@ -253,6 +254,11 @@ enum Case {
 #[case::admin_record_outlives_its_message(Case::AdminRecordOutlivesItsMessage, Some(ADMIN), 1)]
 #[case::removed_target_reimported(Case::RemovedTargetReimported, Some(SENDER), 1)]
 #[case::replay_is_foreign(Case::ReplayIsForeign, Some(ADMIN), 1)]
+#[case::earlier_topic_record_then_present_target(
+    Case::EarlierTopicRecordThenPresentTarget,
+    Some(ADMIN),
+    0
+)]
 #[case::replay_over_imported_record(Case::ReplayOverImportedRecord, None, 1)]
 #[case::topic_deletion_over_forged_record(Case::TopicDeletionOverForgedRecord, Some(SENDER), 1)]
 #[case::forged_row_does_not_block_topic(Case::ForgedRowDoesNotBlockTopic, Some(MEMBER), 1)]
@@ -451,6 +457,23 @@ async fn deletion_survives_storage(
             let kept = db.get_message_deletion(&D1).unwrap().unwrap();
             assert_eq!(kept.deleted_by_inbox_id, ADMIN);
             assert!(kept.is_super_admin_deletion && kept.authenticated);
+        }
+        Case::EarlierTopicRecordThenPresentTarget => {
+            // A super admin's deletion is recorded from the topic while the
+            // target is absent; the target is then stored, and the sender's
+            // own later deletion arrives. The earlier authorized record names
+            // the deleter, not the one being processed.
+            let earlier = StoredGroupMessage {
+                sent_at_ns: 100,
+                ..deletion(g, D2, ADMIN, published)
+            };
+            receive(&group, &earlier, true);
+            target(g, published).store(&db).unwrap();
+            let later = StoredGroupMessage {
+                sent_at_ns: 300,
+                ..deletion(g, D1, SENDER, published)
+            };
+            receive(&group, &later, false);
         }
         Case::ReplayOverImportedRecord => {
             // An archive holds a record naming the admin; the topic's copy
