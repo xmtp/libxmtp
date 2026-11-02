@@ -15,6 +15,7 @@ pub use state::{ConversationStateSnapshot, GroupMetadataSnapshot};
 pub mod commit_log;
 pub mod context;
 #[cfg(any(test, feature = "test-utils"))]
+pub(crate) mod deletion;
 pub(crate) mod diagnostics;
 mod error;
 pub mod intents;

@@ -484,11 +484,11 @@ mod tests {
             put(group_id, n, deletion);
             let mut row = conn.get_group_message(vec![n; 32])??;
             row.reference_id = Some(vec![target; 32]);
-            crate::messages::deletion::apply_deletion(
+            crate::groups::deletion::apply_deletion(
                 &conn,
-                &crate::messages::deletion::DiscardEvents,
+                &crate::groups::deletion::DiscardEvents,
                 &row,
-                crate::messages::deletion::Source::Topic {
+                crate::groups::deletion::Source::Topic {
                     super_admin: false,
                     cause: xmtp_events::DeletionCause::Deleted,
                 },

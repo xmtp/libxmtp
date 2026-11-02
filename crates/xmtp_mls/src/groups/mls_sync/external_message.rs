@@ -89,11 +89,11 @@ where
         {
             return Ok(());
         }
-        crate::messages::deletion::apply_deletion(
+        crate::groups::deletion::apply_deletion(
             &db,
             event_writer,
             message,
-            crate::messages::deletion::Source::Topic {
+            crate::groups::deletion::Source::Topic {
                 super_admin,
                 cause: xmtp_events::DeletionCause::Deleted,
             },

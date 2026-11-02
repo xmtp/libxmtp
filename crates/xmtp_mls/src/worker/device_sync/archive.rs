@@ -1,5 +1,5 @@
 use super::DeviceSyncError;
-use crate::messages::deletion::{
+use crate::groups::deletion::{
     DiscardEvents, Source, apply_deletion, apply_stored_records, import_record, merge_archived_mark,
 };
 use crate::{

@@ -2,8 +2,8 @@
 //! an unsent own message is cancelled. Every deletion rule lives here.
 
 use crate::context::XmtpSharedContext;
+use crate::core::events::{InternalEvent, emit_deleted_messages};
 use crate::groups::{DeleteMessageError, GroupError, MlsGroup};
-use crate::subscriptions::internal::{InternalEvent, emit_deleted_messages};
 use openmls::group::MlsGroup as OpenMlsGroup;
 use prost::Message;
 use xmtp_common::snippet::Snippet;
@@ -280,7 +280,8 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                         ]),
                         Some(vec![IntentKind::SendMessage]),
                     )? {
-                        if crate::utils::id::calculate_message_id_for_intent(&intent)?.as_deref()
+                        if crate::groups::message_id::calculate_message_id_for_intent(&intent)?
+                            .as_deref()
                             != Some(id)
                         {
                             continue;

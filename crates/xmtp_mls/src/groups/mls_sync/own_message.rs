@@ -391,11 +391,11 @@ where
                 })?
         {
             let super_admin = self.deletion_admin_bit(mls_group, &row);
-            crate::messages::deletion::apply_deletion(
+            crate::groups::deletion::apply_deletion(
                 &storage.db(),
                 event_writer,
                 &row,
-                crate::messages::deletion::Source::Topic {
+                crate::groups::deletion::Source::Topic {
                     super_admin,
                     cause: xmtp_events::DeletionCause::DeletedLocally,
                 },

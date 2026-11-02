@@ -2,8 +2,8 @@
 
 use super::mls_sync::publish::OutgoingPreparationError;
 use super::*;
+use crate::groups::deletion::may_delete;
 use crate::messages::decoded_message::carries_reserved_transcript;
-use crate::messages::deletion::may_delete;
 
 /// An installation refresh before a send applies its membership change even
 /// when the Welcomes for the installations it adds cannot be sent. That
