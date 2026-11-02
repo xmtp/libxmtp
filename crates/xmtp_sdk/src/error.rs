@@ -1,4 +1,5 @@
 mod configuration;
+mod group;
 mod handles;
 mod wrappers;
 pub(crate) use wrappers::CoreError;
@@ -462,16 +463,7 @@ impl XmtpError {
                     false,
                     "message id belongs to another sender inbox",
                 ))),
-                // A retry after the send's echo deletes it for everyone.
-                // implements: SEND-026
-                GroupError::DeleteMessage(
-                    xmtp_mls::groups::DeleteMessageError::MessageInFlight,
-                ) => Some(Self::InvalidInput(Self::details(
-                    "MessageInFlight",
-                    ErrorCategory::Input,
-                    true,
-                    group.to_string(),
-                ))),
+                GroupError::DeleteMessage(error) => Self::from_delete(error),
                 GroupError::MetadataField(field) => Some(Self::from_field(field)),
                 GroupError::ComponentSource(source) => Some(Self::from_component_source(source)),
                 GroupError::TooManyCharacters { .. } => {
@@ -867,39 +859,6 @@ impl XmtpError {
             SqlKeyStoreError::Connection(connection) => Self::connection_retryable(connection),
             other => other.is_retryable(),
         }
-    }
-
-    /// A field error keeps its kind. A denied write is the conversation's
-    /// `PermissionDenied`.
-    fn from_field(error: &xmtp_mls::mls_common::app_data::fields::FieldError) -> Self {
-        use xmtp_mls::mls_common::app_data::fields::FieldError;
-        let message = error.to_string();
-        let input = |code| Self::details(code, ErrorCategory::Input, false, message.clone());
-        let conversation =
-            |code| Self::details(code, ErrorCategory::Conversation, false, message.clone());
-        match error {
-            FieldError::UnknownField(_) => Self::UnknownField(input("UnknownField")),
-            FieldError::NotUserField(_) => Self::NotUserField(input("NotUserField")),
-            FieldError::DuplicateField(_) => Self::DuplicateField(input("DuplicateField")),
-            FieldError::TypeMismatch(_) => Self::TypeMismatch(input("TypeMismatch")),
-            FieldError::UnsupportedType { .. } => {
-                Self::UnsupportedType(conversation("UnsupportedType"))
-            }
-            FieldError::TypeChanged { .. } => Self::TypeChanged(conversation("TypeChanged")),
-            FieldError::Denied(_) => Self::conversation_permission_denied(message.clone()),
-            FieldError::Component(source) => Self::from_component_source(source),
-        }
-    }
-
-    fn from_component_source(
-        error: &xmtp_mls::mls_common::app_data::component_source::ComponentSourceError,
-    ) -> Self {
-        Self::Unknown(Self::details(
-            "Unknown",
-            ErrorCategory::Conversation,
-            false,
-            error.to_string(),
-        ))
     }
 
     #[cfg(not(target_arch = "wasm32"))]
