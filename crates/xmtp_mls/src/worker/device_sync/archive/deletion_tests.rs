@@ -191,6 +191,8 @@ enum Case {
     RecordsInExportOrder,
     RecordsReversed,
     KnownTargetWithStoredRecord,
+    KnownTargetWithTopicRecord,
+    CraftedArchiveKeepsHeldMessage,
     OldThenFieldNineteen,
     MarkOverOtherInstallationsUnpublished,
     MarkOverOtherInstallationsFailed,
@@ -210,9 +212,9 @@ enum Case {
 /// emits. No import emits `message.deleted`.
 // verifies: PROC-037, ARCH-028, ARCH-008, ARCH-013, EVENT-004
 #[rstest::rstest]
-#[case::imported_sender_deletion_of_stored_target(
+#[case::imported_sender_deletion_of_held_target(
     Case::ImportedSenderDeletionOfStoredTarget,
-    Some(SENDER),
+    None,
     1
 )]
 #[case::old_format_target_first(Case::OldFormatTargetFirst, Some(SENDER), 1)]
@@ -223,23 +225,21 @@ enum Case {
     Some(SENDER),
     1
 )]
-#[case::converted_mark_over_known_target(Case::ConvertedMarkOverKnownTarget, Some(SENDER), 1)]
+#[case::converted_mark_over_known_target(Case::ConvertedMarkOverKnownTarget, None, 0)]
 #[case::converted_mark_fresh(Case::ConvertedMarkFresh, Some(SENDER), 1)]
-#[case::deletion_only_import(Case::DeletionOnlyImport, Some(SENDER), 1)]
+#[case::deletion_only_import_over_held_target(Case::DeletionOnlyImport, None, 1)]
 #[case::records_in_export_order(Case::RecordsInExportOrder, Some(SENDER), 1)]
-#[case::records_reversed(Case::RecordsReversed, Some(ADMIN), 1)]
-#[case::known_target_with_stored_record(Case::KnownTargetWithStoredRecord, Some(SENDER), 1)]
-#[case::old_then_field_nineteen(Case::OldThenFieldNineteen, Some(SENDER), 1)]
+#[case::records_reversed(Case::RecordsReversed, Some(SENDER), 1)]
+#[case::known_target_with_imported_record(Case::KnownTargetWithStoredRecord, None, 0)]
+#[case::known_target_with_topic_record(Case::KnownTargetWithTopicRecord, Some(SENDER), 1)]
+#[case::old_then_field_nineteen(Case::OldThenFieldNineteen, None, 0)]
 #[case::mark_over_other_installations_unpublished(
     Case::MarkOverOtherInstallationsUnpublished,
-    Some(SENDER),
-    1
+    None,
+    0
 )]
-#[case::mark_over_other_installations_failed(
-    Case::MarkOverOtherInstallationsFailed,
-    Some(SENDER),
-    1
-)]
+#[case::mark_over_other_installations_failed(Case::MarkOverOtherInstallationsFailed, None, 0)]
+#[case::crafted_archive_keeps_held_message(Case::CraftedArchiveKeepsHeldMessage, None, 1)]
 #[case::admin_record_outlives_its_message(Case::AdminRecordOutlivesItsMessage, Some(ADMIN), 1)]
 #[case::removed_target_reimported(Case::RemovedTargetReimported, Some(SENDER), 1)]
 #[case::replay_is_foreign(Case::ReplayIsForeign, Some(ADMIN), 1)]
@@ -306,13 +306,15 @@ async fn deletion_survives_storage(
             .await;
         }
         Case::UnpublishedThenPublishedDeletion => {
-            target(g, published).store(&db).unwrap();
-            let unpublished = deletion(g, D1, SENDER, DeliveryStatus::Unpublished);
-            import(&alix.context, vec![legacy(&unpublished)]).await;
-            assert_eq!(mark_of(&db, &TARGET), None);
+            // The stored Unpublished copy of the deletion must not hide its
+            // Published copy later in the same import.
             last = import(
                 &alix.context,
-                vec![legacy(&deletion(g, D1, SENDER, published))],
+                vec![
+                    legacy(&target(g, published)),
+                    legacy(&deletion(g, D1, SENDER, DeliveryStatus::Unpublished)),
+                    legacy(&deletion(g, D1, SENDER, published)),
+                ],
             )
             .await;
             // The stored deletion row stays as it was.
@@ -340,14 +342,16 @@ async fn deletion_survives_storage(
             last = import(&alix.context, vec![record(g, D1, SENDER, false, 10)]).await;
         }
         Case::RecordsInExportOrder | Case::RecordsReversed => {
-            target(g, published).store(&db).unwrap();
+            // The earliest authorized record by time marks the imported
+            // target, whatever the record order.
             let first = record(g, D1, SENDER, false, 10);
             let second = record(g, D2, ADMIN, true, 20);
-            let elements = if matches!(case, Case::RecordsInExportOrder) {
+            let mut elements = if matches!(case, Case::RecordsInExportOrder) {
                 vec![first, second]
             } else {
                 vec![second, first]
             };
+            elements.push(legacy(&target(g, published)));
             last = import(&alix.context, elements).await;
         }
         Case::KnownTargetWithStoredRecord => {
@@ -355,6 +359,27 @@ async fn deletion_survives_storage(
             // The target is stored again, unmarked.
             target(g, published).store(&db).unwrap();
             last = import(&alix.context, vec![legacy(&target(g, published))]).await;
+        }
+        Case::KnownTargetWithTopicRecord => {
+            // A deletion processed from the topic before its target was
+            // stored again; an import of the held target applies it.
+            receive(&group, &deletion(g, D1, SENDER, published), false);
+            target(g, published).store(&db).unwrap();
+            last = import(&alix.context, vec![legacy(&target(g, published))]).await;
+        }
+        Case::CraftedArchiveKeepsHeldMessage => {
+            // An archive marks a held message, forges a super-admin record
+            // and carries a deletion message: none of it deletes the message.
+            target(g, published).store(&db).unwrap();
+            last = import(
+                &alix.context,
+                vec![
+                    record(g, D2, ADMIN, true, 10),
+                    marked(&target(g, published), ADMIN),
+                    legacy(&deletion(g, D1, SENDER, published)),
+                ],
+            )
+            .await;
         }
         Case::OldThenFieldNineteen => {
             import(&alix.context, vec![legacy(&target(g, published))]).await;
@@ -561,7 +586,7 @@ async fn export_carries_marks_and_every_record() {
     // An installation holds the target unmarked, then imports an archive
     // whose window holds no message but every record.
     tester!(older, from: alix, disable_workers);
-    import(&older.context, elements(before).await).await;
+    import(&older.context, elements(before.clone()).await).await;
     assert_eq!(mark_of(&older.db(), &target_id), None);
     let window = export(Some(xmtp_common::time::now_ns()));
     let window = elements(window).await;
@@ -571,18 +596,23 @@ async fn export_carries_marks_and_every_record() {
             .any(|element| matches!(&element.element, Some(Element::GroupMessage(_))))
     );
     assert_eq!(import(&older.context, window).await, (1, 0));
+    // Archive evidence never marks a message held before the import.
+    assert_eq!(mark_of(&older.db(), &target_id), None);
+    assert!(older.db().get_message_deletion(&deletion_id)?.is_some());
+    // Once removed locally, the old archive does not bring the content back.
+    older.db().delete_message_by_id(&target_id)?;
+    import(&older.context, elements(before).await).await;
     let stored = older.db().get_group_message(&target_id)?.unwrap();
     assert_eq!(stored.deleted_by_inbox_id.as_deref(), Some(alix.inbox_id()));
     assert!(stored.decrypted_message_bytes.is_empty());
 }
 
-/// Two deletions of one target, the earlier in time with the larger id. The
-/// export writes records in time order, so an installation that holds the
-/// target marks it from the earlier record; a fresh installation marks it
-/// from the earliest record it stored.
+/// Two deletions of one target, the earlier in time with the larger id. A
+/// fresh installation marks the imported target from the earliest record;
+/// one that holds the target keeps it.
 // verifies: ARCH-028, PROC-037
 #[xmtp_common::test(unwrap_try = true)]
-async fn export_orders_records_by_time() {
+async fn earliest_record_marks_an_imported_target() {
     tester!(alix, disable_workers);
     let group = alix.create_group(None, None)?;
     let g = group.group_id;
@@ -635,7 +665,7 @@ async fn export_orders_records_by_time() {
     import(&holder.context, elements(target_only).await).await;
     assert_eq!(mark_of(&holder.db(), &TARGET), None);
     import(&holder.context, with_records.clone()).await;
-    assert_eq!(mark_of(&holder.db(), &TARGET).as_deref(), Some(SENDER));
+    assert_eq!(mark_of(&holder.db(), &TARGET), None);
 
     tester!(fresh, from: alix, disable_workers);
     import(&fresh.context, with_records).await;

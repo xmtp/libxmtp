@@ -19,6 +19,12 @@ diesel::table! {
 }
 
 diesel::table! {
+    deletion_backfill (target_id) {
+        target_id -> Binary,
+    }
+}
+
+diesel::table! {
     group_intents (id) {
         id -> Integer,
         kind -> Integer,
@@ -354,6 +360,7 @@ diesel::joinable!(received_proposals -> groups (group_id));
 diesel::allow_tables_to_appear_in_same_query!(
     association_state,
     consent_records,
+    deletion_backfill,
     group_intents,
     group_messages,
     group_set_generation,

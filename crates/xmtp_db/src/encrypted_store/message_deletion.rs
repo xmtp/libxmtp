@@ -86,10 +86,12 @@ pub trait QueryMessageDeletion {
     ) -> Result<StoredMessageDeletion, crate::ConnectionError>;
 
     /// The record with the lowest `(deleted_at_ns, id)` for `target` whose
-    /// deleter is the target's sender or was a super admin, in its group.
+    /// deleter is the target's sender or was a super admin, in its group;
+    /// with `authenticated_only`, among records from the topic.
     fn first_deletion_of(
         &self,
         target: &StoredGroupMessage,
+        authenticated_only: bool,
     ) -> Result<Option<StoredMessageDeletion>, crate::ConnectionError>;
 }
 
@@ -114,8 +116,9 @@ where
     fn first_deletion_of(
         &self,
         target: &StoredGroupMessage,
+        authenticated_only: bool,
     ) -> Result<Option<StoredMessageDeletion>, crate::ConnectionError> {
-        (**self).first_deletion_of(target)
+        (**self).first_deletion_of(target, authenticated_only)
     }
 }
 
@@ -165,12 +168,17 @@ impl<C: ConnectionExt> QueryMessageDeletion for DbConnection<C> {
     fn first_deletion_of(
         &self,
         target: &StoredGroupMessage,
+        authenticated_only: bool,
     ) -> Result<Option<StoredMessageDeletion>, crate::ConnectionError> {
         // The SQL mirror of may_delete's deleter-side checks (same group;
         // sender or super admin), applied before LIMIT 1. The other checks
         // depend only on the target, so if the first candidate fails, all fail.
         self.raw_query(|conn| {
-            dsl::message_deletions
+            let mut query = dsl::message_deletions.into_boxed();
+            if authenticated_only {
+                query = query.filter(dsl::authenticated.eq(true));
+            }
+            query
                 .filter(dsl::group_id.eq(target.group_id))
                 .filter(dsl::deleted_message_id.eq(&target.id))
                 .filter(
@@ -183,6 +191,80 @@ impl<C: ConnectionExt> QueryMessageDeletion for DbConnection<C> {
                 .optional()
         })
     }
+}
+
+/// Mark and empty, once, each target that the upgrade to deletion marks
+/// queued and that the old read-time check hid: a record in its group whose
+/// deleter is its sender or a super admin, and a deletable wire type. The
+/// earliest such record names the deleter. Then empty the queue.
+// implements: PROC-037
+pub(crate) fn backfill_deletion_marks(
+    conn: &mut diesel::SqliteConnection,
+) -> Result<(), diesel::result::Error> {
+    use crate::schema::{deletion_backfill, group_messages};
+    let queued: bool = diesel::select(diesel::dsl::exists(
+        deletion_backfill::table.select(deletion_backfill::target_id),
+    ))
+    .get_result(conn)?;
+    if !queued {
+        return Ok(());
+    }
+    conn.immediate_transaction(|conn| {
+        let targets: Vec<Vec<u8>> = deletion_backfill::table
+            .select(deletion_backfill::target_id)
+            .load(conn)?;
+        for id in targets {
+            // Only the columns the old check read: other columns of an old
+            // row need not load.
+            let Some((group_id, kind, sender, bytes, marked)) = group_messages::table
+                .find(&id)
+                .select((
+                    group_messages::group_id,
+                    group_messages::kind,
+                    group_messages::sender_inbox_id,
+                    group_messages::decrypted_message_bytes,
+                    group_messages::deleted_by_inbox_id,
+                ))
+                .first::<(Vec<u8>, i32, String, Vec<u8>, Option<String>)>(conn)
+                .optional()?
+            else {
+                continue;
+            };
+            let application = kind == crate::group_message::GroupMessageKind::Application as i32;
+            if marked.is_some()
+                || !application
+                || !crate::group_message::content_is_deletable(&bytes)
+            {
+                continue;
+            }
+            let deleter = dsl::message_deletions
+                .filter(dsl::group_id.eq(group_id))
+                .filter(dsl::deleted_message_id.eq(&id))
+                .filter(
+                    dsl::deleted_by_inbox_id
+                        .eq(&sender)
+                        .or(dsl::is_super_admin_deletion.eq(true)),
+                )
+                .order((dsl::deleted_at_ns.asc(), dsl::id.asc()))
+                .select(dsl::deleted_by_inbox_id)
+                .first::<String>(conn)
+                .optional()?;
+            if let Some(deleter) = deleter {
+                diesel::update(
+                    group_messages::table
+                        .find(&id)
+                        .filter(group_messages::deleted_by_inbox_id.is_null()),
+                )
+                .set((
+                    group_messages::deleted_by_inbox_id.eq(deleter),
+                    group_messages::decrypted_message_bytes.eq(Vec::<u8>::new()),
+                ))
+                .execute(conn)?;
+            }
+        }
+        diesel::delete(deletion_backfill::table).execute(conn)?;
+        Ok(())
+    })
 }
 
 #[cfg(test)]
@@ -262,7 +344,7 @@ mod tests {
             let case = record(9, group_id, by, admin, 10_000);
             conn.record_deletion(&case).unwrap();
             assert_eq!(
-                conn.first_deletion_of(&target).unwrap(),
+                conn.first_deletion_of(&target, false).unwrap(),
                 found.then_some(case)
             );
             let plan = conn

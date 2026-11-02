@@ -1,4 +1,5 @@
 DROP TRIGGER send_intent_plaintext_wiped;
+DROP TABLE deletion_backfill;
 CREATE TABLE message_deletions_v1 (
   id BLOB PRIMARY KEY NOT NULL,
   group_id BLOB NOT NULL,

@@ -1,6 +1,6 @@
 use super::DeviceSyncError;
 use crate::groups::deletion::{
-    DiscardEvents, Source, apply_deletion, apply_stored_records, import_record, merge_archived_mark,
+    DiscardEvents, Imported, Source, apply_deletion, apply_stored_records, import_record,
 };
 use crate::{
     context::XmtpSharedContext, groups::MlsGroup, state_tx::state_write,
@@ -32,6 +32,8 @@ struct ImportContext {
     /// change other installations are owed, but the app hears of
     /// it once through `archive.restored`.
     deletions_stored: bool,
+    /// The messages this import inserted, which its deletion evidence may mark.
+    imported: Imported,
     /// The archive's usable consent records, applied after all its elements.
     /// Archive frames are ciphertext and do not compress, so these grow with
     /// the archive's own size.
@@ -170,7 +172,12 @@ fn insert(
             let record: StoredMessageDeletion = save.try_into()?;
             if !import.is_internal(&context.db(), record.group_id)? {
                 import.deletions_stored |= state_write(context.mls_storage(), |tx| {
-                    let stored = import_record(&tx.storage().db(), &DiscardEvents, &record)?;
+                    let stored = import_record(
+                        &tx.storage().db(),
+                        &DiscardEvents,
+                        &record,
+                        &import.imported,
+                    )?;
                     Ok::<_, StorageError>(Continue(stored))
                 })?
                 .into_continued();
@@ -178,25 +185,28 @@ fn insert(
         }
         // implements: ARCH-013, ARCH-028
         Element::GroupMessage(message) => {
-            // Field 19 makes the row marked and empty.
+            // Field 19 makes a new row marked and empty. A known row keeps
+            // its state: archive evidence never marks a row held before the
+            // import.
             let message: StoredGroupMessage = message.try_into()?;
             if import.is_internal(&context.db(), message.group_id)? {
                 return Ok(());
             }
+            let imported = &mut import.imported;
             let (inserted, deletions) = state_write(context.mls_storage(), |tx| {
                 let storage = tx.storage();
                 let db = storage.db();
                 let inserted = message.store_or_ignore_changed(&db)?;
-                let mut deletions = false;
-                if !inserted && let Some(by) = message.deleted_by_inbox_id.as_deref() {
-                    deletions |= merge_archived_mark(&db, &DiscardEvents, &message.id, by)?;
+                if inserted {
+                    imported.insert(&message.id);
                 }
                 // The evidence is the incoming copy: a stored `Unpublished`
                 // copy of the same id must not hide a later `Published` one.
                 // The stored row itself stays unchanged.
-                deletions |= apply_deletion(&db, &DiscardEvents, &message, Source::Archive)?;
+                let source = Source::Archive { imported };
+                let mut deletions = apply_deletion(&db, &DiscardEvents, &message, source)?;
                 if let Some(row) = db.get_group_message(&message.id)? {
-                    deletions |= apply_stored_records(&db, &DiscardEvents, &row)?;
+                    deletions |= apply_stored_records(&db, &DiscardEvents, &row, imported)?;
                 }
                 Ok::<_, StorageError>(Continue((inserted, deletions)))
             })?

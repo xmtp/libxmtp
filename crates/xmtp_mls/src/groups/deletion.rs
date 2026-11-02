@@ -5,39 +5,15 @@ use crate::context::XmtpSharedContext;
 use crate::core::events::{InternalEvent, emit_deleted_messages};
 use crate::groups::{DeleteMessageError, GroupError, MlsGroup};
 use openmls::group::MlsGroup as OpenMlsGroup;
-use prost::Message;
+use std::collections::HashSet;
 use xmtp_common::snippet::Snippet;
 use xmtp_db::group_intent::{IntentKind, IntentState};
-use xmtp_db::group_message::{
-    ContentType, Deletable, DeliveryStatus, GroupMessageKind, StoredGroupMessage,
-};
+use xmtp_db::group_message::{ContentType, DeliveryStatus, GroupMessageKind, StoredGroupMessage};
 use xmtp_db::message_deletion::StoredMessageDeletion;
 use xmtp_db::prelude::*;
 use xmtp_db::{DbQuery, TransactionOutcome, XmtpMlsStorageProvider};
 use xmtp_events::{ClientEvent, DeletionCause, EventContext, EventWriter};
 use xmtp_proto::types::GroupId;
-use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
-
-/// Check the stored wire type before a deletion uses a cached content type.
-/// Must run before the content is removed.
-// implements: CTYPE-018
-pub(crate) fn is_deletable_stored_message(message: &StoredGroupMessage) -> bool {
-    if !message.kind.is_deletable() {
-        return false;
-    }
-    let Ok(content) = EncodedContent::decode(message.decrypted_message_bytes.as_slice()) else {
-        return false;
-    };
-    let Some(identifier) = content.r#type else {
-        return false;
-    };
-    ContentType::from_identifier(
-        &identifier.authority_id,
-        &identifier.type_id,
-        identifier.version_major,
-    )
-    .is_deletable()
-}
 
 /// Whether `deleter` may delete `target`. Used by the request, receive, own
 /// echo and import.
@@ -59,21 +35,39 @@ pub(crate) fn may_delete(
         return Err(DeleteMessageError::NotAuthorized);
     }
     // Reads the wire type, never the cached one.
-    if !is_deletable_stored_message(target) {
+    if !target.has_deletable_content() {
         return Err(DeleteMessageError::NonDeletableMessage);
     }
     Ok(())
 }
 
 /// Where a deletion message came from.
-pub(crate) enum Source {
+pub(crate) enum Source<'a> {
     /// Processed from the group's topic or this installation's own echo.
     Topic {
         super_admin: bool,
         cause: DeletionCause,
     },
     /// Stored by an archive import. Proves no super-admin status.
-    Archive,
+    Archive { imported: &'a Imported },
+}
+
+/// The rows an archive import inserted. Archive evidence (a mark, a record,
+/// a deletion message) marks only these: a row the client held before the
+/// import is marked only by a record from the topic. Grows with the
+/// archive's message count.
+// implements: ARCH-028
+#[derive(Default)]
+pub(crate) struct Imported(HashSet<Vec<u8>>);
+
+impl Imported {
+    pub(crate) fn insert(&mut self, id: &[u8]) {
+        self.0.insert(id.to_vec());
+    }
+
+    fn holds(&self, id: &[u8]) -> bool {
+        self.0.contains(id)
+    }
 }
 
 /// Discards every event. An archive import emits no per-row event;
@@ -106,42 +100,50 @@ pub(crate) fn apply_deletion(
         return Ok(false);
     }
     // A topic copy is Published by definition. An archived one must say so.
-    if matches!(source, Source::Archive) && deletion.delivery_status != DeliveryStatus::Published {
+    if matches!(source, Source::Archive { .. })
+        && deletion.delivery_status != DeliveryStatus::Published
+    {
         return Ok(false);
     }
     // Store time already decoded the DeleteMessage and checked its target id.
     let Some(target_id) = deletion.reference_id.as_deref() else {
         return Ok(false);
     };
-    let (super_admin, authenticated, cause) = match source {
-        Source::Topic { super_admin, cause } => (super_admin, true, cause),
-        Source::Archive => (false, false, DeletionCause::Deleted),
+    let (super_admin, authenticated) = match source {
+        Source::Topic { super_admin, .. } => (super_admin, true),
+        Source::Archive { .. } => (false, false),
     };
     let new = StoredMessageDeletion::of(deletion, target_id, super_admin, authenticated);
     let existed = db.get_message_deletion(&new.id)?;
     let record = db.record_deletion(&new)?;
     let recorded = existed.as_ref() != Some(&record);
     // A missing target stays unmarked; an import that stores it later finds the record.
-    let marked = match db.get_group_message(&record.deleted_message_id)? {
-        Some(target) => apply_record(db, events, &record, target, cause)?,
-        None => false,
+    let Some(target) = db.get_group_message(&record.deleted_message_id)? else {
+        return Ok(recorded);
+    };
+    let marked = match source {
+        Source::Topic { cause, .. } => apply_record(db, events, &record, target, cause)?,
+        Source::Archive { imported } => apply_stored_records(db, events, &target, imported)?,
     };
     Ok(recorded || marked)
 }
 
 /// Import only: mark a row this import stored or matched from its earliest
-/// authorized record. Receive never needs this: the topic orders a target
-/// before its deletion. Returns true when it marked the row.
+/// authorized record; a row held before the import, only from a record from
+/// the topic. Receive never needs this: the topic orders a target before its
+/// deletion. Returns true when it marked the row.
 // implements: ARCH-028, PROC-037
 pub(crate) fn apply_stored_records(
     db: &impl DbQuery,
     events: &impl EventWriter<InternalEvent>,
     row: &StoredGroupMessage,
+    imported: &Imported,
 ) -> Result<bool, xmtp_db::ConnectionError> {
     if row.kind != GroupMessageKind::Application || row.deleted_by_inbox_id.is_some() {
         return Ok(false);
     }
-    let Some(record) = db.first_deletion_of(row)? else {
+    let held = !imported.holds(&row.id);
+    let Some(record) = db.first_deletion_of(row, held)? else {
         return Ok(false);
     };
     apply_record(db, events, &record, row.clone(), DeletionCause::Deleted)
@@ -154,6 +156,7 @@ pub(crate) fn import_record(
     db: &impl DbQuery,
     events: &impl EventWriter<InternalEvent>,
     record: &StoredMessageDeletion,
+    imported: &Imported,
 ) -> Result<bool, xmtp_db::ConnectionError> {
     let existed = db.get_message_deletion(&record.id)?;
     let stored = db.record_deletion(record)?;
@@ -162,30 +165,10 @@ pub(crate) fn import_record(
     // records by time, so one archive attributes to its earliest; a mark never
     // changes after.
     let marked = match db.get_group_message(&stored.deleted_message_id)? {
-        Some(target) => apply_stored_records(db, events, &target)?,
+        Some(target) => apply_stored_records(db, events, &target, imported)?,
         None => false,
     };
     Ok(recorded || marked)
-}
-
-/// Copy an archive's mark onto a stored message, in any delivery status.
-/// Returns true when it marked the row.
-// implements: ARCH-028
-pub(crate) fn merge_archived_mark(
-    db: &impl DbQuery,
-    events: &impl EventWriter<InternalEvent>,
-    id: &[u8],
-    deleted_by: &str,
-) -> Result<bool, xmtp_db::ConnectionError> {
-    let Some(stored) = db.get_group_message(id)? else {
-        return Ok(false);
-    };
-    // No deletability check: the exporter or the legacy converter already decided
-    // the mark, and a fresh import of it produces a placeholder too.
-    if stored.kind != GroupMessageKind::Application {
-        return Ok(false);
-    }
-    mark(db, events, stored, deleted_by, DeletionCause::Deleted)
 }
 
 fn apply_record(

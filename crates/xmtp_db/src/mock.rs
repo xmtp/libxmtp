@@ -909,6 +909,7 @@ mock! {
         fn first_deletion_of(
             &self,
             _target: &crate::group_message::StoredGroupMessage,
+            _authenticated_only: bool,
         ) -> Result<Option<crate::message_deletion::StoredMessageDeletion>, crate::ConnectionError>;
     }
 

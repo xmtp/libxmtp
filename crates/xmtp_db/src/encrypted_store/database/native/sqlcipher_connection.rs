@@ -869,7 +869,8 @@ mod tests {
                         (x'03', zeroblob(32), zeroblob(32), 'sender', 0, 3)",
             ).execute(conn)?;
             // Targets of published deletions: a sender's own, a super admin's,
-            // a wire type that may not be deleted, and an unauthorized one.
+            // a wire type that may not be deleted, an unauthorized one, and a
+            // sender's own whose content encodes field 4 before field 1.
             diesel::sql_query(
                 "INSERT INTO group_messages (id, group_id, decrypted_message_bytes, sent_at_ns,
                  sender_installation_id, sender_inbox_id, authority_id, sequence_id, delivery_status, content_type)
@@ -877,10 +878,12 @@ mod tests {
                         (x'22', zeroblob(32), x'0a180a0e637573746f6d2e6578616d706c65120474657874180122026869', 1, x'01', 'sender', 'xmtp.org', 0, 2, 1),
                         (x'23', zeroblob(32), x'0a120a08786d74702e6f7267120474657874180122026869', 1, x'01', 'sender', 'xmtp.org', 0, 2, 1),
                         (x'24', zeroblob(32), x'0a120a08786d74702e6f7267120474657874180122026869', 1, x'01', 'sender', 'xmtp.org', 0, 2, 1),
+                        (x'25', zeroblob(32), x'220268690a120a08786d74702e6f72671204746578741801', 1, x'01', 'sender', 'xmtp.org', 0, 2, 1),
                         (x'04', zeroblob(32), x'', 4, x'01', 'sender', 'xmtp.org', 0, 2, 16),
                         (x'05', zeroblob(32), x'', 5, x'01', 'sender', 'xmtp.org', 0, 2, 16),
                         (x'06', zeroblob(32), x'', 6, x'01', 'member', 'xmtp.org', 0, 2, 16),
-                        (x'07', zeroblob(32), x'', 7, x'01', 'admin', 'xmtp.org', 0, 2, 16)",
+                        (x'07', zeroblob(32), x'', 7, x'01', 'admin', 'xmtp.org', 0, 2, 16),
+                        (x'08', zeroblob(32), x'', 8, x'01', 'sender', 'xmtp.org', 0, 2, 16)",
             ).execute(conn)?;
             diesel::sql_query(
                 "INSERT INTO message_deletions (id, group_id, deleted_message_id,
@@ -888,7 +891,8 @@ mod tests {
                  VALUES (x'04', zeroblob(32), x'21', 'sender', 0, 4),
                         (x'05', zeroblob(32), x'22', 'sender', 0, 5),
                         (x'06', zeroblob(32), x'23', 'member', 0, 6),
-                        (x'07', zeroblob(32), x'24', 'admin', 1, 7)",
+                        (x'07', zeroblob(32), x'24', 'admin', 1, 7),
+                        (x'08', zeroblob(32), x'25', 'sender', 0, 8)",
             ).execute(conn)?;
             // A finished and a queued SendMessage intent with plaintext.
             diesel::sql_query(
@@ -991,7 +995,7 @@ mod tests {
             diesel::sql_query("SELECT COUNT(*) AS count FROM message_deletions")
                 .get_result::<Count>(conn)
         })?;
-        assert_eq!(records.count, 5);
+        assert_eq!(records.count, 6);
         // What the old reader hid is marked and empty; nothing else is.
         #[derive(diesel::QueryableByName, Debug, PartialEq)]
         struct Mark {
@@ -1005,7 +1009,7 @@ mod tests {
         let marks = connection.raw_query(|conn| {
             diesel::sql_query(
                 "SELECT id, deleted_by_inbox_id, length(decrypted_message_bytes) AS bytes
-                 FROM group_messages WHERE id IN (x'21', x'22', x'23', x'24') ORDER BY id",
+                 FROM group_messages WHERE id IN (x'21', x'22', x'23', x'24', x'25') ORDER BY id",
             )
             .load::<Mark>(conn)
         })?;
@@ -1021,8 +1025,15 @@ mod tests {
                 mark(0x22, None, 30),
                 mark(0x23, None, 24),
                 mark(0x24, Some("admin"), 0),
+                mark(0x25, Some("sender"), 0),
             ]
         );
+        // The backfill ran once: its queue is empty.
+        let queued = connection.raw_query(|conn| {
+            diesel::sql_query("SELECT COUNT(*) AS count FROM deletion_backfill")
+                .get_result::<Count>(conn)
+        })?;
+        assert_eq!(queued.count, 0);
         assert_eq!(has_index("message_deletions_target")?, 1);
         // The finished intent's plaintext is wiped; the queued one keeps it
         // until the trigger wipes it at its terminal state.

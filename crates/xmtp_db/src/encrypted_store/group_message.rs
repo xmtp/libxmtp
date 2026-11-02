@@ -184,11 +184,36 @@ impl StoredGroupMessage {
         Cursor(self.sequence_id as u64)
     }
 
+    /// Whether the rules let this message be deleted. Reads the wire type
+    /// from the content, never the cached one, so it must run before the
+    /// content is removed.
+    // implements: CTYPE-018
+    pub fn has_deletable_content(&self) -> bool {
+        self.kind.is_deletable() && content_is_deletable(&self.decrypted_message_bytes)
+    }
+
     /// Stored by this installation for sending and not yet Published.
     pub fn is_unsent_from(&self, installation_id: &[u8]) -> bool {
         self.delivery_status != DeliveryStatus::Published
             && self.sender_installation_id == installation_id
     }
+}
+
+/// Whether encoded application content has a wire type that may
+/// be deleted.
+pub(crate) fn content_is_deletable(bytes: &[u8]) -> bool {
+    use prost::Message;
+    let Ok(content) = xmtp_proto::xmtp::mls::message_contents::EncodedContent::decode(bytes) else {
+        return false;
+    };
+    content.r#type.is_some_and(|identifier| {
+        ContentType::from_identifier(
+            &identifier.authority_id,
+            &identifier.type_id,
+            identifier.version_major,
+        )
+        .is_deletable()
+    })
 }
 
 // Separate Insertable struct that excludes inserted_at_ns to let the database set it.
