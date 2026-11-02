@@ -81,23 +81,24 @@ fn read_message(
     }
 }
 
-/// `message` rebuilt from its current row, keeping its delivery cursor, or
-/// `None` when the row is gone.
+/// `message` rebuilt from its current row, keeping its delivery cursor. A
+/// row that expired or was removed meanwhile reads as the placeholder, never
+/// as the cached content.
 fn reload_message(
     context: &xmtp_mls::MlsContext,
     message: &Message,
     client_key: u64,
-) -> Result<Option<Message>, XmtpError> {
+) -> Result<Message, XmtpError> {
     let Some(stored) = context
         .db()
         .get_group_message(message.0.id.to_bytes()?)
         .map_err(XmtpError::from_core)?
     else {
-        return Ok(None);
+        return Ok(message.clone().into_removed());
     };
     let mut current = read_message(context, stored, client_key)?;
     current.0.delivery_cursor = message.0.delivery_cursor.clone();
-    Ok(Some(current))
+    Ok(current)
 }
 
 struct PendingMessage {
@@ -352,8 +353,7 @@ impl MessageReader {
                                 // implements: PROC-060
                                 if admitted {
                                     match reload_message(&context, &pending.message, client_key) {
-                                        Ok(Some(message)) => pending.message = message,
-                                        Ok(None) => {}
+                                        Ok(message) => pending.message = message,
                                         Err(error) => {
                                             state.ended = true;
                                             control.close();

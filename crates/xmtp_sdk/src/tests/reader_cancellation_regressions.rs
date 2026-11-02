@@ -356,6 +356,22 @@ async fn buffered_reader_sees_deletions() {
     );
     reader.next().await?.expect("deletion message");
 
+    // (d) The held message's row is removed while the read is cancelled:
+    // it is never handed out; the next message is.
+    use xmtp_db::group_message::QueryGroupMessage;
+    let removed = group.send_text("removed while held".into(), None).await?;
+    hold_next(&reader).await?;
+    client
+        .inner
+        .context
+        .db()
+        .delete_message_by_id(removed.to_bytes()?)?;
+    let after = group.send_text("after the removal".into(), None).await?;
+    let resumed = xmtp_common::time::timeout(Duration::from_secs(10), reader.next())
+        .await??
+        .expect("next message");
+    assert_eq!(resumed.0.id, after);
+
     // (c) A prefetched message is deleted before its handoff.
     let before = group.send_text("before".into(), None).await?;
     let buffered = group.send_text("buffered".into(), None).await?;
