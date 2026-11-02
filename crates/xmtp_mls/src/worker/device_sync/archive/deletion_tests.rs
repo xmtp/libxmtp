@@ -1,4 +1,4 @@
-//! Deletions survive archives, re-imports and local removal (ARCH-028).
+//! Deletions survive archives, re-imports and local removal.
 use super::*;
 use crate::groups::mls_sync::GroupMessageProcessingError;
 use crate::tester;
@@ -315,7 +315,7 @@ async fn deletion_survives_storage(
                 vec![legacy(&deletion(g, D1, SENDER, published))],
             )
             .await;
-            // The stored deletion row stays as it was (ARCH-013).
+            // The stored deletion row stays as it was.
             assert_eq!(
                 db.get_group_message(D1).unwrap().unwrap().delivery_status,
                 DeliveryStatus::Unpublished
@@ -390,6 +390,8 @@ async fn deletion_survives_storage(
             db.delete_message_by_id(TARGET).unwrap();
             last = import(&alix.context, vec![legacy(&target(g, published))]).await;
         }
+        // An authenticated record is never overwritten, so this holds even
+        // without the receive guard; ReplayOverImportedRecord needs the guard.
         Case::ReplayIsForeign => {
             receive(&group, &deletion(g, D1, ADMIN, published), true);
             // Another member sends the same content under the same id.

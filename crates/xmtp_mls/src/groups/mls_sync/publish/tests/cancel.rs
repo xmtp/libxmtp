@@ -1,4 +1,4 @@
-//! Deleting an own message that was never sent cancels it (SEND-026).
+//! Deleting an own message that was never sent cancels it.
 
 use super::faults::refusing_group;
 use super::send_state_transitions::{UNRESOLVED, intents_in, status};
@@ -43,7 +43,7 @@ fn deleted_events(
 enum Unsent {
     /// `Unpublished`, with a `ToPublish` intent and no attempt.
     Queued,
-    /// `Failed` after a definite refusal (SEND-009).
+    /// `Failed` after a definite backend refusal.
     Failed,
     /// Stored for later publish, with no intent.
     Prepared,
@@ -215,7 +215,6 @@ async fn cancel_unsent_skips_another_installations_row() {
     assert!(marked.decrypted_message_bytes.is_empty());
     assert_eq!(marked.delivery_status, DeliveryStatus::Failed);
 
-    // implements: PROC-037
     assert!(matches!(
         group.publish_stored_message(&imported.id).await,
         Err(GroupError::DeleteMessage(
@@ -226,7 +225,7 @@ async fn cancel_unsent_skips_another_installations_row() {
 }
 
 /// An idempotent resend of a published message that was since deleted
-/// returns the stored row without an error (SEND-003).
+/// returns the stored row without an error.
 // verifies: SEND-003, PROC-037
 #[rstest::rstest]
 #[case::send(false)]

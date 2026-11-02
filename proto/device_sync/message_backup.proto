@@ -24,7 +24,7 @@ message GroupMessageSave {
   string content_type = 16;
   optional int64 expires_at_ns = 17;
   optional bool expiry_known = 18;
-  optional string deleted_by_inbox_id = 19; // set when deleted under PROC-037; content is then empty
+  optional string deleted_by_inbox_id = 19; // set when deleted for everyone; content is then empty
 }
 
 // One deletion record: an inbox deleted a target message in a group

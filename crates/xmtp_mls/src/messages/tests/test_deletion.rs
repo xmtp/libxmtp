@@ -179,7 +179,7 @@ async fn deletion_rules(#[case] case: Case) {
             None
         }
         Case::OwnDeletionUnpublished => {
-            // implements: PROC-037
+            // The target must stay readable: see the case assertions below.
             bo_group.delete_message(target.clone()).unwrap();
             None
         }

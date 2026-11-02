@@ -123,7 +123,7 @@ async fn received_deletion_rejects_old_cached_text_target() {
             .await?;
     }
     bo_group.sync().await?;
-    // A wire type that CTYPE-018 refuses keeps its content and no mark.
+    // A wire type that may not be deleted keeps its content and no mark.
     for id in [vec![0x11; 32], vec![0x12; 32]] {
         assert_eq!(mark_of(&db, &id), None);
         assert!(
@@ -1392,7 +1392,6 @@ async fn request_queues_and_applies_at_echo() {
         .find(|message| message.metadata.id == message_id)
         .unwrap();
     assert!(matches!(readable.content, MessageBody::Text(_)));
-    // implements: PROC-056
     let second = alix_group.delete_message(message_id.clone())?;
     assert_ne!(second, first);
 

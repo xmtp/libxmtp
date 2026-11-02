@@ -98,7 +98,7 @@ pub struct StoredGroupMessage {
     /// The idempotency key the message id is derived from. Defaults to the send
     /// timestamp, but callers may supply their own to make retries idempotent.
     pub idempotency_key: String,
-    /// The inbox that deleted this message under PROC-037. Set once; the
+    /// The inbox that deleted this message for everyone. Set once; the
     /// content is then empty.
     #[serde(default)]
     pub deleted_by_inbox_id: Option<String>,

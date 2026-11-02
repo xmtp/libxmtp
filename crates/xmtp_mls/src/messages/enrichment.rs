@@ -110,7 +110,7 @@ fn enrich_batch(
             let mut decoded = DecodedMessage::from(stored_message.clone());
             let mut parent_stored = None;
 
-            // A marked row is already the placeholder (PROC-060).
+            // A marked row is already the placeholder.
             // implements: PROC-060
             if stored_message.deleted_by_inbox_id.is_none() {
                 decoded.reactions = relations

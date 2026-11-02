@@ -6,6 +6,7 @@ use crate::groups::{DeleteMessageError, GroupError, MlsGroup};
 use crate::subscriptions::internal::{InternalEvent, emit_deleted_messages};
 use openmls::group::MlsGroup as OpenMlsGroup;
 use prost::Message;
+use xmtp_common::snippet::Snippet;
 use xmtp_db::group_intent::{IntentKind, IntentState};
 use xmtp_db::group_message::{
     ContentType, Deletable, DeliveryStatus, GroupMessageKind, StoredGroupMessage,
@@ -179,7 +180,7 @@ pub(crate) fn merge_archived_mark(
     let Some(stored) = db.get_group_message(id)? else {
         return Ok(false);
     };
-    // No CTYPE-018 check: the exporter or the legacy converter already decided
+    // No deletability check: the exporter or the legacy converter already decided
     // the mark, and a fresh import of it produces a placeholder too.
     if stored.kind != GroupMessageKind::Application {
         return Ok(false);
@@ -202,7 +203,7 @@ fn apply_record(
     ) {
         // The deletion message stays an ordinary message.
         tracing::debug!(
-            target = hex::encode(&target.id),
+            target = target.id.as_slice().snippet(),
             "deletion not applied: {error}"
         );
         return Ok(false);

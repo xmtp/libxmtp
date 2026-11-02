@@ -320,9 +320,9 @@ where
     ///
     /// Only the original sender or a super admin can delete a message. An
     /// unsent own message is cancelled: it and its queued sends are removed,
-    /// nothing is published, and its own id is returned (SEND-026). Otherwise a
+    /// nothing is published, and its own id is returned. Otherwise a
     /// deletion message is queued and its id returned; the target changes when
-    /// the deletion's echo is processed (PROC-037).
+    /// the deletion's echo is processed.
     ///
     /// In a DM, await [`Self::ensure_dm_peer`] first unless the target is an
     /// unsent own message. This method does not add a missing peer, so the

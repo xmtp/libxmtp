@@ -29,7 +29,7 @@ use xmtp_events::{ArchiveRestored, ClientEvent, EventWriter};
 struct ImportContext {
     changed: bool,
     /// The import stored a deletion record or marked a row. It is not a
-    /// change other installations are owed (SYNC-027), but the app hears of
+    /// change other installations are owed, but the app hears of
     /// it once through `archive.restored`.
     deletions_stored: bool,
     /// The archive's usable consent records, applied after all its elements.

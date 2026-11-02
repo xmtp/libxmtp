@@ -35,7 +35,7 @@ fn holds_plaintext<C: XmtpSharedContext>(group: &MlsGroup<C>) -> bool {
 enum Finish {
     /// Published and processed.
     Processed,
-    /// Refused by the backend (SEND-009).
+    /// Refused by the backend.
     Refused,
     /// The group became inactive with the send queued.
     Inactive,

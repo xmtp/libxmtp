@@ -1,4 +1,4 @@
--- Who deleted this message under PROC-037. Set once; its content is then empty.
+-- Who deleted this message. Set once; its content is then empty.
 ALTER TABLE group_messages ADD COLUMN deleted_by_inbox_id TEXT;
 
 -- Deletion records outlive their deletion message: rebuild without the cascade.
