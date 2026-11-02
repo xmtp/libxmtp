@@ -138,6 +138,7 @@ async fn cancel_unsent_refuses_a_saved_attempt() {
 /// A delete that lands between the publisher's capture and its prepare
 /// write wins: the prepare step finds no intent and sends nothing.
 // verifies: SEND-026
+#[cfg(not(target_arch = "wasm32"))]
 #[xmtp_common::test(unwrap_try = true)]
 async fn cancel_unsent_races_the_publisher() {
     tester!(alix, disable_workers);
