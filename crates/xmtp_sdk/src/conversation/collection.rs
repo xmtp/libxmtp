@@ -507,9 +507,7 @@ impl Conversations {
         on_sdk_worker(
             self.client.context.clone(),
             // Swift cooperative threads cannot hold the nested MLS future.
-            Box::pin(async move {
-                delete_for_everyone(group, &stored).await
-            }),
+            Box::pin(async move { delete_for_everyone(group, &stored).await }),
         )
         .await
     }
