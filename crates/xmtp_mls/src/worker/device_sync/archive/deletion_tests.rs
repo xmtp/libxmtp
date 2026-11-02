@@ -138,9 +138,15 @@ async fn import(context: &impl XmtpSharedContext, elements: Vec<BackupElement>) 
         ]),
         Some(32),
     );
+    // Two passes, as the SDK imports: deletion messages first.
+    let self_deletions = collect_self_deletions(&mut futures::stream::iter(
+        elements.iter().cloned().map(Ok::<_, std::io::Error>),
+    ))
+    .await;
     insert_elements(
         &mut futures::stream::iter(elements.into_iter().map(Ok::<_, std::io::Error>)),
         context,
+        self_deletions,
     )
     .await
     .unwrap();
@@ -184,6 +190,8 @@ enum Case {
     OldFormatTargetFirst,
     OldFormatDeletionFirst,
     OldFormatAdminDeletion,
+    OldFormatSelfDeletionOfHeldTarget,
+    OldFormatAdminDeletionFirst,
     UnpublishedThenPublishedDeletion,
     ConvertedMarkOverKnownTarget,
     ConvertedMarkFresh,
@@ -216,10 +224,16 @@ enum Case {
     None,
     1
 )]
-#[case::old_format_target_first(Case::OldFormatTargetFirst, None, 1)]
-#[case::old_format_deletion_first(Case::OldFormatDeletionFirst, None, 1)]
+#[case::old_format_target_first(Case::OldFormatTargetFirst, Some(SENDER), 1)]
+#[case::old_format_deletion_first(Case::OldFormatDeletionFirst, Some(SENDER), 1)]
+#[case::old_format_self_deletion_of_held_target(Case::OldFormatSelfDeletionOfHeldTarget, None, 1)]
 #[case::old_format_admin_deletion(Case::OldFormatAdminDeletion, None, 1)]
-#[case::unpublished_then_published_deletion(Case::UnpublishedThenPublishedDeletion, None, 1)]
+#[case::old_format_admin_deletion_first(Case::OldFormatAdminDeletionFirst, None, 1)]
+#[case::unpublished_then_published_deletion(
+    Case::UnpublishedThenPublishedDeletion,
+    Some(SENDER),
+    1
+)]
 #[case::converted_mark_over_known_target(Case::ConvertedMarkOverKnownTarget, None, 0)]
 #[case::converted_mark_fresh(Case::ConvertedMarkFresh, Some(SENDER), 1)]
 #[case::deletion_only_import_over_held_target(Case::DeletionOnlyImport, None, 1)]
@@ -288,20 +302,33 @@ async fn deletion_survives_storage(
             )
             .await;
         }
-        Case::OldFormatAdminDeletion => {
-            // Known limitation: a pre-8.0 archive proves no super-admin status.
+        Case::OldFormatSelfDeletionOfHeldTarget => {
+            // The same pre-8.0 archive over a target already held: the held
+            // row is never marked by archive data.
+            target(g, published).store(&db).unwrap();
             last = import(
                 &alix.context,
                 vec![
                     legacy(&target(g, published)),
-                    legacy(&deletion(g, D1, ADMIN, published)),
+                    legacy(&deletion(g, D1, SENDER, published)),
                 ],
             )
             .await;
         }
+        Case::OldFormatAdminDeletion | Case::OldFormatAdminDeletionFirst => {
+            // An archive's deletion by anyone but the sender is never applied.
+            let mut elements = vec![
+                legacy(&target(g, published)),
+                legacy(&deletion(g, D1, ADMIN, published)),
+            ];
+            if matches!(case, Case::OldFormatAdminDeletionFirst) {
+                elements.reverse();
+            }
+            last = import(&alix.context, elements).await;
+        }
         Case::UnpublishedThenPublishedDeletion => {
-            // An archived deletion only records: the Published copy adds a
-            // record, the stored Unpublished row stays, nothing is marked.
+            // The Published copy restores the self-deletion of the target
+            // this import creates, though the stored copy is Unpublished.
             last = import(
                 &alix.context,
                 vec![
@@ -667,7 +694,7 @@ async fn network_insert_during_import_is_unaffected() {
         }
         Ok::<_, std::io::Error>(element)
     });
-    insert_elements(&mut stream, &alix.context).await?;
+    insert_elements(&mut stream, &alix.context, Default::default()).await?;
     let stored = db.get_group_message(TARGET)?.unwrap();
     assert_eq!(stored.deleted_by_inbox_id, None);
     assert!(!stored.decrypted_message_bytes.is_empty());

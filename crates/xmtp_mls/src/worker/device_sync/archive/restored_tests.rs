@@ -88,6 +88,7 @@ async fn apply(
     insert_elements(
         &mut futures::stream::iter(elements.into_iter().map(Ok::<_, std::io::Error>)),
         context,
+        Default::default(),
     )
     .await
 }
@@ -207,7 +208,11 @@ async fn restored_history_completed_elements_keep_metadata_and_activity_after_fa
         Ok(group_element(descending)),
         Err(std::io::Error::other("later element failed")),
     ]);
-    assert!(insert_elements(&mut elements, &alix.context).await.is_err());
+    assert!(
+        insert_elements(&mut elements, &alix.context, Default::default())
+            .await
+            .is_err()
+    );
     let row = alix.db().find_group(&id)??;
     assert_eq!(row.last_message_ns, Some(300));
     assert_eq!(row.created_at_ns, 123);

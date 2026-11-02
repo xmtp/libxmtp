@@ -5,6 +5,7 @@ use crate::context::XmtpSharedContext;
 use crate::core::events::{InternalEvent, emit_deleted_messages};
 use crate::groups::{DeleteMessageError, GroupError, MlsGroup};
 use openmls::group::MlsGroup as OpenMlsGroup;
+use std::collections::HashMap;
 use xmtp_common::snippet::Snippet;
 use xmtp_db::group_intent::{IntentKind, IntentState};
 use xmtp_db::group_message::{ContentType, DeliveryStatus, GroupMessageKind, StoredGroupMessage};
@@ -49,6 +50,78 @@ pub(crate) enum Source {
     },
     /// Stored by an archive import. Proves no super-admin status.
     Archive,
+}
+
+/// A deletion message an archive holds, kept until the import stores its
+/// target.
+struct ArchivedDeletion {
+    group_id: GroupId,
+    deleter: String,
+    sent_at_ns: i64,
+    id: Vec<u8>,
+}
+
+/// An archive's `Published` deletion messages, by target id. Memory grows
+/// with the archive's deletions, not its messages. A pre-8.0 archive has no
+/// marks or records: these restore its self-deletions, and only for a
+/// message the same import creates.
+#[derive(Default)]
+pub(crate) struct ArchivedSelfDeletions(HashMap<Vec<u8>, Vec<ArchivedDeletion>>);
+
+impl ArchivedSelfDeletions {
+    /// Keep `message` when it is an archived `Published` deletion message.
+    pub(crate) fn note(&mut self, message: &StoredGroupMessage) {
+        if message.kind != GroupMessageKind::Application
+            || message.content_type != ContentType::DeleteMessage
+            || message.delivery_status != DeliveryStatus::Published
+        {
+            return;
+        }
+        let Some(target) = message.reference_id.clone() else {
+            return;
+        };
+        let found = self.0.entry(target).or_default();
+        if found.iter().all(|known| known.id != message.id) {
+            found.push(ArchivedDeletion {
+                group_id: message.group_id,
+                deleter: message.sender_inbox_id.clone(),
+                sent_at_ns: message.sent_at_ns,
+                id: message.id.clone(),
+            });
+        }
+    }
+
+    /// Mark `row`, which this import's insert just created, from the
+    /// earliest archived deletion its own sender sent. A deletion by anyone
+    /// else, or of a message the client already held, is never applied.
+    /// Returns true when it marked the row.
+    // implements: ARCH-028
+    pub(crate) fn apply_to_inserted(
+        &self,
+        db: &impl DbQuery,
+        row: &StoredGroupMessage,
+    ) -> Result<bool, xmtp_db::ConnectionError> {
+        let Some(first) = self.0.get(&row.id).and_then(|found| {
+            found
+                .iter()
+                .filter(|deletion| {
+                    deletion.group_id == row.group_id && deletion.deleter == row.sender_inbox_id
+                })
+                .min_by(|a, b| (a.sent_at_ns, &a.id).cmp(&(b.sent_at_ns, &b.id)))
+        }) else {
+            return Ok(false);
+        };
+        if may_delete(&row.group_id, &first.deleter, false, row).is_err() {
+            return Ok(false);
+        }
+        mark(
+            db,
+            &DiscardEvents,
+            row.clone(),
+            &first.deleter,
+            DeletionCause::Deleted,
+        )
+    }
 }
 
 /// Discards every event. An archive import emits no per-row event;

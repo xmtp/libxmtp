@@ -52,6 +52,7 @@ async fn import(
     insert_elements(
         &mut futures::stream::iter(elements.iter().cloned().map(Ok::<_, std::io::Error>)),
         context,
+        Default::default(),
     )
     .await
 }

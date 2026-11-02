@@ -1,6 +1,7 @@
 use super::DeviceSyncError;
 use crate::groups::deletion::{
-    DiscardEvents, Source, apply_deletion, apply_stored_records, import_record,
+    ArchivedSelfDeletions, DiscardEvents, Source, apply_deletion, apply_stored_records,
+    import_record,
 };
 use crate::{
     context::XmtpSharedContext, groups::MlsGroup, state_tx::state_write,
@@ -41,6 +42,9 @@ struct ImportContext {
     /// Whether the client holds each group the archive's messages name as a
     /// sync or one-shot conversation.
     internal: HashMap<GroupId, bool>,
+    /// The archive's deletion messages, which delete a message this import
+    /// creates when its own sender sent them.
+    self_deletions: ArchivedSelfDeletions,
 }
 
 impl ImportContext {
@@ -56,23 +60,64 @@ impl ImportContext {
     }
 }
 
+/// Import an archive read once. A pre-8.0 self-deletion is restored only
+/// when the archive lists it before its target; [`insert_archive`] reads the
+/// archive twice and restores it in either order.
 pub async fn insert_importer(
     importer: &mut ArchiveImporter,
     context: &impl XmtpSharedContext,
 ) -> Result<(), DeviceSyncError> {
-    insert_elements(importer, context).await
+    insert_elements(importer, context, ArchivedSelfDeletions::default()).await
+}
+
+/// Import an archive. `first` reads it once for its deletion messages;
+/// `reopen` then reads it again for the import, so a pre-8.0 self-deletion
+/// is restored whichever comes first, it or its target.
+pub async fn insert_archive<F, Fut>(
+    first: &mut ArchiveImporter,
+    reopen: F,
+    context: &impl XmtpSharedContext,
+) -> Result<(), DeviceSyncError>
+where
+    F: FnOnce() -> Fut,
+    Fut: std::future::Future<Output = Result<ArchiveImporter, ArchiveError>>,
+{
+    let self_deletions = collect_self_deletions(first).await;
+    let mut importer = reopen().await?;
+    insert_elements(&mut importer, context, self_deletions).await
+}
+
+/// The archive's deletion messages. An element that does not read is left to
+/// the import, which reports it.
+async fn collect_self_deletions<S, E>(elements: &mut S) -> ArchivedSelfDeletions
+where
+    S: Stream<Item = Result<BackupElement, E>> + Unpin,
+{
+    let mut found = ArchivedSelfDeletions::default();
+    while let Some(Ok(element)) = elements.next().await {
+        if let Some(Element::GroupMessage(save)) = element.element
+            && let Ok(message) = StoredGroupMessage::try_from(save)
+        {
+            found.note(&message);
+        }
+    }
+    found
 }
 
 // implements: ARCH-027
 async fn insert_elements<S, E>(
     elements: &mut S,
     context: &impl XmtpSharedContext,
+    self_deletions: ArchivedSelfDeletions,
 ) -> Result<(), DeviceSyncError>
 where
     S: Stream<Item = Result<BackupElement, E>> + Unpin,
     DeviceSyncError: From<E>,
 {
-    let mut import = ImportContext::default();
+    let mut import = ImportContext {
+        self_deletions,
+        ..Default::default()
+    };
     let mut first_error = None;
     while let Some(element) = elements.next().await {
         let element = match element {
@@ -179,21 +224,24 @@ fn insert(
         // implements: ARCH-013, ARCH-028
         Element::GroupMessage(message) => {
             // Field 19 makes a new row marked and empty. A known row keeps
-            // its state: archive evidence never marks a row held before the
-            // import.
+            // its state: archive data changes a row only in the insert that
+            // creates it.
             let message: StoredGroupMessage = message.try_into()?;
             if import.is_internal(&context.db(), message.group_id)? {
                 return Ok(());
             }
+            import.self_deletions.note(&message);
+            let self_deletions = &import.self_deletions;
             let (inserted, deletions) = state_write(context.mls_storage(), |tx| {
                 let storage = tx.storage();
                 let db = storage.db();
-                // Insert-or-ignore: a known row keeps its insert position.
                 let inserted = message.store_or_ignore_changed(&db)?;
+                // A pre-8.0 self-deletion of the row this insert created.
+                let mut deletions = inserted && self_deletions.apply_to_inserted(&db, &message)?;
                 // The evidence is the incoming copy: a stored `Unpublished`
                 // copy of the same id must not hide a later `Published` one.
                 // The stored row itself stays unchanged.
-                let mut deletions = apply_deletion(&db, &DiscardEvents, &message, Source::Archive)?;
+                deletions |= apply_deletion(&db, &DiscardEvents, &message, Source::Archive)?;
                 if let Some(row) = db.get_group_message(&message.id)? {
                     deletions |= apply_stored_records(&db, &DiscardEvents, &row)?;
                 }
@@ -616,7 +664,11 @@ mod tests {
         };
         let mut elements =
             futures::stream::iter([Ok(element), Err(std::io::Error::other("archive cut"))]);
-        assert!(insert_elements(&mut elements, &alix.context).await.is_err());
+        assert!(
+            insert_elements(&mut elements, &alix.context, Default::default())
+                .await
+                .is_err()
+        );
         assert!(
             alix.db()
                 .consent_row(&xmtp_db::consent_record::ConsentKey::inbox("failed-import"))?
@@ -677,7 +729,7 @@ mod tests {
             Some(64),
         );
         assert!(
-            insert_elements(&mut elements, &restored.context)
+            insert_elements(&mut elements, &restored.context, Default::default())
                 .await
                 .is_err()
         );
@@ -718,7 +770,7 @@ mod tests {
                 element: Some(Element::Consent(record.into())),
             })
         }));
-        insert_elements(&mut elements, &alix.context).await?;
+        insert_elements(&mut elements, &alix.context, Default::default()).await?;
         let limit = xmtp_common::time::now_ns() + xmtp_common::NS_IN_DAY;
         let stored = alix
             .db()
@@ -751,7 +803,7 @@ mod tests {
         let mut elements = futures::stream::iter([Ok::<_, std::io::Error>(BackupElement {
             element: Some(Element::Consent(record(30).into())),
         })]);
-        insert_elements(&mut elements, &alix.context).await?;
+        insert_elements(&mut elements, &alix.context, Default::default()).await?;
         let stored = alix
             .db()
             .consent_row(&xmtp_db::consent_record::ConsentKey::inbox("time-move"))?
@@ -803,7 +855,7 @@ mod tests {
         let mut elements = futures::stream::iter([Ok::<_, std::io::Error>(BackupElement {
             element: Some(Element::Consent(denied.into())),
         })]);
-        insert_elements(&mut elements, &client.context).await?;
+        insert_elements(&mut elements, &client.context, Default::default()).await?;
         assert!(client.context.task_channels().notification_revision() > revision);
         timeout(Duration::from_secs(5), wait_for_eq(holds, false)).await??;
         runner.abort_handle().end();
@@ -1229,7 +1281,7 @@ mod tests {
         let mut duplicate = futures::stream::iter([Ok::<_, std::io::Error>(BackupElement {
             element: Some(Element::GroupMessage(save)),
         })]);
-        insert_elements(&mut duplicate, &alix.context).await?;
+        insert_elements(&mut duplicate, &alix.context, Default::default()).await?;
         assert_eq!(alix.db().get_group_message(&known_id)?, Some(known));
     }
 
@@ -1330,7 +1382,7 @@ mod tests {
         let mut old_elements = futures::stream::iter([Ok::<_, std::io::Error>(BackupElement {
             element: Some(Element::GroupMessage(old)),
         })]);
-        insert_elements(&mut old_elements, &bo.context).await?;
+        insert_elements(&mut old_elements, &bo.context, Default::default()).await?;
         let unknown = bo
             .db()
             .get_group_message(&unknown_id)?
@@ -1435,7 +1487,7 @@ mod tests {
                 element: Some(Element::GroupMessage(malformed.clone())),
             }),
         ]);
-        let error = insert_elements(&mut elements, &caro.context)
+        let error = insert_elements(&mut elements, &caro.context, Default::default())
             .await
             .expect_err("a malformed element fails the import");
         assert!(
@@ -1476,7 +1528,11 @@ mod tests {
         let mut elements = futures::stream::iter([Ok::<_, std::io::Error>(BackupElement {
             element: Some(Element::Group(save)),
         })]);
-        assert!(insert_elements(&mut elements, &alix.context).await.is_err());
+        assert!(
+            insert_elements(&mut elements, &alix.context, Default::default())
+                .await
+                .is_err()
+        );
         assert!(
             alix.db()
                 .find_group(&GroupId::try_from(group_id.as_slice())?)?
