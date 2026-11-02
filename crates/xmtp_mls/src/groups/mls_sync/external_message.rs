@@ -2,6 +2,7 @@
 
 use super::*;
 use xmtp_common::snippet::Snippet;
+use xmtp_db::message_deletion::QueryMessageDeletion;
 use xmtp_mls_validation::commit::CommitRuleError;
 
 impl<Context> MlsGroup<Context>
@@ -53,26 +54,50 @@ where
         ))
     }
 
-    /// Store an external application message and report a prior valid deletion once.
+    /// Store an external application message. A deletion message is recorded
+    /// and applies to its stored target in the same write. `super_admin` is the
+    /// sender's super-admin status at this point in the topic.
+    // implements: PROC-037
     pub(crate) fn store_external_application_message(
         &self,
         storage: &impl XmtpMlsStorageProvider,
         message: &StoredGroupMessage,
+        super_admin: bool,
         event_writer: &impl xmtp_events::EventWriter<crate::subscriptions::internal::InternalEvent>,
     ) -> Result<(), GroupMessageProcessingError> {
         let db = storage.db();
-        let was_stored = db.get_group_message(&message.id)?.is_some();
+        let stored = db.get_group_message(&message.id)?;
         message.store_or_ignore(&db)?;
-        if !was_stored {
-            if !self.conversation_type.is_virtual()
-                && message.kind == GroupMessageKind::Application
-                && message.sender_installation_id != self.context.installation_id().as_slice()
-            {
-                let (event, context) = self.received_message_event(storage, message)?;
-                event_writer.emit_with_context(Some(event), None, context);
-            }
-            self.emit_pending_deletion_for_message(storage, message, event_writer)?;
+        if stored.is_none()
+            && !self.conversation_type.is_virtual()
+            && message.kind == GroupMessageKind::Application
+            && message.sender_installation_id != self.context.installation_id().as_slice()
+        {
+            let (event, context) = self.received_message_event(storage, message)?;
+            event_writer.emit_with_context(Some(event), None, context);
         }
+        // The topic orders a target before its deletion, so receive never
+        // looks for a deletion that came first. A copy whose stored row or
+        // record names another sender is foreign and changes nothing.
+        let foreign = |inbox: &str| inbox != message.sender_inbox_id;
+        if stored
+            .as_ref()
+            .is_some_and(|row| foreign(&row.sender_inbox_id))
+            || db
+                .get_message_deletion(&message.id)?
+                .is_some_and(|record| foreign(&record.deleted_by_inbox_id))
+        {
+            return Ok(());
+        }
+        crate::messages::deletion::apply_deletion(
+            &db,
+            event_writer,
+            message,
+            crate::messages::deletion::Source::Topic {
+                super_admin,
+                cause: xmtp_events::DeletionCause::Deleted,
+            },
+        )?;
         Ok(())
     }
 
@@ -283,6 +308,7 @@ where
                             envelope_hash: None,
                             expiry_ns: None,
                             expiry_unknown: false,
+                            deleted_by_inbox_id: None,
                             expire_at_ns: Self::get_message_expire_at_ns(
                                 mls_group,
                                 envelope_timestamp_ns,
@@ -293,7 +319,13 @@ where
                             // key this message id was derived from.
                             idempotency_key,
                         };
-                        self.store_external_application_message(storage, &message, event_writer)?;
+                        let super_admin = self.deletion_admin_bit(mls_group, &message);
+                        self.store_external_application_message(
+                            storage,
+                            &message,
+                            super_admin,
+                            event_writer,
+                        )?;
                         identifier.internal_id(message_id);
 
                         if let Some(group) = storage.db().find_group(&self.group_id)?
@@ -313,15 +345,6 @@ where
                         }
                         if message.content_type == ContentType::LeaveRequest {
                             self.process_leave_request_message(
-                                mls_group,
-                                storage,
-                                &message,
-                                event_writer,
-                            )?;
-                        }
-
-                        if message.content_type == ContentType::DeleteMessage {
-                            self.process_delete_message(
                                 mls_group,
                                 storage,
                                 &message,

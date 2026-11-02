@@ -2,6 +2,7 @@ use prost::Message;
 use xmtp_proto::xmtp::mls::message_contents::ContentTypeId;
 
 pub mod decoded_message;
+pub(crate) mod deletion;
 pub mod enrichment;
 
 #[cfg(test)]
