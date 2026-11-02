@@ -1839,7 +1839,7 @@ async fn revocation_key_beats_delayed_pre_revocation_key() {
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_rate_limited_add_arms_its_reconcile_after_the_delay(
     #[case] pre_armed: bool,
-) -> Result<(), DeviceSyncError> {
+) -> Result<(), Box<dyn std::error::Error>> {
     tester!(alix, disable_workers);
     let sync = alix.context.device_sync_client();
     let group = alix.create_group(None, None)?;
