@@ -208,6 +208,7 @@ enum Case {
     RemovedTargetReimported,
     ReplayIsForeign,
     ReplayOverImportedRecord,
+    TopicDeletionOverForgedRecord,
     ForgedRowIsForeign,
     ForgedUnpublishedRowIsForeign,
     UnpublishedImportThenNetworkCopy,
@@ -253,6 +254,7 @@ enum Case {
 #[case::removed_target_reimported(Case::RemovedTargetReimported, Some(SENDER), 1)]
 #[case::replay_is_foreign(Case::ReplayIsForeign, Some(ADMIN), 1)]
 #[case::replay_over_imported_record(Case::ReplayOverImportedRecord, None, 1)]
+#[case::topic_deletion_over_forged_record(Case::TopicDeletionOverForgedRecord, Some(SENDER), 1)]
 #[case::forged_row_is_foreign(Case::ForgedRowIsForeign, None, 1)]
 #[case::forged_unpublished_row_is_foreign(Case::ForgedUnpublishedRowIsForeign, None, 1)]
 #[case::unpublished_import_then_network_copy(
@@ -448,13 +450,22 @@ async fn deletion_survives_storage(
             assert!(kept.is_super_admin_deletion && kept.authenticated);
         }
         Case::ReplayOverImportedRecord => {
-            // An archive holds the admin's record; a member replays it.
+            // An archive holds a record naming the admin; the topic's copy
+            // comes from a member. The topic's record replaces the archived
+            // one, and a member's deletion marks nothing.
             import(&alix.context, vec![record(g, D1, ADMIN, true, 10)]).await;
             receive(&group, &deletion(g, D1, MEMBER, published), false);
             last = import(&alix.context, vec![legacy(&target(g, published))]).await;
             let kept = db.get_message_deletion(&D1).unwrap().unwrap();
-            assert_eq!(kept.deleted_by_inbox_id, ADMIN);
-            assert!(kept.is_super_admin_deletion && !kept.authenticated);
+            assert_eq!(kept.deleted_by_inbox_id, MEMBER);
+            assert!(!kept.is_super_admin_deletion && kept.authenticated);
+        }
+        Case::TopicDeletionOverForgedRecord => {
+            // An archive forges a record of the deletion under another inbox;
+            // the sender's real deletion from the topic still applies.
+            target(g, published).store(&db).unwrap();
+            last = import(&alix.context, vec![record(g, D1, MEMBER, false, 10)]).await;
+            receive(&group, &deletion(g, D1, SENDER, published), false);
         }
         Case::ForgedRowIsForeign => {
             // An archive forges the deletion's row under another sender; the

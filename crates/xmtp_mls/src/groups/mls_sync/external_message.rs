@@ -77,15 +77,17 @@ where
             event_writer.emit_with_context(Some(event), None, context);
         }
         // The topic orders a target before its deletion, so receive never
-        // looks for a deletion that came first. A copy whose stored row or
-        // record names another sender is foreign and changes nothing.
+        // looks for a deletion that came first. A copy whose stored row, or
+        // record from the topic, names another sender is foreign and changes
+        // nothing. An archived record decides nothing, so the topic's record
+        // replaces it.
         let foreign = |inbox: &str| inbox != message.sender_inbox_id;
         if stored
             .as_ref()
             .is_some_and(|row| foreign(&row.sender_inbox_id))
             || db
                 .get_message_deletion(&message.id)?
-                .is_some_and(|record| foreign(&record.deleted_by_inbox_id))
+                .is_some_and(|record| record.authenticated && foreign(&record.deleted_by_inbox_id))
         {
             return Ok(());
         }
