@@ -1,3 +1,4 @@
+use crate::prelude::*;
 mod test_bad_key_packages;
 mod test_change_callbacks;
 mod test_commit_log_fork_detection;

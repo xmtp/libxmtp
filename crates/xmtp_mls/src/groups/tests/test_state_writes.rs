@@ -1,4 +1,4 @@
-use crate::context::XmtpSharedContext;
+use crate::context::CoreContext;
 use crate::groups::{MlsGroup, group_permissions::PolicySet, send_message_opts::SendMessageOpts};
 use crate::tester;
 use crate::utils::test::MlsGroupExt;

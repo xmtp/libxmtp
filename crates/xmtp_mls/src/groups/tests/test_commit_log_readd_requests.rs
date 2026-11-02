@@ -1,5 +1,5 @@
 use crate::{
-    context::XmtpSharedContext,
+    context::CoreContext,
     groups::{UpdateAdminListType, commit_log::CommitLogWorker, oneshot::Oneshot},
     tester,
 };

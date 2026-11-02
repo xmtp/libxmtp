@@ -5,6 +5,7 @@ use super::{
     local_delivery::{DeliveryScope, LocalDeliveryFilter},
     message_reader::MessageReader,
 };
+use crate::prelude::*;
 use crate::{context::XmtpSharedContext, tester, utils::MlsGroupExt};
 use futures::StreamExt;
 use std::time::Duration;

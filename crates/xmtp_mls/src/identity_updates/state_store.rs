@@ -2,7 +2,7 @@
 //! computes through one write that also reports a changed display handle.
 
 use super::IdentityUpdateError;
-use crate::context::XmtpSharedContext;
+use crate::identity_updates::IdentityContext;
 use xmtp_db::{
     StorageError, TransactionOutcome, identity_update::StoredIdentityUpdate, prelude::*,
 };
@@ -69,7 +69,7 @@ pub(super) async fn resolve_association_state(
 /// for a client: a computed state is
 /// stored by [`store_association_state`], which emits `handle.changed`.
 pub(crate) async fn get_association_state_for_client(
-    context: &impl XmtpSharedContext,
+    context: &impl IdentityContext,
     conn: &impl DbQuery,
     inbox_id: &str,
     to_sequence_id: Option<i64>,
@@ -90,7 +90,7 @@ pub(crate) async fn get_association_state_for_client(
 /// its display handle. The event is emitted after the write commits.
 // implements: EVENT-058
 pub(crate) fn store_association_state(
-    context: &impl XmtpSharedContext,
+    context: &impl IdentityContext,
     sequence_id: i64,
     state: &AssociationState,
 ) -> Result<(), IdentityUpdateError> {

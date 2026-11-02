@@ -266,6 +266,7 @@ impl<C: XmtpSharedContext> Drop for MessageReader<C> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::prelude::*;
     use crate::{
         groups::send_message_opts::SendMessageOpts, test::mock::generate_stored_msg, tester,
     };

@@ -61,11 +61,13 @@ async fn deletion_cannot_race_reconciliation_snapshot() {
         *alix
             .client
             .context
+            .features
             .attachments
             .reconcile_snapshot_pause
             .lock() = Some((entered.clone(), resume.clone()));
         let context = alix.client.context.clone();
-        let reconcile = tokio::spawn(async move { context.attachments.reconcile(&context).await });
+        let reconcile =
+            tokio::spawn(async move { context.features.attachments.reconcile(&context).await });
         tokio::time::timeout(Duration::from_secs(5), entered.notified()).await?;
         let deleting_client = if separate_client {
             second.clone()
@@ -181,11 +183,12 @@ async fn pending_expire() {
     assert!(alix.client.attachments().list_pending().await?.is_empty());
     alix.client
         .context
+        .features
         .attachments
         .sweep(&alix.client.context)
         .await?;
     assert!(!dir.path().join(staged_path(digest)?).exists());
-    let registry = &alix.client.context.attachments.pending;
+    let registry = &alix.client.context.features.attachments.pending;
     assert!(!registry.lock().contains_key(digest));
 }
 
@@ -235,9 +238,11 @@ async fn sweep_holds_upload_state_until_expired_file_is_removed() {
     )?;
     let entered = Arc::new(tokio::sync::Notify::new());
     let resume = Arc::new(tokio::sync::Notify::new());
-    *alix.client.context.attachments.sweep_pause.lock() = Some((entered.clone(), resume.clone()));
+    *alix.client.context.features.attachments.sweep_pause.lock() =
+        Some((entered.clone(), resume.clone()));
     let context = alix.client.context.clone();
-    let sweep = xmtp_common::task::spawn(async move { context.attachments.sweep(&context).await });
+    let sweep =
+        xmtp_common::task::spawn(async move { context.features.attachments.sweep(&context).await });
     entered.notified().await;
     assert!(pending.shared.state.try_lock().is_err());
     let upload = xmtp_common::task::spawn(async move { pending.upload().await });
@@ -358,6 +363,7 @@ async fn sweep_keeps_leased_upload() {
     )?;
     alix.client
         .context
+        .features
         .attachments
         .sweep(&alix.client.context)
         .await?;
@@ -386,7 +392,7 @@ async fn delete_ends_other_clients_upload() {
         .with_disable_workers(true)
         .build()
         .await?;
-    *uploader.context.attachments.lease_timing.lock() = LeaseTiming::for_test(
+    *uploader.context.features.attachments.lease_timing.lock() = LeaseTiming::for_test(
         Duration::from_millis(300),
         Duration::from_millis(30),
         Duration::from_millis(10),
@@ -490,8 +496,12 @@ async fn delete_with_watcher_ends_other_clients_upload() {
         .with_disable_workers(true)
         .build()
         .await?;
-    *deleting_client.context.attachments.lease_timing.lock() =
-        LeaseTiming::for_test(LEASE_DURATION, LEASE_RENEW, Duration::from_millis(20));
+    *deleting_client
+        .context
+        .features
+        .attachments
+        .lease_timing
+        .lock() = LeaseTiming::for_test(LEASE_DURATION, LEASE_RENEW, Duration::from_millis(20));
     let watcher = deleting_client.attachments().pending(&remote).await?;
     let mut status = watcher.watch_status();
     let pending = uploader.attachments().pending(&remote).await?;
@@ -642,7 +652,7 @@ async fn delete_rejects_symlinked_key_before_removing_pending_row() {
     tokio::fs::remove_dir_all(dir.path().join(&key)).await?;
     std::os::unix::fs::symlink(outside.path(), dir.path().join(&key))?;
 
-    *alix.client.context.attachments.lease_timing.lock() = LeaseTiming::for_test(
+    *alix.client.context.features.attachments.lease_timing.lock() = LeaseTiming::for_test(
         Duration::from_millis(300),
         Duration::from_millis(50),
         Duration::from_millis(20),
@@ -1155,6 +1165,7 @@ async fn complete_recorded_before_staged_file() {
     let digest = pending.remote_attachment().content_digest.clone();
     alix.client
         .context
+        .features
         .attachments
         .fail_next_staged_removal
         .store(true, AtomicOrdering::SeqCst);

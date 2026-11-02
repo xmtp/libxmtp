@@ -45,11 +45,11 @@ source = "crates/xmtp_mls/src"
 
 # Items that move to a different crate than their module.
 [items]
+"context::XmtpMlsLocalContext" = "facade"
 "identity::IdentityStrategy" = "identity"
 "identity::XmtpKeyPackage" = "identity"
 "identity::XmtpKeyPackageBuilder" = "identity"
 "worker::device_sync::is_own_sync_group" = "engine"
-"worker::tasks::TaskWorkerError" = "facade"
 
 # The Target crates table: each crate and the crates it may depend on.
 [allowed]
@@ -80,24 +80,10 @@ facade = [
 
 [[waivers]]
 from = "core"
-to = "attachments"
-tier = "path"
-count = 4
-reason = "PR 4 (Task 11): the context's attachments field becomes a feature slot."
-
-[[waivers]]
-from = "core"
-to = "device_sync"
-tier = "path"
-count = 3
-reason = "PR 4 (Tasks 10-11): the context names DeviceSyncClient; the worker framework opens for the device-sync task and its error."
-
-[[waivers]]
-from = "core"
 to = "engine"
 tier = "path"
-count = 5
-reason = "PR 4 (Task 11): the context's incoming field becomes a feature slot; PR 4 (Task 10): the task runner loads MlsGroup for group tasks."
+count = 1
+reason = "The context re-exports the engine alias XmtpSharedContext at its old path; the facade takes over that path when core becomes a crate."
 
 [[waivers]]
 from = "core"
@@ -110,15 +96,8 @@ reason = "PR 5 (Task 12): the test lock, whose get_lock_sync returns the core-ow
 from = "core"
 to = "identity"
 tier = "path"
-count = 6
-reason = "Task 17 moves identity_ext with the identity crate; PR 4 (Task 11) gives identity resolution a feature slot; PR 4 (Task 10) moves key-package maintenance out of the task runner."
-
-[[waivers]]
-from = "core"
-to = "notifications"
-tier = "path"
-count = 5
-reason = "PR 4 (Task 10): the task runner calls the notification handler and hash directly."
+count = 1
+reason = "Task 17 moves identity_ext with the identity crate."
 
 [[waivers]]
 from = "engine"
@@ -211,45 +190,24 @@ existing = [
 
 [[waivers]]
 from = "core"
-to = "attachments"
-tier = "call"
-count = 4
-reason = "PR 4 (Task 11): the context's attachments field becomes a feature slot."
-
-[[waivers]]
-from = "core"
-to = "device_sync"
-tier = "call"
-count = 13
-reason = "PR 4 (Tasks 10-11): the context names DeviceSyncClient; the worker framework opens for the device-sync task and its error."
-
-[[waivers]]
-from = "core"
 to = "engine"
 tier = "call"
-count = 14
-reason = "PR 4 (Task 11): the context's incoming field becomes a feature slot; PR 4 (Task 10): the task runner loads MlsGroup for group tasks."
+count = 1
+reason = "The context re-exports the engine alias XmtpSharedContext at its old path; the facade takes over that path when core becomes a crate."
 
 [[waivers]]
 from = "core"
 to = "facade"
 tier = "call"
-count = 17
-reason = "PR 4 (Task 10): the task runner names TaskWorkerError, which moves to the facade with the TaskHandlers impl; PR 5 (Task 12): the context test lock leaves the facade."
+count = 6
+reason = "PR 5 (Task 12): the context test lock leaves the facade."
 
 [[waivers]]
 from = "core"
 to = "identity"
 tier = "call"
-count = 11
-reason = "Task 17 moves identity_ext with the identity crate; PR 4 (Task 11) gives identity resolution a feature slot; PR 4 (Task 10) moves key-package maintenance out of the task runner."
-
-[[waivers]]
-from = "core"
-to = "notifications"
-tier = "call"
-count = 5
-reason = "PR 4 (Task 10): the task runner calls the notification handler and hash directly."
+count = 4
+reason = "Task 17 moves identity_ext with the identity crate."
 
 [[waivers]]
 from = "engine"
@@ -264,13 +222,6 @@ to = "streams"
 tier = "call"
 count = 13
 reason = "PR 7 (Task 20): the receiver and the group stream entry points name stream types."
-
-[[waivers]]
-from = "identity"
-to = "engine"
-tier = "call"
-count = 2
-reason = "PR 4 (Task 11): identity resolution calls IncomingRuntime::policy until it gets a feature slot."
 
 [[waivers]]
 from = "identity"

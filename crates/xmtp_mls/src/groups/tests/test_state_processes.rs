@@ -1,5 +1,6 @@
 //! Native processes share the production encrypted database, not test tables.
 
+use crate::prelude::*;
 use std::{
     fs,
     path::{Path, PathBuf},

@@ -1,7 +1,7 @@
 #[cfg(not(target_arch = "wasm32"))]
 use std::sync::Arc;
 #[cfg(not(target_arch = "wasm32"))]
-use xmtp_mls::context::XmtpSharedContext;
+use xmtp_mls::prelude::*;
 
 use crate::XmtpError;
 #[cfg(not(target_arch = "wasm32"))]

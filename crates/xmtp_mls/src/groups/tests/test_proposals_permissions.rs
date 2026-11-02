@@ -1,7 +1,7 @@
 //! Admin and permission enforcement for proposals.
 
 use crate::{
-    context::XmtpSharedContext,
+    context::CoreContext,
     groups::intents::{CommitPendingProposalsIntentData, ProposeMemberUpdateIntentData},
     tester,
 };

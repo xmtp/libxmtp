@@ -1,4 +1,5 @@
 use super::*;
+use crate::prelude::*;
 use crate::{
     client::notifications::{
         NotificationChannel, NotificationOverride, NotificationState, encode_config,
@@ -100,7 +101,7 @@ fn synthetic_desired(count: u128) -> Desired {
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn notification_repair_reaches_2500_topics_in_three_turns() {
-    use crate::worker::tasks::TaskWorker;
+    use crate::{task_handlers::MlsTaskHandlers, worker::tasks::TaskWorker};
     let (client, peer) = support::client().await;
     // The welcome topic and 2,499 real MLS groups form the desired set.
     for _ in 0..2499 {
@@ -118,7 +119,9 @@ async fn notification_repair_reaches_2500_topics_in_three_turns() {
             .find(|task| task.data_hash == task_hash().as_ref())
             .unwrap()
     };
-    TaskWorker::run_and_reschedule_task(next_task(), &client.context).await?;
+    TaskWorker::new(client.context.clone(), MlsTaskHandlers)
+        .run_and_reschedule_task(next_task())
+        .await?;
     assert_eq!(
         client
             .db()
@@ -128,8 +131,12 @@ async fn notification_repair_reaches_2500_topics_in_three_turns() {
             .count(),
         1000
     );
-    TaskWorker::run_and_reschedule_task(next_task(), &client.context).await?;
-    TaskWorker::run_and_reschedule_task(next_task(), &client.context).await?;
+    TaskWorker::new(client.context.clone(), MlsTaskHandlers)
+        .run_and_reschedule_task(next_task())
+        .await?;
+    TaskWorker::new(client.context.clone(), MlsTaskHandlers)
+        .run_and_reschedule_task(next_task())
+        .await?;
     assert_eq!(peer.calls(Call::Update), 3);
     assert_eq!(peer.state.lock().subscriptions.len(), 2500);
     assert_eq!(client.db().uploaded_topics()?.len(), 2500);
@@ -143,14 +150,18 @@ async fn notification_repair_reaches_2500_topics_in_three_turns() {
             .count(),
         500
     );
-    TaskWorker::run_and_reschedule_task(next_task(), &client.context).await?;
+    TaskWorker::new(client.context.clone(), MlsTaskHandlers)
+        .run_and_reschedule_task(next_task())
+        .await?;
     assert!(!client.db().notification_record()?.push_repairing);
     assert!(client.db().uploaded_topics()?.iter().all(|row| !row.stale));
     assert_eq!(
         peer.state.lock().batches,
         vec![(1000, 0), (1000, 0), (1000, 0), (500, 0)]
     );
-    TaskWorker::run_and_reschedule_task(next_task(), &client.context).await?;
+    TaskWorker::new(client.context.clone(), MlsTaskHandlers)
+        .run_and_reschedule_task(next_task())
+        .await?;
     assert_eq!(peer.calls(Call::Update), 4);
     assert_eq!(next_task().attempts, 0);
     assert!(next_task().next_attempt_at_ns > time::now_ns());
@@ -565,7 +576,7 @@ async fn notification_stale_failure_cannot_fail_a_new_configuration() {
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn notification_task_is_durable_coalesced_and_retries_after_sixty_seconds() {
-    use crate::worker::tasks::TaskWorker;
+    use crate::{task_handlers::MlsTaskHandlers, worker::tasks::TaskWorker};
     let (client, peer) = support::client().await;
     client.enable_notifications(config()).await?;
     for _ in 0..20 {
@@ -590,7 +601,9 @@ async fn notification_task_is_durable_coalesced_and_retries_after_sixty_seconds(
     };
     peer.state.lock().next_error = Some(tonic::Code::Unavailable);
     let before = time::now_ns();
-    TaskWorker::run_and_reschedule_task(rows[0].clone(), &client.context).await?;
+    TaskWorker::new(client.context.clone(), MlsTaskHandlers)
+        .run_and_reschedule_task(rows[0].clone())
+        .await?;
     let row = task();
     assert_eq!(row.attempts, 1);
     assert!(row.next_attempt_at_ns >= before + RETRY_NS);
@@ -602,7 +615,9 @@ async fn notification_task_is_durable_coalesced_and_retries_after_sixty_seconds(
     }
     let row = task();
     assert_eq!(row.next_attempt_at_ns, retry_at);
-    TaskWorker::run_and_reschedule_task(row.clone(), &client.context).await?;
+    TaskWorker::new(client.context.clone(), MlsTaskHandlers)
+        .run_and_reschedule_task(row.clone())
+        .await?;
     assert_eq!(peer.calls(Call::Update), calls);
     // Make the stored retry due without waiting for wall-clock time.
     client
@@ -610,7 +625,9 @@ async fn notification_task_is_durable_coalesced_and_retries_after_sixty_seconds(
         .update_task(row.id, row.attempts, before, before)?;
     let mut due = row;
     due.next_attempt_at_ns = before;
-    TaskWorker::run_and_reschedule_task(due, &client.context).await?;
+    TaskWorker::new(client.context.clone(), MlsTaskHandlers)
+        .run_and_reschedule_task(due)
+        .await?;
     let row = task();
     assert_eq!(row.attempts, 0);
     let calls = peer.calls(Call::Update);
@@ -642,7 +659,9 @@ async fn notification_task_is_durable_coalesced_and_retries_after_sixty_seconds(
     client.db().mark_uploaded_topics_stale()?;
     wake(&client.context)?;
     let before = time::now_ns();
-    TaskWorker::run_and_reschedule_task(task(), &client.context).await?;
+    TaskWorker::new(client.context.clone(), MlsTaskHandlers)
+        .run_and_reschedule_task(task())
+        .await?;
     let refused = task();
     assert_eq!(
         refused.attempts, 1,
@@ -653,13 +672,17 @@ async fn notification_task_is_durable_coalesced_and_retries_after_sixty_seconds(
     group.set_notifications(NotificationOverride::Disabled)?;
     wake(&client.context)?;
     assert_eq!(task().next_attempt_at_ns, refused.next_attempt_at_ns);
-    TaskWorker::run_and_reschedule_task(task(), &client.context).await?;
+    TaskWorker::new(client.context.clone(), MlsTaskHandlers)
+        .run_and_reschedule_task(task())
+        .await?;
     assert_eq!(peer.calls(Call::Update), calls);
     peer.state.lock().limit = None;
     client
         .db()
         .update_task(refused.id, refused.attempts, before, before)?;
-    TaskWorker::run_and_reschedule_task(task(), &client.context).await?;
+    TaskWorker::new(client.context.clone(), MlsTaskHandlers)
+        .run_and_reschedule_task(task())
+        .await?;
     assert_eq!(task().attempts, 0);
 }
 
@@ -668,7 +691,7 @@ async fn notification_task_is_durable_coalesced_and_retries_after_sixty_seconds(
 // verifies: PUSH-267, RATE-041
 #[xmtp_common::test(unwrap_try = true)]
 async fn notification_rate_limit_keeps_state_enabled_and_waits_the_delay() {
-    use crate::worker::tasks::TaskWorker;
+    use crate::{task_handlers::MlsTaskHandlers, worker::tasks::TaskWorker};
     let delay = Duration::from_secs(120);
     let mapped = NotificationError::from(xmtp_api::dyn_err(
         xmtp_proto::api::ApiClientError::client(xmtp_api_grpc::error::GrpcError::Status(
@@ -699,7 +722,9 @@ async fn notification_rate_limit_keeps_state_enabled_and_waits_the_delay() {
     peer.state.lock().rate_limit = Some((Call::Update, delay));
     let calls = peer.calls(Call::Update);
     let before = time::now_ns();
-    TaskWorker::run_and_reschedule_task(due, &client.context).await?;
+    TaskWorker::new(client.context.clone(), MlsTaskHandlers)
+        .run_and_reschedule_task(due)
+        .await?;
     assert_eq!(peer.calls(Call::Update), calls + 1);
     let row = task();
     assert_eq!(row.attempts, 1);
@@ -1029,7 +1054,7 @@ async fn notification_registration_after_a_slow_reset_keeps_its_rate_limit() {
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn notification_successful_reenable_resets_old_retry_backoff() {
-    use crate::worker::tasks::TaskWorker;
+    use crate::{task_handlers::MlsTaskHandlers, worker::tasks::TaskWorker};
     let (client, peer) = support::client().await;
     client.create_group(None, None)?;
     client.enable_notifications(config()).await?;
@@ -1044,7 +1069,9 @@ async fn notification_successful_reenable_resets_old_retry_backoff() {
             .unwrap()
     };
     peer.state.lock().next_error = Some(tonic::Code::Unavailable);
-    TaskWorker::run_and_reschedule_task(task(), &client.context).await?;
+    TaskWorker::new(client.context.clone(), MlsTaskHandlers)
+        .run_and_reschedule_task(task())
+        .await?;
     assert_eq!(task().attempts, 1);
     assert!(peer.state.lock().subscriptions.is_empty());
     // Simulate an existing long retry without waiting through each failure.
@@ -1068,7 +1095,9 @@ async fn notification_successful_reenable_resets_old_retry_backoff() {
     wake(&client.context)?;
     assert_eq!(task().attempts, 0);
     assert!(task().next_attempt_at_ns <= time::now_ns());
-    TaskWorker::run_and_reschedule_task(task(), &client.context).await?;
+    TaskWorker::new(client.context.clone(), MlsTaskHandlers)
+        .run_and_reschedule_task(task())
+        .await?;
     assert_eq!(peer.state.lock().subscriptions.len(), 2);
     assert_eq!(client.db().uploaded_topics()?.len(), 2);
     assert_eq!(peer.calls(Call::Update), 2);
@@ -1076,7 +1105,7 @@ async fn notification_successful_reenable_resets_old_retry_backoff() {
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn notification_later_failure_cancels_registration_retry_reset() {
-    use crate::worker::tasks::TaskWorker;
+    use crate::{task_handlers::MlsTaskHandlers, worker::tasks::TaskWorker};
     let (client, peer) = support::client().await;
     client.enable_notifications(config()).await?;
     wake(&client.context)?;
@@ -1089,7 +1118,9 @@ async fn notification_later_failure_cancels_registration_retry_reset() {
         .find(|row| row.data_hash == task_hash().as_ref())
         .unwrap();
     peer.state.lock().next_error = Some(tonic::Code::Unavailable);
-    TaskWorker::run_and_reschedule_task(row, &client.context).await?;
+    TaskWorker::new(client.context.clone(), MlsTaskHandlers)
+        .run_and_reschedule_task(row)
+        .await?;
     let failed = client
         .db()
         .get_tasks()?
@@ -1535,6 +1566,7 @@ xmtp_common::if_native! {
     // verifies: PUSH-240
     #[xmtp_common::test(unwrap_try = true)]
     async fn notification_stalled_request_bounds_runner_delay_and_keeps_messaging_live() {
+        use crate::task_handlers::MlsTaskHandlers;
         use crate::worker::{key_package_maintenance as kp, tasks::TaskWorker};
         const PHASE_DELAY: Duration = Duration::from_secs(20);
         const MAINTENANCE_WAIT: Duration = Duration::from_secs(42);
@@ -1556,7 +1588,7 @@ xmtp_common::if_native! {
             let now = time::now_ns();
             client.db().create_or_ignore_task(kp::kp_seed(kp::kp_rotation_proto(), now + 5 * NS_IN_SEC)?)?;
             peer.state.lock().pause_next = true;
-            let mut task_worker = TaskWorker::new(client.context.clone());
+            let mut task_worker = TaskWorker::new(client.context.clone(), MlsTaskHandlers);
             let runner = xmtp_common::spawn(None, async move { task_worker.run().await });
             timeout(Duration::from_secs(5), peer.entered.notified()).await?;
             let entered_at = time::Instant::now();

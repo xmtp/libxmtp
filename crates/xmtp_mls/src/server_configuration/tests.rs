@@ -383,7 +383,7 @@ mod applied_tests;
 mod backend_tests {
     use crate::Client;
     use crate::builder::ClientBuilderError;
-    use crate::context::XmtpSharedContext;
+    use crate::context::CoreContext;
     use crate::identity::IdentityStrategy;
     use crate::utils::backend::EphemeralBackend;
     use crate::utils::test::identity_setup;

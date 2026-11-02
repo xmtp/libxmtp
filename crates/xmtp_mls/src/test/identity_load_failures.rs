@@ -16,6 +16,7 @@ use crate::groups::group_membership::GroupMembership;
 use crate::identity_updates::{
     IdentityRequirement, IdentityUpdates, resolve_identity_requirements,
 };
+use crate::prelude::*;
 use crate::utils::FullXmtpClient;
 use crate::worker::NeedsDbReconnect;
 use parking_lot::Mutex;

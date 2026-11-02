@@ -39,13 +39,14 @@ use xmtp_db::{
 use xmtp_id::{InboxOwner, associations::test_utils::MockSmartContractSignatureVerifier};
 use xmtp_mls::{
     Client,
-    context::XmtpSharedContext,
     groups::{
         intents::{QueueIntent, UpdateMetadataIntentData},
         send_message_opts::SendMessageOpts,
     },
     identity::IdentityStrategy,
-    identity_lifecycle, tester,
+    identity_lifecycle,
+    prelude::*,
+    tester,
     utils::{FullXmtpClient, register_client},
 };
 use xmtp_mls_common::{

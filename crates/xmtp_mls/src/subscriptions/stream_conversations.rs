@@ -240,6 +240,7 @@ impl<C: XmtpSharedContext> Stream for StreamConversations<C> {
 
 #[cfg(test)]
 mod test {
+    use crate::prelude::*;
     use crate::utils::ClientTester;
     use std::sync::Arc;
 

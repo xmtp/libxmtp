@@ -1,6 +1,7 @@
 //! `USER_DISPLAY_NAME` and `GROUP_IMAGE` values, removed-member cleanup, and
 //! the single write of an application immutable field.
 
+use crate::prelude::*;
 use std::collections::BTreeMap;
 
 use openmls::{

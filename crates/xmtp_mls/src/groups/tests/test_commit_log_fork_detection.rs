@@ -1,4 +1,4 @@
-use crate::context::XmtpSharedContext;
+use crate::context::CoreContext;
 use crate::groups::app_data::process_message_with_app_data;
 use crate::groups::commit_log::{CommitLogTestFunction, CommitLogWorker};
 use crate::groups::mls_ext::CommitLogStorer;

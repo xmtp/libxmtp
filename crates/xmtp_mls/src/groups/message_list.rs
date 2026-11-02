@@ -100,6 +100,7 @@ mod tests {
     use crate::builder::ClientBuilder;
     use crate::groups::QueryableContentFields;
     use crate::messages::decoded_message::{ContentDecodeFailureKind, MessageBody};
+    use crate::prelude::*;
     use hex::ToHexExt;
     use xmtp_common::time::now_ns;
     use xmtp_content_types::ContentCodec;

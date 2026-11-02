@@ -5,8 +5,8 @@ use tokio::sync::Mutex as AsyncMutex;
 use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
 use xmtp_db::delivery::acknowledgement::DeliveryAckRequest;
-use xmtp_mls::context::XmtpSharedContext;
 use xmtp_mls::messages::enrichment::enrich_messages_with_stored;
+use xmtp_mls::prelude::*;
 use xmtp_mls::subscriptions::{
     local_delivery::{
         DeliveryAcknowledgement, DeliveryScope, LocalDeliveryError, LocalDeliveryFilter,

@@ -16,7 +16,13 @@ async fn cancelled_create_rolls_back_both_publication_points() {
             entered: tokio::sync::Notify::new(),
             resume: tokio::sync::Notify::new(),
         });
-        *alix.client.context.attachments.create_publish_pause.lock() = Some(pause.clone());
+        *alix
+            .client
+            .context
+            .features
+            .attachments
+            .create_publish_pause
+            .lock() = Some(pause.clone());
         let client = alix.client.clone();
         let create = tokio::spawn(async move { client.attachments().create(bytes()).await });
         tokio::time::timeout(Duration::from_secs(3), pause.entered.notified()).await?;
@@ -28,11 +34,12 @@ async fn cancelled_create_rolls_back_both_publication_points() {
             Duration::from_secs(3),
             alix.client
                 .context
+                .features
                 .attachments
                 .reconcile(&alix.client.context),
         )
         .await??;
-        let store = alix.client.context.attachments.store()?;
+        let store = alix.client.context.features.attachments.store()?;
         assert!(!store.exists(&path).await?);
         assert!(!store.exists(&staged).await?);
         assert!(
@@ -553,6 +560,7 @@ async fn fifo_source_is_rejected_before_staging() {
     assert!(
         alix.client
             .context
+            .features
             .attachments
             .store()?
             .list_files()
@@ -573,7 +581,13 @@ async fn conflicting_plaintext_move_keeps_existing_file_and_record() {
         entered: tokio::sync::Notify::new(),
         resume: tokio::sync::Notify::new(),
     });
-    *alix.client.context.attachments.create_move_pause.lock() = Some(pause.clone());
+    *alix
+        .client
+        .context
+        .features
+        .attachments
+        .create_move_pause
+        .lock() = Some(pause.clone());
     let client = alix.client.clone();
     let create =
         xmtp_common::task::spawn(async move { client.attachments().create(bytes()).await });
@@ -611,6 +625,7 @@ async fn conflicting_plaintext_move_keeps_existing_file_and_record() {
     let files = alix
         .client
         .context
+        .features
         .attachments
         .store()?
         .list_files()
@@ -632,7 +647,13 @@ async fn existing_plaintext_without_record_is_adopted_on_create() {
         entered: tokio::sync::Notify::new(),
         resume: tokio::sync::Notify::new(),
     });
-    *alix.client.context.attachments.create_move_pause.lock() = Some(pause.clone());
+    *alix
+        .client
+        .context
+        .features
+        .attachments
+        .create_move_pause
+        .lock() = Some(pause.clone());
     let client = alix.client.clone();
     let create =
         xmtp_common::task::spawn(async move { client.attachments().create(bytes()).await });
@@ -674,7 +695,13 @@ async fn directory_plaintext_collision_rejects_create() {
         entered: tokio::sync::Notify::new(),
         resume: tokio::sync::Notify::new(),
     });
-    *alix.client.context.attachments.create_move_pause.lock() = Some(pause.clone());
+    *alix
+        .client
+        .context
+        .features
+        .attachments
+        .create_move_pause
+        .lock() = Some(pause.clone());
     let client = alix.client.clone();
     let create =
         xmtp_common::task::spawn(async move { client.attachments().create(bytes()).await });
@@ -718,7 +745,13 @@ async fn conflicting_pending_row_rolls_back_only_owned_files() {
             entered: tokio::sync::Notify::new(),
             resume: tokio::sync::Notify::new(),
         });
-        *alix.client.context.attachments.create_move_pause.lock() = Some(pause.clone());
+        *alix
+            .client
+            .context
+            .features
+            .attachments
+            .create_move_pause
+            .lock() = Some(pause.clone());
         let client = alix.client.clone();
         let create =
             xmtp_common::task::spawn(async move { client.attachments().create(bytes()).await });
@@ -762,6 +795,7 @@ async fn conflicting_pending_row_rolls_back_only_owned_files() {
         let files = alix
             .client
             .context
+            .features
             .attachments
             .store()?
             .list_files()
@@ -784,7 +818,13 @@ async fn existing_staged_ciphertext_is_reused_on_create() {
         entered: tokio::sync::Notify::new(),
         resume: tokio::sync::Notify::new(),
     });
-    *alix.client.context.attachments.create_move_pause.lock() = Some(pause.clone());
+    *alix
+        .client
+        .context
+        .features
+        .attachments
+        .create_move_pause
+        .lock() = Some(pause.clone());
     let client = alix.client.clone();
     let create =
         xmtp_common::task::spawn(async move { client.attachments().create(bytes()).await });
@@ -839,7 +879,13 @@ async fn damaged_staged_ciphertext_is_replaced_on_create() {
             entered: tokio::sync::Notify::new(),
             resume: tokio::sync::Notify::new(),
         });
-        *alix.client.context.attachments.create_move_pause.lock() = Some(pause.clone());
+        *alix
+            .client
+            .context
+            .features
+            .attachments
+            .create_move_pause
+            .lock() = Some(pause.clone());
         let client = alix.client.clone();
         let create =
             xmtp_common::task::spawn(async move { client.attachments().create(bytes()).await });
@@ -873,6 +919,7 @@ async fn damaged_staged_ciphertext_is_replaced_on_create() {
         let (digest, length) = alix
             .client
             .context
+            .features
             .attachments
             .store()?
             .open_read(&staged)

@@ -1166,6 +1166,7 @@ pub(crate) async fn held_readd(
     alix: &crate::utils::FullXmtpClient,
     bo: &crate::utils::FullXmtpClient,
 ) -> HeldReadd {
+    use crate::context::CoreContext;
     let alix_group = alix.create_group(None, None).unwrap();
     alix_group.add_members(&[bo.inbox_id()]).await.unwrap();
     let bo_group = bo.sync_welcomes().await.unwrap().pop().unwrap();
@@ -1208,6 +1209,7 @@ pub(crate) async fn held_readd(
 mod tests {
     use super::*;
     use crate::groups::WelcomeMembership;
+    use crate::prelude::*;
     use crate::tester;
     use crate::utils::test::MlsGroupExt;
     use rstest::*;

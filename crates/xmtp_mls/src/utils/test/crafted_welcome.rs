@@ -43,7 +43,7 @@ use xmtp_proto::{
     },
 };
 
-use crate::context::XmtpSharedContext;
+use crate::context::CoreContext;
 use crate::groups::{build_group_config, group_permissions::PolicySet, intents::Installation};
 use crate::utils::FullXmtpClient;
 

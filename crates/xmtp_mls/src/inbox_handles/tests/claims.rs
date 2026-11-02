@@ -3,7 +3,7 @@
 use super::{new_inbox_state, random_handle, scripted_client};
 use crate::{
     client::ClientError,
-    context::XmtpSharedContext,
+    context::CoreContext,
     identity_updates::IdentityUpdateError,
     inbox_handles::{HandleError, ensure_claim_allowed},
     tester,

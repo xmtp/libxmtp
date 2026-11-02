@@ -3,13 +3,12 @@ use std::sync::atomic::AtomicBool;
 
 use crate::builder::ForkRecoveryOpts;
 use crate::client::DeviceSync;
-use crate::context::XmtpSharedContext;
+use crate::context::CoreContext;
 use crate::groups::MlsGroup;
 use crate::groups::summary::SyncSummary;
 use crate::identity::create_credential;
 use crate::worker::device_sync::worker::SyncMetric;
 use crate::worker::tasks::TaskWorkerChannels;
-use crate::worker::{MetricsCasting, WorkerKind};
 use crate::{
     context::XmtpMlsLocalContext, identity::Identity, mutex_registry::MutexRegistry,
     utils::VersionInfo,
@@ -68,7 +67,6 @@ mock! {
 impl Clone for NewMockContext {
     fn clone(&self) -> Self {
         Self {
-            attachments: self.attachments.clone(),
             identity: self.identity.clone(),
             api_client: self.api_client.clone(),
             store: self.store.clone(),
@@ -94,30 +92,31 @@ impl Clone for NewMockContext {
             #[cfg(any(test, target_arch = "wasm32"))]
             message_clock: self.message_clock.clone(),
             delivery_owner: self.delivery_owner.clone(),
-            incoming_runtime: self.incoming_runtime.clone(),
-            identity_resolutions: self.identity_resolutions.clone(),
+            stream_policy: self.stream_policy.clone(),
+            features: self.features.clone(),
         }
     }
 }
 
-impl XmtpSharedContext for NewMockContext {
+impl CoreContext for NewMockContext {
     type Db = xmtp_db::MockXmtpDb;
 
     type ApiClient = Arc<MockBackendClient>;
 
     type MlsStorage = xmtp_db::test_utils::MlsMemoryStorage;
+    type Features = crate::features::MlsFeatures;
     type ContextReference = Self;
 
     fn context_ref(&self) -> &Self::ContextReference {
         self
     }
 
-    fn db(&self) -> <Self::Db as xmtp_db::XmtpDb>::DbQuery {
-        self.store.db()
+    fn features(&self) -> &Self::Features {
+        &self.features
     }
 
-    fn attachment_runtime(&self) -> &Arc<crate::attachments::AttachmentRuntime> {
-        &self.attachments
+    fn db(&self) -> <Self::Db as xmtp_db::XmtpDb>::DbQuery {
+        self.store.db()
     }
 
     fn api(&self) -> &ApiClientWrapper<Self::ApiClient> {
@@ -186,10 +185,7 @@ impl XmtpSharedContext for NewMockContext {
     }
 
     fn sync_metrics(&self) -> Option<Arc<crate::worker::metrics::WorkerMetrics<SyncMetric>>> {
-        self.worker_metrics
-            .lock()
-            .get(&WorkerKind::DeviceSync)?
-            .as_sync_metrics()
+        self.worker_metrics.lock().clone()
     }
 
     fn cancellation_token(&self) -> &CancellationToken {
@@ -200,12 +196,8 @@ impl XmtpSharedContext for NewMockContext {
         &self.delivery_owner
     }
 
-    fn incoming_runtime(&self) -> &crate::subscriptions::incoming::IncomingRuntime {
-        &self.incoming_runtime
-    }
-
-    fn identity_resolution_registry(&self) -> &crate::identity_updates::IdentityResolutionRegistry {
-        &self.identity_resolutions
+    fn stream_policy(&self) -> &crate::core::policy::StreamPolicy {
+        &self.stream_policy
     }
 
     fn shutdown_complete(&self) -> bool {

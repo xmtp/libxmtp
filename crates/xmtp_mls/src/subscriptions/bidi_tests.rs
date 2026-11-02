@@ -1,7 +1,7 @@
 //! Live backend subscription tests for handshake, target completion, and delivery.
 
 use crate::builder::ClientBuilder;
-use crate::context::XmtpSharedContext;
+use crate::context::CoreContext;
 use crate::groups::send_message_opts::SendMessageOpts;
 use std::collections::BTreeSet;
 use std::time::Duration;

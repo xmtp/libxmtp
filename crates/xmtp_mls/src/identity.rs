@@ -695,7 +695,7 @@ pub(crate) fn store_key_package_references(
 
 #[cfg(test)]
 mod tests {
-    use crate::context::XmtpSharedContext;
+    use crate::context::CoreContext;
     use crate::{
         builder::ClientBuilder,
         identity::{pq_key_package_references_key, serialize_key_package_hash_ref},

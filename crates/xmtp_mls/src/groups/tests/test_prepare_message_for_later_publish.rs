@@ -1,4 +1,4 @@
-use crate::context::XmtpSharedContext;
+use crate::context::CoreContext;
 use crate::groups::message_id::calculate_message_id;
 use crate::groups::send_message_opts::SendMessageOpts;
 use crate::groups::{DeliveryStatus, GroupError};

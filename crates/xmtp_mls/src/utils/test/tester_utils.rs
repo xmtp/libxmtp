@@ -1,4 +1,5 @@
 #![allow(unused)]
+use crate::prelude::*;
 pub use xmtp_id::utils::passkey::{PKClient, PKCredential, PasskeyUser, PkUserValidationMethod};
 
 use super::DefaultTestClientCreator;

@@ -1,7 +1,7 @@
 //! Batched proposals, sequence ids, and app-data dictionary updates.
 
 use crate::{
-    context::XmtpSharedContext,
+    context::CoreContext,
     groups::intents::{
         CommitPendingProposalsIntentData, ProposeMemberUpdateIntentData, QueueIntent,
     },

@@ -216,6 +216,7 @@ mod native {
         assert!(
             client
                 .context
+                .features
                 .attachments
                 .dir
                 .as_ref()
@@ -277,7 +278,10 @@ mod native {
         assert_eq!(paths.db_path, root.join("xmtp.db3"));
         assert_eq!(paths.attachments_dir, root.join("attachments"));
         assert!(paths.db_path.exists());
-        assert_eq!(client.context.attachments.dir, Some(paths.attachments_dir));
+        assert_eq!(
+            client.context.features.attachments.dir,
+            Some(paths.attachments_dir)
+        );
     }
 
     // Covers plan P19.
@@ -1191,7 +1195,7 @@ mod native {
         assert!(root.join("xmtp.db3.sqlcipher_salt").is_file());
         assert!(root.join("attachments").is_dir());
         assert_eq!(
-            client.context.attachments.dir.as_deref(),
+            client.context.features.attachments.dir.as_deref(),
             Some(root.join("attachments").as_path())
         );
         assert!(dir.path().join("deployments.json").is_file());

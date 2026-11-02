@@ -41,7 +41,9 @@ use xmtp_proto::xmtp::mls::message_contents::PlaintextCommitLogEntry;
 use crate::{
     context::XmtpSharedContext,
     groups::GroupError,
-    worker::{BoxedWorker, NeedsDbReconnect, Worker, WorkerFactory, WorkerKind, WorkerResult},
+    worker::{
+        BoxedWorker, NeedsDbReconnect, NewWorker, Worker, WorkerFactory, WorkerKind, WorkerResult,
+    },
 };
 use xmtp_proto::xmtp::mls::message_contents::{
     OneshotMessage, ReaddRequest, oneshot_message::MessageType,
@@ -85,11 +87,8 @@ where
         WorkerKind::CommitLog
     }
 
-    fn create(
-        &self,
-        metrics: Option<crate::worker::DynMetrics>,
-    ) -> (BoxedWorker, Option<crate::worker::DynMetrics>) {
-        (Box::new(self.worker()) as Box<_>, metrics)
+    fn create(&self) -> BoxedWorker {
+        Box::new(self.worker())
     }
 }
 
@@ -209,11 +208,13 @@ where
     async fn run_tasks(&mut self) -> WorkerResult<()> {
         self.run().await.map_err(|e| Box::new(e) as Box<_>)
     }
+}
 
-    fn factory<C>(context: C) -> impl WorkerFactory + 'static
-    where
-        C: XmtpSharedContext + 'static,
-    {
+impl<Context> NewWorker<Context> for CommitLogWorker<Context>
+where
+    Context: XmtpSharedContext + 'static,
+{
+    fn factory(context: Context) -> impl WorkerFactory + 'static {
         Factory::new(context)
     }
 }
@@ -1593,6 +1594,7 @@ mod stored_cursor_tests {
 mod publication_snapshot_tests {
     use super::*;
     use crate::groups::UpdateAdminListType::{AddSuper, RemoveSuper};
+    use crate::prelude::*;
     use crate::tester;
     use std::sync::{Arc, Mutex, mpsc};
     use xmtp_db::mock::MockDbQuery;

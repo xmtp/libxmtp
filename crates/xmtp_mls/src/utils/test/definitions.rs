@@ -6,8 +6,8 @@ use xmtp_db::sql_key_store::SqlKeyStore;
 use crate::{Client, context::XmtpMlsLocalContext, utils::Tester};
 
 pub type TestMlsStorage = SqlKeyStore<xmtp_db::DefaultDbConnection>;
-pub type TestXmtpMlsContext =
-    Arc<XmtpMlsLocalContext<TestClient, xmtp_db::DefaultStore, TestMlsStorage>>;
+pub type TestXmtpMlsContext<Api = TestClient> =
+    Arc<XmtpMlsLocalContext<Api, xmtp_db::DefaultStore, TestMlsStorage>>;
 pub type FullXmtpClient = Client<TestXmtpMlsContext>;
 /// Default Client Tester type
 pub type ClientTester = Tester<PrivateKeySigner, FullXmtpClient>;

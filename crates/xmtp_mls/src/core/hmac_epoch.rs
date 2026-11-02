@@ -1,7 +1,7 @@
 //! Report HMAC epoch changes observed while this client is open.
 
-use crate::context::XmtpSharedContext;
-use crate::worker::{BoxedWorker, DynMetrics, Worker, WorkerFactory, WorkerKind, WorkerResult};
+use crate::context::CoreContext;
+use crate::worker::{BoxedWorker, NewWorker, Worker, WorkerFactory, WorkerKind, WorkerResult};
 use std::sync::{
     Arc,
     atomic::{AtomicI64, Ordering},
@@ -75,7 +75,7 @@ impl<Context> HmacEpochWorker<Context> {
     }
 }
 
-impl<Context: XmtpSharedContext> HmacEpochWorker<Context> {
+impl<Context: CoreContext> HmacEpochWorker<Context> {
     // implements: EVENT-026
     fn report_epoch(&mut self, observed: i64) {
         if self.observe_epoch(observed) {
@@ -101,36 +101,31 @@ impl<Context> Factory<Context> {
     }
 }
 
-impl<Context: XmtpSharedContext + 'static> WorkerFactory for Factory<Context> {
+impl<Context: CoreContext + 'static> WorkerFactory for Factory<Context> {
     fn kind(&self) -> WorkerKind {
         WorkerKind::HmacEpoch
     }
 
-    fn create(&self, _metrics: Option<DynMetrics>) -> (BoxedWorker, Option<DynMetrics>) {
-        (
-            Box::new(HmacEpochWorker {
-                context: self.context.clone(),
-                last_epoch: self.last_epoch.clone(),
-                #[cfg(test)]
-                clock: None,
-            }),
-            None,
-        )
+    fn create(&self) -> BoxedWorker {
+        Box::new(HmacEpochWorker {
+            context: self.context.clone(),
+            last_epoch: self.last_epoch.clone(),
+            #[cfg(test)]
+            clock: None,
+        })
+    }
+}
+
+impl<Context: CoreContext + 'static> NewWorker<Context> for HmacEpochWorker<Context> {
+    fn factory(context: Context) -> impl WorkerFactory + 'static {
+        Factory::new(context, hmac_epoch())
     }
 }
 
 #[xmtp_common::async_trait]
-impl<Context: XmtpSharedContext + 'static> Worker for HmacEpochWorker<Context> {
+impl<Context: CoreContext + 'static> Worker for HmacEpochWorker<Context> {
     fn kind(&self) -> WorkerKind {
         WorkerKind::HmacEpoch
-    }
-
-    fn factory<C>(context: C) -> impl WorkerFactory + 'static
-    where
-        Self: Sized,
-        C: XmtpSharedContext + 'static,
-    {
-        Factory::new(context, hmac_epoch())
     }
 
     async fn run_tasks(&mut self) -> WorkerResult<()> {

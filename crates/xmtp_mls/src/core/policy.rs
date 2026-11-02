@@ -7,7 +7,7 @@ use xmtp_proto::types::IncomingBatchLimits;
 
 /// Bounds apply to encoded items and row metadata, not to the whole database.
 #[derive(Debug, Clone)]
-pub(crate) struct StreamPolicy {
+pub struct StreamPolicy {
     /// Maximum rows committed in one durable admission transaction.
     pub(crate) max_admission_rows: u32,
     /// Maximum encoded bytes committed in one admission transaction.

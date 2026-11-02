@@ -20,6 +20,7 @@ async fn locked_outcome_write_is_retried() {
         while alix
             .client
             .context
+            .features
             .attachments
             .outcome_write_errors
             .load(AtomicOrdering::SeqCst)
@@ -72,6 +73,7 @@ async fn delete_stops_retrying_unrecorded_upload_outcome() {
         while alix
             .client
             .context
+            .features
             .attachments
             .outcome_write_errors
             .load(AtomicOrdering::SeqCst)
@@ -141,16 +143,21 @@ async fn deletion_wins_before_outcome_write_under_event_lock() {
         ]))?;
     let entered_outcome = Arc::new(tokio::sync::Notify::new());
     let resume_outcome = Arc::new(tokio::sync::Notify::new());
-    *alix.client.context.attachments.outcome_lock_pause.lock() =
-        Some((entered_outcome.clone(), resume_outcome.clone()));
+    *alix
+        .client
+        .context
+        .features
+        .attachments
+        .outcome_lock_pause
+        .lock() = Some((entered_outcome.clone(), resume_outcome.clone()));
     let upload = xmtp_common::task::spawn(async move { pending.upload().await });
     tokio::time::timeout(Duration::from_secs(5), entered_outcome.notified()).await?;
 
-    let event_lock = alix.client.context.attachments.event_lock(&key);
+    let event_lock = alix.client.context.features.attachments.event_lock(&key);
     let guard = event_lock.lock().await;
     let entered_delete = Arc::new(tokio::sync::Notify::new());
     let resume_delete = Arc::new(tokio::sync::Notify::new());
-    *alix.client.context.attachments.delete_pause.lock() =
+    *alix.client.context.features.attachments.delete_pause.lock() =
         Some((entered_delete.clone(), resume_delete.clone()));
     let client = alix.client.clone();
     let deleting_remote = remote.clone();
@@ -210,7 +217,7 @@ async fn outcome_retry_renews_lease_without_another_upload() {
         .with_disable_workers(true)
         .build()
         .await?;
-    *client.context.attachments.lease_timing.lock() = LeaseTiming::for_test(
+    *client.context.features.attachments.lease_timing.lock() = LeaseTiming::for_test(
         Duration::from_millis(300),
         Duration::from_millis(100),
         Duration::from_millis(10),
@@ -234,6 +241,7 @@ async fn outcome_retry_renews_lease_without_another_upload() {
     tokio::time::timeout(Duration::from_secs(5), async {
         while client
             .context
+            .features
             .attachments
             .outcome_write_errors
             .load(AtomicOrdering::SeqCst)
@@ -269,7 +277,7 @@ async fn deterministic_outcome_error_fails_with_local_storage() {
     tester!(alix, attachments_dir: dir.path(), disable_workers);
     let pending = alix.client.attachments().create(bytes()).await?;
     let remote = pending.remote_attachment().clone();
-    *alix.client.context.attachments.lease_timing.lock() = LeaseTiming::for_test(
+    *alix.client.context.features.attachments.lease_timing.lock() = LeaseTiming::for_test(
         Duration::from_secs(2),
         Duration::from_millis(100),
         Duration::from_millis(10),
@@ -312,6 +320,7 @@ async fn deterministic_outcome_error_fails_with_local_storage() {
     assert_eq!(
         alix.client
             .context
+            .features
             .attachments
             .outcome_write_errors
             .load(AtomicOrdering::SeqCst),
@@ -393,6 +402,7 @@ async fn permanent_non_constraint_outcome_error_stops_retrying() {
     assert_eq!(
         alix.client
             .context
+            .features
             .attachments
             .outcome_write_errors
             .load(AtomicOrdering::SeqCst),
@@ -445,7 +455,7 @@ async fn delete_finishes_after_unrecorded_upload_outcome() {
     tokio::time::timeout(Duration::from_secs(5), entered_put).await??;
     let entered_delete = Arc::new(tokio::sync::Notify::new());
     let resume_delete = Arc::new(tokio::sync::Notify::new());
-    *client.context.attachments.delete_pause.lock() =
+    *client.context.features.attachments.delete_pause.lock() =
         Some((entered_delete.clone(), resume_delete.clone()));
     let deleting_client = client.clone();
     let deleting_remote = remote.clone();
@@ -468,6 +478,7 @@ async fn delete_finishes_after_unrecorded_upload_outcome() {
     assert_eq!(
         client
             .context
+            .features
             .attachments
             .outcome_write_errors
             .load(AtomicOrdering::SeqCst),
@@ -597,7 +608,7 @@ async fn cancelled_delete_caller_does_not_leave_a_cancelled_pending_row() {
 
     let entered_delete = Arc::new(tokio::sync::Notify::new());
     let resume_delete = Arc::new(tokio::sync::Notify::new());
-    *client.context.attachments.delete_pause.lock() =
+    *client.context.features.attachments.delete_pause.lock() =
         Some((entered_delete.clone(), resume_delete.clone()));
     let deleting_client = client.clone();
     let deleting_remote = remote.clone();
@@ -648,14 +659,19 @@ async fn delete_finishes_after_upload_task_panics() {
     let remote = pending.remote_attachment().clone();
     let entered_attempt = Arc::new(tokio::sync::Notify::new());
     let resume_attempt = Arc::new(tokio::sync::Notify::new());
-    *alix.client.context.attachments.attempt_panic_pause.lock() =
-        Some((entered_attempt.clone(), resume_attempt.clone()));
+    *alix
+        .client
+        .context
+        .features
+        .attachments
+        .attempt_panic_pause
+        .lock() = Some((entered_attempt.clone(), resume_attempt.clone()));
     let upload = tokio::spawn(async move { pending.upload().await });
     tokio::time::timeout(Duration::from_secs(5), entered_attempt.notified()).await?;
 
     let entered_delete = Arc::new(tokio::sync::Notify::new());
     let resume_delete = Arc::new(tokio::sync::Notify::new());
-    *alix.client.context.attachments.delete_pause.lock() =
+    *alix.client.context.features.attachments.delete_pause.lock() =
         Some((entered_delete.clone(), resume_delete.clone()));
     let client = alix.client.clone();
     let deleting_remote = remote.clone();
@@ -688,7 +704,7 @@ async fn delete_finishes_after_upload_task_panics() {
 async fn panicked_attempt_can_be_claimed_after_lease_expiry() {
     let dir = tempfile::tempdir()?;
     tester!(alix, attachments_dir: dir.path(), configured: offer, disable_workers);
-    *alix.client.context.attachments.lease_timing.lock() = LeaseTiming::for_test(
+    *alix.client.context.features.attachments.lease_timing.lock() = LeaseTiming::for_test(
         Duration::from_millis(300),
         Duration::from_millis(100),
         Duration::from_millis(10),
@@ -703,8 +719,13 @@ async fn panicked_attempt_can_be_claimed_after_lease_expiry() {
         .subscribe_app(EventFilter::new([EventKind::AttachmentUploadStarted]))?;
     let entered = Arc::new(tokio::sync::Notify::new());
     let release = Arc::new(tokio::sync::Notify::new());
-    *alix.client.context.attachments.attempt_panic_pause.lock() =
-        Some((entered.clone(), release.clone()));
+    *alix
+        .client
+        .context
+        .features
+        .attachments
+        .attempt_panic_pause
+        .lock() = Some((entered.clone(), release.clone()));
     let first = tokio::spawn(async move { pending.upload().await });
     tokio::time::timeout(Duration::from_secs(5), entered.notified()).await?;
     let attempt = resumed
@@ -715,7 +736,13 @@ async fn panicked_attempt_can_be_claimed_after_lease_expiry() {
         .expect("running attempt");
     first.abort();
     let _ = first.await;
-    *alix.client.context.attachments.attempt_panic_pause.lock() = None;
+    *alix
+        .client
+        .context
+        .features
+        .attachments
+        .attempt_panic_pause
+        .lock() = None;
     release.notify_one();
     tokio::time::timeout(Duration::from_secs(2), attempt.done.cancelled()).await?;
     tokio::time::timeout(Duration::from_secs(2), async {
@@ -1173,6 +1200,7 @@ async fn outcome_written_after_reconnect() {
     tokio::time::timeout(Duration::from_secs(2), async {
         while client
             .context
+            .features
             .attachments
             .outcome_write_errors
             .load(AtomicOrdering::SeqCst)
@@ -1225,7 +1253,7 @@ async fn second_client_joins_running_upload() {
         .with_disable_workers(true)
         .build()
         .await?;
-    *second.context.attachments.lease_timing.lock() =
+    *second.context.features.attachments.lease_timing.lock() =
         LeaseTiming::for_test(LEASE_DURATION, LEASE_RENEW, Duration::from_millis(20));
     let a = first.attachments().pending(&remote).await?;
     let b = second.attachments().pending(&remote).await?;
@@ -1284,7 +1312,7 @@ async fn stale_holder_yields_to_new_claim() {
         .with_disable_workers(true)
         .build()
         .await?;
-    *a_client.context.attachments.lease_timing.lock() = LeaseTiming::for_test(
+    *a_client.context.features.attachments.lease_timing.lock() = LeaseTiming::for_test(
         Duration::from_millis(100),
         Duration::from_secs(1),
         Duration::from_millis(10),
@@ -1361,7 +1389,7 @@ async fn lease_extended_while_running() {
         .with_disable_workers(true)
         .build()
         .await?;
-    *client.context.attachments.lease_timing.lock() = LeaseTiming::for_test(
+    *client.context.features.attachments.lease_timing.lock() = LeaseTiming::for_test(
         Duration::from_millis(300),
         Duration::from_millis(30),
         Duration::from_millis(10),
@@ -1406,7 +1434,7 @@ async fn extension_storage_error_is_retried() {
         .with_disable_workers(true)
         .build()
         .await?;
-    *client.context.attachments.lease_timing.lock() = LeaseTiming::for_test(
+    *client.context.features.attachments.lease_timing.lock() = LeaseTiming::for_test(
         Duration::from_millis(500),
         Duration::from_millis(30),
         Duration::from_millis(10),
@@ -1432,6 +1460,7 @@ async fn extension_storage_error_is_retried() {
     tokio::time::timeout(Duration::from_secs(2), async {
         while client
             .context
+            .features
             .attachments
             .lease_extension_errors
             .load(AtomicOrdering::SeqCst)

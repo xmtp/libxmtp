@@ -6,17 +6,17 @@ use crate::core::change_callbacks::UnstableChangeCallbacks;
 use crate::core::config::{DeviceSync, DeviceSyncMode, ForkRecoveryOpts};
 use crate::core::events::InternalEvent;
 use crate::core::metrics::SyncMetric;
+use crate::core::policy::StreamPolicy;
 use crate::core::task_channels::TaskWorkerChannels;
 use crate::core::version::VersionInfo;
 use crate::server_configuration::ServerConfigurationHandle;
 use crate::worker::metrics::WorkerMetrics;
-use crate::worker::{DynMetrics, MetricsCasting, WorkerConfig, WorkerKind};
+use crate::worker::{SyncMetricsSlot, WorkerConfig, WorkerKind};
 use crate::{
     identity::{Identity, IdentityError},
     mutex_registry::MutexRegistry,
 };
 use parking_lot::Mutex;
-use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tokio_util::sync::CancellationToken;
@@ -33,9 +33,6 @@ use xmtp_proto::types::InstallationId;
 
 #[cfg(test)]
 pub(crate) static FAIL_NEXT_DELIVERY_RELEASE: Mutex<Option<Vec<u8>>> = Mutex::new(None);
-
-#[cfg(any(test, feature = "test-utils"))]
-use crate::worker::device_sync::DeviceSyncClient;
 
 /// Counts the running host calls that can use the database.
 ///
@@ -105,8 +102,9 @@ impl Drop for ForegroundCall {
 /// The local context a XMTP MLS needs to function:
 /// - Sqlite Database
 /// - Identity for the User
-pub struct XmtpMlsLocalContext<ApiClient, Db, S> {
-    pub(crate) attachments: Arc<crate::attachments::AttachmentRuntime>,
+///
+/// `F` holds what the crates above core add to it.
+pub struct LocalContext<ApiClient, Db, S, F> {
     /// XMTP Identity
     pub(crate) identity: Identity,
     /// The XMTP Api Client
@@ -132,11 +130,11 @@ pub struct XmtpMlsLocalContext<ApiClient, Db, S> {
     /// Unstable: SDK-registered notifications for group-state changes. Empty
     /// unless the host opted in at build time.
     pub(crate) change_callbacks: UnstableChangeCallbacks,
-    pub(crate) incoming_runtime: Arc<crate::subscriptions::incoming::IncomingRuntime>,
-    pub(crate) identity_resolutions: Arc<crate::identity_updates::IdentityResolutionRegistry>,
+    /// The limits on incoming work; the incoming runtime holds the same policy.
+    pub(crate) stream_policy: StreamPolicy,
     pub(crate) worker_config: WorkerConfig,
     // pub(crate) workers: Arc<WorkerRunner>,
-    pub(crate) worker_metrics: Arc<Mutex<HashMap<WorkerKind, DynMetrics>>>,
+    pub(crate) worker_metrics: SyncMetricsSlot,
     pub(crate) task_channels: TaskWorkerChannels,
     pub(crate) cancellation_token: CancellationToken,
     // Set only after a successful `Client::close` (workers stopped + DB
@@ -148,9 +146,14 @@ pub struct XmtpMlsLocalContext<ApiClient, Db, S> {
     pub(crate) foreground_calls: Arc<ForegroundCalls>,
     #[cfg(any(test, target_arch = "wasm32"))]
     pub(crate) message_clock: Arc<message_clock::MessageClock>,
+    pub(crate) features: F,
 }
 
-impl<ApiClient, Db, S> XmtpMlsLocalContext<ApiClient, Db, S>
+/// The context of a client, with every feature the client has.
+pub type XmtpMlsLocalContext<ApiClient, Db, S> =
+    LocalContext<ApiClient, Db, S, crate::features::MlsFeatures>;
+
+impl<ApiClient, Db, S, F> LocalContext<ApiClient, Db, S, F>
 where
     Db: XmtpDb + 'static,
     ApiClient: XmtpApi + 'static,
@@ -178,25 +181,11 @@ where
     pub fn device_sync_worker_enabled(&self) -> bool {
         !matches!(self.device_sync.mode, DeviceSyncMode::Disabled)
     }
-
-    /// Reconstructs the DeviceSyncClient from the context
-    /// used in tests
-    #[cfg(any(test, feature = "test-utils"))]
-    pub fn device_sync_client(
-        self: &Arc<XmtpMlsLocalContext<ApiClient, Db, S>>,
-    ) -> DeviceSyncClient<Arc<Self>> {
-        let metrics = self.sync_metrics();
-        DeviceSyncClient::new(
-            Arc::clone(self),
-            metrics.unwrap_or(Arc::new(WorkerMetrics::new(self.installation_id()))),
-        )
-    }
 }
 
-impl<ApiClient, Db, S> XmtpMlsLocalContext<ApiClient, Db, S> {
-    pub fn replace_mls_store<S2>(self, mls_store: S2) -> XmtpMlsLocalContext<ApiClient, Db, S2> {
-        XmtpMlsLocalContext::<ApiClient, Db, S2> {
-            attachments: self.attachments,
+impl<ApiClient, Db, S, F> LocalContext<ApiClient, Db, S, F> {
+    pub fn replace_mls_store<S2>(self, mls_store: S2) -> LocalContext<ApiClient, Db, S2, F> {
+        LocalContext::<ApiClient, Db, S2, F> {
             identity: self.identity,
             api_client: self.api_client,
             store: self.store,
@@ -214,8 +203,7 @@ impl<ApiClient, Db, S> XmtpMlsLocalContext<ApiClient, Db, S> {
             device_sync: self.device_sync,
             fork_recovery_opts: self.fork_recovery_opts,
             change_callbacks: self.change_callbacks,
-            incoming_runtime: self.incoming_runtime,
-            identity_resolutions: self.identity_resolutions,
+            stream_policy: self.stream_policy,
             worker_config: self.worker_config,
             worker_metrics: self.worker_metrics,
             task_channels: self.task_channels,
@@ -224,11 +212,12 @@ impl<ApiClient, Db, S> XmtpMlsLocalContext<ApiClient, Db, S> {
             foreground_calls: self.foreground_calls,
             #[cfg(any(test, target_arch = "wasm32"))]
             message_clock: self.message_clock,
+            features: self.features,
         }
     }
 }
 
-impl<ApiClient, Db, S> XmtpMlsLocalContext<ApiClient, Db, S> {
+impl<ApiClient, Db, S, F> LocalContext<ApiClient, Db, S, F> {
     /// The installation public key is the primary identifier for an installation
     pub fn installation_public_key(&self) -> InstallationId {
         (*self.identity.installation_keys.public_bytes()).into()
@@ -263,10 +252,7 @@ impl<ApiClient, Db, S> XmtpMlsLocalContext<ApiClient, Db, S> {
     }
 
     pub fn sync_metrics(&self) -> Option<Arc<WorkerMetrics<SyncMetric>>> {
-        self.worker_metrics
-            .lock()
-            .get(&WorkerKind::DeviceSync)?
-            .as_sync_metrics()
+        self.worker_metrics.lock().clone()
     }
 
     pub fn cancellation_token(&self) -> &CancellationToken {
@@ -282,21 +268,32 @@ impl<ApiClient, Db, S> XmtpMlsLocalContext<ApiClient, Db, S> {
     }
 }
 
-pub trait XmtpSharedContext
+/// The engine's context, at its old path.
+pub use crate::groups::context::XmtpSharedContext;
+
+/// The context core code runs on: storage, the API client, the identity,
+/// events and the client's plain settings. `Features` is what the crates above
+/// core add; each of them reads its own part through its own trait.
+pub trait CoreContext
 where
     Self: MaybeSend + MaybeSync + Sized + Clone,
 {
     type Db: XmtpDb;
     type ApiClient: XmtpApi;
     type MlsStorage: XmtpMlsStorageProvider;
+    type Features: MaybeSend + MaybeSync;
     /// Owned, cloneable handle for background work; it cannot borrow short-lived resources.
-    type ContextReference: XmtpSharedContext<Db = Self::Db, ApiClient = Self::ApiClient, MlsStorage = Self::MlsStorage>
-        + 'static;
+    type ContextReference: CoreContext<
+            Db = Self::Db,
+            ApiClient = Self::ApiClient,
+            MlsStorage = Self::MlsStorage,
+            Features = Self::Features,
+        > + 'static;
 
     /// Return the handle to clone when work can outlive this context borrow.
     fn context_ref(&self) -> &Self::ContextReference;
+    fn features(&self) -> &Self::Features;
     fn db(&self) -> <Self::Db as XmtpDb>::DbQuery;
-    fn attachment_runtime(&self) -> &Arc<crate::attachments::AttachmentRuntime>;
     fn api(&self) -> &ApiClientWrapper<Self::ApiClient>;
     fn scw_verifier(&self) -> Arc<Box<dyn SmartContractSignatureVerifier>>;
 
@@ -370,10 +367,8 @@ where
     fn task_channels(&self) -> &TaskWorkerChannels;
     /// Unstable: the host's registered group-change callbacks.
     fn change_callbacks(&self) -> &UnstableChangeCallbacks;
-    /// Shared incoming runtime. Its limits and transport are internal client policy.
-    fn incoming_runtime(&self) -> &crate::subscriptions::incoming::IncomingRuntime;
-    /// Coalesces exact identity lookups without treating a newer snapshot as the requested one.
-    fn identity_resolution_registry(&self) -> &crate::identity_updates::IdentityResolutionRegistry;
+    /// The limits on incoming work. Internal client policy.
+    fn stream_policy(&self) -> &StreamPolicy;
     fn sync_metrics(&self) -> Option<Arc<WorkerMetrics<SyncMetric>>>;
     #[cfg(test)]
     fn mls_commit_lock(&self) -> &Arc<GroupCommitLock>;
@@ -400,27 +395,29 @@ where
     fn message_timestamp_ns(&self) -> i64;
 }
 
-impl<XApiClient, XDb, XMls> XmtpSharedContext for Arc<XmtpMlsLocalContext<XApiClient, XDb, XMls>>
+impl<XApiClient, XDb, XMls, F> CoreContext for Arc<LocalContext<XApiClient, XDb, XMls, F>>
 where
     XApiClient: XmtpApi + 'static,
     XDb: XmtpDb + 'static,
     XMls: XmtpMlsStorageProvider + 'static,
+    F: MaybeSend + MaybeSync + 'static,
 {
     type Db = XDb;
     type ApiClient = XApiClient;
     type MlsStorage = XMls;
+    type Features = F;
     type ContextReference = Self;
 
     fn context_ref(&self) -> &Self::ContextReference {
         self
     }
 
-    fn db(&self) -> <Self::Db as XmtpDb>::DbQuery {
-        self.store.db()
+    fn features(&self) -> &F {
+        &self.features
     }
 
-    fn attachment_runtime(&self) -> &Arc<crate::attachments::AttachmentRuntime> {
-        &self.attachments
+    fn db(&self) -> <Self::Db as XmtpDb>::DbQuery {
+        self.store.db()
     }
 
     fn api(&self) -> &ApiClientWrapper<Self::ApiClient> {
@@ -490,19 +487,12 @@ where
         &self.change_callbacks
     }
 
-    fn incoming_runtime(&self) -> &crate::subscriptions::incoming::IncomingRuntime {
-        &self.incoming_runtime
-    }
-
-    fn identity_resolution_registry(&self) -> &crate::identity_updates::IdentityResolutionRegistry {
-        &self.identity_resolutions
+    fn stream_policy(&self) -> &StreamPolicy {
+        &self.stream_policy
     }
 
     fn sync_metrics(&self) -> Option<Arc<WorkerMetrics<SyncMetric>>> {
-        self.worker_metrics
-            .lock()
-            .get(&WorkerKind::DeviceSync)?
-            .as_sync_metrics()
+        self.worker_metrics.lock().clone()
     }
 
     fn mutexes(&self) -> &MutexRegistry {
@@ -542,129 +532,126 @@ where
     }
 }
 
-impl<T> XmtpSharedContext for &T
+impl<T> CoreContext for &T
 where
-    T: XmtpSharedContext,
+    T: CoreContext,
 {
-    type Db = <T as XmtpSharedContext>::Db;
-    type ApiClient = <T as XmtpSharedContext>::ApiClient;
-    type MlsStorage = <T as XmtpSharedContext>::MlsStorage;
-    type ContextReference = <T as XmtpSharedContext>::ContextReference;
+    type Db = <T as CoreContext>::Db;
+    type ApiClient = <T as CoreContext>::ApiClient;
+    type MlsStorage = <T as CoreContext>::MlsStorage;
+    type Features = <T as CoreContext>::Features;
+    type ContextReference = <T as CoreContext>::ContextReference;
 
     fn context_ref(&self) -> &Self::ContextReference {
-        <T as XmtpSharedContext>::context_ref(self)
+        <T as CoreContext>::context_ref(self)
+    }
+
+    fn features(&self) -> &Self::Features {
+        <T as CoreContext>::features(self)
     }
 
     fn db(&self) -> <Self::Db as XmtpDb>::DbQuery {
-        <T as XmtpSharedContext>::db(self)
-    }
-
-    fn attachment_runtime(&self) -> &Arc<crate::attachments::AttachmentRuntime> {
-        <T as XmtpSharedContext>::attachment_runtime(self)
+        <T as CoreContext>::db(self)
     }
 
     fn api(&self) -> &ApiClientWrapper<Self::ApiClient> {
-        <T as XmtpSharedContext>::api(self)
+        <T as CoreContext>::api(self)
     }
 
     fn scw_verifier(&self) -> Arc<Box<dyn SmartContractSignatureVerifier>> {
-        <T as XmtpSharedContext>::scw_verifier(self)
+        <T as CoreContext>::scw_verifier(self)
     }
 
     fn device_sync(&self) -> &DeviceSync {
-        <T as XmtpSharedContext>::device_sync(self)
+        <T as CoreContext>::device_sync(self)
     }
 
     fn device_sync_worker_enabled(&self) -> bool {
-        <T as XmtpSharedContext>::device_sync_worker_enabled(self)
+        <T as CoreContext>::device_sync_worker_enabled(self)
     }
 
     fn fork_recovery_opts(&self) -> &ForkRecoveryOpts {
-        <T as XmtpSharedContext>::fork_recovery_opts(self)
+        <T as CoreContext>::fork_recovery_opts(self)
     }
 
     fn worker_config(&self) -> &WorkerConfig {
-        <T as XmtpSharedContext>::worker_config(self)
+        <T as CoreContext>::worker_config(self)
     }
 
     fn mls_storage(&self) -> &Self::MlsStorage {
-        <T as XmtpSharedContext>::mls_storage(self)
+        <T as CoreContext>::mls_storage(self)
     }
 
     fn identity(&self) -> &Identity {
-        <T as XmtpSharedContext>::identity(self)
+        <T as CoreContext>::identity(self)
     }
 
     fn version_info(&self) -> &VersionInfo {
-        <T as XmtpSharedContext>::version_info(self)
+        <T as CoreContext>::version_info(self)
     }
 
     fn server_configuration(&self) -> &ServerConfigurationHandle {
-        <T as XmtpSharedContext>::server_configuration(self)
+        <T as CoreContext>::server_configuration(self)
     }
 
     fn events(&self) -> &EventBus<InternalEvent> {
-        <T as XmtpSharedContext>::events(self)
+        <T as CoreContext>::events(self)
     }
 
     fn registration_event_pending(&self) -> &AtomicBool {
-        <T as XmtpSharedContext>::registration_event_pending(self)
+        <T as CoreContext>::registration_event_pending(self)
     }
 
     fn public_event_writer(&self) -> &Arc<dyn EventWriter<()>> {
-        <T as XmtpSharedContext>::public_event_writer(self)
+        <T as CoreContext>::public_event_writer(self)
     }
 
     fn delivery_owner(&self) -> &Mutex<Option<xmtp_db::delivery::DeliveryOwner>> {
-        <T as XmtpSharedContext>::delivery_owner(self)
+        <T as CoreContext>::delivery_owner(self)
     }
 
     #[cfg(test)]
     fn mls_commit_lock(&self) -> &Arc<GroupCommitLock> {
-        <T as XmtpSharedContext>::mls_commit_lock(self)
+        <T as CoreContext>::mls_commit_lock(self)
     }
 
     fn task_channels(&self) -> &TaskWorkerChannels {
-        <T as XmtpSharedContext>::task_channels(self)
+        <T as CoreContext>::task_channels(self)
     }
 
     fn change_callbacks(&self) -> &UnstableChangeCallbacks {
-        <T as XmtpSharedContext>::change_callbacks(self)
+        <T as CoreContext>::change_callbacks(self)
     }
 
-    fn incoming_runtime(&self) -> &crate::subscriptions::incoming::IncomingRuntime {
-        <T as XmtpSharedContext>::incoming_runtime(self)
-    }
-
-    fn identity_resolution_registry(&self) -> &crate::identity_updates::IdentityResolutionRegistry {
-        <T as XmtpSharedContext>::identity_resolution_registry(self)
+    fn stream_policy(&self) -> &StreamPolicy {
+        <T as CoreContext>::stream_policy(self)
     }
 
     fn sync_metrics(&self) -> Option<Arc<WorkerMetrics<SyncMetric>>> {
-        <T as XmtpSharedContext>::sync_metrics(self)
+        <T as CoreContext>::sync_metrics(self)
     }
 
     fn mutexes(&self) -> &MutexRegistry {
-        <T as XmtpSharedContext>::mutexes(self)
+        <T as CoreContext>::mutexes(self)
     }
 
     fn cancellation_token(&self) -> &CancellationToken {
-        <T as XmtpSharedContext>::cancellation_token(self)
+        <T as CoreContext>::cancellation_token(self)
     }
 
     fn shutdown_complete(&self) -> bool {
-        <T as XmtpSharedContext>::shutdown_complete(self)
+        <T as CoreContext>::shutdown_complete(self)
     }
 
     fn mark_shutdown_complete(&self) {
-        <T as XmtpSharedContext>::mark_shutdown_complete(self)
+        <T as CoreContext>::mark_shutdown_complete(self)
     }
 
     fn foreground_calls(&self) -> &Arc<ForegroundCalls> {
-        <T as XmtpSharedContext>::foreground_calls(self)
+        <T as CoreContext>::foreground_calls(self)
     }
 
     fn message_timestamp_ns(&self) -> i64 {
-        <T as XmtpSharedContext>::message_timestamp_ns(self)
+        <T as CoreContext>::message_timestamp_ns(self)
     }
 }

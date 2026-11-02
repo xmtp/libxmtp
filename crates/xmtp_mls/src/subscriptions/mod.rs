@@ -670,7 +670,7 @@ pub enum StreamKind {
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use crate::context::XmtpSharedContext;
+    use crate::context::CoreContext;
     use crate::tester;
 
     /// A macro for asserting that a stream yields a specific decrypted message.

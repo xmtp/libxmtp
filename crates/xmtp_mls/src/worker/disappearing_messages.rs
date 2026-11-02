@@ -1,6 +1,8 @@
-use crate::context::XmtpSharedContext;
+use crate::context::CoreContext;
 use crate::core::events::InternalEvent;
-use crate::worker::{BoxedWorker, NeedsDbReconnect, Worker, WorkerFactory};
+use crate::worker::{
+    BoxedWorker, EVENT_BUFFER, NeedsDbReconnect, NewWorker, Worker, WorkerFactory,
+};
 use crate::worker::{WorkerKind, WorkerResult};
 use futures::TryFutureExt;
 use std::sync::Arc;
@@ -10,7 +12,7 @@ use xmtp_common::time::now_ns;
 use xmtp_db::{
     StorageError, XmtpMlsStorageProvider, group_message::EXPIRED_MESSAGE_BATCH, prelude::*,
 };
-use xmtp_events::Subscription;
+use xmtp_events::{EventFilter, EventKind, Subscription};
 
 /// Default cap on how long the worker parks between deadline recomputes, used
 /// when [`WorkerConfig`](crate::worker::WorkerConfig) supplies no override. With
@@ -45,25 +47,35 @@ struct Factory<Context> {
 
 impl<Context> WorkerFactory for Factory<Context>
 where
-    Context: XmtpSharedContext + 'static,
+    Context: CoreContext + 'static,
 {
-    fn create(
-        &self,
-        metrics: Option<crate::worker::DynMetrics>,
-    ) -> (BoxedWorker, Option<crate::worker::DynMetrics>) {
-        let worker = Box::new(DisappearingMessagesWorker::new(self.context.clone())) as Box<_>;
-        (worker, metrics)
+    fn create(&self) -> BoxedWorker {
+        Box::new(DisappearingMessagesWorker::new(self.context.clone()))
     }
 
     fn kind(&self) -> WorkerKind {
         WorkerKind::DisappearingMessages
+    }
+
+    fn event_interest(&self) -> Option<(EventFilter<InternalEvent>, Option<usize>)> {
+        let filter =
+            EventFilter::new([EventKind::ConversationMetadataChanged]).with_internal(|event| {
+                matches!(
+                    event,
+                    InternalEvent::MessageStored {
+                        expires_at_ns: Some(_),
+                        ..
+                    }
+                )
+            });
+        Some((filter, Some(EVENT_BUFFER)))
     }
 }
 
 #[xmtp_common::async_trait]
 impl<Context> Worker for DisappearingMessagesWorker<Context>
 where
-    Context: XmtpSharedContext + 'static,
+    Context: CoreContext + 'static,
 {
     fn kind(&self) -> WorkerKind {
         WorkerKind::DisappearingMessages
@@ -76,19 +88,20 @@ where
     async fn run_tasks(&mut self) -> WorkerResult<()> {
         self.run().map_err(|e| Box::new(e) as Box<_>).await
     }
+}
 
-    fn factory<C>(context: C) -> impl WorkerFactory + 'static
-    where
-        Self: Sized,
-        C: XmtpSharedContext + 'static,
-    {
+impl<Context> NewWorker<Context> for DisappearingMessagesWorker<Context>
+where
+    Context: CoreContext + 'static,
+{
+    fn factory(context: Context) -> impl WorkerFactory + 'static {
         Factory { context }
     }
 }
 
 impl<Context> DisappearingMessagesWorker<Context>
 where
-    Context: XmtpSharedContext + 'static,
+    Context: CoreContext + 'static,
 {
     pub fn new(context: Context) -> Self {
         Self {
@@ -100,7 +113,7 @@ where
 
 impl<Context> DisappearingMessagesWorker<Context>
 where
-    Context: XmtpSharedContext + 'static,
+    Context: CoreContext + 'static,
 {
     /// Event-driven loop: sleep until the soonest message expiry, deleting the
     /// batch when the deadline arrives. A stored-message fact makes it read the
@@ -254,7 +267,7 @@ mod tests {
     /// the local send time with the backend's, so the stored value can be
     /// later than the local clock. A skewed backend clock fails the test
     /// instead of hanging it.
-    async fn wait_until_expired(context: &impl XmtpSharedContext, id: &[u8]) {
+    async fn wait_until_expired(context: &impl CoreContext, id: &[u8]) {
         let expire_at = context
             .db()
             .get_group_message(id)
@@ -307,7 +320,7 @@ mod tests {
 
     /// The deletion stream of `context`, not polled until the test reads it.
     fn deletion_stream(
-        context: &impl XmtpSharedContext,
+        context: &impl CoreContext,
     ) -> impl futures::Stream<Item = crate::subscriptions::Result<DecodedMessage>> {
         use crate::subscriptions::StreamMessages;
         context
@@ -520,8 +533,10 @@ mod tests {
 
     #[xmtp_common::test(unwrap_try = true)]
     async fn stored_expiring_message_wakes_subscription_after_emit() {
-        let (filter, depth) =
-            crate::worker::worker_event_filter(WorkerKind::DisappearingMessages).unwrap();
+        let (filter, depth) = crate::worker::event_subscription_tests::worker_event_filter(
+            WorkerKind::DisappearingMessages,
+        )
+        .unwrap();
         let bus = EventBus::new();
         let subscription = bus.subscribe(filter, depth);
         let group_id = xmtp_proto::types::GroupId::from([7; 16]);

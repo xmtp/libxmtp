@@ -6,7 +6,7 @@
 //! no such topic. A placeholder takes no membership commit.
 use crate::{
     client::notifications::{NotificationChannel, NotificationConfig},
-    context::XmtpSharedContext,
+    context::CoreContext,
     groups::{
         MlsGroup, PolicySet,
         commit_log::{CommitLogTestFunction, CommitLogWorker},

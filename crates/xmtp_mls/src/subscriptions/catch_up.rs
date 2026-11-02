@@ -272,7 +272,7 @@ mod tests {
     async fn blocked_connection_fails_catch_up_before_any_request() {
         use super::CatchUpError;
         use crate::{
-            context::XmtpSharedContext, groups::GroupError, server_configuration::BlockedConnection,
+            context::CoreContext, groups::GroupError, server_configuration::BlockedConnection,
         };
         use xmtp_proto::api::HasStats;
         tester!(alix, disable_workers);

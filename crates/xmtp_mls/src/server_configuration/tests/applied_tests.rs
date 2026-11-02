@@ -21,7 +21,7 @@ use xmtp_proto::api_client::{ApiBuilder, XmtpBackendClient, XmtpTestClient};
 
 use crate::Client;
 use crate::builder::ClientBuilderError;
-use crate::context::XmtpSharedContext;
+use crate::context::CoreContext;
 use crate::groups::GroupError;
 use crate::groups::send_message_opts::SendMessageOpts;
 use crate::utils::DefaultTestClientCreator;
@@ -458,7 +458,7 @@ async fn a_revocation_request_is_bound_to_the_accepted_chains() {
 // verifies: CONF-075
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_client_with_blocked_connection_fails_every_later_call() {
-    use crate::context::XmtpSharedContext;
+    use crate::context::CoreContext;
     use xmtp_common::StreamHandle;
 
     crate::tester!(alix, config_provider: provider(|_| {}));

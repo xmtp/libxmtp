@@ -127,7 +127,7 @@ async fn received_deletion_rejects_old_cached_text_target() {
 // verifies: CTYPE-018, PROC-037
 #[xmtp_common::test(unwrap_try = true)]
 async fn deferred_deletion_checks_the_later_target_raw_type() {
-    use crate::context::XmtpSharedContext;
+    use crate::context::CoreContext;
     use xmtp_content_types::delete_message::DeleteMessageCodec;
     use xmtp_db::message_deletion::StoredMessageDeletion;
     use xmtp_proto::xmtp::mls::message_contents::content_types::DeleteMessage;
@@ -473,7 +473,7 @@ async fn test_out_of_order_deletion() {
 // verifies: EVENT-001, EVENT-007, EVENT-010
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_true_out_of_order_deletion_by_sender() {
-    use crate::context::XmtpSharedContext;
+    use crate::context::CoreContext;
     use xmtp_db::Store;
     use xmtp_db::group_message::{DeliveryStatus, StoredGroupMessage};
     use xmtp_db::message_deletion::StoredMessageDeletion;
@@ -639,7 +639,7 @@ async fn test_true_out_of_order_deletion_by_sender() {
 // verifies: META-051
 #[xmtp_common::test(unwrap_try = true)]
 async fn out_of_order_admin_delete_of_expired_message_names_the_admin() {
-    use crate::context::XmtpSharedContext;
+    use crate::context::CoreContext;
     use crate::subscriptions::{StreamMessages, internal::InternalEvent};
     use futures::StreamExt;
     use xmtp_db::message_deletion::StoredMessageDeletion;
@@ -710,7 +710,7 @@ async fn out_of_order_admin_delete_of_expired_message_names_the_admin() {
 // verifies: PROC-037, EVENT-001
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_out_of_order_unauthorized_deletion_rejected() {
-    use crate::context::XmtpSharedContext;
+    use crate::context::CoreContext;
     use xmtp_db::Store;
     use xmtp_db::group_message::{DeliveryStatus, StoredGroupMessage};
     use xmtp_db::message_deletion::StoredMessageDeletion;
@@ -845,7 +845,7 @@ async fn test_out_of_order_unauthorized_deletion_rejected() {
 // verifies: PROC-056
 #[xmtp_common::test(unwrap_try = true)]
 async fn unauthorized_pending_delete_does_not_block_super_admin_delete() {
-    use crate::context::XmtpSharedContext;
+    use crate::context::CoreContext;
     use xmtp_content_types::delete_message::DeleteMessageCodec;
     use xmtp_proto::xmtp::mls::message_contents::content_types::DeleteMessage;
 
@@ -932,7 +932,7 @@ async fn unauthorized_pending_delete_does_not_block_super_admin_delete() {
 // verifies: PROC-056
 #[xmtp_common::test(unwrap_try = true)]
 async fn cross_group_pending_delete_does_not_block_super_admin_delete() {
-    use crate::context::XmtpSharedContext;
+    use crate::context::CoreContext;
     use xmtp_content_types::delete_message::DeleteMessageCodec;
     use xmtp_proto::xmtp::mls::message_contents::content_types::DeleteMessage;
 
@@ -1842,7 +1842,7 @@ async fn test_stream_message_deletions_from_other_client() {
 // verifies: EVENT-001, EVENT-007, EVENT-010
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_stream_message_deletions_fires_for_self_after_publish() {
-    use crate::context::XmtpSharedContext;
+    use crate::context::CoreContext;
     use crate::utils::FullXmtpClient;
     use parking_lot::Mutex;
     use std::sync::Arc;

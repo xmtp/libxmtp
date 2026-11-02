@@ -1,7 +1,7 @@
 //! The verified handle resolver.
 
 use super::{random_handle, scripted_client, wait_until_claim_visible};
-use crate::{context::XmtpSharedContext, identity::IdentityExt, tester};
+use crate::{context::CoreContext, identity::IdentityExt, tester};
 use xmtp_db::prelude::*;
 use xmtp_id::associations::{Action, MemberIdentifier};
 

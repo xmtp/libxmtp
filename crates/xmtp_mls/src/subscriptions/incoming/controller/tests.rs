@@ -1,4 +1,5 @@
 use super::*;
+use crate::prelude::*;
 use prost::Message;
 use xmtp_proto::types::ReceivedEnvelope;
 

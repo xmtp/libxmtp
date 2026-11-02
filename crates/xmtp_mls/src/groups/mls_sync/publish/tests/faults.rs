@@ -2,6 +2,7 @@
 //! answers `QueryNewest` from a lagged copy, or serves chosen key packages.
 
 use super::*;
+use crate::context::CoreContext;
 use parking_lot::Mutex;
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
@@ -9,13 +10,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use xmtp_proto::types::{Topic, TopicKind};
 use xmtp_proto::{api::ApiClientError, api_client::XmtpBackendClient, backend_v1 as wire};
 
-pub(super) type FaultyContext = Arc<
-    crate::context::XmtpMlsLocalContext<
-        FaultyApi,
-        xmtp_db::DefaultStore,
-        crate::utils::TestMlsStorage,
-    >,
->;
+pub(super) type FaultyContext = crate::utils::TestXmtpMlsContext<FaultyApi>;
 
 /// What the backend does with one intercepted publish.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

@@ -257,6 +257,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::prelude::*;
     use crate::tester;
     use xmtp_common::{rand_vec, time::now_ns};
     use xmtp_content_types::{ContentCodec, encryption::sha256, group_updated::GroupUpdatedCodec};

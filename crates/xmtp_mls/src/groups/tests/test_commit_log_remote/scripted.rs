@@ -3,7 +3,7 @@
 //! commit-log ids, can refuse group-message publishes with a rate limit, and
 //! answers reads of chosen commit-log topics from a script. It records the
 //! commit-log ids and topics of every call.
-use crate::context::XmtpSharedContext;
+use crate::context::CoreContext;
 use parking_lot::Mutex;
 use std::{
     collections::{HashMap, HashSet},

@@ -1,3 +1,4 @@
+use crate::prelude::*;
 use xmtp_db::consent_record::{ConsentState, ConsentType};
 use xmtp_db::group_message::{ContentType, MsgQueryArgs};
 use xmtp_db::prelude::*;

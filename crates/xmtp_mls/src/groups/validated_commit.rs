@@ -1031,6 +1031,7 @@ impl FromWith<ValidatedCommit> for GroupUpdatedProto {
 mod committed_proposal_outcomes {
     use super::*;
     use crate::groups::app_data::accumulate_app_data_updates;
+    use crate::prelude::*;
     use openmls::messages::proposals::{
         AppDataUpdateOperation, AppDataUpdateProposal, ProposalType,
     };

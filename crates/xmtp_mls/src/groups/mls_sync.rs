@@ -689,6 +689,7 @@ impl ProcessedMessageOutcome {
 
 #[cfg(test)]
 pub(crate) mod tests {
+    use crate::prelude::*;
 
     use super::*;
     use crate::{builder::ClientBuilder, utils::TestMlsGroup};
