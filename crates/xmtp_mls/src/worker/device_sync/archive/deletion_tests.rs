@@ -197,6 +197,8 @@ enum Case {
     AdminRecordOutlivesItsMessage,
     RemovedTargetReimported,
     ReplayIsForeign,
+    ReplayOverImportedRecord,
+    ForgedRowIsForeign,
     UnpublishedImportThenNetworkCopy,
     FailedDeletionImported,
     StaleCachedTextTarget,
@@ -240,6 +242,8 @@ enum Case {
 #[case::admin_record_outlives_its_message(Case::AdminRecordOutlivesItsMessage, Some(ADMIN), 1)]
 #[case::removed_target_reimported(Case::RemovedTargetReimported, Some(SENDER), 1)]
 #[case::replay_is_foreign(Case::ReplayIsForeign, Some(ADMIN), 1)]
+#[case::replay_over_imported_record(Case::ReplayOverImportedRecord, Some(ADMIN), 1)]
+#[case::forged_row_is_foreign(Case::ForgedRowIsForeign, None, 1)]
 #[case::unpublished_import_then_network_copy(
     Case::UnpublishedImportThenNetworkCopy,
     Some(SENDER),
@@ -381,6 +385,24 @@ async fn deletion_survives_storage(
             let kept = db.get_message_deletion(&D1).unwrap().unwrap();
             assert_eq!(kept.deleted_by_inbox_id, ADMIN);
             assert!(kept.is_super_admin_deletion && kept.authenticated);
+        }
+        Case::ReplayOverImportedRecord => {
+            // An archive holds the admin's record; a member replays it.
+            import(&alix.context, vec![record(g, D1, ADMIN, true, 10)]).await;
+            receive(&group, &deletion(g, D1, MEMBER, published), false);
+            last = import(&alix.context, vec![legacy(&target(g, published))]).await;
+            let kept = db.get_message_deletion(&D1).unwrap().unwrap();
+            assert_eq!(kept.deleted_by_inbox_id, ADMIN);
+            assert!(kept.is_super_admin_deletion && !kept.authenticated);
+        }
+        Case::ForgedRowIsForeign => {
+            // An archive forges the deletion's row under another sender; the
+            // real copy from the topic then changes nothing (the key is the
+            // whole trust).
+            target(g, published).store(&db).unwrap();
+            last = import(&alix.context, vec![legacy(&deletion(g, D1, ADMIN, published))]).await;
+            receive(&group, &deletion(g, D1, MEMBER, published), true);
+            assert!(!db.get_message_deletion(&D1).unwrap().unwrap().authenticated);
         }
         Case::UnpublishedImportThenNetworkCopy => {
             target(g, published).store(&db).unwrap();
