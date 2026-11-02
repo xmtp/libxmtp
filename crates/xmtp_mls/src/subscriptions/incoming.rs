@@ -204,13 +204,7 @@ impl<A> BidiSubscriptionFactory<A> {
 /// connection starts until the first receiving interest.
 pub(crate) fn streaming_factory<A>(api: A) -> Arc<dyn SubscriptionFactory>
 where
-    A: xmtp_proto::api_client::XmtpMlsBidiStreams
-        + super::router_callbacks::ApiClientIdentity
-        + Clone
-        + Send
-        + Sync
-        + 'static,
-    A::SubscribeStream: 'static,
+    BidiSubscriptionFactory<A>: SubscriptionFactory + 'static,
 {
     Arc::new(BidiSubscriptionFactory::new(api))
 }

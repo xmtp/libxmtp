@@ -10,7 +10,7 @@ use crate::groups::intents::QueueIntent;
 use crate::tester;
 use crate::utils::TestMlsGroup;
 use crate::utils::test_mocks_helpers::{
-    RestoreKeyPackages, set_test_mode_upload_malformed_keypackage,
+    RestoreKeyPackages, key_package_injected, set_test_mode_upload_malformed_keypackage,
 };
 use xmtp_cryptography::{CredentialSign, XmtpInstallationCredential};
 use xmtp_db::group::GroupQueryArgs;
@@ -227,6 +227,7 @@ async fn joiner_accepts_welcome_with_publish_time_failed_installation() {
         "caro's welcome must not be rejected as InvalidGroupMembership"
     );
     assert_eq!(caro.find_groups(GroupQueryArgs::default())?.len(), 1);
+    assert!(key_package_injected(&bo2_installation));
 
     set_test_mode_upload_malformed_keypackage(false, None);
 }

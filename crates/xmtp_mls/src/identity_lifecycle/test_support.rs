@@ -4,6 +4,7 @@
 
 use crate::context::{CoreContext, LocalContext, test_support::TestContextParts};
 use crate::core::policy::StreamPolicy;
+use crate::core::version::VersionInfo;
 use crate::identity::Identity;
 use crate::identity_lifecycle::{generate_and_store_key_package, identity_setup};
 use crate::identity_updates::{
@@ -201,7 +202,17 @@ where
         let server_configuration = crate::server_configuration::resolve(&api, &conn, offline)
             .await
             .expect("the deployment's configuration");
-        let snapshot = Arc::new(server_configuration.configuration().clone());
+        let configuration = server_configuration.configuration();
+        crate::server_configuration::check_minimum_version(
+            configuration,
+            VersionInfo::default().pkg_semver().semver(),
+        )
+        .expect("a deployment that admits this client");
+        assert!(
+            !configuration.auth.enabled || api.has_credential_source(),
+            "a deployment that needs no credential"
+        );
+        let snapshot = Arc::new(configuration.clone());
         api.api_client.set_limits(Arc::new(snapshot.limits.clone()));
         api.set_configuration(snapshot);
         let identity = match identity {
