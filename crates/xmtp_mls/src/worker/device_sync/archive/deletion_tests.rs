@@ -142,7 +142,8 @@ async fn import(context: &impl XmtpSharedContext, elements: Vec<BackupElement>) 
     let self_deletions = collect_self_deletions(&mut futures::stream::iter(
         elements.iter().cloned().map(Ok::<_, std::io::Error>),
     ))
-    .await;
+    .await
+    .unwrap();
     insert_elements(
         &mut futures::stream::iter(elements.into_iter().map(Ok::<_, std::io::Error>)),
         context,
@@ -698,4 +699,17 @@ async fn network_insert_during_import_is_unaffected() {
     let stored = db.get_group_message(TARGET)?.unwrap();
     assert_eq!(stored.deleted_by_inbox_id, None);
     assert!(!stored.decrypted_message_bytes.is_empty());
+}
+
+/// A read failure during the first pass fails the scan, so an import never
+/// runs with some of the archive's deletion messages missing.
+// verifies: ARCH-028
+#[xmtp_common::test(unwrap_try = true)]
+async fn incomplete_deletion_scan_fails() {
+    let g = GroupId::from([0x55; 32]);
+    let mut elements = futures::stream::iter([
+        Ok(legacy(&deletion(g, D1, SENDER, DeliveryStatus::Published))),
+        Err(std::io::Error::other("archive cut")),
+    ]);
+    assert!(collect_self_deletions(&mut elements).await.is_err());
 }

@@ -82,26 +82,27 @@ where
     F: FnOnce() -> Fut,
     Fut: std::future::Future<Output = Result<ArchiveImporter, ArchiveError>>,
 {
-    let self_deletions = collect_self_deletions(first).await;
+    let self_deletions = collect_self_deletions(first).await?;
     let mut importer = reopen().await?;
     insert_elements(&mut importer, context, self_deletions).await
 }
 
-/// The archive's deletion messages. An element that does not read is left to
-/// the import, which reports it.
-async fn collect_self_deletions<S, E>(elements: &mut S) -> ArchivedSelfDeletions
+/// The archive's deletion messages. A read failure fails the scan, so the
+/// import never runs with some of them missing; an element that reads but
+/// does not convert is left to the import, which reports it.
+async fn collect_self_deletions<S, E>(elements: &mut S) -> Result<ArchivedSelfDeletions, E>
 where
     S: Stream<Item = Result<BackupElement, E>> + Unpin,
 {
     let mut found = ArchivedSelfDeletions::default();
-    while let Some(Ok(element)) = elements.next().await {
-        if let Some(Element::GroupMessage(save)) = element.element
+    while let Some(element) = elements.next().await {
+        if let Some(Element::GroupMessage(save)) = element?.element
             && let Ok(message) = StoredGroupMessage::try_from(save)
         {
             found.note(&message);
         }
     }
-    found
+    Ok(found)
 }
 
 // implements: ARCH-027

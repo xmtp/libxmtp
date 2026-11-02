@@ -69,6 +69,13 @@ fn read_message(
     stored: xmtp_db::group_message::StoredGroupMessage,
     client_key: u64,
 ) -> Result<Message, XmtpError> {
+    // A deletion can commit after the handoff check: decode the current row.
+    // implements: PROC-060
+    let stored = context
+        .db()
+        .get_group_message(&stored.id)
+        .map_err(XmtpError::from_core)?
+        .unwrap_or(stored);
     let enriched =
         enrich_messages_with_stored(context.db(), &stored.group_id, vec![stored.clone()])
             .map_err(super::enrichment_error)?;

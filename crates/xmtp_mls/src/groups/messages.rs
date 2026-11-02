@@ -341,7 +341,9 @@ where
             .get_group_message(&message_id)?
             .ok_or_else(|| DeleteMessageError::MessageNotFound(hex::encode(&message_id)))?;
         let own = self.context.inbox_id();
-        may_delete(&self.group_id, own, self.live_is_super_admin(own)?, &target)?;
+        // The sender needs no super-admin status, so no metadata read.
+        let super_admin = target.sender_inbox_id != own && self.live_is_super_admin(own)?;
+        may_delete(&self.group_id, own, super_admin, &target)?;
         if self.cancel_unsent_message(&message_id)? {
             return Ok(message_id);
         }
