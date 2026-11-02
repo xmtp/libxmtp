@@ -231,6 +231,53 @@ async fn joiner_accepts_welcome_with_publish_time_failed_installation() {
     set_test_mode_upload_malformed_keypackage(false, None);
 }
 
+/// An installation whose key package the backend never serves is recorded as
+/// failed. Its inbox can still revoke it: the next membership refresh needs no
+/// package for it and raises the inbox's entry to the state without it,
+/// keeping the inbox's other installation.
+#[xmtp_common::test(unwrap_try = true)]
+async fn revoking_a_failed_installation_needs_no_key_package() {
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    tester!(bo2, from: bo, disable_workers);
+    let bo2_installation = bo2.context.installation_id().to_vec();
+    let _restore = RestoreKeyPackages;
+    set_test_mode_upload_malformed_keypackage(true, Some(vec![bo2_installation.clone()]));
+    let group = alix
+        .create_group_with_members(&[bo.inbox_id()], None, None)
+        .await?;
+    let membership_and_leaves = || {
+        group.load_mls_group_with_lock_async(async |mls| {
+            Ok::<_, GroupError>((
+                extract_group_membership(mls.extensions())?,
+                mls.members()
+                    .map(|member| member.signature_key)
+                    .collect::<HashSet<_>>(),
+            ))
+        })
+    };
+
+    let (membership, leaves) = membership_and_leaves().await?;
+    assert!(membership.failed_installations.contains(&bo2_installation));
+    assert!(!leaves.contains(&bo2_installation));
+    let added_sequence = membership.members[bo.inbox_id()];
+
+    let mut revoke = bo
+        .identity_updates()
+        .revoke_installations(vec![bo2_installation.clone()])
+        .await?;
+    add_wallet_signature(&mut revoke, &bo.builder.owner).await;
+    bo.identity_updates()
+        .apply_signature_request(revoke)
+        .await?;
+    group.add_missing_installations().await?;
+
+    let (membership, leaves) = membership_and_leaves().await?;
+    assert!(membership.members[bo.inbox_id()] > added_sequence);
+    assert!(!leaves.contains(&bo2_installation));
+    assert!(leaves.contains(&bo.context.installation_id().to_vec()));
+}
+
 // verifies: GMOD-047, PERM-030, PERM-015
 #[rstest::rstest]
 #[case::direct(false)]

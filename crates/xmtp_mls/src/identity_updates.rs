@@ -2022,6 +2022,24 @@ pub(crate) mod tests {
         ));
     }
 
+    /// Creates a group of `client`'s inbox alone, so it adds the inbox's other
+    /// installations, and returns its failed installations and leaf keys.
+    #[cfg(not(target_arch = "wasm32"))]
+    async fn own_installation_group(client: &FullXmtpClient) -> (Vec<Vec<u8>>, Vec<Vec<u8>>) {
+        let group = client.create_group(None, None).unwrap();
+        group.add_missing_installations().await.unwrap();
+        group
+            .load_mls_group_with_lock_async(async |mls| {
+                Ok::<_, crate::groups::GroupError>((
+                    xmtp_mls_validation::commit::extract_group_membership(mls.extensions())?
+                        .failed_installations,
+                    mls.members().map(|member| member.signature_key).collect(),
+                ))
+            })
+            .await
+            .unwrap()
+    }
+
     #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test(flavor = "multi_thread")]
     pub async fn revoke_installation_with_malformed_keypackage() {
@@ -2039,6 +2057,9 @@ pub(crate) mod tests {
             true,
             Some(vec![client2.installation_public_key().to_vec()]),
         );
+        let (failed, leaves) = own_installation_group(&client1).await;
+        assert!(failed.contains(&client2.installation_public_key().to_vec()));
+        assert!(!leaves.contains(&client2.installation_public_key().to_vec()));
 
         // Now revoke the second client
         let mut revoke_installation_request = client1
@@ -2076,6 +2097,10 @@ pub(crate) mod tests {
             true,
             Some(vec![client2.installation_public_key().to_vec()]),
         );
+        let (failed, leaves) = own_installation_group(&client1).await;
+        assert!(failed.contains(&client2.installation_public_key().to_vec()));
+        assert!(!leaves.contains(&client2.installation_public_key().to_vec()));
+        assert!(leaves.contains(&client3.installation_public_key().to_vec()));
 
         // Now revoke the second client
         let mut revoke_installation_request = client1

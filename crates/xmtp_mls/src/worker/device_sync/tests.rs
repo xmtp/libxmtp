@@ -1278,6 +1278,43 @@ async fn publish_reaches_present_leaves_and_retries_a_missing_one() {
         sequence
     );
 }
+/// A revocation's publish refreshes the selected group. An installation whose
+/// package the backend never serves gets no leaf and is listed as failed, and
+/// nothing stays owed.
+// verifies: SYNC-034
+#[xmtp_common::test(unwrap_try = true)]
+#[cfg_attr(target_arch = "wasm32", ignore)]
+async fn revocation_publish_lists_an_installation_without_a_package_as_failed() {
+    use crate::utils::test_mocks_helpers::{
+        RestoreKeyPackages, set_test_mode_upload_malformed_keypackage,
+    };
+
+    tester!(alix1, disable_workers);
+    tester!(alix2, from: alix1, disable_workers);
+    let group = alix1.device_sync_client().get_sync_group().await?;
+    alix2.sync_welcomes().await?;
+    tester!(alix3, from: alix1, disable_workers);
+    let alix3_key = alix3.context.installation_id().to_vec();
+    let _restore = RestoreKeyPackages;
+    set_test_mode_upload_malformed_keypackage(true, Some(vec![alix3_key.clone()]));
+    revoke(&alix1, &alix2).await?;
+    publish(&alix1).await?;
+
+    let (leaves, failed) = group.with_group_snapshot(|mls_group| {
+        Ok::<_, GroupError>((
+            mls_group
+                .members()
+                .map(|member| member.signature_key)
+                .collect::<Vec<_>>(),
+            xmtp_mls_validation::commit::extract_group_membership(mls_group.extensions())?
+                .failed_installations,
+        ))
+    })?;
+    assert_eq!(leaves, vec![alix1.context.installation_id().to_vec()]);
+    assert!(failed.contains(&alix3_key));
+    assert!(!has_owed(&alix1.context.db())?);
+}
+
 /// When a publish arms the retry, a row that an older build stored for the
 /// group with the three-day lifetime is kept, and becomes one that never
 /// expires.
