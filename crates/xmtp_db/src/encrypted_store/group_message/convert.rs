@@ -29,11 +29,10 @@ impl TryFrom<GroupMessageSave> for StoredGroupMessage {
         // implements: ARCH-028
         // Trust the mark, never its content.
         let deleted_by_inbox_id = value.deleted_by_inbox_id.filter(|id| !id.is_empty());
-        let decrypted_message_bytes = if deleted_by_inbox_id.is_some() {
-            Vec::new()
-        } else {
-            value.decrypted_message_bytes
-        };
+        let mut decrypted_message_bytes = value.decrypted_message_bytes;
+        if deleted_by_inbox_id.is_some() {
+            zeroize::Zeroize::zeroize(&mut decrypted_message_bytes);
+        }
 
         Ok(Self {
             id: value.id,

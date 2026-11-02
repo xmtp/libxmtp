@@ -60,10 +60,12 @@ impl ImportContext {
     }
 }
 
-/// Import an archive read once. A pre-8.0 self-deletion is restored only
-/// when the archive lists it before its target; [`insert_archive`] reads the
-/// archive twice and restores it in either order.
-pub async fn insert_importer(
+/// Import an archive read once, for tests. A pre-8.0 self-deletion is
+/// restored only when the archive lists it before its target; imports use
+/// [`insert_archive`], which reads the archive twice and restores it in
+/// either order.
+#[cfg(test)]
+pub(crate) async fn insert_importer(
     importer: &mut ArchiveImporter,
     context: &impl XmtpSharedContext,
 ) -> Result<(), DeviceSyncError> {
