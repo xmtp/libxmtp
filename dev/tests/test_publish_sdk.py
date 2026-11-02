@@ -76,22 +76,20 @@ class PublishNpmTest(unittest.TestCase):
                         )
                 self.assertEqual(run.call_count, 1)
 
-    def test_retry_uses_the_manifest_registry_for_package_and_node_identity(self):
+    def test_npmjs_destination_for_package_and_node_identity(self):
         cases = [
             (sdk, ordinary, scoped)
             for sdk in ("node-sdk", "agent-sdk", "cli")
             for ordinary, scoped in (
+                (None, None),
                 ("https://registry.npmjs.org/", None),
-                ("https://declared.example.invalid/", None),
-                (
-                    "https://declared.example.invalid/",
-                    "https://scoped.example.invalid/",
-                ),
+                (None, "https://registry.npmjs.org/"),
+                ("https://registry.npmjs.org/", "https://registry.npmjs.org/"),
             )
         ]
         for sdk, ordinary, scoped in cases:
             with self.subTest(sdk=sdk, registry=ordinary, scoped=scoped):
-                registry = scoped or ordinary
+                registry = "https://registry.npmjs.org/"
                 integrity = self.pack(
                     name="@xmtp/" + sdk, registry=ordinary, scoped_registry=scoped
                 )
@@ -134,6 +132,36 @@ class PublishNpmTest(unittest.TestCase):
                 for args in calls:
                     self.assertEqual(args[args.index("--registry") + 1], registry)
                     self.assertIn(f"--@xmtp:registry={registry}", args)
+
+    def test_each_conflicting_registry_is_rejected_before_any_npm_command(self):
+        for sdk in ("node-sdk", "browser-sdk", "agent-sdk", "react-native-sdk", "cli"):
+            for ordinary, scoped in (
+                ("https://declared.example.invalid/", None),
+                (None, "https://scoped.example.invalid/"),
+                ("https://declared.example.invalid/", "https://registry.npmjs.org/"),
+                ("https://registry.npmjs.org/", "https://scoped.example.invalid/"),
+                (
+                    "https://declared.example.invalid/",
+                    "https://scoped.example.invalid/",
+                ),
+                ("", "https://registry.npmjs.org/"),
+                ("https://registry.npmjs.org/", ""),
+                ("http://registry.npmjs.org/", None),
+                (None, "https://registry.npmjs.org/other"),
+            ):
+                with (
+                    self.subTest(sdk=sdk, registry=ordinary, scoped=scoped),
+                    patch.object(module.subprocess, "run") as run,
+                ):
+                    self.pack(
+                        name="@xmtp/" + sdk,
+                        registry=ordinary,
+                        scoped_registry=scoped,
+                    )
+                    run.side_effect = AssertionError("npm must not run")
+                    with self.assertRaisesRegex(ValueError, "registry"):
+                        module.publish(self.tarball, "8.0.0-rc5", "prerelease", sdk)
+                    run.assert_not_called()
 
     def test_only_registry_absence_allows_publication(self):
         self.pack()

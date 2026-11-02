@@ -9,6 +9,8 @@ import sys
 import tarfile
 from pathlib import Path
 
+NPM_REGISTRY = "https://registry.npmjs.org/"
+
 
 def check_package(tarball, version, sdk):
     with tarfile.open(tarball, "r:gz") as archive:
@@ -29,10 +31,10 @@ def check_package(tarball, version, sdk):
 def publish(tarball, version, tag, sdk):
     package = check_package(tarball, version, sdk)
     config = package.get("publishConfig", {})
-    registry = config.get(
-        "@xmtp:registry", config.get("registry", "https://registry.npmjs.org/")
-    )
-    destination = ["--registry", registry, f"--@xmtp:registry={registry}"]
+    for key in ("registry", "@xmtp:registry"):
+        if key in config and config[key] != NPM_REGISTRY:
+            raise ValueError(f"publishConfig.{key} must be {NPM_REGISTRY}")
+    destination = ["--registry", NPM_REGISTRY, f"--@xmtp:registry={NPM_REGISTRY}"]
     if sdk in ("agent-sdk", "cli"):
         node = subprocess.run(
             [
