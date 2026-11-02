@@ -262,6 +262,40 @@ async fn idempotent_resend_of_a_deleted_message_returns_it(
     Ok(())
 }
 
+/// A queued send whose target was marked deleted without dropping its
+/// intent (as the upgrade backfill marks a row) is dropped at publish, so
+/// the deleted content never reaches the topic and the intent is consumed.
+// verifies: PROC-037
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_queued_send_for_a_marked_target_is_dropped() {
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    let group = alix
+        .create_group_with_members(&[bo.inbox_id()], None, None)
+        .await?;
+    bo.wait_for_welcomes().await?;
+    let bo_group = bo.group(&group.group_id)?;
+    let message = group.send_message_optimistic(&text("queued"), Default::default())?;
+    // Mark the row directly, leaving the ToPublish intent in place, as the
+    // upgrade backfill does.
+    assert_eq!(
+        alix.context
+            .db()
+            .mark_message_deleted(&message, alix.inbox_id())?,
+        1
+    );
+    assert_eq!(
+        intents_in(&group, &UNRESOLVED, IntentKind::SendMessage).len(),
+        1
+    );
+
+    group.publish_intents().await?;
+
+    assert!(intents_in(&group, &UNRESOLVED, IntentKind::SendMessage).is_empty());
+    bo_group.sync().await?;
+    assert!(bo.context.db().get_group_message(&message)?.is_none());
+}
+
 /// A deletion of this installation's queued message, processed from the
 /// topic (sent by another installation of the same inbox), removes the
 /// queued send in the same write, so the deleted content never publishes.

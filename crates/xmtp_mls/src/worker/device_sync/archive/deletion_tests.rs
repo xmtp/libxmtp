@@ -209,8 +209,8 @@ enum Case {
     ReplayIsForeign,
     ReplayOverImportedRecord,
     TopicDeletionOverForgedRecord,
-    ForgedRowIsForeign,
-    ForgedUnpublishedRowIsForeign,
+    ForgedRowDoesNotBlockTopic,
+    ForgedUnpublishedRowDoesNotBlockTopic,
     UnpublishedImportThenNetworkCopy,
     FailedDeletionImported,
     StaleCachedTextTarget,
@@ -255,8 +255,12 @@ enum Case {
 #[case::replay_is_foreign(Case::ReplayIsForeign, Some(ADMIN), 1)]
 #[case::replay_over_imported_record(Case::ReplayOverImportedRecord, None, 1)]
 #[case::topic_deletion_over_forged_record(Case::TopicDeletionOverForgedRecord, Some(SENDER), 1)]
-#[case::forged_row_is_foreign(Case::ForgedRowIsForeign, None, 1)]
-#[case::forged_unpublished_row_is_foreign(Case::ForgedUnpublishedRowIsForeign, None, 1)]
+#[case::forged_row_does_not_block_topic(Case::ForgedRowDoesNotBlockTopic, Some(MEMBER), 1)]
+#[case::forged_unpublished_row_does_not_block_topic(
+    Case::ForgedUnpublishedRowDoesNotBlockTopic,
+    Some(MEMBER),
+    1
+)]
 #[case::unpublished_import_then_network_copy(
     Case::UnpublishedImportThenNetworkCopy,
     Some(SENDER),
@@ -438,8 +442,7 @@ async fn deletion_survives_storage(
             db.delete_message_by_id(TARGET).unwrap();
             last = import(&alix.context, vec![legacy(&target(g, published))]).await;
         }
-        // An authenticated record is never overwritten, so this holds even
-        // without the receive guard; ReplayOverImportedRecord needs the guard.
+        // An authenticated record is never overwritten by a replay.
         Case::ReplayIsForeign => {
             receive(&group, &deletion(g, D1, ADMIN, published), true);
             // Another member sends the same content under the same id.
@@ -467,10 +470,10 @@ async fn deletion_survives_storage(
             last = import(&alix.context, vec![record(g, D1, MEMBER, false, 10)]).await;
             receive(&group, &deletion(g, D1, SENDER, published), false);
         }
-        Case::ForgedRowIsForeign => {
+        Case::ForgedRowDoesNotBlockTopic => {
             // An archive forges the deletion's row under another sender; the
-            // real copy from the topic then changes nothing (the key is the
-            // whole trust).
+            // real copy from a super admin still applies, and its record
+            // replaces the archived one.
             target(g, published).store(&db).unwrap();
             last = import(
                 &alix.context,
@@ -478,16 +481,17 @@ async fn deletion_survives_storage(
             )
             .await;
             receive(&group, &deletion(g, D1, MEMBER, published), true);
-            assert!(!db.get_message_deletion(&D1).unwrap().unwrap().authenticated);
+            let kept = db.get_message_deletion(&D1).unwrap().unwrap();
+            assert_eq!(kept.deleted_by_inbox_id, MEMBER);
+            assert!(kept.is_super_admin_deletion && kept.authenticated);
         }
-        Case::ForgedUnpublishedRowIsForeign => {
-            // The forged row writes no record; the stored row alone makes
-            // the topic copy foreign.
+        Case::ForgedUnpublishedRowDoesNotBlockTopic => {
+            // The forged row writes no record; the topic's copy still applies.
             target(g, published).store(&db).unwrap();
             let forged = deletion(g, D1, ADMIN, DeliveryStatus::Unpublished);
             last = import(&alix.context, vec![legacy(&forged)]).await;
             receive(&group, &deletion(g, D1, MEMBER, published), true);
-            assert!(db.get_message_deletion(&D1).unwrap().is_none());
+            assert!(db.get_message_deletion(&D1).unwrap().unwrap().authenticated);
         }
         Case::UnpublishedImportThenNetworkCopy => {
             target(g, published).store(&db).unwrap();
