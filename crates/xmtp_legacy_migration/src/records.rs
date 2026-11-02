@@ -19,6 +19,10 @@ const MAX_ROW_BYTES: i64 = 64 * 1024 * 1024;
 const ELIGIBLE_GROUPS: &str =
     "FROM groups WHERE conversation_type IN (1, 2) AND membership_state IN (1, 2, 3, 5)";
 // Deletion authority is stored; content type is decoded after row admission.
+/// The deleter of the earliest legacy tombstone that may delete `m`: same
+/// group, and its deleter is the author or a recorded super admin.
+// implements: MIG-010
+const DELETED_BY: &str = "(SELECT d.deleted_by_inbox_id FROM message_deletions d WHERE d.deleted_message_id=m.id AND d.group_id=m.group_id AND (d.deleted_by_inbox_id=m.sender_inbox_id OR d.is_super_admin_deletion=1) ORDER BY d.deleted_at_ns, d.id LIMIT 1)";
 const ELIGIBLE_MESSAGES: &str = "FROM group_messages m JOIN groups g ON m.group_id = g.id WHERE g.conversation_type IN (1, 2) AND g.membership_state IN (1, 2, 3, 5) AND m.kind = 1 AND m.expire_at_ns IS NULL";
 
 #[derive(QueryableByName)]
@@ -59,8 +63,9 @@ struct Group {
 
 #[derive(QueryableByName)]
 struct MessageRow {
-    #[diesel(sql_type = Bool)]
-    deletion_authorized: bool,
+    /// The earliest authorized legacy deleter of this message, if any.
+    #[diesel(sql_type = Nullable<Text>)]
+    deleted_by: Option<String>,
     #[diesel(sql_type = Binary)]
     id: Vec<u8>,
     #[diesel(sql_type = Binary)]
@@ -252,7 +257,8 @@ pub(crate) fn export(
          COALESCE(length(CAST(m.sender_installation_id AS BLOB)), 0) + \
          COALESCE(length(CAST(m.sender_inbox_id AS BLOB)), 0) + \
          COALESCE(length(CAST(m.authority_id AS BLOB)), 0) + \
-         COALESCE(length(CAST(m.reference_id AS BLOB)), 0) > ?) AS count"
+         COALESCE(length(CAST(m.reference_id AS BLOB)), 0) + \
+         COALESCE(length(CAST({DELETED_BY} AS BLOB)), 0) > ?) AS count"
     ))
     .bind::<BigInt, _>(MAX_ROW_BYTES)
     .get_result::<Count>(conn)?;
@@ -260,14 +266,12 @@ pub(crate) fn export(
         return Err(invalid("stored message row exceeds the 64 MiB byte limit"));
     }
     let query = format!(
-        "SELECT EXISTS(SELECT 1 FROM message_deletions d WHERE d.deleted_message_id=m.id AND d.group_id=m.group_id AND (d.deleted_by_inbox_id=m.sender_inbox_id OR d.is_super_admin_deletion=1)) AS deletion_authorized, m.id, m.group_id, m.decrypted_message_bytes, m.sent_at_ns, m.sender_installation_id, m.sender_inbox_id, m.delivery_status, m.content_type, m.version_major, m.version_minor, m.authority_id, m.reference_id, m.originator_id, m.sequence_id {ELIGIBLE_MESSAGES} ORDER BY m.id"
+        "SELECT {DELETED_BY} AS deleted_by, m.id, m.group_id, m.decrypted_message_bytes, m.sent_at_ns, m.sender_installation_id, m.sender_inbox_id, m.delivery_status, m.content_type, m.version_major, m.version_minor, m.authority_id, m.reference_id, m.originator_id, m.sequence_id {ELIGIBLE_MESSAGES} ORDER BY m.id"
     );
     let messages = diesel::sql_query(query).load_iter::<MessageRow, DefaultLoadingMode>(conn)?;
     for message in messages {
-        if let Some(message) = message?.into_save()? {
-            emit(Element::GroupMessage(message))?;
-            report.message_count += 1;
-        }
+        emit(Element::GroupMessage(message?.into_save()?))?;
+        report.message_count += 1;
     }
     let oversized = diesel::sql_query(
         "SELECT EXISTS(SELECT 1 FROM consent_records WHERE \
@@ -347,7 +351,7 @@ pub(crate) fn export(
 
 impl MessageRow {
     #[allow(deprecated)]
-    fn into_save(self) -> Result<Option<GroupMessageSave>, MigrationError> {
+    fn into_save(self) -> Result<GroupMessageSave, MigrationError> {
         if self.id.is_empty() || self.group_id.len() != 16 || !matches!(self.delivery_status, 1..=3)
         {
             return Err(invalid(
@@ -356,12 +360,13 @@ impl MessageRow {
         }
         let encoded_type = match EncodedContent::decode(self.decrypted_message_bytes.as_slice()) {
             Ok(content) => content.r#type,
-            Err(error) if self.deletion_authorized => {
+            Err(error) if self.deleted_by.is_some() => {
                 return Err(MigrationError::RecordRead(RecordError::Content(error)));
             }
             Err(_) => None,
         };
-        if self.deletion_authorized {
+        let mut deleted_by = None;
+        if let Some(deleter) = &self.deleted_by {
             let id = encoded_type
                 .as_ref()
                 .ok_or_else(|| invalid("missing deleted-message content type"))?;
@@ -378,7 +383,8 @@ impl MessageRow {
                     | "walletSendCalls"
                     | "multiRemoteStaticAttachment"
             ) {
-                return Ok(None);
+                // implements: MIG-010
+                deleted_by = Some(deleter.clone());
             }
         }
         // The archive also carries the type fields copied from the content, so they
@@ -392,7 +398,8 @@ impl MessageRow {
             + self.sender_installation_id.len()
             + self.sender_inbox_id.len()
             + self.authority_id.len()
-            + self.reference_id.as_ref().map_or(0, Vec::len);
+            + self.reference_id.as_ref().map_or(0, Vec::len)
+            + self.deleted_by.as_ref().map_or(0, String::len);
         if retained + copied > MAX_ROW_BYTES as usize {
             return Err(invalid("stored message row exceeds the 64 MiB byte limit"));
         }
@@ -415,6 +422,7 @@ impl MessageRow {
             content_type: legacy_content_type(self.content_type).to_owned(),
             expires_at_ns: None,
             expiry_known: None,
+            deleted_by_inbox_id: None,
         };
         if let Some(id) = encoded_type {
             save.authority_id = id.authority_id;
@@ -422,7 +430,13 @@ impl MessageRow {
             save.version_major = id.version_major as i32;
             save.version_minor = id.version_minor as i32;
         }
-        Ok(Some(save))
+        // A deleted message is written as a placeholder: empty content and its
+        // deleter.
+        if let Some(deleter) = deleted_by {
+            save.decrypted_message_bytes = Vec::new();
+            save.deleted_by_inbox_id = Some(deleter);
+        }
+        Ok(save)
     }
 }
 

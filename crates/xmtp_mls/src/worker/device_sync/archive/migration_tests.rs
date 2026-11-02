@@ -126,7 +126,7 @@ async fn legacy_migration_imports_into_empty_and_populated_stores_and_retries() 
             report.message_count,
             report.consent_count
         ),
-        (3, 6, 3)
+        (3, 10, 3)
     );
     // The metadata fixtures: the DM from `metadata-seed.db3`, with the values
     // its producer recorded, and the AppData group.
@@ -231,9 +231,30 @@ async fn legacy_migration_imports_into_empty_and_populated_stores_and_retries() 
                     .iter()
                     .map(|message| message.id.clone())
                     .collect::<Vec<_>>(),
-                [1, 8, 10, 22, 23, 24].map(|id| vec![id; 32])
+                [1, 8, 10, 20, 21, 22, 23, 24, 25, 26].map(|id| vec![id; 32])
             );
-            for message in messages {
+            // An authorized legacy deletion imports as a placeholder.
+            // verifies: MIG-010, ARCH-028
+            for message in &messages {
+                let deleter = match message.id[0] {
+                    20 | 25 | 26 => Some("01".repeat(32)),
+                    21 => Some("02".repeat(32)),
+                    _ => None,
+                };
+                assert_eq!(message.deleted_by_inbox_id, deleter, "{}", message.id[0]);
+                if deleter.is_some() {
+                    assert!(message.decrypted_message_bytes.is_empty());
+                    assert!(matches!(
+                        crate::messages::decoded_message::DecodedMessage::from(message.clone())
+                            .content,
+                        crate::messages::decoded_message::MessageBody::DeletedMessage { .. }
+                    ));
+                }
+            }
+            for message in messages
+                .into_iter()
+                .filter(|message| message.deleted_by_inbox_id.is_none())
+            {
                 assert_eq!(
                     message.delivery_status,
                     match message.id[0] {
