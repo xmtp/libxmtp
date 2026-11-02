@@ -291,3 +291,31 @@ fn decode_rejects_compression_bomb_with_bounded_output() {
         "unexpected decode error: {error}"
     );
 }
+
+/// A delete of a published message returns the queued deletion's id at
+/// once and changes nothing; the target is marked at the deletion's echo,
+/// and a marked row read without enrichment is the placeholder.
+// verifies: PROC-037, PROC-060
+#[xmtp_common::test(unwrap_try = true)]
+async fn delete_message_queues_and_applies_at_echo() {
+    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    let group = client.conversations().create_group(vec![], None).await?;
+    let id = group.send_text("delete me".into(), None).await?;
+    let deletion = group.delete_message(id.clone()).await?;
+    assert_ne!(deletion, id);
+    let stored = client.inner.message(id.to_bytes()?)?;
+    assert!(stored.deleted_by_inbox_id.is_none());
+    assert!(!stored.decrypted_message_bytes.is_empty());
+
+    group.publish_messages().await?;
+    let stored = client.inner.message(id.to_bytes()?)?;
+    assert!(stored.deleted_by_inbox_id.is_some());
+    // The stream fallback reads the row without a decoded body.
+    let message = crate::Message::from_stored(stored, client.client_key())?;
+    assert!(
+        matches!(message.0.content, MessageContent::DeletedMessage(_)),
+        "{:?}",
+        message.0.content
+    );
+    client.end().await?;
+}

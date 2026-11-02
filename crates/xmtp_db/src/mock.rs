@@ -372,6 +372,11 @@ mock! {
             intent: &crate::group_intent::StoredGroupIntent,
             msg_id: Option<Vec<u8>>,
         ) -> Result<(), StorageError>;
+
+        fn delete_group_intent(
+            &self,
+            intent_id: crate::group_intent::ID,
+        ) -> Result<usize, StorageError>;
     }
 
     impl QueryReaddStatus for DbQuery {
@@ -538,6 +543,12 @@ mock! {
         fn delete_message_by_id<MessageId: AsRef<[u8]>>(
             &self,
             message_id: MessageId,
+        ) -> Result<usize, crate::ConnectionError>;
+
+        fn mark_message_deleted(
+            &self,
+            id: &[u8],
+            deleted_by_inbox_id: &str,
         ) -> Result<usize, crate::ConnectionError>;
 
         #[mockall::concretize]
@@ -890,25 +901,15 @@ mock! {
             _id: &[u8],
         ) -> Result<Option<crate::message_deletion::StoredMessageDeletion>, crate::ConnectionError>;
 
-        fn get_deletion_by_deleted_message_id(
+        fn record_deletion(
             &self,
-            _deleted_message_id: &[u8],
+            _record: &crate::message_deletion::StoredMessageDeletion,
+        ) -> Result<crate::message_deletion::StoredMessageDeletion, crate::ConnectionError>;
+
+        fn first_deletion_of(
+            &self,
+            _target: &crate::group_message::StoredGroupMessage,
         ) -> Result<Option<crate::message_deletion::StoredMessageDeletion>, crate::ConnectionError>;
-
-        fn get_deletions_for_messages(
-            &self,
-            _message_ids: Vec<Vec<u8>>,
-        ) -> Result<Vec<crate::message_deletion::StoredMessageDeletion>, crate::ConnectionError>;
-
-        fn get_group_deletions(
-            &self,
-            _group_id: &GroupId,
-        ) -> Result<Vec<crate::message_deletion::StoredMessageDeletion>, crate::ConnectionError>;
-
-        fn is_message_deleted(
-            &self,
-            _message_id: &[u8],
-        ) -> Result<bool, crate::ConnectionError>;
     }
 
 }

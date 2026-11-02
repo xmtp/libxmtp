@@ -121,3 +121,46 @@ async fn copied_content_type_counts_toward_message_row_limit() {
         assert!(failures.is_empty(), "{failures:?}");
     }
 }
+
+/// A deleted message's deleter is a retained field: a row whose other
+/// fields total exactly the limit fails once a tombstone names a deleter.
+// verifies: MIG-007, MIG-010
+#[xmtp_common::test(unwrap_try = true)]
+async fn deleter_counts_toward_message_row_limit() {
+    use prost::Message;
+    use xmtp_proto::xmtp::message_contents::{ContentTypeId, EncodedContent};
+    let (directory, args) = fixture("stable.db3");
+    sized_message(&args, 0, 1, "é");
+    // No copied type fields, so only the deleter passes the limit.
+    let mut content = EncodedContent {
+        r#type: Some(ContentTypeId::default()),
+        ..Default::default()
+    };
+    let target = LIMIT - 53;
+    content.content = vec![0; target - content.encoded_len() - 5];
+    assert_eq!(content.encoded_len(), target);
+    let mut conn = SqliteConnection::establish(&args.database_path)?;
+    diesel::sql_query("UPDATE group_messages SET decrypted_message_bytes = ? WHERE id = ?")
+        .bind::<diesel::sql_types::Binary, _>(content.encode_to_vec())
+        .bind::<diesel::sql_types::Binary, _>(vec![1u8; 32])
+        .execute(&mut conn)?;
+    drop(conn);
+    edit(
+        &args,
+        &format!(
+            "INSERT INTO message_deletions(id, group_id, deleted_message_id, deleted_by_inbox_id, is_super_admin_deletion, deleted_at_ns) SELECT randomblob(32), group_id, id, 'x', 1, sent_at_ns FROM group_messages WHERE id=x'{}';",
+            "01".repeat(32)
+        ),
+    );
+    let failures = rejects_without_publishing(
+        &args,
+        directory.path(),
+        "deleter",
+        ExpectedError::RecordRead,
+    )
+    .await;
+    assert!(
+        failures.is_empty(),
+        "oversized row was accepted: {failures:?}"
+    );
+}

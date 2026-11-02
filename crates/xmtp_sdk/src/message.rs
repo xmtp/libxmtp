@@ -340,6 +340,34 @@ impl Message {
         self
     }
 
+    /// This message as the deleted-message placeholder: its identity and
+    /// cursor, and no content. A held read whose row is gone hands this out.
+    // implements: PROC-060
+    pub(crate) fn into_removed(self) -> Self {
+        let kind = xmtp_mls::messages::enrichment::deleted_message_content_type();
+        let mut data = self.0;
+        data.content_type = Some(ContentTypeId {
+            authority_id: kind.authority_id.clone(),
+            type_id: kind.type_id.clone(),
+            version_major: kind.version_major,
+            version_minor: kind.version_minor,
+        });
+        data.encoded = received_encoded(Some(EncodedContent {
+            r#type: Some(kind),
+            ..Default::default()
+        }));
+        data.raw_bytes = Vec::new();
+        data.fallback = None;
+        data.content = MessageContent::DeletedMessage(crate::DeletedMessage {
+            deleted_by: crate::DeletedBy::Sender,
+        });
+        data.reply_count = 0;
+        data.reactions = Vec::new();
+        data.reaction_message_count = 0;
+        data.in_reply_to = None;
+        Self(data)
+    }
+
     pub(crate) fn from_stored(
         value: StoredGroupMessage,
         client_key: u64,
@@ -352,6 +380,13 @@ impl Message {
         client_key: u64,
         decoded: Option<xmtp_mls::messages::decoded_message::MessageBody>,
     ) -> Result<Self, XmtpError> {
+        // A marked row reads as the placeholder, never as empty bytes.
+        // implements: PROC-060
+        let decoded = decoded.or_else(|| {
+            value.deleted_by_inbox_id.is_some().then(|| {
+                xmtp_mls::messages::decoded_message::DecodedMessage::from(value.clone()).content
+            })
+        });
         let deleted = matches!(
             decoded.as_ref(),
             Some(xmtp_mls::messages::decoded_message::MessageBody::DeletedMessage { .. })

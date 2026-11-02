@@ -243,6 +243,8 @@ async fn deleted_messages_and_reply_parents_hide_original_content() {
         .conversations()
         .delete_message(target.clone())
         .await?;
+    // The deletion applies at its echo.
+    group.publish_messages().await?;
 
     let replay = group.message_reader(None).await?;
     let replayed = xmtp_common::time::timeout(Duration::from_secs(5), async {

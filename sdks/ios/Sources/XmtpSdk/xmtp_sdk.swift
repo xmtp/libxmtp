@@ -2709,6 +2709,12 @@ public protocol ConversationsProtocol: AnyObject, Sendable {
      * exists, and all members join in one commit.
      */
 
+    /**
+     * Delete a message for everyone. Returns the id of the queued deletion
+     * message, which publishes with the conversation's next publish. When the
+     * message is this installation's and was never sent, it is cancelled
+     * instead and the id names the cancelled message; nothing is published.
+     */
     func deleteMessage(id: MessageId) async throws  -> MessageId
 
     func deleteMessageLocally(id: MessageId) async throws
@@ -2938,6 +2944,12 @@ func createGroupWithIdentities(members: [PublicIdentity], options: CreateGroupOp
         )
 }
 
+    /**
+     * Delete a message for everyone. Returns the id of the queued deletion
+     * message, which publishes with the conversation's next publish. When the
+     * message is this installation's and was never sent, it is cancelled
+     * instead and the id names the cancelled message; nothing is published.
+     */
 open func deleteMessage(id: MessageId)async throws  -> MessageId  {
     return
         try  await uniffiRustCallAsync(
@@ -3709,6 +3721,13 @@ public protocol DmProtocol: AnyObject, Sendable {
 
     func debugInfo() async throws  -> ConversationDebugInfo
 
+    /**
+     * Delete a message for everyone. Returns the id of the queued
+     * deletion message, which publishes with the conversation's next
+     * publish. When the message is this installation's and was never
+     * sent, it is cancelled instead and the id names the cancelled
+     * message; nothing is published.
+     */
     func deleteMessage(id: MessageId) async throws  -> MessageId
 
     func duplicateDms() async throws  -> [Dm]
@@ -3993,6 +4012,13 @@ open func debugInfo()async throws  -> ConversationDebugInfo  {
         )
 }
 
+    /**
+     * Delete a message for everyone. Returns the id of the queued
+     * deletion message, which publishes with the conversation's next
+     * publish. When the message is this installation's and was never
+     * sent, it is cancelled instead and the id names the cancelled
+     * message; nothing is published.
+     */
 open func deleteMessage(id: MessageId)async throws  -> MessageId  {
     return
         try  await uniffiRustCallAsync(
@@ -5299,6 +5325,13 @@ public protocol GroupProtocol: AnyObject, Sendable {
 
     func debugInfo() async throws  -> ConversationDebugInfo
 
+    /**
+     * Delete a message for everyone. Returns the id of the queued
+     * deletion message, which publishes with the conversation's next
+     * publish. When the message is this installation's and was never
+     * sent, it is cancelled instead and the id names the cancelled
+     * message; nothing is published.
+     */
     func deleteMessage(id: MessageId) async throws  -> MessageId
 
     func hmacKeys() async throws  -> [HmacKey]
@@ -5690,6 +5723,13 @@ open func debugInfo()async throws  -> ConversationDebugInfo  {
         )
 }
 
+    /**
+     * Delete a message for everyone. Returns the id of the queued
+     * deletion message, which publishes with the conversation's next
+     * publish. When the message is this installation's and was never
+     * sent, it is cancelled instead and the id names the cancelled
+     * message; nothing is published.
+     */
 open func deleteMessage(id: MessageId)async throws  -> MessageId  {
     return
         try  await uniffiRustCallAsync(
@@ -30346,7 +30386,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtp_sdk_checksum_method_conversations_create_group_with_identities() != 29398) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_method_conversations_delete_message() != 23841) {
+    if (uniffi_xmtp_sdk_checksum_method_conversations_delete_message() != 36858) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_method_conversations_delete_message_locally() != 54136) {
@@ -30412,7 +30452,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtp_sdk_checksum_method_dm_debug_info() != 4154) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_method_dm_delete_message() != 38639) {
+    if (uniffi_xmtp_sdk_checksum_method_dm_delete_message() != 19880) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_method_dm_duplicate_dms() != 24018) {
@@ -30583,7 +30623,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtp_sdk_checksum_method_group_debug_info() != 48115) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_method_group_delete_message() != 7740) {
+    if (uniffi_xmtp_sdk_checksum_method_group_delete_message() != 59735) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_method_group_hmac_keys() != 58094) {

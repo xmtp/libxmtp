@@ -183,13 +183,13 @@ fn deletion_items(
             if !is_expired(&message) {
                 return Ok(DecodedMessage::from(message));
             }
-            // With no actor, `Sender`; see `DecodedMessage::expired`.
+            // With no actor, `Sender`; see `DecodedMessage::placeholder`.
             let deleted_by = deleted_by_inbox_id
                 .as_deref()
                 .map_or(DeletedBy::Sender, |deleter| {
                     DeletedBy::new(deleter, &message.sender_inbox_id)
                 });
-            Ok(DecodedMessage::expired(message, deleted_by))
+            Ok(DecodedMessage::placeholder(message, deleted_by))
         })
         .collect()
 }

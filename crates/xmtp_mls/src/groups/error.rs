@@ -428,7 +428,8 @@ pub enum GroupError {
     UninitializedField(#[from] derive_builder::UninitializedFieldError),
     /// Delete message error.
     ///
-    /// Failed to delete message. Not retryable.
+    /// Failed to delete message. Retryable only while the message is being
+    /// published.
     #[error(transparent)]
     DeleteMessage(#[from] DeleteMessageError),
 }
@@ -449,11 +450,15 @@ pub enum DeleteMessageError {
     NonDeletableMessage,
     #[error("Message already deleted")]
     MessageAlreadyDeleted,
+    /// An attempt to send the message is saved and may already be on the
+    /// backend. A retry after its echo deletes it for everyone.
+    #[error("Message is being published")]
+    MessageInFlight,
 }
 
 impl RetryableError for DeleteMessageError {
     fn is_retryable(&self) -> bool {
-        false
+        matches!(self, Self::MessageInFlight)
     }
 }
 

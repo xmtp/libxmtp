@@ -848,7 +848,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
             }
             delete_rows!(group_intents.group_id, group_messages.group_id, local_commit_log.group_id,
                 remote_commit_log.group_id, incoming_envelopes.entity_id, refresh_state.entity_id,
-                pending_remove.group_id, readd_status.group_id);
+                pending_remove.group_id, readd_status.group_id, message_deletions.group_id);
             diesel::delete(dsl::groups.filter(dsl::id.eq(group_id)).filter(dsl::conversation_type.eq(ConversationType::Oneshot))).execute(conn)?;
             Ok(())
         })
@@ -1677,6 +1677,36 @@ pub(crate) mod tests {
         test_utils::{with_connection, with_connection_async},
     };
     use xmtp_common::{Generate, assert_ok, rand_vec, time::now_ns};
+
+    /// A one-shot group's deletion records go with it; another group's stay.
+    // verifies: PROC-037
+    #[xmtp_common::test(unwrap_try = true)]
+    fn oneshot_delete_removes_its_deletion_records() {
+        use crate::message_deletion::{QueryMessageDeletion, StoredMessageDeletion};
+        with_connection(|conn| {
+            let oneshot = StoredGroup {
+                conversation_type: ConversationType::Oneshot,
+                ..generate_group(None)
+            };
+            let kept = generate_group(None);
+            oneshot.store(conn)?;
+            kept.store(conn)?;
+            for (id, group_id) in [(1u8, oneshot.id), (2, kept.id)] {
+                conn.record_deletion(&StoredMessageDeletion {
+                    id: vec![id; 32],
+                    group_id,
+                    deleted_message_id: vec![9; 32],
+                    deleted_by_inbox_id: "sender".into(),
+                    is_super_admin_deletion: false,
+                    deleted_at_ns: 1,
+                    authenticated: true,
+                })?;
+            }
+            conn.delete_oneshot_group(&oneshot.id)?;
+            assert!(conn.get_message_deletion(&[1; 32])?.is_none());
+            assert!(conn.get_message_deletion(&[2; 32])?.is_some());
+        })
+    }
 
     // verifies: DMS-017
     #[xmtp_common::test(unwrap_try = true)]

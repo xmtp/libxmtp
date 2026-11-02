@@ -401,6 +401,44 @@ async fn queued_content_is_rechecked_after_deletion_and_restore() {
     );
 }
 
+/// A row marked deleted after prefetch is handed out as its current, marked
+/// row, never the cached content.
+// verifies: PROC-025, PROC-060
+#[xmtp_common::test(unwrap_try = true)]
+async fn buffered_stream_sees_deletions() {
+    tester!(alix);
+    let group = alix.create_group(None, None)?;
+    let start = alix.context.db().current_delivery_cursor()?;
+    let first = generate_stored_msg(Cursor(100), group.group_id);
+    let second = generate_stored_msg(Cursor(200), group.group_id);
+    first.store(&alix.context.db())?;
+    second.store(&alix.context.db())?;
+    let mut reader = LocalDelivery::new(
+        alix.context.clone(),
+        DeliveryScope::Groups(vec![group.group_id]),
+        LocalDeliveryFilter::default(),
+        Some(start),
+        LocalDeliveryConfig {
+            batch_size: 2,
+            ..Default::default()
+        },
+    )?;
+    let handed = reader.next_delivery().await?.unwrap();
+    assert_eq!(handed.message.id, first.id);
+    handed.acknowledgement.check_owner()?;
+    handed.acknowledgement.acknowledge()?;
+    alix.context
+        .db()
+        .mark_message_deleted(&second.id, &second.sender_inbox_id)?;
+    let item = reader.next_delivery().await?.unwrap();
+    assert_eq!(item.message.id, second.id);
+    assert_eq!(
+        item.message.deleted_by_inbox_id.as_deref(),
+        Some(second.sender_inbox_id.as_str())
+    );
+    assert!(item.message.decrypted_message_bytes.is_empty());
+}
+
 xmtp_common::if_native! {
 // verifies: PROC-040
 #[xmtp_common::test(unwrap_try = true)]

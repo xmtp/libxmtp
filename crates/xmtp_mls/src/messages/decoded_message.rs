@@ -476,8 +476,8 @@ impl MessageBody {
 }
 
 impl DecodedMessage {
-    /// The deletion item for an expired message: its identity and metadata,
-    /// shown as the deleted-message placeholder, with no body or fallback.
+    /// The deleted-message placeholder for a marked or expired message: its
+    /// identity and metadata, with no body, fallback, reactions or counts.
     /// A body decoded from nothing would read as an empty message or as a
     /// decode failure.
     ///
@@ -485,8 +485,8 @@ impl DecodedMessage {
     /// Its callers pass `DeletedBy::Sender`: `DeletedBy` has no expiry
     /// variant, and adding one changes the binding types. No admin removed
     /// the message, and `Admin` needs an inbox id.
-    // implements: META-051
-    pub(crate) fn expired(value: StoredGroupMessage, deleted_by: DeletedBy) -> Self {
+    // implements: META-051, PROC-060
+    pub(crate) fn placeholder(value: StoredGroupMessage, deleted_by: DeletedBy) -> Self {
         DecodedMessage {
             metadata: DecodedMessageMetadata {
                 id: value.id,
@@ -513,6 +513,11 @@ impl DecodedMessage {
 /// in the body, so every stored row produces a message.
 impl From<StoredGroupMessage> for DecodedMessage {
     fn from(value: StoredGroupMessage) -> Self {
+        // implements: PROC-060
+        if let Some(deleter) = value.deleted_by_inbox_id.as_deref() {
+            let deleted_by = DeletedBy::new(deleter, &value.sender_inbox_id);
+            return Self::placeholder(value, deleted_by);
+        }
         let raw = value.decrypted_message_bytes.as_slice();
         let envelope = EncodedContent::decode(raw).ok();
         let (content_type, fallback) = envelope
@@ -599,6 +604,7 @@ mod tests {
             expiry_ns: None,
             inserted_at_ns: 0,
             expiry_unknown: false,
+            deleted_by_inbox_id: None,
             expire_at_ns: None,
             should_push: false,
             idempotency_key: String::new(),

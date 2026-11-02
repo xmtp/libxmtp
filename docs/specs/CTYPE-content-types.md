@@ -162,7 +162,7 @@ An incompatible encoding needs a different major version under CTYPE-016. A code
 
 ## 7. The catalogue
 
-The catalogue lists identifiers, encodings, parameters, push values, and deletion eligibility. CTYPE-018 binds deletion eligibility; it is authorization behavior, not a wire value. PROC-037 requires that a deletion affects only a target in the same group, passes CTYPE-018, and is sent by the target's sender or a current super admin; a rejected deletion leaves the target unchanged.
+The catalogue lists identifiers, encodings, parameters, push values, and deletion eligibility (CTYPE-018).
 
 Every SDK exposes a codec for each standard type except the legacy group membership change, group updates, and the reserved edit type (CTYPE-026); the client only receives or derives those types, or reserves them. Standard content may be decoded by the client before an SDK registry is reached. SYNC owns its own message identifier and schema. The reserved edit type has a protobuf schema but no active codec.
 

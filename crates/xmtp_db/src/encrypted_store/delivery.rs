@@ -321,28 +321,30 @@ pub trait QueryDelivery: ConnectionExt + Sized {
         Ok(())
     }
 
-    /// A buffered candidate can expire or be deleted while its previous item is held.
-    fn delivery_message_is_retained(
+    /// A buffered candidate can expire, be removed, or be marked deleted while
+    /// its previous item is held: return its current row, or `None`.
+    // implements: PROC-025, PROC-060
+    fn retained_delivery_message(
         &self,
         message_id: &[u8],
         cursor: DeliveryCursor,
         now_ns: i64,
-    ) -> Result<bool, StorageError> {
+    ) -> Result<Option<StoredGroupMessage>, StorageError> {
         self.raw_query(|conn| {
             Ok(conn.transaction::<_, StorageError, _>(|conn| {
                 validate_cursor(conn, cursor)?;
-                Ok(diesel::select(diesel::dsl::exists(
-                    messages::table
-                        .find(message_id)
-                        .filter(messages::delivery_sequence.eq(cursor.delivery_sequence as i64))
-                        .filter(messages::delivery_status.eq(DeliveryStatus::Published))
-                        .filter(
-                            messages::expire_at_ns
-                                .is_null()
-                                .or(messages::expire_at_ns.gt(now_ns)),
-                        ),
-                ))
-                .get_result::<bool>(conn)?)
+                Ok(messages::table
+                    .find(message_id)
+                    .filter(messages::delivery_sequence.eq(cursor.delivery_sequence as i64))
+                    .filter(messages::delivery_status.eq(DeliveryStatus::Published))
+                    .filter(
+                        messages::expire_at_ns
+                            .is_null()
+                            .or(messages::expire_at_ns.gt(now_ns)),
+                    )
+                    .select(StoredGroupMessage::as_select())
+                    .first(conn)
+                    .optional()?)
             }))
         })?
     }

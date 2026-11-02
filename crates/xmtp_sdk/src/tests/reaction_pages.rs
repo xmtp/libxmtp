@@ -139,6 +139,8 @@ async fn message_reactions_page_newest_first() {
     })?;
     assert!(other_reactions().await?.is_empty());
     group.delete_message(parent.clone()).await?;
+    // The deletion applies at its echo.
+    group.publish_messages().await?;
     assert!(
         group
             .message_reactions(parent.clone(), None, None)

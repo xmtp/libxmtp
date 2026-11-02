@@ -1,15 +1,13 @@
-use crate::messages::decoded_message::{DecodedMessage, DeletedBy, MessageBody};
-use prost::Message;
+use crate::messages::decoded_message::{DecodedMessage, MessageBody};
 use std::collections::HashMap;
 use thiserror::Error;
 use xmtp_common::{ErrorCode, RetryableError};
 use xmtp_configuration::MESSAGE_REACTION_LIMIT;
 use xmtp_db::DbQuery;
 use xmtp_db::group_message::{
-    ContentType as DbContentType, Deletable, RelationCounts, RelationQuery, StoredGroupMessage,
+    ContentType as DbContentType, RelationCounts, RelationQuery, StoredGroupMessage,
 };
-use xmtp_db::message_deletion::{QueryMessageDeletion, StoredMessageDeletion};
-use xmtp_proto::xmtp::mls::message_contents::{ContentTypeId, EncodedContent};
+use xmtp_proto::xmtp::mls::message_contents::ContentTypeId;
 
 use xmtp_proto::types::GroupId;
 /// Content type ID for deleted message placeholders shown in enriched message lists
@@ -51,76 +49,11 @@ impl RetryableError for EnrichMessageError {
 type ReactionMap = HashMap<Vec<u8>, Vec<DecodedMessage>>;
 // Mapping of referenced messages, keyed by ID (stores both stored and decoded)
 type ReferencedMessageMap = HashMap<Vec<u8>, (StoredGroupMessage, DecodedMessage)>;
-// Mapping of deletions, keyed by the ID of the deleted message
-type DeletionMap = HashMap<Vec<u8>, Vec<StoredMessageDeletion>>;
-
 pub struct EnrichedStoredMessage {
     pub delivery_cursor: Option<xmtp_db::delivery::DeliveryCursor>,
     pub stored: StoredGroupMessage,
     pub decoded: DecodedMessage,
     pub parent_stored: Option<StoredGroupMessage>,
-}
-
-/// Check the stored wire type before a deletion uses a cached content type.
-// implements: CTYPE-018
-pub(crate) fn is_deletable_stored_message(message: &StoredGroupMessage) -> bool {
-    if !message.kind.is_deletable() {
-        return false;
-    }
-    let Ok(content) = EncodedContent::decode(message.decrypted_message_bytes.as_slice()) else {
-        return false;
-    };
-    let Some(identifier) = content.r#type else {
-        return false;
-    };
-    DbContentType::from_identifier(
-        &identifier.authority_id,
-        &identifier.type_id,
-        identifier.version_major,
-    )
-    .is_deletable()
-}
-
-/// Whether a deletion applies: it is in its target's group, and it is authorized.
-// implements: PROC-037
-pub(crate) fn is_deletion_valid(
-    deletion: &StoredMessageDeletion,
-    message: &StoredGroupMessage,
-) -> bool {
-    if deletion.deleted_message_id != message.id {
-        return false;
-    }
-
-    // A stitched DM reads rows and reply parents from every group of the set.
-    if deletion.group_id != message.group_id {
-        return false;
-    }
-
-    if !is_deletable_stored_message(message) {
-        return false;
-    }
-
-    let is_sender = deletion.deleted_by_inbox_id == message.sender_inbox_id;
-    is_sender || deletion.is_super_admin_deletion
-}
-
-/// The first stored deletion of `message` that takes effect.
-pub(crate) fn find_valid_deletion(
-    db: &impl QueryMessageDeletion,
-    message: &StoredGroupMessage,
-) -> Result<Option<StoredMessageDeletion>, xmtp_db::ConnectionError> {
-    Ok(db
-        .get_deletions_for_messages(vec![message.id.clone()])?
-        .into_iter()
-        .find(|deletion| is_deletion_valid(deletion, message)))
-}
-
-/// Whether a valid deletion replaces `message`, as enrichment applies one.
-pub fn is_deleted(
-    conn: impl DbQuery,
-    message: &StoredGroupMessage,
-) -> Result<bool, EnrichMessageError> {
-    Ok(find_valid_deletion(&conn, message)?.is_some())
 }
 
 #[xmtp_common::mls_span]
@@ -135,25 +68,7 @@ pub fn enrich_messages(
         .collect())
 }
 
-/// Replace a message with its deletion placeholder. Every trace of the
-/// original content goes: body, raw bytes, nested evidence, type, and fallback.
-// implements: PROC-037
-fn apply_deletion(
-    message: &mut DecodedMessage,
-    deletion: &StoredMessageDeletion,
-    stored: &StoredGroupMessage,
-) {
-    message.content = MessageBody::DeletedMessage {
-        deleted_by: DeletedBy::new(&deletion.deleted_by_inbox_id, &stored.sender_inbox_id),
-    };
-    message.metadata.content_type = Some(deleted_message_content_type());
-    message.fallback_text = None;
-    message.reactions = Vec::new();
-    message.num_replies = 0;
-    message.num_reaction_messages = 0;
-}
-
-// A row adds its id and at most one parent id to the deletion query.
+// A row adds its id and at most one parent id to the relation queries.
 // Leave room under SQLite's bound-value limit for the other binds.
 const ENRICHMENT_BATCH: usize = 250;
 
@@ -195,19 +110,9 @@ fn enrich_batch(
             let mut decoded = DecodedMessage::from(stored_message.clone());
             let mut parent_stored = None;
 
-            let valid_deletion =
-                relations
-                    .deletions
-                    .get(&decoded.metadata.id)
-                    .and_then(|deletions| {
-                        deletions
-                            .iter()
-                            .find(|deletion| is_deletion_valid(deletion, &stored_message))
-                    });
-
-            if let Some(deletion) = valid_deletion {
-                apply_deletion(&mut decoded, deletion, &stored_message);
-            } else {
+            // A marked row is already the placeholder.
+            // implements: PROC-060
+            if stored_message.deleted_by_inbox_id.is_none() {
                 decoded.reactions = relations
                     .reactions
                     .remove(&decoded.metadata.id)
@@ -225,29 +130,15 @@ fn enrich_batch(
                     .cloned()
                     .unwrap_or(0);
 
-                // Handle Reply messages - populate in_reply_to field
+                // Handle Reply messages - populate in_reply_to field. A marked
+                // parent decodes as the placeholder.
                 if let MessageBody::Reply(mut reply_body) = decoded.content {
                     // The decoder accepted only a hex reference.
-                    if let Ok(id) = hex::decode(&reply_body.reference_id) {
-                        parent_stored = relations
-                            .referenced_messages
-                            .get(&id)
-                            .map(|(stored, _)| stored.clone());
-                        let mut in_reply_to = relations
-                            .referenced_messages
-                            .get(&id)
-                            .map(|(_, decoded)| decoded.clone());
-
-                        if let Some(msg) = in_reply_to.as_mut()
-                            && let Some(deletions) = relations.deletions.get(&id)
-                            && let Some((stored_msg, _)) = relations.referenced_messages.get(&id)
-                            && let Some(deletion) = deletions
-                                .iter()
-                                .find(|deletion| is_deletion_valid(deletion, stored_msg))
-                        {
-                            apply_deletion(msg, deletion, stored_msg);
-                        }
-                        reply_body.in_reply_to = in_reply_to.map(Box::new);
+                    if let Ok(id) = hex::decode(&reply_body.reference_id)
+                        && let Some((stored, decoded)) = relations.referenced_messages.get(&id)
+                    {
+                        parent_stored = Some(stored.clone());
+                        reply_body.in_reply_to = Some(Box::new(decoded.clone()));
                     }
                     decoded.content = MessageBody::Reply(reply_body);
                 }
@@ -277,7 +168,6 @@ fn get_relations(
             reaction_counts: HashMap::new(),
             referenced_messages: HashMap::new(),
             reply_counts: HashMap::new(),
-            deletions: HashMap::new(),
         });
     }
 
@@ -300,19 +190,11 @@ fn get_relations(
     let reply_counts =
         conn.get_inbound_relation_counts(group_id, message_ids, of_type(DbContentType::Reply))?;
 
-    // Get deletions for all messages AND referenced messages in a single batch query.
-    // This ensures that if a reply references a deleted message, we can properly show
-    // the deletion state in the reply chain.
-    let mut all_ids: Vec<Vec<u8>> = message_ids.iter().map(|id| id.to_vec()).collect();
-    all_ids.extend(reference_ids.iter().map(|id| id.to_vec()));
-    let deletions = conn.get_deletions_for_messages(all_ids)?;
-
     Ok(GetRelationsResults {
         reactions: get_reactions(reactions),
         reaction_counts,
         referenced_messages: get_referenced_messages(referenced_messages),
         reply_counts,
-        deletions: get_deletions(deletions),
     })
 }
 
@@ -321,7 +203,6 @@ struct GetRelationsResults {
     reaction_counts: RelationCounts,
     referenced_messages: ReferencedMessageMap,
     reply_counts: RelationCounts,
-    deletions: DeletionMap,
 }
 
 fn get_referenced_messages(messages: HashMap<Vec<u8>, StoredGroupMessage>) -> ReferencedMessageMap {
@@ -349,18 +230,4 @@ fn get_reactions(messages: HashMap<Vec<u8>, Vec<StoredGroupMessage>>) -> Reactio
             (id, mapped_reactions)
         })
         .collect()
-}
-
-fn get_deletions(deletions: Vec<StoredMessageDeletion>) -> DeletionMap {
-    let mut by_message = DeletionMap::new();
-    for deletion in deletions {
-        by_message
-            .entry(deletion.deleted_message_id.clone())
-            .or_default()
-            .push(deletion);
-    }
-    for records in by_message.values_mut() {
-        records.sort_by(|a, b| a.deleted_at_ns.cmp(&b.deleted_at_ns).then(a.id.cmp(&b.id)));
-    }
-    by_message
 }

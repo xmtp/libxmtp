@@ -380,6 +380,30 @@ where
             );
         }
         self.process_own_leave_request_message(mls_group, storage, &id, event_writer);
+        // An own deletion applies at its echo, judged as every receiver judges it.
+        // implements: PROC-037
+        if let Some(row) =
+            storage
+                .db()
+                .get_group_message(&id)
+                .map_err(|err| IntentResolutionError {
+                    processing_error: GroupMessageProcessingError::Storage(err.into()),
+                })?
+        {
+            let super_admin = self.deletion_admin_bit(mls_group, &row);
+            crate::groups::deletion::apply_deletion(
+                &storage.db(),
+                event_writer,
+                &row,
+                crate::groups::deletion::Source::Topic {
+                    super_admin,
+                    cause: xmtp_events::DeletionCause::DeletedLocally,
+                },
+            )
+            .map_err(|err| IntentResolutionError {
+                processing_error: GroupMessageProcessingError::Storage(err),
+            })?;
+        }
         if !self.conversation_type.is_virtual() {
             event_writer.emit(
                 None,

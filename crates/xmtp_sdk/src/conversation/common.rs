@@ -515,6 +515,11 @@ macro_rules! common_conversation {
                     .next())
             }
 
+            /// Delete a message for everyone. Returns the id of the queued
+            /// deletion message, which publishes with the conversation's next
+            /// publish. When the message is this installation's and was never
+            /// sent, it is cancelled instead and the id names the cancelled
+            /// message; nothing is published.
             pub async fn delete_message(&self, id: MessageId) -> Result<MessageId, XmtpError> {
                 let group = self.inner.clone();
                 let bytes = id.to_bytes()?;
@@ -528,10 +533,7 @@ macro_rules! common_conversation {
                             .get_group_message(&bytes)
                             .map_err(XmtpError::from_core)?
                             .ok_or_else(|| XmtpError::invalid("message not found"))?;
-                        let group = deletion_group(group, &stored).await?;
-                        let deletion_id =
-                            group.delete_message(bytes).map_err(XmtpError::from_core)?;
-                        MessageId::from_bytes(&deletion_id)
+                        delete_for_everyone(group, &stored).await
                     }),
                 )
                 .await

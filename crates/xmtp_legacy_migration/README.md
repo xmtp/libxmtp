@@ -14,7 +14,7 @@ The isolated metadata decoder reads only the legacy group context, with a std-on
 
 See [fixture provenance](fixtures/README.md) for source pins and schema coverage, and [normal SDK commands](../xmtp_sdk/DEVELOPMENT.md) for build commands.
 
-Message selection applies legacy deletion authority and the encoded content type. It excludes deletable application messages when a matching tombstone names the same group and its recorded deleter is the author or a recorded super admin. Unknown or non-deletable encoded content and unauthorized or mismatched tombstones do not remove history. An unreadable encoded type with an authorized tombstone fails preparation. The pinned legacy classifier uses the encoded type name alone; authority and major version do not change its deletion eligibility. Current catalogue rules must not reveal history hidden by that reader. Deletion records do not change the archive format.
+Message selection applies legacy deletion authority and the encoded content type. It writes a deletable application message that a matching tombstone deletes with empty content and its deleter (MIG-010): the tombstone names the same group and its recorded deleter is the author or a recorded super admin. Unknown or non-deletable encoded content and unauthorized or mismatched tombstones do not remove history. An unreadable encoded type with an authorized tombstone fails preparation. The pinned legacy classifier uses the encoded type name alone; authority and major version do not change its deletion eligibility. Current catalogue rules must not reveal history hidden by that reader. Deleted messages use archive field 19.
 
 The migration guide is at `apps/docs/src/pages/get-started/data-migration.md`.
 

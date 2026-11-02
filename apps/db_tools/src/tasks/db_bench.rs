@@ -15,7 +15,6 @@ use xmtp_db::{
     identity_update::QueryIdentityUpdates,
     key_package_history::QueryKeyPackageHistory,
     local_commit_log::{LocalCommitLogOrder, QueryLocalCommitLog},
-    message_deletion::QueryMessageDeletion,
     pending_remove::QueryPendingRemove,
     prelude::{QueryDms, QueryGroupVersion},
     processed_device_sync_messages::QueryDeviceSyncMessages,
@@ -122,7 +121,6 @@ where
                 results.push(self.bench_conversation_list_queries());
                 results.push(self.bench_commit_log_queries());
                 results.push(self.bench_dm_queries());
-                results.push(self.bench_message_deletion_queries());
                 results.push(self.bench_device_sync_queries());
                 results.push(self.bench_task_queries());
                 results.push(self.bench_readd_status_queries());
@@ -550,40 +548,6 @@ where
         if let Some(dm_id) = &dm.dm_id {
             let dm_id_clone = dm_id.clone();
             bench!(self, find_active_dm_group(&dm_id_clone))?;
-        }
-
-        Ok(())
-    }
-
-    fn bench_message_deletion_queries(&mut self) -> Result<()> {
-        let Some(group) = self.rand_group.clone() else {
-            bail!("No group to run message deletion queries on.");
-        };
-
-        // Get group deletions
-        bench!(self, get_group_deletions(&group.id))?;
-
-        // Try to get a message ID for deletion queries
-        let messages = self
-            .store
-            .db()
-            .get_group_messages(&group.id, &MsgQueryArgs::default())?;
-
-        if let Some(message) = messages.first() {
-            let message_id = message.id.clone();
-
-            // Get message deletion by ID
-            bench!(self, get_message_deletion(&message_id))?;
-
-            // Get deletion by deleted message ID
-            bench!(self, get_deletion_by_deleted_message_id(&message_id))?;
-
-            // Check if message is deleted
-            bench!(self, is_message_deleted(&message_id))?;
-
-            // Get deletions for multiple messages
-            let message_ids = vec![message_id.clone()];
-            bench!(self, get_deletions_for_messages(message_ids.clone()))?;
         }
 
         Ok(())

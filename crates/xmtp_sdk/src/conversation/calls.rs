@@ -97,9 +97,36 @@ where
     })
 }
 
-/// The group that holds `stored`, ready to queue its deletion: a DM whose
-/// creation stopped before the peer was added gets the peer first.
-pub(super) async fn deletion_group(
+/// Delete `stored` for everyone and return the queued deletion's id, or the
+/// message's own id when it was cancelled unsent. The order is fixed: cancel
+/// when unsent here (no peer needed, so it works offline), otherwise repair
+/// the DM peer, then queue the deletion, so the deletion never publishes
+/// before the peer is added.
+pub(super) async fn delete_for_everyone(
+    group: MlsGroup<MlsContext>,
+    stored: &StoredGroupMessage,
+) -> Result<MessageId, XmtpError> {
+    let group = deletion_group(group, stored).await?;
+    if group
+        .cancel_unsent(&stored.id)
+        .map_err(XmtpError::from_core)?
+    {
+        return MessageId::from_bytes(&stored.id);
+    }
+    // implements: DMS-020
+    group
+        .ensure_dm_peer()
+        .await
+        .map_err(XmtpError::from_group_write)?;
+    let deletion_id = group
+        .delete_message(stored.id.clone())
+        .map_err(XmtpError::from_core)?;
+    MessageId::from_bytes(&deletion_id)
+}
+
+/// The group that holds `stored`, after the checks a delete makes before any
+/// network work.
+async fn deletion_group(
     group: MlsGroup<MlsContext>,
     stored: &StoredGroupMessage,
 ) -> Result<MlsGroup<MlsContext>, XmtpError> {
@@ -125,10 +152,5 @@ pub(super) async fn deletion_group(
         }
         MlsGroup::load_by_id(&group.context, &stored.group_id).map_err(XmtpError::from_core)?
     };
-    // implements: DMS-020
-    group
-        .ensure_dm_peer()
-        .await
-        .map_err(XmtpError::from_group_write)?;
     Ok(group)
 }

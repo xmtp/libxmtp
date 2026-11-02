@@ -282,3 +282,105 @@ async fn replay_cancel_at_ack(after_admission: bool) -> Result<(), Box<dyn std::
     assert_eq!(after, before, "replay must not change default D");
     Ok(())
 }
+
+/// Cancel one read after its message is converted and before it is
+/// admitted, so the reader holds that message for the next read.
+async fn hold_next(reader: &Arc<crate::MessageReader>) -> Result<(), Box<dyn std::error::Error>> {
+    let gate = Arc::new(reader::HandoffGate {
+        arrived: Notify::new(),
+        release: Notify::new(),
+    });
+    let settled = Arc::new(Notify::new());
+    {
+        let mut gates = reader.request_gates.lock();
+        gates.after_cancel_check = Some(gate.clone());
+        gates.settled = Some(settled.clone());
+    }
+    let reading = reader.clone();
+    let task = tokio::spawn(async move { reading.next().await });
+    xmtp_common::time::timeout(Duration::from_secs(10), gate.arrived.notified()).await?;
+    task.abort();
+    assert!(task.await.unwrap_err().is_cancelled());
+    gate.release.notify_one();
+    xmtp_common::time::timeout(Duration::from_secs(10), settled.notified()).await?;
+    *reader.request_gates.lock() = reader::RequestGates::default();
+    Ok(())
+}
+
+/// A message deleted while the reader holds it, or while it waits in the
+/// prefetched batch, is handed out as the placeholder; a held reply whose
+/// parent was deleted meanwhile shows the placeholder parent.
+// verifies: PROC-025, PROC-060
+#[xmtp_common::test(unwrap_try = true)]
+async fn buffered_reader_sees_deletions() {
+    use xmtp_content_types::{ContentCodec, text::TextCodec};
+    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    let group = client.conversations().create_group(vec![], None).await?;
+    let first = group.send_text("first".into(), None).await?;
+    let reader = client.conversations().message_reader(None).await?;
+    assert_eq!(reader.next().await?.expect("first").0.id, first);
+    let is_placeholder =
+        |message: &crate::Message| matches!(message.0.content, MessageContent::DeletedMessage(_));
+
+    // (a) The held message itself is deleted.
+    let held = group.send_text("held".into(), None).await?;
+    hold_next(&reader).await?;
+    group.delete_message(held.clone()).await?;
+    group.publish_messages().await?;
+    let resumed = reader.next().await?.expect("held message");
+    assert_eq!(resumed.0.id, held);
+    assert!(is_placeholder(&resumed), "{:?}", resumed.0.content);
+    // Its deletion message follows it.
+    reader.next().await?.expect("deletion message");
+
+    // (b) A held reply's parent is deleted.
+    let reply = client
+        .conversations()
+        .reply_to_message(
+            first.clone(),
+            TextCodec::encode("reply".into())?.try_into()?,
+            None,
+        )
+        .await?;
+    hold_next(&reader).await?;
+    group.delete_message(first.clone()).await?;
+    group.publish_messages().await?;
+    let resumed = reader.next().await?.expect("held reply");
+    assert_eq!(resumed.0.id, reply);
+    let parent = resumed.0.in_reply_to.as_ref().expect("parent");
+    assert_eq!(parent.id, first);
+    assert!(
+        matches!(parent.content, crate::MessageBody::DeletedMessage(_)),
+        "{:?}",
+        parent.content
+    );
+    reader.next().await?.expect("deletion message");
+
+    // (d) The held message's row is removed while the read is cancelled:
+    // it is never handed out; the next message is.
+    use xmtp_db::group_message::QueryGroupMessage;
+    let removed = group.send_text("removed while held".into(), None).await?;
+    hold_next(&reader).await?;
+    client
+        .inner
+        .context
+        .db()
+        .delete_message_by_id(removed.to_bytes()?)?;
+    let after = group.send_text("after the removal".into(), None).await?;
+    let resumed = xmtp_common::time::timeout(Duration::from_secs(10), reader.next())
+        .await??
+        .expect("next message");
+    assert_eq!(resumed.0.id, after);
+
+    // (c) A prefetched message is deleted before its handoff.
+    let before = group.send_text("before".into(), None).await?;
+    let buffered = group.send_text("buffered".into(), None).await?;
+    assert_eq!(reader.next().await?.expect("before").0.id, before);
+    group.delete_message(buffered.clone()).await?;
+    group.publish_messages().await?;
+    let next = reader.next().await?.expect("buffered");
+    assert_eq!(next.0.id, buffered);
+    assert!(is_placeholder(&next), "{:?}", next.0.content);
+    reader.end().await?;
+    client.end().await?;
+}

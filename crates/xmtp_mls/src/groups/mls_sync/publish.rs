@@ -145,6 +145,8 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                                 Ok(dependencies) => dependencies,
                                 Err(error) => break Err(error),
                             };
+                        #[cfg(test)]
+                        tests::before_prepare(self.group_id.as_ref()).await;
                         let result = self.prepare_publish_attempt(&requirements, &mut dependencies);
                         if matches!(
                             result,
@@ -468,6 +470,24 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                     }
                     if db.prepared_envelopes(intent.id)?.is_some() {
                         return Err(OutgoingPreparationError::InvalidPreparedAttempt.into());
+                    }
+                    // A send whose target was marked deleted must not publish
+                    // its plaintext. A deletion normally drops its target's
+                    // queued send in the same write, but a mark the upgrade
+                    // backfill made leaves the send queued: drop it here as a
+                    // no-op instead of sending the deleted content.
+                    // implements: PROC-037
+                    if intent.kind == IntentKind::SendMessage
+                        && let Some(target_id) =
+                            crate::groups::message_id::calculate_message_id_for_intent(&intent)
+                                .ok()
+                                .flatten()
+                        && db
+                            .get_group_message(&target_id)?
+                            .is_some_and(|row| row.deleted_by_inbox_id.is_some())
+                    {
+                        no_op = Some(IntentState::ToPublish);
+                        return Ok(Rollback);
                     }
                     if group.pending_commit().is_some() {
                         return Err(OutgoingPreparationError::UnexpectedPendingCommit.into());

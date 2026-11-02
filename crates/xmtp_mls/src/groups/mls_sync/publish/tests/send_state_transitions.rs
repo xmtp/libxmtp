@@ -13,7 +13,6 @@ use xmtp_content_types::{
     text::TextCodec,
 };
 use xmtp_db::group_message::DeliveryStatus;
-use xmtp_db::message_deletion::QueryMessageDeletion;
 
 pub(super) fn intents_in<C: XmtpSharedContext>(
     group: &MlsGroup<C>,
@@ -105,10 +104,11 @@ async fn send_state_transitions_same_key_reuses_one_message_and_one_unresolved_i
         intents_in(&group, &UNRESOLVED, IntentKind::SendMessage).len(),
         1
     );
-    assert_eq!(
-        intents_in(&group, &[IntentState::Error], IntentKind::SendMessage).len(),
-        1
-    );
+    let failed = intents_in(&group, &[IntentState::Error], IntentKind::SendMessage);
+    assert_eq!(failed.len(), 1);
+    // The old attempt is kept, but holds no plaintext.
+    // verifies: PROC-037
+    assert!(failed[0].data.as_slice().is_empty());
 
     group.publish_stored_message(&message_id).await?;
     assert_eq!(status(&group, &message_id), DeliveryStatus::Published);
@@ -200,6 +200,8 @@ async fn send_state_transitions_definite_refusal_fails_both_records_and_releases
     } else {
         None
     };
+    // An unpublished or failed deletion never hides its target; a published
+    // one leaves a placeholder and no content.
     let assert_deletion_view = |hidden: bool| -> Result<(), GroupError> {
         let (target, reply, bytes) = deletion.as_ref().unwrap();
         let messages = group
@@ -224,7 +226,11 @@ async fn send_state_transitions_definite_refusal_fails_both_records_and_releases
             }
         }
         let stored = group.context.db().get_group_message(target)?.unwrap();
-        assert_eq!(&stored.decrypted_message_bytes, bytes);
+        if hidden {
+            assert!(stored.decrypted_message_bytes.is_empty());
+        } else {
+            assert_eq!(&stored.decrypted_message_bytes, bytes);
+        }
         assert_eq!(stored.delivery_status, DeliveryStatus::Published);
         Ok(())
     };
@@ -235,7 +241,7 @@ async fn send_state_transitions_definite_refusal_fails_both_records_and_releases
     let refused_message = match refused {
         _ if deletion.is_some() => {
             let id = group.delete_message(deletion.as_ref().unwrap().0.clone())?;
-            assert_deletion_view(true)?;
+            assert_deletion_view(false)?;
             Some(id)
         }
         IntentKind::SendMessage => {
@@ -295,7 +301,6 @@ async fn send_state_transitions_definite_refusal_fails_both_records_and_releases
                     && change.current == xmtp_events::MessageStatus::Failed)));
         events.drain();
         assert_deletion_view(false)?;
-        assert!(group.context.db().get_message_deletion(id)?.is_some());
         let retried = if retry_deletion == Some(true) {
             // Retry only the original carrier: a new tombstone must not mask its loss.
             let carrier = group.context.db().get_group_message(id)?.unwrap();
@@ -318,7 +323,7 @@ async fn send_state_transitions_definite_refusal_fails_both_records_and_releases
             group.delete_message(target.clone())?
         };
         assert_eq!(status(&group, &retried), DeliveryStatus::Unpublished);
-        assert_deletion_view(true)?;
+        assert_deletion_view(false)?;
         group.publish_messages().await?;
         assert_eq!(status(&group, &retried), DeliveryStatus::Published);
         assert!(events.drain().iter().any(|event| matches!(&event.client,

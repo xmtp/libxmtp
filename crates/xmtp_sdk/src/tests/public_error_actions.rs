@@ -26,6 +26,7 @@ fn details(error: &XmtpError) -> &ErrorDetails {
         | XmtpError::ConfigurationUnavailable(details)
         | XmtpError::ClientClosed(details)
         | XmtpError::CredentialMissing(details)
+        | XmtpError::InvalidInput(details)
         | XmtpError::Unknown(details) => details,
         other => panic!("unexpected variant: {other:?}"),
     }
@@ -108,6 +109,18 @@ fn group_failures_keep_their_actions() {
         assert_eq!(found.code, "MessageSenderConflict");
         assert!(matches!(found.category, ErrorCategory::Input));
         assert!(!found.retryable);
+    }
+    // A retry after the send's echo deletes the message for everyone.
+    // verifies: SEND-026
+    for map in [XmtpError::from_group, XmtpError::from_core::<GroupError>] {
+        expect(
+            map(GroupError::DeleteMessage(
+                xmtp_mls::groups::DeleteMessageError::MessageInFlight,
+            )),
+            "MessageInFlight",
+            ErrorCategory::Input,
+            true,
+        );
     }
     expect(
         XmtpError::from_group(GroupError::UserLimitExceeded),

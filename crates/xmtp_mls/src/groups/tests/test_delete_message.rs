@@ -13,6 +13,13 @@ use xmtp_db::message_deletion::QueryMessageDeletion;
 use xmtp_proto::types::GroupId;
 use xmtp_proto::xmtp::mls::message_contents::Compression;
 
+/// The inbox that marked `id` deleted, or `None` while it is unmarked.
+fn mark_of(db: &impl QueryGroupMessage, id: &[u8]) -> Option<String> {
+    db.get_group_message(id)
+        .expect("message read")
+        .and_then(|message| message.deleted_by_inbox_id)
+}
+
 fn cached_text_row(
     group_id: GroupId,
     id: Vec<u8>,
@@ -41,6 +48,7 @@ fn cached_text_row(
         authority_id: "xmtp.org".into(),
         reference_id: None,
         expiry_unknown: false,
+        deleted_by_inbox_id: None,
         expire_at_ns: None,
         sequence_id: 900_001,
         envelope_hash: None,
@@ -115,87 +123,23 @@ async fn received_deletion_rejects_old_cached_text_target() {
             .await?;
     }
     bo_group.sync().await?;
+    // A wire type that may not be deleted keeps its content and no mark.
     for id in [vec![0x11; 32], vec![0x12; 32]] {
-        assert!(db.get_deletion_by_deleted_message_id(&id)?.is_none());
+        assert_eq!(mark_of(&db, &id), None);
+        assert!(
+            !db.get_group_message(&id)?
+                .unwrap()
+                .decrypted_message_bytes
+                .is_empty()
+        );
     }
+    assert_eq!(mark_of(&db, &[0x13; 32]).as_deref(), Some(alix.inbox_id()));
     assert!(
-        db.get_deletion_by_deleted_message_id(&[0x13; 32])?
-            .is_some()
+        db.get_group_message([0x13; 32])?
+            .unwrap()
+            .decrypted_message_bytes
+            .is_empty()
     );
-}
-
-// verifies: CTYPE-018, PROC-037
-#[xmtp_common::test(unwrap_try = true)]
-async fn deferred_deletion_checks_the_later_target_raw_type() {
-    use crate::context::CoreContext;
-    use xmtp_content_types::delete_message::DeleteMessageCodec;
-    use xmtp_db::message_deletion::StoredMessageDeletion;
-    use xmtp_proto::xmtp::mls::message_contents::content_types::DeleteMessage;
-
-    tester!(alix);
-    let group = alix.create_group(None, None)?;
-    let db = alix.context.db();
-    let events = alix.context.events().subscribe(
-        xmtp_events::EventFilter::new([xmtp_events::EventKind::MessageDeleted]),
-        Some(10),
-    );
-
-    for (target_id, deletion_id, raw_authority) in [
-        (vec![0xC7, 0x21], vec![0xC7, 0x31], "custom.example"),
-        (vec![0xC7, 0x22], vec![0xC7, 0x32], "xmtp.org"),
-    ] {
-        let delete = DeleteMessageCodec::encode(DeleteMessage {
-            message_id: hex::encode(&target_id),
-        })?;
-        let mut delete_row = cached_text_row(
-            group.group_id,
-            deletion_id.clone(),
-            alix.inbox_id(),
-            "xmtp.org",
-        )?;
-        delete_row.decrypted_message_bytes = xmtp_content_types::encoded_content_to_bytes(delete);
-        delete_row.content_type = ContentType::DeleteMessage;
-        delete_row.store(&db)?;
-        StoredMessageDeletion {
-            id: deletion_id,
-            group_id: group.group_id,
-            deleted_message_id: target_id.clone(),
-            deleted_by_inbox_id: alix.inbox_id().into(),
-            is_super_admin_deletion: false,
-            deleted_at_ns: xmtp_common::time::now_ns(),
-        }
-        .store(&db)?;
-        assert!(db.get_group_message(&target_id)?.is_none());
-        let target = cached_text_row(group.group_id, target_id, alix.inbox_id(), raw_authority)?;
-        crate::state_tx::state_write_with_events(
-            alix.context.mls_storage(),
-            alix.context.events(),
-            |tx, buffer| {
-                let storage = tx.storage();
-                group.store_external_application_message(&storage, &target, buffer)?;
-                Ok::<_, crate::groups::mls_sync::GroupMessageProcessingError>(
-                    xmtp_db::TransactionOutcome::Continue(()),
-                )
-            },
-        )?;
-        let emitted = events.drain();
-        assert_eq!(emitted.len(), usize::from(raw_authority == "xmtp.org"));
-    }
-
-    let enriched = group.find_messages_v2(&MsgQueryArgs::default())?;
-    let old = enriched
-        .iter()
-        .find(|message| message.metadata.id == [0xC7, 0x21])
-        .expect("old target remains visible");
-    assert!(!matches!(old.content, MessageBody::DeletedMessage { .. }));
-    let standard = enriched
-        .iter()
-        .find(|message| message.metadata.id == [0xC7, 0x22])
-        .expect("standard target remains visible");
-    assert!(matches!(
-        standard.content,
-        MessageBody::DeletedMessage { .. }
-    ));
 }
 
 /// Test basic message deletion by the original sender
@@ -236,17 +180,26 @@ async fn test_delete_message_by_sender() {
 
     // Verify the message is marked as deleted in the database
     let alix_conn = alix.context.db();
-    assert!(alix_conn.is_message_deleted(&message_id)?);
+    assert_eq!(
+        mark_of(&alix_conn, &message_id).as_deref(),
+        Some(alix.inbox_id())
+    );
 
     let bo_conn = bo.context.db();
-    assert!(bo_conn.is_message_deleted(&message_id)?);
+    assert_eq!(
+        mark_of(&bo_conn, &message_id).as_deref(),
+        Some(alix.inbox_id())
+    );
 
     // Verify deletion record exists
-    let deletion = alix_conn.get_deletion_by_deleted_message_id(&message_id)?;
-    assert!(deletion.is_some());
-    let deletion = deletion.unwrap();
-    assert_eq!(deletion.deleted_by_inbox_id, alix.inbox_id());
-    assert!(!deletion.is_super_admin_deletion);
+    for conn in [&alix_conn, &bo_conn] {
+        let deletion = conn.get_message_deletion(&deletion_id)?.unwrap();
+        assert_eq!(deletion.deleted_message_id, message_id);
+        assert_eq!(deletion.deleted_by_inbox_id, alix.inbox_id());
+        // The creator is a super admin; its own message still reads as Sender.
+        assert!(deletion.is_super_admin_deletion);
+        assert!(deletion.authenticated);
+    }
 }
 
 // verifies: CTYPE-024, PROC-037
@@ -269,7 +222,7 @@ async fn compressed_delete_message_is_applied() {
         )
         .await?;
     bo_group.sync().await?;
-    assert!(!bo.context.db().is_message_deleted(&message_id)?);
+    assert_eq!(mark_of(&bo.context.db(), &message_id), None);
 
     let delete = DeleteMessageCodec::encode(DeleteMessage {
         message_id: hex::encode(&message_id),
@@ -283,12 +236,10 @@ async fn compressed_delete_message_is_applied() {
         .await?;
     bo_group.sync().await?;
 
-    assert!(bo.context.db().is_message_deleted(&message_id)?);
-    let deletion = bo
-        .context
-        .db()
-        .get_deletion_by_deleted_message_id(&message_id)?;
-    assert!(deletion.is_some());
+    assert_eq!(
+        mark_of(&bo.context.db(), &message_id).as_deref(),
+        Some(alix.inbox_id())
+    );
 }
 
 /// Test message deletion by super admin
@@ -321,16 +272,31 @@ async fn test_delete_message_by_super_admin() {
     alix_group.publish_messages().await?;
     bo_group.sync().await?;
 
-    // Verify the message is marked as deleted
+    // Verify the message is marked as deleted on both installations
     let alix_conn = alix.context.db();
-    assert!(alix_conn.is_message_deleted(&message_id)?);
+    assert_eq!(
+        mark_of(&alix_conn, &message_id).as_deref(),
+        Some(alix.inbox_id())
+    );
+    assert_eq!(
+        mark_of(&bo.context.db(), &message_id).as_deref(),
+        Some(alix.inbox_id())
+    );
 
     // Verify deletion was done by super admin
-    let deletion = alix_conn.get_deletion_by_deleted_message_id(&message_id)?;
-    assert!(deletion.is_some());
-    let deletion = deletion.unwrap();
+    let deletion = alix_conn.get_message_deletion(&deletion_id)?.unwrap();
     assert_eq!(deletion.deleted_by_inbox_id, alix.inbox_id());
     assert!(deletion.is_super_admin_deletion);
+    let MessageBody::DeletedMessage { deleted_by } = &bo_group
+        .find_messages_v2(&MsgQueryArgs::default())?
+        .into_iter()
+        .find(|message| message.metadata.id == message_id)
+        .unwrap()
+        .content
+    else {
+        panic!("expected a placeholder");
+    };
+    assert_eq!(*deleted_by, DeletedBy::Admin(alix.inbox_id().to_string()));
 }
 
 /// Test that non-authorized members cannot delete messages
@@ -436,7 +402,7 @@ async fn test_delete_already_deleted_message() {
     ));
 }
 
-/// Test out-of-order deletion (deletion arrives before original message)
+/// A member who joins after a message and its deletion receives both in topic order
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_out_of_order_deletion() {
     tester!(alix);
@@ -460,214 +426,47 @@ async fn test_out_of_order_deletion() {
     let bo_group = &bo_groups[0];
     bo_group.sync().await?;
 
-    // Verify the message is marked as deleted for Bola
+    // The topic orders the message before its deletion.
     let bo_conn = bo.context.db();
-    assert!(bo_conn.is_message_deleted(&message_id)?);
-
-    // Verify the deletion record exists
-    let deletion = bo_conn.get_deletion_by_deleted_message_id(&message_id)?;
-    assert!(deletion.is_some());
+    assert_eq!(
+        mark_of(&bo_conn, &message_id).as_deref(),
+        Some(alix.inbox_id())
+    );
 }
 
-/// Test deletion record stored before the original message arrives.
-// verifies: EVENT-001, EVENT-007, EVENT-010
-#[xmtp_common::test(unwrap_try = true)]
-async fn test_true_out_of_order_deletion_by_sender() {
-    use crate::context::CoreContext;
-    use xmtp_db::Store;
-    use xmtp_db::group_message::{DeliveryStatus, StoredGroupMessage};
-    use xmtp_db::message_deletion::StoredMessageDeletion;
-
-    tester!(alix);
-    let alix_group = alix.create_group(None, None)?;
-    alix_group.sync().await?;
-
-    let alix_conn = alix.context.db();
-    let alix_inbox_id = alix.inbox_id().to_string();
-
-    // Simulate a message ID that will be "sent" later
-    let future_message_id = vec![0xDE, 0xAD, 0xBE, 0xEF];
-    let delete_message_id = vec![0x01, 0x02, 0x03];
-
-    // Step 1: First store the DeleteMessage itself in group_messages
-    let delete_msg = xmtp_proto::xmtp::mls::message_contents::content_types::DeleteMessage {
-        message_id: hex::encode(&future_message_id),
-    };
-    let delete_msg_content =
-        xmtp_content_types::delete_message::DeleteMessageCodec::encode(delete_msg)?;
-    let delete_msg_bytes = xmtp_content_types::encoded_content_to_bytes(delete_msg_content);
-
-    let delete_message = StoredGroupMessage {
-        id: delete_message_id.clone(),
-        group_id: alix_group.group_id,
-        decrypted_message_bytes: delete_msg_bytes,
-        sent_at_ns: xmtp_common::time::now_ns(),
-        kind: GroupMessageKind::Application,
-        sender_installation_id: alix.context.installation_id().to_vec(),
-        sender_inbox_id: alix_inbox_id.clone(),
-        delivery_status: DeliveryStatus::Published,
-        content_type: ContentType::DeleteMessage,
-        version_major: 1,
-        version_minor: 0,
-        authority_id: "xmtp.org".to_string(),
-        reference_id: None,
-        expiry_unknown: false,
-        expire_at_ns: None,
-        sequence_id: 2,
-        envelope_hash: None,
-        expiry_ns: None,
-        inserted_at_ns: 0,
-        should_push: false,
-        idempotency_key: String::new(),
-    };
-    delete_message.store(&alix_conn)?;
-
-    // Step 2: Store the deletion record (references the DeleteMessage above)
-    // This simulates the deletion arriving before the original message
-    let deletion = StoredMessageDeletion {
-        id: delete_message_id.clone(),
-        group_id: alix_group.group_id,
-        deleted_message_id: future_message_id.clone(),
-        deleted_by_inbox_id: alix_inbox_id.clone(), // Sender deleting their own message
-        is_super_admin_deletion: false,             // Regular user deletion
-        deleted_at_ns: xmtp_common::time::now_ns(),
-    };
-    deletion.store(&alix_conn)?;
-
-    // A later invalid record for the same target must not hide the valid one.
-    let invalid_delete_message_id = vec![0x04, 0x05, 0x06];
-    let invalid_delete_message = StoredGroupMessage {
-        id: invalid_delete_message_id.clone(),
-        sender_inbox_id: "not_the_sender".into(),
-        ..delete_message.clone()
-    };
-    invalid_delete_message.store(&alix_conn)?;
-    StoredMessageDeletion {
-        id: invalid_delete_message_id,
-        group_id: alix_group.group_id,
-        deleted_message_id: future_message_id.clone(),
-        deleted_by_inbox_id: "not_the_sender".into(),
-        is_super_admin_deletion: false,
-        deleted_at_ns: deletion.deleted_at_ns.saturating_add(1),
-    }
-    .store(&alix_conn)?;
-
-    // Verify deletion record exists but target message doesn't
-    assert!(alix_conn.get_group_message(&future_message_id)?.is_none());
-    assert!(
-        alix_conn
-            .get_deletion_by_deleted_message_id(&future_message_id)?
-            .is_some()
-    );
-
-    // Step 3: Now store the original message (simulating it arriving later)
-    let text_content = TextCodec::encode("Message to be deleted".to_string())?;
-    let text_bytes = xmtp_content_types::encoded_content_to_bytes(text_content);
-
-    let message = StoredGroupMessage {
-        id: future_message_id.clone(),
-        group_id: alix_group.group_id,
-        decrypted_message_bytes: text_bytes,
-        sent_at_ns: xmtp_common::time::now_ns() - 1000, // Sent before deletion
-        kind: GroupMessageKind::Application,
-        sender_installation_id: alix.context.installation_id().to_vec(),
-        sender_inbox_id: alix_inbox_id.clone(), // Same sender as deleter
-        delivery_status: DeliveryStatus::Published,
-        content_type: ContentType::Text,
-        version_major: 1,
-        version_minor: 0,
-        authority_id: "xmtp.org".to_string(),
-        reference_id: None,
-        expiry_unknown: false,
-        expire_at_ns: None,
-        sequence_id: 1,
-        envelope_hash: None,
-        expiry_ns: None,
-        inserted_at_ns: 0,
-        should_push: false,
-        idempotency_key: String::new(),
-    };
-    let events = alix.context.events().subscribe(
-        xmtp_events::EventFilter::new([xmtp_events::EventKind::MessageDeleted]),
-        Some(10),
-    );
-    for _ in 0..2 {
-        crate::state_tx::state_write_with_events(
-            alix.context.mls_storage(),
-            alix.context.events(),
-            |tx, buffer| {
-                let storage = tx.storage();
-                alix_group.store_external_application_message(&storage, &message, buffer)?;
-                Ok::<_, crate::groups::mls_sync::GroupMessageProcessingError>(
-                    xmtp_db::TransactionOutcome::Continue(()),
-                )
-            },
-        )?;
-    }
-    assert!(matches!(
-        events.drain().as_slice(),
-        [xmtp_events::EventEnvelope {
-            client: Some(xmtp_events::ClientEvent::MessageDeleted(deleted)), ..
-        }] if deleted.group_id == alix_group.group_id.to_vec()
-            && deleted.message_id == future_message_id
-            && deleted.cause == xmtp_events::DeletionCause::Deleted
-    ));
-
-    // Step 4: Verify the message is now marked as deleted via is_message_deleted
-    assert!(alix_conn.is_message_deleted(&future_message_id)?);
-
-    // Step 5: Verify enrichment correctly shows the message as deleted
-    let enriched = alix_group.find_messages_v2(&MsgQueryArgs::default())?;
-    let deleted_msg = enriched.iter().find(|m| m.metadata.id == future_message_id);
-    assert!(
-        deleted_msg.is_some(),
-        "Message should be in enriched results"
-    );
-
-    let deleted_msg = deleted_msg.unwrap();
-    let MessageBody::DeletedMessage { deleted_by } = &deleted_msg.content else {
-        panic!(
-            "Expected DeletedMessage placeholder, got {:?}",
-            deleted_msg.content
-        );
-    };
-    assert_eq!(*deleted_by, DeletedBy::Sender);
-}
-
-/// An admin delete that arrives before its target names the admin when the
-/// target, already expired, is stored later.
+/// An admin delete of a stored message that has already expired names the
+/// admin and carries no body.
 // verifies: META-051
 #[xmtp_common::test(unwrap_try = true)]
-async fn out_of_order_admin_delete_of_expired_message_names_the_admin() {
+async fn admin_delete_of_expired_message_names_the_admin() {
     use crate::context::CoreContext;
     use crate::subscriptions::{StreamMessages, internal::InternalEvent};
     use futures::StreamExt;
-    use xmtp_db::message_deletion::StoredMessageDeletion;
+    use xmtp_content_types::delete_message::DeleteMessageCodec;
+    use xmtp_proto::xmtp::mls::message_contents::content_types::DeleteMessage;
 
     tester!(alix);
     let alix_group = alix.create_group(None, None)?;
     let target_id = vec![0xAD, 0x01];
-    let delete_id = vec![0xAD, 0x02];
-    // The deletion record references the stored delete message.
-    StoredGroupMessage {
+    let target = StoredGroupMessage {
+        expire_at_ns: Some(xmtp_common::time::now_ns() - 1),
+        ..cached_text_row(alix_group.group_id, target_id.clone(), "sender", "xmtp.org")?
+    };
+    target.store(&alix.context.db())?;
+    let delete = DeleteMessageCodec::encode(DeleteMessage {
+        message_id: hex::encode(&target_id),
+    })?;
+    let deletion = StoredGroupMessage {
         content_type: ContentType::DeleteMessage,
+        reference_id: Some(target_id.clone()),
+        decrypted_message_bytes: xmtp_content_types::encoded_content_to_bytes(delete),
         ..cached_text_row(
             alix_group.group_id,
-            delete_id.clone(),
+            vec![0xAD, 0x02],
             alix.inbox_id(),
             "xmtp.org",
         )?
-    }
-    .store(&alix.context.db())?;
-    StoredMessageDeletion {
-        id: delete_id,
-        group_id: alix_group.group_id,
-        deleted_message_id: target_id.clone(),
-        deleted_by_inbox_id: alix.inbox_id().to_string(),
-        is_super_admin_deletion: true,
-        deleted_at_ns: xmtp_common::time::now_ns(),
-    }
-    .store(&alix.context.db())?;
+    };
     let deletions = alix
         .context
         .events()
@@ -678,17 +477,12 @@ async fn out_of_order_admin_delete_of_expired_message_names_the_admin() {
         .stream_message_deletions();
     futures::pin_mut!(deletions);
 
-    let target = StoredGroupMessage {
-        expiry_unknown: false,
-        expire_at_ns: Some(xmtp_common::time::now_ns() - 1),
-        ..cached_text_row(alix_group.group_id, target_id.clone(), "sender", "xmtp.org")?
-    };
     crate::state_tx::state_write_with_events(
         alix.context.mls_storage(),
         alix.context.events(),
         |tx, buffer| {
             let storage = tx.storage();
-            alix_group.store_external_application_message(&storage, &target, buffer)?;
+            alix_group.store_external_application_message(&storage, &deletion, true, buffer)?;
             Ok::<_, crate::groups::mls_sync::GroupMessageProcessingError>(
                 xmtp_db::TransactionOutcome::Continue(()),
             )
@@ -704,142 +498,6 @@ async fn out_of_order_admin_delete_of_expired_message_names_the_admin() {
         panic!("the deletion item carried a body: {:?}", deleted.content);
     };
     assert_eq!(*deleted_by, DeletedBy::Admin(alix.inbox_id().to_string()));
-}
-
-/// Test that unauthorized deletion records are rejected at query time.
-// verifies: PROC-037, EVENT-001
-#[xmtp_common::test(unwrap_try = true)]
-async fn test_out_of_order_unauthorized_deletion_rejected() {
-    use crate::context::CoreContext;
-    use xmtp_db::Store;
-    use xmtp_db::group_message::{DeliveryStatus, StoredGroupMessage};
-    use xmtp_db::message_deletion::StoredMessageDeletion;
-
-    tester!(alix);
-    tester!(bo);
-    let alix_group = alix.create_group(None, None)?;
-    alix_group.add_members(&[bo.inbox_id()]).await?;
-
-    let bo_groups = bo.wait_for_welcomes().await?;
-    let bo_group = &bo_groups[0];
-    bo_group.sync().await?;
-
-    let bo_conn = bo.context.db();
-    let alix_inbox_id = alix.inbox_id().to_string();
-    let bo_inbox_id = bo.inbox_id().to_string();
-
-    let future_message_id = vec![0xBA, 0xDC, 0x0D, 0xE0];
-    let malicious_delete_msg_id = vec![0x0B, 0xAD, 0x01];
-
-    // Step 1: First store the malicious DeleteMessage in group_messages (FK requirement)
-    let delete_msg = xmtp_proto::xmtp::mls::message_contents::content_types::DeleteMessage {
-        message_id: hex::encode(&future_message_id),
-    };
-    let delete_msg_content =
-        xmtp_content_types::delete_message::DeleteMessageCodec::encode(delete_msg)?;
-    let delete_msg_bytes = xmtp_content_types::encoded_content_to_bytes(delete_msg_content);
-
-    let malicious_delete_message = StoredGroupMessage {
-        id: malicious_delete_msg_id.clone(),
-        group_id: bo_group.group_id,
-        decrypted_message_bytes: delete_msg_bytes,
-        sent_at_ns: xmtp_common::time::now_ns(),
-        kind: GroupMessageKind::Application,
-        sender_installation_id: vec![1, 2, 3],
-        sender_inbox_id: bo_inbox_id.clone(), // Bo sending the delete
-        delivery_status: DeliveryStatus::Published,
-        content_type: ContentType::DeleteMessage,
-        version_major: 1,
-        version_minor: 0,
-        authority_id: "xmtp.org".to_string(),
-        reference_id: None,
-        expiry_unknown: false,
-        expire_at_ns: None,
-        sequence_id: 3,
-        envelope_hash: None,
-        expiry_ns: None,
-        inserted_at_ns: 0,
-        should_push: false,
-        idempotency_key: String::new(),
-    };
-    malicious_delete_message.store(&bo_conn)?;
-
-    // Step 2: Bo (non-admin) tries to delete Alix's message by storing a deletion record
-    // This simulates a malicious deletion arriving before the message
-    let malicious_deletion = StoredMessageDeletion {
-        id: malicious_delete_msg_id.clone(),
-        group_id: bo_group.group_id,
-        deleted_message_id: future_message_id.clone(),
-        deleted_by_inbox_id: bo_inbox_id.clone(), // Bo trying to delete
-        is_super_admin_deletion: false,           // Bo is not super admin
-        deleted_at_ns: xmtp_common::time::now_ns(),
-    };
-    malicious_deletion.store(&bo_conn)?;
-
-    // Step 3: Store Alix's message (arriving after the malicious deletion)
-    let text_content = TextCodec::encode("Alix's message".to_string())?;
-    let text_bytes = xmtp_content_types::encoded_content_to_bytes(text_content);
-
-    let message = StoredGroupMessage {
-        id: future_message_id.clone(),
-        group_id: bo_group.group_id,
-        decrypted_message_bytes: text_bytes,
-        sent_at_ns: xmtp_common::time::now_ns() - 1000,
-        kind: GroupMessageKind::Application,
-        sender_installation_id: vec![1, 2, 3],
-        sender_inbox_id: alix_inbox_id.clone(), // Message from Alix
-        delivery_status: DeliveryStatus::Published,
-        content_type: ContentType::Text,
-        version_major: 1,
-        version_minor: 0,
-        authority_id: "xmtp.org".to_string(),
-        reference_id: None,
-        expiry_unknown: false,
-        expire_at_ns: None,
-        sequence_id: 2,
-        envelope_hash: None,
-        expiry_ns: None,
-        inserted_at_ns: 0,
-        should_push: false,
-        idempotency_key: String::new(),
-    };
-    let events = bo.context.events().subscribe(
-        xmtp_events::EventFilter::new([xmtp_events::EventKind::MessageDeleted]),
-        Some(10),
-    );
-    crate::state_tx::state_write_with_events(
-        bo.context.mls_storage(),
-        bo.context.events(),
-        |tx, buffer| {
-            let storage = tx.storage();
-            bo_group.store_external_application_message(&storage, &message, buffer)?;
-            Ok::<_, crate::groups::mls_sync::GroupMessageProcessingError>(
-                xmtp_db::TransactionOutcome::Continue(()),
-            )
-        },
-    )?;
-    assert!(events.drain().is_empty());
-
-    // Deletion record exists but is unauthorized
-    assert!(bo_conn.is_message_deleted(&future_message_id)?);
-
-    // Enrichment should show original message since deletion is unauthorized
-    let enriched = bo_group.find_messages_v2(&MsgQueryArgs::default())?;
-    let msg = enriched.iter().find(|m| m.metadata.id == future_message_id);
-    assert!(msg.is_some(), "Message should be in enriched results");
-
-    let msg = msg.unwrap();
-    match &msg.content {
-        MessageBody::Text(text) => {
-            assert_eq!(text.content, "Alix's message");
-        }
-        MessageBody::DeletedMessage { .. } => {
-            panic!("Message should NOT be deleted - unauthorized deletion should be rejected");
-        }
-        other => {
-            panic!("Unexpected message body: {:?}", other);
-        }
-    }
 }
 
 // verifies: PROC-056
@@ -875,8 +533,7 @@ async fn unauthorized_pending_delete_does_not_block_super_admin_delete() {
     );
 
     // Caro is an ordinary member. Publish a real MLS application message with
-    // the target ID, then deliver its decoded row before the target to exercise
-    // the receive handler's deferred-authorization path.
+    // the target ID, then deliver its decoded row before the target.
     let delete = DeleteMessageCodec::encode(DeleteMessage {
         message_id: hex::encode(&target_id),
     })?;
@@ -891,24 +548,32 @@ async fn unauthorized_pending_delete_does_not_block_super_admin_delete() {
         .db()
         .get_group_message(&malicious_delete_id)?
         .expect("the attacker's deletion message is stored");
-    // The normal receive path stores the DeleteMessage row before handling it.
-    malicious_delete.store(&alix.context.db())?;
-    let storage = alix.context.mls_storage();
-    alix_group.load_mls_group_with_lock(storage, |mls_group| {
-        alix_group
-            .process_delete_message(
-                &mls_group,
-                storage,
+    crate::state_tx::state_write_with_events(
+        alix.context.mls_storage(),
+        alix.context.events(),
+        |tx, buffer| {
+            let storage = tx.storage();
+            alix_group.store_external_application_message(
+                &storage,
                 &malicious_delete,
-                alix_group.context.events(),
+                false,
+                buffer,
+            )?;
+            Ok::<_, crate::groups::mls_sync::GroupMessageProcessingError>(
+                xmtp_db::TransactionOutcome::Continue(()),
             )
-            .map_err(|_| GroupError::InvalidGroupMembership)?;
-        Ok(())
-    })?;
-    assert!(alix.context.db().is_message_deleted(&target_id)?);
+        },
+    )?;
+    // The record is kept, but it marks nothing.
+    assert!(
+        alix.context
+            .db()
+            .get_message_deletion(&malicious_delete_id)?
+            .is_some()
+    );
 
     // The ordered sync now stores the target and processes the invalid delete
-    // again. Neither enrichment nor the local delete gate applies its unauthorized row.
+    // again. It marks nothing, and the local delete gate does not refuse.
     alix_group.sync().await?;
     let visible = alix_group
         .find_messages_v2(&MsgQueryArgs::default())?
@@ -916,8 +581,10 @@ async fn unauthorized_pending_delete_does_not_block_super_admin_delete() {
         .find(|message| message.metadata.id == target_id)
         .expect("the target message is visible");
     assert!(matches!(visible.content, MessageBody::Text(_)));
+    assert_eq!(mark_of(&alix.context.db(), &target_id), None);
     let deletion_id = alix_group.delete_message(target_id.clone())?;
     assert!(!deletion_id.is_empty());
+    alix_group.publish_messages().await?;
     let visible = alix_group
         .find_messages_v2(&MsgQueryArgs::default())?
         .into_iter()
@@ -964,7 +631,7 @@ async fn cross_group_pending_delete_does_not_block_super_admin_delete() {
     let deletion = DeleteMessageCodec::encode(DeleteMessage {
         message_id: hex::encode(&target_id),
     })?;
-    caro_side
+    let side_deletion_id = caro_side
         .send_message(
             &xmtp_content_types::encoded_content_to_bytes(deletion),
             SendMessageOpts::default(),
@@ -976,9 +643,10 @@ async fn cross_group_pending_delete_does_not_block_super_admin_delete() {
     let pending = alix
         .context
         .db()
-        .get_deletion_by_deleted_message_id(&target_id)?
-        .expect("cross-group candidate stored before target");
+        .get_message_deletion(&side_deletion_id)?
+        .expect("cross-group record stored before target");
     assert_eq!(pending.group_id, side_group.group_id);
+    assert_eq!(pending.deleted_message_id, target_id);
 
     target_group.sync().await?;
     let visible = target_group
@@ -989,6 +657,7 @@ async fn cross_group_pending_delete_does_not_block_super_admin_delete() {
     assert!(matches!(visible.content, MessageBody::Text(_)));
     let deletion_id = target_group.delete_message(target_id.clone())?;
     assert!(!deletion_id.is_empty());
+    target_group.publish_messages().await?;
     let visible = target_group
         .find_messages_v2(&MsgQueryArgs::default())?
         .into_iter()
@@ -1001,6 +670,7 @@ async fn cross_group_pending_delete_does_not_block_super_admin_delete() {
 }
 
 /// Test that enrichment replaces deleted messages with placeholders
+// verifies: PROC-060
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_enrichment_with_deleted_messages() {
     tester!(alix);
@@ -1032,7 +702,46 @@ async fn test_enrichment_with_deleted_messages() {
     };
     assert_eq!(text.content, "Secret message");
 
+    // Bo reacts and replies, so the placeholder has relations to drop.
+    use xmtp_content_types::{reaction::ReactionCodec, reply::ReplyCodec};
+    use xmtp_proto::xmtp::mls::message_contents::content_types::{
+        ReactionAction, ReactionSchema, ReactionV2,
+    };
+    let reaction = ReactionCodec::encode(ReactionV2 {
+        reference: hex::encode(&message_id),
+        reference_inbox_id: alix.inbox_id().into(),
+        action: ReactionAction::Added.into(),
+        content: "👍".into(),
+        schema: ReactionSchema::Unicode.into(),
+    })?;
+    bo_group
+        .send_message(
+            &xmtp_content_types::encoded_content_to_bytes(reaction),
+            SendMessageOpts::default(),
+        )
+        .await?;
+    let reply = ReplyCodec::encode(xmtp_content_types::reply::Reply {
+        reference: hex::encode(&message_id),
+        reference_inbox_id: None,
+        content: TextCodec::encode("reply".into())?,
+    })?;
+    bo_group
+        .send_message(
+            &xmtp_content_types::encoded_content_to_bytes(reply),
+            SendMessageOpts::default(),
+        )
+        .await?;
+    let before = bo_group
+        .find_messages_v2(&MsgQueryArgs::default())?
+        .into_iter()
+        .find(|msg| msg.metadata.id == message_id)
+        .unwrap();
+    assert_eq!(before.reactions.len(), 1);
+    assert_eq!(before.num_replies, 1);
+    assert_eq!(before.num_reaction_messages, 1);
+
     // Alix deletes the message
+    alix_group.sync().await?;
     alix_group.delete_message(message_id.clone())?;
     alix_group.publish_messages().await?;
     bo_group.sync().await?;
@@ -1053,6 +762,7 @@ async fn test_enrichment_with_deleted_messages() {
     // Verify reactions and replies are cleared
     assert_eq!(deleted_msg.reactions.len(), 0);
     assert_eq!(deleted_msg.num_replies, 0);
+    assert_eq!(deleted_msg.num_reaction_messages, 0);
 }
 
 /// Test that DeleteMessage content type is not shown in message lists
@@ -1083,93 +793,6 @@ async fn test_delete_message_filtered_from_lists() {
     for msg in &messages {
         assert_ne!(msg.content_type, ContentType::DeleteMessage);
     }
-}
-
-/// Test database query methods for deletions
-#[xmtp_common::test(unwrap_try = true)]
-async fn test_deletion_database_queries() {
-    tester!(alix);
-    let alix_group = alix.create_group(None, None)?;
-
-    // Send multiple messages
-    let mut message_ids = vec![];
-    for i in 0..3 {
-        let text_content = TextCodec::encode(format!("Message {}", i))?;
-        let text_bytes = xmtp_content_types::encoded_content_to_bytes(text_content);
-        let message_id = alix_group
-            .send_message(&text_bytes, SendMessageOpts::default())
-            .await?;
-        message_ids.push(message_id);
-    }
-
-    // Delete two of them
-    alix_group.delete_message(message_ids[0].clone())?;
-    alix_group.delete_message(message_ids[2].clone())?;
-    alix_group.publish_messages().await?;
-    alix_group.sync().await?;
-
-    let conn = alix.context.db();
-
-    // Test get_deletions_for_messages
-    let deletions = conn.get_deletions_for_messages(message_ids.clone())?;
-    assert_eq!(deletions.len(), 2);
-
-    // Test is_message_deleted
-    assert!(conn.is_message_deleted(&message_ids[0])?);
-    assert!(!conn.is_message_deleted(&message_ids[1])?);
-    assert!(conn.is_message_deleted(&message_ids[2])?);
-
-    // Test get_group_deletions
-    let group_deletions = conn.get_group_deletions(&alix_group.group_id)?;
-    assert_eq!(group_deletions.len(), 2);
-}
-
-/// Test that super admin deletion is marked correctly
-#[xmtp_common::test(unwrap_try = true)]
-async fn test_admin_deletion_flag() {
-    tester!(alix);
-    tester!(bo);
-    let alix_group = alix.create_group(None, None)?;
-    alix_group.add_members(&[bo.inbox_id()]).await?;
-
-    let bo_groups = bo.wait_for_welcomes().await?;
-    let bo_group = &bo_groups[0];
-
-    // Bola sends a message
-    let text_content = TextCodec::encode("Bola's message".to_string())?;
-    let text_bytes = xmtp_content_types::encoded_content_to_bytes(text_content);
-    let bo_message_id = bo_group
-        .send_message(&text_bytes, SendMessageOpts::default())
-        .await?;
-
-    alix_group.sync().await?;
-
-    // Alix (super admin) deletes Bola's message
-    alix_group.delete_message(bo_message_id.clone())?;
-    alix_group.publish_messages().await?;
-    bo_group.sync().await?;
-
-    // Verify deletion is marked as super admin deletion
-    let bo_conn = bo.context.db();
-    let deletion = bo_conn.get_deletion_by_deleted_message_id(&bo_message_id)?;
-    assert!(deletion.is_some());
-
-    let deletion = deletion.unwrap();
-    assert!(deletion.is_super_admin_deletion);
-    assert_eq!(deletion.deleted_by_inbox_id, alix.inbox_id());
-
-    // Verify enriched message shows admin deletion
-    let messages = bo_group.find_messages_v2(&MsgQueryArgs::default())?;
-    let deleted_msg = messages.iter().find(|msg| msg.metadata.id == bo_message_id);
-    assert!(deleted_msg.is_some());
-
-    let MessageBody::DeletedMessage { deleted_by } = &deleted_msg.unwrap().content else {
-        panic!("Expected DeletedMessage placeholder");
-    };
-    let DeletedBy::Admin(admin_inbox_id) = deleted_by else {
-        panic!("Expected Admin deletion");
-    };
-    assert_eq!(admin_inbox_id, alix.inbox_id());
 }
 
 /// Test that replies to deleted messages show the deleted state
@@ -1449,11 +1072,15 @@ async fn test_cannot_delete_message_from_different_group() {
 
     // Verify the message in group1 is NOT deleted
     let alix_conn = alix.context.db();
-    assert!(!alix_conn.is_message_deleted(&group1_message_id)?);
+    assert_eq!(mark_of(&alix_conn, &group1_message_id), None);
 
     // Verify we can still delete it from the correct group
     group1.delete_message(group1_message_id.clone())?;
-    assert!(alix_conn.is_message_deleted(&group1_message_id)?);
+    group1.publish_messages().await?;
+    assert_eq!(
+        mark_of(&alix_conn, &group1_message_id).as_deref(),
+        Some(alix.inbox_id())
+    );
 }
 
 /// Test that we cannot delete a delete message
@@ -1479,7 +1106,10 @@ async fn test_cannot_delete_delete_message() {
 
     // Verify the original message is deleted
     let alix_conn = alix.context.db();
-    assert!(alix_conn.is_message_deleted(&original_message_id)?);
+    assert_eq!(
+        mark_of(&alix_conn, &original_message_id).as_deref(),
+        Some(alix.inbox_id())
+    );
 
     // Verify the delete message exists in the database
     let delete_msg = alix_conn.get_group_message(&delete_message_id)?;
@@ -1497,7 +1127,7 @@ async fn test_cannot_delete_delete_message() {
     ));
 
     // Verify the delete message is NOT deleted
-    assert!(!alix_conn.is_message_deleted(&delete_message_id)?);
+    assert_eq!(mark_of(&alix_conn, &delete_message_id), None);
 }
 
 /// Test concurrent deletions - multiple people trying to delete the same message
@@ -1547,8 +1177,8 @@ async fn test_concurrent_deletions() {
     alix_group.sync().await?;
     bo_group.sync().await?;
 
-    // Both Alix (super admin) and Bo (super admin) try to delete the message "concurrently"
-    // In practice, one will succeed and one will get MessageAlreadyDeleted
+    // Alix (super admin) deletes first; once Bo (super admin) has synced
+    // its echo, Bo's request finds the message marked.
     let alix_deletion = alix_group.delete_message(message_id.clone());
     alix_group.publish_messages().await?;
 
@@ -1556,21 +1186,13 @@ async fn test_concurrent_deletions() {
     bo_group.sync().await?;
     let bo_deletion = bo_group.delete_message(message_id.clone());
 
-    // At least one should succeed, the other should get MessageAlreadyDeleted
-    let alix_succeeded = alix_deletion.is_ok();
-    let bo_succeeded = bo_deletion.is_ok();
-
-    // At least one must succeed
-    assert!(
-        alix_succeeded || bo_succeeded,
-        "At least one deletion should succeed"
-    );
-
-    // If both succeeded locally (before sync), both should publish
-    // After sync, both should see the message as deleted
-    if bo_succeeded {
-        bo_group.publish_messages().await?;
-    }
+    assert!(alix_deletion.is_ok());
+    assert!(matches!(
+        bo_deletion,
+        Err(GroupError::DeleteMessage(
+            DeleteMessageError::MessageAlreadyDeleted
+        ))
+    ));
 
     alix_group.sync().await?;
     bo_group.sync().await?;
@@ -1581,9 +1203,11 @@ async fn test_concurrent_deletions() {
     let bo_conn = bo.context.db();
     let caro_conn = caro.context.db();
 
-    assert!(alix_conn.is_message_deleted(&message_id)?);
-    assert!(bo_conn.is_message_deleted(&message_id)?);
-    assert!(caro_conn.is_message_deleted(&message_id)?);
+    // The first deletion applied marks the message on every installation.
+    let mark = mark_of(&alix_conn, &message_id);
+    assert_eq!(mark.as_deref(), Some(alix.inbox_id()));
+    assert_eq!(mark_of(&bo_conn, &message_id), mark);
+    assert_eq!(mark_of(&caro_conn, &message_id), mark);
 
     // Verify enriched messages show the deleted state
     let caro_messages = caro_group.find_messages_v2(&MsgQueryArgs::default())?;
@@ -1596,15 +1220,7 @@ async fn test_concurrent_deletions() {
     let MessageBody::DeletedMessage { deleted_by } = &deleted_msg.content else {
         panic!("Expected DeletedMessage placeholder");
     };
-    // The message was deleted by a super admin (either Alix or Bo)
-    let DeletedBy::Admin(admin_inbox_id) = deleted_by else {
-        panic!("Expected Admin deletion");
-    };
-    assert!(
-        admin_inbox_id == alix.inbox_id() || admin_inbox_id == bo.inbox_id(),
-        "Deletion should be by Alix or Bo, got: {}",
-        admin_inbox_id
-    );
+    assert_eq!(*deleted_by, DeletedBy::Admin(alix.inbox_id().to_string()));
 }
 
 /// Test that deletion works correctly when both sender and admin try to delete
@@ -1658,107 +1274,10 @@ async fn test_sender_and_admin_both_delete() {
         panic!("Expected DeletedMessage placeholder");
     };
     assert_eq!(*deleted_by, DeletedBy::Sender);
-}
-
-/// Test that sender deletion shows DeletedBy::Sender even with is_super_admin_deletion=true.
-#[xmtp_common::test(unwrap_try = true)]
-async fn test_out_of_order_sender_deletion_shows_correct_deleted_by() {
-    use xmtp_db::Store;
-    use xmtp_db::group_message::{DeliveryStatus, StoredGroupMessage};
-    use xmtp_db::message_deletion::StoredMessageDeletion;
-
-    tester!(alix);
-    let alix_group = alix.create_group(None, None)?;
-    let alix_conn = alix.context.db();
-    let alix_inbox_id = alix.inbox_id().to_string();
-
-    let future_message_id = vec![0xF1, 0xA6, 0xC0, 0xDE];
-    let delete_message_id = vec![0xD3, 0x1E, 0x7E];
-
-    // Step 1: Store the DeleteMessage in group_messages first
-    let delete_msg = xmtp_proto::xmtp::mls::message_contents::content_types::DeleteMessage {
-        message_id: hex::encode(&future_message_id),
-    };
-    let delete_msg_content =
-        xmtp_content_types::delete_message::DeleteMessageCodec::encode(delete_msg)?;
-    let delete_msg_bytes = xmtp_content_types::encoded_content_to_bytes(delete_msg_content);
-
-    let delete_message = StoredGroupMessage {
-        id: delete_message_id.clone(),
-        group_id: alix_group.group_id,
-        decrypted_message_bytes: delete_msg_bytes,
-        sent_at_ns: xmtp_common::time::now_ns(),
-        kind: GroupMessageKind::Application,
-        sender_installation_id: vec![1, 2, 3],
-        sender_inbox_id: alix_inbox_id.clone(), // Alix sends the delete
-        delivery_status: DeliveryStatus::Published,
-        content_type: ContentType::DeleteMessage,
-        version_major: 1,
-        version_minor: 0,
-        authority_id: "xmtp.org".to_string(),
-        reference_id: None,
-        expiry_unknown: false,
-        expire_at_ns: None,
-        sequence_id: 1,
-        envelope_hash: None,
-        expiry_ns: None,
-        inserted_at_ns: 0,
-        should_push: false,
-        idempotency_key: String::new(),
-    };
-    delete_message.store(&alix_conn)?;
-
-    // Store deletion with is_super_admin_deletion=true (out-of-order scenario)
-    let deletion = StoredMessageDeletion {
-        id: delete_message_id.clone(),
-        group_id: alix_group.group_id,
-        deleted_message_id: future_message_id.clone(),
-        deleted_by_inbox_id: alix_inbox_id.clone(),
-        is_super_admin_deletion: true,
-        deleted_at_ns: xmtp_common::time::now_ns(),
-    };
-    deletion.store(&alix_conn)?;
-
-    // Store the original message (same sender as deleter)
-    let text_content = TextCodec::encode("Alix's message".to_string())?;
-    let text_bytes = xmtp_content_types::encoded_content_to_bytes(text_content);
-
-    let original_message = StoredGroupMessage {
-        id: future_message_id.clone(),
-        group_id: alix_group.group_id,
-        decrypted_message_bytes: text_bytes,
-        sent_at_ns: xmtp_common::time::now_ns() - 1000,
-        kind: GroupMessageKind::Application,
-        sender_installation_id: vec![1, 2, 3],
-        sender_inbox_id: alix_inbox_id.clone(), // Same as deleter
-        delivery_status: DeliveryStatus::Published,
-        content_type: ContentType::Text,
-        version_major: 1,
-        version_minor: 0,
-        authority_id: "xmtp.org".to_string(),
-        reference_id: None,
-        expiry_unknown: false,
-        expire_at_ns: None,
-        sequence_id: 2,
-        envelope_hash: None,
-        expiry_ns: None,
-        inserted_at_ns: 0,
-        should_push: false,
-        idempotency_key: String::new(),
-    };
-    original_message.store(&alix_conn)?;
-
-    // Verify enrichment shows DeletedBy::Sender since deleter == sender
-    let enriched = alix_group.find_messages_v2(&MsgQueryArgs::default())?;
-    let deleted_msg = enriched
-        .iter()
-        .find(|m| m.metadata.id == future_message_id)
-        .expect("Message should be in enriched results");
-
-    let MessageBody::DeletedMessage { deleted_by } = &deleted_msg.content else {
-        panic!("Expected DeletedMessage placeholder");
-    };
-    assert_eq!(*deleted_by, DeletedBy::Sender);
+    assert_eq!(
+        mark_of(&alix.context.db(), &message_id).as_deref(),
+        Some(bo.inbox_id())
+    );
 }
 
 /// Test that stream_message_deletions receives a callback when another client deletes a message
@@ -1838,61 +1357,49 @@ async fn test_stream_message_deletions_from_other_client() {
     assert_eq!(deleted_message.metadata.sender_inbox_id, alix.inbox_id());
 }
 
-/// A local deletion is readable before publish and emits only once.
-// verifies: EVENT-001, EVENT-007, EVENT-010
+/// A request queues the deletion and changes nothing; the echo marks the
+/// target and emits one `message.deleted`. A second request before publish is
+/// allowed, and both publish to one mark.
+// verifies: PROC-037, PROC-056, EVENT-001, EVENT-007
 #[xmtp_common::test(unwrap_try = true)]
-async fn test_stream_message_deletions_fires_for_self_after_publish() {
+async fn request_queues_and_applies_at_echo() {
     use crate::context::CoreContext;
-    use crate::utils::FullXmtpClient;
-    use parking_lot::Mutex;
-    use std::sync::Arc;
-    use std::time::Duration;
-    use tokio::sync::Notify;
-    use xmtp_common::StreamHandle;
 
     tester!(alix);
-
-    // Create a group
+    tester!(bo);
     let alix_group = alix.create_group(None, None)?;
-
-    // Alix sends a message
-    let text_content = TextCodec::encode("Message to be deleted".to_string())?;
-    let text_bytes = xmtp_content_types::encoded_content_to_bytes(text_content);
+    alix_group.add_members(&[bo.inbox_id()]).await?;
+    let bo_group = bo.wait_for_welcomes().await?.remove(0);
+    let text = TextCodec::encode("delete me".into())?;
     let message_id = alix_group
-        .send_message(&text_bytes, SendMessageOpts::default())
+        .send_message(
+            &xmtp_content_types::encoded_content_to_bytes(text),
+            SendMessageOpts::default(),
+        )
         .await?;
-
-    // Set up shared state for Alix's callback
-    let deleted_message: Arc<Mutex<Option<crate::messages::decoded_message::DecodedMessage>>> =
-        Arc::new(Mutex::new(None));
-    let notify = Arc::new(Notify::new());
-
-    let deleted_message_clone = deleted_message.clone();
-    let notify_clone = notify.clone();
-
-    // Alix sets up the deletion stream with callback
-    let mut handle = FullXmtpClient::stream_message_deletions_with_callback(
-        Arc::new(alix.client.clone()),
-        move |msg| {
-            if let Ok(message) = msg {
-                *deleted_message_clone.lock() = Some(message);
-                notify_clone.notify_one();
-            }
-        },
-        || {},
-    );
-
-    // Wait for stream to be ready
-    handle.wait_for_ready().await;
-
     let events = alix.context.events().subscribe(
         xmtp_events::EventFilter::new([xmtp_events::EventKind::MessageDeleted]),
         Some(10),
     );
 
-    // The deletion row is readable as soon as this call returns.
-    alix_group.delete_message(message_id.clone())?;
-    assert!(alix.context.db().is_message_deleted(&message_id)?);
+    let first = alix_group.delete_message(message_id.clone())?;
+    assert_ne!(first, message_id);
+    assert_eq!(mark_of(&alix.context.db(), &message_id), None);
+    assert!(events.drain().is_empty(), "the request emits nothing");
+    let readable = alix_group
+        .find_messages_v2(&MsgQueryArgs::default())?
+        .into_iter()
+        .find(|message| message.metadata.id == message_id)
+        .unwrap();
+    assert!(matches!(readable.content, MessageBody::Text(_)));
+    let second = alix_group.delete_message(message_id.clone())?;
+    assert_ne!(second, first);
+
+    alix_group.publish_messages().await?;
+    assert_eq!(
+        mark_of(&alix.context.db(), &message_id).as_deref(),
+        Some(alix.inbox_id())
+    );
     assert!(matches!(
         events.drain().as_slice(),
         [xmtp_events::EventEnvelope {
@@ -1900,31 +1407,19 @@ async fn test_stream_message_deletions_fires_for_self_after_publish() {
         }] if deleted.message_id == message_id
             && deleted.cause == xmtp_events::DeletionCause::DeletedLocally
     ));
-
-    alix_group.publish_messages().await?;
-
-    // Alix syncs (the deletion message is skipped because it was already processed locally)
-    alix_group.sync().await?;
-    assert!(events.drain().is_empty());
-
-    // Wait for the deletion event callback (5s timeout provides buffer for async processing)
-    let result = xmtp_common::time::timeout(Duration::from_secs(5), notify.notified()).await;
-
-    // Verify that the legacy callback got the local deletion.
-    assert!(
-        result.is_ok(),
-        "stream_message_deletions should fire for self-deletions after publish"
-    );
-
-    // Verify the correct message was received
-    let received = deleted_message.lock();
-    assert!(
-        received.is_some(),
-        "Deletion event should be received for self-deletions"
-    );
-    let received_msg = received.as_ref().unwrap();
+    for id in [&first, &second] {
+        assert_eq!(
+            alix.context
+                .db()
+                .get_group_message(id)?
+                .unwrap()
+                .delivery_status,
+            DeliveryStatus::Published
+        );
+    }
+    bo_group.sync().await?;
     assert_eq!(
-        received_msg.metadata.id, message_id,
-        "Deleted message ID should match"
+        mark_of(&bo.context.db(), &message_id).as_deref(),
+        Some(alix.inbox_id())
     );
 }

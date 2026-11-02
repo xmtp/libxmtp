@@ -572,7 +572,7 @@ the client. Every call it fails returns it. Not retryable.
 | `GroupError::UninitializedResult` | Result not initialized. Expected result was not initialized. Not retryable. |
 | `GroupError::Diesel` | Diesel ORM error. Raw database query failed. May be retryable. |
 | `GroupError::UninitializedField` | Uninitialized field. Builder field not initialized. Not retryable. |
-| `GroupError::DeleteMessage` | Delete message error. Failed to delete message. Not retryable. |
+| `GroupError::DeleteMessage` | Delete message error. Failed to delete message. Retryable only while the message is being published. |
 
 ### HandleError <sub>enum</sub>
 

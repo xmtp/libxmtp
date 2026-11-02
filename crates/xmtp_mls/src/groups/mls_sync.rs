@@ -74,7 +74,6 @@ use xmtp_content_types::{CodecError, ContentCodec, group_updated::GroupUpdatedCo
 use xmtp_db::TransactionOutcome::{Continue, Rollback};
 use xmtp_db::XmtpMlsStorageProvider;
 use xmtp_db::group::GroupMembershipState;
-use xmtp_db::message_deletion::StoredMessageDeletion;
 use xmtp_db::{
     Fetch, StorageError, StoreOrIgnore, TransactionOutcome,
     group::ConversationType,
@@ -924,7 +923,6 @@ pub(crate) mod tests {
             ContentCodec, compression::compress, delete_message::DeleteMessageCodec,
             encoded_content_to_bytes,
         };
-        use xmtp_db::Store;
         use xmtp_db::group_message::{
             ContentType, DeliveryStatus, GroupMessageKind, StoredGroupMessage,
         };
@@ -982,6 +980,7 @@ pub(crate) mod tests {
                 authority_id: "xmtp.org".to_string(),
                 reference_id: fields.reference_id,
                 expiry_unknown: false,
+                deleted_by_inbox_id: None,
                 expire_at_ns: None,
                 sequence_id: n.into(),
                 envelope_hash: None,
@@ -990,18 +989,16 @@ pub(crate) mod tests {
                 should_push: false,
                 idempotency_key: String::new(),
             };
-            // The receive path stores the DeleteMessage row before handling it.
-            message.store(&alix.context.db())?;
-            let result = alix_group.load_mls_group_with_lock(storage, |mls_group| {
-                alix_group
-                    .process_delete_message(
-                        &mls_group,
-                        storage,
-                        &message,
-                        alix_group.context.events(),
-                    )
-                    .map_err(|_| GroupError::InvalidGroupMembership)
-            });
+            let result = crate::state_tx::state_write_with_events(
+                storage,
+                alix.context.events(),
+                |tx, buffer| {
+                    let storage = tx.storage();
+                    alix_group
+                        .store_external_application_message(&storage, &message, true, buffer)?;
+                    Ok::<_, GroupMessageProcessingError>(xmtp_db::TransactionOutcome::Continue(()))
+                },
+            );
             assert!(result.is_ok(), "{case}: {result:?}");
             let deletion = alix.context.db().get_message_deletion(&message.id)?;
             assert!(deletion.is_none(), "{case}: {deletion:?}");

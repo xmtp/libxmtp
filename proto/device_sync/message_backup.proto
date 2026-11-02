@@ -24,6 +24,17 @@ message GroupMessageSave {
   string content_type = 16;
   optional int64 expires_at_ns = 17;
   optional bool expiry_known = 18;
+  optional string deleted_by_inbox_id = 19; // set when deleted for everyone; content is then empty
+}
+
+// One deletion record: an inbox deleted a target message in a group
+message MessageDeletionSave {
+  bytes id = 1;                      // the deletion message id
+  bytes group_id = 2;
+  bytes deleted_message_id = 3;      // the target id
+  string deleted_by_inbox_id = 4;
+  bool is_super_admin_deletion = 5;
+  int64 deleted_at_ns = 6;
 }
 
 // Group message kind

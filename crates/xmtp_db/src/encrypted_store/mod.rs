@@ -413,6 +413,8 @@ pub trait XmtpDb: MaybeSend + MaybeSync {
             }
 
 
+            crate::message_deletion::backfill_deletion_marks(conn)?;
+
             let sqlite_version =
                 sql_query("SELECT sqlite_version() AS version").load::<SqliteVersion>(conn)?;
             tracing::info!("sqlite_version={}", sqlite_version[0].version);

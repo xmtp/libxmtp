@@ -6,7 +6,17 @@ use xmtp_proto::xmtp::device_sync::message_backup::{
 
 impl TryFrom<GroupMessageSave> for StoredGroupMessage {
     type Error = ConversionError;
-    fn try_from(value: GroupMessageSave) -> Result<Self, Self::Error> {
+    fn try_from(mut value: GroupMessageSave) -> Result<Self, Self::Error> {
+        // implements: ARCH-028
+        // Wipe a marked element's content before any fallible conversion, so
+        // a malformed element cannot drop its plaintext into freed memory.
+        if value
+            .deleted_by_inbox_id
+            .as_ref()
+            .is_some_and(|id| !id.is_empty())
+        {
+            zeroize::Zeroize::zeroize(&mut value.decrypted_message_bytes);
+        }
         let kind = value.kind().try_into()?;
         let delivery_status = value.delivery_status().try_into()?;
         let (expire_at_ns, expiry_unknown) = match value.expiry_known {
@@ -26,10 +36,15 @@ impl TryFrom<GroupMessageSave> for StoredGroupMessage {
             u32::try_from(value.version_major).unwrap_or_default(),
         );
 
+        // implements: ARCH-028
+        // Trust the mark, never its content.
+        let deleted_by_inbox_id = value.deleted_by_inbox_id.filter(|id| !id.is_empty());
+        let decrypted_message_bytes = value.decrypted_message_bytes;
+
         Ok(Self {
             id: value.id,
             group_id: value.group_id.try_into()?,
-            decrypted_message_bytes: value.decrypted_message_bytes,
+            decrypted_message_bytes,
             sent_at_ns: value.sent_at_ns,
             kind,
             sender_installation_id: value.sender_installation_id,
@@ -51,6 +66,7 @@ impl TryFrom<GroupMessageSave> for StoredGroupMessage {
             // the historical default (the send timestamp). Restored messages are
             // already published, so this value is only informational.
             idempotency_key: value.sent_at_ns.to_string(),
+            deleted_by_inbox_id,
         })
     }
 }
@@ -127,6 +143,9 @@ impl From<StoredGroupMessage> for GroupMessageSave {
                 value.expire_at_ns
             },
             expiry_known: Some(!value.expiry_unknown),
+            // implements: ARCH-028
+            // A marked row is already empty.
+            deleted_by_inbox_id: value.deleted_by_inbox_id,
 
             // Deprecated
             #[allow(deprecated)]

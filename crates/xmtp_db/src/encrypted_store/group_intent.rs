@@ -271,6 +271,9 @@ pub trait QueryGroupIntent {
     fn last_publish_intent_id(&self, group_id: &[u8])
     -> Result<Option<ID>, crate::ConnectionError>;
 
+    /// Remove one intent. Returns the number of rows removed.
+    fn delete_group_intent(&self, intent_id: ID) -> Result<usize, StorageError>;
+
     /// A published state change takes priority over the bounded ordinary cursor.
     fn next_publish_intent(
         &self,
@@ -482,6 +485,10 @@ where
         msg_id: Option<Vec<u8>>,
     ) -> Result<(), StorageError> {
         (**self).set_group_intent_error_and_fail_msg(intent, msg_id)
+    }
+
+    fn delete_group_intent(&self, intent_id: ID) -> Result<usize, StorageError> {
+        (**self).delete_group_intent(intent_id)
     }
 }
 
@@ -888,6 +895,10 @@ impl<C: ConnectionExt> QueryGroupIntent for DbConnection<C> {
             self.set_delivery_status_to_failed(&id)?;
         }
         Ok(())
+    }
+
+    fn delete_group_intent(&self, intent_id: ID) -> Result<usize, StorageError> {
+        Delete::<StoredGroupIntent>::delete(self, intent_id)
     }
 }
 

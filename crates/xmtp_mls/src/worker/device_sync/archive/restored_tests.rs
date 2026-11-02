@@ -88,6 +88,7 @@ async fn apply(
     insert_elements(
         &mut futures::stream::iter(elements.into_iter().map(Ok::<_, std::io::Error>)),
         context,
+        Default::default(),
     )
     .await
 }
@@ -207,7 +208,11 @@ async fn restored_history_completed_elements_keep_metadata_and_activity_after_fa
         Ok(group_element(descending)),
         Err(std::io::Error::other("later element failed")),
     ]);
-    assert!(insert_elements(&mut elements, &alix.context).await.is_err());
+    assert!(
+        insert_elements(&mut elements, &alix.context, Default::default())
+            .await
+            .is_err()
+    );
     let row = alix.db().find_group(&id)??;
     assert_eq!(row.last_message_ns, Some(300));
     assert_eq!(row.created_at_ns, 123);
@@ -452,10 +457,29 @@ async fn import_skips_internal_conversations() {
         BackupElement {
             element: Some(Element::GroupMessage(message.into())),
         },
+        // A deletion record for the held sync group is skipped too.
+        BackupElement {
+            element: Some(Element::MessageDeletion(
+                xmtp_db::message_deletion::StoredMessageDeletion {
+                    id: vec![0x52; 32],
+                    group_id: sync.group_id,
+                    deleted_message_id: vec![0x51; 32],
+                    deleted_by_inbox_id: alix.inbox_id().to_string(),
+                    is_super_admin_deletion: true,
+                    deleted_at_ns: 1,
+                    authenticated: false,
+                }
+                .into(),
+            )),
+        },
     ];
     apply(&alix.context, elements).await?;
     assert!(db.find_group(&GroupId::from([70; 16]))?.is_none());
     assert!(db.get_group_message([0x51; 32])?.is_none());
+    assert!(
+        xmtp_db::message_deletion::QueryMessageDeletion::get_message_deletion(&db, &[0x52; 32])?
+            .is_none()
+    );
     alix.device_sync_client()
         .process_sync_group_messages()
         .await?;
@@ -482,6 +506,7 @@ fn stored_message(group_id: GroupId, sender_inbox_id: String, marker: u8) -> Sto
         envelope_hash: None,
         expiry_ns: None,
         expiry_unknown: false,
+        deleted_by_inbox_id: None,
         expire_at_ns: None,
         inserted_at_ns: 0,
         should_push: false,

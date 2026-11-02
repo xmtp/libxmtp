@@ -7,7 +7,7 @@ use xmtp_mls::{
     prelude::*,
     worker::device_sync::{
         ArchiveOptions as CoreArchiveOptions, BackupElementSelection as CoreElement,
-        archive::{ArchiveImporter, BackupMetadata, ENC_KEY_SIZE, exporter, insert_importer},
+        archive::{ArchiveImporter, BackupMetadata, ENC_KEY_SIZE, exporter, insert_archive},
     },
 };
 
@@ -135,11 +135,12 @@ impl Archives {
         let key = key(key_bytes)?;
         let client = self.client.clone();
         on_sdk_worker(self.client.context.clone(), async move {
-            let reader = Box::pin(BufReader::new(Cursor::new(data)));
-            let mut importer = ArchiveImporter::load(reader, &key)
-                .await
-                .map_err(XmtpError::from_core)?;
-            insert_importer(&mut importer, &client.context)
+            // Read twice: first for the archive's deletion messages.
+            let data: std::sync::Arc<[u8]> = data.into();
+            let open =
+                || ArchiveImporter::load(Box::pin(BufReader::new(Cursor::new(data.clone()))), &key);
+            let mut first = open().await.map_err(XmtpError::from_core)?;
+            Box::pin(insert_archive(&mut first, open, &client.context))
                 .await
                 .map_err(XmtpError::from_core)
         })
@@ -266,12 +267,17 @@ impl Archives {
         let key = key(key_bytes)?;
         let client = self.client.clone();
         on_sdk_worker(self.client.context.clone(), async move {
-            let mut importer = ArchiveImporter::from_file(path, &key)
+            // Read twice: first for the archive's deletion messages.
+            let mut first = ArchiveImporter::from_file(path.clone(), &key)
                 .await
                 .map_err(XmtpError::from_core)?;
-            insert_importer(&mut importer, &client.context)
-                .await
-                .map_err(XmtpError::from_core)
+            Box::pin(insert_archive(
+                &mut first,
+                || ArchiveImporter::from_file(path, &key),
+                &client.context,
+            ))
+            .await
+            .map_err(XmtpError::from_core)
         })
         .await
     }

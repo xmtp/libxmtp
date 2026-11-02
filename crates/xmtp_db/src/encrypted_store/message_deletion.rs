@@ -1,11 +1,14 @@
 use super::ConnectionExt;
+use crate::group_message::StoredGroupMessage;
 use crate::schema::message_deletions::dsl;
 use crate::{DbConnection, impl_store, impl_store_or_ignore, schema::message_deletions};
-use crate::{group_message::DeliveryStatus, schema::group_messages};
 use diesel::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use xmtp_proto::types::GroupId;
+
+mod convert;
+
 #[derive(
     Debug,
     Clone,
@@ -14,13 +17,16 @@ use xmtp_proto::types::GroupId;
     Insertable,
     Identifiable,
     Queryable,
+    Selectable,
     Eq,
     PartialEq,
     QueryableByName,
 )]
 #[diesel(table_name = message_deletions)]
 #[diesel(primary_key(id))]
-/// Represents a deletion record for a message in a group conversation
+#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
+/// One deletion record: "inbox X deleted target T in group G at envelope time
+/// t". Kept for the life of the group, also after its deletion message goes.
 pub struct StoredMessageDeletion {
     /// The ID of the DeleteMessage in the group_messages table
     pub id: Vec<u8>,
@@ -30,10 +36,34 @@ pub struct StoredMessageDeletion {
     pub deleted_message_id: Vec<u8>,
     /// The inbox_id of who sent the delete message
     pub deleted_by_inbox_id: String,
-    /// Whether the deleter was a super admin at deletion time
+    /// Whether the deleter was a super admin at that point in the topic
     pub is_super_admin_deletion: bool,
-    /// Timestamp when the deletion was processed
+    /// The deletion message's envelope time
     pub deleted_at_ns: i64,
+    /// Processed from the group's topic or this installation's own echo,
+    /// rather than read from an archive.
+    #[serde(default)]
+    pub authenticated: bool,
+}
+
+impl StoredMessageDeletion {
+    /// The record of `deletion`, a `DeleteMessage` row naming `target_id`.
+    pub fn of(
+        deletion: &StoredGroupMessage,
+        target_id: &[u8],
+        is_super_admin_deletion: bool,
+        authenticated: bool,
+    ) -> Self {
+        Self {
+            id: deletion.id.clone(),
+            group_id: deletion.group_id,
+            deleted_message_id: target_id.to_vec(),
+            deleted_by_inbox_id: deletion.sender_inbox_id.clone(),
+            is_super_admin_deletion,
+            deleted_at_ns: deletion.sent_at_ns,
+            authenticated,
+        }
+    }
 }
 
 impl_store!(StoredMessageDeletion, message_deletions);
@@ -47,27 +77,21 @@ pub trait QueryMessageDeletion {
         id: &[u8],
     ) -> Result<Option<StoredMessageDeletion>, crate::ConnectionError>;
 
-    /// Get deletion record for a specific deleted message
-    fn get_deletion_by_deleted_message_id(
+    /// Store one record per deletion message. An authenticated record replaces
+    /// an imported one; nothing replaces an authenticated record. Returns the
+    /// stored record.
+    fn record_deletion(
         &self,
-        deleted_message_id: &[u8],
+        record: &StoredMessageDeletion,
+    ) -> Result<StoredMessageDeletion, crate::ConnectionError>;
+
+    /// The record from the topic with the lowest `(deleted_at_ns, id)` for
+    /// `target` whose deleter is the target's sender or was a super admin, in
+    /// its group. An archived record never decides alone.
+    fn first_deletion_of(
+        &self,
+        target: &StoredGroupMessage,
     ) -> Result<Option<StoredMessageDeletion>, crate::ConnectionError>;
-
-    /// Get deletion candidates whose DeleteMessage has not failed.
-    fn get_deletions_for_messages(
-        &self,
-        message_ids: Vec<Vec<u8>>,
-    ) -> Result<Vec<StoredMessageDeletion>, crate::ConnectionError>;
-
-    /// Get all deletions in a group
-    fn get_group_deletions(
-        &self,
-        group_id: &GroupId,
-    ) -> Result<Vec<StoredMessageDeletion>, crate::ConnectionError>;
-
-    /// Reports whether a deletion row is stored, not whether it takes effect.
-    /// Client code must also validate the group, target type, and sender.
-    fn is_message_deleted(&self, message_id: &[u8]) -> Result<bool, crate::ConnectionError>;
 }
 
 impl<T> QueryMessageDeletion for &T
@@ -81,29 +105,18 @@ where
         (**self).get_message_deletion(id)
     }
 
-    fn get_deletion_by_deleted_message_id(
+    fn record_deletion(
         &self,
-        deleted_message_id: &[u8],
+        record: &StoredMessageDeletion,
+    ) -> Result<StoredMessageDeletion, crate::ConnectionError> {
+        (**self).record_deletion(record)
+    }
+
+    fn first_deletion_of(
+        &self,
+        target: &StoredGroupMessage,
     ) -> Result<Option<StoredMessageDeletion>, crate::ConnectionError> {
-        (**self).get_deletion_by_deleted_message_id(deleted_message_id)
-    }
-
-    fn get_deletions_for_messages(
-        &self,
-        message_ids: Vec<Vec<u8>>,
-    ) -> Result<Vec<StoredMessageDeletion>, crate::ConnectionError> {
-        (**self).get_deletions_for_messages(message_ids)
-    }
-
-    fn get_group_deletions(
-        &self,
-        group_id: &GroupId,
-    ) -> Result<Vec<StoredMessageDeletion>, crate::ConnectionError> {
-        (**self).get_group_deletions(group_id)
-    }
-
-    fn is_message_deleted(&self, message_id: &[u8]) -> Result<bool, crate::ConnectionError> {
-        (**self).is_message_deleted(message_id)
+        (**self).first_deletion_of(target)
     }
 }
 
@@ -120,99 +133,161 @@ impl<C: ConnectionExt> QueryMessageDeletion for DbConnection<C> {
         })
     }
 
-    fn get_deletion_by_deleted_message_id(
+    // implements: PROC-037
+    fn record_deletion(
         &self,
-        deleted_message_id: &[u8],
+        record: &StoredMessageDeletion,
+    ) -> Result<StoredMessageDeletion, crate::ConnectionError> {
+        self.raw_query(|conn| {
+            diesel::insert_or_ignore_into(dsl::message_deletions)
+                .values(record)
+                .execute(conn)?;
+            if record.authenticated {
+                diesel::update(
+                    dsl::message_deletions
+                        .find(&record.id)
+                        .filter(dsl::authenticated.eq(false)),
+                )
+                .set((
+                    dsl::group_id.eq(record.group_id),
+                    dsl::deleted_message_id.eq(&record.deleted_message_id),
+                    dsl::deleted_by_inbox_id.eq(&record.deleted_by_inbox_id),
+                    dsl::is_super_admin_deletion.eq(record.is_super_admin_deletion),
+                    dsl::deleted_at_ns.eq(record.deleted_at_ns),
+                    dsl::authenticated.eq(true),
+                ))
+                .execute(conn)?;
+            }
+            dsl::message_deletions.find(&record.id).first(conn)
+        })
+    }
+
+    // implements: PROC-037
+    fn first_deletion_of(
+        &self,
+        target: &StoredGroupMessage,
     ) -> Result<Option<StoredMessageDeletion>, crate::ConnectionError> {
+        // The SQL mirror of may_delete's deleter-side checks (same group;
+        // sender or super admin), applied before LIMIT 1. The other checks
+        // depend only on the target, so if the first candidate fails, all fail.
         self.raw_query(|conn| {
             dsl::message_deletions
-                .filter(dsl::deleted_message_id.eq(deleted_message_id))
+                .filter(dsl::authenticated.eq(true))
+                .filter(dsl::group_id.eq(target.group_id))
+                .filter(dsl::deleted_message_id.eq(&target.id))
+                .filter(
+                    dsl::deleted_by_inbox_id
+                        .eq(&target.sender_inbox_id)
+                        .or(dsl::is_super_admin_deletion.eq(true)),
+                )
+                .order((dsl::deleted_at_ns.asc(), dsl::id.asc()))
                 .first(conn)
                 .optional()
         })
     }
+}
 
-    fn get_deletions_for_messages(
-        &self,
-        message_ids: Vec<Vec<u8>>,
-    ) -> Result<Vec<StoredMessageDeletion>, crate::ConnectionError> {
-        if message_ids.is_empty() {
-            return Ok(vec![]);
+/// Mark and empty, once, each target that the upgrade to deletion marks
+/// queued and that the old read-time check hid: a record in its group whose
+/// deleter is its sender or a super admin, and a deletable wire type. The
+/// earliest such record names the deleter. Then empty the queue.
+// implements: PROC-037
+pub(crate) fn backfill_deletion_marks(
+    conn: &mut diesel::SqliteConnection,
+) -> Result<(), diesel::result::Error> {
+    use crate::schema::deletion_backfill;
+    // Queued targets marked per write; a batch holds this many target rows.
+    const BATCH: i64 = 500;
+    loop {
+        let done = conn.immediate_transaction(|conn| {
+            let targets: Vec<Vec<u8>> = deletion_backfill::table
+                .select(deletion_backfill::target_id)
+                .order(deletion_backfill::target_id)
+                .limit(BATCH)
+                .load(conn)?;
+            if targets.is_empty() {
+                return Ok::<_, diesel::result::Error>(true);
+            }
+            backfill_batch(conn, &targets)?;
+            diesel::delete(
+                deletion_backfill::table.filter(deletion_backfill::target_id.eq_any(&targets)),
+            )
+            .execute(conn)?;
+            Ok(false)
+        })?;
+        if done {
+            return Ok(());
         }
-
-        self.raw_query(|conn| {
-            dsl::message_deletions
-                .inner_join(group_messages::table.on(group_messages::id.eq(dsl::id)))
-                .filter(dsl::deleted_message_id.eq_any(message_ids))
-                .filter(group_messages::delivery_status.ne(DeliveryStatus::Failed))
-                .select(message_deletions::all_columns)
-                .load(conn)
-        })
     }
+}
 
-    fn get_group_deletions(
-        &self,
-        group_id: &GroupId,
-    ) -> Result<Vec<StoredMessageDeletion>, crate::ConnectionError> {
-        self.raw_query(|conn| {
-            dsl::message_deletions
+/// Mark the queued `targets` that the old read-time check hid.
+fn backfill_batch(
+    conn: &mut diesel::SqliteConnection,
+    targets: &[Vec<u8>],
+) -> Result<(), diesel::result::Error> {
+    use crate::schema::group_messages;
+    {
+        for id in targets {
+            // Only the columns the old check read: other columns of an old
+            // row need not load.
+            let Some((group_id, kind, sender, bytes, marked)) = group_messages::table
+                .find(id)
+                .select((
+                    group_messages::group_id,
+                    group_messages::kind,
+                    group_messages::sender_inbox_id,
+                    group_messages::decrypted_message_bytes,
+                    group_messages::deleted_by_inbox_id,
+                ))
+                .first::<(Vec<u8>, i32, String, Vec<u8>, Option<String>)>(conn)
+                .optional()?
+            else {
+                continue;
+            };
+            let application = kind == crate::group_message::GroupMessageKind::Application as i32;
+            if marked.is_some()
+                || !application
+                || !crate::group_message::content_is_deletable(&bytes)
+            {
+                continue;
+            }
+            let deleter = dsl::message_deletions
                 .filter(dsl::group_id.eq(group_id))
-                .load(conn)
-        })
+                .filter(dsl::deleted_message_id.eq(id))
+                .filter(
+                    dsl::deleted_by_inbox_id
+                        .eq(&sender)
+                        .or(dsl::is_super_admin_deletion.eq(true)),
+                )
+                .order((dsl::deleted_at_ns.asc(), dsl::id.asc()))
+                .select(dsl::deleted_by_inbox_id)
+                .first::<String>(conn)
+                .optional()?;
+            if let Some(deleter) = deleter {
+                diesel::update(
+                    group_messages::table
+                        .find(id)
+                        .filter(group_messages::deleted_by_inbox_id.is_null()),
+                )
+                .set((
+                    group_messages::deleted_by_inbox_id.eq(deleter),
+                    group_messages::decrypted_message_bytes.eq(Vec::<u8>::new()),
+                ))
+                .execute(conn)?;
+            }
+        }
     }
-
-    fn is_message_deleted(&self, message_id: &[u8]) -> Result<bool, crate::ConnectionError> {
-        self.raw_query(|conn| {
-            diesel::dsl::select(diesel::dsl::exists(
-                dsl::message_deletions.filter(dsl::deleted_message_id.eq(message_id)),
-            ))
-            .get_result::<bool>(conn)
-        })
-    }
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::encrypted_store::group::{ConversationType, GroupMembershipState, StoredGroup};
-    use crate::encrypted_store::group_message::{
-        ContentType, DeliveryStatus, GroupMessageKind, StoredGroupMessage,
-    };
-    use crate::{Store, with_connection};
+    use crate::encrypted_store::group_message::{ContentType, DeliveryStatus, GroupMessageKind};
+    use crate::with_connection;
 
-    fn create_test_group(conn: &DbConnection<impl ConnectionExt>, group_id: GroupId) {
-        StoredGroup {
-            id: group_id,
-            created_at_ns: 0,
-            membership_state: GroupMembershipState::Allowed,
-            installations_last_checked: 0,
-            added_by_inbox_id: "test".to_string(),
-            sequence_id: Some(0),
-            rotated_at_ns: 0,
-            conversation_type: ConversationType::Group,
-            dm_id: None,
-            last_message_ns: None,
-            message_disappear_from_ns: None,
-            message_disappear_in_ns: None,
-            paused_for_version: None,
-            maybe_forked: false,
-            fork_details: "[]".to_string(),
-
-            should_publish_commit_log: false,
-            commit_log_public_key: None,
-            is_commit_log_forked: None,
-            has_pending_leave_request: None,
-            push_override: None,
-        }
-        .store(conn)
-        .unwrap();
-    }
-
-    fn create_test_message(
-        conn: &DbConnection<impl ConnectionExt>,
-        id: Vec<u8>,
-        group_id: GroupId,
-    ) {
+    fn test_message(id: Vec<u8>, group_id: GroupId) -> StoredGroupMessage {
         StoredGroupMessage {
             id,
             group_id,
@@ -236,118 +311,155 @@ mod tests {
             inserted_at_ns: 0,
             should_push: false,
             idempotency_key: 1000.to_string(),
+            deleted_by_inbox_id: None,
         }
-        .store(conn)
-        .unwrap();
     }
 
+    fn record(id: u8, group_id: GroupId, by: &str, admin: bool, at: i64) -> StoredMessageDeletion {
+        StoredMessageDeletion {
+            id: vec![id, 0xde],
+            group_id,
+            deleted_message_id: vec![0xaa],
+            deleted_by_inbox_id: by.to_string(),
+            is_super_admin_deletion: admin,
+            deleted_at_ns: at,
+            authenticated: true,
+        }
+    }
+
+    #[derive(QueryableByName)]
+    struct QueryPlan {
+        #[diesel(sql_type = diesel::sql_types::Text)]
+        detail: String,
+    }
+
+    /// 500 earlier unauthorized records name the target; the case's record
+    /// comes last. A LIMIT before the authority filter would miss it.
+    // verifies: PROC-037
+    #[rstest::rstest]
+    #[case::authorized_by_sender("sender", false, GroupId::ONE, true, true)]
+    #[case::authorized_by_bit("admin", true, GroupId::ONE, true, true)]
+    #[case::unauthorized("other", false, GroupId::ONE, true, false)]
+    #[case::other_group("sender", true, GroupId::TWO, true, false)]
+    #[case::archived("sender", true, GroupId::ONE, false, false)]
     #[xmtp_common::test(unwrap_try = true)]
-    fn test_get_deletions_for_messages() {
+    async fn deletion_lookup_is_bounded(
+        #[case] by: &str,
+        #[case] admin: bool,
+        #[case] group_id: GroupId,
+        #[case] authenticated: bool,
+        #[case] found: bool,
+    ) {
         with_connection(|conn| {
-            use crate::schema::group_messages;
-            let group_id = GroupId::ONE;
-            create_test_group(conn, group_id);
-            for id in 1..=6 {
-                create_test_message(conn, vec![id], group_id);
-                assert!(!conn.is_message_deleted(&[id])?);
+            let target = test_message(vec![0xaa], GroupId::ONE);
+            for n in 0..500u32 {
+                let mut early = record(0, GroupId::ONE, "other", false, i64::from(n));
+                early.id = n.to_be_bytes().to_vec();
+                conn.record_deletion(&early).unwrap();
             }
-            // Target 4 failed, but its published deletion still takes effect.
-            conn.raw_query(|db| {
-                diesel::update(group_messages::table.find(vec![4]))
-                    .set(group_messages::delivery_status.eq(DeliveryStatus::Failed))
-                    .execute(db)
-            })?;
-            for (carrier, target, status) in [
-                (11, 1, DeliveryStatus::Published),
-                (12, 2, DeliveryStatus::Unpublished),
-                (13, 3, DeliveryStatus::Failed),
-                (14, 4, DeliveryStatus::Published),
-                (15, 5, DeliveryStatus::Published), // Unrequested target.
-                (16, 1, DeliveryStatus::Failed),    // Mixed valid and failed deletions.
-            ] {
-                create_test_message(conn, vec![carrier], group_id);
-                conn.raw_query(|db| {
-                    diesel::update(group_messages::table.find(vec![carrier]))
-                        .set(group_messages::delivery_status.eq(status))
-                        .execute(db)
-                })?;
-                let deletion = StoredMessageDeletion {
-                    id: vec![carrier],
-                    group_id,
-                    deleted_message_id: vec![target],
-                    deleted_by_inbox_id: "sender".to_string(),
-                    is_super_admin_deletion: false,
-                    deleted_at_ns: 2000,
-                };
-                deletion.store(conn)?;
-                // These are raw presence lookups, even for a Failed carrier.
-                assert!(conn.is_message_deleted(&[target])?);
-                assert_eq!(conn.get_message_deletion(&[carrier])?, Some(deletion));
-                if carrier != 16 {
-                    let by_target = conn.get_deletion_by_deleted_message_id(&[target])?.unwrap();
-                    assert_eq!(by_target.deleted_message_id, vec![target]);
-                    assert_eq!(by_target.id, vec![carrier]);
-                }
-            }
-            let mut ids: Vec<_> = conn
-                .get_deletions_for_messages((1..=4).map(|id| vec![id]).collect())?
-                .into_iter()
-                .map(|deletion| deletion.id)
-                .collect();
-            ids.sort();
-            assert_eq!(ids, vec![vec![11], vec![12], vec![14]]);
-            assert!(conn.get_deletions_for_messages(vec![])?.is_empty());
-            assert!(conn.get_deletions_for_messages(vec![vec![6]])?.is_empty());
-            assert!(!conn.is_message_deleted(&[6])?);
+            let case = StoredMessageDeletion {
+                authenticated,
+                ..record(9, group_id, by, admin, 10_000)
+            };
+            conn.record_deletion(&case).unwrap();
+            assert_eq!(
+                conn.first_deletion_of(&target).unwrap(),
+                found.then_some(case)
+            );
+            let plan = conn
+                .raw_query(|raw| {
+                    diesel::sql_query(
+                        "EXPLAIN QUERY PLAN SELECT * FROM message_deletions \
+                     WHERE authenticated = 1 AND group_id = x'01' AND deleted_message_id = x'aa' \
+                     AND (deleted_by_inbox_id = 'sender' OR is_super_admin_deletion = 1) \
+                     ORDER BY deleted_at_ns, id LIMIT 1",
+                    )
+                    .load::<QueryPlan>(raw)
+                })
+                .unwrap();
+            assert!(
+                plan.iter()
+                    .any(|row| row.detail.contains("message_deletions_target")),
+                "{:?}",
+                plan.iter().map(|row| &row.detail).collect::<Vec<_>>()
+            );
         })
     }
 
+    /// The upgrade backfill works through a queue larger than one batch and
+    /// leaves it empty.
+    // verifies: PROC-037
     #[xmtp_common::test(unwrap_try = true)]
-    fn test_get_group_deletions() {
+    fn backfill_drains_a_queue_larger_than_a_batch() {
+        use crate::schema::{deletion_backfill, group_messages};
+        use crate::{Store, group::tests::generate_group};
         with_connection(|conn| {
-            let group1 = GroupId::ONE;
-            let group2 = GroupId::TWO;
-            let msg1 = vec![7, 8, 9];
-            let msg2 = vec![10, 11, 12];
-            let del1 = vec![13, 14, 15];
-            let del2 = vec![16, 17, 18];
-
-            create_test_group(conn, group1);
-            create_test_group(conn, group2);
-            create_test_message(conn, msg1.clone(), group1);
-            create_test_message(conn, msg2.clone(), group2);
-            create_test_message(conn, del1.clone(), group1);
-            create_test_message(conn, del2.clone(), group2);
-
-            StoredMessageDeletion {
-                id: del1.clone(),
-                group_id: group1,
-                deleted_message_id: msg1.clone(),
-                deleted_by_inbox_id: "sender".to_string(),
-                is_super_admin_deletion: false,
-                deleted_at_ns: 2000,
+            let group = generate_group(None);
+            group.store(conn)?;
+            // `xmtp.org/text:1.0` with the content "hi".
+            let text = hex::decode("0a120a08786d74702e6f7267120474657874180122026869")?;
+            for n in 0..1_201u32 {
+                let id = n.to_be_bytes().to_vec();
+                StoredGroupMessage {
+                    decrypted_message_bytes: text.clone(),
+                    sender_inbox_id: "sender".into(),
+                    ..test_message(id.clone(), group.id)
+                }
+                .store(conn)?;
+                conn.record_deletion(&StoredMessageDeletion {
+                    id: [id.as_slice(), &[0xde]].concat(),
+                    group_id: group.id,
+                    deleted_message_id: id.clone(),
+                    deleted_by_inbox_id: "sender".into(),
+                    is_super_admin_deletion: false,
+                    deleted_at_ns: 1,
+                    authenticated: true,
+                })?;
+                conn.raw_query(|raw| {
+                    diesel::insert_into(deletion_backfill::table)
+                        .values(deletion_backfill::target_id.eq(id))
+                        .execute(raw)
+                })?;
             }
-            .store(conn)?;
+            conn.raw_query(backfill_deletion_marks)?;
+            let unmarked: i64 = conn.raw_query(|raw| {
+                group_messages::table
+                    .filter(group_messages::deleted_by_inbox_id.is_null())
+                    .count()
+                    .get_result(raw)
+            })?;
+            let queued: i64 =
+                conn.raw_query(|raw| deletion_backfill::table.count().get_result(raw))?;
+            assert_eq!((unmarked, queued), (0, 0));
+        })
+    }
 
-            StoredMessageDeletion {
-                id: del2.clone(),
-                group_id: group2,
-                deleted_message_id: msg2.clone(),
-                deleted_by_inbox_id: "sender".to_string(),
-                is_super_admin_deletion: false,
-                deleted_at_ns: 3000,
-            }
-            .store(conn)?;
-
-            // Get deletions for group1
-            let group1_deletions = conn.get_group_deletions(&group1)?;
-            assert_eq!(group1_deletions.len(), 1);
-            assert_eq!(group1_deletions[0].deleted_message_id, msg1);
-
-            // Get deletions for group2
-            let group2_deletions = conn.get_group_deletions(&group2)?;
-            assert_eq!(group2_deletions.len(), 1);
-            assert_eq!(group2_deletions[0].deleted_message_id, msg2);
+    /// An authenticated record replaces an imported one; nothing replaces an
+    /// authenticated record.
+    // verifies: PROC-037
+    #[rstest::rstest]
+    #[case::imported_then_authenticated(false, true, true)]
+    #[case::authenticated_then_imported(true, false, false)]
+    #[case::authenticated_then_authenticated(true, true, false)]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn record_deletion_keeps_authenticated(
+        #[case] first_authenticated: bool,
+        #[case] second_authenticated: bool,
+        #[case] replaced: bool,
+    ) {
+        with_connection(|conn| {
+            let first = StoredMessageDeletion {
+                authenticated: first_authenticated,
+                ..record(1, GroupId::ONE, "first", true, 10)
+            };
+            let second = StoredMessageDeletion {
+                authenticated: second_authenticated,
+                ..record(1, GroupId::ONE, "second", false, 20)
+            };
+            assert_eq!(conn.record_deletion(&first).unwrap(), first);
+            let stored = conn.record_deletion(&second).unwrap();
+            assert_eq!(stored, if replaced { second } else { first });
+            assert_eq!(conn.get_message_deletion(&stored.id).unwrap(), Some(stored));
         })
     }
 }

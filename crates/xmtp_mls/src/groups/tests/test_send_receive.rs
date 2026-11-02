@@ -885,7 +885,12 @@ async fn stitched_dm_received_event_names_the_stored_group() {
         alix.context.mls_storage(),
         alix.context.events(),
         |tx, buffer| {
-            presentation.store_external_application_message(&tx.storage(), &another, buffer)?;
+            presentation.store_external_application_message(
+                &tx.storage(),
+                &another,
+                false,
+                buffer,
+            )?;
             Ok::<_, crate::groups::mls_sync::GroupMessageProcessingError>(
                 xmtp_db::TransactionOutcome::Continue(()),
             )

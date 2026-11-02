@@ -19,6 +19,12 @@ diesel::table! {
 }
 
 diesel::table! {
+    deletion_backfill (target_id) {
+        target_id -> Binary,
+    }
+}
+
+diesel::table! {
     group_intents (id) {
         id -> Integer,
         kind -> Integer,
@@ -60,6 +66,7 @@ diesel::table! {
         idempotency_key -> Text,
         delivery_sequence -> Nullable<BigInt>,
         expiry_unknown -> Bool,
+        deleted_by_inbox_id -> Nullable<Text>,
     }
 }
 
@@ -189,6 +196,7 @@ diesel::table! {
         deleted_by_inbox_id -> Text,
         is_super_admin_deletion -> Bool,
         deleted_at_ns -> BigInt,
+        authenticated -> Bool,
     }
 }
 
@@ -347,12 +355,12 @@ diesel::table! {
 diesel::joinable!(group_intents -> groups (group_id));
 diesel::joinable!(group_messages -> groups (group_id));
 diesel::joinable!(group_welcome_discovery -> groups (group_id));
-diesel::joinable!(message_deletions -> group_messages (id));
 diesel::joinable!(received_proposals -> groups (group_id));
 
 diesel::allow_tables_to_appear_in_same_query!(
     association_state,
     consent_records,
+    deletion_backfill,
     group_intents,
     group_messages,
     group_set_generation,

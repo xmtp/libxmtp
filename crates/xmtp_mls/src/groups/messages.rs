@@ -2,8 +2,8 @@
 
 use super::mls_sync::publish::OutgoingPreparationError;
 use super::*;
+use crate::groups::deletion::may_delete;
 use crate::messages::decoded_message::carries_reserved_transcript;
-use crate::messages::enrichment::find_valid_deletion;
 
 /// An installation refresh before a send applies its membership change even
 /// when the Welcomes for the installations it adds cannot be sent. That
@@ -212,6 +212,7 @@ where
             envelope_hash: None,
             expiry_ns: None,
             expiry_unknown: false,
+            deleted_by_inbox_id: None,
             expire_at_ns: None,
             inserted_at_ns: 0,
             should_push,
@@ -315,100 +316,51 @@ where
         .into_continued()
     }
 
-    /// Delete a message by its ID. Returns the ID of the deletion message.
+    /// Delete a message for everyone.
     ///
-    /// Only the original sender or a super admin can delete a message.
+    /// Only the original sender or a super admin can delete a message. An
+    /// unsent own message is cancelled: it and its queued sends are removed,
+    /// nothing is published, and its own id is returned. Otherwise a
+    /// deletion message is queued and its id returned; the target changes when
+    /// the deletion's echo is processed.
     ///
-    /// In a DM, await [`Self::ensure_dm_peer`] first. This method does not
-    /// add a missing peer, so the peer could never read the deletion.
+    /// In a DM, await [`Self::ensure_dm_peer`] first unless the target is an
+    /// unsent own message. This method does not add a missing peer, so the
+    /// peer could never read the deletion.
     ///
     /// # Wire Protocol
     /// The `DeleteMessage` protobuf encodes `message_id` as a hex-encoded string for wire
-    /// transmission, while the database stores message IDs as raw bytes. This function handles
-    /// the conversion: it accepts raw bytes, hex-encodes them for the wire protocol, and when
-    /// processing incoming deletions (in `process_delete_message`), the hex string is decoded
-    /// back to bytes for database lookups.
-    ///
-    /// # Arguments
-    /// * `message_id` - The message ID as bytes
-    ///
-    /// # Returns
-    /// The ID of the deletion message
+    /// transmission, while the database stores message IDs as raw bytes.
+    // implements: PROC-056
     pub fn delete_message(&self, message_id: Vec<u8>) -> Result<Vec<u8>, GroupError> {
+        if self.cancel_unsent(&message_id)? {
+            return Ok(message_id);
+        }
+        let mut buf = Vec::new();
+        DeleteMessageCodec::encode(DeleteMessage {
+            message_id: hex::encode(&message_id),
+        })?
+        .encode(&mut buf)?;
+        self.send_message_optimistic(&buf, SendMessageOpts::default())
+    }
+
+    /// Check that this installation may delete `message_id`, then cancel it
+    /// when it is this installation's unsent message. Returns false
+    /// when the message is not unsent here; [`Self::delete_message`] then
+    /// queues a deletion. A DM caller repairs the peer between the two.
+    pub fn cancel_unsent(&self, message_id: &[u8]) -> Result<bool, GroupError> {
         use error::DeleteMessageError;
 
-        let conn = self.context.db();
-
-        // Load the original message
-        let original_msg = conn
-            .get_group_message(&message_id)?
-            .ok_or_else(|| DeleteMessageError::MessageNotFound(hex::encode(&message_id)))?;
-
-        // Validate message belongs to this group (prevent cross-group deletion)
-        if original_msg.group_id.as_slice() != self.group_id.as_slice() {
-            return Err(DeleteMessageError::NotAuthorized.into());
-        }
-
-        // implements: PROC-056
-        if find_valid_deletion(&conn, &original_msg)?.is_some() {
-            return Err(DeleteMessageError::MessageAlreadyDeleted.into());
-        }
-
-        let sender_inbox_id = self.context.inbox_id();
-        let is_sender = original_msg.sender_inbox_id == sender_inbox_id;
-        let is_super_admin = self.live_is_super_admin(sender_inbox_id)?;
-
-        if !is_sender && !is_super_admin {
-            return Err(DeleteMessageError::NotAuthorized.into());
-        }
-
-        if !crate::messages::enrichment::is_deletable_stored_message(&original_msg) {
-            return Err(DeleteMessageError::NonDeletableMessage.into());
-        }
-
-        let delete_msg = DeleteMessage {
-            message_id: hex::encode(&message_id),
-        };
-
-        let encoded_delete = DeleteMessageCodec::encode(delete_msg)?;
-        let mut buf = Vec::new();
-        encoded_delete.encode(&mut buf)?;
-
-        let deletion_message_id = self.send_message_optimistic(&buf, SendMessageOpts::default())?;
-
-        let is_super_admin_deletion = !is_sender && is_super_admin;
-
-        let deletion = StoredMessageDeletion {
-            id: deletion_message_id.clone(),
-            group_id: self.group_id,
-            deleted_message_id: message_id,
-            deleted_by_inbox_id: sender_inbox_id.to_string(),
-            is_super_admin_deletion,
-            deleted_at_ns: now_ns(),
-        };
-
-        crate::state_tx::state_write_with_events(
-            self.context.mls_storage(),
-            self.context.events(),
-            |tx, events| {
-                let storage = tx.storage();
-                let db = storage.db();
-                let already_deleted = find_valid_deletion(&db, &original_msg)?.is_some();
-                deletion.store(&db)?;
-                if !already_deleted {
-                    crate::subscriptions::internal::emit_deleted_messages(
-                        events,
-                        vec![original_msg],
-                        xmtp_events::DeletionCause::DeletedLocally,
-                        Some(deletion.deleted_by_inbox_id.clone()),
-                        &db,
-                    )?;
-                }
-                Ok::<_, GroupError>(Continue(()))
-            },
-        )?;
-
-        Ok(deletion_message_id)
+        let target = self
+            .context
+            .db()
+            .get_group_message(message_id)?
+            .ok_or_else(|| DeleteMessageError::MessageNotFound(hex::encode(message_id)))?;
+        let own = self.context.inbox_id();
+        // The sender needs no super-admin status, so no metadata read.
+        let super_admin = target.sender_inbox_id != own && self.live_is_super_admin(own)?;
+        may_delete(&self.group_id, own, super_admin, &target)?;
+        self.cancel_unsent_message(message_id)
     }
 
     /// Refuse an unsaved reserved row and persist its terminal failure in this write.
@@ -558,6 +510,11 @@ where
     ) -> Result<Option<i32>, GroupError> {
         if message.delivery_status == DeliveryStatus::Published {
             return Ok(None);
+        }
+        // Its bytes are gone, so a retry would publish empty content.
+        // implements: PROC-037
+        if message.deleted_by_inbox_id.is_some() {
+            return Err(error::DeleteMessageError::MessageAlreadyDeleted.into());
         }
         let envelope =
             Self::encode_envelope(&message.decrypted_message_bytes, &message.idempotency_key);

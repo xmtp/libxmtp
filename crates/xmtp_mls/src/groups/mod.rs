@@ -14,6 +14,7 @@ pub use builders::*;
 pub use state::{ConversationStateSnapshot, GroupMetadataSnapshot};
 pub mod commit_log;
 pub mod context;
+pub(crate) mod deletion;
 #[cfg(any(test, feature = "test-utils"))]
 pub(crate) mod diagnostics;
 mod error;
@@ -92,7 +93,6 @@ use xmtp_content_types::{
 use xmtp_cryptography::configuration::CIPHERSUITE;
 use xmtp_cryptography::secret::Zeroize;
 use xmtp_db::Fetch;
-use xmtp_db::message_deletion::StoredMessageDeletion;
 use xmtp_db::pending_remove::QueryPendingRemove;
 use xmtp_db::prelude::*;
 use xmtp_db::user_preferences::HmacKey;

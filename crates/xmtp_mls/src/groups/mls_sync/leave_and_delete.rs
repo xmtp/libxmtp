@@ -1,4 +1,4 @@
-//! Leave requests, delete messages, and pending-remove bookkeeping.
+//! Leave requests and pending-remove bookkeeping.
 
 use super::*;
 
@@ -6,37 +6,6 @@ impl<Context> MlsGroup<Context>
 where
     Context: XmtpSharedContext,
 {
-    /// The first stored deletion of `message` that is valid.
-    fn valid_deletion_for_message(
-        &self,
-        storage: &impl XmtpMlsStorageProvider,
-        message: &StoredGroupMessage,
-    ) -> Result<Option<StoredMessageDeletion>, GroupMessageProcessingError> {
-        Ok(crate::messages::enrichment::find_valid_deletion(
-            &storage.db(),
-            message,
-        )?)
-    }
-
-    /// A target stored after its deletion now has a readable deletion state.
-    pub(super) fn emit_pending_deletion_for_message(
-        &self,
-        storage: &impl XmtpMlsStorageProvider,
-        message: &StoredGroupMessage,
-        event_writer: &impl xmtp_events::EventWriter<crate::subscriptions::internal::InternalEvent>,
-    ) -> Result<(), GroupMessageProcessingError> {
-        if let Some(deletion) = self.valid_deletion_for_message(storage, message)? {
-            crate::subscriptions::internal::emit_deleted_messages(
-                event_writer,
-                vec![message.clone()],
-                xmtp_events::DeletionCause::Deleted,
-                Some(deletion.deleted_by_inbox_id),
-                &storage.db(),
-            )?;
-        }
-        Ok(())
-    }
-
     pub(super) fn process_own_leave_request_message(
         &self,
         mls_group: &OpenMlsGroup,
@@ -111,113 +80,6 @@ where
         // If we reach here, the action was by another user or no validated commit
         // Only process admin actions if we're admin/super-admin
         self.process_admin_pending_remove_actions(mls_group, storage)?;
-
-        Ok(())
-    }
-
-    /// Process an incoming DeleteMessage from the network.
-    ///
-    /// Returns `Ok(())` for invalid deletions to avoid disrupting sync.
-    // implements: PROC-037
-    #[cfg_attr(test, allow(dead_code))]
-    pub(crate) fn process_delete_message(
-        &self,
-        mls_group: &OpenMlsGroup,
-        storage: &impl XmtpMlsStorageProvider,
-        message: &StoredGroupMessage,
-        event_writer: &impl xmtp_events::EventWriter<crate::subscriptions::internal::InternalEvent>,
-    ) -> Result<(), GroupMessageProcessingError> {
-        // Store time already decoded the DeleteMessage and checked its target id.
-        let Some(target_message_id) = message.reference_id.clone() else {
-            tracing::warn!("Delete message names no valid message id, skipping");
-            return Ok(());
-        };
-
-        let original_msg_opt = storage.db().get_group_message(&target_message_id)?;
-        let had_valid_deletion = if let Some(original) = &original_msg_opt {
-            self.valid_deletion_for_message(storage, original)?
-                .is_some()
-        } else {
-            false
-        };
-
-        let is_super_admin_deletion = if let Some(ref original_msg) = original_msg_opt {
-            if original_msg.group_id.as_slice() != self.group_id.as_slice() {
-                tracing::warn!(
-                    "Cross-group deletion attempt: message {} from group {}",
-                    hex::encode(&target_message_id),
-                    hex::encode(original_msg.group_id)
-                );
-                return Ok(());
-            }
-
-            if !crate::messages::enrichment::is_deletable_stored_message(original_msg) {
-                tracing::warn!(
-                    "Non-deletable message {} (kind: {:?}, content_type: {:?})",
-                    hex::encode(&target_message_id),
-                    original_msg.kind,
-                    original_msg.content_type
-                );
-                return Ok(());
-            }
-
-            let is_sender = original_msg.sender_inbox_id == message.sender_inbox_id;
-            let is_super_admin_deletion = if is_sender {
-                false
-            } else {
-                self.is_super_admin_without_lock(mls_group, message.sender_inbox_id.clone())
-                    .unwrap_or(false)
-            };
-
-            let is_authorized = is_sender || is_super_admin_deletion;
-            if !is_authorized {
-                tracing::warn!(
-                    "Unauthorized deletion by {} for message {}",
-                    message.sender_inbox_id,
-                    hex::encode(&target_message_id)
-                );
-                return Ok(());
-            }
-
-            is_super_admin_deletion
-        } else {
-            // Out-of-order: deletion arrived before the message.
-            // Authorization is validated at enrichment time via is_deletion_valid().
-            self.is_super_admin_without_lock(mls_group, message.sender_inbox_id.clone())
-                .unwrap_or(false)
-        };
-
-        let deletion = StoredMessageDeletion {
-            id: message.id.clone(),
-            group_id: self.group_id,
-            deleted_message_id: target_message_id.clone(),
-            deleted_by_inbox_id: message.sender_inbox_id.clone(),
-            is_super_admin_deletion,
-            deleted_at_ns: message.sent_at_ns,
-        };
-
-        deletion.store_or_ignore(&storage.db())?;
-
-        let out_of_order = original_msg_opt.is_none();
-        if let Some(original_msg) = original_msg_opt
-            && !had_valid_deletion
-        {
-            crate::subscriptions::internal::emit_deleted_messages(
-                event_writer,
-                vec![original_msg],
-                xmtp_events::DeletionCause::Deleted,
-                Some(deletion.deleted_by_inbox_id.clone()),
-                &storage.db(),
-            )?;
-        }
-
-        tracing::info!(
-            "Message {} deleted by {} (super_admin: {}, out_of_order: {})",
-            hex::encode(&target_message_id),
-            message.sender_inbox_id,
-            is_super_admin_deletion,
-            out_of_order
-        );
 
         Ok(())
     }

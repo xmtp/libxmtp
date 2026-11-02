@@ -36,6 +36,7 @@ fn archived_message(
         envelope_hash: None,
         expiry_ns: None,
         expiry_unknown: false,
+        deleted_by_inbox_id: None,
         expire_at_ns: None,
         inserted_at_ns: 0,
         should_push: false,
