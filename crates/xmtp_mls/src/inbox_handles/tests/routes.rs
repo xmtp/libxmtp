@@ -9,6 +9,7 @@ use crate::{
     context::XmtpSharedContext,
     groups::GroupError,
     identity::{IdentityError, IdentityStrategy},
+    identity_updates::IdentityUpdateError,
     inbox_handles::{HandleError, IdentityTarget},
     tester,
 };
@@ -38,7 +39,11 @@ async fn member_ids<Context: crate::context::XmtpSharedContext>(
 }
 
 fn no_inbox(error: &ClientError) -> bool {
-    matches!(error, ClientError::Handle(HandleError::NotFound))
+    matches!(
+        error,
+        ClientError::Handle(HandleError::NotFound)
+            | ClientError::IdentityUpdate(IdentityUpdateError::Handle(HandleError::NotFound))
+    )
 }
 
 // verifies: IDENT-085
@@ -79,11 +84,15 @@ async fn every_handle_route_rejects_an_unclaimed_answer() {
     let group = client.group(&group.group_id)?;
     assert!(matches!(
         group.add_members_by_targets(targets).await,
-        Err(GroupError::Client(ref error)) if no_inbox(error)
+        Err(GroupError::IdentityUpdate(IdentityUpdateError::Handle(
+            HandleError::NotFound
+        )))
     ));
     assert!(matches!(
         group.remove_members_by_targets(targets).await,
-        Err(GroupError::Client(ref error)) if no_inbox(error)
+        Err(GroupError::IdentityUpdate(IdentityUpdateError::Handle(
+            HandleError::NotFound
+        )))
     ));
     assert_eq!(script.lock().publishes, 0, "nothing is published");
 }
@@ -256,6 +265,9 @@ fn no_account_inbox(error: &ClientError) -> bool {
     matches!(
         error,
         ClientError::Storage(StorageError::NotFound(NotFound::InboxIdForAddress(_)))
+            | ClientError::IdentityUpdate(IdentityUpdateError::Storage(StorageError::NotFound(
+                NotFound::InboxIdForAddress(_)
+            )))
     )
 }
 

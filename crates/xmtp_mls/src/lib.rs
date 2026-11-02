@@ -30,8 +30,6 @@ pub use definitions::*;
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test;
 
-#[cfg(test)]
-use crate::groups::GroupError;
 pub use client::{Client, Network};
 #[cfg(test)]
 use parking_lot::Mutex;
@@ -96,7 +94,10 @@ impl GroupCommitLock {
     }
 
     /// Get or create a semaphore for a specific group and acquire it synchronously
-    pub fn get_lock_sync(&self, group_id: GroupId) -> Result<MlsGroupGuard, GroupError> {
+    pub fn get_lock_sync(
+        &self,
+        group_id: GroupId,
+    ) -> Result<MlsGroupGuard, crate::core::CommitLockUnavailable> {
         let lock = {
             let mut locks = self.locks.lock();
             locks
@@ -108,7 +109,7 @@ impl GroupCommitLock {
         // Synchronously acquire the permit
         let permit = lock
             .try_lock_owned()
-            .map_err(|_| GroupError::LockUnavailable)?;
+            .map_err(|_| crate::core::CommitLockUnavailable)?;
         Ok(MlsGroupGuard { _permit: permit })
     }
 }

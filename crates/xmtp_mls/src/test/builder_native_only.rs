@@ -820,7 +820,8 @@ async fn membership_reads_map_missing_updates_and_scw_failures(
 ) {
     use crate::client::ClientError;
     use crate::identity_updates::{
-        identifier_membership, load_identity_updates, stored_identifier_membership,
+        IdentityUpdateError, identifier_membership, load_identity_updates,
+        stored_identifier_membership,
     };
     use crate::inbox_handles::{HandleError, IdentityTarget, resolve_verified_with_verifier};
     use xmtp_common::RetryableError;
@@ -874,7 +875,7 @@ async fn membership_reads_map_missing_updates_and_scw_failures(
             assert!(
                 matches!(
                     error,
-                    ClientError::SignatureValidation(SignatureError::VerifierError(_))
+                    IdentityUpdateError::SignatureValidation(SignatureError::VerifierError(_))
                 ),
                 "{route}: {error:?}"
             );
@@ -889,7 +890,10 @@ async fn membership_reads_map_missing_updates_and_scw_failures(
         .await
         .unwrap_err();
     assert!(
-        matches!(error, ClientError::Handle(HandleError::NotFound)),
+        matches!(
+            error,
+            ClientError::IdentityUpdate(IdentityUpdateError::Handle(HandleError::NotFound))
+        ),
         "{error:?}"
     );
     assert!(!error.is_retryable());

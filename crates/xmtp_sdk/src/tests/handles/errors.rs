@@ -107,8 +107,8 @@ async fn claim_errors_have_public_kinds() {
 #[xmtp_common::test(unwrap_try = true)]
 fn handle_failures_keep_their_codes_through_wrappers() {
     let rejected = |rejection| {
-        ClientError::IdentityUpdate(IdentityUpdateError::Api(ApiError::HandleRejected(
-            rejection,
+        IdentityUpdateError::Publish(Box::new(IdentityUpdateError::Api(
+            ApiError::HandleRejected(rejection),
         )))
     };
     for (rejection, code) in [
@@ -116,9 +116,14 @@ fn handle_failures_keep_their_codes_through_wrappers() {
         (HandleRejection::NotAllowed, "HandleNotAllowed"),
         (HandleRejection::TooSoon, "HandleTooSoon"),
     ] {
-        expect_code::<()>(Err(XmtpError::from_client(rejected(rejection))), code);
         expect_code::<()>(
-            Err(XmtpError::from_group(GroupError::Client(rejected(
+            Err(XmtpError::from_client(ClientError::IdentityUpdate(
+                rejected(rejection),
+            ))),
+            code,
+        );
+        expect_code::<()>(
+            Err(XmtpError::from_group(GroupError::IdentityUpdate(rejected(
                 rejection,
             )))),
             code,
@@ -144,14 +149,23 @@ fn handle_failures_keep_their_codes_through_wrappers() {
     ] {
         let message = handle.to_string();
         let client = || ClientError::Handle(clone_handle_error(&handle));
+        let identity = || IdentityUpdateError::Handle(clone_handle_error(&handle));
         expect_code::<()>(Err(XmtpError::from_client(client())), code);
         expect_code::<()>(
-            Err(XmtpError::from_group(GroupError::Client(client()))),
+            Err(XmtpError::from_client(ClientError::IdentityUpdate(
+                identity(),
+            ))),
+            code,
+        );
+        expect_code::<()>(
+            Err(XmtpError::from_group(
+                GroupError::IdentityUpdate(identity()),
+            )),
             code,
         );
         expect_code::<()>(
             Err(XmtpError::from_client(ClientError::Group(Box::new(
-                GroupError::Client(client()),
+                GroupError::IdentityUpdate(identity()),
             )))),
             code,
         );

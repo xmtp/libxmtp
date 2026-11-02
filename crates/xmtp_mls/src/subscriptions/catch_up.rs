@@ -62,8 +62,8 @@ impl RetryableError for CatchUpError {
     }
 }
 
-impl From<crate::client::ClientError> for CatchUpError {
-    fn from(error: crate::client::ClientError) -> Self {
+impl From<crate::server_configuration::BlockedConnection> for CatchUpError {
+    fn from(error: crate::server_configuration::BlockedConnection) -> Self {
         Self::Group(error.into())
     }
 }
@@ -272,8 +272,7 @@ mod tests {
     async fn blocked_connection_fails_catch_up_before_any_request() {
         use super::CatchUpError;
         use crate::{
-            client::ClientError, context::XmtpSharedContext, groups::GroupError,
-            server_configuration::BlockedConnection,
+            context::XmtpSharedContext, groups::GroupError, server_configuration::BlockedConnection,
         };
         use xmtp_proto::api::HasStats;
         tester!(alix, disable_workers);
@@ -291,7 +290,7 @@ mod tests {
         assert!(
             matches!(
                 error,
-                CatchUpError::Group(GroupError::Client(ClientError::ClientVersionTooOld {
+                CatchUpError::Group(GroupError::Blocked(BlockedConnection::ClientVersionTooOld {
                     ref minimum,
                     ..
                 })) if minimum == "9999.0.0"

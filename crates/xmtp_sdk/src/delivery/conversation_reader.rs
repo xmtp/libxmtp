@@ -249,7 +249,7 @@ fn subscribe_error(error: SubscribeError) -> XmtpError {
     let message = error.to_string();
     let retryable = error.is_retryable();
     match error {
-        SubscribeError::Configuration(cause) => super::configuration_error(&cause, message),
+        SubscribeError::Blocked(cause) => super::configuration_error(&cause, message),
         SubscribeError::LocalDelivery(cause) => super::delivery_error(cause),
         SubscribeError::Db(_) | SubscribeError::Storage(_) => XmtpError::Storage(ErrorDetails {
             code: "Storage".into(),

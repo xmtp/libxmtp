@@ -310,9 +310,6 @@ pub enum IdentityError {
     #[error(transparent)]
     #[error_code(inherit)]
     ApiClient(#[from] xmtp_api::ApiError),
-    /// Identity publication failed. Retryability depends on the cause.
-    #[error(transparent)]
-    IdentityUpdate(#[from] crate::identity_updates::IdentityUpdateError),
     #[error(transparent)]
     #[error_code(inherit)]
     AddressValidation(#[from] IdentifierValidationError),
@@ -357,13 +354,40 @@ impl From<xmtp_db::diesel::result::Error> for IdentityError {
 }
 
 impl NeedsDbReconnect for IdentityError {
+    #[deny(clippy::wildcard_enum_match_arm)]
     fn needs_db_reconnect(&self) -> bool {
         match self {
             Self::StorageError(s) => s.db_needs_connection(),
             Self::Db(c) => c.db_needs_connection(),
             // Keystore ops (rotate/delete paths) hit the same pool.
             Self::OpenMlsStorageError(SqlKeyStoreError::Connection(c)) => c.db_needs_connection(),
-            _ => false,
+            Self::OpenMlsStorageError(_)
+            | Self::CredentialSerialization(..)
+            | Self::Decode(..)
+            | Self::InstallationIdNotFound(..)
+            | Self::SignatureRequestBuilder(..)
+            | Self::Signature(..)
+            | Self::BasicCredential(..)
+            | Self::UninitializedIdentity
+            | Self::InstallationKey(..)
+            | Self::Crypto(..)
+            | Self::OpenMls(..)
+            | Self::KeyPackageGenerationError(..)
+            | Self::KeyPackageVerificationError(..)
+            | Self::InboxIdMismatch { .. }
+            | Self::IdentifierNotInInbox { .. }
+            | Self::NoAssociatedInboxId(..)
+            | Self::RequiredIdentityNotFound
+            | Self::NewIdentity(..)
+            | Self::Association(..)
+            | Self::Signer(..)
+            | Self::ApiClient(..)
+            | Self::AddressValidation(..)
+            | Self::TooManyInstallations { .. }
+            | Self::GeneratePostQuantumKey(..)
+            | Self::InvalidExtension(..)
+            | Self::MissingPostQuantumPublicKey
+            | Self::UninitializedField(..) => false,
         }
     }
 }

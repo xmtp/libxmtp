@@ -171,6 +171,7 @@ impl NeedsDbReconnect for CommitLogError {
         RetryableError::rate_limit_delay(self)
     }
 
+    #[deny(clippy::wildcard_enum_match_arm)]
     fn needs_db_reconnect(&self) -> bool {
         match self {
             Self::Storage(s) => s.db_needs_connection(),

@@ -47,9 +47,9 @@ async fn claim_with_wallet(
         .claim_handle(handle.clone(), wallet.member_identifier())
         .build();
     add_wallet_signature(&mut request, wallet).await;
-    IdentityUpdates::new(&tester.context)
+    Ok(IdentityUpdates::new(&tester.context)
         .apply_signature_request(request)
-        .await
+        .await?)
 }
 
 /// Wait until the backend's lookup names an inbox for `handle`. A lookup reads

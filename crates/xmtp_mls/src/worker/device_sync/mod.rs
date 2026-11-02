@@ -1,15 +1,13 @@
 use crate::core::sync_tasks::schedule_add_missing_installations;
 use crate::state_tx::StateTx;
 use crate::{
-    client::ClientError,
     context::XmtpSharedContext,
     groups::{
         GroupError, MlsGroup, PreconfiguredPolicies, send_message_opts, summary::SyncSummary,
     },
     identity::parse_credential,
-    identity_updates::IdentityUpdates,
+    identity_updates::{IdentityUpdateError, IdentityUpdates},
     mls_store::MlsStoreError,
-    subscriptions::SubscribeError,
     worker::{NeedsDbReconnect, metrics::WorkerMetrics},
 };
 use openmls::prelude::{BasicCredential, Member};
@@ -200,9 +198,9 @@ pub enum DeviceSyncError {
     /// String is not valid UTF-8. Retryable.
     #[error("utf-8 error: {0}")]
     UTF8(#[from] std::str::Utf8Error),
-    #[error("client error: {0}")]
+    #[error("identity update error: {0}")]
     #[error_code(inherit)]
-    Client(#[from] ClientError),
+    IdentityUpdate(#[from] IdentityUpdateError),
     #[error("group error: {0}")]
     #[error_code(inherit)]
     Group(#[from] GroupError),
@@ -216,9 +214,6 @@ pub enum DeviceSyncError {
     /// Device sync kind not specified. Not retryable.
     #[error("unspecified device sync kind")]
     UnspecifiedDeviceSyncKind,
-    #[error(transparent)]
-    #[error_code(inherit)]
-    Subscribe(#[from] SubscribeError),
     /// Archive error.
     ///
     /// Sync archive operation failed. Retryable.
@@ -263,7 +258,7 @@ pub enum DeviceSyncError {
     // The own identity state could not be read; a sync publish waits for it.
     #[error("own identity state unavailable: {0}")]
     #[error_code(inherit)]
-    OwnStateUnavailable(#[source] ClientError),
+    OwnStateUnavailable(#[source] IdentityUpdateError),
     /// Outbox page unpublished.
     ///
     /// A queued sync message is not published yet; its values stay owed and
@@ -292,17 +287,34 @@ impl NeedsDbReconnect for DeviceSyncError {
         RetryableError::rate_limit_delay(self)
     }
 
+    #[deny(clippy::wildcard_enum_match_arm)]
     fn needs_db_reconnect(&self) -> bool {
         match self {
-            Self::Client(s) => s.db_needs_connection(),
+            Self::IdentityUpdate(e) => e.needs_db_reconnect(),
             Self::Storage(s) => s.db_needs_connection(),
             // A dropped pool can hide in these wrapped errors; forward so the
-            // worker stops instead of hot-looping (was `_ => false`).
+            // worker stops instead of hot-looping.
             Self::Db(c) => c.db_needs_connection(),
             Self::Group(e) => e.needs_db_reconnect(),
             Self::MlsStore(e) => e.needs_db_reconnect(),
-            Self::Subscribe(e) => e.needs_db_reconnect(),
-            _ => false,
+            Self::OwnStateUnavailable(e) => e.needs_db_reconnect(),
+            Self::Sync(summary) => summary.needs_db_reconnect(),
+            Self::Archive(ArchiveError::Storage(s)) => s.db_needs_connection(),
+            Self::Archive(_)
+            | Self::IO(..)
+            | Self::Serde(..)
+            | Self::ProtoConversion(..)
+            | Self::AesGcm(..)
+            | Self::Conversion
+            | Self::UTF8(..)
+            | Self::InvalidPayload
+            | Self::UnspecifiedDeviceSyncKind
+            | Self::Decode(..)
+            | Self::Deserialization(..)
+            | Self::MissingSyncGroup
+            | Self::Recv(..)
+            | Self::MissingField(..)
+            | Self::OutboxPageUnpublished => false,
         }
     }
 }
@@ -317,9 +329,8 @@ impl RetryableError for DeviceSyncError {
 
     fn rate_limit_delay(&self) -> Option<xmtp_common::time::Duration> {
         match self {
-            Self::Client(e) => e.rate_limit_delay(),
+            Self::IdentityUpdate(e) => e.rate_limit_delay(),
             Self::Group(e) => e.rate_limit_delay(),
-            Self::Subscribe(e) => e.rate_limit_delay(),
             Self::Sync(e) => e.rate_limit_delay(),
             Self::MlsStore(e) => e.rate_limit_delay(),
             Self::OwnStateUnavailable(e) => e.rate_limit_delay(),
@@ -478,7 +489,7 @@ where
             .await
         {
             Ok(state) => state.installation_ids(),
-            Err(e) if e.db_needs_connection() => return Err(e.into()),
+            Err(e) if e.needs_db_reconnect() => return Err(e.into()),
             Err(e) => return Err(DeviceSyncError::OwnStateUnavailable(e)),
         };
         let me = self.installation_id();
@@ -566,8 +577,7 @@ where
                     self.schedule_add_missing_installations_task(
                         sync_group.group_id,
                         inline_err.rate_limit_delay(),
-                    )
-                    .map_err(Box::new)?;
+                    )?;
                     return Err(inline_err);
                 }
                 // The task checks for missing leaves even after an Ok inline add.
@@ -588,14 +598,14 @@ where
         &self,
         group_id: GroupId,
         delay: Option<xmtp_common::time::Duration>,
-    ) -> Result<(), DeviceSyncError> {
-        Ok(schedule_add_missing_installations(
+    ) -> Result<(), StorageError> {
+        schedule_add_missing_installations(
             &self.context.db(),
             self.context.events(),
             group_id,
             delay,
             true,
-        )?)
+        )
     }
 
     /// Schedule the adds to the user's conversations for a new installation.

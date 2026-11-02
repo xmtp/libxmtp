@@ -519,7 +519,7 @@ async fn test_group_admin_list_update() {
 async fn malformed_admin_inbox_id_is_refused_before_queueing(
     #[case] action: UpdateAdminListType,
     #[case] inbox_id: String,
-) -> Result<(), GroupError> {
+) -> Result<(), Box<dyn std::error::Error>> {
     use xmtp_mls_common::app_data::component_source::ComponentSourceError;
 
     tester!(alix, disable_workers);
@@ -559,7 +559,7 @@ async fn malformed_admin_inbox_id_is_refused_before_queueing(
 async fn inapplicable_admin_list_change_does_not_block_later_intents(
     #[case] action: UpdateAdminListType,
     #[case] promote_first: bool,
-) -> Result<(), GroupError> {
+) -> Result<(), Box<dyn std::error::Error>> {
     tester!(alix);
     tester!(bo);
     let group = alix.create_group(None, None)?;

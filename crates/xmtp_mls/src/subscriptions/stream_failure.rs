@@ -267,7 +267,6 @@ pub fn stream_failure_details(error: &(dyn Error + 'static)) -> Option<StreamFai
                 GroupError::Sync(summary) | GroupError::SyncFailedToWait(summary) => {
                     push(summary.as_ref())
                 }
-                GroupError::Client(error) => push(error),
                 _ => {
                     if let Some(source) = error.source() {
                         push(source);
@@ -304,7 +303,6 @@ pub fn stream_failure_details(error: &(dyn Error + 'static)) -> Option<StreamFai
         } else if let Some(error) = error.downcast_ref::<GroupMessageProcessingError>() {
             match error {
                 GroupMessageProcessingError::PreparedAttempt(error) => push(error.as_ref()),
-                GroupMessageProcessingError::Client(error) => push(error),
                 _ => {
                     if let Some(source) = error.source() {
                         push(source);

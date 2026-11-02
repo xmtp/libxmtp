@@ -27,7 +27,7 @@ pub mod oneshot;
 pub mod send_message_opts;
 pub(super) mod subscriptions;
 pub mod summary;
-mod targets;
+pub(crate) mod targets;
 #[cfg(test)]
 mod tests;
 mod traits;
@@ -50,16 +50,13 @@ use self::{
 #[cfg(test)]
 use crate::GroupCommitLock;
 use crate::context::XmtpSharedContext;
+use crate::groups::message_id::{calculate_message_id, decode_message_reference};
 use crate::groups::send_message_opts::SendMessageOpts;
 use crate::groups::{
     intents::{QueueIntent, ReaddInstallationsIntentData},
     mls_ext::CommitLogStorer,
 };
 use crate::state_tx::state_write;
-use crate::{
-    client::ClientError,
-    groups::message_id::{calculate_message_id, decode_message_reference},
-};
 pub use error::*;
 use intents::SendMessageIntentData;
 pub use intents::UpdateGroupMembershipResult;

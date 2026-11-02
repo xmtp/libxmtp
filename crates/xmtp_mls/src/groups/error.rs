@@ -4,10 +4,9 @@ use super::summary::SyncSummary;
 use super::{intents::IntentError, validated_commit::CommitValidationError};
 use crate::identity::IdentityError;
 use crate::mls_store::MlsStoreError;
-use crate::worker::device_sync::DeviceSyncError;
 use crate::{
-    client::ClientError, identity_updates::InstallationDiffError, intents::ProcessIntentError,
-    subscriptions::LocalEventError,
+    identity_updates::{IdentityUpdateError, InstallationDiffError},
+    intents::ProcessIntentError,
 };
 use openmls::{
     error::LibraryError,
@@ -136,11 +135,17 @@ pub enum GroupError {
     /// MLS signature verification failed. Not retryable.
     #[error("Invalid signature: {0}")]
     Signature(#[from] openmls::prelude::SignatureError),
-    /// Client error.
+    /// Identity update error.
     ///
-    /// Client operation failed within group. May be retryable.
-    #[error("client: {0}")]
-    Client(#[from] ClientError),
+    /// Reading or verifying identity updates failed. May be retryable.
+    #[error("identity update: {0}")]
+    IdentityUpdate(#[from] IdentityUpdateError),
+    /// Connection blocked.
+    ///
+    /// This database is bound to a different deployment, or the deployment
+    /// now requires a newer client. Not retryable.
+    #[error("connection blocked: {0}")]
+    Blocked(#[from] crate::server_configuration::BlockedConnection),
     /// Receive error.
     ///
     /// Processing received group message failed. May be retryable.
@@ -151,11 +156,6 @@ pub enum GroupError {
     /// An address/identifier is invalid. Not retryable.
     #[error(transparent)]
     AddressValidation(#[from] IdentifierValidationError),
-    /// Local event error.
-    ///
-    /// Failed to process local event. Not retryable.
-    #[error(transparent)]
-    LocalEvent(#[from] LocalEventError),
     /// Invalid public keys.
     ///
     /// Keys are not valid Ed25519 public keys. Not retryable.
@@ -431,11 +431,6 @@ pub enum GroupError {
     /// Failed to delete message. Not retryable.
     #[error(transparent)]
     DeleteMessage(#[from] DeleteMessageError),
-    /// Device sync error.
-    ///
-    /// Device sync operation failed. May be retryable.
-    #[error(transparent)]
-    DeviceSync(#[from] Box<DeviceSyncError>),
 }
 
 impl From<xmtp_mls_validation::commit::CommitRuleError> for GroupError {
@@ -579,7 +574,7 @@ impl RetryableError for GroupError {
         match self {
             Self::MessageSenderConflict => false,
             Self::OutgoingPreparation(error) => error.is_retryable(),
-            Self::Client(client_error) => client_error.is_retryable(),
+            Self::IdentityUpdate(error) => error.is_retryable(),
             Self::Storage(storage) => storage.is_retryable(),
             Self::ReceiveError(msg) => msg.is_retryable(),
             Self::Identity(identity) => identity.is_retryable(),
@@ -608,7 +603,6 @@ impl RetryableError for GroupError {
             Self::CommitValidation(err) => err.is_retryable(),
             Self::WrappedApi(err) => err.is_retryable(),
             Self::ProcessIntent(err) => err.is_retryable(),
-            Self::LocalEvent(err) => err.is_retryable(),
             Self::LockUnavailable => true,
             Self::WelcomeGroupPrefixPending { .. } | Self::UnsupportedWelcomeVersion(_) => true,
             Self::SyncFailedToWait(_) => true,
@@ -624,7 +618,6 @@ impl RetryableError for GroupError {
             Self::Diesel(e) => e.is_retryable(),
             Self::LeaveCantProcessed(e) => e.is_retryable(),
             Self::DeleteMessage(e) => e.is_retryable(),
-            Self::DeviceSync(e) => e.is_retryable(),
             Self::MergePendingCommit(e) => e.is_retryable(),
             // Only emitted when a fresh `load_identity_updates` network
             // refresh still has no sequence id for an inbox — i.e. its
@@ -634,6 +627,7 @@ impl RetryableError for GroupError {
             // that raced a new installation's identity propagation.
             Self::MissingSequenceId => true,
             Self::NotFound(_)
+            | Self::Blocked(_)
             | Self::ConsentAct(_)
             | Self::InvalidWelcomeMetadata
             | Self::WelcomeGroupRoot(_)
@@ -668,7 +662,7 @@ impl RetryableError for GroupError {
 
     fn rate_limit_delay(&self) -> Option<xmtp_common::time::Duration> {
         match self {
-            Self::Client(client_error) => client_error.rate_limit_delay(),
+            Self::IdentityUpdate(error) => error.rate_limit_delay(),
             Self::ReceiveError(msg) => msg.rate_limit_delay(),
             Self::Identity(identity) => identity.rate_limit_delay(),
             Self::InstallationDiff(diff) => diff.rate_limit_delay(),
@@ -682,7 +676,6 @@ impl RetryableError for GroupError {
                 ..
             } => (*rate_limit_delay).max(cause.as_ref().and_then(|cause| cause.rate_limit_delay())),
             Self::MlsStore(e) => e.rate_limit_delay(),
-            Self::DeviceSync(e) => e.rate_limit_delay(),
             _ => None,
         }
     }
@@ -691,21 +684,90 @@ impl RetryableError for GroupError {
 impl crate::worker::NeedsDbReconnect for GroupError {
     /// Forwards a dropped-pool signal from storage-bearing variants so a worker
     /// catching `GroupError`s per item can stop on disconnect; else `false`.
+    #[deny(clippy::wildcard_enum_match_arm)]
     fn needs_db_reconnect(&self) -> bool {
         match self {
             Self::Storage(s) => s.db_needs_connection(),
-            Self::Client(c) => c.db_needs_connection(),
+            Self::IdentityUpdate(error) => error.needs_db_reconnect(),
             Self::Db(c) => c.db_needs_connection(),
             Self::MlsStore(s) => s.needs_db_reconnect(),
             Self::Identity(i) => i.needs_db_reconnect(),
-            Self::DeviceSync(d) => d.needs_db_reconnect(),
             Self::StreamBarrier(error) => error.needs_db_reconnect(),
             Self::PublishedButUnconfirmed { cause, .. } => cause
                 .as_ref()
                 .is_some_and(|error| error.needs_db_reconnect()),
             Self::ReceiveError(error) => error.needs_db_reconnect(),
             Self::Sync(summary) | Self::SyncFailedToWait(summary) => summary.needs_db_reconnect(),
-            _ => false,
+            Self::CommitValidation(error) => error.needs_db_reconnect(),
+            Self::InstallationDiff(error) => error.needs_db_reconnect(),
+            Self::ProcessIntent(ProcessIntentError::Storage(error)) => error.db_needs_connection(),
+            Self::SqlKeyStore(sql_key_store::SqlKeyStoreError::Connection(error)) => {
+                error.db_needs_connection()
+            }
+            Self::ProcessIntent(_)
+            | Self::SqlKeyStore(_)
+            | Self::ReservedTranscriptContentType
+            | Self::MessageSenderConflict
+            | Self::OutgoingPreparation(..)
+            | Self::NotFound(..)
+            | Self::UserLimitExceeded
+            | Self::MissingSequenceId
+            | Self::AddressNotFound(..)
+            | Self::WrappedApi(..)
+            | Self::InvalidGroupMembership
+            | Self::ConsentAct(..)
+            | Self::LeaveCantProcessed(..)
+            | Self::Intent(..)
+            | Self::CreateMessage(..)
+            | Self::TlsError(..)
+            | Self::GroupCreate(..)
+            | Self::SelfUpdate(..)
+            | Self::WelcomeError(..)
+            | Self::InvalidExtension(..)
+            | Self::Signature(..)
+            | Self::Blocked(..)
+            | Self::AddressValidation(..)
+            | Self::InvalidPublicKeys(..)
+            | Self::ConversionError(..)
+            | Self::CryptoError(..)
+            | Self::CreateGroupContextExtProposalError(..)
+            | Self::ProposeAddMember(..)
+            | Self::ProposeRemoveMember(..)
+            | Self::Proposal(..)
+            | Self::CommitToPendingProposals(..)
+            | Self::MergePendingCommit(..)
+            | Self::ProposalsNotSupported(..)
+            | Self::MinVersionExceedsOwnVersion { .. }
+            | Self::MinVersionDowngrade { .. }
+            | Self::InvalidMinVersion { .. }
+            | Self::ComponentSource(..)
+            | Self::MetadataField(..)
+            | Self::AppDataCommit(..)
+            | Self::BootstrapSynthesis(..)
+            | Self::CredentialError(..)
+            | Self::LeafNodeError(..)
+            | Self::NoPSKSupport
+            | Self::MissingPendingCommit
+            | Self::LockUnavailable
+            | Self::TooManyCharacters { .. }
+            | Self::AppDataSuperseded { .. }
+            | Self::GroupPausedUntilUpdate(..)
+            | Self::GroupInactive
+            | Self::MetadataPermissionsError(..)
+            | Self::FailedToVerifyInstallations(..)
+            | Self::NoWelcomesToSend
+            | Self::CodecError(..)
+            | Self::WrapWelcome(..)
+            | Self::UnwrapWelcome(..)
+            | Self::WelcomeDataNotFound(..)
+            | Self::WelcomeGroupPrefixPending { .. }
+            | Self::InvalidWelcomeMetadata
+            | Self::WelcomeGroupRoot(..)
+            | Self::UnsupportedWelcomeVersion(..)
+            | Self::UninitializedResult
+            | Self::Diesel(..)
+            | Self::UninitializedField(..)
+            | Self::DeleteMessage(..) => false,
         }
     }
 }

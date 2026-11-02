@@ -77,7 +77,7 @@ pub(crate) fn enter_call(context: &MlsContext) -> Result<ForegroundCall, XmtpErr
 /// gate refuses the call first, so an ended client stays `ClientClosed`.
 fn closed_error(context: &MlsContext) -> XmtpError {
     match context.server_configuration().blocked_connection() {
-        Some(blocked) => XmtpError::from_client(xmtp_mls::client::ClientError::from(&blocked)),
+        Some(blocked) => XmtpError::from_client(blocked.into()),
         None => XmtpError::closed(),
     }
 }

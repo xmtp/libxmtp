@@ -51,6 +51,7 @@ impl KeyPackageMaintenanceError {
 }
 
 impl NeedsDbReconnect for KeyPackageMaintenanceError {
+    #[deny(clippy::wildcard_enum_match_arm)]
     fn needs_db_reconnect(&self) -> bool {
         match self {
             Self::Storage(s) => s.db_needs_connection(),

@@ -4,10 +4,11 @@ use super::{
 };
 pub use crate::core::metrics::SyncMetric;
 use crate::{
-    client::ClientError,
     context::XmtpSharedContext,
     identity::IdentityExt,
-    identity_updates::{load_identity_updates_for_client, store_association_state},
+    identity_updates::{
+        IdentityUpdateError, load_identity_updates_for_client, store_association_state,
+    },
     subscriptions::{
         incoming::{IncomingCoordinator, IncomingScope},
         internal::{InternalEvent, emit_consent_changes, emit_root_key_changed},
@@ -348,15 +349,15 @@ impl OwnTimeline {
                 .cloned()
                 .map(IdentityExt::to_unverified)
                 .collect::<Result<Vec<_>, _>>()
-                .map_err(ClientError::from)?;
+                .map_err(IdentityUpdateError::from)?;
             let verifier = context.scw_verifier();
             let verified = verify_updates(unverified, &verifier)
                 .await
-                .map_err(ClientError::from)?;
+                .map_err(IdentityUpdateError::from)?;
             for (stored, update) in rest.iter().zip(verified) {
                 let state = update
                     .update_state(states.last().cloned(), update.client_timestamp_ns)
-                    .map_err(ClientError::from)?;
+                    .map_err(IdentityUpdateError::from)?;
                 store_association_state(context, stored.sequence_id, &state)?;
                 states.push(state);
             }
@@ -584,9 +585,9 @@ mod startup_tests {
         };
         let publish =
             DeviceSyncError::Group(crate::groups::GroupError::WrappedApi(refused("publish")));
-        let identity = DeviceSyncError::Client(crate::client::ClientError::Api(refused(
-            "get_identity_updates",
-        )));
+        let identity = DeviceSyncError::IdentityUpdate(
+            crate::identity_updates::IdentityUpdateError::Api(refused("get_identity_updates")),
+        );
         for error in [&publish, &identity] {
             assert_eq!(RetryableError::rate_limit_delay(error), Some(delay));
         }

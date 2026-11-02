@@ -18,7 +18,7 @@ use crate::utils::test_mocks_helpers::set_test_mode_upload_malformed_keypackage;
 #[xmtp_common::test(unwrap_try = true)]
 async fn stale_failure_with_a_leaf_is_not_written(
     #[case] concurrent_refresh: bool,
-) -> Result<(), GroupError> {
+) -> Result<(), Box<dyn std::error::Error>> {
     tester!(alix, disable_workers);
     tester!(bo, disable_workers);
     tester!(caro, disable_workers);
@@ -92,7 +92,7 @@ async fn stale_failure_with_a_leaf_is_not_written(
 /// the commit reuses it instead of signing another Add.
 // verifies: GMOD-044, GMOD-038
 #[xmtp_common::test(unwrap_try = true)]
-async fn selection_reuses_an_add_for_a_stale_failure() -> Result<(), GroupError> {
+async fn selection_reuses_an_add_for_a_stale_failure() -> Result<(), Box<dyn std::error::Error>> {
     tester!(alix, disable_workers);
     tester!(bo, disable_workers);
     tester!(caro, disable_workers);
@@ -156,7 +156,7 @@ async fn selection_reuses_an_add_for_a_stale_failure() -> Result<(), GroupError>
 /// inbox when it publishes. Only an add request inserts an inbox.
 // verifies: GMOD-051
 #[xmtp_common::test(unwrap_try = true)]
-async fn stale_refresh_does_not_readd_a_removed_inbox() -> Result<(), GroupError> {
+async fn stale_refresh_does_not_readd_a_removed_inbox() -> Result<(), Box<dyn std::error::Error>> {
     tester!(alix, disable_workers);
     tester!(bo, disable_workers);
     tester!(caro, disable_workers);
@@ -193,7 +193,8 @@ async fn stale_refresh_does_not_readd_a_removed_inbox() -> Result<(), GroupError
 /// not exempt a key that has a leaf before the commit.
 // verifies: GMOD-046
 #[xmtp_common::test(unwrap_try = true)]
-async fn revocation_removes_a_leaf_that_an_entry_lists_as_failed() -> Result<(), GroupError> {
+async fn revocation_removes_a_leaf_that_an_entry_lists_as_failed()
+-> Result<(), Box<dyn std::error::Error>> {
     tester!(alix, disable_workers);
     tester!(bo, disable_workers);
     tester!(bo2, from: bo, disable_workers);
@@ -260,7 +261,7 @@ async fn revocation_removes_a_leaf_that_an_entry_lists_as_failed() -> Result<(),
     Ok(())
 }
 
-async fn check_false_failure_claim(selection: bool) -> Result<(), GroupError> {
+async fn check_false_failure_claim(selection: bool) -> Result<(), Box<dyn std::error::Error>> {
     use crate::groups::send_message_opts::SendMessageOpts;
     use tls_codec::{Serialize, VLBytes};
     use xmtp_mls_common::{inbox_id::InboxId, tls_map::TlsMapDelta};

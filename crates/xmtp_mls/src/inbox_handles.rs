@@ -15,12 +15,11 @@
 //! published minimum name length.
 
 use crate::{
-    client::ClientError,
     context::XmtpSharedContext,
-    groups::GroupError,
     identity_updates::{
-        IdentityUpdates, get_association_state_for_client, get_association_state_with_verifier,
-        load_identity_updates, load_identity_updates_for_client, state_holds_identifier,
+        IdentityUpdateError, IdentityUpdates, get_association_state_for_client,
+        get_association_state_with_verifier, load_identity_updates,
+        load_identity_updates_for_client, state_holds_identifier,
     },
 };
 use futures::{StreamExt, TryStreamExt, stream};
@@ -126,7 +125,7 @@ pub(crate) fn ensure_claim_allowed(state: &AssociationState) -> Result<(), Handl
 async fn lookup_targets<A: XmtpApi>(
     api: &ApiClientWrapper<A>,
     targets: &[IdentityTarget],
-) -> Result<Vec<Option<InboxId>>, ClientError> {
+) -> Result<Vec<Option<InboxId>>, IdentityUpdateError> {
     if targets.is_empty() {
         return Ok(Vec::new());
     }
@@ -146,11 +145,11 @@ fn answered_inboxes(answers: &[Option<InboxId>]) -> Vec<InboxId> {
 /// An inbox's state, or `None` when its log holds no update. Such an inbox
 /// holds no account and no handle.
 fn state_if_logged(
-    result: Result<AssociationState, ClientError>,
-) -> Result<Option<AssociationState>, ClientError> {
+    result: Result<AssociationState, IdentityUpdateError>,
+) -> Result<Option<AssociationState>, IdentityUpdateError> {
     match result {
         Ok(state) => Ok(Some(state)),
-        Err(ClientError::Association(AssociationError::MissingIdentityUpdate)) => Ok(None),
+        Err(IdentityUpdateError::Association(AssociationError::MissingIdentityUpdate)) => Ok(None),
         Err(error) => Err(error),
     }
 }
@@ -196,7 +195,7 @@ fn keep_verified(
 pub(crate) async fn resolve_verified_in<Context: XmtpSharedContext>(
     context: &Context,
     targets: &[IdentityTarget],
-) -> Result<Vec<Option<InboxId>>, ClientError> {
+) -> Result<Vec<Option<InboxId>>, IdentityUpdateError> {
     let answers = lookup_targets(context.api(), targets).await?;
     let inboxes = answered_inboxes(&answers);
     if inboxes.is_empty() {
@@ -211,7 +210,7 @@ pub(crate) async fn resolve_verified_in<Context: XmtpSharedContext>(
         .into_iter()
         .map(|inbox_id| async {
             let state = get_association_state_for_client(context, &conn, &inbox_id, None).await;
-            Ok::<_, ClientError>(state_if_logged(state)?.map(|state| (inbox_id, state)))
+            Ok::<_, IdentityUpdateError>(state_if_logged(state)?.map(|state| (inbox_id, state)))
         })
         .collect();
     let states: Vec<_> = stream::iter(reads)
@@ -229,7 +228,7 @@ pub async fn resolve_verified_with_verifier<A: XmtpApi>(
     conn: &impl DbQuery,
     targets: &[IdentityTarget],
     verifier: &impl SmartContractSignatureVerifier,
-) -> Result<Vec<Option<InboxId>>, ClientError> {
+) -> Result<Vec<Option<InboxId>>, IdentityUpdateError> {
     let answers = lookup_targets(api, targets).await?;
     let inboxes = answered_inboxes(&answers);
     if inboxes.is_empty() {
@@ -253,7 +252,7 @@ pub async fn resolve_verified_with_verifier<A: XmtpApi>(
 pub(crate) async fn resolve_targets_in<Context: XmtpSharedContext>(
     context: &Context,
     targets: &[IdentityTarget],
-) -> Result<Vec<Option<InboxId>>, ClientError> {
+) -> Result<Vec<Option<InboxId>>, IdentityUpdateError> {
     let inboxes = resolve_verified_in(context, targets).await?;
     targets
         .iter()
@@ -263,26 +262,6 @@ pub(crate) async fn resolve_targets_in<Context: XmtpSharedContext>(
             (_, inbox) => Ok(inbox),
         })
         .collect()
-}
-
-/// The inboxes of `targets`, failing with [`GroupError::AddressNotFound`],
-/// which names each account with no inbox in request order.
-pub(crate) fn require_account_inboxes(
-    targets: &[IdentityTarget],
-    inboxes: Vec<Option<InboxId>>,
-) -> Result<Vec<InboxId>, GroupError> {
-    let missing: Vec<String> = targets
-        .iter()
-        .zip(&inboxes)
-        .filter_map(|(target, inbox)| match (target, inbox) {
-            (IdentityTarget::Account(identifier), None) => Some(identifier.to_string()),
-            _ => None,
-        })
-        .collect();
-    if !missing.is_empty() {
-        return Err(GroupError::AddressNotFound(missing));
-    }
-    Ok(inboxes.into_iter().flatten().collect())
 }
 
 /// The handles to look up for `handle`: only itself when it has a code.
@@ -314,7 +293,7 @@ fn search_candidates(handle: Handle) -> Vec<Handle> {
 pub(crate) async fn handles_have_owner<Context: XmtpSharedContext>(
     context: &Context,
     handles: &[Handle],
-) -> Result<Vec<bool>, ClientError> {
+) -> Result<Vec<bool>, IdentityUpdateError> {
     Ok(lookup_targets(context.api(), &handle_targets(handles))
         .await?
         .iter()
@@ -333,7 +312,7 @@ pub(crate) async fn handles_have_owner<Context: XmtpSharedContext>(
 pub(crate) async fn available_handles<Context: XmtpSharedContext>(
     context: &Context,
     input: &str,
-) -> Result<Vec<Handle>, ClientError> {
+) -> Result<Vec<Handle>, IdentityUpdateError> {
     let handle = Handle::from_input(input).map_err(HandleError::from)?;
     let candidates = search_candidates(handle);
     let owned = handles_have_owner(context, &candidates).await?;
@@ -352,7 +331,7 @@ pub(crate) async fn available_handles<Context: XmtpSharedContext>(
 pub(crate) async fn claim_handle<Context: XmtpSharedContext>(
     context: &Context,
     handle: &Handle,
-) -> Result<(), ClientError> {
+) -> Result<(), IdentityUpdateError> {
     let identity_updates = IdentityUpdates::new(context);
     let conn = context.db();
     load_identity_updates_for_client(context, &conn, &[context.inbox_id()]).await?;
@@ -372,7 +351,7 @@ pub(crate) async fn claim_handle<Context: XmtpSharedContext>(
 pub(crate) async fn resolve_targets<Context: XmtpSharedContext>(
     context: &Context,
     targets: &[IdentityTarget],
-) -> Result<Vec<InboxId>, ClientError> {
+) -> Result<Vec<InboxId>, IdentityUpdateError> {
     let inboxes = resolve_targets_in(context, targets).await?;
     targets
         .iter()

@@ -26,6 +26,7 @@ pub enum DisappearingMessagesCleanerError {
 }
 
 impl NeedsDbReconnect for DisappearingMessagesCleanerError {
+    #[deny(clippy::wildcard_enum_match_arm)]
     fn needs_db_reconnect(&self) -> bool {
         match self {
             Self::Storage(s) | Self::DeleteExpired(s) => s.db_needs_connection(),

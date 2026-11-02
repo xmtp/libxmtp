@@ -130,10 +130,7 @@ impl<C: XmtpSharedContext + 'static> StreamConversations<C> {
     where
         C::ApiClient: XmtpMlsStreams,
     {
-        context
-            .server_configuration()
-            .check()
-            .map_err(|error| super::SubscribeError::Configuration(Box::new(error)))?;
+        context.server_configuration().check()?;
         let events = context.events().subscribe(
             EventFilter::default().with_internal(|event| {
                 matches!(event, InternalEvent::GroupJoined { is_sync: false, .. })
@@ -172,10 +169,7 @@ impl<C: XmtpSharedContext + 'static> StreamConversations<C> {
                 loop {
                     if let Err(error) = context.server_configuration().check() {
                         lease.close();
-                        return Some((
-                            Err(super::SubscribeError::Configuration(Box::new(error))),
-                            None,
-                        ));
+                        return Some((Err(error.into()), None));
                     }
                     if context.is_closed() {
                         return None;
@@ -300,10 +294,7 @@ mod test {
     // verifies: CONF-075
     #[xmtp_common::test(unwrap_try = true)]
     async fn a_blocked_connection_fences_queued_conversations() {
-        use crate::{
-            client::ClientError, server_configuration::BlockedConnection,
-            subscriptions::SubscribeError,
-        };
+        use crate::{server_configuration::BlockedConnection, subscriptions::SubscribeError};
 
         tester!(alix, disable_workers);
         let mut stream = StreamConversations::new(&alix.context, None, false, None).await?;
@@ -321,9 +312,8 @@ mod test {
         let error = stream.next().await.unwrap().unwrap_err();
         assert!(matches!(
             error,
-            SubscribeError::Configuration(error)
-                if matches!(*error, ClientError::ClientVersionTooOld { ref minimum, .. }
-                    if minimum == "9999.0.0")
+            SubscribeError::Blocked(BlockedConnection::ClientVersionTooOld { ref minimum, .. })
+                if minimum == "9999.0.0"
         ));
         assert!(stream.next().await.is_none());
     }

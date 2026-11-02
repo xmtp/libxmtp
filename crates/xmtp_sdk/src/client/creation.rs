@@ -156,7 +156,7 @@ impl Client {
         {
             let membership = stored_identifier_membership(&opened.store.db(), stored, &identifier)
                 .await
-                .map_err(XmtpError::from_client)?;
+                .map_err(XmtpError::from_core)?;
             if !identifier_opens_inbox(membership, &identifier, nonce, stored) {
                 return Err(XmtpError::identity_mismatch());
             }

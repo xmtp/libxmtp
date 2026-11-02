@@ -79,7 +79,7 @@ async fn fixture_options(streams: bool, remote: bool) -> (TestClient, Arc<Script
     (client, script)
 }
 
-fn cause<'a>(error: &'a (dyn std::error::Error + 'static)) -> &'a ClientError {
+fn cause<'a>(error: &'a (dyn std::error::Error + 'static)) -> &'a ServerConfigError {
     use std::error::Error;
     xmtp_api::preflight::failure(error)
         .unwrap()
@@ -149,10 +149,7 @@ async fn deferred_preflight_failure_reaches_the_first_call_and_new_call_can_retr
         xmtp_proto::api::AuthError::CallbackFailed { retryable: true },
     )));
     let error = query(&client).await.unwrap_err();
-    assert!(matches!(
-        cause(&error),
-        ClientError::ConfigurationUnavailable(_)
-    ));
+    assert!(matches!(cause(&error), ServerConfigError::Unavailable(_)));
     assert!(error.is_retryable());
     assert_eq!(*script.calls.lock(), vec!["configuration"]);
     script
@@ -160,10 +157,7 @@ async fn deferred_preflight_failure_reaches_the_first_call_and_new_call_can_retr
         .lock()
         .push_back(Ok(response("invalid identifier")));
     let error = query(&client).await.unwrap_err();
-    assert!(matches!(
-        cause(&error),
-        ClientError::ConfigurationInvalid(_)
-    ));
+    assert!(matches!(cause(&error), ServerConfigError::Invalid(_)));
     assert!(!error.is_retryable());
     assert_eq!(
         script.db.db().server_configuration()?.unwrap().backend_url,
@@ -189,10 +183,13 @@ async fn deferred_preflight_mismatch_blocks_even_when_conflict_write_fails() {
         .push_back(Ok(response("org.example.other")));
     let error = query(&client).await.unwrap_err();
     assert!(
-        matches!(cause(&error), ClientError::BackendMismatch { stored, received } if stored == IDENTIFIER && received == "org.example.other")
+        matches!(cause(&error), ServerConfigError::Blocked(BlockedConnection::BackendMismatch { stored, received }) if stored == IDENTIFIER && received == "org.example.other")
     );
     let error = query(&client).await.unwrap_err();
-    assert!(matches!(cause(&error), ClientError::BackendMismatch { .. }));
+    assert!(matches!(
+        cause(&error),
+        ServerConfigError::Blocked(BlockedConnection::BackendMismatch { .. })
+    ));
     assert_eq!(*script.calls.lock(), vec!["configuration"]);
     let stored = script.db.db().server_configuration()?.unwrap();
     assert_eq!(stored.backend_url, OLD);
@@ -207,10 +204,7 @@ async fn deferred_preflight_storage_failure_keeps_pending_until_a_later_call() {
     let (client, script) = fixture().await;
     script.db.db().raw_query(|conn| xmtp_db::diesel::sql_query("CREATE TRIGGER reject_config BEFORE UPDATE OF response ON server_configuration BEGIN SELECT RAISE(FAIL, 'storage test'); END").execute(conn))?;
     let error = query(&client).await.unwrap_err();
-    assert!(matches!(
-        cause(&error),
-        ClientError::ConfigurationUnavailable(_)
-    ));
+    assert!(matches!(cause(&error), ServerConfigError::Unavailable(_)));
     assert_eq!(*script.calls.lock(), vec!["configuration"]);
     script
         .db
@@ -261,8 +255,8 @@ async fn deferred_preflight_close_cancels_fetch_and_lock_wait_without_a_late_wri
             futures::join!(first, second, client.close())
         })
         .await?;
-    assert!(matches!(cause(&a.unwrap_err()), ClientError::AlreadyClosed));
-    assert!(matches!(cause(&b.unwrap_err()), ClientError::AlreadyClosed));
+    assert!(matches!(cause(&a.unwrap_err()), ServerConfigError::Closed));
+    assert!(matches!(cause(&b.unwrap_err()), ServerConfigError::Closed));
     closed?;
     assert_eq!(*script.calls.lock(), vec!["configuration"]);
 }
@@ -285,11 +279,11 @@ async fn deferred_preflight_refresh_serializes_and_a_raised_minimum_blocks_targe
     let (refresh, target) = futures::join!(refresh, target);
     assert!(matches!(
         refresh.unwrap_err(),
-        ClientError::ClientVersionTooOld { .. }
+        crate::client::ClientError::ClientVersionTooOld { .. }
     ));
     assert!(matches!(
         cause(&target.unwrap_err()),
-        ClientError::ClientVersionTooOld { .. }
+        ServerConfigError::Blocked(BlockedConnection::ClientVersionTooOld { .. })
     ));
     assert_eq!(*script.calls.lock(), vec!["configuration"]);
     assert_eq!(

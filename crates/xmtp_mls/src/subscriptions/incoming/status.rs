@@ -86,6 +86,7 @@ impl RetryableError for IncomingError {
 }
 
 impl crate::worker::NeedsDbReconnect for IncomingError {
+    #[deny(clippy::wildcard_enum_match_arm)]
     fn needs_db_reconnect(&self) -> bool {
         match self {
             Self::Storage(error) => error.db_needs_connection(),

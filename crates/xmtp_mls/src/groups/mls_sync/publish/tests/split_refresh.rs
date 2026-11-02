@@ -38,7 +38,7 @@ struct SplitRefreshFixture {
 /// Establish only the size boundary; the target has not refreshed any devices.
 async fn split_refresh_fixture(
     extra_member: Option<&str>,
-) -> Result<SplitRefreshFixture, GroupError> {
+) -> Result<SplitRefreshFixture, Box<dyn std::error::Error>> {
     tester!(alix, disable_workers);
     tester!(bo, disable_workers);
     tester!(caro, disable_workers);

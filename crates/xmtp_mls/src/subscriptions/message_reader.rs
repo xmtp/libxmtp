@@ -61,10 +61,7 @@ impl<C: XmtpSharedContext + 'static> MessageReader<C> {
         filter: LocalDeliveryFilter,
         from: Option<DeliveryCursor>,
     ) -> Result<Self, LocalDeliveryError> {
-        context
-            .server_configuration()
-            .check()
-            .map_err(|error| LocalDeliveryError::Configuration(Box::new(error)))?;
+        context.server_configuration().check()?;
         let configuration = context.server_configuration().clone();
         let config = LocalDeliveryConfig::from(context.incoming_runtime().policy());
         let coordinator = IncomingCoordinator::for_context(&context);
@@ -102,7 +99,7 @@ impl<C: XmtpSharedContext + 'static> MessageReader<C> {
             futures::pin_mut!(delivery);
             loop {
                 if let Err(error) = configuration.check() {
-                    break Err(LocalDeliveryError::Configuration(Box::new(error)));
+                    break Err(error.into());
                 }
                 if let Err(error) = lease.check_recovery() {
                     break Err(error.error());
@@ -112,11 +109,11 @@ impl<C: XmtpSharedContext + 'static> MessageReader<C> {
                     _ = self.control.closed.cancelled() => {
                         break configuration.check()
                             .map(|()| None)
-                            .map_err(|error| LocalDeliveryError::Configuration(Box::new(error)));
+                            .map_err(LocalDeliveryError::from);
                     },
                     item = &mut delivery => {
                         if let Err(error) = configuration.check() {
-                            break Err(LocalDeliveryError::Configuration(Box::new(error)));
+                            break Err(error.into());
                         }
                         // Both futures can become ready while this task is suspended.
                         // An ended lease must win before another item reaches the app.
@@ -324,7 +321,7 @@ mod tests {
     // verifies: CONF-075
     #[xmtp_common::test(unwrap_try = true)]
     async fn blocked_connection_ends_a_pending_message_read_with_its_cause() {
-        use crate::{client::ClientError, server_configuration::BlockedConnection};
+        use crate::server_configuration::BlockedConnection;
         tester!(alix, disable_workers);
         let mut reader = MessageReader::new(
             alix.context.clone(),
@@ -350,9 +347,8 @@ mod tests {
         };
         assert!(matches!(
             error,
-            LocalDeliveryError::Configuration(error)
-                if matches!(*error, ClientError::ClientVersionTooOld { ref minimum, .. }
-                    if minimum == "9999.0.0")
+            LocalDeliveryError::Blocked(BlockedConnection::ClientVersionTooOld { ref minimum, .. })
+                if minimum == "9999.0.0"
         ));
         assert!(reader.next_delivery().await?.is_none());
     }

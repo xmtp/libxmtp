@@ -379,11 +379,7 @@ pub(crate) fn close_reason<T>(
     let Some(blocked_connection) = cancelled.then(|| cancel.fatal()).flatten() else {
         return Ok(());
     };
-    let reported = || {
-        SubscribeError::Configuration(Box::new(crate::client::ClientError::from(
-            &blocked_connection,
-        )))
-    };
+    let reported = || SubscribeError::Blocked(blocked_connection.clone());
     callback(Err(reported()));
     Err(reported())
 }

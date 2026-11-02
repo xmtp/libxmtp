@@ -10,7 +10,6 @@ use super::{
     validated_commit::{CommitValidationError, validate_proposal},
 };
 use crate::{
-    client::ClientError,
     context::XmtpSharedContext,
     core::hmac_epoch::hmac_epoch,
     groups::traits::IntoWith,
@@ -27,7 +26,7 @@ use crate::{
         message_id::{calculate_message_id, calculate_message_id_for_intent},
     },
     identity::{IdentityError, parse_credential},
-    identity_updates::{IdentityUpdates, load_identity_updates_for_client},
+    identity_updates::{IdentityUpdateError, IdentityUpdates, load_identity_updates_for_client},
     intents::ProcessIntentError,
     messages::{decoded_message::MessageBody, enrichment::EnrichMessageError},
     mls_store::MlsStore,
@@ -369,7 +368,7 @@ pub enum GroupMessageProcessingError {
     #[error(transparent)]
     AssociationDeserialization(#[from] xmtp_id::associations::DeserializationError),
     #[error(transparent)]
-    Client(#[from] ClientError),
+    IdentityUpdate(#[from] IdentityUpdateError),
     #[error("Group paused due to minimum protocol version requirement")]
     GroupPaused,
     /// Processing stops at the removal commit until a valid rejoin Welcome.
@@ -455,7 +454,7 @@ impl RetryableError for GroupMessageProcessingError {
             Self::ProcessIntent(err) => err.is_retryable(),
             Self::CommitValidation(err) => err.is_retryable(),
             Self::ClearPendingCommit(err) => err.is_retryable(),
-            Self::Client(err) => err.is_retryable(),
+            Self::IdentityUpdate(err) => err.is_retryable(),
             Self::Db(e) => e.is_retryable(),
             Self::EnrichMessage(e) => e.is_retryable(),
             Self::IntentAlreadyProcessed
@@ -494,7 +493,7 @@ impl RetryableError for GroupMessageProcessingError {
         match self {
             Self::PreparedAttempt(error) => error.rate_limit_delay(),
             Self::Identity(err) => err.rate_limit_delay(),
-            Self::Client(err) => err.rate_limit_delay(),
+            Self::IdentityUpdate(err) => err.rate_limit_delay(),
             Self::CommitValidation(err) => err.rate_limit_delay(),
             _ => None,
         }
@@ -502,15 +501,58 @@ impl RetryableError for GroupMessageProcessingError {
 }
 
 impl crate::worker::NeedsDbReconnect for GroupMessageProcessingError {
+    #[deny(clippy::wildcard_enum_match_arm)]
     fn needs_db_reconnect(&self) -> bool {
         match self {
             Self::Storage(error) => error.db_needs_connection(),
             Self::Db(error) => error.db_needs_connection(),
-            Self::Client(error) => error.db_needs_connection(),
+            Self::IdentityUpdate(error) => error.needs_db_reconnect(),
             Self::Identity(error) => error.needs_db_reconnect(),
             Self::PreparedAttempt(error) => error.needs_db_reconnect(),
             Self::CommitValidation(error) => error.needs_db_reconnect(),
-            _ => false,
+            Self::IntentAlreadyProcessed
+            | Self::MessageAlreadyProcessed(..)
+            | Self::MessageIdentifierNotFound
+            | Self::WelcomeAlreadyProcessed(..)
+            | Self::InvalidSender { .. }
+            | Self::InvalidPayload
+            | Self::IncomingHeadChanged
+            | Self::CorruptIncomingEnvelope(..)
+            | Self::UnsupportedMlsVersion
+            | Self::LostProposalState
+            | Self::FarForwardApplicationMessage
+            | Self::ApplicationSenderOutsideTree
+            | Self::Envelope(..)
+            | Self::OwnMessageWithoutAttempt
+            | Self::UnsupportedOwnIntentKind(..)
+            | Self::RejectedIntent(..)
+            | Self::OpenMlsProcessMessage(..)
+            | Self::OpenMlsProcessMessageWithAppData(..)
+            | Self::MergeStagedCommit(..)
+            | Self::TlsError(..)
+            | Self::UnsupportedMessageType(..)
+            | Self::UnexpectedProcessedContent(..)
+            | Self::EpochIncrementNotAllowed
+            | Self::ClearPendingCommit(..)
+            | Self::Serde(..)
+            | Self::IntentMissingStagedCommit
+            | Self::EncodeProto(..)
+            | Self::DecodeProto(..)
+            | Self::Intent(..)
+            | Self::Codec(..)
+            | Self::WrongCredentialType(..)
+            | Self::ProcessIntent(..)
+            | Self::AssociationDeserialization(..)
+            | Self::GroupPaused
+            | Self::GroupInactive
+            | Self::OldEpoch(..)
+            | Self::FutureEpoch(..)
+            | Self::Builder(..)
+            | Self::Diesel(..)
+            | Self::EnrichMessage(..)
+            | Self::PreCommitProposalPhaseComplete
+            | Self::Conversion(..)
+            | Self::EpochAuthenticatorNotAdvanced { .. } => false,
         }
     }
 }

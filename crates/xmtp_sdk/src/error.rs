@@ -1,3 +1,4 @@
+mod configuration;
 mod handles;
 mod wrappers;
 pub(crate) use wrappers::CoreError;
@@ -378,7 +379,8 @@ impl XmtpError {
         use xmtp_common::RetryableError;
         use xmtp_mls::{
             client::ClientError, groups::GroupError, identity::IdentityError,
-            mls_store::MlsStoreError, subscriptions::catch_up::CatchUpError,
+            identity_updates::IdentityUpdateError, mls_store::MlsStoreError,
+            subscriptions::catch_up::CatchUpError,
         };
         if let Some(error) = error.downcast_ref::<xmtp_archive::ArchiveError>() {
             return Some(error.is_retryable());
@@ -393,6 +395,9 @@ impl XmtpError {
             return Some(error.is_retryable());
         }
         if let Some(error) = error.downcast_ref::<IdentityError>() {
+            return Some(error.is_retryable());
+        }
+        if let Some(error) = error.downcast_ref::<IdentityUpdateError>() {
             return Some(error.is_retryable());
         }
         if let Some(error) = error.downcast_ref::<MlsStoreError>() {
@@ -488,12 +493,25 @@ impl XmtpError {
                 }
                 GroupError::WrappedApi(api) => Some(Self::api_cause(api)),
                 GroupError::Storage(storage) => Some(Self::storage_cause(storage)),
-                GroupError::Client(client) => Self::client_cause(client),
                 _ => None,
             };
         }
         if let Some(client) = error.downcast_ref::<xmtp_mls::client::ClientError>() {
             return Self::client_cause(client);
+        }
+        if let Some(found) = Self::server_config_level(error) {
+            return Some(found);
+        }
+        if let Some(xmtp_mls::identity_updates::IdentityUpdateError::Handle(handle)) =
+            error.downcast_ref()
+        {
+            return Some(Self::from_handle(handle));
+        }
+        if let Some(xmtp_mls::identity_updates::IdentityUpdateError::InvalidSignatureRequest(
+            source @ xmtp_id::associations::builder::SignatureRequestError::TooManyActions(_),
+        )) = error.downcast_ref()
+        {
+            return Some(Self::invalid(source.to_string()));
         }
         if let Some(api) = error.downcast_ref::<xmtp_api::ApiError>() {
             return Some(Self::api_cause(api));
@@ -622,40 +640,19 @@ impl XmtpError {
         error.source().and_then(Self::classify)
     }
 
-    pub(crate) fn client_cause(error: &xmtp_mls::client::ClientError) -> Option<Self> {
-        use xmtp_common::RetryableError;
+    fn client_cause(error: &xmtp_mls::client::ClientError) -> Option<Self> {
         use xmtp_mls::client::ClientError;
         Some(match error {
             ClientError::AlreadyClosed => Self::closed(),
             ClientError::ConfigurationUnavailable(source) => {
-                Self::ConfigurationUnavailable(Self::details(
-                    "ConfigurationUnavailable",
-                    ErrorCategory::Configuration,
-                    source.is_retryable(),
-                    source.to_string(),
-                ))
+                Self::configuration_unavailable(source)
             }
-            ClientError::ConfigurationInvalid(source) => Self::ConfigurationInvalid(Self::details(
-                "ConfigurationInvalid",
-                ErrorCategory::Configuration,
-                false,
-                source.to_string(),
-            )),
+            ClientError::ConfigurationInvalid(source) => Self::configuration_invalid(source),
             ClientError::BackendMismatch { stored, received } => {
-                Self::BackendMismatch(Self::details(
-                    "BackendMismatch",
-                    ErrorCategory::Configuration,
-                    false,
-                    format!("database is bound to {stored}; {received} answered"),
-                ))
+                Self::backend_mismatch(stored, received)
             }
             ClientError::ClientVersionTooOld { client, minimum } => {
-                Self::ClientVersionTooOld(Self::details(
-                    "ClientVersionTooOld",
-                    ErrorCategory::Configuration,
-                    false,
-                    format!("client {client} is below required version {minimum}"),
-                ))
+                Self::client_version_too_old(client, minimum)
             }
             ClientError::AuthRequired { required_scopes } => Self::AuthRequired(Self::details(
                 "AuthRequired",

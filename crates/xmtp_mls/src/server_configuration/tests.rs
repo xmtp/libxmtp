@@ -23,7 +23,9 @@ fn requiring(minimum: &str) -> ServerConfiguration {
 #[xmtp_common::test(unwrap_try = true)]
 fn a_client_one_patch_below_the_minimum_is_refused() {
     let error = check_minimum_version(&requiring("1.2.4"), &version("1.2.3")).unwrap_err();
-    let ClientError::ClientVersionTooOld { client, minimum } = error else {
+    let ServerConfigError::Blocked(BlockedConnection::ClientVersionTooOld { client, minimum }) =
+        error
+    else {
         panic!("expected ClientVersionTooOld, got {error}");
     };
     assert_eq!(client, "1.2.3");
@@ -54,7 +56,12 @@ fn a_prerelease_tag_never_makes_a_client_too_old() {
         let result = check_minimum_version(&requiring(minimum), &version(client));
         if is_below {
             assert!(
-                matches!(&result, Err(ClientError::ClientVersionTooOld { .. })),
+                matches!(
+                    &result,
+                    Err(ServerConfigError::Blocked(
+                        BlockedConnection::ClientVersionTooOld { .. }
+                    ))
+                ),
                 "minimum {minimum}, client {client}: {result:?}"
             );
         } else {
@@ -89,7 +96,7 @@ fn the_first_blocked_connection_cause_wins_for_network_checks() {
     });
 
     let error = handle.check().unwrap_err();
-    let ClientError::BackendMismatch { stored, received } = error else {
+    let BlockedConnection::BackendMismatch { stored, received } = error else {
         panic!("a later blocked connection cause displaced the first: {error}");
     };
     assert_eq!(stored, "org.example.one");
@@ -200,26 +207,37 @@ fn a_catalogue_entry_no_client_could_register_is_rejected() {
 
 // The refresh worker's three attempts are driven by this
 // classification, so a transient failure must read as retryable through the
-// `ClientError` the fetch wraps it in, and a permanent one must not.
+// `ServerConfigError` the fetch wraps it in and the `ClientError` a client
+// call returns, and a permanent one must not.
 #[xmtp_common::test(unwrap_try = true)]
 fn a_transient_configuration_failure_stays_retryable() {
+    use crate::client::ClientError;
     use xmtp_common::RetryableError;
 
-    let transient = ClientError::ConfigurationUnavailable(Box::new(
-        ConfigurationFetchError::Storage(StorageError::DieselConnect(
-            diesel::ConnectionError::BadConnection("the database went away".to_owned()),
-        )),
-    ));
+    let transient = || {
+        ServerConfigError::from(ConfigurationFetchError::Storage(
+            StorageError::DieselConnect(diesel::ConnectionError::BadConnection(
+                "the database went away".to_owned(),
+            )),
+        ))
+    };
     assert!(
-        transient.is_retryable(),
+        transient().is_retryable(),
+        "a transient storage failure must be retried"
+    );
+    assert!(
+        ClientError::from(transient()).is_retryable(),
         "a transient storage failure must be retried"
     );
 
-    let permanent = ClientError::ConfigurationUnavailable(Box::new(
-        ConfigurationFetchError::Storage(StorageError::DbSerialize),
-    ));
+    let permanent =
+        || ServerConfigError::from(ConfigurationFetchError::Storage(StorageError::DbSerialize));
     assert!(
-        !permanent.is_retryable(),
+        !permanent().is_retryable(),
+        "a permanent failure must not be retried"
+    );
+    assert!(
+        !ClientError::from(permanent()).is_retryable(),
         "a permanent failure must not be retried"
     );
 }
@@ -943,17 +961,17 @@ in_dms = false
 
         const WAIT: Duration = Duration::from_secs(10);
         let assert_mismatch = |error: SubscribeError| {
-            assert_eq!(error.error_code(), "ClientError::BackendMismatch");
+            assert_eq!(error.error_code(), "BlockedConnection::BackendMismatch");
             let cause = match error {
-                SubscribeError::Configuration(cause)
+                SubscribeError::Blocked(cause)
                 | SubscribeError::LocalDelivery(
-                    crate::subscriptions::local_delivery::LocalDeliveryError::Configuration(cause),
+                    crate::subscriptions::local_delivery::LocalDeliveryError::Blocked(cause),
                 ) => cause,
                 error => panic!("expected the configuration cause, got {error:?}"),
             };
             assert!(matches!(
-                *cause,
-                crate::client::ClientError::BackendMismatch { stored, received }
+                cause,
+                crate::server_configuration::BlockedConnection::BackendMismatch { stored, received }
                     if stored == "org.example.elsewhere" && received == "org.example.distinct"
             ));
         };

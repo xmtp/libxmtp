@@ -554,7 +554,9 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
         let has_config_provider = config_provider.is_some();
         let server_configuration = match config_provider {
             Some(provider) => provider,
-            None => crate::server_configuration::resolve(&api_client, &conn, allow_offline).await?,
+            None => crate::server_configuration::resolve(&api_client, &conn, allow_offline)
+                .await
+                .map_err(ClientError::from)?,
         };
 
         #[cfg(any(test, feature = "test-utils"))]
@@ -641,7 +643,8 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
                 &conn,
                 vec![identity.inbox_id.as_str()].as_slice(),
             )
-            .await?;
+            .await
+            .map_err(ClientError::from)?;
         }
         // The identity store trusts a stored identity of the same inbox. The
         // check runs on the identity updates loaded above and before any
@@ -652,7 +655,8 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             let inbox_id = identity.inbox_id.as_str();
             let membership = if allow_offline {
                 crate::identity_updates::stored_identifier_membership(&conn, inbox_id, &identifier)
-                    .await?
+                    .await
+                    .map_err(ClientError::from)?
             } else {
                 crate::identity_updates::identifier_membership(
                     &conn,
@@ -660,7 +664,8 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
                     &identifier,
                     &scw_verifier,
                 )
-                .await?
+                .await
+                .map_err(ClientError::from)?
             };
             if !crate::identity_updates::identifier_opens_inbox(
                 membership,

@@ -1,6 +1,5 @@
 use crate::{
     XmtpApi,
-    client::ClientError,
     context::XmtpSharedContext,
     groups::group_membership::{GroupMembership, MembershipDiff},
     identity::{IdentityError, IdentityExt},
@@ -9,9 +8,10 @@ use futures::{StreamExt, TryStreamExt, stream};
 use std::collections::{HashMap, HashSet};
 use std::pin::Pin;
 use thiserror::Error;
-use xmtp_common::{Event, Retry, RetryableError, retry_async, retryable};
+use xmtp_common::{ErrorCode, Event, Retry, RetryableError, retry_async, retryable};
 use xmtp_configuration::{IDENTITY_DEPENDENCY_CONCURRENCY, MAX_IDENTITY_UPDATE_ACTIONS};
 use xmtp_cryptography::CredentialSign;
+use xmtp_cryptography::signature::IdentifierValidationError;
 use xmtp_db::StorageError;
 use xmtp_db::XmtpDb;
 use xmtp_db::prelude::*;
@@ -49,16 +49,145 @@ pub(crate) use dependencies::{
 use state_store::{ResolvedState, resolve_association_state};
 pub(crate) use state_store::{get_association_state_for_client, store_association_state};
 
-#[derive(Debug, Error)]
+/// A failure to read, verify, build, or publish identity updates.
+#[derive(Debug, Error, ErrorCode)]
 pub enum IdentityUpdateError {
+    /// Signature request error.
+    ///
+    /// The signature request is incomplete, or asks for more actions than
+    /// one identity update may carry. Not retryable.
     #[error(transparent)]
     InvalidSignatureRequest(#[from] SignatureRequestError),
+    /// API error.
+    ///
+    /// Network request to XMTP backend failed. Retryable when the request is.
     #[error(transparent)]
     Api(#[from] xmtp_api::ApiError),
+    /// Validation error.
+    ///
+    /// The identity update did not validate against its history. Not retryable.
     #[error(transparent)]
     Validation(#[from] xmtp_mls_validation::ValidationError),
+    /// Storage error.
+    ///
+    /// Database operation failed. May be retryable.
+    #[error("storage error: {0}")]
+    Storage(#[from] StorageError),
+    /// Database connection error.
+    ///
+    /// Connection to database failed. Retryable.
     #[error(transparent)]
-    Load(Box<ClientError>),
+    Db(#[from] xmtp_db::ConnectionError),
+    /// Association error.
+    ///
+    /// Identity association operation failed. Not retryable.
+    #[error("Association error: {0}")]
+    Association(#[from] AssociationError),
+    /// Signature validation error.
+    ///
+    /// A signature failed verification. Retryable when the verifier failed
+    /// transiently.
+    #[error("signature validation error: {0}")]
+    SignatureValidation(#[from] SignatureError),
+    /// Identity error.
+    ///
+    /// Problem with identity operations. Not retryable.
+    #[error("identity error: {0}")]
+    Identity(#[from] IdentityError),
+    /// Conversion error.
+    ///
+    /// Data type failed to convert. Not retryable.
+    #[error(transparent)]
+    Conversion(#[from] xmtp_proto::ConversionError),
+    #[error(transparent)]
+    #[error_code(inherit)]
+    AddressValidation(#[from] IdentifierValidationError),
+    #[error(transparent)]
+    #[error_code(inherit)]
+    Handle(#[from] crate::inbox_handles::HandleError),
+    /// The connection is blocked. Not retryable.
+    #[error(transparent)]
+    #[error_code(inherit)]
+    Blocked(#[from] crate::server_configuration::BlockedConnection),
+    /// Inbox not found.
+    ///
+    /// The backend holds no identity update for the inbox. Not retryable.
+    #[error("Unable to find provided inbox_id")]
+    InboxNotFound,
+    /// Empty identity log.
+    ///
+    /// The inbox's identity updates produced no association state. Not
+    /// retryable.
+    #[error("Unable to create association state")]
+    EmptyIdentityLog,
+    /// Publish failed.
+    ///
+    /// Publishing a signed identity update failed after its conflict retries.
+    /// Not retryable: the caller signs and applies a new request.
+    #[error(transparent)]
+    Publish(Box<IdentityUpdateError>),
+}
+
+impl From<xmtp_db::NotFound> for IdentityUpdateError {
+    fn from(value: xmtp_db::NotFound) -> Self {
+        Self::Storage(StorageError::NotFound(value))
+    }
+}
+
+impl RetryableError for IdentityUpdateError {
+    fn is_retryable(&self) -> bool {
+        match self {
+            Self::Api(error) => retryable!(error),
+            Self::Storage(error) => retryable!(error),
+            Self::Db(error) => retryable!(error),
+            // SCW verification errors carry retryability through SignatureError;
+            // transient RPC provider failures must not advance the welcome cursor.
+            // See xmtp/libxmtp#3394.
+            Self::SignatureValidation(error) => retryable!(error),
+            Self::InvalidSignatureRequest(_)
+            | Self::Validation(_)
+            | Self::Association(_)
+            | Self::Identity(_)
+            | Self::Conversion(_)
+            | Self::AddressValidation(_)
+            | Self::Handle(_)
+            | Self::Blocked(_)
+            | Self::InboxNotFound
+            | Self::EmptyIdentityLog
+            | Self::Publish(_) => false,
+        }
+    }
+
+    fn rate_limit_delay(&self) -> Option<xmtp_common::time::Duration> {
+        match self {
+            Self::Api(error) => error.rate_limit_delay(),
+            Self::SignatureValidation(error) => error.rate_limit_delay(),
+            _ => None,
+        }
+    }
+}
+
+impl crate::worker::NeedsDbReconnect for IdentityUpdateError {
+    #[deny(clippy::wildcard_enum_match_arm)]
+    fn needs_db_reconnect(&self) -> bool {
+        match self {
+            Self::Storage(error) => error.db_needs_connection(),
+            Self::Db(error) => error.db_needs_connection(),
+            Self::Identity(error) => error.needs_db_reconnect(),
+            Self::Publish(error) => error.needs_db_reconnect(),
+            Self::InvalidSignatureRequest(_)
+            | Self::Api(_)
+            | Self::Validation(_)
+            | Self::Association(_)
+            | Self::SignatureValidation(_)
+            | Self::Conversion(_)
+            | Self::AddressValidation(_)
+            | Self::Handle(_)
+            | Self::Blocked(_)
+            | Self::InboxNotFound
+            | Self::EmptyIdentityLog => false,
+        }
+    }
 }
 
 const IDENTITY_UPDATE_CONFLICT_RETRIES: usize = 3;
@@ -77,17 +206,12 @@ pub(crate) async fn publish_with_conflict_retry<ApiClient: XmtpApi>(
             Err(xmtp_api::ApiError::IdentityUpdateConflict)
                 if attempt < IDENTITY_UPDATE_CONFLICT_RETRIES =>
             {
-                load_identity_updates(api_client, conn, &[update.inbox_id.as_str()])
-                    .await
-                    .map_err(|error| IdentityUpdateError::Load(Box::new(error)))?;
-                let history = conn
-                    .get_identity_updates(&update.inbox_id, None, None)
-                    .map_err(|error| IdentityUpdateError::Load(Box::new(error.into())))?;
+                load_identity_updates(api_client, conn, &[update.inbox_id.as_str()]).await?;
+                let history = conn.get_identity_updates(&update.inbox_id, None, None)?;
                 let history = history
                     .into_iter()
                     .map(|stored| stored.to_unverified().map(Into::into))
-                    .collect::<Result<Vec<_>, _>>()
-                    .map_err(|error| IdentityUpdateError::Load(Box::new(error.into())))?;
+                    .collect::<Result<Vec<_>, _>>()?;
                 xmtp_mls_validation::validate_identity_updates(
                     history,
                     vec![update.clone().into()],
@@ -113,7 +237,7 @@ pub enum InstallationDiffError {
     #[error(transparent)]
     IdentityDependency(#[from] IdentityDependencyError),
     #[error(transparent)]
-    Client(#[from] ClientError),
+    IdentityUpdate(#[from] IdentityUpdateError),
     #[error(transparent)]
     Db(#[from] xmtp_db::ConnectionError),
     #[error(transparent)]
@@ -124,7 +248,7 @@ impl RetryableError for InstallationDiffError {
     fn is_retryable(&self) -> bool {
         match self {
             InstallationDiffError::IdentityDependency(error) => retryable!(error),
-            InstallationDiffError::Client(client_error) => retryable!(client_error),
+            InstallationDiffError::IdentityUpdate(error) => retryable!(error),
             InstallationDiffError::Storage(e) => retryable!(e),
             InstallationDiffError::Db(e) => retryable!(e),
         }
@@ -133,8 +257,20 @@ impl RetryableError for InstallationDiffError {
     fn rate_limit_delay(&self) -> Option<xmtp_common::time::Duration> {
         match self {
             InstallationDiffError::IdentityDependency(error) => error.rate_limit_delay(),
-            InstallationDiffError::Client(client_error) => client_error.rate_limit_delay(),
+            InstallationDiffError::IdentityUpdate(error) => error.rate_limit_delay(),
             _ => None,
+        }
+    }
+}
+
+impl crate::worker::NeedsDbReconnect for InstallationDiffError {
+    #[deny(clippy::wildcard_enum_match_arm)]
+    fn needs_db_reconnect(&self) -> bool {
+        match self {
+            InstallationDiffError::IdentityDependency(error) => error.needs_db_reconnect(),
+            InstallationDiffError::IdentityUpdate(error) => error.needs_db_reconnect(),
+            InstallationDiffError::Db(error) => error.db_needs_connection(),
+            InstallationDiffError::Storage(error) => error.db_needs_connection(),
         }
     }
 }
@@ -159,7 +295,7 @@ pub async fn get_association_state_with_verifier(
     inbox_id: &str,
     to_sequence_id: Option<i64>,
     scw_verifier: &impl SmartContractSignatureVerifier,
-) -> Result<AssociationState, ClientError> {
+) -> Result<AssociationState, IdentityUpdateError> {
     match resolve_association_state(conn, inbox_id, to_sequence_id, scw_verifier).await? {
         ResolvedState::Cached(state) => Ok(state),
         ResolvedState::Computed { sequence_id, state } => {
@@ -187,10 +323,10 @@ pub async fn identifier_membership(
     inbox_id: &str,
     identifier: &Identifier,
     scw_verifier: &impl SmartContractSignatureVerifier,
-) -> Result<Option<bool>, ClientError> {
+) -> Result<Option<bool>, IdentityUpdateError> {
     match get_association_state_with_verifier(conn, inbox_id, None, scw_verifier).await {
         Ok(state) => Ok(Some(state_holds_identifier(&state, identifier))),
-        Err(ClientError::Association(AssociationError::MissingIdentityUpdate)) => Ok(None),
+        Err(IdentityUpdateError::Association(AssociationError::MissingIdentityUpdate)) => Ok(None),
         Err(error) => Err(error),
     }
 }
@@ -203,9 +339,11 @@ pub async fn stored_identifier_membership(
     conn: &impl DbQuery,
     inbox_id: &str,
     identifier: &Identifier,
-) -> Result<Option<bool>, ClientError> {
+) -> Result<Option<bool>, IdentityUpdateError> {
     match identifier_membership(conn, inbox_id, identifier, &NoRequestVerifier).await {
-        Err(ClientError::SignatureValidation(SignatureError::VerifierError(_))) => Ok(Some(false)),
+        Err(IdentityUpdateError::SignatureValidation(SignatureError::VerifierError(_))) => {
+            Ok(Some(false))
+        }
         membership => membership,
     }
 }
@@ -244,7 +382,7 @@ pub fn identifier_opens_inbox(
 
 /// Refuse to revoke more members than one identity update may carry, before
 /// any request is built or signed: every validator would reject that update.
-fn check_revocation_count(count: usize) -> Result<(), ClientError> {
+fn check_revocation_count(count: usize) -> Result<(), IdentityUpdateError> {
     if count > MAX_IDENTITY_UPDATE_ACTIONS {
         return Err(SignatureRequestError::TooManyActions(count).into());
     }
@@ -257,7 +395,7 @@ pub fn revoke_installations_with_verifier(
     identifier: &Identifier,
     inbox_id: &str,
     installation_ids: Vec<Vec<u8>>,
-) -> Result<SignatureRequest, ClientError> {
+) -> Result<SignatureRequest, IdentityUpdateError> {
     check_revocation_count(installation_ids.len())?;
     let mut builder = SignatureRequestBuilder::new(inbox_id);
 
@@ -282,7 +420,7 @@ pub async fn apply_signature_request_with_verifier<ApiClient: XmtpApi>(
     conn: &impl DbQuery,
     signature_request: SignatureRequest,
     scw_verifier: &impl SmartContractSignatureVerifier,
-) -> Result<(), ClientError> {
+) -> Result<(), IdentityUpdateError> {
     // If the signature request isn't completed, this will error
     let identity_update = signature_request
         .build_identity_update()
@@ -290,7 +428,9 @@ pub async fn apply_signature_request_with_verifier<ApiClient: XmtpApi>(
 
     identity_update.to_verified(scw_verifier).await?;
 
-    publish_with_conflict_retry(api_client, conn, identity_update, scw_verifier).await?;
+    publish_with_conflict_retry(api_client, conn, identity_update, scw_verifier)
+        .await
+        .map_err(|error| IdentityUpdateError::Publish(Box::new(error)))?;
 
     Ok(())
 }
@@ -305,7 +445,7 @@ pub async fn batch_get_association_state_with_verifier(
     conn: &impl DbQuery,
     identifiers: &[(impl AsIdRef, Option<i64>)],
     scw_verifier: &impl SmartContractSignatureVerifier,
-) -> Result<Vec<AssociationState>, ClientError> {
+) -> Result<Vec<AssociationState>, IdentityUpdateError> {
     // Each read is a future that starts only when `buffered` polls it. They
     // are collected first: a stream that maps the borrowed identifiers is not
     // `Send` for every lifetime that callers such as the SDK need.
@@ -340,7 +480,7 @@ where
         &self,
         conn: &impl DbQuery,
         identifiers: &[(impl AsIdRef, Option<i64>)],
-    ) -> Result<Vec<AssociationState>, ClientError> {
+    ) -> Result<Vec<AssociationState>, IdentityUpdateError> {
         // Collected first for the reason given in
         // `batch_get_association_state_with_verifier`.
         let reads: Vec<_> = identifiers
@@ -366,7 +506,7 @@ where
         &self,
         conn: &DbConnection<<Context::Db as XmtpDb>::Connection>,
         inbox_id: InboxIdRef<'a>,
-    ) -> Result<AssociationState, ClientError> {
+    ) -> Result<AssociationState, IdentityUpdateError> {
         load_identity_updates_for_client(&self.context, conn, &[inbox_id]).await?;
         self.get_association_state(conn, inbox_id, None).await
     }
@@ -380,7 +520,7 @@ where
         before: &AssociationState,
         after: &AssociationState,
         revoked_at_ns: i64,
-    ) -> Result<(), ClientError> {
+    ) -> Result<(), IdentityUpdateError> {
         use xmtp_db::consent_record::Owed;
         use xmtp_db::user_preferences::{RootKeyWrite, write_root_key};
         use xmtp_events::{ClientEvent, EventWriter, InstallationRef, InstallationRevoked};
@@ -433,8 +573,8 @@ where
     pub(crate) async fn with_own_installation_events<T>(
         &self,
         conn: &impl DbQuery,
-        load: Pin<Box<impl Future<Output = Result<T, ClientError>>>>,
-    ) -> Result<T, ClientError> {
+        load: Pin<Box<impl Future<Output = Result<T, IdentityUpdateError>>>>,
+    ) -> Result<T, IdentityUpdateError> {
         let mut events = self
             .context
             .identity_resolution_registry()
@@ -459,7 +599,7 @@ where
         }
     }
 
-    fn latest_own_sequence(&self, conn: &impl DbQuery) -> Result<Option<i64>, ClientError> {
+    fn latest_own_sequence(&self, conn: &impl DbQuery) -> Result<Option<i64>, IdentityUpdateError> {
         let inbox_id = self.context.inbox_id();
         Ok(conn
             .get_latest_sequence_id(&[inbox_id])?
@@ -475,7 +615,7 @@ where
         &self,
         conn: &impl DbQuery,
         events: &mut OwnInstallationEvents,
-    ) -> Result<(), ClientError> {
+    ) -> Result<(), IdentityUpdateError> {
         let inbox_id = self.context.inbox_id();
         let Some(through) = events.emitted_through else {
             events.emitted_through = self.latest_own_sequence(conn)?;
@@ -506,7 +646,7 @@ where
         conn: &impl xmtp_db::DbQuery,
         inbox_id: InboxIdRef<'_>,
         to_sequence_id: Option<i64>,
-    ) -> Result<AssociationState, ClientError> {
+    ) -> Result<AssociationState, IdentityUpdateError> {
         get_association_state_for_client(&self.context, conn, inbox_id, to_sequence_id).await
     }
 
@@ -517,7 +657,7 @@ where
         &self,
         identifier: Identifier,
         maybe_nonce: Option<u64>,
-    ) -> Result<SignatureRequest, ClientError> {
+    ) -> Result<SignatureRequest, IdentityUpdateError> {
         let nonce = maybe_nonce.unwrap_or(0);
         let inbox_id = identifier.inbox_id(nonce)?;
         let installation_public_key = self.context.identity().installation_keys.verifying_key();
@@ -561,7 +701,7 @@ where
     pub async fn associate_identity(
         &self,
         new_identifier: Identifier,
-    ) -> Result<SignatureRequest, ClientError> {
+    ) -> Result<SignatureRequest, IdentityUpdateError> {
         tracing::info!(
             "Associating new wallet with inbox_id {}",
             self.context.inbox_id()
@@ -601,7 +741,7 @@ where
     pub async fn claim_handle_request(
         &self,
         handle: Handle,
-    ) -> Result<SignatureRequest, ClientError> {
+    ) -> Result<SignatureRequest, IdentityUpdateError> {
         let installation_keys = &self.context.identity().installation_keys;
         let installation_public_key = installation_keys.verifying_key();
         let mut signature_request = SignatureRequestBuilder::new(self.context.inbox_id())
@@ -623,7 +763,7 @@ where
     pub async fn revoke_identities(
         &self,
         identities_to_revoke: Vec<Identifier>,
-    ) -> Result<SignatureRequest, ClientError> {
+    ) -> Result<SignatureRequest, IdentityUpdateError> {
         check_revocation_count(identities_to_revoke.len())?;
         let inbox_id = self.context.inbox_id();
         let current_state = retry_async!(
@@ -653,7 +793,7 @@ where
     pub async fn revoke_installations(
         &self,
         installation_ids: Vec<Vec<u8>>,
-    ) -> Result<SignatureRequest, ClientError> {
+    ) -> Result<SignatureRequest, IdentityUpdateError> {
         let inbox_id = self.context.inbox_id();
         let current_state = retry_async!(
             Retry::default(),
@@ -680,7 +820,7 @@ where
     pub async fn change_recovery_identifier(
         &self,
         new_recovery_identifier: Identifier,
-    ) -> Result<SignatureRequest, ClientError> {
+    ) -> Result<SignatureRequest, IdentityUpdateError> {
         let inbox_id = self.context.inbox_id();
         let current_state = retry_async!(
             Retry::default(),
@@ -709,7 +849,7 @@ where
     pub async fn apply_signature_request(
         &self,
         signature_request: SignatureRequest,
-    ) -> Result<(), ClientError> {
+    ) -> Result<(), IdentityUpdateError> {
         // A client with a blocked connection publishes no identity update.
         self.context.server_configuration().check()?;
         let inbox_id = signature_request.inbox_id().to_string();
@@ -919,7 +1059,7 @@ pub(crate) async fn load_identity_updates_for_client<Context: XmtpSharedContext>
     context: &Context,
     conn: &impl DbQuery,
     inbox_ids: &[&str],
-) -> Result<(), ClientError> {
+) -> Result<(), IdentityUpdateError> {
     let load = Box::pin(store_identity_update_pages(
         context.api(),
         conn,
@@ -942,7 +1082,7 @@ pub async fn load_identity_updates<ApiClient: XmtpApi>(
     api_client: &ApiClientWrapper<ApiClient>,
     conn: &impl xmtp_db::DbQuery,
     inbox_ids: &[&str],
-) -> Result<(), ClientError> {
+) -> Result<(), IdentityUpdateError> {
     store_identity_update_pages(
         api_client,
         conn,
@@ -961,7 +1101,7 @@ async fn store_identity_update_pages<ApiClient: XmtpApi>(
     conn: &impl DbQuery,
     inbox_ids: &[&str],
     limits: IncomingBatchLimits,
-) -> Result<(), ClientError> {
+) -> Result<(), IdentityUpdateError> {
     if inbox_ids.is_empty() {
         return Ok(());
     }
@@ -994,7 +1134,7 @@ async fn store_identity_update_pages<ApiClient: XmtpApi>(
                         payload: update.into(),
                     })
                 })
-                .collect::<Result<Vec<_>, ClientError>>()?;
+                .collect::<Result<Vec<_>, IdentityUpdateError>>()?;
             conn.insert_or_ignore_identity_updates(&page)?;
             Ok(())
         })
@@ -1007,7 +1147,7 @@ pub async fn is_member_of_association_state<Client>(
     inbox_id: &str,
     identifier: &MemberIdentifier,
     scw_verifier: Option<Box<dyn SmartContractSignatureVerifier>>,
-) -> Result<bool, ClientError>
+) -> Result<bool, IdentityUpdateError>
 where
     Client: XmtpBackendClient + Clone,
 {
@@ -1018,9 +1158,7 @@ where
     let mut updates = api_client.get_identity_updates_v2(filters).await?;
 
     let Some(updates) = updates.remove(inbox_id) else {
-        return Err(ClientError::Generic(
-            "Unable to find provided inbox_id".to_string(),
-        ));
+        return Err(IdentityUpdateError::InboxNotFound);
     };
     let updates: Vec<UnverifiedIdentityUpdate> = updates
         .into_iter()
@@ -1038,9 +1176,7 @@ where
         association_state =
             Some(update.update_state(association_state, update.client_timestamp_ns)?);
     }
-    let association_state = association_state.ok_or(ClientError::Generic(
-        "Unable to create association state".to_string(),
-    ))?;
+    let association_state = association_state.ok_or(IdentityUpdateError::EmptyIdentityLog)?;
 
     Ok(association_state.get(identifier).is_some())
 }
@@ -1050,12 +1186,12 @@ pub async fn get_creation_signature_kind(
     conn: &impl xmtp_db::DbQuery,
     scw_verifier: impl SmartContractSignatureVerifier,
     inbox_id: InboxIdRef<'_>,
-) -> Result<Option<xmtp_id::associations::SignatureKind>, ClientError> {
+) -> Result<Option<xmtp_id::associations::SignatureKind>, IdentityUpdateError> {
     let updates = conn.get_identity_updates(inbox_id, None, None)?;
 
     let first_update = updates
         .first()
-        .ok_or_else(|| ClientError::Identity(IdentityError::RequiredIdentityNotFound))?;
+        .ok_or_else(|| IdentityUpdateError::Identity(IdentityError::RequiredIdentityNotFound))?;
 
     let unverified_update: UnverifiedIdentityUpdate = first_update.clone().to_unverified()?;
 
@@ -1072,7 +1208,7 @@ pub(crate) mod tests {
         builder::ClientBuilder,
         context::XmtpSharedContext,
         groups::group_membership::GroupMembership,
-        identity_updates::IdentityUpdates,
+        identity_updates::{IdentityUpdateError, IdentityUpdates},
         tester,
         utils::{FullXmtpClient, Tester},
     };
@@ -1669,8 +1805,9 @@ pub(crate) mod tests {
             assert!(
                 matches!(
                     error,
-                    ClientError::SignatureRequest(SignatureRequestError::TooManyActions(count))
-                        if count == over
+                    IdentityUpdateError::InvalidSignatureRequest(
+                        SignatureRequestError::TooManyActions(count)
+                    ) if count == over
                 ),
                 "{error}"
             );

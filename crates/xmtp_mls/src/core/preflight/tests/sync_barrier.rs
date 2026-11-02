@@ -107,7 +107,7 @@ enum EntryPoint {
 fn backend_mismatch(error: &GroupError) -> bool {
     matches!(
         error,
-        GroupError::Client(ClientError::BackendMismatch { .. })
+        GroupError::Blocked(BlockedConnection::BackendMismatch { .. })
     )
 }
 
@@ -211,7 +211,7 @@ async fn a_block_during_a_sync_reports_the_block() {
     assert!(
         matches!(
             error,
-            GroupError::Client(ClientError::BackendMismatch { .. })
+            GroupError::Blocked(BlockedConnection::BackendMismatch { .. })
         ),
         "the sync did not report the block: {error:?}"
     );

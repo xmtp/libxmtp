@@ -22,10 +22,11 @@ use xmtp_proto::xmtp::identity::associations::AssociationState as AssociationSta
 
 /// The backend's reason when it refused a claim.
 fn rejection(result: Result<(), ClientError>) -> Option<HandleRejection> {
-    match result {
-        Err(ClientError::IdentityUpdate(IdentityUpdateError::Api(ApiError::HandleRejected(
-            rejection,
-        )))) => Some(rejection),
+    let Err(ClientError::IdentityUpdate(IdentityUpdateError::Publish(error))) = result else {
+        return None;
+    };
+    match *error {
+        IdentityUpdateError::Api(ApiError::HandleRejected(rejection)) => Some(rejection),
         _ => None,
     }
 }
@@ -109,7 +110,9 @@ async fn claim_handle_refreshes_and_refuses_at_the_cap_before_signing() {
     replace_cached_state(&db, newest, &with_claims(&state, MAX_HANDLE_CLAIMS))?;
     assert!(matches!(
         client.claim_handle(&random_handle()).await,
-        Err(ClientError::Handle(HandleError::LimitReached))
+        Err(ClientError::IdentityUpdate(IdentityUpdateError::Handle(
+            HandleError::LimitReached
+        )))
     ));
     assert_eq!(script.lock().publishes, 0);
 
@@ -124,7 +127,9 @@ async fn claim_handle_refreshes_and_refuses_at_the_cap_before_signing() {
     replace_cached_state(&db, claimed_at, &with_claims(&state, MAX_HANDLE_CLAIMS))?;
     assert!(matches!(
         client.claim_handle(&random_handle()).await,
-        Err(ClientError::Handle(HandleError::LimitReached))
+        Err(ClientError::IdentityUpdate(IdentityUpdateError::Handle(
+            HandleError::LimitReached
+        )))
     ));
     assert_eq!(script.lock().publishes, 0);
 }

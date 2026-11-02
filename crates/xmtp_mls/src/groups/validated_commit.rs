@@ -71,12 +71,14 @@ pub enum CommitValidationError {
 }
 
 impl crate::worker::NeedsDbReconnect for CommitValidationError {
+    #[deny(clippy::wildcard_enum_match_arm)]
     fn needs_db_reconnect(&self) -> bool {
         match self {
             Self::InstalledState(error) => error.needs_db_reconnect(),
             Self::IdentityDependency(error) => error.needs_db_reconnect(),
+            Self::InstallationDiff(error) => error.needs_db_reconnect(),
             Self::StorageError(error) => error.db_needs_connection(),
-            _ => false,
+            Self::Rule(_) => false,
         }
     }
 }

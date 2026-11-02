@@ -138,7 +138,7 @@ where
     let conn = store.db();
     let verified = resolve_verified_with_verifier(api, &conn, std::slice::from_ref(&target), api)
         .await
-        .map_err(XmtpError::from_client)?
+        .map_err(XmtpError::from_core)?
         .pop()
         .flatten();
     let inbox = match (verified, target) {
@@ -168,10 +168,10 @@ where
     let inbox_id = identifier.inbox_id(0).map_err(XmtpError::from_core)?;
     load_identity_updates(api, conn, &[inbox_id.as_str()])
         .await
-        .map_err(XmtpError::from_client)?;
+        .map_err(XmtpError::from_core)?;
     let membership = identifier_membership(conn, &inbox_id, identifier, api)
         .await
-        .map_err(XmtpError::from_client)?;
+        .map_err(XmtpError::from_core)?;
     if identifier_opens_inbox(membership, identifier, 0, &inbox_id) {
         Ok(inbox_id)
     } else {
@@ -307,7 +307,7 @@ pub async fn is_address_authorized_with_backend(
         None,
     )
     .await
-    .map_err(XmtpError::from_client)
+    .map_err(XmtpError::from_core)
 }
 
 #[xmtp_macro::sdk_export(client_static)]
@@ -326,7 +326,7 @@ pub async fn is_installation_authorized_with_backend(
         None,
     )
     .await
-    .map_err(XmtpError::from_client)
+    .map_err(XmtpError::from_core)
 }
 
 #[xmtp_macro::sdk_export(client_static)]
@@ -349,11 +349,11 @@ pub async fn revoke_installations_with_backend(
         inbox_id,
         installations,
     )
-    .map_err(XmtpError::from_client)?;
+    .map_err(XmtpError::from_core)?;
     let api = api(&backend);
     let configuration = xmtp_mls::server_configuration::fetch_server_configuration(&api)
         .await
-        .map_err(XmtpError::from_client)?;
+        .map_err(|error| XmtpError::from_client(error.into()))?;
     request.restrict_chains(configuration.smart_contract_wallet_chains.clone().into());
     let signature = signer::sign(
         signer,
@@ -410,5 +410,5 @@ pub async fn revoke_installations_with_backend(
         &verifier,
     )
     .await
-    .map_err(XmtpError::from_client)
+    .map_err(XmtpError::from_core)
 }

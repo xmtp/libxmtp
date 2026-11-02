@@ -3,6 +3,7 @@
 use super::{random_handle, scripted_client, wait_until_claim_visible};
 use crate::{
     client::ClientError,
+    identity_updates::IdentityUpdateError,
     inbox_handles::{HANDLE_SEARCH_CODES, HandleError},
     tester,
 };
@@ -60,7 +61,9 @@ async fn available_handles_rejects_bad_grammar_before_any_request() {
         assert!(
             matches!(
                 client.available_handles(input).await,
-                Err(ClientError::Handle(HandleError::Invalid(_)))
+                Err(ClientError::IdentityUpdate(IdentityUpdateError::Handle(
+                    HandleError::Invalid(_)
+                )))
             ),
             "{input:?}"
         );

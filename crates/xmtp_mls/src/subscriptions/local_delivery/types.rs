@@ -89,7 +89,7 @@ pub enum LocalDeliveryError {
     /// The client's server configuration changed. Not retryable on this client.
     #[error(transparent)]
     #[error_code(inherit)]
-    Configuration(Box<crate::client::ClientError>),
+    Blocked(#[from] crate::server_configuration::BlockedConnection),
     /// Database receipt, lease, cursor, or acknowledgement failure. May be retryable.
     #[error(transparent)]
     #[error_code(inherit)]
@@ -109,6 +109,27 @@ pub enum LocalDeliveryError {
     /// This reader has been closed. Not retryable.
     #[error("The local message reader is closed")]
     Closed,
+}
+
+impl crate::worker::NeedsDbReconnect for LocalDeliveryError {
+    #[deny(clippy::wildcard_enum_match_arm)]
+    fn needs_db_reconnect(&self) -> bool {
+        match self {
+            Self::SessionFailure(error) => error.needs_db_reconnect(),
+            Self::NetworkRecoveryExhausted { source, .. } => source
+                .as_ref()
+                .is_some_and(|error| error.needs_db_reconnect()),
+            Self::NetworkFailure(error) => error.needs_db_reconnect(),
+            Self::Storage(error) => error.db_needs_connection(),
+            Self::EnrichedMessageUnavailable
+            | Self::Blocked(..)
+            | Self::AcknowledgementRejected
+            | Self::AcknowledgementFailed
+            | Self::SelectionChanged
+            | Self::InvalidConfiguration
+            | Self::Closed => false,
+        }
+    }
 }
 
 impl RetryableError for LocalDeliveryError {

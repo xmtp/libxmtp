@@ -58,6 +58,8 @@ const CLASSIFIED: &[&str] = &[
     "diesel::result::Error",
     "PreflightError",
     "StorageLocationError",
+    "ServerConfigError",
+    "BlockedConnection",
 ];
 
 /// Hand-written `source()` implementations: (type, the type it returns).

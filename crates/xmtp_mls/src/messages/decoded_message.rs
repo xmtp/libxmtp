@@ -1,5 +1,4 @@
 use super::encoded_content_type;
-use crate::groups::GroupError;
 use prost::Message;
 use xmtp_content_types::actions::{Actions, ActionsCodec};
 use xmtp_content_types::group_updated::GroupUpdatedCodec;
@@ -224,7 +223,7 @@ enum Origin {
 /// decoder consumed; use [`MessageBody::from_received_bytes`] for received
 /// bytes that must be kept exactly.
 impl TryFrom<EncodedContent> for MessageBody {
-    type Error = GroupError;
+    type Error = CodecError;
 
     fn try_from(value: EncodedContent) -> Result<Self, Self::Error> {
         let bytes = value.encode_to_vec();
@@ -234,7 +233,7 @@ impl TryFrom<EncodedContent> for MessageBody {
             0,
             Origin::Application,
         )
-        .map_err(|failure| GroupError::CodecError(failure.into()))
+        .map_err(CodecError::from)
     }
 }
 
@@ -664,7 +663,7 @@ mod tests {
                         );
                         assert!(matches!(
                             MessageBody::try_from(content),
-                            Err(GroupError::CodecError(CodecError::Decode(_)))
+                            Err(CodecError::Decode(_))
                         ));
                     }
                 }
@@ -1184,13 +1183,13 @@ mod tests {
         untyped.r#type = None;
         assert!(matches!(
             MessageBody::try_from(untyped),
-            Err(GroupError::CodecError(CodecError::InvalidContentType))
+            Err(CodecError::InvalidContentType)
         ));
         let mut bad_text = TextCodec::encode("text".into())?;
         bad_text.content = vec![0xff, 0xfe];
         assert!(matches!(
             MessageBody::try_from(bad_text),
-            Err(GroupError::CodecError(CodecError::Decode(_)))
+            Err(CodecError::Decode(_))
         ));
     }
 }

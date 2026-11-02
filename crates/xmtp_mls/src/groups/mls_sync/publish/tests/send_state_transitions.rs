@@ -183,7 +183,7 @@ async fn send_state_transitions_publish_stored_message_returns_failed_message_to
 async fn send_state_transitions_definite_refusal_fails_both_records_and_releases_later_work(
     #[case] refused: IntentKind,
     #[case] retry_deletion: Option<bool>,
-) -> Result<(), GroupError> {
+) -> Result<(), Box<dyn std::error::Error>> {
     tester!(alix, disable_workers);
     let group = alix.create_group(None, None)?;
     group.key_update().await?;
@@ -343,7 +343,7 @@ async fn send_state_transitions_definite_refusal_fails_both_records_and_releases
 #[xmtp_common::test(unwrap_try = true)]
 async fn send_state_transitions_ambiguous_failure_keeps_the_attempt_pending(
     #[case] code: tonic::Code,
-) -> Result<(), GroupError> {
+) -> Result<(), Box<dyn std::error::Error>> {
     tester!(alix, disable_workers);
     let group = alix.create_group(None, None)?;
     group.key_update().await?;
@@ -439,7 +439,7 @@ async fn group_with_pending_proposal(
     alix: &crate::utils::FullXmtpClient,
     bo: &crate::utils::FullXmtpClient,
     caro: &crate::utils::FullXmtpClient,
-) -> Result<[crate::utils::TestMlsGroup; 2], GroupError> {
+) -> Result<[crate::utils::TestMlsGroup; 2], Box<dyn std::error::Error>> {
     let group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
@@ -567,7 +567,7 @@ async fn send_state_transitions_prepared_send_never_overtakes_a_deferred_send() 
 #[xmtp_common::test(unwrap_try = true)]
 async fn send_state_transitions_publish_commits_a_pending_proposal(
     #[case] lag_newest: bool,
-) -> Result<(), GroupError> {
+) -> Result<(), Box<dyn std::error::Error>> {
     tester!(alix, disable_workers);
     tester!(bo, disable_workers);
     tester!(caro, disable_workers);

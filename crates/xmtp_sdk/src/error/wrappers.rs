@@ -41,33 +41,35 @@ macro_rules! transparent_wrappers {
 transparent_wrappers! {
     xmtp_mls::client::ClientError => [IdentityUpdate, Group(boxed), Db, MlsStore],
     xmtp_mls::groups::GroupError => [
-        StreamBarrier, ProcessIntent, Db, MlsStore, Diesel, DeviceSync(boxed),
+        StreamBarrier, ProcessIntent, Db, MlsStore, Diesel,
     ],
     xmtp_mls::builder::ClientBuilderError => [
         StorageLocation, ClientError, Identity, WrappedApiError, GroupError(boxed),
         DeviceSync(boxed),
     ],
-    xmtp_mls::identity::IdentityError => [StorageError, ApiClient, IdentityUpdate, Db],
-    xmtp_mls::identity_updates::IdentityUpdateError => [Api, Load(boxed)],
-    xmtp_mls::identity_updates::InstallationDiffError => [IdentityDependency, Client, Db, Storage],
-    xmtp_mls::identity_updates::IdentityDependencyError => [Client(boxed), Storage],
+    xmtp_mls::identity::IdentityError => [StorageError, ApiClient, Db],
+    xmtp_mls::identity_updates::IdentityUpdateError => [Api, Db, Blocked, Publish(boxed)],
+    xmtp_mls::identity_updates::InstallationDiffError => [
+        IdentityDependency, IdentityUpdate, Db, Storage,
+    ],
+    xmtp_mls::identity_updates::IdentityDependencyError => [IdentityUpdate(boxed), Storage],
     xmtp_mls::groups::validated_commit::CommitValidationError => [
         IdentityDependency, InstallationDiff, StorageError,
     ],
     xmtp_mls::mls_store::MlsStoreError => [Storage, Api, Connection],
     xmtp_mls::groups::intents::IntentError => [Storage],
     xmtp_mls::groups::GroupMessageProcessingError => [
-        Identity, Intent, ProcessIntent, Client, Db, Diesel,
+        Identity, Intent, ProcessIntent, IdentityUpdate, Db, Diesel,
     ],
     xmtp_mls::subscriptions::incoming::IncomingError => [
         Storage, Store, Transport, Group, Processing, Identity,
     ],
     xmtp_mls::subscriptions::local_delivery::LocalDeliveryError => [
-        SessionFailure(boxed), Configuration(boxed), Storage,
+        SessionFailure(boxed), Blocked, Storage,
     ],
-    xmtp_mls::worker::device_sync::DeviceSyncError => [Db, MlsStore, Subscribe, Archive],
+    xmtp_mls::worker::device_sync::DeviceSyncError => [Db, MlsStore, Archive],
     xmtp_mls::subscriptions::SubscribeError => [
-        LocalDelivery, Group(boxed), Storage, ApiClient, Db, Configuration(boxed),
+        LocalDelivery, Group(boxed), Storage, ApiClient, Db, Blocked,
     ],
     xmtp_archive::ArchiveError => [Storage],
     xmtp_mls::subscriptions::catch_up::CatchUpError => [Group],
@@ -95,6 +97,7 @@ core_errors! {
     xmtp_mls::client::ClientError,
     xmtp_mls::builder::ClientBuilderError,
     xmtp_mls::identity::IdentityError,
+    xmtp_mls::identity_updates::IdentityUpdateError,
     xmtp_mls::mls_store::MlsStoreError,
     xmtp_mls::subscriptions::SubscribeError,
     xmtp_mls::subscriptions::catch_up::CatchUpError,

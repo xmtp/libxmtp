@@ -24,7 +24,7 @@ use tokio_util::sync::CancellationToken;
 use xmtp_common::RetryableError;
 use xmtp_db::{StorageError, stream_storage::StreamStorageError};
 use xmtp_mls::{
-    client::ClientError, messages::enrichment::EnrichMessageError,
+    messages::enrichment::EnrichMessageError, server_configuration::BlockedConnection,
     subscriptions::local_delivery::LocalDeliveryError,
 };
 use xmtp_proto::api::{ApiClientError, AuthError};
@@ -66,7 +66,7 @@ pub(crate) fn delivery_error(error: LocalDeliveryError) -> XmtpError {
     }
     let message = error.to_string();
     match cause {
-        LocalDeliveryError::Configuration(cause) => configuration_error(cause, message),
+        LocalDeliveryError::Blocked(cause) => configuration_error(cause, message),
         LocalDeliveryError::Storage(StorageError::Stream(
             StreamStorageError::AlreadyActive | StreamStorageError::NotCurrentOwner,
         )) => XmtpError::ConsumerOwned(details(
@@ -116,21 +116,20 @@ fn auth_cause(error: &(dyn Error + 'static)) -> Option<AuthError> {
     error.source().and_then(auth_cause)
 }
 
-pub(crate) fn configuration_error(error: &ClientError, message: String) -> XmtpError {
+pub(crate) fn configuration_error(error: &BlockedConnection, message: String) -> XmtpError {
     match error {
-        ClientError::BackendMismatch { .. } => XmtpError::BackendMismatch(details(
+        BlockedConnection::BackendMismatch { .. } => XmtpError::BackendMismatch(details(
             "BackendMismatch",
             ErrorCategory::Configuration,
             false,
             message,
         )),
-        ClientError::ClientVersionTooOld { .. } => XmtpError::ClientVersionTooOld(details(
+        BlockedConnection::ClientVersionTooOld { .. } => XmtpError::ClientVersionTooOld(details(
             "ClientVersionTooOld",
             ErrorCategory::Configuration,
             false,
             message,
         )),
-        other => XmtpError::client_cause(other).unwrap_or_else(|| XmtpError::unknown(message)),
     }
 }
 
@@ -218,7 +217,7 @@ mod tests {
             ),
             (
                 configuration_error(
-                    &ClientError::BackendMismatch {
+                    &BlockedConnection::BackendMismatch {
                         stored: "a".into(),
                         received: "b".into(),
                     },
@@ -228,7 +227,7 @@ mod tests {
             ),
             (
                 configuration_error(
-                    &ClientError::ClientVersionTooOld {
+                    &BlockedConnection::ClientVersionTooOld {
                         client: "1".into(),
                         minimum: "2".into(),
                     },
@@ -290,7 +289,7 @@ mod tests {
         assert!(matches!(cursor, XmtpError::ForeignCursor(ref details)
             if details.code == "ForeignCursor" && !details.retryable));
         let mismatch = configuration_error(
-            &ClientError::BackendMismatch {
+            &BlockedConnection::BackendMismatch {
                 stored: "a".into(),
                 received: "b".into(),
             },
@@ -299,7 +298,7 @@ mod tests {
         assert!(matches!(mismatch, XmtpError::BackendMismatch(ref details)
             if details.code == "BackendMismatch"));
         let old = configuration_error(
-            &ClientError::ClientVersionTooOld {
+            &BlockedConnection::ClientVersionTooOld {
                 client: "1".into(),
                 minimum: "2".into(),
             },

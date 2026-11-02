@@ -4833,11 +4833,13 @@ async fn a_rate_limited_identity_proof_floors_only_its_head() {
     let before = xmtp_common::time::now_ns();
     controller.dependency_finished(DependencyResult::Identity(
         requirements,
-        Err(crate::identity_updates::IdentityDependencyError::Client(
-            Box::new(crate::client::ClientError::Api(rate_limited_api(
-                "request", delay,
-            ))),
-        )),
+        Err(
+            crate::identity_updates::IdentityDependencyError::IdentityUpdate(Box::new(
+                crate::identity_updates::IdentityUpdateError::Api(rate_limited_api(
+                    "request", delay,
+                )),
+            )),
+        ),
     ));
     let head = alix.context.db().first_pending_envelope(&key)?.unwrap();
     assert!(head.retry_at_ns >= before + delay.as_nanos() as i64);

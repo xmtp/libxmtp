@@ -12,6 +12,7 @@ use crate::{
     },
     inbox_handles::{self, HandleError, IdentityTarget, account_targets, resolve_verified_in},
     mls_store::{MlsStore, MlsStoreError},
+    server_configuration::{BlockedConnection, ServerConfigError},
     subscriptions::{
         LocalEventError,
         internal::{emit_consent_changes, emit_deleted_messages},
@@ -216,11 +217,12 @@ pub enum ClientError {
     /// Connection to database failed. Retryable.
     #[error(transparent)]
     Db(#[from] xmtp_db::ConnectionError),
-    /// Generic error.
+    /// Message decode failed.
     ///
-    /// Unclassified error. May be retryable.
-    #[error("generic:{0}")]
-    Generic(String),
+    /// Enrichment returned no decoded message for a stored message. Not
+    /// retryable.
+    #[error("Failed to decode message")]
+    MessageDecodeFailed,
     /// MLS store error.
     ///
     /// OpenMLS key store operation failed. Not retryable.
@@ -317,13 +319,42 @@ pub enum ClientError {
 }
 
 impl ClientError {
+    #[deny(clippy::wildcard_enum_match_arm)]
     pub fn db_needs_connection(&self) -> bool {
+        use crate::worker::NeedsDbReconnect;
         match self {
             Self::Storage(s) | Self::ConsentAct(ConsentActError::Storage(s)) => {
                 s.db_needs_connection()
             }
             Self::Db(c) => c.db_needs_connection(),
-            _ => false,
+            Self::Group(error) => error.needs_db_reconnect(),
+            Self::Identity(error) => error.needs_db_reconnect(),
+            Self::IdentityUpdate(error) => error.needs_db_reconnect(),
+            Self::MlsStore(error) => error.needs_db_reconnect(),
+            Self::ConfigurationUnavailable(error) => error.db_needs_connection(),
+            Self::ConsentAct(_)
+            | Self::AddressValidation(..)
+            | Self::PublishError(..)
+            | Self::Api(..)
+            | Self::TlsError(..)
+            | Self::KeyPackageVerification(..)
+            | Self::StreamInconsistency(..)
+            | Self::Association(..)
+            | Self::SignatureValidation(..)
+            | Self::SignatureRequest(..)
+            | Self::LocalEvent(..)
+            | Self::MessageDecodeFailed
+            | Self::EnrichMessage(..)
+            | Self::Conversion(..)
+            | Self::Handle(..)
+            | Self::RegistrationNotVisible
+            | Self::AlreadyClosed
+            | Self::ConfigurationInvalid(..)
+            | Self::BackendMismatch { .. }
+            | Self::ClientVersionTooOld { .. }
+            | Self::AuthRequired { .. }
+            | Self::ChainNotAccepted { .. }
+            | Self::InvalidListOptions(..) => false,
         }
     }
 }
@@ -340,10 +371,35 @@ impl From<GroupError> for ClientError {
     }
 }
 
+impl From<BlockedConnection> for ClientError {
+    fn from(blocked_connection: BlockedConnection) -> Self {
+        match blocked_connection {
+            BlockedConnection::BackendMismatch { stored, received } => {
+                ClientError::BackendMismatch { stored, received }
+            }
+            BlockedConnection::ClientVersionTooOld { client, minimum } => {
+                ClientError::ClientVersionTooOld { client, minimum }
+            }
+        }
+    }
+}
+
+impl From<ServerConfigError> for ClientError {
+    fn from(error: ServerConfigError) -> Self {
+        match error {
+            ServerConfigError::Unavailable(error) => ClientError::ConfigurationUnavailable(error),
+            ServerConfigError::Invalid(error) => ClientError::ConfigurationInvalid(error),
+            ServerConfigError::Blocked(blocked_connection) => blocked_connection.into(),
+            ServerConfigError::Closed => ClientError::AlreadyClosed,
+        }
+    }
+}
+
 impl xmtp_common::RetryableError for ClientError {
     fn is_retryable(&self) -> bool {
         match self {
             ClientError::Group(group_error) => retryable!(group_error),
+            ClientError::IdentityUpdate(error) => retryable!(error),
             ClientError::Api(api_error) => retryable!(api_error),
             ClientError::Storage(storage_error) => retryable!(storage_error),
             ClientError::Db(db) => retryable!(db),
@@ -355,7 +411,6 @@ impl xmtp_common::RetryableError for ClientError {
             // briefly locked, is worth another attempt: the refresh worker's
             // backoff depends on this answer.
             ClientError::ConfigurationUnavailable(e) => retryable!(e),
-            ClientError::Generic(err) => err.contains("database is locked"),
             _ => false,
         }
     }
@@ -363,23 +418,12 @@ impl xmtp_common::RetryableError for ClientError {
     fn rate_limit_delay(&self) -> Option<xmtp_common::time::Duration> {
         match self {
             ClientError::Group(group_error) => group_error.rate_limit_delay(),
+            ClientError::IdentityUpdate(error) => error.rate_limit_delay(),
             ClientError::Api(api_error) => api_error.rate_limit_delay(),
             ClientError::SignatureValidation(e) => e.rate_limit_delay(),
             ClientError::ConfigurationUnavailable(e) => e.rate_limit_delay(),
             _ => None,
         }
-    }
-}
-
-impl From<String> for ClientError {
-    fn from(value: String) -> Self {
-        Self::Generic(value)
-    }
-}
-
-impl From<&str> for ClientError {
-    fn from(value: &str) -> Self {
-        Self::Generic(value.to_string())
     }
 }
 
@@ -568,7 +612,7 @@ where
     pub async fn refresh_server_configuration(
         &self,
     ) -> Result<xmtp_configuration::ServerConfiguration, ClientError> {
-        crate::core::preflight::refresh(&self.context).await
+        Ok(crate::core::preflight::refresh(&self.context).await?)
     }
 
     /// Retrieves the client's installation public key, sometimes also called `installation_id`
@@ -791,7 +835,9 @@ where
 
     /// Ensures identity is ready before performing operations.
     /// Call `register_identity()` first if this fails.
-    pub(crate) fn ensure_identity_ready(&self) -> Result<(), ClientError> {
+    pub(crate) fn ensure_identity_ready<E: From<BlockedConnection> + From<IdentityError>>(
+        &self,
+    ) -> Result<(), E> {
         // Once the connection is blocked, every later call fails with the
         // reason. This is the gate every client-level operation already passes
         // through, so the check costs nothing extra.
@@ -813,7 +859,7 @@ where
         permissions_policy_set: Option<PolicySet>,
         opts: Option<GroupMetadataOptions>,
     ) -> Result<MlsGroup<Context>, ClientError> {
-        self.ensure_identity_ready()?;
+        self.ensure_identity_ready::<ClientError>()?;
 
         let group: MlsGroup<Context> = MlsGroup::create_and_insert(
             self.context.clone(),
@@ -859,7 +905,7 @@ where
         opts: Option<GroupMetadataOptions>,
     ) -> Result<MlsGroup<Context>, ClientError> {
         tracing::info!("creating group");
-        self.ensure_identity_ready()?;
+        self.ensure_identity_ready::<ClientError>()?;
         let opts = opts.unwrap_or_default();
         let draft = MlsGroup::<Context>::prepare_new(
             &self.context,
@@ -942,7 +988,7 @@ where
         target_identity: Identifier,
         opts: Option<DMMetadataOptions>,
     ) -> Result<MlsGroup<Context>, ClientError> {
-        self.ensure_identity_ready()?;
+        self.ensure_identity_ready::<ClientError>()?;
         tracing::info!("finding or creating dm with address: {target_identity}");
         let inbox_id = match self
             .find_inbox_id_from_identifier(target_identity.clone())
@@ -966,7 +1012,7 @@ where
         inbox_id: impl AsIdRef,
         opts: Option<DMMetadataOptions>,
     ) -> Result<MlsGroup<Context>, ClientError> {
-        self.ensure_identity_ready()?;
+        self.ensure_identity_ready::<ClientError>()?;
         let inbox_id = inbox_id.as_ref();
         tracing::info!("finding or creating dm with inbox_id: {}", inbox_id);
         let db = self.context.db();
@@ -1025,7 +1071,7 @@ where
         group_id: &GroupId,
     ) -> Result<Vec<MlsGroup<Context>>, ClientError> {
         let (group, _) = MlsGroup::new_cached(self.context.clone(), group_id)?;
-        group.find_duplicate_dms()
+        Ok(group.find_duplicate_dms()?)
     }
 
     /// Fetches the message disappearing settings for a given group ID.
@@ -1111,7 +1157,7 @@ where
             .into_iter()
             .next()
             // In practice `enrich_messages` should always return an array of the same length as the input
-            .ok_or_else(|| ClientError::Generic("Failed to decode message".to_string()))
+            .ok_or(ClientError::MessageDecodeFailed)
     }
 
     /// Delete a message by its ID
@@ -1295,7 +1341,8 @@ where
                         identity_update,
                         &self.context.scw_verifier(),
                     )
-                    .await?;
+                    .await
+                    .map_err(|error| IdentityUpdateError::Publish(Box::new(error)))?;
                     // Step 5: Fetch and store in local DB (needed for group operations)
                     retry_async!(
                         Retry::default(),
@@ -1434,7 +1481,7 @@ where
         // A client with a blocked connection publishes nothing. This one
         // reaches `Identity` directly instead of going through a group or the
         // publish path, so it carries its own gate.
-        self.ensure_identity_ready()?;
+        self.ensure_identity_ready::<ClientError>()?;
         crate::identity_lifecycle::rotate_and_upload_key_package(
             self.identity(),
             self.context.api(),
@@ -1468,7 +1515,7 @@ where
     /// Returns any new groups created in the operation
     #[tracing::instrument(skip_all)]
     pub async fn sync_welcomes(&self) -> Result<Vec<MlsGroup<Context>>, GroupError> {
-        self.ensure_identity_ready()?;
+        self.ensure_identity_ready::<GroupError>()?;
         WelcomeService::new(self.context.clone())
             .sync_welcomes()
             .await
@@ -1482,7 +1529,7 @@ where
         &self,
         groups: Vec<MlsGroup<Context>>,
     ) -> Result<GroupSyncSummary, GroupError> {
-        self.ensure_identity_ready()?;
+        self.ensure_identity_ready::<GroupError>()?;
         WelcomeService::new(self.context.clone())
             .sync_all_groups(groups)
             .await
@@ -1496,7 +1543,7 @@ where
         &self,
         consent_states: Option<Vec<ConsentState>>,
     ) -> Result<GroupSyncSummary, GroupError> {
-        self.ensure_identity_ready()?;
+        self.ensure_identity_ready::<GroupError>()?;
         WelcomeService::new(self.context.clone())
             .sync_all_welcomes_and_groups(consent_states)
             .await
@@ -1513,7 +1560,7 @@ where
     /// cheap "post-upgrade recovery" hook independent of the normal
     /// sync flow.
     pub async fn unstick_paused_groups(&self) -> Result<usize, GroupError> {
-        self.ensure_identity_ready()?;
+        self.ensure_identity_ready::<GroupError>()?;
         WelcomeService::new(self.context.clone())
             .unstick_paused_groups()
             .await
@@ -1637,15 +1684,18 @@ impl<Context: XmtpSharedContext> Client<Context> {
         &self,
         handles: &[Handle],
     ) -> Result<Vec<Option<InboxId>>, ClientError> {
-        inbox_handles::resolve_verified_in(&self.context, &inbox_handles::handle_targets(handles))
-            .await
+        Ok(inbox_handles::resolve_verified_in(
+            &self.context,
+            &inbox_handles::handle_targets(handles),
+        )
+        .await?)
     }
 
     /// Whether the backend names an inbox for each handle, in order. This
     /// checks no association state: use it only where a wrong answer costs a
     /// candidate, never to reach an inbox.
     pub async fn handles_have_owner(&self, handles: &[Handle]) -> Result<Vec<bool>, ClientError> {
-        inbox_handles::handles_have_owner(&self.context, handles).await
+        Ok(inbox_handles::handles_have_owner(&self.context, handles).await?)
     }
 
     /// The handles for `input` that no inbox holds. `input` is a handle as a
@@ -1656,7 +1706,7 @@ impl<Context: XmtpSharedContext> Client<Context> {
     /// before any request. No policy applies here, so a returned handle can
     /// still be refused when it is claimed.
     pub async fn available_handles(&self, input: &str) -> Result<Vec<Handle>, ClientError> {
-        inbox_handles::available_handles(&self.context, input).await
+        Ok(inbox_handles::available_handles(&self.context, input).await?)
     }
 
     /// Claim `handle` for this client's inbox, signed by this installation's
@@ -1665,8 +1715,8 @@ impl<Context: XmtpSharedContext> Client<Context> {
     /// frequent claim with `ApiError::HandleRejected`. After the publish, the
     /// client has stored the inbox's new identity update.
     pub async fn claim_handle(&self, handle: &Handle) -> Result<(), ClientError> {
-        self.ensure_identity_ready()?;
-        inbox_handles::claim_handle(&self.context, handle).await
+        self.ensure_identity_ready::<ClientError>()?;
+        Ok(inbox_handles::claim_handle(&self.context, handle).await?)
     }
 
     /// The inbox of each target, in order, from one call. Fails when any
@@ -1676,7 +1726,7 @@ impl<Context: XmtpSharedContext> Client<Context> {
         &self,
         targets: &[IdentityTarget],
     ) -> Result<Vec<InboxId>, ClientError> {
-        inbox_handles::resolve_targets(&self.context, targets).await
+        Ok(inbox_handles::resolve_targets(&self.context, targets).await?)
     }
 
     /// The active DM with `target`, or `None`. A target that no inbox holds
@@ -1735,7 +1785,7 @@ impl<Context: XmtpSharedContext> Client<Context> {
         opts: Option<GroupMetadataOptions>,
     ) -> Result<MlsGroup<Context>, ClientError> {
         let inboxes = inbox_handles::resolve_targets_in(&self.context, targets).await?;
-        let inbox_ids = inbox_handles::require_account_inboxes(targets, inboxes)?;
+        let inbox_ids = crate::groups::targets::require_account_inboxes(targets, inboxes)?;
         self.create_group_with_members(&inbox_ids, permissions_policy_set, opts)
             .await
     }

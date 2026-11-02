@@ -7,7 +7,11 @@ use std::sync::Arc;
 use xmtp_api::{ApiError, preflight::PreflightError};
 use xmtp_db::{StorageError, stream_storage::StreamStorageError};
 use xmtp_mls::{
-    client::ClientError, groups::GroupError, subscriptions::incoming::IncomingError,
+    client::ClientError,
+    groups::GroupError,
+    identity_updates::IdentityUpdateError,
+    server_configuration::{BlockedConnection, ServerConfigError},
+    subscriptions::incoming::IncomingError,
     subscriptions::local_delivery::LocalDeliveryError,
 };
 use xmtp_proto::api::NetworkError;
@@ -81,15 +85,15 @@ fn unsupported_databases_carry_their_cause_code() {
     }
 }
 
-fn mismatch() -> ClientError {
-    ClientError::BackendMismatch {
+fn blocked() -> BlockedConnection {
+    BlockedConnection::BackendMismatch {
         stored: "deployment-a".into(),
         received: "deployment-b".into(),
     }
 }
 
 /// A configuration check before a request, as the API returns it.
-fn preflight(cause: ClientError) -> ApiError {
+fn preflight(cause: ServerConfigError) -> ApiError {
     ApiError::Preflight(PreflightError::new(cause))
 }
 
@@ -140,9 +144,9 @@ fn storage_retry_policy_comes_from_the_typed_cause() {
         ErrorCategory::Storage,
         false,
     );
-    // A storage cause inside a client error inside a group error.
+    // A storage cause inside an identity update error inside a group error.
     expect(
-        XmtpError::from_group(GroupError::Client(ClientError::Storage(
+        XmtpError::from_group(GroupError::IdentityUpdate(IdentityUpdateError::Storage(
             StorageError::Stream(StreamStorageError::HeadChanged),
         ))),
         "Storage",
@@ -156,7 +160,7 @@ fn storage_retry_policy_comes_from_the_typed_cause() {
 fn a_failed_check_before_a_request_keeps_its_configuration_code() {
     // A group call whose request failed its configuration check.
     expect(
-        XmtpError::from_group(GroupError::WrappedApi(preflight(mismatch()))),
+        XmtpError::from_group(GroupError::WrappedApi(preflight(blocked().into()))),
         "BackendMismatch",
         ErrorCategory::Configuration,
         false,
@@ -164,10 +168,11 @@ fn a_failed_check_before_a_request_keeps_its_configuration_code() {
     // A client call.
     expect(
         XmtpError::from_client(ClientError::Api(preflight(
-            ClientError::ClientVersionTooOld {
+            BlockedConnection::ClientVersionTooOld {
                 client: "1.0.0".into(),
                 minimum: "2.0.0".into(),
-            },
+            }
+            .into(),
         ))),
         "ClientVersionTooOld",
         ErrorCategory::Configuration,
@@ -175,13 +180,13 @@ fn a_failed_check_before_a_request_keeps_its_configuration_code() {
     );
     // An API call, and a closed client found by the check.
     expect(
-        XmtpError::from_api(preflight(ClientError::AlreadyClosed)),
+        XmtpError::from_api(preflight(ServerConfigError::Closed)),
         "ClientClosed",
         ErrorCategory::Lifecycle,
         false,
     );
     // A stream whose network recovery failed its configuration check.
-    let network = IncomingError::Transport(NetworkError::new(preflight(mismatch())));
+    let network = IncomingError::Transport(NetworkError::new(preflight(blocked().into())));
     expect(
         crate::delivery::delivery_error(LocalDeliveryError::NetworkFailure(Arc::new(network))),
         "BackendMismatch",
@@ -221,8 +226,8 @@ fn a_storage_cause_behind_transparent_wrappers_keeps_its_retry_policy() {
     retryable_storage(XmtpError::from_group(GroupError::MlsStore(
         MlsStoreError::Storage(head_changed()),
     )));
-    retryable_storage(XmtpError::from_group(GroupError::Client(
-        ClientError::Identity(IdentityError::StorageError(head_changed())),
+    retryable_storage(XmtpError::from_group(GroupError::IdentityUpdate(
+        IdentityUpdateError::Identity(IdentityError::StorageError(head_changed())),
     )));
     retryable_storage(XmtpError::from_client(ClientError::Identity(
         IdentityError::StorageError(head_changed()),
@@ -263,7 +268,7 @@ fn a_credential_cause_behind_transparent_wrappers_keeps_its_code() {
     );
     // A client error with no source of its own behind a builder error.
     expect(
-        XmtpError::from_builder(ClientBuilderError::ClientError(mismatch())),
+        XmtpError::from_builder(ClientBuilderError::ClientError(blocked().into())),
         "BackendMismatch",
         ErrorCategory::Configuration,
         false,
@@ -335,9 +340,9 @@ fn a_store_cause_in_a_client_error_keeps_its_code() {
 fn a_store_cause_in_a_group_client_error_keeps_its_code() {
     use xmtp_mls::mls_store::MlsStoreError;
     expect(
-        XmtpError::from_group(GroupError::Client(ClientError::MlsStore(
+        XmtpError::from_client(ClientError::Group(Box::new(GroupError::MlsStore(
             MlsStoreError::Storage(head_changed()),
-        ))),
+        )))),
         "Storage",
         ErrorCategory::Storage,
         true,
@@ -374,7 +379,7 @@ fn a_connection_cause_in_a_group_error_is_storage() {
 #[xmtp_common::test(unwrap_try = true)]
 fn a_configuration_cause_in_a_group_error_keeps_its_code() {
     expect(
-        XmtpError::from_group(GroupError::Client(mismatch())),
+        XmtpError::from_group(GroupError::Blocked(blocked())),
         "BackendMismatch",
         ErrorCategory::Configuration,
         false,
@@ -387,13 +392,13 @@ fn a_configuration_cause_in_a_group_error_keeps_its_code() {
 fn push_processing_keeps_a_configuration_code() {
     use xmtp_mls::client::notifications::NotificationError;
     expect(
-        XmtpError::from_notification(NotificationError::Group(GroupError::Client(mismatch()))),
+        XmtpError::from_notification(NotificationError::Group(GroupError::Blocked(blocked()))),
         "BackendMismatch",
         ErrorCategory::Configuration,
         false,
     );
     expect(
-        XmtpError::from_notification(NotificationError::Api(preflight(mismatch()))),
+        XmtpError::from_notification(NotificationError::Api(preflight(blocked().into()))),
         "BackendMismatch",
         ErrorCategory::Configuration,
         false,
@@ -412,9 +417,9 @@ fn a_storage_cause_in_an_archive_error_keeps_its_retry_policy() {
         true,
     );
     expect(
-        XmtpError::from_group(GroupError::DeviceSync(Box::new(DeviceSyncError::Archive(
+        XmtpError::from_core(DeviceSyncError::Archive(
             xmtp_archive::ArchiveError::Storage(head_changed()),
-        )))),
+        )),
         "Storage",
         ErrorCategory::Storage,
         true,
@@ -423,17 +428,9 @@ fn a_storage_cause_in_an_archive_error_keeps_its_retry_policy() {
 
 #[xmtp_common::test(unwrap_try = true)]
 fn a_storage_cause_in_a_subscribe_error_keeps_its_retry_policy() {
-    use xmtp_mls::{subscriptions::SubscribeError, worker::device_sync::DeviceSyncError};
+    use xmtp_mls::subscriptions::SubscribeError;
     expect(
         XmtpError::from_core(SubscribeError::Storage(head_changed())),
-        "Storage",
-        ErrorCategory::Storage,
-        true,
-    );
-    expect(
-        XmtpError::from_group(GroupError::DeviceSync(Box::new(
-            DeviceSyncError::Subscribe(SubscribeError::Storage(head_changed())),
-        ))),
         "Storage",
         ErrorCategory::Storage,
         true,

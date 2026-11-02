@@ -100,7 +100,7 @@ fn legacy_entry(group: &TestMlsGroup, payload: Vec<u8>) -> Result<(), GroupError
 #[xmtp_common::test(unwrap_try = true)]
 async fn shared_key_revocation_delta_without_remove_is_omitted(
     #[case] readd: bool,
-) -> Result<(), GroupError> {
+) -> Result<(), Box<dyn std::error::Error>> {
     tester!(alix, disable_workers);
     tester!(alix2, from: alix, disable_workers);
     tester!(bo, disable_workers);
@@ -168,7 +168,8 @@ async fn shared_key_revocation_delta_without_remove_is_omitted(
 
 // verifies: GMOD-047, GMOD-052
 #[xmtp_common::test(unwrap_try = true)]
-async fn failed_key_remove_does_not_cover_a_pending_refresh() -> Result<(), GroupError> {
+async fn failed_key_remove_does_not_cover_a_pending_refresh()
+-> Result<(), Box<dyn std::error::Error>> {
     tester!(alix, disable_workers);
     tester!(bo, disable_workers);
     tester!(bo2, from: bo, disable_workers);

@@ -197,7 +197,7 @@ struct Outcome {
 }
 
 /// The first three variant names of an error's wrapper chain, such as
-/// `Client(Api(Api`.
+/// `IdentityUpdate(Api(Api`.
 fn chain(error: &impl std::fmt::Debug) -> String {
     format!("{error:?}")
         .split('(')
@@ -323,14 +323,14 @@ fn expected() -> Vec<Outcome> {
             TransientApi,
             true,
             Some(false),
-            "Client(Api(Api",
+            "IdentityUpdate(Api(Api",
         ),
         row(
             "diff",
             TransientApi,
             true,
             None,
-            "IdentityDependency(Client(Api",
+            "IdentityDependency(IdentityUpdate(Api",
         ),
         row(
             "group sync",
@@ -354,14 +354,14 @@ fn expected() -> Vec<Outcome> {
             InvalidRequest,
             false,
             Some(false),
-            "Client(Api(InvalidRequest",
+            "IdentityUpdate(Api(InvalidRequest",
         ),
         row(
             "diff",
             InvalidRequest,
             false,
             None,
-            "IdentityDependency(Client(Api",
+            "IdentityDependency(IdentityUpdate(Api",
         ),
         row(
             "dependency",
@@ -382,14 +382,14 @@ fn expected() -> Vec<Outcome> {
             NoVerifier,
             true,
             Some(false),
-            "Client(SignatureValidation(VerifierError",
+            "IdentityUpdate(SignatureValidation(VerifierError",
         ),
         row(
             "diff",
             NoVerifier,
             true,
             None,
-            "IdentityDependency(Client(SignatureValidation",
+            "IdentityDependency(IdentityUpdate(SignatureValidation",
         ),
         row(
             "group sync",
@@ -413,14 +413,14 @@ fn expected() -> Vec<Outcome> {
             MalformedEipUrl,
             false,
             Some(false),
-            "Client(SignatureValidation(VerifierError",
+            "IdentityUpdate(SignatureValidation(VerifierError",
         ),
         row(
             "diff",
             MalformedEipUrl,
             false,
             None,
-            "IdentityDependency(Client(SignatureValidation",
+            "IdentityDependency(IdentityUpdate(SignatureValidation",
         ),
         row(
             "group sync",
@@ -689,8 +689,10 @@ async fn identity_load_failures_keep_retryability_in_every_wrapper(
     assert!(
         matches!(
             error,
-            crate::client::ClientError::Identity(
-                crate::identity::IdentityError::RequiredIdentityNotFound
+            crate::client::ClientError::IdentityUpdate(
+                crate::identity_updates::IdentityUpdateError::Identity(
+                    crate::identity::IdentityError::RequiredIdentityNotFound
+                )
             )
         ),
         "{error:?}"

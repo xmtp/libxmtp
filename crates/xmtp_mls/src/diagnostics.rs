@@ -186,7 +186,6 @@ pub(crate) fn record_welcome_retry(code: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::groups::GroupError;
     use crate::groups::diagnostics::SNAPSHOT_COMMIT_LIMIT;
     use crate::{tester, utils::test::MlsGroupExt};
     use xmtp_db::{group::GroupMembershipState, prelude::*};
@@ -261,7 +260,8 @@ mod tests {
         let bo_group = xmtp_common::wait_for_ok(|| async {
             bo.sync_welcomes()
                 .await
-                .and_then(|_| bo.group(&group.group_id).map_err(GroupError::from))
+                .map_err(crate::client::ClientError::from)
+                .and_then(|_| bo.group(&group.group_id))
         })
         .await?;
         let first = group.diagnostic_snapshot()?;
@@ -298,7 +298,8 @@ mod tests {
         let bo_group = xmtp_common::wait_for_ok(|| async {
             bo.sync_welcomes()
                 .await
-                .and_then(|_| bo.group(&group.group_id).map_err(GroupError::from))
+                .map_err(crate::client::ClientError::from)
+                .and_then(|_| bo.group(&group.group_id))
         })
         .await?;
         bo_group.update_consent_state(ConsentState::Denied)?;
