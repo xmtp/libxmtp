@@ -13267,7 +13267,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_mls_boundaries"
-version = "1.12.0-dev.1"
+version = "8.0.0"
 dependencies = [
  "anyhow",
  "clap",
