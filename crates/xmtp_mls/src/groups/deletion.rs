@@ -52,21 +52,17 @@ pub(crate) enum Source {
     Archive,
 }
 
-/// A deletion message an archive holds, kept until the import stores its
-/// target.
-struct ArchivedDeletion {
-    group_id: GroupId,
-    deleter: String,
-    sent_at_ns: i64,
-    id: Vec<u8>,
-}
-
-/// An archive's `Published` deletion messages, by target id. Memory grows
-/// with the archive's deletions, not its messages. A pre-8.0 archive has no
-/// marks or records: these restore its self-deletions, and only for a
-/// message the same import creates.
+/// An archive's `Published` deletion messages: for each target, group and
+/// deleter, the earliest one's time and id. One entry per such triple, so
+/// memory grows with the archive's deletions, not its messages, and each
+/// message costs constant time. A pre-8.0 archive has no marks or records:
+/// these restore its self-deletions, and only for a message the same import
+/// creates.
 #[derive(Default)]
-pub(crate) struct ArchivedSelfDeletions(HashMap<Vec<u8>, Vec<ArchivedDeletion>>);
+pub(crate) struct ArchivedSelfDeletions(HashMap<DeletionKey, (i64, Vec<u8>)>);
+
+/// A deletion's target id, group and deleter inbox.
+type DeletionKey = (Vec<u8>, GroupId, String);
 
 impl ArchivedSelfDeletions {
     /// Keep `message` when it is an archived `Published` deletion message.
@@ -80,45 +76,36 @@ impl ArchivedSelfDeletions {
         let Some(target) = message.reference_id.clone() else {
             return;
         };
-        let found = self.0.entry(target).or_default();
-        if found.iter().all(|known| known.id != message.id) {
-            found.push(ArchivedDeletion {
-                group_id: message.group_id,
-                deleter: message.sender_inbox_id.clone(),
-                sent_at_ns: message.sent_at_ns,
-                id: message.id.clone(),
-            });
+        let key = (target, message.group_id, message.sender_inbox_id.clone());
+        let candidate = (message.sent_at_ns, message.id.clone());
+        let earliest = self.0.entry(key).or_insert_with(|| candidate.clone());
+        if candidate < *earliest {
+            *earliest = candidate;
         }
     }
 
-    /// Mark `row`, which this import's insert just created, from the
-    /// earliest archived deletion its own sender sent. A deletion by anyone
-    /// else, or of a message the client already held, is never applied.
-    /// Returns true when it marked the row.
+    /// Mark `row`, which this import's insert just created, when the archive
+    /// holds a deletion of it by its own sender. A deletion by anyone else,
+    /// or of a message the client already held, is never applied. Returns
+    /// true when it marked the row.
     // implements: ARCH-028
     pub(crate) fn apply_to_inserted(
         &self,
         db: &impl DbQuery,
         row: &StoredGroupMessage,
     ) -> Result<bool, xmtp_db::ConnectionError> {
-        let Some(first) = self.0.get(&row.id).and_then(|found| {
-            found
-                .iter()
-                .filter(|deletion| {
-                    deletion.group_id == row.group_id && deletion.deleter == row.sender_inbox_id
-                })
-                .min_by(|a, b| (a.sent_at_ns, &a.id).cmp(&(b.sent_at_ns, &b.id)))
-        }) else {
+        let key = (row.id.clone(), row.group_id, row.sender_inbox_id.clone());
+        if !self.0.contains_key(&key) {
             return Ok(false);
-        };
-        if may_delete(&row.group_id, &first.deleter, false, row).is_err() {
+        }
+        if may_delete(&row.group_id, &row.sender_inbox_id, false, row).is_err() {
             return Ok(false);
         }
         mark(
             db,
             &DiscardEvents,
             row.clone(),
-            &first.deleter,
+            &row.sender_inbox_id,
             DeletionCause::Deleted,
         )
     }
