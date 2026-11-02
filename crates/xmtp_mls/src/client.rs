@@ -1609,7 +1609,6 @@ impl<Context: XmtpSharedContext> Client<Context> {
 
 impl<Context: XmtpSharedContext> Client<Context> {
     /// Store configuration, then register inline. The task retries transient errors.
-    #[xmtp_common::rpc_span]
     pub async fn enable_notifications(
         &self,
         config: NotificationConfig,
@@ -1619,7 +1618,6 @@ impl<Context: XmtpSharedContext> Client<Context> {
 
     /// Disable locally before unregistering. The recipient identity and overrides stay.
     /// A failed unregister leaves the client disabled with its recipient reset owed.
-    #[xmtp_common::rpc_span]
     pub async fn disable_notifications(&self) -> Result<(), NotificationError> {
         notifications::disable_notifications(&self.context).await
     }
