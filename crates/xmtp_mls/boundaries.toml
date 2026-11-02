@@ -192,7 +192,7 @@ reason = "Task 17 moves identity_ext with the identity crate."
 from = "engine"
 to = "facade"
 tier = "call"
-count = 46
+count = 18
 reason = "PR 5b (Tasks 12 and 15): engine test helpers outside test suites still build a facade client or name the facade's test utilities."
 
 [[waivers]]
