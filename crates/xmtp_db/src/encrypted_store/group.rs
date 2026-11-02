@@ -1678,6 +1678,36 @@ pub(crate) mod tests {
     };
     use xmtp_common::{Generate, assert_ok, rand_vec, time::now_ns};
 
+    /// A one-shot group's deletion records go with it; another group's stay.
+    // verifies: PROC-037
+    #[xmtp_common::test(unwrap_try = true)]
+    fn oneshot_delete_removes_its_deletion_records() {
+        use crate::message_deletion::{QueryMessageDeletion, StoredMessageDeletion};
+        with_connection(|conn| {
+            let oneshot = StoredGroup {
+                conversation_type: ConversationType::Oneshot,
+                ..generate_group(None)
+            };
+            let kept = generate_group(None);
+            oneshot.store(conn)?;
+            kept.store(conn)?;
+            for (id, group_id) in [(1u8, oneshot.id), (2, kept.id)] {
+                conn.record_deletion(&StoredMessageDeletion {
+                    id: vec![id; 32],
+                    group_id,
+                    deleted_message_id: vec![9; 32],
+                    deleted_by_inbox_id: "sender".into(),
+                    is_super_admin_deletion: false,
+                    deleted_at_ns: 1,
+                    authenticated: true,
+                })?;
+            }
+            conn.delete_oneshot_group(&oneshot.id)?;
+            assert!(conn.get_message_deletion(&[1; 32])?.is_none());
+            assert!(conn.get_message_deletion(&[2; 32])?.is_some());
+        })
+    }
+
     // verifies: DMS-017
     #[xmtp_common::test(unwrap_try = true)]
     fn dm_peer_requires_member_and_pair_structure() {

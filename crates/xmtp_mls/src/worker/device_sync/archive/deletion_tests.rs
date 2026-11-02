@@ -199,6 +199,7 @@ enum Case {
     ReplayIsForeign,
     ReplayOverImportedRecord,
     ForgedRowIsForeign,
+    ForgedUnpublishedRowIsForeign,
     UnpublishedImportThenNetworkCopy,
     FailedDeletionImported,
     StaleCachedTextTarget,
@@ -244,6 +245,7 @@ enum Case {
 #[case::replay_is_foreign(Case::ReplayIsForeign, Some(ADMIN), 1)]
 #[case::replay_over_imported_record(Case::ReplayOverImportedRecord, Some(ADMIN), 1)]
 #[case::forged_row_is_foreign(Case::ForgedRowIsForeign, None, 1)]
+#[case::forged_unpublished_row_is_foreign(Case::ForgedUnpublishedRowIsForeign, None, 1)]
 #[case::unpublished_import_then_network_copy(
     Case::UnpublishedImportThenNetworkCopy,
     Some(SENDER),
@@ -419,6 +421,15 @@ async fn deletion_survives_storage(
             receive(&group, &deletion(g, D1, MEMBER, published), true);
             assert!(!db.get_message_deletion(&D1).unwrap().unwrap().authenticated);
         }
+        Case::ForgedUnpublishedRowIsForeign => {
+            // The forged row writes no record; the stored row alone makes
+            // the topic copy foreign.
+            target(g, published).store(&db).unwrap();
+            let forged = deletion(g, D1, ADMIN, DeliveryStatus::Unpublished);
+            last = import(&alix.context, vec![legacy(&forged)]).await;
+            receive(&group, &deletion(g, D1, MEMBER, published), true);
+            assert!(db.get_message_deletion(&D1).unwrap().is_none());
+        }
         Case::UnpublishedImportThenNetworkCopy => {
             target(g, published).store(&db).unwrap();
             import(
@@ -561,4 +572,70 @@ async fn export_carries_marks_and_every_record() {
     let stored = older.db().get_group_message(&target_id)?.unwrap();
     assert_eq!(stored.deleted_by_inbox_id.as_deref(), Some(alix.inbox_id()));
     assert!(stored.decrypted_message_bytes.is_empty());
+}
+
+/// Two deletions of one target, the earlier in time with the larger id. The
+/// export writes records in time order, so an installation that holds the
+/// target marks it from the earlier record; a fresh installation marks it
+/// from the earliest record it stored.
+// verifies: ARCH-028, PROC-037
+#[xmtp_common::test(unwrap_try = true)]
+async fn export_orders_records_by_time() {
+    tester!(alix, disable_workers);
+    let group = alix.create_group(None, None)?;
+    let g = group.group_id;
+    let db = alix.db();
+    let key = vec![5; 32];
+    let export = || {
+        let mut archive = vec![];
+        exporter::export(
+            ArchiveOptions {
+                elements: vec![BackupElementSelection::Messages],
+                start_ns: None,
+                end_ns: None,
+                exclude_disappearing_messages: false,
+            },
+            alix.db(),
+            &key,
+            &mut archive,
+        )
+        .unwrap();
+        archive
+    };
+    let elements = |archive: Vec<u8>| {
+        let key = key.clone();
+        async move {
+            ArchiveImporter::load(Box::pin(BufReader::new(Cursor::new(archive))), &key)
+                .await
+                .unwrap()
+                .map(|element| element.unwrap())
+                .collect::<Vec<_>>()
+                .await
+        }
+    };
+    target(g, DeliveryStatus::Published).store(&db)?;
+    let target_only = export();
+    // Processed records whose target this installation never marked.
+    for (id, by, admin, at) in [(D1, SENDER, false, 10), (D2, ADMIN, true, 20)] {
+        db.record_deletion(&StoredMessageDeletion {
+            id: id.to_vec(),
+            group_id: g,
+            deleted_message_id: TARGET.to_vec(),
+            deleted_by_inbox_id: by.into(),
+            is_super_admin_deletion: admin,
+            deleted_at_ns: at,
+            authenticated: true,
+        })?;
+    }
+    let with_records = elements(export()).await;
+
+    tester!(holder, from: alix, disable_workers);
+    import(&holder.context, elements(target_only).await).await;
+    assert_eq!(mark_of(&holder.db(), &TARGET), None);
+    import(&holder.context, with_records.clone()).await;
+    assert_eq!(mark_of(&holder.db(), &TARGET).as_deref(), Some(SENDER));
+
+    tester!(fresh, from: alix, disable_workers);
+    import(&fresh.context, with_records).await;
+    assert_eq!(mark_of(&fresh.db(), &TARGET).as_deref(), Some(SENDER));
 }

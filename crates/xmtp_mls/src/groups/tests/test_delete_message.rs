@@ -670,6 +670,7 @@ async fn cross_group_pending_delete_does_not_block_super_admin_delete() {
 }
 
 /// Test that enrichment replaces deleted messages with placeholders
+// verifies: PROC-060
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_enrichment_with_deleted_messages() {
     tester!(alix);
@@ -701,7 +702,46 @@ async fn test_enrichment_with_deleted_messages() {
     };
     assert_eq!(text.content, "Secret message");
 
+    // Bo reacts and replies, so the placeholder has relations to drop.
+    use xmtp_content_types::{reaction::ReactionCodec, reply::ReplyCodec};
+    use xmtp_proto::xmtp::mls::message_contents::content_types::{
+        ReactionAction, ReactionSchema, ReactionV2,
+    };
+    let reaction = ReactionCodec::encode(ReactionV2 {
+        reference: hex::encode(&message_id),
+        reference_inbox_id: alix.inbox_id().into(),
+        action: ReactionAction::Added.into(),
+        content: "👍".into(),
+        schema: ReactionSchema::Unicode.into(),
+    })?;
+    bo_group
+        .send_message(
+            &xmtp_content_types::encoded_content_to_bytes(reaction),
+            SendMessageOpts::default(),
+        )
+        .await?;
+    let reply = ReplyCodec::encode(xmtp_content_types::reply::Reply {
+        reference: hex::encode(&message_id),
+        reference_inbox_id: None,
+        content: TextCodec::encode("reply".into())?,
+    })?;
+    bo_group
+        .send_message(
+            &xmtp_content_types::encoded_content_to_bytes(reply),
+            SendMessageOpts::default(),
+        )
+        .await?;
+    let before = bo_group
+        .find_messages_v2(&MsgQueryArgs::default())?
+        .into_iter()
+        .find(|msg| msg.metadata.id == message_id)
+        .unwrap();
+    assert_eq!(before.reactions.len(), 1);
+    assert_eq!(before.num_replies, 1);
+    assert_eq!(before.num_reaction_messages, 1);
+
     // Alix deletes the message
+    alix_group.sync().await?;
     alix_group.delete_message(message_id.clone())?;
     alix_group.publish_messages().await?;
     bo_group.sync().await?;
@@ -722,6 +762,7 @@ async fn test_enrichment_with_deleted_messages() {
     // Verify reactions and replies are cleared
     assert_eq!(deleted_msg.reactions.len(), 0);
     assert_eq!(deleted_msg.num_replies, 0);
+    assert_eq!(deleted_msg.num_reaction_messages, 0);
 }
 
 /// Test that DeleteMessage content type is not shown in message lists
@@ -1328,7 +1369,7 @@ async fn request_queues_and_applies_at_echo() {
     tester!(bo);
     let alix_group = alix.create_group(None, None)?;
     alix_group.add_members(&[bo.inbox_id()]).await?;
-    let bo_group = bo.sync_welcomes().await?.remove(0);
+    let bo_group = bo.wait_for_welcomes().await?.remove(0);
     let text = TextCodec::encode("delete me".into())?;
     let message_id = alix_group
         .send_message(
