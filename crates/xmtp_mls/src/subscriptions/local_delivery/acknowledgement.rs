@@ -232,11 +232,12 @@ impl<Context: XmtpSharedContext> DeliveryAcknowledgement<Context> {
         // This lock makes dispatch and a scope change have one order.
         let selection = self.control.selection.lock();
         self.session.check_owner()?;
-        let retained = self.session.context.db().delivery_message_is_retained(
-            &self.message_id,
-            self.pending.cursor,
-            now_ns(),
-        )?;
+        let retained = self
+            .session
+            .context
+            .db()
+            .retained_delivery_message(&self.message_id, self.pending.cursor, now_ns())?
+            .is_some();
         if selection.revision != self.pending.revision
             || !retained
             || !super::matches_filter(

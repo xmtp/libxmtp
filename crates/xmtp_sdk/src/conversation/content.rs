@@ -123,9 +123,7 @@ pub(super) fn reaction_page<C: XmtpSharedContext>(
     else {
         return Ok(Vec::new());
     };
-    if xmtp_mls::messages::enrichment::is_deleted(group.context.db(), &parent_row)
-        .map_err(XmtpError::from_core)?
-    {
+    if parent_row.deleted_by_inbox_id.is_some() {
         return Ok(Vec::new());
     }
     // A stitched DM's reactions can be in any of its groups, so the cursor

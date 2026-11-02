@@ -5,6 +5,7 @@ use tokio::sync::Mutex as AsyncMutex;
 use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
 use xmtp_db::delivery::acknowledgement::DeliveryAckRequest;
+use xmtp_db::group_message::QueryGroupMessage;
 use xmtp_mls::messages::enrichment::enrich_messages_with_stored;
 use xmtp_mls::prelude::*;
 use xmtp_mls::subscriptions::{
@@ -60,6 +61,43 @@ struct ReaderState {
     ended: bool,
     previous: Option<DeliveryAcknowledgement<xmtp_mls::MlsContext>>,
     pending: Option<PendingMessage>,
+}
+
+/// The app's message for a stored row, with its reply parent and reactions.
+fn read_message(
+    context: &xmtp_mls::MlsContext,
+    stored: xmtp_db::group_message::StoredGroupMessage,
+    client_key: u64,
+) -> Result<Message, XmtpError> {
+    let enriched =
+        enrich_messages_with_stored(context.db(), &stored.group_id, vec![stored.clone()])
+            .map_err(super::enrichment_error)?;
+    match enriched.into_iter().next() {
+        Some(value) => {
+            Message::from_enriched(value.stored, value.decoded, value.parent_stored, client_key)
+                .or_else(|_| Message::from_stored(stored, client_key))
+        }
+        None => Message::from_stored(stored, client_key),
+    }
+}
+
+/// `message` rebuilt from its current row, keeping its delivery cursor, or
+/// `None` when the row is gone.
+fn reload_message(
+    context: &xmtp_mls::MlsContext,
+    message: &Message,
+    client_key: u64,
+) -> Result<Option<Message>, XmtpError> {
+    let Some(stored) = context
+        .db()
+        .get_group_message(message.0.id.to_bytes()?)
+        .map_err(XmtpError::from_core)?
+    else {
+        return Ok(None);
+    };
+    let mut current = read_message(context, stored, client_key)?;
+    current.0.delivery_cursor = message.0.delivery_cursor.clone();
+    Ok(Some(current))
 }
 
 struct PendingMessage {
@@ -303,12 +341,27 @@ impl MessageReader {
                             }
                         }
                     }
-                    if let Some(pending) = state.pending.take() {
+                    if let Some(mut pending) = state.pending.take() {
                         match pending
                             .acknowledgement
                             .check_owner_cancellable(&ack_admission)
                         {
                             Ok(admitted) => {
+                                // The row can be deleted while its read was
+                                // cancelled: rebuild it, never the cached text.
+                                // implements: PROC-060
+                                if admitted {
+                                    match reload_message(&context, &pending.message, client_key) {
+                                        Ok(Some(message)) => pending.message = message,
+                                        Ok(None) => {}
+                                        Err(error) => {
+                                            state.ended = true;
+                                            control.close();
+                                            pending.acknowledgement.reject();
+                                            return Err(error);
+                                        }
+                                    }
+                                }
                                 state.pending = Some(pending);
                                 return Ok(admitted);
                             }
@@ -353,30 +406,8 @@ impl MessageReader {
                         item.acknowledgement.reject();
                         return Ok(false);
                     }
-                    let enriched = match enrich_messages_with_stored(
-                        context.db(),
-                        &item.message.group_id,
-                        vec![item.message.clone()],
-                    ) {
-                        Ok(enriched) => enriched,
-                        Err(error) => {
-                            state.lock().ended = true;
-                            control.close();
-                            item.acknowledgement.reject();
-                            return Err(super::enrichment_error(error));
-                        }
-                    };
-                    let message = match enriched.into_iter().next() {
-                        Some(value) => Message::from_enriched(
-                            value.stored,
-                            value.decoded,
-                            value.parent_stored,
-                            client_key,
-                        )
-                        .or_else(|_| Message::from_stored(item.message.clone(), client_key)),
-                        None => Message::from_stored(item.message.clone(), client_key),
-                    };
-                    let message = match message {
+                    let message = match read_message(&context, item.message.clone(), client_key)
+                    {
                         Ok(message) => message.with_delivery_cursor(Some(item.cursor)),
                         Err(error) => {
                             state.lock().ended = true;

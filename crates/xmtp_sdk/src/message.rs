@@ -352,6 +352,13 @@ impl Message {
         client_key: u64,
         decoded: Option<xmtp_mls::messages::decoded_message::MessageBody>,
     ) -> Result<Self, XmtpError> {
+        // A marked row reads as the placeholder, never as empty bytes.
+        // implements: PROC-060
+        let decoded = decoded.or_else(|| {
+            value.deleted_by_inbox_id.is_some().then(|| {
+                xmtp_mls::messages::decoded_message::DecodedMessage::from(value.clone()).content
+            })
+        });
         let deleted = matches!(
             decoded.as_ref(),
             Some(xmtp_mls::messages::decoded_message::MessageBody::DeletedMessage { .. })

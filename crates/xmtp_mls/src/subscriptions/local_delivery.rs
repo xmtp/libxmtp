@@ -318,19 +318,28 @@ where
                     break;
                 }
                 self.session.check_owner()?;
-                let retained = self.session.context.db().delivery_message_is_retained(
+                // The buffered row can be marked deleted after prefetch: hand
+                // out its current row.
+                // implements: PROC-025, PROC-060
+                let retained = self.session.context.db().retained_delivery_message(
                     &candidate.message.id,
                     candidate.cursor,
                     now_ns(),
                 )?;
-                if !retained
-                    || !matches_filter(
-                        &self.session.context,
-                        candidate.message.group_id,
-                        &selection.scope,
-                        &selection.filter,
-                    )?
-                {
+                let current = match retained {
+                    Some(current)
+                        if matches_filter(
+                            &self.session.context,
+                            candidate.message.group_id,
+                            &selection.scope,
+                            &selection.filter,
+                        )? =>
+                    {
+                        Some(current)
+                    }
+                    _ => None,
+                };
+                let Some(current) = current else {
                     if !self.skip_candidate(&candidate, selection.revision)? {
                         self.candidates.clear();
                         break;
@@ -340,7 +349,7 @@ where
                         break;
                     }
                     continue;
-                }
+                };
                 // A read transaction or filter check can outlive a lease. Check again at handoff.
                 self.session.check_owner()?;
                 let pending = Arc::new(PendingAcknowledgement::new(
@@ -356,7 +365,7 @@ where
                 );
                 self.pending = Some(pending);
                 return Ok(Some(LocalDeliveryItem {
-                    message: candidate.message,
+                    message: current,
                     cursor: candidate.cursor,
                     acknowledgement,
                 }));
