@@ -6,7 +6,6 @@
 //! table with fixed keys in the configuration is a struct and every key with a
 //! fixed list of values is a unit-variant enum, so `Shaped` refuses both
 //! shapes at every depth and otherwise decodes as `toml::Value` does.
-// implements: CONF-087
 
 use serde::de::{
     self, Deserializer, IntoDeserializer, Unexpected, Visitor,
@@ -14,6 +13,7 @@ use serde::de::{
 };
 
 /// A `toml::Value` decoded with the shape checks above.
+// implements: CONF-087
 pub(crate) struct Shaped(pub(crate) toml::Value);
 
 type Error = toml::de::Error;
