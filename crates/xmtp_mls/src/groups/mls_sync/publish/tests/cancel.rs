@@ -57,7 +57,7 @@ enum Unsent {
 #[case::failed(Unsent::Failed)]
 #[case::prepared(Unsent::Prepared)]
 #[xmtp_common::test(unwrap_try = true)]
-async fn cancel_unsent(#[case] unsent: Unsent) -> Result<(), GroupError> {
+async fn cancel_unsent(#[case] unsent: Unsent) -> Result<(), Box<dyn std::error::Error>> {
     tester!(alix, disable_workers);
     tester!(bo, disable_workers);
     let group = alix
@@ -234,7 +234,7 @@ async fn cancel_unsent_skips_another_installations_row() {
 #[xmtp_common::test(unwrap_try = true)]
 async fn idempotent_resend_of_a_deleted_message_returns_it(
     #[case] optimistic: bool,
-) -> Result<(), GroupError> {
+) -> Result<(), Box<dyn std::error::Error>> {
     tester!(alix, disable_workers);
     let group = alix.create_group(None, None)?;
     let opts = || SendMessageOpts {

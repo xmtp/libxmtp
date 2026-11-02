@@ -47,7 +47,7 @@ enum Finish {
 #[case::refused(Finish::Refused)]
 #[case::inactive(Finish::Inactive)]
 #[xmtp_common::test(unwrap_try = true)]
-async fn sent_plaintext_is_wiped(#[case] finish: Finish) -> Result<(), GroupError> {
+async fn sent_plaintext_is_wiped(#[case] finish: Finish) -> Result<(), Box<dyn std::error::Error>> {
     tester!(alix, disable_workers);
     let group = alix.create_group(None, None)?;
     group.key_update().await?;
