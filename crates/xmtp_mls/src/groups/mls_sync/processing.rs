@@ -160,7 +160,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
     ) -> Result<ProcessedMessageOutcome, GroupMessageProcessingError> {
         let topic = StreamTopic::group(self.group_id);
         let watch_app_data = self.context.change_callbacks().watches_app_data();
-        #[cfg(any(test, feature = "test-utils"))]
+        #[cfg(any(test, feature = "diagnostics"))]
         let mut own_commit_epoch_conflict = false;
         let result = state_write_with_events(
             self.context.mls_storage(),
@@ -309,7 +309,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                 }
                 if error.is_safe_rejection() {
                     tx.with_group(self.group_id, |group, storage| {
-                        #[cfg(any(test, feature = "test-utils"))]
+                        #[cfg(any(test, feature = "diagnostics"))]
                         if envelope.is_commit()
                             && matches!(&error, GroupMessageProcessingError::OldEpoch(..))
                         {
@@ -348,11 +348,11 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
         )
         .map(TransactionOutcome::into_continued)
         .and_then(|outcome| outcome);
-        #[cfg(any(test, feature = "test-utils"))]
+        #[cfg(any(test, feature = "diagnostics"))]
         if own_commit_epoch_conflict
             && matches!(&result, Err(GroupMessageProcessingError::OldEpoch(..)))
         {
-            crate::diagnostics::record_own_commit_epoch_conflict();
+            crate::groups::diagnostics::record_own_commit_epoch_conflict();
         }
         result
     }

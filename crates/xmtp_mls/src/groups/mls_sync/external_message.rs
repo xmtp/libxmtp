@@ -108,7 +108,7 @@ where
     ) -> Result<MessageIdentifier, GroupMessageProcessingError> {
         #[cfg(any(test, feature = "test-utils"))]
         {
-            use crate::utils::test_mocks_helpers::maybe_mock_wrong_epoch_for_tests;
+            use super::test_mocks::maybe_mock_wrong_epoch_for_tests;
             maybe_mock_wrong_epoch_for_tests()?;
         }
 

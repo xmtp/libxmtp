@@ -168,7 +168,7 @@ pub(super) fn inject_test_key_packages(
         >,
     >,
 ) {
-    use crate::utils::test_mocks_helpers::{
+    use crate::identity_lifecycle::test_mocks::{
         get_test_mode_malformed_installations, test_mode_unchecked_key_package,
     };
     let malformed = get_test_mode_malformed_installations();

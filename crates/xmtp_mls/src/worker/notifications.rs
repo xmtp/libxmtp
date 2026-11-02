@@ -675,8 +675,8 @@ pub(crate) async fn run<Context: XmtpSharedContext>(
                 deadlines.registration_rate_limited_until_ns,
             ));
         }
-        #[cfg(test)]
-        tests::support::before_request();
+        #[cfg(any(test, feature = "test-hooks"))]
+        test_hooks::before_request();
         let Ok(_guard) = context.task_channels().notification_request.try_lock() else {
             return Ok(TaskOutcome::RescheduleAt(time::now_ns() + RETRY_NS));
         };
@@ -704,8 +704,8 @@ pub(crate) async fn run<Context: XmtpSharedContext>(
     let revision = context.task_channels().notification_revision();
     let desired = desired(context, &config)?;
     let mut batch = prepare_batch(context, &record, &desired)?;
-    #[cfg(test)]
-    tests::support::before_request();
+    #[cfg(any(test, feature = "test-hooks"))]
+    test_hooks::before_request();
     if context.task_channels().notification_revision() != revision {
         return finish_turn(context, Ok(()));
     }
@@ -799,5 +799,7 @@ fn finish_turn<Context: XmtpSharedContext>(
     }
 }
 
+#[cfg(any(test, feature = "test-hooks"))]
+mod test_hooks;
 #[cfg(test)]
 pub(crate) mod tests;

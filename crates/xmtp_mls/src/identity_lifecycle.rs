@@ -26,6 +26,9 @@ use xmtp_id::{
     associations::{MemberIdentifier, builder::SignatureRequestBuilder},
 };
 
+#[cfg(any(test, feature = "test-utils"))]
+pub mod test_mocks;
+
 /// Create a new [Identity] instance.
 ///
 /// If the address is already associated with an inbox_id, the existing inbox_id will be used.

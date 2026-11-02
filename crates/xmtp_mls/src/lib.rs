@@ -7,7 +7,7 @@ pub mod client;
 pub mod context;
 pub mod core;
 mod definitions;
-#[cfg(any(test, feature = "test-utils"))]
+#[cfg(any(test, feature = "diagnostics"))]
 pub mod diagnostics;
 pub mod features;
 pub mod groups;
@@ -34,14 +34,6 @@ pub use definitions::*;
 pub mod test;
 
 pub use client::{Client, Network};
-#[cfg(test)]
-use parking_lot::Mutex;
-#[cfg(test)]
-use std::collections::HashMap;
-#[cfg(test)]
-use std::sync::Arc;
-#[cfg(test)]
-use tokio::sync::Mutex as TokioMutex;
 pub use xmtp_common as common;
 pub use xmtp_db as db;
 #[cfg(test)]
@@ -51,75 +43,9 @@ pub use xmtp_id::InboxOwner;
 pub use xmtp_mls_common as mls_common;
 pub use xmtp_mls_validation as mls_validation;
 pub use xmtp_proto::api_client::*;
-#[cfg(test)]
-use xmtp_proto::types::GroupId;
 
 pub fn version() -> &'static str {
     env!("CARGO_PKG_VERSION")
-}
-
-/// A manager for group-specific semaphores
-#[cfg(test)]
-#[derive(Debug)]
-pub struct GroupCommitLock {
-    // Storage for group-specific semaphores
-    locks: Mutex<HashMap<GroupId, Arc<TokioMutex<()>>>>,
-}
-
-#[cfg(test)]
-impl Default for GroupCommitLock {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-#[cfg(test)]
-impl GroupCommitLock {
-    /// Create a new `GroupCommitLock`
-    pub fn new() -> Self {
-        Self {
-            locks: Mutex::new(HashMap::new()),
-        }
-    }
-
-    /// Get or create a semaphore for a specific group and acquire it, returning a guard
-    pub async fn get_lock_async(&self, group_id: GroupId) -> MlsGroupGuard {
-        let lock = {
-            let mut locks = self.locks.lock();
-            locks
-                .entry(group_id)
-                .or_insert_with(|| Arc::new(TokioMutex::new(())))
-                .clone()
-        };
-
-        MlsGroupGuard {
-            _permit: lock.lock_owned().await,
-        }
-    }
-
-    /// Get or create a semaphore for a specific group and acquire it synchronously
-    pub fn get_lock_sync(
-        &self,
-        group_id: GroupId,
-    ) -> Result<MlsGroupGuard, crate::core::CommitLockUnavailable> {
-        let lock = {
-            let mut locks = self.locks.lock();
-            locks
-                .entry(group_id)
-                .or_insert_with(|| Arc::new(TokioMutex::new(())))
-                .clone()
-        };
-
-        // Synchronously acquire the permit
-        let permit = lock
-            .try_lock_owned()
-            .map_err(|_| crate::core::CommitLockUnavailable)?;
-        Ok(MlsGroupGuard { _permit: permit })
-    }
-}
-/// A guard that releases the semaphore when dropped
-#[cfg(test)]
-pub struct MlsGroupGuard {
-    _permit: tokio::sync::OwnedMutexGuard<()>,
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), ctor::ctor(unsafe))]

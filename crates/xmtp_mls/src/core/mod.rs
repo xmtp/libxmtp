@@ -5,6 +5,8 @@
 
 pub(crate) mod api_status;
 pub mod change_callbacks;
+#[cfg(test)]
+pub(crate) mod commit_lock;
 pub mod config;
 pub mod config_refresh;
 pub mod events;
@@ -18,10 +20,3 @@ pub(crate) mod state_tx;
 pub(crate) mod sync_tasks;
 pub mod task_channels;
 pub mod version;
-
-/// Another caller holds the group's commit lock, so a synchronous acquire
-/// fails instead of waiting.
-#[cfg(test)]
-#[derive(Debug, thiserror::Error)]
-#[error("the group commit lock is held")]
-pub struct CommitLockUnavailable;

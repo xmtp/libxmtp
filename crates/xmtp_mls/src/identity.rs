@@ -557,7 +557,7 @@ impl XmtpKeyPackageBuilder {
         {
             options.welcome_pointers = ENABLE_WELCOME_POINTERS.try_with(|v| *v).unwrap_or(true);
             options.lifetime =
-                Some(crate::utils::test_mocks_helpers::maybe_mock_package_lifetime());
+                Some(crate::identity_lifecycle::test_mocks::maybe_mock_package_lifetime());
         }
         let generated = xmtp_id::key_package::build_key_package(
             &this.inbox_id,

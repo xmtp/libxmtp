@@ -133,6 +133,8 @@ mod post_commit;
 mod processing;
 mod receive;
 mod sync_driver;
+#[cfg(any(test, feature = "test-utils"))]
+pub mod test_mocks;
 pub(in crate::groups) use membership_helpers::*;
 mod processing_policy;
 pub mod update_group_membership;

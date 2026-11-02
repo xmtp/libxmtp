@@ -547,8 +547,8 @@ where
                 self.complete_rejected_pending(&oldest, "held_capacity")?;
             }
         }
-        #[cfg(any(test, feature = "test-utils"))]
-        crate::diagnostics::record_welcome_retry(code);
+        #[cfg(any(test, feature = "diagnostics"))]
+        crate::groups::diagnostics::record_welcome_retry(code);
         Ok(())
     }
 

@@ -1,5 +1,5 @@
 #[cfg(test)]
-use crate::GroupCommitLock;
+use crate::core::commit_lock::GroupCommitLock;
 #[cfg(any(test, target_arch = "wasm32"))]
 mod message_clock;
 use crate::core::change_callbacks::UnstableChangeCallbacks;

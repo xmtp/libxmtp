@@ -1,5 +1,5 @@
 #[cfg(test)]
-use crate::GroupCommitLock;
+use crate::core::commit_lock::GroupCommitLock;
 use crate::{
     StorageError, XmtpApi,
     attachments::AttachmentRuntime,

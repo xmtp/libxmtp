@@ -168,7 +168,7 @@ impl CoreContext for NewMockContext {
     }
 
     #[cfg(test)]
-    fn mls_commit_lock(&self) -> &Arc<crate::GroupCommitLock> {
+    fn mls_commit_lock(&self) -> &Arc<crate::core::commit_lock::GroupCommitLock> {
         &self.mls_commit_lock
     }
 

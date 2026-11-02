@@ -15,7 +15,7 @@ pub use state::{ConversationStateSnapshot, GroupMetadataSnapshot};
 pub mod commit_log;
 pub mod context;
 pub(crate) mod deletion;
-#[cfg(any(test, feature = "test-utils"))]
+#[cfg(any(test, feature = "diagnostics"))]
 pub(crate) mod diagnostics;
 mod error;
 pub mod intents;
@@ -49,9 +49,9 @@ use self::{
         UpdateAdminListIntentData, UpdateMetadataIntentData, UpdatePermissionIntentData,
     },
 };
-#[cfg(test)]
-use crate::GroupCommitLock;
 use crate::context::XmtpSharedContext;
+#[cfg(test)]
+use crate::core::commit_lock::GroupCommitLock;
 use crate::groups::message_id::{calculate_message_id, decode_message_reference};
 use crate::groups::send_message_opts::SendMessageOpts;
 use crate::groups::{

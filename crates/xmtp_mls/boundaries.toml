@@ -87,13 +87,6 @@ reason = "The context re-exports the engine alias XmtpSharedContext at its old p
 
 [[waivers]]
 from = "core"
-to = "facade"
-tier = "path"
-count = 1
-reason = "PR 5 (Task 12): the test lock, whose get_lock_sync returns the core-owned CommitLockUnavailable, leaves the facade with the test hooks."
-
-[[waivers]]
-from = "core"
 to = "identity"
 tier = "path"
 count = 1
@@ -103,8 +96,8 @@ reason = "Task 17 moves identity_ext with the identity crate."
 from = "engine"
 to = "facade"
 tier = "path"
-count = 18
-reason = "PR 5 (Task 12) moves test hooks, test-only helpers and the test lock; the engine also records diagnostics counters in the facade diagnostics module."
+count = 10
+reason = "PR 5b (Tasks 12 and 15): engine test helpers outside test suites still build a facade client or name the facade's test utilities."
 
 [[waivers]]
 from = "engine"
@@ -112,13 +105,6 @@ to = "streams"
 tier = "path"
 count = 5
 reason = "PR 7 (Task 20): the receiver and the group stream entry points name stream types."
-
-[[waivers]]
-from = "identity"
-to = "facade"
-tier = "path"
-count = 1
-reason = "PR 5 (Task 12) moves the key-package test hook."
 
 [[waivers]]
 from = "server_config"
@@ -197,13 +183,6 @@ reason = "The context re-exports the engine alias XmtpSharedContext at its old p
 
 [[waivers]]
 from = "core"
-to = "facade"
-tier = "call"
-count = 6
-reason = "PR 5 (Task 12): the context test lock leaves the facade."
-
-[[waivers]]
-from = "core"
 to = "identity"
 tier = "call"
 count = 4
@@ -214,7 +193,7 @@ from = "engine"
 to = "facade"
 tier = "call"
 count = 46
-reason = "PR 5 (Task 12) moves test hooks, test-only helpers and the test lock; the engine also records diagnostics counters in the facade diagnostics module."
+reason = "PR 5b (Tasks 12 and 15): engine test helpers outside test suites still build a facade client or name the facade's test utilities."
 
 [[waivers]]
 from = "engine"
@@ -222,13 +201,6 @@ to = "streams"
 tier = "call"
 count = 13
 reason = "PR 7 (Task 20): the receiver and the group stream entry points name stream types."
-
-[[waivers]]
-from = "identity"
-to = "facade"
-tier = "call"
-count = 1
-reason = "PR 5 (Task 12) moves the key-package test hook."
 
 [[waivers]]
 from = "streams"
