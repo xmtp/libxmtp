@@ -74,7 +74,7 @@ fn view(group: &Group, id: &[u8]) -> Option<(Option<String>, bool, Option<Delete
 #[case::sender_then_admin(Case::SenderThenAdmin)]
 #[xmtp_common::test]
 async fn deletion_rules(#[case] case: Case) {
-    use crate::context::XmtpSharedContext;
+    use crate::context::CoreContext;
     tester!(alix);
     tester!(bo);
     tester!(caro);
