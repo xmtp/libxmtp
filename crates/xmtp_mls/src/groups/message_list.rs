@@ -151,6 +151,7 @@ mod tests {
             envelope_hash: None,
             expiry_ns: None,
             expiry_unknown: false,
+            deleted_by_inbox_id: None,
             expire_at_ns: None,
             inserted_at_ns: 0,
             should_push: true,
@@ -197,6 +198,7 @@ mod tests {
             envelope_hash: None,
             expiry_ns: None,
             expiry_unknown: false,
+            deleted_by_inbox_id: None,
             expire_at_ns: None,
             inserted_at_ns: 0,
             should_push: true,
@@ -450,7 +452,6 @@ mod tests {
         use xmtp_db::ConnectionExt;
         use xmtp_db::diesel::{ExpressionMethods, QueryDsl, RunQueryDsl};
         use xmtp_db::group::{ConversationType, QueryGroup};
-        use xmtp_db::message_deletion::StoredMessageDeletion;
         use xmtp_db::schema::groups::dsl;
 
         let (group, context) = setup_test_group().await;
@@ -481,15 +482,17 @@ mod tests {
         for (group_id, n, target) in [(sibling, 5, 1), (home, 6, 2)] {
             let deletion = TestContentGenerator::delete_message_content(&ref_to(target));
             put(group_id, n, deletion);
-            StoredMessageDeletion {
-                id: vec![n; 32],
-                group_id,
-                deleted_message_id: vec![target; 32],
-                deleted_by_inbox_id: "sender".into(),
-                is_super_admin_deletion: false,
-                deleted_at_ns: now_ns(),
-            }
-            .store(&conn)?;
+            let mut row = conn.get_group_message(vec![n; 32])??;
+            row.reference_id = Some(vec![target; 32]);
+            crate::messages::deletion::apply_deletion(
+                &conn,
+                &crate::messages::deletion::DiscardEvents,
+                &row,
+                crate::messages::deletion::Source::Topic {
+                    super_admin: false,
+                    cause: xmtp_events::DeletionCause::Deleted,
+                },
+            )?;
         }
 
         let messages = group.find_messages_v2_with_stored(&MsgQueryArgs::default())?;

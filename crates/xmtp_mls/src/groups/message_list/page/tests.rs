@@ -75,7 +75,7 @@ mod snapshot {
         diesel::{RunQueryDsl, prelude::*},
         group::{ConversationType, GroupMembershipState, StoredGroup},
         group_message::{SortBy, StoredGroupMessage},
-        message_deletion::StoredMessageDeletion,
+        group_message::QueryGroupMessage,
     };
     use xmtp_proto::{
         types::GroupId,
@@ -109,6 +109,7 @@ mod snapshot {
             expiry_ns: None,
             inserted_at_ns: 0,
             expiry_unknown: false,
+            deleted_by_inbox_id: None,
             expire_at_ns: None,
             should_push: false,
             idempotency_key: id.to_string(),
@@ -287,15 +288,10 @@ mod snapshot {
                                             ),
                                         )
                                         .store(&db)?;
-                                        StoredMessageDeletion {
-                                            id: vec![8; 32],
-                                            group_id: source,
-                                            deleted_message_id: victim.id,
-                                            deleted_by_inbox_id: victim.sender_inbox_id,
-                                            is_super_admin_deletion: false,
-                                            deleted_at_ns: 22,
-                                        }
-                                        .store(&db)?;
+                                        db.mark_message_deleted(
+                                            &victim.id,
+                                            &victim.sender_inbox_id,
+                                        )?;
                                         use xmtp_db::schema::group_messages::dsl;
                                         db.raw_query(|sqlite| {
                                             xmtp_db::diesel::update(
@@ -517,16 +513,7 @@ mod snapshot {
                 )
                 .store(&db)
                 .unwrap();
-                StoredMessageDeletion {
-                    id: vec![id; 32],
-                    group_id: source,
-                    deleted_message_id: vec![victim; 32],
-                    deleted_by_inbox_id: "sender".into(),
-                    is_super_admin_deletion: false,
-                    deleted_at_ns: 30,
-                }
-                .store(&db)
-                .unwrap();
+                db.mark_message_deleted(&[victim; 32], "sender").unwrap();
             }
             for id in 11..16 {
                 message(

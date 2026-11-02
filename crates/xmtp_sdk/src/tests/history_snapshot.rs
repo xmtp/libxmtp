@@ -306,6 +306,11 @@ async fn history_snapshots_keep_relations_and_redact_deleted_messages_and_parent
         );
         assert_eq!(recent.cursor, selected.cursor);
         conversations.delete_message(parent.clone()).await?;
+        // The deletion applies at its echo.
+        match &conversation {
+            Conversation::Group { group } => group.publish_messages().await?,
+            Conversation::Dm { dm } => dm.publish_messages().await?,
+        }
         let selected = match &conversation {
             Conversation::Group { group } => group.message_history_snapshot(128).await?,
             Conversation::Dm { dm } => dm.message_history_snapshot(128).await?,

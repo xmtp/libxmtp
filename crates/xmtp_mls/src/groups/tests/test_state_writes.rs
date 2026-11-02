@@ -337,10 +337,13 @@ async fn removal_fails_unconfirmed_message_intents_and_preserves_confirmed_messa
         Some(vec![IntentKind::SendMessage]),
     )?;
     assert_eq!(abandoned.len(), 2);
+    // A finished send keeps no plaintext, so its message id is not derivable.
+    assert!(
+        abandoned
+            .iter()
+            .all(|intent| intent.data.as_slice().is_empty())
+    );
     for id in [&queued_id, &unconfirmed_id] {
-        assert!(abandoned.iter().any(|intent| {
-            calculate_message_id_for_intent(intent).ok().flatten() == Some(id.clone())
-        }));
         assert_eq!(
             db.get_group_message(id)?
                 .expect("failed message retained")
