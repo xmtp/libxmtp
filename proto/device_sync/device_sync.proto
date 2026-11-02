@@ -17,6 +17,7 @@ message BackupElement {
     xmtp.device_sync.message_backup.GroupMessageSave group_message = 3;
     xmtp.device_sync.consent_backup.ConsentSave consent = 4;
     xmtp.device_sync.event_backup.EventSave event = 5 [deprecated = true];
+    xmtp.device_sync.message_backup.MessageDeletionSave message_deletion = 6;
   }
 }
 

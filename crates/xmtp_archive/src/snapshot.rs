@@ -22,7 +22,8 @@ use xmtp_db::{
     diesel::{Connection, SqliteConnection, connection::DefaultLoadingMode, prelude::*, sql_query},
     group::{ConversationType, GroupMembershipState, StoredGroup},
     group_message::{GroupMessageKind, StoredGroupMessage},
-    schema::{consent_records, group_messages, groups},
+    message_deletion::StoredMessageDeletion,
+    schema::{consent_records, group_messages, groups, message_deletions},
 };
 use xmtp_mls_common::{
     group_metadata::extract_group_metadata,
@@ -45,7 +46,7 @@ const GROUP_PAGE: i64 = 100;
 
 /// Passes `emit` the archive metadata, then every element `opts` selects, as
 /// stored when the transaction began: all eligible groups, then their
-/// messages, then consent. The export time is measured once the snapshot is
+/// deletion records, then their messages, then consent. The export time is measured once the snapshot is
 /// taken, so nothing emitted postdates it. Fails, rather than omitting it, on
 /// any eligible group whose MLS state or immutable metadata cannot be read.
 /// `emit` runs inside the transaction and must not use the database. Returns
@@ -99,6 +100,21 @@ fn read_in_transaction(
                 let save = group_save(&store, group)?;
                 emit(Element::Group(save))?;
             }
+        }
+        // Every record of each exported conversation, after the groups and
+        // before the messages, with no window or expiry filter, so an archive
+        // split cannot lose a deletion. Ordered by time so an import marks a
+        // target from its earliest record.
+        // implements: ARCH-028
+        let records = message_deletions::table
+            .inner_join(groups::table.on(groups::id.eq(message_deletions::group_id)))
+            .filter(groups::conversation_type.ne_all(ConversationType::virtual_types()))
+            .filter(groups::membership_state.ne(GroupMembershipState::Restored))
+            .select(StoredMessageDeletion::as_select())
+            .order((message_deletions::deleted_at_ns, message_deletions::id))
+            .load_iter::<StoredMessageDeletion, DefaultLoadingMode>(conn)?;
+        for record in records {
+            emit(Element::MessageDeletion(record?.into()))?;
         }
         let mut messages = group_messages::table
             .inner_join(groups::table)

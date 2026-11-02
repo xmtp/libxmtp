@@ -7,9 +7,14 @@ use futures::{Stream, StreamExt};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 pub use xmtp_archive::*;
 use xmtp_configuration::LEGACY_GROUP_ID_BYTES;
+use crate::messages::deletion::{
+    DiscardEvents, Source, apply_deletion, apply_stored_records, import_record,
+    merge_archived_mark,
+};
 use xmtp_db::{
     StorageError,
     TransactionOutcome::Continue,
+    message_deletion::StoredMessageDeletion,
     consent_record::{ConsentKey, ConsentWrite, Owed, parse_consent_save, write_consent},
     group::ConversationType,
     group_message::StoredGroupMessage,
@@ -24,6 +29,10 @@ use xmtp_events::{ArchiveRestored, ClientEvent, EventWriter};
 #[derive(Default)]
 struct ImportContext {
     changed: bool,
+    /// The import stored a deletion record or marked a row. It is not a
+    /// change other installations are owed (SYNC-027), but the app hears of
+    /// it once through `archive.restored`.
+    deletions_stored: bool,
     /// The archive's usable consent records, applied after all its elements.
     /// Archive frames are ciphertext and do not compress, so these grow with
     /// the archive's own size.
@@ -113,6 +122,13 @@ where
             // Imported records are owed to the other installations.
             Some(InternalEvent::OutboxChanged),
         );
+    } else if import.deletions_stored {
+        context.events().emit(
+            Some(ClientEvent::ArchiveRestored(ArchiveRestored {
+                complete: result.is_ok(),
+            })),
+            None,
+        );
     }
     result
 }
@@ -150,12 +166,44 @@ fn insert(
             }
             import.changed |= MlsGroup::restore_from_archive(context, &save)?;
         }
-        Element::GroupMessage(message) => {
-            let message: StoredGroupMessage = message.try_into()?;
-            let db = context.db();
-            if !import.is_internal(&db, message.group_id)? {
-                import.changed |= message.store_or_ignore_changed(&db)?;
+        // implements: ARCH-028
+        Element::MessageDeletion(save) => {
+            let record: StoredMessageDeletion = save.try_into()?;
+            if !import.is_internal(&context.db(), record.group_id)? {
+                import.deletions_stored |= state_write(context.mls_storage(), |tx| {
+                    let stored = import_record(&tx.storage().db(), &DiscardEvents, &record)?;
+                    Ok::<_, StorageError>(Continue(stored))
+                })?
+                .into_continued();
             }
+        }
+        // implements: ARCH-013, ARCH-028
+        Element::GroupMessage(message) => {
+            // Field 19 makes the row marked and empty.
+            let message: StoredGroupMessage = message.try_into()?;
+            if import.is_internal(&context.db(), message.group_id)? {
+                return Ok(());
+            }
+            let (inserted, deletions) = state_write(context.mls_storage(), |tx| {
+                let storage = tx.storage();
+                let db = storage.db();
+                let inserted = message.store_or_ignore_changed(&db)?;
+                let mut deletions = false;
+                if !inserted && let Some(by) = message.deleted_by_inbox_id.as_deref() {
+                    deletions |= merge_archived_mark(&db, &DiscardEvents, &message.id, by)?;
+                }
+                // The evidence is the incoming copy: a stored `Unpublished`
+                // copy of the same id must not hide a later `Published` one.
+                // The stored row itself stays unchanged.
+                deletions |= apply_deletion(&db, &DiscardEvents, &message, Source::Archive)?;
+                if let Some(row) = db.get_group_message(&message.id)? {
+                    deletions |= apply_stored_records(&db, &DiscardEvents, &row)?;
+                }
+                Ok::<_, StorageError>(Continue((inserted, deletions)))
+            })?
+            .into_continued();
+            import.changed |= inserted;
+            import.deletions_stored |= deletions;
         }
         _ => {}
     }
@@ -1868,6 +1916,9 @@ mod tests {
         assert_eq!(restored_second.group_name()?, "second group name");
     }
 }
+
+#[cfg(test)]
+mod deletion_tests;
 
 #[cfg(test)]
 mod pre8_tests;

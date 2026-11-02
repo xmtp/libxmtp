@@ -26,10 +26,19 @@ impl TryFrom<GroupMessageSave> for StoredGroupMessage {
             u32::try_from(value.version_major).unwrap_or_default(),
         );
 
+        // implements: ARCH-028
+        // Trust the mark, never its content.
+        let deleted_by_inbox_id = value.deleted_by_inbox_id.filter(|id| !id.is_empty());
+        let decrypted_message_bytes = if deleted_by_inbox_id.is_some() {
+            Vec::new()
+        } else {
+            value.decrypted_message_bytes
+        };
+
         Ok(Self {
             id: value.id,
             group_id: value.group_id.try_into()?,
-            decrypted_message_bytes: value.decrypted_message_bytes,
+            decrypted_message_bytes,
             sent_at_ns: value.sent_at_ns,
             kind,
             sender_installation_id: value.sender_installation_id,
@@ -51,6 +60,7 @@ impl TryFrom<GroupMessageSave> for StoredGroupMessage {
             // the historical default (the send timestamp). Restored messages are
             // already published, so this value is only informational.
             idempotency_key: value.sent_at_ns.to_string(),
+            deleted_by_inbox_id,
         })
     }
 }
@@ -127,6 +137,9 @@ impl From<StoredGroupMessage> for GroupMessageSave {
                 value.expire_at_ns
             },
             expiry_known: Some(!value.expiry_unknown),
+            // implements: ARCH-028
+            // A marked row is already empty.
+            deleted_by_inbox_id: value.deleted_by_inbox_id,
 
             // Deprecated
             #[allow(deprecated)]
