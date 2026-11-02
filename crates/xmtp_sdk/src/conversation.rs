@@ -30,7 +30,7 @@ use crate::{
 
 // Keep these declarations in one module so generated binding paths stay stable.
 mod calls;
-use calls::deletion_group;
+use calls::delete_for_everyone;
 pub(crate) use calls::{enter_call, on_sdk_worker, on_settled_worker};
 include!("conversation/collection.rs");
 include!("conversation/identity.rs");

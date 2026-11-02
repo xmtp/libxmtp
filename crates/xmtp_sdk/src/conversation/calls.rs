@@ -97,10 +97,33 @@ where
     })
 }
 
+/// Delete `stored` for everyone and return the queued deletion's id, or the
+/// message's own id when it was cancelled unsent. If the message was sent
+/// meanwhile and a deletion was queued instead of a cancel, the DM peer is
+/// repaired before the deletion can publish.
+pub(super) async fn delete_for_everyone(
+    group: MlsGroup<MlsContext>,
+    stored: &StoredGroupMessage,
+) -> Result<MessageId, XmtpError> {
+    let group = deletion_group(group, stored).await?;
+    let deletion_id = group
+        .delete_message(stored.id.clone())
+        .map_err(XmtpError::from_core)?;
+    if deletion_id != stored.id && stored.is_unsent_from(group.context.installation_id().as_slice())
+    {
+        // implements: DMS-020
+        group
+            .ensure_dm_peer()
+            .await
+            .map_err(XmtpError::from_group_write)?;
+    }
+    MessageId::from_bytes(&deletion_id)
+}
+
 /// The group that holds `stored`, ready to queue its deletion: a DM whose
 /// creation stopped before the peer was added gets the peer first. An unsent
 /// own message is cancelled and publishes nothing, so it needs no peer.
-pub(super) async fn deletion_group(
+async fn deletion_group(
     group: MlsGroup<MlsContext>,
     stored: &StoredGroupMessage,
 ) -> Result<MlsGroup<MlsContext>, XmtpError> {

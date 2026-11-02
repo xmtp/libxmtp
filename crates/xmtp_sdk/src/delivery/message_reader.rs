@@ -70,12 +70,15 @@ fn read_message(
     client_key: u64,
 ) -> Result<Message, XmtpError> {
     // A deletion can commit after the handoff check: decode the current row.
+    // A row removed meanwhile reads as the placeholder.
     // implements: PROC-060
-    let stored = context
+    let Some(stored) = context
         .db()
         .get_group_message(&stored.id)
         .map_err(XmtpError::from_core)?
-        .unwrap_or(stored);
+    else {
+        return Ok(Message::from_stored(stored, client_key)?.into_removed());
+    };
     let enriched =
         enrich_messages_with_stored(context.db(), &stored.group_id, vec![stored.clone()])
             .map_err(super::enrichment_error)?;
@@ -472,6 +475,18 @@ impl MessageReader {
                             return Err(super::delivery_error(error));
                         }
                     }
+                    // A deletion can commit before admission: hand out the
+                    // row as it is now.
+                    // implements: PROC-060
+                    let message = match reload_message(&context, &message, client_key) {
+                        Ok(message) => message,
+                        Err(error) => {
+                            state.lock().ended = true;
+                            control.close();
+                            item.acknowledgement.reject();
+                            return Err(error);
+                        }
+                    };
                     let mut state = state.lock();
                     if state.ended {
                         item.acknowledgement.reject();
