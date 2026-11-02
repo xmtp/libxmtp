@@ -988,3 +988,47 @@ async fn all_reader_and_snapshot_hide_sync_without_consuming_internal_messages()
     item.acknowledgement.reject();
     reader.close();
 }
+
+/// A second default consumer is refused with the stream-storage code on every
+/// route that opens one. The refusal is not retried and needs no reconnect.
+#[xmtp_common::test(unwrap_try = true)]
+async fn subscribe_error_code_reaches_stream_storage_code() {
+    use crate::subscriptions::{
+        stream_all::StreamAllMessages, stream_messages::StreamGroupMessages,
+    };
+    use crate::worker::NeedsDbReconnect;
+    use xmtp_common::RetryableError;
+    tester!(alix, disable_workers);
+    let group = alix.create_group(None, None)?;
+    let open = || {
+        MessageReader::new(
+            alix.context.clone(),
+            DeliveryScope::All,
+            LocalDeliveryFilter::default(),
+            None,
+        )
+    };
+    let _owner = open()?;
+
+    let reader = open().err().expect("a second default reader is refused");
+    assert_eq!(reader.error_code(), "StreamStorageError::AlreadyActive");
+    assert!(!reader.is_retryable());
+
+    let all = StreamAllMessages::new(&alix.context, None, None)
+        .await
+        .err()
+        .expect("a second message stream is refused");
+    let groups = StreamGroupMessages::new(&alix.context, vec![group.group_id])
+        .await
+        .err()
+        .expect("a second group stream is refused");
+    for (route, error) in [("stream_all", all), ("stream_messages", groups)] {
+        assert_eq!(
+            error.error_code(),
+            "StreamStorageError::AlreadyActive",
+            "{route}"
+        );
+        assert!(!error.is_retryable(), "{route}");
+        assert!(!error.needs_db_reconnect(), "{route}");
+    }
+}

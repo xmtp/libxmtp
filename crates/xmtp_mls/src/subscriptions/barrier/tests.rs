@@ -351,3 +351,27 @@ async fn welcome_discovery_reads_groups_once_per_generation() {
     }
     assert_eq!(reads(), 2, "an unchanged group set was read again");
 }
+
+/// A barrier that misses its deadline surfaces from `wait_through` with the
+/// `BarrierError::Incomplete` code; a missed deadline is retryable and needs
+/// no reconnect.
+#[xmtp_common::test(unwrap_try = true)]
+async fn barrier_failure_code_is_stable() {
+    use crate::worker::NeedsDbReconnect;
+    use xmtp_common::{ErrorCode, RetryableError};
+    tester!(alix, disable_workers);
+    let group = alix.create_group(None, None)?;
+    let topic = Topic::new_group_message(group.group_id);
+    let error = wait_through(
+        &alix.context,
+        [(topic, Cursor(1_000_000))].into(),
+        Some(Duration::ZERO),
+    )
+    .await
+    .unwrap_err();
+    let BarrierError::Incomplete { reason, .. } = &error;
+    assert_eq!(*reason, BarrierFailure::Deadline);
+    assert_eq!(error.error_code(), "BarrierError::Incomplete");
+    assert!(error.is_retryable());
+    assert!(!error.needs_db_reconnect());
+}

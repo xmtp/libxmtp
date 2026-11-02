@@ -505,7 +505,183 @@ impl MetricsCasting for DynMetrics {
 #[cfg(test)]
 mod event_subscription_tests {
     use super::*;
+    use crate::subscriptions::internal::DeletedMessages;
+    use crate::worker::device_sync::preference_sync::PreferenceUpdate;
     use xmtp_events::{EventBus, EventWriter};
+
+    /// What a worker of `kind` subscribes to: its public kinds, its buffer
+    /// depth, and the labels of the `events` its internal predicate admits.
+    fn event_interest_for(
+        kind: WorkerKind,
+        events: &[(&'static str, InternalEvent)],
+    ) -> Option<(Vec<EventKind>, Option<usize>, Vec<&'static str>)> {
+        let (filter, depth) = worker_event_filter(kind)?;
+        let kinds = filter.kinds.clone();
+        let bus = EventBus::new();
+        let subscription = bus.subscribe(filter, depth);
+        let mut admitted = vec![];
+        for (label, event) in events {
+            bus.emit(None, Some(event.clone()));
+            if !subscription.drain().is_empty() {
+                admitted.push(*label);
+            }
+        }
+        Some((kinds, depth, admitted))
+    }
+
+    /// One labelled sample of every internal event, with a matching and a
+    /// non-matching value for each field a worker predicate reads. The match
+    /// has no wildcard, so a new variant fails to compile here until it has a
+    /// sample.
+    fn internal_event_samples() -> Vec<(&'static str, InternalEvent)> {
+        let group_id = xmtp_proto::types::GroupId::from([7; 16]);
+        let stored = |expires_at_ns, is_sync| InternalEvent::MessageStored {
+            group_id,
+            message_id: vec![1],
+            expires_at_ns,
+            is_sync,
+        };
+        let deleted = || DeletedMessages {
+            messages: vec![],
+            deleted_by_inbox_id: None,
+        };
+        let samples = vec![
+            (
+                "GroupJoined{is_sync:false}",
+                InternalEvent::GroupJoined {
+                    group_id,
+                    is_sync: false,
+                },
+            ),
+            (
+                "GroupJoined{is_sync:true}",
+                InternalEvent::GroupJoined {
+                    group_id,
+                    is_sync: true,
+                },
+            ),
+            (
+                "MessageStored{expires:None,is_sync:false}",
+                stored(None, false),
+            ),
+            (
+                "MessageStored{expires:None,is_sync:true}",
+                stored(None, true),
+            ),
+            (
+                "MessageStored{expires:Some,is_sync:false}",
+                stored(Some(1), false),
+            ),
+            (
+                "MessageStored{expires:Some,is_sync:true}",
+                stored(Some(1), true),
+            ),
+            ("OutboxChanged", InternalEvent::OutboxChanged),
+            ("TaskScheduled", InternalEvent::TaskScheduled),
+            (
+                "NotificationSettingsChanged",
+                InternalEvent::NotificationSettingsChanged,
+            ),
+            (
+                "PreferencesChanged{empty}",
+                InternalEvent::PreferencesChanged { updates: vec![] },
+            ),
+            (
+                "PreferencesChanged{hmac}",
+                InternalEvent::PreferencesChanged {
+                    updates: vec![PreferenceUpdate::Hmac {
+                        key: vec![3; 32].into(),
+                        cycled_at_ns: 1,
+                    }],
+                },
+            ),
+            ("MessagesDeleted", InternalEvent::MessagesDeleted(deleted())),
+            ("MessagesExpired", InternalEvent::MessagesExpired(deleted())),
+        ];
+        for (_, event) in &samples {
+            match event {
+                InternalEvent::GroupJoined { .. }
+                | InternalEvent::MessageStored { .. }
+                | InternalEvent::OutboxChanged
+                | InternalEvent::TaskScheduled
+                | InternalEvent::NotificationSettingsChanged
+                | InternalEvent::PreferencesChanged { .. }
+                | InternalEvent::MessagesDeleted(_)
+                | InternalEvent::MessagesExpired(_) => {}
+            }
+        }
+        samples
+    }
+
+    /// Which events wake each worker, frozen before the crate split. The
+    /// match has no wildcard, so a new worker kind needs a row.
+    fn frozen_interest(
+        kind: WorkerKind,
+    ) -> Option<(Vec<EventKind>, Option<usize>, Vec<&'static str>)> {
+        match kind {
+            WorkerKind::DeviceSync => Some((
+                vec![],
+                None,
+                vec![
+                    "MessageStored{expires:None,is_sync:true}",
+                    "MessageStored{expires:Some,is_sync:true}",
+                    "OutboxChanged",
+                ],
+            )),
+            WorkerKind::DisappearingMessages => Some((
+                vec![EventKind::ConversationMetadataChanged],
+                Some(10),
+                vec![
+                    "MessageStored{expires:Some,is_sync:false}",
+                    "MessageStored{expires:Some,is_sync:true}",
+                ],
+            )),
+            WorkerKind::TaskRunner => Some((
+                vec![
+                    EventKind::ConsentChanged,
+                    EventKind::ConversationJoined,
+                    EventKind::ConversationRemoved,
+                    EventKind::HmacKeysUpdated,
+                    EventKind::ArchiveRestored,
+                ],
+                Some(10),
+                vec![
+                    "GroupJoined{is_sync:false}",
+                    "GroupJoined{is_sync:true}",
+                    "TaskScheduled",
+                    "NotificationSettingsChanged",
+                    "PreferencesChanged{empty}",
+                    "PreferencesChanged{hmac}",
+                ],
+            )),
+            WorkerKind::AttachmentCleanup
+            | WorkerKind::KeyPackageCleaner
+            | WorkerKind::CommitLog
+            | WorkerKind::ConfigurationRefresh
+            | WorkerKind::HmacEpoch => None,
+        }
+    }
+
+    #[xmtp_common::test]
+    fn worker_event_interest_matches_frozen_table() {
+        let samples = internal_event_samples();
+        for kind in [
+            WorkerKind::AttachmentCleanup,
+            WorkerKind::DeviceSync,
+            WorkerKind::DisappearingMessages,
+            WorkerKind::KeyPackageCleaner,
+            WorkerKind::CommitLog,
+            WorkerKind::TaskRunner,
+            WorkerKind::ConfigurationRefresh,
+            WorkerKind::HmacEpoch,
+        ] {
+            assert_eq!(
+                event_interest_for(kind, &samples),
+                frozen_interest(kind),
+                "{kind:?}"
+            );
+        }
+    }
 
     /// The outbox and the sync messages are stored state; the worker wakes
     /// only for them, and never drops a wake while busy.
