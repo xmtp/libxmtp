@@ -53,7 +53,7 @@ async fn fixture_options(streams: bool, remote: bool) -> (TestClient, Arc<Script
         wire: Mutex::default(),
     });
     let mut builder = Client::builder(IdentityStrategy::ExternalIdentity(
-        crate::identity::Identity::mock_identity(),
+        crate::context::test_support::mock_identity(),
     ))
     .store(store)
     .api_client(Arc::new(ScriptedApi(script.clone())))

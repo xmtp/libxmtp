@@ -31,6 +31,8 @@ pub(super) mod subscriptions;
 pub mod summary;
 pub(crate) mod targets;
 #[cfg(test)]
+pub(crate) mod test_support;
+#[cfg(test)]
 mod tests;
 mod traits;
 pub mod validated_commit;

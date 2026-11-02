@@ -38,9 +38,9 @@ use xmtp_proto::{
 
 use xmtp_api::{ApiClientWrapper, GetIdentityUpdatesV2Filter};
 
-mod dependencies;
+pub(crate) mod dependencies;
 #[cfg(test)]
-mod paged_load_tests;
+pub(crate) mod paged_load_tests;
 mod state_store;
 pub use dependencies::{IdentityDependencyError, IdentityRequirement, IdentityResolutionRegistry};
 

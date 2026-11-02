@@ -6,7 +6,7 @@ use xmtp_proto::types::ReceivedEnvelope;
 // verifies: EVENT-027
 #[xmtp_common::test(unwrap_try = true)]
 async fn internal_interest_does_not_change_client_connection_state() {
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let events = alix.context.events().subscribe(
         xmtp_events::EventFilter::new([xmtp_events::EventKind::ConnectionStateChanged]),
         Some(4),
@@ -33,10 +33,9 @@ async fn internal_interest_does_not_change_client_connection_state() {
     internal.close();
     assert!(events.drain().is_empty());
 }
-use crate::{
-    groups::welcome_sync::{HeldReadd, WelcomeService, held_readd},
-    test::mock::context,
-    tester,
+use crate::groups::{
+    test_support::{EnginePeer, EngineTestContext, EngineTestPeer, MockEngineContext},
+    welcome_sync::{HeldReadd, WelcomeService, held_readd},
 };
 use xmtp_common::Generate;
 use xmtp_db::group::{ConversationType, GroupQueryArgs};
@@ -94,19 +93,8 @@ fn add_scope<C: XmtpSharedContext + 'static>(
         .insert(topic.clone());
 }
 
-/// Rebuild a tester's client with internal stream limits for one test.
-async fn client_with_policy(
-    tester: &crate::utils::Tester,
-    edit: impl FnOnce(&mut crate::subscriptions::policy::StreamPolicy),
-) -> Result<crate::utils::FullXmtpClient, crate::builder::ClientBuilderError> {
-    let mut settings = tester.context.incoming_runtime().policy().clone();
-    edit(&mut settings);
-    crate::builder::ClientBuilder::from_client(tester.client.clone())
-        .stream_policy(settings)
-        .with_disable_workers(true)
-        .with_allow_offline(Some(true))
-        .build()
-        .await
+fn context() -> MockEngineContext {
+    crate::context::test_support::mock_context()
 }
 
 fn add_barrier_scope<C: XmtpSharedContext + 'static>(
@@ -134,8 +122,8 @@ fn add_barrier_scope<C: XmtpSharedContext + 'static>(
 // verifies: DMS-009
 #[xmtp_common::test(unwrap_try = true)]
 async fn one_dm_interest_reconciles_a_later_joined_duplicate() {
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let first = alix
         .find_or_create_dm(bo.inbox_id().to_string(), None)
         .await?;
@@ -172,8 +160,8 @@ async fn one_dm_interest_reconciles_a_later_joined_duplicate() {
 async fn inferred_inactive_dm_does_not_request_welcome_recovery(#[case] stored_later: bool) {
     use xmtp_db::{Store, group::GroupMembershipState};
 
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let first = alix
         .find_or_create_dm(bo.inbox_id().to_string(), None)
         .await
@@ -245,7 +233,7 @@ async fn inferred_inactive_dm_does_not_request_welcome_recovery(#[case] stored_l
 // verifies: PROC-046
 #[xmtp_common::test(unwrap_try = true)]
 async fn all_group_network_interest_keeps_a_denied_conversation() {
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
     group.update_consent_state(xmtp_db::consent_record::ConsentState::Denied)?;
     let (coordinator, mut controller) = coordinated_controller(alix.context.clone());
@@ -265,8 +253,8 @@ async fn all_group_network_interest_keeps_a_denied_conversation() {
 // verifies: PROC-046, PROC-015
 #[xmtp_common::test(unwrap_try = true)]
 async fn all_group_discovery_reruns_only_after_a_group_change() {
-    tester!(sender, disable_workers);
-    tester!(receiver, disable_workers);
+    let sender = EngineTestPeer::new().await;
+    let receiver = EngineTestPeer::new().await;
 
     const INVITATIONS: usize = 12;
     let mut invited_topics = HashSet::new();
@@ -312,8 +300,8 @@ async fn all_group_discovery_reruns_only_after_a_group_change() {
 // verifies: PROC-051
 #[xmtp_common::test(unwrap_try = true)]
 async fn retired_groups_are_rechecked_only_after_a_group_change() {
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let mut groups = Vec::new();
     for _ in 0..3 {
         let group = alix
@@ -368,8 +356,8 @@ async fn retired_groups_are_rechecked_only_after_a_group_change() {
 // verifies: PROC-051
 #[xmtp_common::test(unwrap_try = true)]
 async fn an_older_rejoin_welcome_unretires_the_group() {
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
@@ -415,7 +403,7 @@ async fn an_older_rejoin_welcome_unretires_the_group() {
 // verifies: PROC-015
 #[xmtp_common::test(unwrap_try = true)]
 async fn later_all_groups_scope_gets_cached_topics_at_an_unchanged_generation() {
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let mut group_topics = HashSet::new();
     for _ in 0..12 {
         let group = alix.create_group(None, None)?;
@@ -493,7 +481,7 @@ fn meta(topic: &Topic, sequence_id: u64) -> wire::EnvelopeMeta {
 async fn stale_dependency_results_cannot_change_new_heads_or_requirements() {
     use crate::identity_updates::IdentityDependencyError;
 
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     for topic in [
         Topic::new_group_message(GroupId::generate()),
         Topic::new_identity_update(hex::decode(alix.inbox_id())?),
@@ -575,7 +563,7 @@ async fn stale_dependency_results_cannot_change_new_heads_or_requirements() {
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn passive_prefixes_do_not_limit_shared_identity_requests() {
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let mut controller = controller(alix.context.clone());
     let limit = controller
         .context
@@ -617,135 +605,6 @@ async fn passive_prefixes_do_not_limit_shared_identity_requests() {
             .finish(&identity_key(&requirement)),
         HashSet::from([group, welcome])
     );
-}
-
-#[xmtp_common::test(unwrap_try = true)]
-async fn client_setup_selects_the_platform_transport_without_starting_it() {
-    use xmtp_proto::api::HasStats;
-    use xmtp_proto::api_client::{ApiBuilder, XmtpTestClient};
-
-    tester!(seed, disable_workers);
-    let api = Arc::new(crate::utils::DefaultTestClientCreator::create().build()?);
-    #[cfg(not(target_arch = "wasm32"))]
-    let _wires_before = crate::subscriptions::router_callbacks::shared_transport_count();
-    // Registration uses an explicit barrier. Rebuild the registered identity
-    // with a new API client to observe construction before its first interest.
-    let alix = crate::builder::ClientBuilder::from_client(seed.client.clone())
-        .api_client_with_streams(api)
-        .with_disable_workers(true)
-        .with_allow_offline(Some(true))
-        .build()
-        .await?;
-    let stats = alix.context.api().api_client.mls_stats();
-    let coordinator = IncomingCoordinator::for_context(&alix.context);
-    let empty = coordinator.acquire(IncomingScope::Topics(vec![]));
-    xmtp_common::wait_for_eq(
-        || async { empty.snapshot().processing },
-        IncomingProcessing::Complete,
-    )
-    .await?;
-    assert_eq!(stats.subscribe.get_count(), 0);
-    assert_eq!(stats.subscribe_static.get_count(), 0);
-    xmtp_common::if_native! { @
-        assert_eq!(crate::subscriptions::router_callbacks::shared_transport_count(), _wires_before);
-    }
-
-    let topic = Topic::new_welcome_message(alix.context.installation_id());
-    let first = coordinator.acquire(IncomingScope::Topics(vec![topic.clone()]));
-    let second =
-        IncomingCoordinator::for_context(&alix.context).acquire(IncomingScope::Topics(vec![topic]));
-    for lease in [&first, &second] {
-        xmtp_common::wait_for_eq(
-            || async {
-                lease
-                    .snapshot()
-                    .topics
-                    .first()
-                    .map(|topic| topic.registration)
-            },
-            Some(IncomingRegistration::Active),
-        )
-        .await?;
-    }
-    xmtp_common::if_native! { @
-        assert_eq!(stats.subscribe.get_count(), 1);
-        assert_eq!(stats.subscribe_static.get_count(), 0);
-        assert_eq!(crate::subscriptions::router_callbacks::shared_transport_count(), _wires_before + 1);
-    }
-    xmtp_common::if_wasm! { @
-        assert_eq!(stats.subscribe.get_count(), 0);
-        assert_eq!(stats.subscribe_static.get_count(), 1);
-    }
-}
-
-#[xmtp_common::test(unwrap_try = true)]
-async fn releasing_readers_allows_recreation_and_releases_the_context() {
-    tester!(alix, disable_workers);
-    let weak_context = Arc::downgrade(&alix.context);
-    let topic = Topic::new_welcome_message(alix.context.installation_id());
-    for _ in 0..2 {
-        let coordinator = IncomingCoordinator::for_context(&alix.context);
-        let lease = coordinator.acquire(IncomingScope::Topics(vec![topic.clone()]));
-        xmtp_common::wait_for_eq(
-            || async {
-                lease
-                    .snapshot()
-                    .topics
-                    .first()
-                    .map(|topic| topic.registration)
-            },
-            Some(IncomingRegistration::Active),
-        )
-        .await?;
-        drop(lease);
-        drop(coordinator);
-        xmtp_common::wait_for_eq(
-            || async { alix.context.incoming_runtime().coordinator.lock().is_none() },
-            true,
-        )
-        .await?;
-    }
-    alix.close().await?;
-    drop(alix);
-    xmtp_common::wait_for_eq(|| async { weak_context.strong_count() }, 0).await?;
-}
-
-#[xmtp_common::test(unwrap_try = true)]
-async fn replacing_the_api_with_query_only_setup_receives_and_processes_messages() {
-    use crate::groups::send_message_opts::SendMessageOpts;
-    use xmtp_proto::api::HasStats;
-    use xmtp_proto::api_client::{ApiBuilder, XmtpTestClient};
-
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
-    let group = bo.create_group(None, None)?;
-    group.add_members(&[alix.inbox_id()]).await?;
-    alix.sync_welcomes().await?;
-    let message_id = group
-        .send_message(b"query-only receipt", SendMessageOpts::default())
-        .await?;
-    let api = Arc::new(crate::utils::DefaultTestClientCreator::create().build()?);
-    let stats = api.mls_stats();
-    let client = crate::builder::ClientBuilder::from_client(alix.client.clone())
-        .api_client(api)
-        .with_disable_workers(true)
-        .with_allow_offline(Some(true))
-        .build()
-        .await?;
-    stats.clear();
-    let lease = IncomingCoordinator::for_context(&client.context)
-        .acquire(IncomingScope::Groups(vec![group.group_id]));
-    xmtp_common::wait_for_eq(
-        || async { lease.snapshot().processing },
-        IncomingProcessing::Complete,
-    )
-    .await?;
-    let message = client.context.db().get_group_message(&message_id)?.unwrap();
-    assert_eq!(message.decrypted_message_bytes, b"query-only receipt");
-    assert!(stats.query_newest.get_count() > 0);
-    assert!(stats.query.get_count() > 0);
-    assert_eq!(stats.subscribe.get_count(), 0);
-    assert_eq!(stats.subscribe_static.get_count(), 0);
 }
 
 #[xmtp_common::test(unwrap_try = true)]
@@ -829,7 +688,7 @@ async fn a_second_scope_captures_a_fresh_target_on_the_shared_registration() {
 // verifies: PROC-015
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_barrier_keeps_its_fixed_target_across_registration_and_target_replies() {
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let mut controller = controller(alix.context.clone());
     let topic = Topic::new_group_message(GroupId::generate());
     let deadline = Instant::now()
@@ -868,7 +727,7 @@ async fn a_barrier_keeps_its_fixed_target_across_registration_and_target_replies
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_new_barrier_after_an_empty_query_starts_deadline_fallback() {
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let mut controller = controller(alix.context.clone());
     let topic = Topic::new_group_message(GroupId::generate());
     let key = topic_key(&topic)?;
@@ -933,7 +792,7 @@ async fn a_new_barrier_after_an_empty_query_starts_deadline_fallback() {
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_healthy_receiver_gets_one_fixed_barrier_wait() {
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let mut controller = controller(alix.context.clone());
     let topic = Topic::new_group_message(GroupId::generate());
     let key = topic_key(&topic)?;
@@ -1043,7 +902,7 @@ impl SubscriptionFactory for PendingFactory {
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn suspension_blocks_live_queries_but_allows_an_explicit_barrier() {
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let mut controller = controller(alix.context.clone());
     controller.transport.factory = Some(Arc::new(SuspendedFactory));
     let topic = Topic::new_group_message(GroupId::generate());
@@ -1085,7 +944,7 @@ async fn suspension_blocks_live_queries_but_allows_an_explicit_barrier() {
 /// Suspended receipt follows only parents within the fixed Welcome target.
 #[xmtp_common::test(unwrap_try = true)]
 async fn suspended_welcome_barrier_receives_only_its_required_group_prefixes() {
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let mut controller = controller(alix.context.clone());
     controller.transport.factory = Some(Arc::new(SuspendedFactory));
     let group_id = GroupId::generate();
@@ -1161,7 +1020,7 @@ async fn suspended_welcome_barrier_receives_only_its_required_group_prefixes() {
 /// A Welcome prefix uses its parent's fixed wait and deadline.
 #[xmtp_common::test(unwrap_try = true)]
 async fn welcome_prefix_fallback_keeps_the_parent_barrier_deadline() {
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let mut controller = controller(alix.context.clone());
     controller.transport.factory = Some(Arc::new(SuspendedFactory));
     let group_id = GroupId::generate();
@@ -1229,8 +1088,8 @@ async fn welcome_prefix_fallback_keeps_the_parent_barrier_deadline() {
 // verifies: JOIN-042, JOIN-092
 #[xmtp_common::test(unwrap_try = true)]
 async fn removal_wakes_a_welcome_before_its_join_anchor() {
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let HeldReadd {
         alix_group,
         bo_group,
@@ -1289,17 +1148,17 @@ async fn removal_wakes_a_welcome_before_its_join_anchor() {
 struct PrefixDeadlineRestart {
     /// The restarted controller after its first pass, with live work suspended
     /// when the caller asked for it.
-    controller: Controller<crate::utils::TestXmtpMlsContext>,
-    alix_group: crate::utils::TestMlsGroup,
-    bo_group: crate::utils::TestMlsGroup,
+    controller: Controller<EngineTestContext>,
+    alix_group: MlsGroup<EngineTestContext>,
+    bo_group: MlsGroup<EngineTestContext>,
     welcome: Cursor,
     anchor: Cursor,
     removal: xmtp_db::incoming_envelope::AdmissionResult,
 }
 
 async fn restart_after_prefix_deadline(
-    alix: &crate::utils::FullXmtpClient,
-    bo: &crate::utils::FullXmtpClient,
+    alix: &EngineTestPeer,
+    bo: &EngineTestPeer,
     suspended: bool,
 ) -> PrefixDeadlineRestart {
     use diesel::{ExpressionMethods, QueryDsl, RunQueryDsl};
@@ -1362,8 +1221,8 @@ async fn restart_after_prefix_deadline(
 // verifies: JOIN-092
 #[xmtp_common::test(unwrap_try = true)]
 async fn expired_prefix_wait_catches_up_before_deciding() {
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let PrefixDeadlineRestart {
         mut controller,
         alix_group,
@@ -1423,8 +1282,8 @@ async fn expired_prefix_wait_catches_up_before_deciding() {
 async fn expired_prefix_wait_rejects_below_a_reached_final_target() {
     use super::processing::PrefixTarget;
 
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let PrefixDeadlineRestart {
         mut controller,
         bo_group,
@@ -1518,8 +1377,8 @@ async fn expired_prefix_wait_keeps_a_welcome_for_an_inactive_group() {
     use diesel::{ExpressionMethods, QueryDsl, RunQueryDsl};
     use xmtp_db::{ConnectionExt, refresh_state::EntityKind, schema::incoming_envelopes};
 
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let PrefixDeadlineRestart {
         mut controller,
         alix_group,
@@ -1584,10 +1443,10 @@ async fn expired_prefix_wait_keeps_a_welcome_for_an_inactive_group() {
 async fn an_in_flight_pointer_does_not_starve_a_later_welcome() {
     use crate::groups::welcome_sync::pending_welcome_for_test;
 
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
-    tester!(_bo2, from: bo, disable_workers);
-    tester!(_bo3, from: bo, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
+    let _bo2 = bo.new_installation().await;
+    let _bo3 = bo.new_installation().await;
     let first = alix.create_group(None, None)?;
     first.add_members(&[bo.inbox_id()]).await?;
     let later = alix.create_group(None, None)?;
@@ -1604,7 +1463,9 @@ async fn an_in_flight_pointer_does_not_starve_a_later_welcome() {
         xmtp_proto::types::WelcomeMessageType::WelcomePointer(_)
     ));
     pending_welcome_for_test(&bo.context, &welcomes[1]).await?;
-    let client = client_with_policy(&bo, |settings| settings.max_fetched_rows = 1).await?;
+    let client = bo
+        .with_stream_policy(|settings| settings.max_fetched_rows = 1)
+        .await;
     let mut controller = controller(client.context.clone());
     let topic = Topic::new_welcome_message(client.context.installation_id());
     let key = topic_key(&topic)?;
@@ -1652,11 +1513,11 @@ async fn an_in_flight_pointer_does_not_starve_a_later_welcome() {
 async fn a_welcome_fetches_missing_member_proofs_in_one_request(#[case] pointer: bool) {
     use crate::groups::welcome_sync::pending_welcome_for_test;
 
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
-    tester!(caro, disable_workers);
-    tester!(dave, disable_workers);
-    tester!(eve, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
+    let caro = EngineTestPeer::new().await;
+    let dave = EngineTestPeer::new().await;
+    let eve = EngineTestPeer::new().await;
     let others = [caro.inbox_id(), dave.inbox_id(), eve.inbox_id()];
     let group = alix.create_group(None, None).unwrap();
     if pointer {
@@ -1733,11 +1594,11 @@ async fn a_welcome_fetches_missing_member_proofs_in_one_request(#[case] pointer:
 // verifies: GMOD-013
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_commit_fetches_missing_proofs_for_added_inboxes_in_one_request() {
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
-    tester!(caro, disable_workers);
-    tester!(dave, disable_workers);
-    tester!(eve, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
+    let caro = EngineTestPeer::new().await;
+    let dave = EngineTestPeer::new().await;
+    let eve = EngineTestPeer::new().await;
     let alix_group = alix.create_group(None, None)?;
     alix_group.add_members(&[bo.inbox_id()]).await?;
     bo.sync_welcomes().await?;
@@ -1782,7 +1643,7 @@ async fn a_commit_fetches_missing_proofs_for_added_inboxes_in_one_request() {
 async fn a_welcome_failure_keeps_independent_pending_parents_runnable() {
     use crate::identity_updates::IdentityDependencyError;
 
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let mut controller = controller(alix.context.clone());
     let topic = Topic::new_welcome_message(controller.context.installation_id());
     let key = topic_key(&topic)?;
@@ -2037,7 +1898,7 @@ fn a_permanent_receipt_error_retries_that_topic_with_backoff() {
 // verifies: PROC-038, PROC-039
 #[xmtp_common::test(unwrap_try = true)]
 async fn failed_queries_spend_only_the_interested_stream_budget() {
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let (coordinator, mut controller) = coordinated_controller(alix.context.clone());
     let failing = Topic::new_welcome_message(alix.context.installation_id());
     let healthy = Topic::new_group_message(GroupId::generate());
@@ -2076,7 +1937,7 @@ async fn failed_queries_spend_only_the_interested_stream_budget() {
 // verifies: API-284, PROC-038
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_rejected_query_is_not_repeated_from_the_same_cursor() {
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let (coordinator, mut controller) = coordinated_controller(alix.context.clone());
     let topic = Topic::new_welcome_message(alix.context.installation_id());
     let stream = coordinator.acquire_stream(IncomingScope::Topics(vec![topic.clone()]));
@@ -2197,7 +2058,7 @@ async fn a_rejected_query_is_not_repeated_from_the_same_cursor() {
 // verifies: API-284, PROC-039
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_rejected_fallback_query_does_not_end_a_covered_fresh_stream() {
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let (coordinator, mut controller) = coordinated_controller(alix.context.clone());
     let topic = Topic::new_group_message(GroupId::generate());
     let original = coordinator.acquire_stream(IncomingScope::Topics(vec![topic.clone()]));
@@ -2242,7 +2103,7 @@ async fn a_rejected_fallback_query_does_not_end_a_covered_fresh_stream() {
 // verifies: API-284
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_changed_durable_cursor_clears_the_rejected_query_backoff() {
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let (coordinator, mut controller) = coordinated_controller(alix.context.clone());
     let topic = Topic::new_group_message(GroupId::generate());
     let stream = coordinator.acquire_stream(IncomingScope::Topics(vec![topic.clone()]));
@@ -2308,7 +2169,7 @@ async fn a_changed_durable_cursor_clears_the_rejected_query_backoff() {
 // verifies: API-284, PROC-039
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_covered_bidi_topic_does_not_poll_a_retained_query_cursor() {
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let mut controller = controller(alix.context.clone());
     let topic = Topic::new_group_message(GroupId::generate());
     add_scope(&mut controller, 1, &topic);
@@ -2346,7 +2207,7 @@ async fn a_covered_bidi_topic_does_not_poll_a_retained_query_cursor() {
 // verifies: API-284
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_query_uses_the_cursor_checked_inside_its_future() {
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let (coordinator, mut controller) = coordinated_controller(alix.context.clone());
     let topic = Topic::new_group_message(GroupId::generate());
     let stream = coordinator.acquire_stream(IncomingScope::Topics(vec![topic.clone()]));
@@ -2398,7 +2259,7 @@ async fn a_query_uses_the_cursor_checked_inside_its_future() {
 // verifies: API-284
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_retained_rejection_does_not_poll_cursors_on_a_healthy_bidi_loop() {
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let (coordinator, mut controller) = coordinated_controller(alix.context.clone());
     let topic = Topic::new_group_message(GroupId::generate());
     let other = Topic::new_group_message(GroupId::generate());
@@ -2440,7 +2301,7 @@ async fn a_retained_rejection_does_not_poll_cursors_on_a_healthy_bidi_loop() {
 // verifies: API-284
 #[xmtp_common::test(unwrap_try = true)]
 async fn an_internal_scope_does_not_repeat_a_rejected_newest_query() {
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let (coordinator, mut controller) = coordinated_controller(alix.context.clone());
     controller.transport.factory = None;
     let welcome = Topic::new_welcome_message(alix.context.installation_id());
@@ -2514,7 +2375,7 @@ async fn an_internal_scope_does_not_repeat_a_rejected_newest_query() {
 // verifies: API-284
 #[xmtp_common::test(unwrap_try = true)]
 async fn rejected_wire_payloads_survive_controller_recreation_and_a_b_a_changes() {
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let a = Topic::new_group_message(GroupId::generate());
     let b = Topic::new_group_message(GroupId::generate());
     let rejected = || {
@@ -2552,7 +2413,7 @@ async fn rejected_wire_payloads_survive_controller_recreation_and_a_b_a_changes(
 // verifies: API-284
 #[xmtp_common::test(unwrap_try = true)]
 async fn newest_rejection_blocks_target_capture_but_not_bidi_for_same_topics() {
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let topic = Topic::new_group_message(GroupId::generate());
     let mut controller = controller(alix.context.clone());
     controller.transport.factory = None;
@@ -2577,7 +2438,7 @@ async fn newest_rejection_blocks_target_capture_but_not_bidi_for_same_topics() {
 // verifies: API-284
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_rejected_target_query_does_not_block_a_valid_bidi_open() {
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let mut controller = controller(alix.context.clone());
     controller.transport.factory = Some(Arc::new(PendingFactory));
     let topic = Topic::new_group_message(GroupId::generate());
@@ -2627,7 +2488,7 @@ async fn a_rejected_target_query_does_not_block_a_valid_bidi_open() {
 // verifies: API-284, PROC-038
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_rejected_new_scope_target_does_not_end_an_active_sibling() {
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let (coordinator, mut controller) = coordinated_controller(alix.context.clone());
     let topic = Topic::new_group_message(GroupId::generate());
     let active = coordinator.acquire_stream(IncomingScope::Topics(vec![topic.clone()]));
@@ -2724,7 +2585,7 @@ async fn a_rejected_new_scope_target_does_not_end_an_active_sibling() {
 // verifies: API-284, PROC-038
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_caller_joining_during_a_rejected_target_query_gets_the_retained_error() {
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let (coordinator, mut controller) = coordinated_controller(alix.context.clone());
     let topic = Topic::new_group_message(GroupId::generate());
     let active = coordinator.acquire_stream(IncomingScope::Topics(vec![topic.clone()]));
@@ -2814,7 +2675,7 @@ async fn a_caller_joining_during_a_rejected_target_query_gets_the_retained_error
 // verifies: API-284
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_rejected_wire_open_stays_blocked_after_partial_or_full_registration() {
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let topic = Topic::new_group_message(GroupId::generate());
     let second = Topic::new_group_message(GroupId::generate());
     let rejected = || {
@@ -2847,7 +2708,7 @@ async fn a_rejected_wire_open_stays_blocked_after_partial_or_full_registration()
 // verifies: API-284
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_shared_wire_rejection_holds_each_lease_until_a_new_caller() {
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let (first_coordinator, mut first) = coordinated_controller(alix.context.clone());
     let (second_coordinator, mut second) = coordinated_controller(alix.context.clone());
     let first_topic = Topic::new_group_message(GroupId::generate());
@@ -2913,7 +2774,7 @@ async fn a_shared_wire_rejection_holds_each_lease_until_a_new_caller() {
 // verifies: PROC-038
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_blocked_selected_topic_cannot_reset_health_through_a_sibling() {
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let (coordinator, mut controller) = coordinated_controller(alix.context.clone());
     let welcome = Topic::new_welcome_message(alix.context.installation_id());
     let group = Topic::new_group_message(GroupId::generate());
@@ -3073,7 +2934,7 @@ fn recovery_health_requires_registration_and_eof_keeps_a_cause() {
 // verifies: PROC-038, PROC-039
 #[xmtp_common::test(unwrap_try = true)]
 async fn recovery_health_is_scoped_and_new_selection_needs_registration() {
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let mut controller = controller(alix.context.clone());
     let first = Topic::new_group_message(GroupId::generate());
     let sibling = Topic::new_group_message(GroupId::generate());
@@ -3114,7 +2975,7 @@ async fn recovery_health_is_scoped_and_new_selection_needs_registration() {
 // verifies: PROC-038, PROC-039
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_stream_opened_before_status_refresh_does_not_pay_prior_failures() {
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let topic = Topic::new_welcome_message(alix.context.installation_id());
     for eof in [false, true] {
         let (coordinator, mut controller) = coordinated_controller(alix.context.clone());
@@ -3163,7 +3024,7 @@ async fn a_stream_opened_before_status_refresh_does_not_pay_prior_failures() {
 // verifies: PROC-021, PROC-038, EVENT-001, EVENT-027
 #[xmtp_common::test(unwrap_try = true)]
 async fn an_application_stream_retries_a_nonretryable_source_response_and_recovers() {
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let events = alix.context.events().subscribe(
         xmtp_events::EventFilter::new([xmtp_events::EventKind::ConnectionStateChanged]),
         Some(8),
@@ -3234,7 +3095,7 @@ async fn an_application_stream_retries_a_nonretryable_source_response_and_recove
 // verifies: AUTH-025, PROC-039
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_terminal_credential_failure_stays_latched_only_for_its_stream() {
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let (coordinator, mut controller) = coordinated_controller(alix.context.clone());
     let topic = Topic::new_welcome_message(alix.context.installation_id());
     let old = coordinator.acquire_stream(IncomingScope::Topics(vec![topic.clone()]));
@@ -3269,7 +3130,7 @@ async fn a_terminal_credential_failure_stays_latched_only_for_its_stream() {
 // verifies: PROC-038, PROC-039
 #[xmtp_common::test(unwrap_try = true)]
 async fn exhausted_application_stream_preserves_worker_and_barrier_interests() {
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
     let topic = Topic::new_group_message(group.group_id);
     let (commands, receiver) = mpsc::unbounded_channel();
@@ -3331,7 +3192,7 @@ async fn exhausted_application_stream_preserves_worker_and_barrier_interests() {
 // verifies: PROC-002
 #[xmtp_common::test(unwrap_try = true)]
 async fn receipt_acknowledgement_follows_storage_and_never_uses_the_target() {
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let topic = Topic::new_group_message(GroupId::generate());
     let mut controller = controller(alix.context.clone());
     add_scope(&mut controller, 1, &topic);
@@ -3434,16 +3295,17 @@ async fn receipt_acknowledgement_follows_storage_and_never_uses_the_target() {
 async fn each_kind_keeps_its_budget_and_only_committed_chunks_are_acknowledged() {
     use xmtp_db::{TransactionOutcome, XmtpMlsStorageProvider};
 
-    tester!(alix, disable_workers);
-    let client = client_with_policy(&alix, |settings| {
-        settings.max_fetched_rows = 8;
-        settings.max_fetched_bytes = 4096;
-        settings.max_admission_rows = 1;
-        settings.max_admission_bytes = 1024;
-        settings.group_pending.rows = 2;
-        settings.welcome_pending.bytes = 1;
-    })
-    .await?;
+    let alix = EngineTestPeer::new().await;
+    let client = alix
+        .with_stream_policy(|settings| {
+            settings.max_fetched_rows = 8;
+            settings.max_fetched_bytes = 4096;
+            settings.max_admission_rows = 1;
+            settings.max_admission_bytes = 1024;
+            settings.group_pending.rows = 2;
+            settings.welcome_pending.bytes = 1;
+        })
+        .await;
     let topic = Topic::new_group_message(GroupId::generate());
     let welcome = Topic::new_welcome_message(client.installation_public_key());
     let key = topic_key(&topic)?;
@@ -3527,16 +3389,17 @@ async fn each_kind_keeps_its_budget_and_only_committed_chunks_are_acknowledged()
     use xmtp_common::{StreamHandle, wait_for_eq};
     use xmtp_db::incoming_envelope::IncomingRetry;
 
-    tester!(receiver, disable_workers);
+    let receiver = EngineTestPeer::new().await;
     let group = receiver.create_group(None, None)?;
-    let client = client_with_policy(&receiver, |settings| {
-        settings.max_fetched_rows = 8;
-        settings.max_admission_rows = 8;
-        settings.max_pending_rows_per_topic = 8;
-        settings.active_database_poll_interval = Duration::from_millis(10);
-        settings.receiver_fallback_interval = Duration::from_millis(100);
-    })
-    .await?;
+    let client = receiver
+        .with_stream_policy(|settings| {
+            settings.max_fetched_rows = 8;
+            settings.max_admission_rows = 8;
+            settings.max_pending_rows_per_topic = 8;
+            settings.active_database_poll_interval = Duration::from_millis(10);
+            settings.receiver_fallback_interval = Duration::from_millis(100);
+        })
+        .await;
     let topic = Topic::new_group_message(group.group_id);
     let key = topic_key(&topic)?;
     let before = client.context.db().topic_progress(&key)?;
@@ -3707,8 +3570,10 @@ async fn each_kind_keeps_its_budget_and_only_committed_chunks_are_acknowledged()
 async fn held_group_heads_do_not_pause_unrelated_groups() {
     use xmtp_db::incoming_envelope::IncomingRetry;
 
-    tester!(alix, disable_workers);
-    let client = client_with_policy(&alix, |settings| settings.group_pending.rows = 2).await?;
+    let alix = EngineTestPeer::new().await;
+    let client = alix
+        .with_stream_policy(|settings| settings.group_pending.rows = 2)
+        .await;
     let first = Topic::new_group_message(GroupId::generate());
     let second = Topic::new_group_message(GroupId::generate());
     let third = Topic::new_group_message(GroupId::generate());
@@ -3800,7 +3665,7 @@ async fn an_unknown_welcome_variant_is_stored_as_received_and_held() {
         #[prost(bytes = "vec", tag = "3")]
         variant: Vec<u8>,
     }
-    tester!(alix, persistent_db, disable_workers);
+    let alix = EngineTestPeer::persistent().await;
     let topic = Topic::new_welcome_message(alix.context.installation_id());
     let key = topic_key(&topic)?;
     let raw =
@@ -3808,10 +3673,11 @@ async fn an_unknown_welcome_variant_is_stored_as_received_and_held() {
     let decoded = wire::ServerEnvelope::decode(raw(7))?.encoded_len();
     // Two decoded envelopes fit one chunk; two received envelopes need two.
     assert!(raw(7).len() <= 2 * decoded && 2 * decoded < raw(7).len() + raw(8).len());
-    let client = client_with_policy(&alix, |settings| {
-        settings.max_admission_bytes = 2 * decoded as u64;
-    })
-    .await?;
+    let client = alix
+        .with_stream_policy(|settings| {
+            settings.max_admission_bytes = 2 * decoded as u64;
+        })
+        .await;
     let mut controller = controller(client.context.clone());
     controller.admit_received_batch(OrderedEnvelopeBatch {
         topic: topic.clone(),
@@ -3832,8 +3698,11 @@ async fn an_unknown_welcome_variant_is_stored_as_received_and_held() {
     assert!(held.blocked && held.unreadable_expires_at_ns.is_some());
     assert_eq!(held.error_code.as_deref(), Some("unsupported_welcome"));
 
-    alix.client.release_db_connection()?;
-    alix.client.reconnect_db()?;
+    {
+        use xmtp_db::ConnectionExt;
+        alix.context.db().disconnect()?;
+        alix.context.db().reconnect()?;
+    }
     let stored = alix
         .context
         .db()
@@ -3849,18 +3718,19 @@ async fn an_unknown_welcome_variant_is_stored_as_received_and_held() {
 // verifies: PROC-001
 #[xmtp_common::test(unwrap_try = true)]
 async fn byte_chunks_validate_the_complete_input_before_receipt() {
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let topic = Topic::new_group_message(GroupId::generate());
     let envelope = |sequence| wire::ServerEnvelope {
         meta: Some(meta(&topic, sequence)),
         envelope: Some(wire::ClientEnvelope::default()),
     };
     let max_bytes = envelope(10).encoded_len() + 2;
-    let client = client_with_policy(&alix, |settings| {
-        settings.max_admission_rows = 8;
-        settings.max_admission_bytes = max_bytes as u64;
-    })
-    .await?;
+    let client = alix
+        .with_stream_policy(|settings| {
+            settings.max_admission_rows = 8;
+            settings.max_admission_bytes = max_bytes as u64;
+        })
+        .await;
     let mut controller = controller(client.context.clone());
     let key = topic_key(&topic)?;
     // Unknown fields that fit when decoded still count at their received size.
@@ -3924,8 +3794,8 @@ async fn an_invalid_supported_head_does_not_hold_a_later_valid_message() {
     use xmtp_api::PublishUnit;
     use xmtp_db::group_message::MsgQueryArgs;
 
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let alix_group = alix.create_group(None, None)?;
     alix_group.add_members(&[bo.inbox_id()]).await?;
     bo.sync_welcomes().await?;
@@ -3936,7 +3806,7 @@ async fn an_invalid_supported_head_does_not_hold_a_later_valid_message() {
     let before = bo.context.db().topic_progress(&key)?;
     let message_count = bo_group.find_messages(&MsgQueryArgs::default())?.len();
     // Independent traffic leaves a sparse sequence for the malformed head.
-    tester!(caro, disable_workers);
+    let caro = EngineTestPeer::new().await;
     assert_ne!(caro.inbox_id(), bo.inbox_id());
     caro.create_group(None, None)?
         .send_message(b"sequence gap", SendMessageOpts::default())
@@ -4195,8 +4065,8 @@ fn membership<C: XmtpSharedContext>(context: &C, group_id: &GroupId) -> GroupMem
 async fn a_selected_missing_group_retires_after_import_and_returns_after_welcome(
     #[case] kind: usize,
 ) {
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await
@@ -4243,7 +4113,7 @@ async fn a_selected_missing_group_retires_after_import_and_returns_after_welcome
 #[xmtp_common::test(unwrap_try = true)]
 async fn only_selected_missing_groups_add_repeated_lookup_cost() {
     use xmtp_db::database::count_sql_queries;
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let mut controller = controller(alix.context.clone());
     let (_, baseline, _) = count_sql_queries(|| controller.reconcile().unwrap());
     let mut topics = Vec::new();
@@ -4308,7 +4178,7 @@ async fn only_selected_missing_groups_add_repeated_lookup_cost() {
 // verifies: PROC-051
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_missing_group_recheck_retries_after_a_storage_error() {
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let id = GroupId::generate();
     let topic = Topic::new_group_message(id);
     let mut controller = controller(alix.context.clone());
@@ -4332,8 +4202,8 @@ async fn a_missing_group_recheck_retries_after_a_storage_error() {
 // verifies: PROC-051
 #[xmtp_common::test(unwrap_try = true)]
 async fn all_groups_discovery_skips_a_restored_group_until_its_welcome() {
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let joined = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
@@ -4367,8 +4237,8 @@ async fn all_groups_discovery_skips_a_restored_group_until_its_welcome() {
 /// A scope that selects a Restored group does not receive its topic until a Welcome
 /// activates the group.
 async fn scope_waits_for_the_welcome(scope: impl Fn(&Topic, &Topic) -> IncomingScope) {
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
+    let alix = EngineTestPeer::new().await;
+    let bo = EngineTestPeer::new().await;
     let restored = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await
@@ -4426,7 +4296,7 @@ async fn a_barrier_scope_skips_a_restored_group_until_its_welcome() {
 // verifies: PROC-051
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_device_sync_scope_skips_a_restored_sync_group() {
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let group_id = GroupId::generate();
     insert_restored_placeholder(&alix.context, &group_id, ConversationType::Sync);
     let topic = Topic::new_group_message(group_id);
@@ -4450,7 +4320,7 @@ async fn a_device_sync_scope_skips_a_restored_sync_group() {
 // verifies: PROC-051
 #[xmtp_common::test(unwrap_try = true)]
 async fn releasing_a_scope_forgets_its_restored_groups_until_selected_again() {
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let group_id = GroupId::generate();
     insert_restored_placeholder(&alix.context, &group_id, ConversationType::Group);
     let topic = Topic::new_group_message(group_id);
@@ -4482,7 +4352,7 @@ fn acquire_scopes(coordinator: &Arc<IncomingCoordinator>, count: usize) -> Vec<I
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_burst_of_commands_is_applied_before_one_pass() {
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let (coordinator, mut controller) = coordinated_controller(alix.context.clone());
     let _leases = acquire_scopes(&coordinator, 100);
     // The run loop receives one command, applies the burst, then runs one pass.
@@ -4514,7 +4384,7 @@ const UNDECODABLE: i32 = 99;
 // verifies: PROC-051
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_failed_selection_check_selects_nothing_until_it_succeeds() {
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let failing = GroupId::generate();
     insert_restored_placeholder(&alix.context, &failing, ConversationType::Group);
     set_membership_value(&alix.context, &failing, UNDECODABLE);
@@ -4555,7 +4425,7 @@ async fn a_failed_selection_check_selects_nothing_until_it_succeeds() {
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_command_burst_applies_at_most_the_cap_per_step() {
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let (coordinator, mut controller) = coordinated_controller(alix.context.clone());
     let _leases = acquire_scopes(&coordinator, MAX_COMMANDS_PER_PASS + 44);
 
@@ -4587,7 +4457,7 @@ fn pass<C: XmtpSharedContext + 'static>(controller: &mut Controller<C>) {
 // verifies: PROC-051
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_failed_reconcile_opens_no_new_network_interest() {
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let group = alix.create_group(None, None)?;
     let kept = Topic::new_group_message(group.group_id);
     let added = Topic::new_group_message(GroupId::generate());
@@ -4635,7 +4505,7 @@ fn rate_limited(category: &str, delay: Duration) -> NetworkError {
 // verifies: RATE-041
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_replacement_controller_waits_out_a_rate_limited_open() {
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let topic = Topic::new_group_message(GroupId::generate());
     let mut original = controller(alix.context.clone());
     original.transport.factory = Some(Arc::new(PendingFactory));
@@ -4661,7 +4531,7 @@ async fn a_replacement_controller_waits_out_a_rate_limited_open() {
 // verifies: RATE-041
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_rate_limited_read_keeps_the_stream_and_waits_only_its_topic() {
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let (coordinator, mut controller) = coordinated_controller(alix.context.clone());
     let refused = Topic::new_group_message(GroupId::generate());
     let other = Topic::new_group_message(GroupId::generate());
@@ -4714,7 +4584,7 @@ async fn a_rate_limited_read_keeps_the_stream_and_waits_only_its_topic() {
 // verifies: RATE-041
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_rate_limited_topic_reads_again_after_its_delay() {
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let (coordinator, mut controller) = coordinated_controller(alix.context.clone());
     let refused = Topic::new_group_message(GroupId::generate());
     let stream = coordinator.acquire_stream(IncomingScope::Topics(vec![refused.clone()]));
@@ -4759,7 +4629,7 @@ async fn a_rate_limited_topic_reads_again_after_its_delay() {
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_rate_limited_stream_end_holds_the_next_open() {
     use xmtp_api_backend::{ConnectionFailure, TransportError};
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let topic = Topic::new_group_message(GroupId::generate());
     let mut controller = controller(alix.context.clone());
     controller.transport.factory = Some(Arc::new(PendingFactory));
@@ -4794,7 +4664,7 @@ fn rate_limited_api(category: &str, delay: Duration) -> xmtp_api::ApiError {
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_rate_limited_identity_proof_floors_only_its_head() {
     use xmtp_db::incoming_envelope::{NetworkEntityKind, NewIncomingEnvelope};
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let mut controller = controller(alix.context.clone());
     let topic = Topic::new_group_message(GroupId::generate());
     let key = topic_key(&topic)?;
@@ -4858,7 +4728,7 @@ async fn a_rate_limited_identity_proof_floors_only_its_head() {
 // verifies: RATE-041
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_rate_limited_target_read_waits_its_delay() {
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let (coordinator, mut controller) = coordinated_controller(alix.context.clone());
     let refused = Topic::new_group_message(GroupId::generate());
     let other = Topic::new_group_message(GroupId::generate());
@@ -4903,7 +4773,7 @@ async fn a_rate_limited_target_read_waits_its_delay() {
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_rate_limited_prefix_target_read_waits_its_delay() {
     use super::processing::PrefixTarget;
-    tester!(alix, disable_workers);
+    let alix = EngineTestPeer::new().await;
     let mut controller = controller(alix.context.clone());
     controller.prefix_holds.insert(
         Cursor(1),

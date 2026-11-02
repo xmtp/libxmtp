@@ -2,6 +2,8 @@
 use crate::core::commit_lock::GroupCommitLock;
 #[cfg(any(test, target_arch = "wasm32"))]
 mod message_clock;
+#[cfg(test)]
+pub(crate) mod test_support;
 use crate::core::change_callbacks::UnstableChangeCallbacks;
 use crate::core::config::{DeviceSync, DeviceSyncMode, ForkRecoveryOpts};
 use crate::core::events::InternalEvent;

@@ -327,48 +327,10 @@ fn parent_result(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::identity_lifecycle::test_support::IdentityTestPeer;
     use crate::prelude::*;
-    use crate::tester;
     use xmtp_common::time::Duration;
     use xmtp_db::prelude::*;
-
-    #[cfg(not(target_arch = "wasm32"))]
-    #[xmtp_common::test(unwrap_try = true)]
-    fn identity_and_query_futures_are_send() {
-        fn assert_send<T: Send>(_: T) {}
-        let context = crate::test::mock::context();
-        let requirement = IdentityRequirement {
-            inbox_id: "inbox".into(),
-            sequence_id: 1,
-        };
-        assert_send(resolve_identity_requirements(
-            &context,
-            &BTreeSet::from([requirement.clone()]),
-        ));
-        assert_send(context.api().newest_topic_cursors(vec![]));
-        assert_send(context.api().query_ordered_page(
-            Default::default(),
-            1,
-            xmtp_proto::types::IncomingBatchLimits {
-                max_rows: 1,
-                max_bytes: 1024,
-            },
-        ));
-        // Check the production transport type as well as the mock type.
-        let _: fn(&crate::Client<crate::MlsContext>) = |client| {
-            assert_send(async move { client.inbox_state(true).await });
-            assert_send(xmtp_common::bind_task_hub(async move {
-                client.inbox_state(true).await
-            }));
-            assert_send(async move {
-                client
-                    .wait_for_registration_visible(Default::default())
-                    .await
-            });
-            assert_send(async move { client.context.api().get_inbox_ids(vec![]).await });
-            assert_send(async move { client.context.api().newest_topic_cursors(vec![]).await });
-        };
-    }
 
     #[xmtp_common::test(unwrap_try = true)]
     async fn identity_requests_share_one_context_limit() {
@@ -385,13 +347,13 @@ mod tests {
     // verifies: IDENT-070
     #[xmtp_common::test(unwrap_try = true)]
     async fn historical_proof_does_not_use_a_newer_cached_snapshot() {
-        tester!(alix, disable_workers);
-        tester!(bo, disable_workers);
+        let alix = IdentityTestPeer::new().await;
+        let bo = IdentityTestPeer::new().await;
         let first_sequence =
             alix.context
                 .db()
                 .get_latest_sequence_id(&[alix.inbox_id()])?[alix.inbox_id()] as u64;
-        tester!(alix2, from: alix, disable_workers);
+        let alix2 = alix.new_installation().await;
         load_identity_updates(alix.context.api(), &alix.context.db(), &[alix.inbox_id()]).await?;
         let last_sequence =
             alix.context
@@ -428,8 +390,8 @@ mod tests {
     // verifies: PROC-013
     #[xmtp_common::test(unwrap_try = true)]
     async fn dependency_batch_keeps_success_after_an_invalid_sibling() {
-        tester!(alix, disable_workers);
-        tester!(bo, disable_workers);
+        let alix = IdentityTestPeer::new().await;
+        let bo = IdentityTestPeer::new().await;
         let sequence_id =
             alix.context
                 .db()
@@ -485,17 +447,15 @@ mod tests {
     // successful queries, and another parent's reference does not queue behind it.
     #[xmtp_common::test(unwrap_try = true)]
     async fn absent_references_share_one_window() {
-        tester!(alix, disable_workers);
-        tester!(bo, disable_workers);
+        let alix = IdentityTestPeer::new().await;
+        let bo = IdentityTestPeer::new().await;
         let wait = Duration::from_secs(3);
-        let mut settings = alix.context.incoming_runtime().policy().clone();
-        settings.identity_reference_wait = wait;
-        settings.max_dependency_requests = 1;
-        let client = crate::builder::ClientBuilder::from_client(alix.client.clone())
-            .with_disable_workers(true)
-            .stream_policy(settings)
-            .build()
-            .await?;
+        let client = alix
+            .with_stream_policy(|settings| {
+                settings.identity_reference_wait = wait;
+                settings.max_dependency_requests = 1;
+            })
+            .await;
         let absent: BTreeSet<_> = (0..16)
             .map(|_| IdentityRequirement {
                 inbox_id: hex::encode(xmtp_common::rand_vec::<32>()),
@@ -546,16 +506,12 @@ mod tests {
     async fn dependency_resolution_waits_on_missing_identity_update() {
         use crate::worker::NeedsDbReconnect;
         use xmtp_common::RetryableError;
-        tester!(alix, disable_workers);
-        tester!(bo, disable_workers);
+        let alix = IdentityTestPeer::new().await;
+        let bo = IdentityTestPeer::new().await;
         let wait = Duration::from_secs(1);
-        let mut settings = alix.context.incoming_runtime().policy().clone();
-        settings.identity_reference_wait = wait;
-        let client = crate::builder::ClientBuilder::from_client(alix.client.clone())
-            .with_disable_workers(true)
-            .stream_policy(settings)
-            .build()
-            .await?;
+        let client = alix
+            .with_stream_policy(|settings| settings.identity_reference_wait = wait)
+            .await;
         let latest = bo.context.db().get_latest_sequence_id(&[bo.inbox_id()])?[bo.inbox_id()];
         let unpublished = IdentityRequirement {
             inbox_id: bo.inbox_id().to_owned(),

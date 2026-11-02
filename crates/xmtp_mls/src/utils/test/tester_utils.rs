@@ -412,6 +412,31 @@ where
     }
 }
 
+#[cfg(test)]
+impl<Owner> crate::groups::test_support::EnginePeer for Tester<Owner, FullXmtpClient>
+where
+    Owner: InboxOwner,
+{
+    type Context = super::TestXmtpMlsContext;
+    type Error = ClientError;
+
+    fn context(&self) -> &Self::Context {
+        &self.client.context
+    }
+
+    fn create_group(
+        &self,
+        policies: Option<crate::groups::group_permissions::PolicySet>,
+        opts: Option<xmtp_mls_common::group::GroupMetadataOptions>,
+    ) -> Result<super::TestMlsGroup, ClientError> {
+        self.client.create_group(policies, opts)
+    }
+
+    async fn sync_welcomes(&self) -> Result<Vec<super::TestMlsGroup>, crate::groups::GroupError> {
+        self.client.sync_welcomes().await
+    }
+}
+
 impl<Owner, Client> Deref for Tester<Owner, Client>
 where
     Owner: InboxOwner,

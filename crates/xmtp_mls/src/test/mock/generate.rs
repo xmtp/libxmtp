@@ -1,17 +1,12 @@
 use std::collections::HashSet;
 
 use xmtp_common::Generate;
-use xmtp_db::{MemoryStorage, group_message::StoredGroupMessage, sql_key_store::SqlKeyStore};
+use xmtp_db::group_message::StoredGroupMessage;
 use xmtp_proto::types::Cursor;
 
-use crate::{
-    builder::DeviceSyncMode,
-    client::DeviceSync,
-    groups::{
-        mls_sync::GroupMessageProcessingError,
-        summary::{MessageIdentifier, ProcessSummary, SyncSummary},
-    },
-    worker::tasks::TaskWorkerChannels,
+use crate::groups::{
+    mls_sync::GroupMessageProcessingError,
+    summary::{MessageIdentifier, ProcessSummary, SyncSummary},
 };
 
 use super::*;
@@ -19,38 +14,7 @@ use rstest::*;
 
 #[fixture]
 pub fn context() -> NewMockContext {
-    let events = xmtp_events::EventBus::new();
-    XmtpMlsLocalContext {
-        identity: Identity::mock_identity(),
-        api_client: ApiClientWrapper::new(Arc::new(MockBackendClient::new()), Default::default()),
-        store: xmtp_db::MockXmtpDb::new(),
-        mutexes: MutexRegistry::new(),
-        #[cfg(test)]
-        mls_commit_lock: Default::default(),
-        version_info: VersionInfo::default(),
-        server_configuration: Default::default(),
-        public_event_writer: Arc::new(xmtp_events::PublicBusWriter::new(&events)),
-        events,
-        registration_event_pending: Arc::new(std::sync::atomic::AtomicBool::new(false)),
-        scw_verifier: Arc::new(Box::new(MockSmartContractSignatureVerifier::new(true))),
-        device_sync: DeviceSync {
-            mode: DeviceSyncMode::Disabled,
-        },
-        fork_recovery_opts: Default::default(),
-        change_callbacks: Default::default(),
-        worker_config: Default::default(),
-        mls_storage: SqlKeyStore::new(MemoryStorage::new()),
-        task_channels: TaskWorkerChannels::default(),
-        worker_metrics: Arc::default(),
-        cancellation_token: tokio_util::sync::CancellationToken::new(),
-        shutdown_complete: Arc::new(std::sync::atomic::AtomicBool::new(false)),
-        foreground_calls: Default::default(),
-        #[cfg(any(test, target_arch = "wasm32"))]
-        message_clock: Default::default(),
-        delivery_owner: Default::default(),
-        stream_policy: Default::default(),
-        features: Default::default(),
-    }
+    crate::context::test_support::mock_context()
 }
 
 pub use xmtp_id::utils::generate_inbox_id_credential;

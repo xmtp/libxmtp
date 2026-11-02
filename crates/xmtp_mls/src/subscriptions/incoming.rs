@@ -159,6 +159,25 @@ impl<A: xmtp_proto::api_client::XmtpBackendClient + 'static> SubscriptionFactory
     }
 }
 
+xmtp_common::if_wasm! {
+/// The receiver of a browser API client: a lazy static stream. The factory
+/// owns the API client, not the client context.
+pub(crate) fn streaming_factory<A>(api: A) -> Arc<dyn SubscriptionFactory>
+where
+    A: xmtp_proto::api_client::XmtpMlsStreams + Clone + 'static,
+{
+    Arc::new(move |cursors: TopicCursor, limits| -> SubscriptionFuture {
+        let api = api.clone();
+        Box::pin(async move {
+            api.subscribe_envelopes_with_cursors(&cursors, limits)
+                .await
+                .map(|subscription| subscription.map_error(NetworkError::new))
+                .map_err(NetworkError::new)
+        })
+    })
+}
+}
+
 impl<F> SubscriptionFactory for F
 where
     F: Fn(TopicCursor, IncomingBatchLimits) -> SubscriptionFuture + MaybeSend + MaybeSync,
@@ -179,6 +198,21 @@ impl<A> BidiSubscriptionFactory<A> {
     pub(crate) fn new(api: A) -> Self {
         Self { api, mutate: None, transport: std::sync::OnceLock::new() }
     }
+}
+
+/// The receiver of a native API client: a lazy shared Bidi transport. No
+/// connection starts until the first receiving interest.
+pub(crate) fn streaming_factory<A>(api: A) -> Arc<dyn SubscriptionFactory>
+where
+    A: xmtp_proto::api_client::XmtpMlsBidiStreams
+        + super::router_callbacks::ApiClientIdentity
+        + Clone
+        + Send
+        + Sync
+        + 'static,
+    A::SubscribeStream: 'static,
+{
+    Arc::new(BidiSubscriptionFactory::new(api))
 }
 
 impl<A> SubscriptionFactory for BidiSubscriptionFactory<A>

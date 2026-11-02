@@ -1,6 +1,6 @@
 use super::*;
 use crate::context::XmtpMlsLocalContext;
-use crate::identity::{Identity, IdentityStrategy};
+use crate::identity::IdentityStrategy;
 use futures::StreamExt;
 use prost::Message;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -124,18 +124,20 @@ async fn client_with_snapshot(api: Api, strict: bool) -> Client<Context> {
             configuration.limits.max_update_frames_per_second = if strict { 1 } else { 10 };
             configuration.limits.max_update_burst = if strict { 1 } else { 100 };
         }));
-    Client::builder(IdentityStrategy::ExternalIdentity(Identity::mock_identity()))
-        .api_client_with_streams(api)
-        .store(xmtp_db::TestDb::create_ephemeral_store().await)
-        .with_allow_offline(Some(true))
-        .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
-        .with_disable_workers(true)
-        .config_provider(provider)
-        .default_mls_store()
-        .expect("MLS store")
-        .build()
-        .await
-        .expect("client with admitted snapshot")
+    Client::builder(IdentityStrategy::ExternalIdentity(
+        crate::context::test_support::mock_identity(),
+    ))
+    .api_client_with_streams(api)
+    .store(xmtp_db::TestDb::create_ephemeral_store().await)
+    .with_allow_offline(Some(true))
+    .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
+    .with_disable_workers(true)
+    .config_provider(provider)
+    .default_mls_store()
+    .expect("MLS store")
+    .build()
+    .await
+    .expect("client with admitted snapshot")
 }
 
 async fn open(client: &Client<Context>, topic: u8) -> IncomingSubscription<NetworkError> {

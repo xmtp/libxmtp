@@ -21,7 +21,6 @@ use crate::{
     builder::{ClientBuilder, DeviceSyncMode},
     context::{XmtpMlsLocalContext, XmtpSharedContext},
     groups::{GroupError, MlsGroup},
-    identity::IdentityStrategy,
 };
 use std::{sync::Arc, time::Duration};
 use tokio::sync::Notify;
@@ -248,12 +247,7 @@ impl ClientBuilder<TestClient, TestMlsStorage> {
     }
 }
 
-pub fn identity_setup(owner: impl InboxOwner) -> IdentityStrategy {
-    let nonce = 1;
-    let ident = owner.get_identifier().unwrap();
-    let inbox_id = ident.inbox_id(nonce).unwrap();
-    IdentityStrategy::new(inbox_id, ident, nonce)
-}
+pub use crate::identity_lifecycle::identity_setup;
 
 /// wrapper over a `Notify` with a 60-second timeout for waiting
 #[derive(Clone, Default)]

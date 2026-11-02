@@ -1153,28 +1153,34 @@ pub(crate) async fn pending_welcome_for_test(
 /// because the secrets of its old membership cannot process the re-add commit,
 /// and it processed none of it. The re-add Welcome is pending.
 #[cfg(test)]
-pub(crate) struct HeldReadd {
-    pub(crate) alix_group: crate::utils::TestMlsGroup,
-    pub(crate) bo_group: crate::utils::TestMlsGroup,
+pub(crate) struct HeldReadd<C> {
+    pub(crate) alix_group: MlsGroup<C>,
+    pub(crate) bo_group: MlsGroup<C>,
     pub(crate) welcome: xmtp_proto::types::WelcomeMessage,
     /// Bo's receipt of the group topic through its removal.
     pub(crate) removal: xmtp_db::incoming_envelope::AdmissionResult,
 }
 
 #[cfg(test)]
-pub(crate) async fn held_readd(
-    alix: &crate::utils::FullXmtpClient,
-    bo: &crate::utils::FullXmtpClient,
-) -> HeldReadd {
+pub(crate) async fn held_readd<P: crate::groups::test_support::EnginePeer>(
+    alix: &P,
+    bo: &P,
+) -> HeldReadd<P::Context> {
     use crate::context::CoreContext;
     let alix_group = alix.create_group(None, None).unwrap();
-    alix_group.add_members(&[bo.inbox_id()]).await.unwrap();
+    alix_group
+        .add_members(&[bo.context().inbox_id()])
+        .await
+        .unwrap();
     let bo_group = bo.sync_welcomes().await.unwrap().pop().unwrap();
-    alix_group.remove_members(&[bo.inbox_id()]).await.unwrap();
-    let page = MlsStore::new(bo.context.clone())
+    alix_group
+        .remove_members(&[bo.context().inbox_id()])
+        .await
+        .unwrap();
+    let page = MlsStore::new(bo.context().clone())
         .receive_topics_once(
             &[Topic::new_group_message(bo_group.group_id)],
-            bo.context
+            bo.context()
                 .incoming_runtime()
                 .policy()
                 .incoming_limits(NetworkEntityKind::Group),
@@ -1184,17 +1190,20 @@ pub(crate) async fn held_readd(
     assert!(!page.has_more);
     let removal = page.admissions[0].1;
     assert!(removal.inserted > 0);
-    alix_group.add_members(&[bo.inbox_id()]).await.unwrap();
+    alix_group
+        .add_members(&[bo.context().inbox_id()])
+        .await
+        .unwrap();
     let welcome = bo
-        .context
+        .context()
         .api()
-        .query_welcome_messages(bo.context.installation_id())
+        .query_welcome_messages(bo.context().installation_id())
         .await
         .unwrap()
         .into_iter()
         .max_by_key(|welcome| welcome.cursor)
         .unwrap();
-    pending_welcome_for_test(&bo.context, &welcome)
+    pending_welcome_for_test(bo.context(), &welcome)
         .await
         .unwrap();
     HeldReadd {
