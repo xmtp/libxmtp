@@ -14,6 +14,7 @@ use xmtp_db::prelude::*;
 use xmtp_db::{DbQuery, TransactionOutcome, XmtpMlsStorageProvider};
 use xmtp_events::{ClientEvent, DeletionCause, EventContext, EventWriter};
 use xmtp_proto::types::GroupId;
+use zeroize::Zeroize;
 
 /// Whether `deleter` may delete `target`. Used by the request, receive, own
 /// echo and import.
@@ -244,12 +245,11 @@ fn mark(
     if db.mark_message_deleted(&target.id, deleted_by)? == 0 {
         return Ok(false);
     }
-    let marked = StoredGroupMessage {
-        deleted_by_inbox_id: Some(deleted_by.to_owned()),
-        // The old bytes drop here and are wiped.
-        decrypted_message_bytes: Vec::new(),
-        ..target
-    };
+    let mut marked = target;
+    // Wipe the deleted content in place; dropping the `Vec` would leave it
+    // in freed memory.
+    marked.decrypted_message_bytes.zeroize();
+    marked.deleted_by_inbox_id = Some(deleted_by.to_owned());
     // A send this installation still has queued would publish the old
     // content from its intent: remove each one not yet attempted, in this
     // write. A saved attempt may already be on the backend and stays.
