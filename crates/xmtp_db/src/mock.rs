@@ -551,6 +551,14 @@ mock! {
             deleted_by_inbox_id: &str,
         ) -> Result<usize, crate::ConnectionError>;
 
+        fn message_insert_watermark(&self) -> Result<i64, crate::ConnectionError>;
+
+        fn message_inserted_after(
+            &self,
+            id: &[u8],
+            watermark: i64,
+        ) -> Result<bool, crate::ConnectionError>;
+
         #[mockall::concretize]
         fn get_latest_message_times_by_sender<GroupId: AsRef<[u8]>>(
             &self,

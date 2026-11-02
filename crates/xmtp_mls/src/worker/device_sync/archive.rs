@@ -32,8 +32,8 @@ struct ImportContext {
     /// change other installations are owed, but the app hears of
     /// it once through `archive.restored`.
     deletions_stored: bool,
-    /// The latest messages this import inserted, which its deletion evidence
-    /// may mark.
+    /// Which messages this import inserted, which its deletion evidence may
+    /// mark.
     imported: Imported,
     /// The archive's usable consent records, applied after all its elements.
     /// Archive frames are ciphertext and do not compress, so these grow with
@@ -75,7 +75,10 @@ where
     S: Stream<Item = Result<BackupElement, E>> + Unpin,
     DeviceSyncError: From<E>,
 {
-    let mut import = ImportContext::default();
+    let mut import = ImportContext {
+        imported: Imported::starting_now(&context.db())?,
+        ..Default::default()
+    };
     let mut first_error = None;
     while let Some(element) = elements.next().await {
         let element = match element {
@@ -193,14 +196,12 @@ fn insert(
             if import.is_internal(&context.db(), message.group_id)? {
                 return Ok(());
             }
-            let imported = &mut import.imported;
+            let imported = &import.imported;
             let (inserted, deletions) = state_write(context.mls_storage(), |tx| {
                 let storage = tx.storage();
                 let db = storage.db();
+                // Insert-or-ignore: a known row keeps its insert position.
                 let inserted = message.store_or_ignore_changed(&db)?;
-                if inserted {
-                    imported.insert(&message.id);
-                }
                 // The evidence is the incoming copy: a stored `Unpublished`
                 // copy of the same id must not hide a later `Published` one.
                 // The stored row itself stays unchanged.

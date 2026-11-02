@@ -5,7 +5,6 @@ use crate::context::XmtpSharedContext;
 use crate::core::events::{InternalEvent, emit_deleted_messages};
 use crate::groups::{DeleteMessageError, GroupError, MlsGroup};
 use openmls::group::MlsGroup as OpenMlsGroup;
-use std::collections::{HashSet, VecDeque};
 use xmtp_common::snippet::Snippet;
 use xmtp_db::group_intent::{IntentKind, IntentState};
 use xmtp_db::group_message::{ContentType, DeliveryStatus, GroupMessageKind, StoredGroupMessage};
@@ -52,39 +51,34 @@ pub(crate) enum Source<'a> {
     Archive { imported: &'a Imported },
 }
 
-/// How many of an import's most recently inserted messages its later
-/// deletion evidence may still mark. A pre-8.0 archive carries a deletion
-/// message after its target; a current archive puts records before messages
-/// and marks rows itself, so it needs none of this window.
-const IMPORT_EVIDENCE_WINDOW: usize = 10_000;
-
-/// The latest rows an archive import inserted, at most
-/// [`IMPORT_EVIDENCE_WINDOW`]. Archive evidence (a mark, a record, a deletion
-/// message) marks only these: a row the client held before the import, or
-/// one this import inserted too long before, is marked only by a record from
-/// the topic.
+/// What an archive import inserted: every message stored after the insert
+/// position this import started from. Archive evidence (a mark, a record, a
+/// deletion message) marks only these; a message the client held before the
+/// import is marked only by a record from the topic.
 // implements: ARCH-028
-#[derive(Default)]
 pub(crate) struct Imported {
-    ids: HashSet<Vec<u8>>,
-    order: VecDeque<Vec<u8>>,
+    watermark: i64,
+}
+
+/// Counts nothing as inserted, so archive evidence marks nothing.
+impl Default for Imported {
+    fn default() -> Self {
+        Self {
+            watermark: i64::MAX,
+        }
+    }
 }
 
 impl Imported {
-    pub(crate) fn insert(&mut self, id: &[u8]) {
-        if !self.ids.insert(id.to_vec()) {
-            return;
-        }
-        self.order.push_back(id.to_vec());
-        if self.order.len() > IMPORT_EVIDENCE_WINDOW
-            && let Some(oldest) = self.order.pop_front()
-        {
-            self.ids.remove(&oldest);
-        }
+    /// Start an import at the current insert position.
+    pub(crate) fn starting_now(db: &impl DbQuery) -> Result<Self, xmtp_db::ConnectionError> {
+        Ok(Self {
+            watermark: db.message_insert_watermark()?,
+        })
     }
 
-    fn holds(&self, id: &[u8]) -> bool {
-        self.ids.contains(id)
+    fn inserted(&self, db: &impl DbQuery, id: &[u8]) -> Result<bool, xmtp_db::ConnectionError> {
+        db.message_inserted_after(id, self.watermark)
     }
 }
 
@@ -160,7 +154,7 @@ pub(crate) fn apply_stored_records(
     if row.kind != GroupMessageKind::Application || row.deleted_by_inbox_id.is_some() {
         return Ok(false);
     }
-    let held = !imported.holds(&row.id);
+    let held = !imported.inserted(db, &row.id)?;
     let Some(record) = db.first_deletion_of(row, held)? else {
         return Ok(false);
     };
@@ -311,25 +305,5 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
             },
         )
         .map(TransactionOutcome::into_continued)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// The import window holds the latest inserted ids, and no more.
-    // verifies: ARCH-028
-    #[xmtp_common::test]
-    fn import_window_is_bounded() {
-        let mut imported = Imported::default();
-        for n in 0..=IMPORT_EVIDENCE_WINDOW as u32 {
-            imported.insert(&n.to_be_bytes());
-        }
-        assert!(!imported.holds(&0u32.to_be_bytes()));
-        assert!(imported.holds(&1u32.to_be_bytes()));
-        assert!(imported.holds(&(IMPORT_EVIDENCE_WINDOW as u32).to_be_bytes()));
-        assert_eq!(imported.ids.len(), IMPORT_EVIDENCE_WINDOW);
-        assert_eq!(imported.order.len(), IMPORT_EVIDENCE_WINDOW);
     }
 }

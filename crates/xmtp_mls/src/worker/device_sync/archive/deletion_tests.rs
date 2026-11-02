@@ -671,3 +671,28 @@ async fn earliest_record_marks_an_imported_target() {
     import(&fresh.context, with_records).await;
     assert_eq!(mark_of(&fresh.db(), &TARGET).as_deref(), Some(SENDER));
 }
+
+/// A pre-8.0 archive can carry a deletion far after its target. The import
+/// still knows it inserted that target, however many messages lie between.
+// verifies: ARCH-028
+#[xmtp_common::test(unwrap_try = true)]
+async fn deletion_far_after_its_target_in_one_import() {
+    tester!(alix, disable_workers);
+    let group = alix.create_group(None, None)?;
+    let g = group.group_id;
+    let mut elements = vec![legacy(&target(g, DeliveryStatus::Published))];
+    for n in 0..10_050u32 {
+        let mut id = [0x33; 32];
+        id[..4].copy_from_slice(&n.to_be_bytes());
+        elements.push(legacy(&row(
+            g,
+            &id,
+            MEMBER,
+            text_with_authority("xmtp.org", 1),
+            DeliveryStatus::Published,
+        )));
+    }
+    elements.push(legacy(&deletion(g, D1, SENDER, DeliveryStatus::Published)));
+    assert_eq!(import(&alix.context, elements).await, (1, 0));
+    assert_eq!(mark_of(&alix.db(), &TARGET).as_deref(), Some(SENDER));
+}
