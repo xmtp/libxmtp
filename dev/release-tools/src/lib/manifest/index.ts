@@ -1,9 +1,4 @@
 export {
-  readPodspecVersion,
-  writePodspecVersion,
-  createPodspecManifestProvider,
-} from "./podspec";
-export {
   readGradlePropertiesVersion,
   writeGradlePropertiesVersion,
   createGradlePropertiesManifestProvider,

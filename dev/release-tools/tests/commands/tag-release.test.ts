@@ -78,10 +78,10 @@ describe("tag-release CLI", () => {
         }
         git("remote", "add", "origin", remote);
         const output = execFileSync(
-          path.resolve("node_modules/.bin/tsx"),
+          process.execPath,
           [
-            "--tsconfig",
-            path.resolve("tsconfig.json"),
+            "--import",
+            path.resolve("node_modules/tsx/dist/loader.mjs"),
             path.resolve("src/cli.ts"),
             "tag-release",
             "--sdk",
@@ -92,7 +92,14 @@ describe("tag-release CLI", () => {
             repoRoot,
             ...(noPush ? ["--no-push"] : []),
           ],
-          { cwd: repoRoot, encoding: "utf-8" },
+          {
+            cwd: repoRoot,
+            encoding: "utf-8",
+            env: {
+              ...process.env,
+              TSX_TSCONFIG_PATH: path.resolve("tsconfig.json"),
+            },
+          },
         );
         expect(output.trim()).toBe(tag);
         expect(git("rev-parse", tag)).toBe(git("rev-parse", "HEAD"));

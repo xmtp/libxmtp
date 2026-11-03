@@ -1,0 +1,206 @@
+name: 'Prepare: npm package'
+on:
+  workflow_call:
+    inputs:
+      source-sha:
+        description: Source commit to check out, package, and tag. The caller's release preflight (check-release-push.yml)
+          pinned and checked it.
+        required: true
+        type: string
+      package-dir:
+        description: Path to the npm package directory
+        required: true
+        type: string
+      package-tarball:
+        description: Checked React Native tarball; publish these exact bytes without stamping or repacking
+        required: false
+        type: string
+        default: ''
+      sdk:
+        description: SDK name for release tools (e.g. node-sdk, browser-sdk)
+        required: true
+        type: string
+      version:
+        description: The version to publish
+        required: true
+        type: string
+      artifact-pattern:
+        description: Pattern for downloading build artifacts (optional)
+        required: false
+        type: string
+      artifact-path:
+        description: Path to download artifacts to (required if artifact-pattern is set)
+        required: false
+        type: string
+      ignore-scripts:
+        description: Skip npm lifecycle scripts during publish (e.g. prepublishOnly)
+        required: false
+        type: boolean
+        default: false
+      dep-name:
+        description: Dependency name to pin before publish (e.g. @xmtp/node-sdk)
+        required: false
+        type: string
+        default: ''
+      dep-version:
+        description: Exact version to pin the dependency to (e.g. 8.0.0-rc1)
+        required: false
+        type: string
+        default: ''
+      dep-name-2:
+        description: Second dependency name to pin before publish
+        required: false
+        type: string
+        default: ''
+      dep-version-2:
+        description: Exact version for the second dependency
+        required: false
+        type: string
+        default: ''
+      dry-run:
+        description: When true, run all steps EXCEPT the npm publish and tag (no side effects)
+        required: false
+        type: boolean
+        default: false
+      prepare-only:
+        type: boolean
+        required: false
+        default: false
+    outputs:
+      version:
+        description: The published version
+        value: ${{ jobs.prepare.outputs.version }}
+permissions:
+  contents: read
+jobs:
+  prepare:
+    name: Prepare or preview npm package
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ inputs.version }}
+    steps:
+      - name: Require preparation or preview
+        env:
+          DRY_RUN: ${{ inputs.dry-run }}
+          PREPARE_ONLY: ${{ inputs.prepare-only }}
+        run: |
+          if [ "$DRY_RUN" != true ] && [ "$PREPARE_ONLY" != true ]; then
+            echo "::error::Real publication requires the all-six release.yml validation barrier"
+            exit 1
+          fi
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ inputs.source-sha }}
+          fetch-depth: 0
+          filter: blob:none
+      - name: Download build artifacts
+        if: ${{ inputs.artifact-pattern != '' }}
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          pattern: ${{ inputs.artifact-pattern }}
+          merge-multiple: true
+          path: ${{ inputs.artifact-path }}
+      - name: Set up Nix
+        uses: ./.github/actions/setup-nix
+        with:
+          cache-mode: read
+          github-token: ${{ github.token }}
+      - name: Set up release tools
+        uses: ./.github/actions/setup-release-tools
+      - name: Materialize the shared SDK version
+        uses: ./.github/actions/release-source
+      - name: Pin binding dependency version
+        if: ${{ inputs.dep-name != '' }}
+        run: xmtp-release set-dependency-version --sdk "${{ inputs.sdk }}" --dep "${{ inputs.dep-name }}" --version "${{ inputs.dep-version
+          }}"
+      - name: Pin second dependency version
+        if: ${{ inputs.dep-name-2 != '' }}
+        run: xmtp-release set-dependency-version --sdk "${{ inputs.sdk }}" --dep "${{ inputs.dep-name-2 }}" --version "${{
+          inputs.dep-version-2 }}"
+      - name: Determine NPM tag
+        id: npm-tag
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          if [[ "$VERSION" == *dev* ]]; then
+            echo "tag=dev" >> "$GITHUB_OUTPUT"
+          elif [[ "$VERSION" == *rc* ]]; then
+            echo "tag=prerelease" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=latest" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Verify the checked React Native tarball
+        if: (inputs.package-tarball != '')
+        env:
+          PACKAGE_TARBALL_INPUT: ${{ inputs.package-tarball }}
+          PACKAGE_VERSION: ${{ inputs.version }}
+          SDK: ${{ inputs.sdk }}
+        run: |
+          set -euo pipefail
+          if [ "$SDK" != react-native-sdk ]; then
+            echo "::error::Prepacked publication is supported only for the checked React Native product"
+            exit 1
+          fi
+          source=$(nix eval --raw .#sdkProvenance.source)
+          python3 sdks/react-native/scripts/package.py verify-package "$PACKAGE_TARBALL_INPUT" --version "$PACKAGE_VERSION" --source "$source"
+          echo "PACKAGE_TARBALL=$(realpath "$PACKAGE_TARBALL_INPUT")" >> "$GITHUB_ENV"
+      - name: Pack package
+        if: (inputs.package-tarball == '')
+        env:
+          IGNORE_SCRIPTS: ${{ inputs.ignore-scripts }}
+        run: |
+          pack_dir="$RUNNER_TEMP/npm-pack"
+          mkdir -p "$pack_dir"
+          pnpm --dir "${{ inputs.package-dir }}" pack \
+            --config.node-linker=hoisted \
+            --config.ignore-scripts="$IGNORE_SCRIPTS" \
+            --pack-destination "$pack_dir"
+          shopt -s nullglob
+          tarballs=("$pack_dir"/*.tgz)
+          if [ "${#tarballs[@]}" -ne 1 ]; then
+            echo "::error::expected one package tarball, found ${#tarballs[@]}"
+            exit 1
+          fi
+          echo "PACKAGE_TARBALL=${tarballs[0]}" >> "$GITHUB_ENV"
+      - name: Download matching checked Node SDK
+        if: (inputs.sdk == 'agent-sdk' || inputs.sdk == 'cli') && inputs.prepare-only
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8 # v8
+        with:
+          name: release-npm-node-sdk
+          path: ${{ runner.temp }}/checked-node
+      - name: Verify the installed Node consumer package
+        env:
+          SDK: ${{ inputs.sdk }}
+        if: (inputs.sdk == 'agent-sdk' || inputs.sdk == 'cli') && inputs.prepare-only
+        run: |
+          dev/nix-shell --shell js-node --command python3.11 dev/sdk_version.py verify "$RUNNER_TEMP/checked-node" --plan "$RUNNER_TEMP/sdk-release-plan/release-plan.json"
+          dev/nix-shell --shell js-node --command node dev/release-tools/check-agent-package.mjs "$PACKAGE_TARBALL" "$RUNNER_TEMP/checked-node/package.tgz" "$SDK"
+      - name: Set up Browser publication consumer
+        if: inputs.sdk == 'browser-sdk' && inputs.prepare-only
+        uses: ./.github/actions/setup-js
+        with:
+          cache-mode: read
+          filter: '@xmtp/browser-sdk...'
+      - name: Verify the exact Browser publication archive
+        if: inputs.sdk == 'browser-sdk' && inputs.prepare-only
+        run: dev/nix-shell --shell docs --command node crates/xmtp_sdk/dev/package-smoke.mjs browser "$PACKAGE_TARBALL"
+      - name: Retain the exact checked package
+        if: inputs.prepare-only
+        run: |
+          dev/nix-shell --shell js-node --command python3.11 dev/publish_npm.py --check "$PACKAGE_TARBALL" "${{ inputs.version }}" "${{ inputs.sdk }}"
+          mkdir -p "$RUNNER_TEMP/checked-npm"
+          cp "$PACKAGE_TARBALL" "$RUNNER_TEMP/checked-npm/package.tgz"
+          dev/nix-shell --shell js-node --command python3.11 dev/sdk_version.py seal "$RUNNER_TEMP/checked-npm" --plan "$RUNNER_TEMP/sdk-release-plan/release-plan.json"
+      - name: Store the exact checked package
+        if: inputs.prepare-only
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-npm-${{ inputs.sdk }}
+          path: ${{ runner.temp }}/checked-npm
+          if-no-files-found: error
+          retention-days: 7
+      - name: Preview NPM package
+        if: ${{ inputs.dry-run == true }}
+        run: npm publish "$PACKAGE_TARBALL" --dry-run ${{ inputs.ignore-scripts && '--ignore-scripts' || '' }} --tag ${{ steps.npm-tag.outputs.tag
+          }}

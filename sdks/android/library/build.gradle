@@ -53,6 +53,7 @@ android {
     defaultConfig {
         minSdk 23
         targetSdk 35
+        buildConfigField "String", "XMTP_SDK_VERSION", "\"${rootProject.version}\""
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         consumerProguardFiles "consumer-rules.pro"
@@ -160,6 +161,10 @@ afterEvaluate {
                     password = System.getenv("GITHUB_TOKEN")
                 }
             }
+            maven {
+                name = 'Release'
+                url = rootProject.file('../../target/release/android/repository')
+            }
         }
         publications {
             release(MavenPublication) {
@@ -167,11 +172,27 @@ afterEvaluate {
                 artifactId = "android"
                 version = rootProject.version
 
-                from components.release
-                artifact releaseJavadocJar
+                def prepared = rootProject.findProperty('xmtpPreparedPublication')
+                if (prepared) {
+                    // Publish the checked files without compiling or repacking the AAR.
+                    def prefix = "android-${rootProject.version}"
+                    artifact(file("${prepared}/${prefix}.aar"))
+                    artifact(file("${prepared}/${prefix}-sources.jar")) { classifier = 'sources' }
+                    artifact(file("${prepared}/${prefix}-javadoc.jar")) { classifier = 'javadoc' }
+                    def module = file("${prepared}/${prefix}.module")
+                    if (module.exists()) { artifact(module) { extension = 'module' } }
+                    tasks.named('generatePomFileForReleasePublication').configure {
+                        doLast { destination.bytes = file("${prepared}/${prefix}.pom").bytes }
+                    }
+                } else {
+                    from components.release
+                    artifact releaseJavadocJar
+                }
 
                 pom {
                     name = "XMTP"
+                    def releaseSource = System.getenv('XMTP_RELEASE_SOURCE_SHA')
+                    if (releaseSource) { properties.put('xmtp.release.source', releaseSource) }
                     description = "XMTP Android Library"
                     url = "https://github.com/xmtp/libxmtp"
 
@@ -201,6 +222,7 @@ afterEvaluate {
     signing {
         def signingKey = System.getenv("SIGN_KEY")
         def signingPassword = System.getenv("SIGN_PASSWORD")
+        required { signingKey != null && !signingKey.isEmpty() }
         useInMemoryPgpKeys(signingKey, signingPassword)
         sign publishing.publications.release
     }

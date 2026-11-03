@@ -9,12 +9,14 @@ export function setManifestVersion(
   repoRoot: string,
 ): string {
   const config = getSdkConfig(sdk);
+  if (sdk !== "cli")
+    throw new Error("SDK versions are shared; use just version set");
   config.manifest.writeVersion(repoRoot, version);
   return version;
 }
 
 export const command = "set-manifest-version";
-export const describe = "Set an arbitrary version in an SDK manifest";
+export const describe = "Set the separately versioned CLI application version";
 
 export function builder(yargs: Argv<GlobalArgs>) {
   return yargs

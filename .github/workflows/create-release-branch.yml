@@ -1,104 +1,20 @@
-# .github/workflows/create-release-branch.yml
-name: "Release: create branch"
-
+name: 'Release: create branch'
 on:
   workflow_dispatch:
     inputs:
       base-ref:
-        description: "Base ref (commit/branch) to create the release from"
+        description: Base ref (commit/branch) to create the release from
         required: false
         type: string
       version:
-        description: "Release branch version (e.g. 8.0.0); does not set SDK or Rust versions"
+        description: Shared SDK target version (for example 8.0.0)
         required: true
         type: string
-      ios-bump:
-        description: "iOS SDK version bump"
-        required: false
-        type: choice
-        options:
-          - "none"
-          - "keep"
-          - "patch"
-          - "minor"
-          - "major"
-        default: "none"
-      android-bump:
-        description: "Android SDK version bump"
-        required: false
-        type: choice
-        options:
-          - "none"
-          - "keep"
-          - "patch"
-          - "minor"
-          - "major"
-        default: "none"
-      node-sdk-bump:
-        description: "Node SDK version bump"
-        required: false
-        type: choice
-        options:
-          - "none"
-          - "keep"
-          - "patch"
-          - "minor"
-          - "major"
-        default: "none"
-      browser-sdk-bump:
-        description: "Browser SDK version bump"
-        required: false
-        type: choice
-        options:
-          - "none"
-          - "keep"
-          - "patch"
-          - "minor"
-          - "major"
-        default: "none"
-      agent-sdk-bump:
-        description: "Agent SDK version bump"
-        required: false
-        type: choice
-        options:
-          - "none"
-          - "keep"
-          - "patch"
-          - "minor"
-          - "major"
-        default: "none"
-      react-native-sdk-bump:
-        description: "React Native SDK version bump"
-        required: false
-        type: choice
-        options:
-          - "none"
-          - "keep"
-          - "patch"
-          - "minor"
-          - "major"
-        default: "none"
-      cli-bump:
-        description: "CLI version bump"
-        required: false
-        type: choice
-        options:
-          - "none"
-          - "keep"
-          - "patch"
-          - "minor"
-          - "major"
-        default: "none"
-      libxmtp-version:
-        description: "Optional Rust workspace version; leave empty to keep its current version"
-        required: false
-        type: string
       pr-base:
-        description: "Release PR target branch"
+        description: Release PR target branch
         required: false
         type: string
-        default: "main"
-
+        default: main
 jobs:
   create-branch:
     name: Create release branch and PR
@@ -108,7 +24,7 @@ jobs:
       pull-requests: write
     steps:
       - name: Check out the base
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           ref: ${{ inputs.base-ref || github.ref_name }}
           fetch-depth: 0
@@ -118,32 +34,9 @@ jobs:
         env:
           RELEASE_VERSION: ${{ inputs.version }}
           BASE_REF: ${{ inputs.base-ref || github.ref_name }}
-          IOS_BUMP: ${{ inputs.ios-bump }}
-          ANDROID_BUMP: ${{ inputs.android-bump }}
-          NODE_SDK_BUMP: ${{ inputs.node-sdk-bump }}
-          BROWSER_SDK_BUMP: ${{ inputs.browser-sdk-bump }}
-          AGENT_SDK_BUMP: ${{ inputs.agent-sdk-bump }}
-          REACT_NATIVE_SDK_BUMP: ${{ inputs.react-native-sdk-bump }}
-          CLI_BUMP: ${{ inputs.cli-bump }}
-          LIBXMTP_VERSION: ${{ inputs.libxmtp-version }}
         run: |
-          EXTRA_ARGS=()
-          if [ -n "$LIBXMTP_VERSION" ]; then
-            EXTRA_ARGS+=(--libxmtp-version "$LIBXMTP_VERSION")
-          fi
-          xmtp-release create-release-branch \
-            --version "$RELEASE_VERSION" \
-            --base "$BASE_REF" \
-            --ios "$IOS_BUMP" \
-            --android "$ANDROID_BUMP" \
-            --node-sdk "$NODE_SDK_BUMP" \
-            --browser-sdk "$BROWSER_SDK_BUMP" \
-            --agent-sdk "$AGENT_SDK_BUMP" \
-            --react-native-sdk "$REACT_NATIVE_SDK_BUMP" \
-            --cli "$CLI_BUMP" \
-            "${EXTRA_ARGS[@]}"
-
-          git push -u origin "release/${RELEASE_VERSION}"
+          xmtp-release create-release-branch --version "$RELEASE_VERSION" --base "$BASE_REF"
+          git push -u origin "release/$RELEASE_VERSION"
       - name: Create pull request
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -162,20 +55,17 @@ jobs:
 
           ### Checklist
           - [ ] Release notes reviewed and finalized
-          - [ ] Selected SDK versions verified
+          - [ ] Shared SDK version verified
           - [ ] RC published and validated
           - [ ] Final release published via Release workflow
 
           > **Note:** This PR will be merged automatically by the Release workflow upon final release.
           EOF
           )"
-
   release-notes:
     name: Release notes
     needs: create-branch
     uses: ./.github/workflows/release-notes.yml
-    # A called workflow's permissions are capped by the caller job's grant,
-    # and id-token defaults to none — it must be granted here too.
     permissions:
       actions: write
       contents: write

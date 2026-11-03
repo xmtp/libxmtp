@@ -2,7 +2,7 @@
 import Foundation
 import PackageDescription
 
-// The release job records one archive hash for SwiftPM and CocoaPods.
+// The release job records the versioned archive hash for SwiftPM.
 let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
 let localFramework = "sdks/ios/Artifacts/XmtpSdkFFI.xcframework"
 let binary: Target

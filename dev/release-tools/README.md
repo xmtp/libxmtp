@@ -23,7 +23,7 @@ workflows in `.github/workflows` call the other commands; run
 
 ### `compute-version`
 
-Compute a full version string for dev, RC, or final releases. Dev builds append the short git SHA; RC builds append the RC number.
+Compute a backend release label. Backend uses `--base-version` for its branch label. SDK and CLI workflows use the frozen Python plan instead of this legacy formatter.
 
 | Flag             | Type                     | Required | Description                                                                 |
 | ---------------- | ------------------------ | -------- | --------------------------------------------------------------------------- |
@@ -33,9 +33,9 @@ Compute a full version string for dev, RC, or final releases. Dev builds append 
 | `--base-version` | string                   | no       | Override the manifest base; backend releases use the release branch version |
 
 ```bash
-pnpm --filter @xmtp/release-tools cli compute-version --sdk ios --release-type dev
-pnpm --filter @xmtp/release-tools cli compute-version --sdk ios --release-type rc --rc-number 1
-pnpm --filter @xmtp/release-tools cli compute-version --sdk ios --release-type final
+pnpm --filter @xmtp/release-tools cli compute-version --sdk libxmtp --release-type dev
+pnpm --filter @xmtp/release-tools cli compute-version --sdk libxmtp --release-type rc --rc-number 1
+pnpm --filter @xmtp/release-tools cli compute-version --sdk libxmtp --release-type final
 ```
 
 ### `publish-backend`
@@ -57,36 +57,29 @@ pnpm --filter @xmtp/release-tools cli publish-backend \
 
 ### `create-release-branch`
 
-Create a release branch, prepare selected SDK versions and notes, and commit the result. Use `keep` when an SDK already has the target version. Existing notes are kept. The Rust workspace version changes only with `--libxmtp-version`.
+Create `release/<version>` from a clean checkout, synchronize root Cargo,
+Cargo.lock, and all six SDK mirrors and the CLI manifest to that target, preserve reviewed notes,
+and scaffold missing notes from the previous stable tags. The command commits
+the result and records all SDKs in `docs/release-notes/release-<version>.json`.
 
-The branch records the source commit and selected versions in `docs/release-notes/release-<version>.json`.
-
-| Flag                | Type                                              | Required | Description                                          |
-| ------------------- | ------------------------------------------------- | -------- | ---------------------------------------------------- |
-| `--version`         | string                                            | yes      | Release version (used in branch name)                |
-| `--ios`             | `major` \| `minor` \| `patch` \| `keep` \| `none` | no       | iOS SDK version bump type (default: `none`)          |
-| `--android`         | `major` \| `minor` \| `patch` \| `keep` \| `none` | no       | Android SDK version bump type (default: `none`)      |
-| `--node-sdk`        | `major` \| `minor` \| `patch` \| `keep` \| `none` | no       | Node SDK version bump type (default: `none`)         |
-| `--browser-sdk`     | `major` \| `minor` \| `patch` \| `keep` \| `none` | no       | Browser SDK version bump type (default: `none`)      |
-| `--agent-sdk`       | `major` \| `minor` \| `patch` \| `keep` \| `none` | no       | Agent SDK selection (default: `none`)                |
-| `--cli`             | `major` \| `minor` \| `patch` \| `keep` \| `none` | no       | CLI selection (default: `none`)                      |
-| `--libxmtp-version` | string                                            | no       | Explicit Rust workspace version (default: unchanged) |
-| `--base`            | string                                            | no       | Base ref to branch from (default: `HEAD`)            |
+| Flag        | Type   | Required | Description                               |
+| ----------- | ------ | -------- | ----------------------------------------- |
+| `--version` | string | yes      | Shared stable SDK target, such as `8.0.0` |
+| `--base`    | string | no       | Base ref (default: `HEAD`)                |
 
 ```bash
-pnpm --filter @xmtp/release-tools cli create-release-branch \
-  --version "8.0.0" \
-  --base main \
-  --ios keep \
-  --android keep \
-  --node-sdk keep \
-  --browser-sdk keep \
-  --agent-sdk keep
+pnpm --filter @xmtp/release-tools cli create-release-branch --version 8.0.0 --base main
 ```
+
+For a target change without release branch preparation, use `just version set
+8.0.0`. `just version check` rejects drift. SDK release orchestration uses
+`dev/sdk_version.py plan` to freeze one source and complete dev/RC/final version,
+then materializes it before every build. See
+[the release guide](../../docs/create-a-release.md).
 
 ## Supported SDKs
 
-The SDK release targets are: `ios`, `android`, `node-sdk`, `browser-sdk`, `agent-sdk`, `cli`, and `libxmtp`. SDK definitions live in `src/lib/sdk-config.ts`.
+The SDK release targets are: `ios`, `android`, `node-sdk`, `browser-sdk`, `agent-sdk`, and `react-native-sdk`. CLI (`cli`) shares the SDK version; `libxmtp` (backend) keeps its independent release-label policy. SDK definitions live in `src/lib/sdk-config.ts`.
 
 ## Development
 

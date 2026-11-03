@@ -1,7 +1,6 @@
 import { Sdk, type SdkConfig } from "@/types";
 
 import {
-  createPodspecManifestProvider,
   createGradlePropertiesManifestProvider,
   createCargoManifestProvider,
   createPackageJsonManifestProvider,
@@ -10,11 +9,11 @@ import {
 export const SDK_CONFIGS: Record<Sdk, SdkConfig> = {
   [Sdk.Ios]: {
     name: "iOS",
-    manifestPath: "sdks/ios/XMTP.podspec",
+    manifestPath: "Cargo.toml",
     spmManifestPath: "Package.swift",
     tagPrefix: "ios-",
     artifactTagSuffix: "-libxmtp",
-    manifest: createPodspecManifestProvider("sdks/ios/XMTP.podspec"),
+    manifest: createCargoManifestProvider("Cargo.toml"),
   },
   [Sdk.Android]: {
     name: "Android",
