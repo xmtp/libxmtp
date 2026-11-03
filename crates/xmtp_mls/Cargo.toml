@@ -219,10 +219,12 @@ required-features = ["test-utils"]
 
 [[test]]
 name = "identity"
+path = "tests/identity/main.rs"
 required-features = ["test-utils"]
 
 [[test]]
 name = "server_config"
+path = "tests/server_config/main.rs"
 required-features = ["test-utils"]
 
 [[test]]
