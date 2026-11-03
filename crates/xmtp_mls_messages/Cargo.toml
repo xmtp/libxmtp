@@ -25,6 +25,7 @@ xmtp_configuration.workspace = true
 xmtp_content_types.workspace = true
 xmtp_db.workspace = true
 xmtp_proto.workspace = true
+xmtp-workspace-hack.workspace = true
 
 [dev-dependencies]
 xmtp_common = { workspace = true, features = ["test-utils"] }

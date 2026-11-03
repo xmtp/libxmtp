@@ -37,6 +37,7 @@ xmtp_db.workspace = true
 xmtp_events.workspace = true
 xmtp_id.workspace = true
 xmtp_proto.workspace = true
+xmtp-workspace-hack.workspace = true
 
 [dev-dependencies]
 async-trait.workspace = true

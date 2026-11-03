@@ -4,7 +4,7 @@
 
 This document lists all error codes defined in LibXMTP, the core library underlying the XMTP SDKs. Each error code is a unique identifier returned to help diagnose issues.
 
-**43 error types** across **10 crates** with **446 total error codes**.
+**43 error types** across **12 crates** with **446 total error codes**.
 
 ## xmtp_api
 
@@ -395,18 +395,6 @@ Stable failure categories. Inner causes remain available to Rust callers.
 |:-----------|:------------|
 | `BarrierError::Incomplete` | Processing did not meet the fixed targets. Pending work remains durable. May be retryable. |
 
-### BlockedConnection <sub>enum</sub>
-
-<small>`crates/xmtp_mls/src/server_configuration.rs`</small>
-
-A condition that, once observed, fails later network work for the life of
-the client. Every call it fails returns it. Not retryable.
-
-| Error Code | Description |
-|:-----------|:------------|
-| `BlockedConnection::BackendMismatch` | Backend mismatch. This database is bound to one deployment and another one answered. Not retryable — use a database created for the backend this app now points at. |
-| `BlockedConnection::ClientVersionTooOld` | Client version too old. The deployment now requires a newer client than this build. Not retryable — ship an updated client. |
-
 ### CatchUpError <sub>enum</sub>
 
 <small>`crates/xmtp_mls/src/subscriptions/catch_up.rs`</small>
@@ -487,13 +475,6 @@ the client. Every call it fails returns it. Not retryable.
 | `DeviceSyncError::Recv` | Receive error. Channel receive failed. Retryable. |
 | `DeviceSyncError::MissingField` | Missing field. Required field not present. Retryable. |
 | `DeviceSyncError::OutboxPageUnpublished` | Outbox page unpublished. A queued sync message is not published yet; its values stay owed and the outbox retries. Retryable. |
-
-### EnrichMessageError <sub>enum</sub>
-
-<small>`crates/xmtp_mls/src/messages/enrichment.rs`</small>
-
-| Error Code | Description |
-|:-----------|:------------|
 
 ### GroupError <sub>enum</sub>
 
@@ -665,18 +646,6 @@ Errors use fixed messages and never include notification credentials.
 | `NotificationError::RequestTimeout` | The notification request exceeded its time limit. Retryable. |
 | `NotificationError::NotFound` | The recipient must register again. Retryable. |
 
-### ServerConfigError <sub>enum</sub>
-
-<small>`crates/xmtp_mls/src/server_configuration.rs`</small>
-
-Why resolving, fetching, or storing the server configuration failed.
-
-| Error Code | Description |
-|:-----------|:------------|
-| `ServerConfigError::Unavailable` | Server configuration unavailable. The backend did not serve its configuration, or the answer could not be stored. Retryable exactly when the wrapped failure is. |
-| `ServerConfigError::Invalid` | Server configuration invalid. The backend published a configuration this client cannot use. Not retryable. |
-| `ServerConfigError::Closed` | Client is closed. The client shut down before a deferred configuration check or an explicit refresh finished. Not retryable. |
-
 ### SubscribeError <sub>enum</sub>
 
 <small>`crates/xmtp_mls/src/subscriptions/mod.rs`</small>
@@ -712,6 +681,41 @@ Why resolving, fetching, or storing the server configuration failed.
 | `GroupMetadataError::MissingExtension` | Missing extension. Immutable metadata MLS extension not found. Not retryable. |
 | `GroupMetadataError::InvalidDmMembers` | Invalid DM members. DM member data is invalid. Not retryable. |
 | `GroupMetadataError::MissingDmMember` | Missing DM member. A DM member field is not set. Not retryable. |
+
+## xmtp_mls_messages
+
+### EnrichMessageError <sub>enum</sub>
+
+<small>`crates/xmtp_mls_messages/src/enrichment.rs`</small>
+
+| Error Code | Description |
+|:-----------|:------------|
+
+## xmtp_mls_server_config
+
+### BlockedConnection <sub>enum</sub>
+
+<small>`crates/xmtp_mls_server_config/src/server_configuration.rs`</small>
+
+A condition that, once observed, fails later network work for the life of
+the client. Every call it fails returns it. Not retryable.
+
+| Error Code | Description |
+|:-----------|:------------|
+| `BlockedConnection::BackendMismatch` | Backend mismatch. This database is bound to one deployment and another one answered. Not retryable — use a database created for the backend this app now points at. |
+| `BlockedConnection::ClientVersionTooOld` | Client version too old. The deployment now requires a newer client than this build. Not retryable — ship an updated client. |
+
+### ServerConfigError <sub>enum</sub>
+
+<small>`crates/xmtp_mls_server_config/src/server_configuration.rs`</small>
+
+Why resolving, fetching, or storing the server configuration failed.
+
+| Error Code | Description |
+|:-----------|:------------|
+| `ServerConfigError::Unavailable` | Server configuration unavailable. The backend did not serve its configuration, or the answer could not be stored. Retryable exactly when the wrapped failure is. |
+| `ServerConfigError::Invalid` | Server configuration invalid. The backend published a configuration this client cannot use. Not retryable. |
+| `ServerConfigError::Closed` | Client is closed. The client shut down before a deferred configuration check or an explicit refresh finished. Not retryable. |
 
 ## xmtp_mls_validation
 
