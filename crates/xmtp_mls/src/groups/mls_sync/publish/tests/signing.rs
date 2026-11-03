@@ -10,10 +10,8 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
 };
 use xmtp_db::group_message::DeliveryStatus;
-use xmtp_mls_common::{
-    app_data::{component_id::ComponentId, group_root::GroupRootError},
-    group_keys::{SealError, group_message_tbs, verify_publish_signature},
-};
+use xmtp_mls_group_keys::group_keys::{SealError, group_message_tbs, verify_publish_signature};
+use xmtp_mls_group_state::app_data::{component_id::ComponentId, group_root::GroupRootError};
 use xmtp_proto::backend_v1 as wire;
 
 /// The saved envelopes of an intent's attempt, read back from the database.

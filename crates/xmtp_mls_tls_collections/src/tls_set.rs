@@ -92,7 +92,7 @@ pub enum TlsSetError {
 /// # Examples
 ///
 /// ```
-/// use xmtp_mls_common::tls_set::TlsSet;
+/// use xmtp_mls_tls_collections::tls_set::TlsSet;
 /// use tls_codec::{Serialize, Deserialize};
 ///
 /// let mut set = TlsSet::<u16>::new();
@@ -128,7 +128,7 @@ impl<K: Ord + Eq> TlsSet<K> {
     /// Create a set from an iterator of keys. Duplicates are silently ignored.
     ///
     /// ```
-    /// use xmtp_mls_common::tls_set::TlsSet;
+    /// use xmtp_mls_tls_collections::tls_set::TlsSet;
     ///
     /// let set = TlsSet::from_keys([3, 1, 2, 1]);
     /// assert_eq!(set.len(), 3);
@@ -143,7 +143,7 @@ impl<K: Ord + Eq> TlsSet<K> {
     /// Insert a key. Returns an error if the key already exists.
     ///
     /// ```
-    /// use xmtp_mls_common::tls_set::TlsSet;
+    /// use xmtp_mls_tls_collections::tls_set::TlsSet;
     ///
     /// let mut set = TlsSet::<u8>::new();
     /// assert!(set.insert(1).is_ok());
@@ -157,7 +157,7 @@ impl<K: Ord + Eq> TlsSet<K> {
     /// Remove a key. Returns an error if the key doesn't exist.
     ///
     /// ```
-    /// use xmtp_mls_common::tls_set::TlsSet;
+    /// use xmtp_mls_tls_collections::tls_set::TlsSet;
     ///
     /// let mut set = TlsSet::<u8>::new();
     /// set.insert(1).unwrap();
@@ -191,7 +191,7 @@ impl<K: Ord + Eq> TlsSet<K> {
     /// Iterate over keys in sorted order.
     ///
     /// ```
-    /// use xmtp_mls_common::tls_set::TlsSet;
+    /// use xmtp_mls_tls_collections::tls_set::TlsSet;
     ///
     /// let set = TlsSet::from_keys([3, 1, 2]);
     /// let keys: Vec<_> = set.iter().collect();
@@ -225,7 +225,7 @@ impl<K: Ord + Eq + Clone + Serialize + Size> TlsSet<K> {
     ///   borrowed key references (no key cloning during index build).
     ///
     /// ```
-    /// use xmtp_mls_common::tls_set::{TlsSet, TlsSetDelta};
+    /// use xmtp_mls_tls_collections::tls_set::{TlsSet, TlsSetDelta};
     ///
     /// let mut set = TlsSet::<u8>::new();
     /// set.insert(1).unwrap();

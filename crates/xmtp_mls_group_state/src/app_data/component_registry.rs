@@ -1,6 +1,6 @@
-use crate::tls_map::TlsMap;
 use prost::Message;
 use tls_codec::{Deserialize, Serialize, VLBytes};
+use xmtp_mls_tls_collections::tls_map::TlsMap;
 use xmtp_proto::xmtp::mls::message_contents::{
     ComponentMetadata, ComponentPermissions, ComponentType, MetadataPolicy as MetadataPolicyProto,
     metadata_policy::{Kind as MetadataPolicyKind, MetadataBasePolicy},

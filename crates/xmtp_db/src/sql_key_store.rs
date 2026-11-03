@@ -2128,7 +2128,7 @@ pub(crate) mod tests {
             prelude::{BasicCredential, Capabilities, CredentialWithKey},
         };
 
-        // `ComponentId::COMMIT_LOG_SIGNER` in `xmtp_mls_common`. Its data is
+        // `ComponentId::COMMIT_LOG_SIGNER` in `xmtp_mls_group_state`. Its data is
         // the raw 32-byte signer key.
         const COMMIT_LOG_SIGNER: u16 = 0x800B;
 

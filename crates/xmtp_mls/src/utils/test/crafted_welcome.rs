@@ -19,7 +19,8 @@ use prost::Message;
 use tls_codec::Serialize;
 use xmtp_db::incoming_envelope::{NetworkEntityKind, StreamTopic};
 use xmtp_db::prelude::*;
-use xmtp_mls_common::{
+use xmtp_mls_group_keys::{group_keys::GroupRoot, mls_ext::payload_encryption::wrap_payload_hpke};
+use xmtp_mls_group_state::{
     app_data::{
         component_id::ComponentId,
         component_registry::ComponentRegistry,
@@ -27,9 +28,7 @@ use xmtp_mls_common::{
         migration::encode_group_membership_dict,
     },
     group::GroupMetadataOptions,
-    group_keys::GroupRoot,
     inbox_id::InboxId,
-    mls_ext::payload_encryption::wrap_payload_hpke,
 };
 use xmtp_proto::{
     backend_v1::{

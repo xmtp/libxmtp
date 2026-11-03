@@ -17,7 +17,7 @@ use xmtp_db::group::ConversationType;
 use xmtp_db::group_message::MsgQueryArgs;
 use xmtp_db::prelude::QueryRefreshState;
 use xmtp_db::refresh_state::EntityKind;
-use xmtp_mls_common::group::GroupMetadataOptions;
+use xmtp_mls_group_state::group::GroupMetadataOptions;
 
 use xmtp_proto::types::GroupId;
 
@@ -68,10 +68,8 @@ async fn ordinary_welcome_rejects_peer_admin_combinator() {
     use openmls_traits::OpenMlsProvider;
     use prost::Message;
     use tls_codec::{Deserialize, Serialize, VLBytes};
-    use xmtp_mls_common::{
-        app_data::component_id::ComponentId,
-        tls_map::{TlsMap, TlsMapDelta},
-    };
+    use xmtp_mls_group_state::app_data::component_id::ComponentId;
+    use xmtp_mls_tls_collections::tls_map::{TlsMap, TlsMapDelta};
     use xmtp_proto::xmtp::mls::message_contents::{
         ComponentMetadata, MetadataPolicy,
         metadata_policy::{AndCondition, Kind, MetadataBasePolicy},

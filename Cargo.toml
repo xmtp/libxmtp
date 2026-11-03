@@ -200,7 +200,7 @@ sqlx = { version = "=0.9.0", default-features = false, features = [
 ] }
 # must stay on this version for compatibility with ed25519_dalek
 sha2 = "0.10.9"
-# The group-key HMAC (crates/xmtp_mls_common/src/group_keys.rs) wipes every SHA-256 state it
+# The group-key HMAC (crates/xmtp_mls_group_keys/src/group_keys.rs) wipes every SHA-256 state it
 # keys; only sha2 0.11 can wipe on drop.
 sha2-zeroize = { package = "sha2", version = "0.11", default-features = false, features = [
   "zeroize",
@@ -305,11 +305,13 @@ xmtp_legacy_migration = { path = "crates/xmtp_legacy_migration" }
 xmtp_logging = { path = "crates/xmtp_logging" }
 xmtp_macro = { path = "crates/xmtp_macro" }
 xmtp_mls = { path = "crates/xmtp_mls" }
-xmtp_mls_common = { path = "crates/xmtp_mls_common" }
 xmtp_mls_core = { path = "crates/xmtp_mls_core" }
+xmtp_mls_group_keys = { path = "crates/xmtp_mls_group_keys" }
+xmtp_mls_group_state = { path = "crates/xmtp_mls_group_state" }
 xmtp_mls_identity = { path = "crates/xmtp_mls_identity" }
 xmtp_mls_messages = { path = "crates/xmtp_mls_messages" }
 xmtp_mls_server_config = { path = "crates/xmtp_mls_server_config" }
+xmtp_mls_tls_collections = { path = "crates/xmtp_mls_tls_collections" }
 xmtp_mls_validation = { path = "crates/xmtp_mls_validation" }
 xmtp_proto = { path = "crates/xmtp_proto" }
 xmtp_push_types = { path = "crates/xmtp_push_types" }

@@ -2,7 +2,7 @@
 //! section 7), and commit-log chunks go out one at a time, in order.
 use super::*;
 use std::sync::Mutex;
-use xmtp_mls_common::{
+use xmtp_mls_group_keys::{
     commit_log::{open_entry, seal_entry},
     group_keys::{GroupKeys, GroupRoot},
 };
@@ -81,7 +81,7 @@ fn commit_log_entries(count: u64) -> Vec<wire::SealedCommitLogEntry> {
                 commit_sequence_id: sequence,
                 ..Default::default()
             };
-            xmtp_mls_common::commit_log::sign_entry_author(&keys, &author, &mut entry).unwrap();
+            xmtp_mls_group_keys::commit_log::sign_entry_author(&keys, &author, &mut entry).unwrap();
             seal_entry(&keys, &entry).unwrap()
         })
         .collect()

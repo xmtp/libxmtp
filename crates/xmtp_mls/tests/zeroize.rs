@@ -49,14 +49,14 @@ use xmtp_mls::{
     tester,
     utils::{FullXmtpClient, register_client},
 };
-use xmtp_mls_common::{
+use xmtp_mls_group_keys::group_keys::{GroupKeys, GroupRoot};
+use xmtp_mls_group_state::{
     app_data::{
         component_id::ComponentId,
         creation::{InitialGroupKind, initial_dictionary},
         group_root::{check_group_root, group_keys_from_extensions},
     },
     group::GroupMetadataOptions,
-    group_keys::{GroupKeys, GroupRoot},
 };
 use xmtp_proto::xmtp::device_sync::content::{
     DeviceSyncContent, HmacKeyUpdate as HmacKeyUpdateProto,
@@ -652,7 +652,7 @@ fn group_key_table(root: &[u8; 32]) -> Vec<[u8; 32]> {
 #[xmtp_common::test(unwrap_try = true)]
 fn signing_a_group_message_wipes_the_root_and_its_keys() {
     use openmls::extensions::{AppDataDictionaryExtension, Extension, Extensions};
-    use xmtp_mls_common::group_keys::sign_group_message;
+    use xmtp_mls_group_keys::group_keys::sign_group_message;
 
     let secrets = group_key_table(&GROUP_ROOT);
     let canaries: Vec<Canary> = secrets.iter().map(|secret| Canary::new(secret)).collect();

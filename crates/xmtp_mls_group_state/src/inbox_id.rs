@@ -366,7 +366,7 @@ mod tests {
                 0..16,
             ),
         ) {
-            use crate::tls_set::TlsSet;
+            use xmtp_mls_tls_collections::tls_set::TlsSet;
 
             let set: TlsSet<InboxId> =
                 raws.iter().copied().map(InboxId::from_bytes).collect();

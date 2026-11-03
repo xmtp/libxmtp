@@ -151,14 +151,14 @@ async fn test_create_from_welcome_validation() {
     use crate::groups::app_data::stage_app_data_propose_and_commit;
     use prost::Message as _;
     use tls_codec::VLBytes;
-    use xmtp_mls_common::{
+    use xmtp_mls_group_state::{
         app_data::{
             component_id::ComponentId, components::tls_map_components::GroupMembershipComponent,
             typed::Component,
         },
         inbox_id::InboxId,
-        tls_map::TlsMapDelta,
     };
+    use xmtp_mls_tls_collections::tls_map::TlsMapDelta;
     use xmtp_proto::xmtp::mls::message_contents::{
         GroupMembershipEntry,
         group_membership_entry::{V1, Version},

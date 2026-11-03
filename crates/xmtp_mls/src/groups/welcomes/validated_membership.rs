@@ -201,7 +201,9 @@ mod tests {
     use crate::tester;
     use std::collections::BTreeMap;
     use xmtp_db::identity_update::QueryIdentityUpdates;
-    use xmtp_mls_common::{app_data::migration::encode_group_membership_dict, inbox_id::InboxId};
+    use xmtp_mls_group_state::{
+        app_data::migration::encode_group_membership_dict, inbox_id::InboxId,
+    };
     use xmtp_mls_validation::commit::membership_entries;
     use xmtp_proto::xmtp::mls::message_contents::{
         GroupMembershipEntry,

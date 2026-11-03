@@ -11,12 +11,10 @@
 
 use openmls::{extensions::Extensions, group::GroupContext};
 
-use crate::{
-    app_data::{
-        component_id::ComponentId, component_source::read_from_app_data_dict_from_extensions,
-    },
-    group_keys::{GroupKeys, GroupRoot, GroupRootLengthError},
+use crate::app_data::{
+    component_id::ComponentId, component_source::read_from_app_data_dict_from_extensions,
 };
+use xmtp_mls_group_keys::group_keys::{GroupKeys, GroupRoot, GroupRootLengthError};
 
 /// Why a group context's root cannot name its group.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]

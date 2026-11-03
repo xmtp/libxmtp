@@ -9,7 +9,7 @@ use xmtp_db::{
     group_message::StoredGroupMessage,
     user_preferences::StoredUserPreferences,
 };
-use xmtp_mls_common::group_metadata::DmMembers;
+use xmtp_mls_group_state::group_metadata::DmMembers;
 use xmtp_proto::types::GroupId;
 
 use xmtp_cryptography::secret::Secret;

@@ -3,7 +3,7 @@
 use crate::legacy_context::LegacyContext;
 use prost::Message;
 use tls_codec::Deserialize;
-use xmtp_mls_common::{
+use xmtp_mls_group_state::{
     group_mutable_metadata::{
         GroupMutableMetadata, MetadataField, merge_dict_entries_into_mutable_metadata_lossy,
     },

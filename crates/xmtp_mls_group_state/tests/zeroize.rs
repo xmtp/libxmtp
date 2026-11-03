@@ -15,7 +15,10 @@ use openmls::{
 };
 use prost::Message;
 use xmtp_cryptography::secret::heap_canary::{Canary, scan};
-use xmtp_mls_common::{
+use xmtp_mls_group_keys::group_keys::{
+    GroupKeys, GroupRoot, open_commit_log_entry, seal_commit_log_entry, sign_group_message,
+};
+use xmtp_mls_group_state::{
     app_data::{
         component_id::ComponentId,
         component_registry::ComponentRegistry,
@@ -26,9 +29,6 @@ use xmtp_mls_common::{
         components::metadata_attributes::CommitLogSignerComponent,
         creation::encode_metadata_attribute_value,
         typed::Component,
-    },
-    group_keys::{
-        GroupKeys, GroupRoot, open_commit_log_entry, seal_commit_log_entry, sign_group_message,
     },
     group_mutable_metadata::{
         GroupMutableMetadata, MetadataField, merge_components_into_mutable_metadata,
@@ -231,7 +231,8 @@ fn malformed_signer_hex_wipes_the_decoded_prefix() {
 }
 
 /// The group-key vectors, made by an independent implementation.
-const GROUP_KEY_VECTORS: &str = include_str!("../src/group_keys/fixtures/vectors.txt");
+const GROUP_KEY_VECTORS: &str =
+    include_str!("../../xmtp_mls_group_keys/src/group_keys/fixtures/vectors.txt");
 
 /// The group root of the vectors and the four keys derived from it.
 const GROUP_KEY_SECRETS: [&str; 5] = [

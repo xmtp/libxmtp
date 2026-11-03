@@ -37,6 +37,8 @@ use crate::{
         typed::{ComponentTypedError, ExpandedComponentChange},
     },
     inbox_id::InboxId,
+};
+use xmtp_mls_tls_collections::{
     tls_map::TlsMap,
     tls_set::{TlsKeyHash, TlsSet, TlsSetDelta, TlsSetError, TlsSetMutation},
 };
@@ -256,7 +258,7 @@ fn expand_bytes_set_changes(
 mod tests {
     use super::*;
     use crate::app_data::component_registry::ComponentOp;
-    use crate::tls_map::{TlsMapDelta, TlsMapMutation};
+    use xmtp_mls_tls_collections::tls_map::{TlsMapDelta, TlsMapMutation};
 
     const UNKNOWN_ID: ComponentId = ComponentId::new(0x80FF);
 

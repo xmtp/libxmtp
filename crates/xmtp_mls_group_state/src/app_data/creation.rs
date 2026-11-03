@@ -27,10 +27,10 @@ use crate::{
         component_registry::{ComponentRegistry, ComponentRegistryError, new_component_metadata},
         migration::MigrationError,
     },
-    group_keys::GroupRoot,
     group_mutable_metadata::MetadataField,
     inbox_id::InboxId,
 };
+use xmtp_mls_group_keys::group_keys::GroupRoot;
 
 /// Produce a populated [`ComponentRegistry`] from the legacy
 /// [`PolicySetProto`]. Deterministic: every honest peer synthesizes
@@ -615,10 +615,10 @@ pub fn initial_dictionary(
     group_root: Option<&GroupRoot>,
     catalogue: &[ApplicationComponentDefinition],
 ) -> Result<openmls::extensions::AppDataDictionary, MigrationError> {
-    use crate::tls_set::TlsSet;
     use openmls::extensions::AppDataDictionary;
     use prost::Message as _;
     use std::collections::BTreeMap;
+    use xmtp_mls_tls_collections::tls_set::TlsSet;
     use xmtp_proto::xmtp::mls::message_contents::{
         GroupMembershipEntry,
         group_membership_entry::{V1, Version},
@@ -818,14 +818,15 @@ mod tests {
         )?;
 
         let creator_id = InboxId::from_hex(&creator)?;
-        let empty_admins = crate::tls_set::TlsSet::<InboxId>::new().tls_serialize_detached()?;
+        let empty_admins =
+            xmtp_mls_tls_collections::tls_set::TlsSet::<InboxId>::new().tls_serialize_detached()?;
         assert_eq!(
             dictionary.get(&ComponentId::ADMIN_LIST.as_u16()),
             Some(empty_admins.as_slice())
         );
         let super_admins = [creator_id]
             .into_iter()
-            .collect::<crate::tls_set::TlsSet<_>>()
+            .collect::<xmtp_mls_tls_collections::tls_set::TlsSet<_>>()
             .tls_serialize_detached()?;
         assert_eq!(
             dictionary.get(&ComponentId::SUPER_ADMIN_LIST.as_u16()),
@@ -910,7 +911,8 @@ mod tests {
 
         let creator_id = InboxId::from_hex(&creator)?;
         let target_id = InboxId::from_hex(&target)?;
-        let empty = crate::tls_set::TlsSet::<InboxId>::new().tls_serialize_detached()?;
+        let empty =
+            xmtp_mls_tls_collections::tls_set::TlsSet::<InboxId>::new().tls_serialize_detached()?;
         assert_eq!(
             dictionary.get(&ComponentId::ADMIN_LIST.as_u16()),
             Some(empty.as_slice())
@@ -921,7 +923,7 @@ mod tests {
         );
         let dm_members = [creator_id, target_id]
             .into_iter()
-            .collect::<crate::tls_set::TlsSet<_>>()
+            .collect::<xmtp_mls_tls_collections::tls_set::TlsSet<_>>()
             .tls_serialize_detached()?;
         assert_eq!(
             dictionary.get(&ComponentId::DM_MEMBERS.as_u16()),

@@ -10,7 +10,7 @@ use xmtp_db::{
     TransactionOutcome::Continue,
     group_intent::{ID, IntentState, QueryGroupIntent, StoredGroupIntent},
 };
-use xmtp_mls_common::{
+use xmtp_mls_group_state::{
     app_data::{
         component_id::ComponentId,
         components::tls_map_components::ComponentRegistryComponent,
@@ -22,8 +22,8 @@ use xmtp_mls_common::{
         typed::Component,
     },
     inbox_id::InboxId,
-    tls_map::TlsMapDelta,
 };
+use xmtp_mls_tls_collections::tls_map::TlsMapDelta;
 use xmtp_proto::xmtp::mls::message_contents::{
     ComponentMetadata, ComponentPermissions, ComponentType, MetadataPolicy,
     metadata_policy::{Kind as MetadataPolicyKind, MetadataBasePolicy},

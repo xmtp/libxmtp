@@ -2,7 +2,7 @@ use super::*;
 use crate::{api, config::push::FcmConfig, test_support::TestServer};
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
-use xmtp_mls_common::group_keys::sign_group_message;
+use xmtp_mls_group_keys::group_keys::sign_group_message;
 use xmtp_mls_validation::test_utils::{GroupMessageKind, group_keys, keyed_group_message_envelope};
 use xmtp_proto::types::TopicKind;
 

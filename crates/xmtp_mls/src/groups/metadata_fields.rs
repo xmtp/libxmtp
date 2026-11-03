@@ -16,7 +16,7 @@ use xmtp_db::{
     Fetch,
     group_intent::{ID, IntentState, StoredGroupIntent},
 };
-use xmtp_mls_common::{
+use xmtp_mls_group_state::{
     app_data::fields::{
         ComponentMutation, FieldError, FieldKey, FieldSnapshot, FieldValue, FieldWrite,
         MetadataFieldDescriptor, MetadataFieldRef, MetadataFieldValue, MetadataValue,

@@ -8,7 +8,7 @@ use xmtp_db::{
     group::{ConversationType, GroupMembershipState},
     prelude::QueryGroupMessage,
 };
-use xmtp_mls_common::group::GroupMetadataOptions;
+use xmtp_mls_group_state::group::GroupMetadataOptions;
 
 // verifies: ARCH-014
 #[xmtp_common::test(unwrap_try = true)]
@@ -150,7 +150,7 @@ async fn rejected_welcomes_do_not_schedule_key_package_rotation() {
     use crate::utils::test::crafted_welcome::send_crafted_welcome;
     use xmtp_common::{NS_IN_DAY, time::now_ns};
     use xmtp_db::prelude::{QueryIdentity, QueryKeyPackageHistory};
-    use xmtp_mls_common::group_keys::{GroupKeys, GroupRoot};
+    use xmtp_mls_group_keys::group_keys::{GroupKeys, GroupRoot};
     use xmtp_proto::backend_v1::{
         WelcomeMessage,
         welcome_message::{V1, Version},

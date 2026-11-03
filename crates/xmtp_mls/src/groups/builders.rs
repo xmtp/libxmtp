@@ -5,7 +5,7 @@ use openmls::prelude::SenderRatchetConfiguration;
 use xmtp_configuration::{
     SENDER_RATCHET_MAX_FORWARD_DISTANCE, SENDER_RATCHET_OUT_OF_ORDER_TOLERANCE,
 };
-use xmtp_mls_common::app_data::dm_registry_profile::{
+use xmtp_mls_group_state::app_data::dm_registry_profile::{
     dm_registry_profiles, matches_dm_registry_profile,
 };
 use xmtp_mls_validation::commit::{extract_group_membership, inbox_id_from_credential};
@@ -176,9 +176,9 @@ pub(in crate::groups) fn validate_dm_group(
 
     // Validate mutable metadata
     let mutable_metadata =
-        xmtp_mls_common::app_data::component_source::extract_group_mutable_metadata_capability_aware(mls_group)
+        xmtp_mls_group_state::app_data::component_source::extract_group_mutable_metadata_capability_aware(mls_group)
             .map_err(|error| match error {
-                xmtp_mls_common::app_data::component_source::ComponentSourceError::GroupMutableMetadata(inner) => {
+                xmtp_mls_group_state::app_data::component_source::ComponentSourceError::GroupMutableMetadata(inner) => {
                     MetadataPermissionsError::Mutable(inner)
                 }
                 other => MetadataPermissionsError::ComponentSource(other),

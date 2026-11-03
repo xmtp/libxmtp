@@ -1,6 +1,6 @@
 [package]
-name = "xmtp_mls_common"
-description = "common MLS utilties"
+name = "xmtp_mls_group_state"
+description = "MLS group state: app data, group metadata, inbox IDs and versions"
 license.workspace = true
 version.workspace = true
 rust-version.workspace = true
@@ -12,19 +12,11 @@ workspace = true
 
 [dependencies]
 bon.workspace = true
-curve25519-dalek.workspace = true
-ed25519-dalek.workspace = true
 hex.workspace = true
-hpke-rs.workspace = true
 openmls.workspace = true
-openmls_libcrux_crypto.workspace = true
-openmls_traits.workspace = true
-parking_lot.workspace = true
 prost.workspace = true
 semver.workspace = true
 serde.workspace = true
-sha2.workspace = true
-sha2-zeroize.workspace = true
 thiserror.workspace = true
 tls_codec.workspace = true
 tracing.workspace = true
@@ -32,11 +24,11 @@ xmtp_common.workspace = true
 xmtp_configuration.workspace = true
 xmtp_cryptography.workspace = true
 xmtp_id.workspace = true
+xmtp_mls_group_keys.workspace = true
+xmtp_mls_tls_collections.workspace = true
 xmtp_proto.workspace = true
 
 [dev-dependencies]
-libcrux-ed25519.workspace = true
-openmls_rust_crypto.workspace = true
 proptest.workspace = true
 xmtp_common = { workspace = true, features = ["test-utils"] }
 xmtp_configuration = { workspace = true, features = ["test-utils"] }

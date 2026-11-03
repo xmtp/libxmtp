@@ -1403,7 +1403,7 @@ pub(super) fn has_leaf(group: &crate::utils::TestMlsGroup, installation: &[u8]) 
 }
 
 fn pending_membership_deltas(group: &crate::utils::TestMlsGroup) -> usize {
-    use xmtp_mls_common::app_data::component_id::ComponentId;
+    use xmtp_mls_group_state::app_data::component_id::ComponentId;
     group
         .with_group_snapshot(|mls| {
             Ok(mls
@@ -1560,7 +1560,7 @@ pub(super) fn propose_membership_payload(
     payload: Vec<u8>,
 ) -> Result<Vec<u8>, GroupError> {
     use openmls::messages::proposals::AppDataUpdateOperation;
-    use xmtp_mls_common::app_data::component_id::ComponentId;
+    use xmtp_mls_group_state::app_data::component_id::ComponentId;
     Ok(
         crate::state_tx::state_write(author.context.mls_storage(), |tx| {
             tx.with_group(author.group_id, |mls, storage| {
@@ -1727,7 +1727,8 @@ async fn uncommittable_membership_delta_is_omitted_whole(
         test_utils::{WalletTestExt, add_wallet_signature},
         unverified::UnverifiedSignature,
     };
-    use xmtp_mls_common::{inbox_id::InboxId, tls_map::TlsMapDelta};
+    use xmtp_mls_group_state::inbox_id::InboxId;
+    use xmtp_mls_tls_collections::tls_map::TlsMapDelta;
     tester!(alix, disable_workers);
     tester!(bo, disable_workers);
     tester!(caro, disable_workers);
@@ -1883,7 +1884,8 @@ async fn uncommittable_membership_delta_is_omitted_whole(
 async fn undecodable_membership_delta_does_not_block_own_refresh()
 -> Result<(), Box<dyn std::error::Error>> {
     use tls_codec::VLBytes;
-    use xmtp_mls_common::{inbox_id::InboxId, tls_map::TlsMapDelta};
+    use xmtp_mls_group_state::inbox_id::InboxId;
+    use xmtp_mls_tls_collections::tls_map::TlsMapDelta;
     tester!(alix, disable_workers);
     tester!(bo, disable_workers);
     tester!(caro, disable_workers);
@@ -1916,7 +1918,8 @@ async fn undecodable_membership_delta_does_not_block_own_refresh()
 #[xmtp_common::test(unwrap_try = true)]
 async fn membership_delta_with_absent_reference_is_omitted()
 -> Result<(), Box<dyn std::error::Error>> {
-    use xmtp_mls_common::{inbox_id::InboxId, tls_map::TlsMapDelta};
+    use xmtp_mls_group_state::inbox_id::InboxId;
+    use xmtp_mls_tls_collections::tls_map::TlsMapDelta;
     tester!(alix, disable_workers);
     tester!(bo, disable_workers);
     tester!(caro, disable_workers);

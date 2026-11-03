@@ -351,7 +351,7 @@ mod tests {
         group_message::StoredGroupMessage,
         schema::{consent_records, group_messages, groups},
     };
-    use xmtp_mls_common::{
+    use xmtp_mls_group_state::{
         group::{DMMetadataOptions, GroupMetadataOptions},
         group_mutable_metadata::MessageDisappearingSettings,
     };
@@ -391,7 +391,7 @@ mod tests {
         };
         use openmls_traits::OpenMlsProvider;
         use xmtp_archive::{ArchiveError, UnreadableGroup};
-        use xmtp_mls_common::app_data::component_id::ComponentId;
+        use xmtp_mls_group_state::app_data::component_id::ComponentId;
 
         tester!(alix, disable_workers);
         let conversation = alix.create_group(None, None)?;
@@ -459,7 +459,9 @@ mod tests {
         };
         use openmls_traits::OpenMlsProvider;
         use prost::Message;
-        use xmtp_mls_common::app_data::{component_id::ComponentId, group_root::read_group_root};
+        use xmtp_mls_group_state::app_data::{
+            component_id::ComponentId, group_root::read_group_root,
+        };
 
         tester!(alix, disable_workers);
         let conversation = alix.create_group(None, None)?;
@@ -1419,7 +1421,7 @@ mod tests {
     // verifies: ARCH-027
     #[xmtp_common::test(unwrap_try = true)]
     async fn failed_import_keeps_archived_activity_of_restored_prefix() {
-        use xmtp_mls_common::group_metadata::DmMembers;
+        use xmtp_mls_group_state::group_metadata::DmMembers;
         use xmtp_proto::xmtp::device_sync::{
             group_backup::GroupSave,
             message_backup::{GroupMessageKindSave, GroupMessageSave},

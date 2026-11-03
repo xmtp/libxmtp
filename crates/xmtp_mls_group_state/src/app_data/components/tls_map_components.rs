@@ -14,7 +14,7 @@
 //!   blobs.
 //!
 //! `Update` payloads are encoded as
-//! [`TlsMapDelta<K, VLBytes>`](crate::tls_map::TlsMapDelta) — single
+//! [`TlsMapDelta<K, VLBytes>`](xmtp_mls_tls_collections::tls_map::TlsMapDelta) — single
 //! mutation per `AppDataUpdate` proposal at the steady-state path
 //! (UpdatePermission inserts/updates one registry entry; group
 //! membership updates one inbox at a time).
@@ -30,8 +30,8 @@ use crate::{
         typed::{Component, ComponentTypedError, ExpandedComponentChange},
     },
     inbox_id::InboxId,
-    tls_map::{TlsMap, TlsMapDelta, TlsMapMutation},
 };
+use xmtp_mls_tls_collections::tls_map::{TlsMap, TlsMapDelta, TlsMapMutation};
 
 /// Apply a `TlsMapDelta<K, VLBytes>` wire payload over the prior dict
 /// bytes (a `TlsMap<K, VLBytes>` snapshot, or `None` if this is the

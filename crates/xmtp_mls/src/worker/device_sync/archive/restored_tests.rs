@@ -11,7 +11,7 @@ use xmtp_db::{
     consent_record::{ConsentKey, ConsentState, ConsentType, StoredConsentRecord},
     group::{GroupMembershipState, GroupQueryArgs},
 };
-use xmtp_mls_common::group_metadata::DmMembers;
+use xmtp_mls_group_state::group_metadata::DmMembers;
 use xmtp_proto::{
     types::GroupId,
     xmtp::device_sync::group_backup::{
@@ -20,7 +20,7 @@ use xmtp_proto::{
 };
 
 fn saved_group(seed: u8, dm: bool) -> GroupSave {
-    let pair = xmtp_mls_common::group_metadata::DmMembers {
+    let pair = xmtp_mls_group_state::group_metadata::DmMembers {
         member_one_inbox_id: "a".repeat(64),
         member_two_inbox_id: "b".repeat(64),
     }
@@ -693,10 +693,8 @@ async fn restored_history_forged_claim_yields_to_live_permissions_after_activati
 #[xmtp_common::test(unwrap_try = true)]
 async fn restored_placeholder_activates_only_for_its_root() {
     use crate::utils::test::crafted_welcome::send_crafted_welcome;
-    use xmtp_mls_common::{
-        app_data::{component_id::ComponentId, group_root::read_group_root},
-        group_keys::GroupRoot,
-    };
+    use xmtp_mls_group_keys::group_keys::GroupRoot;
+    use xmtp_mls_group_state::app_data::{component_id::ComponentId, group_root::read_group_root};
     tester!(alix, disable_workers);
     tester!(bo, disable_workers);
     let real = alix.create_group(None, None)?;

@@ -13,7 +13,7 @@ use thiserror::Error;
 pub mod re_export {
     pub use xmtp_configuration::WELCOME_HPKE_LABEL;
     pub use xmtp_id::key_package::WrapperAlgorithm;
-    pub use xmtp_mls_common::mls_ext::payload_encryption::wrap_payload_hpke;
+    pub use xmtp_mls_group_keys::mls_ext::payload_encryption::wrap_payload_hpke;
 }
 
 pub mod groups;

@@ -17,7 +17,7 @@ use xmtp_db::{
     prelude::*,
 };
 use xmtp_id::AsIdRef;
-use xmtp_mls_common::{
+use xmtp_mls_group_state::{
     group::{DMMetadataOptions, GroupMetadataOptions},
     group_metadata::DmMembers,
 };

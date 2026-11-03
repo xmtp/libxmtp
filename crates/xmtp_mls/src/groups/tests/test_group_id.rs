@@ -3,10 +3,10 @@ use std::collections::HashSet;
 use crate::groups::{MlsGroup, PreconfiguredPolicies};
 use crate::tester;
 use xmtp_db::group::{ConversationType, GroupMembershipState, QueryGroup};
-use xmtp_mls_common::{
+use xmtp_mls_group_keys::group_keys::GroupKeys;
+use xmtp_mls_group_state::{
     app_data::{component_id::ComponentId, group_root::read_group_root},
     group::GroupMetadataOptions,
-    group_keys::GroupKeys,
 };
 use xmtp_proto::xmtp::mls::message_contents::{
     OneshotMessage, ReaddRequest, oneshot_message::MessageType,

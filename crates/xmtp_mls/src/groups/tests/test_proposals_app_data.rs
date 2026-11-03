@@ -8,7 +8,7 @@ use crate::{
     tester,
 };
 use xmtp_db::{group_intent::IntentKind, prelude::*};
-use xmtp_mls_common::app_data::{
+use xmtp_mls_group_state::app_data::{
     component_id::ComponentId,
     components::metadata_attributes::{
         AppDataComponent, GroupDescriptionComponent, GroupImageUrlComponent, GroupNameComponent,
@@ -513,7 +513,7 @@ async fn test_key_package_rotation_preserves_app_data_dictionary_capability() {
 /// - and surface it to peers through the capability-gated read accessor.
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_update_group_name_via_app_data_update() {
-    use xmtp_mls_common::group_mutable_metadata::MetadataField;
+    use xmtp_mls_group_state::group_mutable_metadata::MetadataField;
 
     tester!(alix);
     tester!(bo);
@@ -575,7 +575,7 @@ async fn test_update_group_name_via_app_data_update() {
 async fn test_receiver_rejects_overlong_metadata_from_raw_app_data_intent() {
     use crate::groups::intents::AppDataUpdateIntentData;
     use tls_codec::Serialize as _;
-    use xmtp_mls_common::tls_set::TlsSetDelta;
+    use xmtp_mls_tls_collections::tls_set::TlsSetDelta;
 
     tester!(alix);
     tester!(bo);
@@ -655,7 +655,7 @@ async fn test_receiver_rejects_overlong_metadata_from_raw_app_data_intent() {
     }
 
     let payload = TlsSetDelta::new()
-        .remove(xmtp_mls_common::inbox_id::InboxId::from_hex(
+        .remove(xmtp_mls_group_state::inbox_id::InboxId::from_hex(
             alix.inbox_id(),
         )?)
         .tls_serialize_detached()?;
@@ -706,7 +706,7 @@ async fn test_receiver_rejects_overlong_metadata_from_raw_app_data_intent() {
 //    code path currently emits `RemoveByHash` (admin-list paths use
 //    explicit `Remove(inbox_id)` mutations). Unit coverage for the
 //    resolver lives in
-//    `crates/xmtp_mls_common/src/app_data/component_source.rs` under
+//    `crates/xmtp_mls_group_state/src/app_data/component_source.rs` under
 //    `test_expand_remove_by_hash_*`; revisit if a future caller starts
 //    emitting hash-based deletes.
 /// An inline update must obey the registry policy and leave the group unchanged.
@@ -719,7 +719,7 @@ async fn test_inline_app_data_update_denied_by_registry_policy() {
         mls_sync::GroupMessageProcessingError,
         validated_commit::CommitValidationError,
     };
-    use xmtp_mls_common::group_mutable_metadata::MetadataField;
+    use xmtp_mls_group_state::group_mutable_metadata::MetadataField;
 
     tester!(alix);
     tester!(bo);
@@ -803,11 +803,8 @@ async fn test_accumulate_app_data_updates_chains_intra_batch() {
     use openmls::messages::proposals::AppDataUpdateOperation;
     use tls_codec::Deserialize;
     use tls_codec::Serialize;
-    use xmtp_mls_common::{
-        app_data::component_id::ComponentId,
-        inbox_id::InboxId,
-        tls_set::{TlsSet, TlsSetDelta},
-    };
+    use xmtp_mls_group_state::{app_data::component_id::ComponentId, inbox_id::InboxId};
+    use xmtp_mls_tls_collections::tls_set::{TlsSet, TlsSetDelta};
 
     tester!(alix);
     let alix_group = alix.create_group(None, None)?;
@@ -966,7 +963,7 @@ async fn test_admin_list_add_via_app_data_path() {
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_permission_update_via_app_data_path() {
     use crate::groups::intents::{PermissionPolicyOption, PermissionUpdateType};
-    use xmtp_mls_common::{
+    use xmtp_mls_group_state::{
         app_data::component_id::ComponentId, group_mutable_metadata::MetadataField,
     };
     use xmtp_proto::xmtp::mls::message_contents::metadata_policy::{

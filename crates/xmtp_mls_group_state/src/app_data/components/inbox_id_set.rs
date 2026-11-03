@@ -21,7 +21,9 @@ use crate::{
         typed::{Component, ComponentInvariantError, ComponentTypedError, ExpandedComponentChange},
     },
     inbox_id::InboxId,
-    tls_set::{TlsKeyHash, TlsSet, TlsSetDelta, TlsSetError, TlsSetMutation},
+};
+use xmtp_mls_tls_collections::tls_set::{
+    TlsKeyHash, TlsSet, TlsSetDelta, TlsSetError, TlsSetMutation,
 };
 
 /// Apply a `TlsSetDelta<InboxId>` wire payload over the prior dict

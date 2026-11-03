@@ -91,12 +91,12 @@ use xmtp_db::{
 };
 use xmtp_events::{ClientEvent, EventContext, EventWriter};
 use xmtp_id::{InboxId, InboxIdRef};
-use xmtp_mls_common::app_data::component_id::ComponentId;
-use xmtp_mls_common::group_mutable_metadata::MetadataField;
-use xmtp_mls_common::libxmtp_version::LibXMTPVersion;
-use xmtp_mls_common::mls_ext::payload_encryption::{
+use xmtp_mls_group_keys::mls_ext::payload_encryption::{
     WrapPayloadError, wrap_payload_hpke, wrap_payload_symmetric,
 };
+use xmtp_mls_group_state::app_data::component_id::ComponentId;
+use xmtp_mls_group_state::group_mutable_metadata::MetadataField;
+use xmtp_mls_group_state::libxmtp_version::LibXMTPVersion;
 use xmtp_mls_validation::commit::{
     CommitRuleError, Inbox, MetadataChanges, extract_group_membership,
 };
@@ -899,8 +899,8 @@ pub(crate) mod tests {
         assert_eq!(hex::encode(keys[0].key), DERIVED_KEY);
 
         // Any group keys: the sender HMAC does not depend on the signature.
-        let group_keys = xmtp_mls_common::group_keys::GroupKeys::derive(
-            &xmtp_mls_common::group_keys::GroupRoot::from_bytes(&[7; 32])?,
+        let group_keys = xmtp_mls_group_keys::group_keys::GroupKeys::derive(
+            &xmtp_mls_group_keys::group_keys::GroupRoot::from_bytes(&[7; 32])?,
         );
         let envelopes =
             post_commit::group_message_envelopes(&keys[0], &group_keys, vec![(PAYLOAD, true)])?;
@@ -1017,7 +1017,7 @@ pub(crate) mod tests {
     fn process_message_with_app_data_error_commit_result_mapping() {
         use super::super::app_data::ProcessMessageWithAppDataError;
         use openmls::group::ValidationError;
-        use xmtp_mls_common::app_data::component_source::ComponentSourceError;
+        use xmtp_mls_group_state::app_data::component_source::ComponentSourceError;
 
         let wrong_epoch = GroupMessageProcessingError::OpenMlsProcessMessageWithAppData(
             ProcessMessageWithAppDataError::OpenMls(ProcessMessageError::ValidationError(
@@ -1036,7 +1036,7 @@ pub(crate) mod tests {
         // log them as `Invalid` rather than `Undecryptable`.
         let decode_failure = GroupMessageProcessingError::OpenMlsProcessMessageWithAppData(
             ProcessMessageWithAppDataError::AppDataDecode(ComponentSourceError::UnknownComponent(
-                xmtp_mls_common::app_data::component_id::ComponentId::from(0u16),
+                xmtp_mls_group_state::app_data::component_id::ComponentId::from(0u16),
             )),
         );
         assert_eq!(decode_failure.commit_result(), CommitResult::Invalid);

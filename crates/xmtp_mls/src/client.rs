@@ -83,7 +83,7 @@ use xmtp_id::{
     scw_verifier::SmartContractSignatureVerifier,
 };
 use xmtp_macro::log_event;
-use xmtp_mls_common::{
+use xmtp_mls_group_state::{
     group::{DMMetadataOptions, GroupMetadataOptions},
     group_metadata::DmMembers,
     group_mutable_metadata::MessageDisappearingSettings,

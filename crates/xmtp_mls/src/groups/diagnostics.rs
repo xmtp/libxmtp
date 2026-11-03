@@ -21,7 +21,7 @@ use xmtp_db::{
     ConnectionExt, NotFound, TransactionOutcome, XmtpMlsStorageProvider,
     group::GroupMembershipState, prelude::*,
 };
-use xmtp_mls_common::app_data::{
+use xmtp_mls_group_state::app_data::{
     components::inbox_id_set::{AdminListComponent, SuperAdminListComponent},
     typed_facade::MlsGroupAppData,
 };

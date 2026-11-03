@@ -4,7 +4,7 @@ use crate::app::health::context::HealthContext;
 use crate::app::health::ops::HealthOp;
 use crate::app::health::result::OpResult;
 use async_trait::async_trait;
-use xmtp_mls_common::group_mutable_metadata::MessageDisappearingSettings;
+use xmtp_mls_group_state::group_mutable_metadata::MessageDisappearingSettings;
 
 pub struct UpdateMessageDisappearing;
 

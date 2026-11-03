@@ -290,7 +290,7 @@ async fn signed_publishes_are_refused_unless_their_signature_verifies() {
         (
             "another group's key",
             changed(&message, |envelope| {
-                xmtp_mls_common::group_keys::sign_group_message(
+                xmtp_mls_group_keys::group_keys::sign_group_message(
                     &group_keys(2),
                     group_message(envelope),
                 )

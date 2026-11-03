@@ -17,7 +17,7 @@ use std::collections::HashSet;
 use openmls::extensions::AppDataDictionary;
 use tls_codec::{Deserialize, VLBytes};
 use xmtp_configuration::ApplicationComponentDefinition;
-use xmtp_mls_common::{
+use xmtp_mls_group_state::{
     app_data::{
         component_id::ComponentId,
         component_registry::{ComponentOp, ComponentRegistry},
@@ -30,6 +30,8 @@ use xmtp_mls_common::{
     },
     group_mutable_metadata::GroupMutableMetadataError,
     inbox_id::InboxId,
+};
+use xmtp_mls_tls_collections::{
     tls_map::{TlsMap, TlsMapDelta},
     tls_set::{TlsSetDelta, TlsSetMutation},
 };
@@ -56,7 +58,7 @@ use crate::groups::{
     },
 };
 use xmtp_db::XmtpMlsStorageProvider;
-use xmtp_mls_common::app_data::component_source::{
+use xmtp_mls_group_state::app_data::component_source::{
     ComponentSourceError, metadata_field_to_component_id,
 };
 

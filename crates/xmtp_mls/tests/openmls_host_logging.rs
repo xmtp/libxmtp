@@ -9,7 +9,7 @@ use std::{
 use openmls::group::{GroupId, MlsGroup};
 use tracing_subscriber::{EnvFilter, Registry, fmt, prelude::*};
 use xmtp_mls::{prelude::*, tester};
-use xmtp_mls_common::app_data::{
+use xmtp_mls_group_state::app_data::{
     component_id::ComponentId, component_source::read_from_app_data_dict,
 };
 

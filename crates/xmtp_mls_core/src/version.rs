@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use xmtp_mls_common::libxmtp_version::LibXMTPVersion;
+use xmtp_mls_group_state::libxmtp_version::LibXMTPVersion;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct VersionInfo {

@@ -12,7 +12,7 @@ use crate::{
 };
 use openmls::messages::proposals::AppDataUpdateOperation;
 use xmtp_db::TransactionOutcome::Continue;
-use xmtp_mls_common::app_data::component_id::ComponentId;
+use xmtp_mls_group_state::app_data::component_id::ComponentId;
 
 /// XMTP groups use the ratchet-tree extension, so OpenMLS exports a
 /// GroupInfo with every commit unless the builder turns it off. The AppData

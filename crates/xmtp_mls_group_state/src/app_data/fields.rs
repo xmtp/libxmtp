@@ -46,6 +46,8 @@ use crate::{
         component_source::{ComponentSourceError, apply_app_data_update_payload, component_type},
     },
     inbox_id::InboxId,
+};
+use xmtp_mls_tls_collections::{
     tls_map::{TlsMap, TlsMapDelta},
     tls_set::{TlsKeyHash, TlsSet, TlsSetDelta},
 };

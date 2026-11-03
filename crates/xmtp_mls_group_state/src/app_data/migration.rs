@@ -9,8 +9,8 @@ use tls_codec::{Deserialize, Serialize, VLBytes};
 use crate::{
     app_data::component_registry::ComponentRegistryError,
     inbox_id::{InboxId, InboxIdError},
-    tls_map::{TlsMap, TlsMapDelta, TlsMapMutation},
 };
+use xmtp_mls_tls_collections::tls_map::{TlsMap, TlsMapDelta, TlsMapMutation};
 use xmtp_proto::xmtp::mls::message_contents::GroupMembershipEntry;
 
 /// Errors produced by the synthesis functions in this module.

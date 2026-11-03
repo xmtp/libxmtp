@@ -14,7 +14,7 @@ use xmtp_configuration::{
     PROPOSALS_MIN_PROTOCOL_VERSION,
 };
 use xmtp_db::{incoming_envelope::StreamTopic, prelude::*};
-use xmtp_mls_common::app_data::{
+use xmtp_mls_group_state::app_data::{
     component_id::ComponentId, component_registry::ComponentRegistry,
     component_source::read_from_app_data_dict, creation::catalogue_registry_entries,
     protocol_floor::committed_floor_exceeding,
@@ -140,7 +140,7 @@ async fn test_group_context_shape_at_creation() {
             assert_eq!(
                 committed_floor_exceeding(
                     mls_group,
-                    &xmtp_mls_common::libxmtp_version::LibXMTPVersion::parse(env!(
+                    &xmtp_mls_group_state::libxmtp_version::LibXMTPVersion::parse(env!(
                         "CARGO_PKG_VERSION"
                     ))?,
                 ),
@@ -149,7 +149,7 @@ async fn test_group_context_shape_at_creation() {
             assert_eq!(
                 committed_floor_exceeding(
                     mls_group,
-                    &xmtp_mls_common::libxmtp_version::LibXMTPVersion::parse("999.0.0")?,
+                    &xmtp_mls_group_state::libxmtp_version::LibXMTPVersion::parse("999.0.0")?,
                 ),
                 None,
             );

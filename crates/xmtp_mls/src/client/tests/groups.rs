@@ -613,7 +613,7 @@ async fn test_add_remove_then_add_again() {
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_list_conversations_pagination() {
     use prost::Message;
-    use xmtp_mls_common::group::GroupMetadataOptions;
+    use xmtp_mls_group_state::group::GroupMetadataOptions;
 
     let alix = Tester::builder().build().await;
     let bo = Tester::builder().build().await;

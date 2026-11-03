@@ -97,7 +97,7 @@ impl<K: Deserialize + Size, V: Deserialize + Size> Deserialize for TlsMapEntry<K
 /// # Examples
 ///
 /// ```
-/// use xmtp_mls_common::tls_map::TlsMap;
+/// use xmtp_mls_tls_collections::tls_map::TlsMap;
 /// use tls_codec::{Serialize, Deserialize};
 ///
 /// let mut map = TlsMap::<u16, u16>::new();
@@ -131,7 +131,7 @@ where
     /// Create an empty map.
     ///
     /// ```
-    /// use xmtp_mls_common::tls_map::TlsMap;
+    /// use xmtp_mls_tls_collections::tls_map::TlsMap;
     ///
     /// let map = TlsMap::<u8, u16>::new();
     /// assert!(map.is_empty());
@@ -146,7 +146,7 @@ where
     /// Entries are sorted by key. If duplicate keys exist, the last value wins.
     ///
     /// ```
-    /// use xmtp_mls_common::tls_map::TlsMap;
+    /// use xmtp_mls_tls_collections::tls_map::TlsMap;
     ///
     /// let map = TlsMap::from_pairs([(2, "b"), (1, "a"), (2, "c")]);
     /// assert_eq!(map.get(&1), Some(&"a"));
@@ -166,7 +166,7 @@ where
     /// Insert a key-value pair. Returns an error if the key already exists.
     ///
     /// ```
-    /// use xmtp_mls_common::tls_map::TlsMap;
+    /// use xmtp_mls_tls_collections::tls_map::TlsMap;
     ///
     /// let mut map = TlsMap::<u8, u8>::new();
     /// assert!(map.insert(1, 10).is_ok());
@@ -186,7 +186,7 @@ where
     /// Update an existing key's value. Returns an error if the key doesn't exist.
     ///
     /// ```
-    /// use xmtp_mls_common::tls_map::TlsMap;
+    /// use xmtp_mls_tls_collections::tls_map::TlsMap;
     ///
     /// let mut map = TlsMap::<u8, u8>::new();
     /// map.insert(1, 10).unwrap();
@@ -208,7 +208,7 @@ where
     /// Insert or update a key-value pair. Always succeeds.
     ///
     /// ```
-    /// use xmtp_mls_common::tls_map::TlsMap;
+    /// use xmtp_mls_tls_collections::tls_map::TlsMap;
     ///
     /// let mut map = TlsMap::<u8, u8>::new();
     /// map.set(1, 10);
@@ -227,7 +227,7 @@ where
     /// Remove a key. Returns the removed value, or an error if the key doesn't exist.
     ///
     /// ```
-    /// use xmtp_mls_common::tls_map::TlsMap;
+    /// use xmtp_mls_tls_collections::tls_map::TlsMap;
     ///
     /// let mut map = TlsMap::<u8, u8>::new();
     /// map.insert(1, 10).unwrap();
@@ -245,7 +245,7 @@ where
     /// Get a value by key. Returns `None` if the key is not present.
     ///
     /// ```
-    /// use xmtp_mls_common::tls_map::TlsMap;
+    /// use xmtp_mls_tls_collections::tls_map::TlsMap;
     ///
     /// let mut map = TlsMap::<u8, u8>::new();
     /// map.insert(1, 10).unwrap();
@@ -263,7 +263,7 @@ where
     /// Get a mutable reference to a value by key. Returns `None` if the key is not present.
     ///
     /// ```
-    /// use xmtp_mls_common::tls_map::TlsMap;
+    /// use xmtp_mls_tls_collections::tls_map::TlsMap;
     ///
     /// let mut map = TlsMap::<u8, u8>::new();
     /// map.insert(1, 10).unwrap();
@@ -299,7 +299,7 @@ where
     /// Iterate over key-value pairs in key-sorted order.
     ///
     /// ```
-    /// use xmtp_mls_common::tls_map::TlsMap;
+    /// use xmtp_mls_tls_collections::tls_map::TlsMap;
     ///
     /// let map = TlsMap::from_pairs([(2, "b"), (1, "a")]);
     /// let pairs: Vec<_> = map.iter().collect();
@@ -411,7 +411,7 @@ pub enum TlsMapMutation<K, V> {
 /// Built with a fluent API and applied via [`TlsMap::apply_delta`].
 ///
 /// ```
-/// use xmtp_mls_common::tls_map::TlsMapDelta;
+/// use xmtp_mls_tls_collections::tls_map::TlsMapDelta;
 ///
 /// let delta = TlsMapDelta::<u8, u8>::new()
 ///     .insert(1, 10)
@@ -470,7 +470,7 @@ where
     /// Apply a delta atomically. If any mutation fails, the map is unchanged.
     ///
     /// ```
-    /// use xmtp_mls_common::tls_map::{TlsMap, TlsMapDelta};
+    /// use xmtp_mls_tls_collections::tls_map::{TlsMap, TlsMapDelta};
     ///
     /// let mut map = TlsMap::<u8, u8>::new();
     /// map.insert(1, 10).unwrap();

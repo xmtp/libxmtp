@@ -726,7 +726,7 @@ async fn test_welcome_limits_duplicate_dm_add_installation_tasks(
 #[cfg_attr(target_arch = "wasm32", ignore)]
 async fn sync_welcome_naming_another_inbox_is_rejected(#[case] own_adder: bool) {
     use crate::utils::test::crafted_welcome::{CraftedWelcome, send_crafted_welcome_with};
-    use xmtp_mls_common::group_keys::{GroupKeys, GroupRoot};
+    use xmtp_mls_group_keys::group_keys::{GroupKeys, GroupRoot};
     use xmtp_proto::types::Cursor;
 
     tester!(alix1, disable_workers);

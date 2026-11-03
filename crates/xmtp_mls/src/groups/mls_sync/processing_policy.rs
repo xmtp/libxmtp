@@ -281,7 +281,7 @@ mod tests {
         use xmtp_db::{
             XmtpTestDb, sql_key_store::SqlKeyStore, xmtp_openmls_provider::XmtpOpenMlsProvider,
         };
-        use xmtp_mls_common::libxmtp_version::LibXMTPVersion;
+        use xmtp_mls_group_state::libxmtp_version::LibXMTPVersion;
 
         /// The last-resort mark of the MLS extensions draft.
         const LAST_RESORT_COMPONENT: u16 = 0x0004;

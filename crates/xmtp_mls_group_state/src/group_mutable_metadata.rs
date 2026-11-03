@@ -700,8 +700,8 @@ fn decode_inbox_id_list(
     bytes: &[u8],
 ) -> Result<Vec<String>, GroupMutableMetadataError> {
     use super::inbox_id::InboxId;
-    use super::tls_set::TlsSet;
     use tls_codec::Deserialize as _;
+    use xmtp_mls_tls_collections::tls_set::TlsSet;
 
     let set = TlsSet::<InboxId>::tls_deserialize_exact(bytes).map_err(|e| {
         GroupMutableMetadataError::MalformedComponent {

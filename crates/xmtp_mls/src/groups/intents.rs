@@ -15,7 +15,7 @@ use xmtp_common::types::Address;
 use xmtp_configuration::GROUP_KEY_ROTATION_INTERVAL_NS;
 use xmtp_cryptography::secret::{Zeroize, Zeroizing};
 use xmtp_id::key_package::{KeyPackageVerificationError, VerifiedKeyPackageV2, WrapperAlgorithm};
-use xmtp_mls_common::{
+use xmtp_mls_group_state::{
     app_data::{
         component_id::ComponentId,
         fields::{FieldWrite, WriteOperation},
@@ -1148,7 +1148,7 @@ pub enum AppDataUpdateIntentData {
     Payload { component_id: u16, payload: Vec<u8> },
     /// Typed metadata field writes, committed together (V2). The
     /// publisher resolves them with
-    /// [`xmtp_mls_common::app_data::fields::FieldSnapshot::resolve_writes`]
+    /// [`xmtp_mls_group_state::app_data::fields::FieldSnapshot::resolve_writes`]
     /// against the committed registry.
     Fields(Vec<FieldWrite>),
 }

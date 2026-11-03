@@ -41,11 +41,11 @@ use xmtp_events::{
     EventWriter, JoinOrigin,
 };
 use xmtp_id::associations::MemberIdentifier;
-use xmtp_mls_common::app_data::group_root::check_group_root;
-use xmtp_mls_common::group_metadata::extract_group_metadata;
-use xmtp_mls_common::libxmtp_version::LibXMTPVersion;
+use xmtp_mls_group_state::app_data::group_root::check_group_root;
+use xmtp_mls_group_state::group_metadata::extract_group_metadata;
+use xmtp_mls_group_state::libxmtp_version::LibXMTPVersion;
 
-use xmtp_mls_common::app_data::component_source::extract_group_mutable_metadata_capability_aware;
+use xmtp_mls_group_state::app_data::component_source::extract_group_mutable_metadata_capability_aware;
 use xmtp_proto::types::Cursor;
 use xmtp_proto::xmtp::mls::message_contents::{ContentTypeId, GroupUpdated, group_updated::Inbox};
 
@@ -543,11 +543,13 @@ where
         {
             let registry = crate::groups::app_data::load_component_registry(&mls_group)
                 .map_err(|_| GroupError::InvalidWelcomeMetadata)?;
-            xmtp_mls_common::app_data::policy_set::validate_registry_action_policies(&registry)
-                .map_err(|error| {
-                    tracing::warn!(%error, "invalid registry action policy in Welcome");
-                    GroupError::InvalidWelcomeMetadata
-                })?;
+            xmtp_mls_group_state::app_data::policy_set::validate_registry_action_policies(
+                &registry,
+            )
+            .map_err(|error| {
+                tracing::warn!(%error, "invalid registry action policy in Welcome");
+                GroupError::InvalidWelcomeMetadata
+            })?;
         }
 
         // implements: GMOD-032
@@ -957,8 +959,8 @@ mod tests {
         use crate::utils::test::crafted_welcome::{
             assert_welcome_rejected, send_crafted_welcome, send_crafted_welcome_of_type,
         };
-        use xmtp_mls_common::app_data::group_root::GroupRootError;
-        use xmtp_mls_common::group_keys::{GroupKeys, GroupRoot};
+        use xmtp_mls_group_keys::group_keys::{GroupKeys, GroupRoot};
+        use xmtp_mls_group_state::app_data::group_root::GroupRootError;
 
         tester!(alix, disable_workers);
         tester!(bo, disable_workers);
@@ -1044,7 +1046,7 @@ mod tests {
         use diesel::prelude::*;
         use xmtp_db::{ConnectionExt, schema::association_state::dsl};
         use xmtp_id::associations::test_utils::add_wallet_signature;
-        use xmtp_mls_common::group_keys::{GroupKeys, GroupRoot};
+        use xmtp_mls_group_keys::group_keys::{GroupKeys, GroupRoot};
 
         tester!(alix1, disable_workers);
         tester!(alix2, from: alix1, disable_workers);
@@ -1104,7 +1106,7 @@ mod tests {
     async fn inactive_group_rejects_stale_branch_and_keeps_pending_prefix() {
         use crate::utils::test::crafted_welcome::{CraftedWelcome, send_crafted_welcome_with};
         use xmtp_db::incoming_envelope::QueryIncomingEnvelope;
-        use xmtp_mls_common::app_data::group_root::read_group_root;
+        use xmtp_mls_group_state::app_data::group_root::read_group_root;
         use xmtp_proto::types::Topic;
 
         tester!(alix, disable_workers);
@@ -1199,7 +1201,7 @@ mod tests {
         use crate::utils::test::crafted_welcome::{
             CraftedWelcome, send_crafted_welcome_of_type, send_crafted_welcome_with,
         };
-        use xmtp_mls_common::app_data::group_root::read_group_root;
+        use xmtp_mls_group_state::app_data::group_root::read_group_root;
 
         tester!(alix, disable_workers);
         tester!(bo, disable_workers);
@@ -1284,7 +1286,7 @@ mod tests {
     async fn live_dm_rejects_welcome_with_another_pair() {
         use crate::groups::DmValidationError;
         use crate::utils::test::crafted_welcome::{CraftedWelcome, send_crafted_welcome_with};
-        use xmtp_mls_common::app_data::group_root::read_group_root;
+        use xmtp_mls_group_state::app_data::group_root::read_group_root;
 
         tester!(alix, disable_workers);
         tester!(bo, disable_workers);
@@ -1339,10 +1341,10 @@ mod tests {
     async fn dm_welcome_with_a_nonstandard_registry_is_rejected() {
         use crate::groups::DmValidationError;
         use crate::utils::test::crafted_welcome::{CraftedWelcome, send_crafted_welcome_with};
-        use xmtp_mls_common::app_data::{
+        use xmtp_mls_group_keys::group_keys::{GroupKeys, GroupRoot};
+        use xmtp_mls_group_state::app_data::{
             component_id::ComponentId, dm_registry_profile::dm_registry_profiles,
         };
-        use xmtp_mls_common::group_keys::{GroupKeys, GroupRoot};
         use xmtp_proto::xmtp::mls::message_contents::{
             MetadataPolicy,
             metadata_policy::{Kind, MetadataBasePolicy},
@@ -1402,7 +1404,7 @@ mod tests {
     async fn forged_creator_claim_keeps_prior_consent(#[case] prior_denied: bool) {
         use crate::utils::test::crafted_welcome::{CraftedWelcome, send_crafted_welcome_with};
         use xmtp_db::consent_record::{ConsentKey, ConsentState, ConsentType, StoredConsentRecord};
-        use xmtp_mls_common::group_keys::{GroupKeys, GroupRoot};
+        use xmtp_mls_group_keys::group_keys::{GroupKeys, GroupRoot};
 
         tester!(alix, disable_workers);
         tester!(bo, disable_workers);
@@ -1451,7 +1453,7 @@ mod tests {
     async fn joining_stores_no_state() {
         use crate::utils::test::crafted_welcome::{CraftedWelcome, send_crafted_welcome_with};
         use xmtp_db::consent_record::{ConsentKey, ConsentState};
-        use xmtp_mls_common::group_keys::{GroupKeys, GroupRoot};
+        use xmtp_mls_group_keys::group_keys::{GroupKeys, GroupRoot};
 
         tester!(alix, disable_workers);
         tester!(bo1, disable_workers);
@@ -1500,7 +1502,7 @@ mod tests {
     async fn forged_dm_with_group_id_reads_its_builder() {
         use crate::utils::test::crafted_welcome::{CraftedWelcome, send_crafted_welcome_with};
         use xmtp_db::consent_record::{ConsentKey, ConsentState, ConsentType, StoredConsentRecord};
-        use xmtp_mls_common::app_data::group_root::read_group_root;
+        use xmtp_mls_group_state::app_data::group_root::read_group_root;
 
         tester!(alix, disable_workers);
         tester!(bo2, disable_workers);

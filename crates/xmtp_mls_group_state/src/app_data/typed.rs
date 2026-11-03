@@ -37,9 +37,8 @@ use crate::{
         validation::ComponentChange,
     },
     inbox_id::InboxIdError,
-    tls_map::TlsMapError,
-    tls_set::TlsSetError,
 };
+use xmtp_mls_tls_collections::{tls_map::TlsMapError, tls_set::TlsSetError};
 
 /// A typed view of a well-known AppData component.
 ///

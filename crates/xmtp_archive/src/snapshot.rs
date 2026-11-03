@@ -25,7 +25,7 @@ use xmtp_db::{
     message_deletion::StoredMessageDeletion,
     schema::{consent_records, group_messages, groups, message_deletions},
 };
-use xmtp_mls_common::{
+use xmtp_mls_group_state::{
     group_metadata::extract_group_metadata,
     group_mutable_metadata::{
         GroupMutableMetadata, MetadataField, merge_dict_into_mutable_metadata,

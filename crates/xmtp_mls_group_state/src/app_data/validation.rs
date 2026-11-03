@@ -42,9 +42,9 @@ pub struct ActorAuthority {
 /// (which share the same type) can't be accidentally swapped:
 ///
 /// ```
-/// # use xmtp_mls_common::app_data::component_id::ComponentId;
-/// # use xmtp_mls_common::app_data::component_registry::ComponentOp;
-/// # use xmtp_mls_common::app_data::validation::{ActorAuthority, ComponentChange};
+/// # use xmtp_mls_group_state::app_data::component_id::ComponentId;
+/// # use xmtp_mls_group_state::app_data::component_registry::ComponentOp;
+/// # use xmtp_mls_group_state::app_data::validation::{ActorAuthority, ComponentChange};
 /// # let actor = ActorAuthority { is_admin: false, is_super_admin: true };
 /// # let old_bytes = vec![1, 2, 3];
 /// # let new_bytes = vec![4, 5, 6];

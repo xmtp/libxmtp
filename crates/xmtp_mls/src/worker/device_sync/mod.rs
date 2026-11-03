@@ -32,9 +32,9 @@ use xmtp_db::{
 };
 use xmtp_db::{XmtpDb, group::ConversationType, prelude::*};
 use xmtp_id::{InboxIdRef, associations::DeserializationError};
-use xmtp_mls_common::app_data::protocol_floor::committed_floor_at_least;
-use xmtp_mls_common::group::GroupMetadataOptions;
-use xmtp_mls_common::libxmtp_version::LibXMTPVersion;
+use xmtp_mls_group_state::app_data::protocol_floor::committed_floor_at_least;
+use xmtp_mls_group_state::group::GroupMetadataOptions;
+use xmtp_mls_group_state::libxmtp_version::LibXMTPVersion;
 use xmtp_proto::ShortHex;
 use xmtp_proto::types::{GroupId, InstallationId};
 use xmtp_proto::xmtp::{

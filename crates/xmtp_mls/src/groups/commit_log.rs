@@ -27,9 +27,9 @@ use xmtp_db::{
     readd_status::QueryReaddStatus,
     remote_commit_log::{CommitResult, NewRemoteCommitLog},
 };
-use xmtp_mls_common::app_data::group_root::group_keys_from_extensions;
-use xmtp_mls_common::commit_log::{open_entry, seal_entry, sign_entry_author};
-use xmtp_mls_common::group_keys::{GroupKeys, SealError};
+use xmtp_mls_group_keys::commit_log::{open_entry, seal_entry, sign_entry_author};
+use xmtp_mls_group_keys::group_keys::{GroupKeys, SealError};
+use xmtp_mls_group_state::app_data::group_root::group_keys_from_extensions;
 use xmtp_mls_validation::ForkActors;
 use xmtp_proto::ShortHex;
 use xmtp_proto::backend_v1::SealedCommitLogEntry;

@@ -3,7 +3,7 @@
 use super::publish::OutgoingPreparationError;
 use super::*;
 use xmtp_common::snippet::Snippet;
-use xmtp_mls_common::group_keys::{GroupKeys, SealError, sign_group_message};
+use xmtp_mls_group_keys::group_keys::{GroupKeys, SealError, sign_group_message};
 
 fn log_missing_installations(
     inbox_id: &str,
@@ -413,7 +413,7 @@ where
         group: &OpenMlsGroup,
         payloads: Vec<(&[u8], bool)>,
     ) -> Result<Vec<ClientEnvelope>, GroupError> {
-        let keys = xmtp_mls_common::app_data::group_root::check_group_root(
+        let keys = xmtp_mls_group_state::app_data::group_root::check_group_root(
             group.extensions(),
             group.group_id().as_slice(),
         )

@@ -70,7 +70,14 @@ pub use xmtp_db as db;
 use xmtp_db::DuplicateItem;
 use xmtp_db::StorageError;
 pub use xmtp_id::InboxOwner;
-pub use xmtp_mls_common as mls_common;
+/// The old `xmtp_mls_common` paths, now served by the three crates it split into.
+pub mod mls_common {
+    pub use xmtp_mls_group_keys::{commit_log, group_keys, mls_ext};
+    pub use xmtp_mls_group_state::{
+        app_data, group, group_metadata, group_mutable_metadata, inbox_id, libxmtp_version,
+    };
+    pub use xmtp_mls_tls_collections::{tls_map, tls_set};
+}
 pub use xmtp_mls_validation as mls_validation;
 pub use xmtp_proto::api_client::*;
 

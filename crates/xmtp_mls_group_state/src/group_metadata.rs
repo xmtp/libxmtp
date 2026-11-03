@@ -221,8 +221,8 @@ fn read_group_metadata_from_dict(
 ) -> Result<GroupMetadata, GroupMetadataError> {
     use crate::app_data::component_id::ComponentId;
     use crate::inbox_id::InboxId as DictInboxId;
-    use crate::tls_set::TlsSet;
     use tls_codec::Deserialize;
+    use xmtp_mls_tls_collections::tls_set::TlsSet;
 
     let ext = extensions
         .app_data_dictionary()
@@ -331,9 +331,9 @@ mod tests {
     ) -> Extensions<GroupContext> {
         use crate::app_data::component_id::ComponentId;
         use crate::inbox_id::InboxId as DictInboxId;
-        use crate::tls_set::TlsSet;
         use openmls::extensions::{AppDataDictionary, AppDataDictionaryExtension, Extension};
         use tls_codec::Serialize;
+        use xmtp_mls_tls_collections::tls_set::TlsSet;
 
         let mut dict = AppDataDictionary::new();
         let mut insert = |id: ComponentId, bytes: Vec<u8>| {

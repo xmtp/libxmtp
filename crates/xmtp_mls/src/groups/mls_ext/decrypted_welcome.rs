@@ -23,7 +23,9 @@ use xmtp_db::{
     sql_key_store::{KEY_PACKAGE_REFERENCES, KEY_PACKAGE_WRAPPER_PRIVATE_KEY, codec as kv_codec},
 };
 use xmtp_id::key_package::{WrapperAlgorithm, WrapperEncryptionExtension};
-use xmtp_mls_common::mls_ext::payload_encryption::{unwrap_payload_hpke, unwrap_payload_symmetric};
+use xmtp_mls_group_keys::mls_ext::payload_encryption::{
+    unwrap_payload_hpke, unwrap_payload_symmetric,
+};
 use xmtp_proto::{
     ConversionError,
     types::{

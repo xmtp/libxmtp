@@ -505,7 +505,7 @@ async fn rejected_intent_keeps_its_typed_cause_after_restart_and_later_rejection
         incoming_envelope::{QueryIncomingEnvelope, StreamTopic},
     };
     use xmtp_id::associations::test_utils::MockSmartContractSignatureVerifier;
-    use xmtp_mls_common::group_mutable_metadata::MetadataField;
+    use xmtp_mls_group_state::group_mutable_metadata::MetadataField;
     use xmtp_proto::{api_client::ApiBuilder, prelude::XmtpTestClient};
 
     tester!(alix, persistent_db, disable_workers);

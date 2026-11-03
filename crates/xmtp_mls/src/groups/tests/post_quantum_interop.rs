@@ -7,7 +7,7 @@ use crate::utils::FullXmtpClient;
 use xmtp_cryptography::utils::generate_local_wallet;
 use xmtp_db::group::{ConversationType, GroupQueryArgs};
 use xmtp_id::key_package::{VerifiedKeyPackageV2, WrapperAlgorithm};
-use xmtp_mls_common::group::DMMetadataOptions;
+use xmtp_mls_group_state::group::DMMetadataOptions;
 
 async fn get_key_package_from_network(client: &FullXmtpClient) -> VerifiedKeyPackageV2 {
     let mut kp_mapping = client

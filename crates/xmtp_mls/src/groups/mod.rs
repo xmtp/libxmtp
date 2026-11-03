@@ -125,8 +125,8 @@ use xmtp_db::{
 use xmtp_db::{group_message::LatestMessageTimeBySender, local_commit_log::LocalCommitLog};
 use xmtp_id::associations::Identifier;
 use xmtp_id::{AsIdRef, InboxId, InboxIdRef};
-use xmtp_mls_common::libxmtp_version::LibXMTPVersion;
-use xmtp_mls_common::{
+use xmtp_mls_group_state::libxmtp_version::LibXMTPVersion;
+use xmtp_mls_group_state::{
     app_data::components::{
         inbox_id_set::{AdminListComponent, SuperAdminListComponent},
         metadata_attributes::{
@@ -150,7 +150,7 @@ use xmtp_proto::{
     },
 };
 
-use xmtp_mls_common::app_data::components::metadata_attributes::{
+use xmtp_mls_group_state::app_data::components::metadata_attributes::{
     MAX_APP_DATA_LENGTH, MAX_GROUP_DESCRIPTION_LENGTH, MAX_GROUP_IMAGE_URL_LENGTH,
     MAX_GROUP_NAME_LENGTH,
 };

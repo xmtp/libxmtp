@@ -51,7 +51,7 @@ async fn restored_dm_placeholder_activates_with_archived_history() {
         Store,
         group::{ConversationType, GroupMembershipState, QueryGroup, StoredGroup},
     };
-    use xmtp_mls_common::group_metadata::DmMembers;
+    use xmtp_mls_group_state::group_metadata::DmMembers;
 
     tester!(alix, disable_workers);
     tester!(bo, disable_workers);
@@ -109,7 +109,7 @@ async fn restored_dm_backup_stub_activates_with_archived_history() {
         &bo.context,
         GroupMembershipState::Restored,
         alix.inbox_id().to_string(),
-        xmtp_mls_common::group::GroupMetadataOptions::default(),
+        xmtp_mls_group_state::group::GroupMetadataOptions::default(),
         Some(dm.group_id.as_ref()),
     )?;
     let db = bo.db();
@@ -142,7 +142,7 @@ async fn restored_dm_backup_stub_activates_with_archived_history() {
 #[xmtp_common::test(unwrap_try = true)]
 async fn restored_foreign_pair_rejects_different_welcome_pair() {
     use xmtp_db::group::{GroupMembershipState, QueryGroup};
-    use xmtp_mls_common::group_metadata::DmMembers;
+    use xmtp_mls_group_state::group_metadata::DmMembers;
 
     tester!(alix, disable_workers);
     tester!(bo, disable_workers);
@@ -189,7 +189,7 @@ async fn restored_group_rejects_dm_welcome_kind_change() {
         GroupMembershipState::Restored,
         ConversationType::Group,
         crate::groups::group_permissions::PolicySet::default(),
-        xmtp_mls_common::group::GroupMetadataOptions::default(),
+        xmtp_mls_group_state::group::GroupMetadataOptions::default(),
         None,
         false,
     )?;
@@ -312,18 +312,18 @@ async fn test_group_update_dedupes() {
 fn dictionary_native_dm_with_registry(
     context: &impl XmtpSharedContext,
     added_by_inbox: &str,
-    registry: xmtp_mls_common::app_data::component_registry::ComponentRegistry,
+    registry: xmtp_mls_group_state::app_data::component_registry::ComponentRegistry,
 ) -> openmls::group::MlsGroup {
     use openmls::{
         extensions::{AppDataDictionary, AppDataDictionaryExtension, Extension, Extensions},
         prelude::{Capabilities, CredentialWithKey, ExtensionType, MlsGroupCreateConfig},
     };
     use tls_codec::Serialize;
-    use xmtp_mls_common::{
+    use xmtp_mls_group_state::{
         app_data::{component_id::ComponentId, migration::encode_group_membership_dict},
         inbox_id::InboxId,
-        tls_set::TlsSet,
     };
+    use xmtp_mls_tls_collections::tls_set::TlsSet;
     use xmtp_proto::xmtp::mls::message_contents::{
         GroupMembershipEntry,
         group_membership_entry::{V1, Version},
@@ -430,16 +430,16 @@ async fn test_dictionary_native_dm_accepts_valid_permissions() {
 }
 
 /// The registry of the newest DM registry profile, which a new DM writes.
-fn newest_dm_registry_profile() -> xmtp_mls_common::app_data::component_registry::ComponentRegistry
-{
-    xmtp_mls_common::app_data::dm_registry_profile::dm_registry_profiles()
+fn newest_dm_registry_profile()
+-> xmtp_mls_group_state::app_data::component_registry::ComponentRegistry {
+    xmtp_mls_group_state::app_data::dm_registry_profile::dm_registry_profiles()
         .pop()
         .unwrap()
 }
 
 /// The entries of the newest DM registry profile, as raw `(id, bytes)` pairs.
 fn standard_dm_registry_entries() -> Vec<(
-    xmtp_mls_common::app_data::component_id::ComponentId,
+    xmtp_mls_group_state::app_data::component_id::ComponentId,
     Vec<u8>,
 )> {
     newest_dm_registry_profile()
@@ -454,14 +454,14 @@ fn standard_dm_registry_entries() -> Vec<(
 #[xmtp_common::test(unwrap_try = true)]
 fn dm_creator_writes_the_newest_registry_profile() {
     use crate::groups::group_permissions::PolicySet;
-    use xmtp_mls_common::{
+    use xmtp_mls_group_keys::group_keys::GroupRoot;
+    use xmtp_mls_group_state::{
         app_data::{
             component_id::ComponentId,
             component_registry::ComponentRegistry,
             creation::{InitialGroupKind, initial_dictionary},
         },
         group::GroupMetadataOptions,
-        group_keys::GroupRoot,
     };
 
     // The arguments of create_dm_and_insert, with no catalogue.
@@ -483,12 +483,13 @@ fn dm_creator_writes_the_newest_registry_profile() {
 /// A registry holding exactly `entries`, including bytes that do not decode.
 fn raw_registry(
     entries: Vec<(
-        xmtp_mls_common::app_data::component_id::ComponentId,
+        xmtp_mls_group_state::app_data::component_id::ComponentId,
         Vec<u8>,
     )>,
-) -> xmtp_mls_common::app_data::component_registry::ComponentRegistry {
+) -> xmtp_mls_group_state::app_data::component_registry::ComponentRegistry {
     use tls_codec::{Serialize, VLBytes};
-    use xmtp_mls_common::{app_data::component_registry::ComponentRegistry, tls_map::TlsMap};
+    use xmtp_mls_group_state::app_data::component_registry::ComponentRegistry;
+    use xmtp_mls_tls_collections::tls_map::TlsMap;
 
     let map: TlsMap<_, _> = entries
         .into_iter()
@@ -504,7 +505,7 @@ fn raw_registry(
 #[xmtp_common::test(unwrap_try = true)]
 async fn dm_welcome_rejects_registry_that_blocks_membership_updates() {
     use crate::groups::{DmValidationError, MetadataPermissionsError};
-    use xmtp_mls_common::app_data::component_id::ComponentId;
+    use xmtp_mls_group_state::app_data::component_id::ComponentId;
     use xmtp_proto::xmtp::mls::message_contents::{
         MetadataPolicy,
         metadata_policy::{Kind, MetadataBasePolicy},
@@ -544,7 +545,7 @@ async fn dm_admission_compares_every_protocol_registry_entry() {
     use crate::groups::{DmValidationError, MetadataPermissionsError};
     use prost::Message;
     use xmtp_common::assert_err;
-    use xmtp_mls_common::app_data::{
+    use xmtp_mls_group_state::app_data::{
         component_id::ComponentId, dm_registry_profile::dm_registry_profiles,
     };
     use xmtp_proto::xmtp::mls::message_contents::{

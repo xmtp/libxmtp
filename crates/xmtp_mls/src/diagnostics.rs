@@ -177,7 +177,7 @@ mod tests {
     // verifies: GMOD-042
     #[xmtp_common::test(unwrap_try = true)]
     async fn snapshot_holds_no_group_root() {
-        use xmtp_mls_common::app_data::group_root::read_group_root;
+        use xmtp_mls_group_state::app_data::group_root::read_group_root;
 
         tester!(alix, disable_workers);
         let group = alix.create_group(None, None)?;

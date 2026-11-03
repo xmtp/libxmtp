@@ -31,7 +31,7 @@ use hmac::{Hmac, Mac};
 use prost::Message;
 use sha2::Sha256;
 use std::hint::black_box;
-use xmtp_mls_common::group_keys::{
+use xmtp_mls_group_keys::group_keys::{
     GroupKeys, GroupRoot, commit_log_entry_tbs, commit_log_topic, group_message_tbs,
     open_commit_log_entry, seal_commit_log_entry, sign_group_message, verify_publish_signature,
 };

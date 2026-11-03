@@ -36,7 +36,6 @@
 //! the dictionary's bytes, and computed values come back in `Zeroizing`,
 //! which wipes them on drop whatever the component.
 
-use crate::group_keys::GROUP_ROOT_BYTES;
 use crate::{
     app_data::{
         component_id::ComponentId,
@@ -47,8 +46,6 @@ use crate::{
     },
     group_mutable_metadata::{GroupMutableMetadata, GroupMutableMetadataError, MetadataField},
     inbox_id::{InboxId, InboxIdError},
-    tls_map::{TlsMap, TlsMapDelta, TlsMapError, TlsMapMutation},
-    tls_set::{TlsSet, TlsSetDelta, TlsSetError, TlsSetMutation},
 };
 use openmls::{
     extensions::Extensions,
@@ -57,6 +54,11 @@ use openmls::{
 };
 use tls_codec::{Deserialize, Serialize, VLBytes};
 use xmtp_cryptography::secret::Zeroizing;
+use xmtp_mls_group_keys::group_keys::GROUP_ROOT_BYTES;
+use xmtp_mls_tls_collections::{
+    tls_map::{TlsMap, TlsMapDelta, TlsMapError, TlsMapMutation},
+    tls_set::{TlsSet, TlsSetDelta, TlsSetError, TlsSetMutation},
+};
 use xmtp_proto::xmtp::mls::message_contents::ComponentType;
 
 /// Longest scalar, collection key, or collection value that an application
@@ -789,7 +791,7 @@ pub fn merge_app_data_into_mutable_metadata_from_extensions(
     base: &mut GroupMutableMetadata,
     extensions: &openmls::extensions::Extensions<openmls::group::GroupContext>,
 ) -> Result<(), ComponentSourceError> {
-    // The merge body lives in `xmtp_mls_common` so crates below
+    // The merge body lives in `xmtp_mls_group_state` so crates below
     // `xmtp_mls` in the dependency graph (the archive exporter) can
     // reuse it. Map the per-component error back to
     // `MalformedComponentValue` so this function's error shape (which
@@ -1075,9 +1077,9 @@ mod tests {
             component_registry::{ComponentOp, new_component_metadata},
         },
         inbox_id::INBOX_ID_BYTE_LEN,
-        tls_set::TlsKeyHash,
     };
     use prost::Message;
+    use xmtp_mls_tls_collections::tls_set::TlsKeyHash;
     use xmtp_proto::xmtp::mls::message_contents::{
         MetadataPolicy as MetadataPolicyProto,
         metadata_policy::{Kind as MetadataPolicyKind, MetadataBasePolicy},
