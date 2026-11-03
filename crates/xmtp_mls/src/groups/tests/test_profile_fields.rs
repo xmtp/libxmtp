@@ -584,6 +584,68 @@ fn dictionary<C: XmtpSharedContext>(group: &MlsGroup<C>) -> Result<AppDataDictio
     })
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_large_dictionary_membership_observation() {
+    use xmtp_db::{encrypted_store::database::count_sql_queries, sql_key_store::count_kv_reads};
+
+    const FIELDS: u16 = 16;
+    tester!(alix, configured: |c| {
+        c.application_components = (0..FIELDS)
+            .map(|n| {
+                definition(0xC110 + n, ComponentType::TlsMapBytesBytes, MetadataBasePolicy::Allow, false, true)
+            })
+            .collect()
+    });
+    tester!(bo);
+    let dm = alix.find_or_create_dm(bo.inbox_id(), None).await?;
+    let bo_dm = bo.wait_for_welcomes().await?.pop()?;
+    let fill = ComponentMutation::MapDelta(
+        (0..8u8)
+            .map(|k| {
+                MapMutation::Insert(FieldKey::Bytes(vec![k]), FieldValue::Bytes(vec![k; 8000]))
+            })
+            .collect(),
+    );
+    dm.write_fields(|snapshot| {
+        (0..FIELDS)
+            .map(|n| {
+                snapshot.field_write(&MetadataFieldRef::new(ComponentId::new(0xC110 + n)), &fill)
+            })
+            .collect()
+    })
+    .await?;
+    bo_dm.sync().await?;
+    assert!(
+        dictionary(&bo_dm)?
+            .entries()
+            .map(|entry| entry.data().len())
+            .sum::<usize>()
+            >= usize::from(FIELDS) * 8 * 8000
+    );
+
+    for group in [&dm, &bo_dm] {
+        let ((active, _, begins), reads) =
+            count_kv_reads(|| count_sql_queries(|| group.is_active()));
+        assert!(active?);
+        assert_eq!(
+            reads, 1,
+            "membership observation loaded unrelated MLS state"
+        );
+        assert_eq!(begins, 1, "membership observation lost its writer snapshot");
+    }
+
+    dm.send_message(b"after large dictionary", Default::default())
+        .await?;
+    bo_dm.sync().await?;
+    assert!(
+        bo_dm
+            .find_messages(&MsgQueryArgs::default())?
+            .iter()
+            .any(|message| message.decrypted_message_bytes == b"after large dictionary")
+    );
+}
+
 /// A DM participant fills application maps until the next one would grow
 /// the dictionary past 4 MiB: that write is refused as a field write and as a
 /// payload intent, which fails without blocking the next intent. Nothing of

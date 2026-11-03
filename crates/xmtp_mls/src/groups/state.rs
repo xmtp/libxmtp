@@ -288,6 +288,9 @@ where
     /// If the current user has been kicked out of the group, `is_active` will return `false`
     #[tracing::instrument(skip_all, level = "trace")]
     pub fn is_active(&self) -> Result<bool, GroupError> {
+        use openmls::group::MlsGroupState;
+        use openmls_traits::storage::StorageProvider as _;
+
         // Restored groups that are not yet added are inactive
         let Some(stored_group) = self.context.db().find_group(&self.group_id)? else {
             return Err(GroupError::NotFound(NotFound::GroupById(self.group_id)));
@@ -299,7 +302,14 @@ where
             return Ok(false);
         }
 
-        self.with_group_snapshot(|mls_group| Ok(mls_group.is_active()))
+        state_write(self.context.mls_storage(), |tx| {
+            let state = tx
+                .storage()
+                .group_state::<MlsGroupState, _>(&self.group_id.to_openmls())?
+                .ok_or_else(|| StorageError::from(NotFound::MlsGroup(self.group_id)))?;
+            Ok::<_, GroupError>(Continue(!matches!(state, MlsGroupState::Inactive)))
+        })
+        .map(TransactionOutcome::into_continued)
     }
 
     /// Returns the membership state of the current user in this group.
