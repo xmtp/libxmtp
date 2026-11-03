@@ -70,7 +70,7 @@ reason = "PR 5b (Tasks 12 and 15): engine test helpers outside test suites still
 from = "engine"
 to = "streams"
 tier = "path"
-count = 2
+count = 1
 reason = "PR 7 (Task 20): the receiver and the group stream entry points name stream types."
 
 [naming]
@@ -125,5 +125,5 @@ reason = "PR 5b (Tasks 12 and 15): engine test helpers outside test suites still
 from = "engine"
 to = "streams"
 tier = "call"
-count = 10
+count = 8
 reason = "PR 7 (Task 20): the receiver and the group stream entry points name stream types."
