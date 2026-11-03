@@ -5,7 +5,7 @@
 - New crates go in `crates/`, binaries in `apps/`. Root `Cargo.toml` globs both.
 - The package header inherits `license`, `version`, `rust-version`, `edition`,
   and `publish` from the workspace, then `[lints] workspace = true`. Copy
-  `crates/xmtp_mls_common/Cargo.toml`.
+  `crates/xmtp_mls_group_keys/Cargo.toml`.
 - Dependencies: `name.workspace = true` or `{ workspace = true, features = [..] }`,
   pinned once in `[workspace.dependencies]`. A crate-local version needs a
   reason: target-specific or single-consumer.

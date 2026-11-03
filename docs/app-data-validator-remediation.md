@@ -54,7 +54,7 @@ E.g. the pre-#3863 registry-poison bug: state that wedges or corrupts readers.
 The pause guards read only **committed** floor state (the pre-commit dict or
 legacy GMM), never same-commit proposals — a floor value only exists after its
 super-admin policy check passed on every honest receiver. See the floor-bump
-convention in `xmtp_mls_common::app_data::registry_table` for the send-side
+convention in `xmtp_mls_group_state::app_data::registry_table` for the send-side
 rules protocol evolution must follow.
 
 **Caveat — the floor-bump commit is not self-pausing.** The commit that *raises*

@@ -88,7 +88,7 @@ it("well-known catalogue fields read and write between two Node clients", async 
     isUserField: true,
   });
   // Each slot of ComponentPermissions lifts its own policy. Rust builds these
-  // in xmtp_mls_common app_data/creation.rs (build_registry and
+  // in xmtp_mls_group_state app_data/creation.rs (build_registry and
   // register_configured_fields) from the default policy set. No standard
   // field has different insert and update policies.
   const policies = (

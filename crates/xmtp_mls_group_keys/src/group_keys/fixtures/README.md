@@ -27,8 +27,8 @@ generated with Python 3.14.6 and `cryptography` 49.0.0.
 
 ```sh
 nix shell --impure --expr '(builtins.getFlake "github:NixOS/nixpkgs/624af665418d3c65d544145b4d34ad696439570e").legacyPackages.${builtins.currentSystem}.python3.withPackages (p: [ p.cryptography ])' \
-  -c python3 -I crates/xmtp_mls_common/src/group_keys/fixtures/generate_vectors.py \
-  > crates/xmtp_mls_common/src/group_keys/fixtures/vectors.txt
+  -c python3 -I crates/xmtp_mls_group_keys/src/group_keys/fixtures/generate_vectors.py \
+  > crates/xmtp_mls_group_keys/src/group_keys/fixtures/vectors.txt
 ```
 
 The output is deterministic: Ed25519 signing, the derived nonce, and the AEAD
@@ -37,5 +37,5 @@ take no randomness. A rerun must leave `vectors.txt` unchanged.
 ## Check
 
 ```sh
-dev/nix-shell 'just test workspace -p xmtp_mls_common group_keys::'
+dev/nix-shell 'just test workspace -p xmtp_mls_group_keys group_keys::'
 ```

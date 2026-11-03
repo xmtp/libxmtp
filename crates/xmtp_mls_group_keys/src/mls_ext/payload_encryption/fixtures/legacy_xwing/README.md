@@ -42,5 +42,5 @@ current provider opens the old ciphertext, derives the same stored key bytes,
 and encrypts new Welcomes under the old public key. To run them:
 
 ```sh
-dev/nix-shell 'just test workspace -p xmtp_mls_common legacy_xwing'
+dev/nix-shell 'just test workspace -p xmtp_mls_group_keys legacy_xwing'
 ```
