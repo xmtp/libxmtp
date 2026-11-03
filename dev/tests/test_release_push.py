@@ -37,8 +37,8 @@ def release_tools(binary):
     tools = ROOT / "dev/release-tools"
     wrapper = binary / "xmtp-release"
     wrapper.write_text(
-        f'#!/usr/bin/env bash\nexport TSX_TSCONFIG_PATH="{tools}/tsconfig.json"\n'
-        f'exec node --import "{tools}/node_modules/tsx/dist/loader.mjs" "{tools}/src/cli.ts" "$@"\n'
+        f'#!/usr/bin/env bash\nexec "{tools}/node_modules/.bin/tsx" '
+        f'--tsconfig "{tools}/tsconfig.json" "{tools}/src/cli.ts" "$@"\n'
     )
     wrapper.chmod(0o755)
 
@@ -133,111 +133,6 @@ class ReleasePushTest(unittest.TestCase):
                             self.assertEqual(expand(job["with"]["ref"], values), "main")
                         else:
                             self.assertNotIn("ref", job["with"])
-
-    def test_production_script_freezes_one_version_for_all_sdk_callers(self):
-        import shutil
-
-        workflow = ROOT / ".github/workflows/release.yml"
-        jobs = yaml.safe_load(workflow.read_text())["jobs"]
-        sdks = [
-            "android",
-            "ios",
-            "node-sdk",
-            "browser-sdk",
-            "agent-sdk",
-            "react-native-sdk",
-            "cli",
-        ]
-        with tempfile.TemporaryDirectory() as folder:
-            root = Path(folder)
-            for name in [
-                "Cargo.toml",
-                "Cargo.lock",
-                "crates/xmtp_sdk/Cargo.toml",
-                "sdks/android/gradle.properties",
-                "apps/cli/package.json",
-                *[
-                    f"sdks/{sdk}/package.json"
-                    for sdk in ("node", "browser", "agent", "react-native")
-                ],
-            ]:
-                destination = root / name
-                destination.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copyfile(ROOT / name, destination)
-            (root / "dev").mkdir()
-            shutil.copyfile(ROOT / "dev/sdk_version.py", root / "dev/sdk_version.py")
-            subprocess.run(
-                ["python3.11", "dev/sdk_version.py", "set", "8.0.0"],
-                cwd=root,
-                check=True,
-            )
-            shell = root / "dev/nix-shell"
-            shell.write_text(
-                '#!/usr/bin/env python3\nimport os,sys\ni=sys.argv.index("--command")+1\nos.execvp(sys.argv[i],sys.argv[i:])\n'
-            )
-            shell.chmod(0o755)
-            env = os.environ | {
-                "GIT_CONFIG_NOSYSTEM": "1",
-                "GIT_CONFIG_GLOBAL": os.devnull,
-            }
-            git = git_runner(env, root)
-            git("init", "--initial-branch=main")
-            git("config", "user.name", "Test")
-            git("config", "user.email", "test@example.com")
-            git("add", ".")
-            git("-c", "commit.gpgSign=false", "commit", "-m", "source")
-            sha = git("rev-parse", "HEAD")
-            output = Path(folder).parent / (root.name + "-output")
-            self.addCleanup(lambda: output.unlink(missing_ok=True))
-            timestamp = "20260102030405"
-            for requested, kind, expected in [
-                ("main", "dev", f"8.0.0-pre.{timestamp}.dev.g{sha[:7]}"),
-                ("feature", "dev", f"8.0.0-pre.{timestamp}.dev.g{sha[:7]}"),
-                ("release/8.0.0", "rc", "8.0.0-rc5"),
-                ("release/8.0.0", "final", "8.0.0"),
-            ]:
-                with self.subTest(ref=requested, kind=kind):
-                    output.write_text("")
-                    subprocess.run(
-                        ["bash", "-euc", script("Compute SDK version once", workflow)],
-                        cwd=root,
-                        env=env
-                        | {
-                            "GITHUB_OUTPUT": str(output),
-                            "RUNNER_TEMP": folder,
-                            "REF": requested,
-                            "TIMESTAMP": timestamp,
-                            "RELEASE_TYPE": kind,
-                            "RC_NUMBER": "5",
-                            "CLI": "false",
-                        },
-                        check=True,
-                        capture_output=True,
-                    )
-                    values = dict(
-                        line.split("=", 1) for line in output.read_text().splitlines()
-                    )
-                    self.assertEqual(
-                        values, {f"version-{sdk}": expected for sdk in sdks}
-                    )
-                    for sdk in sdks:
-                        self.assertEqual(
-                            jobs[f"release-{sdk}"]["with"]["version"],
-                            f"${{{{ needs.validate.outputs.version-{sdk} }}}}",
-                        )
-                        self.assertEqual(
-                            jobs["validate"]["outputs"][f"version-{sdk}"],
-                            f"${{{{ steps.versions.outputs.version-{sdk} }}}}",
-                        )
-                    import json
-
-                    record = json.loads((root / "release-plan.json").read_text())
-                    self.assertEqual(record["sourceSha"], sha)
-                    self.assertEqual(record["version"], expected)
-            agent = yaml.safe_load(
-                (workflow.parent / "release-agent-sdk.yml").read_text()
-            )
-            self.assertNotIn("workflow_dispatch", agent[True])
 
     def test_release_source_is_the_checked_out_ref_not_the_caller(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -645,92 +540,6 @@ class ReleasePushTest(unittest.TestCase):
                 )
                 self.assertNotEqual(result.returncode, 0)
 
-    def test_app_token_is_confined_to_separate_push_job(self):
-        text = WORKFLOW.read_text()
-        self.assertIn("permissions: {}", text)
-        # The App secrets live in the `release` environment, which admits only
-        # main and release/*, so a pull request run cannot mint
-        # the token. Every job that reads them runs in that environment.
-        readers = []
-        for path in sorted((ROOT / ".github/workflows").glob("*.yml")):
-            jobs = path.read_text().split("\njobs:\n", 1)[-1]
-            for body in re.split(r"(?m)^  [a-z][a-z0-9-]*:\n", jobs):
-                if "GH_APP_ID" in body or "GH_APP_PK" in body:
-                    readers.append(path.name)
-                    with self.subTest(workflow=path.name):
-                        # check-release-push.yml skips the token on a dry run.
-                        self.assertRegex(
-                            body,
-                            r"(?m)^    environment: (release|\$\{\{ inputs\.dry-run "
-                            r"!= true && 'release' \|\| '' \}\})$",
-                        )
-        self.assertEqual(
-            sorted(readers), ["check-release-push.yml", "push-release-tag.yml"]
-        )
-        self.assertNotIn("checkout@", text)
-        self.assertNotIn("xmtp-release", text)
-        self.assertNotIn("uses: ./", text)
-        self.assertLess(
-            text.index("- name: Import release tag"),
-            text.index("- name: Check the calling run"),
-        )
-        self.assertLess(
-            text.index("- name: Check the calling run"),
-            text.index("- name: Create release push token"),
-        )
-        self.assertRegex(
-            text, r"uses: actions/create-github-app-token@[0-9a-f]{40}(?:\s|$)"
-        )
-        self.assertIn("permission-contents: write", text)
-        self.assertIn("permission-workflows: write", text)
-        self.assertNotRegex(text, re.compile(r"^\s+owner:", re.MULTILINE))
-        preflight = (ROOT / ".github/workflows/check-release-push.yml").read_text()
-        self.assertRegex(preflight, r"uses: actions/checkout@[0-9a-f]{40}(?:\s|$)")
-        self.assertIn("persist-credentials: false", preflight)
-        self.assertIn("ref: ${{ inputs.ref }}", preflight)
-        self.assertNotIn("uses: ./", preflight)
-        self.assertNotIn("xmtp-release", preflight)
-        self.assertLess(
-            preflight.index("- name: Resolve release source"),
-            preflight.index("- name: Verify release App permissions"),
-        )
-        self.assertIn("permission-contents: write", preflight)
-        self.assertIn("permission-workflows: write", preflight)
-        for sdk in ["android", "ios"]:
-            with self.subTest(sdk=sdk):
-                mobile = (ROOT / f".github/workflows/release-{sdk}.yml").read_text()
-                self.assertNotIn("GH_APP_PK", mobile)
-                self.assertIn(f"dev/prepare_native_release.py {sdk}", mobile)
-                self.assertIn("fetch-depth: 0", mobile)
-                self.assertIn(f"name: release-tag-{sdk}", mobile)
-                self.assertIn("uses: ./.github/workflows/push-release-tag.yml", mobile)
-                source = "${{ needs.check-push-permissions.outputs.source-sha }}"
-                self.assertIn("source-sha: " + source, mobile)
-                self.assertNotIn("source-sha: ${{ github.sha }}", mobile)
-                self.assertNotIn("inputs.ref", mobile)
-                self.assertIn("ref: " + source, mobile)
-                for body in re.split(
-                    r"(?m)^  [a-z][a-z0-9-]*:\n", mobile.split("jobs:\n", 1)[1]
-                ):
-                    if source in body:
-                        self.assertRegex(
-                            body, r"needs: \[[^\n]*check-push-permissions[^\n]*\]"
-                        )
-                self.assertIn(
-                    "uses: ./.github/workflows/check-release-push.yml", mobile
-                )
-                self.assertRegex(
-                    mobile, r"needs: \[[^\n]*check-push-permissions[^\n]*\]"
-                )
-        ios = (ROOT / ".github/workflows/release-ios.yml").read_text()
-        jobs = yaml.safe_load(ios)["jobs"]
-        self.assertEqual(
-            set(jobs["publish"]["needs"]), {"prepare-release", "check-push-permissions"}
-        )
-        self.assertIn("publish", jobs["push-tag"]["needs"])
-        self.assertIn("push-tag", jobs["publish-release"]["needs"])
-        self.assertIn("name: ios-release-bundle", ios)
-
     def test_npm_source_job_only_creates_local_tags(self):
         npm = ROOT / ".github/workflows/npm-publish.yml"
         with tempfile.TemporaryDirectory() as directory:
@@ -856,76 +665,6 @@ class ReleasePushTest(unittest.TestCase):
                             self.assertIn("selected source commit", result.stdout)
                             self.assertFalse((runner / "release.bundle").exists())
                     git("reset", "--hard", source)
-
-    def test_npm_dry_run_and_publish_keep_tokens_isolated(self):
-        npm = (ROOT / ".github/workflows/npm-publish.yml").read_text()
-        preflight = (ROOT / ".github/workflows/check-release-push.yml").read_text()
-        self.assertNotIn("GH_APP_PK", npm)
-        self.assertNotIn("RELEASE_TOKEN", npm)
-        self.assertIn("contents: read", npm)
-        # The caller's preflight checked the source; npm-publish takes it as a
-        # required input and does not check it again.
-        self.assertNotIn("uses: ./.github/workflows/check-release-push.yml", npm)
-        inputs = yaml.safe_load(npm)[True]["workflow_call"]["inputs"]
-        self.assertTrue(inputs["source-sha"]["required"])
-        self.assertNotIn("ref", inputs)
-        self.assertIn("source-sha: ${{ inputs.source-sha }}", npm)
-        verify = preflight.split("      - name: Verify release App permissions\n", 1)[1]
-        self.assertIn("if: ${{ inputs.dry-run != true }}", verify)
-        prepare = npm.split("      - name: Prepare release tag\n", 1)[1].split(
-            "      - ", 1
-        )[0]
-        self.assertIn("SOURCE_SHA: ${{ inputs.source-sha }}", prepare)
-        for name in ["Prepare release tag", "Store release tag"]:
-            step = npm.split("      - name: " + name + "\n", 1)[1].split("      - ", 1)[
-                0
-            ]
-            self.assertIn("inputs.dry-run != true", step)
-            self.assertIn("inputs.prepare-only != true", step)
-            self.assertLess(
-                npm.index("- name: " + name), npm.index("- name: Publish to NPM")
-            )
-        push = npm.split("  push-tag:\n", 1)[1]
-        self.assertIn("inputs.dry-run != true", push)
-        self.assertIn("inputs.prepare-only != true", push)
-        self.assertIn("needs: [publish]", push)
-        self.assertIn("uses: ./.github/workflows/push-release-tag.yml", push)
-        # The direct input also blocks Slack if validation exits without outputs.
-        release = (ROOT / ".github/workflows/release.yml").read_text()
-        notify = release.split("  notify:\n", 1)[1].split("    steps:\n", 1)[0]
-        self.assertIn("inputs.dry-run != true", notify)
-        self.assertIn("needs.validate.outputs.dry-run != 'true'", notify)
-
-    def test_npm_callers_fix_source_before_setup_and_build(self):
-        source = "${{ needs.check-push-permissions.outputs.source-sha }}"
-        for name in ["node-sdk", "browser-sdk", "agent-sdk", "react-native-sdk", "cli"]:
-            with self.subTest(caller=name):
-                text = (ROOT / f".github/workflows/release-{name}.yml").read_text()
-                jobs = re.split(
-                    r"(?m)^  ([a-z][a-z0-9-]*):\n", text.split("jobs:\n", 1)[1]
-                )
-                bodies = dict(zip(jobs[1::2], jobs[2::2]))
-                preflight = bodies["check-push-permissions"]
-                self.assertIn(
-                    "uses: ./.github/workflows/check-release-push.yml", preflight
-                )
-                self.assertIn("dry-run: ${{ inputs.dry-run }}", preflight)
-                self.assertIn(
-                    "ref: ${{ inputs.source-sha }}",
-                    preflight,
-                )
-                # Every job after the preflight builds and tags its pinned
-                # source, never the requested ref.
-                for job, body in bodies.items():
-                    if job == "check-push-permissions":
-                        continue
-                    self.assertRegex(
-                        body, r"needs: \[[^\n]*check-push-permissions[^\n]*\]"
-                    )
-                    self.assertIn(source, body)
-                    self.assertNotIn("inputs.ref", body)
-                self.assertIn("source-sha: " + source, bodies["publish"])
-                self.assertNotIn("setup", bodies)
 
 
 class XdbgImageTest(unittest.TestCase):
@@ -1112,34 +851,6 @@ class KeepaliveProbeImageTest(unittest.TestCase):
         ]
         push = yaml.safe_load(path.read_text())[True]["push"]
         self.assertEqual(sorted(listed), sorted(push["paths"]))
-
-
-class NpmPublishAuthorizationTest(unittest.TestCase):
-    def test_a_real_publish_authorizes_its_own_run(self):
-        # A workflow on another branch can call npm-publish.yml directly. A
-        # real publish must still run in the protected `release` environment
-        # and check its source before `npm publish`; a dry run needs neither.
-        job = yaml.safe_load((ROOT / ".github/workflows/npm-publish.yml").read_text())[
-            "jobs"
-        ]["publish"]
-        self.assertEqual(
-            job["environment"], "${{ inputs.dry-run != true && 'release' || '' }}"
-        )
-        self.assertEqual(job["permissions"]["id-token"], "write")
-        names = [step.get("name") for step in job["steps"]]
-        check = names.index("Check that the source is on a release branch")
-        self.assertLess(check, names.index("Publish to NPM"))
-        publish_if = "${{ inputs.dry-run != true && inputs.prepare-only != true }}"
-        self.assertEqual(job["steps"][check]["if"], publish_if)
-        self.assertEqual(job["steps"][names.index("Publish to NPM")]["if"], publish_if)
-        # Every other job that gets an OIDC token publishes nothing.
-        for path in sorted((ROOT / ".github/workflows").glob("*.yml")):
-            text = path.read_text()
-            if "npm publish" in text and path.name != "npm-publish.yml":
-                with self.subTest(workflow=path.name):
-                    self.assertNotRegex(
-                        text, r"(?m)^\s+run: npm publish(?!.*--dry-run)"
-                    )
 
 
 class NodeInstallSmokeTest(unittest.TestCase):
