@@ -3,10 +3,7 @@
 
 use crate::XmtpApi;
 use crate::core::api_status::definite_refusal;
-use crate::identity::{
-    Identity, IdentityError, NewKeyPackageResult, XmtpKeyPackage, create_credential,
-    serialize_key_package_hash_ref,
-};
+use crate::identity::{Identity, IdentityError, create_credential, serialize_key_package_hash_ref};
 use crate::identity_updates::{get_association_state_with_verifier, load_identity_updates};
 use crate::mls_store::verify_served_key_package;
 use crate::worker::key_package_maintenance::discard_key_package;
@@ -26,6 +23,8 @@ use xmtp_id::{
     associations::{MemberIdentifier, builder::SignatureRequestBuilder},
 };
 
+mod key_package;
+mod strategy;
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod strategy_tests;
 #[cfg(any(test, feature = "test-hooks"))]
@@ -33,6 +32,12 @@ pub mod test_mocks;
 #[cfg(any(test, feature = "test-utils"))]
 #[doc(hidden)]
 pub mod test_support;
+
+pub(crate) use key_package::NewKeyPackageResult;
+#[cfg(any(test, feature = "test-hooks"))]
+pub use key_package::{ENABLE_WELCOME_POINTERS, WelcomePointersHook};
+pub use key_package::{XmtpKeyPackage, XmtpKeyPackageBuilder};
+pub use strategy::IdentityStrategy;
 
 /// The identity strategy of a test client: nonce 1 of the owner's identifier.
 #[cfg(any(test, feature = "test-utils"))]

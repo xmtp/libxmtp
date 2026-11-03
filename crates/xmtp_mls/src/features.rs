@@ -1,6 +1,7 @@
 //! The features a client puts in its context.
 
 use crate::attachments::{AttachmentFeatures, AttachmentRuntime};
+use crate::context::LocalContext;
 use crate::groups::context::EngineFeatures;
 use crate::identity_updates::{IdentityFeatures, IdentityResolutionRegistry};
 use crate::subscriptions::incoming::IncomingRuntime;
@@ -14,6 +15,9 @@ pub struct MlsFeatures {
     pub(crate) incoming: Arc<IncomingRuntime>,
     pub(crate) identity_resolutions: Arc<IdentityResolutionRegistry>,
 }
+
+/// The context of a client, with every feature the client has.
+pub type XmtpMlsLocalContext<ApiClient, Db, S> = LocalContext<ApiClient, Db, S, MlsFeatures>;
 
 impl AttachmentFeatures for MlsFeatures {
     fn attachments(&self) -> &Arc<AttachmentRuntime> {

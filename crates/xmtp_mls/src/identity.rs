@@ -1,10 +1,14 @@
 pub use xmtp_cryptography::GeneratePostQuantumKeyError;
 mod identity_ext;
+#[cfg(any(test, feature = "test-hooks"))]
+pub use crate::identity_lifecycle::ENABLE_WELCOME_POINTERS;
+#[cfg(any(test, feature = "test-hooks"))]
+#[doc(hidden)]
+pub use crate::identity_lifecycle::WelcomePointersHook;
+pub use crate::identity_lifecycle::{IdentityStrategy, XmtpKeyPackage, XmtpKeyPackageBuilder};
 pub use identity_ext::*;
 
-use crate::XmtpApi;
 use crate::worker::NeedsDbReconnect;
-use derive_builder::Builder;
 use openmls::prelude::HpkeKeyPair;
 use openmls::prelude::hash_ref::HashReference;
 use openmls::{
@@ -19,11 +23,7 @@ use openmls::{
 use openmls_traits::types::CryptoError;
 use std::sync::atomic::{AtomicBool, Ordering};
 use thiserror::Error;
-use tracing::debug;
-use tracing::info;
-use xmtp_api::ApiClientWrapper;
 use xmtp_common::ErrorCode;
-use xmtp_common::snippet::Snippet;
 use xmtp_common::time::now_ns;
 use xmtp_common::{RetryableError, retryable};
 use xmtp_configuration::KEY_PACKAGE_ROTATION_INTERVAL_NS;
@@ -36,181 +36,14 @@ use xmtp_db::sql_key_store::{
     KEY_PACKAGE_REFERENCES, KEY_PACKAGE_WRAPPER_PRIVATE_KEY, SqlKeyStoreError, codec as kv_codec,
 };
 use xmtp_db::{ConnectionExt, MlsProviderExt};
-use xmtp_db::{Fetch, StorageError, StoredSecret};
-use xmtp_id::associations::{AssociationError, Identifier, InstallationKeyContext, PublicContext};
+use xmtp_db::{StorageError, StoredSecret};
+use xmtp_id::associations::{AssociationError, InstallationKeyContext, PublicContext};
 use xmtp_id::key_package::KeyPackageVerificationError;
-use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_id::{
     InboxId, InboxIdRef,
     associations::builder::{SignatureRequest, SignatureRequestError},
 };
 use xmtp_proto::types::InstallationId;
-
-/**
- * The identity strategy determines how the [`ClientBuilder`](crate::builder::ClientBuilder) constructs an identity on startup.
- *
- * [`IdentityStrategy::CreateIfNotFound`] will attempt to create a new identity if one isn't found in the store.
- * This is the default behavior.
- *
- * [`IdentityStrategy::CreateForIdentifier`] acts as `CreateIfNotFound` for the inbox of an identifier,
- * which the builder asks the backend for only after it has checked the backend's deployment.
- *
- * [`IdentityStrategy::CachedOnly`] will attempt to get an identity from the store. If not found, it will
- * return an error. This is useful if you don't want to create a new identity on startup because the caller
- * does not have access to a signer.
- *
- * `IdentityStrategy::ExternalIdentity` allows you to provide an already-constructed identity to the
- * client. This is useful for testing and not expected to be used in production.
- */
-#[derive(Debug, Clone)]
-pub enum IdentityStrategy {
-    /// Tries to get an identity from the disk store. If not found, getting one from backend.
-    CreateIfNotFound {
-        inbox_id: InboxId,
-        identifier: Identifier,
-        nonce: u64,
-    },
-    /// `CreateIfNotFound` for the inbox the backend associates with the
-    /// identifier, or else the inbox its registration at the nonce creates.
-    CreateForIdentifier { identifier: Identifier, nonce: u64 },
-    /// Identity that is already in the disk store
-    CachedOnly,
-    /// An already-built Identity for testing purposes
-    #[cfg(any(test, feature = "test-utils"))]
-    ExternalIdentity(Identity),
-}
-
-impl IdentityStrategy {
-    pub fn inbox_id(&self) -> Option<InboxIdRef<'_>> {
-        use IdentityStrategy::*;
-        match self {
-            CreateIfNotFound { inbox_id, .. } => Some(inbox_id),
-            _ => None,
-        }
-    }
-
-    /// Create a new Identity Strategy, with [`IdentityStrategy::CreateIfNotFound`].
-    /// If an Identity is not found in the local store, creates a new one.
-    #[tracing::instrument(level = "trace", skip_all)]
-    pub fn new(inbox_id: InboxId, identifier: Identifier, nonce: u64) -> Self {
-        Self::CreateIfNotFound {
-            inbox_id,
-            identifier,
-            nonce,
-        }
-    }
-
-    /// Create an [`IdentityStrategy::CreateForIdentifier`], for a caller that
-    /// does not know the identifier's inbox. The build takes the inbox the
-    /// backend names, or the one the identifier creates at `nonce`, and fails
-    /// with [`IdentityError::IdentifierNotInInbox`] unless the identifier
-    /// belongs to it, as
-    /// [`ClientBuilder::build`](crate::builder::ClientBuilder::build)
-    /// describes. An offline build checks the newest state the database
-    /// stores, which can predate a revocation.
-    pub fn for_identifier(identifier: Identifier, nonce: u64) -> Self {
-        Self::CreateForIdentifier { identifier, nonce }
-    }
-
-    /// Replace [`IdentityStrategy::CreateForIdentifier`] with
-    /// [`IdentityStrategy::CreateIfNotFound`] for the identifier's inbox. Call
-    /// it only after the backend's deployment is checked: the request carries
-    /// the identifier.
-    pub(crate) async fn with_inbox<ApiClient: XmtpApi>(
-        self,
-        api_client: &ApiClientWrapper<ApiClient>,
-    ) -> Result<Self, IdentityError> {
-        let Self::CreateForIdentifier { identifier, nonce } = self else {
-            return Ok(self);
-        };
-        let found = api_client
-            .get_inbox_ids(vec![identifier.clone().into()])
-            .await?;
-        let inbox_id = match found.into_iter().next().flatten() {
-            Some(inbox_id) => inbox_id,
-            None => identifier.inbox_id(nonce)?,
-        };
-        Ok(Self::new(inbox_id, identifier, nonce))
-    }
-}
-
-impl IdentityStrategy {
-    /**
-     * Initialize an identity from the given strategy. If a stored identity is found in the database,
-     * it will return that identity.
-     *
-     * If a stored identity is found, it will validate that the inbox_id of the stored identity matches
-     * the inbox_id configured on the strategy.
-     *
-     **/
-    #[tracing::instrument(level = "trace", skip_all)]
-    pub(crate) async fn initialize_identity<ApiClient: XmtpApi, S: XmtpMlsStorageProvider>(
-        self,
-        api_client: &ApiClientWrapper<ApiClient>,
-        mls_storage: &S,
-        scw_signature_verifier: impl SmartContractSignatureVerifier,
-    ) -> Result<Identity, IdentityError> {
-        use IdentityStrategy::*;
-
-        info!("Initializing identity");
-        let stored_identity: Option<Identity> = mls_storage
-            .db()
-            .fetch(&())?
-            .map(|i: StoredIdentity| i.try_into())
-            .transpose()?;
-
-        let strategy = match &self {
-            CreateIfNotFound { .. } => "create_if_not_found",
-            CreateForIdentifier { .. } => "create_for_identifier",
-            CachedOnly => "cached_only",
-            #[cfg(any(test, feature = "test-utils"))]
-            ExternalIdentity(_) => "external_identity",
-        };
-        debug!(
-            strategy,
-            stored_identity_present = stored_identity.is_some(),
-            "identity strategy"
-        );
-        match self.with_inbox(api_client).await? {
-            CachedOnly => stored_identity.ok_or(IdentityError::RequiredIdentityNotFound),
-            CreateForIdentifier { .. } => unreachable!("with_inbox replaces the strategy"),
-            CreateIfNotFound {
-                inbox_id,
-                identifier,
-                nonce,
-            } => {
-                if let Some(stored_identity) = stored_identity {
-                    tracing::debug!(
-                        installation_id =
-                            stored_identity.installation_keys.public_bytes().snippet(),
-                        inbox_id = stored_identity.inbox_id,
-                        "Found existing identity in store"
-                    );
-                    if inbox_id != stored_identity.inbox_id {
-                        return Err(IdentityError::InboxIdMismatch {
-                            id: inbox_id.clone(),
-                            stored: stored_identity.inbox_id,
-                        });
-                    }
-
-                    Ok(stored_identity)
-                } else {
-                    crate::identity_lifecycle::new_identity(
-                        inbox_id,
-                        identifier,
-                        nonce,
-                        api_client,
-                        mls_storage,
-                        &scw_signature_verifier,
-                    )
-                    .await
-                }
-            }
-            #[cfg(any(test, feature = "test-utils"))]
-            ExternalIdentity(identity) => Ok(identity),
-        }
-    }
-}
 
 #[derive(Debug, Error, ErrorCode)]
 pub enum IdentityError {
@@ -460,11 +293,6 @@ impl TryFrom<StoredIdentity> for Identity {
     }
 }
 
-pub(crate) struct NewKeyPackageResult {
-    pub(crate) key_package: KeyPackage,
-    pub(crate) pq_pub_key: Option<Vec<u8>>,
-}
-
 impl Identity {
     pub fn inbox_id(&self) -> InboxIdRef<'_> {
         &self.inbox_id
@@ -516,112 +344,6 @@ impl Identity {
         self.installation_keys
             .credential_sign::<PublicContext>(text)
             .map_err(Into::into)
-    }
-}
-
-/// Whether key packages built in its scope advertise welcome pointees, with a
-/// count of the packages that read it so a test can tell that it ran.
-#[cfg(any(test, feature = "test-hooks"))]
-#[doc(hidden)]
-#[derive(Clone, Debug)]
-pub struct WelcomePointersHook {
-    enabled: bool,
-    reads: std::sync::Arc<std::sync::atomic::AtomicUsize>,
-}
-
-#[cfg(any(test, feature = "test-hooks"))]
-impl WelcomePointersHook {
-    pub fn new(enabled: bool) -> Self {
-        Self {
-            enabled,
-            reads: Default::default(),
-        }
-    }
-
-    /// Record a package build that reads this hook, and return its setting.
-    pub fn read(&self) -> bool {
-        self.reads.fetch_add(1, Ordering::SeqCst);
-        self.enabled
-    }
-
-    /// How many package builds read this hook.
-    pub fn reads(&self) -> usize {
-        self.reads.load(Ordering::SeqCst)
-    }
-}
-
-#[cfg(any(test, feature = "test-hooks"))]
-tokio::task_local! {
-    pub static ENABLE_WELCOME_POINTERS: WelcomePointersHook;
-}
-
-#[derive(Builder, Debug)]
-#[builder(build_fn(error = "IdentityError", name = "inner_build", private))]
-pub struct XmtpKeyPackage {
-    #[builder(setter(into))]
-    inbox_id: String,
-    #[builder(setter(into))]
-    credential: OpenMlsCredential,
-    #[builder(setter(into))]
-    installation_keys: XmtpInstallationCredential,
-}
-
-impl XmtpKeyPackage {
-    pub(crate) fn builder() -> XmtpKeyPackageBuilder {
-        XmtpKeyPackageBuilder::default()
-    }
-}
-
-impl XmtpKeyPackageBuilder {
-    pub(crate) fn build(
-        &mut self,
-        provider: &impl MlsProviderExt,
-        include_post_quantum: bool,
-    ) -> Result<NewKeyPackageResult, IdentityError> {
-        let this = self.inner_build()?;
-        #[allow(unused_mut)]
-        let mut options = xmtp_id::key_package::KeyPackageOptions {
-            include_post_quantum,
-            ..Default::default()
-        };
-        #[cfg(any(test, feature = "test-hooks"))]
-        {
-            options.welcome_pointers = ENABLE_WELCOME_POINTERS
-                .try_with(WelcomePointersHook::read)
-                .unwrap_or(true);
-            options.lifetime =
-                Some(crate::identity_lifecycle::test_mocks::maybe_mock_package_lifetime());
-        }
-        let generated = xmtp_id::key_package::build_key_package(
-            &this.inbox_id,
-            this.credential,
-            &this.installation_keys,
-            provider,
-            options,
-        )
-        .map_err(|error| match error {
-            xmtp_id::key_package::KeyPackageConstructionError::Generation(e) => {
-                IdentityError::KeyPackageGenerationError(e)
-            }
-            xmtp_id::key_package::KeyPackageConstructionError::InvalidExtension(e) => {
-                IdentityError::InvalidExtension(e)
-            }
-            xmtp_id::key_package::KeyPackageConstructionError::Encode(e) => {
-                IdentityError::CredentialSerialization(e)
-            }
-            xmtp_id::key_package::KeyPackageConstructionError::PostQuantum(e) => {
-                IdentityError::GeneratePostQuantumKey(e)
-            }
-        })?;
-        store_key_package_references(
-            provider,
-            generated.bundle.key_package(),
-            &generated.post_quantum_keypair,
-        )?;
-        Ok(NewKeyPackageResult {
-            key_package: generated.bundle.key_package().clone(),
-            pq_pub_key: generated.post_quantum_keypair.map(|kp| kp.public),
-        })
     }
 }
 

@@ -174,9 +174,8 @@ pub struct LocalContext<ApiClient, Db, S, F> {
     pub(crate) features: F,
 }
 
-/// The context of a client, with every feature the client has.
-pub type XmtpMlsLocalContext<ApiClient, Db, S> =
-    LocalContext<ApiClient, Db, S, crate::features::MlsFeatures>;
+/// The client context, at its old path.
+pub use crate::features::XmtpMlsLocalContext;
 
 impl<ApiClient, Db, S, F> LocalContext<ApiClient, Db, S, F>
 where

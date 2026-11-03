@@ -42,10 +42,6 @@ source = "crates/xmtp_mls/src"
 
 # Items that move to a different crate than their module.
 [items]
-"context::XmtpMlsLocalContext" = "facade"
-"identity::IdentityStrategy" = "identity"
-"identity::XmtpKeyPackage" = "identity"
-"identity::XmtpKeyPackageBuilder" = "identity"
 "worker::device_sync::is_own_sync_group" = "engine"
 
 # The Target crates table: each crate and the crates it may depend on.
@@ -84,10 +80,17 @@ reason = "The context re-exports the engine alias XmtpSharedContext at its old p
 
 [[waivers]]
 from = "core"
-to = "identity"
+to = "facade"
 tier = "path"
 count = 1
-reason = "Task 17 moves identity_ext with the identity crate."
+reason = "The context re-exports the facade alias XmtpMlsLocalContext at its old path; the facade takes over that path when core becomes a crate."
+
+[[waivers]]
+from = "core"
+to = "identity"
+tier = "path"
+count = 6
+reason = "Task 17: identity re-exports identity_ext and the identity-owned strategy and key package items at their old paths; the facade takes over those paths when core becomes a crate."
 
 [[waivers]]
 from = "engine"
