@@ -1,6 +1,8 @@
 //! One receiver and processing scheduler for each client context.
 
 mod controller;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod shared_wires;
 mod status;
 use super::connection_state::ConnectionStates;
 
@@ -209,7 +211,7 @@ where
 impl<A> SubscriptionFactory for BidiSubscriptionFactory<A>
 where
     A: xmtp_proto::api_client::XmtpMlsBidiStreams
-        + super::router_callbacks::ApiClientIdentity
+        + shared_wires::ApiClientIdentity
         + Clone
         + Send
         + Sync
@@ -223,7 +225,7 @@ where
             let mutate = self.mutate.unwrap_or_else(|| {
                 xmtp_api_backend::MutateLimits::from_limits(&self.api.bidi_limits())
             });
-            super::router_callbacks::shared_transport_within(self.api.clone(), mutate)
+            shared_wires::shared_transport_within(self.api.clone(), mutate)
         }).clone();
         Box::pin(async move {
             transport
@@ -259,7 +261,7 @@ where
     }
 
     fn is_suspended(&self) -> bool {
-        super::router_callbacks::bidi_streams_suspended()
+        shared_wires::bidi_streams_suspended()
     }
 }
 }
