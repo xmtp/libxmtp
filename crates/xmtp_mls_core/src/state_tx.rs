@@ -8,14 +8,14 @@ use xmtp_db::{
 use xmtp_events::{EventBuffer, EventBus};
 use xmtp_proto::types::GroupId;
 
-use crate::core::events::InternalEvent;
+use crate::events::InternalEvent;
 
 /// A capability created only after an immediate write transaction starts.
 ///
 /// Keep network requests and callbacks outside this capability. A group is
 /// loaded for one synchronous operation and is dropped before the transaction
 /// ends. A retry must enter a new transaction and load the group again.
-pub(crate) struct StateTx<'a, T> {
+pub struct StateTx<'a, T> {
     query: &'a mut T,
 }
 
@@ -24,7 +24,7 @@ impl<T: TransactionalKeyStore> StateTx<'_, T> {
     ///
     /// The operation borrows the group. It cannot return the mutable group or
     /// a future that borrows it. All storage access uses this transaction.
-    pub(crate) fn with_group<R, E>(
+    pub fn with_group<R, E>(
         &mut self,
         group_id: GroupId,
         operation: impl FnOnce(&mut OpenMlsGroup, &T::Store<'_>) -> Result<R, E>,
@@ -39,7 +39,7 @@ impl<T: TransactionalKeyStore> StateTx<'_, T> {
     }
 
     /// Access keys and records for a state operation that does not load a group.
-    pub(crate) fn storage(&mut self) -> T::Store<'_> {
+    pub fn storage(&mut self) -> T::Store<'_> {
         self.query.key_store()
     }
 
@@ -47,7 +47,7 @@ impl<T: TransactionalKeyStore> StateTx<'_, T> {
     ///
     /// The failed attempt's group is dropped before the caller can load state
     /// to record a rejection. This also discards OpenMLS ratchet caches.
-    pub(crate) fn savepoint<R, E>(
+    pub fn savepoint<R, E>(
         &mut self,
         operation: impl FnOnce(
             &mut StateTx<'_, <T::Store<'_> as XmtpMlsStorageProvider>::TxQuery>,
@@ -68,7 +68,7 @@ impl<T: TransactionalKeyStore> StateTx<'_, T> {
 ///
 /// An error rolls back all writes. An explicit rollback is useful for trials;
 /// the caller must keep only immutable requirements from such a trial.
-pub(crate) fn state_write<S, R, E>(
+pub fn state_write<S, R, E>(
     storage: &S,
     operation: impl FnOnce(&mut StateTx<'_, S::TxQuery>) -> Result<TransactionOutcome<R>, E>,
 ) -> Result<TransactionOutcome<R>, E>
@@ -91,7 +91,7 @@ where
 }
 
 /// Sync the write before returning queued work or publishing it.
-pub(crate) fn state_write_durable<S, R, E>(
+pub fn state_write_durable<S, R, E>(
     storage: &S,
     operation: impl FnOnce(&mut StateTx<'_, S::TxQuery>) -> Result<TransactionOutcome<R>, E>,
 ) -> Result<TransactionOutcome<R>, E>
@@ -114,7 +114,7 @@ where
 }
 
 /// Flush this write's events only after its database transaction commits.
-pub(crate) fn state_write_with_events<S, R, E>(
+pub fn state_write_with_events<S, R, E>(
     storage: &S,
     bus: &EventBus<InternalEvent>,
     operation: impl FnOnce(
@@ -138,7 +138,7 @@ where
     result.expect("state write produced a result")
 }
 
-pub(crate) fn state_write_with_events_durable<S, R, E>(
+pub fn state_write_with_events_durable<S, R, E>(
     storage: &S,
     bus: &EventBus<InternalEvent>,
     operation: impl FnOnce(
@@ -214,10 +214,7 @@ pub mod precommit_test_hook {
 #[cfg(test)]
 mod event_tests {
     use super::*;
-    use crate::{
-        context::CoreContext,
-        core::{events::emit_consent_changes, test_context::real_context},
-    };
+    use crate::{context::CoreContext, events::emit_consent_changes, test_context::real_context};
     use xmtp_db::{
         consent_record::{ConsentKey, ConsentState, ConsentWrite, Decision, Owed, write_consent},
         prelude::*,

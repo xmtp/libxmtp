@@ -1,7 +1,7 @@
 //! Durable sync tasks that Welcome processing and device sync enqueue
 //! inside their own storage transactions.
 
-use crate::core::events::InternalEvent;
+use crate::events::InternalEvent;
 use xmtp_common::{NS_IN_DAY, time::now_ns};
 use xmtp_configuration::SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS;
 use xmtp_db::tasks::NewTask;
@@ -21,7 +21,7 @@ const MAX_DM_EXTRA_GROUPS: usize = 10;
 /// payload hash), in the transaction that installs the Welcome, so a restart
 /// cannot lose them.
 // implements: SYNC-014
-pub(crate) fn schedule_newcomer_adds(
+pub fn schedule_newcomer_adds(
     db: &impl DbQuery,
     events: &impl EventWriter<InternalEvent>,
 ) -> Result<usize, StorageError> {
@@ -68,7 +68,7 @@ pub(crate) fn schedule_newcomer_adds(
 /// TaskRunner. The task is due once `delay`, a rate-limit delay, has passed.
 /// A task `until_done` never expires, and a failing one backs off to at most
 /// one run an interval.
-pub(crate) fn schedule_add_missing_installations(
+pub fn schedule_add_missing_installations(
     db: &impl DbQuery,
     events: &impl EventWriter<InternalEvent>,
     group_id: GroupId,

@@ -13,10 +13,10 @@ use xmtp_configuration::{
 };
 
 use crate::context::CoreContext;
-use crate::server_configuration::ServerConfigError;
 use crate::worker::{
     BoxedWorker, NeedsDbReconnect, NewWorker, Worker, WorkerFactory, WorkerKind, WorkerResult,
 };
+use xmtp_mls_server_config::server_configuration::ServerConfigError;
 
 use super::preflight::refresh;
 

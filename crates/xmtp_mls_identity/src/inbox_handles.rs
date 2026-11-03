@@ -93,7 +93,7 @@ impl IdentityTarget {
 }
 
 /// `handles` as targets, in order.
-pub(crate) fn handle_targets(handles: &[Handle]) -> Vec<IdentityTarget> {
+pub fn handle_targets(handles: &[Handle]) -> Vec<IdentityTarget> {
     handles
         .iter()
         .cloned()
@@ -102,7 +102,7 @@ pub(crate) fn handle_targets(handles: &[Handle]) -> Vec<IdentityTarget> {
 }
 
 /// `accounts` as targets, in order.
-pub(crate) fn account_targets(accounts: &[Identifier]) -> Vec<IdentityTarget> {
+pub fn account_targets(accounts: &[Identifier]) -> Vec<IdentityTarget> {
     accounts
         .iter()
         .cloned()
@@ -113,7 +113,7 @@ pub(crate) fn account_targets(accounts: &[Identifier]) -> Vec<IdentityTarget> {
 /// Fail with [`HandleError::LimitReached`] when `state` has made as many
 /// claims as one identity log can hold. A validator rejects one more, so the
 /// client does not sign it.
-pub(crate) fn ensure_claim_allowed(state: &AssociationState) -> Result<(), HandleError> {
+pub fn ensure_claim_allowed(state: &AssociationState) -> Result<(), HandleError> {
     if state.handle_claims() >= MAX_HANDLE_CLAIMS {
         return Err(HandleError::LimitReached);
     }
@@ -192,7 +192,7 @@ fn keep_verified(
 /// updates of every answered inbox in one incremental batch, derive each
 /// inbox's newest state, at most [`IDENTITY_DEPENDENCY_CONCURRENCY`] at once,
 /// and drop any answer whose state does not hold its target.
-pub(crate) async fn resolve_verified_in<Context: IdentityContext>(
+pub async fn resolve_verified_in<Context: IdentityContext>(
     context: &Context,
     targets: &[IdentityTarget],
 ) -> Result<Vec<Option<InboxId>>, IdentityUpdateError> {
@@ -249,7 +249,7 @@ pub async fn resolve_verified_with_verifier<A: XmtpApi>(
 /// The inbox of each target, in order, from one verified lookup. A handle
 /// that no inbox holds fails with [`HandleError::NotFound`]. An account with
 /// no inbox is `None`, so each route treats it as its account-only path does.
-pub(crate) async fn resolve_targets_in<Context: IdentityContext>(
+pub async fn resolve_targets_in<Context: IdentityContext>(
     context: &Context,
     targets: &[IdentityTarget],
 ) -> Result<Vec<Option<InboxId>>, IdentityUpdateError> {
@@ -290,7 +290,7 @@ fn search_candidates(handle: Handle) -> Vec<Handle> {
 /// Whether the backend names an inbox for each handle, in order. This
 /// checks no association state: use it only where a wrong answer costs a
 /// candidate, never to reach an inbox.
-pub(crate) async fn handles_have_owner<Context: IdentityContext>(
+pub async fn handles_have_owner<Context: IdentityContext>(
     context: &Context,
     handles: &[Handle],
 ) -> Result<Vec<bool>, IdentityUpdateError> {
@@ -309,7 +309,7 @@ pub(crate) async fn handles_have_owner<Context: IdentityContext>(
 /// before any request. No policy applies here, so a returned handle can
 /// still be refused when it is claimed.
 // implements: CONF-081
-pub(crate) async fn available_handles<Context: IdentityContext>(
+pub async fn available_handles<Context: IdentityContext>(
     context: &Context,
     input: &str,
 ) -> Result<Vec<Handle>, IdentityUpdateError> {
@@ -328,7 +328,7 @@ pub(crate) async fn available_handles<Context: IdentityContext>(
 /// handle again. The backend refuses a taken, reserved, short, or too
 /// frequent claim with `ApiError::HandleRejected`. After the publish, the
 /// client has stored the inbox's new identity update.
-pub(crate) async fn claim_handle<Context: IdentityContext>(
+pub async fn claim_handle<Context: IdentityContext>(
     context: &Context,
     handle: &Handle,
 ) -> Result<(), IdentityUpdateError> {
@@ -348,7 +348,7 @@ pub(crate) async fn claim_handle<Context: IdentityContext>(
 /// The inbox of each target, in order, from one call. Fails when any
 /// target has no inbox: an account as `find_or_create_dm_by_identity`
 /// does, and a handle with [`HandleError::NotFound`].
-pub(crate) async fn resolve_targets<Context: IdentityContext>(
+pub async fn resolve_targets<Context: IdentityContext>(
     context: &Context,
     targets: &[IdentityTarget],
 ) -> Result<Vec<InboxId>, IdentityUpdateError> {

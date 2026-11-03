@@ -9,45 +9,45 @@ use xmtp_proto::types::IncomingBatchLimits;
 #[derive(Debug, Clone)]
 pub struct StreamPolicy {
     /// Maximum rows committed in one durable admission transaction.
-    pub(crate) max_admission_rows: u32,
+    pub max_admission_rows: u32,
     /// Maximum encoded bytes committed in one admission transaction.
-    pub(crate) max_admission_bytes: u64,
+    pub max_admission_bytes: u64,
     /// Maximum rows accepted from one network fetch, before admission chunks.
-    pub(crate) max_fetched_rows: u32,
+    pub max_fetched_rows: u32,
     /// Maximum bytes accepted from one network fetch; independent of per-kind budgets.
-    pub(crate) max_fetched_bytes: u64,
+    pub max_fetched_bytes: u64,
     /// Total retained group-envelope budget across all group topics.
-    pub(crate) group_pending: PendingBudget,
+    pub group_pending: PendingBudget,
     /// Total retained Welcome budget, separate from group and identity budgets.
-    pub(crate) welcome_pending: PendingBudget,
+    pub welcome_pending: PendingBudget,
     /// Total retained identity-envelope budget across identity topics.
-    pub(crate) identity_pending: PendingBudget,
+    pub identity_pending: PendingBudget,
     /// Per-topic row limit, applied alongside the total kind budget.
-    pub(crate) max_pending_rows_per_topic: u64,
+    pub max_pending_rows_per_topic: u64,
     /// Per-topic byte limit; rejected chunks do not advance F.
-    pub(crate) max_pending_bytes_per_topic: u64,
+    pub max_pending_bytes_per_topic: u64,
     /// Maximum concurrent dependency and fixed-target requests.
-    pub(crate) max_dependency_requests: usize,
+    pub max_dependency_requests: usize,
     /// Maximum stored candidates loaded by one local-delivery read.
-    pub(crate) max_local_read_rows: u32,
+    pub max_local_read_rows: u32,
     /// Maximum candidate bytes checked before loading message blobs.
-    pub(crate) max_local_read_bytes: u64,
+    pub max_local_read_bytes: u64,
     /// Bound on stream-first receipt waits. Explicit sync queries without this wait.
-    pub(crate) receiver_fallback_interval: Duration,
+    pub receiver_fallback_interval: Duration,
     /// Poll interval for cross-process progress and missed local wake events.
-    pub(crate) active_database_poll_interval: Duration,
+    pub active_database_poll_interval: Duration,
     /// Default-reader ownership expires after this interval without renewal.
-    pub(crate) default_consumer_lease_duration: Duration,
+    pub default_consumer_lease_duration: Duration,
     /// Healthy-primary wait before an absent exact identity reference is rejected.
-    pub(crate) identity_reference_wait: Duration,
+    pub identity_reference_wait: Duration,
     /// One budget for target capture, receipt, processing, and required send follow-up work.
-    pub(crate) barrier_timeout: Duration,
+    pub barrier_timeout: Duration,
     /// Interval between full rescans of blocked Welcome rows.
-    pub(crate) blocked_welcome_rescan_interval: Duration,
+    pub blocked_welcome_rescan_interval: Duration,
     /// First delay before retrying a source that failed with a permanent error.
-    pub(crate) permanent_retry_initial: Duration,
+    pub permanent_retry_initial: Duration,
     /// Longest delay between retries of a repeatedly failing source.
-    pub(crate) permanent_retry_max: Duration,
+    pub permanent_retry_max: Duration,
 }
 
 impl Default for StreamPolicy {
@@ -88,14 +88,14 @@ impl Default for StreamPolicy {
 
 impl StreamPolicy {
     /// The bounds of one fetched page.
-    pub(crate) fn fetched_limits(&self) -> IncomingBatchLimits {
+    pub fn fetched_limits(&self) -> IncomingBatchLimits {
         IncomingBatchLimits {
             max_rows: usize::try_from(self.max_fetched_rows).unwrap_or(usize::MAX),
             max_bytes: usize::try_from(self.max_fetched_bytes).unwrap_or(usize::MAX),
         }
     }
 
-    pub(crate) fn incoming_limits(&self, kind: NetworkEntityKind) -> IncomingLimits {
+    pub fn incoming_limits(&self, kind: NetworkEntityKind) -> IncomingLimits {
         IncomingLimits {
             batch: PendingBudget {
                 rows: u64::from(self.max_admission_rows),

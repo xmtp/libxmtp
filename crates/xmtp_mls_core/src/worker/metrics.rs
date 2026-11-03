@@ -122,7 +122,7 @@ where
         self.info(metric).count()
     }
 
-    pub(crate) fn increment_metric(&self, metric: Metric) {
+    pub fn increment_metric(&self, metric: Metric) {
         self.info(metric).increment();
         tracing::trace!("firing {metric:?}");
         self.info(metric).fire();

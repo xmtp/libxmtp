@@ -1,16 +1,16 @@
 //! Building and storing an installation's key packages.
 
-use crate::identity::{IdentityError, store_key_package_references};
 use derive_builder::Builder;
 use openmls::{key_packages::KeyPackage, prelude::Credential as OpenMlsCredential};
 #[cfg(any(test, feature = "test-hooks"))]
 use std::sync::atomic::Ordering;
 use xmtp_cryptography::XmtpInstallationCredential;
 use xmtp_db::MlsProviderExt;
+use xmtp_mls_core::identity::{IdentityError, store_key_package_references};
 
-pub(crate) struct NewKeyPackageResult {
-    pub(crate) key_package: KeyPackage,
-    pub(crate) pq_pub_key: Option<Vec<u8>>,
+pub struct NewKeyPackageResult {
+    pub key_package: KeyPackage,
+    pub pq_pub_key: Option<Vec<u8>>,
 }
 
 /// Whether key packages built in its scope advertise welcome pointees, with a
@@ -61,13 +61,13 @@ pub struct XmtpKeyPackage {
 }
 
 impl XmtpKeyPackage {
-    pub(crate) fn builder() -> XmtpKeyPackageBuilder {
+    pub fn builder() -> XmtpKeyPackageBuilder {
         XmtpKeyPackageBuilder::default()
     }
 }
 
 impl XmtpKeyPackageBuilder {
-    pub(crate) fn build(
+    pub fn build(
         &mut self,
         provider: &impl MlsProviderExt,
         include_post_quantum: bool,

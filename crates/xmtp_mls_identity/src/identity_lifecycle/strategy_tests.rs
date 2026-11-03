@@ -2,8 +2,7 @@
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn initialize_identity_debug_log_reports_strategy() {
-    use crate::context::test_support::identity_of;
-    use crate::identity::IdentityStrategy;
+    use crate::identity_lifecycle::IdentityStrategy;
     use tracing::instrument::WithSubscriber;
     use xmtp_api::ApiClientWrapper;
     use xmtp_api_backend::MockBackendClient;
@@ -12,6 +11,7 @@ async fn initialize_identity_debug_log_reports_strategy() {
     use xmtp_db::{Store, XmtpTestDb, identity::StoredIdentity, sql_key_store::SqlKeyStore};
     use xmtp_id::associations::test_utils::{MockSmartContractSignatureVerifier, WalletTestExt};
     use xmtp_logging::{Level, test_logging::LogCapture};
+    use xmtp_mls_core::context::test_support::identity_of;
 
     let store = xmtp_db::TestDb::create_persistent_store(None).await;
     let identifier = generate_local_wallet().identifier();

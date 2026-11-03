@@ -1,16 +1,13 @@
-pub mod device_sync;
 pub mod disappearing_messages;
-pub use crate::core::hmac_epoch;
-pub mod key_package_maintenance;
+pub use crate::hmac_epoch;
 pub mod metrics;
-pub(crate) mod notifications;
 pub mod tasks;
 
 use crate::context::CoreContext;
-use crate::core::events::InternalEvent;
-use crate::core::metrics::SyncMetric;
-pub use crate::core::reconnect::{LocalNeedsDbReconnect, NeedsDbReconnect};
-use crate::core::task_channels::TaskWorkerChannels;
+use crate::events::InternalEvent;
+use crate::metrics::SyncMetric;
+pub use crate::reconnect::{LocalNeedsDbReconnect, NeedsDbReconnect};
+use crate::task_channels::TaskWorkerChannels;
 use futures::future::{AbortHandle, Abortable};
 use futures::{StreamExt, stream::FuturesUnordered};
 use metrics::WorkerMetrics;
@@ -83,7 +80,7 @@ pub(crate) const EVENT_BUFFER: usize = 10;
 /// every worker enabled, each using its own compiled-in interval const, no
 /// jitter. All fields are opt-in so existing callers are unaffected.
 ///
-/// Durations are nanoseconds, matching [`crate::core::config::ForkRecoveryOpts`].
+/// Durations are nanoseconds, matching [`crate::config::ForkRecoveryOpts`].
 #[derive(Clone, Debug, Default)]
 pub struct WorkerConfig {
     /// Global fallback interval (ns) for any worker without a per-kind

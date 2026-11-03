@@ -3,26 +3,31 @@
 //! that storage transactions enqueue. Code here names no type from a feature
 //! module, so a later change can move this directory into its own crate.
 
-pub(crate) mod api_status;
+pub mod api_status;
 pub mod change_callbacks;
 #[cfg(any(test, feature = "test-hooks"))]
 #[doc(hidden)]
 pub mod commit_lock;
 pub mod config;
 pub mod config_refresh;
+pub mod context;
 pub mod events;
 pub mod hmac_epoch;
+pub mod identity;
 pub mod metrics;
+pub mod mls_store;
+pub mod mutex_registry;
 pub mod notifications;
-pub(crate) mod policy;
-pub(crate) mod preflight;
+pub mod policy;
+pub mod preflight;
 pub mod reconnect;
-pub(crate) mod state_tx;
-pub(crate) mod sync_tasks;
+pub mod state_tx;
+pub mod sync_tasks;
 pub mod task_channels;
 #[cfg(test)]
 pub(crate) mod test_context;
 pub mod version;
+pub mod worker;
 
 #[cfg(all(any(test, feature = "test-hooks"), not(target_arch = "wasm32")))]
 #[doc(hidden)]

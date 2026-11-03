@@ -306,6 +306,8 @@ xmtp_logging = { path = "crates/xmtp_logging" }
 xmtp_macro = { path = "crates/xmtp_macro" }
 xmtp_mls = { path = "crates/xmtp_mls" }
 xmtp_mls_common = { path = "crates/xmtp_mls_common" }
+xmtp_mls_core = { path = "crates/xmtp_mls_core" }
+xmtp_mls_identity = { path = "crates/xmtp_mls_identity" }
 xmtp_mls_messages = { path = "crates/xmtp_mls_messages" }
 xmtp_mls_server_config = { path = "crates/xmtp_mls_server_config" }
 xmtp_mls_validation = { path = "crates/xmtp_mls_validation" }

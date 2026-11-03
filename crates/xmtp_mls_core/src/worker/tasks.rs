@@ -1,7 +1,7 @@
-pub use crate::core::task_channels::TaskWorkerChannels;
+pub use crate::task_channels::TaskWorkerChannels;
 use crate::{
     context::CoreContext,
-    core::events::InternalEvent,
+    events::InternalEvent,
     worker::{
         BoxedWorker, EVENT_BUFFER, NeedsDbReconnect, NewWorker, Worker, WorkerFactory, WorkerKind,
     },
@@ -177,7 +177,7 @@ pub trait TaskHandlers<Context>: MaybeSend + MaybeSync {
 /// Callers must commit the target row FIRST: a pull-in never waits for its target —
 /// a miss is dropped (debug-logged), since a missing target is normally a completed
 /// one-shot and retrying would spin forever on never-expiring nudges.
-pub(crate) fn enqueue_pull_in<Context: CoreContext>(
+pub fn enqueue_pull_in<Context: CoreContext>(
     context: &Context,
     target_data_hash: TaskDataHash,
     not_later_than_ns: i64,
@@ -206,7 +206,7 @@ pub(crate) fn enqueue_pull_in<Context: CoreContext>(
 }
 
 /// Run a `PullInDeadline` task: lower its target's deadline to the ceiling.
-pub(crate) fn apply_pull_in<Context: CoreContext>(
+pub fn apply_pull_in<Context: CoreContext>(
     context: &Context,
     task: &DbTask,
     pull_in: PullInDeadline,
@@ -539,8 +539,8 @@ where
 mod tests {
     use super::test_support::{seed, unique_proto};
     use super::*;
-    use crate::core::test_context::real_context;
     use crate::identity::IdentityError;
+    use crate::test_context::real_context;
     use prost::Message;
     use xmtp_db::tasks::data_hash_for;
     use xmtp_proto::xmtp::mls::database::{Task as TaskProto, task::Task as TaskKind};

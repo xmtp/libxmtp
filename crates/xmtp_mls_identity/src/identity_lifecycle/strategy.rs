@@ -1,7 +1,5 @@
 //! How a client finds or creates its identity on startup.
 
-use crate::XmtpApi;
-use crate::identity::{Identity, IdentityError};
 use tracing::{debug, info};
 use xmtp_api::ApiClientWrapper;
 use xmtp_common::snippet::Snippet;
@@ -10,6 +8,8 @@ use xmtp_db::{Fetch, XmtpMlsStorageProvider};
 use xmtp_id::associations::Identifier;
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_id::{InboxId, InboxIdRef};
+use xmtp_mls_core::identity::{Identity, IdentityError};
+use xmtp_proto::api_client::XmtpApi;
 
 /**
  * The identity strategy determines how the [`ClientBuilder`](crate::builder::ClientBuilder) constructs an identity on startup.
@@ -81,7 +81,7 @@ impl IdentityStrategy {
     /// [`IdentityStrategy::CreateIfNotFound`] for the identifier's inbox. Call
     /// it only after the backend's deployment is checked: the request carries
     /// the identifier.
-    pub(crate) async fn with_inbox<ApiClient: XmtpApi>(
+    pub async fn with_inbox<ApiClient: XmtpApi>(
         self,
         api_client: &ApiClientWrapper<ApiClient>,
     ) -> Result<Self, IdentityError> {
@@ -109,7 +109,7 @@ impl IdentityStrategy {
      *
      **/
     #[tracing::instrument(level = "trace", skip_all)]
-    pub(crate) async fn initialize_identity<ApiClient: XmtpApi, S: XmtpMlsStorageProvider>(
+    pub async fn initialize_identity<ApiClient: XmtpApi, S: XmtpMlsStorageProvider>(
         self,
         api_client: &ApiClientWrapper<ApiClient>,
         mls_storage: &S,

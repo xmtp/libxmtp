@@ -14,7 +14,7 @@ use xmtp_id::{
     scw_verifier::SmartContractSignatureVerifier,
 };
 
-use crate::identity::IdentityExt;
+use crate::identity_ext::IdentityExt;
 
 /// An association state read from the cache, or one computed from the stored
 /// identity updates that the caller must store.
@@ -68,7 +68,7 @@ pub(super) async fn resolve_association_state(
 /// [`get_association_state_with_verifier`](super::get_association_state_with_verifier)
 /// for a client: a computed state is
 /// stored by [`store_association_state`], which emits `handle.changed`.
-pub(crate) async fn get_association_state_for_client(
+pub async fn get_association_state_for_client(
     context: &impl IdentityContext,
     conn: &impl DbQuery,
     inbox_id: &str,
@@ -89,14 +89,14 @@ pub(crate) async fn get_association_state_for_client(
 /// for the inbox, and buffer `handle.changed` when the stored state changes
 /// its display handle. The event is emitted after the write commits.
 // implements: EVENT-058
-pub(crate) fn store_association_state(
+pub fn store_association_state(
     context: &impl IdentityContext,
     sequence_id: i64,
     state: &AssociationState,
 ) -> Result<(), IdentityUpdateError> {
     use xmtp_events::{ClientEvent, EventWriter};
     let inbox_id = state.inbox_id();
-    crate::state_tx::state_write_with_events(
+    xmtp_mls_core::state_tx::state_write_with_events(
         context.mls_storage(),
         context.events(),
         |tx, events| {

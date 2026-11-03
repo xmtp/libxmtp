@@ -1,11 +1,11 @@
 use super::*;
-use crate::context::CoreContext;
 use crate::identity_lifecycle::test_support::IdentityTestPeer;
 use openmls::prelude::{KeyPackageBundle, KeyPackageRef};
 use openmls_traits::{OpenMlsProvider, storage::StorageProvider};
 use xmtp_db::xmtp_openmls_provider::XmtpOpenMlsProvider;
 use xmtp_db::{MlsProviderExt, XmtpOpenMlsProviderRef};
 use xmtp_id::key_package::VerifiedKeyPackageV2;
+use xmtp_mls_core::context::CoreContext;
 
 async fn get_key_package_from_network<C: CoreContext>(context: &C) -> VerifiedKeyPackageV2 {
     let installation_id = context.installation_id();

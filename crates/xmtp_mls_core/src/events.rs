@@ -65,7 +65,7 @@ pub struct DeletedMessages {
 
 impl InternalEvent {
     /// Whether the event reports deleted messages, by any cause.
-    pub(crate) fn is_message_deletion(&self) -> bool {
+    pub fn is_message_deletion(&self) -> bool {
         matches!(self, Self::MessagesDeleted(_) | Self::MessagesExpired(_))
     }
 }
@@ -74,7 +74,7 @@ impl InternalEvent {
 /// app names it by, the legacy stream, and a wake for the outbox when a change
 /// is owed. This is the only consent event emitter.
 // implements: CONS-059, EVENT-001, EVENT-059
-pub(crate) fn emit_consent_changes(
+pub fn emit_consent_changes(
     ctx: &impl crate::context::CoreContext,
     events: &impl EventWriter<InternalEvent>,
     db: &impl DbQuery,
@@ -185,7 +185,7 @@ fn app_entities(
 
 /// Report a stored root-key change: push re-registers, the legacy stream
 /// receives the key, and the outbox wakes when the key is owed.
-pub(crate) fn emit_root_key_changed(
+pub fn emit_root_key_changed(
     events: &impl EventWriter<InternalEvent>,
     db: &impl DbQuery,
     marked: bool,
@@ -209,7 +209,7 @@ pub(crate) fn emit_root_key_changed(
     Ok(())
 }
 
-pub(crate) fn dm_event_context(dm_id: Option<&str>) -> EventContext {
+pub fn dm_event_context(dm_id: Option<&str>) -> EventContext {
     EventContext {
         dm_identifier: dm_id.map(|id| id.as_bytes().to_vec()),
         ..Default::default()
@@ -218,7 +218,7 @@ pub(crate) fn dm_event_context(dm_id: Option<&str>) -> EventContext {
 
 /// Emit the deletion of `messages` by the inbox `deleted_by_inbox_id`, or by
 /// no inbox (`None`) for a local removal of the rows.
-pub(crate) fn emit_deleted_messages(
+pub fn emit_deleted_messages(
     writer: &impl EventWriter<InternalEvent>,
     messages: Vec<StoredGroupMessage>,
     cause: DeletionCause,
@@ -323,7 +323,7 @@ mod tests {
     use super::*;
     use crate::{
         context::CoreContext,
-        core::test_context::{real_context, stored_msg},
+        test_context::{real_context, stored_msg},
     };
     use xmtp_db::{
         group::{GroupMembershipState, StoredGroup},

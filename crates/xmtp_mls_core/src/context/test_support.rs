@@ -198,11 +198,13 @@ impl<F: MaybeSend + MaybeSync + Clone + 'static> CoreContext for MockContext<F> 
         &self.version_info
     }
 
-    fn server_configuration(&self) -> &crate::server_configuration::ServerConfigurationHandle {
+    fn server_configuration(
+        &self,
+    ) -> &xmtp_mls_server_config::server_configuration::ServerConfigurationHandle {
         &self.server_configuration
     }
 
-    fn events(&self) -> &xmtp_events::EventBus<crate::subscriptions::internal::InternalEvent> {
+    fn events(&self) -> &xmtp_events::EventBus<crate::events::InternalEvent> {
         &self.events
     }
 
@@ -227,7 +229,7 @@ impl<F: MaybeSend + MaybeSync + Clone + 'static> CoreContext for MockContext<F> 
         &self.task_channels
     }
 
-    fn change_callbacks(&self) -> &crate::groups::change_callbacks::UnstableChangeCallbacks {
+    fn change_callbacks(&self) -> &crate::change_callbacks::UnstableChangeCallbacks {
         &self.change_callbacks
     }
 
@@ -243,7 +245,7 @@ impl<F: MaybeSend + MaybeSync + Clone + 'static> CoreContext for MockContext<F> 
         &self.delivery_owner
     }
 
-    fn stream_policy(&self) -> &crate::core::policy::StreamPolicy {
+    fn stream_policy(&self) -> &crate::policy::StreamPolicy {
         &self.stream_policy
     }
 

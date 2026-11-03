@@ -1,12 +1,9 @@
 //! The configuration worker's refresh turn: what it stores, what it blocks,
 //! and what the running and next contexts see.
 
+use crate::config_refresh::ConfigurationWorker;
 use crate::context::CoreContext;
-use crate::core::config_refresh::ConfigurationWorker;
-use crate::core::test_context::real_context_with;
-use crate::server_configuration::{
-    BlockedConnection, ServerConfigurationHandle, test_support::resolve,
-};
+use crate::test_context::real_context_with;
 use std::sync::Arc;
 use xmtp_api::ApiClientWrapper;
 use xmtp_api_backend::{BackendClient, TrackedStatsClient};
@@ -14,6 +11,9 @@ use xmtp_backend::test_support::TestServer;
 use xmtp_common::Retry;
 use xmtp_db::prelude::*;
 use xmtp_db::{TestDb, XmtpTestDb};
+use xmtp_mls_server_config::server_configuration::{
+    BlockedConnection, ServerConfigurationHandle, test_support::resolve,
+};
 use xmtp_proto::api::ToBoxedClient;
 
 /// A deployment that publishes values no compiled default would produce.

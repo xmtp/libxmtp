@@ -1,21 +1,19 @@
 //! Deferred admission and refresh share one client lifetime and commit lock.
 
-use crate::{
-    context::{CoreContext, LocalContext},
-    server_configuration::{
-        BlockedConnection, ConfigurationFetchError, ServerConfigError, check_minimum_version,
-        commit_configuration,
-    },
-};
+use crate::context::{CoreContext, LocalContext};
 use std::sync::{Arc, Weak, atomic::Ordering};
 use xmtp_api::preflight::{ConfigurationFetch, PreflightError, RequestPreflight};
 use xmtp_configuration::ServerConfiguration;
+use xmtp_mls_server_config::server_configuration::{
+    BlockedConnection, ConfigurationFetchError, ServerConfigError, check_minimum_version,
+    commit_configuration,
+};
 
 struct ClientPreflight<A, Db, S, F> {
     context: Weak<LocalContext<A, Db, S, F>>,
 }
 
-pub(crate) fn bind_preflight<A, Db, S, F>(context: &Arc<LocalContext<A, Db, S, F>>)
+pub fn bind_preflight<A, Db, S, F>(context: &Arc<LocalContext<A, Db, S, F>>)
 where
     A: xmtp_proto::api_client::XmtpApi + 'static,
     Db: xmtp_db::XmtpDb + 'static,
@@ -60,7 +58,7 @@ fn check<C: CoreContext>(context: &C) -> Result<(), ServerConfigError> {
     Ok(())
 }
 
-pub(crate) async fn refresh<C: CoreContext>(
+pub async fn refresh<C: CoreContext>(
     context: &C,
 ) -> Result<ServerConfiguration, ServerConfigError> {
     let handle = context.server_configuration();

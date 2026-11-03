@@ -26,7 +26,11 @@ diagnostics = []
 # Hook state and dispatch points that change runtime behavior for a test.
 # A test outside this crate registers a hook through the test_support path
 # added with its first such caller. Never enabled outside tests.
-test-hooks = ["xmtp_mls_server_config/test-hooks"]
+test-hooks = [
+  "xmtp_mls_core/test-hooks",
+  "xmtp_mls_identity/test-hooks",
+  "xmtp_mls_server_config/test-hooks",
+]
 test-utils = [
   "diagnostics",
   "tracing-subscriber",
@@ -39,6 +43,8 @@ test-utils = [
   "xmtp_common/test-utils-network",
   "xmtp_api_backend/test-utils",
   "xmtp_content_types/test-utils",
+  "xmtp_mls_core/test-utils",
+  "xmtp_mls_identity/test-utils",
   "xmtp_mls_messages/test-utils",
   "xmtp_mls_server_config/test-utils",
   "dep:alloy",
@@ -112,6 +118,8 @@ xmtp_events.workspace = true
 xmtp_id.workspace = true
 xmtp_macro.workspace = true
 xmtp_mls_common.workspace = true
+xmtp_mls_core.workspace = true
+xmtp_mls_identity.workspace = true
 xmtp_mls_messages.workspace = true
 xmtp_mls_server_config.workspace = true
 xmtp_mls_validation.workspace = true
@@ -187,6 +195,11 @@ xmtp_cryptography = { workspace = true, features = [
 xmtp_db = { workspace = true, features = ["test-utils"] }
 xmtp_id = { workspace = true, features = ["test-utils-anvil"] }
 xmtp_logging = { workspace = true, features = ["test-utils"] }
+xmtp_mls_core = { workspace = true, features = ["test-hooks", "test-utils"] }
+xmtp_mls_identity = { workspace = true, features = [
+  "test-hooks",
+  "test-utils",
+] }
 xmtp_mls_messages = { workspace = true, features = ["test-utils"] }
 xmtp_mls_server_config = { workspace = true, features = [
   "test-hooks",
@@ -224,16 +237,6 @@ required-features = ["test-utils"]
 
 [[test]]
 name = "openmls_host_logging"
-required-features = ["test-utils"]
-
-[[test]]
-name = "identity"
-path = "tests/identity/main.rs"
-required-features = ["test-utils"]
-
-[[test]]
-name = "mls_core"
-path = "tests/core/main.rs"
 required-features = ["test-utils"]
 
 [[bench]]

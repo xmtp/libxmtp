@@ -1,5 +1,5 @@
 use crate::context::CoreContext;
-use crate::core::events::InternalEvent;
+use crate::events::InternalEvent;
 use crate::worker::{
     BoxedWorker, EVENT_BUFFER, NeedsDbReconnect, NewWorker, Worker, WorkerFactory,
 };
@@ -175,7 +175,7 @@ where
                     let db = storage.db();
                     let deleted = db.delete_expired_messages(pass_start)?;
                     let n = deleted.len();
-                    crate::core::events::emit_expired_messages(events, deleted, &db)?;
+                    crate::events::emit_expired_messages(events, deleted, &db)?;
                     Ok::<_, StorageError>(xmtp_db::TransactionOutcome::Continue(n))
                 },
             )
@@ -217,7 +217,7 @@ pub mod test_support {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::test_context::{real_context, stored_msg};
+    use crate::test_context::{real_context, stored_msg};
 
     use std::collections::HashSet;
     use xmtp_db::group_message::StoredGroupMessage;

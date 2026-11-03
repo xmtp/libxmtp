@@ -1,12 +1,4 @@
 pub use xmtp_cryptography::GeneratePostQuantumKeyError;
-mod identity_ext;
-#[cfg(any(test, feature = "test-hooks"))]
-pub use crate::identity_lifecycle::ENABLE_WELCOME_POINTERS;
-#[cfg(any(test, feature = "test-hooks"))]
-#[doc(hidden)]
-pub use crate::identity_lifecycle::WelcomePointersHook;
-pub use crate::identity_lifecycle::{IdentityStrategy, XmtpKeyPackage, XmtpKeyPackageBuilder};
-pub use identity_ext::*;
 
 use crate::worker::NeedsDbReconnect;
 use openmls::prelude::HpkeKeyPair;
@@ -245,11 +237,11 @@ impl RetryableError for IdentityError {
 
 #[derive(Debug)]
 pub struct Identity {
-    pub(crate) inbox_id: InboxId,
-    pub(crate) installation_keys: XmtpInstallationCredential,
-    pub(crate) credential: OpenMlsCredential,
-    pub(crate) signature_request: Option<SignatureRequest>,
-    pub(crate) is_ready: AtomicBool,
+    pub inbox_id: InboxId,
+    pub installation_keys: XmtpInstallationCredential,
+    pub credential: OpenMlsCredential,
+    pub signature_request: Option<SignatureRequest>,
+    pub is_ready: AtomicBool,
 }
 
 impl Clone for Identity {
@@ -313,7 +305,7 @@ impl Identity {
         self.is_ready.load(Ordering::SeqCst)
     }
 
-    pub(crate) fn set_ready(&self) {
+    pub fn set_ready(&self) {
         self.is_ready.store(true, Ordering::SeqCst)
     }
 
@@ -328,7 +320,7 @@ impl Identity {
     /**
      * Sign the given text with the installation private key.
      */
-    pub(crate) fn sign_identity_update<Text: AsRef<str>>(
+    pub fn sign_identity_update<Text: AsRef<str>>(
         &self,
         text: Text,
     ) -> Result<Vec<u8>, IdentityError> {
@@ -352,7 +344,7 @@ impl Identity {
 /// These bytes are the `KEY_PACKAGE_WRAPPER_PRIVATE_KEY` key and the
 /// `key_package_history.key_package_hash_ref` column. The key layout does not
 /// change with the value codec, so neither needs a migration when it does.
-pub(crate) fn serialize_key_package_hash_ref(
+pub fn serialize_key_package_hash_ref(
     kp: &KeyPackage,
     provider: &impl MlsProviderExt,
 ) -> Result<Vec<u8>, IdentityError> {
@@ -369,7 +361,7 @@ fn hash_ref_key(hash_ref: &HashReference) -> Result<Vec<u8>, IdentityError> {
 }
 
 // Takes a post quantum public key and returns the key used to store it in the key package references table
-pub(crate) fn pq_key_package_references_key(raw_pub_key: &[u8]) -> Result<Vec<u8>, IdentityError> {
+pub fn pq_key_package_references_key(raw_pub_key: &[u8]) -> Result<Vec<u8>, IdentityError> {
     Ok(raw_pub_key.tls_serialize_detached()?)
 }
 
@@ -380,9 +372,7 @@ pub(crate) fn pq_key_package_references_key(raw_pub_key: &[u8]) -> Result<Vec<u8
 /// the column is `serialize_key_package_hash_ref`, which never writes any, and
 /// the legacy archive conversion does not copy `key_package_history`. So the
 /// stricter check changes no result for a stored row.
-pub(crate) fn deserialize_key_package_hash_ref(
-    hash_ref: &[u8],
-) -> Result<HashReference, IdentityError> {
+pub fn deserialize_key_package_hash_ref(hash_ref: &[u8]) -> Result<HashReference, IdentityError> {
     let raw = kv_codec::key::decode_bytes(hash_ref).ok_or(IdentityError::UninitializedIdentity)?;
     // `HashReference` has no public constructor from bytes. Its TLS encoding
     // is the variable-length byte string.
@@ -390,9 +380,7 @@ pub(crate) fn deserialize_key_package_hash_ref(
     HashReference::tls_deserialize_exact(tls).map_err(|_| IdentityError::UninitializedIdentity)
 }
 
-pub(crate) fn create_credential(
-    inbox_id: impl AsRef<str>,
-) -> Result<OpenMlsCredential, IdentityError> {
+pub fn create_credential(inbox_id: impl AsRef<str>) -> Result<OpenMlsCredential, IdentityError> {
     Ok(xmtp_id::key_package::create_credential(inbox_id))
 }
 
@@ -410,7 +398,7 @@ pub fn build_post_quantum_public_key_extension(
 // This is needed to get to the private key when decrypting welcome messages.
 // Both the Curve25519 and the Post Quantum keys hold a hash reference to the key package.
 // If a post quantum key is present, we also have a pointer from the key package hash ref -> the post quantum private key.
-pub(crate) fn store_key_package_references(
+pub fn store_key_package_references(
     provider: &impl MlsProviderExt,
     kp: &KeyPackage,
     // The post quantum init key for the key package used for Post Quantum Welcome Wrapper encryption

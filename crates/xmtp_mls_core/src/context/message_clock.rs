@@ -3,7 +3,7 @@
 use parking_lot::Mutex;
 
 #[derive(Default)]
-pub(crate) struct MessageClock {
+pub struct MessageClock {
     state: Mutex<State>,
 }
 

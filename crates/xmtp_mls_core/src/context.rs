@@ -1,18 +1,17 @@
 #[cfg(any(test, feature = "test-hooks"))]
-use crate::core::commit_lock::GroupCommitLock;
+use crate::commit_lock::GroupCommitLock;
 #[cfg(any(test, feature = "test-hooks", target_arch = "wasm32"))]
-mod message_clock;
+pub mod message_clock;
 #[cfg(any(test, feature = "test-utils"))]
 #[doc(hidden)]
 pub mod test_support;
-use crate::core::change_callbacks::UnstableChangeCallbacks;
-use crate::core::config::{DeviceSync, DeviceSyncMode, ForkRecoveryOpts};
-use crate::core::events::InternalEvent;
-use crate::core::metrics::SyncMetric;
-use crate::core::policy::StreamPolicy;
-use crate::core::task_channels::TaskWorkerChannels;
-use crate::core::version::VersionInfo;
-use crate::server_configuration::ServerConfigurationHandle;
+use crate::change_callbacks::UnstableChangeCallbacks;
+use crate::config::{DeviceSync, DeviceSyncMode, ForkRecoveryOpts};
+use crate::events::InternalEvent;
+use crate::metrics::SyncMetric;
+use crate::policy::StreamPolicy;
+use crate::task_channels::TaskWorkerChannels;
+use crate::version::VersionInfo;
 use crate::worker::metrics::WorkerMetrics;
 use crate::worker::{SyncMetricsSlot, WorkerConfig, WorkerKind};
 use crate::{
@@ -32,6 +31,7 @@ use xmtp_events::EventBus;
 use xmtp_events::EventWriter;
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_id::{InboxIdRef, associations::builder::SignatureRequest};
+use xmtp_mls_server_config::server_configuration::ServerConfigurationHandle;
 use xmtp_proto::types::InstallationId;
 
 /// Context controls for tests. Each assumes process-per-test isolation.
@@ -131,51 +131,48 @@ impl Drop for ForegroundCall {
 /// `F` holds what the crates above core add to it.
 pub struct LocalContext<ApiClient, Db, S, F> {
     /// XMTP Identity
-    pub(crate) identity: Identity,
+    pub identity: Identity,
     /// The XMTP Api Client
-    pub(crate) api_client: ApiClientWrapper<ApiClient>,
+    pub api_client: ApiClientWrapper<ApiClient>,
     /// XMTP Local Storage
-    pub(crate) store: Db,
-    pub(crate) mls_storage: S,
-    pub(crate) mutexes: MutexRegistry,
+    pub store: Db,
+    pub mls_storage: S,
+    pub mutexes: MutexRegistry,
     #[cfg(any(test, feature = "test-hooks"))]
-    pub(crate) mls_commit_lock: Arc<GroupCommitLock>,
-    pub(crate) version_info: VersionInfo,
+    pub mls_commit_lock: Arc<GroupCommitLock>,
+    pub version_info: VersionInfo,
     /// What this deployment published about itself, resolved once at build
     /// plus the blocked connection a refresh may set.
-    pub(crate) server_configuration: ServerConfigurationHandle,
-    pub(crate) events: EventBus<InternalEvent>,
-    pub(crate) public_event_writer: Arc<dyn EventWriter<()>>,
+    pub server_configuration: ServerConfigurationHandle,
+    pub events: EventBus<InternalEvent>,
+    pub public_event_writer: Arc<dyn EventWriter<()>>,
     /// Set by a new registration and cleared after its visibility event.
-    pub(crate) registration_event_pending: Arc<AtomicBool>,
-    pub(crate) delivery_owner: Arc<Mutex<Option<xmtp_db::delivery::DeliveryOwner>>>,
-    pub(crate) scw_verifier: Arc<Box<dyn SmartContractSignatureVerifier>>,
-    pub(crate) device_sync: DeviceSync,
-    pub(crate) fork_recovery_opts: ForkRecoveryOpts,
+    pub registration_event_pending: Arc<AtomicBool>,
+    pub delivery_owner: Arc<Mutex<Option<xmtp_db::delivery::DeliveryOwner>>>,
+    pub scw_verifier: Arc<Box<dyn SmartContractSignatureVerifier>>,
+    pub device_sync: DeviceSync,
+    pub fork_recovery_opts: ForkRecoveryOpts,
     /// Unstable: SDK-registered notifications for group-state changes. Empty
     /// unless the host opted in at build time.
-    pub(crate) change_callbacks: UnstableChangeCallbacks,
+    pub change_callbacks: UnstableChangeCallbacks,
     /// The limits on incoming work; the incoming runtime holds the same policy.
-    pub(crate) stream_policy: StreamPolicy,
-    pub(crate) worker_config: WorkerConfig,
+    pub stream_policy: StreamPolicy,
+    pub worker_config: WorkerConfig,
     // pub(crate) workers: Arc<WorkerRunner>,
-    pub(crate) worker_metrics: SyncMetricsSlot,
-    pub(crate) task_channels: TaskWorkerChannels,
-    pub(crate) cancellation_token: CancellationToken,
+    pub worker_metrics: SyncMetricsSlot,
+    pub task_channels: TaskWorkerChannels,
+    pub cancellation_token: CancellationToken,
     // Set only after a successful `Client::close` (workers stopped + DB
     // disconnected). The cancellation token tracks "shutdown initiated";
     // this tracks "shutdown completed cleanly" — distinct semantics so
     // a `disconnect()` failure mid-`close` doesn't silently short-circuit
     // future retries.
-    pub(crate) shutdown_complete: Arc<AtomicBool>,
-    pub(crate) foreground_calls: Arc<ForegroundCalls>,
+    pub shutdown_complete: Arc<AtomicBool>,
+    pub foreground_calls: Arc<ForegroundCalls>,
     #[cfg(any(test, feature = "test-hooks", target_arch = "wasm32"))]
-    pub(crate) message_clock: Arc<message_clock::MessageClock>,
-    pub(crate) features: F,
+    pub message_clock: Arc<message_clock::MessageClock>,
+    pub features: F,
 }
-
-/// The client context, at its old path.
-pub use crate::features::XmtpMlsLocalContext;
 
 impl<ApiClient, Db, S, F> LocalContext<ApiClient, Db, S, F>
 where
@@ -298,9 +295,6 @@ impl<ApiClient, Db, S, F> LocalContext<ApiClient, Db, S, F> {
         self.shutdown_complete.store(true, Ordering::Release);
     }
 }
-
-/// The engine's context, at its old path.
-pub use crate::groups::context::XmtpSharedContext;
 
 /// The context core code runs on: storage, the API client, the identity,
 /// events and the client's plain settings. `Features` is what the crates above

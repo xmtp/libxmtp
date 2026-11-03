@@ -5,8 +5,7 @@ use crate::context::{
     LocalContext,
     test_support::{TestContextParts, mock_identity},
 };
-use crate::core::preflight::bind_preflight;
-use crate::server_configuration::ServerConfigurationHandle;
+use crate::preflight::bind_preflight;
 use std::sync::Arc;
 use xmtp_api::ApiClientWrapper;
 use xmtp_common::Retry;
@@ -14,6 +13,7 @@ use xmtp_db::group_message::{ContentType, DeliveryStatus, GroupMessageKind, Stor
 use xmtp_db::sql_key_store::SqlKeyStore;
 use xmtp_db::{DefaultDbConnection, DefaultStore, TestDb, XmtpTestDb};
 use xmtp_id::associations::test_utils::MockSmartContractSignatureVerifier;
+use xmtp_mls_server_config::server_configuration::ServerConfigurationHandle;
 use xmtp_proto::api_client::{ApiBuilder, XmtpBackendClient, XmtpTestClient};
 use xmtp_proto::types::{Cursor, GroupId};
 

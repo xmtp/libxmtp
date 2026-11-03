@@ -3,10 +3,10 @@
 
 use super::{new_inbox_state, state_with_handles};
 use crate::{
-    context::CoreContext, identity_lifecycle::test_support::IdentityTestPeer,
-    identity_updates::store_association_state,
+    identity_lifecycle::test_support::IdentityTestPeer, identity_updates::store_association_state,
 };
 use xmtp_events::{ClientEvent, EventEnvelope, EventFilter, EventKind, HandleChanged};
+use xmtp_mls_core::context::CoreContext;
 
 // verifies: EVENT-058
 #[xmtp_common::test(unwrap_try = true)]

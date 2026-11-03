@@ -140,7 +140,7 @@ impl<Context: CoreContext + 'static> Worker for HmacEpochWorker<Context> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::test_context::real_context;
+    use crate::test_context::real_context;
     use xmtp_events::{EventFilter, EventKind};
     use xmtp_proto::api::HasStats;
 

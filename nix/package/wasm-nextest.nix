@@ -34,6 +34,8 @@ let
     "xmtp_mls"
     "xmtp_mls_messages"
     "xmtp_mls_server_config"
+    "xmtp_mls_core"
+    "xmtp_mls_identity"
     "xmtp_cryptography"
     "xmtp_common"
     "xmtp_api"

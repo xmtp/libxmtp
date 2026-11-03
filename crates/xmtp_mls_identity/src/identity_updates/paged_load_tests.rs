@@ -5,13 +5,13 @@
 use super::test_support::{IdentityScript, ScriptedIdentity, stopped};
 use super::*;
 use crate::identity_lifecycle::test_support::{IdentityTestFeatures, IdentityTestPeer, TestPeer};
-use crate::subscriptions::policy::StreamPolicy;
 use parking_lot::Mutex;
 use std::sync::Arc;
 use xmtp_cryptography::utils::generate_local_wallet;
 use xmtp_db::XmtpTestDb;
 use xmtp_id::associations::test_utils::{WalletTestExt, add_wallet_signature};
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
+use xmtp_mls_core::policy::StreamPolicy;
 use xmtp_proto::{
     api::ApiClientError, backend_v1 as wire, types::Topic,
     xmtp::identity::associations::IdentityUpdate,

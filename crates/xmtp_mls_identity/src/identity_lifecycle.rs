@@ -1,12 +1,8 @@
 //! Creating an identity and keeping its key packages: the identity-owned
 //! constructors and key package rotation over the [`Identity`] struct.
 
-use crate::XmtpApi;
-use crate::core::api_status::definite_refusal;
-use crate::identity::{Identity, IdentityError, create_credential, serialize_key_package_hash_ref};
 use crate::identity_updates::{get_association_state_with_verifier, load_identity_updates};
-use crate::mls_store::verify_served_key_package;
-use crate::worker::key_package_maintenance::discard_key_package;
+use crate::key_package_maintenance::discard_key_package;
 use openmls::prelude::tls_codec::Serialize;
 use std::sync::atomic::AtomicBool;
 use xmtp_api::ApiClientWrapper;
@@ -22,6 +18,12 @@ use xmtp_id::{
     InboxId,
     associations::{MemberIdentifier, builder::SignatureRequestBuilder},
 };
+use xmtp_mls_core::api_status::definite_refusal;
+use xmtp_mls_core::identity::{
+    Identity, IdentityError, create_credential, serialize_key_package_hash_ref,
+};
+use xmtp_mls_core::mls_store::verify_served_key_package;
+use xmtp_proto::api_client::XmtpApi;
 
 mod key_package;
 mod strategy;
@@ -41,13 +43,15 @@ pub use strategy::IdentityStrategy;
 
 /// The identity strategy of a test client: nonce 1 of the owner's identifier.
 #[cfg(any(test, feature = "test-utils"))]
-pub fn identity_setup(owner: impl xmtp_id::InboxOwner) -> crate::identity::IdentityStrategy {
+pub fn identity_setup(
+    owner: impl xmtp_id::InboxOwner,
+) -> crate::identity_lifecycle::IdentityStrategy {
     let nonce = 1;
     let ident = owner.get_identifier().expect("the owner's identifier");
     let inbox_id = ident
         .inbox_id(nonce)
         .expect("an inbox id for the identifier");
-    crate::identity::IdentityStrategy::new(inbox_id, ident, nonce)
+    crate::identity_lifecycle::IdentityStrategy::new(inbox_id, ident, nonce)
 }
 
 /// Create a new [Identity] instance.
@@ -56,7 +60,7 @@ pub fn identity_setup(owner: impl xmtp_id::InboxOwner) -> crate::identity::Ident
 /// If it is not, a new inbox_id is generated from the identifier and nonce.
 /// Either way, the caller must sign with their wallet.
 #[tracing::instrument(name = "new", level = "trace", skip_all)]
-pub(crate) async fn new_identity<ApiClient: XmtpApi, S: XmtpMlsStorageProvider>(
+pub async fn new_identity<ApiClient: XmtpApi, S: XmtpMlsStorageProvider>(
     inbox_id: InboxId,
     identifier: Identifier,
     nonce: u64,
@@ -216,7 +220,7 @@ pub async fn new_inbox_with_installation_keys(
 
 /// Generate a new key package and store the associated keys in the database.
 #[tracing::instrument(level = "trace", skip_all)]
-pub(crate) fn new_key_package(
+pub fn new_key_package(
     identity: &Identity,
     provider: &impl MlsProviderExt,
     include_post_quantum: bool,
@@ -232,7 +236,7 @@ pub(crate) fn new_key_package(
 /// Receipt order controls retirement. A read settles unknown publications first.
 /// Receipt bookkeeping and the next rotation deadline commit together.
 #[tracing::instrument(level = "trace", skip_all)]
-pub(crate) async fn rotate_and_upload_key_package<ApiClient: XmtpApi, S: XmtpMlsStorageProvider>(
+pub async fn rotate_and_upload_key_package<ApiClient: XmtpApi, S: XmtpMlsStorageProvider>(
     identity: &Identity,
     api_client: &ApiClientWrapper<ApiClient>,
     mls_storage: &S,
@@ -256,7 +260,7 @@ pub(crate) async fn rotate_and_upload_key_package<ApiClient: XmtpApi, S: XmtpMls
                 xmtp_api::ApiError::InvalidResponse("key package publish cursor"),
             )?;
             // Backend publication order can differ from local generation order.
-            crate::state_tx::state_write(mls_storage, |tx| {
+            xmtp_mls_core::state_tx::state_write(mls_storage, |tx| {
                 let storage = tx.storage();
                 storage.db().record_key_package_publication(
                     history_id,
@@ -308,12 +312,12 @@ async fn settle_unconfirmed_key_packages<ApiClient: XmtpApi, S: XmtpMlsStoragePr
 /// Store key material and its history row in one state transaction.
 /// Return bytes for upload and the history ID for its later receipt.
 #[tracing::instrument(level = "trace", skip_all)]
-pub(crate) fn generate_and_store_key_package<S: XmtpMlsStorageProvider>(
+pub fn generate_and_store_key_package<S: XmtpMlsStorageProvider>(
     identity: &Identity,
     mls_storage: &S,
     include_post_quantum: bool,
 ) -> Result<(Vec<u8>, i32), IdentityError> {
-    crate::state_tx::state_write_durable(mls_storage, |tx| {
+    xmtp_mls_core::state_tx::state_write_durable(mls_storage, |tx| {
         let storage = tx.storage();
         let provider = XmtpOpenMlsProviderRef::new(&storage);
         let NewKeyPackageResult {

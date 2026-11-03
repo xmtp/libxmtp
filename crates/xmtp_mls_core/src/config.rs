@@ -34,5 +34,5 @@ impl Default for ForkRecoveryOpts {
 
 #[derive(Clone)]
 pub struct DeviceSync {
-    pub(crate) mode: DeviceSyncMode,
+    pub mode: DeviceSyncMode,
 }

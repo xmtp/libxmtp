@@ -14,19 +14,10 @@ source = "crates/xmtp_mls/src"
 "builder" = "facade"
 "client" = "facade"
 "client::notifications" = "notifications"
-"context" = "core"
-"core" = "core"
 "definitions" = "facade"
 "diagnostics" = "facade"
 "groups" = "engine"
-"identity" = "core"
-"identity::identity_ext" = "identity"
-"identity_lifecycle" = "identity"
-"identity_updates" = "identity"
-"inbox_handles" = "identity"
 "intents" = "engine"
-"mls_store" = "core"
-"mutex_registry" = "core"
 "subscriptions" = "streams"
 "subscriptions::barrier" = "engine"
 "subscriptions::connection_state" = "engine"
@@ -35,9 +26,7 @@ source = "crates/xmtp_mls/src"
 "subscriptions::recovery" = "engine"
 "test" = "facade"
 "utils" = "facade"
-"worker" = "core"
 "worker::device_sync" = "device_sync"
-"worker::key_package_maintenance" = "identity"
 "worker::notifications" = "notifications"
 
 # Items that move to a different crate than their module.
@@ -67,30 +56,8 @@ facade = [
   "streams",
 ]
 
-
 # Edges that exist today. Each count is exact; lower it when a PR removes
 # references, and delete the waiver when none are left.
-
-[[waivers]]
-from = "core"
-to = "engine"
-tier = "path"
-count = 1
-reason = "The context re-exports the engine alias XmtpSharedContext at its old path; the facade takes over that path when core becomes a crate."
-
-[[waivers]]
-from = "core"
-to = "facade"
-tier = "path"
-count = 1
-reason = "The context re-exports the facade alias XmtpMlsLocalContext at its old path; the facade takes over that path when core becomes a crate."
-
-[[waivers]]
-from = "core"
-to = "identity"
-tier = "path"
-count = 6
-reason = "Task 17: identity re-exports identity_ext and the identity-owned strategy and key package items at their old paths; the facade takes over those paths when core becomes a crate."
 
 [[waivers]]
 from = "engine"
@@ -154,20 +121,6 @@ existing = [
 # The call tier (dev/check-boundaries --full) counts every reference to an
 # item, method calls and inferred types included, so its counts are larger.
 # Each edge has the same cause and owner as its path waiver.
-
-[[waivers]]
-from = "core"
-to = "engine"
-tier = "call"
-count = 1
-reason = "The context re-exports the engine alias XmtpSharedContext at its old path; the facade takes over that path when core becomes a crate."
-
-[[waivers]]
-from = "core"
-to = "identity"
-tier = "call"
-count = 4
-reason = "Task 17 moves identity_ext with the identity crate."
 
 [[waivers]]
 from = "engine"

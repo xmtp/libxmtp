@@ -7,12 +7,12 @@ use xmtp_db::consent_record::ConsentState;
 use xmtp_db::{StorageError, StoredSecret, notifications::StoredNotification};
 use xmtp_proto::backend_v1::{self, register_request::Delivery};
 
-pub(crate) fn notification_settings_changed(context: &impl CoreContext) {
+pub fn notification_settings_changed(context: &impl CoreContext) {
     context.task_channels().mark_notification_changed();
     xmtp_events::EventWriter::emit(
         context.events(),
         None,
-        Some(crate::core::events::InternalEvent::NotificationSettingsChanged),
+        Some(crate::events::InternalEvent::NotificationSettingsChanged),
     );
 }
 
@@ -59,7 +59,7 @@ impl NotificationConfig {
         }
     }
 
-    pub(crate) fn channel_id(&self) -> i32 {
+    pub fn channel_id(&self) -> i32 {
         match self.channel {
             NotificationChannel::Apns { .. } => backend_v1::Channel::Apns as i32,
             NotificationChannel::Fcm { .. } => backend_v1::Channel::Fcm as i32,
@@ -69,7 +69,7 @@ impl NotificationConfig {
 
     /// The request copies the signing key and the recipient secret. Each copy
     /// of the request wipes them on drop.
-    pub(crate) fn registration(&self, record: &StoredNotification) -> backend_v1::RegisterRequest {
+    pub fn registration(&self, record: &StoredNotification) -> backend_v1::RegisterRequest {
         let delivery = match &self.channel {
             NotificationChannel::Apns { token } => Delivery::Apns(backend_v1::ApnsDelivery {
                 token: token.clone(),
@@ -93,7 +93,7 @@ impl NotificationConfig {
 }
 
 /// A copy of the stored recipient secret for a request, which wipes it on drop.
-pub(crate) fn recipient_secret(record: &StoredNotification) -> Vec<u8> {
+pub fn recipient_secret(record: &StoredNotification) -> Vec<u8> {
     record
         .push_recipient_secret
         .as_ref()
@@ -109,11 +109,11 @@ pub enum NotificationOverride {
     Default,
 }
 
-pub(crate) fn encode<T: Serialize>(value: &T) -> Result<Vec<u8>, StorageError> {
+pub fn encode<T: Serialize>(value: &T) -> Result<Vec<u8>, StorageError> {
     serde_json::to_vec(value).map_err(|_| StorageError::DbSerialize)
 }
 
-pub(crate) fn decode<T: serde::de::DeserializeOwned>(value: &[u8]) -> Result<T, StorageError> {
+pub fn decode<T: serde::de::DeserializeOwned>(value: &[u8]) -> Result<T, StorageError> {
     serde_json::from_slice(value).map_err(|_| StorageError::DbDeserialize)
 }
 
@@ -121,7 +121,7 @@ pub(crate) fn decode<T: serde::de::DeserializeOwned>(value: &[u8]) -> Result<T, 
 ///
 /// The same JSON as [`encode`]. A first pass measures it, so the zeroizing
 /// buffer never grows and frees a partial copy of the key.
-pub(crate) fn encode_config(config: &NotificationConfig) -> Result<StoredSecret, StorageError> {
+pub fn encode_config(config: &NotificationConfig) -> Result<StoredSecret, StorageError> {
     struct Measure(usize);
     impl std::io::Write for Measure {
         fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
@@ -141,9 +141,7 @@ pub(crate) fn encode_config(config: &NotificationConfig) -> Result<StoredSecret,
 
 /// Decode the stored configuration. The stored bytes stay in their
 /// `StoredSecret`, and the signing key decodes straight into a `Secret`.
-pub(crate) fn stored_config(
-    record: &StoredNotification,
-) -> Result<NotificationConfig, StorageError> {
+pub fn stored_config(record: &StoredNotification) -> Result<NotificationConfig, StorageError> {
     decode(
         record
             .push_config
@@ -154,7 +152,7 @@ pub(crate) fn stored_config(
 }
 
 /// Resolve only local rules. Active membership is checked separately by the task.
-pub(crate) fn effective(
+pub fn effective(
     config: &NotificationConfig,
     group: &xmtp_db::group::StoredGroup,
     consent: ConsentState,
@@ -176,7 +174,7 @@ pub(crate) fn effective(
     }
 }
 
-pub(crate) fn enabled_from_record(
+pub fn enabled_from_record(
     record: &StoredNotification,
     group: &xmtp_db::group::StoredGroup,
     consent: ConsentState,

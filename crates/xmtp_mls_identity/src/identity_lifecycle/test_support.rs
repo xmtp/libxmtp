@@ -2,10 +2,6 @@
 //! as a test client's context is but with no client around it, for identity
 //! tests that read private state.
 
-use crate::context::{CoreContext, LocalContext, test_support::TestContextParts};
-use crate::core::policy::StreamPolicy;
-use crate::core::version::VersionInfo;
-use crate::identity::{Identity, IdentityError};
 use crate::identity_lifecycle::{generate_and_store_key_package, identity_setup};
 use crate::identity_updates::{
     IdentityFeatures, IdentityResolutionRegistry, IdentityUpdateError, IdentityUpdates,
@@ -25,6 +21,10 @@ use xmtp_id::{
     InboxOwner, associations::test_utils::MockSmartContractSignatureVerifier,
     scw_verifier::SmartContractSignatureVerifier,
 };
+use xmtp_mls_core::context::{CoreContext, LocalContext, test_support::TestContextParts};
+use xmtp_mls_core::identity::{Identity, IdentityError};
+use xmtp_mls_core::policy::StreamPolicy;
+use xmtp_mls_core::version::VersionInfo;
 use xmtp_proto::api::HasStats;
 use xmtp_proto::api_client::{ApiBuilder, ApiStats, XmtpBackendClient, XmtpTestClient};
 use xmtp_proto::types::{Cursor, InstallationId, Topic};
@@ -209,11 +209,12 @@ where
         let conn = store.db();
         let mls_storage = SqlKeyStore::new(store.db());
         let offline = identity.is_some();
-        let server_configuration = crate::server_configuration::resolve(&api, &conn, offline)
-            .await
-            .expect("the deployment's configuration");
+        let server_configuration =
+            xmtp_mls_server_config::server_configuration::resolve(&api, &conn, offline)
+                .await
+                .expect("the deployment's configuration");
         let configuration = server_configuration.configuration();
-        crate::server_configuration::check_minimum_version(
+        xmtp_mls_server_config::server_configuration::check_minimum_version(
             configuration,
             VersionInfo::default().pkg_semver().semver(),
         )
@@ -256,7 +257,7 @@ where
             }
             .into_context(features),
         );
-        crate::core::preflight::bind_preflight(&context);
+        xmtp_mls_core::preflight::bind_preflight(&context);
         Self { owner, context }
     }
 }
@@ -328,7 +329,7 @@ where
             )
             .await
             .expect("a published registration");
-        crate::state_tx::state_write(context.mls_storage(), |tx| {
+        xmtp_mls_core::state_tx::state_write(context.mls_storage(), |tx| {
             let storage = tx.storage();
             storage.db().record_key_package_publication(
                 history_id,

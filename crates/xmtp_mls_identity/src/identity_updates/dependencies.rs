@@ -75,7 +75,7 @@ impl RetryableError for IdentityDependencyError {
     }
 }
 
-impl crate::worker::NeedsDbReconnect for IdentityDependencyError {
+impl xmtp_mls_core::worker::NeedsDbReconnect for IdentityDependencyError {
     #[deny(clippy::wildcard_enum_match_arm)]
     fn needs_db_reconnect(&self) -> bool {
         match self {
@@ -97,7 +97,7 @@ pub struct IdentityResolutionRegistry {
 
 /// How far this client has reported changes to its own installations.
 #[derive(Debug, Default)]
-pub(crate) struct OwnInstallationEvents {
+pub struct OwnInstallationEvents {
     /// The own-inbox identity update through which changes are emitted. A
     /// built client starts at the latest one stored then. `None` while no
     /// own-inbox update is stored; the first own-inbox load then starts at
@@ -107,7 +107,7 @@ pub(crate) struct OwnInstallationEvents {
 
 impl IdentityResolutionRegistry {
     /// A registry whose own-installation events start after `emitted_through`.
-    pub(crate) fn starting_after(emitted_through: Option<i64>) -> Self {
+    pub fn starting_after(emitted_through: Option<i64>) -> Self {
         Self {
             own_inbox_refresh: tokio::sync::Mutex::new(OwnInstallationEvents { emitted_through }),
             ..Default::default()
@@ -137,7 +137,7 @@ impl IdentityRequirement {
 /// Read only a verified cached snapshot. Never resolve to a newer snapshot.
 /// The caller supplies the state transaction's connection.
 // implements: IDENT-070
-pub(crate) fn require_association_state(
+pub fn require_association_state(
     conn: &impl DbQuery,
     requirement: &IdentityRequirement,
 ) -> Result<AssociationState, IdentityDependencyError> {
@@ -157,12 +157,12 @@ pub(crate) fn require_association_state(
 /// Read cached proofs and record each missing one, so that one resolution
 /// fetches every proof an attempt lacks instead of one proof per attempt.
 #[derive(Default)]
-pub(crate) struct MissingProofs(BTreeSet<IdentityRequirement>);
+pub struct MissingProofs(BTreeSet<IdentityRequirement>);
 
 impl MissingProofs {
     /// Return the cached state, or record the requirement and return `None`.
     /// Other failures do not depend on a fetch, so they return at once.
-    pub(crate) fn read(
+    pub fn read(
         &mut self,
         conn: &impl DbQuery,
         requirement: &IdentityRequirement,
@@ -178,7 +178,7 @@ impl MissingProofs {
     }
 
     /// Fail with every recorded requirement.
-    pub(crate) fn check(self) -> Result<(), IdentityDependencyError> {
+    pub fn check(self) -> Result<(), IdentityDependencyError> {
         if self.0.is_empty() {
             Ok(())
         } else {
@@ -195,7 +195,7 @@ impl MissingProofs {
 /// One failed proof does not cancel other checks or remove their verified
 /// cache entries.
 // implements: PROC-013
-pub(crate) async fn resolve_identity_requirements(
+pub async fn resolve_identity_requirements(
     context: &impl IdentityContext,
     requirements: &BTreeSet<IdentityRequirement>,
 ) -> Result<(), IdentityDependencyError> {
@@ -328,9 +328,9 @@ fn parent_result(
 mod tests {
     use super::*;
     use crate::identity_lifecycle::test_support::IdentityTestPeer;
-    use crate::prelude::*;
     use xmtp_common::time::Duration;
     use xmtp_db::prelude::*;
+    use xmtp_mls_core::context::CoreContext;
 
     #[xmtp_common::test(unwrap_try = true)]
     async fn identity_requests_share_one_context_limit() {
@@ -504,8 +504,8 @@ mod tests {
     /// and needs no reconnect.
     #[xmtp_common::test(unwrap_try = true)]
     async fn dependency_resolution_waits_on_missing_identity_update() {
-        use crate::worker::NeedsDbReconnect;
         use xmtp_common::RetryableError;
+        use xmtp_mls_core::worker::NeedsDbReconnect;
         let alix = IdentityTestPeer::new().await;
         let bo = IdentityTestPeer::new().await;
         let wait = Duration::from_secs(1);

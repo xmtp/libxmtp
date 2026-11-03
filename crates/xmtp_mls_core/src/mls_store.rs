@@ -193,7 +193,7 @@ where
 
     /// Use the captured durable cursors so the caller can identify a rejected
     /// Query and avoid sending the same request again.
-    pub(crate) async fn receive_topics_once_from(
+    pub async fn receive_topics_once_from(
         &self,
         cursors: TopicCursor,
         limits: IncomingLimits,
@@ -275,7 +275,7 @@ mod disconnect_propagation_tests {
     //! Pins that a dropped-pool signal survives this owner's error types, so
     //! `needs_db_reconnect()` stays `true` for the worker that surfaces them.
     use super::MlsStoreError;
-    use crate::core::reconnect::NeedsDbReconnect;
+    use crate::reconnect::NeedsDbReconnect;
     use xmtp_db::{ConnectionError, PlatformStorageError, StorageError};
 
     /// A `StorageError` that signals the connection pool was dropped.

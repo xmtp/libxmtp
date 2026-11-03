@@ -3,7 +3,7 @@ use std::sync::Arc;
 #[derive(Clone)]
 pub struct TaskWorkerChannels {
     /// Serializes notification requests across inline calls and task turns.
-    pub(crate) notification_request: Arc<tokio::sync::Mutex<()>>,
+    pub notification_request: Arc<tokio::sync::Mutex<()>>,
     notification_revision: Arc<std::sync::atomic::AtomicUsize>,
 }
 
@@ -27,7 +27,7 @@ impl TaskWorkerChannels {
         self.notification_revision.fetch_add(1, Ordering::AcqRel);
     }
 
-    pub(crate) fn notification_revision(&self) -> usize {
+    pub fn notification_revision(&self) -> usize {
         self.notification_revision
             .load(std::sync::atomic::Ordering::Acquire)
     }

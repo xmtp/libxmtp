@@ -1,9 +1,4 @@
-use crate::{
-    XmtpApi,
-    context::CoreContext,
-    groups::group_membership::{GroupMembership, MembershipDiff},
-    identity::{IdentityError, IdentityExt},
-};
+use crate::identity_ext::IdentityExt;
 use futures::{StreamExt, TryStreamExt, stream};
 use std::collections::{HashMap, HashSet};
 use std::pin::Pin;
@@ -30,6 +25,10 @@ use xmtp_id::{
     scw_verifier::{SmartContractSignatureVerifier, ValidationResponse, VerifierError},
 };
 use xmtp_macro::log_event;
+use xmtp_mls_core::context::CoreContext;
+use xmtp_mls_core::identity::IdentityError;
+use xmtp_mls_validation::group_membership::{GroupMembership, MembershipDiff};
+use xmtp_proto::api_client::XmtpApi;
 use xmtp_proto::{
     ShortHex,
     api_client::XmtpBackendClient,
@@ -38,7 +37,7 @@ use xmtp_proto::{
 
 use xmtp_api::{ApiClientWrapper, GetIdentityUpdatesV2Filter};
 
-pub(crate) mod dependencies;
+pub mod dependencies;
 #[cfg(test)]
 pub(crate) mod paged_load_tests;
 mod state_store;
@@ -61,11 +60,11 @@ pub trait IdentityContext: CoreContext<Features: IdentityFeatures> {
 }
 
 impl<T: CoreContext<Features: IdentityFeatures>> IdentityContext for T {}
-pub(crate) use dependencies::{
+pub use dependencies::{
     MissingProofs, OwnInstallationEvents, require_association_state, resolve_identity_requirements,
 };
 use state_store::{ResolvedState, resolve_association_state};
-pub(crate) use state_store::{get_association_state_for_client, store_association_state};
+pub use state_store::{get_association_state_for_client, store_association_state};
 
 /// A failure to read, verify, build, or publish identity updates.
 #[derive(Debug, Error, ErrorCode)]
@@ -126,7 +125,7 @@ pub enum IdentityUpdateError {
     /// The connection is blocked. Not retryable.
     #[error(transparent)]
     #[error_code(inherit)]
-    Blocked(#[from] crate::server_configuration::BlockedConnection),
+    Blocked(#[from] xmtp_mls_server_config::server_configuration::BlockedConnection),
     /// Inbox not found.
     ///
     /// The backend holds no identity update for the inbox. Not retryable.
@@ -185,7 +184,7 @@ impl RetryableError for IdentityUpdateError {
     }
 }
 
-impl crate::worker::NeedsDbReconnect for IdentityUpdateError {
+impl xmtp_mls_core::worker::NeedsDbReconnect for IdentityUpdateError {
     #[deny(clippy::wildcard_enum_match_arm)]
     fn needs_db_reconnect(&self) -> bool {
         match self {
@@ -212,7 +211,7 @@ const IDENTITY_UPDATE_CONFLICT_RETRIES: usize = 3;
 
 /// Reload and validate the signed update after a commit-time conflict.
 /// Retry the same signed bytes at most three times. Other errors are terminal.
-pub(crate) async fn publish_with_conflict_retry<ApiClient: XmtpApi>(
+pub async fn publish_with_conflict_retry<ApiClient: XmtpApi>(
     api_client: &ApiClientWrapper<ApiClient>,
     conn: &impl DbQuery,
     update: UnverifiedIdentityUpdate,
@@ -281,7 +280,7 @@ impl RetryableError for InstallationDiffError {
     }
 }
 
-impl crate::worker::NeedsDbReconnect for InstallationDiffError {
+impl xmtp_mls_core::worker::NeedsDbReconnect for InstallationDiffError {
     #[deny(clippy::wildcard_enum_match_arm)]
     fn needs_db_reconnect(&self) -> bool {
         match self {
@@ -570,11 +569,7 @@ where
             && old.difference(&new).next().is_some()
             && write_root_key(conn, RootKeyWrite::revocation(revoked_at_ns), Owed::Mark)?
         {
-            crate::subscriptions::internal::emit_root_key_changed(
-                self.context.events(),
-                conn,
-                true,
-            )?;
+            xmtp_mls_core::events::emit_root_key_changed(self.context.events(), conn, true)?;
         }
         Ok(())
     }
@@ -588,7 +583,7 @@ where
     /// was dropped or the emission failed, are emitted after the next
     /// own-inbox load. `load` is boxed to keep callers' futures small: SDK
     /// worker futures have a size limit.
-    pub(crate) async fn with_own_installation_events<T>(
+    pub async fn with_own_installation_events<T>(
         &self,
         conn: &impl DbQuery,
         load: Pin<Box<impl Future<Output = Result<T, IdentityUpdateError>>>>,
@@ -958,7 +953,7 @@ where
 /// A creation placeholder has an empty identity baseline. It never selects the
 /// receiver's latest identity state. New membership references must be nonzero.
 /// A missing proof does not stop the scan, so `Need` names every missing proof.
-pub(crate) fn get_installation_diff_local(
+pub fn get_installation_diff_local(
     conn: &impl DbQuery,
     old_membership: &GroupMembership,
     new_membership: &GroupMembership,
@@ -1025,7 +1020,7 @@ pub(crate) fn get_installation_diff_local(
 /// Required removals include leafed identity removals and stale leaves of
 /// every inbox whose membership entry advances or disappears.
 // implements: GMOD-046
-pub(crate) fn required_leaf_removals(
+pub fn required_leaf_removals(
     conn: &impl DbQuery,
     old: &GroupMembership,
     new: &GroupMembership,
@@ -1073,7 +1068,7 @@ pub(crate) fn required_leaf_removals(
 /// Load identity updates. A load that includes this client's own inbox
 /// reports the changes to its own installations of every update it stored,
 /// even when it fails after storing some pages.
-pub(crate) async fn load_identity_updates_for_client<Context: IdentityContext>(
+pub async fn load_identity_updates_for_client<Context: IdentityContext>(
     context: &Context,
     conn: &impl DbQuery,
     inbox_ids: &[&str],

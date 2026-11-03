@@ -2,11 +2,7 @@
 //! rotate/sweep work the `KpRotation`/`KpDeletion` dispatch arms call into.
 //! Recurrence + nudging come from the generic layer (TaskOutcome, PullInDeadline).
 
-use crate::identity::IdentityError;
 use crate::identity_updates::IdentityContext;
-use crate::state_tx::state_write;
-use crate::worker::NeedsDbReconnect;
-use crate::worker::tasks::enqueue_pull_in;
 use thiserror::Error;
 use tls_codec::Serialize;
 use xmtp_configuration::CREATE_PQ_KEY_PACKAGE_EXTENSION;
@@ -15,6 +11,10 @@ use xmtp_db::TransactionOutcome::Continue;
 use xmtp_db::prelude::*;
 use xmtp_db::sql_key_store::{KEY_PACKAGE_REFERENCES, KEY_PACKAGE_WRAPPER_PRIVATE_KEY};
 use xmtp_db::tasks::{NEVER_EXPIRES, NewTask, TaskDataHash, data_hash_for};
+use xmtp_mls_core::identity::IdentityError;
+use xmtp_mls_core::state_tx::state_write;
+use xmtp_mls_core::worker::NeedsDbReconnect;
+use xmtp_mls_core::worker::tasks::enqueue_pull_in;
 use xmtp_proto::xmtp::mls::database::{
     KpDeletion, KpRotation, Task as TaskProto, task::Task as TaskKind,
 };
@@ -74,29 +74,29 @@ impl NeedsDbReconnect for KeyPackageMaintenanceError {
     }
 }
 
-pub(crate) fn kp_rotation_proto() -> TaskProto {
+pub fn kp_rotation_proto() -> TaskProto {
     TaskProto {
         task: Some(TaskKind::KpRotation(KpRotation {})),
     }
 }
 
-pub(crate) fn kp_deletion_proto() -> TaskProto {
+pub fn kp_deletion_proto() -> TaskProto {
     TaskProto {
         task: Some(TaskKind::KpDeletion(KpDeletion {})),
     }
 }
 
-pub(crate) fn kp_rotation_hash() -> TaskDataHash {
+pub fn kp_rotation_hash() -> TaskDataHash {
     data_hash_for(&kp_rotation_proto())
 }
 
-pub(crate) fn kp_deletion_hash() -> TaskDataHash {
+pub fn kp_deletion_hash() -> TaskDataHash {
     data_hash_for(&kp_deletion_proto())
 }
 
 /// Never-expire recurring seed: the reaper's
 /// `expires_at_ns < now || attempts >= max_attempts` check can never fire.
-pub(crate) fn kp_seed(proto: TaskProto, now: i64) -> Result<NewTask, StorageError> {
+pub fn kp_seed(proto: TaskProto, now: i64) -> Result<NewTask, StorageError> {
     NewTask::builder()
         .originating_message_sequence_id(0)
         .expires_at_ns(NEVER_EXPIRES)
@@ -107,7 +107,7 @@ pub(crate) fn kp_seed(proto: TaskProto, now: i64) -> Result<NewTask, StorageErro
 
 /// Upload a fresh key package when rotation is due and return whether it occurred.
 /// A confirmed receipt starts retirement of keys published earlier by the backend.
-pub(crate) async fn rotate_if_needed<Context: IdentityContext>(
+pub async fn rotate_if_needed<Context: IdentityContext>(
     context: &Context,
 ) -> Result<bool, KeyPackageMaintenanceError> {
     if !context
@@ -148,7 +148,7 @@ fn delete_key_package_material(
     hash_ref: &[u8],
     pq_pub_key: Option<&[u8]>,
 ) -> Result<(), IdentityError> {
-    let openmls_hash_ref = crate::identity::deserialize_key_package_hash_ref(hash_ref)?;
+    let openmls_hash_ref = xmtp_mls_core::identity::deserialize_key_package_hash_ref(hash_ref)?;
     let bundle: Option<openmls::prelude::KeyPackageBundle> =
         key_store.key_package(&openmls_hash_ref)?;
     if let Some(bundle) = bundle {
@@ -163,7 +163,7 @@ fn delete_key_package_material(
     if let Some(pq_pub_key) = pq_pub_key {
         key_store.delete(
             KEY_PACKAGE_REFERENCES,
-            crate::identity::pq_key_package_references_key(pq_pub_key)?.as_slice(),
+            xmtp_mls_core::identity::pq_key_package_references_key(pq_pub_key)?.as_slice(),
         )?;
         key_store.delete(KEY_PACKAGE_WRAPPER_PRIVATE_KEY, hash_ref)?;
     }
@@ -173,7 +173,7 @@ fn delete_key_package_material(
 
 /// Delete a refused key package's material and history in one transaction.
 // implements: JOIN-020
-pub(crate) fn discard_key_package(
+pub fn discard_key_package(
     mls_storage: &impl XmtpMlsStorageProvider,
     history_id: i32,
 ) -> Result<(), IdentityError> {
@@ -194,7 +194,7 @@ pub(crate) fn discard_key_package(
 
 /// Keep expired keys while any durable Welcome remains pending.
 /// Otherwise, delete each expired key's material and history in one transaction.
-pub(crate) fn sweep_expired<Context: IdentityContext>(
+pub fn sweep_expired<Context: IdentityContext>(
     context: &Context,
 ) -> Result<(), KeyPackageMaintenanceError> {
     state_write(context.mls_storage(), |tx| {
@@ -220,10 +220,8 @@ pub(crate) fn sweep_expired<Context: IdentityContext>(
 
 /// Queue rotation within five seconds and persist its task in one transaction.
 /// Create the recurring task before its deadline update, then emit after commit.
-pub(crate) fn queue_key_rotation<Context: IdentityContext>(
-    context: &Context,
-) -> Result<(), StorageError> {
-    crate::state_tx::state_write_with_events(
+pub fn queue_key_rotation<Context: IdentityContext>(context: &Context) -> Result<(), StorageError> {
+    xmtp_mls_core::state_tx::state_write_with_events(
         context.mls_storage(),
         context.events(),
         |tx, events| {
@@ -231,7 +229,7 @@ pub(crate) fn queue_key_rotation<Context: IdentityContext>(
             xmtp_events::EventWriter::emit(
                 events,
                 None,
-                Some(crate::subscriptions::internal::InternalEvent::TaskScheduled),
+                Some(xmtp_mls_core::events::InternalEvent::TaskScheduled),
             );
             Ok::<_, StorageError>(Continue(()))
         },
@@ -241,9 +239,7 @@ pub(crate) fn queue_key_rotation<Context: IdentityContext>(
 
 /// Queue rotation on the caller's writer so a Welcome install can commit with it.
 /// The caller emits the task fact in its event buffer.
-pub(crate) fn queue_key_rotation_in(
-    storage: &impl XmtpMlsStorageProvider,
-) -> Result<(), StorageError> {
+pub fn queue_key_rotation_in(storage: &impl XmtpMlsStorageProvider) -> Result<(), StorageError> {
     let now = xmtp_common::time::now_ns();
     storage
         .db()
@@ -254,9 +250,7 @@ pub(crate) fn queue_key_rotation_in(
 /// singleton exists (pull-in against a missing target is a no-op), then pull
 /// it in to the earliest pending delete_at. No-op when nothing is marked, so
 /// it is safe (and idempotent) to call on every dispatch.
-pub(crate) fn nudge_deletion<Context: IdentityContext>(
-    context: &Context,
-) -> Result<(), StorageError> {
+pub fn nudge_deletion<Context: IdentityContext>(context: &Context) -> Result<(), StorageError> {
     let db = context.db();
     let now = xmtp_common::time::now_ns();
     if let Some(at) = db.min_key_package_delete_at_ns()? {
@@ -268,7 +262,7 @@ pub(crate) fn nudge_deletion<Context: IdentityContext>(
 
 /// Idempotent startup seeding + reconcile: pull-ins only LOWER task deadlines to
 /// the live DB columns, repairing rows stranded by a crash mid-nudge.
-pub(crate) fn seed_and_reconcile_kp_tasks<Context: IdentityContext>(
+pub fn seed_and_reconcile_kp_tasks<Context: IdentityContext>(
     context: &Context,
 ) -> Result<(), StorageError> {
     let db = context.db();
@@ -291,10 +285,10 @@ pub(crate) fn seed_and_reconcile_kp_tasks<Context: IdentityContext>(
 mod tests {
     use super::*;
     use crate::identity_lifecycle::test_support::IdentityTestPeer;
-    use crate::prelude::*;
     use openmls_traits::storage::StorageProvider;
     use prost::Message;
     use xmtp_db::ConnectionExt;
+    use xmtp_mls_core::context::CoreContext;
     use xmtp_proto::xmtp::mls::database::Task as TaskProtoDecode;
 
     fn row_by_hash(db: &impl QueryTasks, hash: impl AsRef<[u8]>) -> Option<xmtp_db::tasks::Task> {
@@ -318,8 +312,9 @@ mod tests {
         let history = db
             .find_key_package_history_entries_before_id(i32::MAX)?
             .pop()?;
-        let hash =
-            crate::identity::deserialize_key_package_hash_ref(&history.key_package_hash_ref)?;
+        let hash = xmtp_mls_core::identity::deserialize_key_package_hash_ref(
+            &history.key_package_hash_ref,
+        )?;
         db.raw_query(|conn| {
             diesel::update(dsl::key_package_history.filter(dsl::id.eq(history.id)))
                 .set(dsl::delete_at_ns.eq(0))
@@ -386,9 +381,9 @@ mod tests {
     #[cfg(not(target_arch = "wasm32"))]
     #[xmtp_common::test(unwrap_try = true)]
     async fn queued_rotation_is_visible_before_its_task_fact() {
-        use crate::context::CoreContext;
-        use crate::core::events::InternalEvent;
         use xmtp_events::EventFilter;
+        use xmtp_mls_core::context::CoreContext;
+        use xmtp_mls_core::events::InternalEvent;
 
         let alix = IdentityTestPeer::new().await;
         let subscription = alix.context.events().subscribe(
@@ -402,7 +397,7 @@ mod tests {
             Some(10),
         );
         let fired = std::rc::Rc::new(std::cell::Cell::new(0));
-        let hook = crate::core::precommit_test_hook::install({
+        let hook = xmtp_mls_core::precommit_test_hook::install({
             let fired = fired.clone();
             move |_| {
                 fired.set(fired.get() + 1);
@@ -430,8 +425,8 @@ mod disconnect_propagation_tests {
     //! Pins that a dropped-pool signal survives this owner's error types, so
     //! `needs_db_reconnect()` stays `true` for the worker that surfaces them.
     use super::KeyPackageMaintenanceError;
-    use crate::core::reconnect::NeedsDbReconnect;
     use xmtp_db::{ConnectionError, PlatformStorageError, StorageError};
+    use xmtp_mls_core::reconnect::NeedsDbReconnect;
 
     /// A `StorageError` that signals the connection pool was dropped.
     fn disconnect_storage() -> StorageError {
@@ -450,7 +445,7 @@ mod disconnect_propagation_tests {
 
     #[xmtp_common::test]
     fn key_package_maintenance_error_forwards_disconnect() {
-        use crate::identity::IdentityError;
+        use xmtp_mls_core::identity::IdentityError;
         assert!(KeyPackageMaintenanceError::Storage(disconnect_storage()).needs_db_reconnect());
         // Per-key-package delete returns an IdentityError; a disconnect must
         // bubble whether it arrives as a StorageError or a bare ConnectionError.
