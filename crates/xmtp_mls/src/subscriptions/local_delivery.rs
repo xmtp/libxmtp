@@ -445,7 +445,7 @@ where
         filter: &LocalDeliveryFilter,
         limit: u32,
     ) -> Result<EnrichedDeliverySnapshot> {
-        let settings = context.incoming_runtime().policy();
+        let settings = context.stream_policy();
         let filter = effective_filter(scope, filter);
         Ok(context
             .db()
@@ -469,7 +469,7 @@ where
         filter: &LocalDeliveryFilter,
         limit: u32,
     ) -> Result<DeliverySnapshot> {
-        let settings = context.incoming_runtime().policy();
+        let settings = context.stream_policy();
         let filter = effective_filter(scope, filter);
         Ok(context
             .db()

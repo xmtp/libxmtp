@@ -213,7 +213,7 @@ impl<C: XmtpSharedContext + 'static> StreamConversations<C> {
                     tokio::select! {
                         _ = context.cancellation_token().cancelled() => {},
                         _ = lease.changed() => {},
-                        _ = sleep(context.incoming_runtime().policy().active_database_poll_interval) => {},
+                        _ = sleep(context.stream_policy().active_database_poll_interval) => {},
                         event = events.next() => { event?; },
                     }
                 }
