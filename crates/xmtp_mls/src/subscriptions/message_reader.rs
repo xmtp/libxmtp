@@ -102,7 +102,7 @@ impl<C: XmtpSharedContext + 'static> MessageReader<C> {
                     break Err(error.into());
                 }
                 if let Err(error) = lease.check_recovery() {
-                    break Err(error.error());
+                    break Err(LocalDeliveryError::from(error));
                 }
                 tokio::select! {
                     biased;
@@ -120,7 +120,7 @@ impl<C: XmtpSharedContext + 'static> MessageReader<C> {
                         if matches!(&item, Ok(Some(_)))
                             && let Err(error) = lease.check_recovery()
                         {
-                            break Err(error.error());
+                            break Err(LocalDeliveryError::from(error));
                         }
                         break item;
                     },

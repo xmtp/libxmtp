@@ -1,6 +1,6 @@
 //! A recovery budget belongs to one public stream, never to the shared receiver.
 
-use super::{incoming::IncomingError, local_delivery::LocalDeliveryError};
+use super::incoming::IncomingError;
 use std::sync::Arc;
 use xmtp_common::time::{Duration, Instant};
 use xmtp_proto::types::Topic;
@@ -116,18 +116,6 @@ pub(crate) enum RecoveryFailure {
         source: Option<Arc<IncomingError>>,
     },
     Terminal(Arc<IncomingError>),
-}
-
-impl RecoveryFailure {
-    pub(crate) fn error(&self) -> LocalDeliveryError {
-        match self {
-            Self::Exhausted { attempts, source } => LocalDeliveryError::NetworkRecoveryExhausted {
-                attempts: *attempts,
-                source: source.clone(),
-            },
-            Self::Terminal(error) => LocalDeliveryError::NetworkFailure(error.clone()),
-        }
-    }
 }
 
 /// The controller and delivery boundary check the same stream budget.

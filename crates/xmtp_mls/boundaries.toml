@@ -66,13 +66,6 @@ tier = "path"
 count = 6
 reason = "PR 5b (Tasks 12 and 15): engine test helpers outside test suites still build a facade client or name the facade's test utilities."
 
-[[waivers]]
-from = "engine"
-to = "streams"
-tier = "path"
-count = 1
-reason = "PR 7 (Task 20): the receiver and the group stream entry points name stream types."
-
 [naming]
 prefix = "xmtp_mls_"
 exempt = ["xmtp_integration_tests"]
@@ -120,10 +113,3 @@ to = "facade"
 tier = "call"
 count = 18
 reason = "PR 5b (Tasks 12 and 15): engine test helpers outside test suites still build a facade client or name the facade's test utilities."
-
-[[waivers]]
-from = "engine"
-to = "streams"
-tier = "call"
-count = 8
-reason = "PR 7 (Task 20): the receiver and the group stream entry points name stream types."

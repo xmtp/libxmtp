@@ -4,6 +4,7 @@ use super::{
     GroupSetGate, Result,
     incoming::{IncomingCoordinator, IncomingLease, IncomingScope},
     internal::InternalEvent,
+    local_delivery::LocalDeliveryError,
 };
 use crate::{context::XmtpSharedContext, groups::MlsGroup};
 use futures::Stream;
@@ -176,7 +177,7 @@ impl<C: XmtpSharedContext + 'static> StreamConversations<C> {
                     }
                     if let Err(error) = lease.check_recovery() {
                         lease.close();
-                        return Some((Err(error.error().into()), None));
+                        return Some((Err(LocalDeliveryError::from(error).into()), None));
                     }
                     if let Some(group) = ready.pop_front() {
                         return Some((
