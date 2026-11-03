@@ -41,6 +41,7 @@ tokio-util = { workspace = true, features = ["rt"] }
 tonic.workspace = true
 tracing.workspace = true
 trait-variant.workspace = true
+xmtp-workspace-hack.workspace = true
 xmtp_api.workspace = true
 xmtp_api_backend.workspace = true
 xmtp_common.workspace = true
@@ -53,22 +54,32 @@ xmtp_mls_group_state.workspace = true
 xmtp_mls_server_config.workspace = true
 xmtp_proto.workspace = true
 xmtp_push_types.workspace = true
-xmtp-workspace-hack.workspace = true
 
 [dev-dependencies]
 diesel = { workspace = true, features = ["sqlite"] }
-tracing-subscriber = { workspace = true, features = ["env-filter", "fmt", "json", "registry"] }
 futures = { workspace = true, features = ["alloc", "std", "executor"] }
+tracing-subscriber = { workspace = true, features = [
+  "env-filter",
+  "fmt",
+  "json",
+  "registry",
+] }
 xmtp_api = { workspace = true, features = ["test-utils"] }
 xmtp_api_backend = { workspace = true, features = ["test-utils"] }
 xmtp_api_grpc = { workspace = true, features = ["test-utils"] }
 xmtp_common = { workspace = true, features = ["test-utils-network"] }
 xmtp_configuration = { workspace = true, features = ["test-utils"] }
-xmtp_cryptography = { workspace = true, features = ["exposed-keys", "test-utils"] }
+xmtp_cryptography = { workspace = true, features = [
+  "exposed-keys",
+  "test-utils",
+] }
 xmtp_db = { workspace = true, features = ["test-utils"] }
 xmtp_id = { workspace = true, features = ["test-utils"] }
 xmtp_mls = { workspace = true, features = ["test-utils"] }
-xmtp_mls_server_config = { workspace = true, features = ["test-hooks", "test-utils"] }
+xmtp_mls_server_config = { workspace = true, features = [
+  "test-hooks",
+  "test-utils",
+] }
 xmtp_proto = { workspace = true, features = ["test-utils-network"] }
 
 [target.'cfg(not(all(target_family = "wasm", target_os = "unknown")))'.dev-dependencies]

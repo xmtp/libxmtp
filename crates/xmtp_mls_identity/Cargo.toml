@@ -40,6 +40,7 @@ tls_codec.workspace = true
 tokio.workspace = true
 tonic = { workspace = true, optional = true }
 tracing.workspace = true
+xmtp-workspace-hack.workspace = true
 xmtp_api.workspace = true
 xmtp_api_backend = { workspace = true, optional = true }
 xmtp_api_grpc = { workspace = true, optional = true }
@@ -54,27 +55,37 @@ xmtp_mls_core.workspace = true
 xmtp_mls_server_config.workspace = true
 xmtp_mls_validation.workspace = true
 xmtp_proto.workspace = true
-xmtp-workspace-hack.workspace = true
 
 [dev-dependencies]
-diesel = { workspace = true, features = ["sqlite"] }
-tracing-subscriber = { workspace = true, features = ["env-filter", "fmt", "json", "registry"] }
 alloy.workspace = true
-tonic.workspace = true
+diesel = { workspace = true, features = ["sqlite"] }
 mockall.workspace = true
 rstest = { workspace = true, features = ["async-timeout"] }
+tonic.workspace = true
+tracing-subscriber = { workspace = true, features = [
+  "env-filter",
+  "fmt",
+  "json",
+  "registry",
+] }
 xmtp_api = { workspace = true, features = ["test-utils"] }
 xmtp_api_backend = { workspace = true, features = ["test-utils"] }
 xmtp_api_grpc = { workspace = true, features = ["test-utils"] }
 xmtp_common = { workspace = true, features = ["test-utils-network"] }
 xmtp_configuration = { workspace = true, features = ["test-utils"] }
-xmtp_cryptography = { workspace = true, features = ["exposed-keys", "test-utils"] }
+xmtp_cryptography = { workspace = true, features = [
+  "exposed-keys",
+  "test-utils",
+] }
 xmtp_db = { workspace = true, features = ["test-utils"] }
 xmtp_id = { workspace = true, features = ["test-utils-anvil"] }
 xmtp_logging = { workspace = true, features = ["test-utils"] }
 xmtp_mls = { workspace = true, features = ["test-utils"] }
 xmtp_mls_core = { workspace = true, features = ["test-hooks", "test-utils"] }
-xmtp_mls_server_config = { workspace = true, features = ["test-hooks", "test-utils"] }
+xmtp_mls_server_config = { workspace = true, features = [
+  "test-hooks",
+  "test-utils",
+] }
 xmtp_proto = { workspace = true, features = ["test-utils-network"] }
 
 [target.'cfg(not(all(target_family = "wasm", target_os = "unknown")))'.dev-dependencies]
