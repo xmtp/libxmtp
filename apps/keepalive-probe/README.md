@@ -45,6 +45,25 @@ dev/nix-shell 'cargo run -p keepalive-probe -- --count 200 --duration 1800s --ka
 
 Stops at `--duration` or on Ctrl-C; either way it prints a summary. `RUST_LOG=debug` for more detail.
 
+### Local interactive QA
+
+With Nix and Docker available, run from the repository root:
+
+```sh
+dev/nix-shell 'just backend up'
+dev/nix-shell 'just backend status'
+dev/nix-shell '. dev/docker/load-env && dev/agent-run cargo run --locked -p keepalive-probe -- --endpoint "$XMTP_BACKEND_URL" --count 1 --duration 2s'
+```
+
+No credentials or group ID are needed for idle mode. Both modes use plaintext
+HTTP/2 for `http://` and verified TLS for `https://`; omitted ports default to
+80 and 443 respectively. The environment loader selects this worktree's port,
+not a hardcoded main-checkout address.
+
+Expect `established: 1`, `survived: 1`, and `setup errors:0`. Check the summary,
+not just the exit status: setup failures are recorded as outcomes. Stop this
+worktree's stack with `dev/nix-shell 'just backend down'` when finished.
+
 ## Backend subscription mode — `--subscribe-group`
 
 Instead of an idle connection, hold a real `SubscriptionService/Subscribe` stream per connection and log every payload + every disconnect. This is the herald-shaped test (herald holds subscribe streams), and it discriminates a *one-directional black hole* (return path drops → stream disconnects, client-side, no server error) from an idle-transport issue. The stream adds the group topic after `Started` and replies to server `Ping` frames.
