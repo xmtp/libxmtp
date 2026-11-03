@@ -25,6 +25,7 @@ lint:
     pnpm run lint
 
 test:
+    bash ../../dev/js/require-deps.sh apps/docs
     pnpm --filter @xmtp/docs run test
 
 test-browser:

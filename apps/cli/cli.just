@@ -6,6 +6,7 @@ _env := ". " + root + "/dev/docker/load-env"
 set shell := ["../../dev/nix-shell"]
 
 sdk:
+    bash ../../dev/js/require-deps.sh apps/cli
     ../../dev/js/sdk-package node
 
 check: sdk
