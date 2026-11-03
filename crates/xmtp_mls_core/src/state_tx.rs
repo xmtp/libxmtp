@@ -138,6 +138,7 @@ where
     result.expect("state write produced a result")
 }
 
+/// [`state_write_with_events`] with a durable transaction.
 pub fn state_write_with_events_durable<S, R, E>(
     storage: &S,
     bus: &EventBus<InternalEvent>,

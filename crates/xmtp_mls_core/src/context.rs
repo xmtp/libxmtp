@@ -150,39 +150,55 @@ pub struct LocalContext<ApiClient, Db, S, F> {
     pub api_client: ApiClientWrapper<ApiClient>,
     /// XMTP Local Storage
     pub store: Db,
+    /// MLS key and group state storage.
     pub mls_storage: S,
+    /// Per-key locks shared by the client's operations.
     pub mutexes: MutexRegistry,
     /// Test hook state and the wasm send clock.
     pub hooks: HookState,
+    /// The client's version, sent with API requests.
     pub version_info: VersionInfo,
     /// What this deployment published about itself, resolved once at build
     /// plus the blocked connection a refresh may set.
     pub server_configuration: ServerConfigurationHandle,
+    /// The internal event bus.
     pub events: EventBus<InternalEvent>,
+    /// The writer for events the host reads.
     pub public_event_writer: Arc<dyn EventWriter<()>>,
     /// Set by a new registration and cleared after its visibility event.
     pub registration_event_pending: Arc<AtomicBool>,
+    /// The delivery ownership this client holds, if any.
     pub delivery_owner: Arc<Mutex<Option<xmtp_db::delivery::DeliveryOwner>>>,
+    /// Verifies smart contract wallet signatures.
     pub scw_verifier: Arc<Box<dyn SmartContractSignatureVerifier>>,
+    /// Device sync settings.
     pub device_sync: DeviceSync,
+    /// Fork recovery settings.
     pub fork_recovery_opts: ForkRecoveryOpts,
     /// Unstable: SDK-registered notifications for group-state changes. Empty
     /// unless the host opted in at build time.
     pub change_callbacks: UnstableChangeCallbacks,
     /// The limits on incoming work; the incoming runtime holds the same policy.
     pub stream_policy: StreamPolicy,
+    /// Worker settings.
     pub worker_config: WorkerConfig,
+    /// The sync worker's metrics once it starts.
     // pub(crate) workers: Arc<WorkerRunner>,
     pub worker_metrics: SyncMetricsSlot,
+    /// State the task worker shares with inline calls.
     pub task_channels: TaskWorkerChannels,
+    /// Cancelled when shutdown starts.
     pub cancellation_token: CancellationToken,
     // Set only after a successful `Client::close` (workers stopped + DB
     // disconnected). The cancellation token tracks "shutdown initiated";
     // this tracks "shutdown completed cleanly" — distinct semantics so
     // a `disconnect()` failure mid-`close` doesn't silently short-circuit
     // future retries.
+    /// Set once `Client::close` stops the workers and disconnects the database.
     pub shutdown_complete: Arc<AtomicBool>,
+    /// Counts foreground calls in flight.
     pub foreground_calls: Arc<ForegroundCalls>,
+    /// What the crates above core add.
     pub features: F,
 }
 

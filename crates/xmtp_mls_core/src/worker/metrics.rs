@@ -122,6 +122,7 @@ where
         self.info(metric).count()
     }
 
+    /// Counts one `metric` and wakes its waiters.
     pub fn increment_metric(&self, metric: Metric) {
         self.info(metric).increment();
         tracing::trace!("firing {metric:?}");

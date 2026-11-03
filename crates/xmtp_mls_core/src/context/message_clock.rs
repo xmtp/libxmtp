@@ -2,6 +2,7 @@
 
 use parking_lot::Mutex;
 
+/// Hands out increasing local send timestamps from the wall clock.
 #[derive(Default)]
 pub struct MessageClock {
     state: Mutex<State>,

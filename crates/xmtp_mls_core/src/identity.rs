@@ -237,10 +237,16 @@ impl RetryableError for IdentityError {
 
 #[derive(Debug)]
 pub struct Identity {
+    /// The inbox this installation belongs to.
     pub inbox_id: InboxId,
+    /// The installation's signing key pair.
     pub installation_keys: XmtpInstallationCredential,
+    /// The MLS credential that names `inbox_id`.
     pub credential: OpenMlsCredential,
+    /// The signatures a new identity still needs before registration; `None`
+    /// once the identity is registered.
     pub signature_request: Option<SignatureRequest>,
+    /// Whether the identity is registered and usable.
     pub is_ready: AtomicBool,
 }
 
@@ -305,6 +311,7 @@ impl Identity {
         self.is_ready.load(Ordering::SeqCst)
     }
 
+    /// Marks the identity as registered.
     pub fn set_ready(&self) {
         self.is_ready.store(true, Ordering::SeqCst)
     }
@@ -360,7 +367,8 @@ fn hash_ref_key(hash_ref: &HashReference) -> Result<Vec<u8>, IdentityError> {
         .map_err(|_| IdentityError::UninitializedIdentity)
 }
 
-// Takes a post quantum public key and returns the key used to store it in the key package references table
+/// The key under which the key package references table stores a post-quantum
+/// public key.
 pub fn pq_key_package_references_key(raw_pub_key: &[u8]) -> Result<Vec<u8>, IdentityError> {
     Ok(raw_pub_key.tls_serialize_detached()?)
 }
@@ -380,6 +388,7 @@ pub fn deserialize_key_package_hash_ref(hash_ref: &[u8]) -> Result<HashReference
     HashReference::tls_deserialize_exact(tls).map_err(|_| IdentityError::UninitializedIdentity)
 }
 
+/// Builds the MLS credential that names `inbox_id`.
 pub fn create_credential(inbox_id: impl AsRef<str>) -> Result<OpenMlsCredential, IdentityError> {
     Ok(xmtp_id::key_package::create_credential(inbox_id))
 }
@@ -394,6 +403,7 @@ pub fn build_post_quantum_public_key_extension(
     Ok(xmtp_id::key_package::build_post_quantum_public_key_extension(public_key)?)
 }
 
+/// Stores the references from a key package to its private keys.
 // Store the hash reference, keyed with both the public init key and the post quantum init key.
 // This is needed to get to the private key when decrypting welcome messages.
 // Both the Curve25519 and the Post Quantum keys hold a hash reference to the key package.

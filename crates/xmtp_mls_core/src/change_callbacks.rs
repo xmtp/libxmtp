@@ -1,6 +1,6 @@
 //! Unstable: post-commit notification of group-state changes.
 //!
-//! Registered once at client construction ([`crate::builder::ClientBuilder`]),
+//! Registered once at client construction (`xmtp_mls::builder::ClientBuilder`),
 //! not passed per call — the changes worth reacting to arrive from the stream
 //! and sync paths, where no SDK method call is on the stack to carry a
 //! parameter.
@@ -22,7 +22,7 @@
 //! `update_app_data` on the same group. That call re-enters `sync_with_conn`
 //! and takes the same sync mutex, which is why dispatch cannot happen inline
 //! during message processing; see
-//! [`crate::groups::MlsGroup::dispatch_app_data_changes`].
+//! `xmtp_mls::groups::MlsGroup::dispatch_app_data_changes`.
 //!
 //! Concretely, that means the sync path delivers a batch after the whole sync
 //! completes rather than between messages, and the stream path delivers each
@@ -122,7 +122,7 @@ pub trait AppDataChangeCallback: MaybeSend + MaybeSync {
 
 /// The set of change callbacks registered on a client.
 ///
-/// Cloned into [`crate::context::XmtpMlsLocalContext`] at build time; an unset
+/// Cloned into [`LocalContext`](crate::context::LocalContext) at build time; an unset
 /// field costs a single `Option` check on the message-processing path.
 #[derive(Clone)]
 pub struct UnstableChangeCallbacks {

@@ -1,7 +1,8 @@
 //! Vocabulary that every layer of the client shares: events, configuration,
 //! policies, notification settings, metrics, preflight, and the durable tasks
-//! that storage transactions enqueue. Code here names no type from a feature
-//! module, so a later change can move this directory into its own crate.
+//! that storage transactions enqueue, plus the client context, the local
+//! identity, the MLS store and the worker runner. Code here names no type
+//! from the identity, engine or feature crates.
 
 pub mod api_status;
 pub mod change_callbacks;

@@ -209,6 +209,7 @@ pub fn emit_root_key_changed(
     Ok(())
 }
 
+/// An event context naming the DM `dm_id`, if any.
 pub fn dm_event_context(dm_id: Option<&str>) -> EventContext {
     EventContext {
         dm_identifier: dm_id.map(|id| id.as_bytes().to_vec()),

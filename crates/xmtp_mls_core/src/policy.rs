@@ -95,6 +95,7 @@ impl StreamPolicy {
         }
     }
 
+    /// The incoming limits for one entity kind.
     pub fn incoming_limits(&self, kind: NetworkEntityKind) -> IncomingLimits {
         IncomingLimits {
             batch: PendingBudget {

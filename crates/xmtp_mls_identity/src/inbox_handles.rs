@@ -41,7 +41,7 @@ use xmtp_proto::{types::ApiIdentifier, xmtp::identity::associations::IdentifierK
 #[cfg(test)]
 mod tests;
 
-/// How many random codes [`Client::available_handles`](crate::Client::available_handles) checks for a name
+/// How many random codes `xmtp_mls::Client::available_handles` checks for a name
 /// without a code. With the name itself, one lookup holds 101 handles.
 pub const HANDLE_SEARCH_CODES: usize = 100;
 

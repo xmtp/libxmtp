@@ -74,22 +74,26 @@ impl NeedsDbReconnect for KeyPackageMaintenanceError {
     }
 }
 
+/// The key package rotation task.
 pub fn kp_rotation_proto() -> TaskProto {
     TaskProto {
         task: Some(TaskKind::KpRotation(KpRotation {})),
     }
 }
 
+/// The key package deletion task.
 pub fn kp_deletion_proto() -> TaskProto {
     TaskProto {
         task: Some(TaskKind::KpDeletion(KpDeletion {})),
     }
 }
 
+/// The data hash of [`kp_rotation_proto`].
 pub fn kp_rotation_hash() -> TaskDataHash {
     data_hash_for(&kp_rotation_proto())
 }
 
+/// The data hash of [`kp_deletion_proto`].
 pub fn kp_deletion_hash() -> TaskDataHash {
     data_hash_for(&kp_deletion_proto())
 }

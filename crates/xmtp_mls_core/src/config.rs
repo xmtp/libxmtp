@@ -34,5 +34,6 @@ impl Default for ForkRecoveryOpts {
 
 #[derive(Clone)]
 pub struct DeviceSync {
+    /// Whether device sync runs.
     pub mode: DeviceSyncMode,
 }

@@ -13,6 +13,12 @@ struct ClientPreflight<A, Db, S, F> {
     context: Weak<LocalContext<A, Db, S, F>>,
 }
 
+/// Binds the client's request preflight to the API client once, keeping
+/// only a weak reference to the context.
+///
+/// # Panics
+///
+/// If a preflight is already bound.
 pub fn bind_preflight<A, Db, S, F>(context: &Arc<LocalContext<A, Db, S, F>>)
 where
     A: xmtp_proto::api_client::XmtpApi + 'static,
@@ -58,6 +64,7 @@ fn check<C: CoreContext>(context: &C) -> Result<(), ServerConfigError> {
     Ok(())
 }
 
+/// Fetches and commits the server configuration now.
 pub async fn refresh<C: CoreContext>(
     context: &C,
 ) -> Result<ServerConfiguration, ServerConfigError> {

@@ -8,8 +8,11 @@ use xmtp_cryptography::XmtpInstallationCredential;
 use xmtp_db::MlsProviderExt;
 use xmtp_mls_core::identity::{IdentityError, store_key_package_references};
 
+/// A new key package and, if requested, its post-quantum public key.
 pub struct NewKeyPackageResult {
+    /// The key package.
     pub key_package: KeyPackage,
+    /// The post-quantum public key, if one was generated.
     pub pq_pub_key: Option<Vec<u8>>,
 }
 
@@ -61,12 +64,14 @@ pub struct XmtpKeyPackage {
 }
 
 impl XmtpKeyPackage {
+    /// Starts building a key package.
     pub fn builder() -> XmtpKeyPackageBuilder {
         XmtpKeyPackageBuilder::default()
     }
 }
 
 impl XmtpKeyPackageBuilder {
+    /// Builds the key package and stores its private keys through `provider`.
     pub fn build(
         &mut self,
         provider: &impl MlsProviderExt,

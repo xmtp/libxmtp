@@ -7,6 +7,8 @@ use xmtp_db::consent_record::ConsentState;
 use xmtp_db::{StorageError, StoredSecret, notifications::StoredNotification};
 use xmtp_proto::backend_v1::{self, register_request::Delivery};
 
+/// Invalidates prepared notification batches and emits
+/// `NotificationSettingsChanged`.
 pub fn notification_settings_changed(context: &impl CoreContext) {
     context.task_channels().mark_notification_changed();
     xmtp_events::EventWriter::emit(
@@ -59,6 +61,7 @@ impl NotificationConfig {
         }
     }
 
+    /// The backend channel code for this endpoint.
     pub fn channel_id(&self) -> i32 {
         match self.channel {
             NotificationChannel::Apns { .. } => backend_v1::Channel::Apns as i32,
@@ -109,10 +112,12 @@ pub enum NotificationOverride {
     Default,
 }
 
+/// Encodes a stored notification value as JSON.
 pub fn encode<T: Serialize>(value: &T) -> Result<Vec<u8>, StorageError> {
     serde_json::to_vec(value).map_err(|_| StorageError::DbSerialize)
 }
 
+/// Decodes a stored notification value from JSON.
 pub fn decode<T: serde::de::DeserializeOwned>(value: &[u8]) -> Result<T, StorageError> {
     serde_json::from_slice(value).map_err(|_| StorageError::DbDeserialize)
 }
@@ -174,6 +179,8 @@ pub fn effective(
     }
 }
 
+/// Whether notifications for `group` are on: the record is enabled and its
+/// stored configuration's local rules allow the group.
 pub fn enabled_from_record(
     record: &StoredNotification,
     group: &xmtp_db::group::StoredGroup,

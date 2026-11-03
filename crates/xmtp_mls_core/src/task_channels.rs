@@ -27,6 +27,8 @@ impl TaskWorkerChannels {
         self.notification_revision.fetch_add(1, Ordering::AcqRel);
     }
 
+    /// The count of local notification changes, for checking that a prepared
+    /// batch is still current.
     pub fn notification_revision(&self) -> usize {
         self.notification_revision
             .load(std::sync::atomic::Ordering::Acquire)

@@ -70,7 +70,7 @@ impl IdentityStrategy {
     /// backend names, or the one the identifier creates at `nonce`, and fails
     /// with [`IdentityError::IdentifierNotInInbox`] unless the identifier
     /// belongs to it, as
-    /// [`ClientBuilder::build`](crate::builder::ClientBuilder::build)
+    /// `xmtp_mls::builder::ClientBuilder::build`
     /// describes. An offline build checks the newest state the database
     /// stores, which can predate a revocation.
     pub fn for_identifier(identifier: Identifier, nonce: u64) -> Self {
