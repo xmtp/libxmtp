@@ -564,9 +564,11 @@ async fn sync_group_creation_add_survives_exit_and_spent_attempts() {
     );
     assert!(task.next_attempt_at_ns >= before + 60 * xmtp_common::NS_IN_SEC);
     let task = db.update_task(task.id, 25, now_ns(), now_ns())?;
-    TaskWorker::new(alix1.context.clone(), MlsTaskHandlers)
-        .run_and_reschedule_task(task)
-        .await?;
+    crate::worker::tasks::test_support::run_and_reschedule_task(
+        &TaskWorker::new(alix1.context.clone(), MlsTaskHandlers),
+        task,
+    )
+    .await?;
     assert!(group.with_group_snapshot(|mls| {
         Ok(mls
             .members()
@@ -593,9 +595,11 @@ async fn sync_group_inline_add_keeps_retry_until_membership_complete() {
     let db = alix1.context.db();
     let [task] = db.get_tasks()?.try_into().unwrap();
     let task = db.update_task(task.id, 0, now_ns(), now_ns())?;
-    TaskWorker::new(alix1.context.clone(), MlsTaskHandlers)
-        .run_and_reschedule_task(task)
-        .await?;
+    crate::worker::tasks::test_support::run_and_reschedule_task(
+        &TaskWorker::new(alix1.context.clone(), MlsTaskHandlers),
+        task,
+    )
+    .await?;
     alix2.sync_welcomes().await?;
     assert!(alix2.group(&group.group_id).is_ok());
     assert!(add_task_group_ids(&alix1).is_empty());
@@ -1232,21 +1236,27 @@ async fn publish_reaches_present_leaves_and_retries_a_missing_one() {
     );
     let task = db.update_task(task.id, 0, now_ns(), published_at + interval)?;
     xmtp_common::time::sleep(std::time::Duration::from_nanos(interval as u64)).await;
-    TaskWorker::new(alix1.context.clone(), MlsTaskHandlers)
-        .run_and_reschedule_task(task.clone())
-        .await?;
+    crate::worker::tasks::test_support::run_and_reschedule_task(
+        &TaskWorker::new(alix1.context.clone(), MlsTaskHandlers),
+        task.clone(),
+    )
+    .await?;
     let kept = add_task().expect("the retry task is kept");
     assert!(kept.next_attempt_at_ns > task.next_attempt_at_ns);
     assert!(!has_alix3()?);
     // A failed attempt waits the interval too, not the runner's backoff.
     xmtp_common::time::sleep(std::time::Duration::from_nanos(interval as u64)).await;
-    *crate::worker::tasks::test_hooks::FAIL_SYNC_RETRY
-        .lock()
-        .unwrap() = true;
+    crate::task_handlers::test_hooks::fail_next_sync_retry();
     let failed_at = now_ns();
-    TaskWorker::new(alix1.context.clone(), MlsTaskHandlers)
-        .run_and_reschedule_task(kept)
-        .await?;
+    crate::worker::tasks::test_support::run_and_reschedule_task(
+        &TaskWorker::new(alix1.context.clone(), MlsTaskHandlers),
+        kept,
+    )
+    .await?;
+    assert!(
+        !crate::task_handlers::test_hooks::take_sync_retry_failure(),
+        "the retry did not take the armed failure"
+    );
     let after = add_task().expect("the retry task is kept");
     assert_eq!(
         (
@@ -1366,9 +1376,11 @@ async fn newcomer_added_by_a_publish_joins_quiet_conversations() {
     publish(&alix1).await?;
 
     for task in alix1.context.db().get_tasks()? {
-        TaskWorker::new(alix1.context.clone(), MlsTaskHandlers)
-            .run_and_reschedule_task(task)
-            .await?;
+        crate::worker::tasks::test_support::run_and_reschedule_task(
+            &TaskWorker::new(alix1.context.clone(), MlsTaskHandlers),
+            task,
+        )
+        .await?;
     }
     alix2.sync_welcomes().await?;
     assert_eq!(alix2.context.db().all_sync_groups()?.len(), 1);
@@ -1411,9 +1423,11 @@ async fn creation_task_adds_peers_after_its_group_loses_selection() {
             .context
             .db()
             .update_task(task.id, 0, now_ns(), now_ns())?;
-        TaskWorker::new(alix2.context.clone(), MlsTaskHandlers)
-            .run_and_reschedule_task(task)
-            .await?;
+        crate::worker::tasks::test_support::run_and_reschedule_task(
+            &TaskWorker::new(alix2.context.clone(), MlsTaskHandlers),
+            task,
+        )
+        .await?;
     }
     alix1.sync_welcomes().await?;
     assert!(alix1.group(&newer.group_id).is_ok());
@@ -2037,10 +2051,12 @@ async fn an_own_state_disconnect_keeps_the_reconnect_signal(
         "the retry task is not due"
     );
     let verified = calls.load(Ordering::SeqCst);
-    let error = TaskWorker::new(alix.context.clone(), MlsTaskHandlers)
-        .run_and_reschedule_task(task)
-        .await
-        .unwrap_err();
+    let error = crate::worker::tasks::test_support::run_and_reschedule_task(
+        &TaskWorker::new(alix.context.clone(), MlsTaskHandlers),
+        task,
+    )
+    .await
+    .unwrap_err();
     assert!(
         calls.load(Ordering::SeqCst) > verified,
         "the task did not verify"
@@ -2122,4 +2138,47 @@ async fn device_sync_publish_failures_keep_reconnect_signal() {
             ("TaskWorkerError::DeviceSync(OwnStateUnavailable)", true),
         ]
     );
+}
+
+// These fixtures use native pool errors. Browser connection lifecycle tests
+// cover closed persistent handles in the WASM database module.
+#[cfg(not(target_arch = "wasm32"))]
+mod disconnect_propagation {
+    //! Pins that a dropped-pool signal survives `DeviceSyncError`, so the sync
+    //! worker's `needs_db_reconnect()` stays `true`.
+    use crate::core::reconnect::NeedsDbReconnect;
+    use crate::groups::GroupError;
+    use crate::mls_store::MlsStoreError;
+    use crate::worker::device_sync::DeviceSyncError;
+    use xmtp_db::{ConnectionError, PlatformStorageError, StorageError};
+
+    /// A `StorageError` that signals the connection pool was dropped.
+    fn disconnect_storage() -> StorageError {
+        StorageError::Platform(PlatformStorageError::PoolNeedsConnection)
+    }
+
+    /// A `ConnectionError` that signals the connection pool was dropped.
+    fn disconnect_connection() -> ConnectionError {
+        ConnectionError::Platform(PlatformStorageError::PoolNeedsConnection)
+    }
+
+    /// A storage error that is NOT a disconnect — must never trip the contract.
+    fn benign_storage() -> StorageError {
+        StorageError::InvalidHmacLength
+    }
+
+    #[xmtp_common::test]
+    fn device_sync_error_forwards_disconnect() {
+        assert!(DeviceSyncError::Storage(disconnect_storage()).needs_db_reconnect());
+        assert!(DeviceSyncError::Db(disconnect_connection()).needs_db_reconnect());
+        assert!(
+            DeviceSyncError::Group(GroupError::Storage(disconnect_storage())).needs_db_reconnect()
+        );
+        assert!(
+            DeviceSyncError::MlsStore(MlsStoreError::Connection(disconnect_connection()))
+                .needs_db_reconnect()
+        );
+        assert!(!DeviceSyncError::Storage(benign_storage()).needs_db_reconnect());
+        assert!(!DeviceSyncError::InvalidPayload.needs_db_reconnect());
+    }
 }

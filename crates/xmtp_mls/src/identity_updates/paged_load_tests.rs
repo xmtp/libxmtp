@@ -2,31 +2,20 @@
 //! load that fails after storing some pages still reports the changes to the
 //! client's own installations that those pages make.
 
+use super::test_support::{IdentityScript, ScriptedIdentity, stopped};
 use super::*;
-use crate::identity_lifecycle::test_support::{
-    IdentityTestFeatures, IdentityTestPeer, PeerApi, TestPeer,
-};
+use crate::identity_lifecycle::test_support::{IdentityTestFeatures, IdentityTestPeer, TestPeer};
 use crate::subscriptions::policy::StreamPolicy;
 use parking_lot::Mutex;
 use std::sync::Arc;
-use tokio::sync::Notify;
 use xmtp_cryptography::utils::generate_local_wallet;
 use xmtp_db::XmtpTestDb;
 use xmtp_id::associations::test_utils::{WalletTestExt, add_wallet_signature};
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_proto::{
-    api::ApiClientError,
-    backend_v1 as wire,
-    types::{Topic, TopicKind},
+    api::ApiClientError, backend_v1 as wire, types::Topic,
     xmtp::identity::associations::IdentityUpdate,
 };
-
-fn stopped() -> ApiClientError {
-    ApiClientError::OtherUnretryable(Box::new(tonic::Status::new(
-        tonic::Code::Unavailable,
-        "stopped by the test",
-    )))
-}
 
 fn identity_envelope(update: &IdentityUpdate, sequence_id: u64) -> wire::ServerEnvelope {
     wire::ServerEnvelope {
@@ -140,34 +129,6 @@ async fn load_identity_updates_stores_each_page() {
     assert_eq!(stored(), vec![1, 2, 3]);
 }
 
-/// What the test backend does to identity publishes and reads.
-#[derive(Default)]
-pub(crate) struct IdentityScript {
-    /// Identity publishes still to refuse as a commit-time conflict.
-    pub(crate) conflicts: usize,
-    /// Answer each identity read with at most one update, and more to follow.
-    pub(crate) one_per_read: bool,
-    /// Identity reads still answered before the next one stops.
-    pub(crate) reads_before_stop: Option<usize>,
-    /// Wake this and hold the stopped read until the caller drops it, instead
-    /// of failing the read.
-    pub(crate) hold: Option<Arc<Notify>>,
-    /// Refuse every identity read with a rate limit of this delay.
-    pub(crate) rate_limit: Option<xmtp_common::time::Duration>,
-    /// Answer identity reads from these envelopes instead of the backend.
-    pub(crate) served: Option<Vec<wire::ServerEnvelope>>,
-    /// Identity reads received.
-    pub(crate) reads: usize,
-}
-
-/// Forwards every call to the test backend, changing identity publishes and
-/// reads as its script says.
-#[derive(Clone)]
-pub(crate) struct ScriptedIdentity {
-    pub(crate) inner: PeerApi,
-    pub(crate) script: Arc<Mutex<IdentityScript>>,
-}
-
 type ScriptedPeer = TestPeer<IdentityTestFeatures, ScriptedIdentity>;
 
 /// An installation of `base`'s inbox and database whose backend calls go
@@ -201,158 +162,6 @@ async fn scripted_client_verifying(
         )
         .await;
     (client, script)
-}
-
-fn is_identity_read(request: &wire::QueryRequest) -> bool {
-    request.queries.iter().any(|query| {
-        query.topic.as_ref().and_then(|topic| topic.topic.first())
-            == Some(&(TopicKind::IdentityUpdatesV1 as u8))
-    })
-}
-
-#[xmtp_common::async_trait]
-impl XmtpBackendClient for ScriptedIdentity {
-    type Error = ApiClientError;
-
-    fn set_limits(&self, limits: Arc<xmtp_configuration::LimitsConfiguration>) {
-        self.inner.set_limits(limits)
-    }
-    async fn publish(
-        &self,
-        request: wire::PublishRequest,
-    ) -> Result<wire::PublishResponse, Self::Error> {
-        let identity = request.envelopes.iter().any(|envelope| {
-            matches!(
-                envelope.payload,
-                Some(wire::client_envelope::Payload::IdentityUpdate(_))
-            )
-        });
-        let conflict = identity && {
-            let mut script = self.script.lock();
-            let conflict = script.conflicts > 0;
-            script.conflicts = script.conflicts.saturating_sub(1);
-            conflict
-        };
-        if conflict {
-            return Err(ApiClientError::client(
-                xmtp_api_grpc::error::GrpcError::Status(tonic::Status::aborted(
-                    "identity conflict",
-                )),
-            ));
-        }
-        self.inner.publish(request).await
-    }
-    async fn create_upload(
-        &self,
-        request: wire::CreateUploadRequest,
-    ) -> Result<wire::CreateUploadResponse, Self::Error> {
-        self.inner.create_upload(request).await
-    }
-    async fn query(&self, request: wire::QueryRequest) -> Result<wire::QueryResponse, Self::Error> {
-        if !is_identity_read(&request) {
-            return self.inner.query(request).await;
-        }
-        let rate_limit = {
-            let mut script = self.script.lock();
-            script.reads += 1;
-            script.rate_limit
-        };
-        if let Some(delay) = rate_limit {
-            return Err(ApiClientError::client(
-                xmtp_api_grpc::error::GrpcError::Status(xmtp_api_grpc::error::rate_limited_status(
-                    "request", delay,
-                )),
-            ));
-        }
-        if let Some(served) = self.script.lock().served.clone() {
-            let envelopes = served
-                .into_iter()
-                .filter(|envelope| {
-                    let meta = envelope.meta.as_ref().unwrap();
-                    request.queries.iter().any(|query| {
-                        query.topic == meta.topic
-                            && query.cursor.as_ref().unwrap().sequence_id
-                                < meta.cursor.as_ref().unwrap().sequence_id
-                    })
-                })
-                .collect();
-            return Ok(wire::QueryResponse {
-                envelopes,
-                continuation: Some(wire::Continuation { has_more: false }),
-            });
-        }
-        let (stop, hold, one_per_read) = {
-            let mut script = self.script.lock();
-            let stop = script.reads_before_stop == Some(0);
-            script.reads_before_stop = script
-                .reads_before_stop
-                .and_then(|reads| reads.checked_sub(1));
-            (stop, script.hold.clone(), script.one_per_read)
-        };
-        if stop {
-            if let Some(hold) = hold {
-                hold.notify_one();
-                return std::future::pending().await;
-            }
-            return Err(stopped());
-        }
-        let mut response = self.inner.query(request).await?;
-        if one_per_read && response.envelopes.len() > 1 {
-            response.envelopes.truncate(1);
-            response.continuation = Some(wire::Continuation { has_more: true });
-        }
-        Ok(response)
-    }
-    async fn query_raw_envelopes(
-        &self,
-        request: wire::QueryRequest,
-    ) -> Result<xmtp_proto::types::ReceivedQueryResponse, Self::Error> {
-        self.query(request).await.map(Into::into)
-    }
-    async fn query_newest(
-        &self,
-        request: wire::QueryNewestRequest,
-    ) -> Result<wire::QueryNewestResponse, Self::Error> {
-        self.inner.query_newest(request).await
-    }
-    async fn get_inbox_ids(
-        &self,
-        request: wire::GetInboxIdsRequest,
-    ) -> Result<wire::GetInboxIdsResponse, Self::Error> {
-        self.inner.get_inbox_ids(request).await
-    }
-    async fn get_configuration(
-        &self,
-        request: wire::GetConfigurationRequest,
-    ) -> Result<wire::GetConfigurationResponse, Self::Error> {
-        self.inner.get_configuration(request).await
-    }
-    async fn verify_smart_contract_wallet_signatures(
-        &self,
-        request: wire::VerifySmartContractWalletSignaturesRequest,
-    ) -> Result<wire::VerifySmartContractWalletSignaturesResponse, Self::Error> {
-        self.inner
-            .verify_smart_contract_wallet_signatures(request)
-            .await
-    }
-    async fn register(
-        &self,
-        request: wire::RegisterRequest,
-    ) -> Result<wire::RecipientState, Self::Error> {
-        self.inner.register(request).await
-    }
-    async fn unregister(
-        &self,
-        request: wire::UnregisterRequest,
-    ) -> Result<wire::UnregisterResponse, Self::Error> {
-        self.inner.unregister(request).await
-    }
-    async fn update_subscriptions(
-        &self,
-        request: wire::UpdateSubscriptionsRequest,
-    ) -> Result<wire::RecipientState, Self::Error> {
-        self.inner.update_subscriptions(request).await
-    }
 }
 
 /// A rate-limited batched proof fetch returns its rejection: the inboxes are

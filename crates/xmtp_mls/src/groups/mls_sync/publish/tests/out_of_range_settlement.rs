@@ -382,12 +382,15 @@ fn of_kind(welcomes: &PreparedWelcomes, kind: WelcomeEnvelopeKind) -> Vec<wire::
 /// A client whose key packages do not advertise pointees, so it gets an
 /// inline Welcome.
 async fn inline_only_tester() -> crate::utils::ClientTester {
-    crate::identity::ENABLE_WELCOME_POINTERS
-        .scope(false, async {
+    let hook = crate::identity::WelcomePointersHook::new(false);
+    let eve = crate::identity::ENABLE_WELCOME_POINTERS
+        .scope(hook.clone(), async {
             tester!(eve, disable_workers);
             eve
         })
-        .await
+        .await;
+    assert!(hook.reads() > 0);
+    eve
 }
 
 /// A client whose newest key package has only a classical wrapper, so its

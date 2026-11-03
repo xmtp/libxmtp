@@ -28,6 +28,8 @@ pub mod subscriptions;
 pub mod task_handlers;
 pub mod utils;
 pub mod worker;
+#[cfg(test)]
+mod worker_tests;
 pub use definitions::*;
 
 #[cfg(any(test, feature = "test-utils"))]

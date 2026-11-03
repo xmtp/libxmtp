@@ -106,7 +106,7 @@ where
         storage: &impl XmtpMlsStorageProvider,
         event_writer: &impl xmtp_events::EventWriter<crate::subscriptions::internal::InternalEvent>,
     ) -> Result<MessageIdentifier, GroupMessageProcessingError> {
-        #[cfg(any(test, feature = "test-utils"))]
+        #[cfg(any(test, feature = "test-hooks"))]
         {
             use super::test_mocks::maybe_mock_wrong_epoch_for_tests;
             maybe_mock_wrong_epoch_for_tests()?;

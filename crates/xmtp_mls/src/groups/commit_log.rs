@@ -1731,3 +1731,45 @@ mod publication_snapshot_tests {
         );
     }
 }
+
+// These fixtures use native pool errors. Browser connection lifecycle tests
+// cover closed persistent handles in the WASM database module.
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod disconnect_propagation_tests {
+    //! Pins that a dropped-pool signal survives this owner's error types, so
+    //! `needs_db_reconnect()` stays `true` for the worker that surfaces them.
+    use super::CommitLogError;
+    use crate::core::reconnect::NeedsDbReconnect;
+    use crate::groups::GroupError;
+    use xmtp_db::{ConnectionError, PlatformStorageError, StorageError};
+
+    /// A `StorageError` that signals the connection pool was dropped.
+    fn disconnect_storage() -> StorageError {
+        StorageError::Platform(PlatformStorageError::PoolNeedsConnection)
+    }
+
+    /// A `ConnectionError` that signals the connection pool was dropped.
+    fn disconnect_connection() -> ConnectionError {
+        ConnectionError::Platform(PlatformStorageError::PoolNeedsConnection)
+    }
+
+    #[xmtp_common::test]
+    fn commit_log_error_forwards_disconnect() {
+        assert!(CommitLogError::Connection(disconnect_connection()).needs_db_reconnect());
+        assert!(
+            CommitLogError::GroupError(GroupError::Storage(disconnect_storage()))
+                .needs_db_reconnect()
+        );
+        assert!(
+            CommitLogError::SyncError(crate::groups::summary::SyncSummary::other(
+                GroupError::Storage(disconnect_storage()),
+            ))
+            .needs_db_reconnect()
+        );
+        // A transient (non-disconnect) connection error must not stop the worker.
+        assert!(
+            !CommitLogError::Connection(ConnectionError::DisconnectInTransaction)
+                .needs_db_reconnect()
+        );
+    }
+}

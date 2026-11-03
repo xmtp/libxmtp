@@ -209,7 +209,7 @@ async fn over_budget_reply_is_refused_before_writes() {
     use crate::messages::decoded_message::{
         MAX_REPLY_NESTING_DEPTH, MessageBody, carries_reserved_transcript,
     };
-    use crate::utils::test::nested_reply;
+    use crate::messages::test_support::nested_reply;
     use xmtp_content_types::{
         ContentCodec, compression,
         group_updated::GroupUpdatedCodec,

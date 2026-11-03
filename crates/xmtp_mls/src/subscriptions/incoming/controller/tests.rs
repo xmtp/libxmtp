@@ -34,7 +34,9 @@ async fn internal_interest_does_not_change_client_connection_state() {
     assert!(events.drain().is_empty());
 }
 use crate::groups::{
-    test_support::{EnginePeer, EngineTestContext, EngineTestPeer, MockEngineContext},
+    test_support::{
+        EnginePeer, EngineTestContext, EngineTestPeer, EngineTestPeerOps, MockEngineContext,
+    },
     welcome_sync::{HeldReadd, WelcomeService, held_readd},
 };
 use xmtp_common::Generate;

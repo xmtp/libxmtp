@@ -989,7 +989,7 @@ async fn same_millisecond_optimistic_sends_keep_recovery_order() {
         keys.swap(0, 1);
     }
     let wall_ns = xmtp_common::time::now_ns() / 1_000_000 * 1_000_000;
-    alix.context.message_clock.freeze(wall_ns);
+    alix.context.freeze_message_clock(wall_ns);
     let send = |key: &str| {
         group.send_message_optimistic(
             content,

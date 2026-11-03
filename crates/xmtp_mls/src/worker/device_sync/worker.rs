@@ -730,9 +730,9 @@ mod startup_tests {
     async fn closing_subscription_stops_worker() {
         tester!(alix, disable_workers);
         let mut worker = idle_worker(alix.context.clone());
-        let (filter, depth) =
-            crate::worker::event_subscription_tests::worker_event_filter(WorkerKind::DeviceSync)
-                .unwrap();
+        let (filter, depth) = SyncWorker::factory(alix.context.clone())
+            .event_interest()
+            .unwrap();
         let subscription = Arc::new(alix.context.events().subscribe(filter, depth));
         worker.set_subscription(subscription.clone());
         subscription.close();
@@ -764,5 +764,57 @@ mod startup_tests {
         );
         assert!(!has_owed(&db)?, "the root key was published");
         alix.close().await?;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SyncWorker;
+    use crate::core::events::InternalEvent;
+    use crate::test::mock::{NewMockContext, context};
+    use crate::worker::{NewWorker, WorkerFactory, WorkerKind};
+    use xmtp_events::{EventBus, EventWriter};
+
+    /// The sync worker's event interest, as the runner subscribes with it.
+    fn worker_event_filter(
+        kind: WorkerKind,
+    ) -> Option<(xmtp_events::EventFilter<InternalEvent>, Option<usize>)> {
+        let factory = SyncWorker::<NewMockContext>::factory(context());
+        assert_eq!(factory.kind(), kind);
+        factory.event_interest()
+    }
+
+    /// The outbox and the sync messages are stored state; the worker wakes
+    /// only for them, and never drops a wake while busy.
+    // verifies: SYNC-029
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn device_sync_wakes_for_sync_messages_and_the_outbox() {
+        let (filter, depth) = worker_event_filter(WorkerKind::DeviceSync).unwrap();
+        assert_eq!(depth, None);
+        let bus = EventBus::new();
+        let subscription = bus.subscribe(filter, depth);
+        let group_id = xmtp_proto::types::GroupId::from([9; 16]);
+        let stored = |is_sync| InternalEvent::MessageStored {
+            group_id,
+            message_id: vec![],
+            expires_at_ns: None,
+            is_sync,
+        };
+        for event in [
+            InternalEvent::PreferencesChanged { updates: vec![] },
+            InternalEvent::GroupJoined {
+                group_id,
+                is_sync: true,
+            },
+            stored(false),
+        ] {
+            bus.emit(None, Some(event));
+        }
+        assert!(subscription.drain().is_empty());
+        for _ in 0..1_000 {
+            bus.emit(None, Some(InternalEvent::OutboxChanged));
+        }
+        bus.emit(None, Some(stored(true)));
+        assert_eq!(subscription.drain().len(), 1_001);
     }
 }

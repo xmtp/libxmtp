@@ -25,7 +25,7 @@ use xmtp_proto::types::GroupId;
 
 /// The engine's features: the incoming runtime and identity resolution.
 #[derive(Default, Clone)]
-pub(crate) struct EngineTestFeatures {
+pub struct EngineTestFeatures {
     incoming: Arc<IncomingRuntime>,
     identity_resolutions: Arc<IdentityResolutionRegistry>,
 }
@@ -64,26 +64,33 @@ impl PeerFeatures<PeerApi> for EngineTestFeatures {
 }
 
 /// A mock context with the engine's features.
-pub(crate) type MockEngineContext = MockContext<EngineTestFeatures>;
+pub type MockEngineContext = MockContext<EngineTestFeatures>;
 
 /// A registered installation whose context the engine runs on.
-pub(crate) type EngineTestPeer = TestPeer<EngineTestFeatures>;
-pub(crate) type EngineTestContext = PeerContext<EngineTestFeatures>;
+pub type EngineTestPeer = TestPeer<EngineTestFeatures>;
+/// The context of an `EngineTestPeer`.
+pub type EngineTestContext = PeerContext<EngineTestFeatures>;
 
 /// What a fixture shared by client and peer tests runs on either: the context,
 /// a new group of the caller's inbox, and the caller's Welcomes.
-pub(crate) trait EnginePeer {
+#[allow(async_fn_in_trait)]
+pub trait EnginePeer {
+    /// The context the peer's groups run on.
     type Context: XmtpSharedContext;
+    /// The error group creation returns.
     type Error: std::fmt::Debug;
 
+    /// The context the peer runs on.
     fn context(&self) -> &Self::Context;
 
+    /// A new group of the caller's inbox.
     fn create_group(
         &self,
         policies: Option<PolicySet>,
         opts: Option<GroupMetadataOptions>,
     ) -> Result<MlsGroup<Self::Context>, Self::Error>;
 
+    /// Processes the caller's new Welcomes and returns the joined groups.
     async fn sync_welcomes(&self) -> Result<Vec<MlsGroup<Self::Context>>, GroupError>;
 }
 
@@ -118,10 +125,40 @@ impl EnginePeer for EngineTestPeer {
     }
 }
 
-impl EngineTestPeer {
+/// The client's group operations, run on an `EngineTestPeer`'s context.
+#[allow(async_fn_in_trait)]
+pub trait EngineTestPeerOps {
     /// A group stored with its first add of `inbox_ids`, as
     /// `Client::create_group_with_members` makes it.
-    pub(crate) async fn create_group_with_members(
+    async fn create_group_with_members(
+        &self,
+        inbox_ids: &[impl AsIdRef],
+        policies: Option<PolicySet>,
+        opts: Option<GroupMetadataOptions>,
+    ) -> Result<MlsGroup<EngineTestContext>, GroupError>;
+
+    /// The active DM with `inbox_id`, or a new one with the peer added, as
+    /// `Client::find_or_create_dm` returns it.
+    async fn find_or_create_dm(
+        &self,
+        inbox_id: impl AsIdRef,
+        opts: Option<DMMetadataOptions>,
+    ) -> Result<MlsGroup<EngineTestContext>, GroupError>;
+
+    /// The stored group with `group_id`.
+    fn group(&self, group_id: &GroupId) -> Result<MlsGroup<EngineTestContext>, GroupError>;
+
+    /// The stored groups that match `args`.
+    fn find_groups(
+        &self,
+        args: GroupQueryArgs,
+    ) -> Result<Vec<MlsGroup<EngineTestContext>>, GroupError>;
+}
+
+impl EngineTestPeerOps for EngineTestPeer {
+    /// A group stored with its first add of `inbox_ids`, as
+    /// `Client::create_group_with_members` makes it.
+    async fn create_group_with_members(
         &self,
         inbox_ids: &[impl AsIdRef],
         policies: Option<PolicySet>,
@@ -167,7 +204,7 @@ impl EngineTestPeer {
 
     /// The active DM with `inbox_id`, or a new one with the peer added, as
     /// `Client::find_or_create_dm` returns it.
-    pub(crate) async fn find_or_create_dm(
+    async fn find_or_create_dm(
         &self,
         inbox_id: impl AsIdRef,
         opts: Option<DMMetadataOptions>,
@@ -204,14 +241,13 @@ impl EngineTestPeer {
         Ok(group)
     }
 
-    pub(crate) fn group(
-        &self,
-        group_id: &GroupId,
-    ) -> Result<MlsGroup<EngineTestContext>, GroupError> {
+    /// The stored group with `group_id`.
+    fn group(&self, group_id: &GroupId) -> Result<MlsGroup<EngineTestContext>, GroupError> {
         Ok(MlsGroup::load_by_id(&self.context, group_id)?)
     }
 
-    pub(crate) fn find_groups(
+    /// The stored groups that match `args`.
+    fn find_groups(
         &self,
         args: GroupQueryArgs,
     ) -> Result<Vec<MlsGroup<EngineTestContext>>, GroupError> {

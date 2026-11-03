@@ -169,7 +169,7 @@ where
             created_at_ns,
             mutex: mutexes.get_mutex(group_id),
             context: context.clone(),
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-hooks"))]
             mls_commit_lock: Arc::clone(context.mls_commit_lock()),
         }
     }
@@ -186,10 +186,12 @@ where
         .map(TransactionOutcome::into_continued)
     }
 
-    // Test fixtures can deliberately retain an MLS object to construct stale state.
-    #[cfg(test)]
+    /// Runs `operation` on this group's MLS state, loaded from `storage` while
+    /// holding the group's test commit lock. Test fixtures use it to retain an
+    /// MLS object and construct stale state.
+    #[cfg(any(test, feature = "test-hooks"))]
     #[tracing::instrument(level = "trace", skip_all)]
-    pub(crate) fn load_mls_group_with_lock<F, R>(
+    pub fn load_mls_group_with_lock<F, R>(
         &self,
         storage: &impl XmtpMlsStorageProvider,
         operation: F,
@@ -212,10 +214,12 @@ where
         operation(mls_group)
     }
 
-    // Test fixtures can deliberately retain an MLS object across a network wait.
-    #[cfg(test)]
+    /// Runs `operation` on this group's MLS state while holding the group's
+    /// test commit lock, so a test fixture can retain the MLS object across a
+    /// network wait.
+    #[cfg(any(test, feature = "test-hooks"))]
     #[tracing::instrument(level = "trace", skip(operation))]
-    pub(crate) async fn load_mls_group_with_lock_async<R, E>(
+    pub async fn load_mls_group_with_lock_async<R, E>(
         &self,
         operation: impl AsyncFnOnce(OpenMlsGroup) -> Result<R, E>,
     ) -> Result<R, E>

@@ -5,7 +5,7 @@
 use crate::context::{CoreContext, LocalContext, test_support::TestContextParts};
 use crate::core::policy::StreamPolicy;
 use crate::core::version::VersionInfo;
-use crate::identity::Identity;
+use crate::identity::{Identity, IdentityError};
 use crate::identity_lifecycle::{generate_and_store_key_package, identity_setup};
 use crate::identity_updates::{
     IdentityFeatures, IdentityResolutionRegistry, IdentityUpdateError, IdentityUpdates,
@@ -30,12 +30,16 @@ use xmtp_proto::api_client::{ApiBuilder, ApiStats, XmtpBackendClient, XmtpTestCl
 use xmtp_proto::types::{Cursor, InstallationId, Topic};
 
 /// A peer's backend client: one connection to the local backend.
-pub(crate) type PeerApi = Arc<xmtp_api_backend::TestClient>;
-pub(crate) type PeerStorage = SqlKeyStore<xmtp_db::DefaultDbConnection>;
-pub(crate) type PeerContext<F, A = PeerApi> = Arc<LocalContext<A, DefaultStore, PeerStorage, F>>;
+pub type PeerApi = Arc<xmtp_api_backend::TestClient>;
+/// A peer's MLS key store, on its database.
+pub type PeerStorage = SqlKeyStore<xmtp_db::DefaultDbConnection>;
+/// A peer's context with the feature set `F`, over the backend client `A`.
+pub type PeerContext<F, A = PeerApi> = Arc<LocalContext<A, DefaultStore, PeerStorage, F>>;
 
 /// A feature set built for a peer's context.
-pub(crate) trait PeerFeatures<A>: MaybeSend + MaybeSync + Sized + 'static {
+pub trait PeerFeatures<A>: MaybeSend + MaybeSync + Sized + 'static {
+    /// The feature set of a context over `api` with `policy`, whose own
+    /// inbox's identity updates are stored through `own_inbox_stored_through`.
     fn new(
         api: &ApiClientWrapper<A>,
         policy: &StreamPolicy,
@@ -44,7 +48,7 @@ pub(crate) trait PeerFeatures<A>: MaybeSend + MaybeSync + Sized + 'static {
 }
 
 /// Identity resolution only.
-pub(crate) struct IdentityTestFeatures {
+pub struct IdentityTestFeatures {
     identity_resolutions: Arc<IdentityResolutionRegistry>,
 }
 
@@ -69,16 +73,19 @@ impl<A> PeerFeatures<A> for IdentityTestFeatures {
 }
 
 /// One installation of an inbox whose owner is `owner`.
-pub(crate) struct TestPeer<F, A = PeerApi> {
-    pub(crate) owner: PrivateKeySigner,
-    pub(crate) context: PeerContext<F, A>,
+pub struct TestPeer<F, A = PeerApi> {
+    /// The inbox owner's signer.
+    pub owner: PrivateKeySigner,
+    /// The installation's context.
+    pub context: PeerContext<F, A>,
 }
 
-pub(crate) type IdentityTestPeer = TestPeer<IdentityTestFeatures>;
+/// A peer with identity resolution only.
+pub type IdentityTestPeer = TestPeer<IdentityTestFeatures>;
 
 impl<F: IdentityFeatures + PeerFeatures<PeerApi>> TestPeer<F> {
     /// A registered installation of a new inbox, on an ephemeral database.
-    pub(crate) async fn new() -> Self {
+    pub async fn new() -> Self {
         Self::register(
             generate_local_wallet(),
             xmtp_db::TestDb::create_ephemeral_store().await,
@@ -88,7 +95,7 @@ impl<F: IdentityFeatures + PeerFeatures<PeerApi>> TestPeer<F> {
 
     /// As [`Self::new`], on a database that keeps its rows when the
     /// connection is released and reopened.
-    pub(crate) async fn persistent() -> Self {
+    pub async fn persistent() -> Self {
         Self::register(
             generate_local_wallet(),
             xmtp_db::TestDb::create_persistent_store(None).await,
@@ -97,7 +104,7 @@ impl<F: IdentityFeatures + PeerFeatures<PeerApi>> TestPeer<F> {
     }
 
     /// Another registered installation of this peer's inbox.
-    pub(crate) async fn new_installation(&self) -> Self {
+    pub async fn new_installation(&self) -> Self {
         Self::register(
             self.owner.clone(),
             xmtp_db::TestDb::create_ephemeral_store().await,
@@ -124,13 +131,14 @@ impl<F: IdentityFeatures + PeerFeatures<PeerApi>> TestPeer<F> {
         peer
     }
 
-    pub(crate) fn api_stats(&self) -> ApiStats {
+    /// The backend calls this installation's connection made.
+    pub fn api_stats(&self) -> ApiStats {
         self.context.api().api_client.mls_stats()
     }
 
     /// This installation with the stream policy that `edit` makes, over the
     /// same database and backend connection.
-    pub(crate) async fn with_stream_policy(&self, edit: impl FnOnce(&mut StreamPolicy)) -> Self {
+    pub async fn with_stream_policy(&self, edit: impl FnOnce(&mut StreamPolicy)) -> Self {
         let mut policy = self.context.stream_policy().clone();
         edit(&mut policy);
         self.with_api(
@@ -150,7 +158,7 @@ where
     /// This installation over `api`, with `policy` and, when given,
     /// `verifier`, opened from the stored state as an offline client build
     /// opens it.
-    pub(crate) async fn with_api<B, G>(
+    pub async fn with_api<B, G>(
         &self,
         api: B,
         policy: StreamPolicy,
@@ -171,11 +179,13 @@ where
         .await
     }
 
-    pub(crate) fn inbox_id(&self) -> &str {
+    /// This installation's inbox ID.
+    pub fn inbox_id(&self) -> &str {
         self.context.inbox_id()
     }
 
-    pub(crate) fn installation_public_key(&self) -> InstallationId {
+    /// This installation's public key.
+    pub fn installation_public_key(&self) -> InstallationId {
         self.context.installation_id()
     }
 }
@@ -354,4 +364,16 @@ where
             .clear_registration_cursor(registration.0 as i64)
             .expect("the cleared receipt");
     }
+}
+
+/// Rotates and uploads an installation's key package as the client does,
+/// with the post-quantum wrapper key forced on or off instead of taken from
+/// the build's default.
+pub async fn rotate_and_upload_key_package<A: XmtpApi, S: XmtpMlsStorageProvider>(
+    identity: &Identity,
+    api: &ApiClientWrapper<A>,
+    storage: &S,
+    include_post_quantum: bool,
+) -> Result<(), IdentityError> {
+    super::rotate_and_upload_key_package(identity, api, storage, include_post_quantum).await
 }

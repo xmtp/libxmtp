@@ -4,8 +4,9 @@ use xmtp_proto::xmtp::mls::message_contents::ContentTypeId;
 pub mod decoded_message;
 pub mod enrichment;
 
-#[cfg(test)]
-mod tests;
+#[cfg(any(test, feature = "test-utils"))]
+#[doc(hidden)]
+pub mod test_support;
 
 /// Decode only the content type of encoded content. prost skips the other
 /// fields without copying them, so a payload that holds a device-sync HMAC

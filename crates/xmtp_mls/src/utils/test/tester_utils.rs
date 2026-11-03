@@ -586,9 +586,15 @@ where
     }
 
     #[cfg(all(test, not(target_arch = "wasm32")))]
-    pub fn backend(mut self, backend: &super::backend::EphemeralBackend) -> Self {
+    pub fn backend(self, backend: &super::backend::EphemeralBackend) -> Self {
+        self.backend_url(backend.url())
+    }
+
+    /// Connect to the backend at `url`, such as an ephemeral backend a test
+    /// started.
+    pub fn backend_url(mut self, url: impl Into<String>) -> Self {
         self.api_endpoint = ApiEndpoint::Url {
-            url: backend.url().to_owned(),
+            url: url.into(),
             auth: self.auth_callback.clone(),
         };
         self

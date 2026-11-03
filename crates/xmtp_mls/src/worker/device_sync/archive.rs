@@ -107,6 +107,20 @@ where
     Ok(found)
 }
 
+/// Import archive elements already read, as an archive holding them imports.
+#[cfg(any(test, feature = "test-utils"))]
+#[doc(hidden)]
+pub async fn insert_elements_for_test<S, E>(
+    elements: &mut S,
+    context: &impl XmtpSharedContext,
+) -> Result<(), DeviceSyncError>
+where
+    S: Stream<Item = Result<BackupElement, E>> + Unpin,
+    DeviceSyncError: From<E>,
+{
+    insert_elements(elements, context, ArchivedSelfDeletions::default()).await
+}
+
 // implements: ARCH-027
 async fn insert_elements<S, E>(
     elements: &mut S,
@@ -818,50 +832,6 @@ mod tests {
                 client: Some(ClientEvent::ArchiveRestored(restored)), ..
             }] if restored.complete
         ));
-    }
-
-    /// An import that changes consent wakes the notification runner, which
-    /// removes the topic of the conversation the archive denies.
-    // verifies: PUSH-260
-    #[xmtp_common::test(unwrap_try = true)]
-    async fn archived_consent_wakes_notification_sync() {
-        use crate::task_handlers::MlsTaskHandlers;
-        use crate::worker::{notifications::task_hash, notifications::tests::*, tasks::TaskWorker};
-        use xmtp_common::{StreamHandle, time::Duration, time::timeout, wait_for_eq};
-        let (client, peer) = support::client().await;
-        let group = client.create_group(None, None)?;
-        client.enable_notifications(config()).await?;
-        let mut task_worker = TaskWorker::new(client.context.clone(), MlsTaskHandlers);
-        let runner = xmtp_common::spawn(None, async move { task_worker.run().await });
-        // Wait until the runner is idle, so only a wake runs it within the hour.
-        let idle = || async {
-            let tasks = client.db().get_tasks().unwrap();
-            let task = tasks
-                .iter()
-                .find(|task| task.data_hash == task_hash().as_ref());
-            let soon = xmtp_common::time::now_ns() + xmtp_common::NS_IN_MIN;
-            task.is_some_and(|task| task.next_attempt_at_ns > soon)
-        };
-        timeout(Duration::from_secs(5), wait_for_eq(idle, true)).await??;
-        let topic = xmtp_proto::types::Topic::new_group_message(group.group_id).cloned_vec();
-        let holds = || async { peer.state.lock().subscriptions.contains_key(&topic) };
-        assert!(holds().await);
-
-        let revision = client.context.task_channels().notification_revision();
-        let denied = StoredConsentRecord {
-            entity_type: xmtp_db::consent_record::ConsentType::ConversationId,
-            state: xmtp_db::consent_record::ConsentState::Denied,
-            entity: hex::encode(group.group_id),
-            consented_at_ns: xmtp_common::time::now_ns(),
-            owed_seq: 0,
-        };
-        let mut elements = futures::stream::iter([Ok::<_, std::io::Error>(BackupElement {
-            element: Some(Element::Consent(denied.into())),
-        })]);
-        insert_elements(&mut elements, &client.context, Default::default()).await?;
-        assert!(client.context.task_channels().notification_revision() > revision);
-        timeout(Duration::from_secs(5), wait_for_eq(holds, false)).await??;
-        runner.abort_handle().end();
     }
 
     #[xmtp_common::test(unwrap_try = true)]

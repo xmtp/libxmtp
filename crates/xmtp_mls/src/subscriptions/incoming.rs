@@ -449,8 +449,30 @@ impl IncomingLease {
         }
     }
 
-    #[cfg(test)]
-    pub(crate) fn fail_recovery_for_test(&self, failure: super::recovery::RecoveryFailure) {
+    /// Publish to this lease alone the failure a fresh recovery budget reports
+    /// after `failures` failed attempts during an outage that has lasted
+    /// `outage`. Returns whether that failure is exhaustion; nothing is
+    /// published when the budget still holds.
+    #[cfg(any(test, feature = "test-hooks"))]
+    #[doc(hidden)]
+    pub fn exhaust_recovery_for_test(
+        &self,
+        failures: u64,
+        outage: xmtp_common::time::Duration,
+    ) -> bool {
+        let now = Instant::now();
+        let mut budget = super::recovery::RecoveryBudget::new(
+            &super::recovery::RecoverySnapshot::default(),
+            now,
+        );
+        let snapshot = super::recovery::RecoverySnapshot {
+            failures,
+            ..Default::default()
+        };
+        let Err(failure) = budget.check(&snapshot, now + outage) else {
+            return false;
+        };
+        let exhausted = matches!(failure, super::recovery::RecoveryFailure::Exhausted { .. });
         self.coordinator
             .state
             .consumer_recovery
@@ -460,6 +482,7 @@ impl IncomingLease {
             .snapshot
             .terminal = Some(failure);
         self.coordinator.state.notify();
+        exhausted
     }
 
     /// Read the latest status for this lease's current scope generation.
@@ -519,8 +542,9 @@ impl IncomingLease {
         self.coordinator.state.changed.subscribe()
     }
 
-    #[cfg(test)]
-    pub(crate) fn notify_change_for_test(&self) {
+    /// Wakes every reader that observes this lease's coordinator.
+    #[cfg(any(test, feature = "test-hooks"))]
+    pub fn notify_change_for_test(&self) {
         self.coordinator.state.notify();
     }
 
@@ -676,4 +700,9 @@ mod lease_observer_tests {
         first?;
         second?;
     }
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod tests {
+    mod preflight;
 }
