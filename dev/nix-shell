@@ -11,6 +11,11 @@
 # needs no Nix evaluation. --refresh evaluates again.
 
 set -euo pipefail
+# Cloud snapshots may install Nix without loading shell startup files. Keep the
+# wrapper usable from Droid's non-login commands as well as interactive shells.
+if ! command -v nix >/dev/null 2>&1; then
+  export PATH="$HOME/.nix-profile/bin:/nix/var/nix/profiles/default/bin:$PATH"
+fi
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 shell_name="${NIX_DEVSHELL:-default}"
 refresh=false

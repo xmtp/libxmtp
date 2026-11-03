@@ -84,6 +84,17 @@ class NixWrapperTests(unittest.TestCase):
     def calls(self):
         return self.log.read_text().splitlines() if self.log.exists() else []
 
+    def test_nix_in_user_profile_without_shell_startup(self):
+        home = self.root / "home"
+        profile = home / ".nix-profile/bin"
+        profile.mkdir(parents=True)
+        (self.root / "bin/nix").rename(profile / "nix")
+        self.env["HOME"] = str(home)
+        self.env["PATH"] = "/usr/bin:/bin"
+        result = self.run_wrapper("true")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(len(self.calls()), 1)
+
     def key(self):
         result = self.run_wrapper('printf "%s" "$XMTP_NIX_WRAPPER_ID"')
         self.assertEqual(result.returncode, 0, result.stderr)
