@@ -6,6 +6,11 @@ catalog with `dev/nix-shell 'just --list'`; modules expose their own recipes.
 ## Tooling and CI changes
 
 - `dev/nix-shell 'just lint-config'`: treefmt, CI declaration, release tools.
+- `dev/nix-shell 'just lint-agent-guidance'`: literal paths, Markdown links, and
+  Just recipes in tracked `AGENTS.md` and skill instructions.
+- `dev/nix-shell 'just lint-large-files'`: all tracked files must be at most
+  1 MiB, except the existing diagram explicitly allowed in the script.
+  Both checks also run in `just lint-config` and the Repository lint CI suite.
 - `dev/nix-shell 'just test dev'`: dev scripts, Fly dashboard, release tools.
 - After editing the CI failure filter, also run
   `dev/nix-shell 'python3.11 -B dev/tests/test_ci_failure_markers.py'`.
@@ -18,6 +23,9 @@ module in a separate process. New files there need no recipe edit. The Android
 release regression uses a stub Gradle command and never publishes.
 
 ## Focused lint
+
+Before JS tests, run `dev/nix-shell 'just install-js'`. CLI, web-chat, and docs
+test recipes fail early with this command when their dependencies are missing.
 
 `just lint-js-source` needs no generated SDK products; `just lint-rust-source`
 checks Rust manifests without Clippy. `just lint` runs checks in parallel; use

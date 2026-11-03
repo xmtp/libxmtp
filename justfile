@@ -113,10 +113,18 @@ lint-js-source:
 # Swift), check the CI suite declaration, and lint and type-check
 # dev/release-tools. The release-tools checks run here, so release-tools edits
 # do not select check_types.
-lint-config: _js-deps lint-treefmt version::check
+lint-config: _js-deps lint-treefmt version::check lint-agent-guidance lint-large-files
     python3.11 -B dev/ci-suites check
     pnpm --filter @xmtp/release-tools --fail-if-no-match run typecheck
     pnpm --filter @xmtp/release-tools --fail-if-no-match run lint
+
+# Validate literal source references and recipes in tracked AGENTS.md and skills.
+lint-agent-guidance:
+    python3.11 -B dev/check_agent_guidance.py
+
+# Check all tracked files, including staged additions, with exact asset exceptions.
+lint-large-files:
+    python3.11 -B dev/check_large_files.py
 
 [script("bash")]
 lint-treefmt:

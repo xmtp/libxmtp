@@ -123,10 +123,9 @@ nix develop --show-trace  # Verbose error output
 | `nix/lib/shell-common.nix`        | Shared building blocks (rustBase, wasmEnv, tool groups)        |
 | `nix/lib/mkToolchain.nix`         | Rust version pinning logic                                     |
 | `nix/lib/filesets.nix`            | Source file filtering for hermetic builds                      |
-| `nix/lib/mobile-common.nix`       | Shared mobile (iOS/Android) build args                         |
 | `nix/lib/android-env.nix`         | Android SDK config, targets, emulator script                   |
 | `nix/lib/ios-env.nix`             | iOS targets, dynamic Xcode resolution                          |
-| `nix/lib/node-env.nix`            | Node targets, NAPI name mapping, cross-compilation             |
+| `nix/lib/napiTarget.nix`          | Rust target triple to NAPI target name mapping                 |
 | `nix/lib/packages/pnpm.nix`       | Workspace pnpm package; version comes from root `package.json` |
 | `nix/shells/rust.nix`             | Rust core shell (also `wasm`)                                  |
 | `nix/shells/local.nix`            | Local dev shell (`default`, also `ios`)                        |

@@ -95,7 +95,8 @@ web_modules/
 
 # dotenv environment variables file
 .env
-.env.test
+.env.*
+!.env.example
 
 # Generated per worktree by dev/worktree-env.
 dev/docker/.env
