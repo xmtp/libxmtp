@@ -16,6 +16,11 @@ use std::sync::Arc;
 use xmtp_db::tasks::{NewTask, QueryTasks, data_hash_for};
 use xmtp_proto::xmtp::mls::database::{Task as TaskProto, task::Task as TaskKind};
 
+/// The rejection a rate-limited publish gets from the backend.
+fn rate_limited_rejection(delay: xmtp_common::time::Duration) -> tonic::Status {
+    xmtp_api_grpc::error::rate_limited_status("publish", delay)
+}
+
 fn rate_limited(delay: xmtp_common::time::Duration) -> xmtp_api::ApiError {
     xmtp_api::dyn_err(xmtp_proto::api::ApiClientError::client(
         xmtp_api_grpc::error::GrpcError::Status(xmtp_api_grpc::error::rate_limited_status(
@@ -193,7 +198,11 @@ async fn a_rate_limited_task_waits_the_delay_from_the_rejection() {
     // Longer than the default 3 s first backoff, so only the rejection
     // instant, not the turn's start, gives the bound below.
     let delay = Duration::from_secs(5);
-    test_hooks::set_rate_limit_override(Some((hash.to_vec(), Duration::from_millis(300), delay)));
+    test_hooks::set_rate_limit_override(Some((
+        hash.to_vec(),
+        Duration::from_millis(300),
+        rate_limited_rejection(delay),
+    )));
     run_and_reschedule_task(&TaskWorker::new(alix.context.clone(), MlsTaskHandlers), row).await?;
     test_hooks::set_rate_limit_override(None);
     let refused = xmtp_common::time::now_ns();
@@ -241,7 +250,11 @@ async fn a_rate_limit_delay_does_not_expire_the_task() {
     let expires = now + xmtp_common::NS_IN_HOUR;
     let row = seed(&db, proto, now - 1, expires, 0, i32::MAX);
     let delay = Duration::from_secs(2 * 60 * 60);
-    test_hooks::set_rate_limit_override(Some((hash.to_vec(), Duration::ZERO, delay)));
+    test_hooks::set_rate_limit_override(Some((
+        hash.to_vec(),
+        Duration::ZERO,
+        rate_limited_rejection(delay),
+    )));
     run_and_reschedule_task(&TaskWorker::new(alix.context.clone(), MlsTaskHandlers), row).await?;
     test_hooks::set_rate_limit_override(None);
     let held = db
@@ -271,7 +284,7 @@ async fn a_rate_limited_turn_keeps_the_tasks_attempts() {
     test_hooks::set_rate_limit_override(Some((
         hash.to_vec(),
         Duration::ZERO,
-        Duration::from_millis(1),
+        rate_limited_rejection(Duration::from_millis(1)),
     )));
     run_and_reschedule_task(&TaskWorker::new(alix.context.clone(), MlsTaskHandlers), row).await?;
     let task = || {
@@ -308,7 +321,11 @@ async fn a_rate_limited_task_whose_hold_is_not_stored_holds_the_restart() {
     let hash = data_hash_for(&proto);
     let row = seed(&db, proto, now - 1, i64::MAX, 0, 20);
     let delay = Duration::from_secs(5 * 60);
-    test_hooks::set_rate_limit_override(Some((hash.to_vec(), Duration::ZERO, delay)));
+    test_hooks::set_rate_limit_override(Some((
+        hash.to_vec(),
+        Duration::ZERO,
+        rate_limited_rejection(delay),
+    )));
     crate::worker::tasks::test_hooks::fail_next_reschedule();
     let result =
         run_and_reschedule_task(&TaskWorker::new(alix.context.clone(), MlsTaskHandlers), row).await;

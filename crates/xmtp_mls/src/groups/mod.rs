@@ -33,6 +33,9 @@ pub(crate) mod targets;
 #[cfg(any(test, feature = "test-utils"))]
 #[doc(hidden)]
 pub mod test_support;
+#[cfg(any(test, feature = "test-hooks"))]
+#[doc(hidden)]
+pub use mls_sync::test_mocks;
 #[cfg(test)]
 mod tests;
 mod traits;
