@@ -44,6 +44,7 @@ class DroidSetupTests(unittest.TestCase):
         self.write_tool(
             self.root / "dev/nix-shell",
             'printf "shell %s\\n" "$*" >> "$SETUP_LOG"\n'
+            'if [ "${FAIL_CHECK:-}" = 1 ] && [ "$1" = "just check" ]; then exit 43; fi\n'
             'if [ -n "${FAIL_SHELL:-}" ] && [ "$FAIL_SHELL" = "${2:-}" ]; then exit 42; fi\n',
         )
         self.installer = self.root / "installer"
@@ -93,6 +94,7 @@ class DroidSetupTests(unittest.TestCase):
         self.assertIn("build-users-group =", calls)
         for shell in ("default", "rust", "js"):
             self.assertEqual(calls.count(f"shell --shell {shell} true\n"), 2)
+        self.assertEqual(calls.count("shell just check\n"), 2)
         conf = (config / "nix.conf").read_text()
         self.assertIn("# existing configuration", conf)
         self.assertEqual(conf.count("include "), 1)
@@ -112,6 +114,13 @@ class DroidSetupTests(unittest.TestCase):
         self.assertEqual(result.returncode, 42, result.stderr)
         self.assertNotIn("install ", self.log.read_text())
         self.assertNotIn("shell --shell js", self.log.read_text())
+        self.assertNotIn("ready for snapshotting", result.stdout)
+
+    def test_failed_cargo_check_prevents_snapshot_success(self):
+        self.env["FAIL_CHECK"] = "1"
+        result = self.run_setup()
+        self.assertEqual(result.returncode, 43, result.stderr)
+        self.assertIn("shell just check\n", self.log.read_text())
         self.assertNotIn("ready for snapshotting", result.stdout)
 
 

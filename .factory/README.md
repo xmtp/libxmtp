@@ -15,11 +15,15 @@ and available in the revision cloned by the Environment builder.
 
 The script installs single-user Nix if missing, enables flakes, configures the
 public `xmtp.cachix.org` cache and signing key, and downloads/builds the `default`,
-`rust`, and `js` shell closures. `dev/nix-shell` keeps them GC-rooted. The resulting
-snapshot includes `/nix/store`, Nix configuration, and cached shell environments,
-so new sessions do not repeat the installation or shell downloads. No Cachix
-token or runtime secret is needed. Rerunning the script reuses the store and does
-not duplicate configuration. Use the same OS user for setup and sessions.
+`rust`, and `js` shell closures. `dev/nix-shell` keeps them GC-rooted. It then runs
+`dev/nix-shell 'just check'` (`cargo check --locked` for the default workspace
+members), warming Cargo's dependency downloads, the checkout's `target` directory,
+and the compiler cache. A failed check fails the Environment build.
+The resulting snapshot includes `/nix/store`, Nix configuration, cached shell
+environments, and Cargo caches, so new sessions can reuse the prepared tools and
+build state. No Cachix token or runtime secret is needed. Rerunning the script
+reuses the store and does not duplicate configuration. Use the same OS user for
+setup and sessions.
 
 Wait for the build to become **Ready**, then launch a new instance from it. Verify:
 
@@ -32,11 +36,14 @@ Always use `dev/nix-shell` for repository commands. It finds Nix even in non-log
 shells. A new worktree can regenerate the small environment cache from the store
 without downloading unchanged shell dependencies.
 
-This preloads development tools, not Cargo build artifacts, pnpm dependencies,
-Android SDKs, or every artifact published to Cachix. Changed Nix inputs and other
-shells can still require downloads. Rebuild the Environment after changes to
-`flake.lock`, shell definitions, or this setup script; existing instances do not
-receive snapshot updates.
+This preloads development tools and Cargo check artifacts, not test/release
+artifacts, pnpm dependencies, Android SDKs, or every artifact published to Cachix.
+New worktrees have separate target directories; they share Cargo downloads and
+the compiler cache, not the original checkout's target directory. Changed source,
+features, targets, or Nix inputs may still require compilation or downloads.
+Rebuild the Environment after changes to `Cargo.lock`, `flake.lock`, shell
+definitions, or this setup script; existing instances do not receive snapshot
+updates. The first build takes longer because it checks the Rust workspace.
 
 Backend tests still require a working Docker daemon and
 `dev/nix-shell 'just backend up'` in each running instance. Setup does not start

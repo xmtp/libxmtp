@@ -79,4 +79,8 @@ for shell in default rust js; do
   dev/nix-shell --shell "$shell" 'true'
 done
 dev/nix-shell 'rustc --version; cargo --version; node --version; pnpm --version; just --version'
-echo 'Nix and the default, Rust, and JavaScript shell closures are ready for snapshotting.'
+# Check the default workspace members with the locked dependencies. Keep Cargo's
+# downloads, target directory, and compiler cache in the snapshot for reuse.
+echo 'Warming Cargo dependencies and build caches with a locked cargo check'
+dev/nix-shell 'just check'
+echo 'Nix shell closures and Cargo caches are ready for snapshotting.'
