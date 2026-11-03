@@ -480,7 +480,10 @@ where
                 let next_attempt_duration = next_attempt_at_ns.saturating_sub(finished);
                 tracing::warn!(%error, "Task {} retry failed. Retrying in {next_attempt_duration}ns", task.id);
                 #[cfg(any(test, feature = "test-hooks"))]
-                let stored = if test_hooks::take_reschedule_failure() {
+                let fail_reschedule = test_hooks::take_reschedule_failure();
+                #[cfg(not(any(test, feature = "test-hooks")))]
+                let fail_reschedule = false;
+                let stored = if fail_reschedule {
                     Err(StorageError::DieselResult(
                         diesel::result::Error::BrokenTransactionManager,
                     ))
@@ -493,14 +496,6 @@ where
                         expires_at_ns,
                     )
                 };
-                #[cfg(not(any(test, feature = "test-hooks")))]
-                let stored = context.db().update_task_and_expiry(
-                    task.id,
-                    attempts,
-                    now,
-                    next_attempt_at_ns,
-                    expires_at_ns,
-                );
                 match stored {
                     Ok(_) => {}
                     // The row was concurrently deleted (e.g. a dead-row cleanup in
