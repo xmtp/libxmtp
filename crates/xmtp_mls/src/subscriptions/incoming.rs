@@ -95,8 +95,6 @@ pub struct IncomingRuntime {
     pub(crate) rejected_requests: RejectedRequests,
     /// A new controller on this client cannot send inside a rate-limit delay.
     pub(crate) rate_limit_hold: SharedRateLimitHold,
-    /// A closed reader whose owner token must be released after storage repair.
-    pub(crate) retired_delivery_owner: Mutex<Option<xmtp_db::delivery::DeliveryOwner>>,
 }
 
 impl IncomingRuntime {
@@ -112,7 +110,6 @@ impl IncomingRuntime {
             coordinator: Mutex::new(None),
             rejected_requests: Arc::new(Mutex::new(Vec::new())),
             rate_limit_hold: Arc::default(),
-            retired_delivery_owner: Mutex::new(None),
         }
     }
 

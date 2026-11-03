@@ -169,6 +169,9 @@ pub struct LocalContext<ApiClient, Db, S, F> {
     pub registration_event_pending: Arc<AtomicBool>,
     /// The delivery ownership this client holds, if any.
     pub delivery_owner: Arc<Mutex<Option<xmtp_db::delivery::DeliveryOwner>>>,
+    /// A closed reader's delivery ownership whose release failed, kept until a
+    /// storage repair releases it. Lock it only while holding `delivery_owner`.
+    pub retired_delivery_owner: Arc<Mutex<Option<xmtp_db::delivery::DeliveryOwner>>>,
     /// Verifies smart contract wallet signatures.
     pub scw_verifier: Arc<Box<dyn SmartContractSignatureVerifier>>,
     /// Device sync settings.
@@ -247,6 +250,7 @@ impl<ApiClient, Db, S, F> LocalContext<ApiClient, Db, S, F> {
             public_event_writer: self.public_event_writer,
             registration_event_pending: self.registration_event_pending,
             delivery_owner: self.delivery_owner,
+            retired_delivery_owner: self.retired_delivery_owner,
             scw_verifier: self.scw_verifier,
             device_sync: self.device_sync,
             fork_recovery_opts: self.fork_recovery_opts,
@@ -395,6 +399,10 @@ where
     fn public_event_writer(&self) -> &Arc<dyn EventWriter<()>>;
     /// This context's default-consumer token; the database is the ownership authority.
     fn delivery_owner(&self) -> &Mutex<Option<xmtp_db::delivery::DeliveryOwner>>;
+    /// A closed reader's delivery ownership whose release failed, kept until a
+    /// storage repair releases it. Lock it only while holding
+    /// [`Self::delivery_owner`].
+    fn retired_delivery_owner(&self) -> &Mutex<Option<xmtp_db::delivery::DeliveryOwner>>;
 
     /// Release this context's message consumer before disconnecting its database.
     fn close_message_delivery(&self) -> Result<(), xmtp_db::StorageError> {
@@ -518,6 +526,10 @@ where
 
     fn delivery_owner(&self) -> &Mutex<Option<xmtp_db::delivery::DeliveryOwner>> {
         &self.delivery_owner
+    }
+
+    fn retired_delivery_owner(&self) -> &Mutex<Option<xmtp_db::delivery::DeliveryOwner>> {
+        &self.retired_delivery_owner
     }
 
     #[cfg(any(test, feature = "test-hooks"))]
@@ -654,6 +666,10 @@ where
 
     fn delivery_owner(&self) -> &Mutex<Option<xmtp_db::delivery::DeliveryOwner>> {
         <T as CoreContext>::delivery_owner(self)
+    }
+
+    fn retired_delivery_owner(&self) -> &Mutex<Option<xmtp_db::delivery::DeliveryOwner>> {
+        <T as CoreContext>::retired_delivery_owner(self)
     }
 
     #[cfg(any(test, feature = "test-hooks"))]

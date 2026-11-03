@@ -758,6 +758,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             shutdown_complete: Arc::new(AtomicBool::new(false)),
             foreground_calls: Default::default(),
             delivery_owner: Default::default(),
+            retired_delivery_owner: Default::default(),
             features: crate::features::MlsFeatures {
                 attachments,
                 incoming: Arc::new(incoming_runtime),

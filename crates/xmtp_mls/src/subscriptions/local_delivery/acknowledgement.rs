@@ -93,11 +93,7 @@ impl<Context: XmtpSharedContext> DeliverySession<Context> {
                 }
                 Err(error) => {
                     if *registered == Some(owner) {
-                        *self
-                            .context
-                            .incoming_runtime()
-                            .retired_delivery_owner
-                            .lock() = Some(owner);
+                        *self.context.retired_delivery_owner().lock() = Some(owner);
                     }
                     tracing::warn!(%error, "Failed to release the message delivery owner")
                 }
