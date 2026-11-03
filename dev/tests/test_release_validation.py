@@ -113,6 +113,14 @@ class ReleaseValidation(unittest.TestCase):
 
     def test_shared_planning_materialization_and_retained_identity(self):
         self.assertEqual(self.version("check").stdout.strip(), self.target)
+        for sdk in ("agent-sdk", "cli"):
+            path = self.checkout / PACKAGES[sdk]
+            original = path.read_text()
+            package = json.loads(original)
+            package["dependencies"]["@xmtp/node-sdk"] = "workspace:^"
+            path.write_text(json.dumps(package))
+            self.version("check", error="@xmtp/node-sdk must be workspace:*")
+            path.write_text(original)
         steps = self.workflow["jobs"]["validate"]["steps"]
         planner = next(step for step in steps if step.get("id") == "versions")
         plans = {}

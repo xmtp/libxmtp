@@ -10,7 +10,6 @@ export const SDK_CONFIGS: Record<Sdk, SdkConfig> = {
   [Sdk.Ios]: {
     name: "iOS",
     manifestPath: "Cargo.toml",
-    spmManifestPath: "Package.swift",
     tagPrefix: "ios-",
     artifactTagSuffix: "-libxmtp",
     manifest: createCargoManifestProvider("Cargo.toml"),

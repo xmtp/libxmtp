@@ -1,6 +1,6 @@
 # release-tools
 
-A TypeScript CLI for automating SDK release workflows in the libxmtp monorepo — versioning, tagging, release notes, and SPM checksums.
+A TypeScript CLI for automating release workflows in the libxmtp monorepo — versioning, tagging, and release notes.
 
 ## Setup
 
@@ -23,11 +23,11 @@ workflows in `.github/workflows` call the other commands; run
 
 ### `compute-version`
 
-Compute a backend release label. Backend uses `--base-version` for its branch label. SDK and CLI workflows use the frozen Python plan instead of this legacy formatter.
+Compute a backend release label. Backend uses `--base-version` for its branch label. This command accepts only `libxmtp`; SDK and CLI releases use the frozen `dev/sdk_version.py` plan.
 
 | Flag             | Type                     | Required | Description                                                                 |
 | ---------------- | ------------------------ | -------- | --------------------------------------------------------------------------- |
-| `--sdk`          | string                   | yes      | SDK name                                                                    |
+| `--sdk`          | `libxmtp`                | yes      | Backend                                                                     |
 | `--release-type` | `dev` \| `rc` \| `final` | yes      | Release type                                                                |
 | `--rc-number`    | number                   | for `rc` | RC number                                                                   |
 | `--base-version` | string                   | no       | Override the manifest base; backend releases use the release branch version |
