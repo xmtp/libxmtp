@@ -12,7 +12,7 @@ use xmtp_mls_core::identity::{Identity, IdentityError};
 use xmtp_proto::api_client::XmtpApi;
 
 /**
- * The identity strategy determines how the [`ClientBuilder`](crate::builder::ClientBuilder) constructs an identity on startup.
+ * The identity strategy determines how the `xmtp_mls::builder::ClientBuilder` constructs an identity on startup.
  *
  * [`IdentityStrategy::CreateIfNotFound`] will attempt to create a new identity if one isn't found in the store.
  * This is the default behavior.
