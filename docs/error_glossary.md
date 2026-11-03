@@ -4,7 +4,7 @@
 
 This document lists all error codes defined in LibXMTP, the core library underlying the XMTP SDKs. Each error code is a unique identifier returned to help diagnose issues.
 
-**43 error types** across **12 crates** with **446 total error codes**.
+**43 error types** across **14 crates** with **446 total error codes**.
 
 ## xmtp_api
 
@@ -555,64 +555,6 @@ Stable failure categories. Inner causes remain available to Rust callers.
 | `GroupError::UninitializedField` | Uninitialized field. Builder field not initialized. Not retryable. |
 | `GroupError::DeleteMessage` | Delete message error. Failed to delete message. Retryable only while the message is being published. |
 
-### HandleError <sub>enum</sub>
-
-<small>`crates/xmtp_mls/src/inbox_handles.rs`</small>
-
-A handle operation that the client refuses.
-
-| Error Code | Description |
-|:-----------|:------------|
-| `HandleError::NotFound` | No inbox holds the handle. Either the backend names no inbox for it, or the inbox it names does not hold the handle in any state the client derived from that inbox's log. Not retryable. |
-| `HandleError::LimitReached` | The inbox has made the most handle claims its identity log can hold, so a validator rejects another. Not retryable. |
-
-### IdentityError <sub>enum</sub>
-
-<small>`crates/xmtp_mls/src/identity.rs`</small>
-
-| Error Code | Description |
-|:-----------|:------------|
-| `IdentityError::CredentialSerialization` | Credential serialization error. Failed to encode MLS credential. Not retryable. |
-| `IdentityError::Decode` | Decode error. Protobuf decoding failed. Not retryable. |
-| `IdentityError::InstallationIdNotFound` | Installation not found. Installation ID not found in network association state. Not retryable. |
-| `IdentityError::BasicCredential` | Basic credential error. MLS basic credential validation failed. Not retryable. |
-| `IdentityError::UninitializedIdentity` | Uninitialized identity. Identity not yet initialized. Not retryable. |
-| `IdentityError::InstallationKey` | Installation key error. Problem with installation key. Not retryable. |
-| `IdentityError::Crypto` | Crypto error. Cryptographic operation failed. Not retryable. |
-| `IdentityError::OpenMls` | OpenMLS error. OpenMLS library error. Not retryable. |
-| `IdentityError::KeyPackageGenerationError` | Key package generation error. Failed to generate MLS key package. Not retryable. |
-| `IdentityError::InboxIdMismatch` | Inbox ID mismatch. Associated InboxID does not match stored value. Not retryable. |
-| `IdentityError::IdentifierNotInInbox` | Identifier not in inbox. The identifier does not belong to the inbox of the stored identity. Not retryable. |
-| `IdentityError::NoAssociatedInboxId` | No associated Inbox ID. Address has no associated InboxID. Not retryable. |
-| `IdentityError::RequiredIdentityNotFound` | Required identity not found. Identity was not found in cache. Not retryable. |
-| `IdentityError::NewIdentity` | New identity creation error. Error creating a new identity. Not retryable. |
-| `IdentityError::Signer` | Signer error. Cryptographic signer failed. Not retryable. |
-| `IdentityError::TooManyInstallations` | Too many installations. InboxID has reached max installation count. Not retryable. |
-| `IdentityError::InvalidExtension` | Invalid extension error. MLS extension validation failed. Not retryable. |
-| `IdentityError::MissingPostQuantumPublicKey` | Missing PQ public key. Post-quantum public key not found. Not retryable. |
-| `IdentityError::UninitializedField` | Uninitialized field. Builder field not initialized. Not retryable. |
-
-### IdentityUpdateError <sub>enum</sub>
-
-<small>`crates/xmtp_mls/src/identity_updates.rs`</small>
-
-A failure to read, verify, build, or publish identity updates.
-
-| Error Code | Description |
-|:-----------|:------------|
-| `IdentityUpdateError::InvalidSignatureRequest` | Signature request error. The signature request is incomplete, or asks for more actions than one identity update may carry. Not retryable. |
-| `IdentityUpdateError::Api` | API error. Network request to XMTP backend failed. Retryable when the request is. |
-| `IdentityUpdateError::Validation` | Validation error. The identity update did not validate against its history. Not retryable. |
-| `IdentityUpdateError::Storage` | Storage error. Database operation failed. May be retryable. |
-| `IdentityUpdateError::Db` | Database connection error. Connection to database failed. Retryable. |
-| `IdentityUpdateError::Association` | Association error. Identity association operation failed. Not retryable. |
-| `IdentityUpdateError::SignatureValidation` | Signature validation error. A signature failed verification. Retryable when the verifier failed transiently. |
-| `IdentityUpdateError::Identity` | Identity error. Problem with identity operations. Not retryable. |
-| `IdentityUpdateError::Conversion` | Conversion error. Data type failed to convert. Not retryable. |
-| `IdentityUpdateError::InboxNotFound` | Inbox not found. The backend holds no identity update for the inbox. Not retryable. |
-| `IdentityUpdateError::EmptyIdentityLog` | Empty identity log. The inbox's identity updates produced no association state. Not retryable. |
-| `IdentityUpdateError::Publish` | Publish failed. Publishing a signed identity update failed after its conflict retries. Not retryable: the caller signs and applies a new request. |
-
 ### LocalDeliveryError <sub>enum</sub>
 
 <small>`crates/xmtp_mls/src/subscriptions/local_delivery/types.rs`</small>
@@ -667,11 +609,39 @@ Errors use fixed messages and never include notification credentials.
 | `SubscribeError::Enriched` | Enriched Message Error. |
 | `SubscribeError::StreamStale` | Stream liveness watchdog tripped. No activity arrived within the idle timeout, so the stream was terminated to force a reconnect (resuming from the persisted cursor). Retryable. |
 
-## xmtp_mls_common
+## xmtp_mls_core
+
+### IdentityError <sub>enum</sub>
+
+<small>`crates/xmtp_mls_core/src/identity.rs`</small>
+
+| Error Code | Description |
+|:-----------|:------------|
+| `IdentityError::CredentialSerialization` | Credential serialization error. Failed to encode MLS credential. Not retryable. |
+| `IdentityError::Decode` | Decode error. Protobuf decoding failed. Not retryable. |
+| `IdentityError::InstallationIdNotFound` | Installation not found. Installation ID not found in network association state. Not retryable. |
+| `IdentityError::BasicCredential` | Basic credential error. MLS basic credential validation failed. Not retryable. |
+| `IdentityError::UninitializedIdentity` | Uninitialized identity. Identity not yet initialized. Not retryable. |
+| `IdentityError::InstallationKey` | Installation key error. Problem with installation key. Not retryable. |
+| `IdentityError::Crypto` | Crypto error. Cryptographic operation failed. Not retryable. |
+| `IdentityError::OpenMls` | OpenMLS error. OpenMLS library error. Not retryable. |
+| `IdentityError::KeyPackageGenerationError` | Key package generation error. Failed to generate MLS key package. Not retryable. |
+| `IdentityError::InboxIdMismatch` | Inbox ID mismatch. Associated InboxID does not match stored value. Not retryable. |
+| `IdentityError::IdentifierNotInInbox` | Identifier not in inbox. The identifier does not belong to the inbox of the stored identity. Not retryable. |
+| `IdentityError::NoAssociatedInboxId` | No associated Inbox ID. Address has no associated InboxID. Not retryable. |
+| `IdentityError::RequiredIdentityNotFound` | Required identity not found. Identity was not found in cache. Not retryable. |
+| `IdentityError::NewIdentity` | New identity creation error. Error creating a new identity. Not retryable. |
+| `IdentityError::Signer` | Signer error. Cryptographic signer failed. Not retryable. |
+| `IdentityError::TooManyInstallations` | Too many installations. InboxID has reached max installation count. Not retryable. |
+| `IdentityError::InvalidExtension` | Invalid extension error. MLS extension validation failed. Not retryable. |
+| `IdentityError::MissingPostQuantumPublicKey` | Missing PQ public key. Post-quantum public key not found. Not retryable. |
+| `IdentityError::UninitializedField` | Uninitialized field. Builder field not initialized. Not retryable. |
+
+## xmtp_mls_group_state
 
 ### GroupMetadataError <sub>enum</sub>
 
-<small>`crates/xmtp_mls_common/src/group_metadata.rs`</small>
+<small>`crates/xmtp_mls_group_state/src/group_metadata.rs`</small>
 
 | Error Code | Description |
 |:-----------|:------------|
@@ -681,6 +651,40 @@ Errors use fixed messages and never include notification credentials.
 | `GroupMetadataError::MissingExtension` | Missing extension. Immutable metadata MLS extension not found. Not retryable. |
 | `GroupMetadataError::InvalidDmMembers` | Invalid DM members. DM member data is invalid. Not retryable. |
 | `GroupMetadataError::MissingDmMember` | Missing DM member. A DM member field is not set. Not retryable. |
+
+## xmtp_mls_identity
+
+### HandleError <sub>enum</sub>
+
+<small>`crates/xmtp_mls_identity/src/inbox_handles.rs`</small>
+
+A handle operation that the client refuses.
+
+| Error Code | Description |
+|:-----------|:------------|
+| `HandleError::NotFound` | No inbox holds the handle. Either the backend names no inbox for it, or the inbox it names does not hold the handle in any state the client derived from that inbox's log. Not retryable. |
+| `HandleError::LimitReached` | The inbox has made the most handle claims its identity log can hold, so a validator rejects another. Not retryable. |
+
+### IdentityUpdateError <sub>enum</sub>
+
+<small>`crates/xmtp_mls_identity/src/identity_updates.rs`</small>
+
+A failure to read, verify, build, or publish identity updates.
+
+| Error Code | Description |
+|:-----------|:------------|
+| `IdentityUpdateError::InvalidSignatureRequest` | Signature request error. The signature request is incomplete, or asks for more actions than one identity update may carry. Not retryable. |
+| `IdentityUpdateError::Api` | API error. Network request to XMTP backend failed. Retryable when the request is. |
+| `IdentityUpdateError::Validation` | Validation error. The identity update did not validate against its history. Not retryable. |
+| `IdentityUpdateError::Storage` | Storage error. Database operation failed. May be retryable. |
+| `IdentityUpdateError::Db` | Database connection error. Connection to database failed. Retryable. |
+| `IdentityUpdateError::Association` | Association error. Identity association operation failed. Not retryable. |
+| `IdentityUpdateError::SignatureValidation` | Signature validation error. A signature failed verification. Retryable when the verifier failed transiently. |
+| `IdentityUpdateError::Identity` | Identity error. Problem with identity operations. Not retryable. |
+| `IdentityUpdateError::Conversion` | Conversion error. Data type failed to convert. Not retryable. |
+| `IdentityUpdateError::InboxNotFound` | Inbox not found. The backend holds no identity update for the inbox. Not retryable. |
+| `IdentityUpdateError::EmptyIdentityLog` | Empty identity log. The inbox's identity updates produced no association state. Not retryable. |
+| `IdentityUpdateError::Publish` | Publish failed. Publishing a signed identity update failed after its conflict retries. Not retryable: the caller signs and applies a new request. |
 
 ## xmtp_mls_messages
 

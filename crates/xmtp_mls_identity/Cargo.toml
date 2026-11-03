@@ -54,6 +54,7 @@ xmtp_mls_core.workspace = true
 xmtp_mls_server_config.workspace = true
 xmtp_mls_validation.workspace = true
 xmtp_proto.workspace = true
+xmtp-workspace-hack.workspace = true
 
 [dev-dependencies]
 diesel = { workspace = true, features = ["sqlite"] }
