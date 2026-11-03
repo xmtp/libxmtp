@@ -15,8 +15,8 @@ describe("scaffold → classify end-to-end", () => {
     // Create iOS SDK structure
     fs.mkdirSync(path.join(tmpDir, "sdks/ios"), { recursive: true });
     fs.writeFileSync(
-      path.join(tmpDir, "sdks/ios/XMTP.podspec"),
-      `Pod::Spec.new do |spec|\n  spec.version      = "2.0.0"\nend\n`,
+      path.join(tmpDir, "Cargo.toml"),
+      `[workspace.package]\nversion = "2.0.0"\n`,
     );
     // Create Android SDK structure
     fs.mkdirSync(path.join(tmpDir, "sdks/android"), { recursive: true });

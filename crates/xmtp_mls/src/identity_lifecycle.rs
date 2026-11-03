@@ -26,10 +26,13 @@ use xmtp_id::{
     associations::{MemberIdentifier, builder::SignatureRequestBuilder},
 };
 
-#[cfg(any(test, feature = "test-utils"))]
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod strategy_tests;
+#[cfg(any(test, feature = "test-hooks"))]
 pub mod test_mocks;
-#[cfg(test)]
-pub(crate) mod test_support;
+#[cfg(any(test, feature = "test-utils"))]
+#[doc(hidden)]
+pub mod test_support;
 
 /// The identity strategy of a test client: nonce 1 of the owner's identifier.
 #[cfg(any(test, feature = "test-utils"))]

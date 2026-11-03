@@ -30,8 +30,12 @@ pub mod send_message_opts;
 pub(super) mod subscriptions;
 pub mod summary;
 pub(crate) mod targets;
-#[cfg(test)]
-pub(crate) mod test_support;
+#[cfg(any(test, feature = "test-utils"))]
+#[doc(hidden)]
+pub mod test_support;
+#[cfg(any(test, feature = "test-hooks"))]
+#[doc(hidden)]
+pub use mls_sync::test_mocks;
 #[cfg(test)]
 mod tests;
 mod traits;
@@ -52,7 +56,7 @@ use self::{
     },
 };
 use crate::context::XmtpSharedContext;
-#[cfg(test)]
+#[cfg(any(test, feature = "test-hooks"))]
 use crate::core::commit_lock::GroupCommitLock;
 use crate::groups::message_id::{calculate_message_id, decode_message_reference};
 use crate::groups::send_message_opts::SendMessageOpts;
@@ -162,7 +166,7 @@ pub struct MlsGroup<Context> {
     pub conversation_type: ConversationType,
     pub created_at_ns: i64,
     pub context: Context,
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-hooks"))]
     mls_commit_lock: Arc<GroupCommitLock>,
     mutex: Arc<Mutex<()>>,
 }
@@ -222,7 +226,7 @@ impl<Context: XmtpSharedContext> Clone for MlsGroup<Context> {
             created_at_ns: self.created_at_ns,
             context: self.context.clone(),
             mutex: self.mutex.clone(),
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-hooks"))]
             mls_commit_lock: self.mls_commit_lock.clone(),
         }
     }
@@ -366,7 +370,7 @@ impl<Context: Clone> From<MlsGroup<&Context>> for MlsGroup<Context> {
             group_id: group.group_id,
             dm_id: group.dm_id,
             created_at_ns: group.created_at_ns,
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-hooks"))]
             mls_commit_lock: group.mls_commit_lock,
             mutex: group.mutex,
             conversation_type: group.conversation_type,

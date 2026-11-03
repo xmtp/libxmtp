@@ -10,7 +10,7 @@ pub(crate) struct MessageClock {
 #[derive(Default)]
 struct State {
     last: Option<i64>,
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-hooks"))]
     frozen_wall_ns: Option<i64>,
 }
 
@@ -18,7 +18,7 @@ impl MessageClock {
     pub(crate) fn now_ns(&self) -> i64 {
         let mut state = self.state.lock();
         let wall_ns = xmtp_common::time::now_ns();
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-hooks"))]
         let wall_ns = state.frozen_wall_ns.unwrap_or(wall_ns);
         // Date.now() can repeat or move backward. Keep acceptance order without
         // changing the clock used by deadlines or the backend timestamp.
@@ -29,12 +29,12 @@ impl MessageClock {
         timestamp
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-hooks"))]
     pub(crate) fn freeze(&self, wall_ns: i64) {
         self.state.lock().frozen_wall_ns = Some(wall_ns);
     }
 
-    #[cfg(all(test, not(target_arch = "wasm32")))]
+    #[cfg(all(any(test, feature = "test-hooks"), not(target_arch = "wasm32")))]
     pub(crate) fn is_frozen(&self) -> bool {
         self.state.lock().frozen_wall_ns.is_some()
     }

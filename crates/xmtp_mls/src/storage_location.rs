@@ -65,7 +65,7 @@ static NATIVE_DEPLOYMENT_WRITE_PAUSE: parking_lot::Mutex<
     )>,
 > = parking_lot::Mutex::new(None);
 
-#[cfg(all(target_arch = "wasm32", feature = "test-utils"))]
+#[cfg(all(target_arch = "wasm32", feature = "test-hooks"))]
 #[doc(hidden)]
 #[derive(Clone)]
 pub enum DeploymentWriteFault {
@@ -83,11 +83,11 @@ pub enum DeploymentWriteFault {
     },
 }
 
-#[cfg(all(target_arch = "wasm32", feature = "test-utils"))]
+#[cfg(all(target_arch = "wasm32", feature = "test-hooks"))]
 static DEPLOYMENT_WRITE_FAULT: parking_lot::Mutex<Option<DeploymentWriteFault>> =
     parking_lot::Mutex::new(None);
 
-#[cfg(all(target_arch = "wasm32", feature = "test-utils"))]
+#[cfg(all(target_arch = "wasm32", feature = "test-hooks"))]
 #[doc(hidden)]
 pub fn set_deployment_write_fault(fault: DeploymentWriteFault) {
     *DEPLOYMENT_WRITE_FAULT.lock() = Some(fault);
@@ -442,15 +442,15 @@ async fn write_file_with_guard(
         path: temp.clone(),
         committed: false,
     };
-    #[cfg(all(target_arch = "wasm32", feature = "test-utils"))]
+    #[cfg(all(target_arch = "wasm32", feature = "test-hooks"))]
     let fault = { DEPLOYMENT_WRITE_FAULT.lock().take() };
     let write_result: Result<(), StorageLocationError> = async {
-        #[cfg(all(target_arch = "wasm32", feature = "test-utils"))]
+        #[cfg(all(target_arch = "wasm32", feature = "test-hooks"))]
         if let Some(DeploymentWriteFault::Pause { entered, resume }) = &fault {
             entered.notify_one();
             resume.notified().await;
         }
-        #[cfg(all(target_arch = "wasm32", feature = "test-utils"))]
+        #[cfg(all(target_arch = "wasm32", feature = "test-hooks"))]
         if matches!(fault, Some(DeploymentWriteFault::Write)) {
             return Err(StorageLocationError::Opfs);
         }
@@ -458,7 +458,7 @@ async fn write_file_with_guard(
             .write(bytes)
             .await
             .map_err(|_| StorageLocationError::Opfs)?;
-        #[cfg(all(target_arch = "wasm32", feature = "test-utils"))]
+        #[cfg(all(target_arch = "wasm32", feature = "test-hooks"))]
         if matches!(fault, Some(DeploymentWriteFault::Sync)) {
             return Err(StorageLocationError::Opfs);
         }
@@ -473,7 +473,7 @@ async fn write_file_with_guard(
     let task = xmtp_common::task::spawn(async move {
         let _record_guard = record_guard;
         let mut guard = guard;
-        #[cfg(all(target_arch = "wasm32", feature = "test-utils"))]
+        #[cfg(all(target_arch = "wasm32", feature = "test-hooks"))]
         if let Some(DeploymentWriteFault::PauseReplace {
             entered, resume, ..
         }) = &fault
@@ -484,7 +484,7 @@ async fn write_file_with_guard(
         let result = match write_result {
             Err(error) => Err(error),
             Ok(()) => {
-                #[cfg(all(target_arch = "wasm32", feature = "test-utils"))]
+                #[cfg(all(target_arch = "wasm32", feature = "test-hooks"))]
                 if matches!(fault, Some(DeploymentWriteFault::Replace)) {
                     Err(StorageLocationError::Opfs)
                 } else {
@@ -493,7 +493,7 @@ async fn write_file_with_guard(
                         .await
                         .map_err(|_| StorageLocationError::Opfs)
                 }
-                #[cfg(not(all(target_arch = "wasm32", feature = "test-utils")))]
+                #[cfg(not(all(target_arch = "wasm32", feature = "test-hooks")))]
                 // OPFS file move replaces the destination in current browser engines.
                 store
                     .replace(&temp, "deployments.json")
@@ -508,7 +508,7 @@ async fn write_file_with_guard(
         } else {
             guard.committed = true;
         }
-        #[cfg(all(target_arch = "wasm32", feature = "test-utils"))]
+        #[cfg(all(target_arch = "wasm32", feature = "test-hooks"))]
         if let Some(DeploymentWriteFault::PauseReplace { settled, .. }) = &fault {
             settled.notify_one();
         }
@@ -517,8 +517,9 @@ async fn write_file_with_guard(
     task.await.map_err(|_| StorageLocationError::Opfs)?
 }
 
+#[cfg(any(test, feature = "test-utils"))]
+#[doc(hidden)]
+pub mod test_support;
+
 #[cfg(test)]
 mod tests;
-
-#[cfg(all(test, not(target_arch = "wasm32")))]
-mod admission_tests;

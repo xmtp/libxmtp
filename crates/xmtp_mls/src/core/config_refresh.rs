@@ -171,3 +171,22 @@ where
         refresh(&self.context).await.map(|_| ())
     }
 }
+
+#[cfg(any(test, feature = "test-utils"))]
+#[doc(hidden)]
+pub mod test_support {
+    use super::ConfigurationWorker;
+    use crate::context::CoreContext;
+
+    /// Run one refresh of `worker`, as its schedule does.
+    pub async fn tick<Context>(worker: &mut ConfigurationWorker<Context>)
+    where
+        Context: CoreContext + 'static,
+    {
+        worker.tick().await
+    }
+}
+
+#[cfg(test)]
+#[cfg(not(target_arch = "wasm32"))]
+mod tests;

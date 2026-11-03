@@ -554,7 +554,7 @@ impl From<StoredGroupMessage> for DecodedMessage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::utils::test::nested_reply;
+    use crate::messages::test_support::nested_reply;
     use xmtp_content_types::{
         actions::{Action, Actions},
         attachment::Attachment,

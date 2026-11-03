@@ -523,7 +523,7 @@ pub(crate) fn installations_for_staged_adds(
         .add_proposals()
         .map(|proposal| {
             let key_package = proposal.add_proposal().key_package();
-            #[cfg(any(test, feature = "test-utils"))]
+            #[cfg(any(test, feature = "test-hooks"))]
             if let Some(unchecked) =
                 crate::identity_lifecycle::test_mocks::test_mode_unchecked_key_package(
                     key_package.leaf_node().signature_key().as_slice(),

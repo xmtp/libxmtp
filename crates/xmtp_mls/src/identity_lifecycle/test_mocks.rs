@@ -98,7 +98,7 @@ pub fn record_injected_key_package(installation_id: &[u8]) {
 
 /// Whether a fetch dropped or replaced the package of `installation_id`, so a
 /// test can tell that its fault ran.
-#[cfg(test)]
+#[cfg(any(test, feature = "test-hooks"))]
 pub fn key_package_injected(installation_id: &[u8]) -> bool {
     INJECTED_KEY_PACKAGES
         .lock()
@@ -107,7 +107,7 @@ pub fn key_package_injected(installation_id: &[u8]) -> bool {
 }
 
 /// How many packages were built with the limited lifetime.
-#[cfg(test)]
+#[cfg(any(test, feature = "test-hooks"))]
 pub fn mocked_package_lifetimes() -> usize {
     MOCKED_LIFETIMES.load(Ordering::SeqCst)
 }

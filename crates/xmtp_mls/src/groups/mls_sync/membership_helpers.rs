@@ -158,7 +158,7 @@ pub(in crate::groups) async fn calculate_membership_changes_with_keypackages<'a>
 
 /// Drop the configured installations' packages, as if the backend served none,
 /// and put each configured unchecked package in place of its installation's.
-#[cfg(any(test, feature = "test-utils"))]
+#[cfg(any(test, feature = "test-hooks"))]
 pub(super) fn inject_test_key_packages(
     key_packages: &mut HashMap<
         Vec<u8>,
@@ -217,7 +217,7 @@ pub(super) async fn get_keypackages_for_installation_ids(
         )
         .await?;
 
-    #[cfg(any(test, feature = "test-utils"))]
+    #[cfg(any(test, feature = "test-hooks"))]
     inject_test_key_packages(&mut key_packages);
 
     // implements: JOIN-093, JOIN-012, GMOD-009

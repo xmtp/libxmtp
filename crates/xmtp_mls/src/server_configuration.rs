@@ -597,5 +597,9 @@ pub(crate) fn check_minimum_version(
 
 pub use crate::core::config_refresh as worker;
 
+#[cfg(any(test, feature = "test-utils"))]
+#[doc(hidden)]
+pub mod test_support;
+
 #[cfg(test)]
 mod tests;

@@ -477,7 +477,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                 .get_key_packages_for_installation_ids(requested.into_iter().collect())
                 .await?
         };
-        #[cfg(any(test, feature = "test-utils"))]
+        #[cfg(any(test, feature = "test-hooks"))]
         inject_test_key_packages(&mut packages);
         let mut reusable = HashMap::new();
         for (index, id, _, retained) in &pending {

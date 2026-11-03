@@ -3557,7 +3557,7 @@ dependencies = [
 
 [[package]]
 name = "error_glossary"
-version = "1.12.0-dev.1"
+version = "8.0.0"
 dependencies = [
  "clap",
  "syn 2.0.119",
@@ -6041,7 +6041,7 @@ dependencies = [
 
 [[package]]
 name = "keepalive-probe"
-version = "1.12.0-dev.1"
+version = "8.0.0"
 dependencies = [
  "anyhow",
  "bytes",
@@ -8389,9 +8389,9 @@ checksum = "51315bca45305dd8aa64b831b33e71abac528ca8058c0651346a39b8d3009498"
 
 [[package]]
 name = "pulldown-cmark"
-version = "0.13.4"
+version = "0.13.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e9f068eba8e7071c5f9511831b44f32c740d5adf574e990f946ddb53db2f314e"
+checksum = "3db2be46835f013dd3f4fa7f5f7402c537787b54ebb6fe2b94bbdd7e2669bb7b"
 dependencies = [
  "bitflags 2.13.1",
  "memchr",
@@ -12286,7 +12286,7 @@ dependencies = [
 
 [[package]]
 name = "xchaos"
-version = "1.12.0-dev.1"
+version = "8.0.0"
 dependencies = [
  "alloy-signer-local",
  "anyhow",
@@ -12320,7 +12320,7 @@ dependencies = [
 
 [[package]]
 name = "xdbg"
-version = "1.12.0-dev.1"
+version = "8.0.0"
 dependencies = [
  "alloy-primitives",
  "alloy-signer-local",
@@ -12390,7 +12390,7 @@ checksum = "66fee0b777b0f5ac1c69bb06d361268faafa61cd4682ae064a171c16c433e9e4"
 
 [[package]]
 name = "xmtp-db-tools"
-version = "1.12.0-dev.1"
+version = "8.0.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -12408,7 +12408,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp-sdk-bindgen"
-version = "1.12.0-dev.1"
+version = "8.0.0"
 dependencies = [
  "anyhow",
  "camino",
@@ -12560,7 +12560,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_api"
-version = "1.12.0-dev.1"
+version = "8.0.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -12593,7 +12593,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_api_backend"
-version = "1.12.0-dev.1"
+version = "8.0.0"
 dependencies = [
  "arc-swap",
  "async-trait",
@@ -12640,7 +12640,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_api_grpc"
-version = "1.12.0-dev.1"
+version = "8.0.0"
 dependencies = [
  "async-trait",
  "futures",
@@ -12677,7 +12677,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_archive"
-version = "1.12.0-dev.1"
+version = "8.0.0"
 dependencies = [
  "aes-gcm",
  "async-compression",
@@ -12702,7 +12702,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_attachments"
-version = "1.12.0-dev.1"
+version = "8.0.0"
 dependencies = [
  "aes",
  "aes-gcm",
@@ -12754,7 +12754,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_attachments_server"
-version = "1.12.0-dev.1"
+version = "8.0.0"
 dependencies = [
  "async-trait",
  "aws-config",
@@ -12776,7 +12776,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_backend"
-version = "1.12.0-dev.1"
+version = "8.0.0"
 dependencies = [
  "alloy-primitives",
  "arc-swap",
@@ -12848,7 +12848,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_backend_config"
-version = "1.12.0-dev.1"
+version = "8.0.0"
 dependencies = [
  "clap",
  "http",
@@ -12873,7 +12873,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_common"
-version = "1.12.0-dev.1"
+version = "8.0.0"
 dependencies = [
  "async-trait",
  "const-hex",
@@ -12913,7 +12913,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_configuration"
-version = "1.12.0-dev.1"
+version = "8.0.0"
 dependencies = [
  "semver 1.0.28",
  "thiserror 2.0.19",
@@ -12922,7 +12922,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_content_types"
-version = "1.12.0-dev.1"
+version = "8.0.0"
 dependencies = [
  "aes",
  "aes-gcm",
@@ -12953,7 +12953,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_cryptography"
-version = "1.12.0-dev.1"
+version = "8.0.0"
 dependencies = [
  "alloy",
  "cbor4ii",
@@ -12986,7 +12986,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_db"
-version = "1.12.0-dev.1"
+version = "8.0.0"
 dependencies = [
  "arc-swap",
  "ascii_table",
@@ -13041,7 +13041,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_events"
-version = "1.12.0-dev.1"
+version = "8.0.0"
 dependencies = [
  "parking_lot",
  "tokio",
@@ -13051,7 +13051,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_id"
-version = "1.12.0-dev.1"
+version = "8.0.0"
 dependencies = [
  "alloy",
  "alloy-provider",
@@ -13093,7 +13093,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_legacy_migration"
-version = "1.12.0-dev.1"
+version = "8.0.0"
 dependencies = [
  "const-hex",
  "diesel",
@@ -13126,7 +13126,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_logging"
-version = "1.12.0-dev.1"
+version = "8.0.0"
 dependencies = [
  "console_error_panic_hook",
  "const-hex",
@@ -13162,7 +13162,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_macro"
-version = "1.12.0-dev.1"
+version = "8.0.0"
 dependencies = [
  "num_cpus",
  "proc-macro2",
@@ -13178,7 +13178,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_mls"
-version = "1.12.0-dev.1"
+version = "8.0.0"
 dependencies = [
  "aes-gcm",
  "alloy",
@@ -13268,7 +13268,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_mls_boundaries"
-version = "1.12.0-dev.1"
+version = "8.0.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -13283,7 +13283,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_mls_common"
-version = "1.12.0-dev.1"
+version = "8.0.0"
 dependencies = [
  "bon",
  "const-hex",
@@ -13315,7 +13315,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_mls_validation"
-version = "1.12.0-dev.1"
+version = "8.0.0"
 dependencies = [
  "async-trait",
  "const-hex",
@@ -13345,7 +13345,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_proto"
-version = "1.12.0-dev.1"
+version = "8.0.0"
 dependencies = [
  "async-trait",
  "bytes",
@@ -13388,7 +13388,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_push_types"
-version = "1.12.0-dev.1"
+version = "8.0.0"
 dependencies = [
  "base64 0.23.0",
  "serde",
@@ -13400,7 +13400,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_rate_limit"
-version = "1.12.0-dev.1"
+version = "8.0.0"
 dependencies = [
  "getrandom 0.4.3",
  "parking_lot",
@@ -13413,7 +13413,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_sdk"
-version = "1.12.0-dev.1"
+version = "8.0.0"
 dependencies = [
  "alloy",
  "async-trait",

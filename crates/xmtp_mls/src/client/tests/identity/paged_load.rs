@@ -4,7 +4,7 @@
 use crate::builder::ClientBuilder;
 use crate::context::XmtpSharedContext;
 use crate::identity_updates::load_identity_updates;
-use crate::identity_updates::paged_load_tests::{IdentityScript, ScriptedIdentity};
+use crate::identity_updates::test_support::{IdentityScript, ScriptedIdentity};
 use crate::prelude::*;
 use crate::subscriptions::policy::StreamPolicy;
 use crate::tester;

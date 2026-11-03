@@ -11,23 +11,33 @@ use xmtp_db::{
 use xmtp_id::associations::test_utils::MockSmartContractSignatureVerifier;
 
 /// A context on a mock backend and a mock database, with the feature set `F`.
-pub(crate) type MockContext<F> =
-    LocalContext<Arc<MockBackendClient>, MockXmtpDb, MlsMemoryStorage, F>;
+pub type MockContext<F> = LocalContext<Arc<MockBackendClient>, MockXmtpDb, MlsMemoryStorage, F>;
 
 /// An identity with a new inbox and installation, ready for use.
-pub(crate) fn mock_identity() -> Identity {
+pub fn mock_identity() -> Identity {
     let (inbox, cred) = xmtp_id::utils::generate_inbox_id_credential();
     Identity {
         inbox_id: inbox.clone(),
         installation_keys: cred,
-        credential: create_credential(inbox).unwrap(),
+        credential: create_credential(inbox).expect("a credential"),
+        signature_request: None,
+        is_ready: AtomicBool::new(true),
+    }
+}
+
+/// An identity of `inbox_id` with a new installation, ready for use.
+pub fn identity_of(inbox_id: &str) -> Identity {
+    Identity {
+        inbox_id: inbox_id.to_string(),
+        installation_keys: xmtp_cryptography::XmtpInstallationCredential::new(),
+        credential: create_credential(inbox_id).expect("a credential"),
         signature_request: None,
         is_ready: AtomicBool::new(true),
     }
 }
 
 /// A context on a mock backend and a mock database.
-pub(crate) fn mock_context<F: Default>() -> MockContext<F> {
+pub fn mock_context<F: Default>() -> MockContext<F> {
     TestContextParts {
         identity: mock_identity(),
         api_client: ApiClientWrapper::new(Arc::new(MockBackendClient::new()), Default::default()),
@@ -42,18 +52,26 @@ pub(crate) fn mock_context<F: Default>() -> MockContext<F> {
 
 /// What a test supplies for a context. Everything else starts as a new
 /// client's does with its workers disabled.
-pub(crate) struct TestContextParts<ApiClient, Db, S> {
-    pub(crate) identity: Identity,
-    pub(crate) api_client: ApiClientWrapper<ApiClient>,
-    pub(crate) store: Db,
-    pub(crate) mls_storage: S,
-    pub(crate) scw_verifier: Box<dyn SmartContractSignatureVerifier>,
-    pub(crate) server_configuration: ServerConfigurationHandle,
-    pub(crate) stream_policy: StreamPolicy,
+pub struct TestContextParts<ApiClient, Db, S> {
+    /// The installation's identity.
+    pub identity: Identity,
+    /// The backend connection.
+    pub api_client: ApiClientWrapper<ApiClient>,
+    /// The database.
+    pub store: Db,
+    /// The MLS key store.
+    pub mls_storage: S,
+    /// The smart contract signature verifier.
+    pub scw_verifier: Box<dyn SmartContractSignatureVerifier>,
+    /// The deployment's configuration.
+    pub server_configuration: ServerConfigurationHandle,
+    /// The limits on incoming work.
+    pub stream_policy: StreamPolicy,
 }
 
 impl<ApiClient, Db, S> TestContextParts<ApiClient, Db, S> {
-    pub(crate) fn into_context<F>(self, features: F) -> LocalContext<ApiClient, Db, S, F> {
+    /// A context of these parts with the feature set `features`.
+    pub fn into_context<F>(self, features: F) -> LocalContext<ApiClient, Db, S, F> {
         let events = EventBus::new();
         let public_event_writer: Arc<dyn EventWriter<()>> =
             Arc::new(xmtp_events::PublicBusWriter::new(&events));
@@ -65,6 +83,7 @@ impl<ApiClient, Db, S> TestContextParts<ApiClient, Db, S> {
             store: self.store,
             mls_storage: self.mls_storage,
             mutexes: MutexRegistry::new(),
+            #[cfg(any(test, feature = "test-hooks"))]
             mls_commit_lock: Default::default(),
             version_info: VersionInfo::default(),
             server_configuration: self.server_configuration,
@@ -85,6 +104,7 @@ impl<ApiClient, Db, S> TestContextParts<ApiClient, Db, S> {
             cancellation_token: CancellationToken::new(),
             shutdown_complete: Arc::new(AtomicBool::new(false)),
             foreground_calls: Default::default(),
+            #[cfg(any(test, feature = "test-hooks", target_arch = "wasm32"))]
             message_clock: Default::default(),
             features,
         }
@@ -99,6 +119,7 @@ impl<F: Clone> Clone for MockContext<F> {
             store: self.store.clone(),
             mls_storage: self.mls_storage.clone(),
             mutexes: self.mutexes.clone(),
+            #[cfg(any(test, feature = "test-hooks"))]
             mls_commit_lock: self.mls_commit_lock.clone(),
             version_info: self.version_info.clone(),
             server_configuration: self.server_configuration.clone(),
@@ -115,6 +136,7 @@ impl<F: Clone> Clone for MockContext<F> {
             cancellation_token: self.cancellation_token.clone(),
             shutdown_complete: self.shutdown_complete.clone(),
             foreground_calls: self.foreground_calls.clone(),
+            #[cfg(any(test, feature = "test-hooks", target_arch = "wasm32"))]
             message_clock: self.message_clock.clone(),
             delivery_owner: self.delivery_owner.clone(),
             stream_policy: self.stream_policy.clone(),
@@ -192,6 +214,7 @@ impl<F: MaybeSend + MaybeSync + Clone + 'static> CoreContext for MockContext<F> 
         &self.public_event_writer
     }
 
+    #[cfg(any(test, feature = "test-hooks"))]
     fn mls_commit_lock(&self) -> &Arc<GroupCommitLock> {
         &self.mls_commit_lock
     }

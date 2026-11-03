@@ -69,7 +69,7 @@ xmtp_cryptography = { workspace = true, features = ["test-utils"] }
 xmtp_db = { workspace = true, features = ["test-utils"] }
 xmtp_id = { workspace = true, features = ["test-utils-anvil"] }
 xmtp_logging = { workspace = true, features = ["test-utils"] }
-xmtp_mls = { workspace = true, features = ["test-utils"] }
+xmtp_mls = { workspace = true, features = ["test-utils", "test-hooks"] }
 
 # Handle tests that claim more than once per inbox run against a disposable
 # backend, because a claim on the shared backend is permanent.

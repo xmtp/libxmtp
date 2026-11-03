@@ -27,9 +27,9 @@ use crate::{
     Client,
     builder::DeviceSyncMode,
     context::XmtpSharedContext,
+    core::precommit_test_hook,
     groups::send_message_opts::SendMessageOpts,
     identity::IdentityStrategy,
-    state_tx::precommit_test_hook,
     tester,
     utils::{
         DefaultTestClientCreator, TestMlsGroup,

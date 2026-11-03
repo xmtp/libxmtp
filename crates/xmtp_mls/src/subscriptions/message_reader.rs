@@ -265,12 +265,15 @@ impl<C: XmtpSharedContext> Drop for MessageReader<C> {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(not(target_arch = "wasm32"))]
+    mod preflight;
+
     use super::*;
     use crate::prelude::*;
     use crate::{
         groups::send_message_opts::SendMessageOpts, test::mock::generate_stored_msg, tester,
     };
-    use xmtp_common::time::{Duration, Instant};
+    use xmtp_common::time::Duration;
     use xmtp_db::Store;
     use xmtp_proto::types::Cursor;
 
@@ -377,10 +380,7 @@ mod tests {
         let pending = reader.next_delivery();
         futures::pin_mut!(pending);
         assert!(futures::poll!(&mut pending).is_pending());
-        lease.fail_recovery_for_test(super::super::recovery::RecoveryFailure::Exhausted {
-            attempts: 10,
-            source: None,
-        });
+        lease.exhaust_recovery_for_test(10, Duration::ZERO);
         // An already handed-off callback may finish. Its next local item is ready
         // at the same time as the retained network failure.
         first.acknowledgement.acknowledge()?;
@@ -413,17 +413,7 @@ mod tests {
             let lease = expired.control.lease.lock().clone().unwrap();
             // Observe a future outage deadline without subtracting from the
             // WASM clock. Publish the failure only to this consumer's lease.
-            let outage = super::super::recovery::RecoverySnapshot::default();
-            let now = Instant::now();
-            let mut recovery = super::super::recovery::RecoveryBudget::new(&outage, now);
-            let failure = recovery
-                .check(&outage, now + Duration::from_secs(3600))
-                .unwrap_err();
-            assert!(matches!(
-                failure,
-                super::super::recovery::RecoveryFailure::Exhausted { .. }
-            ));
-            lease.fail_recovery_for_test(failure);
+            assert!(lease.exhaust_recovery_for_test(0, Duration::from_secs(3600)));
             assert!(matches!(
                 expired.next_delivery().await,
                 Err(LocalDeliveryError::NetworkRecoveryExhausted { .. })

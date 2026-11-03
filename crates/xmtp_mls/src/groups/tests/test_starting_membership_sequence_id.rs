@@ -1,7 +1,8 @@
 //! Group creation writes `sequence_id: 0` for the creator. A commit before the
 //! first `UpdateGroupMembership` must still validate. For the opposite case, a
 //! commit that chooses `0`, see
-//! `identity_updates::tests::get_installation_diff_rejects_added_inbox_at_sequence_zero`.
+//! `identity_updates::tests::get_installation_diff_rejects_added_inbox_at_sequence_zero`
+//! in the `identity` test target.
 
 use crate::tester;
 

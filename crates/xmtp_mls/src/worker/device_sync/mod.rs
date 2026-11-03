@@ -609,8 +609,8 @@ where
     }
 
     /// Schedule the adds to the user's conversations for a new installation.
-    #[cfg(test)]
-    pub(crate) fn schedule_add_installations_to_groups(&self) -> Result<usize, DeviceSyncError> {
+    #[cfg(any(test, feature = "test-utils"))]
+    pub fn schedule_add_installations_to_groups(&self) -> Result<usize, DeviceSyncError> {
         Ok(crate::core::sync_tasks::schedule_newcomer_adds(
             &self.context.db(),
             self.context.events(),

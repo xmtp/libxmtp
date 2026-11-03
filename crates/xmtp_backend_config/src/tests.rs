@@ -1710,7 +1710,7 @@ fn chain_keys_must_be_eip155_chain_ids() {
 /// with a fixed reason, and never the value. A typed-decoding refusal has one
 /// of four reasons, chosen by the decoder's message, so a decoder update that
 /// changes those messages fails here.
-// verifies: CONF-065
+// verifies: CONF-065, CONF-087
 #[xmtp_common::test(unwrap_try = true)]
 fn every_refusal_names_its_key() {
     const MISSING: &str = "XMTP_CONFIG_REFUSAL_MISSING_7C2D";
@@ -1831,6 +1831,86 @@ fn every_refusal_names_its_key() {
         (
             s3_line("credentials = ['bogus']"),
             "attachments.target.S3.credentials",
+            "has the wrong type or value".into(),
+        ),
+        // A table with fixed keys refuses an array, which serde would decode
+        // by position, at every depth.
+        (
+            format!("limits = []\n{MINIMAL}"),
+            "limits",
+            "has the wrong type or value".into(),
+        ),
+        (
+            format!("limits = [7]\n{MINIMAL}"),
+            "limits",
+            "has the wrong type or value".into(),
+        ),
+        (
+            format!("database = ['postgres://localhost/xmtp']\n{REQUIRED_SERVER}"),
+            "database",
+            "has the wrong type or value".into(),
+        ),
+        (
+            format!(
+                "{MINIMAL}[attachments]\nbase_url = 'https://files.example.org'\n\
+                 [[attachments.target.S3]]\nendpoint = 'https://s3.example.org'\n\
+                 region = 'us-east-1'\nbucket = 'attachments'\n\
+                 credentials = {{ kind = 'instance' }}\n"
+            ),
+            "attachments.target.S3",
+            "has the wrong type or value".into(),
+        ),
+        (
+            auth("keys = [['a', 'ES256', 'k']]"),
+            "auth.keys[0]",
+            "has the wrong type or value".into(),
+        ),
+        (
+            format!(
+                "application_components = [[49152, 'a', 'string', 'allow', 'allow', \
+                 'allow', true, false]]\n{MINIMAL}"
+            ),
+            "application_components[0]",
+            "has the wrong type or value".into(),
+        ),
+        (
+            format!(
+                "{MINIMAL}[[rate_limits.overrides]]\napi_key = 'bot'\n\
+                 [rate_limits.overrides.limits]\nrequest = [[10, 1]]\n"
+            ),
+            "rate_limits.overrides[0].limits.request[0]",
+            "has the wrong type or value".into(),
+        ),
+        // A key that takes one of a fixed list of strings refuses a one-key
+        // table, which serde would decode as that variant.
+        (
+            format!("{MINIMAL}log_level = {{ debug = {{}} }}\n"),
+            "server.log_level",
+            "has the wrong type or value".into(),
+        ),
+        (
+            format!("{MINIMAL}log_format = {{ json = {{}} }}\n"),
+            "server.log_format",
+            "has the wrong type or value".into(),
+        ),
+        (
+            format!(
+                "{MINIMAL}{}",
+                component(0xC000, "a", true).replace(
+                    "component_type = 'string'",
+                    "component_type = { string = {} }"
+                )
+            ),
+            "application_components[0].component_type",
+            "has the wrong type or value".into(),
+        ),
+        (
+            format!(
+                "{MINIMAL}{}",
+                component(0xC000, "a", true)
+                    .replace("insert_policy = 'allow'", "insert_policy = { allow = {} }")
+            ),
+            "application_components[0].insert_policy",
             "has the wrong type or value".into(),
         ),
         // A date or a time, which no key takes.

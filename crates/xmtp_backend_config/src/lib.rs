@@ -35,6 +35,7 @@ pub mod handles;
 pub mod push;
 pub mod rate_limits;
 mod schema;
+mod shape;
 mod telemetry;
 mod validated;
 pub use rate_limits::{AuthType, CallerKey, CallerLimits, Category, LimitConfig, RateLimitConfig};
@@ -283,7 +284,7 @@ impl Config {
     pub fn from_toml_str(contents: &str) -> Result<Self, ConfigError> {
         let mut value: toml::Value = toml::from_str(contents).map_err(|_| ConfigError::Parse)?;
         resolve_environment(&mut value, "")?;
-        serde_path_to_error::deserialize(value).map_err(|error| decode_error(&error))
+        serde_path_to_error::deserialize(shape::Shaped(value)).map_err(|error| decode_error(&error))
     }
 
     /// Check every rule the document and the environment decide: scalar
