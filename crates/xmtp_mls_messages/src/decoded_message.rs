@@ -94,7 +94,7 @@ impl ContentDecodeFailure {
 impl DeletedBy {
     /// Who deleted a message: its sender, or the admin with inbox
     /// `deleter_inbox_id`.
-    pub(crate) fn new(deleter_inbox_id: &str, sender_inbox_id: &str) -> Self {
+    pub fn new(deleter_inbox_id: &str, sender_inbox_id: &str) -> Self {
         if deleter_inbox_id == sender_inbox_id {
             DeletedBy::Sender
         } else {
@@ -210,7 +210,7 @@ pub struct DecodedMessage {
 pub mod decode_counter;
 
 /// Maximum number of reply envelopes inside one message.
-pub(crate) const MAX_REPLY_NESTING_DEPTH: usize = 8;
+pub const MAX_REPLY_NESTING_DEPTH: usize = 8;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Origin {
@@ -255,7 +255,7 @@ pub(crate) fn is_reserved_transcript_type(content_type: &ContentTypeId) -> bool 
 
 /// Refuse reserved types at any depth, or replies that exceed the bounded scan.
 /// Other malformed content does not identify a reserved transcript.
-pub(crate) fn carries_reserved_transcript(raw: &[u8]) -> bool {
+pub fn carries_reserved_transcript(raw: &[u8]) -> bool {
     let mut budget = compression::DecompressionBudget::new();
     let mut current = std::borrow::Cow::Borrowed(raw);
     let mut reply_depth = 0;
@@ -486,7 +486,7 @@ impl DecodedMessage {
     /// variant, and adding one changes the binding types. No admin removed
     /// the message, and `Admin` needs an inbox id.
     // implements: META-051, PROC-060
-    pub(crate) fn placeholder(value: StoredGroupMessage, deleted_by: DeletedBy) -> Self {
+    pub fn placeholder(value: StoredGroupMessage, deleted_by: DeletedBy) -> Self {
         DecodedMessage {
             metadata: DecodedMessageMetadata {
                 id: value.id,
@@ -496,7 +496,7 @@ impl DecodedMessage {
                 sender_installation_id: value.sender_installation_id,
                 sender_inbox_id: value.sender_inbox_id,
                 delivery_status: value.delivery_status,
-                content_type: Some(crate::messages::enrichment::deleted_message_content_type()),
+                content_type: Some(crate::enrichment::deleted_message_content_type()),
                 inserted_at_ns: value.inserted_at_ns,
                 expires_at_ns: value.expire_at_ns,
             },
@@ -554,7 +554,7 @@ impl From<StoredGroupMessage> for DecodedMessage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::messages::test_support::nested_reply;
+    use crate::test_support::nested_reply;
     use xmtp_content_types::{
         actions::{Action, Actions},
         attachment::Attachment,

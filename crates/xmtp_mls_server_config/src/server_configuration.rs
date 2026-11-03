@@ -154,9 +154,9 @@ impl RetryableError for ServerConfigError {
 /// refresh sets it.
 #[derive(Clone)]
 pub struct ServerConfigurationHandle {
-    pub(crate) admission: Arc<tokio::sync::Mutex<()>>,
-    pub(crate) pending: Arc<AtomicBool>,
-    pub(crate) fetch: Arc<OnceLock<Arc<dyn xmtp_api::preflight::ConfigurationFetch>>>,
+    pub admission: Arc<tokio::sync::Mutex<()>>,
+    pub pending: Arc<AtomicBool>,
+    pub fetch: Arc<OnceLock<Arc<dyn xmtp_api::preflight::ConfigurationFetch>>>,
     deployment_recorder: Arc<RwLock<Option<crate::storage_location::DeploymentRecorder>>>,
     provider: Arc<dyn ConfigProvider>,
     blocked_connection: Arc<RwLock<Option<BlockedConnection>>>,
@@ -183,11 +183,11 @@ impl Default for ServerConfigurationHandle {
 
 impl ServerConfigurationHandle {
     #[cfg(any(test, feature = "test-utils"))]
-    pub(crate) fn custom_verifier(&self) -> bool {
+    pub fn custom_verifier(&self) -> bool {
         self.restricted_chains.is_none()
     }
 
-    pub(crate) fn requires_preflight(&self) -> bool {
+    pub fn requires_preflight(&self) -> bool {
         self.pending.load(Ordering::Acquire)
     }
 
@@ -249,7 +249,7 @@ impl ServerConfigurationHandle {
 
     /// Replace the test catalogue and keep resolved admission and preflight state.
     #[cfg(any(test, feature = "test-utils"))]
-    pub(crate) fn with_application_components(
+    pub fn with_application_components(
         mut self,
         components: Vec<xmtp_configuration::ApplicationComponentDefinition>,
     ) -> Self {
@@ -262,7 +262,7 @@ impl ServerConfigurationHandle {
     /// Restrict app-supplied smart contract wallet signatures to the chains the
     /// snapshot names. Skipped entirely when the app
     /// supplied its own verifier, which the chain restriction exempts.
-    pub(crate) fn with_chain_restriction(mut self, custom_verifier: bool) -> Self {
+    pub fn with_chain_restriction(mut self, custom_verifier: bool) -> Self {
         self.restricted_chains = (!custom_verifier).then(|| {
             Arc::<[String]>::from(self.configuration().smart_contract_wallet_chains.clone())
         });
@@ -295,21 +295,15 @@ impl ServerConfigurationHandle {
         self.blocked_connection.read().clone()
     }
 
-    pub(crate) fn set_event_writer(&self, writer: Arc<dyn EventWriter<()>>) {
+    pub fn set_event_writer(&self, writer: Arc<dyn EventWriter<()>>) {
         *self.event_writer.write() = Some(writer);
     }
 
-    pub(crate) fn set_deployment_recorder(
-        &self,
-        recorder: crate::storage_location::DeploymentRecorder,
-    ) {
+    pub fn set_deployment_recorder(&self, recorder: crate::storage_location::DeploymentRecorder) {
         *self.deployment_recorder.write() = Some(recorder);
     }
 
-    pub(crate) async fn record_deployment(
-        &self,
-        identifier: &str,
-    ) -> Result<(), ServerConfigError> {
+    pub async fn record_deployment(&self, identifier: &str) -> Result<(), ServerConfigError> {
         let recorder = self.deployment_recorder.read().clone();
         if let Some(recorder) = recorder {
             recorder
@@ -335,7 +329,7 @@ impl ServerConfigurationHandle {
     /// request check, cancels the client's streams, so the stopped work
     /// would otherwise report a close or an incomplete barrier instead of why.
     // implements: CONF-075, CONF-077
-    pub(crate) fn blocked_or<E: From<BlockedConnection>>(&self, error: E) -> E {
+    pub fn blocked_or<E: From<BlockedConnection>>(&self, error: E) -> E {
         match self.check() {
             Err(blocked) => blocked.into(),
             Ok(()) => error,
@@ -344,7 +338,7 @@ impl ServerConfigurationHandle {
 
     /// Block the connection on the first failure. A later one does not displace it: the
     /// first cause is the one worth reporting.
-    pub(crate) fn block_connection(&self, reason: BlockedConnection) -> BlockedConnection {
+    pub fn block_connection(&self, reason: BlockedConnection) -> BlockedConnection {
         let mut guard = self.blocked_connection.write();
         if let Some(held) = guard.as_ref() {
             return held.clone();
@@ -392,7 +386,7 @@ fn snapshot_from(stored: &StoredServerConfiguration) -> ServerConfiguration {
 }
 
 /// Validate a fetched response and turn it into a snapshot.
-pub(crate) fn validated(
+pub fn validated(
     response: &backend_v1::GetConfigurationResponse,
 ) -> Result<ServerConfiguration, ServerConfigurationError> {
     let configuration = ServerConfiguration::from(response.clone());
@@ -424,7 +418,7 @@ where
     Ok(configuration)
 }
 
-pub(crate) fn commit_configuration(
+pub fn commit_configuration(
     response: backend_v1::GetConfigurationResponse,
     backend_url: Option<&str>,
     db: &impl DbQuery,
@@ -509,7 +503,7 @@ fn storage_unavailable(error: StorageError) -> ServerConfigError {
 /// Runs before any identity work. Offline, it never awaits a network call, so
 /// `build_offline` still completes without polling a pending future.
 // implements: CONF-026, CONF-027, CONF-033, CONF-034, CONF-072
-pub(crate) async fn resolve<ApiClient>(
+pub async fn resolve<ApiClient>(
     api: &ApiClientWrapper<ApiClient>,
     db: &impl DbQuery,
     allow_offline: bool,
@@ -578,7 +572,7 @@ where
 /// Compare on major, minor, and patch only, so a
 /// prerelease tag never makes a client too old.
 // implements: CONF-049
-pub(crate) fn check_minimum_version(
+pub fn check_minimum_version(
     configuration: &ServerConfiguration,
     client_version: &semver::Version,
 ) -> Result<(), ServerConfigError> {
@@ -594,8 +588,6 @@ pub(crate) fn check_minimum_version(
     }
     Ok(())
 }
-
-pub use crate::core::config_refresh as worker;
 
 #[cfg(any(test, feature = "test-utils"))]
 #[doc(hidden)]

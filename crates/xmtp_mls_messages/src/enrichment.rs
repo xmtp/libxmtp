@@ -1,4 +1,4 @@
-use crate::messages::decoded_message::{DecodedMessage, MessageBody};
+use crate::decoded_message::{DecodedMessage, MessageBody};
 use std::collections::HashMap;
 use thiserror::Error;
 use xmtp_common::{ErrorCode, RetryableError};

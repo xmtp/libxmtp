@@ -25,11 +25,8 @@ source = "crates/xmtp_mls/src"
 "identity_updates" = "identity"
 "inbox_handles" = "identity"
 "intents" = "engine"
-"messages" = "messages"
 "mls_store" = "core"
 "mutex_registry" = "core"
-"server_configuration" = "server_config"
-"storage_location" = "server_config"
 "subscriptions" = "streams"
 "subscriptions::barrier" = "engine"
 "subscriptions::connection_state" = "engine"
@@ -107,30 +104,11 @@ count = 5
 reason = "PR 7 (Task 20): the receiver and the group stream entry points name stream types."
 
 [[waivers]]
-from = "server_config"
-to = "core"
-tier = "path"
-count = 1
-reason = "Task 16: server_configuration::worker re-exports the core config refresh worker at its old public path until server_config becomes a crate and the facade keeps the path."
-
-[[waivers]]
 from = "streams"
 to = "facade"
 tier = "path"
 count = 1
 reason = "Streams extraction (PR 7): stream_failure_details opens the transparent ClientError::Group so a group failure keeps its stream-failure details."
-
-# Method calls in code that neither indexed build (native with test on, wasm32
-# with test off, every feature on) compiles; only the path tier reads them.
-[[uncovered]]
-file = "crates/xmtp_mls/src/storage_location.rs"
-method = "replace"
-reason = "The wasm OPFS move outside test-utils; the wasm index is built with every feature on."
-
-[[uncovered]]
-file = "crates/xmtp_mls/src/storage_location.rs"
-method = "map_err"
-reason = "The wasm OPFS move outside test-utils; the wasm index is built with every feature on."
 
 [naming]
 prefix = "xmtp_mls_"

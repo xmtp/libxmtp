@@ -32,6 +32,8 @@ let
 
   wasmCrates = [
     "xmtp_mls"
+    "xmtp_mls_messages"
+    "xmtp_mls_server_config"
     "xmtp_cryptography"
     "xmtp_common"
     "xmtp_api"

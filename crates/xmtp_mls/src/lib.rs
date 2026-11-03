@@ -16,14 +16,18 @@ pub mod identity_lifecycle;
 pub mod identity_updates;
 pub mod inbox_handles;
 mod intents;
-pub mod messages;
+pub use xmtp_mls_messages as messages;
 pub mod mls_store;
 mod mutex_registry;
 pub mod prelude;
-pub mod server_configuration;
+/// The deployment's published configuration, at its old path.
+pub mod server_configuration {
+    pub use crate::core::config_refresh as worker;
+    pub use xmtp_mls_server_config::server_configuration::*;
+}
 use crate::core::state_tx;
-pub mod storage_location;
 pub use client::VisibilityConfirmationOptions;
+pub use xmtp_mls_server_config::storage_location;
 pub mod subscriptions;
 pub mod task_handlers;
 pub mod utils;

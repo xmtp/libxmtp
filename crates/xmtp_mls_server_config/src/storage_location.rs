@@ -123,14 +123,14 @@ pub fn deployment_component(identifier: &str) -> String {
 }
 
 #[derive(Clone, Debug)]
-pub(crate) struct DeploymentRecorder {
+pub struct DeploymentRecorder {
     data_dir: PathBuf,
     backend_url: String,
     opened_identifier: Option<String>,
 }
 
 impl DeploymentRecorder {
-    pub(crate) fn new(data_dir: PathBuf, backend_url: &str) -> Self {
+    pub fn new(data_dir: PathBuf, backend_url: &str) -> Self {
         Self {
             data_dir,
             backend_url: crate::server_configuration::normalized_url(backend_url).to_owned(),
@@ -138,12 +138,12 @@ impl DeploymentRecorder {
         }
     }
 
-    pub(crate) fn for_opened_identifier(mut self, identifier: String) -> Self {
+    pub fn for_opened_identifier(mut self, identifier: String) -> Self {
         self.opened_identifier = Some(identifier);
         self
     }
 
-    pub(crate) async fn lookup(&self) -> Result<Option<String>, StorageLocationError> {
+    pub async fn lookup(&self) -> Result<Option<String>, StorageLocationError> {
         if self.backend_url.is_empty() {
             return Err(StorageLocationError::BackendUrl);
         }
@@ -157,7 +157,7 @@ impl DeploymentRecorder {
             .remove(&self.backend_url))
     }
 
-    pub(crate) async fn record(&self, identifier: &str) -> Result<(), StorageLocationError> {
+    pub async fn record(&self, identifier: &str) -> Result<(), StorageLocationError> {
         if self
             .opened_identifier
             .as_deref()
@@ -190,7 +190,7 @@ impl DeploymentRecorder {
 }
 
 impl StorageLocation {
-    pub(crate) fn validate(&self) -> Result<(), StorageLocationError> {
+    pub fn validate(&self) -> Result<(), StorageLocationError> {
         match self {
             Self::DataDir(data_dir) if data_dir.as_os_str().is_empty() => {
                 Err(StorageLocationError::MissingPath { field: "data_dir" })
@@ -207,7 +207,7 @@ impl StorageLocation {
         }
     }
 
-    pub(crate) fn recorder(&self, backend_url: &str) -> Option<DeploymentRecorder> {
+    pub fn recorder(&self, backend_url: &str) -> Option<DeploymentRecorder> {
         match self {
             Self::DataDir(path) => Some(DeploymentRecorder::new(path.clone(), backend_url)),
             Self::Explicit { .. } => None,
@@ -240,7 +240,7 @@ impl StorageLocation {
         }
     }
 
-    pub(crate) fn resolve_identifier(
+    pub fn resolve_identifier(
         &self,
         inbox_id: &str,
         identifier: &str,

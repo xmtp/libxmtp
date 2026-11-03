@@ -11,9 +11,7 @@ pub mod test_support;
 /// Decode only the content type of encoded content. prost skips the other
 /// fields without copying them, so a payload that holds a device-sync HMAC
 /// root key is never copied.
-pub(crate) fn encoded_content_type(
-    message: &[u8],
-) -> Result<Option<ContentTypeId>, prost::DecodeError> {
+pub fn encoded_content_type(message: &[u8]) -> Result<Option<ContentTypeId>, prost::DecodeError> {
     #[derive(Clone, PartialEq, prost::Message)]
     struct TypeOnly {
         #[prost(message, optional, tag = "1")]
