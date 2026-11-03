@@ -90,6 +90,7 @@ impl<ApiClient, Db, S> TestContextParts<ApiClient, Db, S> {
             events,
             registration_event_pending: Arc::new(AtomicBool::new(false)),
             delivery_owner: Default::default(),
+            retired_delivery_owner: Default::default(),
             scw_verifier: Arc::new(self.scw_verifier),
             device_sync: DeviceSync {
                 mode: DeviceSyncMode::Disabled,
@@ -133,6 +134,7 @@ impl<F: Clone> Clone for MockContext<F> {
             shutdown_complete: self.shutdown_complete.clone(),
             foreground_calls: self.foreground_calls.clone(),
             delivery_owner: self.delivery_owner.clone(),
+            retired_delivery_owner: self.retired_delivery_owner.clone(),
             stream_policy: self.stream_policy.clone(),
             features: self.features.clone(),
         }
@@ -237,6 +239,12 @@ impl<F: MaybeSend + MaybeSync + Clone + 'static> CoreContext for MockContext<F> 
 
     fn delivery_owner(&self) -> &parking_lot::Mutex<Option<xmtp_db::delivery::DeliveryOwner>> {
         &self.delivery_owner
+    }
+
+    fn retired_delivery_owner(
+        &self,
+    ) -> &parking_lot::Mutex<Option<xmtp_db::delivery::DeliveryOwner>> {
+        &self.retired_delivery_owner
     }
 
     fn stream_policy(&self) -> &crate::policy::StreamPolicy {

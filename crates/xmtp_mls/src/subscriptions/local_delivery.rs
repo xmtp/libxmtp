@@ -144,7 +144,7 @@ where
             if context.is_closed() {
                 return Err(LocalDeliveryError::Closed);
             }
-            let mut retired = context.incoming_runtime().retired_delivery_owner.lock();
+            let mut retired = context.retired_delivery_owner().lock();
             if let Some(owner) = *retired {
                 // Release only the closed reader's token. SQL fences a different owner.
                 context.db().release_delivery_owner(owner)?;
@@ -445,7 +445,7 @@ where
         filter: &LocalDeliveryFilter,
         limit: u32,
     ) -> Result<EnrichedDeliverySnapshot> {
-        let settings = context.incoming_runtime().policy();
+        let settings = context.stream_policy();
         let filter = effective_filter(scope, filter);
         Ok(context
             .db()
@@ -469,7 +469,7 @@ where
         filter: &LocalDeliveryFilter,
         limit: u32,
     ) -> Result<DeliverySnapshot> {
-        let settings = context.incoming_runtime().policy();
+        let settings = context.stream_policy();
         let filter = effective_filter(scope, filter);
         Ok(context
             .db()

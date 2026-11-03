@@ -12,10 +12,7 @@ use super::{
     barrier::{BarrierCause, BarrierError, BarrierFailure, BarrierTopic},
     incoming::IncomingError,
 };
-use crate::{
-    client::ClientError,
-    groups::{GroupError, mls_sync::GroupMessageProcessingError, summary::SyncSummary},
-};
+use crate::groups::{GroupError, mls_sync::GroupMessageProcessingError, summary::SyncSummary};
 
 /// The suffix version is independent of the normal error message and code.
 pub const STREAM_FAILURE_MARKER: &str = "\n[XMTP_STREAM_FAILURE_V1]";
@@ -215,7 +212,20 @@ impl StreamFailureDetails {
 
 /// Read known wrapper fields explicitly. Transparent errors can skip them in `source()`.
 /// Visit every summary branch so a first error cannot hide sibling obligations.
+///
+/// This cannot see through the facade's transparent `ClientError::Group`; read
+/// a client error with `xmtp_mls::client::stream_failure_details` instead.
 pub fn stream_failure_details(error: &(dyn Error + 'static)) -> Option<StreamFailureDetails> {
+    stream_failure_details_opening(error, |_| None)
+}
+
+/// [`stream_failure_details`] for errors that can hold a transparent wrapper
+/// this module cannot name. `open` returns such a wrapper's inner error, which
+/// the wrapper's `source()` skips, and `None` for every other error.
+pub fn stream_failure_details_opening<'a>(
+    error: &'a (dyn Error + 'static),
+    open: impl Fn(&'a (dyn Error + 'static)) -> Option<&'a (dyn Error + 'static)>,
+) -> Option<StreamFailureDetails> {
     let mut pending = vec![(error, 0usize)];
     let mut failures = Vec::new();
     while let Some((error, depth)) = pending.pop() {
@@ -280,22 +290,13 @@ pub fn stream_failure_details(error: &(dyn Error + 'static)) -> Option<StreamFai
             continue;
         }
         if let Some(summary) = error.downcast_ref::<SyncSummary>() {
-            for (_, error) in summary.process.errored.iter().rev() {
-                push(error);
-            }
-            for error in summary.post_commit_errors.iter().rev() {
-                push(error);
-            }
-            for error in summary.publish_errors.iter().rev() {
-                push(error);
-            }
-            if let Some(error) = summary.other.as_deref() {
+            for error in summary.errors().rev() {
                 push(error);
             }
             continue;
         }
-        if let Some(ClientError::Group(error)) = error.downcast_ref::<ClientError>() {
-            push(error.as_ref());
+        if let Some(error) = open(error) {
+            push(error);
         } else if let Some(SubscribeError::Group(error)) = error.downcast_ref::<SubscribeError>() {
             push(error.as_ref());
         } else if let Some(IncomingError::Group(error)) = error.downcast_ref::<IncomingError>() {
@@ -331,7 +332,8 @@ pub fn stream_failure_details(error: &(dyn Error + 'static)) -> Option<StreamFai
     Some(result)
 }
 
-/// Append this suffix after the existing error code and message.
+/// Append this suffix after the existing error code and message. The details
+/// are read as [`stream_failure_details`] reads them.
 pub fn encode_stream_failure(error: &(dyn Error + 'static)) -> Option<String> {
     let details = stream_failure_details(error)?;
     let json = serde_json::to_string(&details).ok()?;

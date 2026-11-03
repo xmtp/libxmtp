@@ -1,55 +1,3 @@
-use super::MlsGroup;
-use crate::{context::XmtpSharedContext, subscriptions::Result};
-use prost::Message;
-use xmtp_proto::backend_v1::ServerEnvelope;
-
-use xmtp_db::group_message::StoredGroupMessage;
-
-impl<Context> MlsGroup<Context>
-where
-    Context: XmtpSharedContext + 'static,
-{
-    /// Use a push envelope only as a target for ordered receipt and processing.
-    pub async fn process_streamed_group_message(
-        &self,
-        envelope_bytes: Vec<u8>,
-    ) -> Result<Vec<StoredGroupMessage>> {
-        use xmtp_db::prelude::*;
-        let wire = ServerEnvelope::decode(envelope_bytes.as_slice())?;
-        let meta = wire
-            .meta
-            .as_ref()
-            .ok_or(xmtp_api::ApiError::InvalidResponse("group metadata"))?;
-        let (topic, cursor, _) = xmtp_api_backend::envelope::metadata(
-            meta,
-            xmtp_proto::types::TopicKind::GroupMessagesV1,
-        )?;
-        if topic != xmtp_proto::types::Topic::new_group_message(self.group_id) {
-            return Err(xmtp_api::ApiError::InvalidResponse("group topic").into());
-        }
-        crate::subscriptions::barrier::wait_through(&self.context, [(topic, cursor)].into(), None)
-            .await
-            .map_err(|error| {
-                self.context
-                    .server_configuration()
-                    .blocked_or(super::GroupError::from(error))
-            })?;
-        let message = self
-            .context
-            .db()
-            .get_group_message_by_cursor(self.group_id, cursor)?;
-        // implements: META-051
-        let current_time_ns = xmtp_common::time::now_ns();
-        Ok(message
-            .filter(|row| {
-                row.expire_at_ns
-                    .is_none_or(|deadline| deadline > current_time_ns)
-            })
-            .into_iter()
-            .collect())
-    }
-}
-
 #[cfg(test)]
 pub(crate) mod tests {
     use crate::context::CoreContext;
@@ -200,9 +148,11 @@ pub(crate) mod tests {
             )
             .await?;
         let envelope = envelopes.last().unwrap();
-        let result = bo_group
-            .process_streamed_group_message(envelope.encode_to_vec())
-            .await;
+        let result = crate::subscriptions::process_streamed_group_message(
+            bo_group,
+            envelope.encode_to_vec(),
+        )
+        .await;
         assert!(
             result.is_ok(),
             "Backend processing must succeed: {result:?}"
@@ -235,10 +185,12 @@ pub(crate) mod tests {
                 .is_some()
         );
         assert!(
-            bo_group
-                .process_streamed_group_message(envelope.encode_to_vec())
-                .await?
-                .is_empty()
+            crate::subscriptions::process_streamed_group_message(
+                bo_group,
+                envelope.encode_to_vec()
+            )
+            .await?
+            .is_empty()
         );
 
         bo.context.db().raw_query(|conn| {
@@ -246,9 +198,11 @@ pub(crate) mod tests {
                 .set(message_dsl::expire_at_ns.eq(Some(i64::MAX)))
                 .execute(conn)
         })?;
-        let visible = bo_group
-            .process_streamed_group_message(envelope.encode_to_vec())
-            .await?;
+        let visible = crate::subscriptions::process_streamed_group_message(
+            bo_group,
+            envelope.encode_to_vec(),
+        )
+        .await?;
         assert_eq!(visible.len(), 1);
         assert_eq!(visible[0].id, message_id);
     }

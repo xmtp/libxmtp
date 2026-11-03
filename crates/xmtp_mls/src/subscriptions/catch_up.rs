@@ -87,7 +87,7 @@ async fn catch_up_once<C: XmtpSharedContext + 'static>(
         .server_configuration()
         .check()
         .map_err(GroupError::from)?;
-    let timeout = timeout.unwrap_or(context.incoming_runtime().policy().barrier_timeout);
+    let timeout = timeout.unwrap_or(context.stream_policy().barrier_timeout);
     let started = Instant::now();
     let query = || GroupQueryArgs {
         include_sync_groups: true,
@@ -126,7 +126,7 @@ async fn catch_up_once<C: XmtpSharedContext + 'static>(
         .filter(|group| enrolled.contains(&group.id))
         .collect();
     let upper = db.current_delivery_cursor().map_err(GroupError::from)?;
-    let settings = context.incoming_runtime().policy();
+    let settings = context.stream_policy();
     let mut summary = CatchUpSummary {
         conversations: groups
             .iter()

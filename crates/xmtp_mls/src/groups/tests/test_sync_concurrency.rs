@@ -773,9 +773,8 @@ async fn can_stream_out_of_order_without_forking() {
                 .is_some_and(|cursor| cursor.sequence_id == last_message.cursor.0)
         })
         .unwrap();
-    let result = group_a
-        .process_streamed_group_message(wire.encode_to_vec())
-        .await;
+    let result =
+        crate::subscriptions::process_streamed_group_message(&group_a, wire.encode_to_vec()).await;
     assert!(result.is_ok());
 
     // All three installations must process the known last envelope before

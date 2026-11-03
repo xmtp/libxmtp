@@ -24,8 +24,6 @@ mod bidi_fuzz_tests;
 pub mod barrier;
 pub mod catch_up;
 pub(crate) mod connection_state;
-mod group_set_gate;
-pub(crate) use group_set_gate::GroupSetGate;
 pub mod incoming;
 #[doc(hidden)]
 pub use crate::core::events as internal;
@@ -395,6 +393,47 @@ where
         group.conversation_type,
         group.created_at_ns,
     )])
+}
+
+/// Use a push envelope for `group` only as a target for ordered receipt and processing.
+pub async fn process_streamed_group_message<Context>(
+    group: &MlsGroup<Context>,
+    envelope_bytes: Vec<u8>,
+) -> Result<Vec<StoredGroupMessage>>
+where
+    Context: XmtpSharedContext + 'static,
+{
+    let wire = ServerEnvelope::decode(envelope_bytes.as_slice())?;
+    let meta = wire
+        .meta
+        .as_ref()
+        .ok_or(xmtp_api::ApiError::InvalidResponse("group metadata"))?;
+    let (topic, cursor, _) =
+        xmtp_api_backend::envelope::metadata(meta, xmtp_proto::types::TopicKind::GroupMessagesV1)?;
+    if topic != xmtp_proto::types::Topic::new_group_message(group.group_id) {
+        return Err(xmtp_api::ApiError::InvalidResponse("group topic").into());
+    }
+    barrier::wait_through(&group.context, [(topic, cursor)].into(), None)
+        .await
+        .map_err(|error| {
+            group
+                .context
+                .server_configuration()
+                .blocked_or(GroupError::from(error))
+        })?;
+    let message = group
+        .context
+        .db()
+        .get_group_message_by_cursor(group.group_id, cursor)?;
+    // implements: META-051
+    let current_time_ns = xmtp_common::time::now_ns();
+    Ok(message
+        .filter(|row| {
+            row.expire_at_ns
+                .is_none_or(|deadline| deadline > current_time_ns)
+        })
+        .into_iter()
+        .collect())
 }
 
 #[xmtp_common::span(prefix = "stream")]

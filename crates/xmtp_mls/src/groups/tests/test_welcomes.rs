@@ -320,6 +320,7 @@ async fn test_spoofed_inbox_id() {
         shutdown_complete: alix.context.shutdown_complete.clone(),
         foreground_calls: alix.context.foreground_calls.clone(),
         delivery_owner: alix.context.delivery_owner.clone(),
+        retired_delivery_owner: alix.context.retired_delivery_owner.clone(),
         stream_policy: alix.context.stream_policy.clone(),
         features: alix.context.features.clone(),
     });

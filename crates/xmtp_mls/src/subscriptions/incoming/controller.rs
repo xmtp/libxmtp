@@ -3,7 +3,7 @@ use crate::{
     groups::MlsGroup,
     identity_updates::IdentityRequirement,
     mls_store::{MlsStore, ReceivedPage},
-    subscriptions::GroupSetGate,
+    subscriptions::incoming::stream_api::GroupSetGate,
 };
 use futures::{StreamExt, stream::FuturesUnordered};
 use std::{

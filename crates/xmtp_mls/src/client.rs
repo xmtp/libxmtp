@@ -427,6 +427,21 @@ impl xmtp_common::RetryableError for ClientError {
     }
 }
 
+/// The structured stream failure in `error`, read as
+/// [`stream_failure_details`](crate::subscriptions::stream_failure::stream_failure_details)
+/// does, and also through [`ClientError::Group`], whose `source()` skips the
+/// group error because the variant is transparent.
+pub fn stream_failure_details(
+    error: &(dyn std::error::Error + 'static),
+) -> Option<crate::subscriptions::stream_failure::StreamFailureDetails> {
+    crate::subscriptions::stream_failure::stream_failure_details_opening(error, |error| {
+        match error.downcast_ref::<ClientError>() {
+            Some(ClientError::Group(error)) => Some(error.as_ref()),
+            _ => None,
+        }
+    })
+}
+
 /// Clients manage access to the network, identity, and data store
 pub struct Client<Context> {
     pub context: Context,

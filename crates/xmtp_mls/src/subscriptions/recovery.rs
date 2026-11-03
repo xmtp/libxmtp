@@ -1,6 +1,7 @@
 //! A recovery budget belongs to one public stream, never to the shared receiver.
 
-use super::{incoming::IncomingError, local_delivery::LocalDeliveryError};
+use super::incoming::IncomingError;
+pub(crate) use super::incoming::stream_api::RecoveryFailure;
 use std::sync::Arc;
 use xmtp_common::time::{Duration, Instant};
 use xmtp_proto::types::Topic;
@@ -8,7 +9,6 @@ use xmtp_proto::types::Topic;
 const MAX_FAILURES: u64 = 10;
 const MAX_OUTAGE: Duration = Duration::from_secs(10 * 60);
 pub(crate) const HEALTHY_PERIOD: Duration = Duration::from_secs(30);
-pub(crate) const RECOVERY_POLL: Duration = Duration::from_secs(1);
 
 /// Source retryability describes one response. Explicit remote cancellation,
 /// authorization refusals, and blocked connections end recovery immediately.
@@ -107,27 +107,6 @@ pub(crate) struct RecoverySnapshot {
     pub(crate) healthy_since: Option<Instant>,
     pub(crate) outage_since: Option<Instant>,
     pub(crate) error: Option<Arc<IncomingError>>,
-}
-
-#[derive(Clone, Debug)]
-pub(crate) enum RecoveryFailure {
-    Exhausted {
-        attempts: u32,
-        source: Option<Arc<IncomingError>>,
-    },
-    Terminal(Arc<IncomingError>),
-}
-
-impl RecoveryFailure {
-    pub(crate) fn error(&self) -> LocalDeliveryError {
-        match self {
-            Self::Exhausted { attempts, source } => LocalDeliveryError::NetworkRecoveryExhausted {
-                attempts: *attempts,
-                source: source.clone(),
-            },
-            Self::Terminal(error) => LocalDeliveryError::NetworkFailure(error.clone()),
-        }
-    }
 }
 
 /// The controller and delivery boundary check the same stream budget.

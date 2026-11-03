@@ -1,9 +1,10 @@
 //! Live conversation notifications from committed group discovery.
 
 use super::{
-    GroupSetGate, Result,
-    incoming::{IncomingCoordinator, IncomingLease, IncomingScope},
+    Result,
+    incoming::{IncomingCoordinator, IncomingLease, IncomingScope, stream_api::GroupSetGate},
     internal::InternalEvent,
+    local_delivery::LocalDeliveryError,
 };
 use crate::{context::XmtpSharedContext, groups::MlsGroup};
 use futures::Stream;
@@ -176,7 +177,7 @@ impl<C: XmtpSharedContext + 'static> StreamConversations<C> {
                     }
                     if let Err(error) = lease.check_recovery() {
                         lease.close();
-                        return Some((Err(error.error().into()), None));
+                        return Some((Err(LocalDeliveryError::from(error).into()), None));
                     }
                     if let Some(group) = ready.pop_front() {
                         return Some((
@@ -213,7 +214,7 @@ impl<C: XmtpSharedContext + 'static> StreamConversations<C> {
                     tokio::select! {
                         _ = context.cancellation_token().cancelled() => {},
                         _ = lease.changed() => {},
-                        _ = sleep(context.incoming_runtime().policy().active_database_poll_interval) => {},
+                        _ = sleep(context.stream_policy().active_database_poll_interval) => {},
                         event = events.next() => { event?; },
                     }
                 }

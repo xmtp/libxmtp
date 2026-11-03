@@ -21,7 +21,6 @@ source = "crates/xmtp_mls/src"
 "subscriptions" = "streams"
 "subscriptions::barrier" = "engine"
 "subscriptions::connection_state" = "engine"
-"subscriptions::group_set_gate" = "engine"
 "subscriptions::incoming" = "engine"
 "subscriptions::recovery" = "engine"
 "test" = "facade"
@@ -65,20 +64,6 @@ to = "facade"
 tier = "path"
 count = 6
 reason = "PR 5b (Tasks 12 and 15): engine test helpers outside test suites still build a facade client or name the facade's test utilities."
-
-[[waivers]]
-from = "engine"
-to = "streams"
-tier = "path"
-count = 5
-reason = "PR 7 (Task 20): the receiver and the group stream entry points name stream types."
-
-[[waivers]]
-from = "streams"
-to = "facade"
-tier = "path"
-count = 1
-reason = "Streams extraction (PR 7): stream_failure_details opens the transparent ClientError::Group so a group failure keeps its stream-failure details."
 
 [naming]
 prefix = "xmtp_mls_"
@@ -127,17 +112,3 @@ to = "facade"
 tier = "call"
 count = 18
 reason = "PR 5b (Tasks 12 and 15): engine test helpers outside test suites still build a facade client or name the facade's test utilities."
-
-[[waivers]]
-from = "engine"
-to = "streams"
-tier = "call"
-count = 13
-reason = "PR 7 (Task 20): the receiver and the group stream entry points name stream types."
-
-[[waivers]]
-from = "streams"
-to = "facade"
-tier = "call"
-count = 4
-reason = "Streams extraction (PR 7): stream_failure_details opens the transparent ClientError::Group so a group failure keeps its stream-failure details."

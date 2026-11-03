@@ -172,7 +172,7 @@ async fn first_barrier_call_on_another_deployment_reports_the_backend_mismatch(
             Err(SubscribeError::Group(error)) if backend_mismatch(&error)
         ),
         EntryPoint::PushGroupMessage => matches!(
-            group.process_streamed_group_message(group_message).await,
+            crate::subscriptions::process_streamed_group_message(&group, group_message).await,
             Err(SubscribeError::Group(error)) if backend_mismatch(&error)
         ),
     };

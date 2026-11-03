@@ -71,6 +71,19 @@ impl SyncSummary {
         self.process.new_messages.iter().find(|m| m.cursor == id)
     }
 
+    /// Every error in this summary: the error outside the sync, then the
+    /// publish, post-commit and message-processing errors, each in the order
+    /// they were recorded.
+    pub fn errors(&self) -> impl DoubleEndedIterator<Item = &(dyn std::error::Error + 'static)> {
+        self.other
+            .as_deref()
+            .into_iter()
+            .map(|error| error as &(dyn std::error::Error + 'static))
+            .chain(self.publish_errors.iter().map(|error| error as _))
+            .chain(self.post_commit_errors.iter().map(|error| error as _))
+            .chain(self.process.errored.iter().map(|(_, error)| error as _))
+    }
+
     /// Whether the sync *operation* failed (publish, post-commit, or an
     /// unrelated error). This is the single predicate that decides whether a
     /// summary may sit in the `Err` position and which Display branch is used —

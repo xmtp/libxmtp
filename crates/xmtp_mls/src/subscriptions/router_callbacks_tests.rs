@@ -8,8 +8,9 @@ use xmtp_db::group_message::{GroupMessageKind, StoredGroupMessage};
 
 use crate::Client;
 use crate::context::CoreContext;
+use crate::subscriptions::incoming::stream_api::shared_wires::shared_transport;
 use crate::subscriptions::router_callbacks::{
-    resume_bidi_streams, shared_transport, shared_transport_count,
+    resume_bidi_streams, shared_transport_count,
     stream_conversation_messages_with_callback_dispatch, suspend_bidi_streams,
 };
 use crate::tester;

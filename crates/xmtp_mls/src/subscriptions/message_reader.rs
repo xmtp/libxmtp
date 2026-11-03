@@ -63,7 +63,7 @@ impl<C: XmtpSharedContext + 'static> MessageReader<C> {
     ) -> Result<Self, LocalDeliveryError> {
         context.server_configuration().check()?;
         let configuration = context.server_configuration().clone();
-        let config = LocalDeliveryConfig::from(context.incoming_runtime().policy());
+        let config = LocalDeliveryConfig::from(context.stream_policy());
         let coordinator = IncomingCoordinator::for_context(&context);
         let lease = Arc::new(coordinator.acquire_stream(incoming_scope(&scope)));
         let delivery = LocalDelivery::new(context, scope, filter, from, config)?;
@@ -102,7 +102,7 @@ impl<C: XmtpSharedContext + 'static> MessageReader<C> {
                     break Err(error.into());
                 }
                 if let Err(error) = lease.check_recovery() {
-                    break Err(error.error());
+                    break Err(LocalDeliveryError::from(error));
                 }
                 tokio::select! {
                     biased;
@@ -120,12 +120,12 @@ impl<C: XmtpSharedContext + 'static> MessageReader<C> {
                         if matches!(&item, Ok(Some(_)))
                             && let Err(error) = lease.check_recovery()
                         {
-                            break Err(error.error());
+                            break Err(LocalDeliveryError::from(error));
                         }
                         break item;
                     },
                     _ = lease.changed() => {},
-                    _ = xmtp_common::time::sleep(super::recovery::RECOVERY_POLL) => {},
+                    _ = xmtp_common::time::sleep(super::incoming::stream_api::RECOVERY_POLL) => {},
                 }
             }
         };

@@ -1,4 +1,5 @@
 use super::*;
+use crate::client::ClientError;
 use std::sync::Arc;
 use xmtp_proto::types::{Cursor, Topic};
 
@@ -105,7 +106,7 @@ fn traverses_all_sync_summary_branches_and_transparent_wrappers() {
         )))),
     ));
     let error = ClientError::Group(Box::new(GroupError::Sync(Box::new(summary))));
-    let details = stream_failure_details(&error)?;
+    let details = crate::client::stream_failure_details(&error)?;
     let targets: Vec<_> = details
         .barriers
         .iter()

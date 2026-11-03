@@ -2,6 +2,7 @@
 
 mod controller;
 mod status;
+pub mod stream_api;
 use super::connection_state::ConnectionStates;
 
 use crate::context::XmtpSharedContext;
@@ -95,8 +96,6 @@ pub struct IncomingRuntime {
     pub(crate) rejected_requests: RejectedRequests,
     /// A new controller on this client cannot send inside a rate-limit delay.
     pub(crate) rate_limit_hold: SharedRateLimitHold,
-    /// A closed reader whose owner token must be released after storage repair.
-    pub(crate) retired_delivery_owner: Mutex<Option<xmtp_db::delivery::DeliveryOwner>>,
 }
 
 impl IncomingRuntime {
@@ -112,7 +111,6 @@ impl IncomingRuntime {
             coordinator: Mutex::new(None),
             rejected_requests: Arc::new(Mutex::new(Vec::new())),
             rate_limit_hold: Arc::default(),
-            retired_delivery_owner: Mutex::new(None),
         }
     }
 
@@ -212,7 +210,7 @@ where
 impl<A> SubscriptionFactory for BidiSubscriptionFactory<A>
 where
     A: xmtp_proto::api_client::XmtpMlsBidiStreams
-        + super::router_callbacks::ApiClientIdentity
+        + stream_api::shared_wires::ApiClientIdentity
         + Clone
         + Send
         + Sync
@@ -226,7 +224,7 @@ where
             let mutate = self.mutate.unwrap_or_else(|| {
                 xmtp_api_backend::MutateLimits::from_limits(&self.api.bidi_limits())
             });
-            super::router_callbacks::shared_transport_within(self.api.clone(), mutate)
+            stream_api::shared_wires::shared_transport_within(self.api.clone(), mutate)
         }).clone();
         Box::pin(async move {
             transport
@@ -262,7 +260,7 @@ where
     }
 
     fn is_suspended(&self) -> bool {
-        super::router_callbacks::bidi_streams_suspended()
+        stream_api::shared_wires::bidi_streams_suspended()
     }
 }
 }
@@ -382,12 +380,6 @@ impl IncomingCoordinator {
         self.acquire_with_recovery(scope, false)
     }
 
-    /// Application streams own a finite outage budget. Internal workers and
-    /// bounded sync operations keep their existing lifetime and deadline rules.
-    pub(crate) fn acquire_stream(self: &Arc<Self>, scope: IncomingScope) -> IncomingLease {
-        self.acquire_with_recovery(scope, true)
-    }
-
     fn acquire_with_recovery(
         self: &Arc<Self>,
         scope: IncomingScope,
@@ -439,14 +431,6 @@ impl IncomingLease {
             .get(&self.id)
             .map(|state| state.snapshot.clone())
             .unwrap_or_default()
-    }
-
-    pub(crate) fn check_recovery(&self) -> Result<(), super::recovery::RecoveryFailure> {
-        let mut consumers = self.coordinator.state.consumer_recovery.lock();
-        match consumers.get_mut(&self.id) {
-            Some(state) => state.check(Instant::now()),
-            None => Ok(()),
-        }
     }
 
     /// Publish to this lease alone the failure a fresh recovery budget reports

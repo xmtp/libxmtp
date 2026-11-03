@@ -4,7 +4,7 @@ use xmtp_db::StorageError;
 
 pub use xmtp_db::delivery::DeliveryFilter as LocalDeliveryFilter;
 
-use crate::subscriptions::policy::StreamPolicy;
+use crate::subscriptions::{incoming::stream_api::RecoveryFailure, policy::StreamPolicy};
 
 const LEASE_RENEWAL_DIVISOR: u32 = 3;
 
@@ -109,6 +109,17 @@ pub enum LocalDeliveryError {
     /// This reader has been closed. Not retryable.
     #[error("The local message reader is closed")]
     Closed,
+}
+
+impl From<RecoveryFailure> for LocalDeliveryError {
+    fn from(failure: RecoveryFailure) -> Self {
+        match failure {
+            RecoveryFailure::Exhausted { attempts, source } => {
+                Self::NetworkRecoveryExhausted { attempts, source }
+            }
+            RecoveryFailure::Terminal(error) => Self::NetworkFailure(error),
+        }
+    }
 }
 
 impl crate::worker::NeedsDbReconnect for LocalDeliveryError {
