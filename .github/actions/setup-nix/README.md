@@ -45,6 +45,14 @@ Two Cachix caches hold CI outputs:
   CI-only. Pull request, merge-run, and full nightly CI jobs write it, so its
   content can come from unreviewed code.
 
+`cachix-use-daemon` defaults to `"true"`, matching the pinned Cachix action.
+With `"false"`, the action scans for new store paths and pushes them
+synchronously in its post-job step; push failures still fail the job. The
+post-merge `rn-package` job uses this mode because its explicit pushes already
+finish the package uploads, and a concurrent daemon upload of the same partial
+package timed out during cleanup. The cause of that daemon stall is unproven.
+Other jobs keep the default daemon mode.
+
 **The rule:** a job that reads a CI-only store writes no trusted store
 (Cachix `xmtp`, Kache S3, the saved pnpm store). Each caller states its mode
 with the `cache-mode` input:

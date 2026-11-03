@@ -93,6 +93,9 @@ jobs:
         with:
           cache-mode: trusted
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          # Explicit pushes below finish the package uploads. Avoid a concurrent
+          # daemon upload of the same paths timing out during cleanup.
+          cachix-use-daemon: "false"
           github-token: ${{ github.token }}
       - name: Assemble the package
         uses: ./.github/actions/react-native-product
