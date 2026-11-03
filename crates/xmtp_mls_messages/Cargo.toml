@@ -30,6 +30,8 @@ xmtp_proto.workspace = true
 xmtp_common = { workspace = true, features = ["test-utils"] }
 
 [target.'cfg(not(all(target_family = "wasm", target_os = "unknown")))'.dev-dependencies]
+ctor.workspace = true
+fdlimit.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "test-util"] }
 
 [target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dev-dependencies]

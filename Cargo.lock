@@ -13321,6 +13321,8 @@ version = "8.0.0"
 dependencies = [
  "bytes",
  "const-hex",
+ "ctor",
+ "fdlimit",
  "prost",
  "thiserror 2.0.19",
  "tokio",
