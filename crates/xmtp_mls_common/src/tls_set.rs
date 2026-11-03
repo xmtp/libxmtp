@@ -29,18 +29,20 @@ pub struct TlsKeyHash([u8; 32]);
 
 impl TlsKeyHash {
     /// Compute the hash of a key by SHA-256-ing its TLS-serialized form.
-    /// This is the only public way to construct a `TlsKeyHash`, ensuring
-    /// every hash on the wire was produced by the canonical encoding.
+    /// This is the only public way to hash a key, ensuring every hash on the
+    /// wire was produced by the canonical encoding;
+    /// [`from_bytes`](Self::from_bytes) only rebuilds a hash read back.
     #[inline]
     pub fn of<K: Serialize + Size>(key: &K) -> Result<Self, tls_codec::Error> {
         let bytes = key.tls_serialize_detached()?;
         Ok(Self(xmtp_common::sha256_array(&bytes)))
     }
 
-    /// Construct from raw bytes. Used by TLS deserialization to reconstruct
-    /// a hash that was produced by an earlier `TlsKeyHash::of` on the sender.
+    /// Construct from raw bytes. Used by wire-format deserialization to
+    /// reconstruct a hash that was produced by an earlier `TlsKeyHash::of` on
+    /// the sender; the bytes are taken as they are, not hashed.
     #[inline]
-    pub(crate) const fn from_bytes(bytes: [u8; 32]) -> Self {
+    pub const fn from_bytes(bytes: [u8; 32]) -> Self {
         Self(bytes)
     }
 
