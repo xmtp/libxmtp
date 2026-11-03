@@ -45,3 +45,7 @@ tonic = { workspace = true, features = [
 tonic-prost = "0.14"
 xmtp_configuration.workspace = true
 xmtp_proto.workspace = true
+
+[dev-dependencies]
+hyper = { workspace = true, features = ["server"] }
+xmtp_common = { workspace = true, features = ["test-utils"] }

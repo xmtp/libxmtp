@@ -138,11 +138,17 @@ async fn main() -> Result<()> {
     let _ = rustls::crypto::ring::default_provider().install_default();
 
     let url = Url::parse(&args.endpoint).context("parsing --endpoint")?;
+    anyhow::ensure!(
+        matches!(url.scheme(), "http" | "https"),
+        "--endpoint must use http:// or https://"
+    );
     let host = url
         .host_str()
         .context("--endpoint has no host")?
         .to_string();
-    let port = url.port().unwrap_or(443);
+    let port = url
+        .port_or_known_default()
+        .context("--endpoint has no port")?;
 
     let mut roots = RootCertStore::empty();
     roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
@@ -488,6 +494,10 @@ async fn establish_and_hold(
         .context("tcp connect")?;
     tcp.set_nodelay(true).ok();
 
+    if Url::parse(&args.endpoint)?.scheme() == "http" {
+        return hold_connection(args, tcp).await;
+    }
+
     let server_name = ServerName::try_from(host.to_string()).context("invalid TLS server name")?;
     let tls_stream = tokio::time::timeout(
         args.connect_timeout,
@@ -497,6 +507,13 @@ async fn establish_and_hold(
     .context("tls handshake timed out")?
     .context("tls handshake")?;
 
+    hold_connection(args, tls_stream).await
+}
+
+async fn hold_connection<T>(args: &Args, stream: T) -> Result<(Outcome, Duration)>
+where
+    T: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+{
     let mut builder = http2::Builder::new(TokioExecutor::new());
     builder
         // hyper 1.x ships no timer; keepalive needs one.
@@ -506,7 +523,7 @@ async fn establish_and_hold(
         .keep_alive_while_idle(args.ka_while_idle);
 
     let (sender, conn) = builder
-        .handshake::<_, Empty<Bytes>>(TokioIo::new(tls_stream))
+        .handshake::<_, Empty<Bytes>>(TokioIo::new(stream))
         .await
         .context("http2 handshake")?;
 
@@ -651,6 +668,64 @@ fn fmt(d: Duration) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn idle_connections_respect_the_endpoint_scheme() {
+        const HOLD_DURATION: Duration = Duration::from_millis(100);
+        const TEST_TIMEOUT: Duration = Duration::from_secs(5);
+
+        for scheme in ["http", "https"] {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+            let address = listener.local_addr()?;
+            let mut args = Args::try_parse_from([
+                "keepalive-probe",
+                "--endpoint",
+                &format!("{scheme}://{address}"),
+            ])?;
+            args.duration = HOLD_DURATION;
+            args.connect_timeout = TEST_TIMEOUT;
+            let tls = ClientConfig::builder_with_provider(Arc::new(
+                rustls::crypto::ring::default_provider(),
+            ))
+            .with_safe_default_protocol_versions()?
+            .with_root_certificates(RootCertStore::empty())
+            .with_no_client_auth();
+            let server = async {
+                let (socket, _) = listener.accept().await.expect("accept probe connection");
+                hyper::server::conn::http2::Builder::new(TokioExecutor::new())
+                    .serve_connection(
+                        TokioIo::new(socket),
+                        hyper::service::service_fn(|_| async {
+                            Ok::<_, std::convert::Infallible>(hyper::Response::new(
+                                Empty::<Bytes>::new(),
+                            ))
+                        }),
+                    )
+                    .await
+            };
+            let (_, result) = tokio::time::timeout(TEST_TIMEOUT, async {
+                tokio::join!(
+                    server,
+                    run_connection(0, &args, "127.0.0.1", address.port(), Arc::new(tls))
+                )
+            })
+            .await?;
+
+            if scheme == "http" {
+                assert!(
+                    matches!(result.outcome, Outcome::Survived),
+                    "plaintext connection did not survive: {:?}",
+                    result.outcome
+                );
+            } else {
+                assert!(
+                    matches!(result.outcome, Outcome::SetupError(_)),
+                    "HTTPS must not fall back to plaintext: {:?}",
+                    result.outcome
+                );
+            }
+        }
+    }
 
     fn secs(v: &[u64]) -> Vec<Duration> {
         v.iter().map(|s| Duration::from_secs(*s)).collect()

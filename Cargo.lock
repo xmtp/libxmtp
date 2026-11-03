@@ -6061,6 +6061,7 @@ dependencies = [
  "tracing-subscriber",
  "url",
  "webpki-roots",
+ "xmtp_common",
  "xmtp_configuration",
  "xmtp_proto",
 ]

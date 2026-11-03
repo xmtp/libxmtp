@@ -36,6 +36,30 @@ monitoring daemon via Docker.
 
 `--url` is required. Run `just backend up` before the local examples.
 
+#### Local interactive QA
+
+Run from the repository root with Nix and Docker available. This creates two
+throwaway identities, sends a message, and verifies its receipt through a real
+stream. The local backend requires no API key or wallet login.
+
+```sh
+dev/nix-shell 'just backend up'
+dev/nix-shell 'just backend status'
+dev/nix-shell '. dev/docker/load-env && XDBG_DB_ROOT="$(mktemp -d)" dev/agent-run cargo run --locked -p xdbg -- --url "$XMTP_BACKEND_URL" test message-visibility --iterations 1'
+```
+
+Expect exit code zero, `message received by receiver`, and `iteration complete`
+with a latency. A timeout or nonzero exit is a failure. The temporary
+`XDBG_DB_ROOT` avoids opening existing diagnostic state, including state from an
+incompatible version. Never use `--clear` on someone else's state to make QA pass.
+If you need to inspect or reuse a run, export a fresh `XDBG_DB_ROOT` before
+running it and retain that directory privately.
+
+The broader `healthcheck` command exercises additional operations; its failures
+must be investigated separately, even when this message round trip succeeds.
+When finished, stop only this worktree's stack with
+`dev/nix-shell 'just backend down'`.
+
 ---
 
 #### Generate

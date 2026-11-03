@@ -122,11 +122,13 @@ export const useAppLock = (
   // if the lock is lost, call the onLockLost callback
   // this is helpful for disconnecting the user when the lock is lost
   useEffect(() => {
-    if (lockState !== "active" && hadLockRef.current) {
+    // A child effect can acquire the lock in the same commit, before this
+    // state reflects it. Storage still names this session in that case.
+    if (lockState !== "active" && hadLockRef.current && !ownsLock()) {
       hadLockRef.current = false;
       onLockLost?.();
     }
-  }, [lockState, onLockLost]);
+  }, [lockState, onLockLost, ownsLock]);
 
   // heartbeat to keep lock alive when active
   useEffect(() => {
