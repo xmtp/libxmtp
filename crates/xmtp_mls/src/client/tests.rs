@@ -52,5 +52,6 @@ async fn get_key_package_init_key<Context: XmtpSharedContext, Id: AsRef<[u8]>>(
 
 mod groups;
 mod identity;
+mod incoming;
 mod lifecycle;
 mod sync;

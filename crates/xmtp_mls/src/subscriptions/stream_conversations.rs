@@ -87,8 +87,8 @@ fn changed_groups<C: XmtpSharedContext>(
     let groups = if query.consent_states.as_ref().is_some_and(Vec::is_empty) {
         Vec::new()
     } else {
-        #[cfg(test)]
-        test::count_groups_read();
+        #[cfg(any(test, feature = "test-hooks"))]
+        test_hooks::count_groups_read();
         db.find_groups(query)?
     };
     gate.record(generation);
@@ -184,8 +184,8 @@ impl<C: XmtpSharedContext + 'static> StreamConversations<C> {
                             Some((context, events, lease, known, ready, query, gate)),
                         ));
                     }
-                    #[cfg(test)]
-                    test::count_pass();
+                    #[cfg(any(test, feature = "test-hooks"))]
+                    test_hooks::count_pass();
                     match changed_groups(&context, &query, &mut gate) {
                         Ok(groups) => {
                             for group in groups {
@@ -238,6 +238,9 @@ impl<C: XmtpSharedContext> Stream for StreamConversations<C> {
     }
 }
 
+#[cfg(any(test, feature = "test-hooks"))]
+mod test_hooks;
+
 #[cfg(test)]
 mod test {
     use crate::prelude::*;
@@ -255,20 +258,7 @@ mod test {
     use std::cell::Cell;
     use xmtp_cryptography::utils::generate_local_wallet;
 
-    std::thread_local! {
-        /// Discovery passes of conversation streams polled on this thread.
-        static PASSES: Cell<usize> = const { Cell::new(0) };
-        /// Groups-table reads by those passes.
-        static GROUPS_READS: Cell<usize> = const { Cell::new(0) };
-    }
-
-    pub(super) fn count_pass() {
-        PASSES.with(|passes| passes.set(passes.get() + 1));
-    }
-
-    pub(super) fn count_groups_read() {
-        GROUPS_READS.with(|reads| reads.set(reads.get() + 1));
-    }
+    use super::test_hooks::{GROUPS_READS, PASSES};
 
     /// Idle passes do not reread the groups table, and an invitation that
     /// changes the group set is still delivered on the next pass.

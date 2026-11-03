@@ -3,7 +3,9 @@ use super::*;
 #[cfg(not(target_arch = "wasm32"))]
 #[xmtp_common::test(flavor = "multi_thread")]
 async fn test_leaf_node_lifetime_validation_disabled() {
-    use crate::utils::test_mocks_helpers::set_test_mode_limit_key_package_lifetime;
+    use crate::utils::test_mocks_helpers::{
+        mocked_package_lifetimes, set_test_mode_limit_key_package_lifetime,
+    };
 
     // Create a client with default KP lifetime
     tester!(alice);
@@ -27,7 +29,9 @@ async fn test_leaf_node_lifetime_validation_disabled() {
 
     // Create a client with a KP that expires in 5 seconds
     set_test_mode_limit_key_package_lifetime(true, 5);
+    let mocked = mocked_package_lifetimes();
     tester!(bob);
+    assert!(mocked_package_lifetimes() > mocked);
 
     // Alice invites Bob with short living KP
     alice_bob_group

@@ -1,4 +1,4 @@
-//! Test-only observations for convergence and liveness checks.
+//! Observations for convergence and liveness checks.
 //!
 //! IDs and public MLS state use hex so reports can cross a process boundary.
 //! No secret MLS state, group key, or message contents leave these
@@ -6,10 +6,6 @@
 
 use crate::{context::XmtpSharedContext, subscriptions::barrier};
 use serde::{Deserialize, Serialize};
-use std::{
-    collections::BTreeMap,
-    sync::atomic::{AtomicU64, Ordering},
-};
 use xmtp_common::{
     ErrorCode, RetryableError,
     time::{Duration, Instant},
@@ -17,7 +13,10 @@ use xmtp_common::{
 use xmtp_db::consent_record::ConsentState;
 use xmtp_proto::types::GroupId;
 
-pub use crate::groups::diagnostics::{CommitSnapshot, GroupSnapshot, MemberSnapshot};
+pub use crate::groups::diagnostics::{
+    CommitSnapshot, ContentionSnapshot, GroupSnapshot, MemberSnapshot, WelcomeRetryCause,
+    contention_snapshot,
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum BarrierCause {
@@ -125,62 +124,6 @@ impl Default for RetryBudgets {
             permanent_receiver_ms: STREAM_PERMANENT_RETRY_MAX.as_millis() as u64,
         }
     }
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
-pub enum WelcomeRetryCause {
-    IdentityDependency,
-    GroupPrefix,
-    Pointee,
-    UnsupportedWelcome,
-    Blocked,
-    Retry,
-}
-
-static OWN_COMMIT_EPOCH_CONFLICTS: AtomicU64 = AtomicU64::new(0);
-static WELCOME_RETRIES: [AtomicU64; 6] = [const { AtomicU64::new(0) }; 6];
-const WELCOME_CAUSES: [WelcomeRetryCause; 6] = [
-    WelcomeRetryCause::IdentityDependency,
-    WelcomeRetryCause::GroupPrefix,
-    WelcomeRetryCause::Pointee,
-    WelcomeRetryCause::UnsupportedWelcome,
-    WelcomeRetryCause::Blocked,
-    WelcomeRetryCause::Retry,
-];
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
-pub struct ContentionSnapshot {
-    pub own_commit_epoch_conflicts: u64,
-    pub welcome_retries: BTreeMap<WelcomeRetryCause, u64>,
-}
-
-/// Cumulative observations for this process. A process restart resets them.
-pub fn contention_snapshot() -> ContentionSnapshot {
-    ContentionSnapshot {
-        own_commit_epoch_conflicts: OWN_COMMIT_EPOCH_CONFLICTS.load(Ordering::Relaxed),
-        welcome_retries: WELCOME_CAUSES
-            .into_iter()
-            .zip(&WELCOME_RETRIES)
-            .map(|(cause, counter)| (cause, counter.load(Ordering::Relaxed)))
-            .collect(),
-    }
-}
-
-pub(crate) fn record_own_commit_epoch_conflict() {
-    OWN_COMMIT_EPOCH_CONFLICTS.fetch_add(1, Ordering::Relaxed);
-}
-
-/// Called only after the retry row was stored successfully.
-pub(crate) fn record_welcome_retry(code: &str) {
-    let cause = match code {
-        "identity_dependency" => WelcomeRetryCause::IdentityDependency,
-        "group_prefix" => WelcomeRetryCause::GroupPrefix,
-        "welcome_pointee" => WelcomeRetryCause::Pointee,
-        "unsupported_welcome" => WelcomeRetryCause::UnsupportedWelcome,
-        "welcome_blocked" => WelcomeRetryCause::Blocked,
-        _ => WelcomeRetryCause::Retry,
-    };
-    WELCOME_RETRIES[cause as usize].fetch_add(1, Ordering::Relaxed);
 }
 
 #[cfg(test)]

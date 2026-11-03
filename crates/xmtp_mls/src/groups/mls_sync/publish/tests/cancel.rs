@@ -151,7 +151,7 @@ async fn cancel_unsent_races_the_publisher() {
     let message = group.send_message_optimistic(&text("raced"), Default::default())?;
     let cancelling = group.clone();
     let cancelled = message.clone();
-    super::on_next_prepare(
+    super::super::test_hooks::on_next_prepare(
         group.group_id.as_ref(),
         Box::new(move || {
             Box::pin(async move {

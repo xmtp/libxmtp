@@ -1,5 +1,5 @@
 #[cfg(test)]
-use crate::GroupCommitLock;
+use crate::core::commit_lock::GroupCommitLock;
 use crate::{
     StorageError, XmtpApi,
     attachments::AttachmentRuntime,
@@ -1218,9 +1218,9 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
                 + 'static,
             A::SubscribeStream: 'static,
         {
-            let factory = crate::subscriptions::incoming::BidiSubscriptionFactory::new(api_client.clone());
+            let factory = crate::subscriptions::incoming::streaming_factory(api_client.clone());
             let mut builder = self.api_client(api_client);
-            builder.incoming_factory = Some(Arc::new(factory));
+            builder.incoming_factory = Some(factory);
             builder
         }
     }
@@ -1232,17 +1232,9 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
         where
             A: xmtp_proto::api_client::XmtpMlsStreams + Clone + 'static,
         {
-            let api = api_client.clone();
+            let factory = crate::subscriptions::incoming::streaming_factory(api_client.clone());
             let mut builder = self.api_client(api_client);
-            builder.incoming_factory = Some(Arc::new(move |cursors: xmtp_proto::types::TopicCursor, limits| -> crate::subscriptions::incoming::SubscriptionFuture {
-                let api = api.clone();
-                Box::pin(async move {
-                    api.subscribe_envelopes_with_cursors(&cursors, limits)
-                        .await
-                        .map(|subscription| subscription.map_error(xmtp_proto::api::NetworkError::new))
-                        .map_err(xmtp_proto::api::NetworkError::new)
-                })
-            }));
+            builder.incoming_factory = Some(factory);
             builder
         }
     }

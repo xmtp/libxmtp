@@ -21,7 +21,14 @@ targets = [
 
 [features]
 conformance = []
+# Read-only observations for convergence and liveness checks (apps/chaos).
+diagnostics = []
+# Hook state and dispatch points that change runtime behavior for a test.
+# A test outside this crate registers a hook through the test_support path
+# added with its first such caller. Never enabled outside tests.
+test-hooks = []
 test-utils = [
+  "diagnostics",
   "tracing-subscriber",
   "xmtp_id/test-utils-anvil",
   "xmtp_db/test-utils",

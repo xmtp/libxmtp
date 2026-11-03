@@ -26,6 +26,22 @@ use xmtp_id::{
     associations::{MemberIdentifier, builder::SignatureRequestBuilder},
 };
 
+#[cfg(any(test, feature = "test-utils"))]
+pub mod test_mocks;
+#[cfg(test)]
+pub(crate) mod test_support;
+
+/// The identity strategy of a test client: nonce 1 of the owner's identifier.
+#[cfg(any(test, feature = "test-utils"))]
+pub fn identity_setup(owner: impl xmtp_id::InboxOwner) -> crate::identity::IdentityStrategy {
+    let nonce = 1;
+    let ident = owner.get_identifier().expect("the owner's identifier");
+    let inbox_id = ident
+        .inbox_id(nonce)
+        .expect("an inbox id for the identifier");
+    crate::identity::IdentityStrategy::new(inbox_id, ident, nonce)
+}
+
 /// Create a new [Identity] instance.
 ///
 /// If the address is already associated with an inbox_id, the existing inbox_id will be used.

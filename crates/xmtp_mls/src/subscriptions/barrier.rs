@@ -1,5 +1,7 @@
 //! Fixed processing targets over the shared durable receiver.
 
+#[cfg(any(test, feature = "test-hooks"))]
+mod test_hooks;
 #[cfg(test)]
 mod tests;
 
@@ -331,16 +333,16 @@ fn discover_welcome_groups<C: XmtpSharedContext>(
     if !gate.changed(generation) {
         return Ok(None);
     }
-    #[cfg(test)]
-    tests::count_groups_read();
+    #[cfg(any(test, feature = "test-hooks"))]
+    test_hooks::count_groups_read();
     let eligible = db.group_ids_discovered_through(discovery.target)?;
     let selected: HashSet<_> = db
         .stored_group_refs(&GroupScope::listing(discovery.consent_states.clone()))?
         .into_iter()
         .map(|group| group.id)
         .collect();
-    #[cfg(test)]
-    tests::after_discovery_read();
+    #[cfg(any(test, feature = "test-hooks"))]
+    test_hooks::after_discovery_read();
     gate.record(generation);
     Ok(Some(
         eligible
@@ -553,8 +555,8 @@ async fn wait_for_targets_snapshot<C: XmtpSharedContext>(
     });
     let mut discovery_gate = GroupSetGate::default();
     loop {
-        #[cfg(test)]
-        tests::before_progress_read();
+        #[cfg(any(test, feature = "test-hooks"))]
+        test_hooks::before_progress_read();
         // Read completion before discovery. A completed Welcome transaction also
         // records its groups, so the later discovery scan must include them.
         let mut topics: Vec<_> = targets

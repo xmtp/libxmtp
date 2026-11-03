@@ -672,7 +672,7 @@ where
         max_past_epochs: usize,
     ) -> Result<(), GroupMessageProcessingError> {
         #[cfg(any(test, feature = "test-utils"))]
-        crate::utils::test_mocks_helpers::maybe_mock_future_epoch_for_tests()?;
+        super::test_mocks::maybe_mock_future_epoch_for_tests()?;
 
         if message_epoch.as_u64() + max_past_epochs as u64 <= group_epoch.as_u64() {
             tracing::warn!(

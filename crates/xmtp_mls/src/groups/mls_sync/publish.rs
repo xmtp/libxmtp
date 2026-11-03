@@ -12,6 +12,8 @@ mod dependencies;
 mod prepared;
 mod rejection;
 mod selection;
+#[cfg(any(test, feature = "test-hooks"))]
+mod test_hooks;
 #[cfg(test)]
 mod tests;
 mod welcomes;
@@ -145,8 +147,8 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                                 Ok(dependencies) => dependencies,
                                 Err(error) => break Err(error),
                             };
-                        #[cfg(test)]
-                        tests::before_prepare(self.group_id.as_ref()).await;
+                        #[cfg(any(test, feature = "test-hooks"))]
+                        test_hooks::before_prepare(self.group_id.as_ref()).await;
                         let result = self.prepare_publish_attempt(&requirements, &mut dependencies);
                         if matches!(
                             result,
@@ -190,8 +192,8 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                         )) if requirements.intent.kind == IntentKind::SendMessage => {
                             deferred_message = true;
                             after = Some(requirements.intent.id);
-                            #[cfg(test)]
-                            tests::after_deferral(self.group_id.as_ref()).await;
+                            #[cfg(any(test, feature = "test-hooks"))]
+                            test_hooks::after_deferral(self.group_id.as_ref()).await;
                             continue;
                         }
                         Err(error)

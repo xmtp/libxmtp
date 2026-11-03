@@ -22,7 +22,7 @@ async fn deferred_preflight_stays_per_client_on_an_existing_native_wire() {
         1,
     )?;
     let active = Client::builder(IdentityStrategy::ExternalIdentity(
-        crate::identity::Identity::mock_identity(),
+        crate::context::test_support::mock_identity(),
     ))
     .store(a_store)
     .api_client_with_streams(raw)
