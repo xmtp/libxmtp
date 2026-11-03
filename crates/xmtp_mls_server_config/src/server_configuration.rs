@@ -154,8 +154,12 @@ impl RetryableError for ServerConfigError {
 /// refresh sets it.
 #[derive(Clone)]
 pub struct ServerConfigurationHandle {
+    /// Serializes the first-request configuration check and explicit
+    /// refreshes, so one fetch runs at a time.
     pub admission: Arc<tokio::sync::Mutex<()>>,
+    /// Set while the first-request configuration check has not committed.
     pub pending: Arc<AtomicBool>,
+    /// The request adapter's configuration fetch, once the client binds it.
     pub fetch: Arc<OnceLock<Arc<dyn xmtp_api::preflight::ConfigurationFetch>>>,
     deployment_recorder: Arc<RwLock<Option<crate::storage_location::DeploymentRecorder>>>,
     provider: Arc<dyn ConfigProvider>,
@@ -182,11 +186,13 @@ impl Default for ServerConfigurationHandle {
 }
 
 impl ServerConfigurationHandle {
+    /// Whether the app supplied its own verifier, so no chain restriction applies.
     #[cfg(any(test, feature = "test-utils"))]
     pub fn custom_verifier(&self) -> bool {
         self.restricted_chains.is_none()
     }
 
+    /// Whether the first-request configuration check is still pending.
     pub fn requires_preflight(&self) -> bool {
         self.pending.load(Ordering::Acquire)
     }
@@ -295,14 +301,17 @@ impl ServerConfigurationHandle {
         self.blocked_connection.read().clone()
     }
 
+    /// Where a blocked connection reports its client event.
     pub fn set_event_writer(&self, writer: Arc<dyn EventWriter<()>>) {
         *self.event_writer.write() = Some(writer);
     }
 
+    /// The record that a fetched deployment identifier is written to.
     pub fn set_deployment_recorder(&self, recorder: crate::storage_location::DeploymentRecorder) {
         *self.deployment_recorder.write() = Some(recorder);
     }
 
+    /// Record `identifier` for this client's backend URL, when a recorder is set.
     pub async fn record_deployment(&self, identifier: &str) -> Result<(), ServerConfigError> {
         let recorder = self.deployment_recorder.read().clone();
         if let Some(recorder) = recorder {
@@ -418,6 +427,8 @@ where
     Ok(configuration)
 }
 
+/// Validate `response`, check it against the deployment the database is
+/// bound to, and store it.
 pub fn commit_configuration(
     response: backend_v1::GetConfigurationResponse,
     backend_url: Option<&str>,

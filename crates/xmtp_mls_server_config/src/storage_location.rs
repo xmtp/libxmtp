@@ -122,6 +122,8 @@ pub fn deployment_component(identifier: &str) -> String {
     format!("{name}-{digest}")
 }
 
+/// Reads and writes the deployment identifier recorded for one backend URL
+/// in a data directory.
 #[derive(Clone, Debug)]
 pub struct DeploymentRecorder {
     data_dir: PathBuf,
@@ -130,6 +132,7 @@ pub struct DeploymentRecorder {
 }
 
 impl DeploymentRecorder {
+    /// A recorder for `backend_url`'s record in `data_dir`.
     pub fn new(data_dir: PathBuf, backend_url: &str) -> Self {
         Self {
             data_dir,
@@ -138,11 +141,13 @@ impl DeploymentRecorder {
         }
     }
 
+    /// Refuse to record an identifier other than the one the open database uses.
     pub fn for_opened_identifier(mut self, identifier: String) -> Self {
         self.opened_identifier = Some(identifier);
         self
     }
 
+    /// The identifier recorded for this backend URL, if any.
     pub async fn lookup(&self) -> Result<Option<String>, StorageLocationError> {
         if self.backend_url.is_empty() {
             return Err(StorageLocationError::BackendUrl);
@@ -157,6 +162,7 @@ impl DeploymentRecorder {
             .remove(&self.backend_url))
     }
 
+    /// Record `identifier` for this backend URL.
     pub async fn record(&self, identifier: &str) -> Result<(), StorageLocationError> {
         if self
             .opened_identifier
@@ -190,6 +196,7 @@ impl DeploymentRecorder {
 }
 
 impl StorageLocation {
+    /// Fail when a required path is empty.
     pub fn validate(&self) -> Result<(), StorageLocationError> {
         match self {
             Self::DataDir(data_dir) if data_dir.as_os_str().is_empty() => {
@@ -207,6 +214,7 @@ impl StorageLocation {
         }
     }
 
+    /// The deployment record of a data directory; explicit paths have none.
     pub fn recorder(&self, backend_url: &str) -> Option<DeploymentRecorder> {
         match self {
             Self::DataDir(path) => Some(DeploymentRecorder::new(path.clone(), backend_url)),
@@ -240,6 +248,7 @@ impl StorageLocation {
         }
     }
 
+    /// Resolve the paths of `inbox_id` on the deployment `identifier`.
     pub fn resolve_identifier(
         &self,
         inbox_id: &str,
