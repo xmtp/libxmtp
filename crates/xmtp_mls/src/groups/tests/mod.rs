@@ -1,4 +1,7 @@
 use crate::prelude::*;
+#[cfg(not(target_arch = "wasm32"))]
+mod disconnect_propagation;
+mod post_quantum_interop;
 mod test_bad_key_packages;
 mod test_change_callbacks;
 mod test_commit_log_fork_detection;
@@ -6,17 +9,24 @@ mod test_commit_log_local;
 mod test_commit_log_readd_requests;
 mod test_commit_log_remote;
 mod test_commit_log_upgrade;
+#[cfg(not(target_arch = "wasm32"))]
+mod test_configuration;
 mod test_consent;
 mod test_delete_message;
+mod test_deletion;
 mod test_dm;
 #[cfg(not(target_arch = "wasm32"))]
 mod test_failed_installations;
 mod test_group_info;
 mod test_group_updated;
+mod test_identity_revocation;
+mod test_identity_updates;
+mod test_inbox_handles;
 mod test_leaf_key_binding;
 #[cfg(not(target_arch = "wasm32"))]
 mod test_legacy_placeholder_topics;
 mod test_membership;
+mod test_message_deletion_lifetime;
 mod test_message_disappearing_settings;
 mod test_metadata_permissions;
 #[cfg(not(target_arch = "wasm32"))]
@@ -29,6 +39,8 @@ mod test_proposals;
 mod test_proposals_app_data;
 mod test_proposals_pause;
 mod test_proposals_permissions;
+#[cfg(not(target_arch = "wasm32"))]
+mod test_publication_durability;
 #[cfg(not(target_arch = "wasm32"))]
 mod test_rate_limits;
 mod test_self_removal;

@@ -1,9 +1,10 @@
-#[cfg(test)]
+#[cfg(any(test, feature = "test-hooks"))]
 use crate::core::commit_lock::GroupCommitLock;
-#[cfg(any(test, target_arch = "wasm32"))]
+#[cfg(any(test, feature = "test-hooks", target_arch = "wasm32"))]
 mod message_clock;
-#[cfg(test)]
-pub(crate) mod test_support;
+#[cfg(any(test, feature = "test-utils"))]
+#[doc(hidden)]
+pub mod test_support;
 use crate::core::change_callbacks::UnstableChangeCallbacks;
 use crate::core::config::{DeviceSync, DeviceSyncMode, ForkRecoveryOpts};
 use crate::core::events::InternalEvent;
@@ -33,8 +34,30 @@ use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_id::{InboxIdRef, associations::builder::SignatureRequest};
 use xmtp_proto::types::InstallationId;
 
-#[cfg(test)]
-pub(crate) static FAIL_NEXT_DELIVERY_RELEASE: Mutex<Option<Vec<u8>>> = Mutex::new(None);
+/// Context controls for tests. Each assumes process-per-test isolation.
+#[cfg(any(test, feature = "test-hooks"))]
+#[doc(hidden)]
+pub mod test_hooks {
+    use parking_lot::Mutex;
+
+    static FAIL_NEXT_DELIVERY_RELEASE: Mutex<Option<Vec<u8>>> = Mutex::new(None);
+
+    /// Makes the next message-delivery release of `installation_id` fail with
+    /// a storage error, once.
+    pub fn fail_next_delivery_release(installation_id: Vec<u8>) {
+        *FAIL_NEXT_DELIVERY_RELEASE.lock() = Some(installation_id);
+    }
+
+    pub(super) fn take_delivery_release_failure(installation_id: &[u8]) -> bool {
+        let mut fail = FAIL_NEXT_DELIVERY_RELEASE.lock();
+        if fail.as_deref() == Some(installation_id) {
+            *fail = None;
+            true
+        } else {
+            false
+        }
+    }
+}
 
 /// Counts the running host calls that can use the database.
 ///
@@ -115,7 +138,7 @@ pub struct LocalContext<ApiClient, Db, S, F> {
     pub(crate) store: Db,
     pub(crate) mls_storage: S,
     pub(crate) mutexes: MutexRegistry,
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-hooks"))]
     pub(crate) mls_commit_lock: Arc<GroupCommitLock>,
     pub(crate) version_info: VersionInfo,
     /// What this deployment published about itself, resolved once at build
@@ -146,7 +169,7 @@ pub struct LocalContext<ApiClient, Db, S, F> {
     // future retries.
     pub(crate) shutdown_complete: Arc<AtomicBool>,
     pub(crate) foreground_calls: Arc<ForegroundCalls>,
-    #[cfg(any(test, target_arch = "wasm32"))]
+    #[cfg(any(test, feature = "test-hooks", target_arch = "wasm32"))]
     pub(crate) message_clock: Arc<message_clock::MessageClock>,
     pub(crate) features: F,
 }
@@ -193,7 +216,7 @@ impl<ApiClient, Db, S, F> LocalContext<ApiClient, Db, S, F> {
             store: self.store,
             mls_storage: mls_store,
             mutexes: self.mutexes,
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-hooks"))]
             mls_commit_lock: self.mls_commit_lock,
             version_info: self.version_info,
             server_configuration: self.server_configuration,
@@ -212,7 +235,7 @@ impl<ApiClient, Db, S, F> LocalContext<ApiClient, Db, S, F> {
             cancellation_token: self.cancellation_token,
             shutdown_complete: self.shutdown_complete,
             foreground_calls: self.foreground_calls,
-            #[cfg(any(test, target_arch = "wasm32"))]
+            #[cfg(any(test, feature = "test-hooks", target_arch = "wasm32"))]
             message_clock: self.message_clock,
             features: self.features,
         }
@@ -248,9 +271,16 @@ impl<ApiClient, Db, S, F> LocalContext<ApiClient, Db, S, F> {
         self.identity.sign_with_public_context(text)
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-hooks"))]
     pub fn mls_commit_lock(&self) -> &Arc<GroupCommitLock> {
         &self.mls_commit_lock
+    }
+
+    /// Makes local send timestamps start from `wall_ns` instead of the wall
+    /// clock, keeping their order.
+    #[cfg(any(test, feature = "test-hooks"))]
+    pub fn freeze_message_clock(&self, wall_ns: i64) {
+        self.message_clock.freeze(wall_ns);
     }
 
     pub fn sync_metrics(&self) -> Option<Arc<WorkerMetrics<SyncMetric>>> {
@@ -351,13 +381,9 @@ where
     /// Release this context's message consumer before disconnecting its database.
     fn close_message_delivery(&self) -> Result<(), xmtp_db::StorageError> {
         use xmtp_db::delivery::QueryDelivery;
-        #[cfg(test)]
-        {
-            let mut fail = FAIL_NEXT_DELIVERY_RELEASE.lock();
-            if fail.as_deref() == Some(self.installation_id().to_vec().as_slice()) {
-                *fail = None;
-                return Err(xmtp_db::StorageError::DbDeserialize);
-            }
+        #[cfg(any(test, feature = "test-hooks"))]
+        if test_hooks::take_delivery_release_failure(&self.installation_id().to_vec()) {
+            return Err(xmtp_db::StorageError::DbDeserialize);
         }
         let mut registered = self.delivery_owner().lock();
         if let Some(owner) = *registered {
@@ -372,7 +398,7 @@ where
     /// The limits on incoming work. Internal client policy.
     fn stream_policy(&self) -> &StreamPolicy;
     fn sync_metrics(&self) -> Option<Arc<WorkerMetrics<SyncMetric>>>;
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-hooks"))]
     fn mls_commit_lock(&self) -> &Arc<GroupCommitLock>;
     fn mutexes(&self) -> &MutexRegistry;
     fn cancellation_token(&self) -> &CancellationToken;
@@ -476,7 +502,7 @@ where
         &self.delivery_owner
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-hooks"))]
     fn mls_commit_lock(&self) -> &Arc<GroupCommitLock> {
         &self.mls_commit_lock
     }
@@ -525,7 +551,7 @@ where
 
         #[cfg(not(target_arch = "wasm32"))]
         {
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-hooks"))]
             if self.message_clock.is_frozen() {
                 return self.message_clock.now_ns();
             }
@@ -612,7 +638,7 @@ where
         <T as CoreContext>::delivery_owner(self)
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-hooks"))]
     fn mls_commit_lock(&self) -> &Arc<GroupCommitLock> {
         <T as CoreContext>::mls_commit_lock(self)
     }

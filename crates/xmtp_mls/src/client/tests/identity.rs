@@ -2,6 +2,7 @@ use super::*;
 use crate::prelude::*;
 
 mod paged_load;
+mod refresh_events;
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn register_with_owner_returns_errors() {

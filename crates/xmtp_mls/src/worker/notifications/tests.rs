@@ -1,9 +1,7 @@
 use super::*;
 use crate::prelude::*;
 use crate::{
-    client::notifications::{
-        NotificationChannel, NotificationOverride, NotificationState, encode_config,
-    },
+    client::notifications::{NotificationOverride, NotificationState, encode_config},
     tester,
     utils::test::MlsGroupExt,
 };
@@ -15,15 +13,12 @@ use xmtp_common::{
 };
 use xmtp_db::{consent_record::ConsentState, group::GroupMembershipState};
 
-pub(crate) mod support;
-use support::Call;
-
-pub(crate) fn config() -> NotificationConfig {
-    NotificationConfig::new(NotificationChannel::Http {
-        url: "https://127.0.0.1/push".into(),
-        signing_key: vec![7; 32].into(),
-    })
+pub(crate) mod support {
+    pub(crate) use crate::utils::test::notifications::*;
+    pub(crate) use crate::worker::notifications::test_hooks::on_before_request;
 }
+pub(crate) use crate::client::notifications::test_support::config;
+use support::Call;
 
 // verifies: EVENT-001, EVENT-010, EVENT-024
 #[xmtp_common::test(unwrap_try = true)]
@@ -119,9 +114,11 @@ async fn notification_repair_reaches_2500_topics_in_three_turns() {
             .find(|task| task.data_hash == task_hash().as_ref())
             .unwrap()
     };
-    TaskWorker::new(client.context.clone(), MlsTaskHandlers)
-        .run_and_reschedule_task(next_task())
-        .await?;
+    crate::worker::tasks::test_support::run_and_reschedule_task(
+        &TaskWorker::new(client.context.clone(), MlsTaskHandlers),
+        next_task(),
+    )
+    .await?;
     assert_eq!(
         client
             .db()
@@ -131,12 +128,16 @@ async fn notification_repair_reaches_2500_topics_in_three_turns() {
             .count(),
         1000
     );
-    TaskWorker::new(client.context.clone(), MlsTaskHandlers)
-        .run_and_reschedule_task(next_task())
-        .await?;
-    TaskWorker::new(client.context.clone(), MlsTaskHandlers)
-        .run_and_reschedule_task(next_task())
-        .await?;
+    crate::worker::tasks::test_support::run_and_reschedule_task(
+        &TaskWorker::new(client.context.clone(), MlsTaskHandlers),
+        next_task(),
+    )
+    .await?;
+    crate::worker::tasks::test_support::run_and_reschedule_task(
+        &TaskWorker::new(client.context.clone(), MlsTaskHandlers),
+        next_task(),
+    )
+    .await?;
     assert_eq!(peer.calls(Call::Update), 3);
     assert_eq!(peer.state.lock().subscriptions.len(), 2500);
     assert_eq!(client.db().uploaded_topics()?.len(), 2500);
@@ -150,18 +151,22 @@ async fn notification_repair_reaches_2500_topics_in_three_turns() {
             .count(),
         500
     );
-    TaskWorker::new(client.context.clone(), MlsTaskHandlers)
-        .run_and_reschedule_task(next_task())
-        .await?;
+    crate::worker::tasks::test_support::run_and_reschedule_task(
+        &TaskWorker::new(client.context.clone(), MlsTaskHandlers),
+        next_task(),
+    )
+    .await?;
     assert!(!client.db().notification_record()?.push_repairing);
     assert!(client.db().uploaded_topics()?.iter().all(|row| !row.stale));
     assert_eq!(
         peer.state.lock().batches,
         vec![(1000, 0), (1000, 0), (1000, 0), (500, 0)]
     );
-    TaskWorker::new(client.context.clone(), MlsTaskHandlers)
-        .run_and_reschedule_task(next_task())
-        .await?;
+    crate::worker::tasks::test_support::run_and_reschedule_task(
+        &TaskWorker::new(client.context.clone(), MlsTaskHandlers),
+        next_task(),
+    )
+    .await?;
     assert_eq!(peer.calls(Call::Update), 4);
     assert_eq!(next_task().attempts, 0);
     assert!(next_task().next_attempt_at_ns > time::now_ns());
@@ -601,9 +606,11 @@ async fn notification_task_is_durable_coalesced_and_retries_after_sixty_seconds(
     };
     peer.state.lock().next_error = Some(tonic::Code::Unavailable);
     let before = time::now_ns();
-    TaskWorker::new(client.context.clone(), MlsTaskHandlers)
-        .run_and_reschedule_task(rows[0].clone())
-        .await?;
+    crate::worker::tasks::test_support::run_and_reschedule_task(
+        &TaskWorker::new(client.context.clone(), MlsTaskHandlers),
+        rows[0].clone(),
+    )
+    .await?;
     let row = task();
     assert_eq!(row.attempts, 1);
     assert!(row.next_attempt_at_ns >= before + RETRY_NS);
@@ -615,9 +622,11 @@ async fn notification_task_is_durable_coalesced_and_retries_after_sixty_seconds(
     }
     let row = task();
     assert_eq!(row.next_attempt_at_ns, retry_at);
-    TaskWorker::new(client.context.clone(), MlsTaskHandlers)
-        .run_and_reschedule_task(row.clone())
-        .await?;
+    crate::worker::tasks::test_support::run_and_reschedule_task(
+        &TaskWorker::new(client.context.clone(), MlsTaskHandlers),
+        row.clone(),
+    )
+    .await?;
     assert_eq!(peer.calls(Call::Update), calls);
     // Make the stored retry due without waiting for wall-clock time.
     client
@@ -625,9 +634,11 @@ async fn notification_task_is_durable_coalesced_and_retries_after_sixty_seconds(
         .update_task(row.id, row.attempts, before, before)?;
     let mut due = row;
     due.next_attempt_at_ns = before;
-    TaskWorker::new(client.context.clone(), MlsTaskHandlers)
-        .run_and_reschedule_task(due)
-        .await?;
+    crate::worker::tasks::test_support::run_and_reschedule_task(
+        &TaskWorker::new(client.context.clone(), MlsTaskHandlers),
+        due,
+    )
+    .await?;
     let row = task();
     assert_eq!(row.attempts, 0);
     let calls = peer.calls(Call::Update);
@@ -659,9 +670,11 @@ async fn notification_task_is_durable_coalesced_and_retries_after_sixty_seconds(
     client.db().mark_uploaded_topics_stale()?;
     wake(&client.context)?;
     let before = time::now_ns();
-    TaskWorker::new(client.context.clone(), MlsTaskHandlers)
-        .run_and_reschedule_task(task())
-        .await?;
+    crate::worker::tasks::test_support::run_and_reschedule_task(
+        &TaskWorker::new(client.context.clone(), MlsTaskHandlers),
+        task(),
+    )
+    .await?;
     let refused = task();
     assert_eq!(
         refused.attempts, 1,
@@ -672,17 +685,21 @@ async fn notification_task_is_durable_coalesced_and_retries_after_sixty_seconds(
     group.set_notifications(NotificationOverride::Disabled)?;
     wake(&client.context)?;
     assert_eq!(task().next_attempt_at_ns, refused.next_attempt_at_ns);
-    TaskWorker::new(client.context.clone(), MlsTaskHandlers)
-        .run_and_reschedule_task(task())
-        .await?;
+    crate::worker::tasks::test_support::run_and_reschedule_task(
+        &TaskWorker::new(client.context.clone(), MlsTaskHandlers),
+        task(),
+    )
+    .await?;
     assert_eq!(peer.calls(Call::Update), calls);
     peer.state.lock().limit = None;
     client
         .db()
         .update_task(refused.id, refused.attempts, before, before)?;
-    TaskWorker::new(client.context.clone(), MlsTaskHandlers)
-        .run_and_reschedule_task(task())
-        .await?;
+    crate::worker::tasks::test_support::run_and_reschedule_task(
+        &TaskWorker::new(client.context.clone(), MlsTaskHandlers),
+        task(),
+    )
+    .await?;
     assert_eq!(task().attempts, 0);
 }
 
@@ -722,9 +739,11 @@ async fn notification_rate_limit_keeps_state_enabled_and_waits_the_delay() {
     peer.state.lock().rate_limit = Some((Call::Update, delay));
     let calls = peer.calls(Call::Update);
     let before = time::now_ns();
-    TaskWorker::new(client.context.clone(), MlsTaskHandlers)
-        .run_and_reschedule_task(due)
-        .await?;
+    crate::worker::tasks::test_support::run_and_reschedule_task(
+        &TaskWorker::new(client.context.clone(), MlsTaskHandlers),
+        due,
+    )
+    .await?;
     assert_eq!(peer.calls(Call::Update), calls + 1);
     let row = task();
     assert_eq!(row.attempts, 1);
@@ -1069,9 +1088,11 @@ async fn notification_successful_reenable_resets_old_retry_backoff() {
             .unwrap()
     };
     peer.state.lock().next_error = Some(tonic::Code::Unavailable);
-    TaskWorker::new(client.context.clone(), MlsTaskHandlers)
-        .run_and_reschedule_task(task())
-        .await?;
+    crate::worker::tasks::test_support::run_and_reschedule_task(
+        &TaskWorker::new(client.context.clone(), MlsTaskHandlers),
+        task(),
+    )
+    .await?;
     assert_eq!(task().attempts, 1);
     assert!(peer.state.lock().subscriptions.is_empty());
     // Simulate an existing long retry without waiting through each failure.
@@ -1095,9 +1116,11 @@ async fn notification_successful_reenable_resets_old_retry_backoff() {
     wake(&client.context)?;
     assert_eq!(task().attempts, 0);
     assert!(task().next_attempt_at_ns <= time::now_ns());
-    TaskWorker::new(client.context.clone(), MlsTaskHandlers)
-        .run_and_reschedule_task(task())
-        .await?;
+    crate::worker::tasks::test_support::run_and_reschedule_task(
+        &TaskWorker::new(client.context.clone(), MlsTaskHandlers),
+        task(),
+    )
+    .await?;
     assert_eq!(peer.state.lock().subscriptions.len(), 2);
     assert_eq!(client.db().uploaded_topics()?.len(), 2);
     assert_eq!(peer.calls(Call::Update), 2);
@@ -1118,9 +1141,11 @@ async fn notification_later_failure_cancels_registration_retry_reset() {
         .find(|row| row.data_hash == task_hash().as_ref())
         .unwrap();
     peer.state.lock().next_error = Some(tonic::Code::Unavailable);
-    TaskWorker::new(client.context.clone(), MlsTaskHandlers)
-        .run_and_reschedule_task(row)
-        .await?;
+    crate::worker::tasks::test_support::run_and_reschedule_task(
+        &TaskWorker::new(client.context.clone(), MlsTaskHandlers),
+        row,
+    )
+    .await?;
     let failed = client
         .db()
         .get_tasks()?

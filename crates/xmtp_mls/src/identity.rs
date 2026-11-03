@@ -519,9 +519,40 @@ impl Identity {
     }
 }
 
-#[cfg(any(test, feature = "test-utils"))]
+/// Whether key packages built in its scope advertise welcome pointees, with a
+/// count of the packages that read it so a test can tell that it ran.
+#[cfg(any(test, feature = "test-hooks"))]
+#[doc(hidden)]
+#[derive(Clone, Debug)]
+pub struct WelcomePointersHook {
+    enabled: bool,
+    reads: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+}
+
+#[cfg(any(test, feature = "test-hooks"))]
+impl WelcomePointersHook {
+    pub fn new(enabled: bool) -> Self {
+        Self {
+            enabled,
+            reads: Default::default(),
+        }
+    }
+
+    /// Record a package build that reads this hook, and return its setting.
+    pub fn read(&self) -> bool {
+        self.reads.fetch_add(1, Ordering::SeqCst);
+        self.enabled
+    }
+
+    /// How many package builds read this hook.
+    pub fn reads(&self) -> usize {
+        self.reads.load(Ordering::SeqCst)
+    }
+}
+
+#[cfg(any(test, feature = "test-hooks"))]
 tokio::task_local! {
-    pub static ENABLE_WELCOME_POINTERS: bool;
+    pub static ENABLE_WELCOME_POINTERS: WelcomePointersHook;
 }
 
 #[derive(Builder, Debug)]
@@ -553,9 +584,11 @@ impl XmtpKeyPackageBuilder {
             include_post_quantum,
             ..Default::default()
         };
-        #[cfg(any(test, feature = "test-utils"))]
+        #[cfg(any(test, feature = "test-hooks"))]
         {
-            options.welcome_pointers = ENABLE_WELCOME_POINTERS.try_with(|v| *v).unwrap_or(true);
+            options.welcome_pointers = ENABLE_WELCOME_POINTERS
+                .try_with(WelcomePointersHook::read)
+                .unwrap_or(true);
             options.lifetime =
                 Some(crate::identity_lifecycle::test_mocks::maybe_mock_package_lifetime());
         }
@@ -695,120 +728,11 @@ pub(crate) fn store_key_package_references(
 
 #[cfg(test)]
 mod tests {
-    use crate::context::CoreContext;
-    use crate::{
-        builder::ClientBuilder,
-        identity::{pq_key_package_references_key, serialize_key_package_hash_ref},
-        utils::FullXmtpClient,
-    };
-    use xmtp_id::key_package::VerifiedKeyPackageV2;
-
-    use openmls::prelude::{KeyPackageBundle, KeyPackageRef};
-    use openmls_traits::{OpenMlsProvider, storage::StorageProvider};
+    use crate::identity::{pq_key_package_references_key, serialize_key_package_hash_ref};
+    use openmls_traits::OpenMlsProvider;
     use tls_codec::Serialize;
-    use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_db::XmtpMlsStorageProvider;
-    use xmtp_db::XmtpOpenMlsProviderRef;
-    use xmtp_db::{
-        MlsProviderExt,
-        group::{ConversationType, GroupQueryArgs},
-        sql_key_store::{KEY_PACKAGE_REFERENCES, KEY_PACKAGE_WRAPPER_PRIVATE_KEY},
-    };
-    use xmtp_id::key_package::WrapperAlgorithm;
-    use xmtp_mls_common::group::DMMetadataOptions;
-
-    #[cfg(not(target_arch = "wasm32"))]
-    #[xmtp_common::test(unwrap_try = true)]
-    async fn initialize_identity_debug_log_reports_strategy() {
-        use super::IdentityStrategy;
-        use openmls::credentials::{Credential, CredentialType};
-        use std::sync::atomic::AtomicBool;
-        use tracing::instrument::WithSubscriber;
-        use xmtp_api::ApiClientWrapper;
-        use xmtp_api_backend::MockBackendClient;
-        use xmtp_common::{Retry, rand_vec};
-        use xmtp_cryptography::XmtpInstallationCredential;
-        use xmtp_db::{Store, XmtpTestDb, identity::StoredIdentity, sql_key_store::SqlKeyStore};
-        use xmtp_id::associations::test_utils::{
-            MockSmartContractSignatureVerifier, WalletTestExt,
-        };
-        use xmtp_logging::{Level, test_logging::LogCapture};
-
-        let store = xmtp_db::TestDb::create_persistent_store(None).await;
-        let identifier = generate_local_wallet().identifier();
-        let inbox_id = identifier.inbox_id(0).unwrap();
-        let stored: StoredIdentity = (&super::Identity {
-            inbox_id: inbox_id.clone(),
-            installation_keys: XmtpInstallationCredential::new(),
-            credential: Credential::new(CredentialType::Basic, rand_vec::<24>()),
-            signature_request: None,
-            is_ready: AtomicBool::new(true),
-        })
-            .try_into()
-            .unwrap();
-        stored.store(&store.conn()).unwrap();
-
-        let strategy = IdentityStrategy::new(inbox_id.clone(), identifier, 0);
-        let api = ApiClientWrapper::new(MockBackendClient::new(), Retry::default());
-        let verifier = MockSmartContractSignatureVerifier::new(true);
-        let capture = LogCapture::new(Level::Debug);
-        let loaded = strategy
-            .initialize_identity(&api, &SqlKeyStore::new(&store.db()), &verifier)
-            .with_subscriber(capture.dispatch())
-            .await
-            .unwrap();
-
-        let output = capture.output();
-        assert_eq!(loaded.inbox_id, inbox_id);
-        assert!(output.contains("identity strategy"), "{output}");
-        assert!(
-            output.contains("\"strategy\":\"create_if_not_found\""),
-            "{output}"
-        );
-        assert!(
-            output.contains("\"stored_identity_present\":true"),
-            "{output}"
-        );
-    }
-
-    async fn get_key_package_from_network(client: &FullXmtpClient) -> VerifiedKeyPackageV2 {
-        let mut kp_mapping = client
-            .get_key_packages_for_installation_ids(vec![client.installation_public_key().to_vec()])
-            .await
-            .unwrap();
-
-        kp_mapping
-            .remove(client.installation_public_key().as_slice())
-            .unwrap()
-            .unwrap()
-    }
-
-    async fn get_latest_welcome(client: &FullXmtpClient) -> xmtp_proto::types::WelcomeMessage {
-        let welcomes = client
-            .context
-            .api()
-            .query_welcome_messages(client.context.installation_id())
-            .await
-            .unwrap();
-
-        welcomes[0].clone()
-    }
-
-    /// Look up the key package hash ref by public init key
-    fn get_hash_ref(provider: &impl MlsProviderExt, pub_key: &[u8]) -> Option<KeyPackageRef> {
-        provider
-            .key_store()
-            .read(KEY_PACKAGE_REFERENCES, pub_key)
-            .unwrap()
-    }
-
-    fn get_pq_private_key(provider: &impl MlsProviderExt, hash_ref: &[u8]) -> Option<Vec<u8>> {
-        provider
-            .key_store()
-            .wrapper_private_key(hash_ref)
-            .unwrap()
-            .map(|key| key.to_vec())
-    }
+    use xmtp_db::{MlsProviderExt, sql_key_store::KEY_PACKAGE_REFERENCES};
 
     /// The key package hash ref has three uses. The wrapper private key's
     /// storage key and the `key_package_history` column use the key layout.
@@ -891,91 +815,6 @@ mod tests {
         assert!(provider.key_store().wrapper_private_key(&cbor)?.is_none());
     }
 
-    #[xmtp_common::test]
-    async fn ensure_pq_keys_are_deleted() {
-        let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-        let storage = client.context.mls_storage();
-        let provider = XmtpOpenMlsProviderRef::new(storage);
-
-        // As long as we have `config::CREATE_PQ_KEY_PACKAGE_EXTENSION` set to false, we need to do this step to force a PQ key package to be created
-        let api_client = client.context.api();
-        crate::identity_lifecycle::rotate_and_upload_key_package(
-            client.identity(),
-            api_client,
-            storage,
-            true,
-        )
-        .await
-        .unwrap();
-
-        // Get the key package back from the network
-        let starting_key_package = get_key_package_from_network(&client).await;
-        let starting_init_key = starting_key_package
-            .inner
-            .hpke_init_key()
-            .tls_serialize_detached()
-            .unwrap();
-
-        // Make sure we can find the init key
-        let init_key_hash_ref = get_hash_ref(&provider, &starting_init_key);
-        assert!(init_key_hash_ref.is_some());
-
-        // Make sure we can find the post quantum public key
-        let pq_public_key = starting_key_package.wrapper_encryption().unwrap();
-        assert!(pq_public_key.is_some());
-
-        let pq_public_key_bytes = pq_public_key.unwrap().pub_key_bytes;
-        let pq_hash_ref = get_hash_ref(
-            &provider,
-            &pq_key_package_references_key(&pq_public_key_bytes).unwrap(),
-        );
-        assert!(pq_hash_ref.is_some());
-        let pq_hash_ref_inner = pq_hash_ref.unwrap();
-
-        // Make sure we can find the key package based on the post quantum public key
-        let key_package_bundle: KeyPackageBundle = provider
-            .storage()
-            .key_package(&pq_hash_ref_inner)
-            .unwrap()
-            .unwrap();
-
-        // Make sure we can find the private key based on the init key
-        let serialized_hash_ref = xmtp_db::sql_key_store::codec::encode_key(
-            KEY_PACKAGE_WRAPPER_PRIVATE_KEY,
-            &init_key_hash_ref.unwrap(),
-        )
-        .unwrap();
-        let pq_private_key = get_pq_private_key(&provider, &serialized_hash_ref);
-        assert!(pq_private_key.is_some());
-
-        // Now rotate the key package
-        client.rotate_and_upload_key_package().await.unwrap();
-
-        // Force deletion of the key package, even though it hasn't expired yet
-        let serialized_key_package_hash_ref =
-            serialize_key_package_hash_ref(key_package_bundle.key_package(), &provider).unwrap();
-        crate::worker::key_package_maintenance::delete_key_package(
-            &client.context,
-            serialized_key_package_hash_ref,
-            Some(pq_public_key_bytes.clone()),
-        )
-        .unwrap();
-
-        // Now test to see if the private keys are deleted by doing the same steps as above
-        let pq_hash_ref = get_hash_ref(
-            &provider,
-            &pq_key_package_references_key(&pq_public_key_bytes).unwrap(),
-        );
-        assert!(pq_hash_ref.is_none());
-
-        let pq_private_key = get_pq_private_key(&provider, &serialized_hash_ref);
-        assert!(pq_private_key.is_none());
-
-        let key_package_from_db: Option<KeyPackageBundle> =
-            provider.storage().key_package(&pq_hash_ref_inner).unwrap();
-        assert!(key_package_from_db.is_none());
-    }
-
     #[test]
     fn test_generate_post_quantum_key_error_codes() {
         use super::GeneratePostQuantumKeyError;
@@ -1045,88 +884,5 @@ mod tests {
         let storage_err = StorageError::NotFound(NotFound::MessageById(vec![1, 2, 3]));
         let err = IdentityError::StorageError(storage_err);
         assert_eq!(err.error_code(), "StorageError::NotFound");
-    }
-
-    #[xmtp_common::test]
-    async fn post_quantum_interop() {
-        for [amal_has_pq, bola_has_pq] in
-            [[true, false], [false, true], [true, true], [false, false]]
-        {
-            let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-            let amal_api = amal.context.api();
-            let amal_mls = amal.context.mls_storage();
-
-            let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-            let bola_api = bola.context.api();
-            let bola_mls = bola.context.mls_storage();
-
-            // Give amal a post quantum key package and bola a legacy key package
-            crate::identity_lifecycle::rotate_and_upload_key_package(
-                amal.identity(),
-                amal_api,
-                amal_mls,
-                amal_has_pq,
-            )
-            .await
-            .unwrap();
-            crate::identity_lifecycle::rotate_and_upload_key_package(
-                bola.identity(),
-                bola_api,
-                bola_mls,
-                bola_has_pq,
-            )
-            .await
-            .unwrap();
-
-            // Create a DM from Amal -> Bola
-            // This should use Bola's XWingMLKEM512 key package
-            amal.find_or_create_dm(
-                bola.inbox_id().to_string(),
-                Some(DMMetadataOptions::default()),
-            )
-            .await
-            .unwrap();
-
-            // Sync both clients
-            amal.sync_welcomes().await.unwrap();
-            bola.sync_welcomes().await.unwrap();
-
-            // Get the DMs from the clients
-            let query_args = GroupQueryArgs {
-                conversation_type: Some(ConversationType::Dm),
-                ..GroupQueryArgs::default()
-            };
-
-            let amal_convos = amal.list_conversations(query_args.clone()).unwrap();
-            let bola_convos = bola.list_conversations(query_args).unwrap();
-
-            assert_eq!(amal_convos.len(), 1);
-            assert_eq!(bola_convos.len(), 1);
-
-            let amal_key_package = get_key_package_from_network(&amal).await;
-            let bola_key_package = get_key_package_from_network(&bola).await;
-
-            assert_eq!(
-                amal_key_package.wrapper_encryption().unwrap().is_some(),
-                amal_has_pq
-            );
-            assert_eq!(
-                bola_key_package.wrapper_encryption().unwrap().is_some(),
-                bola_has_pq
-            );
-
-            // Get the welcome messages from the network
-            let bola_welcome = get_latest_welcome(&bola).await;
-
-            // Make sure the wrapper algorithms were set correctly in the Welcome messages
-            let pq_algorithm = WrapperAlgorithm::XWingMLKEM768Draft6;
-            let traditional_algorithm = WrapperAlgorithm::Curve25519;
-            let bola_wrapper = bola_welcome.as_v1().unwrap().wrapper_algorithm;
-            if bola_has_pq {
-                assert_eq!(bola_wrapper, pq_algorithm.into());
-            } else {
-                assert_eq!(bola_wrapper, traditional_algorithm.into());
-            }
-        }
     }
 }

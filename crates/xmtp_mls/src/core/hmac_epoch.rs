@@ -140,8 +140,9 @@ impl<Context: CoreContext + 'static> Worker for HmacEpochWorker<Context> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tester;
+    use crate::core::test_context::real_context;
     use xmtp_events::{EventFilter, EventKind};
+    use xmtp_proto::api::HasStats;
 
     #[xmtp_common::test(unwrap_try = true)]
     async fn reports_only_new_epochs_after_startup() {
@@ -159,15 +160,14 @@ mod tests {
     // verifies: EVENT-001
     #[xmtp_common::test(unwrap_try = true)]
     async fn epoch_timer_turn_emits_once_and_invalidates_notifications() {
-        tester!(alix, disable_workers);
-        let current = crate::utils::time::hmac_epoch();
+        let context = real_context().await;
+        let current = hmac_epoch();
         let mut worker = HmacEpochWorker {
-            context: alix.context.clone(),
+            context: context.clone(),
             last_epoch: Arc::new(AtomicI64::new(current)),
             clock: None,
         };
-        let events = alix
-            .context
+        let events = context
             .events()
             .subscribe_app(EventFilter::new([EventKind::HmacKeysUpdated]))?;
         let boundary = (current + 1) * xmtp_push_types::HMAC_EPOCH_SECONDS;
@@ -175,7 +175,7 @@ mod tests {
             worker.wait_until_next_epoch(boundary - 1),
             Duration::from_secs(1)
         );
-        let previous_revision = alix.context.task_channels().notification_revision();
+        let previous_revision = context.task_channels().notification_revision();
         worker.report_epoch(current);
         assert!(events.drain().is_empty());
         worker.report_epoch(current + 1);
@@ -187,7 +187,7 @@ mod tests {
             }]
         ));
         assert_eq!(
-            alix.context.task_channels().notification_revision(),
+            context.task_channels().notification_revision(),
             previous_revision + 1
         );
         worker.report_epoch(current + 1);
@@ -196,13 +196,12 @@ mod tests {
     // verifies: EVENT-026
     #[xmtp_common::test(unwrap_try = true)]
     async fn running_epoch_worker_skips_closed_epochs_and_uses_no_network() {
-        tester!(alix, disable_workers);
-        let events = alix
-            .context
+        let context = real_context().await;
+        let events = context
             .events()
             .subscribe_app(EventFilter::new([EventKind::HmacKeysUpdated]))?;
-        let stats = alix.api_stats();
-        let identity = alix.identity_api_stats();
+        let stats = context.api().api_client.mls_stats();
+        let identity = context.api().api_client.identity_stats();
         let counts = || {
             [
                 stats.publish.get_count(),
@@ -216,12 +215,12 @@ mod tests {
             ]
         };
         let before = counts();
-        let revision = alix.context.task_channels().notification_revision();
+        let revision = context.task_channels().notification_revision();
         let width = xmtp_push_types::HMAC_EPOCH_SECONDS;
         let now = Arc::new(AtomicI64::new(10 * width));
         let (ticks, receiver) = futures::channel::mpsc::unbounded();
         let (waits, mut scheduled) = futures::channel::mpsc::unbounded();
-        let factory = Factory::new(alix.context.clone(), 10);
+        let factory = Factory::new(context.clone(), 10);
         let mut worker = HmacEpochWorker {
             context: factory.context.clone(),
             last_epoch: factory.last_epoch.clone(),
@@ -254,13 +253,13 @@ mod tests {
         }
         drop(running);
         assert_eq!(
-            alix.context.task_channels().notification_revision(),
+            context.task_channels().notification_revision(),
             revision + 2
         );
         now.store(18 * width, Ordering::Release);
         let (ticks, receiver) = futures::channel::mpsc::unbounded();
         let (waits, mut scheduled) = futures::channel::mpsc::unbounded();
-        let factory = Factory::new(alix.context.clone(), 18);
+        let factory = Factory::new(context.clone(), 18);
         let mut reopened = HmacEpochWorker {
             context: factory.context.clone(),
             last_epoch: factory.last_epoch.clone(),
@@ -280,7 +279,7 @@ mod tests {
         assert!(futures::poll!(&mut running).is_pending());
         assert_eq!(events.drain().len(), 1);
         assert_eq!(
-            alix.context.task_channels().notification_revision(),
+            context.task_channels().notification_revision(),
             revision + 3
         );
         assert_eq!(counts(), before);

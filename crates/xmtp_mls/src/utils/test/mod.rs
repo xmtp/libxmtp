@@ -9,8 +9,19 @@ pub mod tester_utils;
 #[cfg(any(test, feature = "test-utils"))]
 pub mod fixtures;
 
+#[cfg(any(test, feature = "test-utils"))]
+pub mod identity;
+
+#[cfg(any(test, feature = "test-utils"))]
+pub mod inbox_handles;
+
+#[cfg(all(any(test, feature = "test-utils"), not(target_arch = "wasm32")))]
+pub mod preflight;
+
 #[cfg(test)]
 pub(crate) mod crafted_welcome;
+#[cfg(test)]
+pub(crate) mod notifications;
 pub mod test_mocks_helpers;
 mod tester_utils_trait_ext;
 pub use tester_utils_trait_ext::*;
@@ -37,44 +48,6 @@ mod definitions;
 pub use definitions::*;
 
 use super::VersionInfo;
-
-/// Wrap content in compressed replies, optionally padded with valid unknown protobuf fields.
-#[cfg(test)]
-pub(crate) fn nested_reply(
-    mut content: xmtp_proto::xmtp::mls::message_contents::EncodedContent,
-    levels: usize,
-    pad_to: usize,
-) -> xmtp_proto::xmtp::mls::message_contents::EncodedContent {
-    use xmtp_content_types::{
-        ContentCodec,
-        compression::compress,
-        reply::{Reply as EncodedReply, ReplyCodec},
-    };
-    use xmtp_proto::xmtp::mls::message_contents::Compression;
-
-    for _ in 0..levels {
-        let mut reply = ReplyCodec::encode(EncodedReply {
-            reference: "0102".into(),
-            reference_inbox_id: None,
-            content,
-        })
-        .unwrap();
-        if pad_to > reply.content.len() + 6 {
-            // An unknown protobuf field pads this reply without changing its body.
-            let padding = pad_to - reply.content.len() - 6;
-            reply.content.extend_from_slice(&[0xa2, 0x06]);
-            let mut length = padding;
-            while length >= 0x80 {
-                reply.content.push((length as u8) | 0x80);
-                length >>= 7;
-            }
-            reply.content.push(length as u8);
-            reply.content.resize(reply.content.len() + padding, 0);
-        }
-        content = compress(reply, Compression::Deflate).unwrap();
-    }
-    content
-}
 
 /// Each secret that must stay in the client, in the encodings a leak would
 /// take: the group root and each private or symmetric key of the group key
@@ -409,13 +382,13 @@ pub async fn wait_for_min_intents<C: ConnectionExt>(
     .await
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-utils"))]
 impl<Context: XmtpSharedContext> MlsGroup<Context> {
     /// Sign `message` under the group signing key of this group's root, as a
     /// member signs it at preparation. A test that changes a group message
     /// signs it again, so that admission accepts the changed bytes and the
     /// change reaches the receiving client.
-    pub(crate) fn sign_as_member(&self, message: &mut xmtp_proto::backend_v1::GroupMessage) {
+    pub fn sign_as_member(&self, message: &mut xmtp_proto::backend_v1::GroupMessage) {
         let keys = self
             .with_group_snapshot(|group| {
                 Ok(xmtp_mls_common::app_data::group_root::check_group_root(

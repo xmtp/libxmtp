@@ -1,7 +1,7 @@
 use crate::context::CoreContext;
 use crate::groups::mls_ext::WelcomePointersExtension;
 use crate::groups::welcome_pointer::resolve_welcome_pointer;
-use crate::identity::ENABLE_WELCOME_POINTERS;
+use crate::identity::{ENABLE_WELCOME_POINTERS, WelcomePointersHook};
 use crate::tester;
 use crate::utils::test::{ClientTester, TestMlsGroup};
 use futures::StreamExt;
@@ -166,11 +166,13 @@ async fn test_welcome_pointer_round_trip(
     // where welcome pointers are used (when there are more than 2 capable installations)
     let mut extra_installations = Vec::new();
     for _ in 0..9 {
+        let hook = WelcomePointersHook::new(enable_extension());
         ENABLE_WELCOME_POINTERS
-            .scope(enable_extension(), async {
+            .scope(hook.clone(), async {
                 extra_installations.push(bola.new_installation().await);
             })
             .await;
+        assert!(hook.reads() > 0);
     }
 
     // Now test welcome pointer functionality by creating a scenario where
@@ -196,21 +198,25 @@ async fn test_welcome_pointer_round_trip(
     // 5 testers with 10 installations each will invite 50 installations to the group.
     // This will trigger welcome pointer usage.
     for _ in 0..5 {
+        let hook = WelcomePointersHook::new(enable_extension());
         ENABLE_WELCOME_POINTERS
-            .scope(enable_extension(), async {
+            .scope(hook.clone(), async {
                 tester!(charlie);
                 testers.push(charlie);
             })
             .await;
+        assert!(hook.reads() > 0);
     }
     // 10 is max installations per inbox. The `testers` vec contains one for each tester
     for _ in 0..9 {
         for tester in testers.iter() {
+            let hook = WelcomePointersHook::new(enable_extension());
             ENABLE_WELCOME_POINTERS
-                .scope(enable_extension(), async {
+                .scope(hook.clone(), async {
                     extra_installations.push(tester.new_installation().await);
                 })
                 .await;
+            assert!(hook.reads() > 0);
         }
     }
     alix_group

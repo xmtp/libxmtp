@@ -283,5 +283,8 @@ pub(crate) fn notification_state<Context: XmtpSharedContext>(
     state(&context.db().notification_record()?)
 }
 
+#[cfg(any(test, feature = "test-utils"))]
+#[doc(hidden)]
+pub mod test_support;
 #[cfg(test)]
 mod tests;

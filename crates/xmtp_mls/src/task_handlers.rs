@@ -1,8 +1,6 @@
 //! The client's durable task handlers: one exhaustive dispatch over the
 //! `Task` oneof, run by the core task runner.
 
-#[cfg(test)]
-use crate::worker::tasks::test_hooks;
 use crate::{
     context::XmtpSharedContext,
     groups::MlsGroup,
@@ -141,18 +139,8 @@ where
         context: &Context,
         task: &DbTask,
     ) -> Result<TaskOutcome, TaskWorkerError> {
-        #[cfg(test)]
-        if let Some((hash, t)) = test_hooks::RESCHEDULE_OVERRIDE.lock().unwrap().clone()
-            && task.data_hash == hash
-        {
-            return Ok(TaskOutcome::RescheduleAt(t));
-        }
-        #[cfg(test)]
-        let hook = test_hooks::RATE_LIMIT_OVERRIDE.lock().unwrap().clone();
-        #[cfg(test)]
-        if let Some((hash, work, delay)) = hook
-            && task.data_hash == hash
-        {
+        #[cfg(any(test, feature = "test-hooks"))]
+        if let Some((work, delay)) = test_hooks::rate_limit_override(&task.data_hash) {
             xmtp_common::time::sleep(work).await;
             return Err(TaskWorkerError::Identity(
                 crate::identity::IdentityError::ApiClient(xmtp_api::ApiError::Api(
@@ -310,8 +298,8 @@ async fn run_add_missing_installations<Context: XmtpSharedContext>(
             let metrics = Arc::new(WorkerMetrics::new(context.installation_id()));
             let sync = DeviceSyncClient::new(context.clone(), metrics);
             let retried = sync.retry_own_installations(&group).await;
-            #[cfg(test)]
-            let retried = match std::mem::take(&mut *test_hooks::FAIL_SYNC_RETRY.lock().unwrap()) {
+            #[cfg(any(test, feature = "test-hooks"))]
+            let retried = match test_hooks::take_sync_retry_failure() {
                 true => Err(DeviceSyncError::Conversion),
                 false => retried,
             };
@@ -352,3 +340,46 @@ async fn run_add_missing_installations<Context: XmtpSharedContext>(
         Err(e) => Err(e.into()),
     }
 }
+
+/// Client task-dispatch controls for tests. The dispatch reads them; tests
+/// set them. Each assumes process-per-test isolation.
+#[cfg(any(test, feature = "test-hooks"))]
+#[doc(hidden)]
+pub mod test_hooks {
+    use std::sync::Mutex;
+    use xmtp_common::time::Duration;
+
+    static RATE_LIMIT_OVERRIDE: Mutex<Option<(Vec<u8>, Duration, Duration)>> = Mutex::new(None);
+    static FAIL_SYNC_RETRY: Mutex<bool> = Mutex::new(false);
+
+    /// While set to `(target_data_hash, work, delay)`, the client's task
+    /// dispatch works for `work`, then fails with a rate limit of `delay`, for
+    /// the matching task. `None` clears it.
+    pub fn set_rate_limit_override(value: Option<(Vec<u8>, Duration, Duration)>) {
+        *RATE_LIMIT_OVERRIDE.lock().expect("task test hooks") = value;
+    }
+
+    /// The `(work, delay)` that `set_rate_limit_override` set for the task
+    /// with `data_hash`.
+    pub fn rate_limit_override(data_hash: &[u8]) -> Option<(Duration, Duration)> {
+        RATE_LIMIT_OVERRIDE
+            .lock()
+            .expect("task test hooks")
+            .as_ref()
+            .filter(|(hash, _, _)| hash.as_slice() == data_hash)
+            .map(|(_, work, delay)| (*work, *delay))
+    }
+
+    /// Makes the next sync-group retry fail without a rate limit, once.
+    pub fn fail_next_sync_retry() {
+        *FAIL_SYNC_RETRY.lock().expect("task test hooks") = true;
+    }
+
+    /// Whether `fail_next_sync_retry` armed a failure; consumes it.
+    pub fn take_sync_retry_failure() -> bool {
+        std::mem::take(&mut *FAIL_SYNC_RETRY.lock().expect("task test hooks"))
+    }
+}
+
+#[cfg(test)]
+mod tests;

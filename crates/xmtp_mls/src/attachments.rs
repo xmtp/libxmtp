@@ -65,22 +65,22 @@ const LEASE_POLL: Duration = Duration::from_secs(1);
 static FAIL_NEXT_RECONCILES: AtomicUsize = AtomicUsize::new(0);
 static PUBLICATION_LOCKS: LazyLock<Mutex<HashMap<PathBuf, Weak<AsyncMutex<()>>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
-#[cfg(all(target_arch = "wasm32", feature = "test-utils"))]
+#[cfg(all(target_arch = "wasm32", feature = "test-hooks"))]
 static CREATE_MOVE_PAUSE: Mutex<Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>> =
     Mutex::new(None);
-#[cfg(all(target_arch = "wasm32", feature = "test-utils"))]
+#[cfg(all(target_arch = "wasm32", feature = "test-hooks"))]
 static DOWNLOAD_MOVE_PAUSE: Mutex<Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>> =
     Mutex::new(None);
-#[cfg(all(target_arch = "wasm32", feature = "test-utils"))]
+#[cfg(all(target_arch = "wasm32", feature = "test-hooks"))]
 static DOWNLOAD_TEST_BODY: Mutex<Option<Vec<u8>>> = Mutex::new(None);
 
-#[cfg(all(target_arch = "wasm32", feature = "test-utils"))]
+#[cfg(all(target_arch = "wasm32", feature = "test-hooks"))]
 #[doc(hidden)]
 pub fn pause_next_create_move(entered: Arc<tokio::sync::Notify>, resume: Arc<tokio::sync::Notify>) {
     *CREATE_MOVE_PAUSE.lock() = Some((entered, resume));
 }
 
-#[cfg(all(target_arch = "wasm32", feature = "test-utils"))]
+#[cfg(all(target_arch = "wasm32", feature = "test-hooks"))]
 #[doc(hidden)]
 pub fn pause_next_download_move(
     entered: Arc<tokio::sync::Notify>,
@@ -89,7 +89,7 @@ pub fn pause_next_download_move(
     *DOWNLOAD_MOVE_PAUSE.lock() = Some((entered, resume));
 }
 
-#[cfg(all(target_arch = "wasm32", feature = "test-utils"))]
+#[cfg(all(target_arch = "wasm32", feature = "test-hooks"))]
 #[doc(hidden)]
 pub fn set_next_download_body(body: Vec<u8>) {
     *DOWNLOAD_TEST_BODY.lock() = Some(body);
@@ -730,7 +730,7 @@ impl<Context: AttachmentContext + 'static> CreateRollbackGuard<Context> {
             let (sender, receiver) = tokio::sync::oneshot::channel();
             drop(xmtp_common::task::spawn(async move {
                 let result = store.rename(&source, &destination).await;
-                #[cfg(feature = "test-utils")]
+                #[cfg(feature = "test-hooks")]
                 if matches!(kind, CreateMoveKind::Plain) && result.is_ok() {
                     let pause = CREATE_MOVE_PAUSE.lock().take();
                     if let Some((entered, resume)) = pause {
@@ -1371,15 +1371,15 @@ impl<Context: AttachmentContext> Attachments<Context> {
             let snapshot_limit = self.context.server_configuration().configuration().attachments
                 .as_ref().map_or(xmtp_configuration::BACKEND_DEFAULT_MAX_UPLOAD_BYTES, |offer| offer.max_upload_bytes);
             let cap = download_cap(remote.content_length.map(u64::from), snapshot_limit, &self.runtime().options);
-            #[cfg(all(target_arch = "wasm32", feature = "test-utils"))]
+            #[cfg(all(target_arch = "wasm32", feature = "test-hooks"))]
             let test_body = { DOWNLOAD_TEST_BODY.lock().take() };
-            #[cfg(all(target_arch = "wasm32", feature = "test-utils"))]
+            #[cfg(all(target_arch = "wasm32", feature = "test-hooks"))]
             if let Some(body) = test_body {
                 sink.write(&body).await?;
             } else {
                 Transfer::new(self.runtime().options.clone())?.get(&remote.url, cap, &mut sink).await?;
             }
-            #[cfg(not(all(target_arch = "wasm32", feature = "test-utils")))]
+            #[cfg(not(all(target_arch = "wasm32", feature = "test-hooks")))]
             Transfer::new(self.runtime().options.clone())?.get(&remote.url, cap, &mut sink).await?;
             let DecoderSink { mut writer, hash, cipher, decoder } = sink;
             store.sync(&mut writer).await?;
@@ -1410,7 +1410,7 @@ impl<Context: AttachmentContext> Attachments<Context> {
                 let (sender, receiver) = tokio::sync::oneshot::channel();
                 drop(xmtp_common::task::spawn(async move {
                     let result = store.rename(&source, &destination).await;
-                    #[cfg(feature = "test-utils")]
+                    #[cfg(feature = "test-hooks")]
                     if result.is_ok() {
                         let pause = { DOWNLOAD_MOVE_PAUSE.lock().take() };
                         if let Some((entered, resume)) = pause {

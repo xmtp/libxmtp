@@ -142,8 +142,3 @@ async fn run<C: CoreContext>(
     handle.pending.store(false, Ordering::Release);
     Ok(Some(fetched))
 }
-
-xmtp_common::if_native! {
-#[cfg(test)]
-mod tests;
-}

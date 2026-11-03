@@ -63,8 +63,9 @@ pub(crate) fn bidi_streams_suspended() -> bool {
     SHARED_WIRES.lock().suspend_requested
 }
 
-#[cfg(test)]
-pub(crate) fn shared_transport_count() -> usize {
+/// How many shared router transports are still alive.
+#[cfg(any(test, feature = "test-utils"))]
+pub fn shared_transport_count() -> usize {
     let mut wires = SHARED_WIRES.lock();
     wires
         .transports

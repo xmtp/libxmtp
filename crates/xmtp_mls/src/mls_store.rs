@@ -267,3 +267,36 @@ where
         Ok(results)
     }
 }
+
+// These fixtures use native pool errors. Browser connection lifecycle tests
+// cover closed persistent handles in the WASM database module.
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod disconnect_propagation_tests {
+    //! Pins that a dropped-pool signal survives this owner's error types, so
+    //! `needs_db_reconnect()` stays `true` for the worker that surfaces them.
+    use super::MlsStoreError;
+    use crate::core::reconnect::NeedsDbReconnect;
+    use xmtp_db::{ConnectionError, PlatformStorageError, StorageError};
+
+    /// A `StorageError` that signals the connection pool was dropped.
+    fn disconnect_storage() -> StorageError {
+        StorageError::Platform(PlatformStorageError::PoolNeedsConnection)
+    }
+
+    /// A `ConnectionError` that signals the connection pool was dropped.
+    fn disconnect_connection() -> ConnectionError {
+        ConnectionError::Platform(PlatformStorageError::PoolNeedsConnection)
+    }
+
+    /// A storage error that is NOT a disconnect — must never trip the contract.
+    fn benign_storage() -> StorageError {
+        StorageError::InvalidHmacLength
+    }
+
+    #[xmtp_common::test]
+    fn mls_store_error_forwards_disconnect() {
+        assert!(MlsStoreError::Storage(disconnect_storage()).needs_db_reconnect());
+        assert!(MlsStoreError::Connection(disconnect_connection()).needs_db_reconnect());
+        assert!(!MlsStoreError::Storage(benign_storage()).needs_db_reconnect());
+    }
+}

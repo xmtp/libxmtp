@@ -44,8 +44,9 @@ impl VersionInfo {
         &self.pkg_semver
     }
 
-    // Test only function to update the version of the client
-    #[cfg(test)]
+    /// Makes this the version of a client a test builds, instead of the
+    /// package version.
+    #[cfg(any(test, feature = "test-hooks"))]
     pub fn test_update_version(&mut self, version: &str) {
         *self = Self::new(version);
     }

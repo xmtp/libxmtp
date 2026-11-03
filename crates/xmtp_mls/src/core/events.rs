@@ -321,7 +321,10 @@ pub(crate) fn emit_expired_messages(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{context::CoreContext, tester};
+    use crate::{
+        context::CoreContext,
+        core::test_context::{real_context, stored_msg},
+    };
     use xmtp_db::{
         group::{GroupMembershipState, StoredGroup},
         prelude::*,
@@ -332,27 +335,23 @@ mod tests {
     // verifies: EVENT-020
     #[xmtp_common::test(unwrap_try = true)]
     async fn stitched_dm_delete_and_expiry_reach_group_filter() {
-        use crate::test::mock::generate_stored_msg;
         use xmtp_proto::types::Cursor;
 
-        tester!(alix, disable_workers);
-        let db = alix.context.db();
+        let context = real_context().await;
+        let db = context.db();
         let [ga, gb, gc] = [71, 72, 73].map(|id| GroupId::from([id; 16]));
         for (id, dm_id) in [(ga, "stitched"), (gb, "stitched"), (gc, "other")] {
             StoredGroup::builder()
                 .id(id)
                 .created_at_ns(xmtp_common::time::now_ns())
                 .membership_state(GroupMembershipState::Allowed)
-                .added_by_inbox_id(alix.inbox_id())
+                .added_by_inbox_id(context.inbox_id())
                 .conversation_type(ConversationType::Dm)
                 .dm_id(Some(dm_id.to_string()))
                 .build()?
                 .store(&db)?;
         }
-        let messages = [
-            generate_stored_msg(Cursor(1), gb),
-            generate_stored_msg(Cursor(2), gc),
-        ];
+        let messages = [stored_msg(Cursor(1), gb), stored_msg(Cursor(2), gc)];
         let bus = EventBus::<InternalEvent>::new();
         let mut filter = EventFilter::new([EventKind::MessageDeleted, EventKind::MessageExpired]);
         filter.group_ids = Some(vec![ga.to_vec()]);
@@ -386,9 +385,9 @@ mod tests {
     #[xmtp_common::test(unwrap_try = true)]
     async fn consent_events() {
         use xmtp_db::consent_record::{ConsentChange, ConsentKey, ConsentValue};
-        tester!(alix, disable_workers);
-        let db = alix.context.db();
-        let own = alix.inbox_id();
+        let context = real_context().await;
+        let db = context.db();
+        let own = context.inbox_id();
         let store = |id: u8, peer: Option<&str>, kind, state| {
             let mut pair = peer.map(|peer| [own.to_string(), peer.to_string()]);
             if let Some(pair) = &mut pair {
@@ -481,7 +480,7 @@ mod tests {
                 vec!["opaque".to_string()],
             ),
         ] {
-            emit_consent_changes(&alix.context, &bus, &db, &changes)?;
+            emit_consent_changes(&context, &bus, &db, &changes)?;
             assert_eq!(named(public.drain()), expected, "{changes:?}");
         }
         let entities: Vec<Vec<String>> = legacy

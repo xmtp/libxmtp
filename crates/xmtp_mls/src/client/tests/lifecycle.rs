@@ -688,20 +688,21 @@ async fn reconnect_keeps_worker_subscription_open_for_queued_facts() {
         .expect("TaskRunner has a subscription");
     let entered = Arc::new(Notify::new());
     let release = Arc::new(Notify::new());
-    *crate::worker::test_hooks::PAUSE_NEXT_SPAWN.lock() = Some((
+    crate::worker::test_hooks::pause_next_spawn(
         alix.installation_id.to_vec(),
         entered.clone(),
         release.clone(),
-    ));
+    );
     alix.client.reconnect_db()?;
     xmtp_common::time::timeout(std::time::Duration::from_secs(10), entered.notified()).await?;
     xmtp_common::time::sleep(std::time::Duration::from_millis(100)).await;
     assert!(!subscription.is_closed());
 
     let (consumed, received) = tokio::sync::oneshot::channel();
-    *crate::worker::tasks::test_hooks::TASK_SCHEDULED_CONSUMED
-        .lock()
-        .unwrap() = Some((alix.installation_id.to_vec(), consumed));
+    crate::worker::tasks::test_hooks::on_task_scheduled_consumed(
+        alix.installation_id.to_vec(),
+        consumed,
+    );
     alix.context
         .events()
         .emit(None, Some(InternalEvent::TaskScheduled));
@@ -758,7 +759,7 @@ async fn close_cleans_up_workers_when_delivery_release_fails() {
         .workers
         .subscription_for_test(WorkerKind::TaskRunner)
         .expect("TaskRunner has a subscription");
-    *crate::context::FAIL_NEXT_DELIVERY_RELEASE.lock() = Some(alix.installation_id.to_vec());
+    crate::context::test_hooks::fail_next_delivery_release(alix.installation_id.to_vec());
 
     assert!(alix.close().await.is_err());
     assert!(!alix.client.workers.is_running());

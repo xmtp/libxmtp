@@ -207,7 +207,7 @@ required-features = ["test-utils"]
 
 [[test]]
 name = "attachment_opfs"
-required-features = ["test-utils"]
+required-features = ["test-utils", "test-hooks"]
 
 [[test]]
 name = "zeroize"
@@ -215,6 +215,19 @@ required-features = ["test-utils"]
 
 [[test]]
 name = "openmls_host_logging"
+required-features = ["test-utils"]
+
+[[test]]
+name = "identity"
+required-features = ["test-utils"]
+
+[[test]]
+name = "server_config"
+required-features = ["test-utils"]
+
+[[test]]
+name = "mls_core"
+path = "tests/core/main.rs"
 required-features = ["test-utils"]
 
 [[bench]]

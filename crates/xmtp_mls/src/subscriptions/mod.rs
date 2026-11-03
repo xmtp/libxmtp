@@ -669,7 +669,13 @@ pub enum StreamKind {
 }
 
 #[cfg(test)]
+mod message_deletion_tests;
+
+#[cfg(test)]
 pub(crate) mod tests {
+    #[cfg(not(target_arch = "wasm32"))]
+    mod disconnect_propagation;
+
     use crate::context::CoreContext;
     use crate::tester;
 
