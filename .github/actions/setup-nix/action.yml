@@ -24,6 +24,12 @@ inputs:
       it; fork runs have none and push nothing. Dependabot runs have it only
       as a Dependabot secret.
     required: false
+  cachix-use-daemon:
+    description: >-
+      Use the Cachix daemon to upload during builds. Set "false" to upload
+      new store paths synchronously in the post-job step instead.
+    required: false
+    default: "true"
   kache:
     description: >-
       Enable pinned Kache for Cargo commands outside Nix derivations. Set
@@ -183,6 +189,7 @@ runs:
       if: ${{ inputs.cache-mode == 'read' }}
       with:
         name: xmtp
+        useDaemon: ${{ inputs.cachix-use-daemon }}
     - name: Configure Cachix (mode ci)
       uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
       if: ${{ inputs.cache-mode == 'ci' }}
@@ -190,12 +197,14 @@ runs:
         name: xmtp-pr
         extraPullNames: xmtp
         authToken: ${{ inputs.cachix-pr-auth-token }}
+        useDaemon: ${{ inputs.cachix-use-daemon }}
     - name: Configure Cachix (mode trusted)
       uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
       if: ${{ inputs.cache-mode == 'trusted' }}
       with:
         name: xmtp
         authToken: ${{ inputs.cachix-auth-token }}
+        useDaemon: ${{ inputs.cachix-use-daemon }}
     - name: Setup Kache
       if: ${{ inputs.kache == 'true' }}
       uses: kunobi-ninja/kache-action@1a33fb2ff51be23eb9e87abeae6edb65be78f71c
