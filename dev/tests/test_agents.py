@@ -95,6 +95,38 @@ class NixWrapperTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(len(self.calls()), 1)
 
+    def cloud_daemon_fixture(self, status):
+        config = self.root / "droid.conf"
+        config.touch()
+        helper = self.root / "daemon-helper"
+        self.daemon_log = self.root / "daemon-calls"
+        helper.write_text(
+            f'#!/bin/sh\nprintf "start\\n" >> "{self.daemon_log}"\nexit {status}\n'
+        )
+        helper.chmod(0o755)
+        sudo = self.root / "bin/sudo"
+        sudo.write_text('#!/bin/sh\n[ "$1" != -n ] || shift\nexec "$@"\n')
+        sudo.chmod(0o755)
+        self.wrapper.write_text(
+            self.wrapper.read_text()
+            .replace("/etc/nix/libxmtp-droid.conf", str(config))
+            .replace("/usr/local/sbin/libxmtp-nix-daemon", str(helper))
+        )
+
+    def test_cloud_snapshot_starts_daemon_before_nix_evaluation(self):
+        self.cloud_daemon_fixture(0)
+        result = self.run_wrapper('printf "%s" "$NIX_REMOTE"')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "daemon")
+        self.assertEqual(self.daemon_log.read_text(), "start\n")
+        self.assertEqual(len(self.calls()), 1)
+
+    def test_cloud_daemon_failure_stops_before_nix_evaluation(self):
+        self.cloud_daemon_fixture(45)
+        result = self.run_wrapper("true")
+        self.assertEqual(result.returncode, 45, result.stderr)
+        self.assertEqual(self.calls(), [])
+
     def key(self):
         result = self.run_wrapper('printf "%s" "$XMTP_NIX_WRAPPER_ID"')
         self.assertEqual(result.returncode, 0, result.stderr)

@@ -13,47 +13,60 @@ run_root=()
 if [[ $EUID -ne 0 ]]; then
   run_root=(sudo -n)
 fi
-for tool in curl xz git shasum; do
+for tool in curl xz git shasum flock start-stop-daemon; do
   if ! command -v "$tool" >/dev/null; then
     "${run_root[@]}" apt-get update
     "${run_root[@]}" env DEBIAN_FRONTEND=noninteractive apt-get install -y \
-      ca-certificates curl xz-utils git perl
+      ca-certificates curl xz-utils git perl util-linux dpkg
     break
   fi
 done
 
 # Also find an installation from an earlier build without relying on shell rc files.
-export PATH="$HOME/.nix-profile/bin:/nix/var/nix/profiles/default/bin:$PATH"
-if ! command -v nix >/dev/null; then
+export PATH="/nix/var/nix/profiles/default/bin:$PATH"
+if [[ -x "/nix/var/nix/profiles/default/bin/nix-daemon" && ! -f "/etc/nix/libxmtp-droid.conf" ]]; then
+  echo 'Unmanaged Nix installation found. Rebuild from a fresh Linux source.' >&2
+  exit 1
+fi
+if [[ ! -x "/nix/var/nix/profiles/default/bin/nix-daemon" ]]; then
+  if command -v nix >/dev/null; then
+    echo 'Existing single-user Nix is unsupported. Rebuild from a fresh Linux source.' >&2
+    exit 1
+  fi
   installer="$(mktemp)"
   trap 'rm -f "$installer"' EXIT
   curl --proto '=https' --tlsv1.2 --fail --show-error --location \
-    https://nixos.org/nix/install --output "$installer"
-  # Single-user Nix needs no daemon or systemd after restoring the snapshot.
-  # An empty build-users-group also permits a root-owned single-user store.
-  NIX_CONFIG="${NIX_CONFIG:-}
-build-users-group =" sh "$installer" \
-    --no-daemon --yes --no-channel-add --no-modify-profile
+    https://install.determinate.systems/nix/tag/v3.24.1 --output "$installer"
+  # Install build users and a root-owned store, but manage daemon startup ourselves
+  # so snapshot restoration does not depend on systemd.
+  "${run_root[@]}" sh "$installer" install linux --no-confirm --init none
   rm -f "$installer"
   trap - EXIT
 fi
 
-config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/nix"
-mkdir -p "$config_dir"
-cat > "$config_dir/libxmtp-droid.conf" <<'EOF_CONFIG'
+config="$(mktemp)"
+trap 'rm -f "$config"' EXIT
+cat > "$config" <<'EOF_CONFIG'
 experimental-features = nix-command flakes
+sandbox = true
+sandbox-fallback = false
 extra-substituters = https://xmtp.cachix.org
 extra-trusted-public-keys = xmtp.cachix.org-1:nFPFrqLQ9kjYQKiWL7gKq6llcNEeaV4iI+Ka1F+Tmq0=
 EOF_CONFIG
-if [[ ! -f "/nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh" ]]; then
-  # The outer cloud environment supplies isolation for the single-user store.
-  printf '%s\n' 'sandbox = false' 'build-users-group =' >> "$config_dir/libxmtp-droid.conf"
+"${run_root[@]}" install -o root -g root -m 0644 "$config" "/etc/nix/libxmtp-droid.conf"
+rm -f "$config"
+trap - EXIT
+# Determinate manages nix.conf and reads nix.custom.conf.
+nix_conf="/etc/nix/nix.conf"
+[[ ! -f "/etc/nix/nix.custom.conf" ]] || nix_conf="/etc/nix/nix.custom.conf"
+include_line='include /etc/nix/libxmtp-droid.conf'
+if ! grep -qxF "$include_line" "$nix_conf"; then
+  printf '\n%s\n' "$include_line" | "${run_root[@]}" tee -a "$nix_conf" >/dev/null
 fi
-include_line="include $config_dir/libxmtp-droid.conf"
-touch "$config_dir/nix.conf"
-if ! grep -qxF "$include_line" "$config_dir/nix.conf"; then
-  printf '\n%s\n' "$include_line" >> "$config_dir/nix.conf"
-fi
+"${run_root[@]}" install -o root -g root -m 0755 \
+  "$repo_root/.factory/nix-daemon.sh" "/usr/local/sbin/libxmtp-nix-daemon"
+"${run_root[@]}" "/usr/local/sbin/libxmtp-nix-daemon"
+export NIX_REMOTE=daemon
 
 # Persist PATH for terminals; dev/nix-shell also locates Nix in non-login shells.
 for profile in "$HOME/.profile" "$HOME/.bashrc"; do
@@ -63,7 +76,7 @@ for profile in "$HOME/.profile" "$HOME/.bashrc"; do
     {
       # shellcheck disable=SC2016 # Expand PATH when the later shell starts.
       printf '%s\n' '# libxmtp Droid Nix' \
-        'export PATH="$HOME/.nix-profile/bin:/nix/var/nix/profiles/default/bin:$PATH"'
+        'export PATH="/nix/var/nix/profiles/default/bin:$PATH"'
       cat "$profile"
     } > "$temporary"
     cat "$temporary" > "$profile"
