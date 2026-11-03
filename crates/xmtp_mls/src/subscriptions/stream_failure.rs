@@ -290,16 +290,7 @@ pub fn stream_failure_details_opening<'a>(
             continue;
         }
         if let Some(summary) = error.downcast_ref::<SyncSummary>() {
-            for (_, error) in summary.process.errored.iter().rev() {
-                push(error);
-            }
-            for error in summary.post_commit_errors.iter().rev() {
-                push(error);
-            }
-            for error in summary.publish_errors.iter().rev() {
-                push(error);
-            }
-            if let Some(error) = summary.other.as_deref() {
+            for error in summary.errors().rev() {
                 push(error);
             }
             continue;
