@@ -124,6 +124,20 @@ impl Drop for ForegroundCall {
     }
 }
 
+/// Context state whose fields exist only under this crate's cfg: the commit
+/// lock that tests hold and the local send clock (always present on wasm32).
+/// Another crate builds it with `Default`, so its own features need not match
+/// this crate's.
+#[derive(Clone, Default)]
+pub struct HookState {
+    /// Shared with every group of this context so a test can stall commits.
+    #[cfg(any(test, feature = "test-hooks"))]
+    pub mls_commit_lock: Arc<GroupCommitLock>,
+    /// Orders local send timestamps.
+    #[cfg(any(test, feature = "test-hooks", target_arch = "wasm32"))]
+    pub message_clock: Arc<message_clock::MessageClock>,
+}
+
 /// The local context a XMTP MLS needs to function:
 /// - Sqlite Database
 /// - Identity for the User
@@ -138,8 +152,8 @@ pub struct LocalContext<ApiClient, Db, S, F> {
     pub store: Db,
     pub mls_storage: S,
     pub mutexes: MutexRegistry,
-    #[cfg(any(test, feature = "test-hooks"))]
-    pub mls_commit_lock: Arc<GroupCommitLock>,
+    /// Test hook state and the wasm send clock.
+    pub hooks: HookState,
     pub version_info: VersionInfo,
     /// What this deployment published about itself, resolved once at build
     /// plus the blocked connection a refresh may set.
@@ -169,8 +183,6 @@ pub struct LocalContext<ApiClient, Db, S, F> {
     // future retries.
     pub shutdown_complete: Arc<AtomicBool>,
     pub foreground_calls: Arc<ForegroundCalls>,
-    #[cfg(any(test, feature = "test-hooks", target_arch = "wasm32"))]
-    pub message_clock: Arc<message_clock::MessageClock>,
     pub features: F,
 }
 
@@ -212,8 +224,7 @@ impl<ApiClient, Db, S, F> LocalContext<ApiClient, Db, S, F> {
             store: self.store,
             mls_storage: mls_store,
             mutexes: self.mutexes,
-            #[cfg(any(test, feature = "test-hooks"))]
-            mls_commit_lock: self.mls_commit_lock,
+            hooks: self.hooks,
             version_info: self.version_info,
             server_configuration: self.server_configuration,
             events: self.events,
@@ -231,8 +242,6 @@ impl<ApiClient, Db, S, F> LocalContext<ApiClient, Db, S, F> {
             cancellation_token: self.cancellation_token,
             shutdown_complete: self.shutdown_complete,
             foreground_calls: self.foreground_calls,
-            #[cfg(any(test, feature = "test-hooks", target_arch = "wasm32"))]
-            message_clock: self.message_clock,
             features: self.features,
         }
     }
@@ -269,14 +278,14 @@ impl<ApiClient, Db, S, F> LocalContext<ApiClient, Db, S, F> {
 
     #[cfg(any(test, feature = "test-hooks"))]
     pub fn mls_commit_lock(&self) -> &Arc<GroupCommitLock> {
-        &self.mls_commit_lock
+        &self.hooks.mls_commit_lock
     }
 
     /// Makes local send timestamps start from `wall_ns` instead of the wall
     /// clock, keeping their order.
     #[cfg(any(test, feature = "test-hooks"))]
     pub fn freeze_message_clock(&self, wall_ns: i64) {
-        self.message_clock.freeze(wall_ns);
+        self.hooks.message_clock.freeze(wall_ns);
     }
 
     pub fn sync_metrics(&self) -> Option<Arc<WorkerMetrics<SyncMetric>>> {
@@ -497,7 +506,7 @@ where
 
     #[cfg(any(test, feature = "test-hooks"))]
     fn mls_commit_lock(&self) -> &Arc<GroupCommitLock> {
-        &self.mls_commit_lock
+        &self.hooks.mls_commit_lock
     }
 
     fn task_channels(&self) -> &TaskWorkerChannels {
@@ -539,14 +548,14 @@ where
     fn message_timestamp_ns(&self) -> i64 {
         #[cfg(target_arch = "wasm32")]
         {
-            self.message_clock.now_ns()
+            self.hooks.message_clock.now_ns()
         }
 
         #[cfg(not(target_arch = "wasm32"))]
         {
             #[cfg(any(test, feature = "test-hooks"))]
-            if self.message_clock.is_frozen() {
-                return self.message_clock.now_ns();
+            if self.hooks.message_clock.is_frozen() {
+                return self.hooks.message_clock.now_ns();
             }
             xmtp_common::time::now_ns()
         }

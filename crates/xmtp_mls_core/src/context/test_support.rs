@@ -83,8 +83,7 @@ impl<ApiClient, Db, S> TestContextParts<ApiClient, Db, S> {
             store: self.store,
             mls_storage: self.mls_storage,
             mutexes: MutexRegistry::new(),
-            #[cfg(any(test, feature = "test-hooks"))]
-            mls_commit_lock: Default::default(),
+            hooks: Default::default(),
             version_info: VersionInfo::default(),
             server_configuration: self.server_configuration,
             public_event_writer,
@@ -104,8 +103,6 @@ impl<ApiClient, Db, S> TestContextParts<ApiClient, Db, S> {
             cancellation_token: CancellationToken::new(),
             shutdown_complete: Arc::new(AtomicBool::new(false)),
             foreground_calls: Default::default(),
-            #[cfg(any(test, feature = "test-hooks", target_arch = "wasm32"))]
-            message_clock: Default::default(),
             features,
         }
     }
@@ -119,8 +116,7 @@ impl<F: Clone> Clone for MockContext<F> {
             store: self.store.clone(),
             mls_storage: self.mls_storage.clone(),
             mutexes: self.mutexes.clone(),
-            #[cfg(any(test, feature = "test-hooks"))]
-            mls_commit_lock: self.mls_commit_lock.clone(),
+            hooks: self.hooks.clone(),
             version_info: self.version_info.clone(),
             server_configuration: self.server_configuration.clone(),
             events: self.events.clone(),
@@ -136,8 +132,6 @@ impl<F: Clone> Clone for MockContext<F> {
             cancellation_token: self.cancellation_token.clone(),
             shutdown_complete: self.shutdown_complete.clone(),
             foreground_calls: self.foreground_calls.clone(),
-            #[cfg(any(test, feature = "test-hooks", target_arch = "wasm32"))]
-            message_clock: self.message_clock.clone(),
             delivery_owner: self.delivery_owner.clone(),
             stream_policy: self.stream_policy.clone(),
             features: self.features.clone(),
@@ -218,7 +212,7 @@ impl<F: MaybeSend + MaybeSync + Clone + 'static> CoreContext for MockContext<F> 
 
     #[cfg(any(test, feature = "test-hooks"))]
     fn mls_commit_lock(&self) -> &Arc<GroupCommitLock> {
-        &self.mls_commit_lock
+        &self.hooks.mls_commit_lock
     }
 
     fn mutexes(&self) -> &MutexRegistry {
