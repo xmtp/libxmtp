@@ -15,7 +15,7 @@ pub use importer::ArchiveImporter;
 use thiserror::Error;
 use xmtp_common::{ErrorCode, RetryableError};
 use xmtp_db::{ConnectionError, StorageError, diesel, sql_key_store::SqlKeyStoreError};
-use xmtp_mls_common::{
+use xmtp_mls_group_state::{
     group_metadata::GroupMetadataError, group_mutable_metadata::GroupMutableMetadataError,
 };
 use xmtp_proto::{types::GroupId, xmtp::device_sync::BackupMetadataSave};

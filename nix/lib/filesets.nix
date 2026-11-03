@@ -31,7 +31,7 @@ let
     (src + /crates/xmtp_id/artifact)
     (src + /crates/xmtp_id/src/scw_verifier/signature_validation.hex)
     # Welcome compatibility tests read the stored keys and ciphertexts at compile time.
-    (src + /crates/xmtp_mls_common/src/mls_ext/payload_encryption/fixtures)
+    (src + /crates/xmtp_mls_group_keys/src/mls_ext/payload_encryption/fixtures)
     (src + /crates/xmtp_db/migrations)
     (src + /crates/xmtp_legacy_migration/migrations)
     (src + /crates/xmtp_legacy_migration/browser-storage.js)
@@ -347,10 +347,14 @@ let
       (src + /dev/backend/local.toml)
       (src + /dev/backend/local-s3.toml)
     ];
-    "crates/xmtp_mls_common" = [
-      (src + /crates/xmtp_mls_common/src/mls_ext/payload_encryption/fixtures)
-      # The group-key unit tests and zeroize canaries read the test vectors.
-      (src + /crates/xmtp_mls_common/src/group_keys/fixtures)
+    "crates/xmtp_mls_group_keys" = [
+      (src + /crates/xmtp_mls_group_keys/src/mls_ext/payload_encryption/fixtures)
+      # The group-key unit tests read the test vectors.
+      (src + /crates/xmtp_mls_group_keys/src/group_keys/fixtures)
+    ];
+    "crates/xmtp_mls_group_state" = [
+      # The zeroize canaries read the group-key test vectors.
+      (src + /crates/xmtp_mls_group_keys/src/group_keys/fixtures)
     ];
   };
   # The real sources of a closure, with its data and `extra` paths.

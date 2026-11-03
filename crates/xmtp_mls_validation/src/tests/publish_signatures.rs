@@ -6,7 +6,7 @@ use super::*;
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use hkdf::Hkdf;
 use sha2::Sha256;
-use xmtp_mls_common::group_keys::{
+use xmtp_mls_group_keys::group_keys::{
     PublishSignatureError, SealedField, commit_log_entry_tbs, group_message_tbs,
     verify_publish_signature,
 };
@@ -257,7 +257,7 @@ fn a_signature_under_another_key_or_structure_is_refused() {
     // Signed by another group's key over that group's topic.
     let mut envelope = signed.clone();
     let message = group_message(&mut envelope);
-    xmtp_mls_common::group_keys::sign_group_message(&group_keys(2), message)?;
+    xmtp_mls_group_keys::group_keys::sign_group_message(&group_keys(2), message)?;
     assert_invalid_signature(envelope, "another group's key");
 
     // The group signing key over a `CommitLogEntryTBS`.

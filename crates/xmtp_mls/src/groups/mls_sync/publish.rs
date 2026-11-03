@@ -5,7 +5,7 @@ use crate::core::api_status::backend_status;
 pub(crate) use crate::core::api_status::definite_refusal;
 use crate::groups::app_data::GroupAppDataError;
 use xmtp_db::group_intent::QueryPreparedEnvelope;
-use xmtp_mls_common::app_data::component_source::ComponentSourceError;
+use xmtp_mls_group_state::app_data::component_source::ComponentSourceError;
 use xmtp_mls_validation::commit::CommitRuleError;
 
 mod dependencies;
@@ -793,7 +793,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                 // commit that references it. Both wire messages go in one
                 // publish batch, with the proposal first.
                 use crate::groups::app_data::stage_app_data_propose_and_commit;
-                use xmtp_mls_common::app_data::component_source::metadata_field_to_component_id;
+                use xmtp_mls_group_state::app_data::component_source::metadata_field_to_component_id;
 
                 let component_id = metadata_field_to_component_id(&metadata_intent.field_name)
                     .ok_or_else(|| {
@@ -802,11 +802,12 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                         ))
                     })?;
 
-                let payload = xmtp_mls_common::app_data::creation::encode_metadata_attribute_value(
-                    component_id,
-                    &metadata_intent.field_value,
-                )
-                .map_err(crate::groups::app_data::migration::BootstrapSynthesisError::from)?;
+                let payload =
+                    xmtp_mls_group_state::app_data::creation::encode_metadata_attribute_value(
+                        component_id,
+                        &metadata_intent.field_value,
+                    )
+                    .map_err(crate::groups::app_data::migration::BootstrapSynthesisError::from)?;
 
                 let signer = self.context.identity().installation_keys.clone();
                 let catalogue = &self
@@ -1031,7 +1032,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                             .propose_app_data_update(
                                 &provider,
                                 signer,
-                                xmtp_mls_common::app_data::component_id::ComponentId::GROUP_MEMBERSHIP
+                                xmtp_mls_group_state::app_data::component_id::ComponentId::GROUP_MEMBERSHIP
                                     .as_u16(),
                                 openmls::messages::proposals::AppDataUpdateOperation::Update(
                                     payload.into(),
@@ -1068,8 +1069,9 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                 let intent_data = crate::groups::intents::AppDataUpdateIntentData::try_from(
                     intent.data.as_slice(),
                 )?;
-                let own = xmtp_mls_common::inbox_id::InboxId::from_hex(self.context.inbox_id())
-                    .map_err(|e| GroupError::ComponentSource(e.into()))?;
+                let own =
+                    xmtp_mls_group_state::inbox_id::InboxId::from_hex(self.context.inbox_id())
+                        .map_err(|e| GroupError::ComponentSource(e.into()))?;
                 crate::groups::app_data::sender_intents::apply_app_data_update_intent(
                     storage,
                     openmls_group,

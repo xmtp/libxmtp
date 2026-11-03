@@ -12,8 +12,8 @@ use xmtp_common::time::{Duration, now_ns};
 use xmtp_db::group_message::StoredGroupMessage;
 use xmtp_db::prelude::*;
 use xmtp_events::{EventBus, EventFilter, EventWriter};
-use xmtp_mls_common::group::GroupMetadataOptions;
-use xmtp_mls_common::group_mutable_metadata::MessageDisappearingSettings;
+use xmtp_mls_group_state::group::GroupMetadataOptions;
+use xmtp_mls_group_state::group_mutable_metadata::MessageDisappearingSettings;
 use xmtp_proto::types::GroupId;
 
 /// The longest a test waits for a stored expiry.

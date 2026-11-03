@@ -909,7 +909,7 @@ async fn application_component_commit_names_each_changed_item() {
     use crate::groups::{
         intents::AppDataUpdateIntentData, tests::test_dictionary_creation::definition,
     };
-    use xmtp_mls_common::app_data::component_id::ComponentId;
+    use xmtp_mls_group_state::app_data::component_id::ComponentId;
     for (id, expected) in [
         (0x8000, "COMPONENT_REGISTRY"),
         (0x8001, "SUPER_ADMIN_LIST"),

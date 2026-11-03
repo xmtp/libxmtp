@@ -22,7 +22,7 @@ use xmtp_proto::xmtp::mls::message_contents::{
 };
 
 use crate::commit::{CommitParticipant, Inbox, MembershipValidationInfo, MetadataFieldChange};
-use xmtp_mls_common::group_mutable_metadata::{GroupMutableMetadata, MetadataField};
+use xmtp_mls_group_state::group_mutable_metadata::{GroupMutableMetadata, MetadataField};
 
 /// Errors that can occur when working with GroupMutablePermissions.
 #[derive(Debug, Error, ErrorCode)]
@@ -66,7 +66,7 @@ pub enum GroupMutablePermissionsError {
     ///
     /// The permission view could not be read from group state. Not retryable.
     #[error("invalid component-registry policy state: {0}")]
-    PolicyProjection(#[from] xmtp_mls_common::app_data::policy_set::PolicyProjectionError),
+    PolicyProjection(#[from] xmtp_mls_group_state::app_data::policy_set::PolicyProjectionError),
 }
 
 /// Represents the mutable permissions for a group.
@@ -1072,7 +1072,7 @@ impl PolicySet {
 pub fn policy_set_from_dictionary(
     extensions: &Extensions<GroupContext>,
 ) -> Result<GroupMutablePermissions, GroupMutablePermissionsError> {
-    let proto = xmtp_mls_common::app_data::policy_set::policy_set_from_dictionary(extensions)
+    let proto = xmtp_mls_group_state::app_data::policy_set::policy_set_from_dictionary(extensions)
         .map_err(|error| {
             tracing::warn!(%error, "invalid registry action policy");
             GroupMutablePermissionsError::PolicyProjection(error)
@@ -1270,7 +1270,7 @@ pub mod tests {
 
     use openmls::extensions::{AppDataDictionary, AppDataDictionaryExtension, Extension};
     use xmtp_common::{rand_string, rand_vec};
-    use xmtp_mls_common::{
+    use xmtp_mls_group_state::{
         app_data::{component_id::ComponentId, creation::synthesize_registry_from_policy_set},
         group_metadata::DmMembers,
     };

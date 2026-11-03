@@ -21,7 +21,7 @@ use openmls::{
 use prost::Message;
 use tls_codec::{Deserialize, Serialize, VLBytes};
 use xmtp_configuration::ApplicationComponentDefinition;
-use xmtp_mls_common::{
+use xmtp_mls_group_state::{
     app_data::{
         component_id::ComponentId,
         component_registry::ComponentRegistry,
@@ -29,6 +29,8 @@ use xmtp_mls_common::{
         creation::catalogue_registry_entries,
     },
     inbox_id::InboxId,
+};
+use xmtp_mls_tls_collections::{
     tls_map::{TlsMap, TlsMapDelta},
     tls_set::{TlsSet, TlsSetDelta},
 };

@@ -23,7 +23,7 @@ use xmtp_db::{
     incoming_envelope::{StreamTopic, TerminalRejection},
     prelude::*,
 };
-use xmtp_mls_common::{
+use xmtp_mls_group_state::{
     app_data::{
         component_id::ComponentId,
         fields::{
@@ -31,6 +31,8 @@ use xmtp_mls_common::{
         },
     },
     inbox_id::InboxId,
+};
+use xmtp_mls_tls_collections::{
     tls_map::{TlsMap, TlsMapDelta},
     tls_set::TlsSet,
 };
@@ -838,7 +840,7 @@ async fn test_uncommittable_pending_app_data_does_not_block_the_group(
     let bo_name = || update(insert_name(bo.inbox_id(), b"Bo"));
     let remove_super_admin = |id: &str| {
         update(
-            xmtp_mls_common::tls_set::TlsSetDelta::new()
+            xmtp_mls_tls_collections::tls_set::TlsSetDelta::new()
                 .remove(inbox(id))
                 .tls_serialize_detached()
                 .unwrap(),
@@ -881,7 +883,7 @@ async fn test_uncommittable_pending_app_data_does_not_block_the_group(
             group
                 .update_admin_list(UpdateAdminListType::Add, bo.inbox_id().to_string())
                 .await?;
-            let payload = xmtp_mls_common::tls_set::TlsSetDelta::new()
+            let payload = xmtp_mls_tls_collections::tls_set::TlsSetDelta::new()
                 .insert(inbox(bo.inbox_id()))
                 .tls_serialize_detached()?;
             propose_raw(&group, ComponentId::ADMIN_LIST, update(payload)).await?;
@@ -1155,7 +1157,7 @@ async fn test_orphan_membership_delta_does_not_block_the_group(
     #[case] orphan: Orphan,
 ) -> Result<(), Box<dyn std::error::Error>> {
     use prost::Message as _;
-    use xmtp_mls_common::app_data::{
+    use xmtp_mls_group_state::app_data::{
         components::tls_map_components::GroupMembershipComponent, typed::Component,
     };
     use xmtp_proto::xmtp::mls::message_contents::{

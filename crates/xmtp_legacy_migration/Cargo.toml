@@ -21,7 +21,7 @@ xmtp-workspace-hack.workspace = true
 xmtp_archive.workspace = true
 xmtp_common.workspace = true
 xmtp_db.workspace = true
-xmtp_mls_common.workspace = true
+xmtp_mls_group_state.workspace = true
 xmtp_proto.workspace = true
 zeroize.workspace = true
 

@@ -16,9 +16,8 @@ use xmtp_id::associations::{
     test_utils::{WalletTestExt, add_wallet_signature},
     unverified::UnverifiedSignature,
 };
-use xmtp_mls_common::{
-    app_data::component_id::ComponentId, inbox_id::InboxId, tls_map::TlsMapDelta,
-};
+use xmtp_mls_group_state::{app_data::component_id::ComponentId, inbox_id::InboxId};
+use xmtp_mls_tls_collections::tls_map::TlsMapDelta;
 use xmtp_proto::xmtp::mls::message_contents::{GroupMembershipEntry, group_membership_entry};
 
 fn entry_update(inbox: &str, sequence: u64, failures: Vec<Vec<u8>>) -> Vec<u8> {

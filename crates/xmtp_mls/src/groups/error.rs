@@ -23,9 +23,9 @@ use xmtp_content_types::CodecError;
 use xmtp_cryptography::signature::IdentifierValidationError;
 use xmtp_db::NotFound;
 use xmtp_db::sql_key_store;
-use xmtp_mls_common::group_metadata::GroupMetadataError;
-use xmtp_mls_common::group_mutable_metadata::GroupMutableMetadataError;
-use xmtp_mls_common::mls_ext::payload_encryption::{UnwrapPayloadError, WrapPayloadError};
+use xmtp_mls_group_keys::mls_ext::payload_encryption::{UnwrapPayloadError, WrapPayloadError};
+use xmtp_mls_group_state::group_metadata::GroupMetadataError;
+use xmtp_mls_group_state::group_mutable_metadata::GroupMutableMetadataError;
 use xmtp_proto::types::GroupId;
 
 /// Installation IDs that failed key package verification during a membership update.
@@ -244,12 +244,12 @@ pub enum GroupError {
     /// Failed to encode, decode, or look up a well-known component during the
     /// AppDataUpdate path. Not retryable.
     #[error("component source error: {0}")]
-    ComponentSource(#[from] xmtp_mls_common::app_data::component_source::ComponentSourceError),
+    ComponentSource(#[from] xmtp_mls_group_state::app_data::component_source::ComponentSourceError),
     /// A metadata field read or write is invalid for the group's committed
     /// fields: an unknown field, a wrong type, or a write the committed
     /// state rejects. Not retryable.
     #[error("metadata field error: {0}")]
-    MetadataField(#[from] xmtp_mls_common::app_data::fields::FieldError),
+    MetadataField(#[from] xmtp_mls_group_state::app_data::fields::FieldError),
     /// AppData commit error.
     ///
     /// Failed to build or stage a commit that bundles an inline AppDataUpdate
@@ -407,7 +407,7 @@ pub enum GroupError {
     /// The Welcome's group context has no 32-byte group root, or its root
     /// does not derive the Welcome's group id. Not retryable.
     #[error("Welcome group root does not name its group: {0}")]
-    WelcomeGroupRoot(xmtp_mls_common::app_data::group_root::GroupRootError),
+    WelcomeGroupRoot(xmtp_mls_group_state::app_data::group_root::GroupRootError),
     /// The Welcome needs a newer client. Keep it blocked until upgrade. Retryable.
     #[error("Welcome requires client version {0}")]
     UnsupportedWelcomeVersion(String),
@@ -498,11 +498,11 @@ pub enum MetadataPermissionsError {
     InvalidExtension(#[from] openmls::prelude::InvalidExtensionError),
     /// Failed to decode a well-known component value from the
     /// AppData dictionary on a migrated group. Surfaces
-    /// [`xmtp_mls_common::app_data::component_source::ComponentSourceError`] via `#[from]` so callers (e.g.
+    /// [`xmtp_mls_group_state::app_data::component_source::ComponentSourceError`] via `#[from]` so callers (e.g.
     /// `mutable_metadata()`, `metadata()`) preserve the structured
     /// source.
     #[error(transparent)]
-    ComponentSource(#[from] xmtp_mls_common::app_data::component_source::ComponentSourceError),
+    ComponentSource(#[from] xmtp_mls_group_state::app_data::component_source::ComponentSourceError),
 }
 
 impl RetryableError for MetadataPermissionsError {

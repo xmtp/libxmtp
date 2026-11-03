@@ -18,7 +18,7 @@ use xmtp_id::{
     key_package::{KeyPackageVerificationError, VerifiedKeyPackageV2},
     scw_verifier::{BlockStamp, ChainBlocks, SmartContractSignatureVerifier, VerifierError},
 };
-use xmtp_mls_common::group_keys::{
+use xmtp_mls_group_keys::group_keys::{
     COMMIT_LOG_NONCE_BYTES, COMMIT_LOG_TAG_BYTES, PUBLIC_KEY_BYTES, PUBLISH_SIGNATURE_BYTES,
     PublishSignatureError, SealedField, commit_log_entry_tbs, group_message_tbs,
     verify_publish_signature,

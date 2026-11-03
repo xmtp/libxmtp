@@ -617,14 +617,14 @@ async fn test_receivers_reject_raw_membership_delete_of_super_admin() {
     use openmls::{messages::proposals::AppDataUpdateOperation, prelude::tls_codec::Serialize};
     use tls_codec::VLBytes;
     use xmtp_db::{TransactionOutcome::Continue, XmtpOpenMlsProviderRef};
-    use xmtp_mls_common::{
+    use xmtp_mls_group_state::{
         app_data::{
             component_id::ComponentId, components::tls_map_components::GroupMembershipComponent,
             typed::Component,
         },
         inbox_id::InboxId,
-        tls_map::TlsMapDelta,
     };
+    use xmtp_mls_tls_collections::tls_map::TlsMapDelta;
 
     tester!(alix);
     tester!(bo);
@@ -775,13 +775,11 @@ async fn test_raw_registry_admin_list_allow_rejected_before_publish() {
     };
     use prost::Message as _;
     use tls_codec::VLBytes;
-    use xmtp_mls_common::{
-        app_data::{
-            component_id::ComponentId, components::tls_map_components::ComponentRegistryComponent,
-            typed::Component,
-        },
-        tls_map::TlsMapDelta,
+    use xmtp_mls_group_state::app_data::{
+        component_id::ComponentId, components::tls_map_components::ComponentRegistryComponent,
+        typed::Component,
     };
+    use xmtp_mls_tls_collections::tls_map::TlsMapDelta;
     use xmtp_proto::xmtp::mls::message_contents::{
         MetadataPolicy,
         metadata_policy::{Kind as MetadataPolicyKind, MetadataBasePolicy},
@@ -873,13 +871,11 @@ async fn test_registry_alone_controls_action_policy_view() {
     };
     use prost::Message as _;
     use tls_codec::VLBytes;
-    use xmtp_mls_common::{
-        app_data::{
-            component_id::ComponentId, components::tls_map_components::ComponentRegistryComponent,
-            typed::Component,
-        },
-        tls_map::TlsMapDelta,
+    use xmtp_mls_group_state::app_data::{
+        component_id::ComponentId, components::tls_map_components::ComponentRegistryComponent,
+        typed::Component,
     };
+    use xmtp_mls_tls_collections::tls_map::TlsMapDelta;
     use xmtp_proto::xmtp::mls::message_contents::{
         MetadataPolicy,
         metadata_policy::{Kind as MetadataPolicyKind, MetadataBasePolicy},
@@ -948,14 +944,14 @@ async fn test_commit_removing_all_super_admins_is_rejected() {
     };
     use openmls::{messages::proposals::AppDataUpdateOperation, prelude::tls_codec::Serialize};
     use xmtp_db::TransactionOutcome::Continue;
-    use xmtp_mls_common::{
+    use xmtp_mls_group_state::{
         app_data::{
             component_id::ComponentId, components::inbox_id_set::SuperAdminListComponent,
             typed::Component,
         },
         inbox_id::InboxId,
-        tls_set::TlsSetDelta,
     };
+    use xmtp_mls_tls_collections::tls_set::TlsSetDelta;
 
     tester!(alix);
     tester!(bo);
@@ -1057,7 +1053,7 @@ async fn test_migrated_action_permission_updates_use_registry() {
         group_permissions::{MembershipPolicies, PermissionsPolicies},
         intents::{PermissionPolicyOption, PermissionUpdateType},
     };
-    use xmtp_mls_common::app_data::component_id::ComponentId;
+    use xmtp_mls_group_state::app_data::component_id::ComponentId;
     use xmtp_proto::xmtp::mls::message_contents::metadata_policy::{
         Kind as MetadataPolicyKind, MetadataBasePolicy,
     };
@@ -1333,13 +1329,11 @@ async fn test_receiver_rejects_invalid_registry_action_state() {
     };
     use prost::Message;
     use tls_codec::VLBytes;
-    use xmtp_mls_common::{
-        app_data::{
-            component_id::ComponentId, components::tls_map_components::ComponentRegistryComponent,
-            typed::Component,
-        },
-        tls_map::TlsMapDelta,
+    use xmtp_mls_group_state::app_data::{
+        component_id::ComponentId, components::tls_map_components::ComponentRegistryComponent,
+        typed::Component,
     };
+    use xmtp_mls_tls_collections::tls_map::TlsMapDelta;
     use xmtp_proto::xmtp::mls::message_contents::{
         MetadataPolicy,
         metadata_policy::{AnyCondition, Kind, MetadataBasePolicy},

@@ -5,7 +5,7 @@ use parking_lot::Mutex;
 use std::sync::LazyLock;
 use xmtp_configuration::INSTALLATION_RETRY_MIN_PROTOCOL_VERSION;
 use xmtp_cryptography::configuration::CIPHERSUITE;
-use xmtp_mls_common::app_data::protocol_floor::committed_floor_at_least;
+use xmtp_mls_group_state::app_data::protocol_floor::committed_floor_at_least;
 
 /// When each key's last retry or readd fetch failed. A restart forgets it.
 static FAILED_RETRIES: LazyLock<Mutex<HashMap<Vec<u8>, i64>>> =

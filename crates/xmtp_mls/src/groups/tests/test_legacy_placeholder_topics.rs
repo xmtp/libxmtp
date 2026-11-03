@@ -24,7 +24,7 @@ use xmtp_db::{
     group::{ConversationType, GroupMembershipState},
     prelude::*,
 };
-use xmtp_mls_common::group::GroupMetadataOptions;
+use xmtp_mls_group_state::group::GroupMetadataOptions;
 use xmtp_proto::{
     api::{ApiClientError, ArcClient, BytesStream, Client as Transport, IsConnectedCheck},
     backend_v1 as wire,

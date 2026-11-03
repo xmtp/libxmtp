@@ -3,7 +3,7 @@
 use std::collections::HashSet;
 
 use openmls::group::MlsGroup as OpenMlsGroup;
-use xmtp_mls_common::{
+use xmtp_mls_group_state::{
     group_metadata::{DmMembers, GroupMetadata},
     group_mutable_metadata::GroupMutableMetadata,
 };

@@ -200,7 +200,7 @@ async fn an_inbox_over_the_envelope_limit_keeps_its_removes(
     #[case] explicit_existing_add: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     use std::sync::Arc;
-    use xmtp_mls_common::app_data::{
+    use xmtp_mls_group_state::app_data::{
         component_id::ComponentId, component_source::read_from_app_data_dict,
         components::tls_map_components::GroupMembershipComponent, typed::Component,
     };
@@ -282,7 +282,8 @@ async fn an_inbox_over_the_envelope_limit_keeps_its_removes(
                 read_from_app_data_dict(ComponentId::GROUP_MEMBERSHIP, mls).unwrap(),
             )
             .unwrap();
-            let bo_inbox = xmtp_mls_common::inbox_id::InboxId::from_hex(bo.inbox_id()).unwrap();
+            let bo_inbox =
+                xmtp_mls_group_state::inbox_id::InboxId::from_hex(bo.inbox_id()).unwrap();
             let entry = GroupMembershipEntry::decode(entries.get(&bo_inbox).unwrap().as_slice())?;
             let Some(group_membership_entry::Version::V1(entry)) = entry.version else {
                 panic!("expected Bo's v1 membership entry");
@@ -291,7 +292,8 @@ async fn an_inbox_over_the_envelope_limit_keeps_its_removes(
                 entry.failed_installations,
                 vec![bo2.installation_id.to_vec()]
             );
-            let caro_inbox = xmtp_mls_common::inbox_id::InboxId::from_hex(caro.inbox_id()).unwrap();
+            let caro_inbox =
+                xmtp_mls_group_state::inbox_id::InboxId::from_hex(caro.inbox_id()).unwrap();
             let entry = GroupMembershipEntry::decode(entries.get(&caro_inbox).unwrap().as_slice())?;
             let Some(group_membership_entry::Version::V1(entry)) = entry.version else {
                 panic!("expected Caro's v1 membership entry");

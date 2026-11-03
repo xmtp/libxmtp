@@ -17,7 +17,7 @@ use openmls_traits::signatures::Signer;
 use prost::Message;
 use tls_codec::VLBytes;
 use xmtp_configuration::ApplicationComponentDefinition;
-use xmtp_mls_common::{
+use xmtp_mls_group_state::{
     app_data::{
         component_id::ComponentId,
         components::{
@@ -27,8 +27,8 @@ use xmtp_mls_common::{
         typed_facade::MlsGroupAppData,
     },
     inbox_id::InboxId,
-    tls_map::TlsMapDelta,
 };
+use xmtp_mls_tls_collections::tls_map::TlsMapDelta;
 use xmtp_mls_validation::commit::{
     CommitRuleError, extract_group_membership, inbox_id_from_credential, leaf_owners,
     membership_entries,
@@ -79,7 +79,7 @@ pub(crate) fn build_group_membership_app_data_payload(
     old: &GroupMembership,
     new: &GroupMembership,
 ) -> Result<Vec<u8>, GroupError> {
-    use xmtp_mls_common::app_data::component_source::read_from_app_data_dict;
+    use xmtp_mls_group_state::app_data::component_source::read_from_app_data_dict;
     let old_bytes = read_from_app_data_dict(ComponentId::GROUP_MEMBERSHIP, group)
         .ok_or(GroupError::MissingSequenceId)?;
     build_membership_delta(conn, old_bytes, old, new)
@@ -93,7 +93,7 @@ pub(super) fn build_membership_delta(
     new: &GroupMembership,
 ) -> Result<Vec<u8>, GroupError> {
     use crate::identity_updates::{IdentityRequirement, require_association_state};
-    use xmtp_mls_common::app_data::component_source::ComponentSourceError;
+    use xmtp_mls_group_state::app_data::component_source::ComponentSourceError;
     let prior =
         GroupMembershipComponent::decode_value(old_bytes).map_err(ComponentSourceError::from)?;
     let wanted: HashSet<_> = new.failed_installations.iter().cloned().collect();
@@ -183,7 +183,7 @@ pub(super) fn build_membership_delta(
 
     <GroupMembershipComponent as Component>::encode_mutation(&delta).map_err(|e| {
         GroupError::ComponentSource(
-            xmtp_mls_common::app_data::component_source::ComponentSourceError::from(e),
+            xmtp_mls_group_state::app_data::component_source::ComponentSourceError::from(e),
         )
     })
 }
@@ -487,13 +487,13 @@ pub(super) fn has_pending_membership_delta(
     group: &OpenMlsGroup,
     payload: &[u8],
 ) -> Result<bool, GroupError> {
-    let prior = xmtp_mls_common::app_data::component_source::read_from_app_data_dict(
+    let prior = xmtp_mls_group_state::app_data::component_source::read_from_app_data_dict(
         ComponentId::GROUP_MEMBERSHIP,
         group,
     )
     .ok_or(GroupError::InvalidGroupMembership)?;
     let desired = GroupMembershipComponent::apply_update_payload(payload, Some(prior))
-        .map_err(xmtp_mls_common::app_data::component_source::ComponentSourceError::from)?;
+        .map_err(xmtp_mls_group_state::app_data::component_source::ComponentSourceError::from)?;
     let (desired, desired_failed) = membership_entries(&desired)?;
     for proposal in group.pending_proposals() {
         if let Proposal::AppDataUpdate(update) = proposal.proposal()
@@ -503,8 +503,8 @@ pub(super) fn has_pending_membership_delta(
             let retained =
                 GroupMembershipComponent::apply_update_payload(payload.as_slice(), Some(prior))
                     .map_err(
-                        xmtp_mls_common::app_data::component_source::ComponentSourceError::from,
-                    )?;
+                    xmtp_mls_group_state::app_data::component_source::ComponentSourceError::from,
+                )?;
             let (retained, retained_failed) = membership_entries(&retained)?;
             if retained.members == desired.members && retained_failed == desired_failed {
                 return Ok(true);

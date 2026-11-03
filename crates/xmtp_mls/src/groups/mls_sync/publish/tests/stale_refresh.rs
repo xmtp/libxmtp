@@ -264,7 +264,8 @@ async fn revocation_removes_a_leaf_that_an_entry_lists_as_failed()
 async fn check_false_failure_claim(selection: bool) -> Result<(), Box<dyn std::error::Error>> {
     use crate::groups::send_message_opts::SendMessageOpts;
     use tls_codec::{Serialize, VLBytes};
-    use xmtp_mls_common::{inbox_id::InboxId, tls_map::TlsMapDelta};
+    use xmtp_mls_group_state::inbox_id::InboxId;
+    use xmtp_mls_tls_collections::tls_map::TlsMapDelta;
     use xmtp_proto::xmtp::mls::message_contents::{GroupMembershipEntry, group_membership_entry};
 
     tester!(alix, disable_workers);

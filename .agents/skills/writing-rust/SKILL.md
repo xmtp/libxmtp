@@ -6,7 +6,8 @@ description: Use when writing or reviewing Rust in crates/, apps/backend, or bin
 # Writing Rust in libxmtp
 
 Search for an existing helper before adding one. Shared code lives in a shared
-crate (`xmtp_common`, `xmtp_proto`, `xmtp_configuration`, `xmtp_mls_common`).
+crate (`xmtp_common`, `xmtp_proto`, `xmtp_configuration`, `xmtp_mls_group_state`,
+`xmtp_mls_group_keys`, `xmtp_mls_tls_collections`).
 Never copy a function between crates; move it and import it. Read the package's
 `AGENTS.md` before working in it.
 

@@ -12,8 +12,8 @@ use xmtp_db::group::GroupQueryArgs;
 mod restored;
 use xmtp_db::TransactionalKeyStore;
 use xmtp_events::EventWriter;
-use xmtp_mls_common::app_data::creation::{InitialGroupKind, initial_dictionary};
-use xmtp_mls_common::group_keys::{GroupKeys, GroupRoot};
+use xmtp_mls_group_keys::group_keys::{GroupKeys, GroupRoot};
+use xmtp_mls_group_state::app_data::creation::{InitialGroupKind, initial_dictionary};
 
 /// The MLS group id of a group being inserted.
 #[derive(Clone, Copy)]

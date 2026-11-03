@@ -20,7 +20,7 @@ let cursors: TopicCursor = HashMap::from([(topic, Cursor(0))]);   // Cursor(u64)
 Other constructors: `Topic::new_welcome_message(installation_id)`,
 `new_identity_update(inbox_id_bytes)`, `new_key_package(installation_id)`,
 `new_commit_log(commit_log_id)`. Group and commit-log IDs are distinct public
-keys derived from the group root by `xmtp_mls_common::group_keys`; never reuse
+keys derived from the group root by `xmtp_mls_group_keys::group_keys`; never reuse
 the group ID for a commit-log topic.
 
 `GroupId` conversions accept exactly 32 bytes (current groups) or 16 bytes
@@ -173,6 +173,8 @@ shared crate. Client MLS message ids and envelope hashes stay separate rules.
 
 ## Shared MLS types
 
-`xmtp_mls_common` holds types both the backend and the client read: group
-metadata, mutable metadata, app data, commit-log decoding, invites. Put a type
-there, not in `xmtp_mls`, when the backend must read it.
+Three crates hold types both the backend and the client read:
+`xmtp_mls_group_state` (group metadata, mutable metadata, app data),
+`xmtp_mls_group_keys` (group keys, commit-log decoding) and
+`xmtp_mls_tls_collections` (TLS maps and sets). Put a type there, not in
+`xmtp_mls`, when the backend must read it.

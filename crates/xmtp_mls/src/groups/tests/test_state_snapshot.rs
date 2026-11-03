@@ -66,7 +66,7 @@ async fn test_state_snapshot_matches_getters() {
     group.update_app_data("snapshot data".into(), None).await?;
     group
         .update_conversation_message_disappearing_settings(
-            xmtp_mls_common::group_mutable_metadata::MessageDisappearingSettings::new(1, 2),
+            xmtp_mls_group_state::group_mutable_metadata::MessageDisappearingSettings::new(1, 2),
         )
         .await?;
 

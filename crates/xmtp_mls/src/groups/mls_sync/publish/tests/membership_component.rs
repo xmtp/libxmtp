@@ -4,7 +4,7 @@ use super::*;
 use crate::groups::send_message_opts::SendMessageOpts;
 use openmls::messages::proposals::AppDataUpdateOperation;
 use xmtp_db::{group_message::MsgQueryArgs, incoming_envelope::StreamTopic};
-use xmtp_mls_common::app_data::component_id::ComponentId;
+use xmtp_mls_group_state::app_data::component_id::ComponentId;
 
 // verifies: GMOD-019, GMOD-038
 #[rstest::rstest]

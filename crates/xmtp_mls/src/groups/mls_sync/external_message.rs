@@ -193,10 +193,12 @@ where
         group: &OpenMlsGroup,
         proposal: &openmls::group::QueuedProposal,
     ) -> Result<(), GroupMessageProcessingError> {
-        if let Some(version) = xmtp_mls_common::app_data::protocol_floor::committed_floor_exceeding(
-            group,
-            self.context.version_info().pkg_semver(),
-        ) {
+        if let Some(version) =
+            xmtp_mls_group_state::app_data::protocol_floor::committed_floor_exceeding(
+                group,
+                self.context.version_info().pkg_semver(),
+            )
+        {
             return Err(
                 CommitValidationError::Rule(CommitRuleError::ProtocolVersionTooLow(version)).into(),
             );
@@ -209,14 +211,14 @@ where
                     ))
                 })?;
         let seed =
-            xmtp_mls_common::app_data::component_source::read_group_metadata_from_dict(group)
+            xmtp_mls_group_state::app_data::component_source::read_group_metadata_from_dict(group)
                 .map_err(CommitValidationError::installed_state)?
                 .ok_or_else(|| {
                     CommitValidationError::installed_state(
-                        xmtp_mls_common::group_metadata::GroupMetadataError::MissingExtension,
+                        xmtp_mls_group_state::group_metadata::GroupMetadataError::MissingExtension,
                     )
                 })?;
-        let immutable = xmtp_mls_common::group_metadata::GroupMetadata::try_from(
+        let immutable = xmtp_mls_group_state::group_metadata::GroupMetadata::try_from(
             xmtp_proto::xmtp::mls::message_contents::GroupMetadataV1 {
                 conversation_type: seed.conversation_type,
                 creator_inbox_id: seed.creator_inbox_id,
@@ -227,12 +229,12 @@ where
         )
         .map_err(CommitValidationError::installed_state)?;
         let mutable =
-            xmtp_mls_common::app_data::component_source::extract_group_mutable_metadata_capability_aware(
+            xmtp_mls_group_state::app_data::component_source::extract_group_mutable_metadata_capability_aware(
                 group,
             )
             .map_err(|error| {
                 CommitValidationError::installed_state(
-                    xmtp_mls_common::group_mutable_metadata::GroupMutableMetadataError::from(error),
+                    xmtp_mls_group_state::group_mutable_metadata::GroupMutableMetadataError::from(error),
                 )
             })?;
         validate_proposal(proposal, group, &policies.policies, &immutable, &mutable)?;

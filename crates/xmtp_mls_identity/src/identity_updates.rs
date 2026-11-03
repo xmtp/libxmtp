@@ -1,0 +1,1439 @@
+use crate::identity_ext::IdentityExt;
+use futures::{StreamExt, TryStreamExt, stream};
+use std::collections::{HashMap, HashSet};
+use std::pin::Pin;
+use thiserror::Error;
+use xmtp_common::{ErrorCode, Event, Retry, RetryableError, retry_async, retryable};
+use xmtp_configuration::{IDENTITY_DEPENDENCY_CONCURRENCY, MAX_IDENTITY_UPDATE_ACTIONS};
+use xmtp_cryptography::CredentialSign;
+use xmtp_cryptography::signature::IdentifierValidationError;
+use xmtp_db::StorageError;
+use xmtp_db::XmtpDb;
+use xmtp_db::prelude::*;
+use xmtp_db::{db_connection::DbConnection, identity_update::StoredIdentityUpdate};
+use xmtp_id::{
+    AsIdRef, BlockNumber, Bytes, InboxIdRef,
+    associations::{
+        AccountId, AssociationError, AssociationState, Handle, Identifier, IdentityAction,
+        InstallationKeyContext, MemberIdentifier, SignatureError,
+        builder::{SignatureRequest, SignatureRequestBuilder, SignatureRequestError},
+        unverified::{
+            UnverifiedIdentityUpdate, UnverifiedInstallationKeySignature, UnverifiedSignature,
+        },
+        verify_updates,
+    },
+    scw_verifier::{SmartContractSignatureVerifier, ValidationResponse, VerifierError},
+};
+use xmtp_macro::log_event;
+use xmtp_mls_core::context::CoreContext;
+use xmtp_mls_core::identity::IdentityError;
+use xmtp_mls_validation::group_membership::{GroupMembership, MembershipDiff};
+use xmtp_proto::api_client::XmtpApi;
+use xmtp_proto::{
+    ShortHex,
+    api_client::XmtpBackendClient,
+    types::{Cursor, GroupId, IncomingBatchLimits},
+};
+
+use xmtp_api::{ApiClientWrapper, GetIdentityUpdatesV2Filter};
+
+pub mod dependencies;
+#[cfg(test)]
+pub(crate) mod paged_load_tests;
+mod state_store;
+#[cfg(any(test, feature = "test-utils"))]
+#[doc(hidden)]
+pub mod test_support;
+pub use dependencies::{IdentityDependencyError, IdentityRequirement, IdentityResolutionRegistry};
+
+/// Identity's feature slot: the registry that coalesces exact identity lookups.
+pub trait IdentityFeatures {
+    fn identity_resolutions(&self) -> &IdentityResolutionRegistry;
+}
+
+/// A context the identity code runs on: core and identity resolution.
+pub trait IdentityContext: CoreContext<Features: IdentityFeatures> {
+    /// Coalesces exact identity lookups without treating a newer snapshot as the requested one.
+    fn identity_resolution_registry(&self) -> &IdentityResolutionRegistry {
+        self.features().identity_resolutions()
+    }
+}
+
+impl<T: CoreContext<Features: IdentityFeatures>> IdentityContext for T {}
+pub use dependencies::{
+    MissingProofs, OwnInstallationEvents, require_association_state, resolve_identity_requirements,
+};
+use state_store::{ResolvedState, resolve_association_state};
+pub use state_store::{get_association_state_for_client, store_association_state};
+
+/// A failure to read, verify, build, or publish identity updates.
+#[derive(Debug, Error, ErrorCode)]
+pub enum IdentityUpdateError {
+    /// Signature request error.
+    ///
+    /// The signature request is incomplete, or asks for more actions than
+    /// one identity update may carry. Not retryable.
+    #[error(transparent)]
+    InvalidSignatureRequest(#[from] SignatureRequestError),
+    /// API error.
+    ///
+    /// Network request to XMTP backend failed. Retryable when the request is.
+    #[error(transparent)]
+    Api(#[from] xmtp_api::ApiError),
+    /// Validation error.
+    ///
+    /// The identity update did not validate against its history. Not retryable.
+    #[error(transparent)]
+    Validation(#[from] xmtp_mls_validation::ValidationError),
+    /// Storage error.
+    ///
+    /// Database operation failed. May be retryable.
+    #[error("storage error: {0}")]
+    Storage(#[from] StorageError),
+    /// Database connection error.
+    ///
+    /// Connection to database failed. Retryable.
+    #[error(transparent)]
+    Db(#[from] xmtp_db::ConnectionError),
+    /// Association error.
+    ///
+    /// Identity association operation failed. Not retryable.
+    #[error("Association error: {0}")]
+    Association(#[from] AssociationError),
+    /// Signature validation error.
+    ///
+    /// A signature failed verification. Retryable when the verifier failed
+    /// transiently.
+    #[error("signature validation error: {0}")]
+    SignatureValidation(#[from] SignatureError),
+    /// Identity error.
+    ///
+    /// Problem with identity operations. Not retryable.
+    #[error("identity error: {0}")]
+    Identity(#[from] IdentityError),
+    /// Conversion error.
+    ///
+    /// Data type failed to convert. Not retryable.
+    #[error(transparent)]
+    Conversion(#[from] xmtp_proto::ConversionError),
+    #[error(transparent)]
+    #[error_code(inherit)]
+    AddressValidation(#[from] IdentifierValidationError),
+    #[error(transparent)]
+    #[error_code(inherit)]
+    Handle(#[from] crate::inbox_handles::HandleError),
+    /// The connection is blocked. Not retryable.
+    #[error(transparent)]
+    #[error_code(inherit)]
+    Blocked(#[from] xmtp_mls_server_config::server_configuration::BlockedConnection),
+    /// Inbox not found.
+    ///
+    /// The backend holds no identity update for the inbox. Not retryable.
+    #[error("Unable to find provided inbox_id")]
+    InboxNotFound,
+    /// Empty identity log.
+    ///
+    /// The inbox's identity updates produced no association state. Not
+    /// retryable.
+    #[error("Unable to create association state")]
+    EmptyIdentityLog,
+    /// Publish failed.
+    ///
+    /// Publishing a signed identity update failed after its conflict retries.
+    /// Not retryable: the caller signs and applies a new request.
+    #[error(transparent)]
+    Publish(Box<IdentityUpdateError>),
+}
+
+impl From<xmtp_db::NotFound> for IdentityUpdateError {
+    fn from(value: xmtp_db::NotFound) -> Self {
+        Self::Storage(StorageError::NotFound(value))
+    }
+}
+
+impl RetryableError for IdentityUpdateError {
+    fn is_retryable(&self) -> bool {
+        match self {
+            Self::Api(error) => retryable!(error),
+            Self::Storage(error) => retryable!(error),
+            Self::Db(error) => retryable!(error),
+            // SCW verification errors carry retryability through SignatureError;
+            // transient RPC provider failures must not advance the welcome cursor.
+            // See xmtp/libxmtp#3394.
+            Self::SignatureValidation(error) => retryable!(error),
+            Self::InvalidSignatureRequest(_)
+            | Self::Validation(_)
+            | Self::Association(_)
+            | Self::Identity(_)
+            | Self::Conversion(_)
+            | Self::AddressValidation(_)
+            | Self::Handle(_)
+            | Self::Blocked(_)
+            | Self::InboxNotFound
+            | Self::EmptyIdentityLog
+            | Self::Publish(_) => false,
+        }
+    }
+
+    fn rate_limit_delay(&self) -> Option<xmtp_common::time::Duration> {
+        match self {
+            Self::Api(error) => error.rate_limit_delay(),
+            Self::SignatureValidation(error) => error.rate_limit_delay(),
+            _ => None,
+        }
+    }
+}
+
+impl xmtp_mls_core::worker::NeedsDbReconnect for IdentityUpdateError {
+    #[deny(clippy::wildcard_enum_match_arm)]
+    fn needs_db_reconnect(&self) -> bool {
+        match self {
+            Self::Storage(error) => error.db_needs_connection(),
+            Self::Db(error) => error.db_needs_connection(),
+            Self::Identity(error) => error.needs_db_reconnect(),
+            Self::Publish(error) => error.needs_db_reconnect(),
+            Self::InvalidSignatureRequest(_)
+            | Self::Api(_)
+            | Self::Validation(_)
+            | Self::Association(_)
+            | Self::SignatureValidation(_)
+            | Self::Conversion(_)
+            | Self::AddressValidation(_)
+            | Self::Handle(_)
+            | Self::Blocked(_)
+            | Self::InboxNotFound
+            | Self::EmptyIdentityLog => false,
+        }
+    }
+}
+
+const IDENTITY_UPDATE_CONFLICT_RETRIES: usize = 3;
+
+/// Reload and validate the signed update after a commit-time conflict.
+/// Retry the same signed bytes at most three times. Other errors are terminal.
+pub async fn publish_with_conflict_retry<ApiClient: XmtpApi>(
+    api_client: &ApiClientWrapper<ApiClient>,
+    conn: &impl DbQuery,
+    update: UnverifiedIdentityUpdate,
+    verifier: &impl SmartContractSignatureVerifier,
+) -> Result<Cursor, IdentityUpdateError> {
+    for attempt in 0..=IDENTITY_UPDATE_CONFLICT_RETRIES {
+        match api_client.publish_identity_update(update.clone()).await {
+            Ok(cursor) => return Ok(cursor),
+            Err(xmtp_api::ApiError::IdentityUpdateConflict)
+                if attempt < IDENTITY_UPDATE_CONFLICT_RETRIES =>
+            {
+                load_identity_updates(api_client, conn, &[update.inbox_id.as_str()]).await?;
+                let history = conn.get_identity_updates(&update.inbox_id, None, None)?;
+                let history = history
+                    .into_iter()
+                    .map(|stored| stored.to_unverified().map(Into::into))
+                    .collect::<Result<Vec<_>, _>>()?;
+                xmtp_mls_validation::validate_identity_updates(
+                    history,
+                    vec![update.clone().into()],
+                    verifier,
+                )
+                .await?;
+            }
+            Err(error) => return Err(error.into()),
+        }
+    }
+    unreachable!("the final publish attempt returns its result")
+}
+
+#[derive(Debug)]
+pub struct InstallationDiff {
+    /// Each added installation key, mapped to the inboxes whose identity states add it.
+    pub added_installations: HashMap<Vec<u8>, HashSet<String>>,
+    pub removed_installations: HashSet<Vec<u8>>,
+}
+
+#[derive(Debug, Error)]
+pub enum InstallationDiffError {
+    #[error(transparent)]
+    IdentityDependency(#[from] IdentityDependencyError),
+    #[error(transparent)]
+    IdentityUpdate(#[from] IdentityUpdateError),
+    #[error(transparent)]
+    Db(#[from] xmtp_db::ConnectionError),
+    #[error(transparent)]
+    Storage(#[from] StorageError),
+}
+
+impl RetryableError for InstallationDiffError {
+    fn is_retryable(&self) -> bool {
+        match self {
+            InstallationDiffError::IdentityDependency(error) => retryable!(error),
+            InstallationDiffError::IdentityUpdate(error) => retryable!(error),
+            InstallationDiffError::Storage(e) => retryable!(e),
+            InstallationDiffError::Db(e) => retryable!(e),
+        }
+    }
+
+    fn rate_limit_delay(&self) -> Option<xmtp_common::time::Duration> {
+        match self {
+            InstallationDiffError::IdentityDependency(error) => error.rate_limit_delay(),
+            InstallationDiffError::IdentityUpdate(error) => error.rate_limit_delay(),
+            _ => None,
+        }
+    }
+}
+
+impl xmtp_mls_core::worker::NeedsDbReconnect for InstallationDiffError {
+    #[deny(clippy::wildcard_enum_match_arm)]
+    fn needs_db_reconnect(&self) -> bool {
+        match self {
+            InstallationDiffError::IdentityDependency(error) => error.needs_db_reconnect(),
+            InstallationDiffError::IdentityUpdate(error) => error.needs_db_reconnect(),
+            InstallationDiffError::Db(error) => error.db_needs_connection(),
+            InstallationDiffError::Storage(error) => error.db_needs_connection(),
+        }
+    }
+}
+
+pub struct IdentityUpdates<Context> {
+    context: Context,
+}
+
+impl<Context> IdentityUpdates<Context> {
+    pub fn new(context: Context) -> Self {
+        Self { context }
+    }
+}
+
+/// Get the association state for a given inbox_id up to the (and inclusive of) the `to_sequence_id`
+/// If no `to_sequence_id` is provided, use the latest value in the database
+///
+/// This path has no client, so storing a computed state emits no event. A
+/// client stores through [`IdentityUpdates::get_association_state`].
+pub async fn get_association_state_with_verifier(
+    conn: &impl DbQuery,
+    inbox_id: &str,
+    to_sequence_id: Option<i64>,
+    scw_verifier: &impl SmartContractSignatureVerifier,
+) -> Result<AssociationState, IdentityUpdateError> {
+    match resolve_association_state(conn, inbox_id, to_sequence_id, scw_verifier).await? {
+        ResolvedState::Cached(state) => Ok(state),
+        ResolvedState::Computed { sequence_id, state } => {
+            conn.write_to_cache(inbox_id.to_owned(), sequence_id, state.clone().into())?;
+            Ok(state)
+        }
+    }
+}
+
+/// Whether `state` holds `identifier`. An Ethereum address matches in any
+/// letter case, and a passkey by its public key bytes.
+pub(crate) fn state_holds_identifier(state: &AssociationState, identifier: &Identifier) -> bool {
+    identifier
+        .clone()
+        .sanitize()
+        .is_ok_and(|identifier| state.get(&identifier.into()).is_some())
+}
+
+/// Whether the association state of the inbox in the database holds the
+/// identifier, an Ethereum address in any letter case, or `None` when the
+/// database has no identity update of the inbox. Computing the state caches
+/// it in the database.
+pub async fn identifier_membership(
+    conn: &impl DbQuery,
+    inbox_id: &str,
+    identifier: &Identifier,
+    scw_verifier: &impl SmartContractSignatureVerifier,
+) -> Result<Option<bool>, IdentityUpdateError> {
+    match get_association_state_with_verifier(conn, inbox_id, None, scw_verifier).await {
+        Ok(state) => Ok(Some(state_holds_identifier(&state, identifier))),
+        Err(IdentityUpdateError::Association(AssociationError::MissingIdentityUpdate)) => Ok(None),
+        Err(error) => Err(error),
+    }
+}
+
+/// [`identifier_membership`] for a caller that may make no request, such as an
+/// offline build. It reads only the database: the cached state, or one
+/// derived from the stored log. A state whose derivation needs a smart
+/// contract wallet verdict counts as not holding the identifier.
+pub async fn stored_identifier_membership(
+    conn: &impl DbQuery,
+    inbox_id: &str,
+    identifier: &Identifier,
+) -> Result<Option<bool>, IdentityUpdateError> {
+    match identifier_membership(conn, inbox_id, identifier, &NoRequestVerifier).await {
+        Err(IdentityUpdateError::SignatureValidation(SignatureError::VerifierError(_))) => {
+            Ok(Some(false))
+        }
+        membership => membership,
+    }
+}
+
+/// A verifier that makes no request, so it fails every smart contract wallet
+/// check.
+struct NoRequestVerifier;
+
+#[xmtp_common::async_trait]
+impl SmartContractSignatureVerifier for NoRequestVerifier {
+    async fn is_valid_signature(
+        &self,
+        _account_id: AccountId,
+        _hash: [u8; 32],
+        _signature: Bytes,
+        _block_number: Option<BlockNumber>,
+    ) -> Result<ValidationResponse, VerifierError> {
+        Err(std::io::Error::other(
+            "a check that makes no request verifies no smart contract wallet",
+        )
+        .into())
+    }
+}
+
+/// Whether the identifier may open the database of the inbox, given its
+/// [`identifier_membership`]. Only the identity that creates an inbox belongs
+/// to it before its first identity update.
+pub fn identifier_opens_inbox(
+    membership: Option<bool>,
+    identifier: &Identifier,
+    nonce: u64,
+    inbox_id: &str,
+) -> bool {
+    membership.unwrap_or_else(|| identifier.inbox_id(nonce).is_ok_and(|own| own == inbox_id))
+}
+
+/// Refuse to revoke more members than one identity update may carry, before
+/// any request is built or signed: every validator would reject that update.
+fn check_revocation_count(count: usize) -> Result<(), IdentityUpdateError> {
+    if count > MAX_IDENTITY_UPDATE_ACTIONS {
+        return Err(SignatureRequestError::TooManyActions(count).into());
+    }
+    Ok(())
+}
+
+/// Revoke the given installations from the association state for the client's inbox.
+/// More installations than one identity update may revoke fail before a request is built.
+pub fn revoke_installations_with_verifier(
+    identifier: &Identifier,
+    inbox_id: &str,
+    installation_ids: Vec<Vec<u8>>,
+) -> Result<SignatureRequest, IdentityUpdateError> {
+    check_revocation_count(installation_ids.len())?;
+    let mut builder = SignatureRequestBuilder::new(inbox_id);
+
+    for installation_id in installation_ids {
+        builder = builder.revoke_association(
+            identifier.clone().into(),
+            MemberIdentifier::installation(installation_id),
+        )
+    }
+
+    Ok(builder.build())
+}
+
+/**
+ * Apply a signature request to the client's inbox by publishing the identity update to the network.
+ *
+ * This will error if the signature request is missing signatures, if the signatures are invalid,
+ * if the update fails other verifications, or if the update fails to be published to the network.
+ **/
+pub async fn apply_signature_request_with_verifier<ApiClient: XmtpApi>(
+    api_client: &ApiClientWrapper<ApiClient>,
+    conn: &impl DbQuery,
+    signature_request: SignatureRequest,
+    scw_verifier: &impl SmartContractSignatureVerifier,
+) -> Result<(), IdentityUpdateError> {
+    // If the signature request isn't completed, this will error
+    let identity_update = signature_request
+        .build_identity_update()
+        .map_err(IdentityUpdateError::from)?;
+
+    identity_update.to_verified(scw_verifier).await?;
+
+    publish_with_conflict_retry(api_client, conn, identity_update, scw_verifier)
+        .await
+        .map_err(|error| IdentityUpdateError::Publish(Box::new(error)))?;
+
+    Ok(())
+}
+
+/// Get the association state for all provided `inbox_id`/optional `sequence_id` tuples, using the cache when available
+/// If the association state is not available in the cache, this falls back to reconstructing the association state
+/// from Identity Updates in the network.
+///
+/// At most [`IDENTITY_DEPENDENCY_CONCURRENCY`] states are derived at once, and
+/// the states are returned in the order of `identifiers`.
+pub async fn batch_get_association_state_with_verifier(
+    conn: &impl DbQuery,
+    identifiers: &[(impl AsIdRef, Option<i64>)],
+    scw_verifier: &impl SmartContractSignatureVerifier,
+) -> Result<Vec<AssociationState>, IdentityUpdateError> {
+    // Each read is a future that starts only when `buffered` polls it. They
+    // are collected first: a stream that maps the borrowed identifiers is not
+    // `Send` for every lifetime that callers such as the SDK need.
+    let reads: Vec<_> = identifiers
+        .iter()
+        .map(|(inbox_id, to_sequence_id)| {
+            get_association_state_with_verifier(
+                conn,
+                inbox_id.as_ref(),
+                *to_sequence_id,
+                scw_verifier,
+            )
+        })
+        .collect();
+    stream::iter(reads)
+        .buffered(IDENTITY_DEPENDENCY_CONCURRENCY)
+        .try_collect()
+        .await
+}
+
+impl<'a, Context> IdentityUpdates<Context>
+where
+    Context: IdentityContext,
+{
+    /// Get the association state for all provided `inbox_id`/optional `sequence_id` tuples, using the cache when available
+    /// If the association state is not available in the cache, this falls back to reconstructing the association state
+    /// from Identity Updates in the network.
+    ///
+    /// At most [`IDENTITY_DEPENDENCY_CONCURRENCY`] states are derived at once,
+    /// and the states are returned in the order of `identifiers`.
+    pub async fn batch_get_association_state(
+        &self,
+        conn: &impl DbQuery,
+        identifiers: &[(impl AsIdRef, Option<i64>)],
+    ) -> Result<Vec<AssociationState>, IdentityUpdateError> {
+        // Collected first for the reason given in
+        // `batch_get_association_state_with_verifier`.
+        let reads: Vec<_> = identifiers
+            .iter()
+            .map(|(inbox_id, to_sequence_id)| {
+                get_association_state_for_client(
+                    &self.context,
+                    conn,
+                    inbox_id.as_ref(),
+                    *to_sequence_id,
+                )
+            })
+            .collect();
+        stream::iter(reads)
+            .buffered(IDENTITY_DEPENDENCY_CONCURRENCY)
+            .try_collect()
+            .await
+    }
+
+    /// Get the latest association state available on the network for the given `inbox_id`
+    #[tracing::instrument(level = "trace", skip_all)]
+    pub async fn get_latest_association_state(
+        &self,
+        conn: &DbConnection<<Context::Db as XmtpDb>::Connection>,
+        inbox_id: InboxIdRef<'a>,
+    ) -> Result<AssociationState, IdentityUpdateError> {
+        load_identity_updates_for_client(&self.context, conn, &[inbox_id]).await?;
+        self.get_association_state(conn, inbox_id, None).await
+    }
+
+    /// Emit the installation changes of one own identity update. When it
+    /// revokes another installation, cycle the root key. The
+    /// revoked installation does not cycle on its own revocation.
+    fn emit_own_installation_changes(
+        &self,
+        conn: &impl DbQuery,
+        before: &AssociationState,
+        after: &AssociationState,
+        revoked_at_ns: i64,
+    ) -> Result<(), IdentityUpdateError> {
+        use xmtp_db::consent_record::Owed;
+        use xmtp_db::user_preferences::{RootKeyWrite, write_root_key};
+        use xmtp_events::{ClientEvent, EventWriter, InstallationRef, InstallationRevoked};
+        let old: HashSet<_> = before.installation_ids().into_iter().collect();
+        let new: HashSet<_> = after.installation_ids().into_iter().collect();
+        for installation_key in new.difference(&old) {
+            self.context.events().emit(
+                Some(ClientEvent::IdentityOwnInstallationAdded(InstallationRef {
+                    installation_key: installation_key.clone(),
+                })),
+                None,
+            );
+        }
+        for installation_key in old.difference(&new) {
+            self.context.events().emit(
+                Some(ClientEvent::IdentityOwnInstallationRevoked(
+                    InstallationRevoked {
+                        installation_key: installation_key.clone(),
+                        is_this_installation: installation_key.as_slice()
+                            == self.context.installation_id().to_vec().as_slice(),
+                    },
+                )),
+                None,
+            );
+        }
+        // implements: SYNC-026
+        let me = self.context.installation_id().to_vec();
+        if new.contains(&me)
+            && old.difference(&new).next().is_some()
+            && write_root_key(conn, RootKeyWrite::revocation(revoked_at_ns), Owed::Mark)?
+        {
+            xmtp_mls_core::events::emit_root_key_changed(self.context.events(), conn, true)?;
+        }
+        Ok(())
+    }
+
+    /// Run `load`, which can store updates of this client's own inbox, with
+    /// own-inbox loads serialized. Then, whether `load` succeeded or failed,
+    /// emit the own-installation changes of every own-inbox update stored
+    /// since the last emission. A load that stores pages and then fails,
+    /// including the reload after a publish conflict, therefore still reports
+    /// what it stored. Updates whose emission does not happen, because `load`
+    /// was dropped or the emission failed, are emitted after the next
+    /// own-inbox load. `load` is boxed to keep callers' futures small: SDK
+    /// worker futures have a size limit.
+    pub async fn with_own_installation_events<T>(
+        &self,
+        conn: &impl DbQuery,
+        load: Pin<Box<impl Future<Output = Result<T, IdentityUpdateError>>>>,
+    ) -> Result<T, IdentityUpdateError> {
+        let mut events = self
+            .context
+            .identity_resolution_registry()
+            .own_inbox_refresh()
+            .lock()
+            .await;
+        if events.emitted_through.is_none() {
+            events.emitted_through = self.latest_own_sequence(conn)?;
+        }
+        let loaded = load.await;
+        let emitted = self.emit_own_installation_events(conn, &mut events).await;
+        match (loaded, emitted) {
+            (Ok(value), emitted) => emitted.map(|()| value),
+            (Err(error), Ok(())) => Err(error),
+            (Err(error), Err(emit_error)) => {
+                tracing::warn!(
+                    %emit_error,
+                    "own-installation events wait for the next own-inbox load"
+                );
+                Err(error)
+            }
+        }
+    }
+
+    fn latest_own_sequence(&self, conn: &impl DbQuery) -> Result<Option<i64>, IdentityUpdateError> {
+        let inbox_id = self.context.inbox_id();
+        Ok(conn
+            .get_latest_sequence_id(&[inbox_id])?
+            .get(inbox_id)
+            .copied())
+    }
+
+    /// Emit the changes of each own-inbox update stored after
+    /// `emitted_through`, in sequence order, and move `emitted_through` past
+    /// each one emitted. With nothing emitted through yet, the latest stored
+    /// update becomes the starting point and nothing is emitted.
+    async fn emit_own_installation_events(
+        &self,
+        conn: &impl DbQuery,
+        events: &mut OwnInstallationEvents,
+    ) -> Result<(), IdentityUpdateError> {
+        let inbox_id = self.context.inbox_id();
+        let Some(through) = events.emitted_through else {
+            events.emitted_through = self.latest_own_sequence(conn)?;
+            return Ok(());
+        };
+        let updates = conn.get_identity_updates(inbox_id, Some(through), None)?;
+        if updates.is_empty() {
+            return Ok(());
+        }
+        let mut state = self
+            .get_association_state(conn, inbox_id, Some(through))
+            .await?;
+        for update in updates {
+            let next = self
+                .get_association_state(conn, inbox_id, Some(update.sequence_id))
+                .await?;
+            self.emit_own_installation_changes(conn, &state, &next, update.server_timestamp_ns)?;
+            events.emitted_through = Some(update.sequence_id);
+            state = next;
+        }
+        Ok(())
+    }
+
+    /// Get the association state for a given inbox_id up to the (and inclusive of) the `to_sequence_id`
+    /// If no `to_sequence_id` is provided, use the latest value in the database
+    pub async fn get_association_state(
+        &self,
+        conn: &impl xmtp_db::DbQuery,
+        inbox_id: InboxIdRef<'_>,
+        to_sequence_id: Option<i64>,
+    ) -> Result<AssociationState, IdentityUpdateError> {
+        get_association_state_for_client(&self.context, conn, inbox_id, to_sequence_id).await
+    }
+
+    /// Generate a `CreateInbox` signature request for the given wallet address.
+    /// If no nonce is provided, use 0
+    #[tracing::instrument(level = "trace", skip_all)]
+    pub async fn create_inbox(
+        &self,
+        identifier: Identifier,
+        maybe_nonce: Option<u64>,
+    ) -> Result<SignatureRequest, IdentityUpdateError> {
+        let nonce = maybe_nonce.unwrap_or(0);
+        let inbox_id = identifier.inbox_id(nonce)?;
+        let installation_public_key = self.context.identity().installation_keys.verifying_key();
+
+        let builder = SignatureRequestBuilder::new(inbox_id);
+        let mut signature_request = builder
+            .create_inbox(identifier.clone(), nonce)
+            .add_association(
+                MemberIdentifier::installation(installation_public_key.as_bytes().to_vec()),
+                identifier.into(),
+            )
+            .build();
+
+        let sig_bytes = self
+            .context
+            .identity()
+            .sign_identity_update(signature_request.signature_text())?
+            .to_vec();
+        // We can pre-sign the request with an installation key signature, since we have access to the key
+        signature_request
+            .add_signature(
+                UnverifiedSignature::InstallationKey(UnverifiedInstallationKeySignature::new(
+                    sig_bytes,
+                    installation_public_key,
+                )),
+                &self.context.scw_verifier(),
+            )
+            .await?;
+
+        // The app fills this request in, so bind it to
+        // the chains the deployment accepts before it leaves the client.
+        self.context
+            .server_configuration()
+            .restrict(&mut signature_request);
+
+        Ok(signature_request)
+    }
+
+    /// Generate a `AssociateWallet` signature request using an existing wallet and a new wallet address
+    #[tracing::instrument(level = "trace", skip_all)]
+    pub async fn associate_identity(
+        &self,
+        new_identifier: Identifier,
+    ) -> Result<SignatureRequest, IdentityUpdateError> {
+        tracing::info!(
+            "Associating new wallet with inbox_id {}",
+            self.context.inbox_id()
+        );
+        let inbox_id = self.context.inbox_id();
+        let builder = SignatureRequestBuilder::new(inbox_id);
+        let installation_public_key = self.context.identity().installation_keys.verifying_key();
+
+        let mut signature_request = builder
+            .add_association(new_identifier.into(), installation_public_key.into())
+            .build();
+
+        let signature = self
+            .context
+            .identity()
+            .installation_keys
+            .credential_sign::<InstallationKeyContext>(signature_request.signature_text())?;
+
+        signature_request
+            .add_signature(
+                UnverifiedSignature::new_installation_key(signature, installation_public_key),
+                &self.context.scw_verifier(),
+            )
+            .await?;
+
+        // the app fills this request in, so bind it to
+        // the chains the deployment accepts before it leaves the client.
+        self.context
+            .server_configuration()
+            .restrict(&mut signature_request);
+
+        Ok(signature_request)
+    }
+
+    /// Generate a `ClaimHandle` signature request for `handle`, signed by this
+    /// installation's key.
+    pub async fn claim_handle_request(
+        &self,
+        handle: Handle,
+    ) -> Result<SignatureRequest, IdentityUpdateError> {
+        let installation_keys = &self.context.identity().installation_keys;
+        let installation_public_key = installation_keys.verifying_key();
+        let mut signature_request = SignatureRequestBuilder::new(self.context.inbox_id())
+            .claim_handle(handle, installation_public_key.into())
+            .build();
+        let signature = installation_keys
+            .credential_sign::<InstallationKeyContext>(signature_request.signature_text())?;
+        signature_request
+            .add_signature(
+                UnverifiedSignature::new_installation_key(signature, installation_public_key),
+                &self.context.scw_verifier(),
+            )
+            .await?;
+        Ok(signature_request)
+    }
+
+    /// Revoke the given identities from the association state for the client's inbox.
+    /// More identities than one identity update may revoke fail before any network read.
+    pub async fn revoke_identities(
+        &self,
+        identities_to_revoke: Vec<Identifier>,
+    ) -> Result<SignatureRequest, IdentityUpdateError> {
+        check_revocation_count(identities_to_revoke.len())?;
+        let inbox_id = self.context.inbox_id();
+        let current_state = retry_async!(
+            Retry::default(),
+            (async {
+                self.get_association_state(&self.context.db(), inbox_id, None)
+                    .await
+            })
+        )?;
+        let mut builder = SignatureRequestBuilder::new(inbox_id);
+
+        for ident in identities_to_revoke {
+            builder = builder.revoke_association(
+                current_state.recovery_identifier().clone().into(),
+                ident.into(),
+            )
+        }
+
+        let mut signature_request = builder.build();
+        self.context
+            .server_configuration()
+            .restrict(&mut signature_request);
+        Ok(signature_request)
+    }
+
+    /// Revoke the given installations from the association state for the client's inbox
+    pub async fn revoke_installations(
+        &self,
+        installation_ids: Vec<Vec<u8>>,
+    ) -> Result<SignatureRequest, IdentityUpdateError> {
+        let inbox_id = self.context.inbox_id();
+        let current_state = retry_async!(
+            Retry::default(),
+            (async {
+                self.get_association_state(&self.context.db(), inbox_id, None)
+                    .await
+            })
+        )?;
+
+        let mut result = revoke_installations_with_verifier(
+            &current_state.recovery_identifier().clone(),
+            inbox_id,
+            installation_ids,
+        )?;
+        // Every request this client hands back is bound to the
+        // deployment's accepted chains, so an app cannot sign it from a chain
+        // the deployment refuses.
+        self.context.server_configuration().restrict(&mut result);
+
+        Ok(result)
+    }
+
+    /// Generate a `ChangeRecoveryAddress` signature request using a new identifier
+    pub async fn change_recovery_identifier(
+        &self,
+        new_recovery_identifier: Identifier,
+    ) -> Result<SignatureRequest, IdentityUpdateError> {
+        let inbox_id = self.context.inbox_id();
+        let current_state = retry_async!(
+            Retry::default(),
+            (async {
+                self.get_association_state(&self.context.db(), inbox_id, None)
+                    .await
+            })
+        )?;
+        let mut builder = SignatureRequestBuilder::new(inbox_id);
+        let member_identifier: MemberIdentifier =
+            current_state.recovery_identifier().clone().into();
+        builder = builder.change_recovery_address(member_identifier, new_recovery_identifier);
+        let mut signature_request = builder.build();
+        self.context
+            .server_configuration()
+            .restrict(&mut signature_request);
+        Ok(signature_request)
+    }
+
+    /**
+     * Apply a signature request to the client's inbox by publishing the identity update to the network.
+     *
+     * This will error if the signature request is missing signatures, if the signatures are invalid,
+     * if the update fails other verifications, or if the update fails to be published to the network.
+     **/
+    pub async fn apply_signature_request(
+        &self,
+        signature_request: SignatureRequest,
+    ) -> Result<(), IdentityUpdateError> {
+        // A client with a blocked connection publishes no identity update.
+        self.context.server_configuration().check()?;
+        let inbox_id = signature_request.inbox_id().to_string();
+        let apply = async {
+            apply_signature_request_with_verifier(
+                self.context.api(),
+                &self.context.db(),
+                signature_request,
+                &self.context.scw_verifier(),
+            )
+            .await?;
+            // Load the identity updates for the inbox so that we have a
+            // record in our DB.
+            retry_async!(
+                Retry::default(),
+                (async {
+                    load_identity_updates(
+                        self.context.api(),
+                        &self.context.db(),
+                        &[inbox_id.as_str()],
+                    )
+                    .await
+                })
+            )
+        };
+        if inbox_id == self.context.inbox_id() {
+            self.with_own_installation_events(&self.context.db(), Box::pin(apply))
+                .await
+        } else {
+            apply.await
+        }
+    }
+
+    /// Given two group memberships and the diff, get the list of installations that were added or removed
+    /// between the two membership states.
+    #[tracing::instrument(level = "trace", skip_all)]
+    pub async fn get_installation_diff(
+        &self,
+        conn: &impl DbQuery,
+        group_id: &GroupId, // used for logging
+        old_group_membership: &GroupMembership,
+        new_group_membership: &GroupMembership,
+        membership_diff: &MembershipDiff<'_>,
+    ) -> Result<InstallationDiff, InstallationDiffError> {
+        let diff = loop {
+            match get_installation_diff_local(
+                conn,
+                old_group_membership,
+                new_group_membership,
+                membership_diff,
+            ) {
+                Ok(diff) => break diff,
+                Err(IdentityDependencyError::Need(requirements)) => {
+                    resolve_identity_requirements(&self.context, &requirements).await?;
+                }
+                Err(error) => return Err(error.into()),
+            }
+        };
+        let InstallationDiff {
+            added_installations,
+            removed_installations,
+        } = diff;
+
+        if !added_installations.is_empty() || !removed_installations.is_empty() {
+            let added_installations: Vec<_> =
+                added_installations.keys().map(|i| i.short_hex()).collect();
+            let removed_installations: Vec<_> = removed_installations
+                .iter()
+                .map(|i| i.short_hex())
+                .collect();
+            log_event!(
+                Event::UpdatedGroupMembership,
+                self.context.installation_id(),
+                #group_id,
+                ?added_installations,
+                ?removed_installations
+            );
+        }
+
+        Ok(InstallationDiff {
+            added_installations,
+            removed_installations,
+        })
+    }
+}
+
+/// Compare exact verified snapshots without network or signature-verifier calls.
+/// A creation placeholder has an empty identity baseline. It never selects the
+/// receiver's latest identity state. New membership references must be nonzero.
+/// A missing proof does not stop the scan, so `Need` names every missing proof.
+pub fn get_installation_diff_local(
+    conn: &impl DbQuery,
+    old_membership: &GroupMembership,
+    new_membership: &GroupMembership,
+    membership_diff: &MembershipDiff<'_>,
+) -> Result<InstallationDiff, IdentityDependencyError> {
+    let mut added_installations = HashMap::new();
+    let mut removed_installations = HashSet::new();
+    let mut missing = MissingProofs::default();
+    for inbox_id in membership_diff
+        .added_inboxes
+        .iter()
+        .chain(&membership_diff.updated_inboxes)
+    {
+        let final_state = missing.read(
+            conn,
+            &IdentityRequirement {
+                inbox_id: (*inbox_id).clone(),
+                sequence_id: new_membership.get(inbox_id).copied().unwrap_or(0),
+            },
+        )?;
+        let initial_state = match old_membership.get(inbox_id) {
+            None | Some(0) => None,
+            Some(sequence_id) => Some(missing.read(
+                conn,
+                &IdentityRequirement {
+                    inbox_id: (*inbox_id).clone(),
+                    sequence_id: *sequence_id,
+                },
+            )?),
+        };
+        let diff = match (final_state, initial_state) {
+            (Some(final_state), None) => final_state.as_diff(),
+            (Some(final_state), Some(Some(initial_state))) => initial_state.diff(&final_state),
+            (None, _) | (_, Some(None)) => continue,
+        };
+        for installation in diff.new_installations() {
+            added_installations
+                .entry(installation)
+                .or_insert_with(HashSet::new)
+                .insert((*inbox_id).clone());
+        }
+        removed_installations.extend(diff.removed_installations());
+    }
+    for inbox_id in &membership_diff.removed_inboxes {
+        let Some(state) = missing.read(
+            conn,
+            &IdentityRequirement {
+                inbox_id: (*inbox_id).clone(),
+                sequence_id: old_membership.get(inbox_id).copied().unwrap_or(0),
+            },
+        )?
+        else {
+            continue;
+        };
+        removed_installations.extend(state.installation_ids());
+    }
+    missing.check()?;
+    Ok(InstallationDiff {
+        added_installations,
+        removed_installations,
+    })
+}
+
+/// Required removals include leafed identity removals and stale leaves of
+/// every inbox whose membership entry advances or disappears.
+// implements: GMOD-046
+pub fn required_leaf_removals(
+    conn: &impl DbQuery,
+    old: &GroupMembership,
+    new: &GroupMembership,
+    diff_removals: &HashSet<Vec<u8>>,
+    leaf_owners: &HashMap<Vec<u8>, String>,
+) -> Result<HashSet<Vec<u8>>, IdentityDependencyError> {
+    let mut required: HashSet<_> = diff_removals
+        .iter()
+        .filter(|key| leaf_owners.contains_key(*key))
+        .cloned()
+        .collect();
+    let mut by_inbox: HashMap<&str, Vec<&Vec<u8>>> = HashMap::new();
+    for (key, inbox) in leaf_owners {
+        by_inbox.entry(inbox).or_default().push(key);
+    }
+    let mut missing = MissingProofs::default();
+    for (inbox, keys) in by_inbox {
+        match (old.get(inbox), new.get(inbox)) {
+            (Some(_), None) => required.extend(keys.into_iter().cloned()),
+            (before, Some(after)) if *after != 0 && before != Some(after) => {
+                let Some(state) = missing.read(
+                    conn,
+                    &IdentityRequirement {
+                        inbox_id: inbox.to_string(),
+                        sequence_id: *after,
+                    },
+                )?
+                else {
+                    continue;
+                };
+                let associated: HashSet<_> = state.installation_ids().into_iter().collect();
+                required.extend(
+                    keys.into_iter()
+                        .filter(|key| !associated.contains(*key))
+                        .cloned(),
+                );
+            }
+            _ => {}
+        }
+    }
+    missing.check()?;
+    Ok(required)
+}
+
+/// Load identity updates. A load that includes this client's own inbox
+/// reports the changes to its own installations of every update it stored,
+/// even when it fails after storing some pages.
+pub async fn load_identity_updates_for_client<Context: IdentityContext>(
+    context: &Context,
+    conn: &impl DbQuery,
+    inbox_ids: &[&str],
+) -> Result<(), IdentityUpdateError> {
+    let load = Box::pin(store_identity_update_pages(
+        context.api(),
+        conn,
+        inbox_ids,
+        context.stream_policy().fetched_limits(),
+    ));
+    if inbox_ids.contains(&context.inbox_id()) {
+        IdentityUpdates::new(context)
+            .with_own_installation_events(conn, load)
+            .await
+    } else {
+        load.await
+    }
+}
+
+/// Store every identity update of `inbox_ids` newer than the latest stored
+/// one of each inbox.
+#[tracing::instrument(level = "trace", skip_all)]
+pub async fn load_identity_updates<ApiClient: XmtpApi>(
+    api_client: &ApiClientWrapper<ApiClient>,
+    conn: &impl xmtp_db::DbQuery,
+    inbox_ids: &[&str],
+) -> Result<(), IdentityUpdateError> {
+    store_identity_update_pages(
+        api_client,
+        conn,
+        inbox_ids,
+        IncomingBatchLimits::STREAM_BATCH,
+    )
+    .await
+}
+
+/// Read the updates of `inbox_ids` after the latest stored one of each inbox,
+/// one bounded page at a time, and store each page before the next request.
+/// A failure leaves each inbox with a stored prefix of its log, and the next
+/// load resumes after it.
+async fn store_identity_update_pages<ApiClient: XmtpApi>(
+    api_client: &ApiClientWrapper<ApiClient>,
+    conn: &impl DbQuery,
+    inbox_ids: &[&str],
+    limits: IncomingBatchLimits,
+) -> Result<(), IdentityUpdateError> {
+    if inbox_ids.is_empty() {
+        return Ok(());
+    }
+    tracing::debug!("Fetching identity updates for: {:?}", inbox_ids);
+
+    let existing_sequence_ids = conn.get_latest_sequence_id(inbox_ids)?;
+    let filters: Vec<GetIdentityUpdatesV2Filter> = inbox_ids
+        .iter()
+        .map(|inbox_id| GetIdentityUpdatesV2Filter {
+            sequence_id: existing_sequence_ids.get(*inbox_id).map(|i| *i as u64),
+            inbox_id: inbox_id.to_string(),
+        })
+        .collect();
+    api_client
+        .fold_identity_updates(filters, limits, |page| {
+            let page = page
+                .into_iter()
+                .map(|entry| {
+                    let sequence_id = entry
+                        .meta
+                        .cursor
+                        .ok_or(xmtp_api::ApiError::InvalidResponse("identity cursor"))?
+                        .sequence_id;
+                    let inbox_id = entry.update.inbox_id.clone();
+                    let update: UnverifiedIdentityUpdate = entry.update.try_into()?;
+                    Ok(StoredIdentityUpdate {
+                        inbox_id,
+                        sequence_id: sequence_id as i64,
+                        server_timestamp_ns: entry.meta.server_ns as i64,
+                        payload: update.into(),
+                    })
+                })
+                .collect::<Result<Vec<_>, IdentityUpdateError>>()?;
+            conn.insert_or_ignore_identity_updates(&page)?;
+            Ok(())
+        })
+        .await
+}
+
+/// A static lookup method to verify if an identity is a member of an inbox
+pub async fn is_member_of_association_state<Client>(
+    api_client: &ApiClientWrapper<Client>,
+    inbox_id: &str,
+    identifier: &MemberIdentifier,
+    scw_verifier: Option<Box<dyn SmartContractSignatureVerifier>>,
+) -> Result<bool, IdentityUpdateError>
+where
+    Client: XmtpBackendClient + Clone,
+{
+    let filters = vec![GetIdentityUpdatesV2Filter {
+        inbox_id: inbox_id.to_string(),
+        sequence_id: None,
+    }];
+    let mut updates = api_client.get_identity_updates_v2(filters).await?;
+
+    let Some(updates) = updates.remove(inbox_id) else {
+        return Err(IdentityUpdateError::InboxNotFound);
+    };
+    let updates: Vec<UnverifiedIdentityUpdate> = updates
+        .into_iter()
+        .map(|u| u.update.try_into())
+        .collect::<Result<_, _>>()?;
+
+    let mut association_state = None;
+
+    let scw_verifier = scw_verifier
+        .unwrap_or_else(|| Box::new(api_client.clone()) as Box<dyn SmartContractSignatureVerifier>);
+
+    let updates = verify_updates(updates, &scw_verifier).await?;
+
+    for update in updates {
+        association_state =
+            Some(update.update_state(association_state, update.client_timestamp_ns)?);
+    }
+    let association_state = association_state.ok_or(IdentityUpdateError::EmptyIdentityLog)?;
+
+    Ok(association_state.get(identifier).is_some())
+}
+
+#[tracing::instrument(level = "trace", skip_all)]
+pub async fn get_creation_signature_kind(
+    conn: &impl xmtp_db::DbQuery,
+    scw_verifier: impl SmartContractSignatureVerifier,
+    inbox_id: InboxIdRef<'_>,
+) -> Result<Option<xmtp_id::associations::SignatureKind>, IdentityUpdateError> {
+    let updates = conn.get_identity_updates(inbox_id, None, None)?;
+
+    let first_update = updates
+        .first()
+        .ok_or_else(|| IdentityUpdateError::Identity(IdentityError::RequiredIdentityNotFound))?;
+
+    let unverified_update: UnverifiedIdentityUpdate = first_update.clone().to_unverified()?;
+
+    let verified = unverified_update.to_verified(scw_verifier).await?;
+
+    Ok(verified.creation_signature_kind())
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::identity_updates::IdentityUpdates;
+    use xmtp_db::prelude::*;
+    use xmtp_id::associations::test_utils::add_wallet_signature;
+
+    // verifies: GMOD-046
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn required_leaf_removals_include_stale_leaves() {
+        use super::{
+            IdentityDependencyError, IdentityRequirement, get_installation_diff_local,
+            required_leaf_removals,
+        };
+        use crate::identity_lifecycle::test_support::IdentityTestPeer;
+        use std::collections::{BTreeSet, HashMap, HashSet};
+        use xmtp_mls_validation::group_membership::GroupMembership;
+        let alix = IdentityTestPeer::new().await;
+        let alix2 = alix.new_installation().await;
+        let mut revoke = IdentityUpdates::new(&alix.context)
+            .revoke_installations(vec![alix2.installation_public_key().to_vec()])
+            .await?;
+        add_wallet_signature(&mut revoke, &alix.owner).await;
+        IdentityUpdates::new(&alix.context)
+            .apply_signature_request(revoke)
+            .await?;
+        IdentityUpdates::new(&alix.context)
+            .get_latest_association_state(&alix.context.db(), alix.inbox_id())
+            .await?;
+        let sequence2 = alix
+            .context
+            .db()
+            .get_latest_sequence_id_for_inbox(alix.inbox_id())? as u64;
+        let alix3 = alix.new_installation().await;
+        IdentityUpdates::new(&alix.context)
+            .get_latest_association_state(&alix.context.db(), alix.inbox_id())
+            .await?;
+        let sequence3 = alix
+            .context
+            .db()
+            .get_latest_sequence_id_for_inbox(alix.inbox_id())? as u64;
+        let mut old = GroupMembership::new();
+        old.add(alix.inbox_id().into(), sequence2);
+        let mut new = GroupMembership::new();
+        new.add(alix.inbox_id().into(), sequence3);
+        let owners = HashMap::from([
+            (
+                alix.installation_public_key().to_vec(),
+                alix.inbox_id().into(),
+            ),
+            (
+                alix2.installation_public_key().to_vec(),
+                alix.inbox_id().into(),
+            ),
+        ]);
+        // Alix2 was created before S3 and has not loaded that proof. A
+        // missing proof must not produce an incomplete set of removals.
+        let missing =
+            required_leaf_removals(&alix2.context.db(), &old, &new, &HashSet::new(), &owners)
+                .expect_err("the exact S3 proof is not cached on Alix2");
+        assert!(matches!(
+            missing,
+            IdentityDependencyError::Need(needed)
+                if needed == BTreeSet::from([IdentityRequirement {
+                    inbox_id: alix.inbox_id().into(),
+                    sequence_id: sequence3,
+                }])
+        ));
+
+        let db = alix.context.db();
+        let diff = get_installation_diff_local(&db, &old, &new, &old.diff(&new))?;
+        assert!(diff.removed_installations.is_empty());
+        let stale = HashSet::from([alix2.installation_public_key().to_vec()]);
+        assert_eq!(
+            required_leaf_removals(&db, &old, &new, &diff.removed_installations, &owners)?,
+            stale
+        );
+        assert_eq!(
+            required_leaf_removals(&db, &old, &GroupMembership::new(), &HashSet::new(), &owners)?,
+            owners.keys().cloned().collect()
+        );
+        old.add(alix.inbox_id().into(), 0);
+        assert_eq!(
+            required_leaf_removals(&db, &old, &new, &HashSet::new(), &owners)?,
+            stale
+        );
+        assert!(required_leaf_removals(&db, &new, &new, &HashSet::new(), &owners)?.is_empty());
+        drop(alix3);
+    }
+}
+
+#[cfg(test)]
+mod conflict_tests {
+    use super::*;
+    use crate::identity_lifecycle::test_support::IdentityTestPeer;
+    use xmtp_cryptography::utils::generate_local_wallet;
+    use xmtp_id::associations::test_utils::{
+        MockSmartContractSignatureVerifier, WalletTestExt, add_wallet_signature,
+    };
+    use xmtp_proto::{api::ApiClientError, backend_v1 as wire, types::Topic};
+
+    #[rstest::rstest]
+    #[case(0)]
+    #[case(1)]
+    #[case(3)]
+    #[case(4)]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn conflict_reloads_validates_and_bounds_identical_resends(#[case] conflicts: usize) {
+        let alix = IdentityTestPeer::new().await;
+        let wallet = generate_local_wallet();
+        let mut request = IdentityUpdates::new(&alix.context)
+            .associate_identity(wallet.identifier())
+            .await
+            .unwrap();
+        add_wallet_signature(&mut request, &wallet).await;
+        let update = request.build_identity_update().unwrap();
+        let expected: xmtp_proto::xmtp::identity::associations::IdentityUpdate =
+            update.clone().into();
+        let history = alix
+            .context
+            .api()
+            .query_all(
+                [(
+                    Topic::new_identity_update(hex::decode(alix.inbox_id()).unwrap()),
+                    Cursor(0),
+                )]
+                .into(),
+                alix.context.api().limits().max_query_limit as u32,
+            )
+            .await
+            .unwrap();
+        let last_sequence = history
+            .last()
+            .unwrap()
+            .meta
+            .as_ref()
+            .unwrap()
+            .cursor
+            .as_ref()
+            .unwrap()
+            .sequence_id;
+        let mut mock = xmtp_api_backend::MockBackendClient::new();
+        let mut calls = 0;
+        mock.expect_publish()
+            .times((conflicts + 1).min(4))
+            .returning(move |request| {
+                calls += 1;
+                assert_eq!(request.envelopes.len(), 1);
+                assert_eq!(
+                    request.envelopes[0].payload,
+                    Some(wire::client_envelope::Payload::IdentityUpdate(
+                        expected.clone()
+                    ))
+                );
+                if calls <= conflicts {
+                    return Err(ApiClientError::client(
+                        xmtp_api_grpc::error::GrpcError::Status(tonic::Status::aborted(
+                            "identity conflict",
+                        )),
+                    ));
+                }
+                let parsed =
+                    xmtp_mls_validation::parse_envelope(request.envelopes[0].clone()).unwrap();
+                Ok(wire::PublishResponse {
+                    envelope_metas: vec![wire::EnvelopeMeta {
+                        cursor: Some(wire::Cursor {
+                            sequence_id: last_sequence + 1,
+                        }),
+                        topic: Some(wire::Topic {
+                            topic: parsed.topic.cloned_vec(),
+                        }),
+                        message_hash: Some(wire::MessageHash {
+                            hash: Some(wire::message_hash::Hash::Sha256(
+                                parsed.canonical.hash.to_vec(),
+                            )),
+                        }),
+                        ..Default::default()
+                    }],
+                })
+            });
+        mock.expect_query_raw_envelopes()
+            .times(conflicts.min(3))
+            .returning(move |request| {
+                assert_eq!(request.queries.len(), 1);
+                let floor = request.queries[0].cursor.as_ref().unwrap().sequence_id;
+                Ok(wire::QueryResponse {
+                    envelopes: history
+                        .iter()
+                        .filter(|entry| {
+                            entry
+                                .meta
+                                .as_ref()
+                                .unwrap()
+                                .cursor
+                                .as_ref()
+                                .unwrap()
+                                .sequence_id
+                                > floor
+                        })
+                        .cloned()
+                        .collect(),
+                    continuation: Some(wire::Continuation { has_more: false }),
+                }
+                .into())
+            });
+        let api = ApiClientWrapper::new(mock, Default::default());
+        let result = publish_with_conflict_retry(
+            &api,
+            &alix.context.db(),
+            update,
+            &MockSmartContractSignatureVerifier::new(true),
+        )
+        .await;
+        if conflicts > 3 {
+            assert!(matches!(
+                result,
+                Err(IdentityUpdateError::Api(
+                    xmtp_api::ApiError::IdentityUpdateConflict
+                ))
+            ));
+        } else {
+            assert_eq!(result.unwrap(), Cursor(last_sequence + 1));
+        }
+    }
+}

@@ -4,7 +4,7 @@
 //! `mls_sync` and the OpenMLS app data dictionary. The existing per-field
 //! helpers (`update_group_name`, `update_admin_list_action`, …) keep their
 //! signatures and route through the appropriate sub-module here. The
-//! component codec lives in `xmtp_mls_common::app_data::component_source`;
+//! component codec lives in `xmtp_mls_group_state::app_data::component_source`;
 //! its helpers transform bytes and do not change a group by themselves.
 //!
 //! `membership_upkeep` adds the registry reconciliation and removed-member
@@ -31,17 +31,19 @@ use openmls::{
     prelude::{CommitMessageBundle, ProcessedMessageContent},
     storage::OpenMlsProvider,
 };
-use xmtp_mls_common::app_data::{component_id::ComponentId, component_registry::ComponentRegistry};
+use xmtp_mls_group_state::app_data::{
+    component_id::ComponentId, component_registry::ComponentRegistry,
+};
 
 use crate::groups::GroupError;
 use xmtp_configuration::ApplicationComponentDefinition;
 use xmtp_cryptography::secret::{Zeroize, Zeroizing};
-use xmtp_mls_common::app_data::component_source::{
+use xmtp_mls_group_state::app_data::component_source::{
     ComponentSourceError, apply_app_data_update_payload, read_from_app_data_dict,
 };
-use xmtp_mls_common::app_data::protocol_floor::committed_floor_exceeding;
-use xmtp_mls_common::inbox_id::InboxId;
-use xmtp_mls_common::libxmtp_version::LibXMTPVersion;
+use xmtp_mls_group_state::app_data::protocol_floor::committed_floor_exceeding;
+use xmtp_mls_group_state::inbox_id::InboxId;
+use xmtp_mls_group_state::libxmtp_version::LibXMTPVersion;
 use xmtp_mls_validation::commit::{
     AppDataPostStates, AppDataUpdateInCommit, AppDataUpdateList, CommitRuleError,
     app_data_update_proposer_leaf, extract_commit_participant, membership_inbox_ids,
@@ -590,7 +592,7 @@ pub enum GroupAppDataError<StorageError: std::error::Error> {
     /// state and the receiver's, which would surface as a confirmation
     /// tag mismatch on the wire if it ever escaped.
     #[error("apply payload error: {0}")]
-    ApplyPayload(#[from] xmtp_mls_common::app_data::component_source::ComponentSourceError),
+    ApplyPayload(#[from] xmtp_mls_group_state::app_data::component_source::ComponentSourceError),
     /// Computing the removed-member cleanup for a swept removal failed, or
     /// the commit would grow the dictionary past its total.
     #[error("membership upkeep error: {0}")]

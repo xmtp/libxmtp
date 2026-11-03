@@ -1,4 +1,3 @@
-use super::*;
 use crate::identity::XmtpKeyPackage;
 use crate::identity::create_credential;
 use openmls::prelude::{CredentialWithKey, KeyPackage};
@@ -12,10 +11,7 @@ use xmtp_cryptography::configuration::CIPHERSUITE;
 use xmtp_db::sql_key_store::SqlKeyStoreError;
 use xmtp_db::xmtp_openmls_provider::XmtpOpenMlsProviderRef;
 use xmtp_db::{MemoryStorage, MlsMemoryStorage, MlsProviderExt, XmtpOpenMlsProvider};
-use xmtp_db::{
-    XmtpMlsStorageProvider,
-    sql_key_store::{SqlKeyStore, mock::MockSqlKeyStore},
-};
+use xmtp_db::{XmtpMlsStorageProvider, sql_key_store::SqlKeyStore};
 
 pub struct BarebonesMlsClient<P: OpenMlsProvider> {
     installation_key: XmtpInstallationCredential,
@@ -74,15 +70,6 @@ pub fn create_mls_client<S: XmtpMlsStorageProvider>(
             provider: XmtpOpenMlsProviderRef::new(store),
             groups: RwLock::new(HashMap::new()),
         },
-    }
-}
-
-impl MockStoreAndContext {
-    /// Create an MLS client with an XMTP Installation Key
-    /// Stores the Key package in OpenMls Memory storage
-    /// Adds credential to client
-    pub fn mls_client(&self) -> BarebonesMlsClient<XmtpOpenMlsProviderRef<'_, MockSqlKeyStore>> {
-        create_mls_client(&self.mls_storage)
     }
 }
 

@@ -11,7 +11,7 @@ use xmtp_configuration::WELCOME_HPKE_LABEL;
 use xmtp_db::group::QueryGroup;
 use xmtp_db::incoming_envelope::QueryIncomingEnvelope;
 use xmtp_id::key_package::WrapperAlgorithm;
-use xmtp_mls_common::mls_ext::payload_encryption::{
+use xmtp_mls_group_keys::mls_ext::payload_encryption::{
     unwrap_payload_symmetric, wrap_payload_hpke, wrap_payload_symmetric,
 };
 use xmtp_proto::types::{DecryptedWelcomePointer, WelcomeMessage, WelcomeMessageType};
@@ -583,7 +583,7 @@ async fn only_the_first_pointee_row_counts(#[case] junk_first: bool) {
         alix.context.clone(),
         xmtp_db::group::ConversationType::Group,
         crate::groups::group_permissions::PolicySet::default(),
-        xmtp_mls_common::group::GroupMetadataOptions::default(),
+        xmtp_mls_group_state::group::GroupMetadataOptions::default(),
         None,
     )
     .unwrap();
@@ -666,7 +666,7 @@ async fn test_welcome_pointer_pending_retry_resolution(#[case] unsupported: bool
         alix.context.clone(),
         xmtp_db::group::ConversationType::Group,
         crate::groups::group_permissions::PolicySet::default(),
-        xmtp_mls_common::group::GroupMetadataOptions::default(),
+        xmtp_mls_group_state::group::GroupMetadataOptions::default(),
         None,
     )
     .unwrap();

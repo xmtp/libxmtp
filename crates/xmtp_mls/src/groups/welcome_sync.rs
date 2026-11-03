@@ -855,7 +855,7 @@ where
     /// `sync_all_welcomes_and_groups` filters out groups with no
     /// new messages on the server.
     pub async fn unstick_paused_groups(&self) -> Result<usize, GroupError> {
-        use xmtp_mls_common::libxmtp_version::LibXMTPVersion;
+        use xmtp_mls_group_state::libxmtp_version::LibXMTPVersion;
 
         let paused = self.context.db().get_paused_groups_with_versions()?;
         if paused.is_empty() {
@@ -1293,7 +1293,7 @@ mod tests {
             UnreadableWelcome::MissingKey => message.hpke_public_key = vec![0; 32],
             UnreadableWelcome::MlsVersion => {
                 (message.data, message.welcome_metadata) =
-                    xmtp_mls_common::mls_ext::payload_encryption::wrap_payload_hpke(
+                    xmtp_mls_group_keys::mls_ext::payload_encryption::wrap_payload_hpke(
                         &[0, 2],
                         &[],
                         &message.hpke_public_key,

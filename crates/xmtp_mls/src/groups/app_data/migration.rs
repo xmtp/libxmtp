@@ -4,7 +4,7 @@
 //! synthesis and `stage_bootstrap_commit`) is gone. Groups have been created
 //! with the dictionary since libxmtp #4152.
 
-use xmtp_mls_common::app_data::migration::MigrationError as CommonMigrationError;
+use xmtp_mls_group_state::app_data::migration::MigrationError as CommonMigrationError;
 
 /// Errors from encoding app data dictionary values.
 #[derive(Debug, thiserror::Error)]

@@ -55,7 +55,7 @@ use super::VersionInfo;
 /// here from the spec's salt and `info` labels, not through `GroupKeys`.
 #[cfg(test)]
 pub(crate) fn group_secret_encodings(
-    root: &xmtp_mls_common::group_keys::GroupRoot,
+    root: &xmtp_mls_group_keys::group_keys::GroupRoot,
 ) -> Vec<(String, Vec<u8>)> {
     let hkdf = hkdf::Hkdf::<sha2::Sha256>::new(Some(b"xmtp group root"), root.as_bytes());
     let mut secrets = vec![("group root".to_string(), root.as_bytes().to_vec())];
@@ -391,14 +391,16 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
     pub fn sign_as_member(&self, message: &mut xmtp_proto::backend_v1::GroupMessage) {
         let keys = self
             .with_group_snapshot(|group| {
-                Ok(xmtp_mls_common::app_data::group_root::check_group_root(
-                    group.extensions(),
-                    group.group_id().as_slice(),
-                ))
+                Ok(
+                    xmtp_mls_group_state::app_data::group_root::check_group_root(
+                        group.extensions(),
+                        group.group_id().as_slice(),
+                    ),
+                )
             })
             .unwrap()
             .expect("a keyed group holds the root of its id");
-        xmtp_mls_common::group_keys::sign_group_message(&keys, message)
+        xmtp_mls_group_keys::group_keys::sign_group_message(&keys, message)
             .expect("signing passes the self-check");
     }
 }

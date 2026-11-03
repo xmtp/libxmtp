@@ -1,7 +1,7 @@
 # xmtp_mls_validation
 
 Shared stateless admission/commit rules; no client DB or transport. Checks needing
-DB/identity proofs stay in `xmtp_mls`; commit-log crypto stays in `xmtp_mls_common`.
+DB/identity proofs stay in `xmtp_mls`; commit-log crypto stays in `xmtp_mls_group_keys`.
 
 ```sh
 dev/nix-shell 'just test crate xmtp_mls_validation'

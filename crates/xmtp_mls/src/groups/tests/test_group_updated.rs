@@ -456,7 +456,7 @@ async fn test_first_metadata_update_reports_empty_old_value() {
 async fn commit_log_signer_change_is_not_recorded() {
     use xmtp_db::group_message::GroupMessageKind;
     use xmtp_logging::{Level, test_logging::LogCapture};
-    use xmtp_mls_common::group_mutable_metadata::MetadataField;
+    use xmtp_mls_group_state::group_mutable_metadata::MetadataField;
 
     tester!(alix);
     tester!(bo);

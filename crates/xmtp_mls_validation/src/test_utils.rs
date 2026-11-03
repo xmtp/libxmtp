@@ -30,7 +30,7 @@ use xmtp_id::{
     scw_verifier::{BlockStamp, ChainBlocks, VerifierError},
     utils::passkey::PasskeyUser,
 };
-use xmtp_mls_common::group_keys::{
+use xmtp_mls_group_keys::group_keys::{
     GroupKeys, GroupRoot, seal_commit_log_entry, sign_group_message,
 };
 use xmtp_proto::xmtp::{

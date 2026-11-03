@@ -25,7 +25,9 @@ xmtp_common.workspace = true
 xmtp_configuration.workspace = true
 xmtp_cryptography.workspace = true
 xmtp_id.workspace = true
-xmtp_mls_common.workspace = true
+xmtp_mls_group_keys.workspace = true
+xmtp_mls_group_state.workspace = true
+xmtp_mls_tls_collections.workspace = true
 xmtp_proto.workspace = true
 
 [features]

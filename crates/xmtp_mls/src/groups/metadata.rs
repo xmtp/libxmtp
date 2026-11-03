@@ -1,7 +1,7 @@
 //! Mutable metadata, permissions, and group settings.
 
 use super::*;
-use xmtp_mls_common::app_data::fields::{ComponentMutation, FieldValue, MetadataFieldRef};
+use xmtp_mls_group_state::app_data::fields::{ComponentMutation, FieldValue, MetadataFieldRef};
 
 impl<Context> MlsGroup<Context>
 where
@@ -516,7 +516,7 @@ where
         }
         let ctx = self.load_group_context()?;
         let extensions = ctx.extensions();
-        let facade = xmtp_mls_common::app_data::typed_facade::MlsGroupAppData::new(extensions);
+        let facade = xmtp_mls_group_state::app_data::typed_facade::MlsGroupAppData::new(extensions);
         let set = match kind {
             AdminListKind::Admin => facade.get::<AdminListComponent>(),
             AdminListKind::SuperAdmin => facade.get::<SuperAdminListComponent>(),
@@ -565,9 +565,11 @@ where
         inbox_id: String,
     ) -> Result<bool, GroupMutableMetadataError> {
         let list =
-            xmtp_mls_common::app_data::component_source::read_super_admin_list_from_dict(mls_group)
-                .map_err(GroupMutableMetadataError::from)?
-                .unwrap_or_default();
+            xmtp_mls_group_state::app_data::component_source::read_super_admin_list_from_dict(
+                mls_group,
+            )
+            .map_err(GroupMutableMetadataError::from)?
+            .unwrap_or_default();
         Ok(list.contains(&inbox_id))
     }
 

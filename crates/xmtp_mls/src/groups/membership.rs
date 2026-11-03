@@ -2,7 +2,7 @@
 
 use super::*;
 use prost::Message;
-use xmtp_mls_common::app_data::{
+use xmtp_mls_group_state::app_data::{
     components::tls_map_components::GroupMembershipComponent, typed_facade::MlsGroupAppData,
 };
 use xmtp_proto::ShortHex;

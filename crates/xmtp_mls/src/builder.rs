@@ -1,5 +1,3 @@
-#[cfg(any(test, feature = "test-hooks"))]
-use crate::core::commit_lock::GroupCommitLock;
 use crate::{
     StorageError, XmtpApi,
     attachments::AttachmentRuntime,
@@ -742,8 +740,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             server_configuration,
             scw_verifier: Arc::new(scw_verifier),
             mutexes: MutexRegistry::new(),
-            #[cfg(any(test, feature = "test-hooks"))]
-            mls_commit_lock: Arc::new(GroupCommitLock::new()),
+            hooks: Default::default(),
             events,
             public_event_writer,
             registration_event_pending: Arc::new(AtomicBool::new(false)),
@@ -760,8 +757,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             cancellation_token: CancellationToken::new(),
             shutdown_complete: Arc::new(AtomicBool::new(false)),
             foreground_calls: Default::default(),
-            #[cfg(any(test, feature = "test-hooks", target_arch = "wasm32"))]
-            message_clock: Default::default(),
             delivery_owner: Default::default(),
             features: crate::features::MlsFeatures {
                 attachments,

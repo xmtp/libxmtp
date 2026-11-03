@@ -15,7 +15,7 @@ use openmls::{
     schedule::PreSharedKeyId,
 };
 use tls_codec::DeserializeBytes as _;
-use xmtp_mls_common::app_data::component_id::ComponentId;
+use xmtp_mls_group_state::app_data::component_id::ComponentId;
 
 use super::{CommitRuleError, validate_committed_proposals};
 

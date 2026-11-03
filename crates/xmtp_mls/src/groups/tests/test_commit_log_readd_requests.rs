@@ -372,7 +372,7 @@ async fn a_readd_without_a_usable_key_package_waits(
         refresh_state::EntityKind,
     };
     use xmtp_db::{group_intent::IntentKind, prelude::QueryGroupIntent};
-    use xmtp_mls_common::app_data::component_id::ComponentId;
+    use xmtp_mls_group_state::app_data::component_id::ComponentId;
     use xmtp_mls_validation::commit::extract_group_membership;
     use xmtp_proto::types::Topic;
 
@@ -390,7 +390,8 @@ async fn a_readd_without_a_usable_key_package_waits(
     if prior_failure {
         // Older commits may leave a live leaf also listed as failed.
         use prost::Message;
-        use xmtp_mls_common::{inbox_id::InboxId, tls_map::TlsMapDelta};
+        use xmtp_mls_group_state::inbox_id::InboxId;
+        use xmtp_mls_tls_collections::tls_map::TlsMapDelta;
         use xmtp_proto::xmtp::mls::message_contents::{
             GroupMembershipEntry, group_membership_entry,
         };

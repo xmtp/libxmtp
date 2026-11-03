@@ -24,7 +24,7 @@ use xmtp_id::associations::{
     Identifier,
     test_utils::{WalletTestExt, add_wallet_signature},
 };
-use xmtp_mls_common::{group::DMMetadataOptions, group_metadata::DmMembers};
+use xmtp_mls_group_state::{group::DMMetadataOptions, group_metadata::DmMembers};
 
 /// The inbox ids of a group's members.
 async fn member_ids<Context: crate::context::XmtpSharedContext>(

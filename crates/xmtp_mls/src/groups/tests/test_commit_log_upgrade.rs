@@ -235,7 +235,7 @@ async fn legacy_publisher_recovery_preserves_the_eligible_backlog(
         // transcripts afterward must not discard the already proven backlog.
         CommitLogWorker::new(bo.context.clone())
             .with_seal_fault(Arc::new(|_, _| {
-                Err(xmtp_mls_common::group_keys::SealError::SelfCheck)
+                Err(xmtp_mls_group_keys::group_keys::SealError::SelfCheck)
             }))
             .run_test(CommitLogTestFunction::PublishCommitLogsToRemote, None)
             .await
@@ -733,7 +733,7 @@ async fn legacy_readers_admit_returned_publishers_after_upgrade(#[case] state: L
         // A valid publisher can attest a divergent older epoch for a commit in
         // the new membership. The authenticated Welcome boundary, not the old
         // legacy floor, now governs admission of this signed rejection.
-        let keys = xmtp_mls_common::app_data::group_root::group_keys_from_extensions(
+        let keys = xmtp_mls_group_state::app_data::group_root::group_keys_from_extensions(
             b.load_group_context().unwrap().extensions(),
         )
         .unwrap();
@@ -745,13 +745,13 @@ async fn legacy_readers_admit_returned_publishers_after_upgrade(#[case] state: L
         rejected
             .last_epoch_authenticator
             .clone_from(&rejected.applied_epoch_authenticator);
-        xmtp_mls_common::commit_log::sign_entry_author(
+        xmtp_mls_group_keys::commit_log::sign_entry_author(
             &keys,
             &bo.context.identity().installation_keys,
             &mut rejected,
         )
         .unwrap();
-        let sealed = xmtp_mls_common::commit_log::seal_entry(&keys, &rejected).unwrap();
+        let sealed = xmtp_mls_group_keys::commit_log::seal_entry(&keys, &rejected).unwrap();
         bo.context
             .api()
             .publish_commit_log(vec![sealed], &mut Vec::new())

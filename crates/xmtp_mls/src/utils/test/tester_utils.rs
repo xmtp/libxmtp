@@ -427,7 +427,7 @@ where
     fn create_group(
         &self,
         policies: Option<crate::groups::group_permissions::PolicySet>,
-        opts: Option<xmtp_mls_common::group::GroupMetadataOptions>,
+        opts: Option<xmtp_mls_group_state::group::GroupMetadataOptions>,
     ) -> Result<super::TestMlsGroup, ClientError> {
         self.client.create_group(policies, opts)
     }

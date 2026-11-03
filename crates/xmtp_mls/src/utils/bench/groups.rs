@@ -14,7 +14,7 @@ use xmtp_db::consent_record::{
 use xmtp_db::encrypted_store::group_message::{MsgQueryArgs, SortDirection};
 use xmtp_db::group::{ConversationType, GroupMembershipState, StoredGroup};
 use xmtp_id::associations::Identifier;
-use xmtp_mls_common::group_metadata::DmMembers;
+use xmtp_mls_group_state::group_metadata::DmMembers;
 use xmtp_proto::types::GroupId;
 
 use super::{BenchClient, Identity};

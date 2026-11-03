@@ -4042,7 +4042,7 @@ fn insert_restored_placeholder<C: XmtpSharedContext>(
         GroupMembershipState::Restored,
         conversation_type,
         crate::groups::group_permissions::PolicySet::default(),
-        xmtp_mls_common::group::GroupMetadataOptions::default(),
+        xmtp_mls_group_state::group::GroupMetadataOptions::default(),
         None,
         false,
     )

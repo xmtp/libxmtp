@@ -107,7 +107,7 @@ const GOLDEN_FILES: &[GoldenFile] = &[GoldenFile {
 
 const STORES: [&str; 3] = ["alice", "bob", "carol"];
 const COLUMNS: [&str; 3] = ["Credential", "StagedCommit", "XmtpInstallationCredential"];
-/// `ComponentId::COMMIT_LOG_SIGNER` in `xmtp_mls_common`, as XMTP groups use it.
+/// `ComponentId::COMMIT_LOG_SIGNER` in `xmtp_mls_group_state`, as XMTP groups use it.
 const COMMIT_LOG_SIGNER: u16 = 0x800B;
 const LATE_MESSAGE: &[u8] = b"sent in epoch 1, read in epoch 2";
 /// Self-updates before the group grows, so every stored epoch is above 255
@@ -119,7 +119,7 @@ const BURST: usize = 300;
 /// The draft-10 `last_resort_key_package` component that marks every XMTP key
 /// package.
 const LAST_RESORT_COMPONENT: u16 = 0x0004;
-/// `ComponentId::GROUP_MEMBERSHIP` in `xmtp_mls_common`, which XMTP updates
+/// `ComponentId::GROUP_MEMBERSHIP` in `xmtp_mls_group_state`, which XMTP updates
 /// with AppDataUpdate proposals.
 const GROUP_MEMBERSHIP: u16 = 0x8003;
 const PROPOSED_MEMBERSHIP: &[u8] = b"membership in a standalone proposal";

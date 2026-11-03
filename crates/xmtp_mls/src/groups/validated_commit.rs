@@ -25,7 +25,7 @@ use xmtp_db::{DbQuery, StorageError};
 #[cfg(doc)]
 use xmtp_id::associations::AssociationState;
 use xmtp_id::{InboxId, associations::MemberIdentifier};
-use xmtp_mls_common::{
+use xmtp_mls_group_state::{
     app_data::component_source::{ComponentSourceError, read_from_app_data_dict},
     group_metadata::{DmMembers, GroupMetadata, GroupMetadataError},
     group_mutable_metadata::{GroupMutableMetadata, GroupMutableMetadataError},
@@ -232,7 +232,7 @@ impl ValidatedCommit {
         // super-admin permission has been verified. See
         // `committed_floor_exceeding` for the full rationale.
         if let Some(min_version) =
-            xmtp_mls_common::app_data::protocol_floor::committed_floor_exceeding(
+            xmtp_mls_group_state::app_data::protocol_floor::committed_floor_exceeding(
                 openmls_group,
                 context.version_info().pkg_semver(),
             )
@@ -267,19 +267,19 @@ impl ValidatedCommit {
         let registry = super::app_data::load_component_registry(openmls_group)
             .map_err(CommitValidationError::installed_state)?;
         let min_version_bytes =
-                xmtp_mls_common::app_data::component_source::read_post_commit_component_bytes(
-                    xmtp_mls_common::app_data::component_id::ComponentId::MIN_SUPPORTED_PROTOCOL_VERSION,
+                xmtp_mls_group_state::app_data::component_source::read_post_commit_component_bytes(
+                    xmtp_mls_group_state::app_data::component_id::ComponentId::MIN_SUPPORTED_PROTOCOL_VERSION,
                     openmls_group,
                     staged_commit,
                     &registry,
                 )
-                .map_err(xmtp_mls_common::group_mutable_metadata::GroupMutableMetadataError::from)?;
+                .map_err(xmtp_mls_group_state::group_mutable_metadata::GroupMutableMetadataError::from)?;
         let minimum_supported_protocol_version = match min_version_bytes {
                 Some(bytes) => Some(std::str::from_utf8(&bytes).map(str::to_owned).map_err(|e| {
                     CommitValidationError::Rule(CommitRuleError::GroupMutableMetadata(
                         GroupMutableMetadataError::MalformedComponent {
                             component_id: Some(
-                                xmtp_mls_common::app_data::component_id::ComponentId::MIN_SUPPORTED_PROTOCOL_VERSION,
+                                xmtp_mls_group_state::app_data::component_id::ComponentId::MIN_SUPPORTED_PROTOCOL_VERSION,
                             ),
                             reason: format!("invalid utf-8: {e}"),
                         },
@@ -500,12 +500,12 @@ impl ValidatedCommit {
         proposed_component_ids.dedup();
         let mut metadata_component_ids = Vec::new();
         for raw_id in proposed_component_ids {
-            let id = xmtp_mls_common::app_data::component_id::ComponentId::from(raw_id);
+            let id = xmtp_mls_group_state::app_data::component_id::ComponentId::from(raw_id);
             let before = read_from_app_data_dict(id, openmls_group);
             // The post-commit value is wiped on drop: it can be the
             // commit-log signer's private key.
             let after =
-                xmtp_mls_common::app_data::component_source::read_post_commit_component_bytes(
+                xmtp_mls_group_state::app_data::component_source::read_post_commit_component_bytes(
                     id,
                     openmls_group,
                     staged_commit,
@@ -517,7 +517,7 @@ impl ValidatedCommit {
             }
         }
         let permissions_changed = metadata_component_ids.contains(
-            &xmtp_mls_common::app_data::component_id::ComponentId::COMPONENT_REGISTRY.as_u16(),
+            &xmtp_mls_group_state::app_data::component_id::ComponentId::COMPONENT_REGISTRY.as_u16(),
         );
         Ok(Self {
             actor,
@@ -938,7 +938,7 @@ pub fn validate_proposal(
         }
         Proposal::AppDataUpdate(app_data) => {
             use super::app_data::load_component_registry;
-            use xmtp_mls_common::app_data::{
+            use xmtp_mls_group_state::app_data::{
                 component_id::ComponentId, validation::ActorAuthority,
             };
 
@@ -1036,7 +1036,7 @@ mod committed_proposal_outcomes {
         AppDataUpdateOperation, AppDataUpdateProposal, ProposalType,
     };
     use openmls_traits::OpenMlsProvider;
-    use xmtp_mls_common::app_data::component_id::ComponentId;
+    use xmtp_mls_group_state::app_data::component_id::ComponentId;
 
     /// verifies: GMOD-030
     ///

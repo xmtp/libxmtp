@@ -2,7 +2,7 @@
 //! bad envelope never fails the read.
 use super::*;
 use wire::client_envelope::Payload;
-use xmtp_mls_common::{
+use xmtp_mls_group_keys::{
     commit_log::seal_entry,
     group_keys::{GroupKeys, GroupRoot},
 };

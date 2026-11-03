@@ -17,7 +17,7 @@ use xmtp_db::group::ConversationType;
 use xmtp_db::group_message::MsgQueryArgs;
 use xmtp_db::prelude::QueryRefreshState;
 use xmtp_db::refresh_state::EntityKind;
-use xmtp_mls_common::group::GroupMetadataOptions;
+use xmtp_mls_group_state::group::GroupMetadataOptions;
 
 use xmtp_proto::types::GroupId;
 
@@ -68,10 +68,8 @@ async fn ordinary_welcome_rejects_peer_admin_combinator() {
     use openmls_traits::OpenMlsProvider;
     use prost::Message;
     use tls_codec::{Deserialize, Serialize, VLBytes};
-    use xmtp_mls_common::{
-        app_data::component_id::ComponentId,
-        tls_map::{TlsMap, TlsMapDelta},
-    };
+    use xmtp_mls_group_state::app_data::component_id::ComponentId;
+    use xmtp_mls_tls_collections::tls_map::{TlsMap, TlsMapDelta};
     use xmtp_proto::xmtp::mls::message_contents::{
         ComponentMetadata, MetadataPolicy,
         metadata_policy::{AndCondition, Kind, MetadataBasePolicy},
@@ -302,7 +300,10 @@ async fn test_spoofed_inbox_id() {
         store: alix.context.store.clone(),
         mls_storage: alix.context.mls_storage.clone(),
         mutexes: alix.context.mutexes.clone(),
-        mls_commit_lock: alix.context.mls_commit_lock.clone(),
+        hooks: xmtp_mls_core::context::HookState {
+            mls_commit_lock: alix.context.hooks.mls_commit_lock.clone(),
+            message_clock: Default::default(),
+        },
         version_info: alix.context.version_info.clone(),
         server_configuration: alix.context.server_configuration.clone(),
         events: alix.context.events.clone(),
@@ -318,7 +319,6 @@ async fn test_spoofed_inbox_id() {
         cancellation_token: alix.context.cancellation_token.clone(),
         shutdown_complete: alix.context.shutdown_complete.clone(),
         foreground_calls: alix.context.foreground_calls.clone(),
-        message_clock: Default::default(),
         delivery_owner: alix.context.delivery_owner.clone(),
         stream_policy: alix.context.stream_policy.clone(),
         features: alix.context.features.clone(),

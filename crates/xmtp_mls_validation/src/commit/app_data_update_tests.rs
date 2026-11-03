@@ -16,18 +16,20 @@ use prost::Message as _;
 use tls_codec::{Serialize as _, VLBytes};
 
 use xmtp_cryptography::secret::Zeroizing;
-use xmtp_mls_common::app_data::component_id::ComponentId;
-use xmtp_mls_common::app_data::component_permissions::component_permissions;
-use xmtp_mls_common::app_data::component_registry::{ComponentRegistry, new_component_metadata};
-use xmtp_mls_common::app_data::components::metadata_attributes::{
+use xmtp_mls_group_state::app_data::component_id::ComponentId;
+use xmtp_mls_group_state::app_data::component_permissions::component_permissions;
+use xmtp_mls_group_state::app_data::component_registry::{
+    ComponentRegistry, new_component_metadata,
+};
+use xmtp_mls_group_state::app_data::components::metadata_attributes::{
     MAX_APP_DATA_LENGTH, MAX_GROUP_DESCRIPTION_LENGTH, MAX_GROUP_IMAGE_URL_LENGTH,
     MAX_GROUP_NAME_LENGTH,
 };
-use xmtp_mls_common::app_data::validation::ActorAuthority;
-use xmtp_mls_common::group_metadata::DmMembers;
-use xmtp_mls_common::inbox_id::InboxId;
-use xmtp_mls_common::tls_map::{TlsMap, TlsMapDelta, TlsMapMutation};
-use xmtp_mls_common::tls_set::{TlsKeyHash, TlsSet, TlsSetDelta};
+use xmtp_mls_group_state::app_data::validation::ActorAuthority;
+use xmtp_mls_group_state::group_metadata::DmMembers;
+use xmtp_mls_group_state::inbox_id::InboxId;
+use xmtp_mls_tls_collections::tls_map::{TlsMap, TlsMapDelta, TlsMapMutation};
+use xmtp_mls_tls_collections::tls_set::{TlsKeyHash, TlsSet, TlsSetDelta};
 use xmtp_proto::xmtp::mls::message_contents::{
     ComponentType, MetadataPolicy as MetadataPolicyProto,
     metadata_policy::{Kind as MetadataPolicyKind, MetadataBasePolicy},
@@ -426,8 +428,8 @@ fn multi_mutation_delta_all_allowed_returns_ok() {
 // verifies: GMOD-019
 #[xmtp_common::test(unwrap_try = true)]
 fn membership_update_may_not_remove_super_admin() {
-    use xmtp_mls_common::app_data::components::inbox_id_set::SuperAdminListComponent;
-    use xmtp_mls_common::app_data::typed::Component;
+    use xmtp_mls_group_state::app_data::components::inbox_id_set::SuperAdminListComponent;
+    use xmtp_mls_group_state::app_data::typed::Component;
 
     let (super_admin, member) = (fake_inbox(0x42), fake_inbox(0x43));
     let mut super_admins = TlsSet::new();
@@ -459,8 +461,8 @@ fn membership_update_may_not_remove_super_admin() {
 // verifies: PERM-004
 #[xmtp_common::test(unwrap_try = true)]
 fn receiver_rejects_last_super_admin_removal() {
-    use xmtp_mls_common::app_data::components::inbox_id_set::SuperAdminListComponent;
-    use xmtp_mls_common::app_data::typed::Component;
+    use xmtp_mls_group_state::app_data::components::inbox_id_set::SuperAdminListComponent;
+    use xmtp_mls_group_state::app_data::typed::Component;
 
     let only_super_admin = fake_inbox(0x42);
     let mut prior = TlsSet::new();
@@ -486,8 +488,8 @@ fn receiver_rejects_last_super_admin_removal() {
 // verifies: PERM-004
 #[xmtp_common::test(unwrap_try = true)]
 fn receiver_rejects_second_of_two_sequential_super_admin_removals() {
-    use xmtp_mls_common::app_data::components::inbox_id_set::SuperAdminListComponent;
-    use xmtp_mls_common::app_data::typed::Component;
+    use xmtp_mls_group_state::app_data::components::inbox_id_set::SuperAdminListComponent;
+    use xmtp_mls_group_state::app_data::typed::Component;
 
     let first = fake_inbox(0x41);
     let second = fake_inbox(0x42);

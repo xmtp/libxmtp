@@ -105,8 +105,8 @@ use xmtp_db::{
 };
 use xmtp_id::associations::Identifier;
 use xmtp_id::associations::test_utils::add_wallet_signature;
-use xmtp_mls_common::group_metadata::GroupMetadata;
-use xmtp_mls_common::group_mutable_metadata::{MessageDisappearingSettings, MetadataField};
+use xmtp_mls_group_state::group_metadata::GroupMetadata;
+use xmtp_mls_group_state::group_mutable_metadata::{MessageDisappearingSettings, MetadataField};
 use xmtp_proto::xmtp::mls::message_contents::{EncodedContent, PlaintextEnvelope};
 
 #[track_caller]
@@ -542,15 +542,15 @@ async fn test_validate_dm_group() {
     use crate::groups::build_group_config;
     use openmls::prelude::{CredentialWithKey, MlsGroup as OpenMlsGroup};
     use tls_codec::Serialize;
-    use xmtp_mls_common::{
+    use xmtp_mls_group_keys::group_keys::GroupRoot;
+    use xmtp_mls_group_state::{
         app_data::{
             component_id::ComponentId,
             creation::{InitialGroupKind, initial_dictionary},
         },
-        group_keys::GroupRoot,
         inbox_id::InboxId as ComponentInboxId,
-        tls_set::TlsSet,
     };
+    use xmtp_mls_tls_collections::tls_set::TlsSet;
 
     tester!(client);
     let added_by_inbox = hex::encode([0x42; 32]);
@@ -706,7 +706,7 @@ async fn test_validate_dm_group() {
     ));
 
     let third_inbox = hex::encode([0x43; 32]);
-    let initial = xmtp_mls_common::app_data::creation::initial_dictionary(
+    let initial = xmtp_mls_group_state::app_data::creation::initial_dictionary(
         InitialGroupKind::Dm {
             target_inbox_id: &added_by_inbox,
         },
@@ -717,7 +717,7 @@ async fn test_validate_dm_group() {
         &[],
     )?;
     let mut membership_entries =
-        xmtp_mls_common::app_data::migration::decode_group_membership_dict(
+        xmtp_mls_group_state::app_data::migration::decode_group_membership_dict(
             initial
                 .get(&ComponentId::GROUP_MEMBERSHIP.as_u16())
                 .unwrap(),
@@ -740,7 +740,7 @@ async fn test_validate_dm_group() {
         vec![(
             ComponentId::GROUP_MEMBERSHIP,
             Some(
-                xmtp_mls_common::app_data::migration::encode_group_membership_dict(
+                xmtp_mls_group_state::app_data::migration::encode_group_membership_dict(
                     &membership_entries,
                 )?,
             ),

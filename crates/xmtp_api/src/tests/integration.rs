@@ -1,6 +1,6 @@
 //! Real gRPC calls against the local backend and PostgreSQL.
 use super::*;
-use xmtp_mls_common::{
+use xmtp_mls_group_keys::{
     commit_log::{open_entry, seal_entry},
     group_keys::{GroupKeys, GroupRoot},
 };
@@ -127,7 +127,7 @@ async fn backend_round_trip_covers_five_kinds_paging_and_absent_key() {
         commit_sequence_id: 1,
         ..Default::default()
     };
-    xmtp_mls_common::commit_log::sign_entry_author(
+    xmtp_mls_group_keys::commit_log::sign_entry_author(
         &keys,
         &xmtp_cryptography::XmtpInstallationCredential::new(),
         &mut plaintext,

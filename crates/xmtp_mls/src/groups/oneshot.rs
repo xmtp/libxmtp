@@ -12,7 +12,7 @@ use xmtp_db::{
     prelude::{QueryGroup, QueryGroupIntent, QueryReaddStatus},
 };
 use xmtp_id::AsIdRef;
-use xmtp_mls_common::{group::GroupMetadataOptions, group_metadata::GroupMetadata};
+use xmtp_mls_group_state::{group::GroupMetadataOptions, group_metadata::GroupMetadata};
 use xmtp_proto::{
     types::{Cursor, GroupId},
     xmtp::mls::message_contents::{OneshotMessage, oneshot_message},

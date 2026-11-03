@@ -3,7 +3,7 @@ use std::time::Duration;
 use xmtp_common::{NS_IN_HOUR, time::now_ns};
 use xmtp_db::group_message::{GroupMessageKind, MsgQueryArgs};
 use xmtp_db::prelude::*;
-use xmtp_mls_common::{
+use xmtp_mls_group_state::{
     group::GroupMetadataOptions, group_mutable_metadata::MessageDisappearingSettings,
 };
 

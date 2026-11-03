@@ -9,7 +9,7 @@ use crate::api::{self, publish_error::Reason};
 use prost::Message;
 use support::TestServer;
 use tonic::Code;
-use xmtp_mls_common::group_keys::sign_group_message;
+use xmtp_mls_group_keys::group_keys::sign_group_message;
 use xmtp_mls_validation::test_utils::{
     CountingChain, GroupMessageKind, TestChain, expired_key_package_envelope, group_keys,
     identity_envelope, identity_history_with_passkey, inline_welcome_envelope,

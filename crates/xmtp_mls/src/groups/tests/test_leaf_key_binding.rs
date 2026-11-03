@@ -39,7 +39,7 @@ use xmtp_id::associations::{
     test_utils::{WalletTestExt, add_wallet_signature},
     unverified::UnverifiedSignature,
 };
-use xmtp_mls_common::app_data::component_id::ComponentId;
+use xmtp_mls_group_state::app_data::component_id::ComponentId;
 use xmtp_mls_validation::{
     commit::{extract_group_membership, inbox_id_from_credential},
     group_membership::GroupMembership,
@@ -834,11 +834,11 @@ async fn assert_rule_rejection(
 async fn receiver_rejects_misattributed_failed_installation() {
     use prost::Message as _;
     use tls_codec::VLBytes;
-    use xmtp_mls_common::{
+    use xmtp_mls_group_state::{
         app_data::{components::tls_map_components::GroupMembershipComponent, typed::Component},
         inbox_id::InboxId,
-        tls_map::TlsMapDelta,
     };
+    use xmtp_mls_tls_collections::tls_map::TlsMapDelta;
     use xmtp_proto::xmtp::mls::message_contents::{
         GroupMembershipEntry,
         group_membership_entry::{V1, Version},
@@ -919,7 +919,8 @@ async fn receiver_rejects_misattributed_failed_installation() {
 #[xmtp_common::test(unwrap_try = true)]
 async fn dictionary_delete_cannot_hide_a_live_leaf() {
     use tls_codec::VLBytes;
-    use xmtp_mls_common::{inbox_id::InboxId, tls_map::TlsMapDelta};
+    use xmtp_mls_group_state::inbox_id::InboxId;
+    use xmtp_mls_tls_collections::tls_map::TlsMapDelta;
 
     let alix = member().await;
     let bo = member().await;
@@ -976,7 +977,8 @@ async fn misattributed_pending_delta_is_omitted(
     };
     use prost::Message as _;
     use tls_codec::VLBytes;
-    use xmtp_mls_common::{inbox_id::InboxId, tls_map::TlsMapDelta};
+    use xmtp_mls_group_state::inbox_id::InboxId;
+    use xmtp_mls_tls_collections::tls_map::TlsMapDelta;
     use xmtp_proto::xmtp::mls::message_contents::{
         GroupMembershipEntry,
         group_membership_entry::{V1, Version},

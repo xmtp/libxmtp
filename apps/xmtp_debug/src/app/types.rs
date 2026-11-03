@@ -10,7 +10,7 @@ use speedy::{Readable, Writable};
 
 use xmtp_cryptography::XmtpInstallationCredential;
 use xmtp_id::{InboxOwner, associations::builder::SignatureRequest};
-use xmtp_mls_common::group_metadata::DmMembers;
+use xmtp_mls_group_state::group_metadata::DmMembers;
 use xmtp_proto::{types::GroupId, xmtp::identity::MlsCredential};
 
 use crate::{

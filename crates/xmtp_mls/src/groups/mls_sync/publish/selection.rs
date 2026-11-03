@@ -12,12 +12,14 @@ use openmls::group::QueuedProposal;
 use openmls::messages::proposals::AppDataUpdateOperation;
 use tls_codec::{Deserialize, VLBytes};
 use xmtp_id::key_package::VerifiedKeyPackageV2;
-use xmtp_mls_common::app_data::component_source::{ComponentSourceError, read_from_app_data_dict};
-use xmtp_mls_common::app_data::{
+use xmtp_mls_group_state::app_data::component_source::{
+    ComponentSourceError, read_from_app_data_dict,
+};
+use xmtp_mls_group_state::app_data::{
     component_id::ComponentId, components::tls_map_components::GroupMembershipComponent,
     typed::Component,
 };
-use xmtp_mls_common::tls_map::{TlsMapDelta, TlsMapError, TlsMapMutation};
+use xmtp_mls_tls_collections::tls_map::{TlsMapDelta, TlsMapError, TlsMapMutation};
 use xmtp_mls_validation::{
     commit::{CommitRuleError, extract_group_membership_with_failures, membership_entries},
     group_membership::FailedInstallations,
@@ -86,9 +88,9 @@ impl SelectionRequirements {
                     CommitValidationError::Rule(CommitRuleError::GroupMutablePermissions(e))
                 })?;
         let seed =
-            xmtp_mls_common::app_data::component_source::read_group_metadata_from_dict(group)?
+            xmtp_mls_group_state::app_data::component_source::read_group_metadata_from_dict(group)?
                 .ok_or(GroupError::InvalidGroupMembership)?;
-        let mutable = xmtp_mls_common::app_data::component_source::extract_group_mutable_metadata_capability_aware(group)?;
+        let mutable = xmtp_mls_group_state::app_data::component_source::extract_group_mutable_metadata_capability_aware(group)?;
         let member = group
             .member_at(group.own_leaf_index())
             .ok_or(GroupError::InvalidGroupMembership)?;
@@ -246,7 +248,7 @@ impl SelectionRequirements {
             return Ok(false);
         };
         let delta =
-            TlsMapDelta::<xmtp_mls_common::inbox_id::InboxId, VLBytes>::tls_deserialize_exact(
+            TlsMapDelta::<xmtp_mls_group_state::inbox_id::InboxId, VLBytes>::tls_deserialize_exact(
                 payload,
             )?;
         for mutation in &delta.mutations {
@@ -296,7 +298,7 @@ impl SelectionRequirements {
                 continue;
             };
             let delta =
-                TlsMapDelta::<xmtp_mls_common::inbox_id::InboxId, VLBytes>::tls_deserialize_exact(
+                TlsMapDelta::<xmtp_mls_group_state::inbox_id::InboxId, VLBytes>::tls_deserialize_exact(
                     payload,
                 )?;
             if delta.mutations.iter().any(|mutation| {
@@ -404,7 +406,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                 }
             }
             let delta =
-                TlsMapDelta::<xmtp_mls_common::inbox_id::InboxId, VLBytes>::tls_deserialize_exact(
+                TlsMapDelta::<xmtp_mls_group_state::inbox_id::InboxId, VLBytes>::tls_deserialize_exact(
                     &payload,
                 )?;
             for mutation in &delta.mutations {
