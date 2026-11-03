@@ -327,11 +327,22 @@ async fn a_rate_limited_task_whose_hold_is_not_stored_holds_the_restart() {
         rate_limited_rejection(delay),
     )));
     crate::worker::tasks::test_hooks::fail_next_reschedule();
+    let stored_row = || {
+        db.get_tasks()
+            .unwrap()
+            .into_iter()
+            .find(|t| t.data_hash == hash.as_ref())
+            .expect("the task is stored")
+    };
+    let before = stored_row();
     let result =
         run_and_reschedule_task(&TaskWorker::new(alix.context.clone(), MlsTaskHandlers), row).await;
     test_hooks::set_rate_limit_override(None);
     let error = result.expect_err("the write failed");
     assert_eq!(error.restart_delay(), Some(delay));
+    let after = stored_row();
+    assert_eq!(after.attempts, before.attempts);
+    assert_eq!(after.next_attempt_at_ns, before.next_attempt_at_ns);
 }
 
 #[xmtp_common::test(unwrap_try = true)]
