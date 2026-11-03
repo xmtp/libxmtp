@@ -19,15 +19,15 @@ use xmtp_macro::log_event;
 
 use super::{
     Result, StreamKind, SubscribeError,
-    incoming::shared_wires,
+    incoming::stream_api::shared_wires,
     watchdog::{StreamCancel, close_reason},
 };
 use crate::context::XmtpSharedContext;
 use crate::groups::MlsGroup;
 
-pub use super::incoming::shared_wires::ApiClientIdentity;
+pub use super::incoming::stream_api::shared_wires::ApiClientIdentity;
 #[cfg(any(test, feature = "test-utils"))]
-pub use super::incoming::shared_wires::shared_transport_count;
+pub use super::incoming::stream_api::shared_wires::shared_transport_count;
 
 /// Suspend every shared wire and remember the intent for new wires.
 pub async fn suspend_bidi_streams() -> Result<()> {

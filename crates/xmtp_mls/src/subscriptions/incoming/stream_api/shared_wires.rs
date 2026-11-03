@@ -42,7 +42,7 @@ static SHARED_WIRES: LazyLock<Mutex<SharedWires>> = LazyLock::new(|| {
 });
 
 /// Prevent automatic unary receipt from bypassing native stream suspension.
-pub(super) fn bidi_streams_suspended() -> bool {
+pub(in crate::subscriptions::incoming) fn bidi_streams_suspended() -> bool {
     SHARED_WIRES.lock().suspend_requested
 }
 
@@ -74,7 +74,7 @@ where
     shared_transport_within(api, mutate)
 }
 
-pub(super) fn shared_transport_within<C>(
+pub(in crate::subscriptions::incoming) fn shared_transport_within<C>(
     api: C,
     mutate: MutateLimits,
 ) -> Arc<BidiTransport<BackendBinding>>

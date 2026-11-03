@@ -24,8 +24,6 @@ mod bidi_fuzz_tests;
 pub mod barrier;
 pub mod catch_up;
 pub(crate) mod connection_state;
-mod group_set_gate;
-pub(crate) use group_set_gate::GroupSetGate;
 pub mod incoming;
 #[doc(hidden)]
 pub use crate::core::events as internal;

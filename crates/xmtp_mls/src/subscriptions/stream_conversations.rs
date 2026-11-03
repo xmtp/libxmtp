@@ -1,8 +1,8 @@
 //! Live conversation notifications from committed group discovery.
 
 use super::{
-    GroupSetGate, Result,
-    incoming::{IncomingCoordinator, IncomingLease, IncomingScope},
+    Result,
+    incoming::{IncomingCoordinator, IncomingLease, IncomingScope, stream_api::GroupSetGate},
     internal::InternalEvent,
     local_delivery::LocalDeliveryError,
 };

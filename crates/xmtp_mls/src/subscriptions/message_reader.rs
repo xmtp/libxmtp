@@ -125,7 +125,7 @@ impl<C: XmtpSharedContext + 'static> MessageReader<C> {
                         break item;
                     },
                     _ = lease.changed() => {},
-                    _ = xmtp_common::time::sleep(super::recovery::RECOVERY_POLL) => {},
+                    _ = xmtp_common::time::sleep(super::incoming::stream_api::RECOVERY_POLL) => {},
                 }
             }
         };

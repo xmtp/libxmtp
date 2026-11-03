@@ -20,12 +20,9 @@ use xmtp_db::{
 };
 use xmtp_proto::types::{Cursor, GroupId, Topic, TopicCursor, TopicKind};
 
-use super::{
-    GroupSetGate,
-    incoming::{
-        IncomingCoordinator, IncomingError, IncomingProcessing, IncomingReceivePolicy,
-        IncomingScope,
-    },
+use super::incoming::{
+    IncomingCoordinator, IncomingError, IncomingProcessing, IncomingReceivePolicy, IncomingScope,
+    stream_api::GroupSetGate,
 };
 use crate::{
     context::XmtpSharedContext,

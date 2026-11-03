@@ -4,7 +4,7 @@ use xmtp_db::StorageError;
 
 pub use xmtp_db::delivery::DeliveryFilter as LocalDeliveryFilter;
 
-use crate::subscriptions::{policy::StreamPolicy, recovery::RecoveryFailure};
+use crate::subscriptions::{incoming::stream_api::RecoveryFailure, policy::StreamPolicy};
 
 const LEASE_RENEWAL_DIVISOR: u32 = 3;
 

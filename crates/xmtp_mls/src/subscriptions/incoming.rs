@@ -1,9 +1,8 @@
 //! One receiver and processing scheduler for each client context.
 
 mod controller;
-#[cfg(not(target_arch = "wasm32"))]
-pub mod shared_wires;
 mod status;
+pub mod stream_api;
 use super::connection_state::ConnectionStates;
 
 use crate::context::XmtpSharedContext;
@@ -211,7 +210,7 @@ where
 impl<A> SubscriptionFactory for BidiSubscriptionFactory<A>
 where
     A: xmtp_proto::api_client::XmtpMlsBidiStreams
-        + shared_wires::ApiClientIdentity
+        + stream_api::shared_wires::ApiClientIdentity
         + Clone
         + Send
         + Sync
@@ -225,7 +224,7 @@ where
             let mutate = self.mutate.unwrap_or_else(|| {
                 xmtp_api_backend::MutateLimits::from_limits(&self.api.bidi_limits())
             });
-            shared_wires::shared_transport_within(self.api.clone(), mutate)
+            stream_api::shared_wires::shared_transport_within(self.api.clone(), mutate)
         }).clone();
         Box::pin(async move {
             transport
@@ -261,7 +260,7 @@ where
     }
 
     fn is_suspended(&self) -> bool {
-        shared_wires::bidi_streams_suspended()
+        stream_api::shared_wires::bidi_streams_suspended()
     }
 }
 }
@@ -381,12 +380,6 @@ impl IncomingCoordinator {
         self.acquire_with_recovery(scope, false)
     }
 
-    /// Application streams own a finite outage budget. Internal workers and
-    /// bounded sync operations keep their existing lifetime and deadline rules.
-    pub(crate) fn acquire_stream(self: &Arc<Self>, scope: IncomingScope) -> IncomingLease {
-        self.acquire_with_recovery(scope, true)
-    }
-
     fn acquire_with_recovery(
         self: &Arc<Self>,
         scope: IncomingScope,
@@ -438,14 +431,6 @@ impl IncomingLease {
             .get(&self.id)
             .map(|state| state.snapshot.clone())
             .unwrap_or_default()
-    }
-
-    pub(crate) fn check_recovery(&self) -> Result<(), super::recovery::RecoveryFailure> {
-        let mut consumers = self.coordinator.state.consumer_recovery.lock();
-        match consumers.get_mut(&self.id) {
-            Some(state) => state.check(Instant::now()),
-            None => Ok(()),
-        }
     }
 
     /// Publish to this lease alone the failure a fresh recovery budget reports

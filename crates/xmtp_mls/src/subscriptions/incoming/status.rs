@@ -180,16 +180,6 @@ impl IncomingStatus {
         status
     }
 
-    pub(crate) fn cancel(&mut self) {
-        self.connection = IncomingConnection::Closed;
-        self.processing = IncomingProcessing::Cancelled;
-        self.discovery_pending = false;
-        for topic in &mut self.topics {
-            topic.registration = IncomingRegistration::Removed;
-            topic.processing = IncomingProcessing::Cancelled;
-        }
-    }
-
     pub(super) fn without_previous(&self) -> Self {
         let mut status = self.clone();
         status.previous = None;
