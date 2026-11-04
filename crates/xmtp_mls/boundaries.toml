@@ -54,13 +54,6 @@ facade = [
 # Edges that exist today. Each count is exact; lower it when a PR removes
 # references, and delete the waiver when none are left.
 
-[[waivers]]
-from = "engine"
-to = "facade"
-tier = "path"
-count = 6
-reason = "PR 5b (Tasks 12 and 15): engine test helpers outside test suites still build a facade client or name the facade's test utilities."
-
 [naming]
 prefix = "xmtp_mls_"
 exempt = ["xmtp_integration_tests"]

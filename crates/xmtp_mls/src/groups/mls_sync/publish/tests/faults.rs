@@ -45,7 +45,7 @@ pub(super) enum Fault {
 /// an envelope `intercepts` selects takes the next queued fault, one at a time.
 #[derive(Clone)]
 pub(super) struct FaultyApi {
-    inner: crate::utils::TestClient,
+    inner: crate::identity_lifecycle::test_support::PeerApi,
     intercepts: fn(&Payload) -> bool,
     faults: Arc<Mutex<VecDeque<Fault>>>,
     /// Every intercepted request, in the order sent.
