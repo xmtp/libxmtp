@@ -64,6 +64,7 @@ use crate::groups::{
     intents::{QueueIntent, ReaddInstallationsIntentData},
     mls_ext::CommitLogStorer,
 };
+use crate::identity::parse_credential;
 use crate::state_tx::state_write;
 pub use error::*;
 use intents::SendMessageIntentData;
@@ -78,7 +79,7 @@ use openmls::{
     },
     group::MlsGroupCreateConfig,
     messages::proposals::ProposalType,
-    prelude::{Capabilities, MlsGroup as OpenMlsGroup, WireFormatPolicy},
+    prelude::{BasicCredential, Capabilities, Member, MlsGroup as OpenMlsGroup, WireFormatPolicy},
 };
 use prost::Message;
 use std::collections::HashMap;
@@ -457,4 +458,21 @@ pub struct GroupMembershipCapabilities {
     /// Per-inbox, per-installation capability breakdown — one entry per member
     /// inbox, in no particular order.
     pub members: Vec<InboxCapabilities>,
+}
+
+/// A sync group belongs to the own inbox only when that inbox added this
+/// client and every leaf node's credential names it.
+// implements: SYNC-010
+pub fn is_own_sync_group(
+    own_inbox_id: &str,
+    added_by_inbox_id: &str,
+    members: impl IntoIterator<Item = Member>,
+) -> bool {
+    added_by_inbox_id == own_inbox_id
+        && members.into_iter().all(|member| {
+            BasicCredential::try_from(member.credential)
+                .ok()
+                .and_then(|credential| parse_credential(credential.identity()).ok())
+                .is_some_and(|inbox_id| inbox_id == own_inbox_id)
+        })
 }

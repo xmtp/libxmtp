@@ -28,10 +28,6 @@ source = "crates/xmtp_mls/src"
 "worker::device_sync" = "device_sync"
 "worker::notifications" = "notifications"
 
-# Items that move to a different crate than their module.
-[items]
-"worker::device_sync::is_own_sync_group" = "engine"
-
 # The Target crates table: each crate and the crates it may depend on.
 [allowed]
 messages = []
