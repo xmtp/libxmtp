@@ -10,6 +10,11 @@ Rust MLS workspace; platform SDKs live in `sdks/`.
 - Use `.agents/skills/writing-typescript` for TypeScript and JavaScript work.
 - For agent instruction changes, use the [writing-agent-docs](.agents/skills/writing-agent-docs/SKILL.md) skill.
 - Branch from `origin/main`; target `main`.
+- Open every agent-created PR as a draft, even if the initial changes appear complete.
+  Mark it ready in a later step only when the scoped work and local validation are
+  complete and no agent or helper is editing, preparing, or pushing further commits.
+  Keep it draft, or return it to draft, while known implementation or validation
+  work needing commits remains, including work resumed for later review feedback.
 - Spec requirement changes need an approved Ref plan before implementation;
   routine docs, CI, and tooling changes do not. Required plans describe public
   `sdks/*` type changes; update the plan if new surface emerges.
